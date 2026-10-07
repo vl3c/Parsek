@@ -1171,5 +1171,408 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Ordinary end-of-recording spawns (owner ruling 2026-10-07)
+
+        private const string LeafTreeId = "tree-station";
+        private const uint StationRootUid = 4242u;
+
+        /// <summary>
+        /// The route-fed station's own recording (for example the station flown on from the
+        /// Tracking Station): an ordinary leaf of tree tree-station, no ghost chain anywhere,
+        /// ending at <see cref="CaptureUT"/> holding A = 300/400 and B = 50/100.
+        /// </summary>
+        private static Recording CommitStationLeaf(
+            string recordingGuid = StationGuid, uint rootUid = 0u, uint pid = StationPid)
+        {
+            Recording leaf = MakeRecording("station-leaf", pid, recordingGuid, 1000, CaptureUT,
+                TerminalState.Orbiting, null, null, "Station",
+                (StationPartA, 300, 400), (StationPartB, 50, 100));
+            leaf.TreeId = LeafTreeId;
+            if (rootUid != 0u)
+            {
+                leaf.VesselSnapshot.AddValue("root", "0");
+                leaf.VesselSnapshot.GetNodes("PART")[0].AddValue("uid", rootUid.ToString(CultureInfo.InvariantCulture));
+            }
+            var tree = new RecordingTree { Id = LeafTreeId, TreeName = "Station", RootRecordingId = leaf.RecordingId };
+            tree.AddOrReplaceRecording(leaf);
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            return leaf;
+        }
+
+        /// <summary>
+        /// Gives a recording the shape the optimizer trims: one coasting (boring) section over
+        /// its whole span with an orbit matching its terminal orbit, points every
+        /// <paramref name="step"/> seconds, and its last interesting event at
+        /// <paramref name="interestingUT"/>.
+        /// </summary>
+        private static void MakeTrimmable(Recording rec, double interestingUT, double step)
+        {
+            double start = rec.StartUT;
+            double end = rec.EndUT;
+            rec.Points.Clear();
+            for (double t = start; t <= end + 1e-6; t += step)
+                rec.Points.Add(new TrajectoryPoint { ut = t, bodyName = "Kerbin", altitude = 100000 });
+            rec.TrackSections.Clear();
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = start,
+                endUT = end
+            });
+            rec.OrbitSegments.Clear();
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = start,
+                endUT = end,
+                bodyName = "Kerbin",
+                semiMajorAxis = rec.TerminalOrbitSemiMajorAxis
+            });
+            rec.SegmentEvents.Clear();
+            rec.SegmentEvents.Add(new SegmentEvent { ut = interestingUT, type = SegmentEventType.ControllerChange });
+        }
+
+        /// <summary>
+        /// The orbit segment is the tail-trim's terminal-shape witness only; the headless spawn
+        /// materialization cannot propagate an orbit endpoint (FlightGlobals), and the cargo
+        /// adjustment does not read it, so it is dropped once the trim has run.
+        /// </summary>
+        private static void DropOrbitAfterTheTrim(Recording rec)
+        {
+            rec.OrbitSegments.Clear();
+        }
+
+        [Fact]
+        public void OrdinaryLeaf_RouteFed_RefundedDeliveryTakenOut_LaterCrossingLeftToTheLiveRun()
+        {
+            // The station's own recording ends at 1700 holding the 1300 delivery; a rewind to
+            // 1200 refunds it, and the replayed crossing is blocked while the station is a
+            // ghost. The 1800 crossing came after the capture: the snapshot never held it, so
+            // the copy keeps it out of the adjustment and the route delivers it live, once.
+            InstallKerbin();
+            Recording leaf = CommitStationLeaf();
+            RouteStore.AddRoute(StationRoute("route-a"));
+            Ledger.AddAction(DeliveredAction("route-a", "cycle-0", 1100, "LiquidFuel", 100));
+            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
+            Ledger.AddAction(DeliveredAction("route-a", "cycle-2", 1800, "LiquidFuel", 100));
+
+            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+
+            RetiredRouteCargoRow row = Assert.Single(RetiredRouteCargoStore.Rows);
+            Assert.Equal(1300.0, row.UT);
+            RetiredRouteCargoTipTag tag = Assert.Single(row.Tips);
+            Assert.Equal(LeafTreeId, tag.TreeId);
+            Assert.Equal("station-leaf", tag.RecordingId);
+            Assert.Equal(CaptureUT, tag.CaptureUT);
+
+            ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(leaf, 1750.0, "leaf-spawn");
+
+            Assert.NotNull(copy);
+            Assert.Equal(200.0, LiquidFuelOf(copy, StationPartA), 6);
+            Assert.Equal(50.0, LiquidFuelOf(copy, StationPartB), 6);
+            Assert.Equal(300.0, LiquidFuelOf(leaf.VesselSnapshot, StationPartA), 6);
+            Assert.Contains(logLines, l => l.Contains("[ChainTipCargo]")
+                && l.Contains("leaf-spawn")
+                && l.Contains("kind=leaf")
+                && l.Contains("removed=100"));
+        }
+
+        [Fact]
+        public void TrimmedTail_CrossingInTheTrimmedTail_IsTakenOutOnce_TheLiveRerunDeliversIt()
+        {
+            // The optimizer trims the leaf's coasting tail from 1700 to about 1400 and keeps
+            // the snapshot captured at 1700, which holds the 1300 and the 1600 deliveries. After
+            // a rewind to 1200 the station spawns early, at the trimmed end, and the route then
+            // delivers the 1600 crossing again, live: the spawn copy must lack both, or the
+            // 1600 cargo arrives twice.
+            InstallKerbin();
+            Recording leaf = CommitStationLeaf();
+            MakeTrimmable(leaf, interestingUT: 1400.0, step: 25.0);
+            RecordingStore.AddRecordingWithTreeForTesting(leaf);
+            RouteStore.AddRoute(StationRoute("route-a"));
+            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
+            Ledger.AddAction(DeliveredAction("route-a", "cycle-2", 1600, "LiquidFuel", 100));
+
+            RecordingStore.RunOptimizationPass();
+            Assert.True(leaf.EndUT < 1450.0, "the tail was not trimmed: endUT=" + leaf.EndUT.ToString("R", CultureInfo.InvariantCulture));
+            double spawnUT = leaf.EndUT;
+            DropOrbitAfterTheTrim(leaf);
+
+            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+
+            Assert.Equal(new[] { 1300.0, 1600.0 }, RetiredRouteCargoStore.Rows.Select(r => r.UT).OrderBy(u => u).ToArray());
+            Assert.All(RetiredRouteCargoStore.Rows, r => Assert.Equal(CaptureUT, Assert.Single(r.Tips).CaptureUT));
+
+            ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(leaf, spawnUT, "trimmed-leaf-spawn");
+
+            Assert.NotNull(copy);
+            Assert.Equal(100.0, LiquidFuelOf(copy, StationPartA), 6);
+
+            // The route performs the 1600 crossing again into the spawned station (paid once,
+            // delivered once). Were the spawn to come after that replay, the copy would keep it.
+            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1600.3, "LiquidFuel", 100));
+            ConfigNode afterReplay = VesselSpawner.BuildValidatedRespawnSnapshot(leaf, 1650.0, "after-replay");
+            Assert.Equal(200.0, LiquidFuelOf(afterReplay, StationPartA), 6);
+        }
+
+        [Fact]
+        public void TrimmedChainTip_CrossingInTheTrimmedTail_IsTakenOut()
+        {
+            // The same capture rule for a chain tip: the station half (1600..1700) is trimmed
+            // to about 1630, and its snapshot (captured at 1700) holds the 1650 delivery.
+            InstallKerbin();
+            Recording tip = CommitDockUndockTree();
+            MakeTrimmable(tip, interestingUT: 1620.0, step: 10.0);
+            RecordingStore.AddRecordingWithTreeForTesting(tip);
+            SeedRouteHistory();
+            Ledger.AddAction(DeliveredAction("route-a", "cycle-3", 1650, "LiquidFuel", 100));
+
+            RecordingStore.RunOptimizationPass();
+            Assert.True(tip.EndUT < 1645.0, "the tail was not trimmed: endUT=" + tip.EndUT.ToString("R", CultureInfo.InvariantCulture));
+            DropOrbitAfterTheTrim(tip);
+
+            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(tip, tip.EndUT, "trimmed-tip-spawn");
+
+            Assert.NotNull(copy);
+            Assert.Equal(100.0, LiquidFuelOf(copy, StationPartA), 6);
+        }
+
+        [Fact]
+        public void OrdinaryLeaf_NotARouteEndpoint_IsLeftAsItIs()
+        {
+            InstallKerbin();
+            Recording other = CommitStationLeaf(pid: 888u);
+            RouteStore.AddRoute(StationRoute("route-a"));
+            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
+
+            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(other, 1750.0, "not-an-endpoint");
+
+            Assert.Empty(RetiredRouteCargoStore.Rows);
+            Assert.NotNull(copy);
+            Assert.Equal(300.0, LiquidFuelOf(copy, StationPartA), 6);
+        }
+
+        [Fact]
+        public void OrdinaryLeaf_SameCraftAnotherLaunch_IsLeftAsItIs()
+        {
+            // Same craft-baked pid, another launch guid: not the endpoint's vessel.
+            InstallKerbin();
+            Recording relaunch = CommitStationLeaf(recordingGuid: OtherGuid);
+            RouteStore.AddRoute(StationRoute("route-a"));
+            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
+
+            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(relaunch, 1750.0, "other-launch");
+
+            Assert.Empty(RetiredRouteCargoStore.Rows);
+            Assert.Equal(300.0, LiquidFuelOf(copy, StationPartA), 6);
+        }
+
+        [Fact]
+        public void OrdinaryLeaf_OnlyABarePidInCommon_IsLeftAsItIs()
+        {
+            // Neither side knows a launch guid and no root part flightID is known: a bare pid
+            // is never the identity of an ordinary leaf.
+            InstallKerbin();
+            Recording leaf = CommitStationLeaf(recordingGuid: null);
+            RouteStore.AddRoute(StationRoute("route-a", guid: null));
+            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
+
+            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(leaf, 1750.0, "bare-pid");
+
+            Assert.Empty(RetiredRouteCargoStore.Rows);
+            Assert.Equal(300.0, LiquidFuelOf(copy, StationPartA), 6);
+        }
+
+        [Fact]
+        public void OrdinaryLeaf_RootPartFlightId_IdentifiesTheEndpoint_WhenTheGuidIsUnknown()
+        {
+            InstallKerbin();
+            Recording leaf = CommitStationLeaf(recordingGuid: null, rootUid: StationRootUid);
+            Route route = StationRoute("route-a", guid: null);
+            route.Stops[0].Endpoint.RootPartUId = StationRootUid;
+            RouteStore.AddRoute(route);
+            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
+
+            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(leaf, 1750.0, "root-part");
+
+            RetiredRouteCargoRow row = Assert.Single(RetiredRouteCargoStore.Rows);
+            Assert.Equal(StationRootUid, row.EndpointRootPartUId);
+            Assert.Equal(200.0, LiquidFuelOf(copy, StationPartA), 6);
+        }
+
+        [Fact]
+        public void OrdinaryLeaf_CrossingTheCurrentTimelinePerformedAgain_IsLeftInTheCopy()
+        {
+            InstallKerbin();
+            Recording leaf = CommitStationLeaf();
+            RouteStore.AddRoute(StationRoute("route-a"));
+            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
+            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            Ledger.AddAction(DeliveredAction("route-a", "cycle-5", 1301.0, "LiquidFuel", 100));
+
+            ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(leaf, 1750.0, "leaf-replayed");
+
+            Assert.NotNull(copy);
+            Assert.Equal(300.0, LiquidFuelOf(copy, StationPartA), 6);
+        }
+
+        [Fact]
+        public void OrdinaryLeaf_SecondRewind_ReplayFromTheLaterTimeline_IsNotTakenOutTwice()
+        {
+            InstallKerbin();
+            Recording leaf = CommitStationLeaf();
+            RouteStore.AddRoute(StationRoute("route-a"));
+            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
+            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            Ledger.AddAction(DeliveredAction("route-a", "cycle-4", 1300.4, "LiquidFuel", 100));
+
+            Ledger.RetireFutureRouteActionsAtRewind(1250.0, out _);
+            ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(leaf, 1750.0, "leaf-second-rewind");
+
+            Assert.NotNull(copy);
+            Assert.Equal(200.0, LiquidFuelOf(copy, StationPartA), 6);
+        }
+
+        [Fact]
+        public void ChainTipThatIsAlsoTheEndpointsOwnVessel_IsTaggedAndAdjustedOnce()
+        {
+            // The station half is both the chain tip and a final leaf whose own vessel is the
+            // route stop: one tag, one adjustment, one log line.
+            InstallKerbin();
+            Recording tip = CommitDockUndockTree();
+            SeedRouteHistory();
+            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+
+            ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(tip, 1750.0, "tip-once");
+
+            AssertOnlyTheTipsDeliveryStashed();
+            Assert.Equal(200.0, LiquidFuelOf(copy, StationPartA), 6);
+            Assert.Single(logLines, l => l.Contains("[ChainTipCargo]") && l.Contains("tip-once")
+                && l.Contains("removed=100"));
+            Assert.Contains(logLines, l => l.Contains("tip-once") && l.Contains("kind=chain-tip"));
+        }
+
+        [Theory]
+        [InlineData(777u, StationGuid, 0u, 777u, StationGuid, 0u, true)]          // guid known and equal
+        [InlineData(777u, "5A7E1100-2B3C-4D5E-8F90-A1B2C3D4E5F6", 0u, 777u, StationGuid, 0u, true)] // normalized
+        [InlineData(777u, StationGuid, 9u, 777u, OtherGuid, 9u, false)]           // guids differ: another launch
+        [InlineData(777u, null, 9u, 777u, StationGuid, 9u, true)]                 // guid unknown, root part equal
+        [InlineData(777u, StationGuid, 9u, 777u, null, 9u, true)]
+        [InlineData(777u, null, 9u, 777u, null, 8u, false)]                      // root parts differ
+        [InlineData(777u, null, 0u, 777u, null, 9u, false)]                      // bare pid
+        [InlineData(777u, null, 9u, 777u, StationGuid, 0u, false)]               // no common evidence
+        [InlineData(888u, StationGuid, 9u, 777u, StationGuid, 9u, false)]        // other pid
+        [InlineData(0u, StationGuid, 9u, 0u, StationGuid, 9u, false)]            // no pid
+        public void IsPositiveEndpointMatch_NeverABarePid(
+            uint endpointPid, string endpointGuid, uint endpointRoot,
+            uint vesselPid, string vesselGuid, uint vesselRoot, bool expected)
+        {
+            var vessel = new CargoVesselIdentity { Pid = vesselPid, LaunchGuid = vesselGuid, RootPartUId = vesselRoot };
+            Assert.Equal(expected,
+                ChainTipRouteCargo.IsPositiveEndpointMatch(endpointPid, endpointGuid, endpointRoot, vessel));
+        }
+
+        [Fact]
+        public void LeafRowAddressing_UsesThePositiveRule_TheChainTipKeepsItsOwn()
+        {
+            RetiredRouteCargoRow unknownGuid = Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100,
+                endpointGuid: null);
+            var leaf = new ChainTipCargoIdentity { IsChainTip = false };
+            leaf.PositiveVessels.Add(new CargoVesselIdentity { Pid = StationPid, LaunchGuid = StationGuid });
+
+            Assert.False(ChainTipRouteCargo.RowAddressesTip(unknownGuid, leaf));
+            Assert.True(ChainTipRouteCargo.RowAddressesTip(unknownGuid, StationTip()));
+            Assert.True(ChainTipRouteCargo.RowAddressesTip(
+                Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100), leaf));
+        }
+
+        [Fact]
+        public void SnapshotCaptureRegistry_KeepsTheLatestCapture_AndRoundTripsWithTheRootPart()
+        {
+            tempDir = Path.Combine(Path.GetTempPath(), "parsek-endspawncargo-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            string path = Path.Combine(tempDir, "ledger.pgld");
+
+            Assert.True(RetiredRouteCargoStore.NoteSnapshotCapture(LeafTreeId, "station-leaf", "fp-1", 1700.0));
+            Assert.True(RetiredRouteCargoStore.NoteSnapshotCapture(LeafTreeId, "station-leaf", "fp-1", 1650.0));
+            Assert.False(RetiredRouteCargoStore.NoteSnapshotCapture(LeafTreeId, "station-leaf", null, 1650.0));
+            Assert.Equal(1700.0, RetiredRouteCargoStore.CaptureUTOf(LeafTreeId, "fp-1"));
+            Assert.True(double.IsNaN(RetiredRouteCargoStore.CaptureUTOf(LeafTreeId, "fp-2")));
+            RetiredRouteCargoRow row = Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100);
+            row.EndpointRootPartUId = StationRootUid;
+            RetiredRouteCargoStore.Merge(new[] { row }, out _);
+
+            Assert.True(Ledger.SaveToFile(path));
+            RetiredRouteCargoStore.ResetForTesting();
+            Assert.True(Ledger.LoadFromFile(path));
+
+            Assert.Equal(1700.0, RetiredRouteCargoStore.CaptureUTOf(LeafTreeId, "fp-1"));
+            Assert.Single(RetiredRouteCargoStore.Captures);
+            Assert.Equal(StationRootUid, Assert.Single(RetiredRouteCargoStore.Rows).EndpointRootPartUId);
+            Assert.True(RetiredRouteCargoStore.HasCaptureAfter(LeafTreeId, 1699.0));
+            Assert.False(RetiredRouteCargoStore.HasCaptureAfter(LeafTreeId, 1700.0));
+        }
+
+        [Fact]
+        public void BuildRow_TakesTheEndpointRootPart()
+        {
+            Route route = StationRoute("route-a");
+            route.Stops[0].Endpoint.RootPartUId = StationRootUid;
+
+            RetiredRouteCargoRow row = RetiredRouteCargoStore.BuildRow(
+                DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100), CutoffUT, route);
+
+            Assert.Equal(StationRootUid, row.EndpointRootPartUId);
+        }
+
+        /// <summary>
+        /// Every production call that materializes a vessel from a ConfigNode, pinned per file:
+        /// a new spawn path must take its copy through <c>ChainTipRouteCargo.ApplyToSpawnCopy</c>
+        /// (the shared hook) or be a restore of a vessel that was live a moment ago.
+        /// ChainTipStaleVessel (1): restores a removed pre-claim vessel. ParsekKSC (2): the
+        /// Space Center end spawn, from its adjusted working copy. VesselGhoster (3): the
+        /// chain tip's adjusted copy (2) and the restore after a failed despawn (1).
+        /// VesselSpawner (2): the flight / Tracking Station / deferred-queue end spawn and
+        /// RespawnValidatedRecording, both from BuildValidatedRespawnSnapshot(Recording).
+        /// </summary>
+        [Fact]
+        public void EveryVesselMaterializer_IsAKnownSpawnCopyOrRestoreSite()
+        {
+            string root = FindRepoRoot();
+            string sourceDir = Path.Combine(root, "Source", "Parsek");
+            var expected = new Dictionary<string, int>(StringComparer.Ordinal)
+            {
+                { "ChainTipStaleVessel.cs", 1 },
+                { "ParsekKSC.cs", 2 },
+                { "VesselGhoster.cs", 3 },
+                { "VesselSpawner.cs", 2 },
+            };
+            var call = new Regex(@"\b(RespawnVessel|SpawnAtPosition)\s*\(");
+            var declaration = new Regex(@"\bstatic\s+uint\s+(RespawnVessel|SpawnAtPosition)\s*\(");
+            var found = new Dictionary<string, int>(StringComparer.Ordinal);
+            string inGameTests = Path.Combine(sourceDir, "InGameTests");
+            foreach (string file in Directory.GetFiles(sourceDir, "*.cs", SearchOption.AllDirectories))
+            {
+                if (file.StartsWith(inGameTests, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                string text = ParsekDialogNamePrefixSourceGateTests.StripComments(
+                    File.ReadAllText(file).Replace("\r\n", "\n"));
+                int count = call.Matches(text).Count - declaration.Matches(text).Count;
+                if (count > 0)
+                    found[Path.GetFileName(file)] = count;
+            }
+
+            Assert.Equal(
+                expected.OrderBy(kv => kv.Key).Select(kv => kv.Key + "=" + kv.Value).ToArray(),
+                found.OrderBy(kv => kv.Key).Select(kv => kv.Key + "=" + kv.Value).ToArray());
+        }
+
+        #endregion
     }
 }

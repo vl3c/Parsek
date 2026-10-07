@@ -24,12 +24,37 @@ namespace Parsek
         internal double UT;
     }
 
-    /// <summary>Who a chain tip's snapshot is: which snapshot, and the vessels whose route cargo it carries.</summary>
+    /// <summary>A vessel named only by a POSITIVE launch identity: pid plus a launch guid or root part flightID that matches.</summary>
+    internal struct CargoVesselIdentity
+    {
+        internal uint Pid;
+        internal string LaunchGuid;
+        internal uint RootPartUId;
+    }
+
+    /// <summary>
+    /// Who an end-of-recording snapshot is (a chain tip's, or an ordinary leaf's): which
+    /// snapshot, and the vessels whose route cargo it carries.
+    /// </summary>
     internal sealed class ChainTipCargoIdentity
     {
+        /// <summary>
+        /// True for a ghost chain tip; false for an ordinary end-of-recording spawn whose own
+        /// recorded vessel is the route endpoint (<see cref="PositiveVessels"/>).
+        /// </summary>
+        internal bool IsChainTip = true;
+        /// <summary>
+        /// Vessels a row must name POSITIVELY (pid plus a matching launch guid or root part
+        /// flightID, never a bare pid): an ordinary leaf's own recorded vessel.
+        /// </summary>
+        internal List<CargoVesselIdentity> PositiveVessels = new List<CargoVesselIdentity>();
         internal string TipRecordingId;
         internal string TipTreeId;
-        /// <summary>The tip recording's end now (a tag keeps the capture time it was tagged with).</summary>
+        /// <summary>
+        /// When the snapshot was captured: the recording's end, or its end before a tail trim
+        /// (<see cref="ChainTipRouteCargo.SnapshotCaptureUT"/>); a tag keeps the capture time it
+        /// was tagged with.
+        /// </summary>
         internal double CaptureUT;
         /// <summary><see cref="ChainTipRouteCargo.SnapshotFingerprint(ConfigNode)"/> of the tip's stored snapshot; null without one.</summary>
         internal string Fingerprint;
@@ -103,6 +128,22 @@ namespace Parsek
     /// the counters behind cycle ids are rebuilt from the kept rows at every rewind, and a
     /// blocked crossing writes no dispatch row, so a replay can carry another id.</para>
     ///
+    /// <para><b>Every end-of-recording spawn (owner ruling 2026-10-07,
+    /// END-SPAWN-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO).</b> The same holds for an ordinary leaf
+    /// whose own recorded vessel is the route endpoint (the route-fed vessel's own recording):
+    /// its commit-time snapshot holds the crossings made while it recorded. Such a leaf is
+    /// tagged and adjusted the same way, its vessel named positively (pid plus a matching
+    /// launch guid or root part flightID, never a bare pid, <see cref="IsPositiveEndpointMatch"/>).
+    /// One identity per spawn (<see cref="BuildSpawnIdentity"/>): a chain tip is never also
+    /// taken as a leaf.</para>
+    ///
+    /// <para><b>Trimmed tails.</b> The optimizer's tail trim moves a recording's end and spawn
+    /// earlier and keeps the snapshot captured at the old end, so the crossings of the trimmed
+    /// tail are in the snapshot and are replayed live after the early spawn. The trim notes
+    /// the old end (<see cref="NoteTrimmedSnapshotCapture"/>), and the capture UT of a tag is
+    /// that moment (<see cref="SnapshotCaptureUT"/>): those crossings are taken out of the
+    /// spawn copy and the live replay delivers them, each paid once.</para>
+    ///
     /// <para>Inventory (stored parts) is not adjusted: delivery rows carry no inventory
     /// manifest, and a pickup's stored parts are not put back.</para>
     /// </summary>
@@ -124,22 +165,69 @@ namespace Parsek
         /// </summary>
         internal static bool RowAddressesTip(RetiredRouteCargoRow row, ChainTipCargoIdentity tip)
         {
-            if (row == null || tip == null || tip.Vessels == null)
+            if (row == null || tip == null)
                 return false;
-            for (int i = 0; i < tip.Vessels.Count; i++)
+            if (tip.Vessels != null)
             {
-                uint pid = tip.Vessels[i].Key;
-                if (pid == 0u)
-                    continue;
-                bool pidMatch = row.EndpointPid == pid
-                    || (row.ActualVesselPid != 0u && row.ActualVesselPid == pid);
-                if (!pidMatch)
-                    continue;
-                if (VesselLaunchIdentity.GuidsConclusivelyDiffer(row.EndpointGuid, tip.Vessels[i].Value))
-                    continue;
-                return true;
+                for (int i = 0; i < tip.Vessels.Count; i++)
+                {
+                    uint pid = tip.Vessels[i].Key;
+                    if (pid == 0u)
+                        continue;
+                    bool pidMatch = row.EndpointPid == pid
+                        || (row.ActualVesselPid != 0u && row.ActualVesselPid == pid);
+                    if (!pidMatch)
+                        continue;
+                    if (VesselLaunchIdentity.GuidsConclusivelyDiffer(row.EndpointGuid, tip.Vessels[i].Value))
+                        continue;
+                    return true;
+                }
+            }
+            if (tip.PositiveVessels != null)
+            {
+                for (int i = 0; i < tip.PositiveVessels.Count; i++)
+                {
+                    if (IsPositiveEndpointMatch(
+                            row.EndpointPid, row.EndpointGuid, row.EndpointRootPartUId, tip.PositiveVessels[i]))
+                        return true;
+                }
             }
             return false;
+        }
+
+        /// <summary>
+        /// Pure: is the route endpoint POSITIVELY <paramref name="vessel"/>? The pids are equal
+        /// and nonzero, and then the launch guids decide when both are known (equal: yes,
+        /// different: another launch of the same craft); otherwise both root part flightIDs
+        /// must be known and equal. A bare pid match is never enough: a persistentId is baked
+        /// into the craft file and reused on every launch of it (the non-degrading sibling of
+        /// the <see cref="VesselLaunchIdentity"/> rule, for a site whose behaviour before was to
+        /// leave the vessel alone).
+        /// </summary>
+        internal static bool IsPositiveEndpointMatch(
+            uint endpointPid, string endpointGuid, uint endpointRootPartUId, CargoVesselIdentity vessel)
+        {
+            if (endpointPid == 0u || vessel.Pid == 0u || endpointPid != vessel.Pid)
+                return false;
+            string endpoint = VesselLaunchIdentity.NormalizeGuid(endpointGuid);
+            string own = VesselLaunchIdentity.NormalizeGuid(vessel.LaunchGuid);
+            if (endpoint != null && own != null)
+                return string.Equals(endpoint, own, StringComparison.OrdinalIgnoreCase);
+            return endpointRootPartUId != 0u && vessel.RootPartUId != 0u
+                && endpointRootPartUId == vessel.RootPartUId;
+        }
+
+        /// <summary>
+        /// When a recording's end snapshot was captured: the recording's end, or the end it had
+        /// before the optimizer trimmed its tail when that was noted
+        /// (<see cref="RetiredRouteCargoStore.CaptureUTOf"/>), whichever is later. The trim moves
+        /// the end (and so the spawn) earlier and keeps the snapshot, so the crossings of the
+        /// trimmed tail are in the snapshot and are replayed live after the early spawn.
+        /// </summary>
+        internal static double SnapshotCaptureUT(double recordingEndUT, string treeId, string fingerprint)
+        {
+            double noted = RetiredRouteCargoStore.CaptureUTOf(treeId, fingerprint);
+            return !double.IsNaN(noted) && noted > recordingEndUT ? noted : recordingEndUT;
         }
 
         /// <summary>
@@ -561,12 +649,14 @@ namespace Parsek
                     tip = later;
             }
 
+            string fingerprint = SnapshotFingerprint(tip.VesselSnapshot);
             var id = new ChainTipCargoIdentity
             {
+                IsChainTip = true,
                 TipRecordingId = tip.RecordingId,
                 TipTreeId = !string.IsNullOrEmpty(tipChains[0].TipTreeId) ? tipChains[0].TipTreeId : tip.TreeId,
-                CaptureUT = tip.EndUT,
-                Fingerprint = SnapshotFingerprint(tip.VesselSnapshot),
+                CaptureUT = SnapshotCaptureUT(tip.EndUT, tip.TreeId, fingerprint),
+                Fingerprint = fingerprint,
                 ChainId = string.IsNullOrEmpty(tip.ChainId) ? null : tip.ChainId
             };
             id.AcceptedRecordingIds.Add(tip.RecordingId);
@@ -651,26 +741,261 @@ namespace Parsek
                     continue;
                 Recording tip = FindRecording(trees, chain.TipTreeId, chain.TipRecordingId);
                 if (tip == null
-                    || LatestChainEndUT(tip, FindTree(trees, tip.TreeId)) <= onlyCapturedAfterUT)
+                    || !MayBeCapturedAfter(LatestChainEndUT(tip, FindTree(trees, tip.TreeId)), tip.TreeId, onlyCapturedAfterUT))
                     continue;
-                if (tip.VesselSnapshot == null)
-                {
-                    try
-                    {
-                        RecordingStore.TryHydrateVesselSnapshotFromSidecar(tip);
-                    }
-                    catch (Exception ex)
-                    {
-                        ParsekLog.Verbose(Tag,
-                            "Tip snapshot re-hydrate threw " + ex.GetType().Name + " for rec="
-                            + tip.RecordingId + " - its retired cargo is not kept");
-                    }
-                }
+                HydrateSnapshot(tip);
                 ChainTipCargoIdentity id = BuildTipIdentity(tip, chains, trees);
-                if (id != null)
+                if (id != null && id.CaptureUT > onlyCapturedAfterUT)
                     tips.Add(id);
             }
             return tips;
+        }
+
+        /// <summary>
+        /// Cheap pre-check before a snapshot is read: a recording that ends at or before the
+        /// cutoff can still hold a snapshot captured after it when the optimizer trimmed its
+        /// tail, which a noted capture of its tree says.
+        /// </summary>
+        private static bool MayBeCapturedAfter(double recordingEndUT, string treeId, double cutoffUT)
+        {
+            return recordingEndUT > cutoffUT || RetiredRouteCargoStore.HasCaptureAfter(treeId, cutoffUT);
+        }
+
+        private static void HydrateSnapshot(Recording rec)
+        {
+            if (rec == null || rec.VesselSnapshot != null)
+                return;
+            try
+            {
+                RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    "Snapshot re-hydrate threw " + ex.GetType().Name + " for rec="
+                    + rec.RecordingId + " - its retired cargo is not kept");
+            }
+        }
+
+        /// <summary>
+        /// The cargo identity of an ORDINARY end-of-recording spawn (not a ghost chain tip):
+        /// the snapshot <paramref name="rec"/> spawns its vessel from (its own, or the later
+        /// segment of its optimizer chain a split moved it to), and its own recorded vessel
+        /// named POSITIVELY: pid plus the recorded launch guid and the snapshot's root part
+        /// flightID (<see cref="IsPositiveEndpointMatch"/>). Null without a snapshot, without a
+        /// pid, or with neither a launch guid nor a root part flightID: a bare pid never names
+        /// an ordinary leaf's vessel. The whole vessel is the endpoint, so there are no "own
+        /// parts first".
+        /// </summary>
+        internal static ChainTipCargoIdentity BuildLeafIdentity(Recording rec, IList<RecordingTree> trees)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return null;
+            RecordingTree tree = FindTree(trees, rec.TreeId);
+            Recording holder = rec;
+            if (holder.VesselSnapshot == null)
+            {
+                Recording later = LatestChainSegmentWithSnapshot(rec, tree);
+                if (later != null)
+                    holder = later;
+            }
+            if (holder.VesselSnapshot == null || holder.VesselPersistentId == 0u)
+                return null;
+
+            VesselSnapshotOps.TryReadRootPartFlightId(holder.VesselSnapshot, out uint rootPartUId);
+            string guid = VesselLaunchIdentity.NormalizeGuid(holder.RecordedVesselGuid);
+            if (guid == null && rootPartUId == 0u)
+                return null;
+
+            string fingerprint = SnapshotFingerprint(holder.VesselSnapshot);
+            var id = new ChainTipCargoIdentity
+            {
+                IsChainTip = false,
+                TipRecordingId = holder.RecordingId,
+                TipTreeId = holder.TreeId,
+                CaptureUT = SnapshotCaptureUT(holder.EndUT, holder.TreeId, fingerprint),
+                Fingerprint = fingerprint,
+                ChainId = string.IsNullOrEmpty(holder.ChainId) ? null : holder.ChainId
+            };
+            id.AcceptedRecordingIds.Add(holder.RecordingId);
+            if (tree != null && tree.Recordings != null)
+            {
+                id.TreeRecordingIds = new HashSet<string>(tree.Recordings.Keys, StringComparer.Ordinal);
+                List<Recording> earlier = EarlierChainSegments(holder, tree);
+                for (int i = 0; i < earlier.Count; i++)
+                    id.AcceptedRecordingIds.Add(earlier[i].RecordingId);
+            }
+            id.PositiveVessels.Add(new CargoVesselIdentity
+            {
+                Pid = holder.VesselPersistentId,
+                LaunchGuid = guid,
+                RootPartUId = rootPartUId
+            });
+            return id;
+        }
+
+        /// <summary>
+        /// The cargo identity of the snapshot a spawn of <paramref name="rec"/> materializes:
+        /// the chain tip's when it is the tip of a live ghost chain (its own vessel is already
+        /// one of the tip's vessels), else the ordinary leaf's. Exactly one per spawn, so a
+        /// recording that is both is adjusted once.
+        /// </summary>
+        internal static ChainTipCargoIdentity BuildSpawnIdentity(
+            Recording rec, Dictionary<uint, GhostChain> chains, IList<RecordingTree> trees)
+        {
+            return BuildTipIdentity(rec, chains, trees) ?? BuildLeafIdentity(rec, trees);
+        }
+
+        /// <summary>
+        /// The cargo identity of every committed ORDINARY end-of-recording spawn whose own
+        /// vessel is positively one of <paramref name="endpoints"/>: a final spawn segment
+        /// (<see cref="GhostPlaybackLogic.IsFinalSpawnSegment"/>), not debris, with a spawnable
+        /// or no terminal, whose snapshot was captured after <paramref name="onlyCapturedAfterUT"/>
+        /// and is not a chain tip already in <paramref name="chainTipRecordingIds"/>. A leaf
+        /// whose in-memory snapshot was dropped is re-hydrated from its sidecar first.
+        /// </summary>
+        internal static List<ChainTipCargoIdentity> BuildLeafIdentities(
+            IList<RecordingTree> trees, IList<RouteEndpoint> endpoints,
+            ICollection<string> chainTipRecordingIds,
+            double onlyCapturedAfterUT = double.NegativeInfinity)
+        {
+            var leaves = new List<ChainTipCargoIdentity>();
+            if (trees == null || endpoints == null || endpoints.Count == 0)
+                return leaves;
+            var endpointPids = new HashSet<uint>();
+            for (int e = 0; e < endpoints.Count; e++)
+            {
+                if (endpoints[e].VesselPersistentId != 0u)
+                    endpointPids.Add(endpoints[e].VesselPersistentId);
+            }
+            if (endpointPids.Count == 0)
+                return leaves;
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int t = 0; t < trees.Count; t++)
+            {
+                RecordingTree tree = trees[t];
+                if (tree == null || tree.Recordings == null)
+                    continue;
+                var ids = new List<string>(tree.Recordings.Keys);
+                ids.Sort(StringComparer.Ordinal);
+                for (int r = 0; r < ids.Count; r++)
+                {
+                    Recording rec = tree.Recordings[ids[r]];
+                    if (rec == null || rec.VesselPersistentId == 0u || rec.IsDebris
+                        || !endpointPids.Contains(rec.VesselPersistentId))
+                        continue;
+                    if (chainTipRecordingIds != null && chainTipRecordingIds.Contains(rec.RecordingId))
+                        continue;
+                    if (rec.TerminalStateValue.HasValue
+                        && !GhostPlaybackLogic.IsSpawnableTerminal(rec.TerminalStateValue.Value))
+                        continue;
+                    if (!GhostPlaybackLogic.IsFinalSpawnSegment(rec, tree))
+                        continue;
+                    if (!MayBeCapturedAfter(rec.EndUT, rec.TreeId, onlyCapturedAfterUT))
+                        continue;
+                    HydrateSnapshot(rec);
+                    ChainTipCargoIdentity id = BuildLeafIdentity(rec, trees);
+                    if (id == null || id.CaptureUT <= onlyCapturedAfterUT)
+                        continue;
+                    if (chainTipRecordingIds != null && chainTipRecordingIds.Contains(id.TipRecordingId))
+                        continue;
+                    if (!AnyEndpointIsPositively(endpoints, id.PositiveVessels[0]))
+                        continue;
+                    if (seen.Add(id.TipRecordingId))
+                        leaves.Add(id);
+                }
+            }
+            return leaves;
+        }
+
+        private static bool AnyEndpointIsPositively(IList<RouteEndpoint> endpoints, CargoVesselIdentity vessel)
+        {
+            for (int e = 0; e < endpoints.Count; e++)
+            {
+                if (IsPositiveEndpointMatch(
+                        endpoints[e].VesselPersistentId, endpoints[e].LaunchGuid, endpoints[e].RootPartUId, vessel))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>Every vessel endpoint of the routes: each stop, and the origin unless it is the Space Center.</summary>
+        internal static List<RouteEndpoint> CollectRouteEndpoints(params IEnumerable<Route>[] routeSets)
+        {
+            var endpoints = new List<RouteEndpoint>();
+            if (routeSets == null)
+                return endpoints;
+            for (int s = 0; s < routeSets.Length; s++)
+            {
+                if (routeSets[s] == null)
+                    continue;
+                foreach (Route route in routeSets[s])
+                {
+                    if (route == null)
+                        continue;
+                    if (!route.IsKscOrigin && route.Origin.VesselPersistentId != 0u)
+                        endpoints.Add(route.Origin);
+                    if (route.Stops == null)
+                        continue;
+                    for (int i = 0; i < route.Stops.Count; i++)
+                    {
+                        if (route.Stops[i] != null && route.Stops[i].Endpoint.VesselPersistentId != 0u)
+                            endpoints.Add(route.Stops[i].Endpoint);
+                    }
+                }
+            }
+            return endpoints;
+        }
+
+        /// <summary>
+        /// Called by the optimizer pass for every recording whose boring tail it just trimmed,
+        /// with the recording's end before the trim: notes that moment as the real capture of
+        /// the snapshot the recording keeps (<see cref="RetiredRouteCargoStore.NoteSnapshotCapture"/>),
+        /// so a retire tags, and a spawn copy takes out, the crossings of the trimmed tail too.
+        /// Only while some supply route exists: a route made later delivers after the capture.
+        /// Never throws.
+        /// </summary>
+        internal static void NoteTrimmedSnapshotCapture(Recording rec, double captureUT)
+        {
+            if (rec == null || double.IsNaN(captureUT) || double.IsInfinity(captureUT))
+                return;
+            try
+            {
+                int routes = RouteStore.CommittedRoutes.Count + RouteStore.DormantRoutes.Count;
+                if (routes == 0)
+                {
+                    ParsekLog.Verbose(Tag,
+                        "Trimmed snapshot capture not noted: rec=" + (rec.RecordingId ?? "(null)")
+                        + " captureUT=" + captureUT.ToString("R", IC) + " - no supply route");
+                    return;
+                }
+                HydrateSnapshot(rec);
+                if (rec.VesselSnapshot == null || string.IsNullOrEmpty(rec.TreeId))
+                {
+                    ParsekLog.Verbose(Tag,
+                        "Trimmed snapshot capture not noted: rec=" + (rec.RecordingId ?? "(null)")
+                        + " tree=" + (rec.TreeId ?? "(null)") + " hasSnapshot=" + (rec.VesselSnapshot != null)
+                        + " - nothing to name");
+                    return;
+                }
+                string fingerprint = SnapshotFingerprint(rec.VesselSnapshot);
+                bool noted = RetiredRouteCargoStore.NoteSnapshotCapture(
+                    rec.TreeId, rec.RecordingId, fingerprint, captureUT);
+                ParsekLog.Verbose(Tag,
+                    "Trimmed snapshot capture " + (noted ? "noted" : "not noted") + ": rec=" + rec.RecordingId
+                    + " tree=" + rec.TreeId + " fingerprint=" + fingerprint
+                    + " captureUT=" + captureUT.ToString("R", IC)
+                    + " trimmedEndUT=" + rec.EndUT.ToString("R", IC)
+                    + " captures=" + RetiredRouteCargoStore.Captures.Count.ToString(IC));
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    "Trimmed snapshot capture threw " + ex.GetType().Name + ": " + ex.Message
+                    + " - rec=" + (rec.RecordingId ?? "(null)")
+                    + " keeps its trimmed end as the capture");
+            }
         }
 
         /// <summary>The earlier segments of <paramref name="rec"/>'s optimizer chain in its tree (same chain id and branch, lower index).</summary>
@@ -848,8 +1173,20 @@ namespace Parsek
                     candidates.Add(row);
                 }
 
-                List<ChainTipCargoIdentity> tips =
+                List<ChainTipCargoIdentity> chainTips =
                     BuildTipIdentities(GhostChainWalker.ComputeAllGhostChains(trees, 0.0), trees, cutoffUT);
+                var chainTipIds = new HashSet<string>(StringComparer.Ordinal);
+                for (int t = 0; t < chainTips.Count; t++)
+                {
+                    if (!string.IsNullOrEmpty(chainTips[t].TipRecordingId))
+                        chainTipIds.Add(chainTips[t].TipRecordingId);
+                }
+                // Ordinary end spawns whose own vessel is a route endpoint; a recording that is
+                // already a chain tip keeps its one chain identity.
+                List<ChainTipCargoIdentity> leaves = BuildLeafIdentities(
+                    trees, CollectRouteEndpoints(committedRoutes, dormantRoutes), chainTipIds, cutoffUT);
+                var tips = new List<ChainTipCargoIdentity>(chainTips);
+                tips.AddRange(leaves);
                 List<RetiredRouteCargoRow> tagged = TagForChainTips(candidates, tips,
                     tip => RetiredRouteCargoStore.WatermarkOf(tag => TagMatchesTip(tag, tip)));
                 int added = RetiredRouteCargoStore.Merge(tagged, out int merged);
@@ -867,7 +1204,7 @@ namespace Parsek
                     lowered++;
                 }
 
-                string line = "Retired route cargo kept for chain tips (" + siteLabel + "): cutoffUT="
+                string line = "Retired route cargo kept for end-of-recording snapshots (" + siteLabel + "): cutoffUT="
                     + cutoffUT.ToString("R", IC)
                     + " retiredRows=" + retiredCount.ToString(IC)
                     + " cargoRows=" + cargoRows.ToString(IC)
@@ -876,11 +1213,13 @@ namespace Parsek
                     + " carriedByNoSnapshot=" + (candidates.Count - tagged.Count).ToString(IC)
                     + " noResource=" + noResource.ToString(IC)
                     + " routeNotFound=" + noRoute.ToString(IC)
-                    + " chainTips=" + tips.Count.ToString(IC)
+                    + " chainTips=" + chainTips.Count.ToString(IC)
+                    + " leaves=" + leaves.Count.ToString(IC)
                     + " watermarksLowered=" + lowered.ToString(IC)
                     + " tipsWithoutSnapshot=" + noSnapshot.ToString(IC)
                     + " totalRows=" + RetiredRouteCargoStore.Rows.Count.ToString(IC)
-                    + " totalWatermarks=" + RetiredRouteCargoStore.Watermarks.Count.ToString(IC);
+                    + " totalWatermarks=" + RetiredRouteCargoStore.Watermarks.Count.ToString(IC)
+                    + " notedCaptures=" + RetiredRouteCargoStore.Captures.Count.ToString(IC);
                 if (tagged.Count > 0)
                     ParsekLog.Info(Tag, line);
                 else
@@ -891,7 +1230,7 @@ namespace Parsek
             {
                 ParsekLog.Warn(Tag,
                     "Retired route cargo capture (" + siteLabel + ") threw " + ex.GetType().Name
-                    + ": " + ex.Message + " - nothing kept, a chain tip spawned later carries the refunded cargo");
+                    + ": " + ex.Message + " - nothing kept, a snapshot spawned later carries the refunded cargo");
                 return 0;
             }
         }
@@ -908,11 +1247,16 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Takes the stashed retired route cargo out of a chain tip's spawn copy. Every site
-        /// that turns a recording's stored snapshot into a spawn copy calls it on the copy
-        /// (never on the stored snapshot), so each spawn attempt starts again from the
-        /// recorded state. A recording that is not a chain tip, or whose snapshot no stashed
-        /// crossing names, is left as it is. Never throws.
+        /// Takes the stashed retired route cargo out of an end-of-recording spawn copy: a chain
+        /// tip's, or an ordinary leaf's whose own vessel is the route endpoint
+        /// (<see cref="BuildSpawnIdentity"/>, one identity per spawn). Every site that turns a
+        /// recording's stored snapshot into a spawn copy calls it on the copy (never on the
+        /// stored snapshot), so each spawn attempt starts again from the recorded state: the
+        /// shared <c>VesselSpawner.BuildValidatedRespawnSnapshot(Recording, ...)</c> (flight
+        /// leaf, Tracking Station hand-off, deferred spawn queue, Real Spawn Control's warp, the
+        /// chain-tip fallbacks), <c>VesselGhoster.SpawnChainTipWithResolvedState</c> and the
+        /// Space Center end spawn's working copy. A recording whose snapshot no stashed crossing
+        /// names is left as it is. Never throws.
         /// </summary>
         internal static void ApplyToSpawnCopy(ConfigNode spawnCopy, Recording rec, string site)
         {
@@ -936,14 +1280,16 @@ namespace Parsek
             {
                 List<RecordingTree> trees = RecordingStore.CommittedTrees;
                 Dictionary<uint, GhostChain> chains = GhostChainWalker.ComputeAllGhostChains(trees, 0.0);
-                ChainTipCargoIdentity tip = BuildTipIdentity(rec, chains, trees);
+                ChainTipCargoIdentity tip = BuildSpawnIdentity(rec, chains, trees);
                 if (tip == null)
                 {
                     ParsekLog.Verbose(Tag,
                         "Spawn copy kept as recorded (" + siteLabel + "): rec=" + (rec.RecordingId ?? "(null)")
-                        + " is not the tip of a live ghost chain");
+                        + " is not the tip of a live ghost chain and names its vessel by no launch guid"
+                        + " or root part (or has no snapshot)");
                     return;
                 }
+                string kind = tip.IsChainTip ? "chain-tip" : "leaf";
 
                 List<ReplayedCrossing> replayed = CollectReplayedCrossings();
                 var resourceNodes = new List<ConfigNode>();
@@ -969,18 +1315,22 @@ namespace Parsek
                 if (adj.RowsApplied == 0)
                 {
                     ParsekLog.Verbose(Tag,
-                        "Spawn copy kept as recorded (" + siteLabel + "): chain tip rec=" + tip.TipRecordingId
+                        "Spawn copy kept as recorded (" + siteLabel + "): kind=" + kind
+                        + " rec=" + tip.TipRecordingId
                         + " tree=" + (tip.TipTreeId ?? "(null)")
                         + " fingerprint=" + (tip.Fingerprint ?? "(none)")
+                        + " captureUT=" + tip.CaptureUT.ToString("R", IC)
                         + " - no retired route crossing in this snapshot" + skipped);
                     return;
                 }
 
                 ParsekLog.Info(Tag,
-                    "Retired route cargo taken out of the chain tip spawn copy (" + siteLabel + "): rec="
+                    "Retired route cargo taken out of the end-of-recording spawn copy (" + siteLabel + "): kind="
+                    + kind + " rec="
                     + tip.TipRecordingId + " vessel=\"" + (rec.VesselName ?? "(null)") + "\""
                     + " tree=" + (tip.TipTreeId ?? "(null)")
                     + " fingerprint=" + (tip.Fingerprint ?? "(none)")
+                    + " captureUT=" + tip.CaptureUT.ToString("R", IC)
                     + " rows=" + adj.RowsApplied.ToString(IC)
                     + " tanksChanged=" + tanksChanged.ToString(IC)
                     + " ownParts=" + (tip.EndpointPartIds != null ? tip.EndpointPartIds.Count : 0).ToString(IC)
