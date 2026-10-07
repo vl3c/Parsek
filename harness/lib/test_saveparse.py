@@ -905,6 +905,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # assignments (harness/tools/build_coalescer_pad.py), so it carries the same
         # ParsekScenario node gs1 does.
         "coalescer-pad": True,
+        # career-gs1-two-stage-pad is fresh-career with gs1-two-stage-pad's craft, crew
+        # row and inert ParsekScenario node spliced in by career-pad-craft's recipe
+        # (harness/tools/build_career_gs1_two_stage_pad.py), so it carries gs1's node.
+        "career-gs1-two-stage-pad": True,
         "gs2-orbital-stack": True,
         # The FORGE-logi-pad harvest: the purpose-built `Logi Cargo Rig` PRELAUNCH on
         # the pad, the fixture H38-logistics-isolated flies. True like every other

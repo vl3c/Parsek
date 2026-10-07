@@ -694,6 +694,26 @@ and drift-gated by `harness/tools/build_career_pad_craft_zero_funds.py` (`--chec
 `harness/lib/test_career_pad_craft_zero_funds.py`; no `AddOns` copy (seam-only lane). Host of
 `ZF-1-zero-funds-career`.
 
+## career-gs1-two-stage-pad (GAME Mode = CAREER, 1 VESSEL, derived from fresh-career + gs1-two-stage-pad)
+
+`career-pad-craft`'s recipe with a different donor: `harness/tools/build_career_gs1_two_stage_pad.py`
+runs `build_career_pad_craft.build` over `fresh-career`'s save with `gs1-two-stage-pad` as the
+donor and `Valentina Kerman` as the crew. Three edits against `fresh-career`: its empty
+`FLIGHTSTATE` replaced by the donor's minus the `Ast. VPA-167` asteroid (`activeVessel` 1 -> 0),
+Valentina's roster row replaced by the donor's `Assigned` one, and the donor's inert
+`ParsekScenario` node copied in (the FLIGHT focus route needs it, CL-1 flight 1); plus the
+loadmeta restamp (vessel count, UT). The `GS1 Auto-Chute Booster` VESSEL node (pid
+2200110033: mk1pod.v2 + chute + TD-12 over an OKTO2 probe booster with six radial chutes) is the
+donor's byte for byte, so `gs1_auto_chute_booster` and QL-4's parameters transfer; a persisted
+vessel loads regardless of the career's tech unlocks and the lane never launches from the
+editor. Every career surface is `fresh-career`'s: 500000 / 100 / 0, facilities at level 0 (a
+landed Kerbin EVA is still allowed), and an EMPTY ProgressTracking tree, which is the hosted
+lane's premise: the first EVA on Kerbin's surface pays the SurfaceEVA milestone. `AddOns/` is
+the base's; the donor's `Ships/` is not copied. Built and drift-gated by the builder
+(`--check`) and `harness/lib/test_career_gs1_two_stage_pad.py` (byte-identity with a fresh
+build, the vessel against the donor's, the empty progress tree). Host of
+`QL-2b-quickload-booster-career-reward-not-paid`.
+
 ## fresh-science (GAME Mode = SCIENCE_SANDBOX)
 
 Science pool only: `ResearchAndDevelopment sci = 100`, no Funding / Reputation /

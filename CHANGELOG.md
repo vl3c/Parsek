@@ -6257,6 +6257,18 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Automated testing: the whole F9 check in one lane (QL-2b new) on a career twin of the GS-1
+  pad.** `QL-2b-quickload-booster-career-reward-not-paid` (nightly, never flown) flies QL-4's
+  in-flight shape in a career: the two-stage hop, a quicksave with the booster still under its
+  parachutes, half a minute on, then the pilot climbs out onto Kerbin's surface (the first EVA
+  there, which stock pays as a milestone, booked to the flight when it is merged in flight), and
+  the quicksave is loaded. It requires the abandoned EVA branch to be pruned, the milestone's
+  tagged events purged and its ledger row retired as after-cutoff, and the booster recorded again
+  down to Landed; it forbids the milestone being credited, counted, re-marked or re-booked after
+  the load, any funds uplift, and the EVA kerbal reaching the final commit. Its host,
+  `career-gs1-two-stage-pad`, is `fresh-career` with the GS-1 craft spliced in by
+  `career-pad-craft`'s recipe (`harness/tools/build_career_gs1_two_stage_pad.py`, byte-identity
+  checked by `harness/lib/test_career_gs1_two_stage_pad.py`). No product change; nothing flown.
 - **Automated testing: the F9 checks automated (QL-2 new, QL-3 and QL-4b extended) and the
   rewind fixtures production-shaped.** `QL-2-quickload-career-recovery-not-paid` (nightly,
   never flown) is the career half of "a reward earned after the F5 is not paid": the Jumping
