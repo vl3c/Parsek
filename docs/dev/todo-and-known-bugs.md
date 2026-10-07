@@ -16,6 +16,28 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## QUICKLOAD-UNTAGGED-RECOVERY-MILESTONE-SURVIVES-F9: a milestone stock awards at a recovery after the quicksave is untagged, so the F9 keeps its reward [FILED 2026-10-07 from lane QL-2's first full flight, branch `ql-lanes`, measured. OPEN, product]
+
+`QL-2-quickload-career-recovery-not-paid` `2026-10-07_2344` (career-pad-craft, the Jumping Flea
+hopped, quicksaved on the ground at UT ~352.2, recovered through stock's button, the quicksave then
+loaded from the Space Center) reads PARSEK-FAIL on one forbidden token: after the reconcile
+(`ledgerRowsRetired=5 (afterCutoff=4 kerbalAssignment=1)`, the tagged recovery payout correctly
+retired) the recalc walks still credit `FirstCrewToSurvive` (+800 funds) and
+`KspStatePatcher.PatchFunds` logs `GUARDED UPLIFT clamped resource=Funds running=531200
+live=530400` on every walk. Cause: stock completes `FirstCrewToSurvive` during the recovery, 4 s
+after the quicksave and at UT ~353.9 (past the 352.48 cutoff), and Parsek records it untagged
+(`Emit: MilestoneAchieved key='FirstCrewToSurvive' tag=''`); the policy keeps untagged rows on a
+quickload (`LoadReconcilePolicy.DecideUntaggedLedgerRows`: "a quickload keeps untagged KSC rows
+(QL-R2, designed)"), so the abandoned future's milestone reward stays in the ledger while KSP's
+funds came back from the quicksave without it. The player-visible effect is a ledger that claims
+800 more funds than the game holds (the guard holds the live value, so no funds are paid twice).
+Fix: not decided. Either tag a milestone completed by a recovery to the recovered recording (so the
+reconcile retires it with the payout), or let the in-flight F9 reconcile retire untagged
+milestone rows past the cutoff whose event was emitted inside a recovery of a trimmed recording.
+QL-2 stays red until then.
+
+---
+
 ## REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START: S4.2 and S4.4 need the re-fly recorder live (or not yet) while the provisional is still empty, a window of a few frames [FILED 2026-10-07 from the F9 verification flights, branch `ql-lanes`, measured. OPEN, harness]
 
 Two lanes gate on an UNFLOWN Re-Fly provisional, and both race the re-fly recorder's start, which
@@ -108,7 +130,7 @@ settle to a wait on a named condition.
 
 ---
 
-## ~~REWIND-CREW-LOSS-FIXTURE-RP-HAS-NO-BRANCH-POINT: the injected rewind corpora's rewind points (`rewind-crew-loss`, `rewind-b9`, `refly-world-preservation`, `rewind-readback`) are not linked to their trees, so in-session RP ownership reads them as the save's~~ [FILED 2026-10-07 from the QL-3 reading run (crew-loss), widened 2026-10-07 from QL-5's `2026-10-07_2035` (`rp_b9_root:FollowSave:kept-loaded`), branch `f9-verify`. FIXED 2026-10-07, branch `ql-lanes` (xUnit; live proof owed: the re-flights listed below)]
+## ~~REWIND-CREW-LOSS-FIXTURE-RP-HAS-NO-BRANCH-POINT: the injected rewind corpora's rewind points (`rewind-crew-loss`, `rewind-b9`, `refly-world-preservation`, `rewind-readback`) are not linked to their trees, so in-session RP ownership reads them as the save's~~ [FILED 2026-10-07 from the QL-3 reading run (crew-loss), widened 2026-10-07 from QL-5's `2026-10-07_2035` (`rp_b9_root:FollowSave:kept-loaded`), branch `f9-verify`. FIXED 2026-10-07, branch `ql-lanes`. LIVE-PROVEN 2026-10-07 on the corpus re-flights: QL-3 `2026-10-07_2225` (`rp_cl_root:CommittedOwner:dropped-save-only`, rewindPoints 0), R7c `_2233`, RF-12L `_2234`, S4.1 `_2239`, S4.3 `_2343`, CL-3 `_2244`, CL-4 `_2245`, RF-16 `_2246`, RF-17 `_2247`, S1.5 `_2248`, RB-1 `_2249`, RB-2 `_2256`, R1 `_2326` PASS attempt 1; S4.2 / S4.4 red on the separate recorder-start race (REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START)]
 
 Every injected rewind corpus (`RewindCrewLossFixture`, `RewindB9Fixture`,
 `ReFlyWorldPreservationFixture`, `RewindReadbackFixture`) built its point (`rp_cl_root`,

@@ -6259,7 +6259,7 @@ _(unreleased - entries accumulate here per commit)_
 
 - **Automated testing: the F9 checks automated (QL-2 new, QL-3 and QL-4b extended) and the
   rewind fixtures production-shaped.** `QL-2-quickload-career-recovery-not-paid` (nightly,
-  never flown) is the career half of "a reward earned after the F5 is not paid": the Jumping
+  flown red 2026-10-07 by a product finding, see below) is the career half of "a reward earned after the F5 is not paid": the Jumping
   Flea hops in `career-pad-craft`, quicksaves on the ground, is recovered through stock's button
   (funds, recovery science and crew XP booked to the flight), and the quicksave is loaded from
   the Space Center. It requires the abandoned-future reconcile to retire the payout as
