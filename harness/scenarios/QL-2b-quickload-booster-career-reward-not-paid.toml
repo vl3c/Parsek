@@ -47,7 +47,10 @@ id = "QL-2b-quickload-booster-career-reward-not-paid"
 #      cutoff) and the emptied EVA branch point.
 #   4. The resume reconcile (ParsekScenario.TrimAndReconcileForQuickloadResume) purges the
 #      pod recording's tagged events after the cutoff (GameStateStore
-#      .PurgeEventsForRecordingAfterUT: the MilestoneAchieved and FundsChanged events) and
+#      .PurgeEventsForRecordingAfterUT). By then the MilestoneAchieved event lives only in the
+#      commit's milestone (MilestoneStore.CreateMilestone took it, and the commit's
+#      PruneProcessedEvents dropped it and the FundsChanged event from the live list; the F9
+#      does not reload events.pgse), so the purge reads `live=0, milestone=1`, and
 #      retires the MilestoneAchievement row as `afterCutoff` (Ledger
 #      .RetireAbandonedFutureActions), with the pruned children's rows and the cleared
 #      recordings' kerbal-assignment summaries.
@@ -443,7 +446,7 @@ required = [
   "\\[Scenario\\] Quickload abandoned-future reconcile: tree='GS1 Auto-Chute Booster' (?=.*\\bkind=QuickloadFlight\\b)(?=.*\\bscope=TreeWide\\b)(?=.*\\bpruned=[1-9][0-9]*\\b)(?=.*\\bendStatesCleared=[1-9][0-9]*\\b)(?=.*\\beventsPurged=[1-9][0-9]*\\b)(?=.*\\bledgerRowsRetired=[1-9][0-9]* \\(afterCutoff=[1-9][0-9]* )(?=.*\\bskippedCommitted=0\\b)",
   # GameStateStore.PurgeEventsForRecordingAfterUT (the pod's events after the cutoff) or,
   # if a split re-tagged them, PurgeEventsForRecordings (a pruned recording's).
-  "PurgeEventsForRecording(?:AfterUT \\(quickload-abandoned-future\\): rec=[0-9a-f]{32} cutoffUT=\\S+ live=[1-9]|s \\(quickload-abandoned-future\\): live=[1-9])",
+  "PurgeEventsForRecording(?:AfterUT \\(quickload-abandoned-future\\): rec=[0-9a-f]{32} cutoffUT=\\S+ live=(?:[1-9][0-9]*, milestone=[0-9]+|0, milestone=[1-9])|s \\(quickload-abandoned-future\\): live=[1-9])",
   "RetireAbandonedFutureActions: removed [1-9][0-9]* action\\(s\\) reason=quickload-abandoned-future total=[0-9]+",
   # The booster's leaked SubOrbital is the ending cleared (QL-4's per-recording line).
   "Quickload abandoned-future end state cleared: rec=[0-9a-f]{32} previousTerminal=SubOrbital preTrimEndUT=\\S+",
