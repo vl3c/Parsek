@@ -31,6 +31,12 @@ namespace Parsek
         internal const string UiTag = "RewindUI";
         internal const string SessionTag = "ReFlySession";
 
+        /// <summary>The three button labels. The <c>ReFlyRevert</c> seam verb finds the
+        /// button it presses by these.</summary>
+        internal const string RetryButtonText = "Retry from Rewind Point";
+        internal const string DiscardButtonText = "Discard Re-Fly";
+        internal const string ContinueButtonText = "Continue Flying";
+
         /// <summary>
         /// Test seam: set to a non-null action in unit tests to observe that
         /// <see cref="Show"/> was invoked without trying to spawn a real
@@ -163,7 +169,7 @@ namespace Parsek
             // Button handlers. Each releases the input lock + clears the
             // visible flag before dispatching, so a callback that spawns its
             // own popup does not fight the lock.
-            DialogGUIButton retryButton = new DialogGUIButton("Retry from Rewind Point", () =>
+            DialogGUIButton retryButton = new DialogGUIButton(RetryButtonText, () =>
             {
                 DialogVisible = false;
                 ClearLock();
@@ -180,7 +186,7 @@ namespace Parsek
                 }
             });
 
-            DialogGUIButton discardButton = new DialogGUIButton("Discard Re-Fly", () =>
+            DialogGUIButton discardButton = new DialogGUIButton(DiscardButtonText, () =>
             {
                 DialogVisible = false;
                 ClearLock();
@@ -197,7 +203,7 @@ namespace Parsek
                 }
             });
 
-            DialogGUIButton cancelButton = new DialogGUIButton("Continue Flying", () =>
+            DialogGUIButton cancelButton = new DialogGUIButton(ContinueButtonText, () =>
             {
                 DialogVisible = false;
                 ClearLock();

@@ -6306,6 +6306,19 @@ _(unreleased - entries accumulate here per commit)_
   node names the two staging methods touch (each must have a category), and where OnLoad
   classifies relative to named steps (after `DetectSaveFolderChange`, before the staging load;
   refined after `RevertDetector.Consume`, before the quickload discard and the revert prune).
+- **Automated testing: a seam verb presses Esc, Revert and the Re-Fly revert dialog, and a lane
+  checks that Discard Re-fly keeps the Unfinished Flight (QL-5).** New M-A2 verb `ReFlyRevert
+  choice=discard|retry|cancel target=launch|prelaunch` (47 implemented): during a live Re-Fly it
+  opens the stock pause menu, presses Revert Flight and the stock Revert to Launch (or Revert to
+  VAB / SPH) option, whose `FlightDriver` call Parsek's revert interceptor blocks, then presses the
+  chosen button of Parsek's dialog, and answers once the outcome settled; after Discard its
+  completion line reads back whether the session's rewind point is still there and whether the
+  STASH group still lists the re-flown slot. `QL-5-discard-refly-keeps-unfinished-flight`
+  (nightly, never flown) re-flies the crashed booster of the B9 split and discards through the
+  Esc menu, gating the `DiscardReFly` load classification with the in-session handoff, memory's
+  cleared marker, the origin rewind point kept and the booster still listed. There is no editor
+  variant: a Re-Fly is a resumed flight, for which stock never offers Revert to VAB / SPH. The
+  dialog's three button labels became named constants; no behaviour change.
 - **Automated testing: the F9 lanes flown, and specs fixed for faster seam polls.** QL-3, QL-4,
   QL-4b and QL-4c flew green on main with the in-session load fixes, alongside the in-game
   QuickloadResume and Rewind categories (H65, RF-6, R7a) and the re-fly regression lanes. Since
