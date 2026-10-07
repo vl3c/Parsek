@@ -738,11 +738,12 @@ namespace Parsek
         /// block's 100 px single; the hover explains it.</summary>
         internal const string UpdatePartsButtonLabel = "Update parts";
 
-        /// <summary>The Update parts hover: what the press counts, and that it takes the
-        /// docked vessel whole (a visitor docked at that moment would be counted too).</summary>
+        /// <summary>The Update parts hover: what the press counts, that an endpoint docked into
+        /// a bigger craft is refused (it keeps its own parts), and that any other docked ship is
+        /// taken with the station (so undock visitors first).</summary>
         internal const string UpdatePartsTooltip =
-            "Counts every part now docked to the origin and to each stop as that endpoint's own, "
-            + "so modules added since the route was made get cargo. Undock visiting ships first.";
+            "Counts every part now docked to the origin and each stop as its own, so later modules "
+            + "get cargo; a stop docked into a bigger station keeps its own parts. Undock visiting ships first.";
 
         /// <summary>Why Update parts is greyed while a run is under way.</summary>
         internal const string UpdatePartsInFlightReason =
@@ -755,7 +756,9 @@ namespace Parsek
         /// arrival pending delivery, or a multi-stop loop cycle that has fired some of its
         /// stops but not all (each stop keeps the cycle it last fired; they agree between
         /// cycles). The self-timer's cycle-start stamp is not read: a delivery never clears
-        /// it. A single-stop loop run fires in one tick and is never under way here.
+        /// it. A single-stop loop run fires in one tick and is never under way here, and a
+        /// paused loop route's half-fired cycle is never finished (Activate resets every
+        /// stop's cursor), so it is not under way either.
         /// </summary>
         internal static bool IsRunInFlight(Route route)
         {
@@ -763,7 +766,7 @@ namespace Parsek
                 return false;
             if (route.Status == RouteStatus.InTransit || route.PendingDeliveryUT.HasValue)
                 return true;
-            if (route.Stops == null || route.Stops.Count < 2)
+            if (route.Status == RouteStatus.Paused || route.Stops == null || route.Stops.Count < 2)
                 return false;
             bool any = false;
             long lowest = long.MaxValue;

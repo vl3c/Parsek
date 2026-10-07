@@ -29,9 +29,13 @@ _(unreleased - entries accumulate here per commit)_
   received no cargo and the station read as full sooner. Expand the route in the Logistics
   window and press `Update parts`: everything docked to the origin and to each stop at that
   moment then counts as that station's or depot's own, and a ship that docks afterwards still
-  gets nothing. Undock visiting ships before you press it, or their tanks count too. The button
-  is greyed while a run is still being delivered, and its hover shows when you last pressed
-  it. It is in both Basic and Advanced. Covered by xUnit; not yet checked in a test flight.
+  gets nothing. Only the main craft of a docked group takes the group in (the one KSP made the
+  vessel's root when they docked): a stop docked into a bigger station, such as a lander parked
+  at a station, keeps its own parts, so its cargo never goes into the station. Another stop of
+  the same route and the route's own transport are never taken in. Undock visiting ships
+  before you press it, or their tanks count too. The button is greyed while a run is still
+  being delivered, and its hover shows when you last pressed it. It is in both Basic and
+  Advanced. Covered by xUnit; not yet checked in a test flight.
 
 - **Parsek now tells you on screen when it starts up broken.** Two problems used to reach
   only `KSP.log`. If any of Parsek's game patches fails to load (usually another mod or a
@@ -6142,13 +6146,22 @@ _(unreleased - entries accumulate here per commit)_
   `RouteEndpointPartAdoption.AdoptCurrentParts(route)` resolves the route's origin and every
   stop and stores each resolved vessel's current part flightIDs on the route
   (`Route.AdoptedEndpointParts`, a sparse `ADOPTED_ENDPOINT_PARTS` node in the ROUTE save; a
-  route without one is byte-identical). `RouteEndpointPartScope` reads that set before the
+  route without one is byte-identical). What a press may take is the pure
+  `RouteEndpointPartAdoption.DecideCapture`: an undocked vessel whole; on a docked composite only
+  when the endpoint's own piece (its root plus its adopted, else recorded, parts, as the scope
+  reads them) holds the composite's root part, else refused `guest-in-larger-composite` with the
+  endpoint's earlier set kept; and then without the pieces another endpoint of the route owns or
+  that hold the route's transport root (`CollectTransportRootFlightIds`: the source recordings'
+  snapshot roots and the start-docked proof's transport root, minus endpoint roots), never
+  dropping the endpoint's own pieces. `RouteEndpointPartScope` reads the adopted set before the
   recorded sets, for the endpoint binding it was taken against (root part flightID, else vessel
   pid gated by launch guid), so the later module is included and a craft docked after the
-  adoption still is not. One `Endpoint part adoption:` Info line per press gives the part count
-  per endpoint. The button is greyed while `LogisticsRoutePresentation.IsRunInFlight` (a
-  self-timer run in transit or pending delivery, or a multi-stop loop cycle part-way through
-  its stops).
+  adoption still is not. One `Endpoint part adoption:` Info line per press gives each endpoint's
+  part count, `excluded=` pieces or `refused=` reason. The button is greyed while
+  `LogisticsRoutePresentation.IsRunInFlight` (a self-timer run in transit or pending delivery,
+  or a multi-stop loop cycle part-way through its stops, unless the route is Paused: Activate
+  resets the stop cursors); its source gate pins that the click runs only under the
+  eligibility read (it went red under `bool live = true;`).
 - **Lane fixes from the release verification flights.** CI-3 and CI-4 now expect no SubOrbital
   recording: since the Re-Fly chain-head fix (#2015) the optimizer's first chain segment keeps
   no ending of its own, where earlier runs gave it SubOrbital. L5 and L3 accept 2 or 3

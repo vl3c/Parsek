@@ -1789,12 +1789,26 @@ button is drawn only for an EndpointLost surface route, so the owner chose a but
 `Update parts`, the detail block's third Interact single in both modes (Link moves to the
 fourth in Advanced), greyed with its reason while a run is under way
 (`LogisticsRoutePresentation.IsRunInFlight`), outcome in the `Endpoint part adoption:` Info line
-and the hover's `Last updated on <date>.`. Tests: `RouteEndpointPartAdoptionTests`, the
-`AdoptedSet_*` / `OwnPartSets_*` cells in `RouteEndpointPartScopeTests`,
-`LogisticsUpdatePartsPresentationTests` (red against stubs first), the slot-order and source
-cells in `LogisticsRoutePresentationTests` / `TableRowInsetAlignmentTests`, and the hover
-budget in `TooltipEchoBudgetTests`. Live proof would ride lane IR-9 (a station with a module
-docked after the route was made, then Update parts).
+and the hover's `Last updated on <date>.`. PR #2043 review fix: a press first widened an
+endpoint docked INTO a larger station to the whole station (a lander stop's scope went from 3
+own parts to 7, so its cargo would fill the host). Now `RouteEndpointPartAdoption.DecideCapture`
+adopts a docked composite only when the endpoint's own piece holds the composite's root part,
+else refuses `guest-in-larger-composite` and keeps the endpoint's earlier set; from an allowed
+composite it leaves out the pieces another endpoint of the route owns and the pieces holding
+the route's transport root. Known limits: the refusal is structural, so a station whose new
+module DOMINATED the dock (heavier, same or higher vessel type) is refused too and stays on its
+recorded set, and a station a visitor dominates is refused until the visitor undocks.
+`IsRunInFlight` no longer greys a Paused multi-stop loop route; it still greys a multi-stop
+route right after an Advanced cadence change on a windowed (re-aim) basis until that cycle's
+later stops pass (the rebase snaps each stop's cursor to its own dock phase, which reads like a
+half-fired cycle; telling the two apart needs the cycle's dispatch row from the ledger). Tests:
+`RouteEndpointPartAdoptionTests`, the `AdoptedSet_*` / `OwnPartSets_*` / `Capture_*` cells in
+`RouteEndpointPartScopeTests`, `LogisticsUpdatePartsPresentationTests` (red against stubs
+first), the slot-order and source cells in `LogisticsRoutePresentationTests` /
+`TableRowInsetAlignmentTests` (the source cell went red under `bool live = true;` and an
+unguarded click), and the hover budget in `TooltipEchoBudgetTests`. Live proof would ride lane
+IR-9 (a station with a module docked after the route was made, then Update parts; a lander stop
+parked at a station, then Update parts).
 
 ---
 

@@ -1054,14 +1054,16 @@ name field leads the block without taking a slot and Rename greys with its reaso
 (`RouteEndpointPartAdoption.AdoptCurrentParts`): from then on, everything docked to the origin
 and to each stop at the press counts as that endpoint's own, so a module docked to a station
 after the route was made gets cargo (the endpoint part scope otherwise admits only the parts the
-route recorded; `parsek-logistics-supply-routes-design.md` section 7.1). Hover: `Counts every
-part now docked to the origin and to each stop as that endpoint's own, so modules added since
-the route was made get cargo. Undock visiting ships first.`, plus `Last updated on <date>.` once
-the route has been updated (from the ~1 Hz legibility cache). It greys, with `A run is under
-way; update parts after it has delivered` on hover, while a run's cargo is still to be written
-(`LogisticsRoutePresentation.IsRunInFlight`: a self-timer run in transit or pending delivery,
-or a multi-stop loop cycle that has fired some stops but not all); every status is otherwise
-live. A press posts no screen message and draws no outcome line: its outcome is the
+route recorded; `parsek-logistics-supply-routes-design.md` section 7.1). Only an endpoint that
+holds its docked group's root takes the group in; one docked into a bigger station is refused
+and keeps its parts, and another stop of the route and the route's transport are never taken.
+Hover: `Counts every part now docked to the origin and each stop as its own, so later modules
+get cargo; a stop docked into a bigger station keeps its own parts. Undock visiting ships
+first.`, plus `Last updated on <date>.` once the route has been updated (from the ~1 Hz
+legibility cache). It greys, with `A run is under way; update parts after it has delivered` on
+hover, while a run's cargo is still to be written (`LogisticsRoutePresentation.IsRunInFlight`:
+a self-timer run in transit or pending delivery, or a multi-stop loop cycle that has fired some
+stops but not all, unless the route is Paused); every status is otherwise live. A press posts no screen message and draws no outcome line: its outcome is the
 `Endpoint part adoption:` Info line with the per-endpoint part counts, and the hover's date.
 It shows in Basic because it changes which parts take cargo, not when a route runs (4.6 of
 `design-ui-basic-advanced.md`).

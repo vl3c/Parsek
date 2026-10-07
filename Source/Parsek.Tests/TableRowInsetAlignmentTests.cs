@@ -747,9 +747,26 @@ namespace Parsek.Tests
                 "LogisticsWindowUI.DrawDetailSlotButton: Update parts needs its own slot case.");
             string update = slotButton.Substring(updateCase, afterUpdate - updateCase);
             Assert.DoesNotContain("drawTuning", update);
-            Assert.Contains("LogisticsRoutePresentation.UpdatePartsDisabledReason(route)", update);
-            Assert.Contains("DisabledHoverEcho.CarryLastControl(", update);
-            Assert.Contains("RouteEndpointPartAdoption.AdoptCurrentParts(route)", update);
+            // The eligibility read flows into BOTH the greyed state and the click: the reason
+            // decides live, live greys the button and carries the reason, and the action runs
+            // only on a live click (PR #2043 review: `bool live = true;` survived the old
+            // presence-only checks). Whitespace-tolerant so CRLF / LF checkouts agree.
+            Match reasonDecl = Regex.Match(update,
+                @"string\s+reason\s*=\s*LogisticsRoutePresentation\.UpdatePartsDisabledReason\(\s*route\s*\)\s*;");
+            Match liveDecl = Regex.Match(update,
+                @"bool\s+live\s*=\s*string\.IsNullOrEmpty\(\s*reason\s*\)\s*;");
+            Match greys = Regex.Match(update, @"GUI\.enabled\s*=\s*live\s*;");
+            Match carries = Regex.Match(update,
+                @"DisabledHoverEcho\.CarryLastControl\(\s*live\s*,\s*reason\s*\)");
+            Match guard = Regex.Match(update, @"if\s*\(\s*clicked\s*&&\s*live\s*\)\s*\{");
+            int adopt = update.IndexOf("RouteEndpointPartAdoption.AdoptCurrentParts(route)", StringComparison.Ordinal);
+            Assert.True(reasonDecl.Success && liveDecl.Success && greys.Success && carries.Success && guard.Success,
+                "LogisticsWindowUI.DrawDetailSlotButton (Update parts): live must be string.IsNullOrEmpty(reason) of "
+                + "UpdatePartsDisabledReason(route), grey the button, carry the reason, and guard the click.");
+            Assert.True(reasonDecl.Index < liveDecl.Index && liveDecl.Index < greys.Index
+                    && greys.Index < guard.Index && guard.Index < adopt,
+                "LogisticsWindowUI.DrawDetailSlotButton (Update parts): the action must run inside the live-click guard.");
+            Assert.Single(Regex.Matches(update, @"\bAdoptCurrentParts\(").Cast<Match>());
             Assert.Contains("lastLegibilityComputeRealtime = -1f", update);
             Assert.DoesNotContain("DrawRouteDetailButtonRow", prepared);
             // Every route-detail line shape ends in the slot cell; a shape that skipped it

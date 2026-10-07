@@ -43,7 +43,7 @@ namespace Parsek.Tests.Logistics
         // Fixture builder: parts are added in vessel order, parents by flightID.
         // ------------------------------------------------------------------
 
-        private sealed class Craft
+        internal sealed class Craft
         {
             internal readonly List<uint> FlightIds = new List<uint>();
             internal readonly List<uint> Pids = new List<uint>();
@@ -110,7 +110,7 @@ namespace Parsek.Tests.Logistics
             }
         }
 
-        private struct DockNodeSpec
+        internal struct DockNodeSpec
         {
             public uint OnFlightId;
             public uint DockedFlightId;
@@ -198,9 +198,23 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void EndpointDockedIntoLargerStation_OnlyEndpointPartsAreOwn()
         {
-            // Big station T (root 400, tank 401, port 402, another tank 403) dominant;
-            // endpoint lander E (root 300, tank 301, port 302) hangs below T's port.
-            Craft craft = new Craft()
+            Craft craft = LanderInLargerStation();
+
+            bool[] mask = Select(craft, 300u, LanderPids, out Outcome outcome, out int own, out _);
+
+            Assert.Equal(Outcome.Scoped, outcome);
+            Assert.Equal(LanderPids, craft.OwnPids(mask));
+            Assert.Equal(3, own);
+        }
+
+        // Big station T (root 400, tank 401, port 402, another tank 403) dominant;
+        // endpoint lander E (root 300, tank 301, port 302) hangs below T's port.
+        internal static readonly HashSet<uint> LanderPids = new HashSet<uint> { 3001u, 3002u, 3003u };
+        internal static readonly HashSet<uint> HostStationPids = new HashSet<uint> { 4001u, 4002u, 4003u, 4004u };
+
+        internal static Craft LanderInLargerStation()
+        {
+            return new Craft()
                 .Part(400u, 4001u)
                 .Part(401u, 4002u, 400u)
                 .Part(403u, 4004u, 400u)
@@ -210,13 +224,6 @@ namespace Parsek.Tests.Logistics
                 .Part(301u, 3002u, 300u)
                 .Node(402u, 302u, ownRoot: 400u)
                 .Node(302u, 402u, ownRoot: 300u);
-            var landerPids = new HashSet<uint> { 3001u, 3002u, 3003u };
-
-            bool[] mask = Select(craft, 300u, landerPids, out Outcome outcome, out int own, out _);
-
-            Assert.Equal(Outcome.Scoped, outcome);
-            Assert.Equal(landerPids, craft.OwnPids(mask));
-            Assert.Equal(3, own);
         }
 
         // ==================================================================
@@ -472,6 +479,153 @@ namespace Parsek.Tests.Logistics
 
             ResolveOwnPartSets(null, Endpoint(100u), sources, out adopted, out recorded, out from);
             Assert.Null(adopted);
+        }
+
+        // ==================================================================
+        // What a press may adopt (PR #2043 review): only the station that holds
+        // the composite's root takes the composite, and never another endpoint's
+        // piece or the route's own transport
+        // ==================================================================
+
+        private static OwnPartSets Sets(uint root, ICollection<uint> recordedPids = null,
+            ICollection<uint> adoptedFlightIds = null)
+        {
+            return new OwnPartSets
+            {
+                RootPartUId = root,
+                RecordedPartPids = recordedPids,
+                AdoptedPartFlightIds = adoptedFlightIds,
+            };
+        }
+
+        private static bool Capture(Craft craft, uint compositeRoot, OwnPartSets self,
+            IReadOnlyList<OwnPartSets> others, ICollection<uint> transportRoots,
+            out HashSet<uint> adopt, out int excludedPieces, out string refusal)
+        {
+            return RouteEndpointPartAdoption.DecideCapture(craft.PartRecords(), craft.NodeRecords(),
+                compositeRoot, self, others, transportRoots, out adopt, out excludedPieces, out refusal);
+        }
+
+        // catches (the reviewer's probe): a lander stop docked INTO a larger station adopting
+        // the whole composite, after which its deliveries fill the host station (own 3 -> 7).
+        [Fact]
+        public void Capture_EndpointDockedIntoLargerStation_IsRefused()
+        {
+            Craft craft = LanderInLargerStation();
+
+            Assert.False(Capture(craft, 400u, Sets(300u, LanderPids), null, null,
+                out HashSet<uint> adopt, out _, out string refusal));
+            Assert.Null(adopt);
+            Assert.Equal(RouteEndpointPartAdoption.RefusedGuestInLargerComposite, refusal);
+            Assert.Equal("guest-in-larger-composite", refusal);
+
+            // An earlier adoption of the lander alone does not make it the host either.
+            Assert.False(Capture(craft, 400u, Sets(300u, null, new HashSet<uint> { 300u, 301u, 302u }),
+                null, null, out adopt, out _, out refusal));
+            Assert.Equal("guest-in-larger-composite", refusal);
+        }
+
+        // catches: the fix refusing the very case it exists for - a station (holding the
+        // composite's root) adopting a module docked after the route was recorded.
+        [Fact]
+        public void Capture_StationHoldingTheRoot_AdoptsItsNewModule()
+        {
+            Craft craft = ModularStation(withVisitor: false);
+
+            Assert.True(Capture(craft, 100u, Sets(100u, CoreOnlyPids), null, null,
+                out HashSet<uint> adopt, out int excludedPieces, out string refusal));
+            Assert.Null(refusal);
+            Assert.Equal(CoreAndModuleFlightIds, adopt);
+            Assert.Equal(0, excludedPieces);
+        }
+
+        // catches: two stops on one composite both collapsing to the whole of it: the station
+        // stop takes only its own pieces (the lander stop's piece is that stop's), and the
+        // lander stop is refused as a guest.
+        [Fact]
+        public void Capture_TwoStopsOnOneComposite_EachKeepsItsOwnPieces()
+        {
+            Craft craft = LanderInLargerStation();
+            OwnPartSets station = Sets(400u, HostStationPids);
+            OwnPartSets lander = Sets(300u, LanderPids);
+
+            Assert.True(Capture(craft, 400u, station, new[] { lander }, null,
+                out HashSet<uint> adopt, out int excludedPieces, out _));
+            Assert.Equal(new HashSet<uint> { 400u, 401u, 402u, 403u }, adopt);
+            Assert.Equal(1, excludedPieces);
+
+            Assert.False(Capture(craft, 400u, lander, new[] { station }, null,
+                out _, out _, out string refusal));
+            Assert.Equal("guest-in-larger-composite", refusal);
+
+            // The other stop named only by its root (no recorded set) is still its own piece.
+            Assert.True(Capture(craft, 400u, station, new[] { Sets(300u) }, null,
+                out adopt, out excludedPieces, out _));
+            Assert.Equal(new HashSet<uint> { 400u, 401u, 402u, 403u }, adopt);
+        }
+
+        // catches: the route's own transport, docked at the moment of the press, becoming the
+        // station's own (its tanks would take the cargo every later run).
+        [Fact]
+        public void Capture_ExcludesThePieceHoldingTheRoutesTransportRoot()
+        {
+            Craft craft = StationDominantWithVisitor();
+
+            Assert.True(Capture(craft, 100u, Sets(100u, StationPids), null, new HashSet<uint> { 202u },
+                out HashSet<uint> adopt, out int excludedPieces, out _));
+            Assert.Equal(new HashSet<uint> { 100u, 101u, 102u }, adopt);
+            Assert.Equal(1, excludedPieces);
+
+            // Any other docked ship is the player's to undock first: it is taken.
+            Assert.True(Capture(craft, 100u, Sets(100u, StationPids), null, null,
+                out adopt, out excludedPieces, out _));
+            Assert.Equal(6, adopt.Count);
+            Assert.Equal(0, excludedPieces);
+        }
+
+        // catches: an exclusion list naming the endpoint's OWN piece (a recording snapshot
+        // rooted at the station, a second stop at the same station) emptying the adoption.
+        [Fact]
+        public void Capture_NeverExcludesTheEndpointsOwnPiece()
+        {
+            Craft craft = StationDominantWithVisitor();
+
+            Assert.True(Capture(craft, 100u, Sets(100u, StationPids), new[] { Sets(100u, StationPids) },
+                new HashSet<uint> { 100u }, out HashSet<uint> adopt, out int excludedPieces, out _));
+            Assert.Equal(6, adopt.Count);
+            Assert.Equal(0, excludedPieces);
+        }
+
+        // catches: an undocked endpoint (no settled seam) refused or cut.
+        [Fact]
+        public void Capture_UndockedVessel_AdoptsEveryPart()
+        {
+            Craft craft = new Craft()
+                .Part(100u, 1001u)
+                .Part(101u, 1002u, 100u)
+                .Part(102u, 1003u, 101u);
+
+            Assert.True(Capture(craft, 100u, Sets(0u), null, null,
+                out HashSet<uint> adopt, out _, out _));
+            Assert.Equal(new HashSet<uint> { 100u, 101u, 102u }, adopt);
+        }
+
+        // catches: guessing which piece is the endpoint's on a composite when neither its root
+        // nor any of its parts can be found.
+        [Fact]
+        public void Capture_OwnPieceUnknownOrNotAboard_IsRefused()
+        {
+            Craft craft = StationDominantWithVisitor();
+
+            Assert.False(Capture(craft, 100u, Sets(0u), null, null, out _, out _, out string refusal));
+            Assert.Equal("own-parts-unknown", refusal);
+
+            Assert.False(Capture(craft, 100u, Sets(999u, new HashSet<uint> { 9999u }), null, null,
+                out _, out _, out refusal));
+            Assert.Equal("endpoint-not-aboard", refusal);
+
+            Assert.False(Capture(new Craft(), 100u, Sets(100u), null, null, out _, out _, out refusal));
+            Assert.Equal("no-readable-parts", refusal);
         }
 
         // ==================================================================

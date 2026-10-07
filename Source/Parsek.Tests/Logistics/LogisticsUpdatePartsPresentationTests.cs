@@ -97,6 +97,23 @@ namespace Parsek.Tests.Logistics
             Assert.False(LogisticsRoutePresentation.IsRunInFlight(single));
         }
 
+        // catches (PR #2043 review): a multi-stop loop route paused between its stops
+        // greyed until it ran again. A paused loop route fires nothing, and Activate resets
+        // every stop's cursor, so the half-fired cycle is never finished.
+        [Fact]
+        public void RunNotInFlight_MultiStopLoopRoutePausedMidCycle()
+        {
+            Route paused = LoopRoute(Stop(lastFired: 3, dockUT: 100.0), Stop(lastFired: 2, dockUT: 200.0));
+            paused.Status = RouteStatus.Paused;
+            Assert.False(LogisticsRoutePresentation.IsRunInFlight(paused));
+
+            // A self-timer run still pending delivery is in flight whatever the status says.
+            Route pending = LoopRoute(Stop());
+            pending.Status = RouteStatus.Paused;
+            pending.PendingDeliveryUT = 500.0;
+            Assert.True(LogisticsRoutePresentation.IsRunInFlight(pending));
+        }
+
         [Fact]
         public void DisabledReason_EmptyWhenIdle_NamesTheRunWhenInFlight()
         {
@@ -125,6 +142,8 @@ namespace Parsek.Tests.Logistics
             Assert.Contains("origin", t);
             Assert.Contains("each stop", t);
             Assert.Contains("Undock visiting ships first", t);
+            // PR #2043 review: a stop docked into a bigger station is refused, and says so.
+            Assert.Contains("a stop docked into a bigger station keeps its own parts", t);
             Assert.DoesNotContain("\n", t);
         }
 

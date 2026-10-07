@@ -216,6 +216,16 @@ namespace Parsek.Logistics
             }
         }
 
+        /// <summary>What makes a docked piece one endpoint's own: the piece holding its root
+        /// part flightID, plus every piece holding one of its adopted part flightIDs when it has
+        /// an adoption, else one of its recorded part persistentIds.</summary>
+        internal struct OwnPartSets
+        {
+            public uint RootPartUId;
+            public ICollection<uint> RecordedPartPids;
+            public ICollection<uint> AdoptedPartFlightIds;
+        }
+
         /// <summary>One settled cross-vessel dock: the parent/child part edge an undock
         /// would cut, with the pre-dock root flightID stock recorded for each side (0 when
         /// no node on that side recorded one).</summary>
@@ -445,29 +455,12 @@ namespace Parsek.Logistics
             for (int i = 0; i < component.Length; i++)
                 if (component[i] + 1 > componentCount) componentCount = component[i] + 1;
 
-            var ownComponents = new HashSet<int>();
-            if (endpointRootPartUId != 0u)
+            HashSet<int> ownComponents = OwnComponents(parts, component, new OwnPartSets
             {
-                for (int i = 0; i < parts.Count; i++)
-                {
-                    if (parts[i].FlightId != endpointRootPartUId) continue;
-                    ownComponents.Add(component[i]);
-                    break;
-                }
-            }
-            for (int i = 0; i < parts.Count; i++)
-            {
-                if (useAdopted)
-                {
-                    uint flightId = parts[i].FlightId;
-                    if (flightId != 0u && adoptedOwnPartFlightIds.Contains(flightId))
-                        ownComponents.Add(component[i]);
-                    continue;
-                }
-                uint pid = parts[i].PersistentId;
-                if (pid != 0u && recordedOwnPartPids.Contains(pid))
-                    ownComponents.Add(component[i]);
-            }
+                RootPartUId = endpointRootPartUId,
+                RecordedPartPids = recordedOwnPartPids,
+                AdoptedPartFlightIds = adoptedOwnPartFlightIds,
+            });
 
             if (ownComponents.Count == 0)
             {
@@ -492,6 +485,40 @@ namespace Parsek.Logistics
             ownPartCount = own;
             excludedComponentCount = componentCount - ownComponents.Count;
             return mask;
+        }
+
+        /// <summary>
+        /// The components (labels from <see cref="LabelComponents"/>) that are the endpoint's
+        /// own per <paramref name="sets"/>: the one holding its root part, plus those holding
+        /// an adopted part flightID when the adopted set is non-empty (it REPLACES the recorded
+        /// set), else those holding a recorded part persistentId.
+        /// </summary>
+        internal static HashSet<int> OwnComponents(
+            IReadOnlyList<PartRecord> parts, int[] component, OwnPartSets sets)
+        {
+            var own = new HashSet<int>();
+            if (parts == null || component == null) return own;
+            bool useAdopted = sets.AdoptedPartFlightIds != null && sets.AdoptedPartFlightIds.Count > 0;
+            bool useRecorded = !useAdopted
+                && sets.RecordedPartPids != null && sets.RecordedPartPids.Count > 0;
+            for (int i = 0; i < parts.Count && i < component.Length; i++)
+            {
+                uint flightId = parts[i].FlightId;
+                if (sets.RootPartUId != 0u && flightId == sets.RootPartUId)
+                    own.Add(component[i]);
+                if (useAdopted)
+                {
+                    if (flightId != 0u && sets.AdoptedPartFlightIds.Contains(flightId))
+                        own.Add(component[i]);
+                }
+                else if (useRecorded)
+                {
+                    uint pid = parts[i].PersistentId;
+                    if (pid != 0u && sets.RecordedPartPids.Contains(pid))
+                        own.Add(component[i]);
+                }
+            }
+            return own;
         }
 
         /// <summary>
@@ -857,7 +884,7 @@ namespace Parsek.Logistics
 
         /// <summary>The route's source recordings from the effective recording set. Empty
         /// when the route names none or the set cannot be computed.</summary>
-        private static List<Recording> ResolveSourceRecordings(Route route)
+        internal static List<Recording> ResolveSourceRecordings(Route route)
         {
             var result = new List<Recording>();
             if (route?.RecordingIds == null || route.RecordingIds.Count == 0) return result;
@@ -884,10 +911,27 @@ namespace Parsek.Logistics
             return result;
         }
 
+        /// <summary>
+        /// The vessel's part and dock-node records on the <paramref name="isLoaded"/> branch for a
+        /// caller that needs the parts even when nothing is docked (the endpoint part adoption);
+        /// the scope's own builders stop early on a vessel with no dock node.
+        /// </summary>
+        internal static bool TryBuildRecords(
+            Vessel v, bool isLoaded, out List<PartRecord> parts, out List<DockNodeRecord> nodes)
+        {
+            parts = null;
+            nodes = null;
+            if (v == null) return false;
+            return isLoaded
+                ? TryBuildLoadedRecords(v, out parts, out nodes, requireDockNodes: false)
+                : TryBuildUnloadedRecords(v, out parts, out nodes, requireDockNodes: false);
+        }
+
         /// <summary>Live parts: the dock / claw nodes carrying stock's vesselInfo first (no
         /// allocation beyond the node list when there are none), then the part records.</summary>
         private static bool TryBuildLoadedRecords(
-            Vessel v, out List<PartRecord> parts, out List<DockNodeRecord> nodes)
+            Vessel v, out List<PartRecord> parts, out List<DockNodeRecord> nodes,
+            bool requireDockNodes = true)
         {
             parts = null;
             nodes = null;
@@ -915,7 +959,11 @@ namespace Parsek.Logistics
                     }
                 }
             }
-            if (nodes == null) return false;
+            if (nodes == null)
+            {
+                if (requireDockNodes) return false;
+                nodes = new List<DockNodeRecord>();
+            }
 
             var indexByPart = new Dictionary<Part, int>(v.parts.Count);
             for (int i = 0; i < v.parts.Count; i++)
@@ -943,7 +991,8 @@ namespace Parsek.Logistics
         /// <summary>Proto parts, read the same way a snapshot is: the modules' persisted
         /// <c>dockUId</c> / <c>DOCKEDVESSEL</c> values.</summary>
         private static bool TryBuildUnloadedRecords(
-            Vessel v, out List<PartRecord> parts, out List<DockNodeRecord> nodes)
+            Vessel v, out List<PartRecord> parts, out List<DockNodeRecord> nodes,
+            bool requireDockNodes = true)
         {
             parts = null;
             nodes = null;
@@ -965,7 +1014,11 @@ namespace Parsek.Logistics
                     }
                 }
             }
-            if (nodes == null) return false;
+            if (nodes == null)
+            {
+                if (requireDockNodes) return false;
+                nodes = new List<DockNodeRecord>();
+            }
 
             int count = pv.protoPartSnapshots.Count;
             parts = new List<PartRecord>(count);

@@ -90,31 +90,58 @@ namespace Parsek.Tests.Logistics
                 .Build();
         }
 
-        /// <summary>A capture seam answering per endpoint root flightID.</summary>
+        /// <summary>A capture seam answering per endpoint root flightID: an undocked craft
+        /// (its part flightIDs, chained) or a docked composite.</summary>
         private sealed class FakeCapture
         {
             internal readonly Dictionary<uint, (string Name, List<uint> Ids)> ByRoot =
                 new Dictionary<uint, (string, List<uint>)>();
+            internal readonly Dictionary<uint, RouteEndpointPartAdoption.CapturedVessel> Composite =
+                new Dictionary<uint, RouteEndpointPartAdoption.CapturedVessel>();
             internal readonly List<uint> Calls = new List<uint>();
             internal Action<RouteEndpoint> OnCall;
 
-            internal bool Capture(RouteEndpoint endpoint, out string vesselName,
-                out List<uint> partFlightIds, out string reason)
+            internal bool Capture(RouteEndpoint endpoint,
+                out RouteEndpointPartAdoption.CapturedVessel vessel, out string reason)
             {
                 Calls.Add(endpoint.RootPartUId);
                 OnCall?.Invoke(endpoint);
-                if (ByRoot.TryGetValue(endpoint.RootPartUId, out var hit))
+                if (Composite.TryGetValue(endpoint.RootPartUId, out vessel))
                 {
-                    vesselName = hit.Name;
-                    partFlightIds = hit.Ids;
                     reason = null;
                     return true;
                 }
-                vesselName = null;
-                partFlightIds = null;
+                if (ByRoot.TryGetValue(endpoint.RootPartUId, out var hit))
+                {
+                    var parts = new List<RouteEndpointPartScope.PartRecord>();
+                    for (int i = 0; i < hit.Ids.Count; i++)
+                        parts.Add(new RouteEndpointPartScope.PartRecord(hit.Ids[i], 0u, i - 1));
+                    vessel = new RouteEndpointPartAdoption.CapturedVessel
+                    {
+                        Name = hit.Name,
+                        Parts = parts,
+                        Nodes = new List<RouteEndpointPartScope.DockNodeRecord>(),
+                        RootFlightId = hit.Ids.Count > 0 ? hit.Ids[0] : 0u,
+                    };
+                    reason = null;
+                    return true;
+                }
+                vessel = null;
                 reason = "no-vessel-near";
                 return false;
             }
+        }
+
+        private static RouteEndpointPartAdoption.CapturedVessel FromCraft(
+            string name, RouteEndpointPartScopeTests.Craft craft, uint root)
+        {
+            return new RouteEndpointPartAdoption.CapturedVessel
+            {
+                Name = name,
+                Parts = craft.PartRecords(),
+                Nodes = craft.NodeRecords(),
+                RootFlightId = root,
+            };
         }
 
         private static RouteEndpointAdoptedParts FindByRoot(Route route, uint root)
@@ -349,6 +376,164 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(0, result.AdoptedCount);
             Assert.Null(route.AdoptedEndpointParts);
             Assert.Contains(logLines, l => l.Contains("stop1:unresolved('no-endpoint-identity')"));
+        }
+
+        // ------------------------------------------------------------------
+        // Docked composites (PR #2043 review)
+        // ------------------------------------------------------------------
+
+        // catches (the reviewer's probe): one press widening a lander stop docked INTO a
+        // larger station to the whole station (scope own=3 before, own=7 after), so the
+        // lander's cargo filled the host. The lander is refused and keeps what it had, and
+        // its scope is unchanged.
+        [Fact]
+        public void Adopt_StopDockedIntoLargerStation_IsRefusedAndItsScopeIsUnchanged()
+        {
+            Route route = new RouteFixtureBuilder()
+                .WithId("route-lander-0001")
+                .WithKscOrigin(true)
+                .WithOrigin(Endpoint(0u, 0u))
+                .WithStop(Stop(Endpoint(300u, 30u)))
+                .Build();
+            RouteEndpointPartScopeTests.Craft craft = RouteEndpointPartScopeTests.LanderInLargerStation();
+            var capture = new FakeCapture();
+            capture.Composite[300u] = FromCraft("Station T", craft, 400u);
+            Func<RouteEndpoint, HashSet<uint>> recorded = ep =>
+                ep.RootPartUId == 300u ? new HashSet<uint>(RouteEndpointPartScopeTests.LanderPids) : null;
+
+            RouteEndpointPartAdoption.AdoptionResult result =
+                RouteEndpointPartAdoption.AdoptCurrentParts(route, 90.0, capture.Capture, recorded);
+
+            Assert.Equal(0, result.AdoptedCount);
+            Assert.Equal(1, result.RefusedCount);
+            Assert.Null(route.AdoptedEndpointParts);
+            Assert.Contains(logLines, l => l.Contains("Endpoint part adoption:")
+                && l.Contains("refused=1")
+                && l.Contains("stop1:'Station T' refused=guest-in-larger-composite"));
+
+            RouteEndpointPartScope.ResolveOwnPartSets(route, route.Stops[0].Endpoint,
+                () => new Recording[0], out HashSet<uint> adopted, out _, out _);
+            bool[] mask = RouteEndpointPartScope.SelectOwnParts(craft.PartRecords(), craft.NodeRecords(),
+                300u, RouteEndpointPartScopeTests.LanderPids, adopted,
+                out RouteEndpointPartScope.Outcome outcome, out int own, out _);
+            Assert.Equal(RouteEndpointPartScope.Outcome.Scoped, outcome);
+            Assert.Equal(3, own);
+            Assert.NotNull(mask);
+        }
+
+        // catches: a refused endpoint losing the set an earlier press gave it.
+        [Fact]
+        public void Adopt_RefusedEndpointKeepsItsEarlierSet()
+        {
+            Route route = new RouteFixtureBuilder()
+                .WithId("route-lander-0002")
+                .WithKscOrigin(true)
+                .WithOrigin(Endpoint(0u, 0u))
+                .WithStop(Stop(Endpoint(300u, 30u)))
+                .WithAdoptedEndpointParts(Entry(300u, 30u, 300u, 301u, 302u))
+                .Build();
+            var capture = new FakeCapture();
+            capture.Composite[300u] = FromCraft("Station T",
+                RouteEndpointPartScopeTests.LanderInLargerStation(), 400u);
+
+            RouteEndpointPartAdoption.AdoptCurrentParts(route, 95.0, capture.Capture);
+
+            Assert.Equal(new HashSet<uint> { 300u, 301u, 302u }, FindByRoot(route, 300u).PartFlightIds);
+            Assert.Equal(10.0, FindByRoot(route, 300u).AdoptedUT);
+            Assert.Contains(logLines, l => l.Contains("stop1:'Station T' refused=guest-in-larger-composite kept=3"));
+        }
+
+        // catches: two stops on one composite both collapsing to the whole composite: the
+        // station stop adopts its own pieces only, the lander stop is refused.
+        [Fact]
+        public void Adopt_TwoStopsOnOneComposite_StationTakesOnlyItsPieces()
+        {
+            Route route = new RouteFixtureBuilder()
+                .WithId("route-twostop-0001")
+                .WithKscOrigin(true)
+                .WithOrigin(Endpoint(0u, 0u))
+                .WithStop(Stop(Endpoint(400u, 40u)))
+                .WithStop(Stop(Endpoint(300u, 30u)))
+                .Build();
+            RouteEndpointPartScopeTests.Craft craft = RouteEndpointPartScopeTests.LanderInLargerStation();
+            var capture = new FakeCapture();
+            capture.Composite[400u] = FromCraft("Station T", craft, 400u);
+            capture.Composite[300u] = FromCraft("Station T", craft, 400u);
+
+            RouteEndpointPartAdoption.AdoptionResult result =
+                RouteEndpointPartAdoption.AdoptCurrentParts(route, 100.0, capture.Capture);
+
+            Assert.Equal(1, result.AdoptedCount);
+            Assert.Equal(1, result.RefusedCount);
+            Assert.Equal(new HashSet<uint> { 400u, 401u, 402u, 403u }, FindByRoot(route, 400u).PartFlightIds);
+            Assert.Null(FindByRoot(route, 300u));
+            Assert.Contains(logLines, l => l.Contains("stop1:'Station T' parts=4 prev=none excluded=1")
+                && l.Contains("stop2:'Station T' refused=guest-in-larger-composite"));
+        }
+
+        // catches: the route's own transport, docked at the press, adopted as the station's.
+        [Fact]
+        public void Adopt_ExcludesTheRoutesOwnTransport()
+        {
+            Route route = new RouteFixtureBuilder()
+                .WithId("route-transport-0001")
+                .WithKscOrigin(true)
+                .WithOrigin(Endpoint(0u, 0u))
+                .WithStop(Stop(Endpoint(100u, 10u)))
+                .Build();
+            // Station 100/101/102 with the transport (root 202) docked below its port.
+            var craft = new RouteEndpointPartScopeTests.Craft()
+                .Part(100u, 1001u)
+                .Part(101u, 1002u, 100u)
+                .Part(102u, 1003u, 101u)
+                .Part(200u, 2001u, 102u)
+                .Part(202u, 2003u, 200u)
+                .Part(201u, 2002u, 202u)
+                .Node(102u, 200u, ownRoot: 100u)
+                .Node(200u, 102u, ownRoot: 202u);
+            var capture = new FakeCapture();
+            capture.Composite[100u] = FromCraft("Station", craft, 100u);
+
+            RouteEndpointPartAdoption.AdoptCurrentParts(route, 110.0, capture.Capture,
+                transportRootFlightIds: new HashSet<uint> { 202u });
+
+            Assert.Equal(new HashSet<uint> { 100u, 101u, 102u }, FindByRoot(route, 100u).PartFlightIds);
+        }
+
+        // catches: the transport roots read off the route's recordings including an
+        // endpoint's own root (a snapshot taken while docked can be rooted at the station),
+        // or missing the start-docked proof's transport root.
+        [Fact]
+        public void TransportRoots_FromSnapshotsAndProof_MinusEndpointRoots()
+        {
+            var transport = new Recording
+            {
+                GhostVisualSnapshot = VesselNode(root: 0, 202u, 200u),
+                VesselSnapshot = VesselNode(root: 1, 205u, 206u),
+            };
+            var dockChild = new Recording
+            {
+                GhostVisualSnapshot = VesselNode(root: 0, 100u, 202u),
+                RouteOriginProof = new RouteOriginProof { StartDockedTransportRootPartUId = 601u },
+            };
+
+            HashSet<uint> roots = RouteEndpointPartAdoption.CollectTransportRootFlightIds(
+                new[] { transport, dockChild, null },
+                new[] { Endpoint(100u, 10u), Endpoint(0u, 0u) });
+
+            Assert.Equal(new HashSet<uint> { 202u, 206u, 601u }, roots);
+        }
+
+        private static ConfigNode VesselNode(int root, params uint[] flightIds)
+        {
+            var vessel = new ConfigNode("VESSEL");
+            vessel.AddValue("root", root.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            for (int i = 0; i < flightIds.Length; i++)
+            {
+                ConfigNode part = vessel.AddNode("PART");
+                part.AddValue("uid", flightIds[i].ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+            return vessel;
         }
 
         [Fact]
