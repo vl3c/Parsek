@@ -3757,6 +3757,11 @@ _(unreleased - entries accumulate here per commit)_
   Routes now go back to exactly the moment the rewind's save was made, so that run keeps its
   charge and the credit and is not repeated. Covered by xUnit; not yet checked in a test flight.
 
+- **Supply routes keep running at the Space Center right after a rewind to launch.** After the
+  rewind, routes made no runs until the game clock caught up with the moment you rewound from,
+  or until you left the Space Center. They now pick up as soon as the rewound clock moves on.
+  Covered by xUnit; not yet checked in a test flight.
+
 - **A crewed station hidden after a rewind no longer has its crew killed.** When a committed
   mission docks to a station later, the station is hidden from the rewind until that mission's
   end. If the station was far from your vessel when you entered flight, hiding it killed

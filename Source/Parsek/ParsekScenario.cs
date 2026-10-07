@@ -1238,7 +1238,9 @@ namespace Parsek
         /// UT at which the last <see cref="RouteOrchestrator.Tick(double)"/>
         /// fired. Sentinel <c>-1.0</c> means "no tick yet this session" — the
         /// first Update merely seeds the accumulator and skips the tick body
-        /// so the very first tick does not see a zero-length delta.
+        /// so the very first tick does not see a zero-length delta. Advanced by
+        /// <see cref="RouteTickClock.Advance"/>, which also re-seeds it when the
+        /// clock moves behind it.
         /// </summary>
         private double lastRouteTickUT = -1.0;
 
@@ -1276,14 +1278,11 @@ namespace Parsek
                 return;
             }
 
-            if (lastRouteTickUT < 0.0)
-            {
-                lastRouteTickUT = currentUT;
+            // Seeds on the first Update and re-seeds when the clock is behind the baseline (the
+            // go-back rewind moves the UT back after this instance's first Update).
+            if (RouteTickClock.Advance(ref lastRouteTickUT, currentUT, RouteOrchestrator.TickIntervalSec)
+                != RouteTickClockStep.Tick)
                 return;
-            }
-            if (currentUT - lastRouteTickUT < RouteOrchestrator.TickIntervalSec)
-                return;
-            lastRouteTickUT = currentUT;
 
             try
             {

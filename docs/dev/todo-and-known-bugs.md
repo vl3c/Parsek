@@ -142,14 +142,29 @@ sample); refuse such a cut, or index the chain by section start rather than by S
 
 ---
 
-## ROUTE-TICK-BASELINE-SET-BEFORE-GO-BACK-CLOCK-MOVE: after a go-back rewind, route ticks may stall until the clock passes the pre-rewind UT [FILED 2026-10-07 from the PR #2036 review. OPEN, product; unverified, pre-existing]
+## ~~ROUTE-TICK-BASELINE-SET-BEFORE-GO-BACK-CLOCK-MOVE: after a go-back rewind, route ticks may stall until the clock passes the pre-rewind UT~~ [FILED 2026-10-07 from the PR #2036 review. CONFIRMED and FIXED 2026-10-07 on branch `fix-route-goback-cutoff` (headless only, not flown)]
 
-`ParsekScenario.Update` sets `lastRouteTickUT` on the new scenario's first `Update`, which likely
-runs before `ApplyRewindResourceAdjustment` moves the clock back to the rewind target; if so the
-next ticks see the clock behind `lastRouteTickUT` and route crossings stall until it is passed.
-The H58 log has too few `Tick:` lines to tell. Check first: a go-back rewind log with an Active
-route, the first `Update` / `lastRouteTickUT` stamp against the clock-move line, then the next
-route `Tick:` lines.
+**CONFIRMED.** Code: the tick gate was `if (currentUT - lastRouteTickUT < TickIntervalSec) return;`
+with no reseed, so a clock behind the baseline read as "no time passed" until it passed the
+baseline again. The go-back rewind loads the Space Center at persistent.sfs's clock and moves the
+UT back from `ApplyRewindResourceAdjustment` after a `yield return null`, so the new scenario's
+first `Update` seeds the baseline at the pre-rewind UT. Logs (the only go-back rewind logs with a
+route are H58's): `2026-09-10_2144` and `2026-09-11_0303` (`Parsek-cheap-flights-arming/harness/results`)
+and `logs/2026-09-02_1336_H58-NEGCTL` all read `[OnLoad:settings-applied] ... ut=1601.9
+scene=SPACECENTER` and `HandleRewindOnLoad:exit ... ut=1601.9`, then `UT adjustment: 1601.9 ->
+1585.5` about 55 ms later, then OnSave at ut=1587.7 / 1587.9 before the quit: 2.4 s of game time
+at 1x with no route `Tick:` line and no per-route `not ghost-driving - skipped` line, both 5 s
+wall rate-limited and last printed about 4.5 s before the clock move in each run (`_2144`:
+00:45:21.188 against 00:45:25.719), so the tick due at ~1586.5 (about 1 s of wall after the move,
+past the limit) would have printed. The stall lasts until the clock
+passes the pre-rewind UT or the player leaves the Space Center (a new scenario instance reseeds);
+on a deep rewind that is the whole stay, warp included.
+**FIXED.** `Logistics/RouteTickClock.Advance` owns the pacing `ParsekScenario.Update` used to
+inline and re-seeds the baseline when the clock is behind it (Info `Tick clock: UT moved back
+from <a> to <b>; baseline reset ...`), so the first tick comes one interval after the move.
+Red cell `RouteTickClockTests.ClockMovedBack_ReseedsTheBaseline_TheNextIntervalTicks` (the H58
+sequence 1601.9 -> 1585.5 -> 1586.5; red `Waiting` on the old gate), plus the pacing contract
+cell and a source gate that `Update` goes through the helper.
 
 ---
 
