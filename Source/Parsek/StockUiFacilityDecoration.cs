@@ -14,11 +14,13 @@ namespace Parsek
     /// <summary>
     /// KSC facility context menu annotation on stock mechanisms (docs/dev/research/
     /// stock-ui-reservation-overlays-2026-09-25.md, section 5, the KSC facility row): a
-    /// facility a committed row upgrades later gets a non-interactable Upgrade button
-    /// (block at the control) carrying a stock <see cref="TooltipController_Text"/> with
-    /// the explanation (why). The mark and the block read the predicate the
-    /// <c>FacilityUpgradeSpendPatch</c> / <c>FacilityUpgradePatch</c> refusal reads, through
-    /// <see cref="StockUiDecorationQuery.ForFacilityMenu"/>, with the same text.
+    /// facility a committed row changes level later, or whose current destruction a
+    /// committed row repairs later (the upgrade's free <c>ResetStructures</c> would repair it
+    /// now), gets a non-interactable Upgrade button (block at the control) carrying a stock
+    /// <see cref="TooltipController_Text"/> with the explanation (why). The mark and the
+    /// block read the rows the <c>FacilityUpgradeSpendPatch</c> refusal reads, over the menu
+    /// host's buildings, through <see cref="StockUiDecorationQuery.ForFacilityMenu"/>, with
+    /// the same text.
     ///
     /// Stock instantiates a fresh menu per right-click (<c>KSCFacilityContextMenu.Create</c>)
     /// and destroys it on dismiss, so a menu's state never reaches another facility's menu.
@@ -442,9 +444,9 @@ namespace Parsek
 
         /// <summary>
         /// <c>KSCFacilityContextMenu.OnFacilityValuesModified</c> postfix: stock has just set
-        /// the Upgrade button from the facility level; disable it with the reason when the
-        /// committed timeline upgrades this facility later, else clear any reason Parsek
-        /// left on this menu.
+        /// the Upgrade button from the facility level; disable it with the reason while a
+        /// committed level change of this facility is ahead or a committed repair covers its
+        /// current destruction, else clear any reason Parsek left on this menu.
         /// </summary>
         internal static void Apply(KSCFacilityContextMenu menu, string reason)
         {
@@ -473,10 +475,11 @@ namespace Parsek
         private static void ApplyUpgrade(KSCFacilityContextMenu menu, string reason)
         {
             string facilityId = FacilityIdOf(menu);
+            var buildings = Patches.FacilityRepairCapturePatchHelpers.ReadBuildings(hostRef(menu));
             bool replaying = GameStateRecorder.IsReplayingActions;
             var snapshot = StockUiLiveSnapshot.Current;
-            var d = StockUiDecorationQuery.ForFacilityMenu(snapshot.Index, snapshot.UT, facilityId, replaying,
-                ReservationExplanation.DefaultDateFormatter);
+            var d = StockUiDecorationQuery.ForFacilityMenu(snapshot.Index, snapshot.UT, facilityId, buildings,
+                replaying, ReservationExplanation.DefaultDateFormatter);
             StockUiDecorationQuery.LogFacilityMenu(d, replaying, reason);
 
             var decision = Decide(d);

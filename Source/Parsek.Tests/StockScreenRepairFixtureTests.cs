@@ -213,9 +213,16 @@ namespace Parsek.Tests
             Assert.Equal(StockUiDecorationKind.FacilityRepair, d.Kind);
             Assert.Equal("Repaired on UT80000, blocked by timeline until then.", d.Why);
 
-            // The census Upgrade block on the same menu is untouched by the variant.
-            Assert.True(StockUiDecorationQuery.ForFacilityMenu(index, Now, StockScreenRepairFixture.Facility,
-                false, Date).Blocked);
+            // The census Upgrade block on the same menu now names the covering repair first:
+            // stock's UpgradeFacility repairs the dish for free (ResetStructures), so the
+            // repair holds Upgrade too (FACILITY-UPGRADE-FREE-REPAIR-REWRITES-COMMITTED-REPAIR).
+            var upgrade = StockUiDecorationQuery.ForFacilityMenu(index, Now, StockScreenRepairFixture.Facility,
+                buildings, false, Date);
+            Assert.True(upgrade.Marked && upgrade.Blocked);
+            Assert.Equal(StockUiDecorationKind.FacilityUpgrade, upgrade.Kind);
+            Assert.Equal("Repaired on UT80000 and upgraded to level 2 on UT90000, blocked by timeline until then.",
+                upgrade.Why);
+            Assert.Equal(StockScreenRepairFixture.RepairUT, upgrade.UT);
         }
 
         /// <summary>The lane's reach: past the covering repair the block lifts, and the

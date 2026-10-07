@@ -434,10 +434,10 @@ namespace Parsek.TestCommands
             foreach (KSCFacilityContextMenu menu in Object.FindObjectsOfType<KSCFacilityContextMenu>())
             {
                 string id = StockUiFacilityDecoration.FacilityIdOf(menu);
-                var d = StockUiDecorationQuery.ForFacilityMenu(index, now, id,
+                var buildings = Patches.FacilityRepairCapturePatchHelpers.ReadBuildings(StockUiFacilityDecoration.HostOf(menu));
+                var d = StockUiDecorationQuery.ForFacilityMenu(index, now, id, buildings,
                     GameStateRecorder.IsReplayingActions, ReservationExplanation.DefaultDateFormatter);
                 records.Add(StockScreenRecord.From(d));
-                var buildings = Patches.FacilityRepairCapturePatchHelpers.ReadBuildings(StockUiFacilityDecoration.HostOf(menu));
                 var repair = StockUiDecorationQuery.ForFacilityMenuRepair(index, now, id, buildings,
                     GameStateRecorder.IsReplayingActions, ReservationExplanation.DefaultDateFormatter);
                 records.Add(StockScreenRecord.From(repair));

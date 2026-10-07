@@ -40,7 +40,7 @@ namespace Parsek.Patches
 
             var index = CommittedFutureIndexCache.Current;
             double nowUT = CommittedFutureIndexCache.CurrentUT();
-            var blockers = StockUiReservationPredicates.FacilityRebuildBlockers(index, facilityId, buildings, nowUT);
+            var blockers = StockUiReservationPredicates.FacilityLevelChangeBlockers(index, facilityId, buildings, nowUT);
             if (blockers.Count == 0)
             {
                 ParsekLog.Verbose(Tag,

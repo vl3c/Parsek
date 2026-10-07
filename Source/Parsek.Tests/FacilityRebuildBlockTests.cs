@@ -16,8 +16,9 @@ namespace Parsek.Tests
     /// booked as a <c>FacilityUpgrade</c> row marked <c>FacilityDowngrade</c>) blocks every
     /// earlier level change of that facility: the Upgrade button and the Rebuild button. A
     /// committed future repair that covers the facility's current destruction blocks the
-    /// Rebuild too, because the Rebuild repairs for free (<c>ResetStructures</c>) and would
-    /// rewrite that repair. The predicate, the explanation, the menu decoration, the
+    /// Rebuild and the Upgrade too, because both repair for free (<c>ResetStructures</c>) and
+    /// would rewrite that repair (FACILITY-UPGRADE-FREE-REPAIR-REWRITES-COMMITTED-REPAIR for
+    /// the Upgrade). The predicate, the explanation, the menu decoration, the
     /// pairing, the replay bypass, the slot consumers and the Harmony prefix / finalizer
     /// ordering of <c>SpaceCenterBuilding.DowngradeFacility(bool)</c>.
     /// </summary>
@@ -28,6 +29,8 @@ namespace Parsek.Tests
         private const string PadBuilding = "SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_launchPad";
         private const string VabId = "SpaceCenter/VehicleAssemblyBuilding";
         private const string AdminId = "SpaceCenter/Administration";
+        private const string AdminBuilding = "SpaceCenter/Administration/Facility/Building";
+        private const string VabBuilding = "SpaceCenter/VehicleAssemblyBuilding/Facility/Building";
 
         private readonly List<string> logLines = new List<string>();
         private readonly List<(string title, string reason)> dialogs = new List<(string, string)>();
@@ -101,6 +104,19 @@ namespace Parsek.Tests
                 new FacilityRepairCapture.BuildingRepairInput { BuildingId = PadBuilding, IsDestroyed = true, RepairCost = 4000f }
             };
 
+        /// <summary>The same pad with its building standing.</summary>
+        private static List<FacilityRepairCapture.BuildingRepairInput> IntactPad() =>
+            new List<FacilityRepairCapture.BuildingRepairInput>
+            {
+                new FacilityRepairCapture.BuildingRepairInput { BuildingId = PadBuilding, IsDestroyed = false, RepairCost = 4000f }
+            };
+
+        private static List<FacilityRepairCapture.BuildingRepairInput> Down(string buildingId) =>
+            new List<FacilityRepairCapture.BuildingRepairInput>
+            {
+                new FacilityRepairCapture.BuildingRepairInput { BuildingId = buildingId, IsDestroyed = true, RepairCost = 4000f }
+            };
+
         private static bool RebuildBlocked(double now, string facilityId = LaunchPadId) =>
             StockUiReservationPredicates.IsFacilityRebuildBlocked(
                 CommittedFutureIndexCache.Current, facilityId, DownPad(), now);
@@ -161,7 +177,7 @@ namespace Parsek.Tests
                 StockUiReservationPredicates.ExplainFacilityUpgrade(index, LaunchPadId, 500, Fmt).Title);
 
             // The Upgrade button reads the same: greyed, with the rebuild's sentence.
-            var menu = StockUiDecorationQuery.ForFacilityMenu(index, 500, LaunchPadId, false, Fmt);
+            var menu = StockUiDecorationQuery.ForFacilityMenu(index, 500, LaunchPadId, null, false, Fmt);
             Assert.True(menu.Blocked);
             Assert.Equal(why, menu.Why);
             Assert.Equal(1000, menu.UT);
@@ -227,7 +243,9 @@ namespace Parsek.Tests
             // The same text the Repair button shows.
             Assert.Equal(StockUiReservationPredicates.ExplainFacilityRepair(index, DownPad(), 500, Fmt).Body,
                 RebuildWhy(500));
-            // No level change ahead: the Upgrade button is left to stock.
+            // No level change ahead, but the Upgrade repairs for free as well, so the covering
+            // repair holds it too; only the SetLevel backstop's level-change read stays clear.
+            Assert.True(StockUiReservationPredicates.IsFacilityUpgradeBlocked(index, LaunchPadId, DownPad(), 500));
             Assert.False(StockUiReservationPredicates.IsFacilityUpgradeBlocked(index, LaunchPadId, 500));
             // A committed destruction first means the live destruction is a new one: no block.
             Assert.False(RebuildBlocked(50));
@@ -244,6 +262,207 @@ namespace Parsek.Tests
 
             Assert.Equal("Repaired on D10 and upgraded to level 2 on D20, blocked by timeline until then.",
                 RebuildWhy(500));
+        }
+
+        // ---------------- the Upgrade's free repair (FACILITY-UPGRADE-FREE-REPAIR-REWRITES-COMMITTED-REPAIR) ----------------
+
+        // catches: an Upgrade of an out-of-service facility (stock leaves Upgrade clickable
+        // there) whose ResetStructures repairs the building now, for free, ahead of the
+        // committed repair that covers that destruction - the recorded repair is rewritten.
+        [Fact]
+        public void ACommittedRepairCoveringTheDestruction_RefusesAndGreysTheUpgrade_WithTheRepairSentence()
+        {
+            Ledger.AddAction(Destroy(100, PadBuilding));
+            Ledger.AddAction(Repair(1000, PadBuilding));
+            CommittedFutureIndexCache.NowUtProviderForTesting = () => 500;
+            var index = CommittedFutureIndexCache.Current;
+            const string why = "Repaired on D10, blocked by timeline until then.";
+
+            Assert.True(StockUiReservationPredicates.IsFacilityUpgradeBlocked(index, LaunchPadId, DownPad(), 500));
+            var text = StockUiReservationPredicates.ExplainFacilityUpgrade(index, LaunchPadId, DownPad(), 500, Fmt);
+            Assert.Equal(why, text.Body);
+            Assert.Equal("Repaired on D10", text.Title);
+            // The Repair button's own sentence, word for word.
+            Assert.Equal(StockUiReservationPredicates.ExplainFacilityRepair(index, DownPad(), 500, Fmt).Body, why);
+
+            // Greyed: the Upgrade control, marked and blocked with that sentence.
+            var menu = StockUiDecorationQuery.ForFacilityMenu(index, 500, LaunchPadId, DownPad(), false, Fmt);
+            Assert.Equal(StockUiDecorationQuery.FacilityMenuTab, menu.Tab);
+            Assert.Equal(StockUiDecorationKind.FacilityUpgrade, menu.Kind);
+            Assert.True(menu.Marked && menu.Blocked);
+            Assert.Equal(why, menu.Why);
+            Assert.Equal(1000, menu.UT);
+            Assert.True(StockUiFacilityDecoration.Decide(menu).DisableUpgrade);
+
+            // Refused, before stock's debit, with the same text.
+            Assert.True(FacilityUpgradePatch.TryBlockFacilityUpgradeFor(LaunchPadId, DownPad()));
+            var dialog = dialogs.Single();
+            Assert.Equal("Cannot upgrade \"Launch Pad\"", dialog.title);
+            Assert.StartsWith("Repaired on ", dialog.reason);
+            Assert.Equal(StockUiDecorationQuery.ForFacilityMenu(index, 500, LaunchPadId, DownPad(), false,
+                ReservationExplanation.DefaultDateFormatter).Why, dialog.reason);
+            Assert.Equal(StockUiReservationPredicates.ExplainFacilityRepair(index, DownPad(), 500,
+                ReservationExplanation.DefaultDateFormatter).Body, dialog.reason);
+            Assert.Contains(logLines, l => l.Contains("[INFO][FacilityUpgradePatch]")
+                && l.Contains("Blocking facility upgrade: 'SpaceCenter/LaunchPad' - no committed future level change")
+                && l.Contains("first building='" + PadBuilding + "' ut=1000")
+                && l.Contains("nowUT=500") && l.Contains("repairs=1"));
+
+            // The SetLevel backstop: stock's SetLevel runs no structure reset, so it reads level
+            // changes only, and inside an allowed UpgradeFacility the reset already ran.
+            Assert.False(FacilityUpgradePatch.TryBlockFacilityUpgradeById(LaunchPadId));
+        }
+
+        [Fact]
+        public void TheUpgradeSentence_ForALevelChangeAlone_IsUnchanged_AndARepairAheadOfItIsNamedFirst()
+        {
+            Ledger.AddAction(Destroy(100, PadBuilding));
+            Ledger.AddAction(Repair(1000, PadBuilding));
+            Ledger.AddAction(Upgrade(2000, LaunchPadId, 2));
+            var index = CommittedFutureIndexCache.Current;
+
+            // Building standing: the plain level-change sentence, byte for byte (KB-3 matches it).
+            Assert.Equal("Upgraded to level 2 on D20, blocked by timeline until then.",
+                StockUiReservationPredicates.ExplainFacilityUpgrade(index, LaunchPadId, IntactPad(), 500, Fmt).Body);
+            Assert.Equal(StockUiReservationPredicates.ExplainFacilityUpgrade(index, LaunchPadId, 500, Fmt).Body,
+                StockUiReservationPredicates.ExplainFacilityUpgrade(index, LaunchPadId, IntactPad(), 500, Fmt).Body);
+            // Building down: the covering repair is named first, as on the Rebuild.
+            const string mixed = "Repaired on D10 and upgraded to level 2 on D20, blocked by timeline until then.";
+            Assert.Equal(mixed,
+                StockUiReservationPredicates.ExplainFacilityUpgrade(index, LaunchPadId, DownPad(), 500, Fmt).Body);
+            Assert.Equal(mixed, StockUiDecorationQuery.ForFacilityMenu(index, 500, LaunchPadId, DownPad(), false, Fmt).Why);
+            Assert.Equal(1000, StockUiDecorationQuery.ForFacilityMenu(index, 500, LaunchPadId, DownPad(), false, Fmt).UT);
+
+            CommittedFutureIndexCache.NowUtProviderForTesting = () => 500;
+            Assert.True(FacilityUpgradePatch.TryBlockFacilityUpgradeFor(LaunchPadId, DownPad()));
+            Assert.Equal(StockUiDecorationQuery.ForFacilityMenu(index, 500, LaunchPadId, DownPad(), false,
+                ReservationExplanation.DefaultDateFormatter).Why, dialogs.Single().reason);
+            Assert.StartsWith("Repaired on ", dialogs.Single().reason);
+            Assert.Contains(" and upgraded to level 2 on ", dialogs.Single().reason);
+            Assert.Contains(logLines, l => l.Contains("[INFO][FacilityUpgradePatch]")
+                && l.Contains("Blocking facility upgrade: 'SpaceCenter/LaunchPad' - 1 committed future upgrade(s), "
+                    + "last ut=2000 toLevel=2 nowUT=500 rebuilds=0 repairs=1"));
+        }
+
+        // catches: an over-block - an Upgrade held when no committed repair covers the
+        // destruction it would repair now.
+        [Theory]
+        [InlineData("no-repair-row", 500.0)]
+        [InlineData("destruction-first", 500.0)]
+        [InlineData("clock-past-the-repair", 1000.0)]
+        [InlineData("building-standing", 500.0)]
+        public void NoCoveringRepair_TheUpgradeStillGoesThrough(string shape, double now)
+        {
+            var buildings = DownPad();
+            switch (shape)
+            {
+                case "no-repair-row":
+                    Ledger.AddAction(Destroy(100, PadBuilding));
+                    break;
+                case "destruction-first":
+                    // A committed destruction after now and before the repair: the destruction
+                    // the player sees is a new one, not the one the committed repair repairs.
+                    Ledger.AddAction(Destroy(600, PadBuilding));
+                    Ledger.AddAction(Repair(1000, PadBuilding));
+                    break;
+                case "clock-past-the-repair":
+                    Ledger.AddAction(Destroy(100, PadBuilding));
+                    Ledger.AddAction(Repair(1000, PadBuilding));
+                    break;
+                case "building-standing":
+                    Ledger.AddAction(Destroy(100, PadBuilding));
+                    Ledger.AddAction(Repair(1000, PadBuilding));
+                    buildings = IntactPad();
+                    break;
+            }
+            CommittedFutureIndexCache.NowUtProviderForTesting = () => now;
+            var index = CommittedFutureIndexCache.Current;
+
+            Assert.False(StockUiReservationPredicates.IsFacilityUpgradeBlocked(index, LaunchPadId, buildings, now));
+            Assert.False(StockUiDecorationQuery.ForFacilityMenu(index, now, LaunchPadId, buildings, false, Fmt).Blocked);
+            Assert.False(FacilityUpgradePatch.TryBlockFacilityUpgradeFor(LaunchPadId, buildings));
+            Assert.Empty(dialogs);
+            Assert.Contains(logLines, l => l.Contains("[VERBOSE][FacilityUpgradePatch]")
+                && l.Contains("Allowing facility upgrade: 'SpaceCenter/LaunchPad' - no committed future level change, "
+                    + "and no committed future repair covers the destruction"));
+
+            // The prefix core lets stock run and opens the upgrade scope.
+            Assert.True(FacilityUpgradeSpendPatch.BlockOrOpenScope(LaunchPadId, buildings, LaunchPadId, true, 350000.0));
+            Assert.True(FacilityUpgradeCapture.IsScopeActive);
+        }
+
+        [Fact]
+        public void PrefixCore_ARepairHeldUpgrade_SkipsStock_AndOpensNoScope()
+        {
+            Ledger.AddAction(Destroy(100, PadBuilding));
+            Ledger.AddAction(Repair(1000, PadBuilding));
+            CommittedFutureIndexCache.NowUtProviderForTesting = () => 500;
+
+            bool runOriginal = FacilityUpgradeSpendPatch.BlockOrOpenScope(
+                LaunchPadId, DownPad(), LaunchPadId, true, 350000.0);
+
+            Assert.False(runOriginal);
+            Assert.False(FacilityUpgradeCapture.IsScopeActive);
+            Assert.Single(dialogs);
+            Assert.Contains(logLines, l => l.Contains("FacilityUpgrade scope not opened: facility='SpaceCenter/LaunchPad'"));
+        }
+
+        [Fact]
+        public void Replay_LeavesARepairHeldUpgradeToStock_InTheMenuAndTheRefusal()
+        {
+            Ledger.AddAction(Destroy(100, PadBuilding));
+            Ledger.AddAction(Repair(1000, PadBuilding));
+            CommittedFutureIndexCache.NowUtProviderForTesting = () => 500;
+            GameStateRecorder.IsReplayingActions = true;
+
+            var menu = StockUiDecorationQuery.ForFacilityMenu(
+                CommittedFutureIndexCache.Current, 500, LaunchPadId, DownPad(), true, Fmt);
+            Assert.False(menu.Marked);
+            Assert.False(menu.Blocked);
+            Assert.False(FacilityUpgradePatch.TryBlockFacilityUpgradeFor(LaunchPadId, DownPad()));
+            Assert.True(FacilityUpgradeSpendPatch.BlockOrOpenScope(LaunchPadId, DownPad(), LaunchPadId, true, 350000.0));
+            Assert.Empty(dialogs);
+            Assert.Contains(logLines, l => l.Contains("[FacilityUpgradePatch]")
+                && l.Contains("Bypassing block for 'SpaceCenter/LaunchPad' - action replay in progress"));
+        }
+
+        // The greyed Upgrade is exactly the refused Upgrade, over level changes and covering
+        // repairs, as the clock moves through every row.
+        [Fact]
+        public void Pairing_TheGreyedUpgradeIsExactlyTheRefusedUpgrade_OverRepairsAndLevelChanges()
+        {
+            Ledger.AddAction(Destroy(100, PadBuilding));
+            Ledger.AddAction(Repair(1000, PadBuilding));
+            Ledger.AddAction(Upgrade(2000, LaunchPadId, 2));
+            Ledger.AddAction(Destroy(100, AdminBuilding));
+            Ledger.AddAction(Repair(1500, AdminBuilding));
+            var cases = new[]
+            {
+                (id: LaunchPadId, buildings: DownPad()),
+                (id: AdminId, buildings: Down(AdminBuilding)),
+                (id: VabId, buildings: Down(VabBuilding)),
+            };
+
+            foreach (double now in new[] { 0.0, 100.0, 500.0, 999.9, 1000.0, 1499.9, 1500.0, 1999.9, 2000.0, 5000.0 })
+            {
+                CommittedFutureIndexCache.NowUtProviderForTesting = () => now;
+                foreach (var c in cases)
+                {
+                    dialogs.Clear();
+                    var menu = StockUiDecorationQuery.ForFacilityMenu(CommittedFutureIndexCache.Current, now, c.id,
+                        c.buildings, false, ReservationExplanation.DefaultDateFormatter);
+                    bool greyed = StockUiFacilityDecoration.Decide(menu).DisableUpgrade;
+                    bool refused = FacilityUpgradePatch.TryBlockFacilityUpgradeFor(c.id, c.buildings);
+
+                    bool expected = c.id == LaunchPadId ? now < 2000.0
+                        : c.id == AdminId ? now >= 100.0 && now < 1500.0
+                        : false;
+                    Assert.True(expected == greyed, c.id + " greyed at " + now.ToString(CultureInfo.InvariantCulture));
+                    Assert.True(greyed == refused, c.id + " refused at " + now.ToString(CultureInfo.InvariantCulture));
+                    if (refused) Assert.Equal(menu.Why, dialogs.Single().reason);
+                    else Assert.Empty(dialogs);
+                }
+            }
         }
 
         // ---------------- menu decoration ----------------

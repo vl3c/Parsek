@@ -16,21 +16,42 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## FACILITY-UPGRADE-FREE-REPAIR-REWRITES-COMMITTED-REPAIR: an Upgrade of an out-of-service facility repairs it for free ahead of a committed repair [FILED 2026-10-07 while adding the Rebuild block, branch `facility-rebuild-block`. OPEN for an owner decision]
+## ~~FACILITY-UPGRADE-FREE-REPAIR-REWRITES-COMMITTED-REPAIR: an Upgrade of an out-of-service facility repairs it for free ahead of a committed repair~~ [FILED 2026-10-07 while adding the Rebuild block, branch `facility-rebuild-block`. FIXED 2026-10-07 on the same branch (PR #2046), applying the Rebuild ruling's principle (supervisor decision); xUnit only, not flown]
 
-Decompiled KSP 1.12.5: `SpaceCenterBuilding.UpgradeFacility` runs `ResetStructures()` before
-`SetLevel`, resetting every destroyed building for free (booked as cost-0 repair rows by
-`FacilityResetStructuresPatch`), and the facility menu leaves Upgrade interactable on an
-out-of-service facility. After a rewind to a UT between a building's destruction and its
+Decompiled KSP 1.12.5: `SpaceCenterBuilding.UpgradeFacility` debits, then runs `ResetStructures()`
+unconditionally before `SetLevel(level + 1)`; each `DestructibleBuilding.Reset()` sets its
+building intact, so the call repairs, for free, exactly a facility with a destroyed building
+(booked as cost-0 repair rows by `FacilityResetStructuresPatch`). `KSCFacilityContextMenu.OnFacilityValuesModified`
+sets Upgrade interactable below the top level whether or not the
+facility is operational. After a rewind to a UT between a building's destruction and its
 committed repair, an Upgrade (allowed while no level change of the facility is committed later)
-repairs the building now, and the walk then marks the committed repair ineffective
-(`FundsModule.ShouldChargeFacilityRepair`, `FacilityAlreadyIntact`): the recorded repair is
+repaired the building now, and the walk then marked the committed repair ineffective
+(`FundsModule.ShouldChargeFacilityRepair`, `FacilityAlreadyIntact`): the recorded repair was
 rewritten. The Rebuild is blocked on exactly this ground (owner ruling 2026-10-07, see
-FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED); the Upgrade button does not check repairs. Fix, if the
-owner applies the same principle: add `StockUiReservationPredicates.CommittedRepairsCoveringFacility`
-to the Upgrade block (`FacilityUpgradePatch.TryBlockFacilityUpgradeById` would need the
-building list, which only the `UpgradeFacility` prefix has; the `SetLevel` backstop does not) and
-to `ForFacilityMenu`, with the repair sentence named when it is the earliest row.
+FACILITY-DOWNGRADE-DEBIT-NOT-LEDGERED).
+
+Fix: the Upgrade is held by the Rebuild's rows, `StockUiReservationPredicates.FacilityLevelChangeBlockers`
+(later committed level changes plus `CommittedRepairsCoveringFacility`),
+through the buildings-aware `IsFacilityUpgradeBlocked(index, id, buildings, now)` /
+`FacilityUpgradeBlockers` (none for an empty id). Block: `FacilityUpgradeSpendPatch`, the
+`UpgradeFacility(bool)` prefix, reads the buildings and runs `FacilityUpgradePatch.TryBlockFacilityUpgradeFor`
+before stock's debit and the upgrade scope (`BlockOrOpenScope`).
+Annotation (D1): `StockUiDecorationQuery.ForFacilityMenu` takes the buildings (a mandatory
+parameter, so no caller can skip the repair half) and greys Upgrade with the same text. The
+`SetLevel` backstop stays level-only (`TryBlockFacilityUpgradeById`): `SetLevel` runs no structure
+reset. Text: a level change alone keeps the exact Upgrade sentence (KB-3 matches it); a covering
+repair alone reads the Repair sentence (`Repaired on ..., blocked by timeline until then.`);
+mixed rows are named earliest first. Log: the block line gains ` repairs=N`; a repair-only block
+reads `Blocking facility upgrade: '<id>' - no committed future level change; N committed future
+repair(s) cover a destruction ...`. KB-2's host (dish down, repair at UT 80000, upgrade at 90000)
+now reads its Upgrade as `Repaired on ... and upgraded to level 2 on ...`; KB-2 pins only the
+Repair lines. Tests: `FacilityRebuildBlockTests` (9 new cells, 8 red against API-only stubs that
+ignored the buildings; the replay cell was green on them by construction) plus 3 updated cells
+(`ACommittedRepairCoveringTheDestruction_BlocksTheRebuild_WithTheRepairsWords`,
+`StockScreenRepairFixtureTests.Index_TrackingStationRepairIsBlocked_WithTheExplanation`,
+`FacilityMenuStockUiTests.LogFacilityMenu_Unmarked_SaysWhyItIsLeftStock`), all red on the stubs.
+Mutations each turn a cell red: the menu ignoring the buildings, the refusal ignoring them, the
+prefix core dropping them, the replay bypass removed.
 
 ---
 
@@ -467,10 +488,11 @@ closes only a scope this call opened), replay bypass, Info line `[FacilityRebuil
 facility rebuild: ...` naming the earliest blocking row, dialog `Cannot rebuild "<facility>"`.
 Annotation (D1): the menu's private `DowngradeButton` greyed with the same text on its tooltip
 and the menu description, only while stock shows it (`StockUiFacilityDecoration.DecideRebuild`);
-decoration kind `FacilityRebuild`, tab `Rebuild`. Not decided here: an Upgrade of an
-out-of-service facility runs the same free `ResetStructures` repair, so it can rewrite a
-committed covering repair the same way (filed as FACILITY-UPGRADE-FREE-REPAIR-REWRITES-COMMITTED-REPAIR). Tests:
-`FacilityRebuildBlockTests` (25 cells; 21 red against API-only stubs before the fix). Tests of
+decoration kind `FacilityRebuild`, tab `Rebuild`. An Upgrade of an out-of-service facility runs
+the same free `ResetStructures` repair, so it could rewrite a committed covering repair the same
+way: filed as FACILITY-UPGRADE-FREE-REPAIR-REWRITES-COMMITTED-REPAIR and fixed on the same branch
+(the Upgrade reads the Rebuild's rows). Tests: `FacilityRebuildBlockTests` (25 cells for the
+Rebuild; 21 red against API-only stubs before the fix). Tests of
 the #2042 fix:
 `FacilityDowngradeCostTests` (10 cells; 8 red against API-only stubs before the fix) and
 `TimelineBuilderTests.FacilityDowngradeRow_ItsLegacyEventTwinIsNotShownTwice` (red before the key fix).

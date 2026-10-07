@@ -165,7 +165,8 @@ namespace Parsek.InGameTests
                 if (!seen.Add(b.Facility.id)) continue;
                 if (b.Facility.FacilityLevel >= b.Facility.MaxLevel) continue;
                 belowMax++;
-                if (StockUiReservationPredicates.IsFacilityUpgradeBlocked(index, b.Facility.id, now))
+                if (StockUiReservationPredicates.IsFacilityUpgradeBlocked(index, b.Facility.id,
+                        Patches.FacilityRepairCapturePatchHelpers.ReadBuildings(b), now))
                 {
                     alreadyReserved++;
                     continue;
