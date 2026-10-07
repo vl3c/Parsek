@@ -164,7 +164,7 @@ the likely fix is to skip a claim whose claiming recording a supersede row names
 
 ---
 
-## OPTIMIZER-SPLIT-EMPTY-TAIL-INDEXED-FIRST: an optimizer split can leave a payload-less second half that `ReindexChain` puts at chain index 0 [FILED 2026-10-07 while verifying CHAIN-WALK-STOPS-ON-FIRST-OPTIMIZER-SEGMENT, from one collected log. OPEN, product, low; not reproduced on the current build]
+## ~~OPTIMIZER-SPLIT-EMPTY-TAIL-INDEXED-FIRST: an optimizer split can leave a payload-less second half that `ReindexChain` puts at chain index 0~~ [FILED 2026-10-07 while verifying CHAIN-WALK-STOPS-ON-FIRST-OPTIMIZER-SEGMENT, from one collected log. REPRODUCED headless on main b8f306e56 and FIXED 2026-10-07, branch `fix-chain-walk-supersede`; not flown]
 
 `2026-09-08_2001_GS-7-kerbalx-crash-watch-hold`: the crash recording `06b271e6...` ('Kerbal X
 Probe', ended Destroyed) was split at UT 347.9 at an Atmospheric -> SurfaceMobile boundary into
@@ -176,6 +176,24 @@ the ghost-chain walk) then reads the head, which has no terminal and no snapshot
 whether `CanAutoSplitIgnoringGhostTriggers` still accepts a cut whose second half has no payload
 (its 5 s test reads `rec.EndUT`, which can come from an explicit or terminal bound past the last
 sample); refuse such a cut, or index the chain by section start rather than by StartUT.
+
+Reproduced on current main through `RecordingStore.RunOptimizationPass`: samples [118.9, 347.9], a
+SurfaceMobile section from 347.92, and the crash UT 357 as `ExplicitEndUT` split into `first: 230
+pts/1 sections, second: 0 pts/1 sections`, `'atmo' [119..348] + 'surface' [0..0]`, the head at
+index 1 and the empty tail (terminal Destroyed, StartUT and EndUT 0) at index 0, the GS-7 shape.
+Fix, both halves: (a) `RecordingOptimizer.SplitHalvesCarryPayload`, called by
+`CanAutoSplitIgnoringGhostTriggers` and `CanAutoSplit` after their 5 s floor, refuses a cut unless
+the recording's actual sampled bounds (`Recording.TryGetActualTrajectoryBounds`: points, orbit
+segments, playable track sections; never the explicit or terminal bound) strictly straddle it, so
+neither half can be payload-less; the mirror (a cut before the first sample, an explicit start
+carrying the floor) is refused the same way. Logged once per state: `Optimizer split refused:
+rec=... sec=... - the second half would hold no trajectory payload (actual bounds [...])`. The 5 s
+floor itself still reads StartUT / EndUT (left alone: OPTIMIZER-PAD-SPLIT-AT-FIVE-SECOND-THRESHOLD
+is about that floor). (b) `ReindexChain` orders by `ChainOrderUT`: StartUT for a member with
+payload or an explicit start (unchanged), else its first track section's start, else last; ties go
+by the previous index, then id. Cells: `OptimizerSplitEmptyHalfTests` (both refusals through the
+real pass and the two payload-less orderings red before the fix; a split with samples on both sides
+and a payload chain's StartUT order are the controls).
 
 ---
 

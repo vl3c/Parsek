@@ -877,6 +877,7 @@ A single Recording can be split at a TrackSection boundary where the environment
 1. Recording has ≥ 2 TrackSections
 2. No ghosting-trigger events anywhere in the recording
 3. Both resulting halves are **≥ 5 seconds** long
+4. Both resulting halves hold trajectory payload: the recording's actual sampled bounds (points, orbit segments, playable track sections, never an explicit or terminal bound) strictly straddle the cut (`SplitHalvesCarryPayload`). The 5-second test reads `StartUT` / `EndUT`, which an explicit bound can carry past the samples (a crash UT after the last sample), so without this a cut there left a half with no sample, whose `StartUT` read the 0.0 fallback.
 
 **Split operation** (`SplitAtSection`): Points partitioned by UT at the section boundary. Events partitioned (backward loop to avoid index shifting). TrackSections split at the section index. `GhostVisualSnapshot` cloned to both halves. Each half tagged with `SegmentPhase` derived from its first section's environment via `EnvironmentToPhase`:
 
@@ -920,6 +921,8 @@ that had to stop).
 #### Discovery Passes
 
 **`FindMergeCandidates`**: Groups committed recordings by `ChainId`, sorts each group by `ChainIndex`, tests all consecutive pairs with `CanAutoMerge`.
+
+**`ReindexChain`**: after every merge and split, renumbers a chain's branch-0 members from 0 in `StartUT` order (ties by the previous index, then id). A member with no trajectory payload and no explicit start has only the 0.0 fallback as its `StartUT`, so it is ordered by its first track section's start instead, or last with no section: the highest index must stay the chain's end, which the chain-tip walks read.
 
 **`FindSplitCandidates`**: Scans each committed recording's `TrackSections` for adjacent sections with **different environments**. Tests each boundary with `CanAutoSplit`. Finds **at most one split per recording per pass** — the caller re-scans after each split because indices shift.
 
