@@ -106,7 +106,8 @@ id = "QL-5-discard-refly-keeps-unfinished-flight"
 #   - The rewind block is REPORT-ONLY: predicted rewindPoints >= 1, supersedeRows 0,
 #     tombstones 0 (nothing merged).
 #
-# STATUS: AUTHORED 2026-10-07, NEVER FLOWN. Every token is quoted from its emitting source
+# STATUS: AUTHORED 2026-10-07; LIVE-PROVEN 2026-10-07 `2026-10-07_2035` and `_2331` (PASS attempt 1
+# on both PR #2050 commits). Every token is quoted from its emitting source
 # line: TestCommandReFlyRevert / ParsekTestCommandAddon.ReFlyRevert.cs (the `reflyrevert`
 # lines), RevertInterceptor.Prefix / DiscardReFlyHandler, ReFlyRevertDialog.Show,
 # DiscardReFlyLoadIntent.Arm / TryConsume, InSessionStagedStateHandoff (capture),
