@@ -33,8 +33,9 @@ id = "QL-3-quickload-before-refly-merge"
 #      what makes the token specific to THIS load (the merge's own exit load reads rows the
 #      merge's durable save already wrote).
 #   3. Step B partitions the rewind points: the merge reaped `rp_cl_root` (CL-3's measured
-#      rewindPoints 0), the save still has it, and its tree is committed in memory, so it is
-#      NOT resurrected (`saveOnlyDropped=1`). The save holds the re-flown tree as committed
+#      rewindPoints 0) and the save still has it. A production rewind point is claimed by its
+#      committed tree through the tree's branch point and is NOT resurrected; THIS fixture's
+#      point is not (see the 2026-10-07 reading below), so it follows the save. The save holds the re-flown tree as committed
 #      history (the fixture's) and no active tree, so no tree is detached and resumed: the
 #      resumed-tree row rule finds nothing to hand back to the save (`no tree detached`).
 #
@@ -62,14 +63,28 @@ id = "QL-3-quickload-before-refly-merge"
 #     the slot after the merge).
 #   - The rewind block is REPORT-ONLY; predicted supersedeRows 1, tombstones 2 (CL-3's
 #     2026-09-29 reading), rewindPoints 0. Arm it after a reading run whose facets match.
+#   - READING RUN 2026-10-07 `2026-10-07_1920` (branch `f9-verify`, automation DLL sha256
+#     prefix bd97e6a7): PASS attempt 1. The QL-3 load read `supersedes installed=1
+#     loadedFromSave=0 restored=1` and `tombstones installed=2 loadedFromSave=0 restored=2`;
+#     the merge's own exit load read loadedFromSave=1 / 2 (its durable save), as predicted.
+#     Report-only facets: supersedeRows 1 and tombstones 2 as predicted, rewindPoints 1, not
+#     0. The merge reaped `rp_cl_root` (`Reaped rp=rp_cl_root`, quicksave file deleted) and
+#     step B logged `rp_cl_root:FollowSave:kept-loaded`: the `rewind-crew-loss` corpus builds
+#     the point SessionProvisional with no creating session and its tree carries NO branch
+#     point (saveParse `branchPoints: {}`; `RewindCrewLossFixture.BranchPointId` is a
+#     diagnostic-only weak link), so the committed-owner predicate, which matches a tree's
+#     branch-point ids and branch-point rewind-point ids, cannot claim it. A fixture shape,
+#     not a product defect (todo REWIND-CREW-LOSS-FIXTURE-RP-HAS-NO-BRANCH-POINT); the window
+#     is re-pinned to the measured 1 so the block reads clean on this host.
 #
-# STATUS: AUTHORED 2026-10-06 (PR #2038), NEVER FLOWN. Every new
+# STATUS: AUTHORED 2026-10-06 (PR #2038); LIVE-PROVEN 2026-10-07 `2026-10-07_1920` (PASS
+# attempt 1). Every new
 # token is quoted from its emitting source line (ParsekScenario.InSessionHandoff.cs,
 # InSessionStagedStateHandoff.cs, LoadReconcilePolicy.FormatClassificationLine,
 # ParsekTestCommandAddon.LoadGameImpl); the rest are CL-3's.
 # =====================================================================================
 tier = "nightly"
-description = "QL-3: save to a named slot, re-fly the crewed pod of CL-3's crash and merge it, then load that save from before the Re-Fly at the Space Center. The supersede row and the crew-death tombstone stay from the session (not the save's none), and the reaped rewind point is not resurrected."
+description = "QL-3: save to a named slot, re-fly the crewed pod of CL-3's crash and merge it, then load that save from before the Re-Fly at the Space Center. The supersede row and the crew-death tombstone stay from the session (not the save's none)."
 instanceProfile = "stock-minimal"
 tags = ["QL-3", "TA-1", "quickload", "timeline-ops", "rewind", "refly", "merge", "tombstone",
         "crew-loss", "CL3", "D9", "scene-ksc", "reading-run"]
@@ -143,7 +158,7 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]",
 gating        = false
 supersedeRows = { min = 1 }
 tombstones    = { min = 1 }
-rewindPoints  = { max = 0 }
+rewindPoints  = { min = 1, max = 1 }  # this fixture's RP is not tree-linked; see READING RUN 2026-10-07
 
 [expectations.recordings.structure]
 gating         = false

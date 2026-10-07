@@ -3753,7 +3753,9 @@ _(unreleased - entries accumulate here per commit)_
   the original flight and its outcome back. Discarding a Re-Fly that a quickload resumed no longer
   deletes an earlier, merged Re-Fly of another vessel from the same separation, and the crew
   death that earlier Re-Fly undid stays undone. Loading
-  another game and starting KSP are unchanged. Covered by xUnit; not yet checked in a test flight.
+  another game and starting KSP are unchanged. Checked in a test flight (lane QL-3: save, Re-Fly
+  and merge a crashed pod, then load the earlier save; the replaced flight and the undone crew
+  death stay that way); the Discard Re-fly part is covered by xUnit only.
 
 - **A station hidden after a rewind comes back when its recorded future ends, also when that
   future crossed into the atmosphere or another world.** When a committed mission docks with
@@ -3922,8 +3924,10 @@ _(unreleased - entries accumulate here per commit)_
   recording ended after the quicksave's moment has that ending cleared, so it is recorded again
   from the quicksave and ends however it actually ends; endings reached before the quicksave
   stay, and the quickload only touches what the quicksave shows was not yet history. A Re-Fly
-  start and resuming a flight after restarting KSP are unchanged. Covered by xUnit; not yet
-  checked in a test flight.
+  start and resuming a flight after restarting KSP are unchanged. Checked in test flights (lanes
+  QL-4, QL-4b and QL-4c: the booster is recorded again and ends Landed). Known issue: a booster
+  that was an Unfinished Flight in the abandoned future keeps its rewind point after it lands in
+  the replay (todo QUICKLOAD-RESUMED-MEMBER-KEEPS-ABANDONED-FUTURE-MERGE-STATE).
 - **Quickloading into a flight you committed after the quicksave works after the game has saved
   again.** Quickloading from the Space Center into a flight you had left (and so committed), or
   in flight once the game had saved since you committed it (an autosave, a switch to a far
@@ -3934,7 +3938,8 @@ _(unreleased - entries accumulate here per commit)_
   again, and what happened after the quicksave's moment is dropped. A flight you committed before
   taking the quicksave stays committed history and is left as it was. The quickload trim also
   cuts a debris stage's ground-relative track at the quicksave's moment now, as it already did
-  its other samples. Covered by xUnit; not yet checked in a test flight.
+  its other samples. Checked in test flights (lane QL-4b from the Space Center, QL-4c in flight
+  after a save).
 - **Career rewards from a future you quickloaded away are no longer paid.** A contract completed,
   a milestone reached or a vessel recovered after your quicksave stayed on the books when you
   quickloaded back: the reward was booked again when the replayed flight was committed, even if
@@ -3946,8 +3951,9 @@ _(unreleased - entries accumulate here per commit)_
   kept, as is every other committed flight (supply routes go back with the quicksave on their
   own; see the supply-route entry above); the quickload only touches
   what the quicksave shows was not yet history, including a flight committed after the quicksave
-  and saved again since (see the entry below). Covered by xUnit; not yet checked in a test
-  flight.
+  and saved again since (see the entry below). Covered by xUnit; a sandbox test flight (lane
+  QL-4) ran the cleanup of the abandoned flight's ledger rows, but a career reward earned after
+  the quicksave has not been flown yet.
 
 - **Quitting the game while the map camera is focused on a ghost no longer logs an error.** When
   a ghost the map view was looking at was removed, KSP moved the camera to the nearest planet on
@@ -6300,13 +6306,22 @@ _(unreleased - entries accumulate here per commit)_
   node names the two staging methods touch (each must have a category), and where OnLoad
   classifies relative to named steps (after `DetectSaveFolderChange`, before the staging load;
   refined after `RevertDetector.Consume`, before the quickload discard and the revert prune).
+- **Automated testing: the F9 lanes flown, and specs fixed for faster seam polls.** QL-3, QL-4,
+  QL-4b and QL-4c flew green on main with the in-session load fixes, alongside the in-game
+  QuickloadResume and Rewind categories (H65, RF-6, R7a) and the re-fly regression lanes. Since
+  PR #2017 an inert seam step costs one frame instead of a 0.25 s poll, so waits sized in inert
+  steps shrank: the QL-4 lanes now settle 150 steps before their post-load warp (it hit the
+  physics hold), their commit-UT token accepts 149.x, EX-1 waits for EndUT with
+  `WarpToUT maxRate=1`, and QL-3's report-only rewind-point window reads its fixture's 1. LF-2
+  stays red on the same cause (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS). No product
+  change.
 - **Automated testing: lanes for a booster quickloaded back into the air (QL-4, QL-4b,
-  QL-4c).** `QL-4-quickload-booster-terminal` (nightly, not yet flown) is the live check for the
+  QL-4c).** `QL-4-quickload-booster-terminal` (nightly, flown green 2026-10-07) is the live check for the
   quickload end-state fix: on the GS1 two-stage pad it quicksaves with the booster still under
   its parachutes, flies on, commits the flight in flight (the booster commits SubOrbital), then
   loads the quicksave in flight. The resumed booster must be back with the background recorder,
   recorded down to the ground and committed Landed. `QL-4b-quickload-from-space-center` and
-  `QL-4c-quickload-after-in-flight-save` (nightly, not yet flown) are its two committed-after-a-save
+  `QL-4c-quickload-after-in-flight-save` (nightly, flown green 2026-10-07) are its two committed-after-a-save
   routes: QL-4b leaves for the Space Center (the flight auto-merges and the exit saves) and loads
   the quicksave from there; QL-4c saves the game between the in-flight commit and the load. Both
   require the new `Quickload committed-copy restore:` decision line, the detach and the
