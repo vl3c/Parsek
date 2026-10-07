@@ -5,6 +5,25 @@ tier = "nightly"
 # D12 "route x rewind, flown" - THE PRE-REGISTERED LANE, AND A REWIND THAT ACTUALLY
 # FIRES. LIVE-PROVEN 2026-09-02.
 #
+# RE-PINNED 2026-10-07 BY PREDICTION, NOT YET RE-FLOWN (branch `fix-route-goback-cutoff`,
+# owner ruling 2026-10-07): the go-back rewind's ROUTE cutoff is now the rewind save's own
+# UT (the StartRecording UT, ~1600.5), no longer the 15 s wound-back clock (~1585.5); the
+# career cutoff stays on the clock. Every reading below was taken at the old cutoff. The
+# lane now lands on the branch its own pre-registration names (a): the third player row
+# (`RouteResumed player-activate`, measured at 1600.24-1600.26 on every flight) is at or
+# before the save (1600.48-1600.52), so it is KEPT, the latest kept player row is a resume,
+# the derived verdict is Active and changes nothing on the live Active route. Predicted and
+# now pinned: `cutoff=` in the [1599, 1603) band with `cutoffSource=rewind-save-ut` and
+# `rewindAdjustedUT=` in the old 158x band, `retiredRouteRows=0`, the fidelity line
+# `derivedPaused=0 derivedActive=0 oneShotFlagsCleared=1 countersReconstructed=0`, the
+# loop-position restore line (`loopPositionsRestored=1`, `loadedSaveUT=` the save's UT), and
+# the produced save reading `status = Active`. The `routes at rewind cutoff ... (reconciled=1)`
+# token is DROPPED, not inverted: it printed only because the old cutoff pulled
+# `nextDispatchUT` (1600.26) back to 1585.5; at the new cutoff nothing in the kept route's
+# cycle state lies after it, so the line is expected not to print (newlyDormant=0,
+# reconciled=0), and a pin either way would be a guess. The next nightly flight is the
+# reading run for all of it.
+#
 # FLIGHT 2, 2026-09-02 (`2026-09-02_1020`, wall 62 s): PASS ATTEMPT 1, AND THE
 # PRE-REGISTRATION BELOW WAS CONFIRMED ON EVERY NUMBER. It was written before the
 # machinery that lets the lane test it existed, is unchanged by that machinery landing,
@@ -452,12 +471,15 @@ allowedAnomalies = []
 # `2026-09-11_0303`, PASS attempt 1, wall 55 s. saveParse gating PASS, armed
 # ['routes'], no mismatch; every routes facet (ids excluded) is identical to the
 # reading, and recordings.count is 6.
+# RE-PINNED 2026-10-07, NOT YET RE-FLOWN: `statuses` Paused -> Active. With the go-back route
+# cutoff at the rewind save's own UT the third player row (the activate at ~1600.26) is kept,
+# so the derivation no longer flips the route (header, top). Every other window is unchanged.
 gating          = true
 count           = { min = 1, max = 1 }
 dormant         = { max = 0 }
 completedCycles = { max = 0 }
 skippedCycles   = { max = 0 }
-statuses        = { Paused = { min = 1, max = 1 } }
+statuses        = { Active = { min = 1, max = 1 } }
 
 [expectations.recordings]
 # EXACT AT 6, both bounds, and the arithmetic is 5 + 1.
@@ -665,9 +687,9 @@ required  = [
   "invokerewindtolaunch invoking tree=[0-9a-f]{32} rec=[0-9a-f]{32} startUT=[0-9]+\\.[0-9]+ - plain Rewind-to-Launch \\(NOT a Re-Fly\\)",
   "Rewind-to-Launch initiated to UT",
   "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=158[4-7]\\.[0-9]+ elapsed=",
-  "OnLoad: go-back route reconcile at cutoff=158[4-7]\\.[0-9]+ retiredRouteRows=1 committedRoutes=1 dormantRoutes=0",
-  "OnLoad go-back: routes at rewind cutoff 158[4-7]\\.[0-9]+: kept=1 \\(reconciled=1\\) dormant=0 \\(newly=0\\)",
-  "OnLoad go-back: kept-route status fidelity at cutoff 158[4-7]\\.[0-9]+: derivedPaused=1 derivedActive=0 oneShotFlagsCleared=1 countersReconstructed=0",
+  "OnLoad: go-back route reconcile at cutoff=(1599|160[0-2])\\.[0-9]+ retiredRouteRows=0 committedRoutes=1 dormantRoutes=0 cutoffSource=rewind-save-ut rewindAdjustedUT=158[4-7]\\.[0-9]+ rewindSaveUT=(1599|160[0-2])\\.[0-9]+",
+  "OnLoad go-back: kept-route status fidelity at cutoff (1599|160[0-2])\\.[0-9]+: derivedPaused=0 derivedActive=0 oneShotFlagsCleared=1 countersReconstructed=0",
+  "OnLoad go-back: loop position restored from the loaded save at cutoff=(1599|160[0-2])\\.[0-9]+ loadedSaveUT=(1599|160[0-2])\\.[0-9]+ keptRoutes=1 savedRoutes=1 loopPositionsRestored=1",
   "RewindReconcile: route [0-9a-f]+ cleared armed one-shot flags",
 ]
 forbidden = [

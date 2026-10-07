@@ -5449,6 +5449,7 @@ namespace Parsek
             string messageLabel)
         {
             string tempCopyName = null;
+            double rewindSaveOwnUT = double.NaN;
             // The OnLoad this load leads to does NOT read the rewind save's scenario node:
             // SpaceCenterMain.Start reloads persistent.sfs from disk, so the RP list it
             // restores is whatever the last persistent write held. Carry the in-memory
@@ -5485,7 +5486,7 @@ namespace Parsek
                     // committed history the rewind keeps (an earlier tree's spawned vessel)
                     // stays in the save and therefore in the quicksave whitelist.
                     RewindContext.SetHistoricalSpawnKeepRecordingIds(null);
-                    PreProcessRewindSave(
+                    rewindSaveOwnUT = PreProcessRewindSave(
                         tempPath, ownerStrip, ResolveRewindStripSpawnedPids,
                         RewindToLaunchLeadTimeSeconds);
                 }
@@ -5539,9 +5540,13 @@ namespace Parsek
                 // Same reason, for the rewind save's own route copy: OnLoad will read persistent's
                 // ROUTES, of unknown age, so the go-back loop-position restore in
                 // HandleRewindOnLoad reads this save's from the parsed game's scenario protos,
-                // which still hold the file's nodes.
+                // which still hold the file's nodes. That copy is as of the save's own UT, before
+                // the lead-time windback the parsed clock already carries, and the go-back route
+                // reconcile keys its cutoff to it.
                 Logistics.RouteLoadReconcile.CaptureRewindSaveRoutes(game.scenarios,
-                    game.flightState.universalTime, messageLabel);
+                    Logistics.RouteLoadReconcile.ResolveRewindSaveOwnUT(
+                        rewindSaveOwnUT, game.flightState.universalTime),
+                    messageLabel);
 
                 HighLogic.CurrentGame = game;
                 HighLogic.LoadScene(GameScenes.SPACECENTER);
@@ -6568,8 +6573,10 @@ namespace Parsek
         /// (<see cref="ClassifyRewindOwnerStripVessel"/>), so a vessel carrying the owner's name
         /// but a conclusively different launch guid (an earlier launch of the same craft) stays
         /// in the save and in the quicksave whitelist.
+        /// Returns the save's own UT as written, before the lead-time windback (the moment every
+        /// scenario node in the file describes), or NaN when the save has no parseable UT.
         /// </summary>
-        internal static void PreProcessRewindSave(
+        internal static double PreProcessRewindSave(
             string sfsPath, RewindOwnerStrip ownerStrip,
             Func<double, HashSet<uint>> resolveVesselPids, double leadTime)
         {
@@ -6577,7 +6584,7 @@ namespace Parsek
                 ownerStrip = new RewindOwnerStrip();
             ConfigNode root = ConfigNode.Load(sfsPath);
             if (root == null)
-                return;
+                return double.NaN;
 
             ConfigNode gameNode = root.HasNode("GAME") ? root.GetNode("GAME") : root;
             ConfigNode flightState = gameNode.GetNode("FLIGHTSTATE");
@@ -6587,16 +6594,18 @@ namespace Parsek
                     ParsekLog.Warn("Rewind",
                         $"PreProcessRewindSave: no FLIGHTSTATE node in save '{sfsPath}'");
                 root.Save(sfsPath);
-                return;
+                return double.NaN;
             }
 
             // Wind back UT
             string utStr = flightState.GetValue("UT");
             double ut;
             double adjustedUT = double.NaN;
+            double saveOwnUT = double.NaN;
             if (!string.IsNullOrEmpty(utStr) &&
                 double.TryParse(utStr, NumberStyles.Any, CultureInfo.InvariantCulture, out ut))
             {
+                saveOwnUT = ut;
                 double newUT = Math.Max(0, ut - leadTime);
                 adjustedUT = newUT;
                 flightState.SetValue("UT", newUT.ToString("R", CultureInfo.InvariantCulture));
@@ -6691,6 +6700,7 @@ namespace Parsek
                     $"Captured {survivingPids.Count} surviving vessel PID(s) from quicksave");
 
             root.Save(sfsPath);
+            return saveOwnUT;
         }
 
         #endregion

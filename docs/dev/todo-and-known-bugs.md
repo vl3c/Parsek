@@ -256,7 +256,7 @@ segments; reconcile the two entries at merge (this one is the fix).
 
 ---
 
-## CHAIN-WALK-SUPERSEDE-BLIND-HOPS-ONTO-REFLY-TIP: the ghost-chain walk can land on a Re-Fly TIP the fork supersedes, which suppresses the fork's spawn [FILED 2026-10-07 from the PR #2037 review. OPEN, product, narrow; not a release blocker]
+## ~~CHAIN-WALK-SUPERSEDE-BLIND-HOPS-ONTO-REFLY-TIP: the ghost-chain walk can land on a Re-Fly TIP the fork supersedes, which suppresses the fork's spawn~~ [FILED 2026-10-07 from the PR #2037 review. FIXED 2026-10-07, branch `fix-chain-walk-supersede`; not flown]
 
 `GhostChainWalker` reads the committed trees as they are, supersede relations ignored.
 `RecordingTreeSplitter` gives a Re-Fly's HEAD and TIP the same `ChainId` (TIP at HEAD's index +
@@ -274,9 +274,46 @@ leaf, through the supersede-aware walk (`EffectiveState.EffectiveTipRecordingId`
 that builds HEAD / TIP / fork plus the supersede relation and checks the tip is the fork and the
 fork spawns.
 
+Fix: `GhostChainWalker.WalkToLeaf` follows supersede rows at both of its hops (the child picked at
+a branch point and the optimizer-chain hop): where the recording it lands on is superseded, it goes
+on to the effective recording (`EffectiveState.EffectiveRecordingId`, the pure supersede walk, so
+nested Re-Flies resolve too; not `EffectiveTipRecordingId`, whose switch / EVA chain hop would skip
+the walker's own claimed-parts and continued-past rules) and continues the walk from there, logging
+`WalkToLeaf: step N: segment|child=... superseded -> effective=... rule=supersede identity=...`.
+`ComputeAllGhostChains` reads the live scenario's rows (an explicit-rows overload takes a list).
+Three guards keep the old behaviour, each logged `... superseded by X, <why> - not followed`: the
+effective recording is not in the walk's tree (rows are tree-scoped, rewind design 5.7, and the
+chain's tip tree is the walk's tree; a one-sided orphan row lands here too), it is already visited,
+or it does not continue the walked vessel. The last one is the mirror: a Re-Fly writes a row from
+EVERY recording of TIP's subtree to its one fork, so a row on another vessel of that subtree (the
+merged vessel of a dock the old TIP made, a stage it dropped) names a fork that does not carry the
+claimed vessel; `ForkContinuesWalkedVessel` requires the fork to hold a claimed part (the fork
+restores from the RP quicksave, so part persistentIds match), or without part data the replaced
+recording's pid with a launch guid not conclusively different. An un-superseded chain, and the
+fork itself, are walked as before. Cells: `GhostChainWalkerSupersedeTests` (the probe shape, the
+unsplit superseded child and the nested Re-Fly red before the fix; the dock-partner row cells red
+with the identity guard removed; the no-row, off-path-row, cross-tree and orphan-row controls).
+Found while fixing: a claim whose claiming recording is itself superseded still counts (filed as
+CHAIN-CLAIM-FROM-SUPERSEDED-RECORDING).
+
 ---
 
-## OPTIMIZER-SPLIT-EMPTY-TAIL-INDEXED-FIRST: an optimizer split can leave a payload-less second half that `ReindexChain` puts at chain index 0 [FILED 2026-10-07 while verifying CHAIN-WALK-STOPS-ON-FIRST-OPTIMIZER-SEGMENT, from one collected log. OPEN, product, low; not reproduced on the current build]
+## CHAIN-CLAIM-FROM-SUPERSEDED-RECORDING: a dock or undock that only a superseded flight recorded still claims the other vessel for a ghost chain [FILED 2026-10-07 by code read while fixing CHAIN-WALK-SUPERSEDE-BLIND-HOPS-ONTO-REFLY-TIP. OPEN, product, to check; consequences not traced]
+
+`GhostChainWalker.ScanBranchPointClaims` / `ScanBackgroundEventClaims` read every committed tree's
+branch points and recordings with no supersede check, and every caller passes the unfiltered
+`RecordingStore.CommittedTrees`. So when a Re-Fly replaces a flight whose old TIP docked with a
+station (or undocked from one), the old dock branch point still claims the station: the chain is
+built, its walk starts on the superseded TIP and ends on the superseded merged recording (the walk's
+new supersede hop deliberately does not follow that recording's row to the fork, which does not
+carry the station), and flight ghosts the station until that recording's end, though the recording
+no longer plays. Not traced: what the station's spawn then does, and the Tracking Station path.
+Check first with a headless cell (the shape is `GhostChainWalkerSupersedeTests.BuildVisitorReFlyTree`);
+the likely fix is to skip a claim whose claiming recording a supersede row names.
+
+---
+
+## ~~OPTIMIZER-SPLIT-EMPTY-TAIL-INDEXED-FIRST: an optimizer split can leave a payload-less second half that `ReindexChain` puts at chain index 0~~ [FILED 2026-10-07 while verifying CHAIN-WALK-STOPS-ON-FIRST-OPTIMIZER-SEGMENT, from one collected log. REPRODUCED headless on main b8f306e56 and FIXED 2026-10-07, branch `fix-chain-walk-supersede`; not flown]
 
 `2026-09-08_2001_GS-7-kerbalx-crash-watch-hold`: the crash recording `06b271e6...` ('Kerbal X
 Probe', ended Destroyed) was split at UT 347.9 at an Atmospheric -> SurfaceMobile boundary into
@@ -289,16 +326,68 @@ whether `CanAutoSplitIgnoringGhostTriggers` still accepts a cut whose second hal
 (its 5 s test reads `rec.EndUT`, which can come from an explicit or terminal bound past the last
 sample); refuse such a cut, or index the chain by section start rather than by StartUT.
 
+Reproduced on current main through `RecordingStore.RunOptimizationPass`: samples [118.9, 347.9], a
+SurfaceMobile section from 347.92, and the crash UT 357 as `ExplicitEndUT` split into `first: 230
+pts/1 sections, second: 0 pts/1 sections`, `'atmo' [119..348] + 'surface' [0..0]`, the head at
+index 1 and the empty tail (terminal Destroyed, StartUT and EndUT 0) at index 0, the GS-7 shape.
+Fix, both halves: (a) `RecordingOptimizer.SplitHalvesCarryPayload`, called by
+`CanAutoSplitIgnoringGhostTriggers` and `CanAutoSplit` after their 5 s floor, refuses a cut unless
+the recording's actual sampled bounds (`Recording.TryGetActualTrajectoryBounds`: points, orbit
+segments, playable track sections; never the explicit or terminal bound) strictly straddle it, so
+neither half can be payload-less; the mirror (a cut before the first sample, an explicit start
+carrying the floor) is refused the same way. Logged once per state: `Optimizer split refused:
+rec=... sec=... - the second half would hold no trajectory payload (actual bounds [...])`. The 5 s
+floor itself still reads StartUT / EndUT (left alone: OPTIMIZER-PAD-SPLIT-AT-FIVE-SECOND-THRESHOLD
+is about that floor). (b) `ReindexChain` orders by `ChainOrderUT`: StartUT for a member with
+payload or an explicit start (unchanged), else its first track section's start, else last; ties go
+by the previous index, then id. Cells: `OptimizerSplitEmptyHalfTests` (both refusals through the
+real pass and the two payload-less orderings red before the fix; a split with samples on both sides
+and a payload chain's StartUT order are the controls).
+
 ---
 
-## ROUTE-TICK-BASELINE-SET-BEFORE-GO-BACK-CLOCK-MOVE: after a go-back rewind, route ticks may stall until the clock passes the pre-rewind UT [FILED 2026-10-07 from the PR #2036 review. OPEN, product; unverified, pre-existing]
+## ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS: inside a go-back rewind's lead-time window, a load back to a save written in that window keeps the route actions taken after it [FILED 2026-10-07 from the route state floor, branch `fix-route-goback-cutoff`. OPEN, product, low; by construction, not reproduced in game]
 
-`ParsekScenario.Update` sets `lastRouteTickUT` on the new scenario's first `Update`, which likely
-runs before `ApplyRewindResourceAdjustment` moves the clock back to the rewind target; if so the
-next ticks see the clock behind `lastRouteTickUT` and route crossings stall until it is passed.
-The H58 log has too few `Tick:` lines to tell. Check first: a go-back rewind log with an Active
-route, the first `Update` / `lastRouteTickUT` stamp against the clock-move line, then the next
-route `Tick:` lines.
+The go-back rewind keys its route cutoff to the rewind save's own UT, up to 15 s ahead of the
+wound-back clock, and every save written before the clock passes it carries that route state floor;
+a load of such a save keys its route cutoff to the floor, not to its own UT. So a route row written
+after that save but before the floor (a pause or resume row, say; the window's crossings already
+fired) survives a quickload, a revert to a launch made in the window
+(its prune spares route rows up to the floor) and an F9 at the Space Center (which also keeps a Send
+Once or pause-after-this-run armed after the save). A route CREATED in the window after that save
+also survives a load back to it (its CreatedUT is below the floor, and the save does not carry it)
+with a reset cursor, so its in-window crossing can charge a second time; before the floor such a
+route went dormant. Needs a save AND an action inside the same 15 s of game time; the load itself can
+come any time later (an F9 to that quicksave much later hits the same thing). Same class as the
+UT-only reconcile: an F9 to an in-window save from an abandoned timeline keeps the newer timeline's
+route rows up to the floor. A fix would mark the rows the go-back kept (action ids) instead of a UT.
+Found by the PR #2040 re-review.
+
+---
+
+## ~~ROUTE-TICK-BASELINE-SET-BEFORE-GO-BACK-CLOCK-MOVE: after a go-back rewind, route ticks may stall until the clock passes the pre-rewind UT~~ [FILED 2026-10-07 from the PR #2036 review. CONFIRMED and FIXED 2026-10-07 on branch `fix-route-goback-cutoff` (headless only, not flown)]
+
+**CONFIRMED.** Code: the tick gate was `if (currentUT - lastRouteTickUT < TickIntervalSec) return;`
+with no reseed, so a clock behind the baseline read as "no time passed" until it passed the
+baseline again. The go-back rewind loads the Space Center at persistent.sfs's clock and moves the
+UT back from `ApplyRewindResourceAdjustment` after a `yield return null`, so the new scenario's
+first `Update` seeds the baseline at the pre-rewind UT. Logs (the only go-back rewind logs with a
+route are H58's): `2026-09-10_2144` and `2026-09-11_0303` (`Parsek-cheap-flights-arming/harness/results`)
+and `logs/2026-09-02_1336_H58-NEGCTL` all read `[OnLoad:settings-applied] ... ut=1601.9
+scene=SPACECENTER` and `HandleRewindOnLoad:exit ... ut=1601.9`, then `UT adjustment: 1601.9 ->
+1585.5` about 55 ms later, then OnSave at ut=1587.7 / 1587.9 before the quit: 2.4 s of game time
+at 1x with no route `Tick:` line and no per-route `not ghost-driving - skipped` line, both 5 s
+wall rate-limited and last printed about 4.5 s before the clock move in each run (`_2144`:
+00:45:21.188 against 00:45:25.719), so the tick due at ~1586.5 (about 1 s of wall after the move,
+past the limit) would have printed. The stall lasts until the clock
+passes the pre-rewind UT or the player leaves the Space Center (a new scenario instance reseeds);
+on a deep rewind that is the whole stay, warp included.
+**FIXED.** `Logistics/RouteTickClock.Advance` owns the pacing `ParsekScenario.Update` used to
+inline and re-seeds the baseline when the clock is behind it (Info `Tick clock: UT moved back
+from <a> to <b>; baseline reset ...`), so the first tick comes one interval after the move.
+Red cell `RouteTickClockTests.ClockMovedBack_ReseedsTheBaseline_TheNextIntervalTicks` (the H58
+sequence 1601.9 -> 1585.5 -> 1586.5; red `Waiting` on the old gate), plus the pacing contract
+cell and a source gate that `Update` goes through the helper.
 
 ---
 
@@ -1982,13 +2071,53 @@ Mirror cases as on the in-session load: a changed clock definition keeps the -1 
 anchor still goes back), a route created after the cutoff goes dormant as before, a kept route the
 save does not carry keeps the reset, no save copy / no usable clock / a save newer than the cutoff
 keeps the reset and logs `loop position not restored ... reason=`, and a rewind with nothing on
-the route after the save leaves its loop position unchanged. Residual (go-back only): the rewind
+the route after the save leaves its loop position unchanged. ~~Residual (go-back only): the rewind
 save's route copy is as of the save's own UT, up to the 15 s lead-time windback after the cutoff,
 while route rows after the cutoff are retired; a crossing that fired inside that window keeps its
 saved cursor and is not charged again, and its `RouteRecoveryCredited` row (the credit it paid for
 the previous cycle) is retired too while the save no longer owes it, so that credit is lost as
-well (PR #2036 review; never a double charge or a double delivery). Changing the go-back's route
-cutoff to the save's own UT would close both; owner decision, not done here. Red cells (written against stubs, 20 red, then green):
+well (PR #2036 review; never a double charge or a double delivery).~~ **CLOSED** (owner ruling
+2026-10-07, branch `fix-route-goback-cutoff`, headless only, not flown): the go-back's route retire
+and store reconcile now key on the rewind save's own UT, the moment the restored route state comes
+from. `RecordingStore.PreProcessRewindSave` returns the save's UT before the windback,
+`ExecuteRewindSaveLoad` parks it with the route copy (`RouteLoadReconcile.ResolveRewindSaveOwnUT`;
+the parsed clock when nothing was wound back), and `HandleRewindOnLoad` calls
+`RouteLoadReconcile.ReconcileAtGoBackRewind`, whose cutoff (`ResolveGoBackRouteCutoffUT`) is that UT
+whenever the copy is in hand and the adjusted UT otherwise (no copy: nothing is restored, so the rows
+after the clock go and the reset re-fires each once). Only routes move: the career prune, recalc,
+tech and crew stay at the adjusted UT. Every consumer of the route cutoff follows it: the restore's
+skip test (save never newer than the cutoff), the retired-route-cargo capture and its per-snapshot
+watermark (`CaptureRetiredRouteCargo` is called from `RetireFutureRouteActionsAtRewind` with the
+retire's own cutoff), and the dormant split (a route created inside the window stays committed,
+as the save carries it). The rows kept between the wound-back clock and the save's UT lie ahead of
+the clock, so a later load keyed to its own UT would take them for an abandoned future: the PR #2040
+review found that a scene change inside the window (KSC to the VAB, a launch, an F9 at the KSC) ran
+the in-session reconcile at the clock, retired them again under the restored fired cursor (the free
+run back) and cleared one-shots armed after the rewind. So a go-back whose cutoff lies ahead of the
+clock also sets the route state floor `RouteStore.StateFloorUT`; `SaveRoutesTo` writes it as the sparse
+`routeStateFloorUT` value while set, every load reads the floor its save carries
+(`RouteLoadReconcile.ReconcileAtInSessionLoad`, the cold `LoadRoutesFrom`, the Re-Fly start's
+`ConsumePostLoad`, the go-back capture) and keys its route cutoff and the UT of its route copy to the
+later of its own UT and that floor (`ApplyRouteStateFloor`), the revert prune spares route rows up to
+the revert save's floor, and the floor in memory becomes the loaded save's while its clock is behind
+it (`ResolveFloorAfterLoad`), so a save without one (written before the rewind) is a load back past
+the window that reconciles at its own UT and clears it, and so does a load whose clock has passed it.
+The Re-Fly start otherwise needed nothing: its loaded save is the RP quicksave, so its cutoff is
+already that save's UT. A route whose clock definition changed after the save keeps the
+reset; with the window's rows kept, a re-timed crossing landing inside the window can charge once
+more there (not measured, rare). Red cells: `RouteRewindLoopPositionTests.GoBack_CrossingInsideTheWindbackWindow_KeepsItsChargeAndItsCredit`
+(the charge and the credit row kept, the crossing not re-fired across 1445..1460, the next fires
+once), `ResolveGoBackRouteCutoffUT_IsTheSavesOwnUtWhenItsCopyIsInHand`,
+`ResolveRewindSaveOwnUT_PrefersThePreWindbackUt` and
+`RewindLoggingTests.PreProcessRewindSave_ReturnsTheSavesOwnUtBeforeTheWindback`; the
+`HandleRewindOnLoad` / `ExecuteRewindSaveLoad` source gates re-pinned to the new calls; the floor's
+cells in `RouteGoBackWindowFloorTests` (the review probe: a scene change in the window keeps the
+charge, the cursor and a Send Once armed after the rewind; F5 in the window then F9; a revert to a
+launch in the window; a Re-Fly start from an RP in the window; a load back past the window still
+reconciling; the floor's lifetime), 10 red before the floor. Residual, filed as
+ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS.
+`H58-route-rewind-to-launch` re-pinned to the predicted reading (see `autotest-status.md`), not
+re-flown. Red cells (written against stubs, 20 red, then green):
 `RouteRewindLoopPositionTests` (the double fire, no-op, anchor after a re-activation, partner
 cursor, changed clock, created-after / missing-from-save, no save copy, owed credit unpaid by the
 exit, each x {GoBack, ReFlyStart}; the parsed-save capture; source gates on `HandleRewindOnLoad`,

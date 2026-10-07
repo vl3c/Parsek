@@ -175,6 +175,7 @@ namespace Parsek
             double firstHalfDuration = splitUT - rec.StartUT;
             double secondHalfDuration = rec.EndUT - splitUT;
             if (firstHalfDuration < 5.0 || secondHalfDuration < 5.0) return false;
+            if (!SplitHalvesCarryPayload(rec, sectionIndex, splitUT)) return false;
 
             return true;
         }
@@ -198,8 +199,54 @@ namespace Parsek
             double firstHalfDuration = splitUT - rec.StartUT;
             double secondHalfDuration = rec.EndUT - splitUT;
             if (firstHalfDuration < 5.0 || secondHalfDuration < 5.0) return false;
+            if (!SplitHalvesCarryPayload(rec, sectionIndex, splitUT)) return false;
 
             return true;
+        }
+
+        /// <summary>
+        /// Whether both halves of a cut at <paramref name="splitUT"/> would hold trajectory
+        /// payload: the recording's ACTUAL sampled bounds
+        /// (<see cref="Recording.TryGetActualTrajectoryBounds"/>: points, orbit segments,
+        /// playable track sections; never the explicit or terminal bound) must strictly
+        /// straddle the cut. The 5 s floor above reads <see cref="Recording.StartUT"/> /
+        /// <see cref="Recording.EndUT"/>, which an explicit bound can carry past the samples
+        /// (a crash UT after the last sample, a record start before the first), so a cut
+        /// there passed it and left a half with no sample: its StartUT then read the 0.0
+        /// fallback and <see cref="ReindexChain"/> put it first, so every reader that takes
+        /// the highest chain index as the chain's end landed on the other half
+        /// (OPTIMIZER-SPLIT-EMPTY-TAIL-INDEXED-FIRST). Refusals are logged once per state.
+        /// </summary>
+        internal static bool SplitHalvesCarryPayload(Recording rec, int sectionIndex, double splitUT)
+        {
+            if (rec == null) return false;
+
+            string emptyHalf = null;
+            double actualStartUT;
+            double actualEndUT;
+            bool hasPayload = rec.TryGetActualTrajectoryBounds(out actualStartUT, out actualEndUT);
+            if (!hasPayload)
+                emptyHalf = "either half";
+            else if (!(actualStartUT < splitUT))
+                emptyHalf = "first half";
+            else if (!(actualEndUT > splitUT))
+                emptyHalf = "second half";
+            if (emptyHalf == null)
+                return true;
+
+            var ic = CultureInfo.InvariantCulture;
+            string actualBounds = hasPayload
+                ? string.Format(ic, "[{0:F2},{1:F2}]", actualStartUT, actualEndUT)
+                : "<no sampled content>";
+            ParsekLog.VerboseOnChange("Optimizer",
+                identity: string.Format(ic, "split-empty-half|{0}|{1}", rec.RecordingId, sectionIndex),
+                stateKey: string.Format(ic, "{0:R}|{1}|{2}", splitUT, emptyHalf, actualBounds),
+                message: string.Format(ic,
+                    "Optimizer split refused: rec={0} sec={1} splitUT={2:F2} - the {3} would hold no " +
+                    "trajectory payload (actual bounds {4}, StartUT={5:F2} EndUT={6:F2})",
+                    rec.RecordingId, sectionIndex, splitUT, emptyHalf, actualBounds,
+                    rec.StartUT, rec.EndUT));
+            return false;
         }
 
         /// <summary>
@@ -2170,7 +2217,9 @@ namespace Parsek
 
         /// <summary>
         /// Re-indexes ChainIndex for all branch-0 recordings with the given ChainId.
-        /// Sorts by StartUT, assigns sequential indices starting from 0.
+        /// Sorts by <see cref="ChainOrderUT"/> (StartUT, except for a member whose StartUT is
+        /// only the 0.0 fallback), then by the previous ChainIndex and the recording id for a
+        /// deterministic order on ties, and assigns sequential indices starting from 0.
         /// </summary>
         internal static void ReindexChain(List<Recording> committed, string chainId)
         {
@@ -2183,12 +2232,59 @@ namespace Parsek
                     members.Add(committed[i]);
             }
 
-            members.Sort((a, b) => a.StartUT.CompareTo(b.StartUT));
+            int fallbackOrdered = 0;
+            var keys = new Dictionary<Recording, double>(members.Count);
+            for (int i = 0; i < members.Count; i++)
+            {
+                bool usedFallback;
+                keys[members[i]] = ChainOrderUT(members[i], out usedFallback);
+                if (usedFallback)
+                    fallbackOrdered++;
+            }
+
+            members.Sort((a, b) =>
+            {
+                int cmp = keys[a].CompareTo(keys[b]);
+                if (cmp != 0) return cmp;
+                cmp = a.ChainIndex.CompareTo(b.ChainIndex);
+                if (cmp != 0) return cmp;
+                return string.CompareOrdinal(a.RecordingId ?? "", b.RecordingId ?? "");
+            });
             for (int i = 0; i < members.Count; i++)
                 members[i].ChainIndex = i;
 
             ParsekLog.Verbose("Optimizer",
-                $"ReindexChain: chainId={chainId}, {members.Count} branch-0 members re-indexed");
+                $"ReindexChain: chainId={chainId}, {members.Count} branch-0 members re-indexed" +
+                (fallbackOrdered > 0
+                    ? $" ({fallbackOrdered.ToString(CultureInfo.InvariantCulture)} with no trajectory payload " +
+                      "or explicit start, ordered by first track section start, else last)"
+                    : ""));
+        }
+
+        /// <summary>
+        /// The UT a chain member is ordered by in <see cref="ReindexChain"/>. A member with
+        /// trajectory payload or an explicit start orders by <see cref="Recording.StartUT"/>
+        /// as always. A member with neither has a StartUT that is only the 0.0 fallback, not a
+        /// time, so ordering by it put a payload-less segment FIRST
+        /// (OPTIMIZER-SPLIT-EMPTY-TAIL-INDEXED-FIRST); it orders by its first track section's
+        /// start instead, and with no section it goes last
+        /// (<paramref name="usedFallback"/> true for both).
+        /// </summary>
+        internal static double ChainOrderUT(Recording rec, out bool usedFallback)
+        {
+            usedFallback = false;
+            if (rec == null)
+            {
+                usedFallback = true;
+                return double.PositiveInfinity;
+            }
+            if (rec.HasActualTrajectoryBounds || !double.IsNaN(rec.ExplicitStartUT))
+                return rec.StartUT;
+
+            usedFallback = true;
+            if (rec.TrackSections != null && rec.TrackSections.Count > 0)
+                return rec.TrackSections[0].startUT;
+            return double.PositiveInfinity;
         }
 
         #region Private helpers
