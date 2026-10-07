@@ -2269,7 +2269,7 @@ the station, or more, is left out (stock records nothing that tells it from a ho
 smaller visiting ship is taken, so the hover says to undock visitors first; the transport is
 recognised only while it carries the root part flightIDs its recordings captured, so a transport
 Parsek spawned from a recording (fresh flightIDs, `VesselSpawner.RegenerateVesselIdentity`)
-counts as a visiting ship. `IsRunInFlight` greys a multi-stop loop route part-way through its
+counts as a visiting ship. An endpoint with no recorded part set (its scope falls back to the whole vessel, `outcome=no-recorded-parts`) keeps only its root piece plus the smaller clusters after a press, so a module bigger than its core stops taking cargo; and a stop larger than a host that is not an endpoint of the route takes that host in. `IsRunInFlight` greys a multi-stop loop route part-way through its
 stops even while Paused (Send un-pauses without resetting the stop cursors and finishes that
 cycle; Activate resets them); it also greys a multi-stop
 route right after an Advanced cadence change on a windowed (re-aim) basis until that cycle's

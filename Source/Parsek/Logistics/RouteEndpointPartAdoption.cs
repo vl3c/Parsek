@@ -237,8 +237,10 @@ namespace Parsek.Logistics
         /// (<paramref name="otherEndpoints"/>) or holding a part named in
         /// <paramref name="transportRootFlightIds"/> stays out
         /// (<see cref="CaptureDecision.ExcludedPieces"/>). The endpoint's own pieces are
-        /// always adopted, so an endpoint whose every cluster is left out re-adopts exactly
-        /// the parts its scope already keeps: that is not a refusal.</item>
+        /// always adopted, so an endpoint whose every cluster is left out re-adopts its own
+        /// pieces: that is not a refusal. With a recorded or adopted set that is what its scope
+        /// already keeps; with neither, the scope fell back to the whole vessel, so the press
+        /// narrows it to the root piece plus the smaller clusters.</item>
         /// </list>
         /// </summary>
         internal static CaptureDecision DecideCapture(
