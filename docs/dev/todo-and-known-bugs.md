@@ -16,7 +16,23 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## QUICKLOAD-RESUMED-MEMBER-KEEPS-ABANDONED-FUTURE-MERGE-STATE: an F9 resumes a tree member with the merge state its abandoned future's commit gave it [FILED 2026-10-07 from the QL-4 / QL-4b / QL-4c reading runs, branch `f9-verify`, verified in the produced saves and by code read. OPEN, product]
+## V16M-ICON-OFF-ORBIT-AT-TIMEJUMP-LANDING: V16M's ghost map icon sits ~1.3 deg off its orbit on the frame a TimeJump lands [FILED 2026-10-07 from the PR #2051 flights, measured twice. OPEN, render, not yet triaged]
+
+`V16M-laythe-player-loop` reads PARSEK-FAIL on the unallowed Tier-C anomaly `icon-off-orbit`
+(`[MapRenderTrace] phase=Anomaly surface=ProtoIcon ... reason=icon-off-orbit
+angleIconVsOrbitEff=1.30 angleEffVsLive=0.00 loopShift=0.0`) in both `2026-10-07_2200` and
+`2026-10-07_2335`, at exactly the same two moments: the frames on which two of its TimeJumps land
+(currentUT 29874214 and 30933832), two ProtoIcon pids each, all of recording
+`370d38246d6e42848f140884081428af`. Deterministic, not an intermittent. Not caused by PR #2051:
+that PR's only change to V16M is one 1x wait AFTER the fourth jump, and the first hit fires at the
+third. The last V16M flight on record is `2026-09-10_2032` (0 hits on that DLL), so the change
+that introduced it lies between that build and main at `5d98479fb`. Next: read the icon-vs-orbit
+probe on the jump frame (`MapRenderProbe`, `ProtoIcon` placement against `orbitEff`) and bisect
+the window by flying V16M on an older main.
+
+---
+
+## ~~QUICKLOAD-RESUMED-MEMBER-KEEPS-ABANDONED-FUTURE-MERGE-STATE: an F9 resumes a tree member with the merge state its abandoned future's commit gave it~~ [FILED 2026-10-07 from the QL-4 / QL-4b / QL-4c reading runs, branch `f9-verify`, verified in the produced saves and by code read. FIXED 2026-10-07, branch `ql-merge-state` (PR #2049). LIVE-PROVEN 2026-10-07: QL-4 / QL-4b / QL-4c PASS attempt 1 on both commits (`2026-10-07_2016` / `_2022` / `_2027`, then `_2055` / `_2043` / `_2049`), each logging `mergeStatesReset=1` and `ReapOrphanedRPs: reaped=1 remaining=0`, report-only `rewindPoints` clean]
 
 QL-4 commits the flight in flight while the probe booster is still under canopy: the commit
 classifies it `stableLeafUnconcluded` (SubOrbital) and promotes it to CommittedProvisional
@@ -43,9 +59,42 @@ xUnit - a committed tree whose child was promoted CommittedProvisional after the
 quicksave restore + reconcile, then assert the member's merge state is the quicksave's. Live
 witness: the QL-4 family's report-only `rewindPoints = { max = 0 }` (arm it after the fix).
 
+FIXED: the first direction, in the reconcile. `CaptureQuicksaveTreeFacts` records each member's
+merge state as the quicksave node holds it (`QuicksaveMemberFacts.QuicksaveMergeState`; no key
+reads Immutable), and `TrimAndReconcileForQuickloadResume` gives every surviving trimmed member the
+merge state of its quicksave baseline back (`ResetAbandonedFutureMergeStates`, pure
+`ResolveQuicksaveBaselineId` and `ShouldResetMergeStateForResume`), under the same
+`AbandonedFutureEndStates` cell. The baseline is the member itself when the quicksave holds it;
+a member the quicksave does not hold is a second half the abandoned commit's optimizer split cut
+off a quicksave member (SplitAtSection copies CommittedProvisional onto both halves and moves the
+terminal to the second), so its baseline is the nearest earlier member of the same chain and
+branch the quicksave holds. Every surviving member is covered, not only those whose end state was
+cleared: a split past the cutoff prunes the second half and leaves the head as the slot tip with no
+end state to clear. Committed history never reaches the set (the plan skips a recording still
+committed or shown as history by the quicksave), a split half whose baseline is such a recording
+keeps its state (`baseline-not-reconciled`), a live NotCommitted provisional and a quicksave
+NotCommitted state are kept (the Re-Fly scope is ActiveRecOnly and its provisional's session fields
+are untouched), and the refresh rule itself is unchanged (the Re-Fly sibling-slot adoption still
+needs it). The final commit re-derives the state: the detached committed copy no longer counts as
+committed, so it is the member's first commit and a booster still SubOrbital is promoted again,
+while a Landed one stays Immutable and the reaper closes the rewind point once every slot is.
+Logged: `mergeStatesReset=N` appended LAST to the `Quickload abandoned-future reconcile:` line
+(every QL-4 lane regex still matches) plus one Verbose `Quickload abandoned-future merge state
+reset: ... baseline=<id>` per reset member and `... kept:` per kept member whose state differs or
+has no baseline. Red tests (failed with the reset disabled, the split cells against the first
+commit's cleared-members-only reset): `QuickloadCommittedAfterQuicksaveTests.PromotedAfterTheQuicksave_ResumedMemberTakesBackTheQuicksaveMergeState`
+(the QL-4 no-save refresh, the QL-4b Space Center salvage and the QL-4c in-flight-save salvage, each
+unsplit, split after and split before the quicksave),
+`QuickloadResumedMergeStateTests.FinalCommit_RederivesTheBoosterMergeState_AndReapsWhenEverySlotIsClosed`
+(Landed: reaped; SubOrbital: re-promoted, kept; without the reconcile: the leak) and
+`FinalCommit_SplitBeforeTheQuicksave_TipRederivedAndReapedWhenClosed` (the same through the split
+tail as slot tip). Mirror cells: `CommittedBeforeTheQuicksave_PromotedMemberKeepsItsCommittedMergeState`,
+`CommittedHistory_MergeStateLeftAlone`, `SplitHalfOfQuicksaveHistory_KeepsItsMergeState`,
+`ReFlyScope_ProvisionalAndSiblingKeepTheirMergeStateAndSessionFields`, `ResolveQuicksaveBaselineId_Table`.
+
 ---
 
-## ~~HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS: since PR #2017 an inert seam step costs one frame, so lanes that size a wait in inert steps wait about a tenth as long~~ [FILED 2026-10-07 from the F9 verification flights, branch `f9-verify`, measured. FIXED 2026-10-07 in the specs on branch `scene-wait` (owner decision: scene-agnostic `WarpToUT`, TC-1), live proof owed by the flights listed below; six settles left with reasons, S4.4 stays a retry-absorbed race]
+## ~~HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS: since PR #2017 an inert seam step costs one frame, so lanes that size a wait in inert steps wait about a tenth as long~~ [FILED 2026-10-07 from the F9 verification flights, branch `f9-verify`, measured. FIXED 2026-10-07 in the specs on branch `scene-wait` (owner decision: scene-agnostic `WarpToUT`, TC-1), LIVE-PROVEN 2026-10-07 on PR #2051's DLLs: 42 of the 43 changed lanes PASS (first run `2026-10-07_2100`..`_2223`, then the seven Tracking Station lanes, LF-1 and V16M re-flown `_2333`..`_2341` on `bf40ef53f`, the 1x-wait TIMEWARP-lock fix for stock's `intro_TS` tutorial lock); V16M is red on an unrelated render finding (V16M-ICON-OFF-ORBIT-AT-TIMEJUMP-LANDING); six settles left with reasons; S4.2 / S4.4 race filed as REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START]
 
 PR #2017 (harness overhead, 2026-10-06) polls a seam response every 0.025 s for the first 2 s
 after the command write (`hlib.SEAM_FAST_POLL_SECONDS` / `seam_poll_interval`). An inert step

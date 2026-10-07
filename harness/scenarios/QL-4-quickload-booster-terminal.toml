@@ -142,10 +142,11 @@ id = "QL-4-quickload-booster-terminal"
 #     roadmap note (no career fixture flies the GS1 craft).
 #
 # STATUS: AUTHORED 2026-10-06 (PR #2025); LIVE-PROVEN 2026-10-07 `2026-10-07_1931` (PASS attempt 1 on the
-# settle fix). Report-only reading: `rewind.rewindPoints 1 > max 0` - the replayed booster
-# lands but keeps the abandoned future's CommittedProvisional merge state, so its rewind
-# point is never reaped (todo QUICKLOAD-RESUMED-MEMBER-KEEPS-ABANDONED-FUTURE-MERGE-STATE);
-# the window stays at 0, the post-fix prediction. Every token is quoted
+# settle fix). Report-only reading then: `rewind.rewindPoints 1 > max 0` - the replayed
+# booster kept the abandoned future's CommittedProvisional merge state, so its rewind point
+# was never reaped (todo QUICKLOAD-RESUMED-MEMBER-KEEPS-ABANDONED-FUTURE-MERGE-STATE). Fixed
+# by PR #2049 and re-flown PASS `2026-10-07_2016` / `_2055`: `mergeStatesReset=1`, rewind point reaped,
+# the window reads clean at 0. Every token is quoted
 # from its emitting source line or from a sibling lane's measured log (GS-1 / RF-1 /
 # CA-1 / RF-LANES-RELOAD-A-PRE-COMMIT-SAVE), never pasted from a run of this lane; the
 # saveParse blocks are REPORT-ONLY until a reading run.
