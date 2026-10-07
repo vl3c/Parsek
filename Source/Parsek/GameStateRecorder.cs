@@ -42,6 +42,67 @@ namespace Parsek
         /// </summary>
         internal static List<PendingScienceSubject> PendingScienceSubjects = new List<PendingScienceSubject>();
 
+        /// <summary>
+        /// Optimizer-split partition of the in-memory capture state, the companion of
+        /// <see cref="GameStateStore.RetagEventsForSplitSecondHalf"/>
+        /// (RETAG-ON-SPLIT-MISSES-LATER-ROWS): every pending science subject tagged
+        /// <paramref name="firstRecordingId"/> whose <c>captureUT</c> is <c>&gt;= splitUT</c>
+        /// is retagged to <paramref name="secondRecordingId"/>, so the commit converts it for
+        /// the segment it was captured in (its row takes that segment's end as its UT, not
+        /// the first segment's). The cached copies in <see cref="PendingMilestoneEventById"/>
+        /// get the same retag, because <see cref="EnrichPendingMilestoneRewards"/> finds the
+        /// stored event by an identity that includes the tag. Returns the number of science
+        /// subjects retagged.
+        /// </summary>
+        internal static int RetagPendingScienceForSplitSecondHalf(
+            string firstRecordingId, string secondRecordingId, double splitUT)
+        {
+            if (string.IsNullOrEmpty(firstRecordingId) || string.IsNullOrEmpty(secondRecordingId))
+                return 0;
+            if (string.Equals(firstRecordingId, secondRecordingId, StringComparison.Ordinal))
+                return 0;
+            if (double.IsNaN(splitUT) || double.IsInfinity(splitUT))
+                return 0;
+
+            int retagged = 0;
+            for (int i = 0; i < PendingScienceSubjects.Count; i++)
+            {
+                var s = PendingScienceSubjects[i];
+                if (!string.Equals(s.recordingId ?? "", firstRecordingId, StringComparison.Ordinal))
+                    continue;
+                if (!(s.captureUT >= splitUT))
+                    continue;
+                s.recordingId = secondRecordingId;
+                PendingScienceSubjects[i] = s;
+                retagged++;
+            }
+
+            int milestoneCopies = 0;
+            if (PendingMilestoneEventById.Count > 0)
+            {
+                var keys = new List<string>(PendingMilestoneEventById.Keys);
+                for (int i = 0; i < keys.Count; i++)
+                {
+                    var evt = PendingMilestoneEventById[keys[i]];
+                    if (!string.Equals(evt.recordingId ?? "", firstRecordingId, StringComparison.Ordinal))
+                        continue;
+                    if (!(evt.ut >= splitUT))
+                        continue;
+                    evt.recordingId = secondRecordingId;
+                    PendingMilestoneEventById[keys[i]] = evt;
+                    milestoneCopies++;
+                }
+            }
+
+            ParsekLog.Verbose("GameStateRecorder",
+                $"RetagPendingScienceForSplitSecondHalf: first='{firstRecordingId}' second='{secondRecordingId}' " +
+                $"splitUT={splitUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"retagged={retagged.ToString(CultureInfo.InvariantCulture)} " +
+                $"pendingMilestoneCopies={milestoneCopies.ToString(CultureInfo.InvariantCulture)} " +
+                $"total={PendingScienceSubjects.Count.ToString(CultureInfo.InvariantCulture)}");
+            return retagged;
+        }
+
         internal struct RecentScienceChangeCapture
         {
             public double Ut;

@@ -3676,6 +3676,18 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A flight the recording optimizer splits when you commit it now books each result on the
+  part where it happened.** Parsek cuts a fresh flight into parts (a few seconds on the pad,
+  the climb, the landing) before it books the flight's results, and every milestone, contract,
+  transmitted experiment and reputation change still named the first part. A re-fly of a later
+  part then kept the milestones and science earned in it after the rewind point, a transmitted
+  experiment was dated at the end of the first part (in one test flight, a pad stretch ending
+  330 s before the transmission), and a crewed vessel lost after a split got no reputation
+  penalty in the ledger at all, because that penalty is booked on the part that carries the
+  crew deaths. The split now moves the flight's not-yet-booked results past its cut onto the
+  later part, the way it already moved booked entries. Covered by xUnit; not yet checked in a
+  test flight.
+
 - **A station hidden after a rewind comes back when its recorded future ends, also when that
   future crossed into the atmosphere or another world.** When a committed mission docks with
   or undocks from one of your vessels, the vessel is hidden after a rewind until the mission's

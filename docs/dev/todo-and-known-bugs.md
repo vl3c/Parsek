@@ -35,7 +35,7 @@ measured differently; then re-pin L3 / L5.
 
 ---
 
-## RETAG-ON-SPLIT-MISSES-LATER-ROWS: ledger rows written after the optimizer split stay on the split recording's first segment, even when their UT is past its end [FILED 2026-10-07 from the release verification flights, branch `verify-followups`. OPEN, to check; impact on supersede / tombstone scoping not traced]
+## ~~RETAG-ON-SPLIT-MISSES-LATER-ROWS: ledger rows written after the optimizer split stay on the split recording's first segment, even when their UT is past its end~~ [FILED 2026-10-07 from the release verification flights, branch `verify-followups`. CONFIRMED (not cosmetic) and FIXED 2026-10-07, branch `optimizer-retag-followups`; xUnit only, not flown]
 
 On the commit of `2026-10-07_0032_L5-career-contract-complete` the optimizer split the flight
 twice (`RetagActionsForSplitSecondHalf: ... splitUT=14.64 retagged=0` and `... splitUT=341.26
@@ -50,6 +50,38 @@ recording's UT span: a Re-Fly or rewind supersede / tombstone set built from a s
 on an earlier segment may stay outside the superseded set), and per-recording reward readouts.
 If it matters, convert the events per segment after the split, or retag by UT after the ledger
 add.
+
+It matters. Both commit paths (`MergeDialog.MergeCommit` and `ParsekFlight.CommitTreeFlight`)
+run `RecordingStore.RunOptimizationPass` BEFORE `LedgerOrchestrator.NotifyLedgerTreeCommitted`,
+so a fresh flight's results are still captured events (`GameStateStore.Events`) and pending
+science subjects (`GameStateRecorder.PendingScienceSubjects`) when it is split, all tagged with
+the pre-split id the first segment keeps, and `GameStateEventConverter.ConvertEvents` reads the
+tag as ownership past the segment's end (BUG-A). Measured headless on the real split + commit
+(`OptimizerSplitCommitAttributionTests`, fixture atmo 8-20 / exo 20-53, crew killed at 53):
+before the fix both milestones and the transmitted subject landed on segment 1, the subject's
+`ScienceEarning` row at UT 20 (segment 1's end; it was captured at 45), and NO
+`ReputationPenalty(KerbalDeath)` row was filed at all (`KerbalDeathRepPenalty.Decide` matches the
+VesselLoss event by exact tag: segment 1 has the event but no dead crew, the last segment has the
+dead crew but no event). A Re-Fly of segment 2 from UT 34 then retired only the two deaths: the
+milestone earned at 40 and the science stayed effective, because
+`SupersedeCommit.IsPreRewindCarveOut` carves the earlier chain segment out of the tombstone set
+(chain sibling, lower index, ends before the rewind) and the Re-Fly split's step-2.9 retag moves
+only rows tagged to the segment it splits. The L5 run shows the science-UT effect live: its
+`crewReport` ScienceEarning row reads UT 14.64 (the pad segment's end) for a capture at 345.26.
+Readouts that only resolve the tag to a vessel name (the Timeline, `CommittedFutureIndex`) were
+unaffected beyond that UT.
+
+Fix: the optimizer split partitions all three carriers of the original id at the same cut and
+`>=` sense: ledger rows (`Ledger.RetagActionsForSplitSecondHalf`, unchanged), captured events
+(`GameStateStore.RetagEventsForSplitSecondHalf`) and pending science subjects plus the cached
+pending-milestone copies the reward enrichment matches by tag
+(`GameStateRecorder.RetagPendingScienceForSplitSecondHalf`), all from
+`RecordingStore.RetagLedgerActionsAfterOptimizationSplit`, so the commit books each result on the
+segment whose span contains it. Mirror direction checked: an optimizer MERGE cannot absorb a
+recording whose events are still unconverted (chain ids exist only on committed recordings, and
+the merge pass runs before the split pass), and the Re-Fly split runs after the tree's ledger
+commit, so neither needs the event retag. Tests: `OptimizerSplitCommitAttributionTests` (five
+cells, the end-to-end one red before the fix on all four facts above).
 
 ---
 
