@@ -135,6 +135,21 @@ namespace Parsek.Logistics
             return null;
         }
 
+        /// <summary>The latest <see cref="RouteEndpointAdoptedParts.AdoptedUT"/> on the route,
+        /// or -1 when it has no dated adoption (the Logistics hover's "Last updated" clause).</summary>
+        internal static double LastAdoptedUT(Route route)
+        {
+            double latest = -1.0;
+            List<RouteEndpointAdoptedParts> entries = route?.AdoptedEndpointParts;
+            if (entries == null) return latest;
+            for (int i = 0; i < entries.Count; i++)
+            {
+                RouteEndpointAdoptedParts entry = entries[i];
+                if (entry != null && entry.AdoptedUT > latest) latest = entry.AdoptedUT;
+            }
+            return latest;
+        }
+
         /// <summary>
         /// Live entry point: adopts every resolvable endpoint's current parts at the current UT.
         /// Resolution is <see cref="RouteEndpointResolver.TryResolveEndpoint"/>, the same lookup

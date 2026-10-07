@@ -731,6 +731,74 @@ namespace Parsek
                 : "The mission this route was built from no longer exists";
         }
 
+        // ----- Update parts (owner ruling 2026-10-07) -----
+
+        /// <summary>The detail block's Update parts single: re-captures every endpoint's
+        /// current parts (<see cref="RouteEndpointPartAdoption"/>). Short enough for the
+        /// block's 100 px single; the hover explains it.</summary>
+        internal const string UpdatePartsButtonLabel = "Update parts";
+
+        /// <summary>The Update parts hover: what the press counts, and that it takes the
+        /// docked vessel whole (a visitor docked at that moment would be counted too).</summary>
+        internal const string UpdatePartsTooltip =
+            "Counts every part now docked to the origin and to each stop as that endpoint's own, "
+            + "so modules added since the route was made get cargo. Undock visiting ships first.";
+
+        /// <summary>Why Update parts is greyed while a run is under way.</summary>
+        internal const string UpdatePartsInFlightReason =
+            "A run is under way; update parts after it has delivered";
+
+        /// <summary>
+        /// True while a run of <paramref name="route"/> is under way, i.e. its cargo was
+        /// gated (and the origin debited) against the part sets the route held at dispatch
+        /// and some of it is still to be written: a self-timer run in transit or with its
+        /// arrival pending delivery, or a multi-stop loop cycle that has fired some of its
+        /// stops but not all (each stop keeps the cycle it last fired; they agree between
+        /// cycles). The self-timer's cycle-start stamp is not read: a delivery never clears
+        /// it. A single-stop loop run fires in one tick and is never under way here.
+        /// </summary>
+        internal static bool IsRunInFlight(Route route)
+        {
+            if (route == null)
+                return false;
+            if (route.Status == RouteStatus.InTransit || route.PendingDeliveryUT.HasValue)
+                return true;
+            if (route.Stops == null || route.Stops.Count < 2)
+                return false;
+            bool any = false;
+            long lowest = long.MaxValue;
+            long highest = long.MinValue;
+            for (int i = 0; i < route.Stops.Count; i++)
+            {
+                RouteStop stop = route.Stops[i];
+                if (stop == null)
+                    continue;
+                any = true;
+                if (stop.LastFiredCycleIndex < lowest) lowest = stop.LastFiredCycleIndex;
+                if (stop.LastFiredCycleIndex > highest) highest = stop.LastFiredCycleIndex;
+            }
+            return any && highest > lowest;
+        }
+
+        /// <summary>Why Update parts is greyed, or empty when it is live. Live on every
+        /// status (a held, paused or broken route can still have its stations updated);
+        /// greyed only while a run is under way (<see cref="IsRunInFlight"/>).</summary>
+        internal static string UpdatePartsDisabledReason(Route route)
+        {
+            return IsRunInFlight(route) ? UpdatePartsInFlightReason : string.Empty;
+        }
+
+        /// <summary>The Update parts hover, plus "Last updated on &lt;date&gt;." when the route
+        /// has an adoption (<paramref name="lastAdoptedUT"/> usable): the window has no
+        /// outcome line, so the hover is where the last press shows.</summary>
+        internal static string FormatUpdatePartsTooltip(double lastAdoptedUT, Func<double, string> formatDate)
+        {
+            if (!IsUsableUT(lastAdoptedUT))
+                return UpdatePartsTooltip;
+            return UpdatePartsTooltip + " Last updated on "
+                + ReservationExplanation.FormatDate(lastAdoptedUT, formatDate) + ".";
+        }
+
         /// <summary>The live line-1 label of a Send-armed route before its run launches.</summary>
         internal const string CancelButtonLabel = "Cancel";
 

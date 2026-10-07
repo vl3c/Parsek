@@ -1775,20 +1775,26 @@ the endpoint's scope, every part loop guarded, gate probes shared per pid and sc
 each of a dropped scope argument, a `null` scope, an unguarded loop, a pid-only share and a
 pickup resolution without its scope key).
 
-Follow-up, owner ruling 2026-10-07 (branch `route-rescan-adopts-parts`, below-UI half only): the
-player can opt a later-docked module in by re-capturing the endpoint's current parts.
+Follow-up, owner ruling 2026-10-07 (branch `route-rescan-adopts-parts`): the player can opt a
+later-docked module in by re-capturing the endpoint's current parts with the route detail
+block's `Update parts` button.
 `RouteEndpointPartAdoption.AdoptCurrentParts(route)` resolves the origin and every stop and stores
 each resolved vessel's part flightIDs in `Route.AdoptedEndpointParts` (sparse
 `ADOPTED_ENDPOINT_PARTS` ROUTE node), keyed to the endpoint binding (root flightID, else pid
 gated by launch guid); `RouteEndpointPartScope` reads that set before the recorded sets and lets
 it replace them, so the module is admitted and a craft docked after the adoption is still
 excluded. The adoption survives in-session rewinds and load reconciles with the live route; a
-transfer leaves it unmatched. Tests: `RouteEndpointPartAdoptionTests` and the `AdoptedSet_*` /
-`OwnPartSets_*` cells in `RouteEndpointPartScopeTests` (red against stubs first). OPEN: no player
-control calls it yet. The ruling named the Logistics window's Re-scan, but that button is drawn
-only for an EndpointLost surface route (`LogisticsWindowUI.DrawEndpointRescan`,
-`LogisticsDeliveryPresentation.ShouldOfferEndpointRescan`), so a healthy route has nothing to
-press; the owner is choosing the trigger.
+transfer leaves it unmatched. The ruling first named the Logistics window's Re-scan, but that
+button is drawn only for an EndpointLost surface route, so the owner chose a button of its own:
+`Update parts`, the detail block's third Interact single in both modes (Link moves to the
+fourth in Advanced), greyed with its reason while a run is under way
+(`LogisticsRoutePresentation.IsRunInFlight`), outcome in the `Endpoint part adoption:` Info line
+and the hover's `Last updated on <date>.`. Tests: `RouteEndpointPartAdoptionTests`, the
+`AdoptedSet_*` / `OwnPartSets_*` cells in `RouteEndpointPartScopeTests`,
+`LogisticsUpdatePartsPresentationTests` (red against stubs first), the slot-order and source
+cells in `LogisticsRoutePresentationTests` / `TableRowInsetAlignmentTests`, and the hover
+budget in `TooltipEchoBudgetTests`. Live proof would ride lane IR-9 (a station with a module
+docked after the route was made, then Update parts).
 
 ---
 

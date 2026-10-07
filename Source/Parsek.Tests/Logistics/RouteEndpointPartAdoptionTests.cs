@@ -244,7 +244,7 @@ namespace Parsek.Tests.Logistics
             Assert.Single(logLines, l => l.Contains("Endpoint part adoption:"));
         }
 
-        // catches: a second Re-scan unioning into (instead of replacing) the endpoint's set,
+        // catches: a second Update parts unioning into (instead of replacing) the endpoint's set,
         // so a module the player undocked for good stayed the endpoint's forever.
         [Fact]
         public void Adopt_AgainReplacesTheEndpointsSet()
@@ -417,7 +417,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(new HashSet<uint> { 301u, 302u }, b.PartFlightIds);
         }
 
-        // catches: a route with no override writing anything new (a save without Re-scan must
+        // catches: a route with no override writing anything new (a save without Update parts must
         // stay byte-identical), or reading back an empty list instead of none.
         [Fact]
         public void Codec_NoOverride_WritesNoNode_ReadsNull()
@@ -464,7 +464,7 @@ namespace Parsek.Tests.Logistics
         }
 
         // catches: RouteStore's ROUTES save / load dropping the override (the scope would
-        // forget the player's Re-scan on the next cold load).
+        // forget the player's Update parts on the next cold load).
         [Fact]
         public void RouteStore_SaveLoad_PreservesTheOverride()
         {

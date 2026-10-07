@@ -29,7 +29,7 @@ namespace Parsek.Logistics
     /// endpoint binding it was captured against (<c>rootPartUId</c> /
     /// <c>vesselPersistentId</c> / <c>launchGuid</c>, each omitted at its unknown default), a
     /// sparse <c>adoptedUT</c> and repeated sorted <c>uid</c> part flightIDs. Omitted when no
-    /// entry has a part, so a route never re-scanned is byte-identical; an entry without a
+    /// entry has a part, so a route never updated is byte-identical; an entry without a
     /// readable part is dropped on load.
     ///
     /// Load rejects the whole route on (a) zero <c>STOP</c> children or
@@ -479,7 +479,7 @@ namespace Parsek.Logistics
         // -----------------------------------------------------------------
 
         // Sparse: no node unless at least one entry carries a nonzero part flightID, so a route
-        // never re-scanned writes nothing new and an older build (which reads keys by name)
+        // never updated writes nothing new and an older build (which reads keys by name)
         // ignores the node. Each entry's binding keys are omitted at their unknown defaults and
         // the flightIDs are written sorted, so the save bytes do not depend on HashSet order.
         private static void SerializeAdoptedEndpointParts(

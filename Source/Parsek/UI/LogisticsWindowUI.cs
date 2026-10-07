@@ -474,6 +474,10 @@ namespace Parsek
             // arrival dates); null otherwise.
             public string DeliveringTooltip;
 
+            // The detail block's Update parts hover, dated with the route's last endpoint
+            // part adoption when it has one.
+            public string UpdatePartsTooltip;
+
             // Go to: a recording of the route's source mission still in the effective set
             // (what the Missions cross-link resolves from), or null when the mission is
             // gone and the button greys.
@@ -613,9 +617,9 @@ namespace Parsek
         private float interactPairWidth = MissionsWindowUI.InteractPairButtonWidth;
         private float interactColumnWidth = MissionsWindowUI.ColW_Interact;
         private float InteractSingleWidth => 2f * interactPairWidth + MissionsWindowUI.InteractButtonGap;
-        // The detail block's Interact singles (Rename / Delete / Link round-trip...): the
-        // zero-margin single, with the compact 2 px text padding so the longest label fits
-        // the 100 px Missions single.
+        // The detail block's Interact singles (Rename / Delete / Update parts / Link
+        // round-trip...): the zero-margin single, with the compact 2 px text padding so the
+        // longest label fits the 100 px Missions single.
         private GUIStyle detailSlotButtonStyle;
         private GUIStyle interactHeaderLabelStyle;
 
@@ -2024,8 +2028,8 @@ namespace Parsek
         /// or noun-first with exact dates. Basic: what each run delivers and where, the next
         /// run, the dated hold / partial lines, the capacity context and Re-scan of a broken
         /// route, the last delivery from the ledger, the run cost, the mission the route was
-        /// built from, the round-trip partner, and Rename / Delete. Advanced adds the Every
-        /// and Priority steppers, Flights used and Link round-trip. A route's runs live in
+        /// built from, the round-trip partner, and Rename / Delete / Update parts. Advanced
+        /// adds the Every and Priority steppers, Flights used and Link round-trip. A route's runs live in
         /// its Route History window (the Log button), not here. Every
         /// conditional line is keyed on a CACHED legibility field (never on live route state
         /// combined with it) or on the latched drawTuning, so the IMGUI control count stays
@@ -2096,10 +2100,11 @@ namespace Parsek
             }
 
             // The buttons take detail lines and never sit on an empty one. A block short of
-            // lines (no source mission to name) gets one more INFORMATION line - the
-            // delivered total, or "Not run yet." - before anything else; only a block
-            // still short after that (none today: Basic has Delivers + this line, Advanced
-            // its two steppers) gets a bare button line, so Delete is always reachable.
+            // lines (no next-run line or no source mission to name) gets one more
+            // INFORMATION line - the delivered total, or "Not run yet." - before anything
+            // else; only a block still short after that (Basic with neither, three slots
+            // against Delivers + this line; Advanced always has its two steppers) gets a
+            // bare button line, so every slot button is always reachable.
             int required = RouteDetailSlotCount(drawTuning);
             if (detailSlotNext < required)
                 DetailLine(LogisticsRoutePresentation.FormatFillerInfoLine(leg.HasDeliveries, leg.CumulativeText));
@@ -2508,8 +2513,8 @@ namespace Parsek
 
         // ----- The detail block's Interact column -----
         //
-        // Rename, Delete and (Advanced) Link round-trip... / Unlink sit at the right of the
-        // detail block's first lines, one 100 px single per line, under the row's
+        // Rename, Delete, Update parts and (Advanced) Link round-trip... / Unlink sit at the
+        // right of the detail block's first lines, one 100 px single per line, under the row's
         // Activate / Pause: there is no button row of their own. Every route-detail line
         // ends in one slot cell of the same width (a button, or a same-width space), so
         // the label beside it wraps at the same width on every line, and the slot a line
@@ -2523,13 +2528,15 @@ namespace Parsek
 
         internal const int RenameSlot = 0;
         internal const int DeleteSlot = 1;
-        internal const int LinkSlot = 2;
+        internal const int UpdatePartsSlot = 2;
+        internal const int LinkSlot = 3;
 
-        /// <summary>How many slots carry a button: Rename and Delete, plus Link in
-        /// Advanced. Pure.</summary>
+        /// <summary>How many slots carry a button: Rename, Delete and Update parts, plus Link
+        /// in Advanced. Update parts is in both modes (it changes which parts take cargo, not
+        /// when a route runs) and precedes Link, so a mode switch never moves it. Pure.</summary>
         internal static int RouteDetailSlotCount(bool showsTuning)
         {
-            return showsTuning ? 3 : 2;
+            return showsTuning ? 4 : 3;
         }
 
         // The slot cell's width: the row's Interact column, less how far the detail box's
@@ -2602,6 +2609,36 @@ namespace Parsek
                             detailSlotButtonStyle, GUILayout.Width(w)))
                         pendingConfirmDeleteRoute = route;
                     return;
+                case UpdatePartsSlot:
+                {
+                    // Re-captures every endpoint's current parts as its own (owner ruling
+                    // 2026-10-07). Greyed with its reason while a run is under way: that run's
+                    // cargo was gated against the part sets it dispatched with. The action
+                    // logs the per-endpoint counts; the hover dates the last press.
+                    string reason = LogisticsRoutePresentation.UpdatePartsDisabledReason(route);
+                    bool live = string.IsNullOrEmpty(reason);
+                    RouteLegibility leg = GetLegibility(route);
+                    bool prev = GUI.enabled;
+                    GUI.enabled = live;
+                    bool clicked = GUILayout.Button(new GUIContent(
+                            LogisticsRoutePresentation.UpdatePartsButtonLabel,
+                            leg.UpdatePartsTooltip ?? LogisticsRoutePresentation.UpdatePartsTooltip),
+                        detailSlotButtonStyle, GUILayout.Width(w));
+                    DisabledHoverEcho.CarryLastControl(live, reason);
+                    GUI.enabled = prev;
+                    if (clicked && live)
+                    {
+                        RouteEndpointPartAdoption.AdoptionResult result =
+                            RouteEndpointPartAdoption.AdoptCurrentParts(route);
+                        ParsekLog.Verbose("UI",
+                            $"Logistics: update parts button route={ShortId(route.Id)} " +
+                            $"adopted={result.AdoptedCount.ToString(CultureInfo.InvariantCulture)}/" +
+                            $"{result.Endpoints.Count.ToString(CultureInfo.InvariantCulture)}");
+                        // Refresh the hover's date and the capacity line next frame.
+                        lastLegibilityComputeRealtime = -1f;
+                    }
+                    return;
+                }
                 case LinkSlot:
                     if (!drawTuning)
                     {
@@ -3920,6 +3957,8 @@ namespace Parsek
                     route.CurrentCycleStartUT ?? double.NaN, nextUT, formatDate);
                 leg.StatusTooltip = "Sending one run. " + leg.DeliveringTooltip;
             }
+            leg.UpdatePartsTooltip = LogisticsRoutePresentation.FormatUpdatePartsTooltip(
+                RouteEndpointPartAdoption.LastAdoptedUT(route), formatDate);
             bool warned = leg.Status.Word == LogisticsRoutePresentation.StatusWord.Held;
             leg.NextCellText = LogisticsRoutePresentation.FormatNextCell(
                 countdown.Branch, countdown.Seconds, leg.RunScheduled, warned);

@@ -574,7 +574,7 @@ namespace Parsek.Logistics
         /// matching entry BEFORE the recorded part sets, so a module docked to a station after
         /// the route was recorded can be opted in. Null = none (the recorded-set behaviour).
         /// Sparse in the codec (the <c>ADOPTED_ENDPOINT_PARTS</c> node is omitted when there is
-        /// no entry with a part), so a route never re-scanned round-trips byte-identically and
+        /// no entry with a part), so a route never updated round-trips byte-identically and
         /// an older build ignores the node.
         /// </summary>
         public List<RouteEndpointAdoptedParts> AdoptedEndpointParts;

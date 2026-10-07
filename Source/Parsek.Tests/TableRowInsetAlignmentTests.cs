@@ -722,10 +722,10 @@ namespace Parsek.Tests
         /// <summary>
         /// Decision 1a, as laid out 2026-10-03: Delete lives in the expanded detail block,
         /// out of the scan line, as a 100 px single in the block's own Interact column
-        /// (Rename on the first line, Delete on the second, Link round-trip... on the third
-        /// in Advanced) - never on a button row of its own. Every route-detail line ends in
-        /// that slot cell, so the buttons take the block's first lines. The row and its
-        /// Interact cell never arm Delete.
+        /// (Rename on the first line, Delete on the second, Update parts on the third,
+        /// Link round-trip... on the fourth in Advanced) - never on a button row of its own.
+        /// Every route-detail line ends in that slot cell, so the buttons take the block's
+        /// first lines. The row and its Interact cell never arm Delete.
         /// </summary>
         [Fact]
         public void LogisticsDeleteLivesInTheDetailBlock()
@@ -737,6 +737,20 @@ namespace Parsek.Tests
             string slotButton = MethodBody(prepared, "DrawDetailSlotButton", file);
             Assert.Contains("pendingConfirmDeleteRoute = route", slotButton);
             Assert.Contains("InteractSingleWidth", slotButton);
+            // Update parts (owner ruling 2026-10-07): its own slot case draws the button in
+            // BOTH modes (no drawTuning gate), greys it with its reason through the window's
+            // disabled-hover pattern while a run is under way, and the click runs the endpoint
+            // part adoption on that route and refreshes the cached hover.
+            int updateCase = slotButton.IndexOf("case UpdatePartsSlot:", StringComparison.Ordinal);
+            int afterUpdate = updateCase < 0 ? -1 : slotButton.IndexOf("case ", updateCase + 1, StringComparison.Ordinal);
+            Assert.True(updateCase >= 0 && afterUpdate > updateCase,
+                "LogisticsWindowUI.DrawDetailSlotButton: Update parts needs its own slot case.");
+            string update = slotButton.Substring(updateCase, afterUpdate - updateCase);
+            Assert.DoesNotContain("drawTuning", update);
+            Assert.Contains("LogisticsRoutePresentation.UpdatePartsDisabledReason(route)", update);
+            Assert.Contains("DisabledHoverEcho.CarryLastControl(", update);
+            Assert.Contains("RouteEndpointPartAdoption.AdoptCurrentParts(route)", update);
+            Assert.Contains("lastLegibilityComputeRealtime = -1f", update);
             Assert.DoesNotContain("DrawRouteDetailButtonRow", prepared);
             // Every route-detail line shape ends in the slot cell; a shape that skipped it
             // would shift the slots and leave its label wider than the rest.

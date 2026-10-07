@@ -294,9 +294,9 @@ One key, `UiSurface.LogisticsRouteTuning`, splits the Logistics window by mode.
 | Priority stepper | The Interact grid: Activate / Pause / Cancel with Send, then Go to and Log |
 | Link round-trip... / Unlink and the link picker | The round-trip pairing note when a route is linked |
 | Flights used | Delivers each run, next run, dated hold / partial lines, Last delivered, run cost, "Built from mission 'X'." |
-| The manual-looping clause after "Built from mission 'X'." | Rename, Delete (the detail block's Interact stack), Re-scan for a lost endpoint, the Route History window |
+| The manual-looping clause after "Built from mission 'X'." | Rename, Delete, Update parts (the detail block's Interact stack), Re-scan for a lost endpoint, the Route History window |
 
-**Why.** Every, Priority and Link change WHEN a route that already runs makes its runs. A Basic player reads when (Every, Next) without needing to author it, and the Advanced steppers are the window's densest controls. The flight list is a diagnostic. The Every column exists in both modes, so a switch never moves a column or resizes the window (one `MinWindowWidth`).
+**Why.** Every, Priority and Link change WHEN a route that already runs makes its runs. Update parts (owner ruling 2026-10-07) changes which parts of its stations take the cargo, not when it runs, so it is endpoint upkeep like Re-scan and stays in Basic; it sits on the block's third line in both modes, before Link, so a mode switch never moves it. A Basic player reads when (Every, Next) without needing to author it, and the Advanced steppers are the window's densest controls. The flight list is a diagnostic. The Every column exists in both modes, so a switch never moves a column or resizes the window (one `MinWindowWidth`).
 
 **Philosophy 1 holds.** Nothing here writes a route field. A route retimed, re-prioritised or linked in Advanced keeps that schedule in Basic.
 
