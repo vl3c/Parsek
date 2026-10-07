@@ -1109,12 +1109,18 @@ namespace Parsek
             // follows the bundle's route reconcile. A failed read leaves the cursor reset.
             List<Logistics.Route> loadedSaveRoutes = null;
             double loadedSaveUT = double.NaN;
+            double loadedClockUT = double.NaN;
+            double loadedFloorUT = double.NaN;
             if (hasBundle && loadedScenarioNode != null)
             {
                 try
                 {
                     loadedSaveRoutes = Logistics.RouteStore.ReadSavedCommittedRoutes(loadedScenarioNode);
-                    loadedSaveUT = KerbalsModule.ReadLoadedSaveUT();
+                    loadedClockUT = KerbalsModule.ReadLoadedSaveUT();
+                    // An RP quicksave written inside a go-back rewind's lead-time window carries
+                    // that rewind's route state floor: its route copy is as of the floor.
+                    loadedFloorUT = Logistics.RouteStore.ReadSavedRouteStateFloorUT(loadedScenarioNode);
+                    loadedSaveUT = Logistics.RouteLoadReconcile.ApplyRouteStateFloor(loadedClockUT, loadedFloorUT);
                 }
                 catch (Exception ex)
                 {
@@ -1143,6 +1149,9 @@ namespace Parsek
                     ParsekLog.Info(InvokeTag,
                         $"ConsumePostLoad: restoring bundle with route-retire cutoffUT={retireCutoffUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} (liveUT={liveUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, rp.UT={rp.UT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)})");
                     ReconciliationBundle.Restore(bundle, retireCutoffUT, loadedSaveRoutes, loadedSaveUT);
+                    if (loadedSaveRoutes != null)
+                        Logistics.RouteLoadReconcile.InstallFloorAfterLoad(
+                            loadedClockUT, loadedFloorUT, InvokeTag, "ConsumePostLoad");
                 }
                 catch (Exception ex)
                 {

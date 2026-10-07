@@ -300,6 +300,11 @@ namespace Parsek
             // stock-revert path, which already prunes these rows via
             // Ledger.PruneOrphanActionsAfterUT.)
             Ledger.Clear();
+            // The route half keys on the UT the loaded route copy describes when it lies after
+            // the cutoff (an RP quicksave written inside a go-back rewind's lead-time window is
+            // as of that rewind's save); everything else keeps the cutoff.
+            double routeCutoffUT = Logistics.RouteLoadReconcile.ResolveLoadedRouteCutoffUT(
+                dropRouteRowsAfterUT, loadedSaveRoutes, loadedSaveUT);
             // Kept (post-retire) rows, reused below by the route seam's
             // status-derivation + counter-reconstruction pass over kept routes.
             List<GameAction> keptActions = null;
@@ -307,7 +312,7 @@ namespace Parsek
             if (bundle.Actions != null && bundle.Actions.Count > 0)
             {
                 keptActions = Logistics.RouteLedgerRetire.RetireFutureRouteActions(
-                    bundle.Actions, dropRouteRowsAfterUT, out int routeRowsRetired,
+                    bundle.Actions, routeCutoffUT, out int routeRowsRetired,
                     out retiredRouteRows);
                 if (keptActions.Count > 0)
                     Ledger.AddActions(keptActions);
@@ -315,7 +320,7 @@ namespace Parsek
                     ParsekLog.Info("ReconciliationBundle",
                         "Restore: retired " + routeRowsRetired.ToString(System.Globalization.CultureInfo.InvariantCulture) +
                         " free-standing route row(s) with UT > cutoff " +
-                        dropRouteRowsAfterUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + " (Rec-1)");
+                        routeCutoffUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + " (Rec-1)");
             }
             // The committed trees were restored above, so the chain tips are the pre-rewind
             // ones whose snapshots carry these crossings. Called with no rows too: the cutoff
@@ -323,7 +328,7 @@ namespace Parsek
             if (!double.IsPositiveInfinity(dropRouteRowsAfterUT))
             {
                 ChainTipRouteCargo.CaptureRetiredRouteCargo(
-                    retiredRouteRows, dropRouteRowsAfterUT,
+                    retiredRouteRows, routeCutoffUT,
                     bundle.Routes, bundle.DormantRoutes, "re-fly restore");
             }
 
@@ -346,7 +351,7 @@ namespace Parsek
                 Logistics.RouteRewindClassifier.ReconcileStoreAtRewind(
                     bundle.Routes,
                     bundle.DormantRoutes,
-                    dropRouteRowsAfterUT,
+                    routeCutoffUT,
                     keptActions,
                     logTag: "ReconciliationBundle",
                     logPrefix: "Restore");
@@ -355,7 +360,7 @@ namespace Parsek
                 // most recently passed under a fresh id. Sets Route fields only (no ledger write).
                 Logistics.RouteLoadReconcile.RestoreLoopPositionAtRewindExit(
                     loadedSaveRoutes,
-                    dropRouteRowsAfterUT,
+                    routeCutoffUT,
                     loadedSaveUT,
                     logTag: "ReconciliationBundle",
                     logPrefix: "Restore");
