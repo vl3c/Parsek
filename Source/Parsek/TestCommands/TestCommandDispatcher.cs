@@ -843,7 +843,11 @@ namespace Parsek.TestCommands
                     // inert steps before it; waiting it out here is the bounded wait the
                     // hold actually is. A genuine lock (a modal dialog, any second holder)
                     // never matches and still refuses, and so does a hold that outlives
-                    // PhysicsHoldDeferMaxSeconds.
+                    // PhysicsHoldDeferMaxSeconds. A 1x wait (maxRate=1) requests rung 0
+                    // only, so no TIMEWARP lock - the hold included - can affect it: it
+                    // executes at once.
+                    if (TestCommandWarpToUT.IsOneXWaitArg(Arg(parsed, "maxRate")))
+                        break;
                     if (TestCommandWarpToUT.ShouldDeferForPhysicsHold(
                             state.WarpPhysicsHoldOnly, state.WarpPhysicsHoldSeconds))
                         return DispatchResult.Defer(TestCommandWarpToUT.PhysicsHoldDeferReason);

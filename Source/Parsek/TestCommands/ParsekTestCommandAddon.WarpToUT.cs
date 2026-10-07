@@ -59,6 +59,9 @@ namespace Parsek.TestCommands
             holdOnly = false;
             heldSeconds = 0.0;
             if (head.Verb != "WarpToUT") return;
+            // A 1x wait goes past any TIMEWARP lock (the dispatcher never defers it), so the
+            // hold is neither sampled nor announced for it.
+            if (TestCommandWarpToUT.IsOneXWaitArg(ArgOrNull(head, "maxRate"))) return;
 
             holdOnly = TestCommandWarpToUT.IsTransientPhysicsHoldOnly(
                 SafeTimeWarpLocked(), SafeTimeWarpLockHolders());
@@ -125,8 +128,17 @@ namespace Parsek.TestCommands
             }
 
             bool inFlight = HighLogic.LoadedSceneIsFlight;
+            bool timeWarpLocked = SafeTimeWarpLocked();
             string feasibility = TestCommandWarpToUT.EvaluateFeasibility(
-                SafeWarpControllerPresent(), SafeTimeWarpLocked());
+                SafeWarpControllerPresent(), timeWarpLocked, cap);
+            // A 1x wait requests rung 0 only, so a TIMEWARP lock cannot touch it: say which
+            // lock it went past (the new-game tutorial's `intro_TS` in the Tracking Station,
+            // stock's post-load `physicsHold` in FLIGHT) instead of refusing.
+            if (feasibility == null && timeWarpLocked
+                && TestCommandWarpToUT.OneXWaitIgnoresTimeWarpLock(cap))
+                ParsekLog.Info(Tag,
+                    $"warptout 1x wait ignores TIMEWARP lock holders={SafeTimeWarpLockHolders()} "
+                    + $"ut={Inv(target)}");
             if (feasibility == null)
                 feasibility = TestCommandWarpToUT.EvaluateModeFeasibility(mode, SafePhysicsWarpAllowed());
             if (feasibility == null)

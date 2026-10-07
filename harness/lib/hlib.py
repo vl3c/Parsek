@@ -10616,6 +10616,9 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     # The retry sends the same args.
     "missing-arg", "missing-jump-target", "missing-warp-target",
     "max-rate-invalid", "warp-ladder-invalid",
+    # WarpToUT `ladder=phys` outside FLIGHT: the spec put a physics-ladder warp in a
+    # scene that has none; the retry reaches the same scene with the same arg.
+    "physics-warp-not-in-flight",
     "allow-live-recorder-arg-invalid", "cadence-arg-invalid", "cadence-arg-missing",
     "category-arg-empty", "dialog-arg-invalid", "edit-commit-arg-invalid",
     "edit-field-arg-missing", "edit-key-arg-missing", "expand-key-arg-missing",

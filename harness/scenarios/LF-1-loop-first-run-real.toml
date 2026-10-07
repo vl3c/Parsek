@@ -1,5 +1,11 @@
 schema = 1
 id = "LF-1-loop-first-run-real"
+# READING 2026-10-07 `2026-10-07_2122` (branch `scene-wait`): PARSEK-FAIL on one token only, a
+# timing premise. The 1x Space Center wait worked (KSC spawn at UT ~31.5, `kscspawn` mark
+# spawned-true). The required post-cycle `Spawn suppressed: ... already spawned` summary is
+# VerboseRateLimited (5 s wall); with one-frame seam steps the three StartLoopPlayback cycles
+# ran inside one window and the summary never re-printed after them. A 1x WarpToUT to UT 256
+# (third cycle ends ~UT 246) now follows the last mark.
 # 2026-10-07 (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, branch `scene-wait`): the
 # 1x waits this lane sized in inert seam steps (0.25 s each at the old poll; one frame
 # since PR #2017) are `WarpToUT maxRate=1` waits to explicit UTs, deterministic in
@@ -143,6 +149,10 @@ steps = [
   { cmd = "TimeJump", args = { deltaSeconds = "60" }, expect = "OK", budget = 300 },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "l3", expect = "OK" },
   { cmd = "MissionMark", args = { label = "lf1-loop3-count-${l3.count}-pid-${l3.rec0spawnedPid}-spawned-${l3.rec0spawned}" }, expect = "OK" },
+  # 1x flight time past the already-spawned summary's 5 s wall-clock rate limit
+  # (ParsekLog.DefaultRateLimitSeconds): the three cycles above now run in ~1.2 s of wall
+  # time, so without this no post-cycle summary prints (reading `2026-10-07_2122`).
+  { cmd = "WarpToUT", args = { ut = "256", maxRate = "1" }, expect = "OK", budget = 120 },
   { cmd = "FlushAndQuit", expect = "OK" },
 ]
 

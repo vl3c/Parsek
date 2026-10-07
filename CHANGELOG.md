@@ -6321,7 +6321,10 @@ _(unreleased - entries accumulate here per commit)_
   vessel limits the warp, and `ladder=phys` is refused (`physics-warp-not-in-flight`); in flight
   nothing changes. KSP's short physics hold after a flight load (about a second, until the vessel
   unpacks) used to refuse a warp sent inside it; the command now waits it out (at most 30 s,
-  `warp-physics-hold`), while any other lock, such as an open dialog, still refuses. Since PR
+  `warp-physics-hold`), while any other lock, such as an open dialog, still refuses a real
+  warp. A 1x wait (`maxRate=1`) never changes the rate, so no lock stops it: it goes past the
+  physics hold at once and past KSP's new-game Tracking Station tutorial lock, which held
+  RF-7T's wait (`warptout 1x wait ignores TIMEWARP lock holders=...`). Since PR
   #2017 an idle test step costs one frame instead of 0.25 s, so lanes that let runs of idle
   steps carry 1x time waited about a tenth as long: 43 lanes now wait with `WarpToUT maxRate=1`
   to explicit UTs (LF-2, LF-1, EX-1, EX-2, SS-1, BAY-1, the EVA spawn lanes, the CI chain-tip

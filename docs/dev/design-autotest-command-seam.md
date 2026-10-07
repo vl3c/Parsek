@@ -1570,6 +1570,22 @@ refusal line prints), for at most `PhysicsHoldDeferMaxSeconds` (30 s) per head
 once per head). Any other holder (a modal dialog), a lock with no stack entry (`none`), or a
 hold that outlives the bound executes and is refused `warp-locked` exactly as before.
 
+**The 1x wait goes past every TIMEWARP lock.** A WarpToUT whose cap is exactly 1
+(`maxRate=1`, `TestCommandWarpToUT.OneXWaitIgnoresTimeWarpLock`) requests rate index 0 and
+nothing else (`SelectRateIndex` returns 0 for it on any ladder), so no input lock on
+TIMEWARP can change what it does. Its feasibility gate
+(`EvaluateFeasibility(present, locked, cap)`) therefore never refuses `warp-locked`, the
+dispatcher never defers it on the physics hold (`IsOneXWaitArg`), and the applier logs one
+`warptout 1x wait ignores TIMEWARP lock holders=<ids> ut=<t>` line instead. A missing
+`TimeWarp` controller still refuses. Measured why: RF-7T's Tracking Station dwell
+(`2026-10-07_2159`, `_2200_a2`) met `holders=intro_TS`, stock
+`ScenarioNewGameIntro.TSTutorialSetup`'s TRACKINGSTATION_ALL lock for the new-game
+tutorial popup, which holds until a player dismisses it. The popup does not stop the clock
+(decompiled: it is spawned non-modal and neither it nor `TutorialScenario` touches the time
+scale or pauses; RF-7T's green `2026-09-09_0100` TS dwell ran UT 701.56 -> 705.60 in 4 s of
+wall time on the same fixture). Every cap other than exactly 1 keeps the gate above
+unchanged.
+
 TWO-PHASE, and its completion is a genuine POLL rather than a settle:
 `TimeJump` lands its clock synchronously and only watches the spawn queue drain, while
 this verb watches a clock that advances over many frames. Budget 540 s

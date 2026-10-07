@@ -116,6 +116,16 @@ length does not matter, left. 43 specs changed; none re-flown yet.
 | RF-14 / RF-15 | 24 | A | LEFT: the re-fly recorder bind (~2 s after the marker write) at the rewind point's UT, which the mission sets; no explicit UT |
 | W1 | 20 | C | LEFT: a frame or two at the jumped clock before the watch probe |
 
+Follow-up from the flights (2026-10-07, branch `scene-wait`): RF-7T went INVALID twice
+(`2026-10-07_2159`, `_2200_a2`) on `warptout refused reason=warp-locked ut=707
+holders=intro_TS`, stock's new-game Tracking Station tutorial lock, which holds until a player
+dismisses the popup (the clock still runs at 1x). A cap of exactly 1 never requests a rate
+change, so a `maxRate=1` wait now ignores every TIMEWARP lock, the physics hold included, and
+logs the holders it went past; a real warp refuses as before. LF-1 (`2026-10-07_2122`,
+PARSEK-FAIL on one token) gained a 1x wait to UT 256 after its last cycle: the post-cycle
+`Spawn suppressed ... already spawned` summary is rate-limited at 5 s of wall time and the
+three cycles now run inside one window.
+
 Left open: the six settles marked LEFT under A (CI-6 / CI-7 / CI-10 / CI-11 after the SPH
 launch, RF-14 / RF-15 after InvokeRewind) wait from a UT the spec cannot name, so they need a
 relative 1x wait (for example a harness-side `${step.ut}` offset) or a wait on a named

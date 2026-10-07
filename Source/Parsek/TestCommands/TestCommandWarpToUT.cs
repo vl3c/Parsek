@@ -361,6 +361,41 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>
+        /// True when the cap is exactly 1x (<c>maxRate=1</c>): the 1x wait. Such a warp
+        /// never requests a rate above index 0 (<see cref="SelectRateIndex"/> returns 0 for
+        /// it on any ladder), so a TIMEWARP input lock cannot affect it and the verb neither
+        /// refuses <see cref="WarpLockedReason"/> nor waits out the physics hold for it.
+        /// Measured why it matters: RF-7T's Tracking Station dwell met stock's new-game
+        /// tutorial lock (<c>intro_TS</c>, <c>ScenarioNewGameIntro.TSTutorialSetup</c>'s
+        /// TRACKINGSTATION_ALL lock), which holds until a player dismisses the popup, while
+        /// the clock itself runs at 1x (the popup is non-modal and sets no pause or time
+        /// scale).
+        /// </summary>
+        internal static bool OneXWaitIgnoresTimeWarpLock(double maxRateCap)
+            => maxRateCap == 1.0;
+
+        /// <summary>
+        /// <see cref="EvaluateFeasibility(bool, bool)"/> with the cap: a missing controller
+        /// still refuses, a TIMEWARP lock refuses only when the cap is not exactly 1x
+        /// (<see cref="OneXWaitIgnoresTimeWarpLock"/>). For any other cap (or none) this is
+        /// the two-argument gate verbatim, so a real warp's refusals are unchanged.
+        /// </summary>
+        internal static string EvaluateFeasibility(bool warpControllerPresent, bool warpLocked, double maxRateCap)
+            => EvaluateFeasibility(
+                warpControllerPresent, warpLocked && !OneXWaitIgnoresTimeWarpLock(maxRateCap));
+
+        /// <summary>
+        /// The 1x-wait test on the raw <c>maxRate</c> arg, for the dispatcher (which holds the
+        /// parsed command, not the resolved cap): true only when the arg parses as exactly 1.
+        /// An absent or invalid arg reads false, so the physics-hold defer still applies to it.
+        /// </summary>
+        internal static bool IsOneXWaitArg(string maxRateArg)
+        {
+            double cap = ResolveMaxRate(maxRateArg, out string error);
+            return error == null && OneXWaitIgnoresTimeWarpLock(cap);
+        }
+
+        /// <summary>
         /// The ids of the input locks whose mask includes <paramref name="timeWarpMask"/>,
         /// sorted ordinally and comma-joined, or <c>none</c> when no entry carries the bit.
         /// Appended to the <c>warp-locked</c> refusal LOG line (never to the response msg,
@@ -431,6 +466,10 @@ namespace Parsek.TestCommands
             // against code without it.)
             int ceiling = maxAllowedIndex;
             if (ceiling > warpRates.Count - 1) ceiling = warpRates.Count - 1;
+
+            // The 1x wait never leaves rung 0, whatever a ladder holds above it: its
+            // lock-free admission (OneXWaitIgnoresTimeWarpLock) relies on that.
+            if (OneXWaitIgnoresTimeWarpLock(maxRateCap)) return 0;
 
             bool capped = maxRateCap > UncappedMaxRate;
             for (int i = ceiling; i > 0; i--)

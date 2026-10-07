@@ -585,6 +585,65 @@ namespace Parsek.Tests
                 Assert.Equal(0, TestCommandWarpToUT.SelectRateIndex(remaining, StockRates, TopIndex, 1.0));
         }
 
+        // ----- The 1x wait (maxRate=1) goes past any TIMEWARP lock -----
+
+        [Fact]
+        public void EvaluateFeasibility_OneXWait_ProceedsThroughATimeWarpLock()
+        {
+            // RF-7T `2026-10-07_2159`: stock's new-game tutorial lock `intro_TS` holds
+            // TIMEWARP in the Tracking Station until a player dismisses the popup.
+            Assert.Null(TestCommandWarpToUT.EvaluateFeasibility(true, true, 1.0));
+            Assert.Null(TestCommandWarpToUT.EvaluateFeasibility(true, false, 1.0));
+        }
+
+        [Theory]
+        [InlineData(2.0)]
+        [InlineData(1.5)]
+        [InlineData(50.0)]
+        [InlineData(0.0)] // uncapped
+        public void EvaluateFeasibility_AnyOtherCap_StillRefusesALock(double cap)
+        {
+            Assert.Equal(TestCommandWarpToUT.WarpLockedReason,
+                TestCommandWarpToUT.EvaluateFeasibility(true, true, cap));
+            Assert.Null(TestCommandWarpToUT.EvaluateFeasibility(true, false, cap));
+            // Byte-identical to the two-argument gate for every non-1x cap.
+            foreach (bool present in new[] { true, false })
+                foreach (bool locked in new[] { true, false })
+                    Assert.Equal(TestCommandWarpToUT.EvaluateFeasibility(present, locked),
+                        TestCommandWarpToUT.EvaluateFeasibility(present, locked, cap));
+        }
+
+        [Fact]
+        public void EvaluateFeasibility_OneXWait_StillNeedsAWarpController()
+        {
+            Assert.Equal(TestCommandWarpToUT.WarpUnavailableReason,
+                TestCommandWarpToUT.EvaluateFeasibility(false, true, 1.0));
+        }
+
+        [Theory]
+        [InlineData("1", true)]
+        [InlineData("1.0", true)]
+        [InlineData("1.5", false)]
+        [InlineData("2", false)]
+        [InlineData(null, false)]
+        [InlineData("", false)]
+        [InlineData("0.5", false)] // invalid cap: refused later, never a 1x wait
+        [InlineData("1,0", false)]
+        public void IsOneXWaitArg_IsExactlyACapOfOne(string arg, bool expected)
+        {
+            Assert.Equal(expected, TestCommandWarpToUT.IsOneXWaitArg(arg));
+        }
+
+        [Fact]
+        public void SelectRateIndex_OneXWait_NeverLeavesRungZero_EvenOnALadderWithAOneXRungAbove()
+        {
+            // The lock-free admission rests on this: a cap of 1 requests rung 0 whatever the
+            // ladder holds above it.
+            float[] oddLadder = { 1f, 1f, 5f };
+            Assert.Equal(0, TestCommandWarpToUT.SelectRateIndex(1000.0, oddLadder, 2, 1.0));
+            Assert.Equal(0, TestCommandWarpToUT.SelectRateIndex(1e6, StockRates, TopIndex, 1.0));
+        }
+
         // ----- The post-load physics hold is a defer, a genuine lock is not -----
 
         [Fact]

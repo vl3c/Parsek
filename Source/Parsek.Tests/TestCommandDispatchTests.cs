@@ -627,6 +627,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void WarpToUT_OneXWait_IsNeverDeferredOnThePhysicsHold()
+        {
+            var st = Flight();
+            st.WarpPhysicsHoldOnly = true;
+            st.WarpPhysicsHoldSeconds = 0.1;
+            var r = TestCommandDispatcher.DecideDispatch(CmdArgs("WarpToUT", "ut=400", "maxRate=1"), st);
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Theory]
+        [InlineData("maxRate=2")]
+        [InlineData("maxRate=0.5")]
+        public void WarpToUT_AnyOtherCap_StillDefersOnThePhysicsHold(string capToken)
+        {
+            var st = Flight();
+            st.WarpPhysicsHoldOnly = true;
+            st.WarpPhysicsHoldSeconds = 0.1;
+            var r = TestCommandDispatcher.DecideDispatch(CmdArgs("WarpToUT", "ut=400", capToken), st);
+            Assert.Equal(DispatchDecision.Defer, r.Decision);
+            Assert.Equal(TestCommandWarpToUT.PhysicsHoldDeferReason, r.Reason);
+        }
+
+        [Fact]
         public void WarpToUT_ExecutesOnceTheHoldOutlivesTheBound_SoTheGateRefusesIt()
         {
             var st = Flight();
