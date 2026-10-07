@@ -64,9 +64,10 @@ namespace Parsek
         internal static IReadOnlyList<Logistics.Route> RewindSaveRoutes { get; private set; }
 
         /// <summary>
-        /// The parsed rewind save's own clock (<c>flightState.universalTime</c> after the
-        /// lead-time windback, the value <see cref="RewindAdjustedUT"/> takes) for
-        /// <see cref="RewindSaveRoutes"/>; NaN when unset.
+        /// The rewind save's own UT, the moment <see cref="RewindSaveRoutes"/> describes: the UT the
+        /// save was written at, before the lead-time windback that gives
+        /// <see cref="RewindAdjustedUT"/> (equal to it when the load winds nothing back). The
+        /// go-back route reconcile keys its cutoff to it. NaN when unset.
         /// </summary>
         internal static double RewindSaveClockUT { get; private set; } = double.NaN;
 
@@ -179,7 +180,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Sets the rewind save's own committed routes and clock, read from the parsed save
+        /// Sets the rewind save's own committed routes and UT, read from the parsed save
         /// before the scene load (see <see cref="RewindSaveRoutes"/>).
         /// </summary>
         internal static void SetRewindSaveRoutes(IReadOnlyList<Logistics.Route> routes, double clockUT)

@@ -318,9 +318,11 @@ namespace Parsek
         /// / <see cref="GameActionType.ScienceInitial"/> / <see cref="GameActionType.ReputationInitial"/>)
         /// are excluded explicitly: they define the session baseline and must survive regardless of UT.</para>
         /// </summary>
-        internal static int PruneOrphanActionsAfterUT(double cutoffUT, bool inclusive = false)
+        internal static int PruneOrphanActionsAfterUT(
+            double cutoffUT, bool inclusive = false, double keepRouteRowsThroughUT = double.NaN)
         {
             int removed = 0;
+            int routeRowsKept = 0;
             for (int i = actions.Count - 1; i >= 0; i--)
             {
                 var action = actions[i];
@@ -330,6 +332,13 @@ namespace Parsek
                     continue;
                 if (RecalculationEngine.IsSeedType(action.Type))
                     continue;
+                if (keepRouteRowsThroughUT > cutoffUT
+                    && Logistics.RouteLedgerRetire.IsFreeStandingRouteAction(action)
+                    && action.UT <= keepRouteRowsThroughUT)
+                {
+                    routeRowsKept++;
+                    continue;
+                }
                 // Keep everything before the launch boundary. Exclusive keeps the boundary UT
                 // itself (rollout retained on Revert-to-Launch); inclusive drops it (rollout
                 // refunded on Revert-to-editor).
@@ -342,6 +351,13 @@ namespace Parsek
             }
 
             string boundary = inclusive ? "at/after" : "after";
+            if (routeRowsKept > 0)
+            {
+                ParsekLog.Info("Ledger",
+                    $"PruneOrphanActionsAfterUT: kept {routeRowsKept} free-standing route action(s) " +
+                    $"through the route state floor UT " +
+                    $"{keepRouteRowsThroughUT.ToString("R", CultureInfo.InvariantCulture)}");
+            }
             if (removed > 0)
             {
                 BumpStateVersion();
