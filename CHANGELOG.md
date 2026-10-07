@@ -3925,9 +3925,21 @@ _(unreleased - entries accumulate here per commit)_
   from the quicksave and ends however it actually ends; endings reached before the quicksave
   stay, and the quickload only touches what the quicksave shows was not yet history. A Re-Fly
   start and resuming a flight after restarting KSP are unchanged. Checked in test flights (lanes
-  QL-4, QL-4b and QL-4c: the booster is recorded again and ends Landed). Known issue: a booster
-  that was an Unfinished Flight in the abandoned future keeps its rewind point after it lands in
-  the replay (todo QUICKLOAD-RESUMED-MEMBER-KEEPS-ABANDONED-FUTURE-MERGE-STATE).
+  QL-4, QL-4b and QL-4c: the booster is recorded again and ends Landed). A booster that the
+  abandoned future had left an Unfinished Flight is no longer kept one after the quickload (see
+  the next entry).
+- **After a quickload, a booster that lands in the replayed flight no longer stays an Unfinished
+  Flight.** If you committed a flight while a booster was still falling (it became an Unfinished
+  Flight you could re-fly) and then quickloaded back to before that, the booster kept its
+  Unfinished Flight status from the abandoned commit: after it landed safely in the replay it
+  still read as open, and its rewind point was never cleaned up. The quickload now gives every
+  vessel of the resumed flight back the status it had in the quicksave, including a booster whose
+  recording the abandoned commit had cut in two at a phase change, and the next commit
+  decides it again from how the vessel actually ends: a booster that lands is closed and its
+  rewind point is removed once every vessel of that separation is done; one that is still
+  falling at the commit becomes an Unfinished Flight again. Vessels already committed when the
+  quicksave was taken, and a Re-Fly in progress, are left as they were. Covered by xUnit; not
+  yet checked in a test flight.
 - **Quickloading into a flight you committed after the quicksave works after the game has saved
   again.** Quickloading from the Space Center into a flight you had left (and so committed), or
   in flight once the game had saved since you committed it (an autosave, a switch to a far
