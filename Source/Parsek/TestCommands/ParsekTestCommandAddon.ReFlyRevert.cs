@@ -21,10 +21,12 @@ namespace Parsek.TestCommands
     /// <c>RevertToPrelaunch</c>, so <c>RevertInterceptor</c>'s Harmony prefix runs exactly as
     /// for a click. The seam calls no Parsek handler directly.</para>
     ///
-    /// <para><b>MENUS LEFT OPEN.</b> A REJECTED decided after the pause menu opened closes it
-    /// again (<c>PauseMenu.Close</c>, the Esc key's second press) so the flight resumes
-    /// unpaused; Cancel ("Continue Flying") does the same after its answer, because stock
-    /// leaves the game paused behind a dismissed pause popup.</para>
+    /// <para><b>MENUS LEFT OPEN.</b> Every terminal that leaves the game in FLIGHT
+    /// (a REJECTED, a post-press ERROR, a timeout) runs one exit cleanup: Continue Flying
+    /// on a Re-Fly revert dialog still up, then <c>PauseMenu.Close</c> (the Esc key's
+    /// second press) on a menu this command opened, so the next step never inherits a
+    /// paused flight or a held input lock. Cancel ("Continue Flying") runs it right after
+    /// its answer, because stock leaves the game paused behind a dismissed pause popup.</para>
     /// </summary>
     public partial class ParsekTestCommandAddon
     {
@@ -36,6 +38,9 @@ namespace Parsek.TestCommands
         private string reFlyRevertSessionId;
         private string reFlyRevertRpId;
         private string reFlyRevertOriginId;
+        // True once THIS command called PauseMenu.Display; only then is the menu the
+        // verb's to close on exit.
+        private bool reFlyRevertOpenedMenu;
 
         private void ReFlyRevertImpl(ParsedCommand cmd)
         {
@@ -69,6 +74,7 @@ namespace Parsek.TestCommands
             reFlyRevertRpId = marker.RewindPointId;
             reFlyRevertOriginId = marker.OriginChildRecordingId;
             reFlyRevertSettledPolls = 0;
+            reFlyRevertOpenedMenu = false;
             SetReFlyRevertPhase(ReFlyRevertPhase.AwaitingResume);
             ParsekLog.Info(Tag, TestCommandReFlyRevert.FormatStartLine(
                 choice, target, reFlyRevertSessionId, reFlyRevertRpId, reFlyRevertOriginId));
@@ -167,7 +173,10 @@ namespace Parsek.TestCommands
                     }
                     bool wasOpen = PauseMenu.isOpen;
                     if (!wasOpen)
+                    {
                         PauseMenu.Display();
+                        reFlyRevertOpenedMenu = true;
+                    }
                     ParsekLog.Info(Tag, $"reflyrevert opened the Esc menu (PauseMenu.Display) "
                         + $"alreadyOpen={Bool(wasOpen)} activeTree={Bool(o.HasActiveTree)} "
                         + $"canRevert={Bool(FlightDriver.CanRevert)} "
@@ -194,7 +203,6 @@ namespace Parsek.TestCommands
                         + $"button={Bool(o.RevertButtonFound)} interactable={Bool(o.RevertButtonInteractable)} "
                         + $"optionPopup={Bool(o.OptionPopupFound)} canRevert={Bool(FlightDriver.CanRevert)} "
                         + $"frames={Int(o.FramesInPhase)}";
-                    CloseReFlyRevertMenus("rejected " + reason);
                     FinishReFlyRevert("REJECTED", null, reason, detail, elapsed);
                     return;
                 }
@@ -211,7 +219,6 @@ namespace Parsek.TestCommands
                     return;
 
                 case ReFlyRevertPollAction.OptionUnavailable:
-                    CloseReFlyRevertMenus("rejected " + TestCommandReFlyRevert.OptionUnavailableReason);
                     FinishReFlyRevert("REJECTED", null, TestCommandReFlyRevert.OptionUnavailableReason,
                         $"target={TestCommandReFlyRevert.TargetToken(reFlyRevertTarget)} "
                         + $"found={Bool(o.OptionButtonFound)} interactable={Bool(o.OptionButtonInteractable)} "
@@ -219,7 +226,6 @@ namespace Parsek.TestCommands
                     return;
 
                 case ReFlyRevertPollAction.DialogNotShown:
-                    CloseReFlyRevertMenus("rejected " + TestCommandReFlyRevert.DialogNotShownReason);
                     FinishReFlyRevert("REJECTED", null, TestCommandReFlyRevert.DialogNotShownReason,
                         $"scene={HighLogic.LoadedScene} frames={Int(o.FramesInPhase)} "
                         + $"dialogVisible={Bool(ReFlyRevertDialog.DialogVisible)}", elapsed);
@@ -237,7 +243,6 @@ namespace Parsek.TestCommands
                             "dialog-backout", cont.OptionText, "the chosen button is not on the dialog"));
                         DialogGuiButtonOptionSelectedMethod.Invoke(cont, null);
                     }
-                    CloseReFlyRevertMenus("rejected " + TestCommandReFlyRevert.ChoiceUnavailableReason);
                     FinishReFlyRevert("REJECTED", null, TestCommandReFlyRevert.ChoiceUnavailableReason,
                         $"choice={TestCommandReFlyRevert.ChoiceToken(reFlyRevertChoice)} "
                         + $"buttons={Int(GetDialogButtons(dialogPopup).Count)}", elapsed);
@@ -261,8 +266,11 @@ namespace Parsek.TestCommands
                             + "scene dispatch; its own [ReFlySession] End line says why)", elapsed);
                         return;
                     }
+                    // Cancel leaves the flight paused behind the dismissed pause popup (stock);
+                    // close it now, as the player's second Esc would, so the Settling poll
+                    // and the next step see a running flight.
                     if (reFlyRevertChoice == ReFlyRevertChoice.Cancel)
-                        CloseReFlyRevertMenus("cancel answered");
+                        CleanUpReFlyRevertUi("cancel answered");
                     return;
                 }
 
@@ -309,8 +317,6 @@ namespace Parsek.TestCommands
                 case ReFlyRevertPollAction.Timeout:
                     TestCommandDiagnostics.Timeout(completionId, completionVerb, elapsed,
                         TestCommandReFlyRevert.TimeoutReason);
-                    if (reFlyRevertPhase != ReFlyRevertPhase.Settling)
-                        CloseReFlyRevertMenus("timeout");
                     FinishReFlyRevert("ERROR", null, TestCommandReFlyRevert.TimeoutReason,
                         $"phase={reFlyRevertPhase} scene={HighLogic.LoadedScene} "
                         + $"intentArmed={Bool(DiscardReFlyLoadIntent.IsArmed)} "
@@ -330,6 +336,11 @@ namespace Parsek.TestCommands
             string session = reFlyRevertSessionId;
             string rpId = reFlyRevertRpId;
             string originId = reFlyRevertOriginId;
+            // Every exit that leaves the game in FLIGHT closes what the verb opened (the
+            // Esc menu and its pause) and backs out of a dialog still up, so no terminal -
+            // REJECTED, a post-press ERROR or a timeout - hands the next step a paused
+            // flight or a held input lock.
+            CleanUpReFlyRevertUi("terminal " + verdict + (reason != null ? " " + reason : string.Empty));
             ClearTwoPhase();
             if (verdict == "OK")
             {
@@ -360,21 +371,48 @@ namespace Parsek.TestCommands
             SetExecResult("REJECTED", null, reason);
         }
 
-        // The Esc key's second press: dismisses the revert options and the pause popup and
-        // unpauses. A no-op when the pause menu is not open (a scene already left it).
-        private static void CloseReFlyRevertMenus(string why)
+        // The exit cleanup, decided by TestCommandReFlyRevert.ShouldBackOutOfDialogOnExit /
+        // ShouldCloseMenusOnExit: Continue Flying on a Re-Fly revert dialog still up (it
+        // releases the dialog's input lock), then the Esc key's second press
+        // (PauseMenu.Close: dismisses the revert options and the pause popup, unpauses) on a
+        // menu this command opened. A no-op once a scene load took the menu with it.
+        private void CleanUpReFlyRevertUi(string why)
         {
             try
             {
-                if (PauseMenu.exists && PauseMenu.isOpen)
+                TestCommandScene scene = MapScene(HighLogic.LoadedScene);
+                bool menuOpen = PauseMenu.exists && PauseMenu.isOpen;
+                PopupDialog dialog = FindPopupByName(ReFlyRevertDialog.DialogName);
+                bool dialogOpen = dialog != null;
+                bool backedOut = false, closedMenu = false;
+                if (TestCommandReFlyRevert.ShouldBackOutOfDialogOnExit(scene, dialogOpen))
+                {
+                    DialogGUIButton cont = FindButtonByText(dialog, ReFlyRevertDialog.ContinueButtonText);
+                    if (cont != null)
+                    {
+                        DialogGuiButtonOptionSelectedMethod.Invoke(cont, null);
+                        backedOut = true;
+                    }
+                    else
+                    {
+                        ReFlyRevertDialog.ClearLock();
+                    }
+                }
+                if (TestCommandReFlyRevert.ShouldCloseMenusOnExit(scene, reFlyRevertOpenedMenu, menuOpen))
                 {
                     PauseMenu.Close();
-                    ParsekLog.Info(Tag, $"reflyrevert closed the Esc menu (PauseMenu.Close) - {why}");
+                    closedMenu = true;
                 }
+                if (backedOut || closedMenu || menuOpen || dialogOpen)
+                    ParsekLog.Info(Tag, TestCommandReFlyRevert.FormatExitCleanupLine(
+                        why, HighLogic.LoadedScene.ToString(), reFlyRevertOpenedMenu, menuOpen,
+                        dialogOpen, closedMenu, backedOut));
+                if (closedMenu)
+                    reFlyRevertOpenedMenu = false;
             }
             catch (Exception ex)
             {
-                ParsekLog.Warn(Tag, $"reflyrevert PauseMenu.Close threw ({why}): {ex.GetType().Name}: {ex.Message}");
+                ParsekLog.Warn(Tag, $"reflyrevert exit cleanup threw ({why}): {ex.GetType().Name}: {ex.Message}");
             }
         }
 

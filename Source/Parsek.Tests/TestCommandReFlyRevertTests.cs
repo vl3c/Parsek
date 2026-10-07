@@ -425,6 +425,50 @@ namespace Parsek.Tests
                 Poll(ReFlyRevertPhase.Settling, o, ReFlyRevertChoice.Cancel));
         }
 
+        // ----- the exit cleanup -----
+
+        [Theory]
+        // Still in FLIGHT, the verb opened the menu and it is open: close it (a REJECTED,
+        // discard-not-dispatched, retry-not-started or a Settling timeout before the load).
+        [InlineData("Flight", true, true, true)]
+        // A menu the verb did not open (a player or an earlier step opened it) is left alone.
+        [InlineData("Flight", false, true, false)]
+        // Already closed: nothing to do.
+        [InlineData("Flight", true, false, false)]
+        // A scene load took the menu with it (Discard landed, Retry reloaded the flight
+        // into a new scene is still FLIGHT but its menu is a new, closed one).
+        [InlineData("SpaceCenter", true, true, false)]
+        [InlineData("Editor", true, true, false)]
+        [InlineData("MainMenu", true, true, false)]
+        public void ShouldCloseMenusOnExit_OnlyInFlightOnlyOurs(
+            string sceneName, bool ours, bool open, bool expected)
+        {
+            var scene = (TestCommandScene)System.Enum.Parse(typeof(TestCommandScene), sceneName);
+            Assert.Equal(expected, TestCommandReFlyRevert.ShouldCloseMenusOnExit(scene, ours, open));
+        }
+
+        [Theory]
+        [InlineData("Flight", true, true)]
+        [InlineData("Flight", false, false)]
+        [InlineData("SpaceCenter", true, false)]
+        [InlineData("Editor", true, false)]
+        public void ShouldBackOutOfDialogOnExit_OnlyInFlightWhileUp(string sceneName, bool open, bool expected)
+        {
+            var scene = (TestCommandScene)System.Enum.Parse(typeof(TestCommandScene), sceneName);
+            Assert.Equal(expected, TestCommandReFlyRevert.ShouldBackOutOfDialogOnExit(scene, open));
+        }
+
+        [Fact]
+        public void ExitCleanupLine_IsStable()
+        {
+            Assert.Equal(
+                "reflyrevert exit cleanup scene=FLIGHT menuOurs=true menuOpen=true dialogOpen=false"
+                + " closedMenu=true backedOutOfDialog=false - terminal ERROR reflyrevert-discard-not-dispatched",
+                TestCommandReFlyRevert.FormatExitCleanupLine(
+                    "terminal ERROR reflyrevert-discard-not-dispatched", "FLIGHT", true, true, false,
+                    true, false));
+        }
+
         [Fact]
         public void IsSlotListed_MatchesTheRewindPointAndTheSlotOrigin()
         {

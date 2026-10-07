@@ -406,6 +406,46 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>
+        /// Whether a terminal (any verdict) must close the stock Esc menu before it answers:
+        /// only while the game is still in FLIGHT (a scene load already took the menu with
+        /// it), only when the verb itself opened the menu (a menu a player or an earlier
+        /// step opened is not the verb's to close), and only while it is still open.
+        /// <c>PauseMenu.Display</c> paused the game, and stock leaves the pause on behind a
+        /// dismissed pause popup after the revert option, so an exit that skips this leaves
+        /// the next step with a paused flight.
+        /// </summary>
+        internal static bool ShouldCloseMenusOnExit(
+            TestCommandScene scene, bool menuOpenedByVerb, bool pauseMenuOpen)
+        {
+            return scene == TestCommandScene.Flight && menuOpenedByVerb && pauseMenuOpen;
+        }
+
+        /// <summary>
+        /// Whether a terminal must back out of Parsek's Re-Fly revert dialog (press its
+        /// Continue Flying, which releases the dialog's <c>ControlTypes.All</c> input lock)
+        /// before it answers: only in FLIGHT and only while the dialog is still up. Every
+        /// dialog button clears the lock itself, so after a pressed choice this is false.
+        /// </summary>
+        internal static bool ShouldBackOutOfDialogOnExit(TestCommandScene scene, bool dialogOpen)
+        {
+            return scene == TestCommandScene.Flight && dialogOpen;
+        }
+
+        /// <summary>The grep-stable exit-cleanup line.</summary>
+        internal static string FormatExitCleanupLine(
+            string why, string sceneName, bool menuOpenedByVerb, bool pauseMenuOpen,
+            bool dialogOpen, bool closedMenu, bool backedOut)
+        {
+            return "reflyrevert exit cleanup scene=" + (sceneName ?? string.Empty)
+                + " menuOurs=" + (menuOpenedByVerb ? "true" : "false")
+                + " menuOpen=" + (pauseMenuOpen ? "true" : "false")
+                + " dialogOpen=" + (dialogOpen ? "true" : "false")
+                + " closedMenu=" + (closedMenu ? "true" : "false")
+                + " backedOutOfDialog=" + (backedOut ? "true" : "false")
+                + " - " + (why ?? string.Empty);
+        }
+
+        /// <summary>
         /// Whether the session's slot is still an Unfinished Flight: some STASH member
         /// resolves to the origin rewind point and the slot whose origin child recording is
         /// <paramref name="originChildRecordingId"/>. <paramref name="listedSlots"/> holds

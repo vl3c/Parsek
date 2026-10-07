@@ -67,6 +67,13 @@ id = "QL-5-discard-refly-keeps-unfinished-flight"
 #   - `slotListed=false` with `rpKept=true`: the point stayed but no STASH member resolves to
 #     the booster's slot any more (the attempt prune reached the origin, or the slot's tip
 #     closed).
+#   HOW THEY CLASSIFY. The verb's own refusals are REJECTED seam terminals, so they read
+#   INVALID, not PARSEK-FAIL, and are retried once: `reflyrevert-revert-unavailable` is
+#   driver-gate and `reflyrevert-dialog-not-shown` driver-dialog (the AnswerMergeDialog
+#   `no-live-dialog` precedent). Both still name a product defect when they reproduce on the
+#   retry; read the run, do not re-run it away. The post-press ERRORs
+#   (`discard-not-dispatched` ...) classify by the coarse verdict mismatch; the log-token
+#   readings above are PARSEK-FAIL(expectations).
 #
 # KNOWN ISSUES THIS LANE DOES NOT GATE (not fixed here): DISCARD-REFLY-LANDS-ON-PERSISTENT-
 # NOT-THE-REWIND-POINT (the Space Center reloads persistent.sfs, which here holds the
@@ -187,8 +194,8 @@ rewindPoints  = { min = 1 }
 # verb's dispatch budget + margin) for the rest:
 #   LoadGame 660, SetSetting 60 x2, TimeJump 660, ListHandles 60, InvokeRewind 660,
 #   ReFlyRevert 660 (a DEFERRED verb), ListHandles 60, RecordingState 60, FlushAndQuit 60
-#   -> 2940; +120 margin = 3060.
-budgetSeconds = 3060
+#   -> 3000; +120 margin = 3120.
+budgetSeconds = 3120
 
 [retry]
 policy = "once"

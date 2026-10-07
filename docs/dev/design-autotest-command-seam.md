@@ -3982,7 +3982,7 @@ player cannot reach the menu sooner.
 `reflyrevert-choice-arg-invalid`, `reflyrevert-target-arg-missing`,
 `reflyrevert-target-arg-invalid`, `reflyrevert-wrong-scene` (not FLIGHT),
 `reflyrevert-no-session` (no `ActiveReFlySessionMarker`), then five decided by the poll before
-any dialog button is pressed, each after closing the stock menus (`PauseMenu.Close`):
+any dialog button is pressed, each after the exit cleanup below:
 `reflyrevert-pause-menu-unavailable` (no `PauseMenu`, or no "GamePaused" popup within 120
 frames), `reflyrevert-revert-unavailable` (Revert Flight missing or greyed, or no
 "RevertingFlight" popup), `reflyrevert-option-unavailable` (stock does not offer the target's
@@ -3993,6 +3993,13 @@ dialog lacks the chosen button; the seam backs out with Continue Flying). Post-p
 `reflyrevert-retry-not-started` (no pending invocation and no fresh session 300 frames after
 Retry), `reflyrevert-session-changed` (Cancel did not keep the session),
 `reflyrevert-wrong-destination`, `reflyrevert-returned-to-menu`, `reflyrevert-timeout`.
+Every terminal that leaves the game in FLIGHT (a REJECTED, a post-press ERROR such as
+`discard-not-dispatched` or `retry-not-started`, a timeout before the load) runs one exit
+cleanup first: Continue Flying on a Re-Fly revert dialog still up (releasing its input lock),
+then `PauseMenu.Close` on a menu this command opened (`TestCommandReFlyRevert.
+ShouldBackOutOfDialogOnExit` / `ShouldCloseMenusOnExit`: FLIGHT only, the verb's own menu
+only), so the next step never inherits a paused flight; line `reflyrevert exit cleanup
+scene= menuOurs= menuOpen= dialogOpen= closedMenu= backedOutOfDialog= - <why>`.
 
 **Completion.** Phases `AwaitingResume` -> `OpeningMenu` -> `ChoosingRevertOption` ->
 `AwaitingDialog` -> `Settling`. OK: Discard once the destination (SPACECENTER for launch, EDITOR
@@ -4006,7 +4013,7 @@ unfinishedFlights= marker=`: `rpKept` is the session's rewind point in
 session's `OriginChildRecordingId`, `marker` the session live after the outcome (`none` after
 Discard). Lines: `reflyrevert start choice= target= sess= rp= slot=`, `reflyrevert opened the Esc
 menu (PauseMenu.Display) ...`, `reflyrevert pressed revert-flight|revert-option|dialog button='...'
-...`, `reflyrevert closed the Esc menu (PauseMenu.Close) - <why>`, `reflyrevert complete choice=
+...`, `reflyrevert exit cleanup ...`, `reflyrevert complete choice=
 target= scene= sess= rp= rpKept= slot= slotListed= unfinishedFlights= marker= elapsed=`,
 `reflyrevert rejected reason=` (Warn) / `reflyrevert error reason=` (Error).
 

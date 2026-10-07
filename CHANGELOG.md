@@ -6313,7 +6313,9 @@ _(unreleased - entries accumulate here per commit)_
   VAB / SPH) option, whose `FlightDriver` call Parsek's revert interceptor blocks, then presses the
   chosen button of Parsek's dialog, and answers once the outcome settled; after Discard its
   completion line reads back whether the session's rewind point is still there and whether the
-  STASH group still lists the re-flown slot. `QL-5-discard-refly-keeps-unfinished-flight`
+  STASH group still lists the re-flown slot. Any answer that leaves the game in flight (a
+  refusal, a failed Discard or Retry, a timeout) first closes the Esc menu the verb opened and
+  any dialog still up, so the next step never starts paused. `QL-5-discard-refly-keeps-unfinished-flight`
   (nightly, never flown) re-flies the crashed booster of the B9 split and discards through the
   Esc menu, gating the `DiscardReFly` load classification with the in-session handoff, memory's
   cleared marker, the origin rewind point kept and the booster still listed. There is no editor
