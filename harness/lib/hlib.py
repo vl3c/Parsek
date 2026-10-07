@@ -640,6 +640,18 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     no scene change. OK `pid= vessel= scene=SPACECENTER recovered=true quick=` once
     #     the recovery is observed and any MissionRecoveryDialog is closed.
     "KscMarkerRecover",
+    # ADDITIVE (46 -> 47 implemented, reserved unchanged at 4). TWO-PHASE, 300 s, a
+    # DEFERRED_SEAM_VERB.
+    #   ReFlyRevert choice=discard|retry|cancel target=launch|prelaunch, issued in FLIGHT
+    #     during a live Re-Fly session: the Esc menu's Revert. It opens the stock pause
+    #     menu (PauseMenu.Display), presses Revert Flight and the stock Revert to Launch /
+    #     Revert to VAB / SPH option (whose FlightDriver call RevertInterceptor's prefix
+    #     blocks), then presses the chosen button of Parsek's Re-Fly revert dialog. OK
+    #     once the outcome settled: Discard in the Space Center / editor after its load's
+    #     OnLoad consumed the intent, Retry on a fresh session in FLIGHT, Cancel with the
+    #     same session. Payload `choice= target= scene= session= rp= rpKept= slot=
+    #     slotListed= unfinishedFlights= marker=`.
+    "ReFlyRevert",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -896,9 +908,14 @@ STEP_WAIT_MARGIN_SECONDS = 60
 # (a vessel under drag inside the atmosphere is pinned to 1x). Its 540 s budget - this
 # module's own MAX_DEFERRED_STEP_BUDGET_SECONDS - must be out-waited by the harness
 # step-wait, which is what puts it at the cap rather than under it.
+#
+# ReFlyRevert joins for InvokeRewindToLaunch's reason: its Discard is the same
+# quicksave-copy + GamePersistence.LoadGame + scene load (into the Space Center or the
+# editor) and its Retry is InvokeRewind's flight reload, so its terminal is gated on a
+# whole world load settling and its 300 s budget sits under the cap.
 DEFERRED_SEAM_VERBS: Tuple[str, ...] = ("RunTests", "LoadGame", "InvokeRewind", "TimeJump",
                                         "EvaChuteDeploy", "StartLoopPlayback",
-                                        "InvokeRewindToLaunch", "WarpToUT")
+                                        "InvokeRewindToLaunch", "WarpToUT", "ReFlyRevert")
 
 # Per-verb seam-side DISPATCH deferral budgets (seconds), mirroring the C#
 # DeferralBudget.BudgetSeconds table (TestCommands/TestCommandDispatcher.cs). A verb
@@ -998,6 +1015,10 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # DeferralBudget.KscMarkerRecoverSeconds: no scene load; the marker wait (180 frames)
     # plus stock's one-frame recovery. The default size, named so the table states it.
     "KscMarkerRecover": 60.0,
+    # DeferralBudget.ReFlyRevertSeconds: the resume settle (up to 30 s), the stock menus,
+    # then a quicksave LoadGame + scene load (Discard) or a flight reload (Retry). The
+    # InvokeRewind / InvokeRewindToLaunch size.
+    "ReFlyRevert": 300.0,
 }
 
 # Per-verb TAIL ROLE: what a seam verb DOES, used to decide whether it may still be
@@ -1228,6 +1249,8 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # KscMarkerRecover takes a vessel out of the world from the Space Center and pays the
     # recovery: Recover's role.
     "KscMarkerRecover": TAIL_ROLE_WORLD_MUTATING,
+    # ReFlyRevert ends or restarts a Re-Fly session and loads a save: InvokeRewind's role.
+    "ReFlyRevert": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1417,6 +1440,9 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # KscMarkerRecover is `recording` for the same reason: its OK is "stock fired
     # onVesselRecovered for the pid at the Space Center".
     "KscMarkerRecover": POST_MISSION_ROLE_RECORDING,
+    # ReFlyRevert is `recording` for InvokeRewind's reason: its OK is "the Re-Fly revert
+    # dialog's choice ran and its outcome settled", a Parsek feature under test.
+    "ReFlyRevert": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -3238,6 +3264,49 @@ KSCRECOVER_REASONS: Tuple[str, ...] = (
     "kscrecover-target-is-ghost", "kscrecover-not-recoverable",
     "kscrecover-marker-not-found", "kscrecover-button-locked",
 )
+
+
+# ReFlyRevert: mirrored from TestCommands/TestCommandReFlyRevert.cs (ReFlyRevertSourceSyncTests
+# keeps them byte-equal). Two REQUIRED closed-value args, checked by
+# validate_refly_revert_step (not VERB_SCOPED_CLOSED_ARGS: `choice` is AnswerMergeDialog's
+# arg name too, and that table admits one owner verb per key). The menu / dialog refusals
+# are decided by the completion poll and arrive as late REJECTEDs (no dialog button was
+# pressed; the seam closes the stock menus first).
+REFLYREVERT_VERB = "ReFlyRevert"
+REFLYREVERT_CHOICE_KEY = "choice"
+REFLYREVERT_TARGET_KEY = "target"
+REFLYREVERT_CHOICE_VALUES: Tuple[str, ...] = ("discard", "retry", "cancel")
+REFLYREVERT_TARGET_VALUES: Tuple[str, ...] = ("launch", "prelaunch")
+REFLYREVERT_REASONS: Tuple[str, ...] = (
+    "reflyrevert-choice-arg-missing", "reflyrevert-choice-arg-invalid",
+    "reflyrevert-target-arg-missing", "reflyrevert-target-arg-invalid",
+    "reflyrevert-wrong-scene", "reflyrevert-no-session",
+    "reflyrevert-pause-menu-unavailable", "reflyrevert-revert-unavailable",
+    "reflyrevert-option-unavailable", "reflyrevert-dialog-not-shown",
+    "reflyrevert-choice-unavailable",
+)
+
+
+def validate_refly_revert_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``ReFlyRevert`` step: ``choice=`` and ``target=``
+    are both REQUIRED and each must be one of its closed, case-sensitive values (the
+    seam's parse is fail-closed and answers REJECTED reflyrevert-*-arg-missing /
+    -arg-invalid)."""
+    errors: List[str] = []
+    for key, values in ((REFLYREVERT_CHOICE_KEY, REFLYREVERT_CHOICE_VALUES),
+                        (REFLYREVERT_TARGET_KEY, REFLYREVERT_TARGET_VALUES)):
+        raw = step_args.get(key)
+        if raw is None or str(raw) == "":
+            errors.append(
+                "driver.steps[%d].args.%s: %s REQUIRES it (one of %s); the seam answers "
+                "REJECTED reflyrevert-%s-arg-missing"
+                % (index, key, REFLYREVERT_VERB, " or ".join(repr(v) for v in values), key))
+        elif raw not in values:
+            errors.append(
+                "driver.steps[%d].args.%s: %r must be one of %s (case-sensitive); the seam "
+                "answers REJECTED reflyrevert-%s-arg-invalid"
+                % (index, key, raw, " or ".join(repr(v) for v in values), key))
+    return errors
 
 
 # The largest persistentId a literal ``Recover pid=`` can name: KSP's persistentId is a
@@ -6341,6 +6410,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_tracking_station_recover_step(i, step_args))
         elif cmd == KSCRECOVER_VERB:
             errors.extend(validate_ksc_marker_recover_step(i, step_args))
+        elif cmd == REFLYREVERT_VERB:
+            errors.extend(validate_refly_revert_step(i, step_args))
         # R10 STATIC tier, pass 2 of 2: every ${ref.field} in this step's args must
         # be well-formed AND name an EARLIER seam step that expects OK. A fault here
         # would otherwise put a literal ${...} on the wire, where the seam resolves an
@@ -9988,6 +10059,23 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "kscrecover-not-recoverable": "driver-gate",
     "kscrecover-marker-not-found": "driver-gate",
     "kscrecover-button-locked": "driver-gate",
+    # ReFlyRevert: a malformed arg is the SPEC's fault; the wrong scene, no live Re-Fly
+    # session, a pause menu that never opened, a greyed Revert Flight and an option stock
+    # does not offer (Revert to VAB / SPH on a resumed flight) are live states the press
+    # would not act in; a Re-Fly revert dialog that never showed or lacks the chosen button
+    # is the dialog class AnswerMergeDialog's `no-live-dialog` / `choice-unavailable` sit
+    # in. Mirrored from the C# `Reasons` array (ReFlyRevertSourceSyncTests).
+    "reflyrevert-choice-arg-missing": "driver-arg",
+    "reflyrevert-choice-arg-invalid": "driver-arg",
+    "reflyrevert-target-arg-missing": "driver-arg",
+    "reflyrevert-target-arg-invalid": "driver-arg",
+    "reflyrevert-wrong-scene": "driver-gate",
+    "reflyrevert-no-session": "driver-gate",
+    "reflyrevert-pause-menu-unavailable": "driver-gate",
+    "reflyrevert-revert-unavailable": "driver-gate",
+    "reflyrevert-option-unavailable": "driver-gate",
+    "reflyrevert-dialog-not-shown": "driver-dialog",
+    "reflyrevert-choice-unavailable": "driver-dialog",
     # SimulateStockSwitchClick, arg half: site / selector spellings and target resolution.
     # target-not-found / -name-ambiguous / -is-ghost are arg-class because each one means
     # the SPEC named the wrong thing, the same call `unknown-target` gets for KscAction.
@@ -10633,7 +10721,9 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "pid-arg-invalid", "pointer-arg-conflict", "pointer-arg-invalid",
     "pointer-arg-missing", "popup-arg-missing", "realspawn-rec-arg-missing",
     "recover-pid-arg-invalid", "recover-pid-arg-missing", "rect-arg-invalid",
-    "rect-arg-missing", "route-arg-missing", "run-await-arg-invalid",
+    "rect-arg-missing", "reflyrevert-choice-arg-invalid",
+    "reflyrevert-choice-arg-missing", "reflyrevert-target-arg-invalid",
+    "reflyrevert-target-arg-missing", "route-arg-missing", "run-await-arg-invalid",
     "run-category-arg-missing", "safewritecrash-phase-arg-invalid",
     "safewritecrash-phase-arg-missing", "safewritecrash-recording-arg-missing",
     "scene-arg-invalid", "select-include-arg-invalid", "select-include-arg-missing",

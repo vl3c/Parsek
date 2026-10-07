@@ -354,7 +354,7 @@ save load, including a `LoadGame`.
 Reserving the phase-3 names now means the envelope (id/cmd/args, percent-encoding,
 journal, verdicts) is designed once and the later commands slot in without a format break.
 
-The table today is **46 implemented / 4 reserved**. `TestCommandVerbs.cs` is the authority
+The table today is **47 implemented / 4 reserved**. `TestCommandVerbs.cs` is the authority
 (`hlib.IMPLEMENTED_SEAM_VERBS` mirrors it as an ordered list, and a cell pins both lengths);
 the updates below record how each verb arrived.
 
@@ -541,6 +541,12 @@ the updates below record how each verb arrived.
 > (`UnfinishedFlightStashHandler.TryStash`); its first consumer is
 > `RF-20-stashed-eva-slot-refly`. `FlySlot` stays reserved for the reason above. Full
 > contract below (`#### StashSlot`).
+
+> Update (ReFlyRevert, 2026-10-07): one ADDITIVE verb, `ReFlyRevert choice= target=`,
+> taking the table to **47 implemented / 4 reserved**. The Esc menu's Revert during a live
+> Re-Fly session, through the stock pause menu and revert option into Parsek's Re-Fly revert
+> dialog, answered with the chosen button (todo HARNESS-VERBS-FOR-TIMELINE-OPS, roadmap TC-1).
+> Full contract below (`#### ReFlyRevert`).
 
 > Update (KscMarkerRecover, 2026-10-04): one ADDITIVE verb, `KscMarkerRecover pid=`, taking
 > the table to **48 implemented / 4 reserved**. The third recovery a player makes, from the
@@ -3984,6 +3990,97 @@ pre-launch. Pure half `TestCommandKscMarkerRecover`; applier
 `ParsekTestCommandAddon.KscMarkerRecover.cs`. Lane:
 `CI-10-chain-tip-ksc-marker-recover-no-respawn` (CI-7's host and steps; never flown).
 
+#### ReFlyRevert (additive; the Esc menu's Revert during a Re-Fly)
+
+**Why.** During a Re-Fly session a player who presses Esc and Revert reaches Parsek's 3-option
+dialog (`ReFlyRevertDialog`) instead of a stock revert, and its Discard Re-Fly runs a real
+`GamePersistence.LoadGame` plus a scene load that the in-session staged-list handoff, the load
+classification and the owner partition all act on. No seam path reached it: the in-game
+`ReFlyRevertDialog*` cells stub the load and the scene change. Roadmap lane QL-5 and TA-5 need
+the real thing.
+
+**Grammar.** `cmd=ReFlyRevert choice=<discard|retry|cancel> target=<launch|prelaunch>`, issued
+in FLIGHT with a live Re-Fly session. Both args REQUIRED, closed and case-sensitive.
+
+**Production path** (decompiled, KSP 1.12.5 `Assembly-CSharp.dll`):
+- `PauseMenu.Display()` (the Esc key's action) pauses the game and spawns the "GamePaused"
+  popup. Its Revert Flight button (`#autoLOC_360545`) is interactable on
+  `FlightDriver.CanRevert`, which `ReFlyRevertButtonGate` forces true during a session (it sets
+  `CanRevertToPostInit`), and spawns the "RevertingFlight" popup.
+- `PauseMenu.drawStockRevertOptions` fills that popup in order: Revert to Launch when
+  `FlightDriver.CanRevertToPostInit` and the game's `CanRestart`; Revert to VAB / SPH when
+  `CanLeaveToEditor`, `FlightDriver.CanRevertToPrelaunch`, `ShipConstruction.ShipConfig != null`
+  and a VAB / SPH `ShipType`; then a back button. An option's callback dismisses the pause popup
+  and calls `FlightDriver.RevertToLaunch()` / `RevertToPrelaunch(facility)`.
+- `RevertInterceptor.Prefix` (Harmony, on both) blocks the stock body while a marker is live and
+  spawns "ParsekReFlyRevert" with Retry from Rewind Point / Discard Re-Fly / Continue Flying
+  (Discard is omitted while a merge journal is live). The buttons run `RetryHandler`,
+  `DiscardReFlyHandler` and `CancelHandler` synchronously.
+- A Re-Fly session is a resumed flight (the rewind point's quicksave), and `FlightDriver.Start`
+  sets `CanRevertToPrelaunch` only for a PRELAUNCH vessel that is the post-init vessel with a
+  ship config and a pre-launch state. So the Revert to VAB / SPH option is normally absent in a
+  session, and `target=prelaunch` answers `reflyrevert-option-unavailable` instead of calling a
+  stock method no player can reach.
+
+The seam presses each button through its own `DialogGUIButton.OptionSelected` (the callback
+plus, for a dismiss-on-select button, the popup's own dismiss) after reading its
+`OptionInteractableCondition`. The stock option is picked by the order and predicates above,
+cross-checked by the button count (a mismatch is a moved layout, refused, never a guess); the
+dialog button by its label (`ReFlyRevertDialog.RetryButtonText` / `DiscardButtonText` /
+`ContinueButtonText`). Before the Esc menu, the verb waits for the Re-Fly resume to make the
+restored tree active (`TestCommandMergeAnswer.DecideConclusionDrive`'s rule, 30 s cap), as a
+player cannot reach the menu sooner.
+
+**Refusals** (REJECTED, in this order): `reflyrevert-choice-arg-missing`,
+`reflyrevert-choice-arg-invalid`, `reflyrevert-target-arg-missing`,
+`reflyrevert-target-arg-invalid`, `reflyrevert-wrong-scene` (not FLIGHT),
+`reflyrevert-no-session` (no `ActiveReFlySessionMarker`), then five decided by the poll before
+any dialog button is pressed, each after the exit cleanup below:
+`reflyrevert-pause-menu-unavailable` (no `PauseMenu`, or no "GamePaused" popup within 120
+frames), `reflyrevert-revert-unavailable` (Revert Flight missing or greyed, or no
+"RevertingFlight" popup), `reflyrevert-option-unavailable` (stock does not offer the target's
+option, or it is greyed), `reflyrevert-dialog-not-shown` (no "ParsekReFlyRevert" within 120
+frames of the option press: the prefix did not block) and `reflyrevert-choice-unavailable` (the
+dialog lacks the chosen button; the seam backs out with Continue Flying). Post-press ERROR:
+`reflyrevert-discard-not-dispatched` (Discard armed no load intent: the handler bailed),
+`reflyrevert-retry-not-started` (no pending invocation and no fresh session 300 frames after
+Retry), `reflyrevert-session-changed` (Cancel did not keep the session),
+`reflyrevert-wrong-destination`, `reflyrevert-returned-to-menu`, `reflyrevert-timeout`.
+Every terminal that leaves the game in FLIGHT (a REJECTED, a post-press ERROR such as
+`discard-not-dispatched` or `retry-not-started`, a timeout before the load) runs one exit
+cleanup first: Continue Flying on a Re-Fly revert dialog still up (releasing its input lock),
+then `PauseMenu.Close` on a menu this command opened (`TestCommandReFlyRevert.
+ShouldBackOutOfDialogOnExit` / `ShouldCloseMenusOnExit`: FLIGHT only, the verb's own menu
+only), so the next step never inherits a paused flight; line `reflyrevert exit cleanup
+scene= menuOurs= menuOpen= dialogOpen= closedMenu= backedOutOfDialog= - <why>`.
+
+**Completion.** Phases `AwaitingResume` -> `OpeningMenu` -> `ChoosingRevertOption` ->
+`AwaitingDialog` -> `Settling`. OK: Discard once the destination (SPACECENTER for launch, EDITOR
+for prelaunch) has a loaded game, `DiscardReFlyLoadIntent` is consumed (its OnLoad ran) and two
+polls passed; Retry once FLIGHT holds a fresh session with no invocation pending; Cancel once
+the dialog closed with the same session (the seam then closes the pause menu, which stock
+leaves open and paused). Payload `choice= target= scene= session= rp= rpKept= slot= slotListed=
+unfinishedFlights= marker=`: `rpKept` is the session's rewind point in
+`ParsekScenario.RewindPoints`, `slotListed` whether a member of `UnfinishedFlightsGroup` resolves
+(`EffectiveState.TryResolveUnfinishedFlight`) to that point and the slot whose origin is the
+session's `OriginChildRecordingId`, `marker` the session live after the outcome (`none` after
+Discard). Lines: `reflyrevert start choice= target= sess= rp= slot=`, `reflyrevert opened the Esc
+menu (PauseMenu.Display) ...`, `reflyrevert pressed revert-flight|revert-option|dialog button='...'
+...`, `reflyrevert exit cleanup ...`, `reflyrevert complete choice=
+target= scene= sess= rp= rpKept= slot= slotListed= unfinishedFlights= marker= elapsed=`,
+`reflyrevert rejected reason=` (Warn) / `reflyrevert error reason=` (Error).
+
+**Phases and roles.** TWO-PHASE, `RequiresGameLoaded` (the wrong scene is its own REJECTED, not
+a 300 s defer), 300 s (the `InvokeRewind` / `InvokeRewindToLaunch` size), a
+`DEFERRED_SEAM_VERB`. Dispatch rejects `load-in-flight` and `merge-journal-in-flight`; no
+recording-active guard (the re-fly's own recorder is live). Tail role world-mutating,
+post-mission role `recording`. hlib mirrors the keys, both value sets and the reasons
+(`REFLYREVERT_*`, pinned by `ReFlyRevertSourceSyncTests`, which also pins the dialog labels),
+and `validate_refly_revert_step` checks both args pre-launch (not `VERB_SCOPED_CLOSED_ARGS`:
+`choice` is `AnswerMergeDialog`'s key too). Pure half `TestCommandReFlyRevert`; applier
+`ParsekTestCommandAddon.ReFlyRevert.cs`. Lane: `QL-5-discard-refly-keeps-unfinished-flight`
+(never flown).
+
 ### Addon lifecycle
 
 `ParsekTestCommandAddon` mirrors `TestRunnerShortcut`: `[KSPAddon(KSPAddon.Startup.Instantly, true)]`
@@ -4107,6 +4204,7 @@ wall-clock. Some verbs need a different bound and override the default:
 | `Recover` | 120 s | TWO-PHASE, the `ExitToSpaceCenter` size: stock's save, the Space Center load and the 8-frame delay before `VesselRetrieval.recoverVessels`; NOT a `DEFERRED_SEAM_VERB` |
 | `TrackingStationRecover` | 120 s | TWO-PHASE, the `Recover` size: the Tracking Station load, a few frames of select / confirm / summary dismissal, and the Space Center load back; NOT a `DEFERRED_SEAM_VERB` |
 | `KscMarkerRecover` | 60 s | TWO-PHASE, the default size named: no scene load, the 180-frame marker wait, stock's one-frame recovery and a summary dismissal; NOT a `DEFERRED_SEAM_VERB` |
+| `ReFlyRevert` | 300 s | TWO-PHASE, the `InvokeRewind` / `InvokeRewindToLaunch` size: the resume settle (up to 30 s) and the stock menus, then Discard's quicksave `LoadGame` plus the Space Center / editor load or Retry's flight reload; a `DEFERRED_SEAM_VERB` |
 | `AnswerMergeDialog` | 60 s | MEASURED 2026-10-06 over 859 collected runs (2026-09-10 to 2026-10-05): OK n=65, p50 3.3 s, p99 6.6 s, max 7.2 s. 4x the OK max is 29 s; the floor is twice `TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds` (30 s), which the re-fly fallback spends before the driven exit (unit-guarded). Was 120 s; all 6 non-OK outcomes (4 `no-refly-dialog` TIMEOUT, 2 `answer-timeout` ERROR) waited the full 120 s and none was a slow success |
 | `EvaGroundScience` | 60 s | MEASURED 2026-10-06 over the same corpus: OK n=412, p50 0.9 s, p99 5.5 s, max 5.5 s (step 3.3, take 0.5, place 3.6, pickup 5.5). Each action is its own command, so the budget bounds one action. 4x the OK max is only 22 s, but the place ladder counts frames (about 1,000 worst case), so 60 s keeps it inside the budget down to about 17 fps. Was 120 s (the EvaExit size); all 37 timeouts (27 `step-timeout`, 5 `placement-timeout`, 3 `place-gate-timeout`, 2 `pickup-timeout`) waited the full 120 s, 4,440 s in all |
 
