@@ -825,8 +825,11 @@ the ones a tip snapshot carries:
 
 - **Capture at the retire.** `Ledger.RetireFutureRouteActionsAtRewind` (the go-back rewind and
   the in-session load reconcile) and `ReconciliationBundle.Restore` (Re-Fly) hand their removed
-  rows to `ChainTipRouteCargo.CaptureRetiredRouteCargo`, every time, even with none removed. A
-  cargo row (`RouteCargoDelivered`, `RouteCargoPickedUp`, a physical `RouteCargoDebited`) is kept
+  rows to `ChainTipRouteCargo.CaptureRetiredRouteCargo`, every time, even with none removed; an
+  in-session load whose route reconcile finds nothing after its cutoff (an F9 at the Space Center
+  or in the Tracking Station, `RouteLoadReconcile`'s `SkippedNothingAfterCutoff`) calls it with no
+  rows, so the watermarks come down at every load back in time (PR #2035 re-review). Only tips
+  captured after the cutoff are read. A cargo row (`RouteCargoDelivered`, `RouteCargoPickedUp`, a physical `RouteCargoDebited`) is kept
   when its route endpoint (read from the pre-rewind route store: the stop for a delivery or
   pickup, the origin for a debit, plus the vessel the writer resolved) is one of a committed,
   non-terminated chain tip's claimed pids or its own pid, launch guids not conclusively
@@ -865,15 +868,16 @@ the ones a tip snapshot carries:
   cutoff, the tag's capture] holds it.
 - Not covered: stored-part inventory (delivery rows carry no inventory manifest; a pickup's
   stored parts are not put back); a tail-trimmed tip, whose end moved earlier than the snapshot
-  capture, keeps the crossings of its trimmed tail (TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT); and an
-  in-session load back in time that runs no route reconcile (an `InSessionOther` load with no
-  route state after the save, `RouteLoadReconcile`) does not lower the watermarks, so a route that
-  first delivers into the pre-claim station after such a load and is then retired by a later
-  rewind can be tagged to a snapshot that never held it.
+  capture, keeps the crossings of its trimmed tail (TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT); and a cold
+  load into an older save lowers no watermark. That load keeps the abandoned future's route rows
+  (COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE), so lowering the watermark there would
+  drop rows a snapshot does hold; it waits for that entry's ruling.
 
 Tests: `ChainTipRouteCargoTests` (first round red first: 23 of 26 cells failed against stubs;
 review round red first: the switch-continuation, Re-Fly fork, counter-rebuild replay and
-second-rewind cells failed against the tree tag and the cycle-id key; the pure adjustment with
+second-rewind cells failed against the tree tag and the cycle-id key; re-review round: the
+Space Center F9 cell failed before the in-session load lowered the watermark, and the empty-retire
+and nearest-replay pins fail under their mutations; the pure adjustment with
 clamp, pickup, origin debit, cutoff, capture, other vessel / launch / snapshot, replay matching
 and own parts first; snapshot identity through an optimizer split and against an in-place
 replacement; the watermark; both retire sites; the ledger-file round trip; the shared spawn

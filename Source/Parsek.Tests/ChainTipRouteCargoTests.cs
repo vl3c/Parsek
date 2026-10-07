@@ -393,6 +393,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ReplayStandsForTheNearestCrossing_NotTheFirstListed()
+        {
+            // The later crossing is listed first; the replay at 1300.7 still pays for 1300.
+            var tanks = new List<SnapshotTank> { Tank(StationPartA, "LiquidFuel", 300, 400) };
+
+            ChainTipCargoAdjustment adj = ChainTipRouteCargo.ComputeAdjustment(tanks,
+                new[]
+                {
+                    Row(GameActionType.RouteCargoDelivered, 1400, "LiquidFuel", 60, cycle: "cycle-4"),
+                    Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100, cycle: "cycle-3")
+                },
+                StationTip(), new[] { Replay(1300.7) });
+
+            Assert.Equal(240.0, adj.Amounts[0], 6);
+            Assert.Equal(60.0, Assert.Single(adj.Entries).Removed, 6);
+        }
+
+        [Fact]
         public void OneReplay_PaysForOneCrossing()
         {
             var tanks = new List<SnapshotTank> { Tank(StationPartA, "LiquidFuel", 300, 400) };
@@ -944,6 +962,48 @@ namespace Parsek.Tests
             Ledger.AddAction(DeliveredAction("route-a", replayCycle, 1300.6, "LiquidFuel", 100));
 
             ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(tip, 1750.0, "ksc-end-spawn");
+
+            Assert.NotNull(copy);
+            Assert.Equal(300.0, LiquidFuelOf(copy, StationPartA), 6);
+        }
+
+        [Fact]
+        public void LoadBackInTimeWithNoRouteState_StillLowersTheWatermark()
+        {
+            // An F9 at the Space Center back to 1000 with the route idle after it: the route
+            // reconcile skips, retiring nothing. The route then delivers at 1300 in the new
+            // timeline (into the station standing live at the KSC); a go-back rewind to 1250
+            // retires that row. The tip snapshot (timeline 1) never held it.
+            InstallKerbin();
+            Recording tip = CommitDockUndockTree();
+            RouteStore.AddRoute(StationRoute("route-a"));
+
+            RouteLoadReconcileOutcome outcome = RouteLoadReconcile.ReconcileAtInSessionLoad(
+                LoadKind.InSessionOther, 1000.0, 1000.0, new List<Route>());
+            Assert.Equal(RouteLoadReconcileOutcome.SkippedNothingAfterCutoff, outcome);
+            Ledger.AddAction(DeliveredAction("route-a", "cycle-0", 1300, "LiquidFuel", 100));
+            Ledger.RetireFutureRouteActionsAtRewind(1250.0, out _);
+
+            ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(tip, 1750.0, "after-f9");
+
+            Assert.NotNull(copy);
+            Assert.Equal(300.0, LiquidFuelOf(copy, StationPartA), 6);
+        }
+
+        [Fact]
+        public void RetireThatRemovedNothing_StillLowersTheWatermark()
+        {
+            // A go-back rewind to 1200 with no route row after it; the route then delivers at
+            // 1300 in the new timeline; a second rewind to 1250 retires that row.
+            InstallKerbin();
+            Recording tip = CommitDockUndockTree();
+            RouteStore.AddRoute(StationRoute("route-a"));
+
+            Assert.Equal(0, Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _));
+            Ledger.AddAction(DeliveredAction("route-a", "cycle-0", 1300, "LiquidFuel", 100));
+            Ledger.RetireFutureRouteActionsAtRewind(1250.0, out _);
+
+            ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(tip, 1750.0, "after-empty-retire");
 
             Assert.NotNull(copy);
             Assert.Equal(300.0, LiquidFuelOf(copy, StationPartA), 6);

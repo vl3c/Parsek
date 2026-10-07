@@ -625,11 +625,16 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The cargo identity of every non-terminated chain tip, one per tip recording. A tip
-        /// whose in-memory snapshot was dropped is re-hydrated from its sidecar first.
+        /// The cargo identity of every non-terminated chain tip, one per tip recording, skipping
+        /// a tip whose recording (and the later segments of its optimizer chain) ends at or
+        /// before <paramref name="onlyCapturedAfterUT"/>: a retire or load at that cutoff can
+        /// neither tag a row to such a snapshot (every retired row lies after the cutoff) nor
+        /// lower its watermark below its capture. A tip whose in-memory snapshot was dropped is
+        /// re-hydrated from its sidecar first.
         /// </summary>
         internal static List<ChainTipCargoIdentity> BuildTipIdentities(
-            Dictionary<uint, GhostChain> chains, IList<RecordingTree> trees)
+            Dictionary<uint, GhostChain> chains, IList<RecordingTree> trees,
+            double onlyCapturedAfterUT = double.NegativeInfinity)
         {
             var tips = new List<ChainTipCargoIdentity>();
             if (chains == null || chains.Count == 0)
@@ -645,7 +650,10 @@ namespace Parsek
                 if (!seen.Add(chain.TipRecordingId))
                     continue;
                 Recording tip = FindRecording(trees, chain.TipTreeId, chain.TipRecordingId);
-                if (tip != null && tip.VesselSnapshot == null)
+                if (tip == null
+                    || LatestChainEndUT(tip, FindTree(trees, tip.TreeId)) <= onlyCapturedAfterUT)
+                    continue;
+                if (tip.VesselSnapshot == null)
                 {
                     try
                     {
@@ -682,6 +690,22 @@ namespace Parsek
             }
             found.Sort((a, b) => b.ChainIndex.CompareTo(a.ChainIndex));
             return found;
+        }
+
+        /// <summary>The latest end over <paramref name="rec"/> and the later segments of its optimizer chain.</summary>
+        private static double LatestChainEndUT(Recording rec, RecordingTree tree)
+        {
+            double end = rec.EndUT;
+            if (tree == null || tree.Recordings == null || string.IsNullOrEmpty(rec.ChainId) || rec.ChainIndex < 0)
+                return end;
+            foreach (Recording r in tree.Recordings.Values)
+            {
+                if (r != null && string.Equals(r.ChainId, rec.ChainId, StringComparison.Ordinal)
+                    && r.ChainBranch == rec.ChainBranch && r.ChainIndex > rec.ChainIndex
+                    && r.EndUT > end)
+                    end = r.EndUT;
+            }
+            return end;
         }
 
         /// <summary>The highest later segment of <paramref name="rec"/>'s optimizer chain that holds a snapshot; null when none.</summary>
@@ -777,8 +801,10 @@ namespace Parsek
         /// <summary>
         /// Called by every retire (the ledger retire of the go-back rewind and the in-session
         /// load reconcile, and the Re-Fly restore) with the rows it just removed, even when it
-        /// removed none: keeps the cargo rows a committed chain tip snapshot carries, tagged with
-        /// that snapshot, then lowers every tip snapshot's watermark to this cutoff. The chains
+        /// removed none, and with no rows by an in-session load whose route reconcile found
+        /// nothing after its cutoff: keeps the cargo rows a committed chain tip snapshot carries,
+        /// tagged with that snapshot, then lowers the watermark of every tip snapshot captured
+        /// after this cutoff to it. The chains
         /// are walked over the trees committed now, before the rewind's future is replayed.
         /// Never throws. Returns how many rows were stashed.
         /// </summary>
@@ -823,7 +849,7 @@ namespace Parsek
                 }
 
                 List<ChainTipCargoIdentity> tips =
-                    BuildTipIdentities(GhostChainWalker.ComputeAllGhostChains(trees, 0.0), trees);
+                    BuildTipIdentities(GhostChainWalker.ComputeAllGhostChains(trees, 0.0), trees, cutoffUT);
                 List<RetiredRouteCargoRow> tagged = TagForChainTips(candidates, tips,
                     tip => RetiredRouteCargoStore.WatermarkOf(tag => TagMatchesTip(tag, tip)));
                 int added = RetiredRouteCargoStore.Merge(tagged, out int merged);
