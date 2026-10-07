@@ -135,7 +135,10 @@ boundary that is not a graze. Only that boundary is kept. Mirror direction: a re
 starts landed anywhere else (a Mun lander, a field on Kerbin) carries no launch-site start and
 splits at take-off as before - its landed stay is a phase of its own, not ignition-to-liftoff
 time - and a Re-Fly fork that copied its origin's launch site but starts on another body is
-excluded by the body check. Consumers re-checked by grep: none reads a pad segment (no code tests
+excluded by the body check. Residual (PR #2044 review): a fork that inherits the launch site
+(`RewindInvoker.CopyInheritedIdentityForFork`) and starts landed on Kerbin away from a launch site
+passes the body check, so its take-off stays unsplit - one segment fewer, no data lost; rare,
+because the origin child's own fields pass `ShouldCaptureLaunchSite`. Consumers re-checked by grep: none reads a pad segment (no code tests
 `SegmentPhase == "surface"` on a chain head except the loop-eligibility list, and every chain-head
 reader - rewind save, Re-Fly carve-out, slot tips, Missions, Timeline, route origin proof - takes
 the head's start fields, which the head keeps either way); the unsplit shape is the one 11 of the
