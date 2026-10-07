@@ -121,7 +121,6 @@ namespace Parsek.Tests.Logistics
                         Name = hit.Name,
                         Parts = parts,
                         Nodes = new List<RouteEndpointPartScope.DockNodeRecord>(),
-                        RootFlightId = hit.Ids.Count > 0 ? hit.Ids[0] : 0u,
                     };
                     reason = null;
                     return true;
@@ -133,14 +132,13 @@ namespace Parsek.Tests.Logistics
         }
 
         private static RouteEndpointPartAdoption.CapturedVessel FromCraft(
-            string name, RouteEndpointPartScopeTests.Craft craft, uint root)
+            string name, RouteEndpointPartScopeTests.Craft craft)
         {
             return new RouteEndpointPartAdoption.CapturedVessel
             {
                 Name = name,
                 Parts = craft.PartRecords(),
                 Nodes = craft.NodeRecords(),
-                RootFlightId = root,
             };
         }
 
@@ -379,15 +377,15 @@ namespace Parsek.Tests.Logistics
         }
 
         // ------------------------------------------------------------------
-        // Docked composites (PR #2043 review)
+        // Docked composites (PR #2043 review): the size rule
         // ------------------------------------------------------------------
 
-        // catches (the reviewer's probe): one press widening a lander stop docked INTO a
+        // catches (the reviewer's first probe): one press widening a lander stop docked INTO a
         // larger station to the whole station (scope own=3 before, own=7 after), so the
-        // lander's cargo filled the host. The lander is refused and keeps what it had, and
-        // its scope is unchanged.
+        // lander's cargo filled the host. The larger station is left out, the lander takes
+        // only its own parts, and its scope is unchanged.
         [Fact]
-        public void Adopt_StopDockedIntoLargerStation_IsRefusedAndItsScopeIsUnchanged()
+        public void Adopt_StopDockedIntoLargerStation_TakesOnlyItsOwnParts()
         {
             Route route = new RouteFixtureBuilder()
                 .WithId("route-lander-0001")
@@ -397,19 +395,19 @@ namespace Parsek.Tests.Logistics
                 .Build();
             RouteEndpointPartScopeTests.Craft craft = RouteEndpointPartScopeTests.LanderInLargerStation();
             var capture = new FakeCapture();
-            capture.Composite[300u] = FromCraft("Station T", craft, 400u);
+            capture.Composite[300u] = FromCraft("Station T", craft);
             Func<RouteEndpoint, HashSet<uint>> recorded = ep =>
                 ep.RootPartUId == 300u ? new HashSet<uint>(RouteEndpointPartScopeTests.LanderPids) : null;
 
             RouteEndpointPartAdoption.AdoptionResult result =
                 RouteEndpointPartAdoption.AdoptCurrentParts(route, 90.0, capture.Capture, recorded);
 
-            Assert.Equal(0, result.AdoptedCount);
-            Assert.Equal(1, result.RefusedCount);
-            Assert.Null(route.AdoptedEndpointParts);
+            Assert.Equal(1, result.AdoptedCount);
+            Assert.Equal(0, result.RefusedCount);
+            Assert.Equal(new HashSet<uint> { 300u, 301u, 302u }, FindByRoot(route, 300u).PartFlightIds);
             Assert.Contains(logLines, l => l.Contains("Endpoint part adoption:")
-                && l.Contains("refused=1")
-                && l.Contains("stop1:'Station T' refused=guest-in-larger-composite"));
+                && l.Contains("refused=0")
+                && l.Contains("stop1:'Station T' parts=3 prev=none leftOut=4 own=3"));
 
             RouteEndpointPartScope.ResolveOwnPartSets(route, route.Stops[0].Endpoint,
                 () => new Recording[0], out HashSet<uint> adopted, out _, out _);
@@ -421,9 +419,33 @@ namespace Parsek.Tests.Logistics
             Assert.NotNull(mask);
         }
 
-        // catches: a refused endpoint losing the set an earlier press gave it.
+        // catches (the reviewer's second probe): a lander stop that DOMINATES the dock (KSP
+        // ranks vessel type first, so it holds the composite's root) adopting the host station.
         [Fact]
-        public void Adopt_RefusedEndpointKeepsItsEarlierSet()
+        public void Adopt_DominantLanderStop_LeavesTheHostStationOut()
+        {
+            Route route = new RouteFixtureBuilder()
+                .WithId("route-lander-0003")
+                .WithKscOrigin(true)
+                .WithOrigin(Endpoint(0u, 0u))
+                .WithStop(Stop(Endpoint(202u, 20u)))
+                .Build();
+            RouteEndpointPartScopeTests.Craft craft = RouteEndpointPartScopeTests.LanderDominantOverHostStation();
+            var capture = new FakeCapture();
+            capture.Composite[202u] = FromCraft("Lander", craft);
+            Func<RouteEndpoint, HashSet<uint>> recorded = ep =>
+                ep.RootPartUId == 202u ? new HashSet<uint>(RouteEndpointPartScopeTests.DominantLanderPids) : null;
+
+            RouteEndpointPartAdoption.AdoptCurrentParts(route, 92.0, capture.Capture, recorded);
+
+            Assert.Equal(new HashSet<uint> { 200u, 201u, 202u }, FindByRoot(route, 202u).PartFlightIds);
+            Assert.Contains(logLines, l => l.Contains("stop1:'Lander' parts=3 prev=none leftOut=3 own=3"));
+        }
+
+        // catches: a press on an endpoint whose every cluster is larger losing (or widening)
+        // the set an earlier press gave it: it re-adopts the same own parts.
+        [Fact]
+        public void Adopt_EndpointWithOnlyLargerClusters_KeepsItsOwnParts()
         {
             Route route = new RouteFixtureBuilder()
                 .WithId("route-lander-0002")
@@ -433,20 +455,20 @@ namespace Parsek.Tests.Logistics
                 .WithAdoptedEndpointParts(Entry(300u, 30u, 300u, 301u, 302u))
                 .Build();
             var capture = new FakeCapture();
-            capture.Composite[300u] = FromCraft("Station T",
-                RouteEndpointPartScopeTests.LanderInLargerStation(), 400u);
+            capture.Composite[300u] = FromCraft("Station T", RouteEndpointPartScopeTests.LanderInLargerStation());
 
             RouteEndpointPartAdoption.AdoptCurrentParts(route, 95.0, capture.Capture);
 
             Assert.Equal(new HashSet<uint> { 300u, 301u, 302u }, FindByRoot(route, 300u).PartFlightIds);
-            Assert.Equal(10.0, FindByRoot(route, 300u).AdoptedUT);
-            Assert.Contains(logLines, l => l.Contains("stop1:'Station T' refused=guest-in-larger-composite kept=3"));
+            Assert.Single(route.AdoptedEndpointParts);
+            Assert.Contains(logLines, l => l.Contains("stop1:'Station T' parts=3 prev=3 leftOut=4 own=3"));
         }
 
         // catches: two stops on one composite both collapsing to the whole composite: the
-        // station stop adopts its own pieces only, the lander stop is refused.
+        // station stop takes its own pieces (the lander is the other stop's), the lander stop
+        // leaves the larger station out.
         [Fact]
-        public void Adopt_TwoStopsOnOneComposite_StationTakesOnlyItsPieces()
+        public void Adopt_TwoStopsOnOneComposite_EachTakesOnlyItsPieces()
         {
             Route route = new RouteFixtureBuilder()
                 .WithId("route-twostop-0001")
@@ -457,18 +479,18 @@ namespace Parsek.Tests.Logistics
                 .Build();
             RouteEndpointPartScopeTests.Craft craft = RouteEndpointPartScopeTests.LanderInLargerStation();
             var capture = new FakeCapture();
-            capture.Composite[400u] = FromCraft("Station T", craft, 400u);
-            capture.Composite[300u] = FromCraft("Station T", craft, 400u);
+            capture.Composite[400u] = FromCraft("Station T", craft);
+            capture.Composite[300u] = FromCraft("Station T", craft);
 
             RouteEndpointPartAdoption.AdoptionResult result =
                 RouteEndpointPartAdoption.AdoptCurrentParts(route, 100.0, capture.Capture);
 
-            Assert.Equal(1, result.AdoptedCount);
-            Assert.Equal(1, result.RefusedCount);
+            Assert.Equal(2, result.AdoptedCount);
+            Assert.Equal(0, result.RefusedCount);
             Assert.Equal(new HashSet<uint> { 400u, 401u, 402u, 403u }, FindByRoot(route, 400u).PartFlightIds);
-            Assert.Null(FindByRoot(route, 300u));
-            Assert.Contains(logLines, l => l.Contains("stop1:'Station T' parts=4 prev=none excluded=1")
-                && l.Contains("stop2:'Station T' refused=guest-in-larger-composite"));
+            Assert.Equal(new HashSet<uint> { 300u, 301u, 302u }, FindByRoot(route, 300u).PartFlightIds);
+            Assert.Contains(logLines, l => l.Contains("stop1:'Station T' parts=4 prev=none excluded=1;")
+                && l.Contains("stop2:'Station T' parts=3 prev=none leftOut=4 own=3"));
         }
 
         // catches: the route's own transport, docked at the press, adopted as the station's.
@@ -481,10 +503,11 @@ namespace Parsek.Tests.Logistics
                 .WithOrigin(Endpoint(0u, 0u))
                 .WithStop(Stop(Endpoint(100u, 10u)))
                 .Build();
-            // Station 100/101/102 with the transport (root 202) docked below its port.
+            // Station 100/101/102/103 with the (smaller) transport (root 202) docked below its port.
             var craft = new RouteEndpointPartScopeTests.Craft()
                 .Part(100u, 1001u)
                 .Part(101u, 1002u, 100u)
+                .Part(103u, 1004u, 100u)
                 .Part(102u, 1003u, 101u)
                 .Part(200u, 2001u, 102u)
                 .Part(202u, 2003u, 200u)
@@ -492,12 +515,13 @@ namespace Parsek.Tests.Logistics
                 .Node(102u, 200u, ownRoot: 100u)
                 .Node(200u, 102u, ownRoot: 202u);
             var capture = new FakeCapture();
-            capture.Composite[100u] = FromCraft("Station", craft, 100u);
+            capture.Composite[100u] = FromCraft("Station", craft);
 
             RouteEndpointPartAdoption.AdoptCurrentParts(route, 110.0, capture.Capture,
                 transportRootFlightIds: new HashSet<uint> { 202u });
 
-            Assert.Equal(new HashSet<uint> { 100u, 101u, 102u }, FindByRoot(route, 100u).PartFlightIds);
+            Assert.Equal(new HashSet<uint> { 100u, 101u, 102u, 103u }, FindByRoot(route, 100u).PartFlightIds);
+            Assert.Contains(logLines, l => l.Contains("stop1:'Station' parts=4 prev=none excluded=1]"));
         }
 
         // catches: the transport roots read off the route's recordings including an

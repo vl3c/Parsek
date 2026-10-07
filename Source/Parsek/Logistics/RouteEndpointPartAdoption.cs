@@ -44,15 +44,19 @@ namespace Parsek.Logistics
     /// adopted set BEFORE the recorded sets and admits every docked piece holding an adopted part,
     /// while a craft docked after the adoption still falls outside it.
     ///
-    /// <para>WHAT A PRESS MAY TAKE (<see cref="DecideCapture"/>). Only an endpoint that IS the
-    /// station adopts the composite it resolves to: its own piece (as the scope resolves it
-    /// today: its root plus its adopted, else recorded, parts) must hold the composite's ROOT
-    /// part. An endpoint docked INTO a larger craft (a lander parked at a station, a depot module
-    /// docked into one) is refused and keeps its earlier set: adopting the composite would make
-    /// the host's tanks its own. From the station's composite, the pieces that are another of
-    /// the route's endpoints and the pieces holding the route's own transport root are left
-    /// out; any other docked ship is taken, which is why the hover says to undock visitors
-    /// first.</para>
+    /// <para>WHAT A PRESS MAY TAKE (<see cref="DecideCapture"/>): a size rule the player can
+    /// predict. The endpoint's own pieces (as the scope resolves them today: its root plus its
+    /// adopted, else recorded, parts) are always kept, and their part count is the endpoint's
+    /// own size. Everything else docked to it falls into foreign clusters, one per docking
+    /// point (all that is reachable through it), and a cluster is taken only when it has
+    /// strictly FEWER parts than the endpoint's own pieces. So a station takes the smaller
+    /// modules docked to it, while a lander parked at a station (or a depot module docked into
+    /// one) leaves the larger station out and keeps its own parts, whichever craft KSP made the
+    /// vessel's root. Inside a taken cluster, the pieces that are another of the route's
+    /// endpoints and the pieces holding the root part the route's recordings name for its
+    /// transport stay out; any other smaller docked ship is taken, which is why the hover says
+    /// to undock visitors first. A module with as many parts as the station, or more, is left
+    /// out too: stock records nothing that tells it from a host.</para>
     ///
     /// <para>BINDING. An adoption belongs to the endpoint binding it was captured against, matched
     /// the way the recorded sets are matched to an endpoint: by the endpoint's root part flightID
@@ -74,8 +78,6 @@ namespace Parsek.Logistics
         private const string Tag = RouteOrchestrator.Tag;
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
-        /// <summary>The endpoint is docked into a larger craft whose root it does not hold.</summary>
-        internal const string RefusedGuestInLargerComposite = "guest-in-larger-composite";
         /// <summary>A composite where neither the endpoint's root nor any part set is known.</summary>
         internal const string RefusedOwnPartsUnknown = "own-parts-unknown";
         /// <summary>A composite holding neither the endpoint's root nor any of its parts.</summary>
@@ -89,8 +91,6 @@ namespace Parsek.Logistics
             public string Name;
             public List<PartRecord> Parts;
             public List<DockNodeRecord> Nodes;
-            /// <summary>The vessel's root part flightID (the composite's root when docked).</summary>
-            public uint RootFlightId;
         }
 
         /// <summary>
@@ -112,8 +112,13 @@ namespace Parsek.Logistics
             public string VesselName;
             /// <summary>Parts adopted (0 when not adopted).</summary>
             public int PartCount;
-            /// <summary>Docked pieces left out of the adoption (another endpoint, the transport).</summary>
+            /// <summary>Docked pieces left out of a taken cluster (another endpoint, the transport).</summary>
             public int ExcludedPieces;
+            /// <summary>The endpoint's own size on a docked composite; -1 when not docked.</summary>
+            public int OwnPartCount;
+            /// <summary>Part counts of the foreign clusters left out for not being smaller than
+            /// the endpoint's own pieces; null or empty when none.</summary>
+            public List<int> LeftOutClusterSizes;
             /// <summary>Parts in the endpoint's adoption before this call; -1 when it had none.</summary>
             public int PreviousPartCount;
             /// <summary>Why the endpoint was not adopted; null when it was.</summary>
@@ -188,37 +193,62 @@ namespace Parsek.Logistics
             return latest;
         }
 
+        /// <summary>What <see cref="DecideCapture"/> decided for one endpoint.</summary>
+        internal sealed class CaptureDecision
+        {
+            /// <summary>The part flightIDs to adopt; null when refused (<see cref="Refusal"/>).</summary>
+            public HashSet<uint> AdoptFlightIds;
+
+            /// <summary>The endpoint's own size: the part count of its own pieces on a docked
+            /// composite; -1 when the vessel is not docked (or the decision refused).</summary>
+            public int OwnPartCount = -1;
+
+            /// <summary>Docked pieces left out of an adopted cluster (another endpoint's own
+            /// pieces, pieces holding the route's transport root).</summary>
+            public int ExcludedPieces;
+
+            /// <summary>The part count of every foreign cluster left out for not being smaller
+            /// than the endpoint's own pieces, in part order.</summary>
+            public List<int> LeftOutClusterSizes = new List<int>();
+
+            /// <summary>Why nothing may be adopted; null when <see cref="AdoptFlightIds"/> is set.</summary>
+            public string Refusal;
+        }
+
         /// <summary>
         /// THE DECISION, pure: which parts of the vessel resolved for an endpoint a press may
-        /// adopt as that endpoint's own. Returns false with <paramref name="refusal"/> when it may
-        /// adopt nothing.
+        /// adopt as that endpoint's own.
         /// <list type="bullet">
         /// <item>No settled dock seam: the vessel is one craft, every readable part.</item>
-        /// <item>Docked: the endpoint's own pieces (<paramref name="self"/>, as the scope resolves
-        /// them) must be found (<see cref="RefusedOwnPartsUnknown"/> /
-        /// <see cref="RefusedEndpointNotAboard"/>) and must hold the composite's root part
-        /// <paramref name="compositeRootFlightId"/>, i.e. the endpoint is the station, not a
-        /// craft docked into one (<see cref="RefusedGuestInLargerComposite"/>).</item>
-        /// <item>Then every piece is taken except one that is another endpoint's own
-        /// (<paramref name="otherEndpoints"/>) or holds a part named in
-        /// <paramref name="transportRootFlightIds"/>; the endpoint's own pieces are never left
-        /// out, whatever those lists name.</item>
+        /// <item>Docked: the endpoint's own pieces (<paramref name="self"/>, as the scope
+        /// resolves them: the piece with its root plus the pieces with its adopted, else
+        /// recorded, parts) must be found (<see cref="RefusedOwnPartsUnknown"/> /
+        /// <see cref="RefusedEndpointNotAboard"/>). Their part count is the endpoint's own
+        /// size. With the own pieces removed from the composite's part tree, and the dock
+        /// seams between the remaining pieces kept, what is left falls into FOREIGN CLUSTERS:
+        /// everything reachable through one docking point (a lander at a station sees the
+        /// whole station, modules included, as one cluster; a station with three new modules
+        /// sees three). A cluster is taken only when it has strictly fewer parts than the
+        /// own size; an equal or larger one is a host the endpoint docked into, or a bigger
+        /// visitor, and is left out (<see cref="CaptureDecision.LeftOutClusterSizes"/>). Part
+        /// count, not mass: fuel changes mass, and stock's dominant-vessel pick (vessel type
+        /// first) says nothing about which craft is the station.</item>
+        /// <item>Inside a taken cluster, a piece another endpoint owns
+        /// (<paramref name="otherEndpoints"/>) or holding a part named in
+        /// <paramref name="transportRootFlightIds"/> stays out
+        /// (<see cref="CaptureDecision.ExcludedPieces"/>). The endpoint's own pieces are
+        /// always adopted, so an endpoint whose every cluster is left out re-adopts exactly
+        /// the parts its scope already keeps: that is not a refusal.</item>
         /// </list>
         /// </summary>
-        internal static bool DecideCapture(
+        internal static CaptureDecision DecideCapture(
             IReadOnlyList<PartRecord> parts,
             IReadOnlyList<DockNodeRecord> nodes,
-            uint compositeRootFlightId,
             OwnPartSets self,
             IReadOnlyList<OwnPartSets> otherEndpoints,
-            ICollection<uint> transportRootFlightIds,
-            out HashSet<uint> adoptFlightIds,
-            out int excludedPieces,
-            out string refusal)
+            ICollection<uint> transportRootFlightIds)
         {
-            adoptFlightIds = null;
-            excludedPieces = 0;
-            refusal = null;
+            var decision = new CaptureDecision();
 
             var readable = new HashSet<uint>();
             if (parts != null)
@@ -226,53 +256,80 @@ namespace Parsek.Logistics
                     if (parts[i].FlightId != 0u) readable.Add(parts[i].FlightId);
             if (readable.Count == 0)
             {
-                refusal = RefusedNoReadableParts;
-                return false;
+                decision.Refusal = RefusedNoReadableParts;
+                return decision;
             }
 
             List<SeamEdge> seams = CollectSettledSeamEdges(parts, nodes);
             if (seams.Count == 0)
             {
-                adoptFlightIds = readable;
-                return true;
+                decision.AdoptFlightIds = readable;
+                return decision;
             }
 
-            int[] component = LabelComponents(parts, seams);
-            HashSet<int> own = OwnComponents(parts, component, self);
+            int[] piece = LabelComponents(parts, seams);
+            HashSet<int> own = OwnComponents(parts, piece, self);
             if (own.Count == 0)
             {
                 bool anythingKnown = self.RootPartUId != 0u
                     || (self.AdoptedPartFlightIds != null && self.AdoptedPartFlightIds.Count > 0)
                     || (self.RecordedPartPids != null && self.RecordedPartPids.Count > 0);
-                refusal = anythingKnown ? RefusedEndpointNotAboard : RefusedOwnPartsUnknown;
-                return false;
+                decision.Refusal = anythingKnown ? RefusedEndpointNotAboard : RefusedOwnPartsUnknown;
+                return decision;
             }
 
-            int rootComponent = -1;
-            if (compositeRootFlightId != 0u)
+            var isOwn = new bool[parts.Count];
+            int ownPartCount = 0;
+            for (int i = 0; i < parts.Count; i++)
             {
-                for (int i = 0; i < parts.Count; i++)
+                if (!own.Contains(piece[i])) continue;
+                isOwn[i] = true;
+                ownPartCount++;
+            }
+            decision.OwnPartCount = ownPartCount;
+
+            // Foreign clusters: the part tree with only the edges between an own part and a
+            // foreign part cut. Every such edge is a settled seam (an own piece is a seam-cut
+            // component), and every seam between two foreign pieces stays joined.
+            var boundary = new List<SeamEdge>();
+            for (int e = 0; e < seams.Count; e++)
+            {
+                if (isOwn[seams[e].ChildIndex] != isOwn[seams[e].ParentIndex])
+                    boundary.Add(seams[e]);
+            }
+            int[] cluster = LabelComponents(parts, boundary);
+
+            // Size every foreign cluster, in part order.
+            var clusterOrder = new List<int>();
+            var clusterSize = new Dictionary<int, int>();
+            for (int i = 0; i < parts.Count; i++)
+            {
+                if (isOwn[i]) continue;
+                if (!clusterSize.TryGetValue(cluster[i], out int size))
                 {
-                    if (parts[i].FlightId != compositeRootFlightId) continue;
-                    rootComponent = component[i];
-                    break;
+                    clusterOrder.Add(cluster[i]);
+                    size = 0;
                 }
+                clusterSize[cluster[i]] = size + 1;
             }
-            if (rootComponent < 0 || !own.Contains(rootComponent))
+            var taken = new HashSet<int>();
+            for (int c = 0; c < clusterOrder.Count; c++)
             {
-                refusal = RefusedGuestInLargerComposite;
-                return false;
+                int size = clusterSize[clusterOrder[c]];
+                if (size < ownPartCount) taken.Add(clusterOrder[c]);
+                else decision.LeftOutClusterSizes.Add(size);
             }
 
-            // Pieces another endpoint of the route owns, and pieces holding the transport's
-            // root, stay out - unless they are this endpoint's own.
+            // Inside a taken cluster, the pieces another endpoint of the route owns and the
+            // pieces holding the transport's root stay out. Own pieces are in no cluster, so
+            // they are never left out, whatever those lists name.
             var excluded = new HashSet<int>();
             if (otherEndpoints != null)
             {
                 for (int o = 0; o < otherEndpoints.Count; o++)
                 {
-                    foreach (int c in OwnComponents(parts, component, otherEndpoints[o]))
-                        if (!own.Contains(c)) excluded.Add(c);
+                    foreach (int p in OwnComponents(parts, piece, otherEndpoints[o]))
+                        if (!own.Contains(p)) excluded.Add(p);
                 }
             }
             if (transportRootFlightIds != null && transportRootFlightIds.Count > 0)
@@ -281,18 +338,28 @@ namespace Parsek.Logistics
                 {
                     uint flightId = parts[i].FlightId;
                     if (flightId == 0u || !transportRootFlightIds.Contains(flightId)) continue;
-                    if (!own.Contains(component[i])) excluded.Add(component[i]);
+                    if (!isOwn[i]) excluded.Add(piece[i]);
                 }
             }
 
-            adoptFlightIds = new HashSet<uint>();
+            var adopt = new HashSet<uint>();
+            var excludedInTaken = new HashSet<int>();
             for (int i = 0; i < parts.Count; i++)
             {
-                if (parts[i].FlightId == 0u || excluded.Contains(component[i])) continue;
-                adoptFlightIds.Add(parts[i].FlightId);
+                if (!isOwn[i])
+                {
+                    if (!taken.Contains(cluster[i])) continue;
+                    if (excluded.Contains(piece[i]))
+                    {
+                        excludedInTaken.Add(piece[i]);
+                        continue;
+                    }
+                }
+                if (parts[i].FlightId != 0u) adopt.Add(parts[i].FlightId);
             }
-            excludedPieces = excluded.Count;
-            return true;
+            decision.AdoptFlightIds = adopt;
+            decision.ExcludedPieces = excludedInTaken.Count;
+            return decision;
         }
 
         /// <summary>
@@ -301,7 +368,10 @@ namespace Parsek.Logistics
         /// transport's pre-dock root, which an undock restores) and a start-docked origin proof's
         /// transport root. Roots that are one of the route's <paramref name="endpoints"/> are
         /// dropped (a snapshot taken while docked can be rooted at the station).
-        /// <see cref="DecideCapture"/> never leaves an endpoint's own piece out anyway.
+        /// <see cref="DecideCapture"/> never leaves an endpoint's own piece out anyway. These
+        /// are the flightIDs the recordings captured, so they name the craft that flew the
+        /// recording; a vessel Parsek spawned from a recording gets fresh part flightIDs
+        /// (<c>VesselSpawner.RegenerateVesselIdentity</c>) and is just another docked ship here.
         /// </summary>
         internal static HashSet<uint> CollectTransportRootFlightIds(
             IEnumerable<Recording> sourceRecordings, IEnumerable<RouteEndpoint> endpoints)
@@ -475,12 +545,12 @@ namespace Parsek.Logistics
                 others.Add(SetsFor(BindingAt(route, idx), entries, recordedPartPids));
             }
 
-            bool decided = DecideCapture(vessel.Parts, vessel.Nodes, vessel.RootFlightId,
-                SetsFor(after, entries, recordedPartPids), others, transportRootFlightIds,
-                out HashSet<uint> ids, out int excludedPieces, out string refusal);
-            if (!decided || ids == null || ids.Count == 0)
+            CaptureDecision decision = DecideCapture(vessel.Parts, vessel.Nodes,
+                SetsFor(after, entries, recordedPartPids), others, transportRootFlightIds);
+            HashSet<uint> ids = decision.AdoptFlightIds;
+            if (ids == null || ids.Count == 0)
             {
-                item.Reason = refusal ?? RefusedNoReadableParts;
+                item.Reason = decision.Refusal ?? RefusedNoReadableParts;
                 if (item.Reason == RefusedNoReadableParts)
                 {
                     result.UnresolvedCount++;
@@ -513,7 +583,9 @@ namespace Parsek.Logistics
 
             item.Adopted = true;
             item.PartCount = ids.Count;
-            item.ExcludedPieces = excludedPieces;
+            item.ExcludedPieces = decision.ExcludedPieces;
+            item.OwnPartCount = decision.OwnPartCount;
+            item.LeftOutClusterSizes = decision.LeftOutClusterSizes;
             result.AdoptedCount++;
             result.Endpoints.Add(item);
         }
@@ -571,10 +643,13 @@ namespace Parsek.Logistics
         /// The one Info line per adoption:
         /// <c>Endpoint part adoption: route=X ut=U endpoints=N adopted=A refused=R unresolved=M
         /// pruned=P [origin:'Depot' parts=12 prev=none; stop1:'Station' parts=31 prev=28
-        /// excluded=1; stop2:'Station' refused=guest-in-larger-composite kept=3;
-        /// stop3:unresolved('reason') kept=4]</c>. Stop numbers are 1-based; <c>kept=K</c> names
-        /// a refused or unreached endpoint's surviving adoption; <c>excluded=E</c> the docked
-        /// pieces left out (another endpoint's, the route's transport).
+        /// excluded=1; stop2:'Lander' parts=3 prev=none leftOut=31 own=3;
+        /// stop3:'Station' refused=endpoint-not-aboard kept=5; stop4:unresolved('reason')
+        /// kept=4]</c>. Stop numbers are 1-based; <c>kept=K</c> names a refused or unreached
+        /// endpoint's surviving adoption; <c>excluded=E</c> the docked pieces left out of a taken
+        /// cluster (another endpoint's, the route's transport); <c>leftOut=</c> the part count
+        /// of each foreign cluster left out for not being smaller than the endpoint's own
+        /// pieces, whose part count <c>own=</c> follows.
         /// </summary>
         internal static string FormatAdoptionLine(Route route, double ut, AdoptionResult result)
         {
@@ -592,6 +667,16 @@ namespace Parsek.Logistics
                             ? "none" : e.PreviousPartCount.ToString(IC));
                     if (e.ExcludedPieces > 0)
                         sb.Append(" excluded=").Append(e.ExcludedPieces.ToString(IC));
+                    if (e.LeftOutClusterSizes != null && e.LeftOutClusterSizes.Count > 0)
+                    {
+                        sb.Append(" leftOut=");
+                        for (int c = 0; c < e.LeftOutClusterSizes.Count; c++)
+                        {
+                            if (c > 0) sb.Append(',');
+                            sb.Append(e.LeftOutClusterSizes[c].ToString(IC));
+                        }
+                        sb.Append(" own=").Append(e.OwnPartCount.ToString(IC));
+                    }
                     continue;
                 }
                 if (e.Refused)
@@ -651,7 +736,6 @@ namespace Parsek.Logistics
                     Name = vessel.vesselName,
                     Parts = parts,
                     Nodes = nodes,
-                    RootFlightId = RouteEndpointResolver.ResolveRootPartFlightId(vessel),
                 };
                 reason = null;
                 return true;

@@ -1051,22 +1051,25 @@ short after it and draws one bare button line. While a route is renamed, its
 name field leads the block without taking a slot and Rename greys with its reason.
 
 `Update parts` (owner ruling 2026-10-07) re-captures every endpoint's current parts
-(`RouteEndpointPartAdoption.AdoptCurrentParts`): from then on, everything docked to the origin
+(`RouteEndpointPartAdoption.AdoptCurrentParts`): from then on, what is docked to the origin
 and to each stop at the press counts as that endpoint's own, so a module docked to a station
 after the route was made gets cargo (the endpoint part scope otherwise admits only the parts the
-route recorded; `parsek-logistics-supply-routes-design.md` section 7.1). Only an endpoint that
-holds its docked group's root takes the group in; one docked into a bigger station is refused
-and keeps its parts, and another stop of the route and the route's transport are never taken.
-Hover: `Counts every part now docked to the origin and each stop as its own, so later modules
-get cargo; a stop docked into a bigger station keeps its own parts. Undock visiting ships
-first.`, plus `Last updated on <date>.` once the route has been updated (from the ~1 Hz
+route recorded; `parsek-logistics-supply-routes-design.md` section 7.1). Each endpoint takes
+only the docked craft with fewer parts than its own (everything behind one docking port is one
+craft): a lander stop parked at a station leaves the larger station out and keeps its own
+parts, and a module as big as the station, or bigger, is left out too. Another stop of the
+route is never taken, nor the route's transport while it is the craft that flew the recorded
+run. Hover: `Counts the parts now docked to the origin and each stop as its own, so later
+modules get cargo; each takes only docked craft with fewer parts than itself. Undock visiting
+ships first.`, plus `Last updated on <date>.` once the route has been updated (from the ~1 Hz
 legibility cache). It greys, with `A run is under way; update parts after it has delivered` on
 hover, while a run's cargo is still to be written (`LogisticsRoutePresentation.IsRunInFlight`:
 a self-timer run in transit or pending delivery, or a multi-stop loop cycle that has fired some
-stops but not all, unless the route is Paused); every status is otherwise live. A press posts no screen message and draws no outcome line: its outcome is the
-`Endpoint part adoption:` Info line with the per-endpoint part counts, and the hover's date.
-It shows in Basic because it changes which parts take cargo, not when a route runs (4.6 of
-`design-ui-basic-advanced.md`).
+stops but not all, Paused included, since Send finishes that cycle and Activate resets it);
+every status is otherwise live. A press posts no screen message and draws no outcome line: its
+outcome is the `Endpoint part adoption:` Info line with the per-endpoint part counts and
+left-out craft sizes, and the hover's date. It shows in Basic because it changes which parts
+take cargo, not when a route runs (4.6 of `design-ui-basic-advanced.md`).
 
 **Candidates table** (on the route grid): `#` 30; Route, expanding, two lines in the route
 rows' styles (the caret + the name Create would give: the source mission's name, numbered

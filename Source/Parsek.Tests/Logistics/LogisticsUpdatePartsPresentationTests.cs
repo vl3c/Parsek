@@ -97,15 +97,23 @@ namespace Parsek.Tests.Logistics
             Assert.False(LogisticsRoutePresentation.IsRunInFlight(single));
         }
 
-        // catches (PR #2043 review): a multi-stop loop route paused between its stops
-        // greyed until it ran again. A paused loop route fires nothing, and Activate resets
-        // every stop's cursor, so the half-fired cycle is never finished.
+        // catches (PR #2043 review, second round): a multi-stop loop route paused between its
+        // stops reading as idle. Send un-pauses it WITHOUT resetting the stop cursors, so the
+        // next tick finishes that half-fired cycle into whatever the press adopted; the
+        // button stays greyed until Send finishes the cycle or Activate resets it.
         [Fact]
-        public void RunNotInFlight_MultiStopLoopRoutePausedMidCycle()
+        public void RunInFlight_MultiStopLoopRoutePausedMidCycle()
         {
             Route paused = LoopRoute(Stop(lastFired: 3, dockUT: 100.0), Stop(lastFired: 2, dockUT: 200.0));
             paused.Status = RouteStatus.Paused;
-            Assert.False(LogisticsRoutePresentation.IsRunInFlight(paused));
+            Assert.True(LogisticsRoutePresentation.IsRunInFlight(paused));
+            Assert.Equal(LogisticsRoutePresentation.UpdatePartsInFlightReason,
+                LogisticsRoutePresentation.UpdatePartsDisabledReason(paused));
+
+            // A paused route between cycles is idle.
+            Route pausedIdle = LoopRoute(Stop(lastFired: 3, dockUT: 100.0), Stop(lastFired: 3, dockUT: 200.0));
+            pausedIdle.Status = RouteStatus.Paused;
+            Assert.False(LogisticsRoutePresentation.IsRunInFlight(pausedIdle));
 
             // A self-timer run still pending delivery is in flight whatever the status says.
             Route pending = LoopRoute(Stop());
@@ -142,8 +150,9 @@ namespace Parsek.Tests.Logistics
             Assert.Contains("origin", t);
             Assert.Contains("each stop", t);
             Assert.Contains("Undock visiting ships first", t);
-            // PR #2043 review: a stop docked into a bigger station is refused, and says so.
-            Assert.Contains("a stop docked into a bigger station keeps its own parts", t);
+            // PR #2043 review: the size rule, in the player's words (a lander at a station
+            // leaves the larger station out; a module as big as the station is left out too).
+            Assert.Contains("each takes only docked craft with fewer parts than itself", t);
             Assert.DoesNotContain("\n", t);
         }
 
@@ -184,6 +193,153 @@ namespace Parsek.Tests.Logistics
             Assert.Equal("Update parts", LogisticsRoutePresentation.UpdatePartsButtonLabel);
             Assert.True(LogisticsRoutePresentation.UpdatePartsButtonLabel.Length
                 <= "Link round-trip...".Length);
+        }
+    }
+
+    /// <summary>
+    /// PR #2043 review, second round: the Update parts gate driven through the real
+    /// orchestrator on a two-stop loop route paused between its stops. Send returns a Paused
+    /// route to Active without resetting the stop cursors (the next tick finishes the
+    /// half-fired cycle on its pre-pause dispatch), so the button must stay greyed until
+    /// that cycle has delivered to every stop, or until Activate resets the cursors.
+    /// </summary>
+    [Collection("Sequential")]
+    public class LogisticsUpdatePartsPausedCycleTests : IDisposable
+    {
+        public LogisticsUpdatePartsPausedCycleTests()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+            RouteStore.ResetForTesting();
+            Ledger.ResetForTesting();
+            ResetHooks();
+        }
+
+        public void Dispose()
+        {
+            ResetHooks();
+            RouteStore.ResetForTesting();
+            Ledger.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+        }
+
+        private static void ResetHooks()
+        {
+            RouteOrchestrator.LoopUnitResolverForTesting = null;
+            RouteOrchestrator.DeliveryApplierForTesting = null;
+            RouteOrchestrator.DeliveryRowEmitterForTesting = null;
+            RouteOrchestrator.OriginDebitApplierForTesting = null;
+        }
+
+        private sealed class EligibleEnv : IRouteRuntimeEnvironment
+        {
+            public bool IsCareer { get; set; }
+            public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = string.Empty; return true; }
+            public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason) { vessel = null; reason = string.Empty; return true; }
+            public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall) { shortfall = 0.0; lackingResource = string.Empty; return true; }
+            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
+            public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = string.Empty; return true; }
+            public bool RouteHasValidSourcesInErs(Route route) => true;
+        }
+
+        private static Route TwoStopLoopRoute()
+        {
+            var route = new Route
+            {
+                Id = "route-paused-cycle",
+                Status = RouteStatus.Active,
+                IsKscOrigin = true,
+                BackingMissionTreeId = "tree-1",
+                RecordedDockUT = 1300.0,
+                DockMemberRecordingId = "rec-dock-b",
+                LoopAnchorUT = 1000.0,
+                LastObservedLoopCycleIndex = -1,
+                DispatchInterval = 400.0,
+                TransitDuration = 400.0,
+                CostManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 }, { "Oxidizer", 120.0 } },
+                Stops = new List<RouteStop>
+                {
+                    new RouteStop
+                    {
+                        Endpoint = new RouteEndpoint { VesselPersistentId = 42u },
+                        DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+                        SegmentIndexBefore = 0, RecordedDockUT = 1150.0, LastFiredCycleIndex = -1,
+                    },
+                    new RouteStop
+                    {
+                        Endpoint = new RouteEndpoint { VesselPersistentId = 43u },
+                        DeliveryManifest = new Dictionary<string, double> { { "Oxidizer", 120.0 } },
+                        SegmentIndexBefore = 1, RecordedDockUT = 1300.0, LastFiredCycleIndex = -1,
+                    },
+                },
+                SourceRefs = new List<RouteSourceRef>
+                {
+                    new RouteSourceRef { RecordingId = "rec-dock-b", TreeId = "tree-1", RouteProofHash = "deadbeef" },
+                },
+            };
+            RouteStore.AddRoute(route);
+            var unit = new GhostPlaybackLogic.LoopUnit(ownerIndex: 0, memberIndices: new[] { 0 },
+                spanStartUT: 1000.0, spanEndUT: 1400.0, cadenceSeconds: 400.0, phaseAnchorUT: 1000.0);
+            RouteOrchestrator.LoopUnitResolverForTesting = (r, ut) => unit;
+            RouteOrchestrator.DeliveryRowEmitterForTesting =
+                (r, currentUT, env, cycleId, stopIndex, bump) => Ledger.AddAction(new GameAction
+                {
+                    Type = GameActionType.RouteCargoDelivered, UT = currentUT, RouteId = r.Id,
+                    RouteCycleId = cycleId, RouteStopIndex = stopIndex,
+                    Sequence = stopIndex * RouteOrchestrator.SeqStride + 3,
+                });
+            return route;
+        }
+
+        // catches: the button going live on a paused half-fired cycle, after which Send
+        // finishes that cycle's later stop under the pre-pause dispatch (the reviewer's probe).
+        [Fact]
+        public void PausedMidCycle_GreyedUntilSendFinishesTheCycle()
+        {
+            Route route = TwoStopLoopRoute();
+            var env = new EligibleEnv();
+
+            RouteOrchestrator.Tick(1150.0, env);
+            Assert.Equal(0, route.Stops[0].LastFiredCycleIndex);
+            Assert.Equal(-1, route.Stops[1].LastFiredCycleIndex);
+            Assert.True(LogisticsRoutePresentation.IsRunInFlight(route));
+
+            Assert.True(RouteOrchestrator.TryPause(route, 1160.0, env));
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            Assert.True(LogisticsRoutePresentation.IsRunInFlight(route));
+            Assert.Equal(LogisticsRoutePresentation.UpdatePartsInFlightReason,
+                LogisticsRoutePresentation.UpdatePartsDisabledReason(route));
+
+            // Send un-pauses without resetting the cursors: still under way.
+            Assert.True(RouteOrchestrator.TrySendOneCycleNow(route, 1170.0));
+            Assert.Equal(0, route.Stops[0].LastFiredCycleIndex);
+            Assert.True(LogisticsRoutePresentation.IsRunInFlight(route));
+
+            // The next tick finishes the half-fired cycle 0 at its second stop; then idle.
+            RouteOrchestrator.Tick(1350.0, env);
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.RouteCargoDelivered
+                && a.RouteStopIndex == 1 && a.RouteCycleId == "cycle-0");
+            Assert.False(LogisticsRoutePresentation.IsRunInFlight(route));
+            Assert.Equal(string.Empty, LogisticsRoutePresentation.UpdatePartsDisabledReason(route));
+        }
+
+        // catches: a paused half-fired cycle as a dead end: Activate resets every stop's
+        // cursor, so the button is live again at once.
+        [Fact]
+        public void PausedMidCycle_ActivateResetsTheCursorsAndFreesTheButton()
+        {
+            Route route = TwoStopLoopRoute();
+            var env = new EligibleEnv();
+
+            RouteOrchestrator.Tick(1150.0, env);
+            Assert.True(RouteOrchestrator.TryPause(route, 1160.0, env));
+            Assert.True(LogisticsRoutePresentation.IsRunInFlight(route));
+
+            Assert.True(RouteOrchestrator.TryActivate(route, 1170.0));
+            Assert.Equal(-1, route.Stops[0].LastFiredCycleIndex);
+            Assert.Equal(-1, route.Stops[1].LastFiredCycleIndex);
+            Assert.False(LogisticsRoutePresentation.IsRunInFlight(route));
         }
     }
 }

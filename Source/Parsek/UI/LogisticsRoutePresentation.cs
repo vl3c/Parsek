@@ -738,12 +738,13 @@ namespace Parsek
         /// block's 100 px single; the hover explains it.</summary>
         internal const string UpdatePartsButtonLabel = "Update parts";
 
-        /// <summary>The Update parts hover: what the press counts, that an endpoint docked into
-        /// a bigger craft is refused (it keeps its own parts), and that any other docked ship is
-        /// taken with the station (so undock visitors first).</summary>
+        /// <summary>The Update parts hover: what the press counts, the size rule
+        /// (<see cref="RouteEndpointPartAdoption.DecideCapture"/>: each endpoint takes only the
+        /// docked craft with fewer parts than its own, so a lander at a station leaves the
+        /// station out), and that a smaller visiting ship is taken too (so undock it first).</summary>
         internal const string UpdatePartsTooltip =
-            "Counts every part now docked to the origin and each stop as its own, so later modules "
-            + "get cargo; a stop docked into a bigger station keeps its own parts. Undock visiting ships first.";
+            "Counts the parts now docked to the origin and each stop as its own, so later modules "
+            + "get cargo; each takes only docked craft with fewer parts than itself. Undock visiting ships first.";
 
         /// <summary>Why Update parts is greyed while a run is under way.</summary>
         internal const string UpdatePartsInFlightReason =
@@ -756,9 +757,10 @@ namespace Parsek
         /// arrival pending delivery, or a multi-stop loop cycle that has fired some of its
         /// stops but not all (each stop keeps the cycle it last fired; they agree between
         /// cycles). The self-timer's cycle-start stamp is not read: a delivery never clears
-        /// it. A single-stop loop run fires in one tick and is never under way here, and a
-        /// paused loop route's half-fired cycle is never finished (Activate resets every
-        /// stop's cursor), so it is not under way either.
+        /// it. A single-stop loop run fires in one tick and is never under way here. A paused
+        /// route keeps its stop cursors and stays under way: Send un-pauses it without
+        /// resetting them, so the next tick finishes that cycle on its pre-pause dispatch,
+        /// and Activate resets them (the button is live again either way).
         /// </summary>
         internal static bool IsRunInFlight(Route route)
         {
@@ -766,7 +768,7 @@ namespace Parsek
                 return false;
             if (route.Status == RouteStatus.InTransit || route.PendingDeliveryUT.HasValue)
                 return true;
-            if (route.Status == RouteStatus.Paused || route.Stops == null || route.Stops.Count < 2)
+            if (route.Stops == null || route.Stops.Count < 2)
                 return false;
             bool any = false;
             long lowest = long.MaxValue;
