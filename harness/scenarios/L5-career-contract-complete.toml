@@ -193,12 +193,21 @@ D14 = ["kerbin", "career", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# PINNED EXACTLY at the measurement. Run `2026-08-20_2217` produced 2 on this
-# fixture - the flown main recording plus the post-recovery continuation - which
-# is the same pair `L3-career-science-recover` pins for the same craft and the
-# same mission on its own two MISSION-OK flights. Three independent runs of one
-# shape is what makes an exact pin honest rather than a one-sample guess.
-count = { min = 2, max = 2 }
+# 2 OR 3, AND WHICH ONE IS A TIMING THRESHOLD, NOT A PRODUCT CHANGE. Runs
+# `2026-08-20_2217` and `2026-09-15_1727` produced 2 on this fixture, the same pair
+# `L3-career-science-recover` reads for the same craft and mission: the optimizer
+# splits the flight at the landing (`Split recording 'Jumping Flea' ... 'surface'
+# [10..342] + 'surface' [342..348]` on `_1727`). It also splits at liftoff when the
+# pre-liftoff pad segment reaches the 5.0 s floor both halves of a split need
+# (`RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers`). That segment measured
+# 4.48-4.70 s on all 11 earlier L3 / L5 flights with a collected log, and 5.04 s on
+# `2026-10-07_0032` (recording from UT 9.60, liftoff 14.64), which split there too and
+# read 3 (`'surface' [10..15] + 'atmo' [15..347]`, then the landing split): a 0.04 s
+# margin decides the count. Widened to 2..3 on that reading (todo
+# OPTIMIZER-PAD-SPLIT-AT-FIVE-SECOND-THRESHOLD). The floor stays 2: the landing split
+# has fired on every flight so far. No other expectation here reads the count or a
+# recording index.
+count = { min = 2, max = 3 }
 
 [expectations.logContracts]
 # NINE tokens. The first three are inherited context, the last six are the

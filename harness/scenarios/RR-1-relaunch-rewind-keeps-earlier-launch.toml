@@ -33,7 +33,20 @@ id = "RR-1-relaunch-rewind-keeps-earlier-launch"
 #          LaunchFromEditor onto the Runway (the pad carries the fixture's launch-clamp
 #          debris, whose LaunchSiteClear dialog would recover it), StartRecording (a
 #          non-promotion start: `Captured rewind save ... vessel "Kerbal X" in PRELAUNCH`,
-#          as SE-1 logged), a few seconds on the Runway, stop, commit (a second tree).
+#          as SE-1 logged), a few seconds on the Runway, a wait for the flight scene's
+#          onFlightReady, stop, commit (a second tree).
+#          THE FLIGHT-READY WAIT, added 2026-10-07 off `2026-10-07_0040`
+#          INVALID(driver-unresolved-handle): LaunchFromEditor answers before stock
+#          onFlightReady, and there StartRecording (KSP.log 03:41:41.334) and
+#          StopRecording (41.527) both ran before it (41.686), so OnFlightReady found
+#          no live recorder and `ResetFlightReadyState` dropped the stopped tree:
+#          `committree no-active-tree`, and `${c0.rec9}` never existed. Green runs only
+#          won the race (re-run `_0043`: onFlightReady 25 ms before the stop, `live
+#          recorder/tree already own the current flight - skipping reset`).
+#          `ListHandles kind=chains` is the seam's condition-based flight-ready wait (it
+#          defers `ghost-chains-pending` until OnFlightReady ran, CI-2's shape), so
+#          OnFlightReady now always runs while the recorder is live. Todo
+#          FLIGHT-READY-RESET-DROPS-STOPPED-UNCOMMITTED-TREE.
 #   ACT 2  InvokeRewindToLaunch tree=latest: the relaunch tree. Its quicksave holds BOTH
 #          the relaunched Kerbal X (the owner, anchored by its own guid) and the capsule
 #          (same resolved name, the fixture's guid). The relaunch is stripped by name; the
@@ -99,6 +112,9 @@ steps = [
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
+  # THE FLIGHT-READY WAIT (header, ACT 1): deferred `ghost-chains-pending` until the
+  # relaunch scene's OnFlightReady ran, so it sees the live recorder and keeps the tree.
+  { cmd = "ListHandles", args = { kind = "chains" },                         expect = "OK" },
   { cmd = "StopRecording",                                                   expect = "OK" },
   { cmd = "CommitTree",                                                      expect = "OK", budget = 120 },
   { cmd = "StopRecording",                                                   expect = "OK" },

@@ -124,7 +124,7 @@ tags = ["ledger", "L3", "career-forge", "science", "recovery", "reading-run"]
 # `harness/missions/lib/test_science_bench_recover.py`.
 saveTemplate = "fixtures/saves/career-science-pad"
 # LOAD-BEARING. The store must start empty: `recordings.count` below asserts that
-# the ONE recording in the produced save is the one this flight made.
+# the recordings in the produced save are the ones this flight made.
 injectedRecordings = "none"
 craft = []
 
@@ -238,12 +238,19 @@ allowedAnomalies = []
 
 [expectations.recordings]
 # THE FORGE'S WHOLE POINT: a flight that recorded nothing produces no subject. The
-# window was B1's 1..6 while it was a PREDICTION; it is now PINNED EXACTLY at the
+# window was B1's 1..6 while it was a PREDICTION; it was then pinned at the
 # measurement, 2 on both MISSION-OK flights of this spec (`2026-08-19_1912` and
-# `2026-08-19_2130`) - the flown main recording plus the post-recovery
-# continuation. Two independent runs of the same shape is what makes an exact pin
-# honest here rather than a one-sample guess.
-count = { min = 2, max = 2 }
+# `2026-08-19_2130`): one flight that the optimizer splits at the landing.
+# WIDENED TO 2..3 on 2026-10-07, with no flight of this spec red: the same craft
+# and mission on `L5-career-contract-complete` (`2026-10-07_0032`) also split at
+# liftoff and read 3, because its pre-liftoff pad segment reached 5.04 s and an
+# optimizer split needs both halves >= 5.0 s
+# (`RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers`). On this spec that
+# segment measured 4.48-4.64 s (`2026-09-22_2132` / `_2149` / `_2226` / `_2325`,
+# `2026-09-29_2153`), so it can split the same way; todo
+# OPTIMIZER-PAD-SPLIT-AT-FIVE-SECOND-THRESHOLD. No other expectation here reads the
+# count or a recording index.
+count = { min = 2, max = 3 }
 
 [expectations.logContracts]
 # FIVE tokens. The first two are the flight-leg pair, measured on every prior flight
