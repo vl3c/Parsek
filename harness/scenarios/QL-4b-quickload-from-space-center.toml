@@ -3,7 +3,8 @@ id = "QL-4b-quickload-from-space-center"
 # MERGED 2026-10-08 (origin/main into `ql-lanes`): the steps carry both 2026-10-07
 # changes, `ql-lanes`' `ListHandles kind=committed` step and ghost forbids (flown green
 # alone as `2026-10-07_2226`) and `scene-wait`'s removal of the 150-step post-F9 settle
-# (flown green alone as `2026-10-07_2109`). Not flown as one.
+# (flown green alone as `2026-10-07_2109`). Flown as one 2026-10-08
+# `2026-10-08_0014`, PASS attempt 1, on the merged build (PRs #2049-#2052).
 #
 # SPEC CHANGED 2026-10-07 (branch `ql-lanes`), NOT RE-FLOWN: the "no old ghost next to the
 # vessel" half of the manual F9-from-the-Space-Center check. One step (`ListHandles
