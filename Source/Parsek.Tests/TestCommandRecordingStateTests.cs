@@ -52,6 +52,62 @@ namespace Parsek.Tests
             Assert.Equal("0", Val(p, "points"));
         }
 
+        // ----- awaitRecorderLive=refly (S4.4 named-condition wait) -----
+
+        [Fact]
+        public void AwaitRecorderLive_Absent_ParsesAsNoWait()
+        {
+            Assert.True(TestCommandRecordingState.TryParseAwaitRecorderLive(null, out bool armed));
+            Assert.False(armed);
+        }
+
+        [Fact]
+        public void AwaitRecorderLive_ReFly_ArmsTheWait()
+        {
+            Assert.True(TestCommandRecordingState.TryParseAwaitRecorderLive("refly", out bool armed));
+            Assert.True(armed);
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData("true")]
+        [InlineData("ReFly")]
+        [InlineData("refly ")]
+        [InlineData("1")]
+        public void AwaitRecorderLive_AnyOtherValue_FailsClosed(string raw)
+        {
+            Assert.False(TestCommandRecordingState.TryParseAwaitRecorderLive(raw, out bool armed));
+            Assert.False(armed);
+        }
+
+        [Theory]
+        // armed, recorderLive, markerLive -> expectDefer
+        [InlineData(false, false, false, false)]
+        [InlineData(false, true, true, false)]
+        [InlineData(true, false, false, true)]
+        [InlineData(true, true, false, true)]
+        [InlineData(true, false, true, true)]
+        [InlineData(true, true, true, false)]
+        public void ShouldDeferForReFlyRecorder_WaitsForRecorderAndMarkerTogether(
+            bool armed, bool recorderLive, bool markerLive, bool expectDefer)
+        {
+            Assert.Equal(expectDefer,
+                TestCommandRecordingState.ShouldDeferForReFlyRecorder(armed, recorderLive, markerLive));
+        }
+
+        [Fact]
+        public void AwaitRecorderLive_WireTokens_ArePinned()
+        {
+            // The harness mirrors these byte-for-byte (hlib RECORDINGSTATE_AWAIT_* and the
+            // reject-reason maps); a rename here must move there too.
+            Assert.Equal("awaitRecorderLive", TestCommandRecordingState.AwaitRecorderLiveKey);
+            Assert.Equal("refly", TestCommandRecordingState.AwaitRecorderLiveReFlyValue);
+            Assert.Equal("await-recorder-live-arg-invalid",
+                TestCommandRecordingState.AwaitRecorderLiveArgInvalidReason);
+            Assert.Equal("refly-recorder-not-live",
+                TestCommandRecordingState.ReFlyRecorderNotLiveDeferReason);
+        }
+
         [Fact]
         public void Payload_HasExactlyTheFourContractKeys_InOrder()
         {

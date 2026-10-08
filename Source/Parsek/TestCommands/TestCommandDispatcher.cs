@@ -698,6 +698,31 @@ namespace Parsek.TestCommands
                         return DispatchResult.Defer("no-refly-dialog");
                     break;
 
+                case "RecordingState":
+                {
+                    // A read, so no guard - EXCEPT the optional named-condition wait
+                    // `awaitRecorderLive=refly` (S4.4): defer until a recorder is live AND
+                    // a re-fly session marker is live, then read. The re-fly recorder
+                    // starts asynchronously after InvokeRewind answers
+                    // (RestoreActiveTreeFromPending from the re-fly scene's OnFlightReady),
+                    // so a lane that needs it live cannot pad inert steps: too few race it,
+                    // too many let it sample. The defer returns on the first frame the
+                    // condition holds, and the budget bounds a recorder that never starts.
+                    // A bad value refuses before any state is read, so a typo cannot read
+                    // as a wait that happened to be satisfied.
+                    bool awaitReFlyRecorder;
+                    if (!TestCommandRecordingState.TryParseAwaitRecorderLive(
+                            Arg(parsed, TestCommandRecordingState.AwaitRecorderLiveKey),
+                            out awaitReFlyRecorder))
+                        return DispatchResult.Reject(
+                            TestCommandRecordingState.AwaitRecorderLiveArgInvalidReason);
+                    if (TestCommandRecordingState.ShouldDeferForReFlyRecorder(
+                            awaitReFlyRecorder, state.Recording, state.ActiveReFlyMarker))
+                        return DispatchResult.Defer(
+                            TestCommandRecordingState.ReFlyRecorderNotLiveDeferReason);
+                    break;
+                }
+
                 case "KscAction":
                 {
                     // AnyScene, but with a per-sub-action readiness sub-gate. The readiness bit
