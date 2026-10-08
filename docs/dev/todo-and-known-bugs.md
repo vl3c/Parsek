@@ -16,7 +16,55 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~QUICKLOAD-UNTAGGED-RECOVERY-MILESTONE-SURVIVES-F9: a milestone stock awards at a recovery after the quicksave is untagged, so the F9 keeps its reward~~ [FILED 2026-10-07 from lane QL-2's first full flight, branch `ql-lanes`, measured. FIXED 2026-10-08, branch `recovery-milestone-tag` (owner decision: tag it to the recovered recording); red-first xUnit `RecoveryScopedMilestoneTagTests`; live proof owed: QL-2]
+## OPTIMIZER-SPLIT-RETAG-COMMIT-WALK-TRANSIENT-CLAMP: after commit 2a65d49d5 the first ledger walk of a split commit runs before the second half's rows exist [FILED 2026-10-08 from HC-2's regression flight on the PR #2055 DLL, measured. OPEN, product]
+
+`HC-2-hard-career-earn-spend` `2026-10-08_1859` reads PARSEK-FAIL on its forbidden token
+`GUARDED (UPLIFT|DRAWDOWN) clamped`: `PatchFunds: GUARDED DRAWDOWN clamped resource=Funds
+running=517760 live=518720` fires ONCE, on the first walk after the exit commit, 0.2 s BEFORE the
+recovery (not PR #2055's code). The exit commit's optimizer splits the Flea's recording at the
+landing (UT 341, Atmospheric -> SurfaceMobile) and, since commit 2a65d49d5 ("Optimizer split
+partitions captured events and pending science at the cut", 2026-10-07), retags the `Kerbin/Science`
+milestone event to the second half (`RetagEventsForSplitSecondHalf ... retagged=3`). The first
+half's commit then walks (`Committed recording '<first>': 4 actions added`) before the second half's
+rows are converted (`Committed recording '<second>': 3 actions added` 3 ms later), so that walk is
+one milestone (960) short and the guard clamps; the next walk credits it. The Oct 3 green runs
+(`2026-10-03_1523` / `_1533`, same split) had no retag and no clamp. Fix: not decided; walk once
+after every split half is committed, or convert both halves before the first walk.
+
+---
+
+## CL-2-POD-LANDING-AWARD-VARIANCE: CL-2's pod sometimes earns Kerbin/Landing before it breaks up, and the oracle hard-gates the award [FILED 2026-10-08 from CL-2's regression flight on the PR #2055 DLL. OPEN, harness]
+
+`CL-2-pod-impact-ledger` `2026-10-08_1914` reads PARSEK-FAIL on the ledger oracle: funds
+expected 529600, parsed 530400 (+800). This run's pod touched down long enough to complete
+`Kerbin/Landing` (`Milestone enriched: 'Kerbin/Landing' funds=800`) before the impact destroyed
+it; the last green run (`2026-09-15_1723`) never landed it. The lane hard-gates every unexpected stock
+award (its capture cross-check), so a per-run outcome difference reads as ledger drift. Not a
+product defect (the award was really earned and really booked). Fix: decide whether the oracle
+model admits `Kerbin/Landing` when the pod's recording shows a surface contact, or make the
+mission's impact deterministic.
+
+---
+
+## FAST-POLL-SETTLES-STILL-RACE: ZF-1's rollout and CI-6's recorder bind lose the race their one-frame settles were sized for [FILED 2026-10-08 from the PR #2055 regression flights. OPEN, harness]
+
+Two more lanes the HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS audit left on inert-step settles
+read red on the same premise (an inert step is one frame since PR #2017):
+- `ZF-1-zero-funds-career` `2026-10-08_1858`: its four `zf1-rollout-settle` marks (0.12 s)
+  no longer cover stock's rollout debit (~0.2 s after `launchfromeditor complete` on the green
+  `2026-10-03_1542`), so the LedgerGroundTruth batch starts first and the `FundsChanged -300
+  (VesselRollout)` / `VesselRollout spending recorded` / `PatchFunds ... target=3882.0` tokens never
+  print. Fix: a 1x `WarpToUT` a couple of seconds past the launch UT.
+- `CI-6-chain-tip-recover-no-respawn` `2026-10-08_1917`: RealSpawn to Recover took 0.58 s over 17
+  inert steps and the spawned tip's recorder had not bound (`boundRec=(none)`, then `In-flight
+  recovery request dropped unapplied ... reason=scene change requested`); last night's green
+  `2026-10-07_2143` bound it 0.25 s after RealSpawn. This is the CI-6 settle the audit named as open
+  (no UT the spec can name); it needs a named-condition wait like S4.4's
+  `RecordingState awaitRecorderLive=` (a non-re-fly variant).
+
+---
+
+## ~~QUICKLOAD-UNTAGGED-RECOVERY-MILESTONE-SURVIVES-F9: a milestone stock awards at a recovery after the quicksave is untagged, so the F9 keeps its reward~~ [FILED 2026-10-07 from lane QL-2's first full flight, branch `ql-lanes`, measured. FIXED 2026-10-08, branch `recovery-milestone-tag` (owner decision: tag it to the recovered recording); red-first xUnit `RecoveryScopedMilestoneTagTests`; LIVE-PROVEN 2026-10-08 by QL-2 `2026-10-08_1820` PASS attempt 1: `FirstCrewToSurvive` emitted with the recovered recording's tag, written to the ledger under it, retired by the F9 reconcile (`afterCutoff=5`), no funds clamp; the recover routes CI-7 / CI-10 and the career lanes L2 / L4 / L5 / L6 / L7 green on the same DLL]
 
 `QL-2-quickload-career-recovery-not-paid` `2026-10-07_2344` (career-pad-craft, the Jumping Flea
 hopped, quicksaved on the ground at UT ~352.2, recovered through stock's button, the quicksave then

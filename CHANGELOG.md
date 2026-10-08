@@ -3713,8 +3713,7 @@ _(unreleased - entries accumulate here per commit)_
   milestone, so Parsek's books claimed its reward (800 funds in the test flight) while KSP no
   longer had it. A milestone (and its reward) completed during a recovery now belongs to the
   recovered flight, like the recovery payout, and a quickload past it drops both. A vessel
-  Parsek never recorded is booked as before. Covered by xUnit; not yet checked in a test flight
-  (lane QL-2).
+  Parsek never recorded is booked as before. Checked in a test flight (lane QL-2).
 
 - **A flight the recording optimizer splits when you commit it now books each result on the
   part where it happened.** Parsek cuts a fresh flight into parts (a few seconds on the pad,
