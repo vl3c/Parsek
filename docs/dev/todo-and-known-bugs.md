@@ -16,6 +16,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~RVR-3-POSTPONEMENT-CELLS-ASSERT-NO-LEDGER-ROW: three `RouteLifecycle` in-game cells still asserted that a blocked crossing writes no ledger row~~ [FILED 2026-10-09 from the release-check flight `2026-10-09_0059_RVR-3-route-lifecycle`. FIXED 2026-10-09, branch `release-check-fixes`; test drift, not a product defect; not re-flown]
+
+`RVR-3-route-lifecycle` read `failed=3`: `SendOnce_PostponementBlock_KeepsArm_RouteStaysActive_NoToast`,
+`PauseInTransit_PostponementBlock_KeepsArm_StaysInTransit` and
+`UnarmedRoute_BlockedCycle_StaysActive_NoPauseMarker` each asserted
+`Ledger.Actions.Count == beforeTick`, and each wrote exactly one row, `RouteHeld
+kind=SourcesStale detail=sources-stale cycle=cycle-0`. Cause: PR #1982 (2026-10-04) made every
+hold episode write one `RouteHeld` row by design (`RouteOrchestrator.TryEmitRouteHeldRow`, the
+Route History's Held row) and updated the headless twins (`RouteSendOnceBlockedPauseTests`,
+`RouteLoopDeliveryFireTests`) but not `Source/Parsek/InGameTests/RouteLifecycleRuntimeTests.cs`.
+Fix: the three cells now assert exactly one new row, of type `RouteHeld`, for the route, with
+`RouteHoldKind = SourcesStale` and `RouteEndpointReason = "sources-stale"`; the RoutePaused-is-null
+and zero-toast assertions stay. The category's `total=8` is unchanged.
+
 ## ~~OPTIMIZER-SPLIT-RETAG-COMMIT-WALK-TRANSIENT-CLAMP: after commit 2a65d49d5 the first ledger walk of a split commit runs before the second half's rows exist~~ [FILED 2026-10-08 from HC-2's regression flight on the PR #2055 DLL, measured. FIXED 2026-10-09, branch `split-commit-single-walk`; xUnit only, not flown]
 
 `HC-2-hard-career-earn-spend` `2026-10-08_1859` reads PARSEK-FAIL on its forbidden token
@@ -3503,6 +3517,21 @@ first verb after the reset, with one deterministic ordering. The `StopRecording`
 `DiscardTree` preamble lanes EVA-6..EVA-10 could then drop `retry policy = "once"` after one
 green flight each. 121 committed specs name `DiscardTree`; the same race applies to any of
 them that boots FLIGHT on a recorded fixture.
+
+**Second symptom: the post-LoadGame race got wider after PR #2017 (2026-10-09, branch
+`release-check-fixes`).** PR #2017's 25 ms polls bring the steps after `LoadGame` forward, so a
+lane can now act while the vessel is still PACKED, not only before the reset.
+`CI-1-eva-switch-bg-member` (release-check `2026-10-08_2143`) started recording ON RAILS
+(`Recording started on rails - orbit segment`), and the EVA split backgrounded the ship at UT
+~421.6, before onFlightReady (`Vessel switch ignored ... fired before onFlightReady`), so its
+pinned `Transitioned to background (pid=3620499050, points=1, orbitSegments=0)` read `points=2,
+orbitSegments=1`. The last green flight (`2026-09-26_1941`, 100 ms polls) started recording at
+UT ~422.13. **CI-1 fixed by a spec wait:** `WarpToUT ut=423 maxRate=1` after its SetSetting steps
+(fixture UT 421.19), token unchanged, not yet re-flown. **Fourteen more lanes act right after
+LoadGame with no wait and likely share the race:** `EVA-1`..`EVA-5`, `GS-2`, `GS-3`, `RF-18`,
+`RF-20`, `S0.5`..`S0.8`, `ST-2`. Still open: audit those lanes, or fix it on the seam side (make
+the FLIGHT `LoadGame` complete only after onFlightReady AND the active vessel has unpacked, the
+fix direction above plus an unpack input), which would also let CI-1's wait go.
 
 ## RESET-FLIGHT-READY-STATE-LEAVES-RESTORE-ATTEMPT-ARMED: the flight-ready reset drops a committed-restore clone tree but leaves its restore attempt armed [FILED 2026-10-03 from EVA-6 `2026-10-03_1437`, branch `closing-flights`; observed in a harness boot, not traced on a player path]
 
