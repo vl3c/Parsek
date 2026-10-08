@@ -6269,6 +6269,24 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Automated testing: the whole F9 check in one lane (QL-2b new) on a career twin of the GS-1
+  pad.** `QL-2b-quickload-booster-career-reward-not-paid` (nightly, flown green 2026-10-07) flies QL-4's
+  in-flight shape in a career: the two-stage hop, a quicksave with the booster still under its
+  parachutes, half a minute on, then the pilot climbs out onto Kerbin's surface (the first EVA
+  there, which stock pays as a milestone, booked to the flight when it is merged in flight), and
+  the quicksave is loaded. It requires the abandoned EVA branch to be pruned, the milestone's
+  tagged events purged and its ledger row retired as after-cutoff, and the booster recorded again
+  down to Landed; it forbids the milestone being credited, counted, re-marked or re-booked after
+  the load, any funds uplift, and the EVA kerbal reaching the final commit. Its host,
+  `career-gs1-two-stage-pad`, is `fresh-career` with the GS-1 craft spliced in by
+  `career-pad-craft`'s recipe (`harness/tools/build_career_gs1_two_stage_pad.py`, byte-identity
+  checked by `harness/lib/test_career_gs1_two_stage_pad.py`). It flies the new mission shell
+  `gs1_auto_chute_booster_career`, GS-1's machine, assertions and parameter schema plus the
+  unreadable-maneuver-node tolerance a level-0 Tracking Station needs (QL-2's measured death on
+  plain `b1_pad_hop`, applied before this lane's first flight); GS-1, QL-4 / QL-4b / QL-4c,
+  RF-1, RF-4 and CA-1 keep `gs1_auto_chute_booster` unchanged. No product change. Flown green
+  on its first flight (`2026-10-07_2351`): the abandoned EVA milestone was paid before the load,
+  retired by it, never paid again, and the booster was recorded again down to Landed.
 - **Automated testing: the F9 checks automated (QL-2 new, QL-3 and QL-4b extended) and the
   rewind fixtures production-shaped.** `QL-2-quickload-career-recovery-not-paid` (nightly,
   flown red 2026-10-07 by a product finding, see below) is the career half of "a reward earned after the F5 is not paid": the Jumping

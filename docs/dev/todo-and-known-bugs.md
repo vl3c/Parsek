@@ -1159,14 +1159,18 @@ pre-cutoff, untagged and other-tree events kept; pruned recording; milestone-hel
 snapshot; committed id; quicksave history kept: a terminal member, a committed-node chain segment,
 and a branch-point member plus its pruned child,
 `TryRestoreActiveTreeNode_CommittedBeforeTheQuicksave_BranchAfterCutoffMembersKept`). Open: lane
-QL-2, AUTHORED 2026-10-07 (branch `ql-lanes`), never flown: `QL-2-quickload-career-recovery-not-paid`
+QL-2, AUTHORED 2026-10-07 (branch `ql-lanes`): `QL-2-quickload-career-recovery-not-paid`
 (career-pad-craft, B1's hop, F5, stock Recover, F9 from the Space Center; the existing `LoadGame
 name=quicksave` verb replaces the TC-1 `Quickload` verb, since QL-4 proved it classifies
 `refined=QuickloadFlight` in flight and QL-4b `InSessionOther` from the Space Center). Its payout
 events are captured at the Space Center, untagged, so this lane gates the ledger half
-(`afterCutoff>=1`) and reads `eventsPurged` without pinning it; a lane where a tagged in-flight
-event is abandoned still needs an in-flight earning after the F5 that no committed career host has
-(the contract variant is blocked by SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE).
+(`afterCutoff>=1`) and reads `eventsPurged` without pinning it (QL-2 flew red `2026-10-07_2344` by
+a product finding, QUICKLOAD-UNTAGGED-RECOVERY-MILESTONE-SURVIVES-F9). The tagged in-flight half is
+LIVE-PROVEN by QL-2b (`QL-2b-quickload-booster-career-reward-not-paid`, branch `ql-career-booster`,
+host `career-gs1-two-stage-pad`): `2026-10-07_2351` PASS attempt 1, the abandoned future's
+`Kerbin/SurfaceEVA` milestone credited before the F9, then `PurgeEventsForRecordingAfterUT
+(quickload-abandoned-future): ... live=0, milestone=1, snapshots=0` and never credited again (the
+contract variant stays blocked by SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE).
 
 ---
 
@@ -1197,12 +1201,15 @@ row at 300, death penalty and the cleared booster's KerbalAssignment retired, th
 kept; re-commit through the tree commit books one row per fact; KSC, route, science (also at UT
 ~1e7) and other-tree rows kept; a tree committed BEFORE the quicksave keeps its history members'
 rows). Open: the residual QUICKLOAD-ENDED-MEMBER-RESTAMPED-AFTER-THE-SAVE-KEEPS-ITS-FUTURE; the
-career live proof is lane QL-2, AUTHORED 2026-10-07 (branch `ql-lanes`), never flown
+career live proof is lane QL-2, AUTHORED 2026-10-07 (branch `ql-lanes`)
 (`QL-2-quickload-career-recovery-not-paid`: a stock recovery after the F5 books funds, recovery
 science and crew XP to the flight; after the F9 from the Space Center the reconcile must read
 `ledgerRowsRetired>=1 (afterCutoff>=1`, and no later recalc may walk a Recovery earning or lift the
-funds pool). The booster plus a career reward in one lane needs a career twin of
-`gs1-two-stage-pad` and an in-flight earning that does not leave the scene; neither exists.
+funds pool; flown red `2026-10-07_2344` by a product finding,
+QUICKLOAD-UNTAGGED-RECOVERY-MILESTONE-SURVIVES-F9). The booster plus a career reward in one lane
+is QL-2b, LIVE-PROVEN `2026-10-07_2351` (PASS attempt 1): an in-flight milestone row booked at an
+in-flight commit retired after the cutoff (`RetireAbandonedFutureActions: removed 3 action(s)`) and
+the booster recorded again to Landed.
 
 Owner ruling 2026-10-06 (OQ-2): F9 into a later-committed flight's quicksave retires that tree's
 recording-tagged ledger rows after the quicksave; untagged KSC rows are kept.

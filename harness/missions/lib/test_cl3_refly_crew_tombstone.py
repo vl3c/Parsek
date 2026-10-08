@@ -2297,7 +2297,16 @@ class ManeuverNodeReadGuardTests(unittest.TestCase):
         # lanes flying `b1_pad_hop` keep the default; its safety argument is
         # science_bench_recover's flight-leg one (B1's phase progression plus the
         # apoapsis window), written out in its own make_control.
+        #
+        # `gs1_auto_chute_booster_career.py` joined on 2026-10-08 for
+        # `QL-2b-quickload-booster-career-reward-not-paid` (GS-1's profile on the
+        # level-0 career fixture `career-gs1-two-stage-pad`), applied from QL-2's
+        # measurement before the lane's first flight rather than after it. Its
+        # safety argument is GS-1's own pad guards (the `airborne_seen` gate on
+        # LANDED, the booster existing only after the split, the observed
+        # separation), written out in its make_control.
         self.assertEqual(["b1_pad_hop_career.py", "cl3_refly_crew_tombstone.py",
+                          "gs1_auto_chute_booster_career.py",
                           "science_bench_recover.py"],
                          sorted(opters))
 

@@ -1,0 +1,517 @@
+schema = 1
+id = "QL-2b-quickload-booster-career-reward-not-paid"
+# =====================================================================================
+# QL-2b: AN F9 BACK INTO A FLIGHT COMMITTED IN FLIGHT AFTER THE F5 RE-RECORDS THE
+# BOOSTER AND DOES NOT PAY A REWARD EARNED IN THE ABANDONED FUTURE. The whole manual F9
+# check "F5 after staging, fly on, Merge in flight, F9: the booster is recorded again and
+# ends with its new outcome, and a reward earned after the F5 is not paid" in one lane:
+# QL-4's in-flight shape (TA-4, the booster) on a CAREER twin of its host, with a career
+# earning inside the abandoned future that does not leave the flight (TA-2's tagged-event
+# purge and TA-3's ledger retire, both on a funds row). Roadmap "The timeline-operation
+# coverage program", Lanes table, rows QL-2 / QL-4.
+#
+# In gameplay terms: the player flies GS-1's two-stage hop in a career. The pod lands, the
+# probe booster is still under its parachutes; the player presses F5, lets the booster
+# drift down for half a minute, then climbs out of the pod onto Kerbin's surface (the
+# first EVA on Kerbin: stock pays the SurfaceEVA milestone), merges the flight from the
+# Parsek window and presses F9. The game goes back to Valentina in the pod with the
+# booster high, so the EVA never happened: the career must not keep the milestone's
+# funds, and the booster must be recorded again down to the ground.
+#
+# WHY A SURFACE EVA (the reward, chosen from the decompiled stock code).
+#   KSPAchievements.SurfaceEVA (a node of Kerbin's CelestialBodySubtree) completes on
+#   GameEvents.onCrewOnEva when the vessel left is LandedOrSplashed on the body, and only
+#   once (`if (!IsComplete) { Complete(); AwardProgressStandard(.., SURFACEEVA, body) }`),
+#   so it pays exactly when the lane makes it pay: the seam's EvaExit calls
+#   FlightEVA.spawnEVA, which fires onCrewOnEva (stock's own gate,
+#   GameVariables.EVAIsPossible, allows a landed Kerbin EVA at Astronaut Complex level 0
+#   anyway). The replay never EVAs, so nothing pays it again. Rejected: Kerbin's Landing
+#   node for the booster (CelestialBodyLanding fires for any owned vessel, but the booster
+#   is still airborne at the commit and lands only in the replay, where the node pays
+#   legitimately); science (the GS-1 pod transmits nothing worth a lane and a recovery
+#   leaves the flight); world records (all set on the ascent, QL-2's finding); a contract
+#   (SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE).
+#
+# THE MECHANISM UNDER TEST.
+#   1. The EVA, after the F5 at UT ~150: GameStateRecorder.OnProgressComplete emits a
+#      MilestoneAchieved 'Kerbin/SurfaceEVA' event TAGGED to the live recording (the pod's,
+#      which the EVA branch point ends there), the AwardProgress postfix enriches it with
+#      the funds, and stock adds them to the career's pool (FundsChanged, Progression).
+#   2. The in-flight commit books it: LedgerOrchestrator.OnRecordingCommitted converts the
+#      pod recording's events into a MilestoneAchievement row at UT ~150, the recalc
+#      credits it (`Credited milestone 'Kerbin/SurfaceEVA'`) and FundsModule counts it.
+#   3. The F9 in FLIGHT reaches the committed-copy restore (QL-4's route): the quicksave's
+#      tree is restored, the committed copy's EVA children and EVA branch point are spliced
+#      in (SpliceMissingCommittedRecordingsIntoLoadedTree) and the committed copy is
+#      detached; the resume trim then prunes the EVA children (they start after the
+#      cutoff) and the emptied EVA branch point.
+#   4. The resume reconcile (ParsekScenario.TrimAndReconcileForQuickloadResume) purges the
+#      pod recording's tagged events after the cutoff (GameStateStore
+#      .PurgeEventsForRecordingAfterUT). By then the MilestoneAchieved event lives only in the
+#      commit's milestone (MilestoneStore.CreateMilestone took it, and the commit's
+#      PruneProcessedEvents dropped it and the FundsChanged event from the live list; the F9
+#      does not reload events.pgse), so the purge reads `live=0, milestone=1`, and
+#      retires the MilestoneAchievement row as `afterCutoff` (Ledger
+#      .RetireAbandonedFutureActions), with the pruned children's rows and the cleared
+#      recordings' kerbal-assignment summaries.
+#   5. From the retire on, no recalc credits Kerbin/SurfaceEVA, so the final commit's
+#      patch leaves KSP's funds (the quicksave's, which never saw the EVA) unchanged.
+#   The booster half is QL-4's unchanged: its abandoned SubOrbital ending is cleared, it is
+#   re-registered with the background recorder, recorded down to the ground and commits
+#   Landed at the scene exit.
+#
+# THE HOST. `career-gs1-two-stage-pad`: `fresh-career` (500000 / 100 / 0, facilities at
+# level 0, an empty progress tree) with `gs1-two-stage-pad`'s craft, crew row (Valentina
+# Kerman, Assigned) and inert ParsekScenario node spliced in by `career-pad-craft`'s recipe
+# (harness/tools/build_career_gs1_two_stage_pad.py, byte-identity gated by
+# harness/lib/test_career_gs1_two_stage_pad.py). The craft is the donor's VESSEL node byte
+# for byte, so GS-1's profile and QL-4's parameters transfer verbatim. It flies
+# `gs1_auto_chute_booster_career`: GS-1's machine, assertions and schema with ONE control
+# difference, `tolerate_unreadable_nodes=True` (safety argument in its make_control).
+# PREMISE MISS, APPLIED BEFORE THE FIRST FLIGHT: QL-2 flew plain `b1_pad_hop` on the
+# level-0 career `career-pad-craft` and went INVALID twice (`2026-10-07_2231`, retry
+# `_2232_a2`): kRPC's maneuver-node read raises `Maneuver node editing is not available
+# ... tracking station has not been upgraded`, three consecutive raises escalate to
+# `vessel_lost` at PRELAUNCH, and the mission died MISSION-ASSERT-FAIL in 1.2 s. This
+# host's Tracking Station is at level 0 too and GS-1's machine condemns a vessel_lost
+# frame the same way, so the plain mission would die identically. Spec changed, not flown.
+#
+# THE TIMELINE (UTs from QL-4 `2026-10-07_1931` on the sandbox twin, not measured here):
+#   ~UT 26    launch; recording starts; FirstLaunch and the world records pay on the ascent.
+#   ~UT 115   the pod lands, the booster is under canopy; the mission concludes.
+#   F5        SaveGame quicksave = THE CUTOFF (QL-4 read cutoffUT=115.46).
+#   UT ~150   WarpToUT 150, phys ladder (QL-4: reachedUT 149.8); the booster still falls.
+#   EVA       EvaExit: Valentina leaves the landed pod; SurfaceEVA pays (THE REWARD).
+#   commit    StopRecording, CommitTree, StopRecording (CA-1's in-flight Merge order).
+#   F9        LoadGame quicksave in FLIGHT: restore, splice, detach, resume, trim, reconcile.
+#   UT 400    WarpToUT 400: the booster lands in the replay (QL-4: UT ~247).
+#   exit      ExitToSpaceCenter: the scene-exit auto-merge commits the resumed tree.
+#
+# BEFORE-FIX CONVENTION: the fixes are merged (PR #2025 + the committed-copy restore), so
+# this is a plain regression lane with no [expectedFail]. On a build without the reconcile
+# the prediction is PARSEK-FAIL(expectation): the reconcile and retire lines missing, the
+# booster committing SubOrbital, and `Credited milestone 'Kerbin/SurfaceEVA'` after the F9.
+#
+# PRE-REGISTERED READINGS (what to check first if the first flight reds):
+#   - `evaexit refused reason=no-airlock` / `eva-refused` or `evaexit timeout`: the pod's
+#     hatch is blocked where it landed; a premise miss, though EvaExit is a post-mission
+#     OUTCOME step, so the run classifies PARSEK-FAIL(mission-outcome). Read the refusal
+#     before filing anything.
+#   - No `Game state: MilestoneAchieved 'Kerbin/SurfaceEVA'`: the node was already
+#     complete or not deployed (read the fixture's ProgressTracking); a premise miss.
+#   - `ConvertEvents: converted=0 ... outOfRange=1` for the pod's recording at the commit:
+#     the event's UT fell outside the recording's range (a tail trim ignored the EVA
+#     branch point); then no row is booked while KSP keeps the funds. A product question
+#     (an earning booked to no recording), file it.
+#   - `afterCutoff=0` with the reconcile otherwise green: the milestone row was tagged to a
+#     recording outside the plan or stamped at or before the cutoff; read the
+#     `Credited milestone 'Kerbin/SurfaceEVA' at UT=` line's recording against the
+#     reconcile's trimmed set before filing.
+#   - `prunedFutureRecordings=0`: the splice did not bring the EVA children into the
+#     resumed tree (read SpliceMissingCommittedRecordings' splicedIds). Their rows then
+#     survive outside every tree; a product finding (TA-3's class), file it.
+#   - `listhandles kind=active count=2` or a final `vessel='Valentina Kerman'` finalize:
+#     the abandoned EVA kerbal leaked into the replay (TA-4's class on a pruned branch).
+#   - `Credited milestone 'Kerbin/SurfaceEVA'` after the retire, or `PatchMilestones: set
+#     achieved 'Kerbin/SurfaceEVA'` / a positive `PatchFunds` delta after the F9: the
+#     abandoned reward was paid in the replay; a product finding, file it.
+#   - `warp-locked holders=physicsHold` on the post-F9 warp: the settle pad below fell
+#     short (QL-4's first reading); lengthen it, or fly a build with TC-1 (PR #2051),
+#     whose WarpToUT defers over the hold.
+#   - LedgerGroundTruth is NOT run (it skips while a restored tree defers the patch); the
+#     funds gate is the walk and patch lines.
+#
+# STATUS: LIVE-PROVEN 2026-10-07 `2026-10-07_2351` (PASS attempt 1, first flight). AUTHORED
+# 2026-10-08 (branch `ql-career-booster`, stacked on PR #2052); mission switched to
+# `gs1_auto_chute_booster_career` 2026-10-08 before that flight, see THE HOST.
+# Every token is quoted from its emitting source line (GameStateRecorder
+# .RegisterPendingMilestoneEvent / OnFundsChanged / the enrichment postfix, MilestonesModule
+# .ProcessAction, FundsModule, LedgerOrchestrator.OnRecordingCommitted, KspStatePatcher,
+# ParsekScenario.Trim.cs, GameStateStore, Ledger.RetireAbandonedFutureActions,
+# TestCommandEvaExit) and checked against real lines (QL-4 `2026-10-07_1931`, EVA-5
+# `2026-09-26_1824_a2` for the SurfaceEVA chain); the saveParse blocks are REPORT-ONLY
+# until a reading run.
+# =====================================================================================
+tier = "nightly"
+description = "QL-2b: QL-4's in-flight F9 in a career. GS-1's two-stage hop in career-gs1-two-stage-pad: F5 with the booster under canopy, fly on, Valentina EVAs onto Kerbin's surface (stock pays the SurfaceEVA milestone, booked to the pod's recording at the in-flight commit), then F9 back into the quicksave. The reconcile purges the tagged events and retires the milestone row, no later recalc credits it or patches its funds back, the abandoned EVA branch is pruned, and the booster is recorded again and commits Landed."
+instanceProfile = "stock-minimal"
+tags = ["QL-2b", "TA-2", "TA-3", "TA-4", "quickload", "timeline-ops", "career", "GS1",
+        "staging", "controlled-child", "eva", "milestone", "ledger", "in-flight-commit",
+        "scene-exit", "auto-merge", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/career-gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "gs1_auto_chute_booster_career"
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "true" },    expect = "OK" },
+  # The final commit is the scene-exit auto-merge (no merge modal can stand at the exit).
+  { cmd = "SetSetting",     args = { name = "autoMerge", value = "true" },             expect = "OK" },
+  # LOAD-BEARING: the Credited-milestone walk line, FundsModule's milestone line,
+  # FinalizeTreeRecordings and the background-recorder attach line are Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },        expect = "OK" },
+  # RF-1's mission: the pod lands, the booster is still airborne at the exit of the phase.
+  { phase = "mission",                                                                 expect = "MISSION-OK", budget = 900 },
+  # THE F5. The cutoff UT of the later quickload.
+  { cmd = "SaveGame",       args = { name = "quicksave" },                             expect = "OK", budget = 120 },
+  # The abandoned future: about 30 s, the booster still descending. CA-1's ladder and cap.
+  { cmd = "WarpToUT",       args = { ut = "150", maxRate = "2", ladder = "phys" },     expect = "OK", budget = 300 },
+  # THE REWARD AFTER THE F5: the first EVA on Kerbin's surface (stock pays SurfaceEVA).
+  # At 1x (the warp ends at rate=1), from the landed pod, long after the cutoff.
+  { cmd = "EvaExit",        args = { release = "true" },                               expect = "OK", budget = 120 },
+  # Commit in flight (CA-1's order). No OnSave, so the quicksave's epochs still match.
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  { cmd = "CommitTree",                                                                expect = "OK", budget = 120 },
+  # CommitTree auto-resumes a recorder on the still-active vessel (here the EVA kerbal).
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  # THE F9, in FLIGHT (refined load kind QuickloadFlight). No live recorder, so the
+  # dispatch `recording-active` guard admits it.
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave" },        expect = "OK", budget = 300 },
+  # inert-wait: frames only, no game time. RestoreActiveTreeFromPending runs from
+  # OnFlightReady and may wait for the active vessel; read the background map after it.
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  # The live tree's background map, read through the seam: 1 (the booster). 0 is the
+  # booster's leaked terminal (QL-4's defect), 2 the abandoned EVA kerbal kept.
+  { cmd = "ListHandles",    args = { kind = "active" },                                expect = "OK" },
+  # inert-wait: frames only, no game time. Settles out the post-load physics hold before
+  # the warp (QL-4 reading run 2026-10-07: a WarpToUT 0.2 s after OnFlightReady read
+  # `warp-locked holders=physicsHold`; the unpack lands 1.0-1.2 s after it and each inert
+  # step is about one frame). On a build with TC-1 (PR #2051) WarpToUT defers over the
+  # hold and this pad is only redundant.
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  # The replay: the booster lands (CA-1's verb, target and cap).
+  { cmd = "WarpToUT",       args = { ut = "400", maxRate = "2", ladder = "phys" },     expect = "OK", budget = 540 },
+  # THE COMMIT: the scene-exit auto-merge of the resumed tree.
+  { cmd = "ExitToSpaceCenter",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                              expect = "OK" },
+]
+
+[driver.missionParams]
+# QL-4's values VERBATIM (the craft is gs1-two-stage-pad's VESSEL node byte for byte).
+throttle = 1.0
+stagingApoapsisMeters = 700
+stagingMaxAltMeters = 1500
+apoapsisWindowMeters = { min = 600, max = 1600 }
+stageSettleFrames = 2
+chuteArmMaxRateMps = 30
+chuteFullDeployAltMeters = 600
+landedSituations = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds = 90
+coastTimeoutSeconds = 120
+stageTimeoutSeconds = 60
+descentTimeoutSeconds = 300
+siblingVesselName = "GS1 Auto-Chute Booster Probe"
+siblingAirborneAtExit = true
+siblingDownTimeoutSeconds = 240
+
+[dimensionsCovered]
+# D14 values only (each already covered elsewhere). No new claim: no D-value names a
+# back-in-time load yet.
+D14 = ["kerbin", "career", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Predicted 3 (QL-4's flown shape: the pod, the booster split at its touchdown). The
+# ceiling absorbs an optimizer split; an abandoned EVA kerbal kept would read 4 or more,
+# which the forbidden finalize token below names directly.
+count = { min = 2, max = 8 }
+
+# REPORT-ONLY until a reading run. Predicted: one tree committed once (the F9 detached
+# the in-flight commit, the exit re-committed), both stages Landed, the abandoned EVA
+# branch point pruned, no rewind bookkeeping.
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 2, max = 8 }
+terminalStates = { Landed = { min = 2 }, SubOrbital = { max = 0 } }
+branchPoints   = { JointBreak = { min = 1 }, EVA = { max = 0 } }
+
+[expectations.rewind]
+gating        = false
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.logContracts]
+required = [
+  # GROUP 1 - THE FLIGHT, THE SPLIT AND THE F5 (QL-4's tokens).
+  "Recording started",
+  "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
+  "savegame name=quicksave folder=.+ saved=true",
+  "warptout complete",
+
+  # GROUP 2 - THE REWARD AFTER THE F5, BOOKED TO THE FLIGHT AT THE IN-FLIGHT COMMIT.
+  # The EVA (TestCommandEvaExit's completion line).
+  "evaexit complete kerbal=Valentina Kerman evaPid=[0-9]+ released=true",
+  # Stock completes the node (GameStateRecorder.RegisterPendingMilestoneEvent's Info line),
+  # after the F5 and before the F9, and pays the funds into KSP's pool (OnFundsChanged).
+  "savegame name=quicksave folder=.+ saved=true[\\s\\S]*Game state: MilestoneAchieved 'Kerbin/SurfaceEVA' \\(awaiting reward enrichment\\)[\\s\\S]*Game state: FundsChanged \\+[1-9][0-9]* \\(Progression\\)[\\s\\S]*loadgame start save=\\S+ name=quicksave ",
+  # The AwardProgress postfix's enrichment: a funds reward (1600 on EVA-5's sandbox run).
+  "Milestone enriched: 'Kerbin/SurfaceEVA' funds=[1-9][0-9]* rep=",
+  # The in-flight commit (CommitTreeFlight, F1), after the warp (it stops one tick short).
+  "CommitTreeFlight: starting tree commit at UT=(149|1[5-9][0-9]|[2-9][0-9]{2})\\.[0-9]",
+  "committree committed=true",
+  # The commit's recalc credits the milestone to a recording at the EVA's UT
+  # (MilestonesModule.ProcessAction) and FundsModule counts its funds, both before the F9.
+  "Credited milestone 'Kerbin/SurfaceEVA' at UT=(?:149|1[5-9][0-9])\\.[0-9] \\(recording=[0-9a-f]{32}, funds=[1-9][0-9]*, [\\s\\S]*loadgame start save=\\S+ name=quicksave ",
+  "Milestone funds: \\+[1-9][0-9.]*, actionId=\\S+, milestoneId=Kerbin/SurfaceEVA, recordingId=[0-9a-f]{32}, [\\s\\S]*loadgame start save=\\S+ name=quicksave ",
+  # The abandoned future's booster ending: committed while still under canopy.
+  "FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='GS1 Auto-Chute Booster Probe' points=[1-9][0-9]* orbitSegs=0 terminal=SubOrbital",
+
+  # GROUP 3 - THE F9 REACHES THE QUICKLOAD RESUME (QL-4's route).
+  "loadgame start save=\\S+ name=quicksave scene=FLIGHT requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false",
+  "Load classified: early=InSession refined=QuickloadFlight scene=FLIGHT initialLoadDone=true rewinding=false reFlyInvoke=false discardReFly=none",
+  "\\[Scenario\\] Quickload committed-copy restore: tree='GS1 Auto-Chute Booster' id=\\S+ route=in-flight action=ResumeFromQuicksave reason=committed-after-quicksave ",
+  # The committed copy's EVA children reach the loaded tree (spliced) before the detach.
+  "SpliceMissingCommittedRecordings: tree 'GS1 Auto-Chute Booster' \\(id=\\S+\\) loadedBefore=[0-9]+ committed=[0-9]+ after=[0-9]+ splicedRecordings=[0-9]+ refreshedRecordings=[1-9][0-9]* ",
+  "TryRestoreActiveTreeNode: removed committed tree 'GS1 Auto-Chute Booster' \\(id=\\S+, [1-9][0-9]* recording\\(s\\)\\)",
+  "OnLoad: pending-Limbo tree 'GS1 Auto-Chute Booster' deferred to OnFlightReady for quickload-resume",
+  # The resume trim prunes the abandoned EVA branch: its children and its branch point.
+  "Quickload tree trim: tree='GS1 Auto-Chute Booster' cutoffUT=[0-9.]+ trimmedRecordings=[0-9]+/[0-9]+ prunedFutureRecordings=[1-9][0-9]* prunedBranchPoints=[1-9][0-9]* ",
+  "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide",
+  "RestoreActiveTreeFromPending: resumed recording tree 'GS1 Auto-Chute Booster' activeRec='[0-9a-f]{32}'",
+
+  # =================================================================================
+  # THE GATE - THE ABANDONED REWARD IS PURGED AND RETIRED
+  # (ParsekScenario.TrimAndReconcileForQuickloadResume, ParsekScenario.Trim.cs):
+  #   `[Scenario] Quickload abandoned-future reconcile: tree='<n>' kind=<LoadKind>
+  #   scope=<scope> cutoffUT=<R> loadedUT=<R> trimmed=N pruned=N endStatesCleared=N
+  #   eventsPurged=N ledgerRowsRetired=N (afterCutoff=N kerbalAssignment=N
+  #   prunedRecording=N) skippedCommitted=N skippedQuicksaveHistory=N ... quicksaveFacts=..`
+  # (PR #2049 appends ` mergeStatesReset=N`; every field is read through a lookahead and
+  # nothing anchors at the line end.) Pinned: an in-flight F9 (QuickloadFlight, TreeWide),
+  # the EVA branch pruned (pruned >= 1), the booster's ending cleared (endStatesCleared
+  # >= 1), the TAGGED events purged (eventsPurged >= 1: the sandbox QL-4 family read 0,
+  # and QL-2's payout is captured untagged at the Space Center, so this is TA-2's first
+  # live purge), and the milestone row retired AS AFTER-CUTOFF (the sandbox lanes read
+  # afterCutoff=0), nothing skipped as still committed.
+  "\\[Scenario\\] Quickload abandoned-future reconcile: tree='GS1 Auto-Chute Booster' (?=.*\\bkind=QuickloadFlight\\b)(?=.*\\bscope=TreeWide\\b)(?=.*\\bpruned=[1-9][0-9]*\\b)(?=.*\\bendStatesCleared=[1-9][0-9]*\\b)(?=.*\\beventsPurged=[1-9][0-9]*\\b)(?=.*\\bledgerRowsRetired=[1-9][0-9]* \\(afterCutoff=[1-9][0-9]* )(?=.*\\bskippedCommitted=0\\b)",
+  # GameStateStore.PurgeEventsForRecordingAfterUT (the pod's events after the cutoff) or,
+  # if a split re-tagged them, PurgeEventsForRecordings (a pruned recording's).
+  "PurgeEventsForRecording(?:AfterUT \\(quickload-abandoned-future\\): rec=[0-9a-f]{32} cutoffUT=\\S+ live=(?:[1-9][0-9]*, milestone=[0-9]+|0, milestone=[1-9])|s \\(quickload-abandoned-future\\): live=[1-9])",
+  "RetireAbandonedFutureActions: removed [1-9][0-9]* action\\(s\\) reason=quickload-abandoned-future total=[0-9]+",
+  # The booster's leaked SubOrbital is the ending cleared (QL-4's per-recording line).
+  "Quickload abandoned-future end state cleared: rec=[0-9a-f]{32} previousTerminal=SubOrbital preTrimEndUT=\\S+",
+  # THE CONTROL that makes the forbidden walk tokens below mean something: the ledger IS
+  # walked after the retire (the reconcile's own recalc and the exit commit's), and the
+  # walk still credits the pre-F5 FirstLaunch milestone of the same pod recording.
+  "RetireAbandonedFutureActions: removed [1-9][0-9]* action\\(s\\) reason=quickload-abandoned-future[\\s\\S]*Credited milestone 'FirstLaunch' at UT=[0-9.]+ \\(recording=[0-9a-f]{32}, ",
+  # END GATE
+  # =================================================================================
+
+  # GROUP 4 - THE BOOSTER IS RECORDED AGAIN (QL-4's tokens).
+  "RestoreActiveTreeFromPending: attached BackgroundRecorder for tree 'GS1 Auto-Chute Booster' \\([1-9][0-9]* background entry\\(ies\\)\\)",
+  # Exactly the booster: the abandoned EVA kerbal is not in the resumed tree's map.
+  "listhandles kind=active count=1 truncated=false",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='GS1 Auto-Chute Booster Probe' points=[1-9][0-9]* orbitSegs=0 terminal=Landed maxDist=[0-9]+m snapshot=True leaf=True",
+  "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='GS1 Auto-Chute Booster' recordings=[1-9][0-9]*",
+  "exittospacecenter complete scene=SPACECENTER game-loaded=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The F9 must reach the resume (QL-4 / QL-4b's defect shapes).
+  "dropped entire tree 'GS1 Auto-Chute Booster'",
+  "TryRestoreActiveTreeNode: skipped active tree 'GS1 Auto-Chute Booster'",
+  "Quickload resume prep skipped",
+  "Quickload committed-copy restore: tree='GS1 Auto-Chute Booster' id=\\S+ route=\\S+ action=Unchanged",
+  "keeping in-memory pending tree 'GS1 Auto-Chute Booster'",
+  "Quickload abandoned-future reconcile skipped: tree='GS1 Auto-Chute Booster'",
+  # THE BOOSTER LEAK, three ways (QL-4's pre-fix readings).
+  "RestoreActiveTreeFromPending: attached BackgroundRecorder for tree 'GS1 Auto-Chute Booster' \\(0 background entry\\(ies\\)\\)",
+  "listhandles kind=active count=0 truncated=false",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='GS1 Auto-Chute Booster Probe' points=[0-9]+ orbitSegs=0 terminal=SubOrbital",
+  # THE ABANDONED EVA MUST NOT REACH THE REPLAY: no kerbal recording at the final commit.
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='Valentina Kerman'",
+  # THE REWARD MUST NOT BE PAID AGAIN. From the retire on, no walk credits the milestone
+  # or counts its funds (the walk lines between the F9 and the retire still read the old
+  # ledger, so these anchor on the retire line, which precedes the reconcile's recalc).
+  "RetireAbandonedFutureActions: removed [0-9]+ action\\(s\\) reason=quickload-abandoned-future[\\s\\S]*Credited milestone 'Kerbin/SurfaceEVA'",
+  "RetireAbandonedFutureActions: removed [0-9]+ action\\(s\\) reason=quickload-abandoned-future[\\s\\S]*Milestone funds: \\+[0-9.]+, actionId=\\S+, milestoneId=Kerbin/SurfaceEVA,",
+  "RetireAbandonedFutureActions: removed [0-9]+ action\\(s\\) reason=quickload-abandoned-future[\\s\\S]*GUARDED (?:UPLIFT|DRAWDOWN) clamped resource=Funds",
+  # After the F9 nothing books the milestone again, re-marks the stock node, or lifts the
+  # funds pool off the quicksave's (a positive delta is the abandoned reward paid).
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*Game state: MilestoneAchieved 'Kerbin/SurfaceEVA'",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*PatchMilestones: set achieved 'Kerbin/SurfaceEVA'",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*PatchFunds: [0-9.]+ -> [0-9.]+ \\(delta=[0-9]",
+]
+
+[runtime]
+# QL-4's budget: two LoadGame, the ~120 s hop, two phys-ladder warps (~20 s and ~145 s
+# measured on QL-4), the EVA, the exit; the inert steps answer in about a frame each.
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
