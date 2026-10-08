@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## OPTIMIZER-SPLIT-RETAG-COMMIT-WALK-TRANSIENT-CLAMP: after commit 2a65d49d5 the first ledger walk of a split commit runs before the second half's rows exist [FILED 2026-10-08 from HC-2's regression flight on the PR #2055 DLL, measured. OPEN, product]
+## ~~OPTIMIZER-SPLIT-RETAG-COMMIT-WALK-TRANSIENT-CLAMP: after commit 2a65d49d5 the first ledger walk of a split commit runs before the second half's rows exist~~ [FILED 2026-10-08 from HC-2's regression flight on the PR #2055 DLL, measured. FIXED 2026-10-09, branch `split-commit-single-walk`; xUnit only, not flown]
 
 `HC-2-hard-career-earn-spend` `2026-10-08_1859` reads PARSEK-FAIL on its forbidden token
 `GUARDED (UPLIFT|DRAWDOWN) clamped`: `PatchFunds: GUARDED DRAWDOWN clamped resource=Funds
@@ -28,8 +28,24 @@ milestone event to the second half (`RetagEventsForSplitSecondHalf ... retagged=
 half's commit then walks (`Committed recording '<first>': 4 actions added`) before the second half's
 rows are converted (`Committed recording '<second>': 3 actions added` 3 ms later), so that walk is
 one milestone (960) short and the guard clamps; the next walk credits it. The Oct 3 green runs
-(`2026-10-03_1523` / `_1533`, same split) had no retag and no clamp. Fix: not decided; walk once
-after every split half is committed, or convert both halves before the first walk.
+(`2026-10-03_1523` / `_1533`, same split) had no retag and no clamp.
+
+Fix: `LedgerOrchestrator.NotifyLedgerTreeCommitted` (the one ledger notify every tree commit
+reaches: after the optimizer in `MergeDialog.MergeCommit`, which the auto-merge and the Re-Fly
+merge also run, and `ParsekFlight.CommitTreeFlight`; before or without it on the two
+`ParsekScenario` commit paths, which therefore have no split halves at filing time) now files every recording's rows first
+(`FileRecordingCommitRows`, steps 1-5 of `OnRecordingCommitted`), then runs ONE
+`RecalculateAndPatch`, then each recording's post-walk `ReconcileEarningsWindow`, logging
+`NotifyLedgerTreeCommitted: filed rows for N recording(s) ... before one ledger walk`. That
+covers every multi-recording tree, not only split halves: a walk between two recordings of one
+batch always saw a partial batch against pools that hold all of it. Unchanged: a one-recording
+tree walks once, an empty tree walks none, the standalone `OnRecordingCommitted`
+(`FallbackCommitSplitRecorder`) keeps its own walk, the guard is untouched, and the per-recording
+reputation-seed re-establish still runs before each recording's death producer (the next
+recording's ensure now sees the ledger the previous recording's walk-time ensure used to see).
+A conversion that throws mid-tree still walks the rows already filed before rethrowing.
+`OptimizerSplitCommitSingleWalkTests` counts walks through `OnTimelineDataChanged`; the split
+cells (the in-flight order and `MergeCommit`) were red on main (`milestones per walk: 1,2`).
 
 ---
 
