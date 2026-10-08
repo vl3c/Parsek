@@ -131,9 +131,32 @@ namespace Parsek
         /// </summary>
         internal static void Emit(ref GameStateEvent evt, string source)
         {
+            Emit(ref evt, source, out _);
+        }
+
+        /// <summary>
+        /// <see cref="Emit(ref GameStateEvent, string)"/> that also reports the recovery owner
+        /// it applied. An event no live recording tags is offered to the open
+        /// <see cref="RecoveryDispatchScope"/> (QUICKLOAD-UNTAGGED-RECOVERY-MILESTONE-SURVIVES-F9):
+        /// a progress event raised inside a vessel recovery is tagged to the recovered
+        /// recording. A live tag, or a tag the caller already set, always wins.
+        /// </summary>
+        internal static void Emit(ref GameStateEvent evt, string source, out RecoveryEventOwner recoveryOwner)
+        {
+            recoveryOwner = RecoveryEventOwner.NoOwner("not-consulted");
             string tag = ResolveCurrentRecordingTag();
             if (string.IsNullOrEmpty(evt.recordingId))
-                evt.recordingId = tag ?? "";
+            {
+                if (string.IsNullOrEmpty(tag))
+                {
+                    recoveryOwner = RecoveryDispatchScope.ResolveOwnerForEvent(evt.eventType, evt.key, evt.ut);
+                    evt.recordingId = recoveryOwner.HasOwner ? recoveryOwner.RecordingId : "";
+                }
+                else
+                {
+                    evt.recordingId = tag;
+                }
+            }
 
             ParsekLog.Verbose("GameStateRecorder",
                 $"Emit: {evt.eventType} key='{evt.key}' tag='{evt.recordingId}' source='{source ?? ""}'");
@@ -246,6 +269,7 @@ namespace Parsek
             ClearPendingMilestoneEvents("ResetForTesting");
             ClearContractCompletionDedup("ResetForTesting");
             RecoveryPayoutContextStore.ResetForTesting();
+            RecoveryDispatchScope.ResetForTesting();
             PendingScienceSubjects.Clear();
             SuppressCrewEvents = false;
             SuppressResourceEvents = false;

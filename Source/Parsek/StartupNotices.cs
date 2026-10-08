@@ -40,7 +40,7 @@ namespace Parsek
             (new[] { "Contract", "MissionControl" }, "contract reservations"),
             (new[] { "Strategy", "Administration" }, "strategy reservations"),
             (new[] { "Kerbal", "Crew", "AstronautComplex", "ActiveCrewCount", "FlightEvaSpawn" }, "crew reservations"),
-            (new[] { "ScienceSubject", "ProgressReward" }, "science and milestone rewards"),
+            (new[] { "ScienceSubject", "ProgressReward", "RecoveryScope" }, "science and milestone rewards"),
             (new[] { "PhysicsFrame", "PartMassivePartCheck", "CheatTeleport", "HackGravity", "DockingNodeUndockIntent" }, "flight recording"),
             (new[] { "Revert", "HighLogic_LoadScene", "FloatingOrigin" }, "revert, rewind and scene changes"),
             (new[] { "FlightResultsDialogLog" }, "diagnostic logging"),

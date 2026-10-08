@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## QUICKLOAD-UNTAGGED-RECOVERY-MILESTONE-SURVIVES-F9: a milestone stock awards at a recovery after the quicksave is untagged, so the F9 keeps its reward [FILED 2026-10-07 from lane QL-2's first full flight, branch `ql-lanes`, measured. OPEN, product]
+## ~~QUICKLOAD-UNTAGGED-RECOVERY-MILESTONE-SURVIVES-F9: a milestone stock awards at a recovery after the quicksave is untagged, so the F9 keeps its reward~~ [FILED 2026-10-07 from lane QL-2's first full flight, branch `ql-lanes`, measured. FIXED 2026-10-08, branch `recovery-milestone-tag` (owner decision: tag it to the recovered recording); red-first xUnit `RecoveryScopedMilestoneTagTests`; live proof owed: QL-2]
 
 `QL-2-quickload-career-recovery-not-paid` `2026-10-07_2344` (career-pad-craft, the Jumping Flea
 hopped, quicksaved on the ground at UT ~352.2, recovered through stock's button, the quicksave then
@@ -31,10 +31,33 @@ quickload (`LoadReconcilePolicy.DecideUntaggedLedgerRows`: "a quickload keeps un
 (QL-R2, designed)"), so the abandoned future's milestone reward stays in the ledger while KSP's
 funds came back from the quicksave without it. The player-visible effect is a ledger that claims
 800 more funds than the game holds (the guard holds the live value, so no funds are paid twice).
-Fix: not decided. Either tag a milestone completed by a recovery to the recovered recording (so the
-reconcile retires it with the payout), or let the in-flight F9 reconcile retire untagged
-milestone rows past the cutoff whose event was emitted inside a recovery of a trimmed recording.
-QL-2 stays red until then.
+Fix (owner decision 2026-10-08: tag it to the recovered recording). Decompiled KSP 1.12.5:
+`KSPAchievements.CrewRecovery` completes `FirstCrewToSurvive` from its own `onVesselRecovered`
+listener, and `EventData.Fire` walks listeners last-added-first; the node subscribes when
+`ProgressTracking` deploys it on scenario load, after `ParsekScenario.OnVesselRecovered` and stock
+`VesselRecovery`, so the node completes before Parsek or the payout hears of the recovery (log
+order: `[Progress Node Complete]: FirstCrewToSurvive`, then `[VesselRecovery]: ... recovered`,
+then Parsek's recovery rows). `RecoveryDispatchScope` is opened by Harmony prefixes (and closed by
+their finalizers) around the stock methods that fire `onVesselRecovered` for one vessel:
+`VesselRetrieval.recoverVessel` (in-flight Recover), `SpaceTracking.OnRecoverConfirm` (Tracking
+Station), `ShipConstruction.RecoverVesselFromFlight` (Space Center marker, editor and launch-site
+clears, FlightDriver) and `ProtoVessel.Clean` (quick recovery). Not opened for a ghost map vessel,
+a rewind strip or Parsek's crew-suppressed housekeeping recoveries. Inside it, a progress event
+(`MilestoneAchieved`, and a funds / reputation / science change keyed `Progression`) that no live
+recorder tags is owned by the recovered vessel's recording, picked like the payout: a pending-tree
+recording that still owns the vessel first (exactly one terminal target; the commit books it),
+else `LedgerOrchestrator.PickRecoveryRecordingId` (guid-first; the row is written at once, tagged,
+through `OnKscSpending(evt, recordingId)`). A vessel no recording matches, an ambiguous pending
+owner and a live tag keep today's routing. The quickload reconcile then retires the milestone with
+the payout (`ClassifyAbandonedFutureRow`, `PurgeEventsForRecordingAfterUT`); a recovery before the
+quicksave stays (its UT is not past the cutoff); a re-commit of the recovered recording dedups the
+row (type + UT + key). The `Progression` legs carry the tag so the post-walk reconciler still pairs
+the tagged row with its funds event. Not covered: the per-vessel loop of
+`ShipConstruction.CheckLaunchSiteClear` (a pad cleared for a new launch) and contracts completed by
+a recovery (a `ContractCompleted` is not a progress event). Log: `[RecoveryScope]
+Recovery-scoped progress event owner: ... owner=CommittedRecording recordingId=<id>
+reason=recovered-recording` and `[GameStateRecorder] Recovery-scoped milestone '<id>' written to
+the ledger: recordingId=<id>`.
 
 ---
 
