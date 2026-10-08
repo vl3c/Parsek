@@ -64,6 +64,7 @@ namespace Parsek.Tests
             public void Recover(ParsedCommand cmd) => Calls.Add("Recover");
             public void TrackingStationRecover(ParsedCommand cmd) => Calls.Add("TrackingStationRecover");
             public void KscMarkerRecover(ParsedCommand cmd) => Calls.Add("KscMarkerRecover");
+            public void ReFlyRevert(ParsedCommand cmd) => Calls.Add("ReFlyRevert");
         }
 
         [Fact]
@@ -140,7 +141,11 @@ namespace Parsek.Tests
         // RequiresFlight either: the active family answers with an empty tree outside a
         // live FLIGHT rather than deferring.
         [InlineData("ListHandles", "RequiresGameLoaded")]
-        [InlineData("WarpToUT", "RequiresFlight")]
+        // WarpToUT: the three scenes with a stock TimeWarp controller (FLIGHT, the Space
+        // Center, the Tracking Station), so a maxRate=1 warp is the seam's 1x wait in
+        // any of them (TC-1). Not RequiresGameLoaded: the editor and the main menu have
+        // no warp to drive.
+        [InlineData("WarpToUT", "RequiresWarpScene")]
         // GUI census. CaptureScreenshot is AnyScene, the ExportRenderManifest row: a
         // screenshot is meaningful in every settled scene, and the safe-point gate already
         // refuses to run during LOADING / a transition / the settle window, which is exactly
@@ -177,6 +182,9 @@ namespace Parsek.Tests
         [InlineData("TrackingStationRecover", "RequiresGameLoaded")]
         // KscMarkerRecover: the same Space-Center-only shape.
         [InlineData("KscMarkerRecover", "RequiresGameLoaded")]
+        // ReFlyRevert: FLIGHT only, but the wrong scene is its own typed REJECTED
+        // (reflyrevert-wrong-scene) rather than a 300 s not-in-flight defer.
+        [InlineData("ReFlyRevert", "RequiresGameLoaded")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -233,6 +241,7 @@ namespace Parsek.Tests
             fake.Recover(cmd);
             fake.TrackingStationRecover(cmd);
             fake.KscMarkerRecover(cmd);
+            fake.ReFlyRevert(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

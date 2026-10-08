@@ -1104,7 +1104,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # Recover, the recovery a player makes without leaving the Space Center.
         # 46 / 4 after the manual ghost-only recorder pair's removal (2026-10-05), a
         # REMOVAL by two.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 46)
+        # 47 / 4 after ReFlyRevert, an ADDITION by one: the Esc menu's Revert during a
+        # live Re-Fly, answered on Parsek's Re-Fly revert dialog.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 47)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -1153,7 +1155,8 @@ class SpecValidationRejectTests(unittest.TestCase):
                                 ("warp-unavailable", "driver-gate"),
                                 ("warp-locked", "driver-gate"),
                                 ("warp-ladder-invalid", "driver-arg"),
-                                ("physics-warp-disallowed", "driver-gate")):
+                                ("physics-warp-disallowed", "driver-gate"),
+                                ("physics-warp-not-in-flight", "driver-arg")):
             self.assertEqual(subkind, hlib._SEAM_REFUSAL_SUBKINDS[reason])
 
     def test_warptout_step_accepted_by_validate_spec(self):
@@ -16359,6 +16362,103 @@ class KscMarkerRecoverSourceSyncTests(unittest.TestCase):
         self.assertTrue(any("kscrecover-pid-arg-missing" in e for e in v.errors), v.errors)
 
 
+class ReFlyRevertSourceSyncTests(unittest.TestCase):
+    """`ReFlyRevert`. Reads OUTSIDE harness/: the verb, the two arg keys, their closed
+    vocabularies and the refusal reasons (the `Reasons` array, IN ORDER) of the
+    comment-stripped TestCommands/TestCommandReFlyRevert.cs, plus the three dialog button
+    labels the applier finds in ReFlyRevertDialog.cs."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# ReFlyRevert tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_keys_values_and_reasons_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandReFlyRevert.cs")
+        self.assertIn('internal const string Verb = "%s";' % hlib.REFLYREVERT_VERB, text)
+        self.assertIn('internal const string ChoiceKey = "%s";' % hlib.REFLYREVERT_CHOICE_KEY, text)
+        self.assertIn('internal const string TargetKey = "%s";' % hlib.REFLYREVERT_TARGET_KEY, text)
+        self.assertEqual(list(hlib.REFLYREVERT_CHOICE_VALUES),
+                         StockScreenSourceSyncTests._cs_string_array(text, "ChoiceValues"))
+        self.assertEqual(list(hlib.REFLYREVERT_TARGET_VALUES),
+                         StockScreenSourceSyncTests._cs_string_array(text, "TargetValues"))
+        self.assertEqual(list(hlib.REFLYREVERT_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+        for reason in hlib.REFLYREVERT_REASONS:
+            self.assertIn(hlib._SEAM_REFUSAL_SUBKINDS.get(reason),
+                          ("driver-arg", "driver-gate", "driver-dialog"), reason)
+
+    def test_the_dialog_labels_the_applier_finds_are_the_dialogs_own(self):
+        text = self._source("ReFlyRevertDialog.cs")
+        for const, label in (("RetryButtonText", "Retry from Rewind Point"),
+                             ("DiscardButtonText", "Discard Re-Fly"),
+                             ("ContinueButtonText", "Continue Flying")):
+            with self.subTest(const=const):
+                self.assertIn('internal const string %s = "%s";' % (const, label), text)
+                self.assertIn("new DialogGUIButton(%s," % const, text)
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.REFLYREVERT_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(300.0, hlib.dispatch_deferral_budget(verb))
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertFalse(hlib.post_mission_step_gates(verb))
+        self.assertEqual("driver-gate",
+                         hlib.classify_seam_refusal_subkind("reflyrevert-no-session"))
+        self.assertEqual("driver-gate",
+                         hlib.classify_seam_refusal_subkind("reflyrevert-option-unavailable"))
+        self.assertEqual("driver-dialog",
+                         hlib.classify_seam_refusal_subkind("reflyrevert-dialog-not-shown"))
+        self.assertEqual("driver-arg",
+                         hlib.classify_seam_refusal_subkind("reflyrevert-choice-arg-invalid"))
+        # The four spec-text refusals are deterministic (the retry sends the same args).
+        for reason in ("reflyrevert-choice-arg-missing", "reflyrevert-choice-arg-invalid",
+                       "reflyrevert-target-arg-missing", "reflyrevert-target-arg-invalid"):
+            self.assertIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        # The live-state refusals are not: they read a session a load race could change.
+        for reason in ("reflyrevert-no-session", "reflyrevert-dialog-not-shown"):
+            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+
+    def test_the_step_validator(self):
+        v = hlib.validate_refly_revert_step
+        for choice in hlib.REFLYREVERT_CHOICE_VALUES:
+            for target in hlib.REFLYREVERT_TARGET_VALUES:
+                self.assertEqual([], v(0, {"choice": choice, "target": target}))
+        self.assertIn("reflyrevert-choice-arg-missing", v(0, {"target": "launch"})[0])
+        self.assertIn("reflyrevert-target-arg-missing", v(0, {"choice": "discard"})[0])
+        self.assertIn("reflyrevert-choice-arg-missing", v(0, {"choice": "", "target": "launch"})[0])
+        self.assertEqual(2, len(v(0, {})))
+        for bad in ("Discard", "merge", " discard"):
+            with self.subTest(choice=bad):
+                self.assertIn("reflyrevert-choice-arg-invalid",
+                              v(0, {"choice": bad, "target": "launch"})[0])
+        for bad in ("Launch", "vab", "editor"):
+            with self.subTest(target=bad):
+                self.assertIn("reflyrevert-target-arg-invalid",
+                              v(0, {"choice": "discard", "target": bad})[0])
+
+    def test_validate_spec_runs_the_step_validator(self):
+        spec = copy.deepcopy(load_spec("B10-career-passive-safety.toml"))
+        steps = spec["driver"]["steps"]
+        steps.insert(len(steps) - 1, {"cmd": hlib.REFLYREVERT_VERB, "args": {"choice": "discard"}})
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertTrue(any("reflyrevert-target-arg-missing" in e for e in v.errors), v.errors)
+
+    def test_the_committed_lane_validates(self):
+        spec = load_spec("QL-5-discard-refly-keeps-unfinished-flight.toml")
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertEqual([], list(v.errors))
+        cmds = [s.get("cmd") for s in spec["driver"]["steps"]]
+        self.assertIn(hlib.REFLYREVERT_VERB, cmds)
+        # The verb runs after the rewind that makes the session it reverts.
+        self.assertLess(cmds.index("InvokeRewind"), cmds.index(hlib.REFLYREVERT_VERB))
+
+
 class GuiCensusSeamVerbTests(unittest.TestCase):
     """The GUI-census pair (`CaptureScreenshot` + `UiAction`), whose harness-side
     surface is three tables and two step validators.
@@ -24334,6 +24434,21 @@ class WarpToUTLadderSourceSyncTests(unittest.TestCase):
         self.assertEqual("driver-gate",
                          hlib._SEAM_REFUSAL_SUBKINDS[self.consts["PhysicsWarpDisallowedReason"]])
 
+    def test_every_warptout_refusal_reason_is_mapped(self):
+        # Every `*Reason` constant of the pure half reaches the wire as a REJECTED / ERROR
+        # msg (the physics-hold DEFER reason is a dispatch defer, never a refusal, and is
+        # excluded by name), so each needs a driver-* row or it collapses to the coarse
+        # driver-verdict-mismatch. Catches a new refusal (TC-1's scene gate) landing
+        # without its row.
+        reasons = {k: v for k, v in self.consts.items()
+                   if k.endswith("Reason") and k != "PhysicsHoldDeferReason"}
+        self.assertIn("PhysicsWarpNotInFlightReason", reasons)
+        unmapped = sorted(v for k, v in reasons.items()
+                          if v != "warp-timeout" and v not in hlib._SEAM_REFUSAL_SUBKINDS)
+        self.assertEqual([], unmapped)
+        self.assertEqual("driver-arg", hlib._SEAM_REFUSAL_SUBKINDS[
+            self.consts["PhysicsWarpNotInFlightReason"]])
+
 
 class ScreenResolutionSpecTests(unittest.TestCase):
     """`[runtime] screenResolution`: the per-run KSP window size a GUI census lane
@@ -24689,6 +24804,75 @@ class DeterministicSeamErrorRetryTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, line)
         self.assertTrue(all(ord(c) < 128 for c in line))
+
+
+class InertStepWaitLintTests(unittest.TestCase):
+    """A run of inert seam steps is not a time wait (todo
+    HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS). Since PR #2017 an inert step
+    (`RecordingState`, `MissionMark`) costs one frame, so a lane that sized a 1x wait in
+    inert steps waited about a tenth as long, and 46 committed specs had to be audited
+    for it. The 1x wait is `WarpToUT maxRate=1` to an explicit UT (FLIGHT, the Space
+    Center or the Tracking Station since TC-1). This cell keeps a long run from coming
+    back unexplained: a run of `LONG_RUN` or more consecutive inert steps must carry an
+    `# inert-wait:` comment (directly above the run or inside it) that says why its
+    length does not matter."""
+
+    LONG_RUN = 40
+    INERT_RE = re.compile(r'^\s*\{\s*cmd\s*=\s*"(RecordingState|MissionMark)"')
+    STEP_RE = re.compile(r'^\s*\{\s*(cmd|phase)\s*=')
+    MARKER = "# inert-wait:"
+
+    @classmethod
+    def unexplained_long_runs(cls, text):
+        """(first line, run length) of every run of >= LONG_RUN inert steps with no
+        `# inert-wait:` comment between the previous non-inert step and the run's
+        end. Comment and blank lines neither break nor extend a run."""
+        lines = text.replace("\r\n", "\n").split("\n")
+        found = []
+        run, start, explained = 0, None, False
+        context_explained = False
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if cls.INERT_RE.match(line):
+                if run == 0:
+                    start, explained = i + 1, context_explained
+                run += 1
+            elif cls.STEP_RE.match(line):
+                if run >= cls.LONG_RUN and not explained:
+                    found.append((start, run))
+                run, context_explained = 0, False
+            elif stripped.startswith("#") and cls.MARKER in stripped:
+                if run:
+                    explained = True
+                else:
+                    context_explained = True
+        if run >= cls.LONG_RUN and not explained:
+            found.append((start, run))
+        return found
+
+    def test_the_scan_is_not_vacuous(self):
+        long_run = "\n".join(['  { cmd = "RecordingState", expect = "OK" },'] * 40)
+        self.assertEqual([(2, 40)], self.unexplained_long_runs(
+            '  { cmd = "LoadGame" },\n' + long_run + '\n  { cmd = "FlushAndQuit" },'))
+        self.assertEqual([], self.unexplained_long_runs(
+            '  { cmd = "LoadGame" },\n  # inert-wait: frames only, no clock\n' + long_run))
+        short = "\n".join(['  { cmd = "MissionMark", args = { label = "x" } },'] * 39)
+        self.assertEqual([], self.unexplained_long_runs(short))
+        # A marker belongs to the run that follows it, never to a later one.
+        self.assertEqual([(4, 40)], self.unexplained_long_runs(
+            '  # inert-wait: x\n  { cmd = "MissionMark" },\n  { cmd = "LoadGame" },\n'
+            + long_run))
+
+    def test_no_committed_spec_carries_an_unexplained_long_inert_run(self):
+        offenders = {}
+        for path in sorted(glob.glob(os.path.join(SCENARIOS_DIR, "*.toml"))):
+            with open(path, encoding="utf-8") as fh:
+                runs = self.unexplained_long_runs(fh.read())
+            if runs:
+                offenders[os.path.basename(path)] = runs
+        self.assertEqual({}, offenders,
+                         "inert-step runs of %d+ with no `# inert-wait:` comment; a 1x "
+                         "wait is `WarpToUT maxRate=1` to an explicit UT" % self.LONG_RUN)
 
 
 class DeterministicSeamErrorSourceSyncTests(unittest.TestCase):

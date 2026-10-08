@@ -121,8 +121,9 @@ id = "QL-2b-quickload-booster-career-reward-not-paid"
 #   - LedgerGroundTruth is NOT run (it skips while a restored tree defers the patch); the
 #     funds gate is the walk and patch lines.
 #
-# STATUS: AUTHORED 2026-10-08 (branch `ql-career-booster`, stacked on PR #2052), NEVER
-# FLOWN (mission switched to `gs1_auto_chute_booster_career` 2026-10-08, see THE HOST).
+# STATUS: LIVE-PROVEN 2026-10-07 `2026-10-07_2351` (PASS attempt 1, first flight). AUTHORED
+# 2026-10-08 (branch `ql-career-booster`, stacked on PR #2052); mission switched to
+# `gs1_auto_chute_booster_career` 2026-10-08 before that flight, see THE HOST.
 # Every token is quoted from its emitting source line (GameStateRecorder
 # .RegisterPendingMilestoneEvent / OnFundsChanged / the enrichment postfix, MilestonesModule
 # .ProcessAction, FundsModule, LedgerOrchestrator.OnRecordingCommitted, KspStatePatcher,

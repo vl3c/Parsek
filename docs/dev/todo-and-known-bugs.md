@@ -16,7 +16,71 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## QUICKLOAD-RESUMED-MEMBER-KEEPS-ABANDONED-FUTURE-MERGE-STATE: an F9 resumes a tree member with the merge state its abandoned future's commit gave it [FILED 2026-10-07 from the QL-4 / QL-4b / QL-4c reading runs, branch `f9-verify`, verified in the produced saves and by code read. OPEN, product]
+## QUICKLOAD-UNTAGGED-RECOVERY-MILESTONE-SURVIVES-F9: a milestone stock awards at a recovery after the quicksave is untagged, so the F9 keeps its reward [FILED 2026-10-07 from lane QL-2's first full flight, branch `ql-lanes`, measured. OPEN, product]
+
+`QL-2-quickload-career-recovery-not-paid` `2026-10-07_2344` (career-pad-craft, the Jumping Flea
+hopped, quicksaved on the ground at UT ~352.2, recovered through stock's button, the quicksave then
+loaded from the Space Center) reads PARSEK-FAIL on one forbidden token: after the reconcile
+(`ledgerRowsRetired=5 (afterCutoff=4 kerbalAssignment=1)`, the tagged recovery payout correctly
+retired) the recalc walks still credit `FirstCrewToSurvive` (+800 funds) and
+`KspStatePatcher.PatchFunds` logs `GUARDED UPLIFT clamped resource=Funds running=531200
+live=530400` on every walk. Cause: stock completes `FirstCrewToSurvive` during the recovery, 4 s
+after the quicksave and at UT ~353.9 (past the 352.48 cutoff), and Parsek records it untagged
+(`Emit: MilestoneAchieved key='FirstCrewToSurvive' tag=''`); the policy keeps untagged rows on a
+quickload (`LoadReconcilePolicy.DecideUntaggedLedgerRows`: "a quickload keeps untagged KSC rows
+(QL-R2, designed)"), so the abandoned future's milestone reward stays in the ledger while KSP's
+funds came back from the quicksave without it. The player-visible effect is a ledger that claims
+800 more funds than the game holds (the guard holds the live value, so no funds are paid twice).
+Fix: not decided. Either tag a milestone completed by a recovery to the recovered recording (so the
+reconcile retires it with the payout), or let the in-flight F9 reconcile retire untagged
+milestone rows past the cutoff whose event was emitted inside a recovery of a trimmed recording.
+QL-2 stays red until then.
+
+---
+
+## REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START: S4.2 and S4.4 need the re-fly recorder live (or not yet) while the provisional is still empty, a window of a few frames [FILED 2026-10-07 from the F9 verification flights, branch `ql-lanes`, measured. OPEN, harness]
+
+Two lanes gate on an UNFLOWN Re-Fly provisional, and both race the re-fly recorder's start, which
+happens when `RestoreActiveTreeFromPending` runs from the re-fly scene's OnFlightReady:
+
+- `S4.2-refly-world-preservation` requires the merge to conclude an EMPTY provisional
+  (`outcome=retired-empty-provisional`, `AppendRelations outcome=refused-unflown-provisional`,
+  `outcome=concluded-no-supersede`). Its `RunTests` step (the ReFlyWorldPreservation batch) spans the
+  scene settle: in `2026-10-07_2239` the recorder started at 01:40:44.290, the batch finished at
+  45.396 and the merge concluded at 45.509, so the provisional carried ~1 s of samples and the merge
+  correctly wrote a supersede row (`Added 1 supersede relations`). Its August green
+  (`2026-08-11_2111`) concluded before the first sample.
+- `S4.4-refly-quicksave-mid-session` needs the recorder LIVE at its bare LoadGame (to be refused
+  `recording-active`) but the provisional EMPTY at the merge. Attempt 1 of `2026-10-07_1922`
+  and both attempts of `_2242` / `_2243_a2` sent the LoadGame before the recorder started
+  (`recorderLive=false`); `_1923_a2` passed. A settle pad (`_1947`) broke the empty-provisional
+  half instead.
+
+Neither is a product defect: the recorder starting on the restored tree and recording is correct.
+Fix: owner decision. Options: a seam wait on a named condition (`RecordingState` reporting the re-fly
+recorder live, then nothing else), or gate the merge tokens on the provisional's measured point
+count (accept the flown branch's tokens when points > 0), or drop the empty-provisional pins and
+cover that conclusion route in a dedicated lane that stops recording first.
+
+---
+
+## V16M-ICON-OFF-ORBIT-AT-TIMEJUMP-LANDING: V16M's ghost map icon sits ~1.3 deg off its orbit on the frame a TimeJump lands [FILED 2026-10-07 from the PR #2051 flights, measured twice. OPEN, render, not yet triaged]
+
+`V16M-laythe-player-loop` reads PARSEK-FAIL on the unallowed Tier-C anomaly `icon-off-orbit`
+(`[MapRenderTrace] phase=Anomaly surface=ProtoIcon ... reason=icon-off-orbit
+angleIconVsOrbitEff=1.30 angleEffVsLive=0.00 loopShift=0.0`) in both `2026-10-07_2200` and
+`2026-10-07_2335`, at exactly the same two moments: the frames on which two of its TimeJumps land
+(currentUT 29874214 and 30933832), two ProtoIcon pids each, all of recording
+`370d38246d6e42848f140884081428af`. Deterministic, not an intermittent. Not caused by PR #2051:
+that PR's only change to V16M is one 1x wait AFTER the fourth jump, and the first hit fires at the
+third. The last V16M flight on record is `2026-09-10_2032` (0 hits on that DLL), so the change
+that introduced it lies between that build and main at `5d98479fb`. Next: read the icon-vs-orbit
+probe on the jump frame (`MapRenderProbe`, `ProtoIcon` placement against `orbitEff`) and bisect
+the window by flying V16M on an older main.
+
+---
+
+## ~~QUICKLOAD-RESUMED-MEMBER-KEEPS-ABANDONED-FUTURE-MERGE-STATE: an F9 resumes a tree member with the merge state its abandoned future's commit gave it~~ [FILED 2026-10-07 from the QL-4 / QL-4b / QL-4c reading runs, branch `f9-verify`, verified in the produced saves and by code read. FIXED 2026-10-07, branch `ql-merge-state` (PR #2049). LIVE-PROVEN 2026-10-07: QL-4 / QL-4b / QL-4c PASS attempt 1 on both commits (`2026-10-07_2016` / `_2022` / `_2027`, then `_2055` / `_2043` / `_2049`), each logging `mergeStatesReset=1` and `ReapOrphanedRPs: reaped=1 remaining=0`, report-only `rewindPoints` clean]
 
 QL-4 commits the flight in flight while the probe booster is still under canopy: the commit
 classifies it `stableLeafUnconcluded` (SubOrbital) and promotes it to CommittedProvisional
@@ -43,9 +107,42 @@ xUnit - a committed tree whose child was promoted CommittedProvisional after the
 quicksave restore + reconcile, then assert the member's merge state is the quicksave's. Live
 witness: the QL-4 family's report-only `rewindPoints = { max = 0 }` (arm it after the fix).
 
+FIXED: the first direction, in the reconcile. `CaptureQuicksaveTreeFacts` records each member's
+merge state as the quicksave node holds it (`QuicksaveMemberFacts.QuicksaveMergeState`; no key
+reads Immutable), and `TrimAndReconcileForQuickloadResume` gives every surviving trimmed member the
+merge state of its quicksave baseline back (`ResetAbandonedFutureMergeStates`, pure
+`ResolveQuicksaveBaselineId` and `ShouldResetMergeStateForResume`), under the same
+`AbandonedFutureEndStates` cell. The baseline is the member itself when the quicksave holds it;
+a member the quicksave does not hold is a second half the abandoned commit's optimizer split cut
+off a quicksave member (SplitAtSection copies CommittedProvisional onto both halves and moves the
+terminal to the second), so its baseline is the nearest earlier member of the same chain and
+branch the quicksave holds. Every surviving member is covered, not only those whose end state was
+cleared: a split past the cutoff prunes the second half and leaves the head as the slot tip with no
+end state to clear. Committed history never reaches the set (the plan skips a recording still
+committed or shown as history by the quicksave), a split half whose baseline is such a recording
+keeps its state (`baseline-not-reconciled`), a live NotCommitted provisional and a quicksave
+NotCommitted state are kept (the Re-Fly scope is ActiveRecOnly and its provisional's session fields
+are untouched), and the refresh rule itself is unchanged (the Re-Fly sibling-slot adoption still
+needs it). The final commit re-derives the state: the detached committed copy no longer counts as
+committed, so it is the member's first commit and a booster still SubOrbital is promoted again,
+while a Landed one stays Immutable and the reaper closes the rewind point once every slot is.
+Logged: `mergeStatesReset=N` appended LAST to the `Quickload abandoned-future reconcile:` line
+(every QL-4 lane regex still matches) plus one Verbose `Quickload abandoned-future merge state
+reset: ... baseline=<id>` per reset member and `... kept:` per kept member whose state differs or
+has no baseline. Red tests (failed with the reset disabled, the split cells against the first
+commit's cleared-members-only reset): `QuickloadCommittedAfterQuicksaveTests.PromotedAfterTheQuicksave_ResumedMemberTakesBackTheQuicksaveMergeState`
+(the QL-4 no-save refresh, the QL-4b Space Center salvage and the QL-4c in-flight-save salvage, each
+unsplit, split after and split before the quicksave),
+`QuickloadResumedMergeStateTests.FinalCommit_RederivesTheBoosterMergeState_AndReapsWhenEverySlotIsClosed`
+(Landed: reaped; SubOrbital: re-promoted, kept; without the reconcile: the leak) and
+`FinalCommit_SplitBeforeTheQuicksave_TipRederivedAndReapedWhenClosed` (the same through the split
+tail as slot tip). Mirror cells: `CommittedBeforeTheQuicksave_PromotedMemberKeepsItsCommittedMergeState`,
+`CommittedHistory_MergeStateLeftAlone`, `SplitHalfOfQuicksaveHistory_KeepsItsMergeState`,
+`ReFlyScope_ProvisionalAndSiblingKeepTheirMergeStateAndSessionFields`, `ResolveQuicksaveBaselineId_Table`.
+
 ---
 
-## HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS: since PR #2017 an inert seam step costs one frame, so lanes that size a wait in inert steps wait about a tenth as long [FILED 2026-10-07 from the F9 verification flights, branch `f9-verify`, measured. OPEN, harness]
+## ~~HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS: since PR #2017 an inert seam step costs one frame, so lanes that size a wait in inert steps wait about a tenth as long~~ [FILED 2026-10-07 from the F9 verification flights, branch `f9-verify`, measured. FIXED 2026-10-07 in the specs on branch `scene-wait` (owner decision: scene-agnostic `WarpToUT`, TC-1), LIVE-PROVEN 2026-10-07 on PR #2051's DLLs: 42 of the 43 changed lanes PASS (first run `2026-10-07_2100`..`_2223`, then the seven Tracking Station lanes, LF-1 and V16M re-flown `_2333`..`_2341` on `bf40ef53f`, the 1x-wait TIMEWARP-lock fix for stock's `intro_TS` tutorial lock); V16M is red on an unrelated render finding (V16M-ICON-OFF-ORBIT-AT-TIMEJUMP-LANDING); six settles left with reasons; S4.2 / S4.4 race filed as REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START]
 
 PR #2017 (harness overhead, 2026-10-06) polls a seam response every 0.025 s for the first 2 s
 after the command write (`hlib.SEAM_FAST_POLL_SECONDS` / `seam_poll_interval`). An inert step
@@ -57,32 +154,91 @@ bd97e6a7):
 
 - `EX-1-ghost-extension-past-endut` `2026-10-07_1928` PARSEK-FAIL: ~140 inert steps were to
   carry UT from the reload (11.04) past EndUT (26.1); the after-end mark read UT 14.7. Fixed in
-  the spec: `WarpToUT ut=34 maxRate=1` (RL-1's 1x wait).
+  the spec: `WarpToUT ut=34 maxRate=1` (RL-1's 1x wait), green `_1948`; `scene-wait` then
+  dropped the inert settle before it and made the pad recording a 1x wait to UT 30 (after-end
+  target UT 38).
 - `LF-2-loop-armed-rewind-first-run-real` `2026-10-07_1929` PARSEK-FAIL: its 110 marks of 1x
   FLIGHT time (~27 s by design) took 3 s (UT 11.26 -> 14.38), and its Act 4 Space Center 1x wait
-  is shrunk the same way. NOT fixed: `WarpToUT` is FLIGHT-only, so no seam verb holds a
-  deterministic 1x wait at the Space Center.
+  is shrunk the same way. FIXED on `scene-wait`: all three waits (and the 16-step pad
+  recording, 0.58 s on `_1929`) are `WarpToUT maxRate=1` to UT 31 / 45 / 45, the Space Center
+  one possible since TC-1.
 - The QL-4 family's 12-step post-F9 settle (0.4 s) let `WarpToUT` reach the post-load physics
   hold (`warptout refused reason=warp-locked ut=400 holders=physicsHold`; the hold lifts at the
-  unpack, 1.0-1.2 s after OnFlightReady): fixed in the specs with a 150-step settle. A refused
-  post-mission step is non-gating on a MISSION-OK run, so the lane read PARSEK-FAIL on its
-  expectations rather than INVALID.
+  unpack, 1.0-1.2 s after OnFlightReady): fixed in the specs with a 150-step settle (green on
+  `f9-verify`). A refused post-mission step is non-gating on a MISSION-OK run, so the lane read
+  PARSEK-FAIL on its expectations rather than INVALID. `scene-wait` removed the pads: the hold is
+  now WarpToUT's own dispatch defer.
 - `S4.4-refly-quicksave-mid-session` attempt 1 `2026-10-07_1922` INVALID (passed on attempt 2):
   the bare LoadGame raced the re-fly recorder start. NOT fixed: a 60-step settle
   (`2026-10-07_1947`) let the recorder sample before the save, the provisional was no longer
   unflown and the lane's merge tokens went missing; it needs the recorder live and the
   provisional empty at the save, a window of a few frames, so the retry policy absorbs it.
 
-47 committed specs hold a run of 20 or more consecutive inert steps (largest: EVA-9 / EVA-10
-641, EVA-6 / EVA-7 241, BAY-1 202, EX-2 201, LF-1 / LF-2 121); each needs a read of whether the
-run is a time wait. Fix: owner decision. Options: a per-spec or per-step pacing floor in the
-harness (restoring the 0.25 s cadence where a spec asks for it), a seam wait verb that holds 1x
-time in any scene (`WaitUT`), or converting each FLIGHT wait to `WarpToUT maxRate=1` and each
-settle to a wait on a named condition.
+46 committed specs held a run of 20 or more consecutive inert steps (largest: EVA-9 / EVA-10
+641, EVA-6 / EVA-7 241, BAY-1 202, EX-2 201, LF-1 / LF-2 121; recounted on `scene-wait`, where
+the filing said 47).
+
+Fix (owner decision, branch `scene-wait`): TC-1's scene-agnostic `WarpToUT`. The verb is
+`RequiresWarpScene` (FLIGHT, the Space Center, the Tracking Station), so `maxRate=1` is a
+deterministic 1x wait to an explicit UT in all three; stock's post-load `physicsHold` (the only
+TIMEWARP holder, at most 30 s) is a dispatch DEFER `warp-physics-hold` instead of `REJECTED
+warp-locked`, so no spec pads a settle before a warp. Every run was read and classed: (A) a 1x
+wait whose length matters, converted to `WarpToUT maxRate=1` to a UT derived from the spec's own
+windows; (B) a settle before a warp that hit the physics hold, removed; (C) a settle whose
+length does not matter, left. 43 specs changed; none re-flown yet.
+
+| spec | run(s) | class | action |
+|---|---|---|---|
+| LF-2 | 110 FLIGHT, 120 KSC (+16 pad) | A | UT 45 / 45 (+ pad to 31) |
+| LF-1 | 120 KSC (+16 pad) | A | UT 45 (+ pad to 31) |
+| EX-1 | 140 settle (+24 pad) | B (+A) | settle removed; pad to 30; after-end 34 -> 38 |
+| QL-4 / QL-4b / QL-4c | 150 settle | B | removed |
+| SS-1 | 60, 24 (+12 settle) | A (+B) | UT 730 / 1106; settle removed |
+| EVA-6 / EVA-7 | 240 KSC | A | UT 1320 |
+| EVA-9 | 240 idle, 640 post-reload | A | UT 1360 / 1455 |
+| EVA-10 | 160 idle, 640 post-reload | A | UT 23340 / 23430 |
+| BAY-1 | 200 KSC | A | UT 75 |
+| EX-2 | 200 | A | UT 471 |
+| CI-5 | 30 | A | UT 429 |
+| CI-6 / CI-7 / CI-10 / CI-11 | 20 proximity settle, 20 after the SPH launch | A, A | first to UT 27; second LEFT (no explicit UT after the editor launch) |
+| CI-8 | 20 proximity settle, 20 after the spawn | A | UT 27 / 630 |
+| CI-9 | 20 proximity settle | A | UT 428 |
+| H59 | 40 map A, 40 map B, 40 KSC | A | UT 992 / 1612 / 1624 |
+| V27M | 30 map, 20 KSC | A | UT 1609 / 1616 |
+| V26M / B32 | 40 / 20 map dwell | A (rate-limited summaries) | UT 87625323 / 87625319 |
+| RF-7T | 20 TS dwell | A | UT 707 |
+| V16M, V17M, V19M-V23M | 40 census dwells | A | 12 s past each preceding jump |
+| V17T, V19T-V23T, V20K, V22K | 40 TS / KSC dwell | A | 12 s past the saved jump UT |
+| V28M / V29M / V30M | 20 park dwell | A | 6 s past the last jump |
+| RF-14 / RF-15 | 24 | A | LEFT: the re-fly recorder bind (~2 s after the marker write) at the rewind point's UT, which the mission sets; no explicit UT |
+| W1 | 20 | C | LEFT: a frame or two at the jumped clock before the watch probe |
+
+Follow-up from the flights (2026-10-07, branch `scene-wait`): RF-7T went INVALID twice
+(`2026-10-07_2159`, `_2200_a2`) on `warptout refused reason=warp-locked ut=707
+holders=intro_TS`, stock's new-game Tracking Station tutorial lock, which holds until a player
+dismisses the popup (the clock still runs at 1x). A cap of exactly 1 never requests a rate
+change, so a `maxRate=1` wait now ignores every TIMEWARP lock, the physics hold included, and
+logs the holders it went past; a real warp refuses as before. LF-1 (`2026-10-07_2122`,
+PARSEK-FAIL on one token) gained a 1x wait to UT 256 after its last cycle: the post-cycle
+`Spawn suppressed ... already spawned` summary is rate-limited at 5 s of wall time and the
+three cycles now run inside one window.
+
+Left open: the six settles marked LEFT under A (CI-6 / CI-7 / CI-10 / CI-11 after the SPH
+launch, RF-14 / RF-15 after InvokeRewind) wait from a UT the spec cannot name, so they need a
+relative 1x wait (for example a harness-side `${step.ut}` offset) or a wait on a named
+condition; with one-frame steps their negative claims run for under a second. The 12-step
+settles before a warp in CN-2, CN-3 and RL-1 are now redundant (the hold is the verb's defer)
+and harmless. S4.4 stays as above (a few-frame window the retry policy absorbs). A new hlib
+cell (`InertStepWaitLintTests`) refuses a run of 40+ inert steps without an `# inert-wait:`
+note.
+
+Flights owed (each changed spec once): LF-2 and EX-1 first, then QL-4 / QL-4b / QL-4c, then
+SS-1, LF-1, EX-2, EVA-6, EVA-7, EVA-9, EVA-10, BAY-1, CI-5 to CI-11, H59, B32, V26M, V27M, RF-7T,
+and the V16-V30 player-loop / arrival lanes.
 
 ---
 
-## ~~REWIND-CREW-LOSS-FIXTURE-RP-HAS-NO-BRANCH-POINT: the injected rewind corpora's rewind points (`rewind-crew-loss`, `rewind-b9`, `refly-world-preservation`, `rewind-readback`) are not linked to their trees, so in-session RP ownership reads them as the save's~~ [FILED 2026-10-07 from the QL-3 reading run (crew-loss), widened 2026-10-07 from QL-5's `2026-10-07_2035` (`rp_b9_root:FollowSave:kept-loaded`), branch `f9-verify`. FIXED 2026-10-07, branch `ql-lanes` (xUnit; live proof owed: the re-flights listed below)]
+## ~~REWIND-CREW-LOSS-FIXTURE-RP-HAS-NO-BRANCH-POINT: the injected rewind corpora's rewind points (`rewind-crew-loss`, `rewind-b9`, `refly-world-preservation`, `rewind-readback`) are not linked to their trees, so in-session RP ownership reads them as the save's~~ [FILED 2026-10-07 from the QL-3 reading run (crew-loss), widened 2026-10-07 from QL-5's `2026-10-07_2035` (`rp_b9_root:FollowSave:kept-loaded`), branch `f9-verify`. FIXED 2026-10-07, branch `ql-lanes`. LIVE-PROVEN 2026-10-07 on the corpus re-flights: QL-3 `2026-10-07_2225` (`rp_cl_root:CommittedOwner:dropped-save-only`, rewindPoints 0), R7c `_2233`, RF-12L `_2234`, S4.1 `_2239`, S4.3 `_2343`, CL-3 `_2244`, CL-4 `_2245`, RF-16 `_2246`, RF-17 `_2247`, S1.5 `_2248`, RB-1 `_2249`, RB-2 `_2256`, R1 `_2326` PASS attempt 1; S4.2 / S4.4 red on the separate recorder-start race (REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START)]
 
 Every injected rewind corpus (`RewindCrewLossFixture`, `RewindB9Fixture`,
 `ReFlyWorldPreservationFixture`, `RewindReadbackFixture`) built its point (`rp_cl_root`,
@@ -1003,14 +1159,18 @@ pre-cutoff, untagged and other-tree events kept; pruned recording; milestone-hel
 snapshot; committed id; quicksave history kept: a terminal member, a committed-node chain segment,
 and a branch-point member plus its pruned child,
 `TryRestoreActiveTreeNode_CommittedBeforeTheQuicksave_BranchAfterCutoffMembersKept`). Open: lane
-QL-2, AUTHORED 2026-10-07 (branch `ql-lanes`), never flown: `QL-2-quickload-career-recovery-not-paid`
+QL-2, AUTHORED 2026-10-07 (branch `ql-lanes`): `QL-2-quickload-career-recovery-not-paid`
 (career-pad-craft, B1's hop, F5, stock Recover, F9 from the Space Center; the existing `LoadGame
 name=quicksave` verb replaces the TC-1 `Quickload` verb, since QL-4 proved it classifies
 `refined=QuickloadFlight` in flight and QL-4b `InSessionOther` from the Space Center). Its payout
 events are captured at the Space Center, untagged, so this lane gates the ledger half
-(`afterCutoff>=1`) and reads `eventsPurged` without pinning it; a lane where a tagged in-flight
-event is abandoned still needs an in-flight earning after the F5 that no committed career host has
-(the contract variant is blocked by SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE).
+(`afterCutoff>=1`) and reads `eventsPurged` without pinning it (QL-2 flew red `2026-10-07_2344` by
+a product finding, QUICKLOAD-UNTAGGED-RECOVERY-MILESTONE-SURVIVES-F9). The tagged in-flight half is
+LIVE-PROVEN by QL-2b (`QL-2b-quickload-booster-career-reward-not-paid`, branch `ql-career-booster`,
+host `career-gs1-two-stage-pad`): `2026-10-07_2351` PASS attempt 1, the abandoned future's
+`Kerbin/SurfaceEVA` milestone credited before the F9, then `PurgeEventsForRecordingAfterUT
+(quickload-abandoned-future): ... live=0, milestone=1, snapshots=0` and never credited again (the
+contract variant stays blocked by SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE).
 
 ---
 
@@ -1041,12 +1201,15 @@ row at 300, death penalty and the cleared booster's KerbalAssignment retired, th
 kept; re-commit through the tree commit books one row per fact; KSC, route, science (also at UT
 ~1e7) and other-tree rows kept; a tree committed BEFORE the quicksave keeps its history members'
 rows). Open: the residual QUICKLOAD-ENDED-MEMBER-RESTAMPED-AFTER-THE-SAVE-KEEPS-ITS-FUTURE; the
-career live proof is lane QL-2, AUTHORED 2026-10-07 (branch `ql-lanes`), never flown
+career live proof is lane QL-2, AUTHORED 2026-10-07 (branch `ql-lanes`)
 (`QL-2-quickload-career-recovery-not-paid`: a stock recovery after the F5 books funds, recovery
 science and crew XP to the flight; after the F9 from the Space Center the reconcile must read
 `ledgerRowsRetired>=1 (afterCutoff>=1`, and no later recalc may walk a Recovery earning or lift the
-funds pool). The booster plus a career reward in one lane needs a career twin of
-`gs1-two-stage-pad` and an in-flight earning that does not leave the scene; neither exists.
+funds pool; flown red `2026-10-07_2344` by a product finding,
+QUICKLOAD-UNTAGGED-RECOVERY-MILESTONE-SURVIVES-F9). The booster plus a career reward in one lane
+is QL-2b, LIVE-PROVEN `2026-10-07_2351` (PASS attempt 1): an in-flight milestone row booked at an
+in-flight commit retired after the cutoff (`RetireAbandonedFutureActions: removed 3 action(s)`) and
+the booster recorded again to Landed.
 
 Owner ruling 2026-10-06 (OQ-2): F9 into a later-committed flight's quicksave retires that tree's
 recording-tagged ledger rows after the quicksave; untagged KSC rows are kept.
@@ -1340,6 +1503,15 @@ the editor load reads persistent.sfs, not the point's quicksave (see
 DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT); the node the load reads is whatever
 persistent.sfs last held. Close after lane QL-5 flies both targets.
 
+Reachability (2026-10-07, decompiled KSP 1.12.5 while building the `ReFlyRevert` verb): the
+editor target is not reachable through the stock Esc menu during a separation Re-Fly. The
+session is a resumed flight, `FlightDriver.Start` sets `CanRevertToPrelaunch` only for a
+PRELAUNCH vessel that is the post-init vessel with a ship config and a pre-launch state, and
+`ReFlyRevertButtonGate` forces only `CanRevertToPostInit`, so `PauseMenu.drawStockRevertOptions`
+offers no Revert to VAB / SPH (`ReFlyRevert target=prelaunch` answers
+`reflyrevert-option-unavailable`). QL-5 therefore flies the launch target only (authored, never
+flown); the unit cell remains the proof of the editor path.
+
 ---
 
 ## DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT: Discard Re-fly loads the rewind point's quicksave, but the scene it then opens reloads persistent.sfs [FILED 2026-10-06 from the in-session carry work (PR #2038), verified by decompile; player effect not traced. OPEN, product; to trace]
@@ -1595,12 +1767,21 @@ ISRU aboard. The two questions it raised are ruled (2026-10-06): cap harvest-ori
 - `Quickload` (or `LoadGame allowLiveRecorder=quickload`): LoadGame refuses a live recorder today
   except for Re-Fly (`TestCommandDispatcher.cs:619-643`).
 - `Revert target=launch|vab`: no stock-revert verb exists.
-- `ReFlyRevert choice=... target=launch|prelaunch`: the Esc > Revert dialog during a Re-Fly.
+- ~~`ReFlyRevert choice=... target=launch|prelaunch`: the Esc > Revert dialog during a Re-Fly.~~
+  DONE 2026-10-07 (branch `refly-revert-verb`): `ReFlyRevert choice=discard|retry|cancel
+  target=launch|prelaunch` presses the stock pause menu's Revert Flight and revert option, then
+  the chosen button of Parsek's Re-Fly revert dialog; hlib mirror `ReFlyRevertSourceSyncTests`;
+  consumer lane `QL-5-discard-refly-keeps-unfinished-flight` (never flown). A resumed flight
+  never offers Revert to VAB / SPH, so `target=prelaunch` answers
+  `reflyrevert-option-unavailable` during a separation Re-Fly.
 - `RunInvariantReport`: reserved, not implemented (`TestCommandVerbs.cs:343-361`); as a per-step
   read it lifts the one-`RunTests`-per-lane limit for invariant checks.
 - `ReadVesselResources pid=|name= [expect=...]`: per-vessel resource totals and a part-uid digest
   in FLIGHT, KSC and TS.
-- Scene-agnostic `WarpToUT` (FLIGHT only today, `ParsekTestCommandAddon.WarpToUT.cs:50`).
+- ~~Scene-agnostic `WarpToUT` (FLIGHT only today, `ParsekTestCommandAddon.WarpToUT.cs:50`).~~
+  DONE 2026-10-07 (branch `scene-wait`): `RequiresWarpScene` (FLIGHT, Space Center, Tracking
+  Station), the post-load physics hold a bounded defer; todo
+  HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS.
 
 Fix: one verb per PR with its hlib source-sync cell, in the order the roadmap register needs them.
 

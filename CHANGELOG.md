@@ -3925,9 +3925,21 @@ _(unreleased - entries accumulate here per commit)_
   from the quicksave and ends however it actually ends; endings reached before the quicksave
   stay, and the quickload only touches what the quicksave shows was not yet history. A Re-Fly
   start and resuming a flight after restarting KSP are unchanged. Checked in test flights (lanes
-  QL-4, QL-4b and QL-4c: the booster is recorded again and ends Landed). Known issue: a booster
-  that was an Unfinished Flight in the abandoned future keeps its rewind point after it lands in
-  the replay (todo QUICKLOAD-RESUMED-MEMBER-KEEPS-ABANDONED-FUTURE-MERGE-STATE).
+  QL-4, QL-4b and QL-4c: the booster is recorded again and ends Landed). A booster that the
+  abandoned future had left an Unfinished Flight is no longer kept one after the quickload (see
+  the next entry).
+- **After a quickload, a booster that lands in the replayed flight no longer stays an Unfinished
+  Flight.** If you committed a flight while a booster was still falling (it became an Unfinished
+  Flight you could re-fly) and then quickloaded back to before that, the booster kept its
+  Unfinished Flight status from the abandoned commit: after it landed safely in the replay it
+  still read as open, and its rewind point was never cleaned up. The quickload now gives every
+  vessel of the resumed flight back the status it had in the quicksave, including a booster whose
+  recording the abandoned commit had cut in two at a phase change, and the next commit
+  decides it again from how the vessel actually ends: a booster that lands is closed and its
+  rewind point is removed once every vessel of that separation is done; one that is still
+  falling at the commit becomes an Unfinished Flight again. Vessels already committed when the
+  quicksave was taken, and a Re-Fly in progress, are left as they were. Covered by xUnit; not
+  yet checked in a test flight.
 - **Quickloading into a flight you committed after the quicksave works after the game has saved
   again.** Quickloading from the Space Center into a flight you had left (and so committed), or
   in flight once the game had saved since you committed it (an autosave, a switch to a far
@@ -6258,7 +6270,7 @@ _(unreleased - entries accumulate here per commit)_
 ### Dev
 
 - **Automated testing: the whole F9 check in one lane (QL-2b new) on a career twin of the GS-1
-  pad.** `QL-2b-quickload-booster-career-reward-not-paid` (nightly, never flown) flies QL-4's
+  pad.** `QL-2b-quickload-booster-career-reward-not-paid` (nightly, flown green 2026-10-07) flies QL-4's
   in-flight shape in a career: the two-stage hop, a quicksave with the booster still under its
   parachutes, half a minute on, then the pilot climbs out onto Kerbin's surface (the first EVA
   there, which stock pays as a milestone, booked to the flight when it is merged in flight), and
@@ -6272,11 +6284,12 @@ _(unreleased - entries accumulate here per commit)_
   `gs1_auto_chute_booster_career`, GS-1's machine, assertions and parameter schema plus the
   unreadable-maneuver-node tolerance a level-0 Tracking Station needs (QL-2's measured death on
   plain `b1_pad_hop`, applied before this lane's first flight); GS-1, QL-4 / QL-4b / QL-4c,
-  RF-1, RF-4 and CA-1 keep `gs1_auto_chute_booster` unchanged. No product change; nothing
-  flown.
+  RF-1, RF-4 and CA-1 keep `gs1_auto_chute_booster` unchanged. No product change. Flown green
+  on its first flight (`2026-10-07_2351`): the abandoned EVA milestone was paid before the load,
+  retired by it, never paid again, and the booster was recorded again down to Landed.
 - **Automated testing: the F9 checks automated (QL-2 new, QL-3 and QL-4b extended) and the
   rewind fixtures production-shaped.** `QL-2-quickload-career-recovery-not-paid` (nightly,
-  never flown) is the career half of "a reward earned after the F5 is not paid": the Jumping
+  flown red 2026-10-07 by a product finding, see below) is the career half of "a reward earned after the F5 is not paid": the Jumping
   Flea hops in `career-pad-craft`, quicksaves on the ground, is recovered through stock's button
   (funds, recovery science and crew XP booked to the flight), and the quicksave is loaded from
   the Space Center. It requires the abandoned-future reconcile to retire the payout as
@@ -6345,16 +6358,49 @@ _(unreleased - entries accumulate here per commit)_
   node names the two staging methods touch (each must have a category), and where OnLoad
   classifies relative to named steps (after `DetectSaveFolderChange`, before the staging load;
   refined after `RevertDetector.Consume`, before the quickload discard and the revert prune).
+- **Automated testing: a seam verb presses Esc, Revert and the Re-Fly revert dialog, and a lane
+  checks that Discard Re-fly keeps the Unfinished Flight (QL-5).** New M-A2 verb `ReFlyRevert
+  choice=discard|retry|cancel target=launch|prelaunch` (47 implemented): during a live Re-Fly it
+  opens the stock pause menu, presses Revert Flight and the stock Revert to Launch (or Revert to
+  VAB / SPH) option, whose `FlightDriver` call Parsek's revert interceptor blocks, then presses the
+  chosen button of Parsek's dialog, and answers once the outcome settled; after Discard its
+  completion line reads back whether the session's rewind point is still there and whether the
+  STASH group still lists the re-flown slot. Any answer that leaves the game in flight (a
+  refusal, a failed Discard or Retry, a timeout) first closes the Esc menu the verb opened and
+  any dialog still up, so the next step never starts paused. `QL-5-discard-refly-keeps-unfinished-flight`
+  (nightly, never flown) re-flies the crashed booster of the B9 split and discards through the
+  Esc menu, gating the `DiscardReFly` load classification with the in-session handoff, memory's
+  cleared marker, the origin rewind point kept and the booster still listed. There is no editor
+  variant: a Re-Fly is a resumed flight, for which stock never offers Revert to VAB / SPH. The
+  dialog's three button labels became named constants; no behaviour change.
 - **Automated testing: the F9 lanes flown, and specs fixed for faster seam polls.** QL-3, QL-4,
   QL-4b and QL-4c flew green on main with the in-session load fixes, alongside the in-game
   QuickloadResume and Rewind categories (H65, RF-6, R7a) and the re-fly regression lanes. Since
   PR #2017 an inert seam step costs one frame instead of a 0.25 s poll, so waits sized in inert
-  steps shrank: the QL-4 lanes now settle 150 steps before their post-load warp (it hit the
-  physics hold), their commit-UT token accepts 149.x, EX-1 waits for EndUT with
+  steps shrank: the QL-4 lanes' post-load warp hit the physics hold (now waited out by the
+  warp verb itself, next entry), their commit-UT token accepts 149.x, EX-1 waits for EndUT with
   `WarpToUT maxRate=1`, and QL-3's report-only rewind-point window read its fixture's 1 (back
-  at 0 since the fixture fix in the QL-2 entry above). LF-2
-  stays red on the same cause (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS). No product
-  change.
+  at 0 since the fixture fix in the QL-2 entry above). LF-2 red on the same cause and is
+  fixed in its spec by the next entry. No product change.
+- **Automated testing: the warp command waits in any scene, and 1x waits are no longer counted in
+  idle steps.** The test-command `WarpToUT` now runs at the Space Center and in the Tracking
+  Station as well as in flight (the three scenes with KSP's time-warp control); with
+  `maxRate=1` it is a deterministic 1x wait until a given UT in all three. Outside flight no
+  vessel limits the warp, and `ladder=phys` is refused (`physics-warp-not-in-flight`); in flight
+  nothing changes. KSP's short physics hold after a flight load (about a second, until the vessel
+  unpacks) used to refuse a warp sent inside it; the command now waits it out (at most 30 s,
+  `warp-physics-hold`), while any other lock, such as an open dialog, still refuses a real
+  warp. A 1x wait (`maxRate=1`) never changes the rate, so no lock stops it: it goes past the
+  physics hold at once and past KSP's new-game Tracking Station tutorial lock, which held
+  RF-7T's wait (`warptout 1x wait ignores TIMEWARP lock holders=...`). Since PR
+  #2017 an idle test step costs one frame instead of 0.25 s, so lanes that let runs of idle
+  steps carry 1x time waited about a tenth as long: 43 lanes now wait with `WarpToUT maxRate=1`
+  to explicit UTs (LF-2, LF-1, EX-1, EX-2, SS-1, BAY-1, the EVA spawn lanes, the CI chain-tip
+  lanes, H59, B32, V26M, V27M, RF-7T and the V16-V30 loop and arrival lanes), and the QL-4 lanes,
+  EX-1 and SS-1 drop their physics-hold padding. A new harness check refuses a run of 40 or more
+  idle steps without an `# inert-wait:` note. All changed lanes were re-flown, 42 of 43 green (V16M is red on a separate render finding); six short
+  settles that wait from a UT the spec cannot name are left (todo
+  HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS). No product change.
 - **Automated testing: lanes for a booster quickloaded back into the air (QL-4, QL-4b,
   QL-4c).** `QL-4-quickload-booster-terminal` (nightly, flown green 2026-10-07) is the live check for the
   quickload end-state fix: on the GS1 two-stage pad it quicksaves with the booster still under

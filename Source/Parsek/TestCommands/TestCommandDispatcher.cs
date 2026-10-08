@@ -150,6 +150,17 @@ namespace Parsek.TestCommands
         /// instant, not the loaded scene.</summary>
         public bool GhostChainsPending;
 
+        /// <summary>The head is a <c>WarpToUT</c>, TIMEWARP is input-locked, and the only
+        /// holder is stock's transient post-load <c>physicsHold</c>
+        /// (<c>TestCommandWarpToUT.IsTransientPhysicsHoldOnly</c>). Sampled for the
+        /// WarpToUT head only.</summary>
+        public bool WarpPhysicsHoldOnly;
+
+        /// <summary>Wall seconds this head has seen <see cref="WarpPhysicsHoldOnly"/>, from
+        /// the first frame it did; bounds the defer at
+        /// <c>TestCommandWarpToUT.PhysicsHoldDeferMaxSeconds</c>.</summary>
+        public double WarpPhysicsHoldSeconds;
+
         /// <summary>The replayed journal phase for THIS command id (None if fresh).</summary>
         public JournalPhase JournalPhase;
     }
@@ -270,6 +281,9 @@ namespace Parsek.TestCommands
         // ----- KscMarkerRecover (the Space Center marker recovery: open the vessel's
         // marker, press its Recover) -----
         void KscMarkerRecover(ParsedCommand cmd);
+        // ----- ReFlyRevert (the Esc menu's Revert during a live Re-Fly: the stock pause
+        // menu, the stock revert option, then a button of Parsek's Re-Fly revert dialog) -----
+        void ReFlyRevert(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -283,6 +297,11 @@ namespace Parsek.TestCommands
 
         /// <summary>Requires a loaded game (ParsekSettings.Current != null); else Defer(game-not-loaded).</summary>
         RequiresGameLoaded,
+
+        /// <summary>Requires a scene with a stock <c>TimeWarp</c> controller: FLIGHT, the
+        /// Space Center or the Tracking Station; else Defer(not-in-warp-scene). WarpToUT
+        /// only.</summary>
+        RequiresWarpScene,
     }
 
     /// <summary>
@@ -314,6 +333,25 @@ namespace Parsek.TestCommands
         /// the REJECTED msg for the <see cref="RejectOutsideFlightVerbs"/> set.
         /// </summary>
         internal const string NotInFlightReason = "not-in-flight";
+
+        /// <summary>
+        /// The wrong-scene DEFER token for a <see cref="VerbSceneRequirement.RequiresWarpScene"/>
+        /// verb (WarpToUT): the run is in a scene with no stock warp controller (the main
+        /// menu, the editor). A defer for the reason every FLIGHT verb defers: the wrong
+        /// scene is overwhelmingly one still settling in, and the budget bounds the rest.
+        /// </summary>
+        internal const string NotInWarpSceneReason = "not-in-warp-scene";
+
+        /// <summary>
+        /// The scenes that carry a stock <c>TimeWarp</c> controller a seam warp can drive:
+        /// FLIGHT, the Space Center and the Tracking Station (decompiled KSP 1.12.5: the
+        /// KSC / TS warp widgets and <c>UIWarpToNextMorning</c> call
+        /// <c>TimeWarp.fetch</c> in both non-flight scenes).
+        /// </summary>
+        internal static bool IsWarpScene(TestCommandScene scene)
+            => scene == TestCommandScene.Flight
+               || scene == TestCommandScene.SpaceCenter
+               || scene == TestCommandScene.TrackingStation;
 
         /// <summary>
         /// FLIGHT verbs that answer <c>REJECTED not-in-flight</c> at once in a settled
@@ -464,18 +502,19 @@ namespace Parsek.TestCommands
                 // rather than deferring, since "no live tree" is a true observation and
                 // deferring would hold the FIFO head to the budget in every KSC scene.
                 ["ListHandles"] = VerbSceneRequirement.RequiresGameLoaded,
-                // WarpToUT. RequiresFlight, and here it is a HARD precondition rather
-                // than a convenience: rails warp is a flight-scene mechanism (the KSC and
-                // Tracking Station drive their own warp UI through a different path), and
-                // the whole point of the verb is that the ACTIVE VESSEL travels its
-                // trajectory while the clock advances. RequiresFlight - a DEFER on
-                // not-in-flight - for every other FLIGHT-only verb's reason: the
-                // wrong-scene case is overwhelmingly a scene still settling in from the
-                // previous step, and the budget still bounds a genuinely wrong-scene
-                // spec. The verb's REAL refusals (no TimeWarp controller, a stock TIMEWARP
-                // input lock, a backward or malformed target) are executor-side and typed
-                // REJECTED.
-                ["WarpToUT"] = VerbSceneRequirement.RequiresFlight,
+                // WarpToUT. RequiresWarpScene: FLIGHT, the Space Center or the Tracking
+                // Station, the three scenes with a stock TimeWarp controller (the KSC and
+                // TS warp widgets drive the same TimeWarp.SetRate). In FLIGHT the active
+                // vessel travels its trajectory while the clock advances; outside it the
+                // clock advances with no vessel clamp, and with maxRate=1 the verb is the
+                // seam's deterministic 1x wait in any of the three (TC-1, todo
+                // HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS). A DEFER on
+                // not-in-warp-scene elsewhere, for every FLIGHT-only verb's reason. The
+                // verb's REAL refusals (no TimeWarp controller, a stock TIMEWARP input
+                // lock, ladder=phys outside FLIGHT, a backward or malformed target) are
+                // executor-side and typed REJECTED; stock's transient post-load
+                // physicsHold is a DEFER below, not a refusal.
+                ["WarpToUT"] = VerbSceneRequirement.RequiresWarpScene,
                 // GUI census. CaptureScreenshot is AnyScene, the ExportRenderManifest
                 // row: a screenshot is meaningful in every settled scene (that is the
                 // point of a census that walks KSC and FLIGHT), and the safe-point gate
@@ -537,6 +576,11 @@ namespace Parsek.TestCommands
                 // Space Center only, the wrong scene its own typed REJECTED
                 // (kscrecover-wrong-scene).
                 ["KscMarkerRecover"] = VerbSceneRequirement.RequiresGameLoaded,
+                // ReFlyRevert. RequiresGameLoaded, not RequiresFlight: a FLIGHT verb would
+                // DEFER not-in-flight up to its 300 s budget, and the verb's wrong scene is
+                // a typed REJECTED instead (reflyrevert-wrong-scene), next to its other
+                // pre-press refusal, reflyrevert-no-session.
+                ["ReFlyRevert"] = VerbSceneRequirement.RequiresGameLoaded,
             };
 
         /// <summary>
@@ -585,6 +629,8 @@ namespace Parsek.TestCommands
             }
             if (req == VerbSceneRequirement.RequiresGameLoaded && !state.SettingsPresent)
                 return DispatchResult.Defer("game-not-loaded");
+            if (req == VerbSceneRequirement.RequiresWarpScene && !IsWarpScene(state.Scene))
+                return DispatchResult.Defer(NotInWarpSceneReason);
 
             // 4. Per-verb extra guards (mirroring how the LoadGame guards live here).
             switch (parsed.Verb)
@@ -735,6 +781,10 @@ namespace Parsek.TestCommands
                 case "Recover":
                 case "TrackingStationRecover":
                 case "KscMarkerRecover":
+                // ReFlyRevert's Discard and Retry each load a save and change scene, so it
+                // takes the same pair: never over a LoadGame's own scene change, never over a
+                // re-fly merge journal mid-finalize (the dialog also hides Discard then).
+                case "ReFlyRevert":
                     // The ExitToSpaceCenter pair, for its two reasons: Recover drives a
                     // scene exit (TrackingStationRecover two: into the Tracking Station and
                     // back; KscMarkerRecover a recovery plus stock's persistent save) and
@@ -796,6 +846,23 @@ namespace Parsek.TestCommands
                     // produce is a list that is true of the instant it was taken, which is
                     // all any observation ever promises. The case is spelled out rather
                     // than left to fall through so the absence reads as a decision.
+                    break;
+
+                case "WarpToUT":
+                    // Stock's post-load physicsHold (Vessel.Load adds it, the unpack removes
+                    // it about a second after OnFlightReady) locks TIMEWARP. A warp sent in
+                    // that window used to be refused `warp-locked`, so every spec padded
+                    // inert steps before it; waiting it out here is the bounded wait the
+                    // hold actually is. A genuine lock (a modal dialog, any second holder)
+                    // never matches and still refuses, and so does a hold that outlives
+                    // PhysicsHoldDeferMaxSeconds. A 1x wait (maxRate=1) requests rung 0
+                    // only, so no TIMEWARP lock - the hold included - can affect it: it
+                    // executes at once.
+                    if (TestCommandWarpToUT.IsOneXWaitArg(Arg(parsed, "maxRate")))
+                        break;
+                    if (TestCommandWarpToUT.ShouldDeferForPhysicsHold(
+                            state.WarpPhysicsHoldOnly, state.WarpPhysicsHoldSeconds))
+                        return DispatchResult.Defer(TestCommandWarpToUT.PhysicsHoldDeferReason);
                     break;
 
                 case "PlantFlag":
@@ -995,6 +1062,13 @@ namespace Parsek.TestCommands
         /// named so the table states it.</summary>
         internal const double KscMarkerRecoverSeconds = 60.0;
 
+        /// <summary>ReFlyRevert: the resume settle (up to 30 s), the stock menus, then the
+        /// chosen button's outcome - Discard copies the rewind point's quicksave, parses it
+        /// through GamePersistence.LoadGame and loads the Space Center or the editor (the
+        /// InvokeRewindToLaunch shape), Retry reloads the flight (the InvokeRewind shape).
+        /// Their size, 300 s.</summary>
+        internal const double ReFlyRevertSeconds = 300.0;
+
         /// <summary>
         /// The deferral budget (seconds) for <paramref name="verb"/>. For RunTests the
         /// scenario's declared runtime budget is authoritative when supplied via
@@ -1046,6 +1120,8 @@ namespace Parsek.TestCommands
                     return TrackingStationRecoverSeconds;
                 case "KscMarkerRecover":
                     return KscMarkerRecoverSeconds;
+                case "ReFlyRevert":
+                    return ReFlyRevertSeconds;
                 // KscAction rides the default 60 s (career-ready / SPACECENTER wait; the
                 // action itself is immediate). SimulateStockSwitchClick rides it too: it is
                 // SINGLE-phase (the switch and its consume are synchronous inside

@@ -558,6 +558,158 @@ namespace Parsek.Tests
             Assert.Equal("1", payload.Single(kv => kv.Key == "maxRate").Value);
         }
 
+        // ----- Scenes: the Space Center and the Tracking Station run the rails ladder only -----
+
+        [Fact]
+        public void EvaluateSceneFeasibility_NeverRefusesInFlight()
+        {
+            Assert.Null(TestCommandWarpToUT.EvaluateSceneFeasibility(WarpLadderMode.Auto, inFlight: true));
+            Assert.Null(TestCommandWarpToUT.EvaluateSceneFeasibility(WarpLadderMode.Physics, inFlight: true));
+        }
+
+        [Fact]
+        public void EvaluateSceneFeasibility_RefusesPhysicsOutsideFlight_AndAdmitsTheRailsWait()
+        {
+            Assert.Equal(TestCommandWarpToUT.PhysicsWarpNotInFlightReason,
+                TestCommandWarpToUT.EvaluateSceneFeasibility(WarpLadderMode.Physics, inFlight: false));
+            // The 1x wait a spec drives at the Space Center: no ladder arg, maxRate=1.
+            Assert.Null(TestCommandWarpToUT.EvaluateSceneFeasibility(WarpLadderMode.Auto, inFlight: false));
+        }
+
+        [Fact]
+        public void SelectRateIndex_WithACapOfOneIsAlwaysOneX_TheSceneAgnosticWait()
+        {
+            // maxRate=1 is what makes the verb a deterministic 1x wait in every scene: the
+            // full rails ladder (the non-flight ceiling) still selects rung 0 for any span.
+            foreach (double remaining in new[] { 0.5, 3.0, 30.0, 3000.0 })
+                Assert.Equal(0, TestCommandWarpToUT.SelectRateIndex(remaining, StockRates, TopIndex, 1.0));
+        }
+
+        // ----- The 1x wait (maxRate=1) goes past any TIMEWARP lock -----
+
+        [Fact]
+        public void EvaluateFeasibility_OneXWait_ProceedsThroughATimeWarpLock()
+        {
+            // RF-7T `2026-10-07_2159`: stock's new-game tutorial lock `intro_TS` holds
+            // TIMEWARP in the Tracking Station until a player dismisses the popup.
+            Assert.Null(TestCommandWarpToUT.EvaluateFeasibility(true, true, 1.0));
+            Assert.Null(TestCommandWarpToUT.EvaluateFeasibility(true, false, 1.0));
+        }
+
+        [Theory]
+        [InlineData(2.0)]
+        [InlineData(1.5)]
+        [InlineData(50.0)]
+        [InlineData(0.0)] // uncapped
+        public void EvaluateFeasibility_AnyOtherCap_StillRefusesALock(double cap)
+        {
+            Assert.Equal(TestCommandWarpToUT.WarpLockedReason,
+                TestCommandWarpToUT.EvaluateFeasibility(true, true, cap));
+            Assert.Null(TestCommandWarpToUT.EvaluateFeasibility(true, false, cap));
+            // Byte-identical to the two-argument gate for every non-1x cap.
+            foreach (bool present in new[] { true, false })
+                foreach (bool locked in new[] { true, false })
+                    Assert.Equal(TestCommandWarpToUT.EvaluateFeasibility(present, locked),
+                        TestCommandWarpToUT.EvaluateFeasibility(present, locked, cap));
+        }
+
+        [Fact]
+        public void EvaluateFeasibility_OneXWait_StillNeedsAWarpController()
+        {
+            Assert.Equal(TestCommandWarpToUT.WarpUnavailableReason,
+                TestCommandWarpToUT.EvaluateFeasibility(false, true, 1.0));
+        }
+
+        [Theory]
+        [InlineData("1", true)]
+        [InlineData("1.0", true)]
+        [InlineData("1.5", false)]
+        [InlineData("2", false)]
+        [InlineData(null, false)]
+        [InlineData("", false)]
+        [InlineData("0.5", false)] // invalid cap: refused later, never a 1x wait
+        [InlineData("1,0", false)]
+        public void IsOneXWaitArg_IsExactlyACapOfOne(string arg, bool expected)
+        {
+            Assert.Equal(expected, TestCommandWarpToUT.IsOneXWaitArg(arg));
+        }
+
+        [Fact]
+        public void SelectRateIndex_OneXWait_NeverLeavesRungZero_EvenOnALadderWithAOneXRungAbove()
+        {
+            // The lock-free admission rests on this: a cap of 1 requests rung 0 whatever the
+            // ladder holds above it.
+            float[] oddLadder = { 1f, 1f, 5f };
+            Assert.Equal(0, TestCommandWarpToUT.SelectRateIndex(1000.0, oddLadder, 2, 1.0));
+            Assert.Equal(0, TestCommandWarpToUT.SelectRateIndex(1e6, StockRates, TopIndex, 1.0));
+        }
+
+        // ----- The post-load physics hold is a defer, a genuine lock is not -----
+
+        [Fact]
+        public void IsTransientPhysicsHoldOnly_TrueOnlyForTheSoleStockPhysicsHold()
+        {
+            Assert.True(TestCommandWarpToUT.IsTransientPhysicsHoldOnly(true, "physicsHold"));
+            Assert.Equal("physicsHold", TestCommandWarpToUT.StockPhysicsHoldLockId);
+        }
+
+        [Theory]
+        [InlineData(false, "physicsHold")]            // not locked at all: nothing to wait for
+        [InlineData(true, "none")]                    // a bare lockMask write: a genuine lock
+        [InlineData(true, null)]
+        [InlineData(true, "")]
+        [InlineData(true, "PopupDialogLock")]         // a modal dialog
+        [InlineData(true, "PopupDialogLock,physicsHold")] // the hold plus a genuine lock
+        [InlineData(true, "physicsHold2")]            // a lookalike id is not the stock hold
+        [InlineData(true, "PhysicsHold")]             // ordinal, not case-insensitive
+        public void IsTransientPhysicsHoldOnly_FalseForAnyGenuineLock(bool locked, string holders)
+        {
+            Assert.False(TestCommandWarpToUT.IsTransientPhysicsHoldOnly(locked, holders));
+        }
+
+        [Fact]
+        public void IsTransientPhysicsHoldOnly_ReadsTheFormattedHoldersEndToEnd()
+        {
+            const ulong timeWarp = 1UL << 20;
+            var holdOnly = new List<KeyValuePair<string, ulong>>
+            {
+                new KeyValuePair<string, ulong>("physicsHold", ~0UL),
+                new KeyValuePair<string, ulong>("CameraLock", 1UL << 3), // no TIMEWARP bit
+            };
+            Assert.True(TestCommandWarpToUT.IsTransientPhysicsHoldOnly(
+                true, TestCommandWarpToUT.FormatTimeWarpLockHolders(holdOnly, timeWarp)));
+
+            holdOnly.Add(new KeyValuePair<string, ulong>("ModalDialog", timeWarp));
+            Assert.False(TestCommandWarpToUT.IsTransientPhysicsHoldOnly(
+                true, TestCommandWarpToUT.FormatTimeWarpLockHolders(holdOnly, timeWarp)));
+        }
+
+        [Fact]
+        public void ShouldDeferForPhysicsHold_DefersUntilTheBound_ThenLetsTheGateRefuse()
+        {
+            Assert.True(TestCommandWarpToUT.ShouldDeferForPhysicsHold(true, 0.0));
+            Assert.True(TestCommandWarpToUT.ShouldDeferForPhysicsHold(true, 1.2));
+            Assert.True(TestCommandWarpToUT.ShouldDeferForPhysicsHold(
+                true, TestCommandWarpToUT.PhysicsHoldDeferMaxSeconds - 0.001));
+            // At the bound the verb executes and its feasibility gate answers warp-locked.
+            Assert.False(TestCommandWarpToUT.ShouldDeferForPhysicsHold(
+                true, TestCommandWarpToUT.PhysicsHoldDeferMaxSeconds));
+            Assert.False(TestCommandWarpToUT.ShouldDeferForPhysicsHold(true, 1e6));
+            Assert.False(TestCommandWarpToUT.ShouldDeferForPhysicsHold(true, double.NaN));
+            Assert.False(TestCommandWarpToUT.ShouldDeferForPhysicsHold(false, 0.0));
+        }
+
+        [Fact]
+        public void PhysicsHoldDeferBound_FitsInsideTheVerbsDeferralBudget()
+        {
+            // The defer is bounded by its own cap, never by a TIMEOUT: the cap must sit well
+            // inside the per-verb budget so a stuck hold still ends in the typed refusal.
+            Assert.True(TestCommandWarpToUT.PhysicsHoldDeferMaxSeconds
+                        < DeferralBudget.BudgetSeconds("WarpToUT"));
+            Assert.True(TestCommandWarpToUT.PhysicsHoldDeferMaxSeconds >= 5.0,
+                "the measured hold lasts 1.0-1.2 s after OnFlightReady; the bound needs margin");
+        }
+
         // ----- The refusal vocabulary is distinct -----
 
         [Fact]
@@ -574,6 +726,10 @@ namespace Parsek.Tests
                 TestCommandWarpToUT.WarpTimeoutReason,
                 TestCommandWarpToUT.WarpModeInvalidReason,
                 TestCommandWarpToUT.PhysicsWarpDisallowedReason,
+                TestCommandWarpToUT.PhysicsWarpNotInFlightReason,
+                // The physics-hold DEFER reason travels as a TIMEOUT msg if the bound is
+                // ever reached by the budget, so it must not alias a refusal token either.
+                TestCommandWarpToUT.PhysicsHoldDeferReason,
             };
             Assert.Equal(reasons.Length, reasons.Distinct().Count());
             // A reason token reaches the wire as the response `msg`, which the harness

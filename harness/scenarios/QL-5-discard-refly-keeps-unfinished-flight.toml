@@ -1,0 +1,205 @@
+schema = 1
+id = "QL-5-discard-refly-keeps-unfinished-flight"
+# =====================================================================================
+# QL-5: ESC, THEN DISCARD RE-FLY, KEEPS THE FLIGHT'S UNFINISHED FLIGHT. The live proof of
+# the Discard Re-fly half of todo QUICKLOAD-REFLY-LISTS-REVERT-WHILE-RECORDINGS-STAY (roadmap
+# "The timeline-operation coverage program", Phase A row TA-1, Lanes table row QL-5) and of
+# TA-5 (todo DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP, "close after QL-5"), and the
+# automation of the manual check "Esc, then Discard Re-fly: the flight's Unfinished Flight is
+# still listed".
+#
+# In gameplay terms: the player re-flies the crashed booster of a staged flight (an
+# Unfinished Flight in the STASH group), changes their mind, presses Esc, Revert Flight,
+# Revert to Launch, and picks Discard Re-Fly in Parsek's dialog. The attempt is thrown away
+# and the player lands at the Space Center; the booster must still be listed under STASH,
+# so the player can try again, and its rewind point must still exist.
+#
+# THE VERB. `ReFlyRevert choice=discard target=launch` (new with this lane) drives the
+# clicks a player makes, through the stock controls: `PauseMenu.Display()` (the Esc key's
+# action), the "GamePaused" popup's Revert Flight button, the "RevertingFlight" popup's
+# Revert to Launch button (whose callback calls `FlightDriver.RevertToLaunch()`; the
+# Harmony prefix `RevertInterceptor.Prefix` blocks it and spawns the "ParsekReFlyRevert"
+# dialog), then that dialog's Discard Re-Fly button, which runs
+# `RevertInterceptor.DiscardReFlyHandler`. It answers OK only after the Space Center's OnLoad
+# consumed the Discard Re-fly load intent, and its completion line reads the result back:
+# the origin rewind point (`rpKept=`) and whether a STASH member still resolves to the
+# re-flown slot (`slotListed=`, through `UnfinishedFlightsGroup.ComputeMembers` and
+# `EffectiveState.TryResolveUnfinishedFlight`, the predicate the group itself uses).
+#
+# THE MECHANISM UNDER TEST.
+#   1. DiscardReFlyHandler prunes the attempt, promotes the origin rewind point to persistent
+#      (`Origin RP promoted to persistent rp=rp_b9_root`: the fixture point is born
+#      SessionProvisional with no creating session), clears the marker, loads the point's
+#      quicksave, arms `DiscardReFlyLoadIntent` and loads the Space Center
+#      (`End reason=discardReFly ... dispatched=true`).
+#   2. The scene request destroys the scenario instance; OnDestroy captures its lists, rewind
+#      points and (cleared) marker (`Staged-list handoff captured reason=OnDestroy`).
+#   3. The Space Center's OnLoad is ONE load and it reads persistent.sfs, not the rewind
+#      point's quicksave (decompiled `SpaceCenterMain.Start`; todo
+#      DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT). It consumes the intent and
+#      classifies `early=DiscardReFly refined=DiscardReFly ... discardReFly=Launch
+#      handoff=present`; step A installs memory's lists and memory's (null) marker over the
+#      loaded one (`marker source=memory(none; loaded=<sess>)`), and step B partitions the
+#      rewind points by owner, keeping `rp_b9_root` (`rp_b9_root:<class>:kept-...`).
+#
+# THE HOST: S4.1's (`gloops-airshow` + the injected `rewind-b9` corpus): the B9 split
+# `rp_b9_root` whose slot 1, the crashed booster `b9-booster-a` (TerminalState.Destroyed,
+# MergeState.CommittedProvisional), is the open Unfinished Flight. The template loads into
+# FLIGHT (activeVessel = 1), so the seam's InvokeRewind executes; the TimeJump of 61 s puts
+# the clock 1 s past the split (S4.1's measured gate step). autoRecordOnLaunch OFF, as on
+# S4.1 (InvokeRewind refuses a live recorder). verboseLogging ON because the partition
+# decisions line and the origin promotion's already-persistent branch are Verbose.
+#
+# PRE-REGISTERED RED READINGS (each names the defect, not the spec):
+#   - `reflyrevert rejected reason=reflyrevert-revert-unavailable`: the Esc menu's Revert
+#     Flight was greyed during the session - ReFlyRevertButtonGate did not force
+#     `FlightDriver.CanRevertToPostInit` (the button's predicate is `FlightDriver.CanRevert`).
+#   - `reflyrevert rejected reason=reflyrevert-dialog-not-shown`, usually after a FLIGHT
+#     reload: the prefix let the stock RevertToLaunch run under a live session.
+#   - `reflyrevert error reason=reflyrevert-discard-not-dispatched`: the handler bailed before
+#     its scene dispatch; its own `End reason=discardReFly ... dispatched=false` line and the
+#     Error before it say which step (rewind point unresolvable, quicksave missing, load).
+#   - `handoff=absent` or `In-session load found no staged-list handoff`: the carry broke.
+#   - `marker source=save`: step A kept the loaded marker; LoadTimeSweep then validates a
+#     dead session.
+#   - `rpKept=false`, `Reaped rp=rp_b9_root`, `Purged rp=rp_b9_root` or `Deleted rewind
+#     quicksave rp=rp_b9_root`: the origin point went (the TA-5 class).
+#   - `slotListed=false` with `rpKept=true`: the point stayed but no STASH member resolves to
+#     the booster's slot any more (the attempt prune reached the origin, or the slot's tip
+#     closed).
+#   HOW THEY CLASSIFY. The verb's own refusals are REJECTED seam terminals, so they read
+#   INVALID, not PARSEK-FAIL, and are retried once: `reflyrevert-revert-unavailable` is
+#   driver-gate and `reflyrevert-dialog-not-shown` driver-dialog (the AnswerMergeDialog
+#   `no-live-dialog` precedent). Both still name a product defect when they reproduce on the
+#   retry; read the run, do not re-run it away. The post-press ERRORs
+#   (`discard-not-dispatched` ...) classify by the coarse verdict mismatch; the log-token
+#   readings above are PARSEK-FAIL(expectations).
+#
+# KNOWN ISSUES THIS LANE DOES NOT GATE (not fixed here): DISCARD-REFLY-LANDS-ON-PERSISTENT-
+# NOT-THE-REWIND-POINT (the Space Center reloads persistent.sfs, which here holds the
+# Re-Fly's own start; the lane reads no clock or vessel position after the load) and
+# ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE (needs an F9 inside the session,
+# which this lane does not make).
+#
+# NO PRELAUNCH VARIANT (QL-5b). The verb takes `target=prelaunch`, but a Re-Fly session is a
+# resumed flight: `FlightDriver.Start` sets `CanRevertToPrelaunch` only for a PRELAUNCH
+# vessel that is the post-init vessel with a ship config and a pre-launch state (decompiled
+# KSP 1.12.5, FlightDriver lines 387-450), and ReFlyRevertButtonGate forces only
+# `CanRevertToPostInit`. So stock's "RevertingFlight" popup offers no Revert to VAB / SPH
+# during a session on this host (or any re-fly host flown to date), and the verb answers
+# REJECTED `reflyrevert-option-unavailable` rather than call a stock method no player can
+# reach. TA-5's editor destination is therefore not reachable through the stock Esc menu on
+# a separation Re-Fly; its unit cell
+# (`InSessionStagedListsCarryTests.DiscardReFlyPrelaunch_NestedOriginRp_NotPurged`) stays the
+# proof of the editor path.
+#
+# READING-RUN NOTES:
+#   - `unfinishedFlights=` should read 1 (the booster; the orbiting upper stage is a stable
+#     leaf). Not gated exactly: the gate is the slot itself.
+#   - The partition class for `rp_b9_root` is expected FollowSave (the fixture's
+#     BranchPointId is a weak link no committed tree carries; QL-3's reading of the
+#     `rewind-crew-loss` point), so the KEPT point is the loaded copy (SessionProvisional,
+#     no creating session) and the handler's in-memory promotion is not what survives. A
+#     CommittedOwner or SessionScoped class also satisfies the gate.
+#   - The two ListHandles steps record the rewind-point family before the rewind and after
+#     the discard (`listhandles kind=rewindpoints count=...`); not gated.
+#   - The rewind block is REPORT-ONLY: predicted rewindPoints >= 1, supersedeRows 0,
+#     tombstones 0 (nothing merged).
+#
+# STATUS: AUTHORED 2026-10-07; LIVE-PROVEN 2026-10-07 `2026-10-07_2035` and `_2331` (PASS attempt 1
+# on both PR #2050 commits). Every token is quoted from its emitting source
+# line: TestCommandReFlyRevert / ParsekTestCommandAddon.ReFlyRevert.cs (the `reflyrevert`
+# lines), RevertInterceptor.Prefix / DiscardReFlyHandler, ReFlyRevertDialog.Show,
+# DiscardReFlyLoadIntent.Arm / TryConsume, InSessionStagedStateHandoff (capture),
+# LoadReconcilePolicy.FormatClassificationLine, ParsekScenario.InSessionHandoff.cs (step A,
+# step B), RewindPointReaper / TreeDiscardPurge (the forbidden lines); the re-fly milestones
+# are S4.1's.
+# =====================================================================================
+tier = "nightly"
+description = "QL-5: re-fly the crashed booster of the B9 split, then press Esc, Revert Flight, Revert to Launch and Discard Re-Fly through the stock menus and Parsek's dialog (new ReFlyRevert verb). The Space Center load is classified DiscardReFly with the in-session handoff (memory's cleared marker), the origin rewind point is kept and the booster is still listed under STASH."
+instanceProfile = "stock-minimal"
+tags = ["QL-5", "TA-1", "TA-5", "timeline-ops", "rewind", "refly", "discard-refly",
+        "revert-dialog", "D9", "scene-ksc", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "rewind-b9"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },        expect = "OK", budget = 240 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },    expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },         expect = "OK" },
+  # rp_b9_root sits 60 s after the template's UT; S4.1's gate step.
+  { cmd = "TimeJump",       args = { deltaSeconds = "61.0" },                           expect = "OK", budget = 120 },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" },                           expect = "OK" },
+  { cmd = "InvokeRewind",   args = { rp = "rp_b9_root", slot = "1" },                   expect = "OK", budget = 300 },
+  # THE CHECK: Esc > Revert Flight > Revert to Launch > Discard Re-Fly. The verb waits out
+  # the Re-Fly resume first (the AnswerMergeDialog settle rule), as a player cannot reach
+  # the Esc menu before the flight scene settles.
+  { cmd = "ReFlyRevert",    args = { choice = "discard", target = "launch" },           expect = "OK", budget = 300 },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" },                           expect = "OK" },
+  { cmd = "RecordingState",                                                             expect = "OK" },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[dimensionsCovered]
+# rewind-to-separation: the InvokeRewind of slot 1. revert-during-refly-dialog: the stock
+# Esc revert routed into Parsek's Re-Fly revert dialog and answered, the cell this lane is
+# for. unfinished-flights-stash: the completion line reads the STASH group's membership
+# after the discard.
+D9  = ["rewind-to-separation", "revert-during-refly-dialog", "unfinished-flights-stash"]
+D14 = ["scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1 }
+
+[expectations.logContracts]
+required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
+             "reflyrevert start choice=discard target=launch sess=\\S+ rp=rp_b9_root slot=b9-booster-a",
+             "reflyrevert opened the Esc menu \\(PauseMenu.Display\\)",
+             "reflyrevert pressed revert-flight button=",
+             "reflyrevert pressed revert-option button='[^']*' target=launch launchOffered=true",
+             "Prefix: blocking stock RevertToLaunch sess=\\S+ target=Launch",
+             "Revert dialog shown sess=\\S+ target=Launch",
+             "reflyrevert pressed dialog button='Discard Re-Fly' choice=discard",
+             "Origin RP (promoted to persistent|already persistent) rp=rp_b9_root",
+             "DiscardReFly load intent armed target=Launch sess=\\S+ expectedScene=SPACECENTER",
+             "End reason=discardReFly sess=\\S+ target=Launch facility=-- dispatched=true",
+             "Staged-list handoff captured reason=OnDestroy",
+             "DiscardReFly load intent consumed at ParsekScenario.OnLoad: target=Launch sess=\\S+ scene=SPACECENTER",
+             "Load classified: early=DiscardReFly refined=DiscardReFly scene=SPACECENTER [^\\r\\n]*discardReFly=Launch handoff=present",
+             "In-session staged lists from memory: kind=DiscardReFly captured=OnDestroy; [^\\r\\n]*marker source=memory\\(none; loaded=",
+             "In-session RP owner partition decisions: [^\\r\\n]*rp_b9_root:[A-Za-z]+:kept-",
+             "reflyrevert complete choice=discard target=launch scene=SPACECENTER sess=\\S+ rp=rp_b9_root rpKept=true slot=b9-booster-a slotListed=true unfinishedFlights=[1-9][0-9]* marker=none"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "In-session load found no staged-list handoff",
+             "DiscardReFly load intent dropped as stale",
+             "Reaped rp=rp_b9_root",
+             "Purged rp=rp_b9_root",
+             "Deleted rewind quicksave rp=rp_b9_root"]
+
+[expectations.rewind]
+gating        = false
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+rewindPoints  = { min = 1 }
+
+[runtime]
+# run.py waits max(step_budget, 600) + 60 per DEFERRED verb and the step budget (or the
+# verb's dispatch budget + margin) for the rest:
+#   LoadGame 660, SetSetting 60 x2, TimeJump 660, ListHandles 60, InvokeRewind 660,
+#   ReFlyRevert 660 (a DEFERRED verb), ListHandles 60, RecordingState 60, FlushAndQuit 60
+#   -> 3000; +120 margin = 3120.
+budgetSeconds = 3120
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

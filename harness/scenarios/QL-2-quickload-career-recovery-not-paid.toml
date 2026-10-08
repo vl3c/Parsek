@@ -142,6 +142,8 @@ steps = [
   # between the F5 and the payout, kept SHORT so the landed tail stays under the
   # optimizer's 5 s both-halves split floor (RecordingOptimizer: an exit-commit split
   # before the cutoff is the shape QL-4b's header warns about).
+  # inert-wait: frames only, deliberately short (THE TIMELINE above: under 2 s, so the
+  # landed tail stays below the optimizer's 5 s split floor); no UT to wait to.
   { cmd = "RecordingState",                                                            expect = "OK" },
   { cmd = "RecordingState",                                                            expect = "OK" },
   { cmd = "RecordingState",                                                            expect = "OK" },
@@ -225,6 +227,8 @@ steps = [
   { cmd = "ListHandles",    args = { kind = "committed" },                             expect = "OK" },
   # Settle out the post-load physics hold before the exit (QL-4b's second pad: the unpack
   # lands 1.0-1.2 s after OnFlightReady and each inert step is about one frame).
+  # inert-wait: a frame settle for the post-load physics hold before the exit (this lane
+  # sends no WarpToUT after the F9, so no warp defer covers it); no UT to wait to.
   { cmd = "RecordingState",                                                            expect = "OK" },
   { cmd = "RecordingState",                                                            expect = "OK" },
   { cmd = "RecordingState",                                                            expect = "OK" },

@@ -354,7 +354,7 @@ save load, including a `LoadGame`.
 Reserving the phase-3 names now means the envelope (id/cmd/args, percent-encoding,
 journal, verdicts) is designed once and the later commands slot in without a format break.
 
-The table today is **46 implemented / 4 reserved**. `TestCommandVerbs.cs` is the authority
+The table today is **47 implemented / 4 reserved**. `TestCommandVerbs.cs` is the authority
 (`hlib.IMPLEMENTED_SEAM_VERBS` mirrors it as an ordered list, and a cell pins both lengths);
 the updates below record how each verb arrived.
 
@@ -542,6 +542,12 @@ the updates below record how each verb arrived.
 > `RF-20-stashed-eva-slot-refly`. `FlySlot` stays reserved for the reason above. Full
 > contract below (`#### StashSlot`).
 
+> Update (ReFlyRevert, 2026-10-07): one ADDITIVE verb, `ReFlyRevert choice= target=`,
+> taking the table to **47 implemented / 4 reserved**. The Esc menu's Revert during a live
+> Re-Fly session, through the stock pause menu and revert option into Parsek's Re-Fly revert
+> dialog, answered with the chosen button (todo HARNESS-VERBS-FOR-TIMELINE-OPS, roadmap TC-1).
+> Full contract below (`#### ReFlyRevert`).
+
 > Update (KscMarkerRecover, 2026-10-04): one ADDITIVE verb, `KscMarkerRecover pid=`, taking
 > the table to **48 implemented / 4 reserved**. The third recovery a player makes, from the
 > Space Center without entering the Tracking Station: the vessel's stock KSC marker, opened
@@ -709,6 +715,14 @@ the updates below record how each verb arrived.
 > single-phase OK would claim a file that does not exist yet, and the next step would not
 > merely race the write - it would change the very UI the pending capture is about to
 > record. Full contract below (`#### DumpGuiTree`).
+
+> Update (WarpToUT scene-agnostic, TC-1, 2026-10-07): no new verb and no new argument.
+> `WarpToUT` moves from `RequiresFlight` to the new `RequiresWarpScene` row (FLIGHT, the
+> Space Center, the Tracking Station), so `maxRate=1` is a deterministic 1x wait in all
+> three, and stock's transient post-load `physicsHold` becomes a bounded DEFER
+> (`warp-physics-hold`) instead of a `warp-locked` refusal. One new refusal,
+> `physics-warp-not-in-flight` (`ladder=phys` outside FLIGHT). FLIGHT behaviour is
+> otherwise unchanged. Full contract below (`#### WarpToUT`).
 
 > Update (WarpToUT, 2026-09-09): one further ADDITIVE verb, `WarpToUT ut=<absolute UT>
 > [maxRate=<float>]` - the SaveGame / ExportRenderManifest / ListHandles shape, never in
@@ -1532,11 +1546,53 @@ RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT. The short form is that the seam c
 the CLOCK but not the WORLD, and every terminal-gated in-game `Rewind` cell needs a
 provisional that reached an ending.
 
-**Contract.** `RequiresFlight` - a hard precondition, not a convenience: rails warp is a
-flight-scene mechanism and the whole content of the verb is that the ACTIVE VESSEL travels
-while the clock advances. It is a DEFER on not-in-flight (the wrong-scene case is
-overwhelmingly a scene still settling in from the previous step), like every other
-FLIGHT-only verb. TWO-PHASE, and its completion is a genuine POLL rather than a settle:
+**Contract.** `RequiresWarpScene` (TC-1, 2026-10-07; `RequiresFlight` before): FLIGHT,
+the Space Center or the Tracking Station, the three scenes with a stock `TimeWarp`
+controller (decompiled KSP 1.12.5: the KSC / TS warp widgets and `UIWarpToNextMorning` call
+`TimeWarp.fetch` in both non-flight scenes, and stock's `setRate` applies its vessel clamps
+only under `HighLogic.LoadedSceneIsFlight`). In FLIGHT the ACTIVE VESSEL travels while the
+clock advances, exactly as before (ladder, physics mode, refusals and log lines unchanged).
+Outside FLIGHT the clock advances with no vessel to clamp it: the applier's rails ceiling is
+the top of the ladder, FlightGlobals is not read, and one extra Info line
+`warptout scene=<scene> outside FLIGHT: rails ladder, no vessel ceiling, maxRate=<c>`
+follows the start line. **With `maxRate=1` the verb is the seam's deterministic 1x wait in
+any of the three scenes**: the clock runs at 1x until it reaches `ut`, independent of how
+fast the harness polls (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS: since PR #2017 an
+inert step costs one frame, so a run of inert steps is no longer a time wait). In any other
+scene (main menu, editor) it is a DEFER `not-in-warp-scene`, bounded by the budget, for every
+FLIGHT-only verb's reason. `ladder=phys` outside FLIGHT is `REJECTED
+physics-warp-not-in-flight` (physics warp is a flight mode).
+
+**The post-load physics hold is a DEFER, not a refusal.** Stock's `Vessel.Load` /
+`Vessel.Initialize` register the `physicsHold` input lock (its mask covers TIMEWARP) and
+`GoOffRails` removes it at the unpack, measured 1.0-1.2 s after OnFlightReady. A WarpToUT
+sent inside that window used to be `REJECTED warp-locked holders=physicsHold`, so specs
+padded inert steps before it. The dispatcher now DEFERS a WarpToUT head with
+`warp-physics-hold` while TIMEWARP is locked and `physicsHold` is the ONLY holder
+(`TestCommandWarpToUT.IsTransientPhysicsHoldOnly`, over the same sorted holder list the
+refusal line prints), for at most `PhysicsHoldDeferMaxSeconds` (30 s) per head
+(`ShouldDeferForPhysicsHold`; the addon samples the bits for a WarpToUT head only and logs
+`warptout waiting out the post-load physics hold id=<id> holders=physicsHold maxWait=30s`
+once per head). Any other holder (a modal dialog), a lock with no stack entry (`none`), or a
+hold that outlives the bound executes and is refused `warp-locked` exactly as before.
+
+**The 1x wait goes past every TIMEWARP lock.** A WarpToUT whose cap is exactly 1
+(`maxRate=1`, `TestCommandWarpToUT.OneXWaitIgnoresTimeWarpLock`) requests rate index 0 and
+nothing else (`SelectRateIndex` returns 0 for it on any ladder), so no input lock on
+TIMEWARP can change what it does. Its feasibility gate
+(`EvaluateFeasibility(present, locked, cap)`) therefore never refuses `warp-locked`, the
+dispatcher never defers it on the physics hold (`IsOneXWaitArg`), and the applier logs one
+`warptout 1x wait ignores TIMEWARP lock holders=<ids> ut=<t>` line instead. A missing
+`TimeWarp` controller still refuses. Measured why: RF-7T's Tracking Station dwell
+(`2026-10-07_2159`, `_2200_a2`) met `holders=intro_TS`, stock
+`ScenarioNewGameIntro.TSTutorialSetup`'s TRACKINGSTATION_ALL lock for the new-game
+tutorial popup, which holds until a player dismisses it. The popup does not stop the clock
+(decompiled: it is spawned non-modal and neither it nor `TutorialScenario` touches the time
+scale or pauses; RF-7T's green `2026-09-09_0100` TS dwell ran UT 701.56 -> 705.60 in 4 s of
+wall time on the same fixture). Every cap other than exactly 1 keeps the gate above
+unchanged.
+
+TWO-PHASE, and its completion is a genuine POLL rather than a settle:
 `TimeJump` lands its clock synchronously and only watches the spawn queue drain, while
 this verb watches a clock that advances over many frames. Budget 540 s
 (`DeferralBudget.WarpToUTSeconds`), which is the harness's own
@@ -1585,7 +1641,8 @@ into a real-time wait that the budget bounds. That is deliberate: refusing there
 the verb useless on the exact lane it was built for, and `maxRate=1` in the terminal
 payload is how a reader tells a waited span from a warped one. Only a warp that cannot be
 driven AT ALL is `REJECTED`: no `TimeWarp` controller (`warp-unavailable`) or a stock input
-lock on `ControlTypes.TIMEWARP` (`warp-locked`).
+lock on `ControlTypes.TIMEWARP` (`warp-locked`; stock's transient post-load `physicsHold`
+alone is waited out first, see the Contract).
 
 **The warp is always lowered, and the OK is the proof.** The mirror-direction obligation
 (CLAUDE.md: a fix derived from an asymmetry must be checked in the mirror direction) for a
@@ -1614,8 +1671,10 @@ maxRate=<m> elapsed=<e>s` on success. Refusals log `warptout refused reason=<r> 
 Warn and the timeout logs at Error.
 
 **Pure decision.** `TestCommandWarpToUT` (`ResolveTargetUt`, `ResolveMaxRate`,
-`IsForwardWarp`, `EvaluateFeasibility`, `HasReached`, `SelectRateIndex`,
-`DecideWarpCompletion`, `BuildCompletePayload`, and the refusal-reason constants),
+`IsForwardWarp`, `EvaluateFeasibility`, `EvaluateSceneFeasibility`,
+`IsTransientPhysicsHoldOnly`, `ShouldDeferForPhysicsHold`, `HasReached`, `SelectRateIndex`,
+`DecideWarpCompletion`, `BuildCompletePayload`, and the refusal-reason constants) plus
+`TestCommandDispatcher.IsWarpScene` and the `WarpToUT` dispatch case,
 xUnit-covered in `TestCommandWarpToUTTests.cs`. The partial
 `ParsekTestCommandAddon.WarpToUT.cs` only samples live KSP state and calls
 `TimeWarp.SetRate`.
@@ -3931,6 +3990,97 @@ pre-launch. Pure half `TestCommandKscMarkerRecover`; applier
 `ParsekTestCommandAddon.KscMarkerRecover.cs`. Lane:
 `CI-10-chain-tip-ksc-marker-recover-no-respawn` (CI-7's host and steps; never flown).
 
+#### ReFlyRevert (additive; the Esc menu's Revert during a Re-Fly)
+
+**Why.** During a Re-Fly session a player who presses Esc and Revert reaches Parsek's 3-option
+dialog (`ReFlyRevertDialog`) instead of a stock revert, and its Discard Re-Fly runs a real
+`GamePersistence.LoadGame` plus a scene load that the in-session staged-list handoff, the load
+classification and the owner partition all act on. No seam path reached it: the in-game
+`ReFlyRevertDialog*` cells stub the load and the scene change. Roadmap lane QL-5 and TA-5 need
+the real thing.
+
+**Grammar.** `cmd=ReFlyRevert choice=<discard|retry|cancel> target=<launch|prelaunch>`, issued
+in FLIGHT with a live Re-Fly session. Both args REQUIRED, closed and case-sensitive.
+
+**Production path** (decompiled, KSP 1.12.5 `Assembly-CSharp.dll`):
+- `PauseMenu.Display()` (the Esc key's action) pauses the game and spawns the "GamePaused"
+  popup. Its Revert Flight button (`#autoLOC_360545`) is interactable on
+  `FlightDriver.CanRevert`, which `ReFlyRevertButtonGate` forces true during a session (it sets
+  `CanRevertToPostInit`), and spawns the "RevertingFlight" popup.
+- `PauseMenu.drawStockRevertOptions` fills that popup in order: Revert to Launch when
+  `FlightDriver.CanRevertToPostInit` and the game's `CanRestart`; Revert to VAB / SPH when
+  `CanLeaveToEditor`, `FlightDriver.CanRevertToPrelaunch`, `ShipConstruction.ShipConfig != null`
+  and a VAB / SPH `ShipType`; then a back button. An option's callback dismisses the pause popup
+  and calls `FlightDriver.RevertToLaunch()` / `RevertToPrelaunch(facility)`.
+- `RevertInterceptor.Prefix` (Harmony, on both) blocks the stock body while a marker is live and
+  spawns "ParsekReFlyRevert" with Retry from Rewind Point / Discard Re-Fly / Continue Flying
+  (Discard is omitted while a merge journal is live). The buttons run `RetryHandler`,
+  `DiscardReFlyHandler` and `CancelHandler` synchronously.
+- A Re-Fly session is a resumed flight (the rewind point's quicksave), and `FlightDriver.Start`
+  sets `CanRevertToPrelaunch` only for a PRELAUNCH vessel that is the post-init vessel with a
+  ship config and a pre-launch state. So the Revert to VAB / SPH option is normally absent in a
+  session, and `target=prelaunch` answers `reflyrevert-option-unavailable` instead of calling a
+  stock method no player can reach.
+
+The seam presses each button through its own `DialogGUIButton.OptionSelected` (the callback
+plus, for a dismiss-on-select button, the popup's own dismiss) after reading its
+`OptionInteractableCondition`. The stock option is picked by the order and predicates above,
+cross-checked by the button count (a mismatch is a moved layout, refused, never a guess); the
+dialog button by its label (`ReFlyRevertDialog.RetryButtonText` / `DiscardButtonText` /
+`ContinueButtonText`). Before the Esc menu, the verb waits for the Re-Fly resume to make the
+restored tree active (`TestCommandMergeAnswer.DecideConclusionDrive`'s rule, 30 s cap), as a
+player cannot reach the menu sooner.
+
+**Refusals** (REJECTED, in this order): `reflyrevert-choice-arg-missing`,
+`reflyrevert-choice-arg-invalid`, `reflyrevert-target-arg-missing`,
+`reflyrevert-target-arg-invalid`, `reflyrevert-wrong-scene` (not FLIGHT),
+`reflyrevert-no-session` (no `ActiveReFlySessionMarker`), then five decided by the poll before
+any dialog button is pressed, each after the exit cleanup below:
+`reflyrevert-pause-menu-unavailable` (no `PauseMenu`, or no "GamePaused" popup within 120
+frames), `reflyrevert-revert-unavailable` (Revert Flight missing or greyed, or no
+"RevertingFlight" popup), `reflyrevert-option-unavailable` (stock does not offer the target's
+option, or it is greyed), `reflyrevert-dialog-not-shown` (no "ParsekReFlyRevert" within 120
+frames of the option press: the prefix did not block) and `reflyrevert-choice-unavailable` (the
+dialog lacks the chosen button; the seam backs out with Continue Flying). Post-press ERROR:
+`reflyrevert-discard-not-dispatched` (Discard armed no load intent: the handler bailed),
+`reflyrevert-retry-not-started` (no pending invocation and no fresh session 300 frames after
+Retry), `reflyrevert-session-changed` (Cancel did not keep the session),
+`reflyrevert-wrong-destination`, `reflyrevert-returned-to-menu`, `reflyrevert-timeout`.
+Every terminal that leaves the game in FLIGHT (a REJECTED, a post-press ERROR such as
+`discard-not-dispatched` or `retry-not-started`, a timeout before the load) runs one exit
+cleanup first: Continue Flying on a Re-Fly revert dialog still up (releasing its input lock),
+then `PauseMenu.Close` on a menu this command opened (`TestCommandReFlyRevert.
+ShouldBackOutOfDialogOnExit` / `ShouldCloseMenusOnExit`: FLIGHT only, the verb's own menu
+only), so the next step never inherits a paused flight; line `reflyrevert exit cleanup
+scene= menuOurs= menuOpen= dialogOpen= closedMenu= backedOutOfDialog= - <why>`.
+
+**Completion.** Phases `AwaitingResume` -> `OpeningMenu` -> `ChoosingRevertOption` ->
+`AwaitingDialog` -> `Settling`. OK: Discard once the destination (SPACECENTER for launch, EDITOR
+for prelaunch) has a loaded game, `DiscardReFlyLoadIntent` is consumed (its OnLoad ran) and two
+polls passed; Retry once FLIGHT holds a fresh session with no invocation pending; Cancel once
+the dialog closed with the same session (the seam then closes the pause menu, which stock
+leaves open and paused). Payload `choice= target= scene= session= rp= rpKept= slot= slotListed=
+unfinishedFlights= marker=`: `rpKept` is the session's rewind point in
+`ParsekScenario.RewindPoints`, `slotListed` whether a member of `UnfinishedFlightsGroup` resolves
+(`EffectiveState.TryResolveUnfinishedFlight`) to that point and the slot whose origin is the
+session's `OriginChildRecordingId`, `marker` the session live after the outcome (`none` after
+Discard). Lines: `reflyrevert start choice= target= sess= rp= slot=`, `reflyrevert opened the Esc
+menu (PauseMenu.Display) ...`, `reflyrevert pressed revert-flight|revert-option|dialog button='...'
+...`, `reflyrevert exit cleanup ...`, `reflyrevert complete choice=
+target= scene= sess= rp= rpKept= slot= slotListed= unfinishedFlights= marker= elapsed=`,
+`reflyrevert rejected reason=` (Warn) / `reflyrevert error reason=` (Error).
+
+**Phases and roles.** TWO-PHASE, `RequiresGameLoaded` (the wrong scene is its own REJECTED, not
+a 300 s defer), 300 s (the `InvokeRewind` / `InvokeRewindToLaunch` size), a
+`DEFERRED_SEAM_VERB`. Dispatch rejects `load-in-flight` and `merge-journal-in-flight`; no
+recording-active guard (the re-fly's own recorder is live). Tail role world-mutating,
+post-mission role `recording`. hlib mirrors the keys, both value sets and the reasons
+(`REFLYREVERT_*`, pinned by `ReFlyRevertSourceSyncTests`, which also pins the dialog labels),
+and `validate_refly_revert_step` checks both args pre-launch (not `VERB_SCOPED_CLOSED_ARGS`:
+`choice` is `AnswerMergeDialog`'s key too). Pure half `TestCommandReFlyRevert`; applier
+`ParsekTestCommandAddon.ReFlyRevert.cs`. Lane: `QL-5-discard-refly-keeps-unfinished-flight`
+(never flown).
+
 ### Addon lifecycle
 
 `ParsekTestCommandAddon` mirrors `TestRunnerShortcut`: `[KSPAddon(KSPAddon.Startup.Instantly, true)]`
@@ -4054,6 +4204,7 @@ wall-clock. Some verbs need a different bound and override the default:
 | `Recover` | 120 s | TWO-PHASE, the `ExitToSpaceCenter` size: stock's save, the Space Center load and the 8-frame delay before `VesselRetrieval.recoverVessels`; NOT a `DEFERRED_SEAM_VERB` |
 | `TrackingStationRecover` | 120 s | TWO-PHASE, the `Recover` size: the Tracking Station load, a few frames of select / confirm / summary dismissal, and the Space Center load back; NOT a `DEFERRED_SEAM_VERB` |
 | `KscMarkerRecover` | 60 s | TWO-PHASE, the default size named: no scene load, the 180-frame marker wait, stock's one-frame recovery and a summary dismissal; NOT a `DEFERRED_SEAM_VERB` |
+| `ReFlyRevert` | 300 s | TWO-PHASE, the `InvokeRewind` / `InvokeRewindToLaunch` size: the resume settle (up to 30 s) and the stock menus, then Discard's quicksave `LoadGame` plus the Space Center / editor load or Retry's flight reload; a `DEFERRED_SEAM_VERB` |
 | `AnswerMergeDialog` | 60 s | MEASURED 2026-10-06 over 859 collected runs (2026-09-10 to 2026-10-05): OK n=65, p50 3.3 s, p99 6.6 s, max 7.2 s. 4x the OK max is 29 s; the floor is twice `TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds` (30 s), which the re-fly fallback spends before the driven exit (unit-guarded). Was 120 s; all 6 non-OK outcomes (4 `no-refly-dialog` TIMEOUT, 2 `answer-timeout` ERROR) waited the full 120 s and none was a slow success |
 | `EvaGroundScience` | 60 s | MEASURED 2026-10-06 over the same corpus: OK n=412, p50 0.9 s, p99 5.5 s, max 5.5 s (step 3.3, take 0.5, place 3.6, pickup 5.5). Each action is its own command, so the budget bounds one action. 4x the OK max is only 22 s, but the place ladder counts frames (about 1,000 worst case), so 60 s keeps it inside the budget down to about 17 fps. Was 120 s (the EvaExit size); all 37 timeouts (27 `step-timeout`, 5 `placement-timeout`, 3 `place-gate-timeout`, 2 `pickup-timeout`) waited the full 120 s, 4,440 s in all |
 

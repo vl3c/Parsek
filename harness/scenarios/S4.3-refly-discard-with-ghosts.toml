@@ -1,5 +1,10 @@
 schema = 1
 id = "S4.3-refly-discard-with-ghosts"
+# READING 2026-10-07 `2026-10-07_2241` (branch `ql-lanes`): PARSEK-FAIL on one stale token. Commit
+# 49ffa627f (the chain-state removal) reworded ParsekFlight's committed-list removal line to
+# `removed - reindexed engine, held, map and watch state`; the flown log carries exactly that
+# (`Committed recording #3 removed - reindexed engine, held, map and watch state (ghostStates=1,
+# committed=3)`), and every other gated token matched. The pin now quotes the shipped literal.
 # `operator` for its first flight: this is a READING RUN of a path no lane has ever
 # driven (a Re-Fly attempt DISCARDED from the merge dialog while the flight scene is
 # populated), and the tally-free contract below is written from source, not from a
@@ -33,7 +38,7 @@ tier = "operator"
 #     producer side of the notification, and `End reason=discardReFlyAttemptFromMergeDialog`
 #     is the session-end token the discard route emits (both pre-existing, grep-stable);
 #   - `Committed recording #N (...) removing - destroying its ghost state` and
-#     `Committed recording #N removed - reindexed engine, held, map, watch and chain state`
+#     `Committed recording #N removed - reindexed engine, held, map and watch state`
 #     are ParsekFlight's two handler lines (Verbose - hence `SetSetting verboseLogging=true`
 #     ahead of the rewind). Their PRESENCE is the proof that the notification seam reached
 #     the FLIGHT controller on a discard at all; their COUNT is not pinned, because how
@@ -111,7 +116,7 @@ required  = [
   "Removed Re-Fly attempt rec=",
   "End reason=discardReFlyAttemptFromMergeDialog",
   "Committed recording #[0-9]+ \\(.*\\) removing - destroying its ghost state",
-  "Committed recording #[0-9]+ removed - reindexed engine, held, map, watch and chain state",
+  "Committed recording #[0-9]+ removed - reindexed engine, held, map and watch state",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
