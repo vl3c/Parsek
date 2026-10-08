@@ -1771,6 +1771,61 @@ experiment its header describes: the bare reload keeps `expect = "REJECTED"` as 
 negative control for the guard, and the very next step reloads the same quicksave with the
 opt-in. The pair is the mutation test carried inside the flight.
 
+#### S4.4 - `RecordingState awaitRecorderLive=refly` (a named-condition wait)
+
+**Contract.** `RecordingState` gains one optional argument. ABSENT is the read verbatim:
+no guard, no defer, the four-field payload. PRESENT and equal to the literal `refly`, the
+dispatcher DEFERS the head with `refly-recorder-not-live` until a recorder is live AND a
+re-fly session marker is live (`DispatchState.Recording && DispatchState.ActiveReFlyMarker`,
+the pure `TestCommandRecordingState.ShouldDeferForReFlyRecorder`), then executes the
+ordinary read on that frame. The wait is bounded by the verb's default 60 s deferral budget;
+a recorder that never starts ends `TIMEOUT msg=refly-recorder-not-live`. Any other value -
+an EMPTY value, `true`, `ReFly` - is `REJECTED msg=await-recorder-live-arg-invalid`,
+evaluated before the state terms (`TestCommandRecordingState.TryParseAwaitRecorderLive`,
+fail-closed and case-sensitive like `allowLiveRecorder=`).
+
+**Why it exists.** The re-fly recorder starts asynchronously: `InvokeRewind` completes on
+the marker landing, and `RewindInvoker.RestoreActiveTreeFromPending` resumes the tree (and
+the recorder) later, from the re-fly scene's `OnFlightReady`. Since PR #2017 an inert step
+costs one frame, so a lane that needs the recorder live before its next step raced it
+(S4.4's bare reload was admitted `recorderLive=false` on three of the four unpadded attempts flown 2026-10-07), and a pad
+of inert steps long enough to win the race let the recorder take its first samples, which
+broke S4.4's unflown-provisional premise (todo
+REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START). A wait on the condition itself
+returns as early as the condition allows and no earlier.
+
+**Why the condition is the conjunction.** The recorder bit is the one `LoadGame`'s
+`recording-active` guard reads (`ParsekFlight.HasLiveRecorderForTagging`), so the step after
+a satisfied wait sees the recorder state the wait saw; the marker term names WHICH recorder
+is awaited, the same state `allowLiveRecorder=refly` admits a load in. The value follows
+`allowLiveRecorder=`'s grammar: it names the awaited state, so a future second state is a
+second value rather than a widening of `refly`.
+
+**Why a wait on `RecordingState` and not a new verb.** It is a read that may hold the head,
+the shape `ListHandles kind=chains` (`ghost-chains-pending`) already has, and it keeps the
+verb's tail roles (`inert`, non-mutating for FlushAndQuit) and its payload byte-identical.
+The executor's log line gains ` awaitRecorderLive=<raw> reFlyMarker=<bool>` only when the
+argument is present, so a held read is distinguishable from a plain one and every existing
+line is unchanged.
+
+**Mirrors.** `hlib.RECORDINGSTATE_AWAIT_RECORDER_LIVE_KEY` / `_VALUES` in
+`VERB_SCOPED_CLOSED_ARGS` (a case-variant key, a bad value or the arg on another verb is
+INVALID(spec-invalid) before a boot); `await-recorder-live-arg-invalid` in the reject-reason
+class map (`driver-arg`) and in `DETERMINISTIC_SEAM_ERROR_REASONS`; the defer reason in
+neither (a wait that ran out keeps its retry). `RecordingStateAwaitSourceSyncTests` reads
+`TestCommandRecordingState.cs` and the dispatcher's `RecordingState` case to keep them
+byte-equal. Unit coverage: `TestCommandRecordingStateTests` (parse, decision table, wire
+tokens) and `TestCommandDispatchTests` (one leg of the conjunction per cell, the bad values,
+and the S4.4 sequence: the state that ends the wait refuses a bare `LoadGame` and admits the
+opt-in one).
+
+**First consumer.** `S4.4-refly-quicksave-mid-session`, right after `InvokeRewind` and
+before its SaveGame. The premise that the provisional is still empty when the save follows
+rests on FlightRecorder's Re-Fly post-load settle (`EvaluateReFlyPostLoadSettle`), which
+holds every trajectory sample while the restored vessel is packed and for two unpacked
+frames after; measured on S4.4's `2026-10-07_1947` log as 1.05 s of `points=0` after the
+recorder went live. The lane pins `points=0` on the wait's own log line.
+
 #### CaptureScreenshot (additive; one PNG into the harvested directory)
 
 `CaptureScreenshot label=<filename-safe name> [superSize=<1-4>]`. Precondition
@@ -4138,7 +4193,7 @@ parsed, N deferred), with bounded per-command Info lines (command counts are sma
 | `StopRecording` | FLIGHT; else Defer | `ParsekFlight.StopRecording()` (idempotent: OK with `idle=true` if no recorder) | `stopped` bool |
 | `CommitTree` | FLIGHT with `activeTree != null`; if no tree -> `ERROR msg=no-active-tree` (mirrors `CommitTreeFlight`'s guard). In a SETTLED non-FLIGHT scene it is `REJECTED msg=not-in-flight` at once rather than the usual FLIGHT-verb defer (`TestCommandDispatcher.RejectOutsideFlightVerbs`, below) | `ParsekFlight.CommitTreeFlight()` | `committed=true` |
 | `DiscardTree` | FLIGHT; if no active tree -> OK `nothing=true` | stop recorder if live, then `ParsekFlight.AutoDiscardActiveTreeWithMessage(reason, screenMessage, ledgerRecalcReason)` (the wrong-context-caller entry point) with test-command-specific strings | `discarded` bool |
-| `RecordingState` | any scene (read-only) | snapshot recorder/tree state (reuses `RecorderStateLog.FormatRecState` inputs) | `recording`, `tree` (the `RecordingTree.Id` of the active tree, empty when none - adjudication B), `points`, `scene` |
+| `RecordingState` | any scene (read-only); with the optional `awaitRecorderLive=refly`, Defer `refly-recorder-not-live` until a recorder AND a re-fly session marker are live (S4.4; a bad value Rejects `await-recorder-live-arg-invalid`) | snapshot recorder/tree state (reuses `RecorderStateLog.FormatRecState` inputs) | `recording`, `tree` (the `RecordingTree.Id` of the active tree, empty when none - adjudication B), `points`, `scene` |
 | `RunTests` | any scene the runner supports; else Defer | `InGameTestRunner.RunAll()` (no `category`) or `RunCategory(category)`; with `isolated=true` (R5) the `*IncludingFlightRestore` variant instead, which also admits `RestoreBatchFlightBaselineAfterExecution` tests and restores a flight baseline after each. An `isolated` value other than the exact lowercase `true`/`false` is REJECTED `isolated-arg-invalid` (fail-closed: a silent fallback would run the ordinary filter and print an all-skipped tally that reads like a Parsek defect). Response deferred until `IsRunning` goes true->false and `ExportResultsFile` ran | `passed`, `failed`, `skipped`, `results=parsek-test-results.txt` |
 | `LoadGame` | any scene incl. MAINMENU (the BOOT CHANNEL); Reject if a recorder is live (`msg=recording-active`, unless `allowLiveRecorder=refly` is passed AND a re-fly session marker is live - RF-3/A1) or a load is already in flight (`msg=load-in-flight`) | long-running two-phase (like `RunTests`): journal `CLAIMED` -> initiate load (`HighLogic.SaveFolder = dir`; `GamePersistence.LoadGame(...)`; `FlightDriver.StartAndFocusVessel(...)` - the same Assembly-CSharp-only sequence as v0.5.4 `TestingTools.LoadSave`, no kRPC types); response deferred until the new scene settles (pure `TestCommandLoadGame.DecideLoadCompletion`): a settled FLIGHT scene with `HighLogic.CurrentGame != null` -> journal `EXECUTED` + terminal `OK`; a settle-back to MAINMENU -> `ERROR msg=load-failed-returned-to-menu` (a failed flight boot, e.g. an NRE in `FlightDriver.Start` on an incompatible save); the LoadGame budget expiring -> `ERROR msg=load-timeout`. A null / incompatible game detected up front (before two-phase) is still `ERROR msg=load-failed` | `scene`, `save`, `allowLiveRecorder` |
 | `MissionMark` | any scene | emit a stable `[Parsek][Info][TestCommands] MISSIONMARK label=<label> ut=<ut>` log line (H3-style correlation) | `label` echoed |

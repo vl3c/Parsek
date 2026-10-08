@@ -365,6 +365,106 @@ namespace Parsek.Tests
             Assert.Equal(TestCommandLoadGame.AllowLiveRecorderArgInvalidReason, r.Reason);
         }
 
+        // ----- S4.4: RecordingState awaitRecorderLive=refly -----
+        //
+        // A named-condition wait: defer until a recorder AND a re-fly marker are live.
+        // Dropping the marker term reds RecorderWithoutMarker; dropping the recorder term
+        // reds MarkerWithoutRecorder; deleting the parse reds the bad-value rows; making
+        // the wait unconditional reds PlainRead_NeverDefers.
+
+        [Fact]
+        public void RecordingState_PlainRead_NeverDefers()
+        {
+            var r = TestCommandDispatcher.DecideDispatch(Cmd("RecordingState"), Flight());
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Fact]
+        public void RecordingState_AwaitReFly_NothingLive_Defers()
+        {
+            var r = TestCommandDispatcher.DecideDispatch(
+                CmdArgs("RecordingState", "awaitRecorderLive=refly"), Flight());
+            Assert.Equal(DispatchDecision.Defer, r.Decision);
+            Assert.Equal(TestCommandRecordingState.ReFlyRecorderNotLiveDeferReason, r.Reason);
+        }
+
+        [Fact]
+        public void RecordingState_AwaitReFly_MarkerWithoutRecorder_Defers()
+        {
+            var st = Flight();
+            st.ActiveReFlyMarker = true;
+            var r = TestCommandDispatcher.DecideDispatch(
+                CmdArgs("RecordingState", "awaitRecorderLive=refly"), st);
+            Assert.Equal(DispatchDecision.Defer, r.Decision);
+            Assert.Equal(TestCommandRecordingState.ReFlyRecorderNotLiveDeferReason, r.Reason);
+        }
+
+        [Fact]
+        public void RecordingState_AwaitReFly_RecorderWithoutMarker_Defers()
+        {
+            var st = Flight();
+            st.Recording = true;
+            var r = TestCommandDispatcher.DecideDispatch(
+                CmdArgs("RecordingState", "awaitRecorderLive=refly"), st);
+            Assert.Equal(DispatchDecision.Defer, r.Decision);
+            Assert.Equal(TestCommandRecordingState.ReFlyRecorderNotLiveDeferReason, r.Reason);
+        }
+
+        [Fact]
+        public void RecordingState_AwaitReFly_RecorderAndMarkerLive_Executes()
+        {
+            var st = Flight();
+            st.Recording = true;
+            st.ActiveReFlyMarker = true;
+            var r = TestCommandDispatcher.DecideDispatch(
+                CmdArgs("RecordingState", "awaitRecorderLive=refly"), st);
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Fact]
+        public void RecordingState_AwaitReFly_SatisfiedWait_LeavesTheBareLoadGameRefused()
+        {
+            // The S4.4 sequence: the state that ends the wait is exactly a state in which
+            // a bare LoadGame refuses recording-active and the opt-in LoadGame executes.
+            var st = Flight();
+            st.Recording = true;
+            st.ActiveReFlyMarker = true;
+            Assert.Equal(DispatchDecision.Execute, TestCommandDispatcher.DecideDispatch(
+                CmdArgs("RecordingState", "awaitRecorderLive=refly"), st).Decision);
+            var bare = TestCommandDispatcher.DecideDispatch(Cmd("LoadGame"), st);
+            Assert.Equal(DispatchDecision.Reject, bare.Decision);
+            Assert.Equal("recording-active", bare.Reason);
+            Assert.Equal(DispatchDecision.Execute, TestCommandDispatcher.DecideDispatch(
+                CmdArgs("LoadGame", "allowLiveRecorder=refly"), st).Decision);
+        }
+
+        [Theory]
+        [InlineData("awaitRecorderLive=true")]
+        [InlineData("awaitRecorderLive=ReFly")]
+        [InlineData("awaitRecorderLive=")]
+        public void RecordingState_AwaitRecorderLive_BadValue_Rejects_ArgInvalid(string argToken)
+        {
+            // Evaluated before the state terms: rejects even with the condition satisfied.
+            var st = Flight();
+            st.Recording = true;
+            st.ActiveReFlyMarker = true;
+            var r = TestCommandDispatcher.DecideDispatch(CmdArgs("RecordingState", argToken), st);
+            Assert.Equal(DispatchDecision.Reject, r.Decision);
+            Assert.Equal(TestCommandRecordingState.AwaitRecorderLiveArgInvalidReason, r.Reason);
+        }
+
+        [Fact]
+        public void RecordingState_AwaitReFly_OutsideFlight_Defers_NotRejects()
+        {
+            // AnyScene verb: the scene gate passes everywhere, and with no recorder the
+            // armed wait defers rather than refusing, so the budget is the only bound.
+            var st = new DispatchState { Scene = TestCommandScene.SpaceCenter, SettingsPresent = true };
+            var r = TestCommandDispatcher.DecideDispatch(
+                CmdArgs("RecordingState", "awaitRecorderLive=refly"), st);
+            Assert.Equal(DispatchDecision.Defer, r.Decision);
+            Assert.Equal(TestCommandRecordingState.ReFlyRecorderNotLiveDeferReason, r.Reason);
+        }
+
         [Fact]
         public void AllowLiveRecorder_OnlyRelaxesLoadGame_NotInvokeRewind()
         {

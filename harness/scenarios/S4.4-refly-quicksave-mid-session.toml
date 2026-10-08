@@ -9,9 +9,32 @@ id = "S4.4-refly-quicksave-mid-session"
 # reload was refused. A settle pad is NOT the fix: with a 60-step pad (`2026-10-07_1947`) the
 # recorder sampled ~1.5 s before the save, the provisional was no longer unflown, and the
 # merge tokens `outcome=retired-empty-provisional` / `refused-unflown-provisional` went
-# missing. The lane needs the recorder live AND the provisional empty at the save, a window
-# of a few frames, so the race stays and the retry policy absorbs it (todo
-# HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
+# missing. The lane needs the recorder live AND the provisional empty at the save.
+#
+# FIXED 2026-10-08 BY A NAMED-CONDITION WAIT, not a pad (owner decision, todo
+# REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START). Step 5 (after InvokeRewind) is now
+# `RecordingState awaitRecorderLive=refly`: the seam DEFERS the read
+# (`refly-recorder-not-live`) until a recorder is live AND a re-fly marker is live, which is
+# the exact state in which the bare LoadGame refuses `recording-active`, and answers on the
+# first frame that holds. WHY THE PROVISIONAL IS STILL EMPTY WHEN THE SAVE FOLLOWS, measured
+# on `_1947`'s collected log (`2026-10-07_2248`), not assumed: the recorder goes live
+# (`Recording started: ... points=0`) while the restored vessel is still PACKED, and
+# FlightRecorder's Re-Fly post-load settle holds every trajectory sample until the vessel
+# has unpacked and run two unpacked frames (`EvaluateReFlyPostLoadSettle`: `packed` ->
+# `unpacked-frame-warmup` -> `settled`). In that run the recorder started at 09.596, every
+# sample was held (`Re-Fly post-load settle holding trajectory sample ... reason=packed`,
+# `recordingstate ... points=0` on every poll) until `Re-Fly post-load settle complete` at
+# 10.643, and the first point appeared at 10.653 - about 1.05 s of wall time with zero
+# points. The wait returns within a frame of the start and the SaveGame goes out on the next
+# frame, so the quicksave is taken roughly a second before the first sample can exist. The
+# pad failed because 60 one-frame steps outlasted that hold, not because a live recorder
+# always has samples. THE RELOAD HALF IS SAFE FOR THE SAME REASON: after the opt-in reload
+# the recorder restarts on the restored tree (packed again), and AnswerMergeDialog drives
+# the conclusion as soon as the tree is active (`DecideConclusionDrive`); in `_1947` that was
+# 0.1 s after the restart, inside the hold. So the empty-provisional pins stay, and the wait
+# step itself pins `points=0` at the instant it returns (the `recordingstate ...
+# awaitRecorderLive=refly` token below), so a red merge token can be told apart from a wait
+# that returned late.
 # `operator` for its first flight: this WAS the deliberate experiment the todo entry
 # REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION asked for - a real quicksave AND quickload
 # taken WHILE a Re-Fly session is live, OUTSIDE any in-game batch. READING RUN 1
@@ -99,11 +122,11 @@ tier = "operator"
 # `recording-active` dispatch guard, and ONLY while a re-fly session marker is live. Both
 # halves of that sentence are load-bearing and both are exercised HERE, in one flight:
 #
-#   step 5  LoadGame WITHOUT the arg  -> REJECTED `recording-active`   (the guard, intact)
-#   step 6  LoadGame WITH the arg     -> OK                            (the F9 half, at last)
+#   step 7  LoadGame WITHOUT the arg  -> REJECTED `recording-active`   (the guard, intact)
+#   step 8  LoadGame WITH the arg     -> OK                            (the F9 half, at last)
 #
 # So the lane carries its own mutation test: a change that widened the guard would make
-# step 5 answer OK and red the lane, and a change that broke the opt-in would red step 6.
+# step 7 answer OK and red the lane, and a change that broke the opt-in would red step 8.
 # Neither can be read as the other.
 #
 # WHY THE ARG AND NOT `StopRecording` FIRST, since that needs no C# at all. Because it
@@ -122,10 +145,10 @@ tier = "operator"
 #   `End reason=treeDiscarded` stays FORBIDDEN. It is the quickload classifier's own
 #   emitter (`TreeDiscardPurge.ClearMarkerIfScopedToTree`, reached through
 #   `RecordingStore.DiscardPendingTree`), and `ShouldRunQuickloadDiscard` is supposed to be
-#   gated OFF by `IsReFlySessionActiveForQuickloadDiscard`. If it fires on step 6 the gate
+#   gated OFF by `IsReFlySessionActiveForQuickloadDiscard`. If it fires on step 8 the gate
 #   does not hold and the entry becomes a product bug.
 #
-#   `AnswerMergeDialog` at step 7 keeps `expect = "OK"`. Its dispatch DEFERS
+#   `AnswerMergeDialog` at step 9 keeps `expect = "OK"`. Its dispatch DEFERS
 #   `no-refly-dialog` while there is neither a live dialog NOR a marker, so a session the
 #   reload killed makes that step defer to its budget and the lane reds on a step verdict
 #   rather than on a pattern. That is the sharper of the two: an absence cannot be
@@ -170,10 +193,16 @@ steps = [
   { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "TimeJump",          args = { deltaSeconds = "61.0" },                    expect = "OK", budget = 120 },
   { cmd = "InvokeRewind",      args = { rp = "rp_wp_root", slot = "1" },            expect = "OK", budget = 300 },
+  # THE NAMED-CONDITION WAIT (2026-10-08). InvokeRewind answers before the re-fly recorder
+  # starts; this read defers until the recorder AND the marker are live, then answers at
+  # once, inside the Re-Fly post-load settle that keeps the provisional at zero points (see
+  # the header). Without it the bare reload below races the start; with a pad it races the
+  # first sample instead.
+  { cmd = "RecordingState",    args = { awaitRecorderLive = "refly" },              expect = "OK" },
   { cmd = "SaveGame",          args = { name = "quicksave" },                       expect = "OK" },
   # THE GUARD, UNCHANGED. No opt-in arg, a live recorder, so the seam refuses exactly as
-  # it did on reading run 1. Kept as the live negative control for step 6: without it, a
-  # regression that widened the guard for everyone would make step 6 pass for the wrong
+  # it did on reading run 1. Kept as the live negative control for step 8: without it, a
+  # regression that widened the guard for everyone would make step 8 pass for the wrong
   # reason and nothing would notice.
   { cmd = "LoadGame",          args = { save = "${runSave}", name = "quicksave" },  expect = "REJECTED" },
   # THE F9 HALF (RF-3/A1). The opt-in is scoped to LoadGame and admits only while a re-fly
@@ -207,6 +236,11 @@ required  = [
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
   "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
   "Restored: recs=.* pendingScience=",
+  # THE WAIT (2026-10-08): step 5 returned with the re-fly recorder AND marker live and the
+  # recorder still holding its first sample. `points=0` here is the premise every merge
+  # token below rests on; a wait that answered after the post-load settle released would
+  # read `points=1` and red on THIS token rather than leave the merge tokens to explain it.
+  "recordingstate recording=true tree=\\S+ points=0 scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true",
   # THE FINDING, PINNED AS A LOG TOKEN AS WELL AS the step's `expect = "REJECTED"` (the
   # GS-3 shape): the seam's LoadGame refuses the reload because a recorder is live after
   # the rewind. The reject fires at DISPATCH, before any `loadgame start`, so this line -
@@ -218,7 +252,7 @@ required  = [
   # slot AND, since 2026-09-09, the two fields that make the admit self-describing:
   # `allowLiveRecorder=` and `recorderLive=`, printed unconditionally on every load. A
   # line carrying `recorderLive=true` can only be produced by a load the guard admitted,
-  # which is the whole RF-3/A1 contract in one token - and step 5's reject two lines
+  # which is the whole RF-3/A1 contract in one token - and step 7's reject two lines
   # above it is the negative control on the same recorder.
   "loadgame start save=\\S+ name=quicksave .*allowLiveRecorder=refly recorderLive=true",
   "outcome=retired-empty-provisional",
@@ -252,7 +286,8 @@ forbidden = [
 # = 3300. The previous 2550 was BELOW the worst case, which `run.py` kills on rather than
 # surfacing as a per-step timeout - inert at a measured wall of 79 s, and wrong anyway.
 # +660 on 2026-09-23 for the TimeJump that brings the clock to the RP (a deferred verb).
-budgetSeconds = 4110
+# +120 on 2026-10-08 for the awaited RecordingState (non-deferred: max(step, 60 + 60)).
+budgetSeconds = 4230
 
 [retry]
 policy = "once"

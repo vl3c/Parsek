@@ -1539,6 +1539,66 @@ class SpecValidationRejectTests(unittest.TestCase):
                         "kind= on a non-ListHandles verb must be rejected: %s"
                         % (list(v.errors),))
 
+    def test_recording_state_await_recorder_live_is_closed_and_case_sensitive(self):
+        # S4.4. Optional like allowLiveRecorder (absent is the plain read), so the
+        # three spelling faults are what has to hold.
+        def m_ok(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(
+                1, {"cmd": "RecordingState", "args": {"awaitRecorderLive": "refly"},
+                    "expect": "OK"})
+        v = self._reject(m_ok)
+        self.assertFalse(
+            any("awaitRecorderLive" in e for e in v.errors),
+            "awaitRecorderLive=refly wrongly flagged: %s" % (list(v.errors),))
+
+        for bad in ("true", "ReFly", ""):
+            with self.subTest(value=bad):
+                def m_bad(s, bad=bad):
+                    s.get("expectations", {}).pop("ledger", None)
+                    s["driver"]["steps"].insert(
+                        1, {"cmd": "RecordingState",
+                            "args": {"awaitRecorderLive": bad}, "expect": "OK"})
+                v = self._reject(m_bad)
+                self.assertFalse(v.ok)
+                self.assertTrue(
+                    any("awaitRecorderLive" in e and "must be one of" in e
+                        for e in v.errors),
+                    "a bad awaitRecorderLive value must be rejected: %s"
+                    % (list(v.errors),))
+
+        def m_case(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(
+                1, {"cmd": "RecordingState", "args": {"awaitrecorderlive": "refly"},
+                    "expect": "OK"})
+        v = self._reject(m_case)
+        self.assertFalse(v.ok)
+        self.assertTrue(
+            any("awaitrecorderlive" in e for e in v.errors),
+            "a case-variant KEY must be rejected: %s" % (list(v.errors),))
+
+        def m_verb(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(
+                1, {"cmd": "ListHandles",
+                    "args": {"kind": "rewindpoints", "awaitRecorderLive": "refly"},
+                    "expect": "OK"})
+        v = self._reject(m_verb)
+        self.assertFalse(v.ok)
+        self.assertTrue(
+            any("awaitRecorderLive" in e and "RecordingState" in e for e in v.errors),
+            "awaitRecorderLive on a non-RecordingState verb must be rejected: %s"
+            % (list(v.errors),))
+
+        # The wait stays a READ: inert for the unmet-mission tail, recording-class for
+        # the post-mission role, and the default 60 s budget the C# defer rides.
+        self.assertEqual(hlib.TAIL_ROLE_INERT, hlib.SEAM_VERB_TAIL_ROLE["RecordingState"])
+        self.assertNotIn("RecordingState", hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(60.0, hlib.dispatch_deferral_budget("RecordingState"))
+        self.assertEqual("driver-arg",
+                         hlib._SEAM_REFUSAL_SUBKINDS["await-recorder-live-arg-invalid"])
+
     def test_load_game_allow_live_recorder_is_closed_and_case_sensitive(self):
         # RF-3/A1. The row is OPTIONAL (absent is the pre-RF-3 contract), so unlike
         # ListHandles' `kind` there is no REQUIRED half - what has to hold is the three
@@ -24448,6 +24508,67 @@ class WarpToUTLadderSourceSyncTests(unittest.TestCase):
         self.assertEqual([], unmapped)
         self.assertEqual("driver-arg", hlib._SEAM_REFUSAL_SUBKINDS[
             self.consts["PhysicsWarpNotInFlightReason"]])
+
+
+class RecordingStateAwaitSourceSyncTests(unittest.TestCase):
+    """Reads OUTSIDE harness/: `Source/Parsek/TestCommands/TestCommandRecordingState.cs`
+    and `TestCommandDispatcher.cs`. hlib's `RECORDINGSTATE_AWAIT_RECORDER_LIVE_KEY` /
+    `_VALUES` closed-arg row and the `await-recorder-live-arg-invalid` refusal mappings
+    are a MIRROR of the C# S4.4 wait: a renamed token would let the pre-launch validator
+    pass a spec the seam REJECTS after a whole boot, or refuse one the seam accepts.
+    Read as CODE, every line stripped of its `//` comment."""
+
+    DIR = os.path.join(PARSEK_SOURCE_DIR, "TestCommands")
+
+    @classmethod
+    def _code(cls, name):
+        path = os.path.join(cls.DIR, name)
+        if not os.path.isfile(path):
+            raise AssertionError("the C# RecordingState wait moved; this mirror is "
+                                 "vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            raw = fh.read().replace("\r\n", "\n")
+        return "\n".join(strip_cs_line_comment(l) for l in raw.split("\n"))
+
+    @classmethod
+    def setUpClass(cls):
+        cls.pure = cls._code("TestCommandRecordingState.cs")
+        cls.dispatcher = cls._code("TestCommandDispatcher.cs")
+        cls.consts = dict(re.findall(
+            r'\bconst\s+string\s+(\w+)\s*=\s*"([^"\\]*)"\s*;', cls.pure))
+
+    def test_the_key_and_value_are_the_csharp_constants(self):
+        self.assertEqual(self.consts["AwaitRecorderLiveKey"],
+                         hlib.RECORDINGSTATE_AWAIT_RECORDER_LIVE_KEY)
+        self.assertEqual((self.consts["AwaitRecorderLiveReFlyValue"],),
+                         hlib.RECORDINGSTATE_AWAIT_RECORDER_LIVE_VALUES)
+
+    def test_the_closed_arg_row_names_the_owning_verb(self):
+        self.assertEqual(("RecordingState", hlib.RECORDINGSTATE_AWAIT_RECORDER_LIVE_VALUES),
+                         hlib.VERB_SCOPED_CLOSED_ARGS[
+                             hlib.RECORDINGSTATE_AWAIT_RECORDER_LIVE_KEY])
+
+    def test_the_refusal_reason_is_mapped_and_deterministic(self):
+        reason = self.consts["AwaitRecorderLiveArgInvalidReason"]
+        self.assertEqual("driver-arg", hlib._SEAM_REFUSAL_SUBKINDS[reason])
+        self.assertIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        # The defer reason is a wait, never a refusal: it must stay out of both maps
+        # (a wait that ran out is timing by nature and keeps its retry).
+        defer = self.consts["ReFlyRecorderNotLiveDeferReason"]
+        self.assertNotIn(defer, hlib._SEAM_REFUSAL_SUBKINDS)
+        self.assertNotIn(defer, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+
+    def test_the_dispatcher_reads_the_wait_on_the_recordingstate_case(self):
+        # Anchor on the case label and the two helpers it must call, so a dispatcher
+        # that stopped consulting the wait (the arg silently ignored) reds here.
+        m = re.search(r'case\s+"RecordingState"\s*:(.*?)\bbreak\s*;', self.dispatcher,
+                      flags=re.S)
+        self.assertIsNotNone(m, "no RecordingState case in DecideDispatch")
+        body = m.group(1)
+        self.assertIn("TestCommandRecordingState.TryParseAwaitRecorderLive", body)
+        self.assertIn("TestCommandRecordingState.ShouldDeferForReFlyRecorder", body)
+        self.assertIn("AwaitRecorderLiveArgInvalidReason", body)
+        self.assertIn("ReFlyRecorderNotLiveDeferReason", body)
 
 
 class ScreenResolutionSpecTests(unittest.TestCase):
