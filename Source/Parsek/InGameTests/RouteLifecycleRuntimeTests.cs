@@ -362,7 +362,7 @@ namespace Parsek.InGameTests
         // ==================================================================
 
         [InGameTest(Category = Category,
-            Description = "Live pin of the PR #1583 postponement carve-out: a send-once-armed route whose crossing blocks on SourcesStale (a postponement, not a resolution) KEEPS both one-shot flags and stays Active - the crossing is still consumed as skipped and the hold is recorded, but there is no pause transition, no RoutePaused row, no ledger row at all and no toast, and the production 'BLOCKED by postponement ... arm kept' line is emitted")]
+            Description = "Live pin of the PR #1583 postponement carve-out: a send-once-armed route whose crossing blocks on SourcesStale (a postponement, not a resolution) KEEPS both one-shot flags and stays Active - the crossing is still consumed as skipped and the hold is recorded, but there is no pause transition, no RoutePaused row and no toast (the only ledger row is the one RouteHeld row the hold episode writes, PR #1982), and the production 'BLOCKED by postponement ... arm kept' line is emitted")]
         public void SendOnce_PostponementBlock_KeepsArm_RouteStaysActive_NoToast()
         {
             double liveUT = RequireLiveContext();
@@ -421,13 +421,12 @@ namespace Parsek.InGameTests
                 InGameAssert.IsTrue(route.SendOnceArmed,
                     "SendOnceArmed was consumed by a POSTPONEMENT block");
 
-                // Nothing durable happened: no pause marker, and in fact no row at
-                // all (the blocked branch emits nothing, and the postponement branch
-                // returns before the marker emission).
+                // No pause marker (the postponement branch returns before the marker
+                // emission); the only durable row is the hold episode's one RouteHeld
+                // row (the Route History's Held row, written by design since PR #1982).
                 InGameAssert.IsNull(LatestRouteRow(routeId, GameActionType.RoutePaused, beforeTick),
                     "A postponement block emitted a RoutePaused row");
-                InGameAssert.AreEqual(beforeTick, Ledger.Actions.Count,
-                    "A postponement block emitted ledger rows (it must emit NOTHING)");
+                AssertOnlyRowIsPostponementHeldRow(routeId, beforeTick, "A postponement block");
                 InGameAssert.AreEqual(0, toasts.Count,
                     $"A postponement block posted {toasts.Count.ToString(IC)} screen message(s); " +
                     "the one-shot has not resolved, so there is nothing to report yet");
@@ -596,7 +595,7 @@ namespace Parsek.InGameTests
         // ==================================================================
 
         [InGameTest(Category = Category,
-            Description = "The pause-after-cycle sibling of the send-once postponement pin: TryPause arms an InTransit route, its crossing blocks on SourcesStale (a postponement), and the pause is NOT completed - the route stays InTransit with the arm intact, the crossing is consumed as skipped, and no RoutePaused row, no ledger row and no toast are produced")]
+            Description = "The pause-after-cycle sibling of the send-once postponement pin: TryPause arms an InTransit route, its crossing blocks on SourcesStale (a postponement), and the pause is NOT completed - the route stays InTransit with the arm intact, the crossing is consumed as skipped, and no RoutePaused row and no toast are produced (the only ledger row is the one RouteHeld row the hold episode writes, PR #1982)")]
         public void PauseInTransit_PostponementBlock_KeepsArm_StaysInTransit()
         {
             double liveUT = RequireLiveContext();
@@ -638,8 +637,7 @@ namespace Parsek.InGameTests
 
                 InGameAssert.IsNull(LatestRouteRow(routeId, GameActionType.RoutePaused, beforeTick),
                     "A postponement block emitted a RoutePaused row");
-                InGameAssert.AreEqual(beforeTick, Ledger.Actions.Count,
-                    "A postponement block emitted ledger rows (it must emit NOTHING)");
+                AssertOnlyRowIsPostponementHeldRow(routeId, beforeTick, "A postponement block");
                 InGameAssert.AreEqual(0, toasts.Count,
                     "A pause-after-cycle arm must never toast, postponed or not");
 
@@ -699,8 +697,7 @@ namespace Parsek.InGameTests
 
                 InGameAssert.IsNull(LatestRouteRow(routeId, GameActionType.RoutePaused, beforeTick),
                     "An unarmed blocked cycle emitted a RoutePaused row");
-                InGameAssert.AreEqual(beforeTick, Ledger.Actions.Count,
-                    "An unarmed blocked cycle emitted ledger rows (it must emit NOTHING)");
+                AssertOnlyRowIsPostponementHeldRow(routeId, beforeTick, "An unarmed blocked cycle");
                 InGameAssert.AreEqual(0, toasts.Count,
                     "An unarmed blocked cycle posted a screen message");
                 InGameAssert.IsFalse(AnyLine(lines, "ArmedPause:"),
@@ -1386,6 +1383,30 @@ namespace Parsek.InGameTests
                 if (all) return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// A blocked crossing writes exactly one durable row: the hold episode's
+        /// RouteHeld row (<see cref="RouteOrchestrator.TryEmitRouteHeldRow"/>), naming
+        /// the postponement kind and its detail token. Anything more (a RoutePaused
+        /// marker, a dispatch or delivery row) or less (no Held row) fails.
+        /// </summary>
+        private static void AssertOnlyRowIsPostponementHeldRow(
+            string routeId, int beforeTick, string what)
+        {
+            InGameAssert.AreEqual(beforeTick + 1, Ledger.Actions.Count,
+                $"{what} emitted {(Ledger.Actions.Count - beforeTick).ToString(IC)} ledger row(s); " +
+                "it must emit exactly one (the hold episode's RouteHeld row)");
+            GameAction held = Ledger.Actions[beforeTick];
+            InGameAssert.IsNotNull(held, $"{what} emitted a null ledger row");
+            InGameAssert.AreEqual(GameActionType.RouteHeld, held.Type,
+                $"{what} emitted a {held.Type} row; the only row must be RouteHeld");
+            InGameAssert.AreEqual(routeId, held.RouteId,
+                $"The RouteHeld row names route '{held.RouteId ?? "<null>"}', not {routeId}");
+            InGameAssert.AreEqual(PostponementBlockKind, held.RouteHoldKind,
+                $"The RouteHeld row carries hold kind {held.RouteHoldKind}");
+            InGameAssert.AreEqual(PostponementBlockDetail, held.RouteEndpointReason,
+                $"The RouteHeld row carries reason '{held.RouteEndpointReason ?? "<null>"}'");
         }
 
         /// <summary>Latest row of <paramref name="type"/> for
