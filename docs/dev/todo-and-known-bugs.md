@@ -38,7 +38,7 @@ QL-2 stays red until then.
 
 ---
 
-## REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START: S4.2 and S4.4 need the re-fly recorder live (or not yet) while the provisional is still empty, a window of a few frames [FILED 2026-10-07 from the F9 verification flights, branch `ql-lanes`, measured. S4.4 FIXED 2026-10-08 by a named-condition seam wait (branch `s44-refly-wait`, spec changed, not re-flown). OPEN for S4.2, harness]
+## REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START: S4.2 and S4.4 need the re-fly recorder live (or not yet) while the provisional is still empty, a window of a few frames [FILED 2026-10-07 from the F9 verification flights, branch `ql-lanes`, measured. S4.4 FIXED 2026-10-08 by a named-condition seam wait (branch `s44-refly-wait`), LIVE-PROVEN 2026-10-08: three flights `2026-10-08_1806`, `_1812`, `_1814`, each PASS attempt 1 with the wait answering `points=0 ... reFlyMarker=true`, the bare reload refused `recording-active` and the empty-provisional conclusion. OPEN for S4.2, harness]
 
 Two lanes gate on an UNFLOWN Re-Fly provisional, and both race the re-fly recorder's start, which
 happens when `RestoreActiveTreeFromPending` runs from the re-fly scene's OnFlightReady:

@@ -6278,7 +6278,7 @@ _(unreleased - entries accumulate here per commit)_
   `S4.4-refly-quicksave-mid-session` waits with it right after the rewind, so its plain reload
   is always refused, and its quicksave still holds an unflown attempt: the recorder keeps no
   sample until the restored vessel has unpacked, about a second later. The lane now also requires
-  `points=0` on that read. `QL-2b-quickload-booster-career-reward-not-paid` drops its 150-step pad
+  `points=0` on that read, and flew green three times in a row (QL-2b green too). `QL-2b-quickload-booster-career-reward-not-paid` drops its 150-step pad
   before the post-F9 warp, which the warp command has waited out by itself since PR #2051. TA-5
   (todo DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP) is closed as unreachable: during a
   separation Re-Fly stock offers no Revert to VAB / SPH, so Discard Re-fly cannot reach the
