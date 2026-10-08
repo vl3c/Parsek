@@ -3705,6 +3705,16 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A milestone earned by recovering a vessel now goes back with the recovery when you
+  quickload.** Recovering a crewed vessel can complete a milestone such as "first crew to
+  survive". KSP awards it while the recovery runs at the Space Center or the Tracking Station,
+  and Parsek booked it as a Space Center reward instead of part of the recovered flight. Loading
+  a quicksave from before the recovery then took the recovery's funds back but kept the
+  milestone, so Parsek's books claimed its reward (800 funds in the test flight) while KSP no
+  longer had it. A milestone (and its reward) completed during a recovery now belongs to the
+  recovered flight, like the recovery payout, and a quickload past it drops both. A vessel
+  Parsek never recorded is booked as before. Checked in a test flight (lane QL-2).
+
 - **A flight the recording optimizer splits when you commit it now books each result on the
   part where it happened.** Parsek cuts a fresh flight into parts (a few seconds on the pad,
   the climb, the landing) before it books the flight's results, and every milestone, contract,

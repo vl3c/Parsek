@@ -764,7 +764,7 @@ namespace Parsek
                     ? BuildMilestoneDetail(0.0, 0f, 0.0, recordThresholds: 0)
                     : BuildMilestoneDetail(0.0, 0f, 0.0)
             };
-            Emit(ref evt, "MilestoneAchieved");
+            Emit(ref evt, "MilestoneAchieved", out RecoveryEventOwner recoveryOwner);
 
             if (worldRecordCompletion)
             {
@@ -796,6 +796,35 @@ namespace Parsek
             // pre-recording FLIGHT milestones reach the ledger too.
             if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
+            else
+                WriteRecoveryOwnedMilestoneIfAny(evt, recoveryOwner);
+        }
+
+        /// <summary>
+        /// Pure: true when a milestone event is written to the ledger at once, TAGGED, because
+        /// the recovery that completed it belongs to a COMMITTED recording
+        /// (QUICKLOAD-UNTAGGED-RECOVERY-MILESTONE-SURVIVES-F9): that recording's commit has
+        /// already run, so no commit would book it, and the tag lets the quickload reconcile
+        /// retire it together with the recovery payout. A pending-recording owner is booked by
+        /// that recording's commit, like any tagged in-flight milestone; the owner applies
+        /// only to the event it tagged (a live tag is never overridden).
+        /// </summary>
+        internal static bool ShouldWriteRecoveryOwnedMilestone(string eventTag, RecoveryEventOwner recoveryOwner)
+        {
+            return recoveryOwner.Kind == RecoveryEventOwnerKind.CommittedRecording
+                && recoveryOwner.HasOwner
+                && string.Equals(eventTag, recoveryOwner.RecordingId, StringComparison.Ordinal);
+        }
+
+        private static void WriteRecoveryOwnedMilestoneIfAny(GameStateEvent evt, RecoveryEventOwner recoveryOwner)
+        {
+            if (!ShouldWriteRecoveryOwnedMilestone(evt.recordingId, recoveryOwner))
+                return;
+            ParsekLog.Info("GameStateRecorder",
+                $"Recovery-scoped milestone '{evt.key}' written to the ledger: " +
+                $"recordingId={recoveryOwner.RecordingId} reason={recoveryOwner.Reason} " +
+                $"ut={evt.ut.ToString("F1", CultureInfo.InvariantCulture)}");
+            LedgerOrchestrator.OnKscSpending(evt, recoveryOwner.RecordingId);
         }
 
         /// <summary>
@@ -1083,7 +1112,7 @@ namespace Parsek
                 key = milestoneId,
                 detail = BuildMilestoneDetail(funds, rep, sci)
             };
-            Emit(ref evt, "MilestoneAchievedStandalone");
+            Emit(ref evt, "MilestoneAchievedStandalone", out RecoveryEventOwner recoveryOwner);
 
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: MilestoneAchieved (standalone) '{milestoneId}' " +
@@ -1096,6 +1125,8 @@ namespace Parsek
             // pre-recording FLIGHT standalone milestone awards reach the ledger too.
             if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
+            else
+                WriteRecoveryOwnedMilestoneIfAny(evt, recoveryOwner);
         }
 
         /// <summary>

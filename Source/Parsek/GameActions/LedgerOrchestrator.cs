@@ -4631,10 +4631,21 @@ namespace Parsek
         /// <param name="evt">The GameStateEvent captured by GameStateRecorder.</param>
         internal static void OnKscSpending(GameStateEvent evt)
         {
+            OnKscSpending(evt, null);
+        }
+
+        /// <summary>
+        /// <see cref="OnKscSpending(GameStateEvent)"/> with the row tagged to
+        /// <paramref name="recordingId"/>: a milestone a recovery completed after the recovered
+        /// recording was committed (QUICKLOAD-UNTAGGED-RECOVERY-MILESTONE-SURVIVES-F9). Null
+        /// writes the untagged KSC row exactly as before.
+        /// </summary>
+        internal static void OnKscSpending(GameStateEvent evt, string recordingId)
+        {
             Initialize();
 
             GameAction action;
-            if (!TryAddKscSpendingAction(evt, out action))
+            if (!TryAddKscSpendingAction(evt, recordingId, out action))
                 return;
 
             // Phase B (plan: fix-ledger-lump-sum-reconciliation.md): KSC-side ledger writes
@@ -4698,7 +4709,7 @@ namespace Parsek
             for (int i = 0; i < events.Count; i++)
             {
                 GameAction action;
-                if (!TryAddKscSpendingAction(events[i], out action))
+                if (!TryAddKscSpendingAction(events[i], null, out action))
                     continue;
                 added.Add(action);
                 addedUts.Add(events[i].ut);
@@ -4735,9 +4746,9 @@ namespace Parsek
         /// Converts one KSC event, sequences and stamps it, and appends it to the ledger.
         /// False (nothing added) when the event type produces no action.
         /// </summary>
-        private static bool TryAddKscSpendingAction(GameStateEvent evt, out GameAction action)
+        private static bool TryAddKscSpendingAction(GameStateEvent evt, string recordingId, out GameAction action)
         {
-            action = GameStateEventConverter.ConvertEvent(evt, null);
+            action = GameStateEventConverter.ConvertEvent(evt, recordingId);
             if (action == null)
             {
                 ParsekLog.Verbose(Tag,
