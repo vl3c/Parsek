@@ -2393,6 +2393,22 @@ LOADGAME_SCENE_VALUES: Tuple[str, ...] = ("spacecenter", "trackstation")
 LOADGAME_ALLOW_LIVE_RECORDER_KEY = "allowLiveRecorder"
 LOADGAME_ALLOW_LIVE_RECORDER_VALUES: Tuple[str, ...] = ("refly",)
 
+# S4.4 `RecordingState awaitRecorderLive=`: a named-condition WAIT on the read verb.
+# With `refly` the seam DEFERS the read (`refly-recorder-not-live`) until a recorder is
+# live AND a re-fly session marker is live - the state in which a bare LoadGame refuses
+# `recording-active` and the `allowLiveRecorder=refly` load is admitted - and answers on
+# the first frame that holds, bounded by the verb's default 60 s deferral budget (a wait
+# that never ends reaches the harness as TIMEOUT with that defer reason). It exists
+# because the re-fly recorder starts asynchronously after InvokeRewind answers, so a lane
+# that needs it live raced it with inert steps (todo
+# REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START). One value, the
+# allowLiveRecorder grammar: the value names WHICH live state is awaited. The C# parse is
+# TestCommandRecordingState.TryParseAwaitRecorderLive, fail-closed and case-sensitive
+# (`await-recorder-live-arg-invalid`); RecordingStateAwaitSourceSyncTests keeps the two
+# byte-equal.
+RECORDINGSTATE_AWAIT_RECORDER_LIVE_KEY = "awaitRecorderLive"
+RECORDINGSTATE_AWAIT_RECORDER_LIVE_VALUES: Tuple[str, ...] = ("refly",)
+
 SWITCHCLICK_SITE_KEY = "site"
 SWITCHCLICK_SITE_VALUES: Tuple[str, ...] = ("map", "ts", "ksc")
 
@@ -4157,6 +4173,8 @@ def validate_list_handles_expect_digest(index: int, cmd: str,
 VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     LOADGAME_SCENE_KEY: ("LoadGame", LOADGAME_SCENE_VALUES),
     LOADGAME_ALLOW_LIVE_RECORDER_KEY: ("LoadGame", LOADGAME_ALLOW_LIVE_RECORDER_VALUES),
+    RECORDINGSTATE_AWAIT_RECORDER_LIVE_KEY: ("RecordingState",
+                                             RECORDINGSTATE_AWAIT_RECORDER_LIVE_VALUES),
     SWITCHCLICK_SITE_KEY: ("SimulateStockSwitchClick", SWITCHCLICK_SITE_VALUES),
     RUNTESTS_STRICT_KEY: ("RunTests", RUNTESTS_STRICT_VALUES),
     LISTHANDLES_KIND_KEY: ("ListHandles", LISTHANDLES_KIND_VALUES),
@@ -6332,6 +6350,7 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         # list is here for orientation, the TABLE is the authority):
         #   LoadGame                   scene=              (R12)
         #   LoadGame                   allowLiveRecorder=  (RF-3/A1)
+        #   RecordingState             awaitRecorderLive=  (S4.4)
         #   SimulateStockSwitchClick   site=
         #   RunTests                   strict=             (career-ledger B.4)
         #   ListHandles                kind=               (R10; also REQUIRED, see below)
@@ -10008,6 +10027,10 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # parsed but no re-fly marker was live), which already has its own row - and that
     # separation is the point: a TYPO and a wrong STATE must not report as one thing.
     "allow-live-recorder-arg-invalid": "driver-arg",
+    # RecordingState awaitRecorderLive= (S4.4): the same arg-class refusal. Its other
+    # outcome, a wait that never ends, is a DEFER (`refly-recorder-not-live`) and so
+    # reaches the harness as TIMEOUT, which needs no row here.
+    "await-recorder-live-arg-invalid": "driver-arg",
     # ExitToSpaceCenter: the wedge guard declined because a merge modal would spawn. A
     # GATE decline, not a bad arg - the spec must set autoMerge (v1 supported shape).
     "dialog-required": "driver-gate",
@@ -10707,7 +10730,8 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     # WarpToUT `ladder=phys` outside FLIGHT: the spec put a physics-ladder warp in a
     # scene that has none; the retry reaches the same scene with the same arg.
     "physics-warp-not-in-flight",
-    "allow-live-recorder-arg-invalid", "cadence-arg-invalid", "cadence-arg-missing",
+    "allow-live-recorder-arg-invalid", "await-recorder-live-arg-invalid",
+    "cadence-arg-invalid", "cadence-arg-missing",
     "category-arg-empty", "dialog-arg-invalid", "edit-commit-arg-invalid",
     "edit-field-arg-missing", "edit-key-arg-missing", "expand-key-arg-missing",
     "factor-arg-invalid", "find-ctrl-arg-invalid", "find-index-arg-invalid",

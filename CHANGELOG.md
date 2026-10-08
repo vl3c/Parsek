@@ -6280,6 +6280,20 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Automated testing: S4.4 waits for the Re-Fly recorder instead of racing it, QL-2b drops a
+  redundant pad, and TA-5 is closed.** The test-command `RecordingState` takes an optional
+  `awaitRecorderLive=refly`: it holds the read until a recorder and a Re-Fly session are both
+  live (at most the verb's 60 s budget, `refly-recorder-not-live`) and answers on that frame,
+  and its log line then names the wait (`awaitRecorderLive=refly reFlyMarker=true`); any other
+  value is refused (`await-recorder-live-arg-invalid`). Without the argument nothing changes.
+  `S4.4-refly-quicksave-mid-session` waits with it right after the rewind, so its plain reload
+  is always refused, and its quicksave still holds an unflown attempt: the recorder keeps no
+  sample until the restored vessel has unpacked, about a second later. The lane now also requires
+  `points=0` on that read, and flew green three times in a row (QL-2b green too). `QL-2b-quickload-booster-career-reward-not-paid` drops its 150-step pad
+  before the post-F9 warp, which the warp command has waited out by itself since PR #2051. TA-5
+  (todo DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP) is closed as unreachable: during a
+  separation Re-Fly stock offers no Revert to VAB / SPH, so Discard Re-fly cannot reach the
+  editor; the unit test stays as the guard. Both specs changed, not re-flown. No product change.
 - **Automated testing: the whole F9 check in one lane (QL-2b new) on a career twin of the GS-1
   pad.** `QL-2b-quickload-booster-career-reward-not-paid` (nightly, flown green 2026-10-07) flies QL-4's
   in-flight shape in a career: the two-stage hop, a quicksave with the booster still under its

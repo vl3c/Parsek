@@ -61,7 +61,7 @@ the ledger: recordingId=<id>`.
 
 ---
 
-## REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START: S4.2 and S4.4 need the re-fly recorder live (or not yet) while the provisional is still empty, a window of a few frames [FILED 2026-10-07 from the F9 verification flights, branch `ql-lanes`, measured. OPEN, harness]
+## REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START: S4.2 and S4.4 need the re-fly recorder live (or not yet) while the provisional is still empty, a window of a few frames [FILED 2026-10-07 from the F9 verification flights, branch `ql-lanes`, measured. S4.4 FIXED 2026-10-08 by a named-condition seam wait (branch `s44-refly-wait`), LIVE-PROVEN 2026-10-08: three flights `2026-10-08_1806`, `_1812`, `_1814`, each PASS attempt 1 with the wait answering `points=0 ... reFlyMarker=true`, the bare reload refused `recording-active` and the empty-provisional conclusion. OPEN for S4.2, harness]
 
 Two lanes gate on an UNFLOWN Re-Fly provisional, and both race the re-fly recorder's start, which
 happens when `RestoreActiveTreeFromPending` runs from the re-fly scene's OnFlightReady:
@@ -80,10 +80,20 @@ happens when `RestoreActiveTreeFromPending` runs from the re-fly scene's OnFligh
   half instead.
 
 Neither is a product defect: the recorder starting on the restored tree and recording is correct.
-Fix: owner decision. Options: a seam wait on a named condition (`RecordingState` reporting the re-fly
-recorder live, then nothing else), or gate the merge tokens on the provisional's measured point
-count (accept the flown branch's tokens when points > 0), or drop the empty-provisional pins and
-cover that conclusion route in a dedicated lane that stops recording first.
+Fix (owner decision 2026-10-08): a seam wait on a named condition. `RecordingState` takes an
+optional `awaitRecorderLive=refly`; the dispatcher defers the read (`refly-recorder-not-live`,
+the default 60 s budget) until a recorder AND a re-fly session marker are live, and answers on
+that frame (`TestCommandRecordingState.ShouldDeferForReFlyRecorder`; a bad value is REJECTED
+`await-recorder-live-arg-invalid`). The empty-provisional premise holds after it, measured on
+`_1947`'s collected log: the recorder goes live while the restored vessel is still packed, and
+FlightRecorder's Re-Fly post-load settle holds every sample until the vessel unpacks plus two
+frames (there 1.05 s with `points=0` on every poll), so a SaveGame on the frame after the wait
+captures an empty provisional; after the opt-in reload the recorder restarts packed again and
+AnswerMergeDialog drives the conclusion 0.1 s later, inside the same hold. S4.4 waits right
+after InvokeRewind and pins `points=0` on the wait's own line (spec changed, not re-flown).
+S4.2 is out of that change's scope and still races; it can adopt the same wait later, but its
+window is different (the RunTests batch spans the settle, so the wait alone does not keep the
+batch from outliving the hold).
 
 ---
 
@@ -1501,7 +1511,7 @@ clear deleted),
 
 ---
 
-## DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP: Discard Re-fly to the editor can delete an origin rewind point created inside an earlier, merged Re-Fly session [FILED 2026-10-06 from the coverage-extension research, partly verified (narrow); branch `ccr-77f23eb2-dbqh6i`. OPEN, product; trigger removed by the in-session carry (PR #2038); close after lane QL-5]
+## ~~DISCARD-REFLY-PRELAUNCH-PURGES-NESTED-ORIGIN-RP: Discard Re-fly to the editor can delete an origin rewind point created inside an earlier, merged Re-Fly session~~ [FILED 2026-10-06 from the coverage-extension research, partly verified (narrow); branch `ccr-77f23eb2-dbqh6i`. Trigger removed by the in-session carry (PR #2038). CLOSED 2026-10-08 AS UNREACHABLE (branch `s44-refly-wait`, roadmap TA-5): the editor destination cannot be reached during a separation Re-Fly, see Reachability below]
 
 `RewindPointAuthor` stamps the creating session on a rewind point created inside a Re-Fly
 session S0 and adds it before its own quicksave. Discard Re-fly with the Prelaunch target loads
@@ -1534,6 +1544,15 @@ PRELAUNCH vessel that is the post-init vessel with a ship config and a pre-launc
 offers no Revert to VAB / SPH (`ReFlyRevert target=prelaunch` answers
 `reflyrevert-option-unavailable`). QL-5 therefore flies the launch target only (authored, never
 flown); the unit cell remains the proof of the editor path.
+
+Closed 2026-10-08 as unreachable (ruling: close both TA-5 and this entry). The defect needed a
+Discard Re-fly to the editor, and no player route reaches that destination during a separation
+Re-Fly (the Reachability paragraph above: `CanRevertToPrelaunch` stays false on a resumed
+flight, `ReFlyRevertButtonGate` forces only `CanRevertToPostInit`, and the seam verb answers
+`reflyrevert-option-unavailable` for `target=prelaunch`); QL-5 proved the launch destination
+live (`2026-10-07_2035`, `_2331`). The trigger itself was already removed by TA-1's carry, and
+`InSessionStagedListsCarryTests.DiscardReFlyPrelaunch_NestedOriginRp_NotPurged` (red before the
+carry) stays as the regression guard should a future route reach the editor load.
 
 ---
 

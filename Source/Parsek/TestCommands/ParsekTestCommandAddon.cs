@@ -1737,8 +1737,17 @@ namespace Parsek.TestCommands
 
             List<KeyValuePair<string, string>> payload =
                 TestCommandRecordingState.BuildPayload(hasFlight, isRecording, treeId, points, sceneName);
+            // The awaited form names its condition on the line, so a read the dispatcher
+            // held until the re-fly recorder went live is distinguishable in KSP.log from
+            // a plain read. Absent the arg the line is byte-identical to before.
+            string awaitArg = ArgOrNull(cmd, TestCommandRecordingState.AwaitRecorderLiveKey);
+            string awaitSuffix = awaitArg != null
+                ? " awaitRecorderLive=" + awaitArg + " reFlyMarker="
+                    + Bool(ParsekScenario.Instance != null
+                        && ParsekScenario.Instance.ActiveReFlySessionMarker != null)
+                : string.Empty;
             ParsekLog.Info(Tag,
-                $"recordingstate recording={Bool(hasFlight && isRecording)} tree={(hasFlight ? (treeId ?? string.Empty) : string.Empty)} points={Int(hasFlight ? points : 0)} scene={sceneName}{(hasFlight ? string.Empty : " (no-flight-instance)")}");
+                $"recordingstate recording={Bool(hasFlight && isRecording)} tree={(hasFlight ? (treeId ?? string.Empty) : string.Empty)} points={Int(hasFlight ? points : 0)} scene={sceneName}{(hasFlight ? string.Empty : " (no-flight-instance)")}{awaitSuffix}");
             SetExecResult("OK", payload, null);
         }
 
