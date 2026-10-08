@@ -1,5 +1,10 @@
 schema = 1
 id = "V20T-jool-kerbin-ts-arrival"
+# 2026-10-07 (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, branch `scene-wait`): the
+# 1x waits this lane sized in inert seam steps (0.25 s each at the old poll; one frame
+# since PR #2017) are `WarpToUT maxRate=1` waits to explicit UTs, deterministic in
+# FLIGHT, the Space Center and the Tracking Station since TC-1. Spec changed, not
+# re-flown.
 # =====================================================================================
 # V20T: THE TRACKING-STATION OBSERVATION OF A LOOPED **KERBIN ARRIVAL** - the TS half of
 # the V20 pair, and the first TS loop subject whose recording arrives at KERBIN FROM
@@ -785,46 +790,9 @@ steps = [
   # against a pitch 58.6x wider than it), and it is instance 1 - the OLDEST, hence the
   # very last to spawn, at about tick 10. Forty RecordingState ticks (>= 10 wall s at
   # run.py's 0.25 s poll floor, V16M's proven sizing) is ~4x that headroom.
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
+  # 1x Tracking Station time to UT 94621788: 12 s after the save at the jump UT 94621776, spawn-throttle headroom for the oldest cycle (40 inert steps before 2026-10-07: since PR #2017 one costs a
+  # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
+  { cmd = "WarpToUT", args = { ut = "94621788", maxRate = "1" }, expect = "OK", budget = 120 },
   # M-A7 RENDER-COMPOSITION CAPTURE. Placement pinned by
   # `test_every_declarer_exports_immediately_before_teardown`: the recorder accumulates
   # from Awake, so taking it HERE takes the manifest at a chosen instant - after the full

@@ -1,5 +1,10 @@
 schema = 1
 id = "V26M-interbody-route-map-lines"
+# 2026-10-07 (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, branch `scene-wait`): the
+# 1x waits this lane sized in inert seam steps (0.25 s each at the old poll; one frame
+# since PR #2017) are `WarpToUT maxRate=1` waits to explicit UTs, deterministic in
+# FLIGHT, the Space Center and the Tracking Station since TC-1. Spec changed, not
+# re-flown.
 # =====================================================================================
 # 0. WHAT THIS LANE IS, IN ONE SENTENCE
 #
@@ -214,46 +219,9 @@ steps = [
   # the manifest aggregates per-frame, so a longer dwell is a larger sample of the same
   # composition and makes an intermittent build/draw visible as a count rather than as an
   # absence. RecordingState is AnyScene and side-effect-free.
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
+  # 1x FLIGHT time to UT 87625323: the map-open census dwell, ~10 s after the save UT 87625311.31 (40 inert steps before 2026-10-07: since PR #2017 one costs a
+  # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
+  { cmd = "WarpToUT", args = { ut = "87625323", maxRate = "1" }, expect = "OK", budget = 120 },
   # CLOSE. The second half of the pair this lane owes.
   { cmd = "ExitMapView",                                     expect = "OK", budget = 120 },
   # M-A7 CAPTURE. PLACEMENT IS PINNED, not chosen:

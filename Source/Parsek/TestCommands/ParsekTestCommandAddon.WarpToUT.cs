@@ -43,11 +43,50 @@ namespace Parsek.TestCommands
         private TimeWarp.Modes warpModeBefore;
         private int warpPhysicsModeAsserts;
 
+        // The post-load physics-hold defer: which head first saw a physicsHold-only TIMEWARP
+        // lock, and when (wall seconds), so the dispatcher's bound is measured per head.
+        private string warpHoldHeadId;
+        private double warpHoldFirstSeenAt;
+
+        /// <summary>
+        /// Samples the dispatch bits for the post-load physics-hold defer. Reads the input
+        /// locks only when the head is a <c>WarpToUT</c>, so no other verb pays for it. The
+        /// first frame a head sees the hold logs one Info line naming it (bounded: once per
+        /// head); the dispatcher decides from the two outputs.
+        /// </summary>
+        private void SampleWarpPhysicsHold(ParsedCommand head, out bool holdOnly, out double heldSeconds)
+        {
+            holdOnly = false;
+            heldSeconds = 0.0;
+            if (head.Verb != "WarpToUT") return;
+            // A 1x wait goes past any TIMEWARP lock (the dispatcher never defers it), so the
+            // hold is neither sampled nor announced for it.
+            if (TestCommandWarpToUT.IsOneXWaitArg(ArgOrNull(head, "maxRate"))) return;
+
+            holdOnly = TestCommandWarpToUT.IsTransientPhysicsHoldOnly(
+                SafeTimeWarpLocked(), SafeTimeWarpLockHolders());
+            if (!holdOnly) return;
+
+            double now = WallClockSeconds();
+            if (warpHoldHeadId != head.Id)
+            {
+                warpHoldHeadId = head.Id;
+                warpHoldFirstSeenAt = now;
+                ParsekLog.Info(Tag,
+                    $"warptout waiting out the post-load physics hold id={head.Id} "
+                    + $"holders={TestCommandWarpToUT.StockPhysicsHoldLockId} "
+                    + $"maxWait={Inv(TestCommandWarpToUT.PhysicsHoldDeferMaxSeconds)}s");
+            }
+            heldSeconds = now - warpHoldFirstSeenAt;
+        }
+
         // ----- WarpToUT (two-phase, forward-only, REAL rails warp) -----
         // Resolves the absolute forward target (ut=), the optional maxRate= cap, refuses a
         // backward / malformed target and an undriveable warp, then walks the stock rails
         // rate ladder toward the target and holds the FIFO head until the clock lands AND
-        // warp is back at 1x. Dispatch already guaranteed FLIGHT.
+        // warp is back at 1x. Dispatch already guaranteed FLIGHT, the Space Center or the
+        // Tracking Station (RequiresWarpScene), and deferred past stock's transient
+        // post-load physics hold.
         private void WarpToUTImpl(ParsedCommand cmd)
         {
             string utArg = ArgOrNull(cmd, "ut");
@@ -88,10 +127,22 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            bool inFlight = HighLogic.LoadedSceneIsFlight;
+            bool timeWarpLocked = SafeTimeWarpLocked();
             string feasibility = TestCommandWarpToUT.EvaluateFeasibility(
-                SafeWarpControllerPresent(), SafeTimeWarpLocked());
+                SafeWarpControllerPresent(), timeWarpLocked, cap);
+            // A 1x wait requests rung 0 only, so a TIMEWARP lock cannot touch it: say which
+            // lock it went past (the new-game tutorial's `intro_TS` in the Tracking Station,
+            // stock's post-load `physicsHold` in FLIGHT) instead of refusing.
+            if (feasibility == null && timeWarpLocked
+                && TestCommandWarpToUT.OneXWaitIgnoresTimeWarpLock(cap))
+                ParsekLog.Info(Tag,
+                    $"warptout 1x wait ignores TIMEWARP lock holders={SafeTimeWarpLockHolders()} "
+                    + $"ut={Inv(target)}");
             if (feasibility == null)
                 feasibility = TestCommandWarpToUT.EvaluateModeFeasibility(mode, SafePhysicsWarpAllowed());
+            if (feasibility == null)
+                feasibility = TestCommandWarpToUT.EvaluateSceneFeasibility(mode, inFlight);
             if (feasibility != null)
             {
                 // The warp-locked line names the TIMEWARP lock holders (log only; the
@@ -119,6 +170,13 @@ namespace Parsek.TestCommands
                 + $"maxRate={Inv(cap)} rate={Inv(warpMaxObservedRate)} "
                 + $"ladder={WarpModeToken(mode)} stockMode={SafeWarpModeName()} "
                 + $"ceilingIndex={SafeMaxRateIndexForActiveVessel().ToString(CultureInfo.InvariantCulture)}");
+            // A separate line, so the FLIGHT start line above stays byte-identical: outside
+            // FLIGHT there is no active vessel to clamp the rails ladder, and with maxRate=1
+            // the verb is a plain 1x wait in the Space Center or the Tracking Station.
+            if (!inFlight)
+                ParsekLog.Info(Tag,
+                    $"warptout scene={HighLogic.LoadedScene} outside FLIGHT: rails ladder, "
+                    + $"no vessel ceiling, maxRate={Inv(cap)}");
 
             // ARM THE TWO-PHASE FIRST, THEN RAISE THE WARP. The order is load-bearing and
             // it is the fourth exit the file header's "always lowered" claim has to cover:
@@ -340,7 +398,7 @@ namespace Parsek.TestCommands
         private static string WarpModeToken(WarpLadderMode mode)
             => mode == WarpLadderMode.Physics ? TestCommandWarpToUT.PhysicsModeToken : "auto";
 
-        // ----- Null-safe live-state samples (dispatch guaranteed FLIGHT, but stay safe) -----
+        // ----- Null-safe live-state samples (dispatch guaranteed a warp scene, but stay safe) -----
 
         private static bool SafeStockInPhysicsWarp()
         {
@@ -558,6 +616,11 @@ namespace Parsek.TestCommands
 
                 if (tw.warpRates == null || tw.warpRates.Length == 0) return 0;
                 int top = tw.warpRates.Length - 1;
+
+                // Outside FLIGHT stock's setRate applies no vessel clamp (its altitude and
+                // acceleration checks sit under `HighLogic.LoadedSceneIsFlight`), so neither
+                // does this ceiling; FlightGlobals is not read there at all.
+                if (!HighLogic.LoadedSceneIsFlight) return top;
 
                 Vessel v = FlightGlobals.ActiveVessel;
                 if (v == null) return top;

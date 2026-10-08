@@ -547,5 +547,150 @@ namespace Parsek.Tests
             Assert.Equal(DeferralBudget.DefaultSeconds,
                 DeferralBudget.BudgetSeconds("SimulateStockSwitchClick"));
         }
+
+        // ----- WarpToUT: scene-agnostic (TC-1) and the post-load physics hold -----
+
+        private static DispatchState At(TestCommandScene scene) => new DispatchState
+        {
+            Scene = scene,
+            GameLoaded = true,
+            SettingsPresent = true,
+        };
+
+        [Theory]
+        [InlineData("Flight")]
+        [InlineData("SpaceCenter")]
+        [InlineData("TrackingStation")]
+        public void WarpToUT_ExecutesInEveryScene_WithAStockWarpController(string sceneName)
+        {
+            var scene = (TestCommandScene)System.Enum.Parse(typeof(TestCommandScene), sceneName);
+            var r = TestCommandDispatcher.DecideDispatch(CmdArgs("WarpToUT", "ut=40", "maxRate=1"), At(scene));
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Theory]
+        [InlineData("MainMenu")]
+        [InlineData("Editor")]
+        [InlineData("Other")]
+        public void WarpToUT_DefersNotInWarpScene_WhereNoWarpExists(string sceneName)
+        {
+            var scene = (TestCommandScene)System.Enum.Parse(typeof(TestCommandScene), sceneName);
+            var r = TestCommandDispatcher.DecideDispatch(CmdArgs("WarpToUT", "ut=40"), At(scene));
+            Assert.Equal(DispatchDecision.Defer, r.Decision);
+            Assert.Equal(TestCommandDispatcher.NotInWarpSceneReason, r.Reason);
+            Assert.Equal("not-in-warp-scene", r.Reason);
+        }
+
+        [Fact]
+        public void WarpToUT_LoadingStillDefersNotSafePoint_AboveTheSceneRow()
+        {
+            var r = TestCommandDispatcher.DecideDispatch(Cmd("WarpToUT"), At(TestCommandScene.Loading));
+            Assert.Equal(DispatchDecision.Defer, r.Decision);
+            Assert.Equal("not-safe-point", r.Reason);
+        }
+
+        [Fact]
+        public void IsWarpScene_IsExactlyFlightSpaceCenterAndTrackingStation()
+        {
+            foreach (TestCommandScene scene in System.Enum.GetValues(typeof(TestCommandScene)))
+            {
+                bool expected = scene == TestCommandScene.Flight
+                    || scene == TestCommandScene.SpaceCenter
+                    || scene == TestCommandScene.TrackingStation;
+                Assert.Equal(expected, TestCommandDispatcher.IsWarpScene(scene));
+            }
+        }
+
+        [Fact]
+        public void RequiresWarpScene_IsExactlyWarpToUT()
+        {
+            int rows = 0;
+            foreach (var kv in TestCommandDispatcher.PreconditionTable)
+            {
+                if (kv.Value != VerbSceneRequirement.RequiresWarpScene) continue;
+                rows++;
+                Assert.Equal("WarpToUT", kv.Key);
+            }
+            Assert.Equal(1, rows);
+        }
+
+        [Fact]
+        public void WarpToUT_DefersOnTheTransientPhysicsHold_InsideTheBound()
+        {
+            var st = Flight();
+            st.WarpPhysicsHoldOnly = true;
+            st.WarpPhysicsHoldSeconds = 0.4;
+            var r = TestCommandDispatcher.DecideDispatch(CmdArgs("WarpToUT", "ut=400"), st);
+            Assert.Equal(DispatchDecision.Defer, r.Decision);
+            Assert.Equal(TestCommandWarpToUT.PhysicsHoldDeferReason, r.Reason);
+            Assert.Equal("warp-physics-hold", r.Reason);
+        }
+
+        [Fact]
+        public void WarpToUT_OneXWait_IsNeverDeferredOnThePhysicsHold()
+        {
+            var st = Flight();
+            st.WarpPhysicsHoldOnly = true;
+            st.WarpPhysicsHoldSeconds = 0.1;
+            var r = TestCommandDispatcher.DecideDispatch(CmdArgs("WarpToUT", "ut=400", "maxRate=1"), st);
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Theory]
+        [InlineData("maxRate=2")]
+        [InlineData("maxRate=0.5")]
+        public void WarpToUT_AnyOtherCap_StillDefersOnThePhysicsHold(string capToken)
+        {
+            var st = Flight();
+            st.WarpPhysicsHoldOnly = true;
+            st.WarpPhysicsHoldSeconds = 0.1;
+            var r = TestCommandDispatcher.DecideDispatch(CmdArgs("WarpToUT", "ut=400", capToken), st);
+            Assert.Equal(DispatchDecision.Defer, r.Decision);
+            Assert.Equal(TestCommandWarpToUT.PhysicsHoldDeferReason, r.Reason);
+        }
+
+        [Fact]
+        public void WarpToUT_ExecutesOnceTheHoldOutlivesTheBound_SoTheGateRefusesIt()
+        {
+            var st = Flight();
+            st.WarpPhysicsHoldOnly = true;
+            st.WarpPhysicsHoldSeconds = TestCommandWarpToUT.PhysicsHoldDeferMaxSeconds;
+            var r = TestCommandDispatcher.DecideDispatch(CmdArgs("WarpToUT", "ut=400"), st);
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Fact]
+        public void WarpToUT_NoHold_ExecutesAtOnce()
+        {
+            var st = Flight();
+            st.WarpPhysicsHoldOnly = false;
+            st.WarpPhysicsHoldSeconds = 0.0;
+            var r = TestCommandDispatcher.DecideDispatch(CmdArgs("WarpToUT", "ut=400"), st);
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Fact]
+        public void PhysicsHoldBits_AreReadByWarpToUTAlone()
+        {
+            // The bits are sampled for a WarpToUT head only; even when set they must not
+            // hold any other verb (TimeJump stops warp itself, a mark never warps).
+            var st = Flight();
+            st.WarpPhysicsHoldOnly = true;
+            st.WarpPhysicsHoldSeconds = 0.1;
+            Assert.Equal(DispatchDecision.Execute,
+                TestCommandDispatcher.DecideDispatch(CmdArgs("TimeJump", "ut=400"), st).Decision);
+            Assert.Equal(DispatchDecision.Execute,
+                TestCommandDispatcher.DecideDispatch(Cmd("RecordingState"), st).Decision);
+        }
+
+        [Fact]
+        public void WarpToUT_PhysicsHoldDefer_SitsBelowTheSceneRow()
+        {
+            // Outside a warp scene the scene row answers first, whatever the hold bits say.
+            var st = At(TestCommandScene.Editor);
+            st.WarpPhysicsHoldOnly = true;
+            var r = TestCommandDispatcher.DecideDispatch(CmdArgs("WarpToUT", "ut=400"), st);
+            Assert.Equal(TestCommandDispatcher.NotInWarpSceneReason, r.Reason);
+        }
     }
 }

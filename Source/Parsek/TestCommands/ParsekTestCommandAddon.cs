@@ -1049,6 +1049,13 @@ namespace Parsek.TestCommands
                 TryCompleteKscMarkerRecover(now);
                 return;
             }
+            // ReFlyRevert, in the .ReFlyRevert.cs partial: the Esc menu's Revert during a
+            // live Re-Fly, answered on the chosen button's outcome.
+            if (completionVerb == TestCommandReFlyRevert.Verb)
+            {
+                TryCompleteReFlyRevert(now);
+                return;
+            }
 
             bool done = false;
             string verdict = null;
@@ -1326,6 +1333,7 @@ namespace Parsek.TestCommands
             ParsekFlight flight = ParsekFlight.Instance;
             ParsekScenario scenario = ParsekScenario.Instance;
             bool markerLive = scenario != null && scenario.ActiveReFlySessionMarker != null;
+            SampleWarpPhysicsHold(head, out bool warpHoldOnly, out double warpHoldSeconds);
             return new DispatchState
             {
                 Scene = MapScene(HighLogic.LoadedScene),
@@ -1354,6 +1362,8 @@ namespace Parsek.TestCommands
                 FlightEvaPresent = IsFlightEvaPresent(),
                 GhostChainsPending = HighLogic.LoadedScene == GameScenes.FLIGHT
                     && (flight == null || !flight.FlightReadyObserved),
+                WarpPhysicsHoldOnly = warpHoldOnly,
+                WarpPhysicsHoldSeconds = warpHoldSeconds,
                 JournalPhase = phase,
             };
         }
@@ -1543,6 +1553,9 @@ namespace Parsek.TestCommands
         // KscMarkerRecover: body + two-phase completion in the sibling
         // ParsekTestCommandAddon.KscMarkerRecover.cs partial.
         void ITestCommandExecutor.KscMarkerRecover(ParsedCommand cmd) => KscMarkerRecoverImpl(cmd);
+        // ReFlyRevert: body + two-phase completion in the sibling
+        // ParsekTestCommandAddon.ReFlyRevert.cs partial.
+        void ITestCommandExecutor.ReFlyRevert(ParsedCommand cmd) => ReFlyRevertImpl(cmd);
 
         private void InvokeExecutor(ParsedCommand cmd)
         {
@@ -1609,6 +1622,7 @@ namespace Parsek.TestCommands
                 case "Recover": exec.Recover(cmd); break;
                 case "TrackingStationRecover": exec.TrackingStationRecover(cmd); break;
                 case "KscMarkerRecover": exec.KscMarkerRecover(cmd); break;
+                case "ReFlyRevert": exec.ReFlyRevert(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

@@ -1,5 +1,11 @@
 schema = 1
 id = "SS-1-spawn-safety-corrections"
+# 2026-10-07 (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, branch `scene-wait`): PR
+# #2017 made an inert seam step one frame (0.02-0.035 s) instead of the 0.25 s poll these
+# dwells were sized at, so the two 1x dwells after the warps are now `WarpToUT maxRate=1`
+# waits to UT 730 and UT 1106 (the same 15 s and 6 s of game time), and the 12-step
+# pre-warp settle is gone (the post-load physics hold is WarpToUT's own defer since TC-1).
+# Spec changed, not re-flown.
 # -------------------------------------------------------------------------------------
 # D13 `situation-correction` + `terminal-orbit-safety` (catalog: spawn safety). Two
 # end-of-recording spawn guards driven through the real flight-scene spawn path by an
@@ -106,115 +112,24 @@ steps = [
   { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c0", expect = "OK" },
   { cmd = "MissionMark", args = { label = "ss1-loaded-count-${c0.count}-${c0.rec0}-${c0.rec0spawned}-${c0.rec1}-${c0.rec1spawned}" }, expect = "OK" },
-  # Settle before the warp (RL-1: a WarpToUT sent before the unpack is refused
-  # `warp-locked`). About 0.25 s per inert step.
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
+  # No settle before the warp: a WarpToUT sent before the unpack (RL-1: once refused
+  # `warp-locked`) now waits out stock's post-load physics hold itself (TC-1).
   # WARP 1 crosses both EndUTs (+100 s / +120 s after the save UT 421.19), so both
   # spawns are warp-deferred, and comes down at about periapsis (721.19), with the
   # terminal orbit under 75 km. Must match SyntheticRecordingTests.SpawnSafetyFirstWarpUT.
   { cmd = "WarpToUT", args = { ut = "715", maxRate = "50" }, expect = "OK", budget = 300 },
   # 1x dwell: the deferred queue flushes (the Landed spawn, corrected; the Orbiting
-  # spawn, deferred) and the hold line prints while UT < nextSafeUT (about 1002.6).
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
+  # spawn, deferred) and the hold line prints while UT < nextSafeUT (about 1002.6). 15 s of
+  # 1x FLIGHT time to UT 730 (the 60 inert steps this replaced at the 0.25 s poll).
+  { cmd = "WarpToUT", args = { ut = "730", maxRate = "1" }, expect = "OK", budget = 120 },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
   { cmd = "MissionMark", args = { label = "ss1-after-hold-${c1.rec0}-${c1.rec0spawned}-${c1.rec1}-${c1.rec1spawned}" }, expect = "OK" },
   # WARP 2 crosses the orbit's next safe UT (about 1002.6); the deferred spawn
   # re-evaluates there and spawns. Must match SyntheticRecordingTests.SpawnSafetySecondWarpUT.
   { cmd = "WarpToUT", args = { ut = "1100", maxRate = "50" }, expect = "OK", budget = 300 },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
+  # 1x settle after the spawn (6 s: the 24 inert steps this replaced at the 0.25 s poll),
+  # so the queued entry's "already spawned" drop lands before the read.
+  { cmd = "WarpToUT", args = { ut = "1106", maxRate = "1" }, expect = "OK", budget = 120 },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c2", expect = "OK" },
   { cmd = "MissionMark", args = { label = "ss1-after-spawn-${c2.rec0}-${c2.rec0spawned}-${c2.rec1}-${c2.rec1spawned}" }, expect = "OK" },
   { cmd = "FlushAndQuit", expect = "OK" },

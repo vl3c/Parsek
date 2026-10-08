@@ -1,5 +1,10 @@
 schema = 1
 id = "V20M-jool-kerbin-player-loop"
+# 2026-10-07 (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, branch `scene-wait`): the
+# 1x waits this lane sized in inert seam steps (0.25 s each at the old poll; one frame
+# since PR #2017) are `WarpToUT maxRate=1` waits to explicit UTs, deterministic in
+# FLIGHT, the Space Center and the Tracking Station since TC-1. Spec changed, not
+# re-flown.
 # =====================================================================================
 # V20M: THE FLIGHT-MAP HALF OF THE FIRST **KERBIN-ARRIVAL** LOOP PAIR - the first lane in
 # the suite whose subject arrives at KERBIN FROM ANOTHER PLANET, and the lane that reads
@@ -1296,46 +1301,9 @@ steps = [
   # instrument the seam has, and inventing one for this would be a product change for
   # a pacing problem.
   # ============================================================================
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
+  # 1x FLIGHT time to UT 94621788: 12 s after the jump, census pacing, two 5 s rate-limit windows of wall time (40 inert steps before 2026-10-07: since PR #2017 one costs a
+  # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
+  { cmd = "WarpToUT", args = { ut = "94621788", maxRate = "1" }, expect = "OK", budget = 120 },
   # CYCLE-1 TAIL READ: replay offset 32,606,430.211 off R1, replaying recorded UT
   # 60,393,751.351 - i.e. 246.137 s past the segment-less tail start (60,393,505.214, the
   # last ORBIT_SEGMENT's end), 33.957 s past the capture burn's 60,393,717.394 cut,
@@ -1379,46 +1347,9 @@ steps = [
   # instance-21 = instance-1 + span identity makes this the SECOND SAMPLE OF THE SAME
   # LEG, so both cycles carry the identical instrument.
   { cmd = "TimeJump", args = { ut = "127228351" }, expect = "OK", budget = 300 },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
-  { cmd = "RecordingState",                                                  expect = "OK" },
+  # 1x FLIGHT time to UT 127228363: 12 s after the jump, census pacing, two 5 s rate-limit windows of wall time (40 inert steps before 2026-10-07: since PR #2017 one costs a
+  # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
+  { cmd = "WarpToUT", args = { ut = "127228363", maxRate = "1" }, expect = "OK", budget = 120 },
   # CYCLE-2 TAIL READ: the same +32,606,430 offset off the cycle-2 relaunch (recorded UT
   # 60,393,751.576, 246.362 s past the tail start, 145.338 s of span left).
   { cmd = "TimeJump", args = { ut = "127237235" }, expect = "OK", budget = 300 },
