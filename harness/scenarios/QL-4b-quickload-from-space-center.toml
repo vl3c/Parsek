@@ -1,5 +1,25 @@
 schema = 1
 id = "QL-4b-quickload-from-space-center"
+# MERGED 2026-10-08 (origin/main into `ql-lanes`): the steps carry both 2026-10-07
+# changes, `ql-lanes`' `ListHandles kind=committed` step and ghost forbids (flown green
+# alone as `2026-10-07_2226`) and `scene-wait`'s removal of the 150-step post-F9 settle
+# (flown green alone as `2026-10-07_2109`). Flown as one 2026-10-08
+# `2026-10-08_0014`, PASS attempt 1, on the merged build (PRs #2049-#2052).
+#
+# SPEC CHANGED 2026-10-07 (branch `ql-lanes`), NOT RE-FLOWN: the "no old ghost next to the
+# vessel" half of the manual F9-from-the-Space-Center check. One step (`ListHandles
+# kind=committed` after the F9) and four tokens: required `listhandles kind=committed
+# count=0` and `EvaluateAndApplyGhostChains: no committed trees` after the F9; forbidden a
+# GhostPlaybackEngine ghost of this tree (`[Engine] Ghost #N "GS1 Auto-Chute Booster..."
+# spawned (` / `spawn-pending notify`) between the F9 and the final exit, and any nonzero
+# committed count. Checked offline against `2026-10-07_1936`: the chain line and both
+# ghost-free windows read as predicted (the run built no flight ghost at all); the
+# committed-count step is new, so only its prediction (count=0: the detached copy is the
+# only committed tree this sandbox ever holds, and the chain line says none survived) is
+# offline. Pre-registered red readings: `count=[1-9]` or a ghost line names the detached
+# copy surviving the F9 (a product finding, file it); a missing `kind=committed` line
+# with the rest green is the step not reached (read the seam responses).
+#
 # READING RUN 2026-10-07 (branch `f9-verify`, automation DLL sha256 prefix bd97e6a7):
 # attempt 1 PARSEK-FAIL on two PREMISE misses, not a product defect. Every F9 token
 # fired (the committed-copy restore line, the detach, the abandoned-future reconcile
@@ -159,6 +179,10 @@ steps = [
   # The live tree's background map, read through the seam: bg=1 (the booster) when the
   # flight resumed with its abandoned-future ending cleared.
   { cmd = "ListHandles",    args = { kind = "active" },                                expect = "OK" },
+  # The committed set after the F9: the detached copy is gone and nothing else is
+  # committed in this sandbox (count=0), so no committed recording is left to play as a
+  # ghost next to the resumed flight.
+  { cmd = "ListHandles",    args = { kind = "committed" },                             expect = "OK" },
   # No settle pad before the warp: the post-load physics hold (reading run 2026-10-07:
   # sent 0.2 s after OnFlightReady it read `warp-locked holders=physicsHold`; the unpack
   # lands 1.0-1.2 s after it) is WarpToUT's own bounded defer since TC-1
@@ -264,6 +288,12 @@ required = [
   # GROUP 4 - THE FLIGHT IS RECORDED AGAIN AND COMMITS ONCE MORE.
   "RestoreActiveTreeFromPending: attached BackgroundRecorder for tree 'GS1 Auto-Chute Booster' \\([1-9][0-9]* background entry\\(ies\\)\\)",
   "listhandles kind=active count=[1-9][0-9]* truncated=false",
+  # NO OLD GHOST (spec change 2026-10-07): the committed set is empty after the F9
+  # (TestCommandListHandles.BuildCommittedPayload's untruncated count over
+  # RecordingStore.CommittedTrees), and the flight scene's chain evaluation saw no
+  # committed tree (ParsekFlight.EvaluateAndApplyGhostChains, measured on `_1936`).
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*listhandles kind=committed count=0 truncated=false",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*EvaluateAndApplyGhostChains: no committed trees",
   "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='GS1 Auto-Chute Booster Probe' points=[1-9][0-9]* orbitSegs=0 terminal=Landed maxDist=[0-9]+m snapshot=True leaf=True",
   "loadgame start save=\\S+ name=quicksave [\\s\\S]*Silent full-fidelity auto-commit \\(scene-exit\\): tree='GS1 Auto-Chute Booster' recordings=[1-9][0-9]*",
 ]
@@ -279,13 +309,21 @@ forbidden = [
   "Quickload abandoned-future reconcile skipped: tree='GS1 Auto-Chute Booster' .*reason=empty-plan",
   "RestoreActiveTreeFromPending: attached BackgroundRecorder for tree 'GS1 Auto-Chute Booster' \\(0 background entry\\(ies\\)\\)",
   "listhandles kind=active count=0 truncated=false",
+  # NO OLD GHOST (spec change 2026-10-07). Between the F9 and the final exit no flight
+  # ghost of this tree is built: GhostPlaybackEngine logs `Ghost #<i> "<vessel>" spawned
+  # (...)` (FinalizePendingSpawnLifecycle) and `Ghost #<i> "<vessel>" spawn-pending
+  # notify` (QueueOrEmitGhostSpawnPending) for every ghost it creates; the window ends at
+  # the final `exittospacecenter start`, after which the Space Center's own ghosts of the
+  # re-committed tree are legitimate (and tagged [KSCGhost], not [Engine]).
+  "loadgame start save=\\S+ name=quicksave (?:(?!exittospacecenter start)[\\s\\S])*\\[Engine\\] Ghost #[0-9]+ \"GS1 Auto-Chute Booster[^\"]*\" spawn(?:ed \\(|-pending notify)",
+  "listhandles kind=committed count=[1-9]",
   "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='GS1 Auto-Chute Booster Probe' points=[0-9]+ orbitSegs=0 terminal=SubOrbital",
 ]
 
 [runtime]
 # Wall clock for the whole drive phase including boot: two LoadGame (max(300,600)+60 each =
 # 1320), SetSetting x3 360, mission 900, SaveGame 180, the two warps 300 + 540, two
-# ExitToSpaceCenter 240, ListHandles / FlushAndQuit 240; the twelve RecordingState settle
+# ExitToSpaceCenter 240, two ListHandles / FlushAndQuit 360; the twelve RecordingState settle
 # steps answer at once. Expected wall about 10 minutes (boot, a ~100 s mission, ~15 s +
 # ~140 s of 2x warp, two scene exits, one reload).
 budgetSeconds = 3600

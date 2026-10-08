@@ -1,0 +1,69 @@
+# Declared param schema for mission b1_pad_hop_career: B1's pad hop flown on a
+# CAREER save (the shell differs from b1_pad_hop only in its control's
+# tolerate_unreadable_nodes opt-in; see b1_pad_hop_career.py).
+#
+# The [params] tables below are B1's, key for key: the shell drives the SAME
+# mlib.b1_decide machine from the SAME mlib.b1_params_from_dict, so a key declared
+# in one schema and not the other would validate a spec the machine reads
+# differently. test_b1_pad_hop_career pins the two `params` tables EQUAL after
+# parse; edit b1_pad_hop.schema.toml and copy the change here. The rationale
+# comments for each bound live there.
+
+[params.throttle]
+required = true
+type = "float"
+min = 0.0
+max = 1.0
+
+[params.apoapsisWindowMeters]
+required = true
+type = "window"
+
+[params.chuteArmMaxRateMps]
+required = true
+type = "number"
+min = 1.0
+max = 100.0
+
+[params.chuteFullDeployAltMeters]
+required = true
+type = "number"
+min = 500.0
+max = 5000.0
+
+[params.landedSituations]
+required = true
+type = "list"
+
+[params.ascentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.coastTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.descentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000
+
+[params.frozenToleranceAbs]
+required = false
+type = "number"
+min = 0.0
+max = 1.0
+
+[params.downMaxAltMeters]
+required = false
+type = "number"
+min = 10.0
+max = 5000.0

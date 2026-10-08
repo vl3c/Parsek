@@ -1,0 +1,506 @@
+schema = 1
+id = "QL-2-quickload-career-recovery-not-paid"
+# =====================================================================================
+# QL-2: A REWARD EARNED AFTER AN F5 IS NOT PAID ONCE THE F9 TAKES THE FLIGHT BACK. The
+# career half of the manual F9 check "F5 after staging, fly on, merge, F9: the booster is
+# recorded again and ends with its new outcome, and a reward earned after the F5 is not
+# paid"; the live proof of TA-2 / TA-3 (todos QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-
+# COMMIT and QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS) on a FUNDS row. Roadmap "The
+# timeline-operation coverage program", Lanes table, row QL-2. QL-4 / QL-4b / QL-4c prove
+# the booster half in sandbox, where the only abandoned-future ledger row is a
+# kerbal-assignment row (`afterCutoff=0 kerbalAssignment=1` on all three).
+#
+# In gameplay terms: the player hops the Jumping Flea in a career, lands, presses F5,
+# recovers the pod (stock pays the recovery: funds, recovery science and crew XP), and at
+# the Space Center presses F9. The game goes back to the landed pod, so the recovery never
+# happened; the career must not keep its payout. The player then leaves for the Space
+# Center without recovering, and the flight commits again, Landed.
+#
+# THE MECHANISM UNDER TEST.
+#   1. The recovery books its payout at once (LedgerRecoveryFundsPairing
+#      .TryAddVesselRecoveryFundsAction: a FundsEarning Recovery row tagged with the
+#      recording `LedgerOrchestrator.PickRecoveryRecordingId` picks, here the Flea's), plus
+#      the recovery science and crew XP rows, all at a UT after the F5.
+#   2. The F9 from the Space Center reaches the committed-copy restore (QL-4b's route):
+#      the tree was committed at the recovery's scene exit, after the quicksave, so the
+#      quicksave's tree is restored, the committed copy detached and the flight resumed.
+#   3. The resume reconcile (ParsekScenario.TrimAndReconcileForQuickloadResume ->
+#      RetireAbandonedFutureLedgerRows -> Ledger.RetireAbandonedFutureActions) retires
+#      every row tagged to the trimmed set with an occurrence after the cutoff: the
+#      recovery rows read `afterCutoff`, the sandbox lanes' gap.
+#   4. Every recalc after that walks no Recovery earning, so neither the ledger nor KSP's
+#      funds (the quicksave's, which never saw the recovery) carry the payout.
+#
+# WHY A RECOVERY AND NOT A CONTRACT OR A MILESTONE, AND WHY THE F9 IS FROM THE KSC. The
+# roadmap row names an in-flight contract completion; no committed host can complete one
+# (a save-authored Active contract does not survive the first tick, todo
+# SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE, measured on L5), and no committed career
+# flight earns a milestone after the F5 (the hop's records are all set on the ascent).
+# The recovery is the one post-F5 earning an existing verb drives (`Recover`, stock's own
+# button, measured on ZF-1 / CI-6). It ends the flight, so the first commit is the
+# recovery's scene-exit auto-merge rather than an in-flight Merge, and the F9 is the
+# Space Center route; the in-flight route is QL-4's and is booster-only. A lane with both
+# the booster and a career reward needs what is missing today: a career twin of
+# `gs1-two-stage-pad` (built by construction like `career-pad-craft`, fresh-career plus
+# the GS-1 craft) AND an in-flight earning that does not leave the scene.
+#
+# THE HOST. `career-pad-craft` (500000 / 100 / 0, the Jumping Flea on the pad, pid
+# 2905720181 as ZF-1 and L3 measured) flown with `b1_pad_hop_career` and B1's parameters
+# verbatim (the craft is byte-identical to `b1-pad-craft`'s, so B1's profile transfers).
+# `b1_pad_hop_career` is B1's machine, evaluator and schema with ONE control difference,
+# `tolerate_unreadable_nodes=True` (safety argument in its make_control). PREMISE MISS,
+# READ 2026-10-07: the lane first flew plain `b1_pad_hop` and went INVALID twice
+# (`2026-10-07_2231`, retry `_2232_a2`, see `*_mission.stdout.log`): kRPC's maneuver-node
+# read raises `Maneuver node editing is not available ... tracking station has not been
+# upgraded` on this level-0 career, three consecutive raises escalate to `vessel_lost` at
+# PRELAUNCH, and B1 resolves MISSION-ASSERT-FAIL in 1.2 s, before any Parsek step ran.
+# The same finding science_bench_recover (L3) and CL-3 recorded; spec changed, not re-flown.
+# No injected recordings: the produced save's recordings are this flight's own.
+#
+# THE TIMELINE (UTs from B1 / L3 readings, not measured on this lane):
+#   ~UT 9    launch; recording starts.
+#   ~UT 300  the Flea lands; the mission concludes.
+#   F5       SaveGame quicksave = THE CUTOFF.
+#   +<2 s    60 inert steps (the craft at rest for the button, and UT margin: the resume
+#            cutoff read 0.3 s after the loaded UT on QL-4b `_1936`, and the recovery
+#            itself lands ~0.7-0.9 s after its press, ZF-1). Short on purpose: a landed
+#            tail of 5 s or more would let the exit commit's optimizer split the recording
+#            at the touchdown, BEFORE the cutoff (QL-4b's warned shape).
+#   Recover  stock recovery: persistent save (sidecar epochs advance), Space Center,
+#            auto-commit, then the payout rows tagged to the Flea's recording.
+#   F9       LoadGame quicksave at the KSC -> FLIGHT: salvage, detach, resume, reconcile.
+#   exit     ExitToSpaceCenter: the scene-exit auto-merge commits the resumed tree, Landed.
+#
+# BEFORE-FIX CONVENTION: the fix is merged (PR #2025 + the committed-copy restore), so this
+# lane is a plain regression lane with no [expectedFail]. On a build without the reconcile
+# the prediction is PARSEK-FAIL(expectation): the reconcile and retire lines missing, and
+# the forbidden Recovery walk after the F9 matching.
+#
+# PRE-REGISTERED READINGS (what to check first if the first flight reds):
+#   - `recover rejected reason=recover-button-locked` (or not-clear-to-save): the craft was
+#     still moving at the press; a premise miss, lengthen the settle.
+#   - `VesselRecovery funds patched ... recordingId=(none)`: the pick found no committed
+#     recording at the payout (the tree not yet committed); the row is untagged, no
+#     reconcile can retire it, and the forbidden `PatchFunds ... (delta=<positive>)` /
+#     `GUARDED UPLIFT` tokens will say whether the career kept the money. A product
+#     question (an abandoned-future payout booked untagged), file it.
+#   - `afterCutoff=0` with `ledgerRowsRetired>=1`: the payout's UT did not pass the resume
+#     cutoff (read both UTs on the reconcile and the funds-patched lines); a premise miss
+#     only if the recovery UT is genuinely at or below the cutoff.
+#   - `action=Unchanged reason=tree-committed-in-quicksave`: something saved the committed
+#     tree into the quicksave slot (premise miss).
+#   - A forbidden Recovery walk, Recovery XP line or funds uplift after the F9 with the
+#     reconcile line green: the payout survived (a re-pair from the leftover KSC event, or
+#     a row the reconcile does not classify); a product finding, file it.
+#   - An `Optimization pass: split` / `Split recording 'Jumping Flea'` line at the
+#     recovery's commit (the landed tail reached 5 s): the payout is tagged to the tail
+#     segment, the F9 refreshes a truncated head and splices the tail; read the
+#     reconcile's trimmed= / pruned= and the retired row's reason before reading a red as
+#     a product finding (QL-4b's header names the same shape).
+#   - `terminal=Recovered` on the final finalize: the abandoned ending leaked into the
+#     replay (the TA-4 class on the ACTIVE recording); file it.
+#   - LedgerGroundTruth is NOT run: it skips while a live or restored tree defers the KSP
+#     patch, and it is FLIGHT-only, so it has no window after the final commit here. The
+#     funds gate is the recalc walk and patch lines above.
+#
+# STATUS: AUTHORED 2026-10-07 (branch `ql-lanes`); two INVALID(mission) attempts on the
+# premise miss above, mission switched to `b1_pad_hop_career`; NOT YET FLOWN GREEN.
+# Every token is quoted from its emitting source line (LedgerRecoveryFundsPairing,
+# FundsModule.ProcessFundsEarning, ScienceModule, KspStatePatcher.PatchFunds / EmitDrawdownGuardClamp,
+# ParsekScenario.Trim.cs, Ledger.RetireAbandonedFutureActions, TestCommandRecover,
+# TestCommandListHandles, ParsekFlight.Finalization) or from QL-4b's flown header; the
+# saveParse blocks are REPORT-ONLY until a reading run.
+# =====================================================================================
+tier = "nightly"
+description = "QL-2: the career reward half of the F9 checks. Hop the Jumping Flea in a career, land, F5, recover it (stock pays funds, science and crew XP, booked to the flight), then F9 from the Space Center: the committed copy is detached, the flight resumes, the reconcile retires the payout rows, no later recalc walks a Recovery earning, and the flight commits again Landed."
+instanceProfile = "stock-minimal"
+tags = ["QL-2", "TA-2", "TA-3", "quickload", "timeline-ops", "career", "recovery", "ledger",
+        "scene-exit", "auto-merge", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/career-pad-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b1_pad_hop_career"
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "true" },    expect = "OK" },
+  # Both commits are scene-exit auto-merges: the recovery's (stock loads the Space Center)
+  # and the final ExitToSpaceCenter. No merge modal can stand at either exit.
+  { cmd = "SetSetting",     args = { name = "autoMerge", value = "true" },             expect = "OK" },
+  # LOAD-BEARING: the FundsEarning / Earning walk lines and FinalizeTreeRecordings are Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },        expect = "OK" },
+  # B1's hop: launch, coast, chute, land.
+  { phase = "mission",                                                                 expect = "MISSION-OK", budget = 900 },
+  # THE F5. The cutoff UT of the later quickload.
+  { cmd = "SaveGame",       args = { name = "quicksave" },                             expect = "OK", budget = 120 },
+  # Settle (~60 frames, under 2 s): the craft at rest for stock's button and game time
+  # between the F5 and the payout, kept SHORT so the landed tail stays under the
+  # optimizer's 5 s both-halves split floor (RecordingOptimizer: an exit-commit split
+  # before the cutoff is the shape QL-4b's header warns about).
+  # inert-wait: frames only, deliberately short (THE TIMELINE above: under 2 s, so the
+  # landed tail stays below the optimizer's 5 s split floor); no UT to wait to.
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  # THE REWARD AFTER THE F5: stock's Recover button on the active Flea (ZF-1's pid).
+  { cmd = "Recover",        args = { pid = "2905720181" },                             expect = "OK", budget = 120 },
+  # THE F9, from the Space Center: the quicksave holds a focusable vessel, so the verb
+  # takes the FLIGHT route. No recorder is live at the KSC.
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave" },        expect = "OK", budget = 300 },
+  # Settle: RestoreActiveTreeFromPending runs from OnFlightReady (QL-4b's twelve steps).
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  # The committed set after the F9: the detached copy is gone and this career has no other
+  # committed recording (count=0).
+  { cmd = "ListHandles",    args = { kind = "committed" },                             expect = "OK" },
+  # Settle out the post-load physics hold before the exit (QL-4b's second pad: the unpack
+  # lands 1.0-1.2 s after OnFlightReady and each inert step is about one frame).
+  # inert-wait: a frame settle for the post-load physics hold before the exit (this lane
+  # sends no WarpToUT after the F9, so no warp defer covers it); no UT to wait to.
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  # THE COMMIT: the scene-exit auto-merge of the resumed tree, without a recovery.
+  { cmd = "ExitToSpaceCenter",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                              expect = "OK" },
+]
+
+[driver.missionParams]
+# B1-pad-hop's values VERBATIM (the craft is byte-identical; see B1's spec for each).
+throttle                 = 1.0
+apoapsisWindowMeters     = { min = 6000, max = 30000 }
+chuteArmMaxRateMps       = 30
+chuteFullDeployAltMeters = 2500
+landedSituations         = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds     = 90
+coastTimeoutSeconds      = 180
+descentTimeoutSeconds    = 360
+
+[dimensionsCovered]
+# D14 values only (each already covered elsewhere). No new claim: no D-value names a
+# back-in-time load yet.
+D14 = ["kerbin", "career", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The Flea's recording; the ceiling absorbs an optimizer split at either commit.
+count = { min = 1, max = 3 }
+
+# REPORT-ONLY until a reading run. Predicted: one tree, committed once (the F9 detached the
+# recovery's commit and the final exit re-committed it), the Flea not Recovered, no rewind
+# bookkeeping (a single-stage hop authors no rewind point).
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 3 }
+terminalStates = { Recovered = { max = 0 } }
+
+[expectations.rewind]
+gating        = false
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.logContracts]
+required = [
+  # GROUP 1 - THE FLIGHT AND THE F5.
+  "Recording started",
+  "savegame name=quicksave folder=.+ saved=true",
+
+  # GROUP 2 - THE REWARD AFTER THE F5, BOOKED TO THE FLIGHT (the premise).
+  "recover complete pid=2905720181 vessel=\\S+ scene=SPACECENTER",
+  # The recovery's own commit, before the F9.
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='Jumping Flea' recordings=[1-9][0-9]*[\\s\\S]*loadgame start save=\\S+ name=quicksave ",
+  # LedgerRecoveryFundsPairing.TryAddVesselRecoveryFundsAction: the payout row, TAGGED.
+  "VesselRecovery funds patched: vessel='Jumping Flea' amount=[1-9][0-9]* ut=[0-9.]+ recordingId=[0-9a-f]{32} quick=False",
+
+  # GROUP 3 - THE F9 FROM THE SPACE CENTER REACHES THE QUICKLOAD RESUME (QL-4b's route).
+  "loadgame start save=\\S+ name=quicksave scene=SPACECENTER requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false",
+  "Load classified: early=InSession refined=(?:QuickloadFlight|InSessionOther) scene=FLIGHT initialLoadDone=true rewinding=false reFlyInvoke=false discardReFly=none",
+  "\\[Scenario\\] Quickload committed-copy restore: tree='Jumping Flea' id=\\S+ route=space-center action=ResumeFromQuicksave reason=committed-after-quicksave loadKind=InSession staleMembers=[0-9]+ salvagedFromCommitted=[0-9]+ unsalvaged=[0-9]+ replacesStaleKeep=false",
+  "TryRestoreActiveTreeNode: removed committed tree 'Jumping Flea' \\(id=\\S+, [1-9][0-9]* recording\\(s\\)\\)",
+  "OnLoad: pending-Limbo tree 'Jumping Flea' deferred to OnFlightReady for quickload-resume",
+  "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide",
+  "RestoreActiveTreeFromPending: resumed recording tree 'Jumping Flea' activeRec='[0-9a-f]{32}'",
+
+  # =================================================================================
+  # THE GATE - THE PAYOUT IS RETIRED. ParsekScenario.TrimAndReconcileForQuickloadResume:
+  #   `[Scenario] Quickload abandoned-future reconcile: tree='<n>' kind=<LoadKind>
+  #   scope=<scope> cutoffUT=.. loadedUT=.. trimmed=N pruned=N endStatesCleared=N
+  #   eventsPurged=N ledgerRowsRetired=N (afterCutoff=N kerbalAssignment=N
+  #   prunedRecording=N) skippedCommitted=N ...`
+  # Pinned: at least one row retired AS AFTER-CUTOFF (the recovery rows; the sandbox
+  # lanes all read afterCutoff=0) and nothing skipped as still committed. eventsPurged and
+  # endStatesCleared are read, not pinned: the payout events are captured at the Space
+  # Center, untagged, and the exit commit's tail trim may end the recording before the
+  # cutoff (then its Recovered ending is not an after-cutoff one).
+  "\\[Scenario\\] Quickload abandoned-future reconcile: tree='Jumping Flea' (?=.*\\bkind=(?:QuickloadFlight|InSessionOther)\\b)(?=.*\\bscope=TreeWide\\b)(?=.*\\bledgerRowsRetired=[1-9][0-9]* \\(afterCutoff=[1-9][0-9]* )(?=.*\\bskippedCommitted=0\\b)",
+  "RetireAbandonedFutureActions: removed [1-9][0-9]* action\\(s\\) reason=quickload-abandoned-future total=[0-9]+",
+  # END GATE
+  # =================================================================================
+
+  # GROUP 4 - THE FLIGHT IS RECORDED AGAIN AND COMMITS ONCE MORE, NOT RECOVERED.
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*listhandles kind=committed count=0 truncated=false",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='[^']*' points=[1-9][0-9]* orbitSegs=0 terminal=(?:Landed|Splashed) ",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*Silent full-fidelity auto-commit \\(scene-exit\\): tree='Jumping Flea' recordings=[1-9][0-9]*",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The F9 must reach the resume (QL-4b's defect shapes).
+  "dropped entire tree 'Jumping Flea'",
+  "TryRestoreActiveTreeNode: skipped active tree 'Jumping Flea'",
+  "Quickload resume prep skipped",
+  "Quickload committed-copy restore: tree='Jumping Flea' id=\\S+ route=\\S+ action=Unchanged",
+  "keeping in-memory pending tree 'Jumping Flea'",
+  "Quickload abandoned-future reconcile skipped: tree='Jumping Flea'",
+  "listhandles kind=committed count=[1-9]",
+  # THE PAYOUT MUST NOT COME BACK. After the reconcile no recalc walks a Recovery earning
+  # (FundsModule.ProcessFundsEarning) or the recovery science (ScienceModule's walk line),
+  # and nothing clamps or lifts the funds pool off KSP's (the quicksave's, without the
+  # recovery: KspStatePatcher.PatchFunds and its keep-what-you-earned guard).
+  "Quickload abandoned-future reconcile: tree='Jumping Flea'[\\s\\S]*\\[Funds\\] FundsEarning: \\+[^,\\r\\n]*, source=Recovery",
+  "Quickload abandoned-future reconcile: tree='Jumping Flea'[\\s\\S]*\\[ScienceModule\\] Earning: subject=recovery@",
+  "Quickload abandoned-future reconcile: tree='Jumping Flea'[\\s\\S]*GUARDED (?:UPLIFT|DRAWDOWN) clamped resource=Funds",
+  # After the F9 the replay recovers nothing: no payout is booked again and no patch lifts
+  # the funds (a positive delta is the abandoned payout paid).
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*VesselRecovery funds patched: vessel='Jumping Flea'",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*Recovery kerbal XP recorded: ",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*PatchFunds: [0-9.]+ -> [0-9.]+ \\(delta=[0-9]",
+  # The abandoned ending must not reach the replay's commit.
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='[^']*' points=[0-9]+ orbitSegs=[0-9]+ terminal=Recovered",
+]
+
+[runtime]
+# Wall clock for the whole drive phase including boot: two LoadGame (max(300,600)+60 each =
+# 1320), SetSetting x3 360, mission 900, SaveGame 180, Recover 180, ExitToSpaceCenter 180,
+# ListHandles / FlushAndQuit 240; the inert settle steps answer in about a frame each.
+# Expected wall about 10 minutes (boot, a ~300 s hop, a recovery, one reload, one exit).
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

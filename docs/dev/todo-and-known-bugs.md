@@ -16,6 +16,54 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## QUICKLOAD-UNTAGGED-RECOVERY-MILESTONE-SURVIVES-F9: a milestone stock awards at a recovery after the quicksave is untagged, so the F9 keeps its reward [FILED 2026-10-07 from lane QL-2's first full flight, branch `ql-lanes`, measured. OPEN, product]
+
+`QL-2-quickload-career-recovery-not-paid` `2026-10-07_2344` (career-pad-craft, the Jumping Flea
+hopped, quicksaved on the ground at UT ~352.2, recovered through stock's button, the quicksave then
+loaded from the Space Center) reads PARSEK-FAIL on one forbidden token: after the reconcile
+(`ledgerRowsRetired=5 (afterCutoff=4 kerbalAssignment=1)`, the tagged recovery payout correctly
+retired) the recalc walks still credit `FirstCrewToSurvive` (+800 funds) and
+`KspStatePatcher.PatchFunds` logs `GUARDED UPLIFT clamped resource=Funds running=531200
+live=530400` on every walk. Cause: stock completes `FirstCrewToSurvive` during the recovery, 4 s
+after the quicksave and at UT ~353.9 (past the 352.48 cutoff), and Parsek records it untagged
+(`Emit: MilestoneAchieved key='FirstCrewToSurvive' tag=''`); the policy keeps untagged rows on a
+quickload (`LoadReconcilePolicy.DecideUntaggedLedgerRows`: "a quickload keeps untagged KSC rows
+(QL-R2, designed)"), so the abandoned future's milestone reward stays in the ledger while KSP's
+funds came back from the quicksave without it. The player-visible effect is a ledger that claims
+800 more funds than the game holds (the guard holds the live value, so no funds are paid twice).
+Fix: not decided. Either tag a milestone completed by a recovery to the recovered recording (so the
+reconcile retires it with the payout), or let the in-flight F9 reconcile retire untagged
+milestone rows past the cutoff whose event was emitted inside a recovery of a trimmed recording.
+QL-2 stays red until then.
+
+---
+
+## REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START: S4.2 and S4.4 need the re-fly recorder live (or not yet) while the provisional is still empty, a window of a few frames [FILED 2026-10-07 from the F9 verification flights, branch `ql-lanes`, measured. OPEN, harness]
+
+Two lanes gate on an UNFLOWN Re-Fly provisional, and both race the re-fly recorder's start, which
+happens when `RestoreActiveTreeFromPending` runs from the re-fly scene's OnFlightReady:
+
+- `S4.2-refly-world-preservation` requires the merge to conclude an EMPTY provisional
+  (`outcome=retired-empty-provisional`, `AppendRelations outcome=refused-unflown-provisional`,
+  `outcome=concluded-no-supersede`). Its `RunTests` step (the ReFlyWorldPreservation batch) spans the
+  scene settle: in `2026-10-07_2239` the recorder started at 01:40:44.290, the batch finished at
+  45.396 and the merge concluded at 45.509, so the provisional carried ~1 s of samples and the merge
+  correctly wrote a supersede row (`Added 1 supersede relations`). Its August green
+  (`2026-08-11_2111`) concluded before the first sample.
+- `S4.4-refly-quicksave-mid-session` needs the recorder LIVE at its bare LoadGame (to be refused
+  `recording-active`) but the provisional EMPTY at the merge. Attempt 1 of `2026-10-07_1922`
+  and both attempts of `_2242` / `_2243_a2` sent the LoadGame before the recorder started
+  (`recorderLive=false`); `_1923_a2` passed. A settle pad (`_1947`) broke the empty-provisional
+  half instead.
+
+Neither is a product defect: the recorder starting on the restored tree and recording is correct.
+Fix: owner decision. Options: a seam wait on a named condition (`RecordingState` reporting the re-fly
+recorder live, then nothing else), or gate the merge tokens on the provisional's measured point
+count (accept the flown branch's tokens when points > 0), or drop the empty-provisional pins and
+cover that conclusion route in a dedicated lane that stops recording first.
+
+---
+
 ## V16M-ICON-OFF-ORBIT-AT-TIMEJUMP-LANDING: V16M's ghost map icon sits ~1.3 deg off its orbit on the frame a TimeJump lands [FILED 2026-10-07 from the PR #2051 flights, measured twice. OPEN, render, not yet triaged]
 
 `V16M-laythe-player-loop` reads PARSEK-FAIL on the unallowed Tier-C anomaly `icon-off-orbit`
@@ -190,20 +238,57 @@ and the V16-V30 player-loop / arrival lanes.
 
 ---
 
-## REWIND-CREW-LOSS-FIXTURE-RP-HAS-NO-BRANCH-POINT: the `rewind-crew-loss` corpus's rewind point is not linked to its tree, so in-session RP ownership reads it as the save's [FILED 2026-10-07 from the QL-3 reading run, branch `f9-verify`. OPEN, test fixture, low]
+## ~~REWIND-CREW-LOSS-FIXTURE-RP-HAS-NO-BRANCH-POINT: the injected rewind corpora's rewind points (`rewind-crew-loss`, `rewind-b9`, `refly-world-preservation`, `rewind-readback`) are not linked to their trees, so in-session RP ownership reads them as the save's~~ [FILED 2026-10-07 from the QL-3 reading run (crew-loss), widened 2026-10-07 from QL-5's `2026-10-07_2035` (`rp_b9_root:FollowSave:kept-loaded`), branch `f9-verify`. FIXED 2026-10-07, branch `ql-lanes`. LIVE-PROVEN 2026-10-07 on the corpus re-flights: QL-3 `2026-10-07_2225` (`rp_cl_root:CommittedOwner:dropped-save-only`, rewindPoints 0), R7c `_2233`, RF-12L `_2234`, S4.1 `_2239`, S4.3 `_2343`, CL-3 `_2244`, CL-4 `_2245`, RF-16 `_2246`, RF-17 `_2247`, S1.5 `_2248`, RB-1 `_2249`, RB-2 `_2256`, R1 `_2326` PASS attempt 1; S4.2 / S4.4 red on the separate recorder-start race (REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START)]
 
-`RewindCrewLossFixture.BuildRewindPoint` builds `rp_cl_root` SessionProvisional with no
-creating session and a `BranchPointId` (`bp_cl_root`) its tree does not carry: the committed
-tree has no branch points at all (QL-3's saveParse `branchPoints: {}`). A production rewind point
-is authored on a branch point of its tree and promoted to persistent at commit. The in-session
-owner partition (`InSessionStagedStateHandoff.Classify`) claims a point for a committed tree by
-that tree's branch-point ids or branch-point rewind-point ids, so it cannot claim this one and the
-point follows the save: QL-3 `2026-10-07_1920` logged `rp_cl_root:FollowSave:kept-loaded` and
-re-listed the point the merge had reaped (its quicksave file already deleted), report-only
-`rewindPoints 1` where a production-shaped tree reads 0. Not a product defect, but a fixture
-divergence that reads like one (the RP-quicksave lesson in CLAUDE.md). Fix: give the corpus tree a
-split BranchPoint `bp_cl_root` carrying `RewindPointId = rp_cl_root`, then re-pin QL-3's
-`rewindPoints` window to 0 and re-check CL-3 / RF lanes that inject the corpus.
+Every injected rewind corpus (`RewindCrewLossFixture`, `RewindB9Fixture`,
+`ReFlyWorldPreservationFixture`, `RewindReadbackFixture`) built its point (`rp_cl_root`,
+`rp_b9_root`, `rp_wp_root`, `rp_rb_root`) SessionProvisional with no creating session and a
+`BranchPointId` (`bp_*_root`, "weak link, diagnostic only") its tree did not carry: the committed
+trees had no branch points at all (QL-3's saveParse `branchPoints: {}`). A production rewind point
+is authored on a branch point of its tree (`RewindPointAuthor.Begin` stamps `bp.RewindPointId`)
+and promoted to persistent at commit (`RecordingStore.PromoteNormalStagingRewindPoints`). The
+in-session owner partition (`InSessionStagedStateHandoff.Classify`) claims a point for a
+committed tree by that tree's branch-point ids or branch-point rewind-point ids, so it could not
+claim these and the point followed the save: QL-3 `2026-10-07_1920` logged
+`rp_cl_root:FollowSave:kept-loaded` and re-listed the point the merge had reaped (report-only
+`rewindPoints 1` where a production-shaped tree reads 0); QL-5 `2026-10-07_2035` logged
+`rp_b9_root:FollowSave:kept-loaded`. Not a product defect, but a fixture divergence that reads like
+one (the RP-quicksave lesson in CLAUDE.md).
+
+Fixed: each fixture's `BuildSplitBranchPoint` adds the decouple split (JointBreak, parent the
+stack root, children the two slot recordings, `RewindPointId` = the point) through
+`ScenarioWriter.AddRecordingsAsTree(branchPoints:)`, which links the root's `ChildBranchPointId`
+and the children's `ParentBranchPointId`, so the stack root is no longer a leaf (it no longer
+reaches the end-of-flight spawn path; on the pad corpora that path retired it, `Spawn RETIRED ...
+KSC exclusion zone`). Each point is now persistent (`SessionProvisional = false`, no creating
+session), the state the commit leaves a committed tree's staging point in; `LoadTimeSweep` only ever
+discards SessionProvisional points, so each stays a durable split point, and the reaper keeps it
+while its booster / pod slot is CommittedProvisional. `ReFlyThroughEvaFixture` (xUnit only, already
+persistent and linked by `BranchPointId`) now also stamps `RewindPointId` on its split. Log lines
+that move: the merge's `TagRpsForReap` promotes nothing (`fromNormalOrigin=0`); a Discard Re-fly
+logs Verbose `Origin RP already persistent rp=...` instead of Info `Origin RP promoted to persistent
+rp=...`; the sweep's `Keeping session-prov rp=... with no session scope` and `Missing rewind-point
+quicksave sweep skipped session-provisional rp=...` no longer print; step B reads
+`<rp>:CommittedOwner:kept-memory` (both sides hold it) or `<rp>:CommittedOwner:dropped-save-only`
+(a reaped point an earlier save still lists) instead of `FollowSave:kept-loaded`. Tests:
+`RewindFixtureBranchPointShapeTests` (per corpus: the tree carries the linked split whose children
+are the point's slots, the root is not a leaf, the point is persistent with an open slot, the owner
+partition claims it and drops a save-only copy; plus the through-EVA split; every b9 cell red with
+the B9 change reverted) and `RewindCrewLossFixtureTests` (three cells, red without the branch point).
+QL-3 re-pinned (`rewindPoints = { max = 0 }`, `rp_cl_root:CommittedOwner:dropped-save-only`
+required, `FollowSave` forbidden).
+
+Re-flight list (every spec injecting a changed corpus): no committed spec pins `fromNormalOrigin`,
+`Origin RP promoted`, `Keeping session-prov`, a `FollowSave` decision, a `branchPoints` window or a
+stack-root spawn token (grep of the non-comment lines, 2026-10-07). `rewind-crew-loss`: QL-3
+(changed), CL-3, CL-4. `rewind-b9`: S4.1, S1.5, R1, R7c, RF-12L, RF-16, RF-17, V1, and QL-5 on
+branch `refly-revert-verb` (its `rp_b9_root:[A-Za-z]+:kept-` token stays valid, now
+`CommittedOwner:kept-memory`; its `Origin RP (promoted to persistent|already persistent)` token
+takes the second branch; its forbidden `Reaped rp=rp_b9_root` still holds, the booster slot stays
+open). `refly-world-preservation`: S4.2, S4.3, S4.4. `rewind-readback`: RB-1, RB-2. Highest risk
+of a moved count: R7c (pins `BATCH_COMPLETE ... passed=6 failed=0 skipped=33` of the in-game Rewind
+category on this host: a test that skipped on a point with no branch point or a provisional point
+may now run) and RF-12L (same category, regexed).
 
 ---
 
@@ -1074,7 +1159,14 @@ pre-cutoff, untagged and other-tree events kept; pruned recording; milestone-hel
 snapshot; committed id; quicksave history kept: a terminal member, a committed-node chain segment,
 and a branch-point member plus its pruned child,
 `TryRestoreActiveTreeNode_CommittedBeforeTheQuicksave_BranchAfterCutoffMembersKept`). Open: lane
-QL-2.
+QL-2, AUTHORED 2026-10-07 (branch `ql-lanes`), never flown: `QL-2-quickload-career-recovery-not-paid`
+(career-pad-craft, B1's hop, F5, stock Recover, F9 from the Space Center; the existing `LoadGame
+name=quicksave` verb replaces the TC-1 `Quickload` verb, since QL-4 proved it classifies
+`refined=QuickloadFlight` in flight and QL-4b `InSessionOther` from the Space Center). Its payout
+events are captured at the Space Center, untagged, so this lane gates the ledger half
+(`afterCutoff>=1`) and reads `eventsPurged` without pinning it; a lane where a tagged in-flight
+event is abandoned still needs an in-flight earning after the F5 that no committed career host has
+(the contract variant is blocked by SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE).
 
 ---
 
@@ -1104,8 +1196,13 @@ rows stay. Red tests: `QuickloadAbandonedFutureLedgerTests` (detached committed 
 row at 300, death penalty and the cleared booster's KerbalAssignment retired, the contract at 150
 kept; re-commit through the tree commit books one row per fact; KSC, route, science (also at UT
 ~1e7) and other-tree rows kept; a tree committed BEFORE the quicksave keeps its history members'
-rows). Open: a career variant of lane QL-4; the residual
-QUICKLOAD-ENDED-MEMBER-RESTAMPED-AFTER-THE-SAVE-KEEPS-ITS-FUTURE.
+rows). Open: the residual QUICKLOAD-ENDED-MEMBER-RESTAMPED-AFTER-THE-SAVE-KEEPS-ITS-FUTURE; the
+career live proof is lane QL-2, AUTHORED 2026-10-07 (branch `ql-lanes`), never flown
+(`QL-2-quickload-career-recovery-not-paid`: a stock recovery after the F5 books funds, recovery
+science and crew XP to the flight; after the F9 from the Space Center the reconcile must read
+`ledgerRowsRetired>=1 (afterCutoff>=1`, and no later recalc may walk a Recovery earning or lift the
+funds pool). The booster plus a career reward in one lane needs a career twin of
+`gs1-two-stage-pad` and an in-flight earning that does not leave the scene; neither exists.
 
 Owner ruling 2026-10-06 (OQ-2): F9 into a later-committed flight's quicksave retires that tree's
 recording-tagged ledger rows after the quicksave; untagged KSC rows are kept.

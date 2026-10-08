@@ -6269,6 +6269,28 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Automated testing: the F9 checks automated (QL-2 new, QL-3 and QL-4b extended) and the
+  rewind fixtures production-shaped.** `QL-2-quickload-career-recovery-not-paid` (nightly,
+  flown red 2026-10-07 by a product finding, see below) is the career half of "a reward earned after the F5 is not paid": the Jumping
+  Flea hops in `career-pad-craft`, quicksaves on the ground, is recovered through stock's button
+  (funds, recovery science and crew XP booked to the flight), and the quicksave is loaded from
+  the Space Center. It requires the abandoned-future reconcile to retire the payout as
+  after-cutoff rows and forbids any later Recovery walk, funds uplift or guard clamp, a
+  re-booked payout and a Recovered ending at the final commit. It flies the new mission shell
+  `b1_pad_hop_career`: B1's machine, assertions and parameter schema with one control
+  difference, the unreadable-maneuver-node tolerance a career with a level-0 Tracking Station
+  needs (its first two attempts on plain `b1_pad_hop` went INVALID, vessel lost at PRELAUNCH
+  in 1.2 s on kRPC's `Maneuver node editing is not available`); the sandbox lanes keep
+  `b1_pad_hop` unchanged. QL-3 now also checks, after the
+  load of the save from before the Re-Fly, that the replaced pod stays out of the effective
+  recordings and of Space Center ghost playback and that the undone crew death stays skipped
+  with no permanent reservation; QL-4b checks that no ghost of the detached flight is built
+  after the F9 and that nothing is left committed. The injected rewind test corpora
+  (`rewind-crew-loss`, `rewind-b9`, `refly-world-preservation`, `rewind-readback`) now carry
+  their split branch point linked to their rewind point, and the point is persistent, as a
+  committed production tree has it, so an in-session load claims the point for its tree instead
+  of following the save (QL-3's report-only window is back at 0). No product change; QL-2's
+  mission switch is not yet re-flown.
 - **Endpoint part adoption behind the Logistics `Update parts` button.**
   `RouteEndpointPartAdoption.AdoptCurrentParts(route)` resolves the route's origin and every
   stop and stores each resolved vessel's current part flightIDs on the route
@@ -6339,8 +6361,9 @@ _(unreleased - entries accumulate here per commit)_
   PR #2017 an inert seam step costs one frame instead of a 0.25 s poll, so waits sized in inert
   steps shrank: the QL-4 lanes' post-load warp hit the physics hold (now waited out by the
   warp verb itself, next entry), their commit-UT token accepts 149.x, EX-1 waits for EndUT with
-  `WarpToUT maxRate=1`, and QL-3's report-only rewind-point window reads its fixture's 1. LF-2
-  red on the same cause and is fixed in its spec by the next entry. No product change.
+  `WarpToUT maxRate=1`, and QL-3's report-only rewind-point window read its fixture's 1 (back
+  at 0 since the fixture fix in the QL-2 entry above). LF-2 red on the same cause and is
+  fixed in its spec by the next entry. No product change.
 - **Automated testing: the warp command waits in any scene, and 1x waits are no longer counted in
   idle steps.** The test-command `WarpToUT` now runs at the Space Center and in the Tracking
   Station as well as in flight (the three scenes with KSP's time-warp control); with
