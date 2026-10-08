@@ -3724,7 +3724,9 @@ _(unreleased - entries accumulate here per commit)_
   330 s before the transmission), and a crewed vessel lost after a split got no reputation
   penalty in the ledger at all, because that penalty is booked on the part that carries the
   crew deaths. The split now moves the flight's not-yet-booked results past its cut onto the
-  later part, the way it already moved booked entries. Covered by xUnit; not yet checked in a
+  later part, the way it already moved booked entries, and the commit books every part before
+  it recomputes the career once (it used to recompute after each part, so the first pass ran
+  one milestone short and the funds guard clamped it). Covered by xUnit; not yet checked in a
   test flight.
 
 - **Rebuilding a facility at a lower level is now kept and charged.** KSP's facility menu,

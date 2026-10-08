@@ -305,6 +305,47 @@ namespace Parsek
             ref bool scienceActionsAddedToLedger,
             ReputationSeedOrigin? repSeedOriginOverride = null)
         {
+            var filed = FileRecordingCommitRows(
+                recordingId, startUT, endUT, pendingScienceOverride,
+                ref scienceActionsAddedToLedger, repSeedOriginOverride);
+
+            // 6. Recalculate + patch. Must run BEFORE ReconcileEarningsWindow so the
+            // walk populates derived fields (Transformed* / EffectiveRep / EffectiveScience)
+            // that the reconciliation switch now reads. See #440B.
+            RecalculateAndPatch();
+
+            CompleteRecordingCommitAfterWalk(filed);
+        }
+
+        /// <summary>
+        /// What <see cref="FileRecordingCommitRows"/> filed for one recording, carried to
+        /// the post-walk reconciliation (<see cref="CompleteRecordingCommitAfterWalk"/>).
+        /// </summary>
+        private struct FiledRecordingCommit
+        {
+            public string RecordingId;
+            public double StartUT;
+            public double EndUT;
+            public IReadOnlyList<GameStateEvent> Events;
+            public List<GameAction> Actions;
+        }
+
+        /// <summary>
+        /// Steps 1-5 of a recording commit: convert the recording's captured events,
+        /// pending science, vessel cost, crew and death-penalty rows, dedup them and add
+        /// them to the ledger. Runs NO ledger walk: the caller walks once
+        /// (<see cref="RecalculateAndPatch"/>) and then calls
+        /// <see cref="CompleteRecordingCommitAfterWalk"/>. A tree commit files every
+        /// recording first and walks once (OPTIMIZER-SPLIT-RETAG-COMMIT-WALK-TRANSIENT-CLAMP):
+        /// a walk between two recordings of one batch sees the batch partly filed, while
+        /// the live pools already hold all of it.
+        /// </summary>
+        private static FiledRecordingCommit FileRecordingCommitRows(
+            string recordingId, double startUT, double endUT,
+            IReadOnlyList<PendingScienceSubject> pendingScienceOverride,
+            ref bool scienceActionsAddedToLedger,
+            ReputationSeedOrigin? repSeedOriginOverride)
+        {
             // Test-only fault injection (see OnRecordingCommittedFaultInjector doc).
             OnRecordingCommittedFaultInjector?.Invoke(recordingId);
 
@@ -412,11 +453,22 @@ namespace Parsek
                 $"(events={events.Count}, science={scienceActions.Count}, cost={costActions.Count}, " +
                 $"kerbals={kerbalActions.Count}, dedup={dedupRemoved}, startUT={startUT:F1}, endUT={endUT:F1})");
 
-            // 6. Recalculate + patch. Must run BEFORE ReconcileEarningsWindow so the
-            // walk populates derived fields (Transformed* / EffectiveRep / EffectiveScience)
-            // that the reconciliation switch now reads. See #440B.
-            RecalculateAndPatch();
+            return new FiledRecordingCommit
+            {
+                RecordingId = recordingId,
+                StartUT = startUT,
+                EndUT = endUT,
+                Events = events,
+                Actions = actions,
+            };
+        }
 
+        /// <summary>
+        /// The post-walk half of a recording commit (step 5b). Must run after the walk
+        /// that includes this recording's rows.
+        /// </summary>
+        private static void CompleteRecordingCommitAfterWalk(FiledRecordingCommit filed)
+        {
             // 5b. #394 / #440B: commit-time reconciliation -- compare the sum of dropped
             // FundsChanged/ReputationChanged/ScienceChanged events (which the converter
             // intentionally drops, see GameStateEventConverter:121-130) against the
@@ -426,7 +478,8 @@ namespace Parsek
             // milestone channels (review section 5.1 regression guard).
             // #440B: now runs AFTER RecalculateAndPatch so it can read post-walk derived
             // fields; mirrors ReconcilePostWalk semantics and closes the double-WARN risk.
-            ReconcileEarningsWindow(events, actions, startUT, endUT, recordingId);
+            ReconcileEarningsWindow(
+                filed.Events, filed.Actions, filed.StartUT, filed.EndUT, filed.RecordingId);
         }
 
         /// <summary>
@@ -8213,7 +8266,9 @@ namespace Parsek
 
         /// <summary>
         /// Notifies the ledger orchestrator about each recording in a committed tree.
-        /// Calls OnRecordingCommitted for each recording in the tree.
+        /// Files every recording's rows (the steps of OnRecordingCommitted before its
+        /// walk), then runs ONE recalculation + patch for the whole tree, then each
+        /// recording's post-walk reconciliation.
         /// Chain continuations (ChainIndex > 0) have their startUT extended backward
         /// to the predecessor segment's EndUT, closing inter-segment gaps created by
         /// the optimizer's TrackSection splits so that events in those gaps are not lost.
@@ -8250,13 +8305,22 @@ namespace Parsek
             // and subtract those deaths twice.
             //
             // The one answer that does NOT survive the batch is NotYetCaptured, which
-            // names no seed: OnRecordingCommitted re-establishes it per recording,
-            // because a recording committed earlier in this same loop can create the
-            // seed in its own recalc. See the repSeedOriginOverride docstring.
+            // names no seed: FileRecordingCommitRows re-establishes it per recording,
+            // because a recording filed earlier in this same loop can make the next
+            // recording's ensure create the seed. See the repSeedOriginOverride docstring.
             ReputationSeedOrigin repSeedOrigin = EnsureReputationSeedForCommit();
 
             int gapsClosed = 0;
             bool commitSucceeded = false;
+            // Every recording's rows are filed before ONE walk runs
+            // (OPTIMIZER-SPLIT-RETAG-COMMIT-WALK-TRANSIENT-CLAMP). The live pools already
+            // hold the whole tree's effects, so a walk between two recordings sees a
+            // partial batch: after the commit-time optimizer split moved a milestone to the
+            // second half, the first half's own walk ran one award short and the funds
+            // drawdown guard clamped. The reputation-seed re-establish per recording still
+            // runs in FileRecordingCommitRows, against the same ledger the per-recording
+            // walk's ensure used to see.
+            var filedCommits = new List<FiledRecordingCommit>(tree.Recordings.Count);
             try
             {
                 foreach (var rec in tree.Recordings.Values)
@@ -8276,13 +8340,13 @@ namespace Parsek
                     bool scienceAddedToLedger = false;
                     try
                     {
-                        OnRecordingCommitted(
+                        filedCommits.Add(FileRecordingCommitRows(
                             rec.RecordingId,
                             startUT,
                             endUT,
                             perRecordingPending,
                             ref scienceAddedToLedger,
-                            repSeedOrigin);
+                            repSeedOrigin));
                         removedPending += RemovePendingSubjectsFromStatic(perRecordingPending);
                     }
                     catch
@@ -8294,6 +8358,27 @@ namespace Parsek
                 }
 
                 commitSucceeded = true;
+            }
+            catch
+            {
+                // Rows already filed for earlier recordings stay in the ledger; walk them
+                // so live state matches what was filed, as the per-recording walks did
+                // before the batch walk. The original exception still propagates.
+                if (filedCommits.Count > 0)
+                {
+                    try
+                    {
+                        RecalculateAndPatch();
+                    }
+                    catch (Exception walkEx)
+                    {
+                        ParsekLog.Warn(Tag,
+                            $"NotifyLedgerTreeCommitted: walk after a failed commit threw " +
+                            $"(filed={filedCommits.Count.ToString(CultureInfo.InvariantCulture)}): " +
+                            walkEx.Message);
+                    }
+                }
+                throw;
             }
             finally
             {
@@ -8344,6 +8429,21 @@ namespace Parsek
                             $"remaining={remainingPending})");
                     }
                 }
+            }
+
+            // 6. One walk for the whole tree, then each recording's post-walk
+            // reconciliation (it reads the walk's derived fields). An empty tree files
+            // nothing and walks nothing.
+            if (filedCommits.Count > 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"NotifyLedgerTreeCommitted: filed rows for " +
+                    $"{filedCommits.Count.ToString(CultureInfo.InvariantCulture)} recording(s) of " +
+                    $"tree '{tree.TreeName}' before one ledger walk " +
+                    $"(chainSegments={chainEndUTs.Count.ToString(CultureInfo.InvariantCulture)})");
+                RecalculateAndPatch();
+                for (int i = 0; i < filedCommits.Count; i++)
+                    CompleteRecordingCommitAfterWalk(filedCommits[i]);
             }
 
             // #390: prune events consumed by milestone creation + ledger conversion
