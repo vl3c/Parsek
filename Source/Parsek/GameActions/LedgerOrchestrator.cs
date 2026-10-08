@@ -289,8 +289,10 @@ namespace Parsek
         /// ONE OVERRIDE VALUE IS NOT CARRIED FORWARD:
         /// <see cref="ReputationSeedOrigin.NotYetCaptured"/> describes no seed at all -
         /// it is the batch's PREDICTION that one will be captured later off a live pool.
-        /// A recording earlier in the same batch falsifies that prediction whenever its
-        /// own step-6 recalc creates the seed
+        /// A recording earlier in the same batch falsifies that prediction whenever the
+        /// seed gets created before this recording files: in a tree commit (one walk after
+        /// every recording is filed) by a later recording's own seed ensure, on the
+        /// single-recording path by its step-6 recalc
         /// (<see cref="SeedInitialResourceBalances"/> -> EnsureInitialReputationSeed),
         /// and <see cref="RestampInsideSeedRowsAgainstCareerStartSeed"/> can only flip
         /// rows that already exist, so a later recording stamped from the stale

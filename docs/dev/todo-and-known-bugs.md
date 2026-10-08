@@ -30,9 +30,10 @@ rows are converted (`Committed recording '<second>': 3 actions added` 3 ms later
 one milestone (960) short and the guard clamps; the next walk credits it. The Oct 3 green runs
 (`2026-10-03_1523` / `_1533`, same split) had no retag and no clamp.
 
-Fix: `LedgerOrchestrator.NotifyLedgerTreeCommitted` (the one ledger notify both tree commit
-paths reach after the optimizer: `MergeDialog.MergeCommit`, which the auto-merge and the Re-Fly
-merge also run, and `ParsekFlight.CommitTreeFlight`) now files every recording's rows first
+Fix: `LedgerOrchestrator.NotifyLedgerTreeCommitted` (the one ledger notify every tree commit
+reaches: after the optimizer in `MergeDialog.MergeCommit`, which the auto-merge and the Re-Fly
+merge also run, and `ParsekFlight.CommitTreeFlight`; before or without it on the two
+`ParsekScenario` commit paths, which therefore have no split halves at filing time) now files every recording's rows first
 (`FileRecordingCommitRows`, steps 1-5 of `OnRecordingCommitted`), then runs ONE
 `RecalculateAndPatch`, then each recording's post-walk `ReconcileEarningsWindow`, logging
 `NotifyLedgerTreeCommitted: filed rows for N recording(s) ... before one ledger walk`. That
