@@ -58,7 +58,7 @@ instanceProfile = "stock-minimal"
 #       now creates both.
 #   Measured on the way: every scene load reads 9 recordings (FLIGHT, SPACECENTER,
 #   EDITOR), `listhandles kind=committed count=9` at the Space Center and in the
-#   editor, and the ledger saves `actions=16` from the loop fast-forward on (13 since PR #2028; pin below) - the
+#   editor, and the ledger saves `actions=16` from the loop fast-forward on (13 since PRs #2024 / #2028; pin below) - the
 #   value the ledger-unchanged pins below hold across the editor walk.
 #
 # READING RUN 2 (`2026-09-25_2334`, on the fix, PASS attempt 1 on every verifier but
@@ -159,7 +159,7 @@ required = [
   # until the launch settles read the same action count as before it.
   # 13 is the fixture's own ledger: the old 16 counted a RecordsDistance re-award stock
   # fired when the patcher synced the record during the loop fast-forward, the PWR-3
-  # bug PR #2028 fixed (green `2026-09-29_2152` added three MilestoneAchievement rows
+  # re-award stopped by PR #2024's pre-ledger progress seed with #2028 (green `2026-09-29_2152` added three MilestoneAchievement rows
   # with no recording at the jump UT; the 2026-10-09 re-flight adds none).
   "(?s)Saved ledger to [^\\r\\n]*actions=13\\r?\\n.*goeditor start .*Saved ledger to [^\\r\\n]*actions=13\\r?\\n.*goeditor complete ",
   # Ghosts replay after the round trip.
