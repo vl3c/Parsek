@@ -88,7 +88,12 @@ required = [
   "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
   "\\[RewindSave\\] Wrote rp=rp_[0-9a-f]{32} path=Parsek/RewindPoints[\\\\/]rp_[0-9a-f]{32}\\.sfs bytes=[1-9][0-9]*",
   "BATCH_COMPLETE v1 total=3 passed=2 failed=0 skipped=1 category=Storage scene=FLIGHT",
-  "rewind point quicksaves: checked=1 vessels=7 bytes=[1-9][0-9]*",
+  # vessels=4, re-pinned 2026-10-09 (branch `release-check-final`): the automation instance runs
+  # the player default DECLUTTER_KSC = True since the 2026-09-27 re-provision (KSS S6), and stock
+  # cleans the fixture's three LaunchPad launch-clamp debris on the first FLIGHT load, before
+  # onFlightReady (`Vessel Kerbal X Debris was removed from the game: it was debris cluttering up
+  # KSC.` x3 in `2026-10-09_0701` / `_0859`): six fixture vessels - 3 clamps + the released probe.
+  "rewind point quicksaves: checked=1 vessels=4 bytes=[1-9][0-9]*",
   "path validation on live save: rejected=47 invalidCharIds=39 acceptedRecordings=0 resolvedOnDisk=0 acceptedRewindPoints=1",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]",

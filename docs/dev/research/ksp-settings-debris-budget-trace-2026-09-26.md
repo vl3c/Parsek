@@ -35,11 +35,13 @@ Anything not read directly is marked (inferred).
   `flightState.protoVessels` (:4021) and runs `DestroyImmediate(vesselRef.gameObject)`
   (:4033). If the vessel is loaded and not active, Clean unloads it first (:3932-3956);
   the active vessel is never cleaned.
-  So the deletion happens on the first Update frame where the vessel is UNLOADED in a
-  career or science game. That can be the same flight scene, after the vessel drops
-  out of load range, or the next scene (KSC / TS), where every vessel is unloaded. In
-  sandbox (no currencies) an autoclean-flagged vessel is never deleted (inferred:
-  sandbox has CurrenciesAvailable false). `DestroyImmediate` routes through
+  So the deletion happens on the first Update frame where the vessel is UNLOADED, in
+  every game mode. That can be the same flight scene, after the vessel drops
+  out of load range, or the next scene (KSC / TS), where every vessel is unloaded.
+  CORRECTED 2026-10-09: this trace first inferred that sandbox never deletes; in fact
+  `Game.CurrenciesAvailable` returns true for SANDBOX (only CAREER and SCIENCE_SANDBOX
+  consult the Funding / R&D instances; decompiled), and ST-2 on the sandbox
+  `gs2-orbital-stack` measured three LaunchPad clamps removed on load. `DestroyImmediate` routes through
   `Vessel.OnDestroy`, which fires `onVesselDestroy` (Vessel.cs:9146). It does NOT fire
   `onVesselWillDestroy`, which only `Die()` fires (:8850).
 
