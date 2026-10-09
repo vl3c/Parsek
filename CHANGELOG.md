@@ -6,8 +6,6 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.5
 
-_(unreleased - entries accumulate here per commit)_
-
 ### Highlights
 
 - **A full UI refresh.** Every main Parsek window was redesigned or rebuilt around one
