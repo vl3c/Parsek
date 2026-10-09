@@ -58,7 +58,7 @@ instanceProfile = "stock-minimal"
 #       now creates both.
 #   Measured on the way: every scene load reads 9 recordings (FLIGHT, SPACECENTER,
 #   EDITOR), `listhandles kind=committed count=9` at the Space Center and in the
-#   editor, and the ledger saves `actions=16` from the loop fast-forward on - the
+#   editor, and the ledger saves `actions=16` from the loop fast-forward on (13 since PRs #2024 / #2028; pin below) - the
 #   value the ledger-unchanged pins below hold across the editor walk.
 #
 # READING RUN 2 (`2026-09-25_2334`, on the fix, PASS attempt 1 on every verifier but
@@ -157,7 +157,11 @@ required = [
   "(?s)launchfromeditor complete .*listhandles kind=committed count=9 ",
   # The ledger is unchanged by the walk: the building click's save and every save
   # until the launch settles read the same action count as before it.
-  "(?s)Saved ledger to [^\\r\\n]*actions=16\\r?\\n.*goeditor start .*Saved ledger to [^\\r\\n]*actions=16\\r?\\n.*goeditor complete ",
+  # 13 is the fixture's own ledger: the old 16 counted a RecordsDistance re-award stock
+  # fired when the patcher synced the record during the loop fast-forward, the PWR-3
+  # re-award stopped by PR #2024's pre-ledger progress seed with #2028 (green `2026-09-29_2152` added three MilestoneAchievement rows
+  # with no recording at the jump UT; the 2026-10-09 re-flight adds none).
+  "(?s)Saved ledger to [^\\r\\n]*actions=13\\r?\\n.*goeditor start .*Saved ledger to [^\\r\\n]*actions=13\\r?\\n.*goeditor complete ",
   # Ghosts replay after the round trip.
   "(?s)launchfromeditor complete .*phase=MeshSpawned .*reason=ghost-created",
   # The new flight commits as a SECOND tree.
@@ -171,7 +175,7 @@ forbidden = [
   "launchfromeditor refused",
   "launchfromeditor timeout",
   "Updated committed tree",
-  "(?s)goeditor start (?:(?!launchfromeditor complete).)*Saved ledger to [^\\r\\n]*actions=(?!16\\b)[0-9]+",
+  "(?s)goeditor start (?:(?!launchfromeditor complete).)*Saved ledger to [^\\r\\n]*actions=(?!13\\b)[0-9]+",
   "Scene load complete \\((EDITOR|FLIGHT)\\): (?!9 recordings,)[0-9]+ recordings,",
 ]
 
