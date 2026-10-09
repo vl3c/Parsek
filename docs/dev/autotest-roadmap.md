@@ -2389,7 +2389,7 @@ needs (`kind=active` -> `bg<i>pid` for D5 `chain-continuation-switch`, and
 preserved pid; the two D18 cells named here on 2026-09-08 morning were mis-scoped as
 switch cells - see the register item 2 closure); R12 Stage B's live `InvokeRewind`
 on a live RP id (RH-1 is the shape); and every future verb that addresses a live
-tree, vessel, route or kerbal. DELIVERED the same day: CI-1 rides `${bg.bg0pid}`,
+tree, vessel, route or kerbal. DELIVERED the same day: CI-1 rode `${bg.bg0pid}` (since 2026-10-09 it clicks the ship pid, the map also holding the parked EVA kerbal; CI-6 / CI-7 / CI-8 / CI-10 carry the handle proof),
 CI-2 rides `${handles.rp0}` plus the committed readback.
 
 **R11. A CAREER fixture with a flyable craft.** ~~One forge spec, one run.~~

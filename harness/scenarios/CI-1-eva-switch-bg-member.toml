@@ -49,6 +49,9 @@ tier = "daily"
 # =====================================================================================
 # THE CHAIN-INTERACTION WAVE, LANE 1 (roadmap priority register item 2, riding R10).
 #
+# SINCE 2026-10-09 the R10 notes below describe the 2026-09-08 shape: the click now names the
+# ship pid and the map holds two members (see the note above `required`).
+#
 # WHAT IT MEASURES. The stock-switch consume site has three routes -
 # committed-spawned-clone, bg-member-continuation, standalone - and every driven
 # switch to date measured `standalone` (S0.8: its target was a fixture vessel that was
