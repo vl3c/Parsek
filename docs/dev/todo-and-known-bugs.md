@@ -3626,7 +3626,7 @@ Info line, `loadgame flight-ready wait: waited frames=N seconds=S ...`. Mirror c
 committed spec acts in the pre-flight-ready window after a `LoadGame` (no step relies on it,
 no required token pins pre-flight-ready behaviour such as `fired before onFlightReady` or
 `Recording started on rails`), so there is no opt-out arg. The fourteen at-risk lanes above
-need no spec change; CI-1's `WarpToUT ut=423` is now redundant and stays (harmless). STAYS
+need no spec change; CI-1's wait is now redundant and stays, its target moved 423 -> 424 so it stays ahead of the awaited unpack (~422.1-422.3). STAYS
 OPEN as follow-ups: one green flight each for the fourteen lanes and EVA-6..EVA-10 before
 their `retry policy = "once"` can go; `LaunchFromEditor` still answers before stock
 onFlightReady (RR-1 waits on `ListHandles kind=chains`), not touched here.
