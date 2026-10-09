@@ -38,6 +38,13 @@
 # the same cells and pins; flown `2026-09-26_1843` PASS attempt 1 on the exact pins (no
 # FLIGHT scene in the session, relay B registered in the Tracking Station).
 #
+# THE 1x WAIT (2026-10-09, branch `seam-load-waits-flight-ready`). CN-1's fix, same cause:
+# the eight inert `RecordingState` settles before the batch shrank to 0.2 s under PR
+# #2017's 25 ms polls, and nightly `2026-10-09_0215` started the batch at UT 21.6, so the
+# rulings cell skipped (`window has not opened yet (ut=21.6 < 22.2)`). They are now one
+# `WarpToUT ut=24 maxRate=1` (WarpToUT runs in the Tracking Station; V17T..V23T use it).
+# Re-pinned, not yet re-flown.
+#
 # COVERAGE: claims D6 `commnet-relay` with CN-1, in the Tracking Station.
 
 schema = 1
@@ -60,16 +67,9 @@ steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
-  # 1x Tracking Station time so the relays' window is open and the lifecycle tick
-  # (0.25 s) has registered them when the batch runs.
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
+  # 1x Tracking Station time so the relays' window (UT 22.2) is open and the lifecycle
+  # tick (0.25 s) has registered them when the batch runs (header, THE 1x WAIT).
+  { cmd = "WarpToUT",   args = { ut = "24", maxRate = "1" }, expect = "OK", budget = 120 },
   { cmd = "RunTests",   args = { category = "GhostCommNet" }, expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit", expect = "OK" },
 ]

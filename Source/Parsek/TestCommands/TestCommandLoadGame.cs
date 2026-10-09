@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek.TestCommands
 {
@@ -34,6 +35,18 @@ namespace Parsek.TestCommands
         /// e.g. an NRE in FlightDriver.Start on an incompatible save): terminal ERROR
         /// (msg=load-failed-returned-to-menu).</summary>
         LoadFailedMenu,
+
+        /// <summary>The FLIGHT route's scene has settled with a game loaded, but Parsek's
+        /// onFlightReady has not run for this load yet, or the active vessel is still
+        /// packed: keep polling, and count the wait (LOADGAME-COMPLETES-BEFORE-ONFLIGHTREADY).
+        /// </summary>
+        AwaitingFlightReady,
+
+        /// <summary>The FLIGHT scene arrived but did not become flight-ready and unpacked
+        /// within <see cref="TestCommandLoadGame.FlightReadyWaitMaxSeconds"/> (or the LoadGame
+        /// budget ran out first): terminal ERROR (msg=load-flight-ready-timeout). Distinct
+        /// from <see cref="LoadTimeout"/> because the scene DID arrive.</summary>
+        FlightReadyTimeout,
     }
 
     /// <summary>
@@ -285,19 +298,82 @@ namespace Parsek.TestCommands
         /// expiry keep their meanings on EVERY route; only the success scene moves.
         /// The default keeps FLIGHT, so every pre-R12 four-argument call site reads
         /// unchanged.
+        ///
+        /// <para>THE FLIGHT ROUTE ALSO WAITS FOR FLIGHT READINESS
+        /// (LOADGAME-COMPLETES-BEFORE-ONFLIGHTREADY). A settled FLIGHT scene with a game is
+        /// reached before stock fires <c>onFlightReady</c> and before the active vessel
+        /// unpacks (about 1 s later), so a load that answered there handed the next step a
+        /// scene whose <c>ParsekFlight.ResetFlightReadyState</c> had not run yet (EVA-6) and
+        /// whose vessel was still on rails (CI-1 started recording on rails). The FLIGHT
+        /// route therefore completes only when <paramref name="flightReadyObserved"/> (the
+        /// NEW scene's ParsekFlight saw its event; <see cref="IsFlightReadyForThisLoad"/>)
+        /// and <paramref name="activeVesselUnpacked"/> both hold; until then it answers
+        /// <see cref="LoadCompletionDecision.AwaitingFlightReady"/>, and once
+        /// <paramref name="flightReadyWaitSeconds"/> (wall seconds since the scene arrived)
+        /// reaches <see cref="FlightReadyWaitMaxSeconds"/>, or the load budget runs out, it is
+        /// <see cref="LoadCompletionDecision.FlightReadyTimeout"/>, never a silent OK. The
+        /// SPACECENTER and TRACKSTATION routes ignore both inputs. The readiness defaults are
+        /// true so the two other completions that reuse this decision
+        /// (<c>ExitToSpaceCenter</c>, <c>LaunchFromEditor</c>) read unchanged; the LoadGame
+        /// completion passes all three.</para>
         /// </remarks>
         internal static LoadCompletionDecision DecideLoadCompletion(
             double elapsedSeconds, TestCommandScene currentScene, bool currentGameNonNull,
-            double budgetSeconds, TestCommandScene expectedScene = TestCommandScene.Flight)
+            double budgetSeconds, TestCommandScene expectedScene = TestCommandScene.Flight,
+            bool flightReadyObserved = true, bool activeVesselUnpacked = true,
+            double flightReadyWaitSeconds = 0.0)
         {
             if (currentScene == expectedScene && currentGameNonNull)
-                return LoadCompletionDecision.CompleteOk;
+            {
+                if (expectedScene != TestCommandScene.Flight)
+                    return LoadCompletionDecision.CompleteOk;
+                if (flightReadyObserved && activeVesselUnpacked)
+                    return LoadCompletionDecision.CompleteOk;
+                if (flightReadyWaitSeconds >= FlightReadyWaitMaxSeconds
+                    || elapsedSeconds >= budgetSeconds)
+                    return LoadCompletionDecision.FlightReadyTimeout;
+                return LoadCompletionDecision.AwaitingFlightReady;
+            }
             if (currentScene == TestCommandScene.MainMenu)
                 return LoadCompletionDecision.LoadFailedMenu;
             if (elapsedSeconds >= budgetSeconds)
                 return LoadCompletionDecision.LoadTimeout;
             return LoadCompletionDecision.StillWaiting;
         }
+
+        /// <summary>The bound on the FLIGHT route's flight-ready + unpack wait, in wall seconds
+        /// from the first frame the FLIGHT scene settled with a game loaded. The measured wait
+        /// is about 1-1.5 s (onFlightReady about 0.4 s after the settle, the unpack 1.0-1.2 s
+        /// after onFlightReady), so 60 s is a hang detector, not a tuning knob.</summary>
+        internal const double FlightReadyWaitMaxSeconds = 60.0;
+
+        /// <summary>The ERROR msg of <see cref="LoadCompletionDecision.FlightReadyTimeout"/>.</summary>
+        internal const string FlightReadyTimeoutReason = "load-flight-ready-timeout";
+
+        /// <summary>
+        /// True when the <c>ParsekFlight</c> instance now in the scene is NOT the one that was
+        /// live when the load started, and it has seen its own <c>onFlightReady</c>. The
+        /// instance check matters for a FLIGHT -> FLIGHT reload, where the previous scene's
+        /// instance had already observed ITS event. Unity instance ids are non-zero for live
+        /// objects, so 0 is the "no instance" sentinel on either side.
+        /// </summary>
+        internal static bool IsFlightReadyForThisLoad(
+            int currentFlightInstanceId, int previousFlightInstanceId, bool flightReadyObserved)
+        {
+            if (currentFlightInstanceId == 0)
+                return false;
+            if (currentFlightInstanceId == previousFlightInstanceId)
+                return false;
+            return flightReadyObserved;
+        }
+
+        /// <summary>The one Info line a FLIGHT load writes when its completion waited for
+        /// flight readiness (frames and wall seconds after the scene settled).</summary>
+        internal static string FormatFlightReadyWaitLine(int frames, double seconds, string save, string vesselName)
+            => "loadgame flight-ready wait: waited frames=" + frames.ToString(CultureInfo.InvariantCulture)
+               + " seconds=" + seconds.ToString("F2", CultureInfo.InvariantCulture)
+               + " after the FLIGHT scene settled (onFlightReady observed, active vessel unpacked) save="
+               + (save ?? string.Empty) + " vessel='" + (vesselName ?? string.Empty) + "'";
 
         /// <summary>Terminal completion payload once the new scene settles with a game loaded.</summary>
         internal static List<KeyValuePair<string, string>> BuildCompletePayload(string sceneName, string save)

@@ -31,8 +31,15 @@
 # LoadGame and are `in-window` a second later. C's start is 20 s behind the save's clock, so
 # it never latches and its real run is excluded as `historical-never-replayed` (the spawn
 # variant of the scope gate, which a loop member's real run takes) while its loop copies
-# render. The eight RecordingState steps are ~4 s of 1x flight time before the batch, so the
-# relays' window is open when it runs; the rulings cell skips (never fails) if it is not.
+# render. A 1x `WarpToUT ut=24` before the batch lets the relays' window (save UT ~21.2, so
+# it opens at 22.2) open first; the rulings cell skips (never fails) if it is not.
+#
+# THE 1x WAIT (2026-10-09, branch `seam-load-waits-flight-ready`). The batch used to sit
+# behind eight inert `RecordingState` steps, ~4 s of 1x time at the old 0.25 s seam poll.
+# PR #2017's 25 ms polls shrank them to 0.2 s: nightly `2026-10-09_0214` started the batch
+# at UT 21.6 and the rulings cell SKIPPED (`window has not opened yet (ut=21.6 < 22.2)`),
+# which reds the pinned `skipped=5`. The eight steps are now one `WarpToUT ut=24 maxRate=1`,
+# a wait to a named UT rather than a count of frames. Re-pinned, not yet re-flown.
 #
 # THE CELLS (category GhostCommNet, 9 declarations: 5 FLIGHT, 4 TRACKSTATION). MEASURED
 # `passed=4 skipped=5` here, as predicted before the first flight: the 4 TRACKSTATION cells
@@ -91,15 +98,9 @@ steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
-  # 1x flight time so the relays' window (save + 1 s) is open when the batch runs.
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
+  # 1x flight time so the relays' window (save + 1 s, UT 22.2) is open when the batch runs
+  # (header, THE 1x WAIT; replaced eight inert steps PR #2017's fast polls shrank to 0.2 s).
+  { cmd = "WarpToUT",   args = { ut = "24", maxRate = "1" }, expect = "OK", budget = 120 },
   { cmd = "RunTests",   args = { category = "GhostCommNet" }, expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit", expect = "OK" },
 ]

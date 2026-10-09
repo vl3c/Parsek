@@ -45,12 +45,24 @@ id = "EVA-5-ground-science-place-pickup"
 # drops an unavailable CSV name.
 #
 # THE GHOST EVIDENCE. After the commit the tree's mission loop is armed and StartLoopPlayback
-# replays it with ghostRenderTracing on; TimeJump steps walk the clock across the placement and
+# replays it with ghostRenderTracing on; a 1x WarpToUT walks the clock across the placement and
 # the pick-up. The member's ghost is built (`phase=MeshSpawned ... recId=<member>
 # reason=ghost-created`), and its own two events apply to a part the ghost CARRIES
 # (`applied=1 ... reason=applied`, pid = the placed part's pid), so the replay shows the
 # seismometer standing where it was placed until the pick-up. A `no-info-for-part` inventory
 # line is now forbidden: nothing records an inventory event against a ghost that lacks the part.
+#
+# THE 1x REPLAY WAIT (2026-10-09, branch `seam-load-waits-flight-ready`). The replay used to
+# be twelve `TimeJump deltaSeconds=10` steps. The mission loop's period is 10 s, so every jump
+# lands on the SAME cycle phase and only the real time between jumps moves the playhead; at
+# the old 0.25 s seam poll that walked it across the member's window. PR #2017's 25 ms polls
+# put the jumps ~0.08 s apart: nightly `2026-10-09_0234` relaunched at UT 31.52, jumped to
+# 41.64 .. 152, and never reached the member's window (recorded UT 23.30 placement, 23.8
+# pick-up event, 28.76 Disassembled, so cycle offsets ~1.8-7.3 s from the 21.5 start): no
+# member MeshSpawned, no Placed / Removed apply. The twelve jumps are now one
+# `WarpToUT ut=60 maxRate=1`. StartLoopPlayback lands at ~UT 31-37, so the 1x walk crosses at
+# least two full cycles and the member's whole window in the first (spawn + Placed apply at
+# ~1.8 s, Removed apply at ~2.3 s, retire at ~7.3 s). Re-pinned, not yet re-flown.
 #
 # SPAWN AT END is not witnessed here: this member is picked up (Disassembled, never spawned),
 # and a part left on the pad would be retired by the KSC exclusion zone rather than spawned.
@@ -94,18 +106,9 @@ steps = [
   { cmd = "UiAction",         args = { op = "close", window = "missions" },       expect = "OK" },
   { cmd = "StartLoopPlayback", args = { tree = "${c0.rec0tree}" },                expect = "OK", budget = 300 },
   { cmd = "MissionMark",      args = { label = "eva5 replay" },                   expect = "OK" },
-  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
-  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
-  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
-  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
-  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
-  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
-  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
-  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
-  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
-  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
-  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
-  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
+  # THE 1x REPLAY WAIT (header): one loop cycle and more at 1x, so the playhead crosses the
+  # member's window (cycle offset ~1.8-7.3 s) instead of jumping over it.
+  { cmd = "WarpToUT",         args = { ut = "60", maxRate = "1" },                expect = "OK", budget = 120 },
   { cmd = "FlushAndQuit",                                                         expect = "OK" },
 ]
 
@@ -163,7 +166,7 @@ forbidden = [
 
 [runtime]
 # 300 LoadGame + 120 EvaExit + 2 x 120 EvaGroundScience + 120 EvaBoard + 120 CommitTree
-# + 300 StartLoopPlayback + 12 fast TimeJumps + the single-phase verbs + margin.
+# + 300 StartLoopPlayback + 120 WarpToUT (~30 s of 1x replay) + the single-phase verbs + margin.
 budgetSeconds = 1800
 
 [retry]
