@@ -49,6 +49,9 @@ tier = "daily"
 # =====================================================================================
 # THE CHAIN-INTERACTION WAVE, LANE 1 (roadmap priority register item 2, riding R10).
 #
+# SINCE 2026-10-09 the R10 notes below describe the 2026-09-08 shape: the click now names the
+# ship pid and the map holds two members (see the note above `required`).
+#
 # WHAT IT MEASURES. The stock-switch consume site has three routes -
 # committed-spawned-clone, bg-member-continuation, standalone - and every driven
 # switch to date measured `standalone` (S0.8: its target was a fixture vessel that was
@@ -109,7 +112,7 @@ tier = "daily"
 # exactly `recordings.structure.branchPoints.VesselSwitchContinuation 1 < min 2`,
 # nothing else moved. LIVE-PROVEN.
 # =====================================================================================
-description = "Chain-interaction lane 1, riding R10: StartRecording on the orbiting Kerbal X, EvaExit so the EVA split puts the SHIP into the live tree's BackgroundMap, ListHandles kind=active labelled bg, then SimulateStockSwitchClick pid=${bg.bg0pid} - the first driven switch whose consume route is gated as bg-member-continuation rather than S0.8's measured standalone."
+description = "Chain-interaction lane 1, riding R10: StartRecording on the orbiting Kerbal X, EvaExit so the EVA split puts the SHIP into the live tree's BackgroundMap, ListHandles kind=active labelled bg (observed: the ship plus the parked EVA kerbal), then SimulateStockSwitchClick on the ship pid 3620499050 - the first driven switch whose consume route is gated as bg-member-continuation rather than S0.8's measured standalone."
 instanceProfile = "stock-minimal"
 tags = ["CI-1", "chain-interaction", "switch-segment", "bg-member", "eva", "R10",
         "runtime-handles", "kerbin", "sandbox", "reading-run", "first-consumer"]
@@ -144,10 +147,12 @@ steps = [
   { cmd = "WarpToUT",   args = { ut = "424", maxRate = "1" },                     expect = "OK", budget = 120 },
   { cmd = "StartRecording",                                                      expect = "OK" },
   { cmd = "EvaExit",    args = { release = "true", settleSeconds = "10" },        expect = "OK", budget = 120 },
-  # THE R10 HALF: read the live BackgroundMap rather than the fixture.
+  # The live BackgroundMap, observed (2026-10-09: two members, see the contract note).
   { cmd = "ListHandles", args = { kind = "active" }, label = "bg",                expect = "OK" },
-  # THE SUBJECT: the click onto the background member, by the pid the seam listed.
-  { cmd = "SimulateStockSwitchClick", args = { pid = "${bg.bg0pid}" },            expect = "OK", budget = 120 },
+  # THE SUBJECT: the click onto the backgrounded SHIP, by its fixture-baked pid. Not
+  # `${bg.bg0pid}` any more: since the seam LoadGame waits for the unpack (PR #2059) the
+  # parked EVA kerbal also sits in the BackgroundMap with a random, usually lower pid.
+  { cmd = "SimulateStockSwitchClick", args = { pid = "3620499050" },               expect = "OK", budget = 120 },
   # StopRecording, then NO CommitTree (S0.8's shape): the ARM and the CONSUME are the
   # assertion; committing would change the tree the structure block below reads. Quitting
   # from FLIGHT with a recorder live reds REC-003, hence the stop.
@@ -220,14 +225,17 @@ branchPoints   = { EVA = { min = 1, max = 1 }, VesselSwitchContinuation = { min 
 # bound on the bg-member route -> the route line itself -> the marker was spent by
 # the CONSUME (not by the verb) -> the verb's own completion.
 #
-# `bg0pid` is the pid-ascending first member; with exactly one member (`bg=1`) it is the
-# ship, and the `focusedPid=3620499050` literal on the created line is the identity
-# proof that the listed pid IS the fixture's ship - the pid the spec itself never wrote
-# into an arg.
+# 2026-10-09 (release check, branch `ci1-ship-pid`): the BackgroundMap now holds TWO members
+# after the EVA, the ship and the parked EVA kerbal. An EVA branch parks the kerbal's
+# recording in the BackgroundMap and leaves its promotion to the post-switch
+# first-modification watcher (`TryPromoteEvaRecordingForBoardMerge` remarks); the old
+# on-rails start fired an OrbitChange promotion within 8 ms, which a start on an unpacked
+# ship (the player's shape, PR #2059) does not. So the count is 2 and the click names the
+# ship's pid directly; the R10 handle-consumption proof lives on in CI-6 / CI-7 / CI-8 / CI-10.
 required  = [
   "Recording started",
   "Tree branch created: type=EVA, bp=[0-9a-f]{32}, activeChild=[0-9a-f]{32} \\(pid=3620499050\\), bgChild=[0-9a-f]{32} \\(pid=[0-9]+\\), evaCrew=Valentina Kerman",
-  "listhandles kind=active count=1 truncated=false",
+  "listhandles kind=active count=2 truncated=false",
   "switchclick gate targetPid=3620499050 targetName=Kerbal X scenarioReady=true canSwitchVesselsFar=true targetIsActiveVessel=false targetIsUnloaded=false hasActiveRecording=true hasActiveSession=false priorFocusedPid=0 anotherDialogOpen=false targetIsSeparateCommittedVessel=false dialogDecision=NoPriorSession",
   "switchclick armed intent: intentId=.* action=MapSwitchTo targetPid=3620499050 sourceScene=Flight .* ttl=2s route=plain-arm-and-switch",
   "unique-terminal-leaf treeId=\\S+ focusedPid=3620499050 leafRecId=[0-9a-f]{32}",
