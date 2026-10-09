@@ -16,6 +16,75 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~LAUNCHFROMEDITOR-REFUSED-ON-TRANSIENT-LAUNCH-LOCK: `LaunchFromEditor` refused `launch-locked` about 100 ms after the editor settled, with no Parsek lock up~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-09 in the seam, branch `harness-editor-lock-wait`; cause unproven; xUnit only, not re-flown. harness]
+
+`RR-1-relaunch-rewind-keeps-earlier-launch` `2026-10-09_0614` (attempt 1) and
+`SE-1-editor-round-trip` `_0643` / `_0650_a2` (both attempts) read INVALID on
+`LaunchFromEditor REJECTED launchfromeditor-launch-locked ... unlocked=false site=Runway
+obstructing=0`, 105-120 ms after `goeditor complete`. Before PR #2017 the next step arrived
+~0.5 s later; it now arrives a few frames later. No Parsek lock was held. Suspected, not proven:
+a stock `EditorLogic.Lock()` (or an input-lock owner such as a hover / click-through guard) holds
+`EDITOR_LAUNCH` for a few frames right after the editor restart that the craft load runs. The
+refusal named no holder, so the cause cannot be read off these logs.
+
+**Fix (2026-10-09, branch `harness-editor-lock-wait`, seam only).** When the `EDITOR_LAUNCH` lock
+is the ONLY thing shutting the launch gate (the same gate with the lock released would proceed),
+`LaunchFromEditor` goes two-phase without pressing Launch and re-samples the gate every frame for
+up to `TestCommandEditorRoute.LaunchLockWaitSeconds` (10 s). The frame the lock clears it presses
+Launch and logs one Info `launchfromeditor lock-wait cleared waited=... frames=...`; a lock that
+outlives the window refuses with the same `REJECTED launchfromeditor-launch-locked` (hlib's
+`driver-gate`), now followed by `lockHolders=<id>:0x<mask>,...` from stock's
+`InputLockManager.lockStack` and `waited=`. Every other refusal (and a lock in front of another
+blocker) is still immediate. Pure decision `DecideLaunchLockWait` / `LaunchLockIsOnlyBlocker`,
+unit-tested in `TestCommandEditorRouteTests`. The next flight's log answers the cause: a
+`lock-wait cleared` line says it was transient, a refusal names the holder.
+
+---
+
+## ~~RSC-1-SETTLE-SHRUNK-BY-FAST-POLLS: RSC-1 opens Real Spawn Control before the proximity scan admits its row~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-09 in the spec, branch `harness-editor-lock-wait`; not re-flown. harness]
+
+`RSC-1-real-spawn-control-warp` `2026-10-09_0620` / `_0621_a2` read INVALID on
+`UiAction open spawncontrol` -> `ERROR window-self-closed` (`auto-close: reason=zero-candidates`):
+the window opened 0.76 s after load, before the proximity scan's second sighting (~1.5 s after
+the first). The eight inert `describe` steps that bought ~4 s cost one frame each since PR #2017
+(the same family as HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, which this lane escaped). Fix: the
+eight describes are now one `WarpToUT ut=26 maxRate=1` (budget 120). The last green run
+`2026-09-25_2233` loaded at UT 21.5, drew the ghost at UT 22.2 and logged the `Proximity
+notification` ~2 s later (~UT 24.2); UT 26 is past it and ~56 s before the warp target EndUT 82.2.
+`budgetSeconds` 900 -> 1560 (one more deferred step, 660 s).
+
+---
+
+## VB-1-KSP-HANG-AT-MAIN-MENU: KSP stalled at the main menu before the seam received `LoadGame`, and the watchdog only killed it at 660 s [FILED 2026-10-09 from the nightly release check. OPEN, harness]
+
+`VB-1-ghost-vessel-budget` `2026-10-09_0755` read KILLED (budget) after 674 s: the collected
+`KSP.log` (`logs/2026-10-09_1107_VB-1-ghost-vessel-budget`) ends ~0.5 s after `Scene Change : From
+LOADING to MAINMENU`, with no `recv id=` line at all, so the seam never saw the first `LoadGame`
+and KSP itself stopped writing. The run then sat out the LoadGame step wait (max(300, 600) + 60)
+and was KILLED, which prints nothing to classify and does not retry like an INVALID. Not a Parsek
+defect as far as the log shows (nothing Parsek-side ran after MAINMENU). Proposal: an early
+no-seam-heartbeat check in `run.py` - when the seam has acknowledged nothing (no `recv`, no
+journal CLAIMED) a bounded time after KSP reached MAINMENU (or after the log stops growing), end
+the attempt as a retryable `INVALID` (for example `subkind=boot-stall`) instead of waiting out the
+deferred step budget.
+
+---
+
+## V3C-CAPTURE-AIMS-INTO-IKE: V3C's capture leaves Duna's SOI through Ike on both attempts [FILED 2026-10-09 from the nightly release check. OPEN, mission]
+
+`V3C-flight-arrival-companion` `2026-10-09_0731` / `_0743_a2` both read INVALID (mission):
+`MISSION-ASSERT-FAIL ... left the target SOI during CAPTURE-BURN without a committed park:
+body='Ike'`. The arrival hyperbola's periapsis was 2.9 Mm / 2.5 Mm altitude (`CAPTURE-BURN
+telemetry ... pe=2876603 ... nextBody=Ike`), inside Ike's funnel; the `2026-10-01` MISSION-OK run
+arrived at 7.0 Mm. The spec's own header (THE IKE MODE) already names the lever: the correction
+rounds aim `courseCorrectPeriapsisMeters = 300000` (300 km, dead centre of the funnel, shell
+~1,734-4,026 km altitude), so where the hyperbola lands is arrival-geometry variance. Recommended:
+aim the arrival periapsis at >= 4,300 km altitude (the high band run 4 flew naturally), or replan
+the capture when the patched conics report `nextBody=Ike` before the burn. A mission fix, not a
+Parsek defect (a mission that did not fly is driver-INVALID).
+
+---
+
 ## IDLE-ON-PAD-READS-ONE-SAMPLE-ORBITING-RECORDING-AS-IDLE: a recording with one trajectory sample reads maxDist 0, so the idle-on-pad discard drops it even when the vessel is orbiting [FILED 2026-10-09 from H67's drift (todo H67-AUTOMERGE-DWELL-ENDS-BEFORE-BACKSTOP-SAMPLE), branch `ingame-test-drift`. OPEN, product, low]
 
 `ParsekFlight.IsTreeIdleOnPad` (`Source/Parsek/ParsekFlight.cs`) returns true when every recording

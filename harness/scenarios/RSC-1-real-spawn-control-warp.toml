@@ -33,8 +33,10 @@ tier = "nightly"
 # ORDER: the window must be OPEN for op=warp (a shut window has no button), and it
 # auto-closes on a draw with zero candidates, so the open step is itself the precondition
 # check. The proximity scan needs two sightings (1.5 s apart) before it admits a row; the
-# settle steps before the open buy that time, and `Proximity notification` - which
-# fires only for a candidate already INSIDE the warp gates - is required below.
+# 1x `WarpToUT ut=26` before the open buys that time on the game clock (PR #2017 made the
+# inert describe steps that used to buy it cost one frame each), and `Proximity
+# notification` - which fires only for a candidate already INSIDE the warp gates - is
+# required below.
 description = "D13 real-spawn-control: over gloops-airshow plus the spawn-control-target preset (one stationary Landed probe ~130 m from the pad, in progress at load), open Real Spawn Control, press the first row's enabled Warp through the button's own click body (UiAction op=warp), and require the warp line, the time jump to the recording's EndUT and the spawn that follows."
 instanceProfile = "stock-minimal"
 tags = ["real-spawn-control", "spawn", "ui-seam", "RSC-1"]
@@ -60,16 +62,14 @@ steps = [
   # admits a row only on its SECOND sighting 1.5 s later; the first reading run
   # (`2026-09-25_2123`) opened the window 0.75 s after the ghost appeared and measured
   # `auto-close: reason=zero-candidates` with the `Proximity notification` landing 1.3 s
-  # AFTER the open. There is no wait verb; eight read-only describes are ~4 s of wall
-  # (the pump answers a step every ~0.5 s) and cannot perturb the scene.
-  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  # AFTER the open. Eight read-only describes used to buy ~4 s of wall here, but since
+  # PR #2017 (fast seam polls) an inert step costs one frame, and the 2026-10-09 nightly
+  # opened the window 0.76 s after load and read INVALID `window-self-closed` on both
+  # attempts. A 1x `WarpToUT` waits on the GAME clock instead: the save loads at UT 21.5,
+  # the ghost appears at UT 22.2 and the notification fired at ~UT 24.2 on the last green
+  # run (`2026-09-25_2233`, wall 2.0 s after the ghost), so UT 26 is past the second
+  # sighting with ~1.8 s to spare and ~56 s before the warp target (EndUT 82.2).
+  { cmd = "WarpToUT", args = { ut = "26", maxRate = "1" }, expect = "OK", budget = 120 },
   # NO `op=rect`: the window keeps its own first-open rect (beside the main window, 750
   # wide, as tall as its one row needs), so the capture shows the size a player gets.
   { cmd = "UiAction", args = { op = "open", window = "spawncontrol" }, expect = "OK" },
@@ -116,7 +116,9 @@ required = [
 forbidden = ["\\[Parsek\\]\\[ERROR\\]", "warp-button-disabled", "warp-no-candidate-row"]
 
 [runtime]
-budgetSeconds = 900
+# The deferred worst case run.py waits: LoadGame max(300,600)+60 = 660 + WarpToUT
+# max(120,600)+60 = 660, plus 240 for the non-deferred steps -> 1560.
+budgetSeconds = 1560
 
 [retry]
 policy = "once"

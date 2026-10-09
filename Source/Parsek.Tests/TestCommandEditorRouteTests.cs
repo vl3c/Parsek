@@ -229,6 +229,152 @@ namespace Parsek.Tests
             Assert.Equal(TestCommandEditorRoute.Reasons.Length, TestCommandEditorRoute.Reasons.Distinct().Count());
         }
 
+        // ---- launch lock wait ----
+
+        [Fact]
+        public void LockIsOnlyBlocker_OnlyWhenTheGateWouldOtherwiseProceed()
+        {
+            Assert.True(TestCommandEditorRoute.LaunchLockIsOnlyBlocker(
+                TestCommandScene.Editor, true, 73, false, true, 0));
+            // Not locked at all.
+            Assert.False(TestCommandEditorRoute.LaunchLockIsOnlyBlocker(
+                TestCommandScene.Editor, true, 73, true, true, 0));
+            // Locked AND something else blocks.
+            Assert.False(TestCommandEditorRoute.LaunchLockIsOnlyBlocker(
+                TestCommandScene.Editor, true, 73, false, false, 0));
+            Assert.False(TestCommandEditorRoute.LaunchLockIsOnlyBlocker(
+                TestCommandScene.Editor, true, 73, false, true, 1));
+            Assert.False(TestCommandEditorRoute.LaunchLockIsOnlyBlocker(
+                TestCommandScene.Editor, true, 0, false, true, 0));
+            Assert.False(TestCommandEditorRoute.LaunchLockIsOnlyBlocker(
+                TestCommandScene.SpaceCenter, true, 73, false, true, 0));
+        }
+
+        [Fact]
+        public void LockWait_LockClearsInsideTheWindow_Proceeds()
+        {
+            double max = TestCommandEditorRoute.LaunchLockWaitSeconds;
+            // First look: locked, lock the only blocker -> wait (nothing pressed yet).
+            Assert.Equal(LaunchLockWaitOutcome.Wait, TestCommandEditorRoute.DecideLaunchLockWait(
+                LaunchFromEditorGate.LaunchLocked, true, 0.0, max));
+            Assert.Equal(LaunchLockWaitOutcome.Wait, TestCommandEditorRoute.DecideLaunchLockWait(
+                LaunchFromEditorGate.LaunchLocked, true, 0.12, max));
+            // A later frame: the lock released -> proceed.
+            Assert.Equal(LaunchLockWaitOutcome.Proceed, TestCommandEditorRoute.DecideLaunchLockWait(
+                LaunchFromEditorGate.Proceed, false, 0.3, max));
+            // An open gate on the first look proceeds at once, as before.
+            Assert.Equal(LaunchLockWaitOutcome.Proceed, TestCommandEditorRoute.DecideLaunchLockWait(
+                LaunchFromEditorGate.Proceed, false, 0.0, max));
+        }
+
+        [Fact]
+        public void LockWait_LockPersistsPastTheWindow_RefusesLaunchLocked()
+        {
+            double max = TestCommandEditorRoute.LaunchLockWaitSeconds;
+            Assert.Equal(LaunchLockWaitOutcome.Wait, TestCommandEditorRoute.DecideLaunchLockWait(
+                LaunchFromEditorGate.LaunchLocked, true, max - 0.01, max));
+            Assert.Equal(LaunchLockWaitOutcome.Refuse, TestCommandEditorRoute.DecideLaunchLockWait(
+                LaunchFromEditorGate.LaunchLocked, true, max, max));
+            Assert.Equal(LaunchLockWaitOutcome.Refuse, TestCommandEditorRoute.DecideLaunchLockWait(
+                LaunchFromEditorGate.LaunchLocked, true, max + 5, max));
+            // The refusal reason is today's, byte-for-byte (hlib maps it to driver-gate).
+            Assert.Equal("launchfromeditor-launch-locked",
+                TestCommandEditorRoute.GateReason(LaunchFromEditorGate.LaunchLocked));
+        }
+
+        [Theory]
+        [InlineData((int)LaunchFromEditorGate.WrongScene)]
+        [InlineData((int)LaunchFromEditorGate.NoShip)]
+        [InlineData((int)LaunchFromEditorGate.SiteInvalid)]
+        [InlineData((int)LaunchFromEditorGate.SiteObstructed)]
+        public void LockWait_OtherRefusals_AreImmediate(int gateValue)
+        {
+            var gate = (LaunchFromEditorGate)gateValue;
+            Assert.Equal(LaunchLockWaitOutcome.Refuse, TestCommandEditorRoute.DecideLaunchLockWait(
+                gate, false, 0.0, TestCommandEditorRoute.LaunchLockWaitSeconds));
+            // Even mid-wait (the lock cleared and something else appeared), they refuse.
+            Assert.Equal(LaunchLockWaitOutcome.Refuse, TestCommandEditorRoute.DecideLaunchLockWait(
+                gate, false, 2.0, TestCommandEditorRoute.LaunchLockWaitSeconds));
+        }
+
+        [Fact]
+        public void LockWait_LockedInFrontOfAnotherBlocker_RefusesImmediately()
+        {
+            // Gate order unchanged: a locked button over an obstructed site reads
+            // launch-locked, and refuses on the first look as it did before the wait.
+            bool onlyLock = TestCommandEditorRoute.LaunchLockIsOnlyBlocker(
+                TestCommandScene.Editor, true, 73, false, true, 2);
+            LaunchFromEditorGate gate = TestCommandEditorRoute.DecideLaunchGate(
+                TestCommandScene.Editor, true, 73, false, true, 2);
+            Assert.Equal(LaunchFromEditorGate.LaunchLocked, gate);
+            Assert.Equal(LaunchLockWaitOutcome.Refuse, TestCommandEditorRoute.DecideLaunchLockWait(
+                gate, onlyLock, 0.0, TestCommandEditorRoute.LaunchLockWaitSeconds));
+        }
+
+        [Fact]
+        public void LockWait_WindowFitsInsideTheVerbBudget()
+        {
+            Assert.True(TestCommandEditorRoute.LaunchLockWaitSeconds > 0);
+            Assert.True(TestCommandEditorRoute.LaunchLockWaitSeconds * 4
+                        < DeferralBudget.BudgetSeconds(TestCommandEditorRoute.LaunchFromEditorVerb));
+        }
+
+        [Fact]
+        public void EditorLaunchLockBit_IsStocksControlType()
+        {
+            Assert.Equal((ulong)ControlTypes.EDITOR_LAUNCH, TestCommandEditorRoute.EditorLaunchLockBit);
+        }
+
+        [Fact]
+        public void LockHolders_NamesOnlyEntriesCoveringTheBit_Sorted()
+        {
+            ulong bit = TestCommandEditorRoute.EditorLaunchLockBit;
+            var stack = new Dictionary<string, ulong>
+            {
+                { "zeta lock", bit | 0x1UL },
+                { "camera", 0x2UL },
+                { "alpha", ulong.MaxValue },
+            };
+            Assert.Equal("lockHolders=alpha:0xFFFFFFFFFFFFFFFF,zeta_lock:0x1000000001",
+                TestCommandEditorRoute.FormatLockHolders(stack, bit, 8));
+        }
+
+        [Fact]
+        public void LockHolders_NoneOrNull_IsDash()
+        {
+            ulong bit = TestCommandEditorRoute.EditorLaunchLockBit;
+            Assert.Equal("lockHolders=-", TestCommandEditorRoute.FormatLockHolders(
+                new Dictionary<string, ulong> { { "camera", 0x2UL } }, bit, 8));
+            Assert.Equal("lockHolders=-", TestCommandEditorRoute.FormatLockHolders(null, bit, 8));
+        }
+
+        [Fact]
+        public void LockHolders_CappedWithACountTail()
+        {
+            ulong bit = TestCommandEditorRoute.EditorLaunchLockBit;
+            var stack = new Dictionary<string, ulong>();
+            for (int i = 0; i < 5; i++) stack["h" + i] = bit;
+            Assert.Equal("lockHolders=h0:0x1000000000,h1:0x1000000000,+3",
+                TestCommandEditorRoute.FormatLockHolders(stack, bit, 2));
+        }
+
+        [Fact]
+        public void LockWaitClearedLine_IsInvariant()
+        {
+            var saved = CultureInfo.CurrentCulture;
+            try
+            {
+                CultureInfo.CurrentCulture = new CultureInfo("de-DE");
+                string line = TestCommandEditorRoute.FormatLockWaitClearedLine(0.25, 14);
+                Assert.StartsWith("launchfromeditor lock-wait cleared waited=0.25s frames=14 ", line);
+                Assert.Contains("10s window", line);
+            }
+            finally
+            {
+                CultureInfo.CurrentCulture = saved;
+            }
+        }
+
         // ---- launch completion ----
 
         [Fact]
