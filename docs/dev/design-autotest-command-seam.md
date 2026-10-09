@@ -4195,7 +4195,7 @@ parsed, N deferred), with bounded per-command Info lines (command counts are sma
 | `DiscardTree` | FLIGHT; if no active tree -> OK `nothing=true` | stop recorder if live, then `ParsekFlight.AutoDiscardActiveTreeWithMessage(reason, screenMessage, ledgerRecalcReason)` (the wrong-context-caller entry point) with test-command-specific strings | `discarded` bool |
 | `RecordingState` | any scene (read-only); with the optional `awaitRecorderLive=refly`, Defer `refly-recorder-not-live` until a recorder AND a re-fly session marker are live (S4.4; a bad value Rejects `await-recorder-live-arg-invalid`) | snapshot recorder/tree state (reuses `RecorderStateLog.FormatRecState` inputs) | `recording`, `tree` (the `RecordingTree.Id` of the active tree, empty when none - adjudication B), `points`, `scene` |
 | `RunTests` | any scene the runner supports; else Defer | `InGameTestRunner.RunAll()` (no `category`) or `RunCategory(category)`; with `isolated=true` (R5) the `*IncludingFlightRestore` variant instead, which also admits `RestoreBatchFlightBaselineAfterExecution` tests and restores a flight baseline after each. An `isolated` value other than the exact lowercase `true`/`false` is REJECTED `isolated-arg-invalid` (fail-closed: a silent fallback would run the ordinary filter and print an all-skipped tally that reads like a Parsek defect). Response deferred until `IsRunning` goes true->false and `ExportResultsFile` ran | `passed`, `failed`, `skipped`, `results=parsek-test-results.txt` |
-| `LoadGame` | any scene incl. MAINMENU (the BOOT CHANNEL); Reject if a recorder is live (`msg=recording-active`, unless `allowLiveRecorder=refly` is passed AND a re-fly session marker is live - RF-3/A1) or a load is already in flight (`msg=load-in-flight`) | long-running two-phase (like `RunTests`): journal `CLAIMED` -> initiate load (`HighLogic.SaveFolder = dir`; `GamePersistence.LoadGame(...)`; `FlightDriver.StartAndFocusVessel(...)` - the same Assembly-CSharp-only sequence as v0.5.4 `TestingTools.LoadSave`, no kRPC types); response deferred until the new scene settles (pure `TestCommandLoadGame.DecideLoadCompletion`): a settled FLIGHT scene with `HighLogic.CurrentGame != null` -> journal `EXECUTED` + terminal `OK`; a settle-back to MAINMENU -> `ERROR msg=load-failed-returned-to-menu` (a failed flight boot, e.g. an NRE in `FlightDriver.Start` on an incompatible save); the LoadGame budget expiring -> `ERROR msg=load-timeout`. A null / incompatible game detected up front (before two-phase) is still `ERROR msg=load-failed` | `scene`, `save`, `allowLiveRecorder` |
+| `LoadGame` | any scene incl. MAINMENU (the BOOT CHANNEL); Reject if a recorder is live (`msg=recording-active`, unless `allowLiveRecorder=refly` is passed AND a re-fly session marker is live - RF-3/A1) or a load is already in flight (`msg=load-in-flight`) | long-running two-phase (like `RunTests`): journal `CLAIMED` -> initiate load (`HighLogic.SaveFolder = dir`; `GamePersistence.LoadGame(...)`; `FlightDriver.StartAndFocusVessel(...)` - the same Assembly-CSharp-only sequence as v0.5.4 `TestingTools.LoadSave`, no kRPC types); response deferred until the new scene settles (pure `TestCommandLoadGame.DecideLoadCompletion`): a settled FLIGHT scene with `HighLogic.CurrentGame != null`, Parsek's `onFlightReady` observed by the NEW scene's `ParsekFlight` and the active vessel unpacked -> journal `EXECUTED` + terminal `OK` (the waited frames / seconds logged as `loadgame flight-ready wait:`); a FLIGHT scene that does not become flight-ready and unpacked within 60 s (`TestCommandLoadGame.FlightReadyWaitMaxSeconds`) or the load budget -> `ERROR msg=load-flight-ready-timeout`; a settle-back to MAINMENU -> `ERROR msg=load-failed-returned-to-menu` (a failed flight boot, e.g. an NRE in `FlightDriver.Start` on an incompatible save); the LoadGame budget expiring -> `ERROR msg=load-timeout`. A null / incompatible game detected up front (before two-phase) is still `ERROR msg=load-failed` | `scene`, `save`, `allowLiveRecorder` |
 | `MissionMark` | any scene | emit a stable `[Parsek][Info][TestCommands] MISSIONMARK label=<label> ut=<ut>` log line (H3-style correlation) | `label` echoed |
 | `CaptureScreenshot` | any scene (the `ExportRenderManifest` row; the safe-point gate already excludes LOADING / a transition / the settle window, which is when a capture would photograph a black frame) | pre-delete a colliding target, then the reflectively-resolved `UnityEngine.ScreenCapture.CaptureScreenshot(<KSP root>/Screenshots/<label>.png, superSize)`; TWO-PHASE, holding the head until the file reports the same non-zero size on two consecutive polls | `label`, `path` (relative), `bytes` (settled), `superSize`, `overwrote` |
 | `UiAction` | game loaded, any scene that HOSTS the Parsek UI (FLIGHT / SPACECENTER); a scene with no host is `REJECTED ui-host-unavailable`, never a defer | per `op`: write a window's `IsOpen`, write a tab selector, `ParsekUI.SetUiComplexityMode` + the production `Update` latch, write a window rect (CLAMPED to that window's own resize floor), walk the window table read-only, move the OS cursor (`user32!SetCursorPos` after `ClientToScreen`), capture one in-memory GUI tree and locate a control by text, drive a window's set-of-expanded-keys, call `StructureListWindowUI.OpenForMission`, open `GroupPickerUI` / the Logistics link picker the way a row's button does, or report the live `PopupDialog`. Every op read-back-verified - and every op that changes drawn state TWO-PHASE, holding the head for one DRAWN frame (or, for `find`, for one CAPTURE) so the read-back describes what the game did rather than the value just written | per op: `op window open already` / `op window tab index already` / `op mode already` / `op window rect clamped minW minH` / the describe inventory (`scene complexity count` + seven keys per window) / `op x y park sx sy via` / `op window text ctrl match matches x y w h cx cy` / `op window key state changed expanded total` / `op window target id title steps open` / `op window picker target open` / `op open count name title buttons nbuttons` |
@@ -4407,6 +4407,12 @@ Exhaustive. Each: scenario -> expected behavior -> v1 or deferred.
     budget (300 s) expires, rather than the completion polling PENDING to the harness run
     budget. Either terminal ERROR lets the harness classify a driver-INVALID (fixture). The
     instance stays at the menu; the orchestrator reconciles. v1.
+    (c) The FLIGHT scene settles but never becomes flight-ready: `ParsekFlight`'s
+    `onFlightReady` never fires for this load, or the active vessel never unpacks. The
+    completion waits `AwaitingFlightReady` and ends `ERROR msg=load-flight-ready-timeout`
+    after 60 s from the scene's arrival (or at the LoadGame budget, whichever is first),
+    never a silent OK; the Error line names which leg was missing (`flightReady=`,
+    `unpacked=`). Distinct from `load-timeout` because the scene DID arrive.
 28. **KSP crashes mid-LoadGame (during the scene load).** The journal is at `CLAIMED`
     (the load was initiated, the settle never completed). On restart the addon does NOT
     re-initiate the load; it writes `INTERRUPTED` and marks `DONE`. The journal file
@@ -4462,6 +4468,26 @@ design deferral). None blocks the seam; each is recorded so it is not lost.
   made the old predicate safe -- the scene-transition flag is raised synchronously at
   initiation and the pump only polls completion at settled scenes -- so a MAINMENU
   observation reliably means the load bounced (no grace period needed).
+- **R1b: the FLIGHT route waits for flight readiness [RESOLVED 2026-10-09, todo
+  LOADGAME-COMPLETES-BEFORE-ONFLIGHTREADY].** A settled FLIGHT scene with a game is reached
+  before stock fires `onFlightReady` (~0.3 s later) and before the active vessel unpacks
+  (1.0-1.2 s after that), so an OK there let the next step race
+  `ParsekFlight.ResetFlightReadyState` (EVA-6's boot `DiscardTree` found the tree dropped,
+  or discarded a live one) and, once PR #2017's 25 ms polls brought the steps forward, act
+  on a packed vessel (CI-1 started recording on rails). `DecideLoadCompletion` now takes
+  three more inputs -- `flightReadyObserved`, `activeVesselUnpacked`,
+  `flightReadyWaitSeconds` -- and on the FLIGHT route answers `AwaitingFlightReady` until
+  both hold, `FlightReadyTimeout` (`ERROR msg=load-flight-ready-timeout`) once the wait
+  reaches 60 s or the load budget expires, `CompleteOk` otherwise. `flightReadyObserved` is
+  `TestCommandLoadGame.IsFlightReadyForThisLoad`: the `ParsekFlight` instance must differ
+  from the one live when the load started (a FLIGHT -> FLIGHT reload's old instance had seen
+  its own event) and have `FlightReadyObserved`. SPACECENTER and TRACKSTATION routes ignore
+  both inputs, and the two other completions that reuse the decision (`ExitToSpaceCenter`,
+  `LaunchFromEditor`) pass the readiness defaults (true) and read unchanged. When the
+  completion waited, one Info line reports it: `loadgame flight-ready wait: waited frames=N
+  seconds=S ...`. No opt-out: no committed spec acts in the pre-flight-ready window after a
+  `LoadGame` (grep of every spec's steps and required tokens, 2026-10-09). The response
+  grammar is unchanged (same OK payload; one new ERROR msg).
 - **R2: lock Unknown-liveness tie-break effectively always reclaims.** When the pid probe
   returns Unknown (e.g. access denied on a live foreign process), `DecideLockOwnership`
   compares the existing lock's t against now, which an existing lock always loses, so the

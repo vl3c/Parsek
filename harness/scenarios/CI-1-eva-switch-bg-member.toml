@@ -9,7 +9,7 @@ tier = "daily"
 # since PR #2017's 25 ms polls they land well before both, so the EVA split backgrounds
 # the ship with its on-rails orbit segment still open, before onFlightReady (release-check
 # `2026-10-08_2143`: `points=2, orbitSegments=1`, onFlightReady at UT 421.6). The
-# `WarpToUT ut=423 maxRate=1` step after the SetSetting steps is a deterministic 1x wait
+# `WarpToUT ut=424 maxRate=1` step (423 until the seam LoadGame waited for the unpack) after the SetSetting steps is a deterministic 1x wait
 # past both (fixture UT 421.19; a 1x wait goes past the post-load physicsHold TIMEWARP
 # lock, the clock advances under it). The pinned token is unchanged. Spec changed, not
 # re-flown.
@@ -137,9 +137,11 @@ steps = [
   # `origin-terminal-stamped` (the BG-entry-found proof) is Verbose.
   { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
   # The LoadGame race (header): 1x wait from the fixture UT 421.19 past onFlightReady
+  # (UT 424, not 423: since the seam LoadGame waits for the unpack at ~422.1-422.3, a
+  # 423 target left under a second before WarpToUT would refuse a target in the past)
   # and the ship's unpack before recording starts. Not re-flown: the split child now
   # records in physics from the start, so a slow switch to the kerbal could read points=2.
-  { cmd = "WarpToUT",   args = { ut = "423", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",   args = { ut = "424", maxRate = "1" },                     expect = "OK", budget = 120 },
   { cmd = "StartRecording",                                                      expect = "OK" },
   { cmd = "EvaExit",    args = { release = "true", settleSeconds = "10" },        expect = "OK", budget = 120 },
   # THE R10 HALF: read the live BackgroundMap rather than the fixture.

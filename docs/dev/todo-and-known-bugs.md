@@ -135,7 +135,7 @@ mission's impact deterministic.
 
 ---
 
-## FAST-POLL-SETTLES-STILL-RACE: ZF-1's rollout and CI-6's recorder bind lose the race their one-frame settles were sized for [FILED 2026-10-08 from the PR #2055 regression flights. OPEN, harness]
+## ~~FAST-POLL-SETTLES-STILL-RACE: ZF-1's rollout and CI-6's recorder bind lose the race their one-frame settles were sized for~~ [FILED 2026-10-08 from the PR #2055 regression flights. FIXED 2026-10-09 in the specs, branch `seam-load-waits-flight-ready` (with CN-1, CN-1T and EVA-5 from nightly `2026-10-09`), NOT YET RE-FLOWN; CI-6's wait is a timed interim, see below. harness]
 
 Two more lanes the HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS audit left on inert-step settles
 read red on the same premise (an inert step is one frame since PR #2017):
@@ -150,6 +150,26 @@ read red on the same premise (an inert step is one frame since PR #2017):
   `2026-10-07_2143` bound it 0.25 s after RealSpawn. This is the CI-6 settle the audit named as open
   (no UT the spec can name); it needs a named-condition wait like S4.4's
   `RecordingState awaitRecorderLive=` (a non-re-fly variant).
+
+**Fix (2026-10-09, branch `seam-load-waits-flight-ready`, specs only, not re-flown).** Each
+inert-step settle is now a 1x `WarpToUT maxRate=1` to a UT read off the logs:
+- `ZF-1`: the four marks -> `WarpToUT ut=14` (green `_1542`: launch complete at UT 10.4, the
+  rollout debit at 10.66). The red reading also ran its Recover BEFORE onFlightReady; the
+  seam's `LoadGame` now waits for onFlightReady and the unpack
+  (LOADGAME-COMPLETES-BEFORE-ONFLIGHTREADY, fixed in the same branch).
+- `CI-6`: the twelve steps between the switch click and Recover -> `WarpToUT ut=625`. RealSpawn
+  leaves the clock at UT ~622.2 and the switch lands at ~622.34; the switch intent is refused
+  `on-surface-defer-to-trigger`, so the tip's recorder is bound by ParsekFlight's 1 Hz
+  committed-spawned restore retry (real seconds). Green `2026-10-07_2143` won it by luck (the
+  retry fired 4 ms after the switch); `2026-10-09_0200` pressed Recover 0.35 s after it,
+  `boundRec=(none)`. 2.7 s of 1x time covers the retry. STILL OPEN as a follow-up: a
+  named-condition wait (a non-re-fly `awaitRecorderLive=` variant) would replace the timed one.
+- Three more lanes red on nightly `2026-10-09` (build `720d93f09`) with the same shape:
+  `CN-1` / `CN-1T` (eight inert settles before the batch took 0.2 s, the batch started at UT
+  21.6 and `PresetRelayRulings_*` skipped `window has not opened yet (ut=21.6 < 22.2)`) ->
+  `WarpToUT ut=24`; `EVA-5` (twelve `TimeJump deltaSeconds=10` on a 10 s mission loop land on
+  ONE cycle phase, so only the real time between them moves the playhead; at ~0.08 s apart it
+  never reached the placed member's window, cycle offset ~1.8-7.3 s) -> `WarpToUT ut=60`.
 
 ---
 
@@ -3539,7 +3559,7 @@ precedent requires a clean seed session), and an operator-local fixture may only
 a window drew, which none of these lanes needs. Nothing from that save is committed or
 staged.
 
-## LOADGAME-COMPLETES-BEFORE-ONFLIGHTREADY: the seam's FLIGHT `LoadGame` reports complete before stock's onFlightReady, so a lane's boot preamble races Parsek's flight-ready reset [FILED 2026-10-03 from EVA-6 `2026-10-03_1437` / `_1426`, branch `closing-flights`; harness seam only, no player path]
+## ~~LOADGAME-COMPLETES-BEFORE-ONFLIGHTREADY: the seam's FLIGHT `LoadGame` reports complete before stock's onFlightReady, so a lane's boot preamble races Parsek's flight-ready reset~~ [FILED 2026-10-03 from EVA-6 `2026-10-03_1437` / `_1426`, branch `closing-flights`; harness seam only, no player path. FIXED 2026-10-09 on the seam, branch `seam-load-waits-flight-ready`; red-first xUnit `TestCommandLoadGameFlightReadyTests`; NOT YET RE-FLOWN]
 
 **Evidence.** `EVA-6-placed-part-spawn-after-rewind` `2026-10-03_1437` (automation DLL sha256
 `9078cb1c...`, origin/main `cb899a8f9`), KSP.log in order:
@@ -3591,6 +3611,25 @@ LoadGame with no wait and likely share the race:** `EVA-1`..`EVA-5`, `GS-2`, `GS
 `RF-20`, `S0.5`..`S0.8`, `ST-2`. Still open: audit those lanes, or fix it on the seam side (make
 the FLIGHT `LoadGame` complete only after onFlightReady AND the active vessel has unpacked, the
 fix direction above plus an unpack input), which would also let CI-1's wait go.
+
+**Fix (2026-10-09, branch `seam-load-waits-flight-ready`).** The fix direction above plus the
+unpack input. `TestCommandLoadGame.DecideLoadCompletion` takes `flightReadyObserved`,
+`activeVesselUnpacked` and `flightReadyWaitSeconds`; on the FLIGHT route a settled scene with a
+game answers `AwaitingFlightReady` until the NEW scene's `ParsekFlight` saw onFlightReady
+(`IsFlightReadyForThisLoad`: a different instance from the one live when the load started, so
+a FLIGHT -> FLIGHT reload cannot count the old scene's event) AND the active vessel is loaded
+and unpacked; `FlightReadyTimeout` (`ERROR msg=load-flight-ready-timeout`, a distinct reason,
+never a silent OK) once 60 s pass from the scene's arrival or the load budget runs out. The
+SPACECENTER / TRACKSTATION routes, `ExitToSpaceCenter` and `LaunchFromEditor` (which reuse the
+decision with the readiness defaults) are unchanged. When the completion waited it logs one
+Info line, `loadgame flight-ready wait: waited frames=N seconds=S ...`. Mirror check: no
+committed spec acts in the pre-flight-ready window after a `LoadGame` (no step relies on it,
+no required token pins pre-flight-ready behaviour such as `fired before onFlightReady` or
+`Recording started on rails`), so there is no opt-out arg. The fourteen at-risk lanes above
+need no spec change; CI-1's wait is now redundant and stays, its target moved 423 -> 424 so it stays ahead of the awaited unpack (~422.1-422.3). STAYS
+OPEN as follow-ups: one green flight each for the fourteen lanes and EVA-6..EVA-10 before
+their `retry policy = "once"` can go; `LaunchFromEditor` still answers before stock
+onFlightReady (RR-1 waits on `ListHandles kind=chains`), not touched here.
 
 ## RESET-FLIGHT-READY-STATE-LEAVES-RESTORE-ATTEMPT-ARMED: the flight-ready reset drops a committed-restore clone tree but leaves its restore attempt armed [FILED 2026-10-03 from EVA-6 `2026-10-03_1437`, branch `closing-flights`; observed in a harness boot, not traced on a player path]
 

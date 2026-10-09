@@ -35,6 +35,17 @@ id = "CI-6-chain-tip-recover-no-respawn"
 # since PR #2017) are `WarpToUT maxRate=1` waits to explicit UTs, deterministic in
 # FLIGHT, the Space Center and the Tracking Station since TC-1. Spec changed, not
 # re-flown.
+# 2026-10-09 (todo FAST-POLL-SETTLES-STILL-RACE, branch `seam-load-waits-flight-ready`): the
+# twelve inert steps between the switch click and Recover (0.25 s each before PR #2017, one
+# frame since) are one `WarpToUT ut=625 maxRate=1`. RealSpawn leaves the clock at UT ~622.2
+# (the tip's spawn UT) and the switch lands at ~622.34; Parsek's switch-intent consume
+# refuses an on-surface target (`on-surface-defer-to-trigger`), so the tip's recorder is bound by
+# ParsekFlight's 1 Hz committed-spawned restore retry (Time.unscaledTime, real seconds), up
+# to a second after the switch. Green `2026-10-07_2143` won that by luck (the retry fired
+# 4 ms after the switch, Recover 0.4 s later, `boundRec=ctr-tip-rec`); nightly
+# `2026-10-08_1917` and `2026-10-09_0200` pressed Recover 0.35 s after the switch with
+# nothing bound (`boundRec=(none)`, then `In-flight recovery request dropped unapplied`).
+# 2.7 s of 1x time covers the retry with margin. Spec changed, not re-flown.
 tier = "nightly"
 description = "D18 chain-terminated-destruction-recovery, the RECOVERY half: over gloops-airshow plus the chain-tip-recovery preset (a committed tree whose parentless background recording of a landed lander is a ghost chain tip ~130 m from the pad), RealSpawn the tip, switch to it, Recover it through stock, then re-enter flight through the SPH and require that the recovered lander does not spawn again."
 instanceProfile = "stock-minimal"
@@ -68,18 +79,9 @@ steps = [
   { cmd = "RecordingState", expect = "OK" },
   { cmd = "RecordingState", expect = "OK" },
   { cmd = "SimulateStockSwitchClick", args = { pid = "${spawn.pid}" }, expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
+  # THE RECORDER-BIND WAIT (header, 2026-10-09): ~2.7 s of 1x time past the switch (UT
+  # ~622.34) so the 1 Hz committed-spawned restore binds the tip's recorder before Recover.
+  { cmd = "WarpToUT", args = { ut = "625", maxRate = "1" }, expect = "OK", budget = 120 },
   { cmd = "Recover", args = { pid = "${spawn.pid}" }, expect = "OK", budget = 120 },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
   { cmd = "MissionMark", args = { label = "ctr-recovered-count-${c1.count}" }, expect = "OK" },

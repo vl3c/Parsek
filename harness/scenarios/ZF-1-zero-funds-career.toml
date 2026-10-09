@@ -56,6 +56,16 @@ tier = "nightly"
 # live-pool seed, a 600-frame wait, a guard clamp, a 2X reconstruction, an unledgered recovery,
 # an accepted hire, an uncharged rollout, a hard divergence, an unseeded patch skip, a
 # recording), the green log green.
+#
+# THE ROLLOUT WAIT (2026-10-09, branch `seam-load-waits-flight-ready`, todo
+# FAST-POLL-SETTLES-STILL-RACE). The batch used to wait behind four `zf1-rollout-settle`
+# MissionMark steps, ~1 s at the old 0.25 s seam poll. PR #2017's 25 ms polls shrank them to
+# 0.12 s: `2026-10-08_1858` launched at UT 9.68, issued the batch at 9.8 and the rollout
+# tokens never printed (green `_1542`: launch complete at UT 10.4, `FundsChanged -300
+# (VesselRollout)` at 10.66). The four marks are now one `WarpToUT ut=14 maxRate=1`, past the
+# launch UT with margin (the LoadGame seam now also waits for onFlightReady and the unpack,
+# which moves the Recover and so the launch a little later; that reading's Recover even ran
+# before onFlightReady). Spec changed, not re-flown.
 description = "A career that starts at 0 funds (KSP-SETTINGS-AUDIT S4): the FundsInitial seed is a confirmed zero taken without the 600-frame wait; a recovery credits on top of it with no guard clamp; an unaffordable hire is refused; a VAB probe launch spends; LedgerGroundTruth closes against KSP's own save."
 instanceProfile = "stock-minimal"
 tags = ["settings-axis", "zero-funds", "ledger", "ingame-batch", "ground-truth", "recovery", "editor", "ZF-1",
@@ -79,11 +89,10 @@ steps = [
   # Settle: stock charges the rollout in FlightDriver.PostInit 15 frames after FLIGHT starts
   # (OnVesselRollout -> Funding.AddFunds(-cost, VesselRollout)); a RunTests batch issued on
   # the launch completion reloads the flight from its baseline first and the charge never
-  # happens (ZF-1 `2026-10-03_1521`: funds unchanged across the launch). Four marks ~1 s.
-  { cmd = "MissionMark",    args = { label = "zf1-rollout-settle" },             expect = "OK" },
-  { cmd = "MissionMark",    args = { label = "zf1-rollout-settle" },             expect = "OK" },
-  { cmd = "MissionMark",    args = { label = "zf1-rollout-settle" },             expect = "OK" },
-  { cmd = "MissionMark",    args = { label = "zf1-rollout-settle" },             expect = "OK" },
+  # happens (ZF-1 `2026-10-03_1521`: funds unchanged across the launch). A 1x wait to UT 14
+  # (header, THE ROLLOUT WAIT): the launch completes at UT ~10.4-11 and the charge lands
+  # ~0.2 s after it.
+  { cmd = "WarpToUT",       args = { ut = "14", maxRate = "1" },                expect = "OK", budget = 120 },
   { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },           expect = "OK", budget = 540 },
   { cmd = "SaveGame",                                                            expect = "OK", budget = 120 },
   { cmd = "FlushAndQuit",                                                        expect = "OK" },

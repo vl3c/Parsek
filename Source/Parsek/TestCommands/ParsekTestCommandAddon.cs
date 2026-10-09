@@ -95,6 +95,13 @@ namespace Parsek.TestCommands
         // Sourced from TestCommandLoadGame.ExpectedSceneFor(route). Reset with the other
         // two-phase state.
         private TestCommandScene loadExpectedScene = TestCommandScene.Flight;
+        // The FLIGHT route's flight-ready wait (LOADGAME-COMPLETES-BEFORE-ONFLIGHTREADY): the
+        // ParsekFlight instance live when the load started (0 = none; a FLIGHT -> FLIGHT
+        // reload must not count the old scene's onFlightReady), the wall time the FLIGHT
+        // scene first settled with a game (< 0 = not yet), and the frames waited since.
+        private int loadPrevFlightInstanceId;
+        private double loadFlightArrivedAt = -1.0;
+        private int loadFlightReadyWaitFrames;
 
         // Two-phase verbs (RunTests P5.6 / LoadGame P5.7). The executor INITIATES the
         // long-running side effect and returns PendingVerdict; the pump journals CLAIMED
@@ -1140,15 +1147,52 @@ namespace Parsek.TestCommands
             double budget = DeferralBudget.BudgetSeconds("LoadGame");
             TestCommandScene scene = MapScene(HighLogic.LoadedScene);
             bool gameLoaded = HighLogic.CurrentGame != null;
+
+            // FLIGHT route: the scene settling is not the end of the load. Read whether the
+            // NEW ParsekFlight saw onFlightReady and whether the active vessel unpacked, and
+            // how long it has been since the scene arrived (LOADGAME-COMPLETES-BEFORE-ONFLIGHTREADY).
+            bool flightReady = false;
+            bool unpacked = false;
+            double flightWait = 0.0;
+            Vessel activeForLoad = null;
+            if (loadExpectedScene == TestCommandScene.Flight
+                && scene == TestCommandScene.Flight && gameLoaded)
+            {
+                ParsekFlight flight = ParsekFlight.Instance;
+                int currentFlightId = flight != null ? flight.GetInstanceID() : 0;
+                flightReady = TestCommandLoadGame.IsFlightReadyForThisLoad(
+                    currentFlightId, loadPrevFlightInstanceId, flight != null && flight.FlightReadyObserved);
+                activeForLoad = FlightGlobals.ActiveVessel;
+                unpacked = activeForLoad != null && activeForLoad.loaded && !activeForLoad.packed;
+                if (loadFlightArrivedAt < 0.0)
+                {
+                    loadFlightArrivedAt = now;
+                    ParsekLog.Verbose(Tag,
+                        $"loadgame flight scene settled save={loadGameSave ?? string.Empty} flightReady={(flightReady ? "true" : "false")} unpacked={(unpacked ? "true" : "false")} elapsed={elapsed.ToString("F2", CultureInfo.InvariantCulture)}s");
+                }
+                flightWait = now - loadFlightArrivedAt;
+            }
+
             LoadCompletionDecision decision =
-                TestCommandLoadGame.DecideLoadCompletion(elapsed, scene, gameLoaded, budget, loadExpectedScene);
+                TestCommandLoadGame.DecideLoadCompletion(
+                    elapsed, scene, gameLoaded, budget, loadExpectedScene,
+                    flightReady, unpacked, flightWait);
 
             if (decision == LoadCompletionDecision.StillWaiting)
                 return;
+            if (decision == LoadCompletionDecision.AwaitingFlightReady)
+            {
+                loadFlightReadyWaitFrames++;
+                return;
+            }
 
             TestCommandScene expected = loadExpectedScene;
+            int waitedFrames = loadFlightReadyWaitFrames;
             loadInFlight = false;
             loadExpectedScene = TestCommandScene.Flight;
+            loadPrevFlightInstanceId = 0;
+            loadFlightArrivedAt = -1.0;
+            loadFlightReadyWaitFrames = 0;
             string id = completionId; long seq = completionSeq; string verb = completionVerb;
             ClearTwoPhase();
 
@@ -1159,6 +1203,10 @@ namespace Parsek.TestCommands
                     string sceneName = HighLogic.LoadedScene.ToString();
                     List<KeyValuePair<string, string>> payload =
                         TestCommandLoadGame.BuildCompletePayload(sceneName, loadGameSave);
+                    if (waitedFrames > 0)
+                        ParsekLog.Info(Tag, TestCommandLoadGame.FormatFlightReadyWaitLine(
+                            waitedFrames, flightWait, loadGameSave,
+                            activeForLoad != null ? activeForLoad.vesselName : null));
                     ParsekLog.Info(Tag,
                         $"loadgame complete scene={sceneName} save={loadGameSave ?? string.Empty} game-loaded=true expected={expected}");
                     EmitExecutedTerminal(id, seq, verb, "OK", payload, null, dequeueHead: true);
@@ -1177,6 +1225,14 @@ namespace Parsek.TestCommands
                     ParsekLog.Error(Tag,
                         $"loadgame timeout save={loadGameSave ?? string.Empty} scene={scene} expected={expected} elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
                     EmitExecutedTerminal(id, seq, verb, "ERROR", null, "load-timeout", dequeueHead: true);
+                    break;
+                }
+                case LoadCompletionDecision.FlightReadyTimeout:
+                {
+                    TestCommandDiagnostics.Timeout(id, verb, elapsed, TestCommandLoadGame.FlightReadyTimeoutReason);
+                    ParsekLog.Error(Tag,
+                        $"loadgame flight-ready timeout save={loadGameSave ?? string.Empty} flightReady={(flightReady ? "true" : "false")} unpacked={(unpacked ? "true" : "false")} activeVessel={(activeForLoad != null ? activeForLoad.vesselName : "(none)")} waitedFrames={waitedFrames} waited={flightWait.ToString("F1", CultureInfo.InvariantCulture)}s elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
+                    EmitExecutedTerminal(id, seq, verb, "ERROR", null, TestCommandLoadGame.FlightReadyTimeoutReason, dequeueHead: true);
                     break;
                 }
             }
@@ -2149,6 +2205,12 @@ namespace Parsek.TestCommands
                 HighLogic.CurrentGame = game;
             }
             FlightCameraReloadPin.Arm($"TestCommandLoadGame:{save}/{name}");
+            // The completion waits for THIS load's onFlightReady, so remember the instance
+            // a FLIGHT -> FLIGHT reload is leaving behind (its event already fired).
+            ParsekFlight previousFlight = ParsekFlight.Instance;
+            loadPrevFlightInstanceId = previousFlight != null ? previousFlight.GetInstanceID() : 0;
+            loadFlightArrivedAt = -1.0;
+            loadFlightReadyWaitFrames = 0;
             FlightDriver.StartAndFocusVessel(game, idx);
             loadInFlight = true;
             loadExpectedScene = TestCommandLoadGame.ExpectedSceneFor(route);
