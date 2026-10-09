@@ -13528,11 +13528,31 @@ namespace Parsek.InGameTests
                 InGameAssert.IsNotNull(activeRecId,
                     "ActiveRecordingId should be set before staging the Space Center exit flow");
 
-                // Dwell so the recorder banks more than one sample (its minimum interval is
-                // 200 ms) and the orbital motion carries the recording past the 30 m
-                // idle-on-pad threshold that would otherwise auto-discard the tree at the
-                // SPACECENTER OnLoad before the auto-commit branch is ever reached.
-                yield return new WaitForSeconds(3.0f);
+                // Dwell so the recorder banks more than one sample and the orbital motion
+                // carries the recording past the 30 m idle-on-pad threshold that would
+                // otherwise auto-discard the tree at the SPACECENTER OnLoad before the
+                // auto-commit branch is ever reached. A coasting orbit triggers no
+                // direction / speed sample, so the second sample is the max-interval
+                // backstop, which lands one full interval after the first (and the first
+                // lands one physics step after StartRecording). The scene exit takes no
+                // boundary sample, so a dwell shorter than that interval leaves ONE point,
+                // maxDist 0, and IsTreeIdleOnPad discards the tree. Two intervals plus a
+                // margin clears the backstop under the live density preset.
+                float maxSampleInterval = ParsekSettings.Current.maxSampleInterval;
+                float dwellSeconds = 2f * maxSampleInterval + 0.5f;
+                yield return new WaitForSeconds(dwellSeconds);
+
+                FlightRecorder liveRecorder = flight.ActiveRecorderForSerialization;
+                int sampleCountBeforeExit = liveRecorder != null ? liveRecorder.Recording.Count : -1;
+                ParsekLog.Info("TestRunner",
+                    $"AutoMerge full-fidelity runtime: dwell={dwellSeconds.ToString("F1", CultureInfo.InvariantCulture)}s "
+                    + $"maxSampleInterval={maxSampleInterval.ToString("F1", CultureInfo.InvariantCulture)}s "
+                    + $"samplesBeforeExit={sampleCountBeforeExit}");
+                InGameAssert.IsTrue(sampleCountBeforeExit >= 2,
+                    $"The recorder must hold at least 2 trajectory samples before the Space Center exit "
+                    + $"(got {sampleCountBeforeExit} after a {dwellSeconds.ToString("F1", CultureInfo.InvariantCulture)}s dwell, "
+                    + $"maxSampleInterval={maxSampleInterval.ToString("F1", CultureInfo.InvariantCulture)}s); "
+                    + "a one-sample recording reads maxDist 0 and IsTreeIdleOnPad discards the tree before the commit");
 
                 TriggerSaveAndExitToSpaceCenter();
 

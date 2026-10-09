@@ -16,6 +16,65 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## IDLE-ON-PAD-READS-ONE-SAMPLE-ORBITING-RECORDING-AS-IDLE: a recording with one trajectory sample reads maxDist 0, so the idle-on-pad discard drops it even when the vessel is orbiting [FILED 2026-10-09 from H67's drift (todo H67-AUTOMERGE-DWELL-ENDS-BEFORE-BACKSTOP-SAMPLE), branch `ingame-test-drift`. OPEN, product, low]
+
+`ParsekFlight.IsTreeIdleOnPad` (`Source/Parsek/ParsekFlight.cs`) returns true when every recording
+in the tree is within 30 m of its launch point (`IsIdleOnPad(Recording)`: `MaxDistanceFromLaunch <
+PadLocalizedDistanceThresholdMeters`, or the pad-drop override). A recording with a single
+trajectory sample has `MaxDistanceFromLaunch` 0 by construction, so the check reads it as idle
+whatever the vessel was doing. The scene-exit path adds no boundary sample (the finalize runs
+through `ForceStop`, and the #290d backfill in `ParsekFlight.Finalization.cs` only recomputes
+from the points that exist), so a recording started on an ORBITING vessel and exited to the
+Space Center before the max-interval backstop sample (3 s at Medium density) is discarded at
+the SPACECENTER OnLoad (`ParsekScenario.cs`, "Idle on pad at scene exit - auto-discarding tree",
+and the two sibling `IsTreeIdleOnPad` gates) instead of committed. Seen only through the H67
+in-game cell (its dwell was too short); a player would need to start a recording and leave
+the flight within one sample interval, so the loss is a few seconds of trajectory.
+Proposal (not implemented): idle-on-pad should also require evidence of a pad: the recording
+starts at a launch site (`LaunchSiteName` set or `StartSituation` Prelaunch) or its terminal /
+start situation is Landed / Prelaunch, so an orbiting or flying one-sample recording is never
+"idle on pad". Alternatively take one boundary sample at the scene-exit finalize. Either needs
+headless cells beside the existing `IsTreeIdleOnPad` ones (`Bug156Tests`).
+
+## ~~RETIRE-ROUTE-ACTIONS-OVERLOAD-BREAKS-INGAME-REFLECTION-PROBE: the Rec-1 redelivery in-game cell failed `Ambiguous match found.` on lanes H38 / H39 / H40 / HV-1~~ [FILED 2026-10-09 from the nightly `Logistics` lanes. FIXED 2026-10-09, branch `ingame-test-drift`; test drift, not a product defect; not re-flown]
+
+`RouteRewindRedeliveryInGameTest.RouteRedeliversAfterRewindPastDelivery` probed
+`typeof(RouteLedgerRetire).GetMethod("RetireFutureRouteActions", Static | NonPublic | Public)`
+as a precondition. PR #2035 (chain-tip route cargo) added an overload with an extra
+`out List<GameAction> retiredRows`, so the untyped lookup throws `AmbiguousMatchException`.
+Fix: the probe is deleted. The helper is internal to the same assembly and reached only through
+`ReconciliationBundle.Restore(bundle, cutoff)`, which the cell calls directly, so the compiler
+already proves it exists. New xUnit gate `InGameTestReflectionLookupTests`: scans the
+comment-stripped `Source/Parsek/InGameTests/*.cs` for every untyped `typeof(T).GetMethod("Name"[, flags])`
+on a Parsek type and resolves it headlessly, so a future overload or rename reds the suite
+instead of a flight (mutation-checked: re-adding the old probe reds it). Cell counts unchanged.
+
+## ~~H48-SPENDING-GATE-EXPECTS-PARSEK-BLOCK-ON-PLAIN-SHORTAGE: `SpendingGate_RespectsLiveAndBlocksNonDestructively` expected Parsek to refuse a tech the live pool cannot afford~~ [FILED 2026-10-09 from the nightly H48 flight. FIXED 2026-10-09, branch `ingame-test-drift`; test drift, not a product defect; not re-flown]
+
+The cell's "Bug 2" block bought a synthetic 1e9-science tech and asserted Parsek's
+pre-deduction block (`Failure`, reason containing "Insufficient science"). PR #2001 (commit
+ab11970fd) deliberately refuses only a TIMELINE shortage (live science covers the cost, the
+effective free science does not; text from `ReservationExplanation.ScienceShortage()`) and
+leaves a PLAIN shortage to stock. The flight log showed exactly that: `[TechResearchPatch]
+Allowing tech research: 'parsek_test_unaffordable_node' ... - no committed future row`, then
+stock `[RDTech]: Not enough Science`, result `NotEnoughFunds`. Fix: the block now asserts the
+current contract - `TechResearchPatch.IsScienceShort` false with no ledger probe (free +inf),
+stock's `NotEnoughFunds`, no Parsek blocked-dialog reason, science unchanged. The timeline
+shortage stays covered headlessly (`StockAnnotationConsistencyTests`). Cell count unchanged.
+
+## ~~H67-AUTOMERGE-DWELL-ENDS-BEFORE-BACKSTOP-SAMPLE: `ExitToSpaceCenter_AutoMergeOn_CommitsSilentlyAtFullFidelity` exits with a one-point recording, so the tree is discarded and nothing commits~~ [FILED 2026-10-09 from the nightly H67 flight. FIXED 2026-10-09, branch `ingame-test-drift`; test drift, not a product defect; not re-flown]
+
+The cell started a recording on an orbiting vessel, dwelt a fixed 3.0 s and exited to the
+Space Center. A coasting orbit takes no direction / speed sample, so the second sample is the
+Medium max-interval backstop, 3.0 s after the first; since PR #1973 the first sample lands one
+physics step after `StartRecording`, so the backstop fell just after the exit. The recording
+held one point, `IsTreeIdleOnPad` read maxDist 0 and auto-discarded the tree, and the
+committed-tree assertion failed. Fix: the dwell is `2 * ParsekSettings.Current.maxSampleInterval
++ 0.5 s` (6.5 s at Medium; it follows the live preset), and the cell logs `samplesBeforeExit=`
+and asserts at least 2 samples before the exit, so a future drift fails with that message
+instead of a missing commit. The product side is filed as
+IDLE-ON-PAD-READS-ONE-SAMPLE-ORBITING-RECORDING-AS-IDLE.
+
 ## ~~RVR-3-POSTPONEMENT-CELLS-ASSERT-NO-LEDGER-ROW: three `RouteLifecycle` in-game cells still asserted that a blocked crossing writes no ledger row~~ [FILED 2026-10-09 from the release-check flight `2026-10-09_0059_RVR-3-route-lifecycle`. FIXED 2026-10-09, branch `release-check-fixes`; test drift, not a product defect; not re-flown]
 
 `RVR-3-route-lifecycle` read `failed=3`: `SendOnce_PostponementBlock_KeepsArm_RouteStaysActive_NoToast`,

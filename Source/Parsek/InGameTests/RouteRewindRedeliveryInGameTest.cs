@@ -151,16 +151,14 @@ namespace Parsek.InGameTests
             if (resolverField == null)
                 InGameAssert.Skip("PRECONDITION: RouteOrchestrator.LoopUnitResolverForTesting seam missing (upstream loop-fire phase incomplete)");
 
-            // RetireFutureRouteActions and the Restore(bundle, cutoff) overload are both
-            // internal; from inside the Parsek assembly the direct calls below resolve at
-            // compile time (verified: this file builds against them). These reflection
-            // probes are belt-and-suspenders so a future refactor that renames either
-            // surface SKIPS (attributable) instead of NRE-ing at run time.
-            MethodInfo retireMethod = typeof(RouteLedgerRetire).GetMethod(
-                "RetireFutureRouteActions",
-                BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
-            if (retireMethod == null)
-                InGameAssert.Skip("PRECONDITION: RouteLedgerRetire.RetireFutureRouteActions missing (Rec-1 helper absent)");
+            // RouteLedgerRetire.RetireFutureRouteActions (the Rec-1 retire helper) is
+            // reached only through the Restore(bundle, cutoff) overload below, and both
+            // are internal to this assembly, so the compiler already proves the helper
+            // exists. It is deliberately NOT probed by name: it is overloaded (the
+            // retired-rows variant), and an untyped GetMethod over an overloaded name
+            // throws AmbiguousMatchException. The Restore probe pins its exact
+            // parameter types for the same reason; InGameTestReflectionLookupTests
+            // resolves every untyped in-game GetMethod headlessly.
             MethodInfo restoreCutoffMethod = typeof(ReconciliationBundle).GetMethod(
                 "Restore",
                 BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public,

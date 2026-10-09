@@ -2059,13 +2059,15 @@ namespace Parsek.InGameTests
         // (1) The gate must reconcile against the live R&D singleton so a missing-earning
         //     leak (running below live, no time-travel context) does NOT falsely block an
         //     affordable purchase — exercised against the real ResearchAndDevelopment.Instance.
-        // (2) A Parsek block must be NON-DESTRUCTIVE: stock RDTech.ResearchTech deducts
-        //     science BEFORE calling UnlockTech, so the block is gated pre-deduction on
-        //     ResearchTech. A blocked research must deduct nothing.
+        // (2) A PLAIN shortage (the live pool itself is below the cost) is stock's own
+        //     refusal: Parsek's pre-deduction ResearchTech gate refuses only a TIMELINE
+        //     shortage (live covers the cost, effective free science does not), so it
+        //     must stay out of the way (no Parsek dialog, no probe) and stock's own
+        //     currency check must refuse with NotEnoughFunds, deducting nothing.
         // SAFETY: snapshots and restores live science in a finally; never unlocks a real
-        // node (the synthetic node carries an impossible cost so the gate always blocks).
+        // node (the synthetic node carries an impossible cost so stock always refuses).
         [Parsek.InGameTests.InGameTest(Category = "Ledger", Scene = GameScenes.SPACECENTER,
-            Description = "BUG-G: affordability gate respects the guard-preserved live science, and a blocked tech research deducts nothing (block before deduction)")]
+            Description = "BUG-G: affordability gate respects the guard-preserved live science, and a plain science shortage is left to stock's own refusal (NotEnoughFunds, no Parsek block, nothing deducted)")]
         public void SpendingGate_RespectsLiveAndBlocksNonDestructively()
         {
             if (ResearchAndDevelopment.Instance == null)
@@ -2103,40 +2105,49 @@ namespace Parsek.InGameTests
                 Parsek.InGameTests.InGameAssert.IsTrue(effAuth < 45.0,
                     $"Authoritative reduction must gate on the ledger value, not live (eff={effAuth})");
 
-                // ---- Bug 2: blocked RDTech.ResearchTech deducts nothing ----
+                // ---- Bug 2: a plain shortage is stock's refusal, never Parsek's ----
                 go = new GameObject("ParsekTestRDTech");
                 var tech = go.AddComponent<RDTech>();
                 tech.techID = "parsek_test_unaffordable_node";
                 tech.title = "Parsek Test Node";
-                tech.scienceCost = 1000000000; // never affordable -> gate always blocks
+                tech.scienceCost = 1000000000; // above any live pool -> a PLAIN shortage
                 tech.state = RDTech.State.Unavailable;
                 tech.host = ResearchAndDevelopment.Instance;
+
+                // The shared predicate (click gate + R&D side-panel grey) must classify a
+                // live pool below the cost as NOT a Parsek shortage, without probing the
+                // ledger (free stays +inf).
+                double probedFree;
+                bool parsekShort = Parsek.Patches.TechResearchPatch.IsScienceShort(
+                    tech.scienceCost, out probedFree);
+                Parsek.InGameTests.InGameAssert.IsFalse(parsekShort,
+                    $"A plain shortage (live={ResearchAndDevelopment.Instance.Science}, cost={tech.scienceCost}) must not be a Parsek timeline shortage");
+                Parsek.InGameTests.InGameAssert.IsTrue(double.IsPositiveInfinity(probedFree),
+                    $"A plain shortage must not probe the ledger (free={probedFree})");
 
                 float beforeResearch = ResearchAndDevelopment.Instance.Science;
                 RDTech.OperationResult result = tech.ResearchTech();
 
                 // Discriminating assertions (state=Unavailable IS the stock purchase path:
-                // 'if (state != Available)' deducts + unlocks). If our prefix had ALLOWED,
-                // stock's CurrencyModifierQuery would reject the 1e9 cost and return
-                // NotEnoughFunds without deducting; our prefix instead skips the original
-                // and returns the Failure we set. So result==Failure uniquely proves OUR
-                // pre-deduction block fired (not stock's), and the captured "Insufficient
-                // science" reason proves it was OUR affordability gate (stock never uses the
-                // Parsek dialog). The science-unchanged assertion is the non-destructive
-                // safety check (true under either block, but the load-bearing guarantee).
+                // 'if (state != Available)' deducts + unlocks). Parsek's prefix must ALLOW
+                // (it refuses only a timeline shortage), so the original runs and stock's
+                // CurrencyModifierQuery rejects the 1e9 cost, returning NotEnoughFunds
+                // without deducting. A Parsek block would instead return Failure and route a
+                // reason through the Parsek dialog hook, so result==NotEnoughFunds plus a
+                // null captured reason together prove Parsek stayed out of the way. The
+                // science-unchanged assertion is the non-destructive safety check.
                 Parsek.InGameTests.InGameAssert.IsTrue(
-                    result == RDTech.OperationResult.Failure,
-                    $"Parsek's pre-deduction block must return Failure, not stock NotEnoughFunds (got {result})");
+                    result == RDTech.OperationResult.NotEnoughFunds,
+                    $"A plain shortage must be refused by stock (NotEnoughFunds), not by a Parsek block (got {result})");
+                Parsek.InGameTests.InGameAssert.IsTrue(
+                    blockedReason == null,
+                    $"Parsek must not show its blocked dialog for a plain shortage (reason='{blockedReason}')");
                 Parsek.InGameTests.InGameAssert.IsTrue(
                     System.Math.Abs(ResearchAndDevelopment.Instance.Science - beforeResearch) < 0.001f,
-                    $"A blocked tech research must deduct NO science (before={beforeResearch}, after={ResearchAndDevelopment.Instance.Science})");
-                Parsek.InGameTests.InGameAssert.IsTrue(
-                    blockedReason != null
-                        && blockedReason.IndexOf("Insufficient science", System.StringComparison.Ordinal) >= 0,
-                    $"The block must be Parsek's affordability gate (reason='{blockedReason}')");
+                    $"A refused tech research must deduct NO science (before={beforeResearch}, after={ResearchAndDevelopment.Instance.Science})");
 
                 ParsekLog.Info("TestRunner",
-                    "SpendingGate_RespectsLiveAndBlocksNonDestructively: live-reconciled gate + non-destructive ResearchTech block verified");
+                    "SpendingGate_RespectsLiveAndBlocksNonDestructively: live-reconciled gate verified; plain shortage left to stock (NotEnoughFunds, no Parsek block, nothing deducted)");
             }
             finally
             {
