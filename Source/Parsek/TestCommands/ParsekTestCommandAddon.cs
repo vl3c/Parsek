@@ -1249,6 +1249,10 @@ namespace Parsek.TestCommands
             mergeAnswerApplied = false;
             mergeAnswerResult = null;
             mergeAnswerDrivePending = false;
+            // A LaunchFromEditor lock wait must never outlive its command (a gate throw
+            // clears the two-phase state through here).
+            launchFromEditorLockWait = false;
+            launchFromEditorSiteArg = null;
             // The EvaGroundScience key press must never outlive its command.
             EvaJumpKeyPressInjection.Remove();
             // Recover's two stock-event listeners must never outlive its command either.

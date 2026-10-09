@@ -3511,6 +3511,21 @@ building, or damage >= 70% (OnLeftClick opens the repair menu instead) ->
 predicate `LaunchSiteClear.Test` uses). The obstruction guard matters on every recorded
 fixture: launch-clamp debris stands on the LaunchPad, and stock's dialog would RECOVER it.
 
+**The launch-lock wait.** Stock holds `EDITOR_LAUNCH` for short stretches the seam cannot
+foresee (the 2026-10-09 nightly refused RR-1 and SE-1 `-launch-locked` 105-120 ms after
+`goeditor complete`, with no Parsek lock up; the holder was not logged, so the cause is
+unproven). So when that lock is the ONLY blocker (the same gate with the lock released
+would proceed: `LaunchLockIsOnlyBlocker`), LaunchFromEditor goes two-phase WITHOUT pressing
+Launch and re-samples the whole gate every frame for up to `LaunchLockWaitSeconds` (10 s,
+inside the 180 s budget): the frame the lock clears it presses Launch and logs one Info
+`launchfromeditor lock-wait cleared waited=<s> frames=<n>`; another blocker appearing, or the
+window ending, ends the step `REJECTED` with that gate's reason (nothing was clicked). The
+pure decision is `DecideLaunchLockWait(gate, lockIsOnlyBlocker, waited, max)`. A lock in
+front of another blocker still refuses `-launch-locked` at once (the gate order is
+unchanged). Every `-launch-locked` refusal appends `lockHolders=<id>:0x<mask>,...` (the
+`InputLockManager.lockStack` entries whose mask covers `ControlTypes.EDITOR_LAUNCH =
+0x1000000000`, sorted, at most 8, `lockHolders=-` when none) and, after a wait, `waited=`.
+
 **Phases.** Both TWO-PHASE, in the `ExitToSpaceCenter` budget class (a scene change that
 parses no save off disk), so neither is a `DEFERRED_SEAM_VERB`: GoToEditor 120 s,
 LaunchFromEditor 180 s (the FLIGHT bootstrap of a new vessel). GoToEditor completes when

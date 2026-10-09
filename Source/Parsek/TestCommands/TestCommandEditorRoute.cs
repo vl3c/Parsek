@@ -47,6 +47,20 @@ namespace Parsek.TestCommands
         SiteObstructed,
     }
 
+    /// <summary>What one look at the launch gate concludes while <c>LaunchFromEditor</c>
+    /// may still wait out a transient <c>EDITOR_LAUNCH</c> lock.</summary>
+    internal enum LaunchLockWaitOutcome
+    {
+        /// <summary>The gate is open: press the Launch button now.</summary>
+        Proceed,
+        /// <summary>Only the <c>EDITOR_LAUNCH</c> lock blocks and the wait window is still
+        /// open: look again next frame.</summary>
+        Wait,
+        /// <summary>Refuse with the gate's reason (any other blocker, or a lock that outlived
+        /// the window).</summary>
+        Refuse,
+    }
+
     /// <summary>
     /// Pure half of the two scene-route seam verbs that reach the vehicle editor
     /// (coverage wave 12, D14 <c>scene-editor</c>). Before them <c>DecideLoadRoute</c>
@@ -68,8 +82,11 @@ namespace Parsek.TestCommands
     /// picker's <c>launchVessel(siteName)</c>). Two refusals guard the modals stock would
     /// otherwise raise and no seam verb can answer: a held <c>EDITOR_LAUNCH</c> lock (the
     /// button is disabled) and an obstructed site (the recover-the-obstruction dialog,
-    /// whose proceed branch would RECOVER vessels). The terminal waits for FLIGHT with
-    /// the launched vessel active.</para>
+    /// whose proceed branch would RECOVER vessels). A lock that is the ONLY blocker is
+    /// first waited out for up to <see cref="LaunchLockWaitSeconds"/>, re-checked every
+    /// frame, because stock holds it transiently; a lock that outlives the window refuses
+    /// with the same reason, naming its holders. The terminal waits for FLIGHT with the
+    /// launched vessel active.</para>
     ///
     /// <para>Both are TWO-PHASE and neither parses a save off disk, so they sit in the
     /// ExitToSpaceCenter budget class rather than LoadGame's. The vocabularies below are
@@ -271,6 +288,92 @@ namespace Parsek.TestCommands
                 return LaunchFromEditorGate.SiteObstructed;
             return LaunchFromEditorGate.Proceed;
         }
+
+        /// <summary>
+        /// How long <c>LaunchFromEditor</c> waits, re-checking every frame, for an
+        /// <c>EDITOR_LAUNCH</c> lock that is the ONLY thing between the gate and the Launch
+        /// button. Stock takes that lock for short stretches the seam cannot see coming
+        /// (<c>EditorLogic.Lock</c> around a panel or dialog, an input-lock owner that
+        /// releases it a few frames later); a launch issued 100 ms after
+        /// <c>goeditor complete</c> was refused on it in the 2026-10-09 nightly (RR-1, SE-1)
+        /// with no Parsek lock up. Ten seconds is far beyond any transient hold and far
+        /// inside the verb's <see cref="DeferralBudget"/> budget, so a lock that is still
+        /// held at the end is a real one and the refusal reads exactly as before.
+        /// </summary>
+        internal const double LaunchLockWaitSeconds = 10.0;
+
+        /// <summary>The bit of stock's <c>ControlTypes.EDITOR_LAUNCH</c> (decompiled,
+        /// KSP 1.12.5: <c>EDITOR_LAUNCH = 0x1000000000</c>), so the holder filter below is
+        /// testable without the KSP enum.</summary>
+        internal const ulong EditorLaunchLockBit = 0x1000000000UL;
+
+        /// <summary>At most this many lock holders are named on a refusal.</summary>
+        internal const int MaxLockHoldersListed = 8;
+
+        /// <summary>True when the gate is shut ONLY by the <c>EDITOR_LAUNCH</c> lock: the same
+        /// gate with the lock treated as released would proceed.</summary>
+        internal static bool LaunchLockIsOnlyBlocker(
+            TestCommandScene scene, bool hasEditor, int shipPartCount, bool launchUnlocked,
+            bool siteValid, int obstructingVessels)
+            => !launchUnlocked
+               && DecideLaunchGate(scene, hasEditor, shipPartCount, true, siteValid, obstructingVessels)
+                  == LaunchFromEditorGate.Proceed;
+
+        /// <summary>
+        /// Decide one look at the launch gate. An open gate proceeds; a gate shut only by
+        /// the <c>EDITOR_LAUNCH</c> lock waits while <paramref name="waitedSeconds"/> is
+        /// under <paramref name="maxWaitSeconds"/>; everything else refuses at once with
+        /// the gate's own reason (the gate order is unchanged, so a locked button in front
+        /// of an obstructed site still refuses <c>launch-locked</c> immediately, as before).
+        /// The first look passes zero, so the same call decides the initial verdict.
+        /// </summary>
+        internal static LaunchLockWaitOutcome DecideLaunchLockWait(
+            LaunchFromEditorGate gate, bool lockIsOnlyBlocker, double waitedSeconds, double maxWaitSeconds)
+        {
+            if (gate == LaunchFromEditorGate.Proceed)
+                return LaunchLockWaitOutcome.Proceed;
+            if (gate == LaunchFromEditorGate.LaunchLocked && lockIsOnlyBlocker
+                && waitedSeconds < maxWaitSeconds)
+                return LaunchLockWaitOutcome.Wait;
+            return LaunchLockWaitOutcome.Refuse;
+        }
+
+        /// <summary>
+        /// The <c>lockHolders=</c> token for a <c>launch-locked</c> refusal: every
+        /// <c>InputLockManager.lockStack</c> entry (lock id -> <c>ControlTypes</c> mask) whose
+        /// mask covers <paramref name="lockBit"/>, sorted by id, as <c>id:0xMASK</c> joined by
+        /// commas (spaces in an id become underscores so the token stays one word), capped at
+        /// <paramref name="maxListed"/> with a <c>+N</c> tail. <c>lockHolders=-</c> when no
+        /// entry holds the bit.
+        /// </summary>
+        internal static string FormatLockHolders(
+            IEnumerable<KeyValuePair<string, ulong>> lockStack, ulong lockBit, int maxListed)
+        {
+            var holders = new List<KeyValuePair<string, ulong>>();
+            if (lockStack != null)
+                foreach (KeyValuePair<string, ulong> kv in lockStack)
+                    if ((kv.Value & lockBit) != 0UL) holders.Add(kv);
+            if (holders.Count == 0) return "lockHolders=-";
+            holders.Sort((a, b) => string.CompareOrdinal(a.Key, b.Key));
+            var parts = new List<string>();
+            int listed = Math.Min(holders.Count, Math.Max(1, maxListed));
+            for (int i = 0; i < listed; i++)
+                parts.Add(Token(holders[i].Key).Replace(' ', '_') + ":0x"
+                          + holders[i].Value.ToString("X", CultureInfo.InvariantCulture));
+            string tail = holders.Count > listed
+                ? ",+" + (holders.Count - listed).ToString(CultureInfo.InvariantCulture)
+                : string.Empty;
+            return "lockHolders=" + string.Join(",", parts.ToArray()) + tail;
+        }
+
+        /// <summary>The one Info line when the launch waited out the lock.</summary>
+        internal static string FormatLockWaitClearedLine(double waitedSeconds, int frames)
+            => "launchfromeditor lock-wait cleared waited="
+               + waitedSeconds.ToString("F2", CultureInfo.InvariantCulture) + "s"
+               + " frames=" + frames.ToString(CultureInfo.InvariantCulture)
+               + " - the EDITOR_LAUNCH lock released inside the "
+               + LaunchLockWaitSeconds.ToString("F0", CultureInfo.InvariantCulture)
+               + "s window; pressing Launch";
 
         /// <summary>The stable reason for a non-proceed gate, or null for Proceed.</summary>
         internal static string GateReason(LaunchFromEditorGate gate)

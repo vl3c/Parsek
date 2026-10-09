@@ -220,57 +220,166 @@ namespace Parsek.TestCommands
 
         // ----- LaunchFromEditor (two-phase) -----
 
-        private void LaunchFromEditorImpl(ParsedCommand cmd)
+        // One live look at everything the launch gate reads.
+        private sealed class LaunchGateSample
         {
-            string sceneName = HighLogic.LoadedScene.ToString();
-            TestCommandScene scene = MapScene(HighLogic.LoadedScene);
-            EditorLogic editor = scene == TestCommandScene.Editor ? EditorLogic.fetch : null;
-            int parts = editor != null && editor.ship != null ? editor.ship.parts.Count : 0;
-            bool unlocked = InputLockManager.IsUnlocked(ControlTypes.EDITOR_LAUNCH);
+            internal string SceneName;
+            internal EditorLogic Editor;
+            internal int Parts;
+            internal bool Unlocked;
+            internal string Site;
+            internal int Obstructing;
+            internal string Obstructor;
+            internal LaunchFromEditorGate Gate;
+            internal bool LockIsOnlyBlocker;
+        }
 
-            string siteArg = ArgOrNull(cmd, TestCommandEditorRoute.SiteArg);
-            string site = siteArg ?? (editor != null ? editor.launchSiteName : null);
-            bool siteValid = !string.IsNullOrEmpty(site) && EditorDriver.ValidLaunchSite(site);
-            int obstructing = 0;
-            string obstructor = null;
+        // Set while the verb waits out an EDITOR_LAUNCH lock that is the only blocker; the
+        // Launch button has NOT been pressed yet. Cleared once it is pressed or refused.
+        private bool launchFromEditorLockWait;
+        private string launchFromEditorSiteArg;
+        private int launchFromEditorLockWaitStartFrame;
+
+        private LaunchGateSample SampleLaunchGate(string siteArg)
+        {
+            var g = new LaunchGateSample();
+            g.SceneName = HighLogic.LoadedScene.ToString();
+            TestCommandScene scene = MapScene(HighLogic.LoadedScene);
+            g.Editor = scene == TestCommandScene.Editor ? EditorLogic.fetch : null;
+            g.Parts = g.Editor != null && g.Editor.ship != null ? g.Editor.ship.parts.Count : 0;
+            g.Unlocked = InputLockManager.IsUnlocked(ControlTypes.EDITOR_LAUNCH);
+
+            g.Site = siteArg ?? (g.Editor != null ? g.Editor.launchSiteName : null);
+            bool siteValid = !string.IsNullOrEmpty(g.Site) && EditorDriver.ValidLaunchSite(g.Site);
             if (siteValid && HighLogic.CurrentGame != null && HighLogic.CurrentGame.flightState != null)
             {
                 // Stock's own obstruction predicate - LaunchSiteClear.Test calls the same
                 // ShipConstruction.FindVesselsLandedAt against the same flight state.
-                List<ProtoVessel> found = ShipConstruction.FindVesselsLandedAt(HighLogic.CurrentGame.flightState, site);
-                obstructing = found != null ? found.Count : 0;
-                if (obstructing > 0 && found[0] != null) obstructor = found[0].vesselName;
+                List<ProtoVessel> found = ShipConstruction.FindVesselsLandedAt(HighLogic.CurrentGame.flightState, g.Site);
+                g.Obstructing = found != null ? found.Count : 0;
+                if (g.Obstructing > 0 && found[0] != null) g.Obstructor = found[0].vesselName;
             }
 
-            LaunchFromEditorGate gate = TestCommandEditorRoute.DecideLaunchGate(
-                scene, editor != null, parts, unlocked, siteValid, obstructing);
-            if (gate != LaunchFromEditorGate.Proceed)
+            g.Gate = TestCommandEditorRoute.DecideLaunchGate(
+                scene, g.Editor != null, g.Parts, g.Unlocked, siteValid, g.Obstructing);
+            g.LockIsOnlyBlocker = TestCommandEditorRoute.LaunchLockIsOnlyBlocker(
+                scene, g.Editor != null, g.Parts, g.Unlocked, siteValid, g.Obstructing);
+            return g;
+        }
+
+        // The refusal detail (the sampled state), plus the EDITOR_LAUNCH holders from
+        // stock's lockStack when the lock is what refused. The response msg is the gate
+        // reason, a space, then this.
+        private static string LaunchRefusalDetail(LaunchGateSample g, double waitedSeconds)
+        {
+            string msg = "scene=" + g.SceneName + " parts=" + Int(g.Parts) + " unlocked=" + Bool(g.Unlocked)
+                + " site=" + (g.Site ?? "-") + " obstructing=" + Int(g.Obstructing)
+                + (g.Obstructor != null ? " first=" + g.Obstructor.Replace(' ', '_') : string.Empty);
+            if (g.Gate == LaunchFromEditorGate.LaunchLocked)
             {
-                string reason = TestCommandEditorRoute.GateReason(gate);
-                string why = "scene=" + sceneName + " parts=" + Int(parts) + " unlocked=" + Bool(unlocked)
-                    + " site=" + (site ?? "-") + " obstructing=" + Int(obstructing)
-                    + (obstructor != null ? " first=" + obstructor.Replace(' ', '_') : string.Empty);
-                ParsekLog.Warn(Tag, $"launchfromeditor refused reason={reason} gate={gate} {why}");
+                msg += " " + TestCommandEditorRoute.FormatLockHolders(
+                    InputLockManager.lockStack, TestCommandEditorRoute.EditorLaunchLockBit,
+                    TestCommandEditorRoute.MaxLockHoldersListed);
+                if (waitedSeconds > 0)
+                    msg += " waited=" + waitedSeconds.ToString("F1", CultureInfo.InvariantCulture) + "s";
+            }
+            return msg;
+        }
+
+        private void LaunchFromEditorImpl(ParsedCommand cmd)
+        {
+            string siteArg = ArgOrNull(cmd, TestCommandEditorRoute.SiteArg);
+            LaunchGateSample g = SampleLaunchGate(siteArg);
+            LaunchLockWaitOutcome outcome = TestCommandEditorRoute.DecideLaunchLockWait(
+                g.Gate, g.LockIsOnlyBlocker, 0.0, TestCommandEditorRoute.LaunchLockWaitSeconds);
+
+            if (outcome == LaunchLockWaitOutcome.Refuse)
+            {
+                string reason = TestCommandEditorRoute.GateReason(g.Gate);
+                string why = LaunchRefusalDetail(g, 0.0);
+                ParsekLog.Warn(Tag, $"launchfromeditor refused reason={reason} gate={g.Gate} {why}");
                 SetExecResult("REJECTED", null, reason + " " + why);
                 return;
             }
 
+            if (outcome == LaunchLockWaitOutcome.Wait)
+            {
+                // Only the EDITOR_LAUNCH lock blocks. Go two-phase WITHOUT pressing Launch;
+                // TryCompleteLaunchFromEditor re-samples the gate every frame and presses
+                // the button the frame the lock clears, or refuses at the window's end.
+                launchFromEditorLockWait = true;
+                launchFromEditorSiteArg = siteArg;
+                launchFromEditorLockWaitStartFrame = Time.frameCount;
+                ParsekLog.Verbose(Tag, "launchfromeditor lock-wait start - EDITOR_LAUNCH is the only blocker; " +
+                    "re-checking every frame for up to "
+                    + TestCommandEditorRoute.LaunchLockWaitSeconds.ToString("F0", CultureInfo.InvariantCulture) + "s "
+                    + TestCommandEditorRoute.FormatLockHolders(
+                        InputLockManager.lockStack, TestCommandEditorRoute.EditorLaunchLockBit,
+                        TestCommandEditorRoute.MaxLockHoldersListed));
+                SetExecResult(PendingVerdict, null, null);
+                return;
+            }
+
+            PressLaunch(g, siteArg);
+            SetExecResult(PendingVerdict, null, null);
+        }
+
+        private void PressLaunch(LaunchGateSample g, string siteArg)
+        {
             VesselCrewManifest manifest = CrewAssignmentDialog.Instance != null
                 ? CrewAssignmentDialog.Instance.GetManifest() : null;
             int crew = manifest != null ? manifest.CrewCount : 0;
             ParsekLog.Info(Tag, TestCommandEditorRoute.FormatLaunchStartLine(
-                    editor.ship.shipName, parts, site, crew, sceneName));
+                    g.Editor.ship.shipName, g.Parts, g.Site, crew, g.SceneName));
 
-            launchFromEditorSite = site;
+            launchFromEditorSite = g.Site;
             // The Launch button's handler (launchBtn.onClick -> launchVessel()), or the
             // launch-site picker's launchVessel(siteName) when the spec chose a site.
-            if (siteArg != null) editor.launchVessel(siteArg);
-            else editor.launchVessel();
-            SetExecResult(PendingVerdict, null, null);
+            if (siteArg != null) g.Editor.launchVessel(siteArg);
+            else g.Editor.launchVessel();
+        }
+
+        // The lock-wait poll: one gate sample per frame until it opens (press Launch, then
+        // the FLIGHT wait below runs on later frames), another blocker appears, or the
+        // window ends (REJECTED with the gate's reason - nothing was clicked).
+        private void TryCompleteLaunchLockWait(double now)
+        {
+            double waited = now - completionStartedAt;
+            string siteArg = launchFromEditorSiteArg;
+            LaunchGateSample g = SampleLaunchGate(siteArg);
+            LaunchLockWaitOutcome outcome = TestCommandEditorRoute.DecideLaunchLockWait(
+                g.Gate, g.LockIsOnlyBlocker, waited, TestCommandEditorRoute.LaunchLockWaitSeconds);
+            if (outcome == LaunchLockWaitOutcome.Wait)
+                return;
+
+            int frames = Time.frameCount - launchFromEditorLockWaitStartFrame;
+            launchFromEditorLockWait = false;
+            launchFromEditorSiteArg = null;
+
+            if (outcome == LaunchLockWaitOutcome.Proceed)
+            {
+                ParsekLog.Info(Tag, TestCommandEditorRoute.FormatLockWaitClearedLine(waited, frames));
+                PressLaunch(g, siteArg);
+                return;
+            }
+
+            string id = completionId; long seq = completionSeq; string verb = completionVerb;
+            launchFromEditorSite = null;
+            ClearTwoPhase();
+            string reason = TestCommandEditorRoute.GateReason(g.Gate);
+            string why = LaunchRefusalDetail(g, waited);
+            ParsekLog.Warn(Tag, $"launchfromeditor refused reason={reason} gate={g.Gate} " +
+                $"after lock-wait frames={Int(frames)} {why}");
+            EmitExecutedTerminal(id, seq, verb, "REJECTED", null, reason + " " + why, dequeueHead: true);
         }
 
         private void TryCompleteLaunchFromEditor(double now)
         {
+            if (launchFromEditorLockWait)
+            {
+                TryCompleteLaunchLockWait(now);
+                return;
+            }
             double elapsed = now - completionStartedAt;
             double budget = DeferralBudget.BudgetSeconds(TestCommandEditorRoute.LaunchFromEditorVerb);
             TestCommandScene scene = MapScene(HighLogic.LoadedScene);
