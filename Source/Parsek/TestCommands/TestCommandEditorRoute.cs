@@ -310,6 +310,53 @@ namespace Parsek.TestCommands
         /// <summary>At most this many lock holders are named on a refusal.</summary>
         internal const int MaxLockHoldersListed = 8;
 
+        /// <summary>
+        /// The control lock stock's tutorial window takes while the POINTER is over it
+        /// (decompiled KSP 1.12.5: <c>TutorialScenario</c> adds a
+        /// <c>DialogMouseEnterControlLock</c> set up with <c>ControlTypes.TUTORIALWINDOW</c>,
+        /// whose mask covers <c>EDITOR_LAUNCH</c>; <c>OnPointerEnter</c> sets it,
+        /// <c>OnPointerExit</c> and <c>CloseTutorialWindow</c> remove it). On a save whose
+        /// <c>ScenarioNewGameIntro</c> carries <c>editorComplete = False</c> the editor opens
+        /// the new-game intro window, and when the OS cursor rests over it the lock holds
+        /// for as long as the cursor does: RR-1 / SE-1 on 2026-10-09 refused
+        /// <c>lockHolders=TutorialScenarioWindow:0xB9FEDFFFC013202</c> after the full wait.
+        /// A player clicking Launch moves the cursor off the window first; the seam's press
+        /// does not, so it dismisses the intro through the intro's own button (what the
+        /// Tracking Station recover verb does for <c>intro_TS</c>).
+        /// </summary>
+        internal const string TutorialWindowLockId = "TutorialScenarioWindow";
+
+        /// <summary>True when at least one lock in <paramref name="lockStack"/> covers
+        /// <paramref name="lockBit"/> and every such lock is the tutorial window's pointer
+        /// lock (<see cref="TutorialWindowLockId"/>).</summary>
+        internal static bool LockHeldOnlyByTutorialWindow(
+            IEnumerable<KeyValuePair<string, ulong>> lockStack, ulong lockBit)
+        {
+            int holders = 0;
+            if (lockStack != null)
+            {
+                foreach (KeyValuePair<string, ulong> kv in lockStack)
+                {
+                    if ((kv.Value & lockBit) == 0UL) continue;
+                    if (!string.Equals(kv.Key, TutorialWindowLockId, StringComparison.Ordinal))
+                        return false;
+                    holders++;
+                }
+            }
+            return holders > 0;
+        }
+
+        /// <summary>
+        /// Whether this lock-wait look presses the new-game intro's button: only while the
+        /// verb is waiting (<see cref="LaunchLockWaitOutcome.Wait"/>), only when the
+        /// tutorial window's pointer lock is the sole <c>EDITOR_LAUNCH</c> holder, and at
+        /// most once per launch (a press that did not clear the lock lets the wait run out
+        /// and refuse exactly as before).
+        /// </summary>
+        internal static bool ShouldPressEditorIntro(
+            LaunchLockWaitOutcome outcome, bool lockHeldOnlyByTutorialWindow, bool alreadyPressed)
+            => outcome == LaunchLockWaitOutcome.Wait && lockHeldOnlyByTutorialWindow && !alreadyPressed;
+
         /// <summary>True when the gate is shut ONLY by the <c>EDITOR_LAUNCH</c> lock: the same
         /// gate with the lock treated as released would proceed.</summary>
         internal static bool LaunchLockIsOnlyBlocker(

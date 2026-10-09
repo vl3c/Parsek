@@ -3525,6 +3525,19 @@ front of another blocker still refuses `-launch-locked` at once (the gate order 
 unchanged). Every `-launch-locked` refusal appends `lockHolders=<id>:0x<mask>,...` (the
 `InputLockManager.lockStack` entries whose mask covers `ControlTypes.EDITOR_LAUNCH =
 0x1000000000`, sorted, at most 8, `lockHolders=-` when none) and, after a wait, `waited=`.
+The first holder a refusal named (the 2026-10-09 re-flights) was not transient at all:
+`TutorialScenarioWindow`, the pointer lock (`DialogMouseEnterControlLock`, mask
+`ControlTypes.TUTORIALWINDOW`, which covers `EDITOR_LAUNCH`) stock's tutorial window holds
+while the OS cursor rests over it. A save whose `ScenarioNewGameIntro` reads
+`editorComplete = False` (`kerbin-splashdown-recorded`) opens the new-game intro window in the
+editor, so whether the lock holds depends on where the cursor happens to be. While the lock
+wait runs and that pointer lock is the SOLE `EDITOR_LAUNCH` holder
+(`LockHeldOnlyByTutorialWindow`), the verb presses the intro page's own button once
+(`ShouldPressEditorIntro`; the button whose callback `ScenarioNewGameIntro` built, found the
+way the Tracking Station recover verb finds the `intro_TS` one). Its callback sets
+`editorComplete`, closes the window (removing the lock) and saves persistent, what a
+player's click does; the verb logs `launchfromeditor dismiss intro` and the wait then
+proceeds. Any other holder, or no intro window, leaves the wait to refuse as before.
 
 **Phases.** Both TWO-PHASE, in the `ExitToSpaceCenter` budget class (a scene change that
 parses no save off disk), so neither is a `DEFERRED_SEAM_VERB`: GoToEditor 120 s,

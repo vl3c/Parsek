@@ -101,15 +101,12 @@ steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
-  # 1x Tracking Station time so the ghost map vessels exist before the save build.
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
+  # 1x Tracking Station time so the ghost map vessels exist before the save build: the
+  # injected windows open at UT 21746.96 and the fixture loads at 21746.0. A 1x WarpToUT, not
+  # inert steps: since PR #2017 the eight RecordingState steps that used to carry this took
+  # 0.2 s, and `2026-10-09_0923` saved with no ghost live (created at UT 21747.0, after the
+  # RunTests cleanup), so all three ghost-count tokens below went missing.
+  { cmd = "WarpToUT",   args = { ut = "21749", maxRate = "1" }, expect = "OK", budget = 120 },
   # The save under test: Game.Updated -> new FlightState() with the ghosts live.
   { cmd = "SaveGame",   args = { name = "persistent" }, expect = "OK" },
   { cmd = "RecordingState", expect = "OK" },

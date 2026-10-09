@@ -239,6 +239,8 @@ namespace Parsek.TestCommands
         private bool launchFromEditorLockWait;
         private string launchFromEditorSiteArg;
         private int launchFromEditorLockWaitStartFrame;
+        // Set once the lock wait pressed the new-game editor intro's button.
+        private bool launchFromEditorIntroPressed;
 
         private LaunchGateSample SampleLaunchGate(string siteArg)
         {
@@ -310,12 +312,14 @@ namespace Parsek.TestCommands
                 launchFromEditorLockWait = true;
                 launchFromEditorSiteArg = siteArg;
                 launchFromEditorLockWaitStartFrame = Time.frameCount;
+                launchFromEditorIntroPressed = false;
                 ParsekLog.Verbose(Tag, "launchfromeditor lock-wait start - EDITOR_LAUNCH is the only blocker; " +
                     "re-checking every frame for up to "
                     + TestCommandEditorRoute.LaunchLockWaitSeconds.ToString("F0", CultureInfo.InvariantCulture) + "s "
                     + TestCommandEditorRoute.FormatLockHolders(
                         InputLockManager.lockStack, TestCommandEditorRoute.EditorLaunchLockBit,
                         TestCommandEditorRoute.MaxLockHoldersListed));
+                MaybePressEditorIntro(outcome);
                 SetExecResult(PendingVerdict, null, null);
                 return;
             }
@@ -350,7 +354,10 @@ namespace Parsek.TestCommands
             LaunchLockWaitOutcome outcome = TestCommandEditorRoute.DecideLaunchLockWait(
                 g.Gate, g.LockIsOnlyBlocker, waited, TestCommandEditorRoute.LaunchLockWaitSeconds);
             if (outcome == LaunchLockWaitOutcome.Wait)
+            {
+                MaybePressEditorIntro(outcome);
                 return;
+            }
 
             int frames = Time.frameCount - launchFromEditorLockWaitStartFrame;
             launchFromEditorLockWait = false;
@@ -369,8 +376,33 @@ namespace Parsek.TestCommands
             string reason = TestCommandEditorRoute.GateReason(g.Gate);
             string why = LaunchRefusalDetail(g, waited);
             ParsekLog.Warn(Tag, $"launchfromeditor refused reason={reason} gate={g.Gate} " +
-                $"after lock-wait frames={Int(frames)} {why}");
+                $"after lock-wait frames={Int(frames)} introPressed={Bool(launchFromEditorIntroPressed)} {why}");
             EmitExecutedTerminal(id, seq, verb, "REJECTED", null, reason + " " + why, dequeueHead: true);
+        }
+
+        // The new-game editor intro (ScenarioNewGameIntro, editorComplete = False) holds the
+        // tutorial window's pointer lock over EDITOR_LAUNCH while the OS cursor rests on it.
+        // Press the intro page's own button once - its callback sets editorComplete, closes
+        // the window (which removes the lock) and saves persistent, what the player's click
+        // does. Any other holder, or no intro window, leaves the wait to run out as before.
+        private void MaybePressEditorIntro(LaunchLockWaitOutcome outcome)
+        {
+            bool onlyTutorial = TestCommandEditorRoute.LockHeldOnlyByTutorialWindow(
+                InputLockManager.lockStack, TestCommandEditorRoute.EditorLaunchLockBit);
+            if (!TestCommandEditorRoute.ShouldPressEditorIntro(outcome, onlyTutorial, launchFromEditorIntroPressed))
+                return;
+            launchFromEditorIntroPressed = true;
+            DialogGUIButton introButton = FindNewGameIntroButton(out string introDetail);
+            if (introButton == null || DialogGuiButtonOptionSelectedMethod == null)
+            {
+                ParsekLog.Warn(Tag, "launchfromeditor dismiss intro: no intro button (" + introDetail
+                    + ") - the tutorial window lock will run out the wait");
+                return;
+            }
+            ParsekLog.Info(Tag, "launchfromeditor dismiss intro - stock new-game editor intro window holds lock "
+                + TestCommandEditorRoute.TutorialWindowLockId + " over EDITOR_LAUNCH (pointer over the window); "
+                + "pressing its button '" + introButton.OptionText + "' (" + introDetail + ")");
+            DialogGuiButtonOptionSelectedMethod.Invoke(introButton, null);
         }
 
         private void TryCompleteLaunchFromEditor(double now)

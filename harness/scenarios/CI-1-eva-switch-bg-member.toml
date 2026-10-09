@@ -250,7 +250,10 @@ required  = [
   # header. Literal pid + points=1 on purpose: the log's SECOND occurrence of this
   # producer (the driven switch backgrounding the kerbal) carries a run-local pid and
   # point count, so only this one can be a literal gate.
-  "Transitioned to background \\(pid=3620499050, points=1, orbitSegments=0\\)",
+  # 2026-10-09: points regexed (>= 1); pid and orbitSegments=0 stay literal. Recording now
+  # starts in physics (PR #2059), so the ship's sample count before the EVA is timing
+  # (re-flight `2026-10-09_0924` read points=2, the one before it points=1).
+  "Transitioned to background \\(pid=3620499050, points=[1-9][0-9]*, orbitSegments=0\\)",
 ]
 # Every forbidden line is a DISTINCT real failure mode of this lane: the two other
 # routes; the three named fallthroughs INSIDE the bg-member branch (an origin can be

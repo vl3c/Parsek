@@ -358,6 +358,44 @@ namespace Parsek.Tests
                 TestCommandEditorRoute.FormatLockHolders(stack, bit, 2));
         }
 
+        // catches: RR-1 / SE-1 `2026-10-09` - the new-game editor intro window's pointer lock
+        // (TutorialScenarioWindow, mask TUTORIALWINDOW) held EDITOR_LAUNCH for the whole 10 s
+        // wait while the OS cursor rested on the window; only that holder may trigger the press.
+        [Fact]
+        public void TutorialWindowOnlyHolder_IsRecognised()
+        {
+            ulong bit = TestCommandEditorRoute.EditorLaunchLockBit;
+            const ulong tutorialMask = 0xB9FEDFFFC013202UL;
+            Assert.NotEqual(0UL, tutorialMask & bit);
+            Assert.True(TestCommandEditorRoute.LockHeldOnlyByTutorialWindow(
+                new Dictionary<string, ulong>
+                {
+                    { TestCommandEditorRoute.TutorialWindowLockId, tutorialMask },
+                    { "intro_Editor", 0x33E0E0000400UL }, // EDITOR_LOCK does not cover EDITOR_LAUNCH
+                }, bit));
+            Assert.False(TestCommandEditorRoute.LockHeldOnlyByTutorialWindow(
+                new Dictionary<string, ulong>
+                {
+                    { TestCommandEditorRoute.TutorialWindowLockId, tutorialMask },
+                    { "EditorLogic_lock", bit },
+                }, bit));
+            Assert.False(TestCommandEditorRoute.LockHeldOnlyByTutorialWindow(
+                new Dictionary<string, ulong> { { "other", bit } }, bit));
+            Assert.False(TestCommandEditorRoute.LockHeldOnlyByTutorialWindow(
+                new Dictionary<string, ulong> { { "intro_Editor", 0x33E0E0000400UL } }, bit));
+            Assert.False(TestCommandEditorRoute.LockHeldOnlyByTutorialWindow(null, bit));
+        }
+
+        [Fact]
+        public void EditorIntroPress_OnlyWhileWaitingOnTheTutorialLock_AndOnce()
+        {
+            Assert.True(TestCommandEditorRoute.ShouldPressEditorIntro(LaunchLockWaitOutcome.Wait, true, false));
+            Assert.False(TestCommandEditorRoute.ShouldPressEditorIntro(LaunchLockWaitOutcome.Wait, true, true));
+            Assert.False(TestCommandEditorRoute.ShouldPressEditorIntro(LaunchLockWaitOutcome.Wait, false, false));
+            Assert.False(TestCommandEditorRoute.ShouldPressEditorIntro(LaunchLockWaitOutcome.Proceed, true, false));
+            Assert.False(TestCommandEditorRoute.ShouldPressEditorIntro(LaunchLockWaitOutcome.Refuse, true, false));
+        }
+
         [Fact]
         public void LockWaitClearedLine_IsInvariant()
         {

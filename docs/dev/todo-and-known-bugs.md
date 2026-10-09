@@ -39,6 +39,53 @@ blocker) is still immediate. Pure decision `DecideLaunchLockWait` / `LaunchLockI
 unit-tested in `TestCommandEditorRouteTests`. The next flight's log answers the cause: a
 `lock-wait cleared` line says it was transient, a refusal names the holder.
 
+**Cause found (2026-10-09, branch `release-check-final`; seam only, xUnit only, not re-flown).**
+The re-flights on main 8c79b0379 (`RR-1` `2026-10-09_0902`, `SE-1` `_0909` / `_0916_a2`) waited
+the full 10 s and refused `lockHolders=TutorialScenarioWindow:0xB9FEDFFFC013202`. Not
+transient: both lanes fly `kerbin-splashdown-recorded`, whose `ScenarioNewGameIntro` carries
+`editorComplete = False`, so stock's new-game intro opens its window in the SPH, and
+`TutorialScenario` gives that window a `DialogMouseEnterControlLock` with
+`ControlTypes.TUTORIALWINDOW` (covers `EDITOR_LAUNCH`), set on pointer enter and removed on
+pointer exit (decompiled KSP 1.12.5). The lock holds while the OS cursor rests over the window,
+which is why the green flights (RR-1 `2026-10-07_1930`, SE-1 `2026-09-29_2152`) never met it and
+every flight of 2026-10-09 did: the fixture did not change, the cursor position did. The six
+other `LaunchFromEditor` lanes fly fixtures with `editorComplete = True` (or no intro). A player
+moves the cursor off the window to click Launch; the seam's press does not. Fix, the
+Tracking Station `intro_TS` precedent: while the lock wait runs and that pointer lock is the
+SOLE `EDITOR_LAUNCH` holder, the verb presses the intro page's own button once (its callback
+sets `editorComplete`, closes the window, which removes the lock, and saves persistent) and logs
+`launchfromeditor dismiss intro`; the wait then proceeds on the cleared lock. Any other holder,
+or no intro window, leaves the wait to refuse as before (the refusal log now carries
+`introPressed=`). Pure decisions `LockHeldOnlyByTutorialWindow` / `ShouldPressEditorIntro`,
+unit-tested in `TestCommandEditorRouteTests`. The PR #2060 wait stays.
+
+---
+
+## ~~RELEASE-REFLIGHT-REDS-ST2-VB1-CI1: three release re-flight reds were stale pins or shrunk waits, no product regression~~ [FILED AND FIXED 2026-10-09 in the specs, branch `release-check-final`; not re-flown. harness]
+
+- `ST-2-rewind-point-quicksave` `2026-10-09_0701` / `_0859` PARSEK-FAIL on one token:
+  `rewind point quicksaves: checked=1 vessels=7` read `vessels=4`. Stale pin from a deliberate
+  harness change: the pin was measured `2026-09-27_1127`, hours before the automation instance was
+  re-provisioned with the player default `DECLUTTER_KSC = True` (KSS S6; the first
+  `cluttering up KSC` line in any collected log is `2026-09-27_1600`). On the first FLIGHT load
+  stock now removes the fixture's three LaunchPad launch-clamp debris (`Vessel Kerbal X Debris was
+  removed from the game: it was debris cluttering up KSC.` x3, before onFlightReady, both runs),
+  so the RP quicksave holds 6 - 3 + the released probe = 4. Re-pinned `vessels=4`. This also
+  corrects the 2026-09-26 trace's inference that sandbox never deletes an autoclean vessel:
+  `Game.CurrenciesAvailable` is true in SANDBOX (decompiled), so stock cleans there too.
+- `VB-1-ghost-vessel-budget` `2026-10-09_0923` PARSEK-FAIL on its three ghost-count tokens
+  (`excluded 8 ... 10 -> 18`, `tracked=8`, `mapPidsBefore=8 ... ghostVesselsRemoved=8`). The
+  lane's eight inert `RecordingState` steps were its 1x Tracking Station wait for the injected
+  windows (open at UT 21746.96, fixture loads at 21746.0); since PR #2017 they took 0.2 s
+  (fewer than the 20-step floor HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS audited), so the
+  SaveGame and the RunTests cleanup ran with no ghost live and the ghosts appeared at UT 21747.0
+  after both. Harness timing, no product change. Replaced by `WarpToUT ut=21749 maxRate=1`.
+- `CI-1-eva-switch-bg-member` `2026-10-09_0924` PARSEK-FAIL on one token: the pinned
+  `Transitioned to background (pid=3620499050, points=1, orbitSegments=0)` read `points=2` (the
+  re-flight before it read 1). Recording now starts in physics (PR #2059), so the ship's sample
+  count before the EVA is timing. The token now regexes `points=[1-9][0-9]*`; the pid and
+  `orbitSegments=0` stay literal.
+
 ---
 
 ## ~~RSC-1-SETTLE-SHRUNK-BY-FAST-POLLS: RSC-1 opens Real Spawn Control before the proximity scan admits its row~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-09 in the spec, branch `harness-editor-lock-wait`; not re-flown. harness]
