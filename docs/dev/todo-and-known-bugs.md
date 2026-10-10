@@ -16,6 +16,29 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## GUI-MIRROR-PAGE-AUDIT: go through every page of the GUI mirror, delete the redundant or obsolete ones, and refresh the structure and in-game images of the rest [FILED 2026-10-10 at the owner's request after the 0.10.5 release. OPEN, tooling]
+
+The mirror (`harness/tools/gui_mirror.py`, design `docs/dev/design-gui-mirror.md`) is one generated page of
+every Parsek window and its captured states. The copy in use (`gui-mirror.html`, served on port 8765 from a
+session scratchpad, never committed) was built 2026-10-04 from the census of main `7b424cac4`; its 454
+captures / 185 states predate several window changes, and its source `_shots` dirs were deleted with the
+worktree cleanup of 2026-10-05. The owner wants forum images of the 0.10.5 UI from it.
+
+Work:
+- Walk every window and state on the page. Classify each as keep / delete (redundant: near-duplicate states
+  of one window; obsolete: windows or states that no longer exist - the Career State window, deleted
+  2026-09-27, is still listed; anything from the in-Parsek Gloops recorder, deleted 2026-10-05) / restructure
+  (the page model or grouping no longer matches the window).
+- Remove the deleted windows and states from the census lanes and the mirror's catalogue, not just the page.
+- Bring `LAYOUT_EPOCHS` up to date: windows changed after the 2026-10-04 census have no entry or an old one,
+  e.g. Missions partner rows (#2003, #2006), Logistics route names and the Update parts button (#2004,
+  #2043), the stock screens (#2001; the facility menu's Rebuild block #2046).
+- Fly a fresh census of main (about 26 GUI lanes, roughly an hour, including the operator-local `c1-gui`
+  fixture) and rebuild the page, so every kept state carries a current in-game image. Keep the images out of
+  the repo (gitignored results or a scratchpad), per the no-images rule.
+
+---
+
 ## ~~LAUNCHFROMEDITOR-REFUSED-ON-TRANSIENT-LAUNCH-LOCK: `LaunchFromEditor` refused `launch-locked` about 100 ms after the editor settled, with no Parsek lock up~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-09 in the seam, branch `harness-editor-lock-wait`; cause unproven; xUnit only, not re-flown. harness]
 
 `RR-1-relaunch-rewind-keeps-earlier-launch` `2026-10-09_0614` (attempt 1) and
