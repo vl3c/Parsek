@@ -95,7 +95,7 @@ The full feature process (vision -> scenarios -> design doc -> plan / build / re
 
 Before every commit that changes behavior (not just the first one in a PR), check whether these need updating and stage them in the same commit:
 
-- `CHANGELOG.md` - add or update the entry under the current version. On follow-up commits that change the fix approach, edit the existing entry rather than leaving the original wording stale.
+- `CHANGELOG.md` - add or update the entry under the current version. On follow-up commits that change the fix approach, edit the existing entry rather than leaving the original wording stale. Each entry is 3-5 lines (at most 5 lines of 100 characters): what changed and what the player sees, in simple words, with at most one todo id or PR number. Mechanism, log lines, test names and counts, measurements and history belong in the todo entry and the PR / commit message, never the CHANGELOG.
 - `docs/dev/todo-and-known-bugs.md` - mark completed items as ~~done~~, add newly discovered items, and update the "Fix:" description on follow-up commits when the approach changes.
 - `docs/dev/autotest-status.md` - for automated-testing changes only: update the status tables when a PR ships a module, live-proves a scenario, adds a test case, or opens/closes a gate. It is the SINGLE status authority for that system (its doc-map section defines which doc owns what - do not duplicate status elsewhere).
 - This file - only when file layout, build commands, workflow, or key patterns change. Then `cp .claude/CLAUDE.md AGENTS.md`. Deep per-file contracts belong in the owning design doc (see the appendices of `design-map-ts-render-tracer.md` / `design-map-ts-render-architecture.md` for the pattern), with a pointer here.
