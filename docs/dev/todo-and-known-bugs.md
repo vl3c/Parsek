@@ -16,6 +16,37 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## KB-STRATEGY-SLOT-NEEDED-NO-LIVE-LANE: the Administration Accept refusal for a strategy that would take the slot a committed activation needs has never been pressed in game [FILED 2026-10-10 from the branch cleanup. OPEN, harness, low]
+
+`StrategyReservationPredicates.EvaluateActivation` refuses an activation two ways when the
+committed timeline activates a strategy later: the strategy itself (`FutureActivation`) and any
+OTHER strategy whose activation now would still hold the slot when the committed one needs it
+(`SlotNeeded`). KB-4 (`KB-4-ksc-click-blocks-remaining`, PR #1924) presses only the first:
+on `stock-screen-census`, `AppreciationCampaignCfg` is already active, so after its
+Administration upgrade it presses Accept on the committed `OutsourcedResearchCfg`. `SlotNeeded`
+has xUnit cells only (`StrategyReservationTests`); no in-game cell and no lane presses it.
+
+A first draft, branch `clickblock-lanes-2` (commit `bb78438b5`, 2026-09-27, never flown,
+deleted 2026-10-10 because KB-4 replaced the rest of it), had the lane: `KB-5-strategy-activate-
+block-after-rewind` on a new host `stock-screen-census-strategy`. To rebuild it:
+- Host: the census without its active strategy. A `StockScreenStrategyFixture` built from
+  `StockScreenCensusFixture` drops the STRATEGY node, restores the base funds and drops the
+  census's two `AppreciationCampaignCfg` ledger rows (24 rows). The level-1 slot is then free,
+  so stock allows an activation, and the committed timeline still activates
+  `OutsourcedResearchCfg` at UT 160000.
+- Presses, at 1x so the committed row is never reached: Accept on `OutsourcedResearchCfg`
+  (`FutureActivation`) and Accept on `AppreciationCampaignCfg` (`SlotNeeded`). The group tags
+  (Basic,A) and (Basic,C) share a tag that stock's conflict rule does not count, so stock
+  stands aside and Parsek's reason shows.
+- Facets as KB-3 / KB-4: the capture's `record ... kind=StrategyActivation blocked=true
+  why=...`, the press through KB-4's `press-strategy` (`Administration.BtnInputAccept("accept")`),
+  the backstop's refusal before stock's confirmation, the dialog body ending in the record's
+  why, the strategy inactive, the three pools unchanged, and 24 ledger rows with no new row.
+- The fixture adds a committed save under `harness/fixtures/saves/`, so
+  `test_saveparse.test_fixture_set_is_exactly_the_committed_set` and the saves README need it too.
+
+---
+
 ## GUI-MIRROR-PAGE-AUDIT: go through every page of the GUI mirror, delete the redundant or obsolete ones, and refresh the structure and in-game images of the rest [FILED 2026-10-10 at the owner's request after the 0.10.5 release. OPEN, tooling]
 
 The mirror (`harness/tools/gui_mirror.py`, design `docs/dev/design-gui-mirror.md`) is one generated page of
