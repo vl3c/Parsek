@@ -1024,7 +1024,7 @@ namespace Parsek
             loadedRec.ApplyPersistenceArtifactsFrom(sourceClone);
             loadedRec.CopyStartLocationFrom(sourceClone);
             loadedRec.VesselName = sourceClone.VesselName;
-            MissionVesselNaming.NoteRecordingNameOrPartsChanged("hydration-repair", loadedRec.RecordingId);
+            DisplayNames.NoteChanged("hydration-repair", loadedRec.RecordingId);
             loadedRec.Points = sourceClone.Points ?? new List<TrajectoryPoint>();
             loadedRec.OrbitSegments = sourceClone.OrbitSegments ?? new List<OrbitSegment>();
             loadedRec.PartEvents = sourceClone.PartEvents ?? new List<PartEvent>();
@@ -1208,7 +1208,7 @@ namespace Parsek
             target.ApplyPersistenceArtifactsFrom(sourceClone);
             target.CopyStartLocationFrom(sourceClone);
             target.VesselName = sourceClone.VesselName;
-            MissionVesselNaming.NoteRecordingNameOrPartsChanged("hydration-repair", target.RecordingId);
+            DisplayNames.NoteChanged("hydration-repair", target.RecordingId);
             target.Points = sourceClone.Points ?? new List<TrajectoryPoint>();
             target.OrbitSegments = sourceClone.OrbitSegments ?? new List<OrbitSegment>();
             target.PartEvents = sourceClone.PartEvents ?? new List<PartEvent>();

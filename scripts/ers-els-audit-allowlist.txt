@@ -352,3 +352,11 @@ Source/Parsek/TestCommands/ParsekTestCommandAddon.StartLoopPlayback.cs
 # correlation, not a recording-id walk. Documented with a file-level
 # [ERS-exempt] header comment plus an inline note at the read.
 Source/Parsek/TestCommands/ParsekTestCommandAddon.EnterWatchMode.cs
+
+# [ERS-exempt] Vessel name identities (design-vessel-and-mission-names.md 6.2):
+# physical-identity correlation. A player vessel name decision names the SHIP
+# across every leg it recorded, superseded legs included, so the resolver and
+# the apply pass read the raw committed / pending / live recordings, never the
+# ERS. Both files carry a file-level [ERS-exempt] header comment.
+Source/Parsek/VesselIdentity.cs
+Source/Parsek/VesselNameStore.cs

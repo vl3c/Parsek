@@ -181,6 +181,7 @@ namespace Parsek
             activeInstance = this;
             InitializeAppliedUiComplexityModeFromSettings();
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
+            DisplayNames.DisplayNamesChanged += OnDisplayNamesChanged;
             kerbalsUI.SubscribeLiveCrewEvents();
         }
 
@@ -201,10 +202,19 @@ namespace Parsek
             activeInstance = this;
             InitializeAppliedUiComplexityModeFromSettings();
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
+            DisplayNames.DisplayNamesChanged += OnDisplayNamesChanged;
             kerbalsUI.SubscribeLiveCrewEvents();
         }
 
         private void OnTimelineDataChanged()
+        {
+            timelineUI.InvalidateCache();
+            kerbalsUI.InvalidateCache();
+        }
+
+        // The Timeline and Kerbals view models bake vessel and mission names; a rename moves
+        // DisplayNames.Version and nothing they otherwise listen to.
+        private void OnDisplayNamesChanged()
         {
             timelineUI.InvalidateCache();
             kerbalsUI.InvalidateCache();
@@ -3006,6 +3016,7 @@ namespace Parsek
                 activeInstance = null;
 
             LedgerOrchestrator.OnTimelineDataChanged -= OnTimelineDataChanged;
+            DisplayNames.DisplayNamesChanged -= OnDisplayNamesChanged;
             // The Kerbals tab reads LIVE crew state as well as the ledger, so it carries
             // its own stock-event subscriptions alongside the ledger hook above; they are
             // added in both constructors and dropped here, together.

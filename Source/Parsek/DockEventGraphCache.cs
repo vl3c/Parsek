@@ -99,6 +99,10 @@ namespace Parsek
             var sb = new StringBuilder(64);
             sb.Append(RecordingStore.StateVersion.ToString(ic)).Append('|');
             sb.Append(supersedeVersion.ToString(ic)).Append('|');
+            // Partner descriptions bake vessel and mission names, and a rename moves no
+            // StateVersion; a new graph also drops the Missions digest / chapter caches and the
+            // dock-partner tooltip memo, which key on the graph reference.
+            sb.Append(DisplayNames.Version.ToString(ic)).Append('|');
             int count = trees?.Count ?? 0;
             sb.Append(count.ToString(ic)).Append(':');
             for (int i = 0; i < count; i++)

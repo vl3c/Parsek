@@ -893,6 +893,15 @@ namespace Parsek
         public static void CommitTree(RecordingTree tree)
         {
             if (tree == null) return;
+            CommitTreeCore(tree);
+            // A commit (a merge, a Re-Fly union swapping older recordings in by reference, a
+            // replace commit of a copy-on-write clone) can put back older names on legs a
+            // vessel name decision covers; re-apply them (design-vessel-and-mission-names.md 7.4).
+            VesselNameStore.ApplyAll("commit-tree");
+        }
+
+        private static void CommitTreeCore(RecordingTree tree)
+        {
 
             // First-commit guard data (collapse-seal-into-mergestate plan §4.1):
             // snapshot recording ids already committed AS PART OF A TREE, taken at
@@ -4702,6 +4711,7 @@ namespace Parsek
             treesDiscardedThisSession.Clear();
             DiscardReFlyLoadIntent.ResetForTesting();
             InSessionStagedStateHandoff.ResetForTesting();
+            VesselNameStore.ResetForTesting();
         }
 
         /// <summary>

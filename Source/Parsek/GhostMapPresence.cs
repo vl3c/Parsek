@@ -1030,6 +1030,83 @@ namespace Parsek
         /// </summary>
         internal const string GhostVesselNamePrefix = "Ghost: ";
 
+        /// <summary>The map / Tracking Station name of a ghost proto for a recording's display name.</summary>
+        internal static string BuildGhostProtoVesselName(string displayName)
+            => GhostVesselNamePrefix + (displayName ?? "Unknown");
+
+        /// <summary>
+        /// The new name for a ghost proto currently named <paramref name="currentName"/>
+        /// whose recording now displays <paramref name="displayName"/>, or null when nothing
+        /// changes. Pure.
+        /// </summary>
+        internal static string ResolveGhostProtoRename(string currentName, string displayName)
+        {
+            string desired = BuildGhostProtoVesselName(displayName);
+            return string.Equals(currentName, desired, StringComparison.Ordinal) ? null : desired;
+        }
+
+        // DisplayNames.Version the ghost protos were last renamed against.
+        private static int ghostNamesAppliedVersion = int.MinValue;
+
+        /// <summary>
+        /// In-place rename of every map / Tracking Station ghost proto (design-vessel-and-mission-names.md
+        /// 7.8) when <see cref="DisplayNames.Version"/> moved: no event, no rebuild (a rebuild
+        /// trips line-blink / icon-jump and drops targets). Stock's list and labels read the
+        /// name live. The recording is resolved by id at apply time (the pid -> recording id
+        /// reverse map, else the index key of this frame); nothing index-keyed is cached.
+        /// </summary>
+        internal static void RefreshGhostProtoNamesIfDisplayNamesMoved(string scene)
+        {
+            int version = DisplayNames.Version;
+            if (version == ghostNamesAppliedVersion) return;
+            ghostNamesAppliedVersion = version;
+            if (vesselsByRecordingIndex.Count == 0 && overlapInstanceVessels.Count == 0
+                && vesselsByChainPid.Count == 0)
+                return;
+
+            IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+            var byId = new Dictionary<string, Recording>(StringComparer.Ordinal);
+            for (int i = 0; i < committed.Count; i++)
+                if (committed[i] != null && !string.IsNullOrEmpty(committed[i].RecordingId))
+                    byId[committed[i].RecordingId] = committed[i];
+
+            int scanned = 0, renamed = 0, unresolved = 0;
+            foreach (KeyValuePair<int, Vessel> kv in vesselsByRecordingIndex)
+                RenameGhostProtoInPlace(kv.Value, kv.Key, committed, byId, ref scanned, ref renamed, ref unresolved);
+            foreach (KeyValuePair<(int recIdx, long cycle), Vessel> kv in overlapInstanceVessels)
+                RenameGhostProtoInPlace(kv.Value, kv.Key.recIdx, committed, byId, ref scanned, ref renamed, ref unresolved);
+            foreach (KeyValuePair<uint, Vessel> kv in vesselsByChainPid)
+                RenameGhostProtoInPlace(kv.Value, -1, committed, byId, ref scanned, ref renamed, ref unresolved);
+
+            ParsekLog.Verbose("VesselNames",
+                string.Format(CultureInfo.InvariantCulture,
+                    "Ghost proto rename ({0}): scanned={1} renamed={2} unresolved={3} displayVersion={4}",
+                    scene ?? "?", scanned, renamed, unresolved, version));
+        }
+
+        private static void RenameGhostProtoInPlace(
+            Vessel vessel, int indexKey, IReadOnlyList<Recording> committed,
+            Dictionary<string, Recording> byId, ref int scanned, ref int renamed, ref int unresolved)
+        {
+            if (vessel == null) return;
+            scanned++;
+            Recording rec = null;
+            if (vesselPidToRecordingId.TryGetValue(vessel.persistentId, out string recId) && recId != null)
+                byId.TryGetValue(recId, out rec);
+            if (rec == null && indexKey >= 0 && indexKey < committed.Count)
+                rec = committed[indexKey];
+            if (rec == null)
+            {
+                unresolved++;
+                return;
+            }
+            string next = ResolveGhostProtoRename(vessel.vesselName, rec.VesselName);
+            if (next == null) return;
+            vessel.vesselName = next;
+            if (vessel.protoVessel != null) vessel.protoVessel.vesselName = next;
+            renamed++;
+        }
+
         /// <summary>
         /// O(1) check: is this ghost's native icon currently suppressed (below atmosphere)?
         /// When true, DrawMapMarkers draws our custom icon at the ghost mesh position instead.
@@ -6516,6 +6593,7 @@ namespace Parsek
         {
             if (loopUnits == null)
                 loopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
+            RefreshGhostProtoNamesIfDisplayNamesMoved("trackstation");
             double currentUT = CurrentUTNow();
             var committed = RecordingStore.CommittedRecordings;
             bool hasCommittedRecordings = committed != null && committed.Count > 0;
@@ -10504,6 +10582,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             CurrentUTNow = GetCurrentUTSafe;
+            ghostNamesAppliedVersion = int.MinValue;
             TrackingStationSpawnOverrideForTesting = null;
             FindBodyByNameForTesting = null;
             OrbitSeedResolver.ResetForTesting();
@@ -12731,6 +12810,7 @@ namespace Parsek
             // range). Empty (the common case) makes every ResolveMapPresenceSampleUT below return
             // the unchanged live UT with shift 0, so non-looping behavior is byte-identical.
 
+            RefreshGhostProtoNamesIfDisplayNamesMoved("flight");
             RunFlightMapDeferredCreatePass(currentUT, loopUnits);            // Pass 1 (always runs)
 
             // Per-instance overlap sweep (slice i). The SOLE create/destroy authority for overlap

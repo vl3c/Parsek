@@ -538,6 +538,8 @@ namespace Parsek
         // Keyed on the store's StateVersion, which every committed-list membership mutation
         // bumps; a count-only gate missed a same-count restructure (merge + split nets zero).
         private int lastSortedStateVersion = int.MinValue;
+        // A vessel rename moves no StateVersion but can move a row under a Name sort.
+        private int lastSortedDisplayNamesVersion = int.MinValue;
 
         /// <summary>
         /// The Recordings tab's sort column (as an INDEX into
@@ -4909,8 +4911,9 @@ namespace Parsek
                 return;
             }
 
-            // Sets the name, logs it and invalidates the shared vessel names the Missions tab
-            // and the Log cache (a rename moves no StateVersion).
+            // An identity-wide vessel name decision: every leg of the row's vessel takes the
+            // name and DisplayNames.Version moves (a rename moves no StateVersion). A blank /
+            // unchanged name, an EVA row or a vessel with no launch guid is refused and logged.
             MissionVesselNaming.ApplyRecordingRename(committed[ri], renamingRecordingText);
         }
 
@@ -5173,10 +5176,13 @@ namespace Parsek
         private void RebuildSortedIndices(IReadOnlyList<Recording> committed, double now)
         {
             int stateVersion = RecordingStore.StateVersion;
-            if (sortedIndices != null && lastSortedStateVersion == stateVersion)
+            int displayNamesVersion = DisplayNames.Version;
+            if (sortedIndices != null && lastSortedStateVersion == stateVersion
+                && lastSortedDisplayNamesVersion == displayNamesVersion)
                 return;
 
             lastSortedStateVersion = stateVersion;
+            lastSortedDisplayNamesVersion = displayNamesVersion;
             // The per-row change-log dedup dicts are index-keyed; after a membership
             // change their entries describe the neighbour, so start them over.
             lastCanRewind.Clear();

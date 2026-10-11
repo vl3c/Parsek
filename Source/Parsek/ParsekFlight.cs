@@ -1412,6 +1412,10 @@ namespace Parsek
             // to prevent ghost spawns and other work into the dying scene.
             if (sceneChangeInProgress) return;
 
+            // Vessel name decisions re-applied when the committed set moved or (1 Hz) the
+            // live tree gained a leg (vessel names design 7.4). Inert with no decision.
+            VesselNameStore.SelfHealTick(inFlight: true, realtime: Time.realtimeSinceStartup);
+
             // Defensive clear for any prior-frame entries that did not reach
             // the camera pre-cull hook (for example, scene/camera teardown).
             if (ghostPosEntries.Count > 0)

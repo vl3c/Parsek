@@ -332,7 +332,7 @@ namespace Parsek
                 Mission mission = FindMission(missionId);
                 changeSignature = ComputeChangeSignature(
                     RecordingStore.StateVersion, mission != null, mission?.Name,
-                    mission?.ExcludedIntervalKeys);
+                    mission?.ExcludedIntervalKeys, DisplayNames.Version);
                 RecordingTree tree = FindTree(targetId);
                 if (tree != null)
                 {
@@ -397,7 +397,7 @@ namespace Parsek
             Mission mission = FindMission(missionId);
             int signature = ComputeChangeSignature(
                 RecordingStore.StateVersion, mission != null, mission?.Name,
-                mission?.ExcludedIntervalKeys);
+                mission?.ExcludedIntervalKeys, DisplayNames.Version);
             if (signature == changeSignature)
                 return;
             int before = steps.Count;
@@ -437,17 +437,19 @@ namespace Parsek
 
         /// <summary>
         /// The mission-Log change signature: the committed-recordings version, whether the
-        /// mission still resolves, its name, and its excluded interval keys as an
-        /// order-independent set hash. Pure; an in-memory compare value, never persisted.
+        /// mission still resolves, its name, its excluded interval keys as an
+        /// order-independent set hash, and <see cref="DisplayNames.Version"/> (a vessel rename
+        /// moves no StateVersion). Pure; an in-memory compare value, never persisted.
         /// </summary>
         internal static int ComputeChangeSignature(
             int stateVersion, bool missionFound, string missionName,
-            ICollection<string> excludedIntervalKeys)
+            ICollection<string> excludedIntervalKeys, int displayNamesVersion = 0)
         {
             unchecked
             {
                 int h = 17;
                 h = h * 31 + stateVersion;
+                h = h * 31 + displayNamesVersion;
                 h = h * 31 + (missionFound ? 1 : 0);
                 h = h * 31 + (missionName != null ? StringComparer.Ordinal.GetHashCode(missionName) : 0);
                 int setHash = 0;

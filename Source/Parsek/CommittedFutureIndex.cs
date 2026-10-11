@@ -662,8 +662,9 @@ namespace Parsek
     /// and effective recording lists (<c>EffectiveState</c> replaces each list on every
     /// rebuild, which happens exactly when <c>Ledger.StateVersion</c>, the tombstone
     /// version, <c>RecordingStore.StateVersion</c>, the supersede version or the Re-Fly
-    /// marker change), plus a milestone fingerprint for the retire fallback and an
-    /// explicit generation that <see cref="Invalidate"/> bumps. The stock overlay
+    /// marker change), plus a milestone fingerprint for the retire fallback,
+    /// <c>DisplayNames.Version</c> (entries bake a flight's display name, and a rename moves
+    /// none of the other keys) and an explicit generation that <see cref="Invalidate"/> bumps. The stock overlay
     /// controller calls <see cref="Invalidate"/> from
     /// <c>LedgerOrchestrator.OnTimelineDataChanged</c>; the version keys make the cache
     /// correct even when that delegate was reset (its <c>ResetForTesting</c> nulls it) or
@@ -680,6 +681,8 @@ namespace Parsek
         private static long cachedMilestoneFingerprint = long.MinValue;
         private static int cachedGeneration = int.MinValue;
         private static int generation;
+        // Entries bake a flight's display name (mission name, else vessel name).
+        private static int cachedDisplayNamesVersion = int.MinValue;
 
         /// <summary>How many times the index has been rebuilt (tests pin the cache).</summary>
         internal static int RebuildCount { get; private set; }
@@ -696,13 +699,15 @@ namespace Parsek
                 IReadOnlyList<GameAction> els = EffectiveState.ComputeELS();
                 IReadOnlyList<Recording> ers = EffectiveState.ComputeERS();
                 long fingerprint = MilestoneFingerprint();
+                int displayNamesVersion = DisplayNames.Version;
                 lock (syncRoot)
                 {
                     if (cached != null
                         && ReferenceEquals(cachedEls, els)
                         && ReferenceEquals(cachedErs, ers)
                         && cachedMilestoneFingerprint == fingerprint
-                        && cachedGeneration == generation)
+                        && cachedGeneration == generation
+                        && cachedDisplayNamesVersion == displayNamesVersion)
                     {
                         return cached;
                     }
@@ -727,6 +732,7 @@ namespace Parsek
                     cachedErs = ers;
                     cachedMilestoneFingerprint = fingerprint;
                     cachedGeneration = generation;
+                    cachedDisplayNamesVersion = displayNamesVersion;
                     RebuildCount++;
 
                     ParsekLog.Verbose(Tag,

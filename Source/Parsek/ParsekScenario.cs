@@ -1377,6 +1377,8 @@ namespace Parsek
                 SaveTreeRecordings(node);
                 savePhase = "missions";
                 MissionStore.Save(node);
+                savePhase = "vessel-names";
+                VesselNameStore.Save(node);
                 // Data-loss guard: if the committed store is empty because the tree/mission load
                 // did not complete (committedTreeStateLoaded==false) while stranded sidecars remain
                 // on disk, preserve the on-disk save's committed trees + missions instead of
@@ -4470,6 +4472,9 @@ namespace Parsek
                     // live-session RPs stay put.
                     loadPhase = "rewind-point-reap";
                     RewindPointReaper.ReapOrphanedRPs();
+
+                    loadPhase = "vessel-names-apply";
+                    VesselNameStore.ApplyAll(isRevert ? "onload-tail:revert" : "onload-tail:scene-change");
                     loadedRecordingCount = recordings.Count;
                     loadStatus = isRevert ? "returned-revert" : "returned-scene-change";
                     return;
@@ -4512,6 +4517,11 @@ namespace Parsek
                 // Validate chain integrity before any playback
                 loadPhase = "chain-validation";
                 RecordingStore.ValidateChains();
+
+                // The vessel name decisions read only their own node; loading them before the
+                // trees keeps a tree-load fault from dropping them on the next save.
+                loadPhase = "vessel-names";
+                VesselNameStore.Load(node);
 
                 loadPhase = "recording-trees";
                 LoadRecordingTrees(node, recordings);
@@ -4844,6 +4854,11 @@ namespace Parsek
                 // still live.
                 loadPhase = "rewind-point-reap";
                 RewindPointReaper.ReapOrphanedRPs();
+
+                // After hydration repair and the journal finisher: re-apply every vessel name
+                // decision to the recordings this load produced (design 7.4 / 7.6).
+                loadPhase = "vessel-names-apply";
+                VesselNameStore.ApplyAll("onload-tail:cold");
                 loadedRecordingCount = recordings.Count;
                 loadStatus = "completed";
             }

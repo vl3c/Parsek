@@ -44,6 +44,10 @@ namespace Parsek
             // so debris ghosts replay in sync with the parent's loop cycle.
             PopulateLoopSyncParentIndices(recordings);
 
+            // A split leg copies the post-apply name and a merge drops a leg id; classify the
+            // new legs and keep every covered leg on its decision (vessel names design 7.4).
+            VesselNameStore.ApplyAll("optimizer");
+
             // Rebuild BackgroundMap for trees that had structural changes (splits/merges).
             // BackgroundMap is a runtime-only field mapping PID → RecordingId; splits create
             // new recordings and merges remove them, invalidating the map.

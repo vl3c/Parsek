@@ -920,6 +920,7 @@ namespace Parsek
             m.Name = newName;
             if (!SuppressLogging)
                 ParsekLog.Info("Mission", $"Renamed mission '{old}' -> '{newName}' (tree={m.TreeId})");
+            DisplayNames.NoteChanged("mission-rename", m.TreeId);
         }
 
         // --- Persistence (driven by ParsekScenario) ---
