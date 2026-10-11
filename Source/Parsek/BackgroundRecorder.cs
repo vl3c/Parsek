@@ -1364,6 +1364,8 @@ namespace Parsek
         {
             parentRec.ChildBranchPointId = branchPointId;
             parentRec.ExplicitEndUT = branchUT;
+            // Vessel names (design 7.4 step 3): the leg-close name check.
+            VesselNameLiveSync.NoteLegClosing(parentRec, "leg-close:background-parent");
 
             // Close parent's orbit segment if open
             BackgroundOnRailsState parentRails;

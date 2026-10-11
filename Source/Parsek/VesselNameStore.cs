@@ -212,7 +212,7 @@ namespace Parsek
         internal static bool TryRecordDecision(
             VesselIdentity.Resolution res, Recording rec, string name, VesselNameSource source,
             double ut, out VesselNameDecision decision, out string refusal,
-            string extraPriorName = null, bool refuseUnchangedRow = true)
+            IEnumerable<string> extraPriorNames = null, bool refuseUnchangedRow = true)
         {
             decision = null;
             refusal = null;
@@ -270,8 +270,12 @@ namespace Parsek
                 priors.Add(replaced.Name);
                 priors.AddRange(replaced.PriorNames);
             }
-            // A stock rename also names what the live vessel carried just before (design 7.1).
-            if (!string.IsNullOrEmpty(extraPriorName)) priors.Add(extraPriorName);
+            // What the identity's live vessels carry right now (design 7.1 / 7.2): the name a
+            // stock rename replaced, or a Parsek rename's live vessels, so the live write rule
+            // reads their current name as stale and writes the decision through.
+            if (extraPriorNames != null)
+                foreach (string extra in extraPriorNames)
+                    if (!string.IsNullOrEmpty(extra)) priors.Add(extra);
             priors.Sort(StringComparer.Ordinal);
             foreach (string p in priors) AddPrior(d, p);
 
@@ -350,8 +354,14 @@ namespace Parsek
             }
 
             string oldName = rec?.VesselName;
+            // The live vessels of the row's identity may carry a name none of its legs shows (a
+            // stock rename before this build, an automatic stock name): it is a prior name too,
+            // so the write-through reaches them (ruling 3).
+            List<string> liveNames = null;
+            if (rec != null && res.TryGetIdentity(rec.RecordingId, out VesselIdentity.Identity liveIdentity))
+                liveNames = VesselNameLiveSync.LiveNamesOfIdentity(res, liveIdentity, headless: universeForTesting != null);
             if (!TryRecordDecision(res, rec, newName, VesselNameSource.ParsekRename, ReadNowUT(),
-                    out VesselNameDecision decision, out refusal))
+                    out VesselNameDecision decision, out refusal, extraPriorNames: liveNames))
             {
                 // Blank and unchanged are the commit of an untouched editor: quiet.
                 string line = "Parsek rename refused: rec=" + (rec?.RecordingId ?? "<null>") +

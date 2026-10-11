@@ -4732,6 +4732,9 @@ namespace Parsek
         /// </summary>
         internal static void AppendCapturedDataToRecording(Recording target, Recording source, double endUT)
         {
+            // Vessel names (design 7.4 step 3): a leg closing under a stock automatic name it
+            // took while open is uncovered before the apply pass can overwrite it.
+            VesselNameLiveSync.NoteLegClosing(target, "leg-close:active");
             if (source != null)
             {
                 target.Points.AddRange(source.Points);

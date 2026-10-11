@@ -377,7 +377,7 @@ namespace Parsek
             List<Recording> copies = res.Copies(legId);
             Recording rep = copies != null && copies.Count > 0 ? copies[0] : null;
             if (!VesselNameStore.TryRecordDecision(res, rep, newName, source, ut, out decision, out string refusal,
-                    extraPriorName: oldName, refuseUnchangedRow: false))
+                    extraPriorNames: new[] { oldName }, refuseUnchangedRow: false))
             {
                 outcome = refusal;
                 return false;
@@ -387,7 +387,131 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// The leg-close name check (design 7.4 step 3, the closing half): a closing leg the
+        /// decision covers, whose recorded vessel (positive pid + guid match) now carries a
+        /// name nobody chose - not the decision, a prior or the leg's captured name - opened
+        /// under the decision name and was renamed automatically by stock while open (the
+        /// staging race, 8.17) with no pass in between. It is marked uncovered and takes the
+        /// live name in capture form, so the apply pass never overwrites it. True when it did.
+        /// Pure apart from <paramref name="localize"/>.
+        /// </summary>
+        internal static bool CheckClosingLegName(
+            VesselIdentity.Resolution res, string legId, string liveName, Func<string, string> localize, string reason)
+        {
+            if (res == null || string.IsNullOrEmpty(legId) || string.IsNullOrEmpty(liveName)) return false;
+            if (!res.TryGetIdentity(legId, out VesselIdentity.Identity identity)) return false;
+            VesselNameDecision d = VesselNameStore.ResolveDecision(identity);
+            if (d == null || !d.CoveredLegIds.Contains(legId)) return false;
+            if (DecideLiveWrite(d, legId, liveName, localize) != LiveWriteVerdict.UnchosenName) return false;
+            string captured = LocalizeCaptureName(liveName, localize);
+            List<Recording> copies = res.Copies(legId);
+            string old = copies != null && copies.Count > 0 && copies[0] != null ? copies[0].VesselName : null;
+            VesselNameStore.MarkLegUncoveredByStockName(d, legId);
+            if (copies != null)
+                foreach (Recording copy in copies)
+                    if (copy != null) copy.VesselName = captured;
+            ParsekLog.Info(Tag, "Leg close: stock automatic name kept on leg=" + legId + " '" + (old ?? "") +
+                "' -> '" + captured + "' (not the decision, a prior or the captured name): marked uncovered " +
+                "identity=" + (identity.Key ?? "<none>") + " seq=" + d.Seq.ToString(CultureInfo.InvariantCulture) +
+                " reason=" + (reason ?? "<none>"));
+            DisplayNames.NoteChanged("vessel-names-leg-close-stock-name", legId);
+            return true;
+        }
+
+        /// <summary>
+        /// The names the live vessels resolving to <paramref name="identity"/> carry now (raw,
+        /// plus the capture-localized form when it differs), for a Parsek rename's prior names.
+        /// <paramref name="headless"/> reads only <see cref="LiveVesselsProviderForTesting"/>.
+        /// Never throws.
+        /// </summary>
+        internal static List<string> LiveNamesOfIdentity(
+            VesselIdentity.Resolution res, VesselIdentity.Identity identity, bool headless)
+        {
+            var names = new List<string>();
+            if (res == null || identity == null) return names;
+            try
+            {
+                List<LiveVesselEntry> vessels;
+                Func<VesselNameLiveScope, List<LiveVesselEntry>> provider = LiveVesselsProviderForTesting;
+                if (provider != null) vessels = provider(VesselNameLiveScope.Auto);
+                else if (headless || VesselNameStore.TreesProviderForTesting != null) return names;
+                else
+                {
+                    try
+                    {
+                        vessels = GatherLiveVesselsCore(VesselNameLiveScope.Auto, "parsek-rename-priors", out _);
+                    }
+                    catch (Exception ex) when (ex is System.Security.SecurityException
+                        || ex is TypeInitializationException || ex is MissingMethodException)
+                    {
+                        vessels = null;
+                    }
+                }
+                if (vessels == null) return names;
+                foreach (LiveVesselEntry v in vessels)
+                {
+                    if (v == null || v.IsGhostMap || string.IsNullOrEmpty(v.Name)) continue;
+                    if (!ReferenceEquals(res.ResolveLiveVessel(v.Guid, v.Pid, null), identity)) continue;
+                    names.Add(v.Name);
+                    string localized = LocalizeCaptureName(v.Name, LocalizeForTesting);
+                    if (!string.IsNullOrEmpty(localized) && localized != v.Name) names.Add(localized);
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag, "Live names of an identity threw: " + ex.GetType().Name + ": " + ex.Message);
+            }
+            return names;
+        }
+
         // ------------------------------------------------------------------ production
+
+        /// <summary>
+        /// A tree leg is closing (the active leg's capture appended, a background parent closed
+        /// at a split): the leg-close name check over the recorded vessel's live name, when the
+        /// vessel is positively matched by pid + launch guid. Inert with no decision; never throws.
+        /// </summary>
+        internal static void NoteLegClosing(Recording leg, string reason)
+        {
+            if (leg == null || VesselNameStore.DecisionCount == 0 || VesselNameStore.TreesProviderForTesting != null)
+                return;
+            try
+            {
+                string liveName;
+                try
+                {
+                    liveName = ReadRecordedVesselLiveNameCore(leg.VesselPersistentId, leg.RecordedVesselGuid);
+                }
+                catch (Exception ex) when (ex is System.Security.SecurityException
+                    || ex is TypeInitializationException || ex is MissingMethodException)
+                {
+                    return;
+                }
+                if (string.IsNullOrEmpty(liveName)) return;
+                List<RecordingTree> trees = VesselNameStore.GatherTrees();
+                VesselIdentity.Resolution res = VesselIdentity.Resolve(trees, VesselNameStore.GatherLoose(trees));
+                if (!res.ByRecordingId.ContainsKey(leg.RecordingId ?? "")) return;
+                CheckClosingLegName(res, leg.RecordingId, liveName, LocalizeForTesting, reason);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag, "Leg-close name check threw: " + ex.GetType().Name + ": " + ex.Message);
+            }
+        }
+
+        // The recorded vessel's live name on a positive pid + guid match (the Phase 0 close
+        // refresh rule, ParsekFlight.ResolveRecordedVesselNameAtClose), else null.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static string ReadRecordedVesselLiveNameCore(uint pid, string recordedGuid)
+        {
+            if (pid == 0 || VesselLaunchIdentity.NormalizeGuid(recordedGuid) == null) return null;
+            Vessel v = FlightRecorder.FindVesselByPid(pid);
+            if (v == null || GhostMapPresence.IsGhostMapVessel(pid)) return null;
+            string name = ParsekFlight.ResolveRecordedVesselNameAtClose(
+                null, pid, recordedGuid, v.persistentId, v.id.ToString("N"), v.vesselName, out string source);
+            return source == "recorded-vessel" ? name : null;
+        }
 
         /// <summary>
         /// The Postfix's production wrapper: resolves over the live recordings, records the
@@ -568,7 +692,7 @@ namespace Parsek
         /// </summary>
         internal static void OnReFlyStripComplete(string sessionId, float realtime)
         {
-            VesselNameStore.BumpFlightEpoch("refly-attempt-start sess=" + (sessionId ?? "<none>"));
+            VesselNameStore.BeginReFlyAttemptEpoch(sessionId);
             flightReadyPassArmed = false;
             lastStripPassRealtime = realtime;
             RunFlightPostLoadPass("post-load:refly-strip");
