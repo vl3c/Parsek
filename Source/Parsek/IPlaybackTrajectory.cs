@@ -45,6 +45,11 @@ namespace Parsek
         string VesselName { get; }
 
         // === Identity ===
+        // The recorded vessel's launch guid (KSP Vessel.id, launch-unique), null when
+        // unknown. Identity for "same vessel" decisions inside the engine (the loop-unit
+        // watch camera); the name is only a legacy fallback when this is unknown.
+        string RecordedVesselGuid { get; }
+
         // Stable GUID-style id for dedupe of per-recording diagnostics (e.g. the clamp
         // warning in GhostPlaybackLogic.ResolveLoopInterval). May be null/empty on
         // transient or test fixtures; consumers must fall back to VesselName.

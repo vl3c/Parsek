@@ -1954,13 +1954,11 @@ namespace Parsek
                 // A quicksave-loaded duplicate takes one frame to recover via
                 // ShipConstruction.RecoverVesselFromFlight; if that clears the overlap, the
                 // original position is still valid and we must NOT walk back unnecessarily.
-                string resolvedRecName = Recording.ResolveLocalizedName(rec.VesselName);
                 if (ShouldEnterDuplicateBlockerRecovery(
                         rec,
                         blockerVessel != null && blockerVessel.loaded,
-                        blockerName,
-                        resolvedRecName,
-                        blockerVessel != null ? blockerVessel.persistentId : 0u))
+                        blockerVessel != null ? blockerVessel.persistentId : 0u,
+                        blockerVessel != null ? AnchorDetector.TryReadLiveVesselGuid(blockerVessel) : null))
                 {
                     ParsekLog.Warn("Spawner",
                         $"Duplicate blocker detected for #{index} ({rec.VesselName}): " +
@@ -2949,27 +2947,22 @@ namespace Parsek
         /// recordings survived in a playtest because each new spawn killed the last.
         /// Siblings should walkback, not recover.</para>
         ///
-        /// <para>Fix: the blocker must match this recording's OWN <see cref="Recording.SpawnedVesselPersistentId"/>
-        /// -- the PID we recorded the last time WE spawned. That's the only way to be
-        /// certain the blocker is a duplicate of ourselves (the #112 scenario). If the
-        /// blocker belongs to a sibling recording or to a non-Parsek vessel, PIDs
-        /// differ and we fall through to walkback.</para>
+        /// <para>Fix: the blocker must be this recording's OWN spawn, by identity
+        /// (<see cref="VesselLaunchIdentity.LiveVesselIsRecordedSpawn"/>): its pid must equal
+        /// the <see cref="Recording.SpawnedVesselPersistentId"/> we recorded the last time WE
+        /// spawned, and for an adoption stamp (spawn pid == the craft-baked recorded pid) the
+        /// launch guid must not conclusively differ, so a relaunch of the same craft that
+        /// reuses the baked pid is never recovered. The vessel NAME is not consulted: a
+        /// player can rename the spawned vessel, and a same-named vessel of another launch is
+        /// not ours. A sibling recording's or a non-Parsek vessel fails the identity check and
+        /// falls through to walkback.</para>
         /// </summary>
         internal static bool ShouldRecoverBlockerVessel(
-            Recording rec, string blockerName, string recordingVesselName, uint blockerPid)
+            Recording rec, uint blockerPid, string blockerGuid)
         {
             if (rec == null || blockerPid == 0) return false;
-            if (string.IsNullOrEmpty(blockerName) || string.IsNullOrEmpty(recordingVesselName))
-                return false;
-            if (!string.Equals(blockerName, recordingVesselName, StringComparison.Ordinal))
-                return false;
-
-            // Primary discriminator: the blocker must be the SAME vessel we spawned
-            // previously for THIS recording. #112 applies only when KSP's quicksave
-            // restored our own spawn with the same PID.
-            return rec.VesselSpawned
-                && rec.SpawnedVesselPersistentId != 0
-                && rec.SpawnedVesselPersistentId == blockerPid;
+            if (!rec.VesselSpawned) return false;
+            return VesselLaunchIdentity.LiveVesselIsRecordedSpawn(rec, blockerPid, blockerGuid);
         }
 
         /// <summary>
@@ -2985,15 +2978,14 @@ namespace Parsek
         internal static bool ShouldEnterDuplicateBlockerRecovery(
             Recording rec,
             bool blockerVesselLoaded,
-            string blockerName,
-            string resolvedRecordingName,
-            uint blockerPid)
+            uint blockerPid,
+            string blockerGuid)
         {
             if (rec == null) return false;
             // Recovery-loop latch: one recovery per recording, ever.
             if (rec.DuplicateBlockerRecovered) return false;
             if (!blockerVesselLoaded) return false;
-            return ShouldRecoverBlockerVessel(rec, blockerName, resolvedRecordingName, blockerPid);
+            return ShouldRecoverBlockerVessel(rec, blockerPid, blockerGuid);
         }
 
         /// <summary>

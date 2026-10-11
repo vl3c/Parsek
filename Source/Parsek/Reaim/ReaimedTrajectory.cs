@@ -100,6 +100,7 @@ namespace Parsek.Reaim
         public ConfigNode GhostVisualSnapshot => inner.GhostVisualSnapshot;
         public ConfigNode VesselSnapshot => inner.VesselSnapshot;
         public string VesselName => inner.VesselName;
+        public string RecordedVesselGuid => inner.RecordedVesselGuid;
         public string RecordingId => inner.RecordingId;
         public bool LoopPlayback => inner.LoopPlayback;
         public double LoopIntervalSeconds => inner.LoopIntervalSeconds;

@@ -336,6 +336,13 @@ namespace Parsek
         string VesselName { get; }
 
         /// <summary>
+        /// The vessel's launch Guid (<c>Vessel.id</c>) in "N" form, or null when unknown.
+        /// Read by the in-place continuation debris kill, which matches by launch identity
+        /// (pid + guid), never by name.
+        /// </summary>
+        string LaunchGuid { get; }
+
+        /// <summary>
         /// KSP vessel-type classification. Used by
         /// <see cref="PostLoadStripper.ShouldPreserveVesselType"/> to bypass
         /// the strip for planted-flag vessels.
@@ -401,6 +408,14 @@ namespace Parsek
                 }
             }
             public string VesselName => vessel != null ? vessel.vesselName : null;
+            public string LaunchGuid
+            {
+                get
+                {
+                    try { return vessel != null ? AnchorDetector.TryReadLiveVesselGuid(vessel) : null; }
+                    catch { return null; }
+                }
+            }
             public VesselType VesselType
             {
                 get

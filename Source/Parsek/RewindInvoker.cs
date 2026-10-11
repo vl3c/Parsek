@@ -3721,17 +3721,33 @@ namespace Parsek
         /// keys on <see cref="RewindPoint.PidSlotMap"/> and only kills siblings registered in
         /// that map; pre-existing debris vessels carried in the rewind quicksave's
         /// <c>protoVessels</c> from prior career flights are left in scene by design.
-        /// For an in-place continuation Re-Fly, however, those leftover vessels can share a
-        /// name with a Destroyed-terminal recording in the actively re-flown tree, and
-        /// KSP-stock patched-conics treats them as encounter candidates -- producing the
-        /// phantom "Kerbin Encounter T+" + 50x warp cap that the playtest captured.
+        /// For an in-place continuation Re-Fly, however, a leftover vessel can be the
+        /// quicksave copy of a vessel the actively re-flown tree recorded as Destroyed (or is
+        /// superseding), and KSP-stock patched-conics treats it as an encounter candidate --
+        /// producing the phantom "Kerbin Encounter T+" + 50x warp cap that the playtest
+        /// captured.
         /// <para>
-        /// Returns the list of left-alone PIDs that should be killed: vessels whose
-        /// <c>persistentId</c> is in <paramref name="leftAlonePids"/> AND whose name
-        /// matches a Destroyed-terminal recording in the marker's tree. The
-        /// <paramref name="protectedPids"/> parameter excludes the actively re-flown
-        /// vessel + the marker's recording vessel pid so #573's strip-kill protection
-        /// is preserved.
+        /// Returns the list of left-alone PIDs that should be killed, from
+        /// <paramref name="leftAlonePids"/> (a DEBRIS-only survey, see
+        /// <see cref="IsDebrisKillSurveyCandidate"/>):
+        /// <list type="number">
+        /// <item>by launch identity: the vessel is the same launch as a Destroyed-terminal or
+        /// suppressed-subtree recording in the marker's tree (parent-chain recordings stay
+        /// name-only, see below)
+        /// (<see cref="VesselLaunchIdentity.CandidateMatchesRecording"/> over the recorded
+        /// source vessel and its spawn: pid plus a launch guid that does not conclusively
+        /// differ, the same gate the rewind strip uses), whatever either is named, so a
+        /// renamed vessel's quicksave copy is still removed;</item>
+        /// <item>by the prior-career relic rule: a debris vessel of ANOTHER launch whose name
+        /// equals a kill-eligible recording's name (debris of an earlier flight of the same
+        /// craft, the playtest's phantom-encounter cause). No identity reaches those; the name
+        /// is a deliberate, debris-scoped heuristic here, never an identity claim. It is also
+        /// the ONLY rule for parent-chain recordings, which keep their original name matching.</item>
+        /// </list>
+        /// The <paramref name="protectedPids"/> parameter excludes the actively re-flown
+        /// vessel + the marker's recording vessel pid so #573's strip-kill protection is
+        /// preserved, and a candidate that is the active Re-Fly recording's own launch is
+        /// never killed.
         /// </para>
         /// <para>
         /// Pure static; the caller is responsible for the actual <c>Vessel.Die()</c>
@@ -3744,7 +3760,8 @@ namespace Parsek
         /// </summary>
         /// <param name="marker">Live re-fly marker. Returns empty list when null or not in-place.</param>
         /// <param name="trees">Committed trees from <c>RecordingStore.CommittedTrees</c>.</param>
-        /// <param name="leftAlonePids">Pids of left-alone vessels with their names.</param>
+        /// <param name="leftAlonePids">Left-alone vessels: pid, launch guid (null when
+        /// unknown) and name (the name is only logged).</param>
         /// <param name="protectedPids">Pids that must NOT be killed (selected vessel + marker active).</param>
         /// <param name="sessionSuppressedRecordingIds">Recording ids in the
         /// session-suppressed subtree (typically
@@ -3754,14 +3771,14 @@ namespace Parsek
         /// recordings, but the 2026-04-25 playtest captured a non-Destroyed
         /// pre-existing vessel in the supersede subtree (a phantom that
         /// would be replaced by the re-fly's new tail) being kept alive in
-        /// scene. Names of recordings in the suppressed subtree are now
+        /// scene. Recordings in the suppressed subtree are now
         /// also kill-eligible. Pass <c>null</c> in tests when only the
         /// Destroyed-terminal predicate is exercised — backwards-compatible
         /// with the original signature.</param>
         internal static List<uint> ResolveInPlaceContinuationDebrisToKill(
             ReFlySessionMarker marker,
             IReadOnlyList<RecordingTree> trees,
-            IReadOnlyList<(uint pid, string vesselName)> leftAlonePids,
+            IReadOnlyList<(uint pid, string guid, string vesselName)> leftAlonePids,
             HashSet<uint> protectedPids,
             IReadOnlyCollection<string> sessionSuppressedRecordingIds = null)
         {
@@ -3804,32 +3821,43 @@ namespace Parsek
                 suppressedSet = new HashSet<string>(sessionSuppressedRecordingIds, StringComparer.Ordinal);
             }
 
-            // Build the kill-eligible name set: Destroyed-terminal recordings
+            // Build the kill-eligible recording set: Destroyed-terminal recordings
             // (the original #587 predicate) PLUS any recording in the
-            // session-suppressed subtree (#587 follow-up). Suppressed-subtree
-            // recordings are being superseded by the in-place continuation —
-            // any pre-existing vessel matching one of their names is a phantom
-            // from the old timeline that the re-fly is overwriting, and would
-            // produce the "second Kerbal X-shaped object" the user sees.
+            // session-suppressed subtree (#587 follow-up) PLUS the active Re-Fly
+            // recording's parent chain. Suppressed-subtree recordings are being
+            // superseded by the in-place continuation - a pre-existing vessel that IS
+            // one of their vessels is a phantom from the old timeline the re-fly is
+            // overwriting, and would produce the "second Kerbal X-shaped object" the
+            // user sees.
             //
-            // CRITICAL: never add the active Re-Fly target's vessel name to
-            // the kill set. The active recording is itself the head of the
-            // suppressed subtree, so it would otherwise be picked up by the
-            // suppressed-subtree predicate. The protected-pids check below
-            // already shields the LIVE vessel, but a duplicate-name vessel
-            // (rare but possible) would still slip through if the name made
-            // it into the eligible set. Drop the active rec early.
+            // CRITICAL: the active Re-Fly recording is never kill-eligible, and neither
+            // is any candidate that is its own launch. The active recording is itself
+            // the head of the suppressed subtree, so it would otherwise be picked up by
+            // the suppressed-subtree predicate. The protected-pids check below already
+            // shields the LIVE vessel; the identity skip is the second layer.
+            //
+            // The identity arm runs ONLY against Destroyed-terminal and suppressed-subtree
+            // recordings (identityEligible). A parent-chain recording keeps its original
+            // name-only matching: the parent chain's earliest leg shares its launch with
+            // vessels that split off later under another name (a root R0 and its debris
+            // continuation D keep R0's pid + guid), so an identity match there would Die()
+            // a vessel the name rule never reached.
+            var killEligible = new List<Recording>();
+            var identityEligible = new List<Recording>();
             var killEligibleNames = new HashSet<string>(StringComparer.Ordinal);
-            int destroyedTerminalNames = 0;
-            int suppressedSubtreeNames = 0;
-            int parentChainNames = 0;
+            Recording activeRec = null;
+            int destroyedTerminalRecs = 0;
+            int suppressedSubtreeRecs = 0;
+            int parentChainRecs = 0;
             foreach (var rec in markerTree.Recordings.Values)
             {
                 if (rec == null) continue;
-                if (string.IsNullOrEmpty(rec.VesselName)) continue;
                 if (string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId,
                         StringComparison.Ordinal))
-                    continue; // never kill by the active Re-Fly target's name
+                {
+                    activeRec = rec;
+                    continue; // never kill the active Re-Fly target's own vessel
+                }
 
                 bool destroyedTerminal = rec.TerminalStateValue == TerminalState.Destroyed;
                 bool inSuppressedSubtree = suppressedSet != null
@@ -3848,32 +3876,67 @@ namespace Parsek
 
                 if (!destroyedTerminal && !inSuppressedSubtree && !inActiveParentChain) continue;
 
-                if (killEligibleNames.Add(rec.VesselName))
-                {
-                    if (destroyedTerminal) destroyedTerminalNames++;
-                    if (inSuppressedSubtree) suppressedSubtreeNames++;
-                    if (inActiveParentChain) parentChainNames++;
-                }
+                killEligible.Add(rec);
+                if (destroyedTerminal || inSuppressedSubtree)
+                    identityEligible.Add(rec);
+                if (!string.IsNullOrEmpty(rec.VesselName))
+                    killEligibleNames.Add(rec.VesselName);
+                if (destroyedTerminal) destroyedTerminalRecs++;
+                if (inSuppressedSubtree) suppressedSubtreeRecs++;
+                if (inActiveParentChain) parentChainRecs++;
             }
-            if (killEligibleNames.Count == 0) return kill;
+            if (killEligible.Count == 0) return kill;
 
+            int killedByIdentity = 0;
+            int killedByDebrisName = 0;
+            int keptActiveIdentity = 0;
             for (int i = 0; i < leftAlonePids.Count; i++)
             {
-                var (pid, name) = leftAlonePids[i];
+                var (pid, guid, name) = leftAlonePids[i];
                 if (pid == 0u) continue;
-                if (string.IsNullOrEmpty(name)) continue;
                 if (protectedPids != null && protectedPids.Contains(pid)) continue;
-                if (!killEligibleNames.Contains(name)) continue;
-                kill.Add(pid);
+                if (activeRec != null
+                    && VesselLaunchIdentity.CandidateMatchesRecording(
+                        activeRec, pid, guid, matchSource: true, matchSpawn: true))
+                {
+                    keptActiveIdentity++;
+                    continue;
+                }
+
+                // Identity first: the quicksave copy of a Destroyed-terminal or
+                // suppressed-subtree recording's own vessel (or of its spawn), whatever
+                // either is called now. Parent-chain recordings are name-only (above).
+                if (VesselLaunchIdentity.FindMatchingRecording(
+                        identityEligible, pid, guid, matchSource: true, matchSpawn: true) != null)
+                {
+                    kill.Add(pid);
+                    killedByIdentity++;
+                    continue;
+                }
+
+                // Prior-career relic rule (#587): the survey admits DEBRIS only
+                // (IsDebrisKillSurveyCandidate), and debris of an EARLIER launch of the
+                // same craft carries the same "<Craft> Debris" name on a near-identical
+                // orbit - the phantom-encounter cause. Those vessels are not this tree's
+                // launch, so no identity reaches them; the name is the deliberate,
+                // debris-scoped heuristic for them, never an identity claim.
+                if (!string.IsNullOrEmpty(name) && killEligibleNames.Contains(name))
+                {
+                    kill.Add(pid);
+                    killedByDebrisName++;
+                }
             }
 
-            if (kill.Count > 0 && !ParsekLog.SuppressLogging)
+            if ((kill.Count > 0 || keptActiveIdentity > 0) && !ParsekLog.SuppressLogging)
             {
                 ParsekLog.Verbose(InvokeTag,
                     $"ResolveInPlaceContinuationDebrisToKill: matched {kill.Count} pid(s) " +
-                    $"against {killEligibleNames.Count} kill-eligible name(s) " +
-                    $"(destroyedTerminal={destroyedTerminalNames} suppressedSubtree={suppressedSubtreeNames} " +
-                    $"parentChain={parentChainNames}) " +
+                    $"(byLaunchIdentity={killedByIdentity} byPriorCareerDebrisName={killedByDebrisName}) " +
+                    $"against {killEligible.Count} kill-eligible recording(s) " +
+                    $"(identityEligible={identityEligible.Count}) " +
+                    $"(destroyedTerminal={destroyedTerminalRecs} suppressedSubtree={suppressedSubtreeRecs} " +
+                    $"parentChain={parentChainRecs}) " +
+                    $"keptActiveLaunch={keptActiveIdentity} " +
                     $"in tree '{markerTree.Id}'");
             }
 
@@ -4041,7 +4104,7 @@ namespace Parsek
 
         /// <summary>
         /// #fix-refly-preserve-flag-vessels survey-level filter: builds the
-        /// <c>(pid, name)</c> pairs of live vessels that
+        /// <c>(pid, guid, name)</c> entries of live vessels that
         /// <see cref="PostLoadStripper"/> left in scene, EXCLUDING entries that
         /// must be shielded from the secondary in-place continuation kill walk.
         ///
@@ -4059,21 +4122,19 @@ namespace Parsek
         ///     (<see cref="IsDebrisKillSurveyCandidate"/>): only
         ///     <see cref="VesselType.Debris"/> may become a kill candidate. This
         ///     subsumes the old Flag-only skip and is what keeps the preserved
-        ///     fleet out of the name-matched kill — a real craft must never enter
-        ///     the leftAlone survey, even if its <c>vesselName</c> collides with
-        ///     a Destroyed-terminal / session-suppressed / parent-chain
-        ///     recording.</description></item>
+        ///     fleet out of the kill - a real craft must never enter the
+        ///     leftAlone survey, whatever its identity or name.</description></item>
         /// </list>
         /// Returns an empty list (never null) on null/empty input. Pure /
         /// static so tests can pin the contract against
         /// <c>IStrippableVessel</c> stubs.
         /// </summary>
-        internal static List<(uint pid, string name)> BuildLeftAlonePidNamesForInPlaceContinuation(
+        internal static List<(uint pid, string guid, string name)> BuildLeftAlonePidNamesForInPlaceContinuation(
             IList<IStrippableVessel> liveVessels,
             PostLoadStripResult stripResult,
             Func<uint, bool> isGhostMapVessel)
         {
-            var result = new List<(uint pid, string name)>();
+            var result = new List<(uint pid, string guid, string name)>();
             if (liveVessels == null || liveVessels.Count == 0) return result;
             Func<uint, bool> ghostCheck = isGhostMapVessel ?? (_ => false);
 
@@ -4129,7 +4190,10 @@ namespace Parsek
                 try { name = v.VesselName; }
                 catch { name = null; }
                 if (string.IsNullOrEmpty(name)) continue;
-                result.Add((pid, name));
+                string guid;
+                try { guid = VesselLaunchIdentity.NormalizeGuid(v.LaunchGuid); }
+                catch { guid = null; }
+                result.Add((pid, guid, name));
                 includedCount++;
             }
 
@@ -4306,7 +4370,7 @@ namespace Parsek
                 ParsekLog.Warn(InvokeTag,
                     $"Strip post-supplement: killed {killed} pre-existing tree-collision vessel(s) " +
                     $"for in-place continuation re-fly: [{joined}] " +
-                    $"(name matches a Destroyed-terminal, session-suppressed, or parent-chain recording in tree '{marker.TreeId}'; " +
+                    $"(same launch as, or a prior-career debris namesake of, a Destroyed-terminal, session-suppressed, or parent-chain recording in tree '{marker.TreeId}'; " +
                     $"left in scene by PostLoadStripper because no PidSlotMap entry; " +
                     $"would otherwise trip KSP patched conics into a phantom encounter -- bug #587)");
             }

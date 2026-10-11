@@ -5768,10 +5768,12 @@ namespace Parsek
         /// never references <c>committedRecordings</c> directly and the ERS/ELS grep
         /// gate stays green: the raw-list reads stay behind
         /// <see cref="TryFindCommittedRecordingById"/> and
-        /// <see cref="TryResolveTreeById"/> in this already-allowlisted file. Reading
-        /// <see cref="RecordingTree.TreeName"/> for the mission name does not touch any
-        /// Missions file (MissionGroupLink keeps TreeName synced with the main mission
-        /// name).
+        /// <see cref="TryResolveTreeById"/> in this already-allowlisted file.
+        /// <paramref name="treeName"/> is <see cref="RecordingTree.TreeName"/>, the raw
+        /// launch name the tree was created with: nothing keeps it in step with the
+        /// mission's name (a mission rename through MissionGroupLink renames the groups
+        /// and <c>Mission.Name</c>, never <c>TreeName</c>), so after a mission rename this
+        /// returns the launch name, not the mission's current name.
         /// </para>
         /// </summary>
         internal static bool TryResolveRecordingDisplayInfo(

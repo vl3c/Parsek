@@ -1482,6 +1482,7 @@ namespace Parsek
         ConfigNode IPlaybackTrajectory.GhostVisualSnapshot => GhostVisualSnapshot;
         ConfigNode IPlaybackTrajectory.VesselSnapshot => VesselSnapshot;
         string IPlaybackTrajectory.VesselName => VesselName;
+        string IPlaybackTrajectory.RecordedVesselGuid => RecordedVesselGuid;
         string IPlaybackTrajectory.RecordingId => RecordingId;
         // Model-layer guard: parent-anchored debris rides its parent's loop
         // clock (GhostPlaybackEngine.TryUpdateLoopSyncedDebris) and never

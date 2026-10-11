@@ -52,7 +52,7 @@ namespace Parsek.Tests
         public void ResolveDebris_NullMarker_ReturnsEmpty()
         {
             var trees = new List<RecordingTree> { MakeTree("tree-1") };
-            var leftAlone = new List<(uint, string)> { (100u, "Kerbal X Debris") };
+            var leftAlone = new List<(uint, string, string)> { (100u, null, "Kerbal X Debris") };
 
             var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
                 marker: null,
@@ -80,7 +80,7 @@ namespace Parsek.Tests
                 MakeTree("tree-1",
                     ("rec-debris", "Kerbal X Debris", TerminalState.Destroyed, 0u))
             };
-            var leftAlone = new List<(uint, string)> { (100u, "Kerbal X Debris") };
+            var leftAlone = new List<(uint, string, string)> { (100u, null, "Kerbal X Debris") };
 
             var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
                 marker, trees, leftAlone, null);
@@ -106,11 +106,11 @@ namespace Parsek.Tests
                     ("rec-booster", "Kerbal X Probe", TerminalState.Orbiting, 200u),
                     ("rec-debris-1", "Kerbal X Debris", TerminalState.Destroyed, 0u))
             };
-            var leftAlone = new List<(uint, string)>
+            var leftAlone = new List<(uint, string, string)>
             {
-                (100u, "Ast. ABC-123"),         // unrelated -- keep
-                (101u, "Kerbal X Debris"),      // matches Destroyed rec -- kill
-                (102u, "Kerbal X Debris"),      // another debris -- kill
+                (100u, null, "Ast. ABC-123"),         // unrelated -- keep
+                (101u, null, "Kerbal X Debris"),      // matches Destroyed rec -- kill
+                (102u, null, "Kerbal X Debris"),      // another debris -- kill
             };
 
             var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
@@ -148,10 +148,10 @@ namespace Parsek.Tests
                     // predicate, the matching live vessel would be left in scene.
                     ("rec-supersededchild", "Kerbal X Capsule", TerminalState.Landed, 0u))
             };
-            var leftAlone = new List<(uint, string)>
+            var leftAlone = new List<(uint, string, string)>
             {
-                (101u, "Kerbal X Capsule"),    // matches suppressed-subtree rec, must kill
-                (102u, "Ast. ABC-123"),        // unrelated, keep
+                (101u, null, "Kerbal X Capsule"),    // matches suppressed-subtree rec, must kill
+                (102u, null, "Ast. ABC-123"),        // unrelated, keep
             };
             var suppressedSubtree = new HashSet<string>(StringComparer.Ordinal)
             {
@@ -190,10 +190,10 @@ namespace Parsek.Tests
                 ChildRecordingIds = new List<string> { "rec-probe" },
             });
             var trees = new List<RecordingTree> { tree };
-            var leftAlone = new List<(uint, string)>
+            var leftAlone = new List<(uint, string, string)>
             {
-                (101u, "Kerbal X"),
-                (200u, "Kerbal X Probe"),
+                (101u, null, "Kerbal X"),
+                (200u, null, "Kerbal X Probe"),
             };
             var protectedSet = new HashSet<uint> { 200u };
 
@@ -225,10 +225,10 @@ namespace Parsek.Tests
                     ("rec-supersededchild", "Kerbal X Capsule", TerminalState.Landed, 0u),
                     ("rec-debris", "Kerbal X Debris", TerminalState.Destroyed, 0u))
             };
-            var leftAlone = new List<(uint, string)>
+            var leftAlone = new List<(uint, string, string)>
             {
-                (101u, "Kerbal X Capsule"),    // non-Destroyed, suppression unknown -> keep
-                (102u, "Kerbal X Debris"),     // Destroyed-terminal -> kill
+                (101u, null, "Kerbal X Capsule"),    // non-Destroyed, suppression unknown -> keep
+                (102u, null, "Kerbal X Debris"),     // Destroyed-terminal -> kill
             };
 
             var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
@@ -258,11 +258,11 @@ namespace Parsek.Tests
                     ("rec-supersededchild", "Kerbal X Capsule", TerminalState.Landed, 0u),
                     ("rec-debris", "Kerbal X Debris", TerminalState.Destroyed, 0u))
             };
-            var leftAlone = new List<(uint, string)>
+            var leftAlone = new List<(uint, string, string)>
             {
-                (101u, "Kerbal X Capsule"),    // suppressed-subtree match -> kill
-                (102u, "Kerbal X Debris"),     // Destroyed -> kill
-                (103u, "Ast. ABC-123"),        // unrelated -> keep
+                (101u, null, "Kerbal X Capsule"),    // suppressed-subtree match -> kill
+                (102u, null, "Kerbal X Debris"),     // Destroyed -> kill
+                (103u, null, "Ast. ABC-123"),        // unrelated -> keep
             };
             var suppressedSubtree = new HashSet<string>(StringComparer.Ordinal)
             {
@@ -298,10 +298,10 @@ namespace Parsek.Tests
                     ("rec-booster", "Kerbal X Probe", TerminalState.Orbiting, 200u),
                     ("rec-supersededchild", "Kerbal X Capsule", TerminalState.Landed, 0u))
             };
-            var leftAlone = new List<(uint, string)>
+            var leftAlone = new List<(uint, string, string)>
             {
-                (200u, "Kerbal X Capsule"),    // pid is the protected active vessel
-                (101u, "Kerbal X Capsule"),    // legitimate kill target
+                (200u, null, "Kerbal X Capsule"),    // pid is the protected active vessel
+                (101u, null, "Kerbal X Capsule"),    // legitimate kill target
             };
             var suppressedSubtree = new HashSet<string>(StringComparer.Ordinal)
             {
@@ -338,10 +338,10 @@ namespace Parsek.Tests
                     ("rec-supersededchild", "Kerbal X Capsule", TerminalState.Landed, 0u),
                     ("rec-debris", "Kerbal X Debris", TerminalState.Destroyed, 0u))
             };
-            var leftAlone = new List<(uint, string)>
+            var leftAlone = new List<(uint, string, string)>
             {
-                (101u, "Kerbal X Capsule"),
-                (102u, "Kerbal X Debris"),
+                (101u, null, "Kerbal X Capsule"),
+                (102u, null, "Kerbal X Debris"),
             };
             var suppressedSubtree = new HashSet<string>(StringComparer.Ordinal)
             {
@@ -381,9 +381,9 @@ namespace Parsek.Tests
                     ("rec-booster", "Kerbal X Probe", TerminalState.Orbiting, 200u),
                     ("rec-mission", "Kerbal X", TerminalState.Orbiting, 100u))
             };
-            var leftAlone = new List<(uint, string)>
+            var leftAlone = new List<(uint, string, string)>
             {
-                (101u, "Kerbal X"), // matches Orbiting recording -- keep alive
+                (101u, null, "Kerbal X"), // matches Orbiting recording -- keep alive
             };
 
             var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
@@ -410,10 +410,10 @@ namespace Parsek.Tests
                     ("rec-booster", "Kerbal X Probe", TerminalState.Orbiting, 200u),
                     ("rec-debris", "Kerbal X Debris", TerminalState.Destroyed, 0u))
             };
-            var leftAlone = new List<(uint, string)>
+            var leftAlone = new List<(uint, string, string)>
             {
-                (200u, "Kerbal X Debris"), // pid is the active vessel even though name matches -- defended
-                (101u, "Kerbal X Debris"), // legitimate debris -- kill
+                (200u, null, "Kerbal X Debris"), // pid is the active vessel even though name matches -- defended
+                (101u, null, "Kerbal X Debris"), // legitimate debris -- kill
             };
             var protectedSet = new HashSet<uint> { 200u };
 
@@ -440,7 +440,7 @@ namespace Parsek.Tests
                 MakeTree("tree-1",
                     ("rec-debris", "Kerbal X Debris", TerminalState.Destroyed, 0u))
             };
-            var leftAlone = new List<(uint, string)> { (101u, "Kerbal X Debris") };
+            var leftAlone = new List<(uint, string, string)> { (101u, null, "Kerbal X Debris") };
 
             var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
                 marker, trees, leftAlone, null);
@@ -463,9 +463,9 @@ namespace Parsek.Tests
                 MakeTree("tree-1",
                     ("rec-booster", "Kerbal X Probe", TerminalState.Orbiting, 200u))
             };
-            var leftAlone = new List<(uint, string)>
+            var leftAlone = new List<(uint, string, string)>
             {
-                (101u, "Kerbal X Debris"),
+                (101u, null, "Kerbal X Debris"),
             };
 
             var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
@@ -491,7 +491,7 @@ namespace Parsek.Tests
             };
 
             var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
-                marker, trees, new List<(uint, string)>(), null);
+                marker, trees, new List<(uint, string, string)>(), null);
 
             Assert.Empty(kill);
         }
@@ -1015,9 +1015,9 @@ namespace Parsek.Tests
                     ("rec-booster", "Kerbal X Probe", TerminalState.Orbiting, 200u),
                     ("rec-debris-1", "Kerbal X Debris", TerminalState.Destroyed, 0u))
             };
-            var leftAlone = new List<(uint, string)>
+            var leftAlone = new List<(uint, string, string)>
             {
-                (300u, "Kerbal X Debris"),
+                (300u, null, "Kerbal X Debris"),
             };
 
             var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
@@ -1048,7 +1048,7 @@ namespace Parsek.Tests
                 MakeTree("tree-1",
                     ("rec-debris", "Kerbal X Debris", TerminalState.Destroyed, 0u))
             };
-            var leftAlone = new List<(uint, string)> { (100u, "Kerbal X Debris") };
+            var leftAlone = new List<(uint, string, string)> { (100u, null, "Kerbal X Debris") };
 
             var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
                 marker, trees, leftAlone, null);
@@ -1271,10 +1271,10 @@ namespace Parsek.Tests
                     // must NOT be killed.
                     ("rec-debris", "Kerbal X Debris", TerminalState.Destroyed, 0u))
             };
-            var leftAlone = new List<(uint, string)>
+            var leftAlone = new List<(uint, string, string)>
             {
-                (7001u, "Kerbal X Debris"), // FLAG with colliding name -- must survive
-                (101u,  "Kerbal X Debris"), // genuine debris -- must be killed
+                (7001u, null, "Kerbal X Debris"), // FLAG with colliding name -- must survive
+                (101u, null, "Kerbal X Debris"), // genuine debris -- must be killed
             };
             // Build protectedPids via the production helper so the test
             // pins the integration: a PostLoadStripResult with the flag
@@ -1324,10 +1324,10 @@ namespace Parsek.Tests
                     ("rec-booster", "Kerbal X Probe", TerminalState.Orbiting, 200u),
                     ("rec-debris", "Kerbal X Debris", TerminalState.Destroyed, 0u))
             };
-            var leftAlone = new List<(uint, string)>
+            var leftAlone = new List<(uint, string, string)>
             {
-                (7001u, "Kerbal X Debris"),
-                (101u,  "Kerbal X Debris"),
+                (7001u, null, "Kerbal X Debris"),
+                (101u, null, "Kerbal X Debris"),
             };
 
             var killWithoutProtection = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
@@ -1371,6 +1371,7 @@ namespace Parsek.Tests
             public uint PersistentId { get; set; }
             public uint RootPartPersistentId { get; set; }
             public string VesselName { get; set; }
+            public string LaunchGuid { get; set; }
             private VesselType _vesselType = VesselType.Ship;
             public VesselType VesselType
             {
@@ -1580,9 +1581,9 @@ namespace Parsek.Tests
                 live, stripResult, isGhostMapVessel: _ => false);
 
             // Cast the typed-tuple result to the resolver's parameter shape.
-            var leftAloneForResolver = new List<(uint, string)>();
+            var leftAloneForResolver = new List<(uint, string, string)>();
             foreach (var entry in leftAlone)
-                leftAloneForResolver.Add((entry.pid, entry.name));
+                leftAloneForResolver.Add((entry.pid, entry.guid, entry.name));
 
             // protectedPids EMPTY -- the user wants the survey skip to
             // close the path on its own. The flag must not be killed.
@@ -1671,9 +1672,9 @@ namespace Parsek.Tests
 
             // protectedPids deliberately EMPTY: the survey narrowing alone has to
             // carry this, exactly as the flag layer is pinned above.
-            var leftAloneForResolver = new List<(uint, string)>();
+            var leftAloneForResolver = new List<(uint, string, string)>();
             for (int i = 0; i < leftAlone.Count; i++)
-                leftAloneForResolver.Add((leftAlone[i].pid, leftAlone[i].name));
+                leftAloneForResolver.Add((leftAlone[i].pid, leftAlone[i].guid, leftAlone[i].name));
 
             var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
                 marker, trees, leftAloneForResolver, protectedPids: null);
