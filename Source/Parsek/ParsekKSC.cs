@@ -2306,7 +2306,8 @@ namespace Parsek
                         preserveIdentity: replacedStaleVessel,
                         terminalState: rec.TerminalStateValue,
                         surfaceRelativeRotation: surfaceRelativeRotationArg,
-                        orbitOverride: orbitalSpawnOrbit);
+                        orbitOverride: orbitalSpawnOrbit,
+                        nameSource: rec);
                     if (spawnedPid == 0)
                     {
                         ParsekLog.Warn("KSCSpawn",
@@ -2348,7 +2349,8 @@ namespace Parsek
 
                 spawnSnapshot = validatedSpawnSnapshot;
                 spawnedPid = VesselSpawner.RespawnVessel(
-                    validatedSpawnSnapshot, excludeCrew, preserveIdentity: replacedStaleVessel);
+                    validatedSpawnSnapshot, excludeCrew, preserveIdentity: replacedStaleVessel,
+                    nameSource: rec);
             }
 
             if (spawnedPid != 0)

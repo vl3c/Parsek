@@ -145,7 +145,7 @@ namespace Parsek
                 if (HasCurrentEpochStockEntries())
                 {
                     List<RecordingTree> trees = GatherTrees();
-                    res = VesselIdentity.Resolve(trees, GatherLoose(trees));
+                    res = ResolveUniverse(trees, GatherLoose(trees));
                 }
                 return UndoEpoch(FlightEpoch, res, reason);
             }

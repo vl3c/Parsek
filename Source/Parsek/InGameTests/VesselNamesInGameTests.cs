@@ -52,7 +52,7 @@ namespace Parsek.InGameTests
             if (legId == null)
                 InGameAssert.Skip("the active vessel is not being recorded (needs a live recording of the active vessel)");
             List<RecordingTree> trees = VesselNameStore.GatherTrees();
-            VesselIdentity.Resolution res = VesselIdentity.Resolve(trees, VesselNameStore.GatherLoose(trees));
+            VesselIdentity.Resolution res = VesselNameStore.ResolveUniverse(trees, VesselNameStore.GatherLoose(trees));
             string guid = v.id.ToString("N");
             VesselIdentity.Identity identity = res.ResolveLiveVessel(guid, v.persistentId, GhostMapPresence.IsGhostMapVessel);
             if (identity == null)

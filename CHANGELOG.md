@@ -16,6 +16,10 @@ _(unreleased - entries accumulate here per commit)_
 - **Stock and Parsek vessel renames now stay in step.** Renaming a vessel with the stock rename
   button renames it in Parsek too, and a Parsek rename renames the real vessel. Names survive
   rewinds and quickloads; a stock rename made in a flight you then revert is cancelled. (GC-7)
+- **Spawned, resumed and undocked vessels keep the names you gave them.** A vessel Parsek spawns
+  at the end of a recording, a spawned vessel you fly again, and a ship that undocks after being
+  docked are still the same vessel: they carry your chosen name, and renaming them renames every
+  recording of that vessel. (GC-7)
 
 ### Fixed
 

@@ -803,7 +803,8 @@ namespace Parsek
                         preserveIdentity: true,
                         terminalState: tipRecording.TerminalStateValue,
                         surfaceRelativeRotation: surfaceRelativeRotationArg,
-                        orbitOverride: orbitOverride);
+                        orbitOverride: orbitOverride,
+                        nameSource: tipRecording);
                     if (spawnedPid != 0)
                         return spawnedPid;
 
@@ -839,7 +840,8 @@ namespace Parsek
 
             // The snapshot has already been route-specifically overridden and validated above,
             // so the fallback only needs raw materialization here rather than another wrapper.
-            return VesselSpawner.RespawnVessel(validatedSpawnSnapshot, preserveIdentity: true);
+            return VesselSpawner.RespawnVessel(validatedSpawnSnapshot, preserveIdentity: true,
+                nameSource: tipRecording);
         }
 
         /// <summary>

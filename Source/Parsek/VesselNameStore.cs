@@ -78,7 +78,9 @@ namespace Parsek
     /// <para>Phase 2a: stock renames are captured as decisions (<c>VesselRenameCapturePatch</c>),
     /// decisions are written through to live vessels (<see cref="VesselNameLiveSync"/>), and a
     /// revert undoes the cancelled flight's stock decisions (<c>VesselNameStore.RevertUndo.cs</c>).
-    /// No link rows yet (Phase 2b).</para>
+    /// Phase 2b: link rows join re-keyed guids (spawn, resume, undock return) to the identity
+    /// they continue, and dock-absorb rows remember an absorbed vessel's guid for its undock
+    /// (<c>VesselNameStore.Links.cs</c>).</para>
     /// </summary>
     internal static partial class VesselNameStore
     {
@@ -339,14 +341,14 @@ namespace Parsek
                 ? new List<RecordingTree>(universeForTesting)
                 : GatherTrees();
             List<Recording> loose = universeForTesting != null ? new List<Recording>() : GatherLoose(trees);
-            VesselIdentity.Resolution res = VesselIdentity.Resolve(trees, loose);
+            VesselIdentity.Resolution res = ResolveUniverse(trees, loose);
             if (rec != null && !string.IsNullOrEmpty(rec.RecordingId)
                 && !res.ByRecordingId.ContainsKey(rec.RecordingId) && VesselIdentity.IsVesselLeg(rec))
             {
                 // A row the resolver's universe does not hold (a recording outside every tree
                 // the store knows): it is its own identity.
                 loose.Add(rec);
-                res = VesselIdentity.Resolve(trees, loose);
+                res = ResolveUniverse(trees, loose);
             }
 
             string oldName = rec?.VesselName;
@@ -398,12 +400,13 @@ namespace Parsek
         internal static ApplyResult ApplyAll(string reason, VesselNameLiveScope scope = VesselNameLiveScope.Auto)
         {
             lastAppliedStateVersion = RecordingStore.StateVersion;
+            linkApplyDue = false;
             if (decisions.Count == 0) return default;
             try
             {
                 lastLiveTreeSignature = ComputeRecordingIdSetSignature(ReadLiveTreeIdsSafe());
                 List<RecordingTree> trees = GatherTrees();
-                VesselIdentity.Resolution res = VesselIdentity.Resolve(trees, GatherLoose(trees));
+                VesselIdentity.Resolution res = ResolveUniverse(trees, GatherLoose(trees));
                 ApplyResult result = ApplyTo(res, reason);
                 VesselNameLiveSync.RunLiveWritePass(res, reason, scope, headless: false);
                 return result;
@@ -489,13 +492,15 @@ namespace Parsek
         /// Per-frame host hook (design 7.4 "Runs"): re-runs the apply pass when
         /// <see cref="RecordingStore.StateVersion"/> moved since the last pass, or (FLIGHT only,
         /// checked once per real second) the live tree's recording-id set changed - a new
-        /// split / EVA / switch leg moves no StateVersion. Inert while the store has no decision.
+        /// split / EVA / switch leg moves no StateVersion - or a link row was added since the
+        /// last pass (design 6.2: adding a link runs the apply pass). Inert while the store has
+        /// no decision.
         /// </summary>
         internal static void SelfHealTick(bool inFlight, float realtime)
         {
             if (decisions.Count == 0) return;
-            bool due = RecordingStore.StateVersion != lastAppliedStateVersion;
-            string why = "state-version";
+            bool due = linkApplyDue || RecordingStore.StateVersion != lastAppliedStateVersion;
+            string why = linkApplyDue ? "link-added" : "state-version";
             if (!due && inFlight && realtime >= nextLiveTreeCheckRealtime)
             {
                 nextLiveTreeCheckRealtime = realtime + 1f;
@@ -632,17 +637,19 @@ namespace Parsek
 
         /// <summary>
         /// Writes the <c>VESSEL_NAMES</c> node into the ParsekScenario node (design 6.4): the
-        /// next seq and every decision. Nothing is written for a store that never held a
-        /// decision. Doubles use "R" + InvariantCulture.
+        /// next seq, every decision, every link row and every dock-absorb row. Nothing is
+        /// written for a store that never held any of them. Doubles use "R" + InvariantCulture.
         /// </summary>
         internal static void Save(ConfigNode scenarioNode)
         {
             if (scenarioNode == null) return;
             scenarioNode.RemoveNodes(NodeName);
-            if (decisions.Count == 0 && nextSeq <= 1) return;
+            if (decisions.Count == 0 && nextSeq <= 1 && links.Count == 0 && dockAbsorbs.Count == 0) return;
             scenarioNode.AddNode(EncodeNode());
             ParsekLog.Verbose(Tag,
                 "Saved " + NodeName + ": decisions=" + decisions.Count.ToString(CultureInfo.InvariantCulture) +
+                " links=" + links.Count.ToString(CultureInfo.InvariantCulture) +
+                " dockAbsorbs=" + dockAbsorbs.Count.ToString(CultureInfo.InvariantCulture) +
                 " nextSeq=" + nextSeq.ToString(CultureInfo.InvariantCulture));
         }
 
@@ -673,6 +680,7 @@ namespace Parsek
                 dn.AddValue("source", d.Source.ToString());
                 dn.AddValue("ut", d.DecidedUT.ToString("R", ic));
             }
+            EncodeLinks(node);
             return node;
         }
 
@@ -717,7 +725,9 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 "Loaded " + NodeName + ": decisions=" + decisions.Count.ToString(CultureInfo.InvariantCulture) +
                 " skipped=" + skipped.ToString(CultureInfo.InvariantCulture) +
-                " nextSeq=" + nextSeq.ToString(CultureInfo.InvariantCulture));
+                " nextSeq=" + nextSeq.ToString(CultureInfo.InvariantCulture) +
+                " links=" + links.Count.ToString(CultureInfo.InvariantCulture) +
+                " dockAbsorbs=" + dockAbsorbs.Count.ToString(CultureInfo.InvariantCulture));
         }
 
         private static void DecodeInto(ConfigNode node, out int skipped)
@@ -782,6 +792,7 @@ namespace Parsek
                 loaded.Add(d);
             }
             InstallLoadedDecisions(loaded);
+            DecodeLinks(node, ref skipped);
             nextSeq = Math.Max(storedNext, maxSeq + 1);
             if (nextSeq < 1) nextSeq = 1;
         }
@@ -819,6 +830,7 @@ namespace Parsek
             lastAppliedStateVersion = int.MinValue;
             lastLiveTreeSignature = 0;
             nextLiveTreeCheckRealtime = 0f;
+            ClearLinkState();
             ClearRevertUndoState(resetEpoch: false);
         }
 
