@@ -71,8 +71,10 @@ steps = [
   # (c) A Parsek rename writes through to the spawned vessel.
   { cmd = "UiAction",       args = { op = "edit", window = "missions", field = "recordingname", key = "rsc-target-0001", draft = "VN3 Relay Parsek", commit = "true" }, expect = "OK" },
   # Past the spawn's EndUT (622.16) plus the 15 s Rewind-to-Launch lead, so the rewind
-  # lands after the spawn and keeps the vessel.
-  { cmd = "WarpToUT",       args = { ut = "660", maxRate = "1" },                      expect = "OK", budget = 180 },
+  # lands after the spawn and keeps the vessel. The clock is near UT 80 here (not near the
+  # spawn EndUT), so this warp is ~580 s of game time: rails warp up to 50x (no recording is
+  # live yet; the first flight timed out at 1x).
+  { cmd = "WarpToUT",       args = { ut = "660", maxRate = "50" },                     expect = "OK", budget = 180 },
   # The pad pod's recording: its start captures the rewind save (the spawned vessel in it
   # is "VN3 Relay Parsek"). EVA-6's commit order.
   { cmd = "StartRecording",                                                            expect = "OK", budget = 180 },
@@ -145,8 +147,8 @@ forbidden = [
 ]
 
 [runtime]
-# Wall for the whole drive phase including boot: LoadGame 300, two WarpToUT (6 s and ~33 s
-# of 1x FLIGHT time), RealSpawn 120, StartRecording 180, CommitTree 120,
+# Wall for the whole drive phase including boot: LoadGame 300, two WarpToUT (6 s at 1x and ~580 s of game
+# time at up to 50x rails warp), RealSpawn 120, StartRecording 180, CommitTree 120,
 # InvokeRewindToLaunch 300, SaveGame 120, the UiAction / RenameVessel steps on the default
 # budget. Expected wall about 5 minutes.
 budgetSeconds = 2400
