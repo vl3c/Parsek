@@ -6,8 +6,10 @@ id = "VN-3-spawn-rename-rewind"
 # AUTHORED 2026-10-11 on branch `vessel-names-links`. FIRST FLIGHT `2026-10-11_1948`:
 # PARSEK-FAIL(expectations) on a SPEC defect: the spec predicted the rewind's KEPT branch,
 # which this host cannot reach (below); the product took the respawn branch and every final
-# name was right. The rewind tokens are now that run's measured respawn lines; not re-flown
-# since. saveParse stays REPORT-ONLY until a green reading run.
+# name was right. The rewind tokens are now that run's measured respawn lines (result id
+# `2026-10-11_1647`). LIVE-PROVEN on the re-pinned spec: result `2026-10-11_1733` PASS
+# attempt 1 (automation DLL sha256 prefix 62700230107ab2b4). saveParse stays REPORT-ONLY
+# until an operator arms it.
 #
 # THE HOST is CI-8's / RSC-1's: gloops-airshow (a pod on the pad, FLIGHT) plus the
 # spawn-control-target preset, one committed recording `rsc-target-0001` of a landed probe

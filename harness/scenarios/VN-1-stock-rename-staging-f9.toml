@@ -3,10 +3,18 @@ id = "VN-1-stock-rename-staging-f9"
 # =====================================================================================
 # VN-1: VESSEL NAMES, THE STOCK RENAME ON A RECORDED FLIGHT (design
 # docs/dev/design-vessel-and-mission-names.md 15.3, todo GC-7). AUTHORED 2026-10-11 on
-# branch `vessel-names-links`. FIRST FLIGHT `2026-10-11_1953`: PARSEK-FAIL(expectations) on
-# the recordings count alone (min 3, read 2), a SPEC defect: every log token and every
-# final name read as predicted. The floor is now 2; not re-flown since. The saveParse
-# blocks stay REPORT-ONLY until a green reading run.
+# branch `vessel-names-links`. Two flights, both red on SPEC defects only; every final name
+# was right both times. Not re-flown since the second fix. saveParse stays REPORT-ONLY until
+# a green reading run.
+#   - result `2026-10-11_1649` (logs `2026-10-11_1953`): PARSEK-FAIL(expectations) on the
+#     recordings count alone (min 3, read 2: pod and booster, no optimizer split, no
+#     debris). Floor now 2.
+#   - result `2026-10-11_1735` (logs `2026-10-11_2039`): PARSEK-FAIL(expectations) on the
+#     pinned `refined=QuickloadFlight` line alone. F5 and F9 were 4-5 physics ticks apart
+#     and the F9 regressed the clock 0.08 s, under ParsekScenario's UtBackwardsEpsilon
+#     (0.1 s), so ClassifyRefined read InSessionOther (the first flight's 0.10 s just made
+#     it). The name write-back happened anyway. A 1x WarpToUT to UT 260 after the Bravo
+#     rename now puts ~25 s between F5 and F9.
 #
 # THE FLIGHT. GS-1's two-stage hop (crewed mk1 pod as root on top, a probe-cored booster
 # below), recorded from the pad by StartRecording (autoRecordOnLaunch off, so the launch leg
@@ -78,6 +86,12 @@ steps = [
   { cmd = "SaveGame",       args = { name = "quicksave" },                             expect = "OK", budget = 120 },
   # (a) The second player rename, after the split.
   { cmd = "RenameVessel",   args = { name = "VN1 Bravo" },                             expect = "OK" },
+  # THE ABANDONED FUTURE. 1x (no physics warp while a recording is live) for about 25 s
+  # past the F5 (UT 234.7 / 235.0 on the first two flights), so the F9 regresses the clock
+  # by far more than ParsekScenario's UtBackwardsEpsilon (0.1 s) and is classified
+  # QuickloadFlight, and the Bravo decision sits in a future the F9 throws away. Absolute,
+  # not relative: WarpToUT takes only `ut=`, and a handle cannot carry an offset.
+  { cmd = "WarpToUT",       args = { ut = "260", maxRate = "1" },                      expect = "OK", budget = 120 },
   # (d) F9 in FLIGHT. The LoadGame seam refuses a live recorder.
   { cmd = "StopRecording",                                                             expect = "OK" },
   { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave" },        expect = "OK", budget = 300 },
@@ -207,7 +221,8 @@ forbidden = [
 ]
 
 [runtime]
-# Wall for the whole drive phase including boot: two LoadGame (max(300,600)+60 each =
+# Wall for the whole drive phase including boot (plus the 120 s budget of the ~25 s 1x
+# WarpToUT): two LoadGame (max(300,600)+60 each =
 # 1320), StartRecording 180, RunTests 300, mission 900, SaveGame 180, CommitTree 120, the
 # StopRecording / SetSetting / UiAction / RenameVessel / ListHandles steps on the default
 # budget. Expected wall about 10 minutes (boot, a ~100 s mission with a ~240 s booster
