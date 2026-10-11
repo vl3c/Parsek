@@ -3611,6 +3611,20 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   KSP.log), and `tools/archive_results.py --from <results-dir>` back-fills surviving
   snapshots. About 0.4 MB per run (10 flown runs measured), no pruning. Contract:
   `harness/README.md` "The machine-wide results archive".
+- [x] Three analyzer over-counts (branch `flighteff-accuracy`; a 2026-10-11 archive read
+  found them inflating "recoverable"). (1) Native warp_to ramp: inside a native `warp_to`
+  (telemetry `warpTo=` ahead of ut) the target is capped at the best stock rails rate at
+  most seconds left / 2 (`NATIVE_WARP_RAMP_SECONDS`), so KSP's own step-down near the
+  target is `warped`, not low warp; machine rails with no `warpTo=` is unchanged. (2)
+  MechJeb executor settle: an un-held waiting-for-node stretch (no `node-wait:` line in the
+  visit) that ends in the executor's own rails warp, with no machine warp command, is by
+  design. (3) BDOCK DOCK phase: MechJeb's docking autopilot at `dockSpeedMetersPerSec`, by
+  design on the bdock / sdock / rdock machines. Archive 2026-10-11, recoverable before ->
+  after: B7 45.0 -> 1.1 s, B15 93.5 -> 5.1 s (CIRCULARIZE 40.9 s now by design), BDOCK-1
+  69.5 -> 0.0 s (69.4 s now by design), B29 242.9 -> 205.5 s (the machine x1000 coast
+  clamp keeps its 194.5 s; only native-only runs dropped, 31.6 s). Every 2026-10-11 run:
+  596.5 -> 272.8 s recoverable, 2,069 -> 2,180 s by design. `ci9_tip_dock` (tdock) delegates
+  the same DOCK phase but stays outside the scope, like the rendezvous lead.
 
 ## MISSIONS-TAB-MODEL1: the Missions tab redesign, first slice ("Model 1") [OWNER-APPROVED 2026-09-29, branch `missions-model1`. IN PROGRESS]
 
