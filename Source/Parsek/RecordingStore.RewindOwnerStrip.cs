@@ -42,6 +42,16 @@ namespace Parsek
             /// </summary>
             internal readonly HashSet<string> OwnerIdentityGuids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+            /// <summary>
+            /// The UNANCHORED fallback's alias pair, exactly as Phase 1 had it: the owner
+            /// recording's OWN captured name from before a vessel name decision applied (else its
+            /// current name) plus the decision name. It covers a copy resumed BEFORE link rows
+            /// existed (no Resume link, spawn pid cleared) that still carries the old name. Never
+            /// the identity's other leg names (a naming-part takeover at a dock, a debris half's
+            /// name): the strip is destructive and must match no more than it did before the rename.
+            /// </summary>
+            internal readonly HashSet<string> OwnerAliasNames = new HashSet<string>(StringComparer.Ordinal);
+
             /// <summary>True when <paramref name="normalizedGuid"/> is a guid of the owner's identity.</summary>
             internal bool IsOwnerIdentityGuid(string normalizedGuid)
             {
@@ -117,6 +127,16 @@ namespace Parsek
             foreach (string g in VesselNameStore.IdentityGuidsFor(owner))
                 strip.OwnerIdentityGuids.Add(g);
             if (strip.OwnerGuid != null) strip.OwnerIdentityGuids.Add(strip.OwnerGuid);
+            VesselNameDecision decision = VesselNameStore.FindByGuid(strip.OwnerGuid);
+            if (decision != null)
+            {
+                if (!string.IsNullOrEmpty(decision.Name)) strip.OwnerAliasNames.Add(decision.Name);
+                string captured = owner.RecordingId != null
+                    && decision.CapturedNames.TryGetValue(owner.RecordingId, out string c)
+                    ? c : owner.VesselName;
+                if (!string.IsNullOrEmpty(captured)) strip.OwnerAliasNames.Add(captured);
+                strip.OwnerAliasNames.Remove(strip.OwnerName ?? "");
+            }
             if (!string.IsNullOrEmpty(owner.ChainId))
             {
                 foreach (var committed in committedRecordings)
@@ -137,7 +157,7 @@ namespace Parsek
             if (!SuppressLogging)
                 ParsekLog.Verbose("Rewind",
                     $"Rewind owner strip: owner='{strip.OwnerName}' guid={strip.OwnerGuid ?? "(none, name-only)"} " +
-                    $"evaChildNames={strip.NameOnly.Count} identityGuids={strip.OwnerIdentityGuids.Count}");
+                    $"evaChildNames={strip.NameOnly.Count} identityGuids={strip.OwnerIdentityGuids.Count} ownerAliases={strip.OwnerAliasNames.Count}");
             return strip;
         }
 
@@ -170,9 +190,11 @@ namespace Parsek
         /// an unanchored owner, falls back to the name (the pre-identity behavior).</item>
         /// <item>A vessel under another name that carries a guid of the owner's identity (its
         /// launch guid, or a Spawn / Resume / UndockReturn link guid of a re-keyed copy) is
-        /// still the owner's vessel (renamed after the flight, or re-keyed): stripped by guid.
-        /// A name the owner's legs carried before a vessel name decision is never matched: a
-        /// re-keyed copy is found by its link guid instead (design 7.9).</item>
+        /// still the owner's vessel (renamed after the flight, or re-keyed): stripped by guid.</item>
+        /// <item>With the owner unanchored, a vessel under the owner recording's own name from
+        /// before a vessel name decision, or under the decision name
+        /// (<see cref="RewindOwnerStrip.OwnerAliasNames"/>), is stripped by name, as the owner's
+        /// name would be: a copy resumed before link rows existed carries no link guid.</item>
         /// </list>
         /// </summary>
         internal static RewindOwnerStripDecision ClassifyRewindOwnerStripVessel(
@@ -198,6 +220,11 @@ namespace Parsek
 
             if (identityGuid)
                 return RewindOwnerStripDecision.StripOwnerGuid;
+
+            // Unanchored only, like the owner-name rule above: the Phase 1 alias pair, for a
+            // re-keyed owner copy no link reaches (resumed before link rows existed).
+            if (!ownerAnchored && vesselName != null && strip.OwnerAliasNames.Contains(vesselName))
+                return RewindOwnerStripDecision.StripName;
 
             return RewindOwnerStripDecision.NotMatched;
         }
