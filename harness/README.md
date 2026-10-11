@@ -210,7 +210,7 @@ no KSP, no change to any result); pure core `lib/flighteff.py`, thin shell
 `tools/flight_efficiency.py`, tests `lib/test_flighteff.py`.
 
 ```
-python tools/flight_efficiency.py                                  # this worktree's results/
+python tools/flight_efficiency.py                                  # this worktree's results/ + the archive
 python tools/flight_efficiency.py --run-id 2026-10-01_1231_B11-mun-orbit
 python tools/flight_efficiency.py --results-glob "C:/.../Parsek-*/harness/results" \
     --since 2026-10-01 [--scenario B11-mun-orbit] [--per-run] [--top 10] [--json-out eff.json]
@@ -228,6 +228,11 @@ and every seam command), and the `<stamp>_harness.log` that wrote the result
 (lock, retry and `[Cost]` facts; run.py logs no wall stamps). A run with neither
 a mission log nor a KSP.log is skipped with a reason; a run seen in several
 worktrees is analysed once (the copy with the most artifacts wins).
+
+With no `--results-dir` / `--results-glob` it also reads the machine-wide
+results archive (next section), whose KSP.log is `KSP.log.gz` and is read through
+gzip. `--archive-dir DIR` adds an archive to an explicit selection;
+`--no-archive` drops it.
 
 The estimation contract (full text in the `lib/flighteff.py` docstring):
 
@@ -1469,6 +1474,49 @@ only when the HOST carries findings the lane neither causes nor observes (the
 census case: someone's long-lived career, whose old recordings a screenshot lane
 has nothing to do with), never to get past a finding the lane produced. Full
 contract: `docs/dev/design-autotest-harness-core.md`, verifier 3.
+
+### The machine-wide results archive (survives worktree removal)
+
+`results/` lives inside a worktree and is gitignored, so removing the worktree
+deletes its run history (a ~860-run corpus `tools/flight_efficiency.py` relied on
+was lost that way). After every scenario run, `run.py` therefore copies each
+attempt's durable small artifacts to
+
+```
+<umbrella>/automation/results-archive/<runId>/
+    <runId>.json  <runId>_status.json  <runId>_mission.json
+    <runId>_mission.stdout.log  <stamp>_harness.log.gz  KSP.log.gz  manifest.json
+```
+
+`KSP.log.gz` is the collected `_shots/KSP.log` gzipped. `<stamp>_harness.log.gz`
+is only THIS scenario's block of the per-invocation harness log
+(`hlib.slice_harness_log_for_run`: from after the previous scenario's
+`[Cost] scenario cost` line to this scenario's own, with the invocation's
+`[Lock]` lines prepended), so an N-scenario nightly stores N small blocks rather
+than N growing copies of one log; when the run id is not in the log the whole log
+is kept and `manifest.json` says `"harnessLog": "full"` instead of `"slice"`.
+Screenshots, saves and contact sheets are NOT archived. `manifest.json` records the worktree, its git
+HEAD, the deployed Parsek.dll sha256 and every file's archived and source size.
+Missing optional files are listed there, not fatal. The copy runs after the
+scenario's `[Cost]` line (so the archived harness log holds its retry and cost
+facts), is built in a dot-prefixed temp dir and renamed into place (re-archiving
+a run id replaces it whole), and is verdict-neutral: a failure is one
+`[Warn][Archive]` line. Decisions: `hlib.plan_results_archive` /
+`build_results_archive_manifest`; copy: `run.archive_run_results`.
+
+- Opt out: `PARSEK_HARNESS_NO_ARCHIVE=1`. The smoke tests never reach the real
+  umbrella because every test entry point hands `run.py` a temp dir as its
+  umbrella root.
+- Back-fill an existing results dir (a surviving snapshot, an old worktree):
+  `python tools/archive_results.py --from <results-dir> [--from ...] [--since
+  YYYY-MM-DD] [--overwrite] [--dry-run]`. Runs already archived are skipped
+  unless `--overwrite`; nothing in `--from` is touched. Source harness logs may
+  be plain or `.gz`; each run keeps only its own block, gzipped.
+- Size: about 0.4 MB per run (median 384 KB, max 437 KB over 10 flown runs): the
+  2.2 MB KSP.log gzips to about 210 KB, the harness-log block to about 14 KB, and
+  the uncompressed mission stdout (about 250 KB) is most of the rest. Growth is
+  linear in runs. A KSP.log at the 64 MB artifact cap gzips to a few MB. Nothing
+  prunes the archive; it is meant to be permanent.
 
 ### What accumulates, and what may be pruned
 

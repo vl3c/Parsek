@@ -26,6 +26,7 @@ ASCII only; stdlib only (plus hlib + provlib, the pure siblings).
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import os
 import shutil
@@ -4299,6 +4300,149 @@ def _generate_contact_sheet(run_id: str, logger: HarnessLogger) -> None:
                     % (run_id, type(exc).__name__, exc))
 
 
+# ---------------------------------------------------------------------------
+# Machine-wide results archive (HARNESS-RESULTS-ARCHIVE). Every decision is in
+# hlib (plan_results_archive / build_results_archive_manifest); this is the copy.
+# Verdict-neutral: any failure is one Warn line and the run carries on.
+# ---------------------------------------------------------------------------
+
+
+def results_archive_root(umbrella_root: str) -> str:
+    return os.path.join(umbrella_root, *hlib.RESULTS_ARCHIVE_RELPATH)
+
+
+def _read_git_head(worktree: str) -> Optional[str]:
+    try:
+        proc = subprocess.run(["git", "-C", worktree, "rev-parse", "HEAD"],
+                              capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    head = (proc.stdout or "").strip()
+    return head if proc.returncode == 0 and head else None
+
+
+def _read_text_lines_maybe_gz(path: str) -> List[str]:
+    """Lines with their endings, from a plain or gzipped text file."""
+    if path.endswith(".gz"):
+        with gzip.open(path, "rt", encoding="utf-8", errors="replace", newline="") as fh:
+            return fh.readlines()
+    with open(path, "r", encoding="utf-8", errors="replace", newline="") as fh:
+        return fh.readlines()
+
+
+def _rmtree_quiet(path: str) -> None:
+    if os.path.isdir(path):
+        shutil.rmtree(path, ignore_errors=True)
+
+
+def archive_run_results(run_id: str, results_dir: str, archive_root: str,
+                        harness_log_path: Optional[str], logger,
+                        instance_dir: Optional[str] = None,
+                        worktree: Optional[str] = WORKTREE_ROOT,
+                        origin: str = "run",
+                        record_git_head: bool = True) -> Optional[str]:
+    """Copy one run's durable artifacts into ``<archive_root>/<runId>/``.
+
+    Built in ``.<runId>.archive-tmp`` and renamed into place, so a re-archive
+    of the same run replaces the old dir whole and a reader never sees a torn
+    one. Returns the archived dir, or None when skipped / failed (a Warn is
+    logged). Never raises. ``record_git_head=False`` is the back-fill shape:
+    the worktree's HEAD today says nothing about the HEAD that flew the run."""
+    try:
+        try:
+            names = os.listdir(results_dir)
+        except OSError:
+            names = []
+        shots_log = os.path.join(results_dir, "%s_shots" % run_id, "KSP.log")
+        harness_name = (os.path.basename(harness_log_path)
+                        if harness_log_path and os.path.isfile(harness_log_path) else None)
+        plan = hlib.plan_results_archive(run_id, names, os.path.isfile(shots_log),
+                                         harness_name)
+        if plan.skip_reason:
+            logger.warn("Archive", "results archive skipped run=%s reason=%s"
+                        % (run_id, plan.skip_reason))
+            return None
+        os.makedirs(archive_root, exist_ok=True)
+        final = os.path.join(archive_root, run_id)
+        tmp = os.path.join(archive_root, hlib.results_archive_tmp_name(run_id))
+        old = os.path.join(archive_root, hlib.results_archive_old_name(run_id))
+        _rmtree_quiet(tmp)
+        _rmtree_quiet(old)
+        os.makedirs(tmp)
+        files = []
+        missing = list(plan.missing)
+        harness_log_kind = None
+        for entry in plan.entries:
+            src = (os.path.join(results_dir, *entry.source_rel)
+                   if entry.source_rel is not None else harness_log_path)
+            dst = os.path.join(tmp, entry.dest_name)
+            try:
+                if entry.source_rel is None:
+                    # Only this scenario's block of the per-invocation log
+                    # (hlib.slice_harness_log_for_run): whole-log copies grow
+                    # quadratically over a selection.
+                    lines = _read_text_lines_maybe_gz(src)
+                    block = hlib.slice_harness_log_for_run(lines, run_id)
+                    harness_log_kind = "slice" if block is not None else "full"
+                    with gzip.open(dst, "wt", encoding="utf-8", newline="",
+                                   compresslevel=6) as fout:
+                        fout.write("".join(block if block is not None else lines))
+                elif entry.gzip:
+                    with open(src, "rb") as fin, \
+                            gzip.open(dst, "wb", compresslevel=6) as fout:
+                        shutil.copyfileobj(fin, fout, 1024 * 1024)
+                else:
+                    shutil.copyfile(src, dst)
+                files.append((entry.dest_name, os.path.getsize(dst), os.path.getsize(src)))
+            except OSError as exc:
+                # A file that vanished or is unreadable costs only itself.
+                missing.append("%s (%s)" % (entry.dest_name, type(exc).__name__))
+        dll_sha = None
+        if instance_dir:
+            dll_path = os.path.join(instance_dir, PARSEK_DLL_REL)
+            if os.path.isfile(dll_path):
+                dll_sha = _sha256_file(dll_path)
+        manifest = hlib.build_results_archive_manifest(
+            run_id, origin, utcnow_iso(), worktree,
+            _read_git_head(worktree) if (worktree and record_git_head) else None,
+            dll_sha, files, missing, harness_log=harness_log_kind)
+        with open(os.path.join(tmp, hlib.RESULTS_ARCHIVE_MANIFEST_NAME), "w",
+                  encoding="utf-8", newline="\n") as fh:
+            fh.write(hlib.serialize_results_archive_manifest(manifest))
+        # A directory rename cannot replace an existing dir on Windows, so move
+        # the old copy aside first and drop it once the new one is in place.
+        if os.path.isdir(final):
+            os.replace(final, old)
+        os.replace(tmp, final)
+        _rmtree_quiet(old)
+        logger.info("Archive", "results archived run=%s files=%d bytes=%d missing=%d -> %s"
+                    % (run_id, len(files), manifest["totalBytes"], len(missing), final))
+        return final
+    except Exception as exc:  # noqa: BLE001 - verdict-neutral by contract
+        logger.warn("Archive", "results archive FAILED run=%s (%s: %s); verdict unaffected"
+                    % (run_id, type(exc).__name__, exc))
+        return None
+
+
+def _archive_attempt_results(results: Sequence[Dict], umbrella_root: Optional[str],
+                             instance_dir: Optional[str], logger) -> None:
+    """Archive every attempt of one scenario run. Runs AFTER the scenario's
+    Cost line, so the copied harness log carries its Retry / Cost facts."""
+    if hlib.results_archive_disabled(os.environ):
+        logger.verbose("Archive", "results archive disabled by %s"
+                       % hlib.RESULTS_ARCHIVE_OPT_OUT_ENV)
+        return
+    if not umbrella_root:
+        return
+    root = results_archive_root(umbrella_root)
+    for result in results:
+        run_id = (result or {}).get("runId")
+        if run_id:
+            archive_run_results(run_id, RESULTS_DIR, root,
+                                getattr(logger, "log_path", None), logger,
+                                instance_dir=instance_dir)
+
+
 def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict,
                    admission, drive, facts, run_save_name, instance_dir, logger,
                    run_id: Optional[str] = None) -> Dict:
@@ -5048,6 +5192,7 @@ def _run_scenario_with_retry(spec, instance_dir, umbrella_root, runtime, logger)
     """
     retry_policy = (spec.get("retry", {}) or {}).get("policy", "once")
     attempts: List[hlib.Verdict] = []
+    attempt_results: List[Dict] = []
     last_result = None
     prior_boot_crashed = False
     attempts_wall = 0.0
@@ -5063,6 +5208,7 @@ def _run_scenario_with_retry(spec, instance_dir, umbrella_root, runtime, logger)
         result = run_attempt(spec, instance_dir, umbrella_root, runtime, attempt,
                              prior_boot_crashed, logger, run_ordinal=run_ordinal)
         last_result = result
+        attempt_results.append(result)
         attempts_run += 1
         wall = result.get("wallSeconds")
         if isinstance(wall, (int, float)) and not isinstance(wall, bool):
@@ -5100,6 +5246,10 @@ def _run_scenario_with_retry(spec, instance_dir, umbrella_root, runtime, logger)
         _generate_contact_sheet(last_result["runId"], logger)
     logger.info("Cost", "scenario cost attempts=%d wallTotal=%ds terminal=%s"
                 % (attempts_run, int(round(attempts_wall)), terminal.verdict))
+    # HARNESS-RESULTS-ARCHIVE: copy each attempt's durable artifacts outside the
+    # worktree. Verdict-neutral (Warn on failure); last, so the copied harness
+    # log already holds this scenario's Retry / Cost lines.
+    _archive_attempt_results(attempt_results, umbrella_root, instance_dir, logger)
     return last_result
 
 

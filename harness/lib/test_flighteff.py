@@ -1355,6 +1355,47 @@ class ShellTests(unittest.TestCase):
         with open(out) as f:
             self.assertEqual(json.load(f)["schemaVersion"], fe.SCHEMA_VERSION)
 
+    def _archive_copy(self):
+        """The run laid out the way run.py archives it: one <runId>/ dir, the
+        results files under their usual names, the KSP.log gzipped, no _shots."""
+        import gzip
+        rid = "2026-10-01_1231_B11-mun-orbit"
+        root = os.path.join(self.tmp, "archive")
+        run_dir = os.path.join(root, rid)
+        os.makedirs(run_dir)
+        for name in (rid + ".json", rid + "_status.json", rid + "_mission.stdout.log"):
+            shutil.copy(os.path.join(self.tmp, name), os.path.join(run_dir, name))
+        # Both logs are gzipped in the archive; the harness log's [Cost] facts must
+        # still be read (the wallTotal assertion below depends on it).
+        for src, dest in ((_KSP, "KSP.log.gz"),
+                          (os.path.join(self.tmp, "2026-10-01_123103_harness.log"),
+                           "2026-10-01_123103_harness.log.gz")):
+            with open(src, "rb") as fin, gzip.open(os.path.join(run_dir, dest), "wb") as fout:
+                shutil.copyfileobj(fin, fout)
+        # A half-built archive dir must never read as a run.
+        os.makedirs(os.path.join(root, "." + rid + ".archive-tmp"))
+        return root, rid
+
+    def test_archive_reads_the_gzipped_ksp_log_like_the_plain_one(self):
+        root, rid = self._archive_copy()
+        cands = tool.discover_archive(root)
+        self.assertEqual([c["runId"] for c in cands], [rid])
+        self.assertTrue(cands[0]["kspLog"].endswith("KSP.log.gz"))
+        archived = tool.collect([], None, [], [], archive_dirs=[root])
+        plain = tool.collect([self.tmp], None, [], [rid])
+        self.assertEqual(len(archived["runs"]), 1)
+        a, p = dict(archived["runs"][0]), dict(plain["runs"][0])
+        a.pop("dir")
+        p.pop("dir")
+        self.assertEqual(a, p, "the gzip copy must analyze identically to the plain log")
+        self.assertEqual(a["overhead"]["cost"]["wallTotal"], 1324)
+
+    def test_archive_and_worktree_copies_dedupe_by_run_id(self):
+        root, _ = self._archive_copy()
+        doc = tool.collect([self.tmp], None, [], [], archive_dirs=[root])
+        self.assertEqual(len(doc["runs"]), 1)
+        self.assertEqual(doc["duplicatesDropped"], 1)
+
     def test_filters(self):
         self.assertEqual(len(tool.collect([self.tmp], "2026-10-02", [], [])["runs"]), 0)
         self.assertEqual(len(tool.collect([self.tmp], None, ["B5-mun-flyby"], [])["runs"]), 0)
