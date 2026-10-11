@@ -451,7 +451,8 @@ namespace Parsek.Tests
         [Fact]
         public void BottomRungThreshold_LeavesTheArrivalLatchOutOfReachOfOneFrameAtThatRung()
         {
-            // Stock's largest per-frame delta-time cap ("Max Physics Delta-Time per Frame").
+            // Pessimistic frame: 3x the stock PHYSICS_FRAME_DT_LIMIT default (0.04 s) that
+            // Unity applies as Time.maximumDeltaTime (0.03 s on the harness instance).
             const double worstFrameSeconds = 0.12;
             float[] physics = { 1f, 2f, 3f, 4f };
             foreach (float[] ladder in new[] { StockRates, physics })

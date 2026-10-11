@@ -1639,8 +1639,10 @@ rails 5x, physics 2x) uses `BottomRungMinRealSeconds` (0.5 s) instead, so the 1x
 warp is 2.5 game-s on rails and 1.0 on the physics ladder (it was 12.5 and 5.0, measured
 12.2-12.3 s and 4.8 s). It cannot overshoot: the last frame at the bottom rung R starts at
 least `R * 0.5` game-s out and advances `R * dt`, so reaching the 0.25 s arrival latch at R
-takes a frame of `(R * 0.5 - 0.25) / R` = 0.45 s at 5x or 0.375 s at 2x, three times stock's
-largest frame cap (0.12 s); the final approach is a 1x frame, as before. A span under the
+takes a frame of `(R * 0.5 - 0.25) / R` = 0.45 s at 5x or 0.375 s at 2x, more than ten times
+the per-frame cap Unity applies (`Time.maximumDeltaTime` = `GameSettings.PHYSICS_FRAME_DT_LIMIT`,
+default 0.04 s, 0.03 s on the harness instance; rails warp advances UT per fixed step, so a
+hitch cannot skip game time); the final approach is a 1x frame, as before. A span under the
 bottom rung's threshold, and every `maxRate=1` wait, runs at 1x. Every DOWNSHIFT is requested
 with stock's instant rate change (`ShouldSetRateInstantly`; the eased ramp kept a 5x stretch
 reading 9.9x); upshifts keep stock's ramp.

@@ -138,10 +138,13 @@ namespace Parsek.TestCommands
         /// <c>R * dt</c>. The clock can only reach the arrival latch
         /// (<see cref="UtToleranceSeconds"/>) while still at R when
         /// <c>R * dt &gt;= R * 0.5 - 0.25</c>, i.e. a frame of at least 0.45 s at 5x or 0.375 s
-        /// at 2x. Stock's largest frame cap (the "Max Physics Delta-Time per Frame" setting,
-        /// at most 0.12 s) advances 0.6 game-s at 5x (leaving 1.9 s) and 0.24 at 2x (leaving
-        /// 0.76 s), both above the 0.25 s latch, so the warp always crosses into 1x before the
-        /// latch and the final approach is a 1x frame, as before.</para>
+        /// at 2x. Unity caps the fixed steps per render frame at Time.maximumDeltaTime, which
+        /// GameSettings.ApplySettings sets to PHYSICS_FRAME_DT_LIMIT (decompiled; default 0.04 s,
+        /// 0.03 s on the harness instance), and rails warp advances UT per fixed step, so a hitch
+        /// cannot skip game time. Even a pessimistic 0.12 s frame advances 0.6 game-s at 5x
+        /// (leaving 1.9 s) and 0.24 at 2x (leaving 0.76 s), both above the 0.25 s latch, so the
+        /// warp always crosses into 1x before the latch and the final approach is a 1x frame, as
+        /// before.</para>
         /// </summary>
         internal const double BottomRungMinRealSeconds = 0.5;
 
