@@ -830,48 +830,50 @@ namespace Parsek.Tests
             Assert.Null(VesselNameStore.ReFlyEpochSessionId);
         }
 
-        // The staging race with NO pass while the post-staging leg was open: the leg-close name
-        // check uncovers it from the recorded vessel's live name at close.
+        // catches: a leg-close rename. The PARENT leg closes at a split about 0.5 s after the
+        // split (CreateSplitBranch), by when ModuleDecouple has already renamed the old vessel
+        // (one Update after the split). The launch leg was flown entirely under the player's
+        // name and must keep it; the post-split child leg, created after the automatic rename,
+        // captures that name and is uncovered by the ordinary apply pass.
         [Fact]
-        public void LegClose_AnAutomaticNameTakenWhileOpen_UncoversTheLeg_WithNoPassInBetween()
+        public void StagingSplit_TheParentLegKeepsThePlayersName_TheChildLegTakesTheAutomaticName()
         {
-            Recording a1 = Rec("a1", "Mission1", 0, 100, pid: 1, guid: G1);
-            RecordingTree t = Tree("T", a1);
-            Assert.True(MissionVesselNaming.ApplyRecordingRename(a1, "P1", new[] { t }));
-            Recording a2 = Rec("a2", "P1", 100, 200, pid: 1, guid: G1);
-            a2.TreeId = "T";
-            t.Recordings["a2"] = a2;
-            VesselIdentity.Resolution res = Resolve(t);
-            VesselNameStore.ApplyTo(res, "test");
-            VesselNameDecision d = VesselNameStore.FindByGuid(G1);
-            Assert.Contains("a2", d.CoveredLegIds);
-
-            // Stale names at close change nothing.
-            Assert.False(VesselNameLiveSync.CheckClosingLegName(res, "a2", "P1", null, "test"));
-            Assert.False(VesselNameLiveSync.CheckClosingLegName(res, "a2", "Mission1", null, "test"));
-            Assert.Contains("a2", d.CoveredLegIds);
-
-            Assert.True(VesselNameLiveSync.CheckClosingLegName(res, "a2", "P1 Debris", null, "leg-close:active"));
-
-            Assert.Contains("a2", d.UncoveredLegIds);
-            Assert.Equal("P1 Debris", a2.VesselName);
+            Recording launch = Rec("launch", "A", 0, 100, pid: 1, guid: G1);
+            RecordingTree t = Tree("T", launch);
+            Assert.True(StockAccept(t, G1, 1, "A", "B", out VesselNameDecision d, out _));
             VesselNameStore.ApplyTo(Resolve(t), "test");
-            Assert.Equal("P1 Debris", a2.VesselName);
-            Assert.Equal("P1", a1.VesselName);
-            Assert.Contains(logLines, l => l.Contains("[INFO][VesselNames]")
-                && l.Contains("Leg close: stock automatic name kept on leg=a2 'P1' -> 'P1 Debris'"));
-            // An already uncovered leg is left alone.
-            Assert.False(VesselNameLiveSync.CheckClosingLegName(res, "a2", "Other", null, "test"));
+            Assert.Equal("B", launch.VesselName);
+
+            // The split: the launch leg closes, the old vessel's continuation leg opens and
+            // captures stock's automatic name.
+            Recording cont = Rec("cont", "B Debris", 100, 200, pid: 1, guid: G1);
+            cont.TreeId = "T";
+            t.Recordings["cont"] = cont;
+            VesselIdentity.Resolution res = Resolve(t);
+            VesselNameStore.ApplyTo(res, "after-split");
+            FakeVessel oldVessel = Live(G1, 1, "B Debris", recordingLegId: "cont");
+            LiveWriteResult r = VesselNameLiveSync.ApplyLiveWriteRule(res, new[] { oldVessel.Entry }, null, "test", "test");
+
+            Assert.Equal("B", launch.VesselName);
+            Assert.Contains("launch", d.CoveredLegIds);
+            Assert.Equal("B Debris", cont.VesselName);
+            Assert.Contains("cont", d.UncoveredLegIds);
+            Assert.Empty(oldVessel.Writes);
+            Assert.Equal(1, r.Uncovered);
+            VesselNameStore.ApplyTo(Resolve(t), "again");
+            Assert.Equal("B", launch.VesselName);
         }
 
+        // Leg closes never rename a leg (design 7.4): the parent leg closes after stock's
+        // automatic rename, so a close-time name is not the name the leg was flown under.
         [Fact]
-        public void Wiring_LegCloseNameCheckRunsWhereTreeLegsClose()
+        public void Wiring_NoVesselNameCheckWhereTreeLegsClose()
         {
             string append = MethodBody("ParsekFlight.cs",
                 "internal static void AppendCapturedDataToRecording(Recording target, Recording source, double endUT)");
-            IndexOrFail(append, "VesselNameLiveSync.NoteLegClosing(target");
+            Assert.DoesNotContain("VesselNameLiveSync.", append);
             string close = MethodBody("BackgroundRecorder.cs", "private void CloseParentRecording(");
-            IndexOrFail(close, "VesselNameLiveSync.NoteLegClosing(parentRec");
+            Assert.DoesNotContain("VesselNameLiveSync.", close);
         }
 
         // ---------------------------------------------------------------- post-load pass plumbing
