@@ -3,8 +3,11 @@ id = "VN-2-refly-rename-discard"
 # =====================================================================================
 # VN-2: VESSEL NAMES ACROSS A RE-FLY, AND THE DISCARD THAT CANCELS ITS STOCK RENAMES
 # (design docs/dev/design-vessel-and-mission-names.md 7.6 and 15.3, rulings 5 and 8, todo
-# GC-7). AUTHORED 2026-10-11 on branch `vessel-names-links`, NEVER FLOWN: every token is
-# quoted from its emitting source line; saveParse is REPORT-ONLY until a reading run.
+# GC-7). AUTHORED 2026-10-11 on branch `vessel-names-links`. LIVE-PROVEN on its first flight
+# `2026-10-11_1653` (PASS attempt 1, automation DLL sha256 prefix 62700230107ab2b4): every
+# token matched, and the report-only saveParse read `recordingNames {VN2 Booster: 1,
+# VN2 Pod: 1}`. saveParse stays REPORT-ONLY until an operator arms it. No RunTests step, so
+# no batch pin.
 #
 # THE HOST is RF-1's flight (live-proven): GS-1's two-stage hop exits to the Space Center
 # with the probe-cored booster still under canopy, so the booster's slot of the staging
