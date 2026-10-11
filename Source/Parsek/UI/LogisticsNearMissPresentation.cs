@@ -26,7 +26,7 @@ namespace Parsek
     {
         /// <summary>The tree Dismiss hides; null or empty draws no Dismiss.</summary>
         public string TreeId;
-        /// <summary>The mission name, a repeated name numbered "Name [1]", "Name [2]".</summary>
+        /// <summary>The mission name, a repeated one numbered "Name", "Name [2]".</summary>
         public string Label;
         /// <summary>The full reason sentence for this mission (may carry its own detail).</summary>
         public string Reason;
@@ -117,38 +117,24 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Numbers repeated names in order ("A", "B [1]", "B [2]"), the Mission Log
-        /// convention; a name that appears once is left alone. A null or empty name reads
-        /// "&lt;unnamed&gt;".
+        /// Numbers repeated mission names in order with the
+        /// <see cref="MissionVesselNaming.FormatNumbered"/> square brackets the Missions
+        /// vessel rows and the Logistics "Flights used" line use: the first plain, later ones
+        /// "B [2]", "B [3]" ("A", "B", "B [2]"). Each entry is one mission, so the number
+        /// counts missions. A null or empty name reads "&lt;unnamed&gt;".
         /// </summary>
         internal static string[] NumberRepeatedNames(IReadOnlyList<string> names)
         {
             int count = names?.Count ?? 0;
-            var resolved = new string[count];
-            var totals = new Dictionary<string, int>(StringComparer.Ordinal);
+            var result = new string[count];
+            var seen = new Dictionary<string, int>(StringComparer.Ordinal);
             for (int i = 0; i < count; i++)
             {
                 string n = string.IsNullOrEmpty(names[i]) ? "<unnamed>" : names[i];
-                resolved[i] = n;
-                totals.TryGetValue(n, out int t);
-                totals[n] = t + 1;
-            }
-            var seen = new Dictionary<string, int>(StringComparer.Ordinal);
-            var result = new string[count];
-            for (int i = 0; i < count; i++)
-            {
-                string n = resolved[i];
-                if (totals[n] > 1)
-                {
-                    seen.TryGetValue(n, out int k);
-                    k++;
-                    seen[n] = k;
-                    result[i] = n + " [" + k.ToString(IC) + "]";
-                }
-                else
-                {
-                    result[i] = n;
-                }
+                seen.TryGetValue(n, out int k);
+                k++;
+                seen[n] = k;
+                result[i] = MissionVesselNaming.FormatNumbered(n, k);
             }
             return result;
         }

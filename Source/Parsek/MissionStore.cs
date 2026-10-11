@@ -901,6 +901,25 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// The player-facing name of a tree: its original mission's name (which a mission
+        /// rename changes), else <paramref name="treeName"/>, the raw launch name the tree was
+        /// created with. The one display reader for a tree's name (design 7.10): TreeName
+        /// itself stays the launch name for group generation, the default mission seed, seam
+        /// lookups, persistence and log text, so log lines keep printing it.
+        /// </summary>
+        internal static string DisplayNameForTree(string treeId, string treeName)
+        {
+            Mission m = FindOriginalMission(treeId);
+            return m != null && !string.IsNullOrEmpty(m.Name) ? m.Name : treeName;
+        }
+
+        /// <summary><see cref="DisplayNameForTree(string, string)"/> for a tree; null for null.</summary>
+        internal static string DisplayNameForTree(RecordingTree tree)
+        {
+            return tree == null ? null : DisplayNameForTree(tree.Id, tree.TreeName);
+        }
+
         // True when m is its tree's original (main) mission, i.e. not a clone. Clones are inserted
         // after the original, so the original is always the first same-tree mission in list order.
         internal static bool IsOriginalMission(Mission m)

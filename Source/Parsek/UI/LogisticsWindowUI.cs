@@ -1310,14 +1310,16 @@ namespace Parsek
             }
         }
 
-        // Display label for a near-miss tree: the player-visible TreeName, falling
-        // back to the short tree id and then "<unnamed>" so a row is never blank.
-        private static string NearMissTreeLabel(RecordingTree tree)
+        // Display label for a near-miss tree: its mission's current name, else its TreeName
+        // (MissionStore.DisplayNameForTree), falling back to the short tree id and then
+        // "<unnamed>" so a row is never blank.
+        internal static string NearMissTreeLabel(RecordingTree tree)
         {
             if (tree == null)
                 return "<unnamed>";
-            if (!string.IsNullOrEmpty(tree.TreeName))
-                return tree.TreeName;
+            string name = MissionStore.DisplayNameForTree(tree);
+            if (!string.IsNullOrEmpty(name))
+                return name;
             if (!string.IsNullOrEmpty(tree.Id))
                 return ShortId(tree.Id);
             return "<unnamed>";
@@ -2136,12 +2138,11 @@ namespace Parsek
 
         /// <summary>
         /// A source tree's player-facing mission name: the ORIGINAL mission's name (clones
-        /// share the tree), else the tree's display name.
+        /// share the tree), else the tree's TreeName, else its short id.
         /// </summary>
         private static string ResolveMissionDisplayName(string treeId)
         {
-            Mission mission = string.IsNullOrEmpty(treeId) ? null : MissionStore.FindOriginalMission(treeId);
-            return !string.IsNullOrEmpty(mission?.Name) ? mission.Name : ResolveTreeDisplayName(treeId);
+            return ResolveTreeDisplayName(treeId);
         }
 
         /// <summary>
@@ -2484,16 +2485,18 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Resolves a tree's player-visible display name from
-        /// <see cref="RecordingStore.CommittedTrees"/> by id (M5). Falls back to the
-        /// short tree id, then "<unknown tree>", so the ownership note / toast never
-        /// shows a null name. Reads CommittedTrees (NOT the grep-gated
+        /// Resolves a tree's player-visible display name by id (M5): its original
+        /// mission's current name, else the committed tree's TreeName
+        /// (<see cref="MissionStore.DisplayNameForTree(string, string)"/>), else the short
+        /// tree id, and "&lt;unknown mission&gt;" for no id, so the ownership note / toast
+        /// never shows a null name. Reads CommittedTrees (NOT the grep-gated
         /// CommittedRecordings list), so it stays off the ERS/ELS gate.
         /// </summary>
-        private static string ResolveTreeDisplayName(string treeId)
+        internal static string ResolveTreeDisplayName(string treeId)
         {
             if (string.IsNullOrEmpty(treeId))
                 return "<unknown mission>";
+            string treeName = null;
             var trees = RecordingStore.CommittedTrees;
             if (trees != null)
             {
@@ -2502,13 +2505,13 @@ namespace Parsek
                     RecordingTree t = trees[i];
                     if (t != null && string.Equals(t.Id, treeId, System.StringComparison.Ordinal))
                     {
-                        if (!string.IsNullOrEmpty(t.TreeName))
-                            return t.TreeName;
+                        treeName = t.TreeName;
                         break;
                     }
                 }
             }
-            return ShortId(treeId);
+            string name = MissionStore.DisplayNameForTree(treeId, treeName);
+            return !string.IsNullOrEmpty(name) ? name : ShortId(treeId);
         }
 
         // ----- The detail block's Interact column -----
@@ -2764,13 +2767,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The Advanced "Flights used:" line: the flights the route copies, by name, a
-        /// repeated name numbered "Name [1]", "Name [2]" (the Mission Log convention)
-        /// instead of the old "rec N of tree 'X'" clauses. Each id resolves through the
-        /// literal-free <see cref="RecordingStore.TryResolveRecordingDisplayInfo"/> accessor
-        /// (the raw committed-list read stays in that already-allowlisted file, so the
-        /// ERS/ELS grep gate stays green); an unresolved id falls back to its short id. The
-        /// short ids ride the hover for debugging. Drawn only on expand in Advanced.
+        /// The Advanced "Flights used:" line: the vessels of the flights the route copies,
+        /// named as the Missions tab names them (one number per physical vessel, "X",
+        /// "X [2]"; <see cref="MissionVesselNaming"/>), instead of the old "rec N of tree
+        /// 'X'" clauses. Each id resolves through the literal-free
+        /// <see cref="RecordingStore.TryResolveRecordingDisplayInfo(string, out string, out string, out int, out Recording, out RecordingTree)"/>
+        /// accessor (the raw committed-list read stays in that already-allowlisted file, so
+        /// the ERS/ELS grep gate stays green); an unresolved id falls back to its short id.
+        /// The short ids ride the hover for debugging. Drawn only on expand in Advanced.
         /// </summary>
         private void DrawFlightsUsedLine(Route route)
         {
@@ -2782,25 +2786,60 @@ namespace Parsek
             GUILayout.EndHorizontal();
         }
 
+        // The Missions tab's vessel names for the Flights used line, cached ACROSS frames
+        // (MissionVesselNaming.Cache, keyed on StateVersion, DisplayNames.Version and the
+        // missions' names), so an expanded route reads a dictionary per tree per frame.
+        private readonly MissionVesselNaming.Cache flightsUsedNamingCache = new MissionVesselNaming.Cache();
+        private int flightsUsedSignatureFrame = -1;
+        private int flightsUsedSignature;
+        private static readonly System.Func<RecordingTree, MissionStructure> FlightsUsedStructure =
+            t => MissionStructureBuilder.Build(t);
+        private static readonly System.Func<string, string> FlightsUsedMissionName =
+            treeId => MissionStore.FindOriginalMission(treeId)?.Name;
+
+        private Dictionary<string, string> GetFlightsUsedVesselNames(RecordingTree tree)
+        {
+            if (tree == null)
+                return null;
+            int frame = Time.frameCount;
+            if (frame != flightsUsedSignatureFrame)
+            {
+                flightsUsedSignature = MissionVesselNaming.Cache.MissionSignature(MissionStore.Missions);
+                flightsUsedSignatureFrame = frame;
+            }
+            return flightsUsedNamingCache.GetOrBuild(
+                tree, FlightsUsedStructure, RecordingStore.CommittedTrees,
+                RecordingStore.StateVersion, flightsUsedSignature, FlightsUsedMissionName);
+        }
+
         /// <summary>
         /// Builds the "Flights used:" text and its short-id hover. Logs one Verbose batch
         /// summary (resolved-vs-total) for the route, not per id.
         /// </summary>
-        private static (string text, string tooltip) BuildFlightsUsedContent(Route route)
+        private (string text, string tooltip) BuildFlightsUsedContent(Route route)
         {
             if (route?.RecordingIds == null || route.RecordingIds.Count == 0)
                 return (LogisticsRoutePresentation.FormatFlightsUsed(null, null), string.Empty);
 
             var names = new List<string>(route.RecordingIds.Count);
+            var vesselKeys = new List<string>(route.RecordingIds.Count);
             var shortIds = new List<string>(route.RecordingIds.Count);
             int resolved = 0;
             for (int i = 0; i < route.RecordingIds.Count; i++)
             {
                 string id = route.RecordingIds[i];
                 bool ok = RecordingStore.TryResolveRecordingDisplayInfo(
-                    id, out string recName, out _, out _);
-                if (ok) resolved++;
-                names.Add(ok ? recName : null);
+                    id, out string recName, out _, out _, out _, out RecordingTree tree);
+                string vesselKey = null;
+                string name = null;
+                if (ok)
+                {
+                    resolved++;
+                    name = LogisticsRoutePresentation.ResolveFlightUsedName(
+                        id, recName, tree?.Id, GetFlightsUsedVesselNames(tree), out vesselKey);
+                }
+                names.Add(name);
+                vesselKeys.Add(vesselKey);
                 shortIds.Add(ShortId(id));
             }
 
@@ -2811,7 +2850,7 @@ namespace Parsek
                 $"Logistics: flights used line route={ShortId(route.Id)} " +
                 $"resolved={resolved.ToString(CultureInfo.InvariantCulture)}/{route.RecordingIds.Count.ToString(CultureInfo.InvariantCulture)}",
                 30.0);
-            return (LogisticsRoutePresentation.FormatFlightsUsed(names, shortIds), string.Join(", ", shortIds));
+            return (LogisticsRoutePresentation.FormatFlightsUsed(names, shortIds, vesselKeys), string.Join(", ", shortIds));
         }
 
         // Cadence stepper (Phase 6): "- N x (~human) +" where N is the dispatch
@@ -3632,7 +3671,7 @@ namespace Parsek
                     int byLabel = string.CompareOrdinal(a.label, b.label);
                     return byLabel != 0 ? byLabel : string.CompareOrdinal(a.treeId, b.treeId);
                 });
-                // A repeated mission name reads "Name [1]", "Name [2]", in the sorted order.
+                // A repeated mission name reads "Name", "Name [2]", in the sorted order.
                 var dismissedNames = new List<string>(cachedDismissedRows.Count);
                 for (int i = 0; i < cachedDismissedRows.Count; i++)
                     dismissedNames.Add(cachedDismissedRows[i].label);

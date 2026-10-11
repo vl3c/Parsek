@@ -37,8 +37,9 @@ namespace Parsek
     /// </list>
     ///
     /// <para>Numbering is per TREE, not per Mission: clones of a mission share the tree, and
-    /// a vessel keeps the same name in every one of them whatever each clone includes. Pure:
-    /// no Unity calls, no shared mutable state.</para>
+    /// a vessel keeps the same name in every one of them whatever each clone includes. No
+    /// Unity calls; the only shared state read is the mission names (the partner phrase's
+    /// fallback when the caller passes no mission-name resolver).</para>
     /// </summary>
     internal static class MissionVesselNaming
     {
@@ -232,10 +233,12 @@ namespace Parsek
         /// The display name of every controlled, non-EVA leg of <paramref name="tree"/>, keyed
         /// by RecordingId: the partner phrase, a numbered name, or the plain vessel name.
         /// <paramref name="missionNameOfTree"/> names the mission that owns another tree
-        /// (the window passes the tree's original mission's name); null falls back to the
-        /// tree's own name. <paramref name="partnerLegIds"/>, when given, receives the id of
-        /// every leg named as another mission's vessel (the mission Log's Dock / Undock rows
-        /// read it to put this mission's own ship in the Vessel column).
+        /// (the window passes the tree's original mission's name); null or an empty answer
+        /// falls back to <see cref="MissionStore.DisplayNameForTree(string, string)"/> (the
+        /// original mission's name, else the tree's TreeName). <paramref name="partnerLegIds"/>,
+        /// when given, receives the id of every leg named as another mission's vessel (the
+        /// mission Log's Dock / Undock rows read it to put this mission's own ship in the
+        /// Vessel column).
         /// </summary>
         internal static Dictionary<string, string> Build(
             RecordingTree tree, MissionStructure structure, LaunchIndex index,
@@ -266,7 +269,8 @@ namespace Parsek
                 if (TryResolveForeignOwner(tree, rec, roots, index, out LaunchIndex.Entry owner))
                 {
                     string mission = missionNameOfTree != null ? missionNameOfTree(owner.TreeId) : null;
-                    if (string.IsNullOrEmpty(mission)) mission = owner.TreeName;
+                    if (string.IsNullOrEmpty(mission))
+                        mission = MissionStore.DisplayNameForTree(owner.TreeId, owner.TreeName);
                     names[leg.RecordingId] = MissionChapters.FormatPartnerWithMission(
                         LegName(leg), mission) ?? LegName(leg);
                     tally.Partners++;

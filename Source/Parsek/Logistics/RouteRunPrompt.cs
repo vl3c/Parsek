@@ -174,7 +174,7 @@ namespace Parsek.Logistics
                 return;
             }
 
-            string label = tree.TreeName ?? "<unnamed>";
+            string label = MissionStore.DisplayNameForTree(tree) ?? "<unnamed>";
             RouteStore.MarkCandidatePrompted(treeId, label);
             PendingPromptTreeId = treeId;
             PendingPromptLabel = label;

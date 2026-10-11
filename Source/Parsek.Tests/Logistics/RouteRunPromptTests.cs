@@ -35,11 +35,13 @@ namespace Parsek.Tests.Logistics
             RouteStore.ResetForTesting();
             RecordingStore.ResetForTesting();
             RouteRunPrompt.ResetForTesting();
+            MissionStore.ResetForTesting();
             logLines.Clear();
         }
 
         public void Dispose()
         {
+            MissionStore.ResetForTesting();
             RouteRunPrompt.ResetForTesting();
             RouteStore.ResetForTesting();
             RecordingStore.ResetForTesting();
@@ -151,6 +153,21 @@ namespace Parsek.Tests.Logistics
                 && l.Contains("tree=t-arm")
                 && l.Contains("name='Mun Fuel Run'"));
             Assert.Contains(screenMessages, m => m.Contains("qualifies as a Supply Route"));
+        }
+
+        // catches: the banner naming the raw launch TreeName after the player renamed the
+        // mission (design 7.10: display readers show the mission's current name).
+        [Fact]
+        public void Notify_RenamedMission_BannerShowsTheMissionName()
+        {
+            RecordingTree tree = BuildEligibleTree("t-renamed");
+            tree.TreeName = "Kerbal X";
+            MissionStore.EnsureDefaultsForTrees(new[] { tree });
+            MissionStore.RenameMission(MissionStore.FindOriginalMission("t-renamed"), "Mun Tanker");
+
+            RouteRunPrompt.NotifyTreeCommittedCore(tree, false, false);
+
+            Assert.Equal("Mun Tanker", RouteRunPrompt.PendingPromptLabel);
         }
 
         // catches: a second commit of the same tree re-prompting after the

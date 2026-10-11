@@ -135,7 +135,8 @@ namespace Parsek
         /// Bug 3 (post-#876 playtest 2026-05-17): unified body for the
         /// whole-tree pre/post-transition merge dialog. Both switch-segment
         /// (short standalone segment) and long-lived launch trees render the
-        /// same wording: "{TreeName} - {Duration}". The player tells short
+        /// same wording: "{mission name} - {Duration}" (the tree's original mission's
+        /// name, else its TreeName). The player tells short
         /// segments apart from whole recordings by reading the duration.
         /// Previously a separate <c>BuildSwitchSegmentDialogBody</c> emitted
         /// entry-reason-aware copy ("Keep your switch into ..." / "Keep your
@@ -168,7 +169,7 @@ namespace Parsek
         /// </summary>
         internal static string BuildWholeTreeMergeDialogBody(RecordingTree tree)
         {
-            string treeName = tree?.TreeName ?? "<unnamed>";
+            string treeName = MissionStore.DisplayNameForTree(tree) ?? "<unnamed>";
             // L2 (PR #876 final review): ParsekScenario.Instance is a Unity-static
             // touch point — its static initializer can race during scene load
             // and throw a TypeInitializationException (or a downstream null
