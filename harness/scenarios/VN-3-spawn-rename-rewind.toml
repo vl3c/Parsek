@@ -3,13 +3,18 @@ id = "VN-3-spawn-rename-rewind"
 # =====================================================================================
 # VN-3: VESSEL NAMES ON A PARSEK-SPAWNED VESSEL, ACROSS A REWIND (design
 # docs/dev/design-vessel-and-mission-names.md 7.5, 8.12 and 15.3, ruling 3, todo GC-7).
-# AUTHORED 2026-10-11 on branch `vessel-names-links`, NEVER FLOWN: every token is quoted
-# from its emitting source line; saveParse is REPORT-ONLY until a reading run.
+# AUTHORED 2026-10-11 on branch `vessel-names-links`. FIRST FLIGHT `2026-10-11_1948`:
+# PARSEK-FAIL(expectations) on a SPEC defect: the spec predicted the rewind's KEPT branch,
+# which this host cannot reach (below); the product took the respawn branch and every final
+# name was right. The rewind tokens are now that run's measured respawn lines; not re-flown
+# since. saveParse stays REPORT-ONLY until a green reading run.
 #
 # THE HOST is CI-8's / RSC-1's: gloops-airshow (a pod on the pad, FLIGHT) plus the
 # spawn-control-target preset, one committed recording `rsc-target-0001` of a landed probe
-# "Spawn Control Target" (launch guid set, a vessel snapshot, EndUT 622.16 = save UT 21.16
-# + 1 + 600) ~130 m from the pad, so Real Spawn Control offers its row.
+# "Spawn Control Target" (launch guid set, a vessel snapshot) ~130 m from the pad, so Real
+# Spawn Control offers its row. On load TrimBoringTail cuts it to startUT 22.16 / EndUT
+# 82.16 (the preset authors 622.16; the stationary tail is trimmed), so RealSpawn's warp
+# lands near UT 82.
 #   (f) The Missions window renames the row to "VN3 Relay" BEFORE it spawns (a
 #       ParsekRename decision; no live vessel yet). RealSpawn presses the row's Warp; the
 #       spawn node is stamped with the decision (VesselNameSpawn.ApplySpawnStamp) and a Spawn
@@ -18,22 +23,24 @@ id = "VN-3-spawn-rename-rewind"
 #       resolves its identity through that link (legs >= 1, decision=StockDialog).
 #   (c) A second Parsek rename ("VN3 Relay Parsek") writes through to the spawned live
 #       vessel through the Spawn link (ruling 3).
-#   (f) The rewind. WarpToUT moves the clock past the spawn's EndUT + the 15 s rewind lead,
-#       so the pad pod's recording started next lands its Rewind-to-Launch AFTER the spawn,
-#       and the rewind keeps the spawned vessel as committed history (deterministic: the
-#       recording that spawned it does not replay after the landing UT). The pod's rewind
-#       save is captured with the spawned vessel named "VN3 Relay Parsek"; it is committed,
-#       and only then is the spawned vessel stock-renamed "VN3 Relay Final". After
-#       InvokeRewindToLaunch the reloaded vessel carries the save's "VN3 Relay Parsek" and
-#       the OnLoad-tail pass writes "VN3 Relay Final" back (a renamed spawned vessel keeps
-#       its name across a rewind).
-# NOT COVERED: the respawn branch of design 8.12 (a rewind to BEFORE the spawn strips the
-# vessel and the replay respawns it stamped with the current decision); the WarpToUT pins
-# the kept branch so the lane reads one path. Spawned vessel's naming part surviving
-# onVesselWasModified is not driven either.
+#   (f) The rewind, design 8.12's RESPAWN branch. The pad pod's recording is started (its
+#       rewind save holds the spawned vessel as "VN3 Relay Parsek") and committed, and only
+#       then is the spawned vessel stock-renamed "VN3 Relay Final". The recording that
+#       spawned it starts after the save UT, so the playhead sweep latched it into replay
+#       scope, and WillReplayAfterRewind answers "replays" whatever the landing UT: the
+#       rewind strips the spawned vessel (`via holder-replays`), and the replay respawns it
+#       with a fresh guid, a second Spawn link (`links=2`) and the stamp of the CURRENT
+#       decision, "VN3 Relay Final" (a renamed spawned vessel keeps its name across a
+#       rewind). WarpToUT 660 before the pod's recording puts the rewind's landing UT
+#       (start - 15 s, 644.8 on the first flight) past the trimmed EndUT 82.16, so the
+#       respawn happens at once in the Space Center instead of waiting for the replay.
+# NOT COVERED: the KEPT branch (the rewind keeps the spawned vessel as committed history and
+# the OnLoad-tail pass writes the last name onto the reloaded vessel). It needs a host whose
+# spawning recording starts BEFORE the save UT, so it is never latched into replay scope.
+# Spawned vessel's naming part surviving onVesselWasModified is not driven either.
 # =====================================================================================
 tier = "nightly"
-description = "VN-3: on CI-8's spawn-control-target host, a Parsek rename made before a Real Spawn Control spawn stamps the spawned vessel; a stock rename of the spawned vessel resolves through the Spawn link; a second Parsek rename writes through to it; after a Rewind-to-Launch to a save that holds it under an older name, the reloaded spawned vessel is renamed to its last name again."
+description = "VN-3: on CI-8's spawn-control-target host, a Parsek rename made before a Real Spawn Control spawn stamps the spawned vessel; a stock rename of the spawned vessel resolves through the Spawn link; a second Parsek rename writes through to it; a Rewind-to-Launch strips it and the replay respawns it stamped with its last name."
 instanceProfile = "stock-minimal"
 tags = ["VN-3", "vessel-names", "GC-7", "rename", "spawn", "real-spawn-control",
         "rewind-to-launch", "scene-ksc", "reading-run"]
@@ -70,10 +77,10 @@ steps = [
   { cmd = "RenameVessel",   args = { pid = "${spawn.pid}", name = "VN3 Relay Stock" }, expect = "OK" },
   # (c) A Parsek rename writes through to the spawned vessel.
   { cmd = "UiAction",       args = { op = "edit", window = "missions", field = "recordingname", key = "rsc-target-0001", draft = "VN3 Relay Parsek", commit = "true" }, expect = "OK" },
-  # Past the spawn's EndUT (622.16) plus the 15 s Rewind-to-Launch lead, so the rewind
-  # lands after the spawn and keeps the vessel. The clock is near UT 80 here (not near the
-  # spawn EndUT), so this warp is ~580 s of game time: rails warp up to 50x (no recording is
-  # live yet; the first flight timed out at 1x).
+  # Puts the rewind's landing UT (the pod recording's start - 15 s) past the trimmed spawn
+  # EndUT 82.16, so the replay respawns the vessel at once in the Space Center. The clock is
+  # near UT 82 here, so this is ~580 s of game time: rails warp up to 50x (no recording is
+  # live yet; the first attempt timed out at 1x). Any target above ~100 would do.
   { cmd = "WarpToUT",       args = { ut = "660", maxRate = "50" },                     expect = "OK", budget = 180 },
   # The pad pod's recording: its start captures the rewind save (the spawned vessel in it
   # is "VN3 Relay Parsek"). EVA-6's commit order.
@@ -126,12 +133,13 @@ required = [
   "Captured rewind save at UT",
   "committree committed=true",
   "renamevessel applied pid=[0-9]+ old='VN3 Relay Parsek' new='VN3 Relay Final' type=\\S+ active=false changed=true legs=[1-9][0-9]* decision=StockDialog decisionName='VN3 Relay Final'",
-  # (f) The rewind keeps the spawned vessel (the WarpToUT pins this branch) and the
-  # reloaded vessel is written back to its last name.
+  # (f) The rewind strips the spawned vessel and the replay respawns it, linked again and
+  # stamped with the current decision (measured on the first flight `2026-10-11_1948`).
   "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest",
   "Rewind-to-Launch initiated to UT",
-  "Rewind strip scope: keep spawned pid=[0-9]+ of 'VN3 Relay Final' \\(id=rsc-target-0001\\) as committed history",
-  "Rewind-to-Launch initiated to UT[\\s\\S]*Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ 'VN3 Relay Parsek' -> 'VN3 Relay Final' ",
+  "Rewind strip scope: strip spawned pid=[0-9]+ of 'VN3 Relay Final' \\(id=rsc-target-0001\\) via holder-replays",
+  "Rewind-to-Launch initiated to UT[\\s\\S]*Link added: kind=Spawn guid=[0-9a-f]+ -> [0-9a-f]+ reason=spawn rec=rsc-target-0001 links=2",
+  "Rewind-to-Launch initiated to UT[\\s\\S]*Spawn node stamped: rec=rsc-target-0001 'Spawn Control Target' -> 'VN3 Relay Final' namingPart=\\S+ context=",
   "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
 ]
 forbidden = [
@@ -140,7 +148,10 @@ forbidden = [
   "renamevessel error",
   "Parsek rename refused",
   "Spawn node left unstamped: rec=rsc-target-0001 ",
-  "Rewind strip scope: strip spawned pid=[0-9]+ of '[^'\\r\\n]*' \\(id=rsc-target-0001\\)",
+  "Rewind strip scope: keep spawned pid=[0-9]+ of '[^'\\r\\n]*' \\(id=rsc-target-0001\\)",
+  # No RESPAWN after the rewind is stamped with a replaced name (anchored after the rewind:
+  # the first spawn is stamped 'VN3 Relay' with the same context, correctly).
+  "Rewind-to-Launch initiated to UT[\\s\\S]*Spawn node stamped: rec=rsc-target-0001 '[^'\\r\\n]*' -> '(?:VN3 Relay|VN3 Relay Stock|VN3 Relay Parsek)' namingPart=\\S+ context=RespawnVessel",
   "invokerewindtolaunch refused",
   # Nothing writes an earlier name back over a later decision.
   "Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ '[^'\\r\\n]*' -> '(?:VN3 Relay|VN3 Relay Stock|Spawn Control Target)' ",

@@ -3,9 +3,10 @@ id = "VN-1-stock-rename-staging-f9"
 # =====================================================================================
 # VN-1: VESSEL NAMES, THE STOCK RENAME ON A RECORDED FLIGHT (design
 # docs/dev/design-vessel-and-mission-names.md 15.3, todo GC-7). AUTHORED 2026-10-11 on
-# branch `vessel-names-links`, NEVER FLOWN: every token below is quoted from its emitting
-# source line, not from a run of this lane, and the saveParse blocks are REPORT-ONLY until
-# a reading run.
+# branch `vessel-names-links`. FIRST FLIGHT `2026-10-11_1953`: PARSEK-FAIL(expectations) on
+# the recordings count alone (min 3, read 2), a SPEC defect: every log token and every
+# final name read as predicted. The floor is now 2; not re-flown since. The saveParse
+# blocks stay REPORT-ONLY until a green reading run.
 #
 # THE FLIGHT. GS-1's two-stage hop (crewed mk1 pod as root on top, a probe-cored booster
 # below), recorded from the pad by StartRecording (autoRecordOnLaunch off, so the launch leg
@@ -134,9 +135,11 @@ D14 = ["kerbin", "sandbox", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# Launch leg, pod and booster legs, touchdown debris, the commit's optimizer splits and the
-# committed-restore clone's leg (GS-1 / QL-4's reasons).
-count = { min = 3, max = 14 }
+# The pod and the booster (GS-1 / QL-4's floor). FIRST FLIGHT `2026-10-11_1953` committed
+# exactly 2 (`Committed tree 'GS1 Auto-Chute Booster' (2 recordings)`): no optimizer split,
+# no touchdown debris, and the committed-restore resumes the same recording. The ceiling
+# absorbs debris and optimizer splits on another flight.
+count = { min = 2, max = 14 }
 
 # REPORT-ONLY until a reading run. The committed legs: the pod's identity (its recording and
 # any commit-time optimizer split of it) all "VN1 Charlie", the booster's legs on the automatic "VN1 Alpha Probe",
