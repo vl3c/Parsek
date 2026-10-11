@@ -197,11 +197,13 @@ namespace Parsek.Tests
         [Fact]
         public void SelectRateIndex_OnThePhysicsLadderTopsOutAtFourX()
         {
-            // Stock physicsWarpRates: 1x 2x 3x 4x. 4x needs 4 * 2.5 = 10 game-seconds left.
+            // Stock physicsWarpRates: 1x 2x 3x 4x. 4x needs 4 * 2.5 = 10 game-seconds left;
+            // the bottom rung 2x needs only 2 * 0.5 = 1.
             float[] physics = { 1f, 2f, 3f, 4f };
             Assert.Equal(3, TestCommandWarpToUT.SelectRateIndex(80.0, physics, 3, TestCommandWarpToUT.UncappedMaxRate));
             Assert.Equal(2, TestCommandWarpToUT.SelectRateIndex(9.0, physics, 3, TestCommandWarpToUT.UncappedMaxRate));
-            Assert.Equal(0, TestCommandWarpToUT.SelectRateIndex(2.0, physics, 3, TestCommandWarpToUT.UncappedMaxRate));
+            Assert.Equal(1, TestCommandWarpToUT.SelectRateIndex(2.0, physics, 3, TestCommandWarpToUT.UncappedMaxRate));
+            Assert.Equal(0, TestCommandWarpToUT.SelectRateIndex(0.9, physics, 3, TestCommandWarpToUT.UncappedMaxRate));
         }
 
         // ----- Feasibility -----
@@ -333,9 +335,10 @@ namespace Parsek.Tests
         {
             // This is the mirror-direction property in its purest form: the SAME selector
             // that raised the warp lowers it, purely as a function of the shrinking span.
-            // Each span is exactly `rate * MinRealSecondsAtRate` for one rung, so the walk
-            // steps down the whole ladder one rung at a time and lands on 1x.
-            int[] observed = new[] { 300000.0, 30000.0, 2500.0, 250.0, 125.0, 25.0, 12.5, 5.0, 0.0 }
+            // Each span is exactly `rate * MinRealSecondsAtRate` for one rung (the bottom
+            // rung's 2.5 is `5 * BottomRungMinRealSeconds`), so the walk steps down the whole
+            // ladder one rung at a time and lands on 1x.
+            int[] observed = new[] { 300000.0, 30000.0, 2500.0, 250.0, 125.0, 25.0, 2.5, 2.4, 0.0 }
                 .Select(rem => TestCommandWarpToUT.SelectRateIndex(
                     rem, StockRates, TopIndex, TestCommandWarpToUT.UncappedMaxRate))
                 .ToArray();
@@ -345,6 +348,143 @@ namespace Parsek.Tests
             for (int i = 1; i < observed.Length; i++)
                 Assert.True(observed[i] <= observed[i - 1],
                     $"ladder rose at step {i}: {observed[i - 1]} -> {observed[i]}");
+        }
+
+        // ----- The bottom-rung tail and instant downshifts -----
+
+        [Fact]
+        public void BottomRungIndex_IsTheLowestRungAboveOneX_OnEitherLadder()
+        {
+            Assert.Equal(1, TestCommandWarpToUT.BottomRungIndex(StockRates));
+            Assert.Equal(1, TestCommandWarpToUT.BottomRungIndex(new[] { 1f, 2f, 3f, 4f }));
+            // A rung that is still 1x is not the bottom rung.
+            Assert.Equal(2, TestCommandWarpToUT.BottomRungIndex(new[] { 1f, 1f, 5f, 10f }));
+            Assert.Equal(-1, TestCommandWarpToUT.BottomRungIndex(new[] { 1f }));
+            Assert.Equal(-1, TestCommandWarpToUT.BottomRungIndex(new float[0]));
+            Assert.Equal(-1, TestCommandWarpToUT.BottomRungIndex(null));
+        }
+
+        [Fact]
+        public void MinRealSecondsForRung_LowersOnlyTheBottomRung()
+        {
+            Assert.Equal(0.5, TestCommandWarpToUT.BottomRungMinRealSeconds);
+            Assert.Equal(TestCommandWarpToUT.BottomRungMinRealSeconds,
+                TestCommandWarpToUT.MinRealSecondsForRung(1, 1));
+            Assert.Equal(TestCommandWarpToUT.MinRealSecondsAtRate,
+                TestCommandWarpToUT.MinRealSecondsForRung(2, 1));
+            Assert.Equal(TestCommandWarpToUT.MinRealSecondsAtRate,
+                TestCommandWarpToUT.MinRealSecondsForRung(7, 1));
+            // Rung 0 and a ladder with no bottom rung never take the short floor.
+            Assert.Equal(TestCommandWarpToUT.MinRealSecondsAtRate,
+                TestCommandWarpToUT.MinRealSecondsForRung(0, 0));
+            Assert.Equal(TestCommandWarpToUT.MinRealSecondsAtRate,
+                TestCommandWarpToUT.MinRealSecondsForRung(1, -1));
+        }
+
+        [Fact]
+        public void SelectRateIndex_RailsTail_BottomRungRunsToTwoPointFiveGameSeconds()
+        {
+            // Rails 5x now runs until 5 * 0.5 = 2.5 game-seconds remain (was 12.5), so the
+            // 1x tail is 2.5 game-seconds. 10x still needs its full 10 * 2.5 = 25.
+            Assert.Equal(2, TestCommandWarpToUT.SelectRateIndex(25.0, StockRates, TopIndex, 0.0));
+            Assert.Equal(1, TestCommandWarpToUT.SelectRateIndex(24.9, StockRates, TopIndex, 0.0));
+            Assert.Equal(1, TestCommandWarpToUT.SelectRateIndex(12.4, StockRates, TopIndex, 0.0));
+            Assert.Equal(1, TestCommandWarpToUT.SelectRateIndex(2.5, StockRates, TopIndex, 0.0));
+            // A span under the bottom rung's threshold still runs at 1x.
+            Assert.Equal(0, TestCommandWarpToUT.SelectRateIndex(2.49, StockRates, TopIndex, 0.0));
+            // The same under the caps the lanes pass: 10x and 50x.
+            Assert.Equal(1, TestCommandWarpToUT.SelectRateIndex(2.5, StockRates, TopIndex, 10.0));
+            Assert.Equal(0, TestCommandWarpToUT.SelectRateIndex(2.49, StockRates, TopIndex, 50.0));
+            // Higher rungs keep 2.5 s: 50x needs 125, not 25.
+            Assert.Equal(2, TestCommandWarpToUT.SelectRateIndex(124.9, StockRates, TopIndex, 50.0));
+            Assert.Equal(3, TestCommandWarpToUT.SelectRateIndex(125.0, StockRates, TopIndex, 50.0));
+        }
+
+        [Fact]
+        public void SelectRateIndex_PhysicsTail_BottomRungRunsToOneGameSecond()
+        {
+            float[] physics = { 1f, 2f, 3f, 4f };
+            // 2x runs until 2 * 0.5 = 1.0 game-second remains (was 5.0); 3x keeps 7.5.
+            Assert.Equal(2, TestCommandWarpToUT.SelectRateIndex(7.5, physics, 3, 0.0));
+            Assert.Equal(1, TestCommandWarpToUT.SelectRateIndex(7.49, physics, 3, 0.0));
+            Assert.Equal(1, TestCommandWarpToUT.SelectRateIndex(4.9, physics, 3, 0.0));
+            Assert.Equal(1, TestCommandWarpToUT.SelectRateIndex(1.0, physics, 3, 0.0));
+            Assert.Equal(0, TestCommandWarpToUT.SelectRateIndex(0.99, physics, 3, 0.0));
+            // The `maxRate=2 ladder=phys` lanes: the cap leaves only the bottom rung.
+            Assert.Equal(1, TestCommandWarpToUT.SelectRateIndex(1.0, physics, 3, 2.0));
+            Assert.Equal(0, TestCommandWarpToUT.SelectRateIndex(0.99, physics, 3, 2.0));
+        }
+
+        [Fact]
+        public void SelectRateIndex_MaxRateOne_NeverLeavesOneX_AtAnySpanOnEitherLadder()
+        {
+            // The spawn-crossing 1x waits: the bottom-rung floor must not let them warp, so
+            // the one request they make is SetRate(0, instant: true), as before the change.
+            float[] physics = { 1f, 2f, 3f, 4f };
+            foreach (double rem in new[] { 1e9, 1000.0, 25.0, 12.5, 2.5, 1.0, 0.5, 0.25, 0.0 })
+            {
+                int railsIndex = TestCommandWarpToUT.SelectRateIndex(rem, StockRates, TopIndex, 1.0);
+                int physIndex = TestCommandWarpToUT.SelectRateIndex(rem, physics, 3, 1.0);
+                Assert.Equal(0, railsIndex);
+                Assert.Equal(0, physIndex);
+                Assert.True(TestCommandWarpToUT.ShouldSetRateInstantly(railsIndex, 0));
+                Assert.True(TestCommandWarpToUT.ShouldSetRateInstantly(physIndex, 0));
+            }
+        }
+
+        [Fact]
+        public void ShouldSetRateInstantly_DownshiftsAreInstant_UpshiftsEase()
+        {
+            // A mid-ladder downshift (10x -> 5x) is instant: the eased ramp is what made
+            // CN-3's 5x stretch read 9.9x.
+            Assert.True(TestCommandWarpToUT.ShouldSetRateInstantly(1, 2));
+            Assert.True(TestCommandWarpToUT.ShouldSetRateInstantly(3, 7));
+            // 1x is always instant, from any rung or none.
+            Assert.True(TestCommandWarpToUT.ShouldSetRateInstantly(0, 3));
+            Assert.True(TestCommandWarpToUT.ShouldSetRateInstantly(0, 0));
+            // Upshifts and a re-request of the same rung keep stock's ramp.
+            Assert.False(TestCommandWarpToUT.ShouldSetRateInstantly(2, 1));
+            Assert.False(TestCommandWarpToUT.ShouldSetRateInstantly(1, 0));
+            Assert.False(TestCommandWarpToUT.ShouldSetRateInstantly(2, 2));
+        }
+
+        [Fact]
+        public void BottomRungThreshold_LeavesTheArrivalLatchOutOfReachOfOneFrameAtThatRung()
+        {
+            // Stock's largest per-frame delta-time cap ("Max Physics Delta-Time per Frame").
+            const double worstFrameSeconds = 0.12;
+            float[] physics = { 1f, 2f, 3f, 4f };
+            foreach (float[] ladder in new[] { StockRates, physics })
+            {
+                int bottom = TestCommandWarpToUT.BottomRungIndex(ladder);
+                double rate = ladder[bottom];
+                double threshold = rate * TestCommandWarpToUT.BottomRungMinRealSeconds;
+                double target = 1000.0;
+
+                // The last frame that may select the bottom rung sits exactly on the threshold.
+                double ut = target - threshold;
+                Assert.Equal(bottom, TestCommandWarpToUT.SelectRateIndex(
+                    target - ut, ladder, ladder.Length - 1, 0.0));
+                Assert.False(TestCommandWarpToUT.HasReached(ut, target, TestCommandWarpToUT.UtToleranceSeconds));
+
+                // One worst-case frame at that rung leaves the clock short of the latch, so
+                // the next step is the instant drop to 1x rather than an arrival at rate.
+                ut += rate * worstFrameSeconds;
+                Assert.False(TestCommandWarpToUT.HasReached(ut, target, TestCommandWarpToUT.UtToleranceSeconds));
+                Assert.Equal(0, TestCommandWarpToUT.SelectRateIndex(
+                    target - ut, ladder, ladder.Length - 1, 0.0));
+
+                // The boundary: the frame that would carry the clock into the latch while
+                // still at that rung is (threshold - tolerance) / rate long (0.45 s at 5x,
+                // 0.375 s at 2x), at least three times any stock frame cap.
+                double frameIntoLatch = (threshold - TestCommandWarpToUT.UtToleranceSeconds) / rate;
+                Assert.True(frameIntoLatch > worstFrameSeconds * 3.0,
+                    "rate=" + rate.ToString(CultureInfo.InvariantCulture)
+                    + " frameIntoLatch=" + frameIntoLatch.ToString(CultureInfo.InvariantCulture));
+                Assert.True(TestCommandWarpToUT.HasReached(
+                    target - threshold + rate * frameIntoLatch, target,
+                    TestCommandWarpToUT.UtToleranceSeconds + 1e-9));
+            }
         }
 
         [Fact]
@@ -378,7 +518,7 @@ namespace Parsek.Tests
             float[] physics = { 1f, 2f, 3f, 4f };
             int physTop = physics.Length - 1;
 
-            // 4x needs 10 s of span; 3x needs 7.5; 2x needs 5.
+            // 4x needs 10 s of span; 3x needs 7.5; 2x (the bottom rung) needs 1.
             Assert.Equal(3, TestCommandWarpToUT.SelectRateIndex(
                 1000.0, physics, physTop, TestCommandWarpToUT.UncappedMaxRate));
             Assert.Equal(3, TestCommandWarpToUT.SelectRateIndex(
@@ -386,9 +526,11 @@ namespace Parsek.Tests
             Assert.Equal(2, TestCommandWarpToUT.SelectRateIndex(
                 9.9, physics, physTop, TestCommandWarpToUT.UncappedMaxRate));
             Assert.Equal(1, TestCommandWarpToUT.SelectRateIndex(
-                5.0, physics, physTop, TestCommandWarpToUT.UncappedMaxRate));
+                7.4, physics, physTop, TestCommandWarpToUT.UncappedMaxRate));
+            Assert.Equal(1, TestCommandWarpToUT.SelectRateIndex(
+                1.0, physics, physTop, TestCommandWarpToUT.UncappedMaxRate));
             Assert.Equal(0, TestCommandWarpToUT.SelectRateIndex(
-                4.9, physics, physTop, TestCommandWarpToUT.UncappedMaxRate));
+                0.99, physics, physTop, TestCommandWarpToUT.UncappedMaxRate));
 
             // The SAME span picks a DIFFERENT rung on the two ladders, which is exactly
             // why the ladder is a parameter rather than a lookup: 30 s of remaining span

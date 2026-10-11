@@ -27,8 +27,11 @@ id = "OC-1-overlap-cap-per-recording"
 # `peakLive` count exact (a copy spawned before the tracer would write only its destroy,
 # and the facet clamps that at zero, which can hide a copy but never add one).
 #
-# THE FLIGHT. The WarpToUT runs the clock from ~27 to 260 at <= 10x rails warp (the
-# overlap path suppresses copies only above 50x, WarpThresholds.GhostHide). The loop
+# THE FLIGHT. The WarpToUT runs the clock from ~27 to 260 at <= 50x rails warp, the
+# ceiling: the overlap path suppresses copies only ABOVE 50x (WarpThresholds.GhostHide,
+# a strict `>`), so at exactly 50x every copy still spawns and expires. (It was flown at
+# 10x; 50x only shortens the wall time. Above 10x visual FX are suppressed, which no
+# witness below reads.) The loop
 # reaches its 20-copy steady state at UT 180.26 (start + span) and holds it for ~80 s, so
 # copies expire (`overlap expired`) while new primaries spawn every 6 s.
 #
@@ -60,7 +63,7 @@ steps = [
   { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
   { cmd = "RecordingState", expect = "OK" },
-  { cmd = "WarpToUT",   args = { ut = "260", maxRate = "10" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",   args = { ut = "260", maxRate = "50" }, expect = "OK", budget = 300 },
   { cmd = "RecordingState", expect = "OK" },
   { cmd = "FlushAndQuit", expect = "OK" },
 ]

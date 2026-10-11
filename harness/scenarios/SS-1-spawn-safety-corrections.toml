@@ -87,8 +87,8 @@ id = "SS-1-spawn-safety-corrections"
 # - `Low Perigee Probe` (terminal-orbit-safety-rec): one point plus a 120 s orbit tail,
 #   terminal Orbiting on a 71 x 90 km orbit (sma 680500, ecc 19000/1361000), periapsis at
 #   UT 721.19, under 75 km from about UT 440 to about UT 1002.6 (EndUT 541.19 at about
-#   72.7 km; WARP 1's flush at about 702.5 at about 71.0 km), on the far side of Kerbin
-#   from Kerbal X.
+#   72.7 km; WARP 1's flush at about 712.5 at about 71.0 km, the warp's 1x tail being
+#   2.5 game-s), on the far side of Kerbin from Kerbal X.
 # Both snapshots carry the recording's own pid (FNV-1a of the id) and launch guid
 # (`ScenarioWriter.DeriveVesselLaunchGuid`), matching the tree record's
 # `recordedVesselGuid`; neither matches a live vessel, so no adoption.

@@ -3611,6 +3611,19 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   KSP.log), and `tools/archive_results.py --from <results-dir>` back-fills surviving
   snapshots. About 0.4 MB per run (10 flown runs measured), no pruning. Contract:
   `harness/README.md` "The machine-wide results archive".
+- [ ] WarpToUT 1x tail (branch `warptout-tail-trim`, PENDING FLIGHT PROOF). Audit
+  2026-10-11: the selector kept the bottom rung only while `rate * 2.5` game-s remained, so
+  every capped rails warp ended on 12.2-12.3 s of 1x (AP-1 x2, CN-2, CN-3) and a physics warp
+  on ~5 s (PWR 4.8 s); downshifts to a non-zero rung used stock's eased ramp (CN-3's 5x
+  stretch read 9.9x). Fix: the bottom rung alone (rails 5x, physics 2x) uses a 0.5 s floor
+  (`TestCommandWarpToUT.BottomRungMinRealSeconds`; tail 2.5 / 1.0 game-s) and every
+  downshift is instant (`ShouldSetRateInstantly`); `maxRate=1` waits never leave 1x. CN-3 and
+  OC-1 go from `maxRate=10` to 50 (GhostHide hides ghosts only above 50x). Expected from the
+  ladder arithmetic: about 8 s per capped rails warp (15 s -> 7 s from 25 game-s out) and 2 s
+  per physics warp; the nightly has 7 such rails warps and 14 physics ones, so about 85 s per
+  nightly, plus about 38 s on CN-3 (warp ~64 s -> ~27 s) and 9 s on OC-1 (~28 s -> ~19 s).
+  Confirm on the next nightly: `warptout complete elapsed=` per lane against its last run,
+  and the CN-3 / OC-1 / SS-1 contracts green at the new rates.
 
 ## MISSIONS-TAB-MODEL1: the Missions tab redesign, first slice ("Model 1") [OWNER-APPROVED 2026-09-29, branch `missions-model1`. IN PROGRESS]
 
