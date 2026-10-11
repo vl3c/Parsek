@@ -3597,6 +3597,16 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   B25, B28, B23 and B12. Their capture and PARK waste is already fixed in code; re-flying
   only refreshes the analyzer totals (~150-250 s recoverable each on the stale runs) and
   confirms the fix holds. Batch them (for example a nightly tier) rather than one by one.
+- [x] The run corpus survives worktree removal (HARNESS-RESULTS-ARCHIVE, branch
+  `harness-results-archive`). The ~860-run corpus measured above lived in the worktrees'
+  gitignored `harness/results/` and was lost when those worktrees were removed. `run.py` now
+  copies each attempt's result / status / mission JSONs, mission stdout, harness log and
+  gzipped KSP.log to `<umbrella>/automation/results-archive/<runId>/` with a `manifest.json`
+  (worktree, git HEAD, deployed dll sha256, sizes), verdict-neutral, opt-out
+  `PARSEK_HARNESS_NO_ARCHIVE=1`; `flight_efficiency.py` reads the archive by default (gzip
+  KSP.log), and `tools/archive_results.py --from <results-dir>` back-fills surviving
+  snapshots. About 0.5 MB per run (10 flown runs measured), no pruning. Contract:
+  `harness/README.md` "The machine-wide results archive".
 
 ## MISSIONS-TAB-MODEL1: the Missions tab redesign, first slice ("Model 1") [OWNER-APPROVED 2026-09-29, branch `missions-model1`. IN PROGRESS]
 
