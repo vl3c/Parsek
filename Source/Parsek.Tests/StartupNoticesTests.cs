@@ -52,6 +52,8 @@ namespace Parsek.Tests
         [InlineData("PhysicsFramePatch", "flight recording")]
         [InlineData("RevertToLaunchInterceptor", "revert, rewind and scene changes")]
         [InlineData("FlightResultsDialogLogPatches.DisplayPatch", "diagnostic logging")]
+        [InlineData("VesselRenameAcceptCapturePatch", "vessel names")]
+        [InlineData("PartVesselNamingAcceptCapturePatch", "vessel names")]
         [InlineData("DisplayPatch", null)]
         [InlineData("SomethingNew", null)]
         [InlineData("", null)]

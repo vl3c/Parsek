@@ -13,6 +13,9 @@ _(unreleased - entries accumulate here per commit)_
 - **Renaming a vessel in the Recordings tab renames the whole vessel.** Every recording of that
   vessel, its ghost on the map and in the Tracking Station, and every Parsek window now show the
   new name. EVA rows and very old recordings keep their names. (GC-7)
+- **Stock and Parsek vessel renames now stay in step.** Renaming a vessel with the stock rename
+  button renames it in Parsek too, and a Parsek rename renames the real vessel. Names survive
+  rewinds and quickloads; a stock rename made in a flight you then revert is cancelled. (GC-7)
 
 ### Fixed
 

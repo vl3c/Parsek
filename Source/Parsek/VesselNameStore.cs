@@ -42,6 +42,11 @@ namespace Parsek
         internal VesselNameSource Source;
         /// <summary>Diagnostics only.</summary>
         internal double DecidedUT;
+        /// <summary>
+        /// <see cref="VesselNameStore.FlightEpoch"/> when the decision was recorded (the revert
+        /// rule, design 7.6). Memory only: a revert never crosses a cold load.
+        /// </summary>
+        internal int FlightEpoch;
 
         internal bool IsClassified(string legId)
             => legId != null && (CoveredLegIds.Contains(legId) || UncoveredLegIds.Contains(legId));
@@ -70,10 +75,12 @@ namespace Parsek
     /// every in-session load keeps memory (<c>LoadReconcilePolicy</c> category
     /// <see cref="LoadStateCategory.VesselNames"/>).
     ///
-    /// <para>Phase 1 scope: Parsek row renames only (no stock capture, no write-through to
-    /// a live vessel, no link rows, no revert undo).</para>
+    /// <para>Phase 2a: stock renames are captured as decisions (<c>VesselRenameCapturePatch</c>),
+    /// decisions are written through to live vessels (<see cref="VesselNameLiveSync"/>), and a
+    /// revert undoes the cancelled flight's stock decisions (<c>VesselNameStore.RevertUndo.cs</c>).
+    /// No link rows yet (Phase 2b).</para>
     /// </summary>
-    internal static class VesselNameStore
+    internal static partial class VesselNameStore
     {
         internal const string Tag = "VesselNames";
         internal const string NodeName = "VESSEL_NAMES";
@@ -102,6 +109,9 @@ namespace Parsek
         internal static IReadOnlyList<VesselNameDecision> Decisions => decisions;
         internal static long NextSeq => nextSeq;
         internal static bool HasDecisions => decisions.Count > 0;
+
+        /// <summary>Decisions currently held.</summary>
+        internal static int DecisionCount => decisions.Count;
 
         /// <summary>Test seam: the trees an apply pass resolves over (committed + pending + live in production).</summary>
         internal static Func<IEnumerable<RecordingTree>> TreesProviderForTesting;
@@ -201,7 +211,8 @@ namespace Parsek
         /// </summary>
         internal static bool TryRecordDecision(
             VesselIdentity.Resolution res, Recording rec, string name, VesselNameSource source,
-            double ut, out VesselNameDecision decision, out string refusal)
+            double ut, out VesselNameDecision decision, out string refusal,
+            string extraPriorName = null, bool refuseUnchangedRow = true)
         {
             decision = null;
             refusal = null;
@@ -209,7 +220,8 @@ namespace Parsek
             if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) refusal = RefusalNoRecording;
             else if (string.IsNullOrEmpty(trimmed)) refusal = RefusalBlank;
             else if (!string.IsNullOrEmpty(rec.EvaCrewName)) refusal = RefusalEva;
-            else if (string.Equals(trimmed, rec.VesselName, StringComparison.Ordinal)) refusal = RefusalUnchanged;
+            else if (refuseUnchangedRow && string.Equals(trimmed, rec.VesselName, StringComparison.Ordinal))
+                refusal = RefusalUnchanged;
             if (refusal != null) return false;
 
             if (res == null || !res.TryGetIdentity(rec.RecordingId, out VesselIdentity.Identity identity))
@@ -224,12 +236,15 @@ namespace Parsek
             }
 
             VesselNameDecision replaced = ResolveDecision(identity);
+            // The revert undo restores the replaced decision exactly as it was (7.6).
+            VesselNameDecision replacedCopy = replaced != null ? CloneDecision(replaced) : null;
             var d = new VesselNameDecision
             {
                 Seq = nextSeq++,
                 Name = trimmed,
                 Source = source,
                 DecidedUT = ut,
+                FlightEpoch = FlightEpoch,
             };
             var guids = new List<string>(identity.Guids);
             guids.Sort(StringComparer.OrdinalIgnoreCase);
@@ -255,6 +270,8 @@ namespace Parsek
                 priors.Add(replaced.Name);
                 priors.AddRange(replaced.PriorNames);
             }
+            // A stock rename also names what the live vessel carried just before (design 7.1).
+            if (!string.IsNullOrEmpty(extraPriorName)) priors.Add(extraPriorName);
             priors.Sort(StringComparer.Ordinal);
             foreach (string p in priors) AddPrior(d, p);
 
@@ -289,6 +306,7 @@ namespace Parsek
             decisions.Add(d);
             foreach (string g in d.Guids) byGuid[g] = d;
             Version++;
+            PushUndoEntry(source, d, replacedCopy);
 
             ParsekLog.Info(Tag,
                 "Vessel name decision recorded: identity=" + (identity.Key ?? "<none>") +
@@ -298,6 +316,7 @@ namespace Parsek
                 " guids=" + d.Guids.Count.ToString(CultureInfo.InvariantCulture) +
                 " priors=" + d.PriorNames.Count.ToString(CultureInfo.InvariantCulture) +
                 " replacedSeq=" + (replaced != null ? replaced.Seq.ToString(CultureInfo.InvariantCulture) : "none") +
+                " epoch=" + FlightEpoch.ToString(CultureInfo.InvariantCulture) +
                 " rec=" + rec.RecordingId +
                 " ut=" + ut.ToString("F1", CultureInfo.InvariantCulture));
             DisplayNames.NoteChanged("vessel-name-decision", rec.RecordingId);
@@ -308,8 +327,10 @@ namespace Parsek
         /// <summary>
         /// A Parsek row rename (design 7.2; Recordings tab commit and seam
         /// <c>op=edit field=recordingname</c>): resolves the row's identity over the live trees
-        /// (or <paramref name="universeForTesting"/>), records a ParsekRename decision and runs
-        /// the apply pass. Phase 1 writes no live vessel. False with a logged refusal otherwise.
+        /// (or <paramref name="universeForTesting"/>), records a ParsekRename decision, runs
+        /// the apply pass, then the live write rule over the identity's live vessels
+        /// (<see cref="VesselNameLiveSync"/>; with <paramref name="universeForTesting"/> only
+        /// its test provider's vessels). False with a logged refusal otherwise.
         /// </summary>
         internal static bool RecordParsekRename(
             Recording rec, string newName, IEnumerable<RecordingTree> universeForTesting, out string refusal)
@@ -348,6 +369,8 @@ namespace Parsek
                 (identity?.Key ?? "<none>") + " legs=" +
                 (identity != null ? identity.LegIds.Count : 0).ToString(CultureInfo.InvariantCulture));
             ApplyTo(res, "parsek-rename");
+            VesselNameLiveSync.RunLiveWritePass(res, "parsek-rename", VesselNameLiveScope.Auto,
+                headless: universeForTesting != null);
             return true;
         }
 
@@ -366,9 +389,13 @@ namespace Parsek
 
         /// <summary>
         /// The apply pass over the live recordings (committed trees, pending tree, live active
-        /// tree, loose committed recordings). A no-op when the store holds no decision.
+        /// tree, loose committed recordings), then the live write rule (design 7.4 step 3) over
+        /// the vessels <paramref name="scope"/> names: the OnLoad tails pass
+        /// <see cref="VesselNameLiveScope.ProtosOnly"/> (the save's proto vessels, before stock
+        /// builds Vessel objects from them); every other caller the scene's own vessels. A no-op
+        /// when the store holds no decision.
         /// </summary>
-        internal static ApplyResult ApplyAll(string reason)
+        internal static ApplyResult ApplyAll(string reason, VesselNameLiveScope scope = VesselNameLiveScope.Auto)
         {
             lastAppliedStateVersion = RecordingStore.StateVersion;
             if (decisions.Count == 0) return default;
@@ -377,7 +404,9 @@ namespace Parsek
                 lastLiveTreeSignature = ComputeRecordingIdSetSignature(ReadLiveTreeIdsSafe());
                 List<RecordingTree> trees = GatherTrees();
                 VesselIdentity.Resolution res = VesselIdentity.Resolve(trees, GatherLoose(trees));
-                return ApplyTo(res, reason);
+                ApplyResult result = ApplyTo(res, reason);
+                VesselNameLiveSync.RunLiveWritePass(res, reason, scope, headless: false);
+                return result;
             }
             catch (Exception ex)
             {
@@ -579,7 +608,7 @@ namespace Parsek
             return live?.Recordings?.Keys;
         }
 
-        private static double ReadNowUT()
+        internal static double ReadNowUT()
         {
             Func<double> provider = NowUtProviderForTesting;
             if (provider != null) return provider();
@@ -790,16 +819,19 @@ namespace Parsek
             lastAppliedStateVersion = int.MinValue;
             lastLiveTreeSignature = 0;
             nextLiveTreeCheckRealtime = 0f;
+            ClearRevertUndoState(resetEpoch: false);
         }
 
         /// <summary>Test seam: an empty store and no providers.</summary>
         internal static void ResetForTesting()
         {
             ClearState();
+            ClearRevertUndoState(resetEpoch: true);
             Version++;
             TreesProviderForTesting = null;
             LooseRecordingsProviderForTesting = null;
             NowUtProviderForTesting = null;
+            VesselNameLiveSync.ResetForTesting();
         }
     }
 }
