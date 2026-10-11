@@ -12527,3 +12527,230 @@ def select_stale_save_snapshot_tmp_dirs_to_sweep(
             continue
         out.append(name)
     return sorted(out)
+
+
+# ---------------------------------------------------------------------------
+# Machine-wide results archive (HARNESS-RESULTS-ARCHIVE).
+#
+# results/ is gitignored and lives INSIDE a worktree, so removing the worktree
+# deletes its whole run history. That lost a ~860-run corpus the flight
+# efficiency analyzer (tools/flight_efficiency.py) depended on. After every
+# attempt run.py therefore copies the run's DURABLE SMALL artifacts into
+# ``<umbrella>/automation/results-archive/<runId>/``, outside every worktree:
+# the result / status / mission JSONs, the mission stdout, this scenario's
+# slice of the invocation harness log, and the collected KSP.log, both gzipped. Screenshots, saves and the
+# other bulky artifacts stay out (they are what the per-worktree retention
+# passes exist to bound).
+#
+# Pure decisions only here (what to copy, under which name, the manifest); the
+# copy is shell I/O in run.py (``archive_run_results``), shared by the back-fill
+# tool tools/archive_results.py. Archiving is verdict-neutral by contract: a
+# failure is a Warn line, never a changed verdict.
+# ---------------------------------------------------------------------------
+
+# Relative to the umbrella root, the same convention as provlib.MACHINE_LOCK_RELPATH
+# (``automation/`` is the machine-wide, outside-git directory every worktree shares).
+RESULTS_ARCHIVE_RELPATH: Tuple[str, ...] = ("automation", "results-archive")
+# Set to a truthy value (anything but "", "0", "false", "no", "off") to skip
+# archiving entirely: tests, CI, or an operator who does not want the copy.
+RESULTS_ARCHIVE_OPT_OUT_ENV = "PARSEK_HARNESS_NO_ARCHIVE"
+RESULTS_ARCHIVE_MANIFEST_NAME = "manifest.json"
+RESULTS_ARCHIVE_MANIFEST_SCHEMA = 1
+# The collected KSP.log is the one large input (up to ARTIFACT_LOG_CAP_BYTES);
+# text logs compress roughly 10-20x, and flight_efficiency reads the gzip directly.
+RESULTS_ARCHIVE_KSP_LOG_NAME = "KSP.log.gz"
+# A run dir is built as ``.<runId>`` + this suffix and renamed into place, so a
+# reader never sees a half-written archive. The leading dot keeps it out of
+# every run-id-shaped listing.
+RESULTS_ARCHIVE_TMP_SUFFIX = ".archive-tmp"
+RESULTS_ARCHIVE_OLD_SUFFIX = ".archive-old"
+
+# Per-run results/ files archived verbatim, in manifest order. The result JSON
+# is the only REQUIRED one; the rest exist only for some runs (a seam-only run
+# has no mission files, a pre-launch refusal has no status file).
+RESULTS_ARCHIVE_RUN_SUFFIXES: Tuple[str, ...] = (
+    ".json",
+    "_status.json",
+    "_mission.json",
+    "_mission.stdout.log",
+)
+
+_ARCHIVE_FALSE_VALUES = ("", "0", "false", "no", "off")
+
+
+def results_archive_disabled(env: Optional[Dict[str, str]]) -> bool:
+    """True when the opt-out env var holds a truthy value."""
+    value = (env or {}).get(RESULTS_ARCHIVE_OPT_OUT_ENV)
+    if value is None:
+        return False
+    return value.strip().lower() not in _ARCHIVE_FALSE_VALUES
+
+
+def results_archive_relpath(run_id: str) -> Tuple[str, ...]:
+    """The archived run dir relative to the umbrella root."""
+    return RESULTS_ARCHIVE_RELPATH + (run_id,)
+
+
+def results_archive_tmp_name(run_id: str) -> str:
+    return "." + run_id + RESULTS_ARCHIVE_TMP_SUFFIX
+
+
+def results_archive_old_name(run_id: str) -> str:
+    return "." + run_id + RESULTS_ARCHIVE_OLD_SUFFIX
+
+
+@dataclass(frozen=True)
+class ArchiveEntry:
+    # Source as path components relative to the results dir, or None when the
+    # source is the harness log (whose path the shell holds; it may live anywhere).
+    source_rel: Optional[Tuple[str, ...]]
+    dest_name: str
+    gzip: bool = False
+
+
+@dataclass(frozen=True)
+class ResultsArchivePlan:
+    run_id: str
+    entries: Tuple[ArchiveEntry, ...]
+    missing: Tuple[str, ...]        # optional names not present (reported, not an error)
+    skip_reason: Optional[str]      # set -> archive nothing
+
+
+def _is_plain_name(name: str) -> bool:
+    return (bool(name) and name not in (".", "..")
+            and "/" not in name and "\\" not in name)
+
+
+def plan_results_archive(run_id: str, present_names: Iterable[str],
+                         shots_ksp_log_present: bool,
+                         harness_log_name: Optional[str]) -> ResultsArchivePlan:
+    """Which of a run's artifacts go into its archive dir, and under which names.
+
+    ``present_names`` is the results-dir listing (file names; the caller does
+    the listing). ``shots_ksp_log_present`` says whether
+    ``<runId>_shots/KSP.log`` exists. ``harness_log_name`` is the basename of
+    the invocation's harness log, or None when there is none to copy. A run
+    with no result JSON archives nothing: the result is what names the verdict,
+    and an archive without one cannot be told apart from a stray copy.
+    """
+    if not _is_plain_name(run_id or ""):
+        return ResultsArchivePlan(run_id, (), (), "invalid run id")
+    present = set(present_names or ())
+    if run_id + ".json" not in present:
+        return ResultsArchivePlan(run_id, (), (), "no result json")
+    entries: List[ArchiveEntry] = []
+    missing: List[str] = []
+    for suffix in RESULTS_ARCHIVE_RUN_SUFFIXES:
+        name = run_id + suffix
+        if name in present:
+            entries.append(ArchiveEntry((name,), name))
+        else:
+            missing.append(name)
+    if harness_log_name and _is_plain_name(harness_log_name):
+        dest = (harness_log_name if harness_log_name.endswith(".gz")
+                else harness_log_name + ".gz")
+        entries.append(ArchiveEntry(None, dest, gzip=True))
+    else:
+        missing.append("harness log")
+    if shots_ksp_log_present:
+        entries.append(ArchiveEntry((run_id + "_shots", "KSP.log"),
+                                    RESULTS_ARCHIVE_KSP_LOG_NAME, gzip=True))
+    else:
+        missing.append(run_id + "_shots/KSP.log")
+    return ResultsArchivePlan(run_id, tuple(entries), tuple(missing), None)
+
+
+def build_results_archive_manifest(run_id: str, origin: str, archived_utc: str,
+                                   worktree: Optional[str], git_head: Optional[str],
+                                   parsek_dll_sha256: Optional[str],
+                                   files: Sequence[Tuple[str, int, int]],
+                                   missing: Sequence[str] = (),
+                                   harness_log: Optional[str] = None) -> Dict[str, Any]:
+    """The per-run ``manifest.json``. ``files`` rows are
+    ``(archived name, archived bytes, source bytes)``; the two sizes differ only
+    for the gzipped files. ``origin`` is ``run`` (run.py) or ``backfill``.
+    ``harness_log`` says what the archived harness log holds: ``slice`` (this
+    scenario's block), ``full`` (the run id was not found, whole log kept) or
+    None (no harness log)."""
+    rows = [{"name": n, "bytes": int(b), "sourceBytes": int(s)} for n, b, s in files]
+    return {
+        "schema": RESULTS_ARCHIVE_MANIFEST_SCHEMA,
+        "runId": run_id,
+        "origin": origin,
+        "archivedUtc": archived_utc,
+        "worktree": worktree,
+        "gitHead": git_head,
+        "parsekDllSha256": parsek_dll_sha256,
+        "files": rows,
+        "totalBytes": sum(r["bytes"] for r in rows),
+        "missing": list(missing),
+        "harnessLog": harness_log,
+    }
+
+
+def serialize_results_archive_manifest(manifest: Dict[str, Any]) -> str:
+    return json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+
+
+# The per-scenario closing line run.py writes (``_run_scenario_with_retry``), and
+# the per-invocation lock lines flight_efficiency reads as invocation facts.
+HARNESS_LOG_COST_MARKER = "[Cost] scenario cost"
+HARNESS_LOG_LOCK_MARKER = "[Lock]"
+
+
+def slice_harness_log_for_run(lines: Sequence[str], run_id: str) -> Optional[List[str]]:
+    """This run's scenario block out of a per-invocation harness log.
+
+    One run.py invocation flies a whole selection into ONE log, so archiving
+    the whole log per run stores N growing copies for an N-run selection. Each
+    scenario block ends at its ``[Cost] scenario cost`` line, so the block is
+    everything after the previous Cost line (or the log start) up to and
+    including the next Cost line at or after this run's ``result written
+    .../<runId>.json`` line (or the end of the log). Both attempts of a retried
+    scenario share one block, which holds the ``[Retry]`` and ``[Cost]`` lines.
+    The invocation's ``[Lock]`` lines from before the block are prepended so a
+    later scenario's slice still carries the lock facts. Returns None when the
+    log never wrote this run's result (the caller then keeps the whole log).
+    Lines keep whatever endings the caller passed.
+    """
+    token = run_id + ".json"
+    hit = None
+    for i, line in enumerate(lines):
+        if "result written" in line and line.rstrip().endswith(token):
+            hit = i
+            break
+    if hit is None:
+        return None
+    start = 0
+    for j in range(hit - 1, -1, -1):
+        if HARNESS_LOG_COST_MARKER in lines[j]:
+            start = j + 1
+            break
+    end = len(lines)
+    for j in range(hit, len(lines)):
+        if HARNESS_LOG_COST_MARKER in lines[j]:
+            end = j + 1
+            break
+    header = [ln for ln in lines[:start] if HARNESS_LOG_LOCK_MARKER in ln]
+    return header + list(lines[start:end])
+
+
+def harness_log_names_for_runs(log_texts: Dict[str, str],
+                               run_ids: Iterable[str]) -> Dict[str, str]:
+    """Back-fill only: map each run id to the harness log that wrote its result.
+
+    run.py logs ``result written <path>/<runId>.json`` on every result write,
+    so a log carrying that token is the invocation that flew the run. When
+    several logs carry it, the lexicographically LAST name wins: the names are
+    UTC stamps, so that is the newest. Runs with no matching log are absent.
+    """
+    out: Dict[str, str] = {}
+    for rid in run_ids:
+        needles = (rid + ".json\n", rid + ".json\r\n")
+        for name in sorted(log_texts):
+            text = log_texts[name]
+            if "result written" not in text:
+                continue
+            if any(n in text for n in needles) or text.endswith(rid + ".json"):
+                out[rid] = name
+    return out

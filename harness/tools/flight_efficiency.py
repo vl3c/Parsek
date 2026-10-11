@@ -15,14 +15,18 @@ optional ``--json-out`` file. No flight, no provisioning, no KSP.
 
 Usage::
 
-    python harness/tools/flight_efficiency.py                       # this worktree's results
+    python harness/tools/flight_efficiency.py                       # this worktree + the archive
     python harness/tools/flight_efficiency.py --run-id 2026-10-01_1231_B11-mun-orbit
     python harness/tools/flight_efficiency.py \\
         --results-glob "C:/.../Parsek-*/harness/results" --since 2026-10-01 \\
         [--scenario B11-mun-orbit] [--per-run] [--top 10] [--json-out eff.json]
 
-Runs that appear in several worktrees are deduplicated by run id (the copy with
-the most artifacts wins). The estimation contract is the flighteff module
+With no ``--results-dir`` / ``--results-glob`` it reads this worktree's results
+AND the machine-wide archive ``<umbrella>/automation/results-archive/<runId>/``
+that run.py fills after every run (HARNESS-RESULTS-ARCHIVE; ``--archive-dir``
+adds an archive to an explicit selection, ``--no-archive`` drops it). An archived
+run's KSP.log is ``KSP.log.gz`` and is read through gzip. Runs that appear in
+several places are deduplicated by run id (the copy with the most artifacts wins). The estimation contract is the flighteff module
 docstring; ``harness/README.md`` summarises it.
 """
 
@@ -30,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import gzip
 import json
 import os
 import re
@@ -53,7 +58,13 @@ _SUFFIXES = (
     ("_shots", "shots"),
     (".json", "result"),
 )
-_HARNESS_LOG_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})_\d{6}_harness\.log$")
+# Plain in a worktree's results/; gzipped (this run's block only) in the archive.
+_HARNESS_LOG_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})_\d{6}_harness\.log(\.gz)?$")
+# The machine-wide archive run.py writes (hlib.RESULTS_ARCHIVE_RELPATH under the
+# umbrella, i.e. the parent of this worktree).
+_ARCHIVE_KSP_LOG_GZ = "KSP.log.gz"
+DEFAULT_ARCHIVE_DIR = os.path.join(os.path.dirname(os.path.dirname(_HARNESS_DIR)),
+                                   "automation", "results-archive")
 
 
 def _read_text(path: str) -> Optional[str]:
@@ -61,6 +72,17 @@ def _read_text(path: str) -> Optional[str]:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             return f.read()
     except OSError:
+        return None
+
+
+def _read_log_text(path: str) -> Optional[str]:
+    """A KSP.log, plain or gzipped (the archive stores ``KSP.log.gz``)."""
+    if not path.endswith(".gz"):
+        return _read_text(path)
+    try:
+        with gzip.open(path, "rt", encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except (OSError, EOFError):
         return None
 
 
@@ -100,6 +122,30 @@ def discover(results_dir: str) -> List[Dict]:
     return list(by_id.values())
 
 
+def discover_archive(archive_dir: str) -> List[Dict]:
+    """Candidate runs in the machine-wide archive: one ``<runId>/`` dir per run,
+    holding the run's results files under their usual names plus ``KSP.log.gz``.
+    Temp / half-swapped dirs start with a dot and never match a run id."""
+    try:
+        names = sorted(os.listdir(archive_dir))
+    except OSError:
+        return []
+    out: List[Dict] = []
+    for name in names:
+        run_dir = os.path.join(archive_dir, name)
+        if not flighteff.RUN_ID_RE.match(name) or not os.path.isdir(run_dir):
+            continue
+        for c in discover(run_dir):
+            if c["runId"] != name:
+                continue
+            if not c.get("kspLog"):
+                gz = os.path.join(run_dir, _ARCHIVE_KSP_LOG_GZ)
+                if os.path.isfile(gz):
+                    c["kspLog"] = gz
+            out.append(c)
+    return out
+
+
 def harness_facts(results_dir: str, since: Optional[str]) -> Dict[str, Dict]:
     """runId -> lock / retry / cost facts from every run.py log in the dir."""
     out: Dict[str, Dict] = {}
@@ -113,10 +159,11 @@ def harness_facts(results_dir: str, since: Optional[str]) -> Dict[str, Dict]:
             continue
         path = os.path.join(results_dir, name)
         try:
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
+            opener = gzip.open if name.endswith(".gz") else open
+            with opener(path, "rt", encoding="utf-8", errors="replace") as f:
                 lines = [ln for ln in f if "[Harness]" in ln and (
                     "[Lock]" in ln or "[Result]" in ln or "[Retry]" in ln or "[Cost]" in ln)]
-        except OSError:
+        except (OSError, EOFError):
             continue
         for rid, facts in flighteff.parse_harness_log(lines).items():
             facts["harnessLog"] = path
@@ -125,21 +172,33 @@ def harness_facts(results_dir: str, since: Optional[str]) -> Dict[str, Dict]:
 
 
 def collect(dirs: List[str], since: Optional[str], scenarios: List[str],
-            run_ids: List[str]) -> Dict:
+            run_ids: List[str], archive_dirs: Optional[List[str]] = None) -> Dict:
     cands: List[Dict] = []
     facts: Dict[str, Dict] = {}
+
+    def wanted(rid: str) -> bool:
+        if since and rid[:10] < since:
+            return False
+        if run_ids and rid not in run_ids:
+            return False
+        if scenarios and flighteff.scenario_from_run_id(rid) not in scenarios:
+            return False
+        return True
+
     for d in dirs:
-        for c in discover(d):
-            rid = c["runId"]
-            if since and rid[:10] < since:
-                continue
-            if run_ids and rid not in run_ids:
-                continue
-            if scenarios and flighteff.scenario_from_run_id(rid) not in scenarios:
-                continue
-            cands.append(c)
+        cands.extend(c for c in discover(d) if wanted(c["runId"]))
         for rid, f in harness_facts(d, since).items():
             facts.setdefault(rid, f)
+    for a in archive_dirs or ():
+        for c in discover_archive(a):
+            if not wanted(c["runId"]):
+                continue
+            cands.append(c)
+            # Each archived run carries its own copy of the invocation log; read
+            # only that run's facts out of it.
+            own = harness_facts(c["dir"], since).get(c["runId"])
+            if own is not None:
+                facts.setdefault(c["runId"], own)
     kept, dupes = flighteff.dedupe_candidates(cands)
     runs: List[Dict] = []
     skipped: List[Dict] = []
@@ -167,7 +226,7 @@ def collect(dirs: List[str], since: Optional[str], scenarios: List[str],
         mlog = _read_text(c["missionLog"]) if c.get("missionLog") else None
         ksp_lines = None
         if c.get("kspLog"):
-            text = _read_text(c["kspLog"])
+            text = _read_log_text(c["kspLog"])
             ksp_lines = text.splitlines() if text is not None else None
         try:
             run = flighteff.analyze_run(rid, result, mjson, mlog, ksp_lines,
@@ -188,6 +247,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="a harness/results dir (repeatable; default: this worktree's)")
     ap.add_argument("--results-glob", action="append", default=[],
                     help="glob of results dirs, e.g. 'C:/.../Parsek-*/harness/results'")
+    ap.add_argument("--archive-dir", action="append", default=[],
+                    help="a results archive root (repeatable; default: the umbrella's "
+                         "automation/results-archive when no dir is given)")
+    ap.add_argument("--no-archive", action="store_true",
+                    help="do not read the machine-wide results archive")
     ap.add_argument("--run-id", action="append", default=[], help="only this run id (repeatable)")
     ap.add_argument("--scenario", action="append", default=[],
                     help="only this scenario id (repeatable)")
@@ -201,9 +265,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     dirs: List[str] = list(args.results_dir)
     for pattern in args.results_glob:
         dirs.extend(sorted(p for p in glob.glob(pattern) if os.path.isdir(p)))
+    archives: List[str] = list(args.archive_dir)
     if not dirs:
         dirs = [os.path.join(_HARNESS_DIR, "results")]
-    doc = collect(dirs, args.since, args.scenario, args.run_id)
+        if not archives and os.path.isdir(DEFAULT_ARCHIVE_DIR):
+            archives = [DEFAULT_ARCHIVE_DIR]
+    if args.no_archive:
+        archives = []
+    doc = collect(dirs, args.since, args.scenario, args.run_id, archives)
     runs = doc["runs"]
     if args.per_run or len(runs) == 1:
         for run in runs:
