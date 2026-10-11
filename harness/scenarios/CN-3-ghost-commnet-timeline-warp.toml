@@ -23,8 +23,11 @@
 #                                         is the antenna source, as for any destroyed vessel);
 #   cn3-held-relay    "CN Held Relay"    RC-L01 + RA-2, +120 deg, terminal Orbiting at UT
 #                                         371.16 with its terminal orbit and end snapshot.
-# THE WARP (WarpToUT 621, maxRate 10, about 60 s of wall time) crosses all three transitions
-# in order; GhostCommNetLaneGeometryTests pins the ordering, the literal and each shape (the
+# THE WARP (WarpToUT 621, maxRate 50, about 30 s of wall time; it was 10 with no reason
+# recorded, and the lane only needs a real warp above 1x: 50x is the highest rate at which
+# ghosts still play, WarpThresholds.GhostHide hides them only ABOVE 50x, and the ghost
+# CommNet tick runs every frame, so each transition still prints within a frame or two of
+# game time) crosses all three transitions in order; GhostCommNetLaneGeometryTests pins the ordering, the literal and each shape (the
 # production ShouldSpawnAtRecordingEnd says the held relay spawns and the doomed one never).
 #
 # WHAT EACH TRANSITION PRINTS (log contract below; the cells check what is left after it):
@@ -52,8 +55,9 @@
 # WHAT COULD MAKE THE FIRST FLIGHT RED OR INVALID (pre-registered):
 # - `warptout refused reason=warp-locked` after the load (SS-1's shape): driver-INVALID.
 # - The state-change / removal / window UTs are regexed to the first second or three after
-#   each event at the 10x cap; a slower frame rate can push one a second later (re-read, then
-#   widen - never a product finding on its own).
+#   each event (flown at the old 10x cap; at 50x one frame is about 0.8 game-s at 60 fps and
+#   2 game-s at stock's 0.04 s frame cap, still inside the band); a slower frame rate can push
+#   one a second later (re-read, then widen - never a product finding on its own).
 # - The held relay's completion arriving at 1x (a warp that lowered early) spawns without a
 #   deferral: the required `Deferred spawn during warp` token would be absent.
 # - The HG-5 prefab not deploy-gated in this install (`deployGated=0` on the Derived line):
@@ -117,7 +121,7 @@ steps = [
   { cmd = "RecordingState", expect = "OK" },
   # Across the deploy event (171.16), the destroyed end (271.16) and the held end (371.16).
   # Must match SyntheticRecordingTests.GhostCommNetTimelineWarpTargetUT.
-  { cmd = "WarpToUT",   args = { ut = "621", maxRate = "10" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",   args = { ut = "621", maxRate = "50" }, expect = "OK", budget = 300 },
   # 1x after the warp: the deferred spawn flushes and the batch reads the hand-off.
   { cmd = "RecordingState", expect = "OK" },
   { cmd = "RecordingState", expect = "OK" },

@@ -28,6 +28,9 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Harness warps end sooner.** The test harness's time warp now stays at its lowest warp rate
+  until a few seconds before its target instead of spending the last ~12 s at 1x, and slows
+  down without stock's gradual ramp. Two lanes now warp at 50x instead of 10x.
 - **CHANGELOG entries are kept to 5 lines.** Every over-long entry, in all versions, was condensed
   to its essentials, and a test now fails on any entry that runs longer.
 - **Harness run history survives worktree removal.** Every automated test run now also keeps a
