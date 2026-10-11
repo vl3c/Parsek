@@ -191,6 +191,9 @@ namespace Parsek.InGameTests
             {
                 if (e.host == c.Vessel) events++;
             };
+            // Self-set-up: a live name none of the vessel's legs shows (a stock rename made
+            // before this build, an automatic stock name). Set directly, so no event and no capture.
+            c.Vessel.vesselName = TestName("LiveOnly");
             GameEvents.onVesselRename.Add(handler);
             try
             {

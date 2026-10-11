@@ -46,6 +46,16 @@ namespace Parsek
 
         private static readonly List<UndoEntry> undoEntries = new List<UndoEntry>();
         private static object lastPostInitState;
+        // The Re-Fly session whose attempt started the current epoch, or null.
+        private static string reFlyEpochSessionId;
+
+        /// <summary>
+        /// The session id of the live Re-Fly marker, or null (production:
+        /// <c>ParsekScenario.Instance.ActiveReFlySessionMarker</c>). Test seam.
+        /// </summary>
+        internal static Func<string> ActiveReFlySessionIdProviderForTesting;
+
+        internal static string ReFlyEpochSessionId => reFlyEpochSessionId;
 
         /// <summary>The current flight epoch (memory only; starts at 0 each session).</summary>
         internal static int FlightEpoch { get; private set; }
@@ -65,6 +75,23 @@ namespace Parsek
         /// </summary>
         internal static bool NoteFlightReady(object postInitState)
         {
+            // A Re-Fly attempt's epoch spans every flight entry inside the attempt (F9, a Tracking
+            // Station round trip): Discard / Retry cancel the whole attempt (ruling 8), and stock
+            // rebuilds PostInitState on each of those entries.
+            if (reFlyEpochSessionId != null)
+            {
+                string active = ReadActiveReFlySessionId();
+                if (string.Equals(active, reFlyEpochSessionId, StringComparison.Ordinal))
+                {
+                    if (postInitState != null) lastPostInitState = postInitState;
+                    ParsekLog.Verbose(Tag, "Flight epoch kept at " + FlightEpoch.ToString(CultureInfo.InvariantCulture) +
+                        " on flight ready: inside Re-Fly attempt sess=" + reFlyEpochSessionId);
+                    return false;
+                }
+                ParsekLog.Verbose(Tag, "Re-Fly attempt epoch ended (sess=" + reFlyEpochSessionId +
+                    " no longer active, live=" + (active ?? "<none>") + ")");
+                reFlyEpochSessionId = null;
+            }
             if (!ShouldBumpFlightEpoch(lastPostInitState, postInitState))
             {
                 ParsekLog.Verbose(Tag, "Flight epoch kept at " + FlightEpoch.ToString(CultureInfo.InvariantCulture) +
@@ -76,9 +103,36 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Starts the epoch of a Re-Fly attempt (end of the post-load strip): it lasts until the
+        /// attempt ends (merge, Discard Re-fly, Retry, the marker cleared), whatever flight
+        /// entries happen inside it.
+        /// </summary>
+        internal static void BeginReFlyAttemptEpoch(string sessionId)
+        {
+            BumpFlightEpoch("refly-attempt-start sess=" + (sessionId ?? "<none>"));
+            reFlyEpochSessionId = string.IsNullOrEmpty(sessionId) ? null : sessionId;
+        }
+
+        private static string ReadActiveReFlySessionId()
+        {
+            Func<string> provider = ActiveReFlySessionIdProviderForTesting;
+            if (provider != null) return provider();
+            try
+            {
+                ParsekScenario scenario = ParsekScenario.Instance;
+                return ReferenceEquals(scenario, null) ? null : scenario.ActiveReFlySessionMarker?.SessionId;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         /// <summary>Starts a new flight epoch and drops the undo entries of every older one.</summary>
         internal static void BumpFlightEpoch(string reason)
         {
+            reFlyEpochSessionId = null;
             unchecked { FlightEpoch++; }
             int dropped = undoEntries.RemoveAll(e => e.Epoch != FlightEpoch);
             ParsekLog.Info(Tag, "Flight epoch -> " + FlightEpoch.ToString(CultureInfo.InvariantCulture) +
@@ -147,7 +201,10 @@ namespace Parsek
                     List<RecordingTree> trees = GatherTrees();
                     res = ResolveUniverse(trees, GatherLoose(trees));
                 }
-                return UndoEpoch(FlightEpoch, res, reason);
+                UndoResult r = UndoEpoch(FlightEpoch, res, reason);
+                // A cancelled Re-Fly attempt is over (a Retry starts a new one at its strip).
+                reFlyEpochSessionId = null;
+                return r;
             }
             catch (Exception ex)
             {
@@ -284,9 +341,11 @@ namespace Parsek
         private static void ClearRevertUndoState(bool resetEpoch)
         {
             undoEntries.Clear();
+            reFlyEpochSessionId = null;
             if (!resetEpoch) return;
             FlightEpoch = 0;
             lastPostInitState = null;
+            ActiveReFlySessionIdProviderForTesting = null;
         }
     }
 }

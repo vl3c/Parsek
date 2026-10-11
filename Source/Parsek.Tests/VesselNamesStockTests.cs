@@ -431,7 +431,7 @@ namespace Parsek.Tests
             Recording b = Rec("b", "Other", 0, 10, pid: 1, guid: G2);
             RecordingTree t = Tree("T", a);
             RecordingTree u = Tree("U", b);
-            FakeVessel mine = Live(G1, 1, "Ship");
+            FakeVessel mine = Live(G1, 1, "Renamed In Stock Before This Build");
             FakeVessel other = Live(G2, 1, "Other");
             FakeVessel ghost = Live(G1, 1, "Ghost: Ship", ghost: true);
             FakeVessel pidOnly = Live(null, 1, "Ship");
@@ -490,7 +490,7 @@ namespace Parsek.Tests
             UseUniverse(t);
             Assert.True(StockAccept(t, G1, 1, "Ship", "Old Flight", out _, out _));
             Assert.Single(VesselNameStore.UndoEntries);
-            VesselNameStore.BumpFlightEpoch("test");
+            VesselNameStore.NoteFlightReady(new object()); // a stock flight entry, no Re-Fly attempt
             Assert.Empty(VesselNameStore.UndoEntries);
 
             // A revert now cancels only the new epoch: the earlier flight's rename stays.
@@ -703,6 +703,177 @@ namespace Parsek.Tests
             Assert.Equal(new[] { G1 }, VesselNameStore.FindByGuid(G1).Guids.ToArray());
             Assert.Equal("Twin", h.VesselName);
             Assert.Equal("Kay", k.VesselName);
+        }
+
+        // ---------------------------------------------------------------- review probes
+
+        // catches: a Parsek rename that never reaches a live vessel whose name no leg shows (a
+        // stock rename before this build): the live name read as a name nobody chose.
+        [Fact]
+        public void ParsekRename_ClosedLeg_LiveNameNoLegShows_IsWrittenThrough()
+        {
+            Recording a = Rec("a", "A", 0, 10, pid: 1, guid: G1);
+            RecordingTree t = Tree("T", a);
+            FakeVessel live = Live(G1, 1, "B");
+            VesselNameLiveSync.LiveVesselsProviderForTesting = _ => new List<LiveVesselEntry> { live.Entry };
+
+            Assert.True(VesselNameStore.RecordParsekRename(a, "C", new[] { t }, out _));
+
+            Assert.Equal(new[] { "C" }, live.Writes.ToArray());
+            Assert.Contains("B", VesselNameStore.FindByGuid(G1).PriorNames);
+            Assert.Equal("C", a.VesselName);
+        }
+
+        // catches: the open-leg branch flipping the renamed leg back to the live name at once.
+        [Fact]
+        public void ParsekRename_OpenLeg_LiveNameNoLegShows_IsWrittenAndTheLegKeepsTheRename()
+        {
+            Recording a = Rec("a", "A", 0, 10, pid: 1, guid: G1);
+            RecordingTree t = Tree("T", a);
+            FakeVessel live = Live(G1, 1, "B", recordingLegId: "a");
+            VesselNameLiveSync.LiveVesselsProviderForTesting = _ => new List<LiveVesselEntry> { live.Entry };
+
+            Assert.True(VesselNameStore.RecordParsekRename(a, "C", new[] { t }, out _));
+
+            Assert.Equal(new[] { "C" }, live.Writes.ToArray());
+            Assert.Equal("C", a.VesselName);
+            Assert.Contains("a", VesselNameStore.FindByGuid(G1).CoveredLegIds);
+        }
+
+        private static ReFlySessionMarker Marker(string sessionId)
+            => new ReFlySessionMarker
+            {
+                SessionId = sessionId, TreeId = "tree_vn", ActiveReFlyRecordingId = "rec_prov",
+                OriginChildRecordingId = "rec_origin", RewindPointId = "rp_vn", InvokedUT = 42.0,
+                InvokedRealTime = "2026-10-11T00:00:00.000Z",
+            };
+
+        private static void InstallScenario(ReFlySessionMarker marker, RewindPoint rp = null)
+        {
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                RewindPoints = rp != null ? new List<RewindPoint> { rp } : new List<RewindPoint>(),
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                ActiveReFlySessionMarker = marker,
+            });
+        }
+
+        // catches: F9 inside a Re-Fly attempt (stock rebuilds PostInitState on every flight
+        // start) bumping the epoch and dropping the attempt's undo entries (ruling 8).
+        [Fact]
+        public void ReFlyAttempt_F9InsideTheAttempt_DiscardStillUndoesItsStockRename()
+        {
+            Recording a = Rec("a", "A", 0, 10, pid: 1, guid: G1);
+            RecordingTree t = Tree("T", a);
+            UseUniverse(t);
+            InstallScenario(Marker("sess"));
+            VesselNameLiveSync.OnReFlyStripComplete("sess", 0f);
+            int attemptEpoch = VesselNameStore.FlightEpoch;
+            Assert.False(VesselNameStore.NoteFlightReady(new object())); // the attempt's own flight ready
+            Assert.True(StockAccept(t, G1, 1, "A", "Z", out _, out _));
+            Assert.False(VesselNameStore.NoteFlightReady(new object())); // F9 inside the attempt
+            Assert.Equal(attemptEpoch, VesselNameStore.FlightEpoch);
+            Assert.Single(VesselNameStore.UndoEntries);
+
+            VesselNameStore.UndoResult r = VesselNameStore.UndoCurrentFlightEpoch("onload:DiscardReFly");
+
+            Assert.Equal(1, r.Undone);
+            Assert.Null(VesselNameStore.FindByGuid(G1));
+            Assert.Equal("A", a.VesselName);
+            Assert.Null(VesselNameStore.ReFlyEpochSessionId);
+            Assert.Contains(logLines, l => l.Contains("on flight ready: inside Re-Fly attempt sess=sess"));
+        }
+
+        [Fact]
+        public void ReFlyAttempt_TrackingStationRoundTrip_RetryUndoesBothStockRenames()
+        {
+            Recording a = Rec("a", "A", 0, 10, pid: 1, guid: G1);
+            RecordingTree t = Tree("T", a);
+            UseUniverse(t);
+            ReFlySessionMarker marker = Marker("sess_rt");
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_vn", BranchPointId = "bp_rt", UT = 0.0, QuicksaveFilename = "rp_vn.sfs",
+                SessionProvisional = true, CreatingSessionId = "sess_rt",
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_origin", Controllable = true },
+                },
+            };
+            InstallScenario(marker, rp);
+            VesselNameLiveSync.OnReFlyStripComplete("sess_rt", 0f);
+            VesselNameStore.NoteFlightReady(new object());
+            Assert.True(StockAccept(t, G1, 1, "A", "In Flight", out _, out _));
+            Assert.True(StockAccept(t, G1, 1, "In Flight", "In Tracking Station", out _, out _));
+            VesselNameStore.NoteFlightReady(new object()); // back to flight from the Tracking Station
+            bool invoked = false;
+            RevertInterceptor.RewindInvokeStartForTesting = (r, s) => invoked = true;
+
+            RevertInterceptor.RetryHandler(marker);
+
+            Assert.True(invoked);
+            Assert.Null(VesselNameStore.FindByGuid(G1));
+            Assert.Equal("A", a.VesselName);
+        }
+
+        [Fact]
+        public void ReFlyAttempt_EndedByAMerge_TheNextFlightEntryStartsANewEpoch()
+        {
+            InstallScenario(Marker("sess_m"));
+            VesselNameLiveSync.OnReFlyStripComplete("sess_m", 0f);
+            int attemptEpoch = VesselNameStore.FlightEpoch;
+            Assert.False(VesselNameStore.NoteFlightReady(new object()));
+            ParsekScenario.Instance.ActiveReFlySessionMarker = null; // merged
+            Assert.True(VesselNameStore.NoteFlightReady(new object()));
+            Assert.Equal(attemptEpoch + 1, VesselNameStore.FlightEpoch);
+            Assert.Null(VesselNameStore.ReFlyEpochSessionId);
+        }
+
+        // catches: a leg-close rename. The PARENT leg closes at a split about 0.5 s after the
+        // split (CreateSplitBranch), by when ModuleDecouple has already renamed the old vessel
+        // (one Update after the split). The launch leg was flown entirely under the player's
+        // name and must keep it; the post-split child leg, created after the automatic rename,
+        // captures that name and is uncovered by the ordinary apply pass.
+        [Fact]
+        public void StagingSplit_TheParentLegKeepsThePlayersName_TheChildLegTakesTheAutomaticName()
+        {
+            Recording launch = Rec("launch", "A", 0, 100, pid: 1, guid: G1);
+            RecordingTree t = Tree("T", launch);
+            Assert.True(StockAccept(t, G1, 1, "A", "B", out VesselNameDecision d, out _));
+            VesselNameStore.ApplyTo(Resolve(t), "test");
+            Assert.Equal("B", launch.VesselName);
+
+            // The split: the launch leg closes, the old vessel's continuation leg opens and
+            // captures stock's automatic name.
+            Recording cont = Rec("cont", "B Debris", 100, 200, pid: 1, guid: G1);
+            cont.TreeId = "T";
+            t.Recordings["cont"] = cont;
+            VesselIdentity.Resolution res = Resolve(t);
+            VesselNameStore.ApplyTo(res, "after-split");
+            FakeVessel oldVessel = Live(G1, 1, "B Debris", recordingLegId: "cont");
+            LiveWriteResult r = VesselNameLiveSync.ApplyLiveWriteRule(res, new[] { oldVessel.Entry }, null, "test", "test");
+
+            Assert.Equal("B", launch.VesselName);
+            Assert.Contains("launch", d.CoveredLegIds);
+            Assert.Equal("B Debris", cont.VesselName);
+            Assert.Contains("cont", d.UncoveredLegIds);
+            Assert.Empty(oldVessel.Writes);
+            Assert.Equal(1, r.Uncovered);
+            VesselNameStore.ApplyTo(Resolve(t), "again");
+            Assert.Equal("B", launch.VesselName);
+        }
+
+        // Leg closes never rename a leg (design 7.4): the parent leg closes after stock's
+        // automatic rename, so a close-time name is not the name the leg was flown under.
+        [Fact]
+        public void Wiring_NoVesselNameCheckWhereTreeLegsClose()
+        {
+            string append = MethodBody("ParsekFlight.cs",
+                "internal static void AppendCapturedDataToRecording(Recording target, Recording source, double endUT)");
+            Assert.DoesNotContain("VesselNameLiveSync.", append);
+            string close = MethodBody("BackgroundRecorder.cs", "private void CloseParentRecording(");
+            Assert.DoesNotContain("VesselNameLiveSync.", close);
         }
 
         // ---------------------------------------------------------------- post-load pass plumbing

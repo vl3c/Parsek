@@ -393,7 +393,7 @@ namespace Parsek
             List<Recording> copies = res.Copies(legId);
             Recording rep = copies != null && copies.Count > 0 ? copies[0] : null;
             if (!VesselNameStore.TryRecordDecision(res, rep, newName, source, ut, out decision, out string refusal,
-                    extraPriorName: oldName, refuseUnchangedRow: false))
+                    extraPriorNames: new[] { oldName }, refuseUnchangedRow: false))
             {
                 outcome = refusal;
                 return false;
@@ -401,6 +401,52 @@ namespace Parsek
             VesselNameStore.ApplyTo(res, "stock-rename");
             outcome = "recorded";
             return true;
+        }
+
+        /// <summary>
+        /// The names the live vessels resolving to <paramref name="identity"/> carry now (raw,
+        /// plus the capture-localized form when it differs), for a Parsek rename's prior names.
+        /// <paramref name="headless"/> reads only <see cref="LiveVesselsProviderForTesting"/>.
+        /// Never throws.
+        /// </summary>
+        internal static List<string> LiveNamesOfIdentity(
+            VesselIdentity.Resolution res, VesselIdentity.Identity identity, bool headless)
+        {
+            var names = new List<string>();
+            if (res == null || identity == null) return names;
+            try
+            {
+                List<LiveVesselEntry> vessels;
+                Func<VesselNameLiveScope, List<LiveVesselEntry>> provider = LiveVesselsProviderForTesting;
+                if (provider != null) vessels = provider(VesselNameLiveScope.Auto);
+                else if (headless || VesselNameStore.TreesProviderForTesting != null) return names;
+                else
+                {
+                    try
+                    {
+                        vessels = GatherLiveVesselsCore(VesselNameLiveScope.Auto, "parsek-rename-priors", out _);
+                    }
+                    catch (Exception ex) when (ex is System.Security.SecurityException
+                        || ex is TypeInitializationException || ex is MissingMethodException)
+                    {
+                        vessels = null;
+                    }
+                }
+                if (vessels == null) return names;
+                foreach (LiveVesselEntry v in vessels)
+                {
+                    if (v == null || v.IsGhostMap || string.IsNullOrEmpty(v.Name)) continue;
+                    if (!ReferenceEquals(res.ResolveLiveVessel(v.Guid, v.Pid, null), identity)) continue;
+                    names.Add(v.Name);
+                    string localized = LocalizeCaptureName(v.Name, LocalizeForTesting);
+                    if (!string.IsNullOrEmpty(localized) && localized != v.Name) names.Add(localized);
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag, "Live names of an identity threw: " + ex.GetType().Name + ": " + ex.Message);
+            }
+            return names;
         }
 
         // ------------------------------------------------------------------ production
@@ -584,7 +630,7 @@ namespace Parsek
         /// </summary>
         internal static void OnReFlyStripComplete(string sessionId, float realtime)
         {
-            VesselNameStore.BumpFlightEpoch("refly-attempt-start sess=" + (sessionId ?? "<none>"));
+            VesselNameStore.BeginReFlyAttemptEpoch(sessionId);
             flightReadyPassArmed = false;
             lastStripPassRealtime = realtime;
             RunFlightPostLoadPass("post-load:refly-strip");
