@@ -6,7 +6,8 @@ on its own (HARNESS-RESULTS-ARCHIVE). This one-shot tool imports runs flown
 before that, or a surviving snapshot of some worktree's ``harness/results``,
 through the SAME pure plan (``hlib.plan_results_archive``) and the same copy
 (``run.archive_run_results``). Each run's harness log is the invocation log
-that recorded ``result written .../<runId>.json``.
+that recorded ``result written .../<runId>.json`` (plain or ``.gz``); only that
+run's scenario block of it is archived, gzipped.
 
 Usage::
 
@@ -22,6 +23,7 @@ tool only runs when asked.
 from __future__ import annotations
 
 import argparse
+import gzip
 import os
 import re
 import sys
@@ -37,7 +39,8 @@ for _p in (_LIB_DIR, _HARNESS_DIR):
 import hlib  # noqa: E402
 import run  # noqa: E402
 
-_HARNESS_LOG_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{6}_harness\.log$")
+# A plain log from a worktree, or an already-gzipped one from an archive.
+_HARNESS_LOG_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{6}_harness\.log(\.gz)?$")
 
 
 class _PrintLogger:
@@ -72,12 +75,13 @@ def _read_harness_logs(results_dir: str, names: List[str]) -> Dict[str, str]:
     for name in names:
         if not _HARNESS_LOG_RE.match(name):
             continue
+        path = os.path.join(results_dir, name)
         try:
-            with open(os.path.join(results_dir, name), "r", encoding="utf-8",
-                      errors="replace") as fh:
+            opener = gzip.open if name.endswith(".gz") else open
+            with opener(path, "rt", encoding="utf-8", errors="replace") as fh:
                 # Only the result-write lines matter for the mapping.
                 out[name] = "".join(ln for ln in fh if "result written" in ln)
-        except OSError:
+        except (OSError, EOFError):
             continue
     return out
 

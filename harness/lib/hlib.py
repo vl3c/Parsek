@@ -12537,8 +12537,8 @@ def select_stale_save_snapshot_tmp_dirs_to_sweep(
 # efficiency analyzer (tools/flight_efficiency.py) depended on. After every
 # attempt run.py therefore copies the run's DURABLE SMALL artifacts into
 # ``<umbrella>/automation/results-archive/<runId>/``, outside every worktree:
-# the result / status / mission JSONs, the mission stdout, the invocation's
-# harness log, and the collected KSP.log gzipped. Screenshots, saves and the
+# the result / status / mission JSONs, the mission stdout, this scenario's
+# slice of the invocation harness log, and the collected KSP.log, both gzipped. Screenshots, saves and the
 # other bulky artifacts stay out (they are what the per-worktree retention
 # passes exist to bound).
 #
@@ -12647,7 +12647,9 @@ def plan_results_archive(run_id: str, present_names: Iterable[str],
         else:
             missing.append(name)
     if harness_log_name and _is_plain_name(harness_log_name):
-        entries.append(ArchiveEntry(None, harness_log_name))
+        dest = (harness_log_name if harness_log_name.endswith(".gz")
+                else harness_log_name + ".gz")
+        entries.append(ArchiveEntry(None, dest, gzip=True))
     else:
         missing.append("harness log")
     if shots_ksp_log_present:
@@ -12662,10 +12664,14 @@ def build_results_archive_manifest(run_id: str, origin: str, archived_utc: str,
                                    worktree: Optional[str], git_head: Optional[str],
                                    parsek_dll_sha256: Optional[str],
                                    files: Sequence[Tuple[str, int, int]],
-                                   missing: Sequence[str] = ()) -> Dict[str, Any]:
+                                   missing: Sequence[str] = (),
+                                   harness_log: Optional[str] = None) -> Dict[str, Any]:
     """The per-run ``manifest.json``. ``files`` rows are
     ``(archived name, archived bytes, source bytes)``; the two sizes differ only
-    for the gzipped KSP.log. ``origin`` is ``run`` (run.py) or ``backfill``."""
+    for the gzipped files. ``origin`` is ``run`` (run.py) or ``backfill``.
+    ``harness_log`` says what the archived harness log holds: ``slice`` (this
+    scenario's block), ``full`` (the run id was not found, whole log kept) or
+    None (no harness log)."""
     rows = [{"name": n, "bytes": int(b), "sourceBytes": int(s)} for n, b, s in files]
     return {
         "schema": RESULTS_ARCHIVE_MANIFEST_SCHEMA,
@@ -12678,11 +12684,55 @@ def build_results_archive_manifest(run_id: str, origin: str, archived_utc: str,
         "files": rows,
         "totalBytes": sum(r["bytes"] for r in rows),
         "missing": list(missing),
+        "harnessLog": harness_log,
     }
 
 
 def serialize_results_archive_manifest(manifest: Dict[str, Any]) -> str:
     return json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+
+
+# The per-scenario closing line run.py writes (``_run_scenario_with_retry``), and
+# the per-invocation lock lines flight_efficiency reads as invocation facts.
+HARNESS_LOG_COST_MARKER = "[Cost] scenario cost"
+HARNESS_LOG_LOCK_MARKER = "[Lock]"
+
+
+def slice_harness_log_for_run(lines: Sequence[str], run_id: str) -> Optional[List[str]]:
+    """This run's scenario block out of a per-invocation harness log.
+
+    One run.py invocation flies a whole selection into ONE log, so archiving
+    the whole log per run stores N growing copies for an N-run selection. Each
+    scenario block ends at its ``[Cost] scenario cost`` line, so the block is
+    everything after the previous Cost line (or the log start) up to and
+    including the next Cost line at or after this run's ``result written
+    .../<runId>.json`` line (or the end of the log). Both attempts of a retried
+    scenario share one block, which holds the ``[Retry]`` and ``[Cost]`` lines.
+    The invocation's ``[Lock]`` lines from before the block are prepended so a
+    later scenario's slice still carries the lock facts. Returns None when the
+    log never wrote this run's result (the caller then keeps the whole log).
+    Lines keep whatever endings the caller passed.
+    """
+    token = run_id + ".json"
+    hit = None
+    for i, line in enumerate(lines):
+        if "result written" in line and line.rstrip().endswith(token):
+            hit = i
+            break
+    if hit is None:
+        return None
+    start = 0
+    for j in range(hit - 1, -1, -1):
+        if HARNESS_LOG_COST_MARKER in lines[j]:
+            start = j + 1
+            break
+    end = len(lines)
+    for j in range(hit, len(lines)):
+        if HARNESS_LOG_COST_MARKER in lines[j]:
+            end = j + 1
+            break
+    header = [ln for ln in lines[:start] if HARNESS_LOG_LOCK_MARKER in ln]
+    return header + list(lines[start:end])
 
 
 def harness_log_names_for_runs(log_texts: Dict[str, str],

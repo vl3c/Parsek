@@ -58,7 +58,8 @@ _SUFFIXES = (
     ("_shots", "shots"),
     (".json", "result"),
 )
-_HARNESS_LOG_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})_\d{6}_harness\.log$")
+# Plain in a worktree's results/; gzipped (this run's block only) in the archive.
+_HARNESS_LOG_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})_\d{6}_harness\.log(\.gz)?$")
 # The machine-wide archive run.py writes (hlib.RESULTS_ARCHIVE_RELPATH under the
 # umbrella, i.e. the parent of this worktree).
 _ARCHIVE_KSP_LOG_GZ = "KSP.log.gz"
@@ -158,10 +159,11 @@ def harness_facts(results_dir: str, since: Optional[str]) -> Dict[str, Dict]:
             continue
         path = os.path.join(results_dir, name)
         try:
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
+            opener = gzip.open if name.endswith(".gz") else open
+            with opener(path, "rt", encoding="utf-8", errors="replace") as f:
                 lines = [ln for ln in f if "[Harness]" in ln and (
                     "[Lock]" in ln or "[Result]" in ln or "[Retry]" in ln or "[Cost]" in ln)]
-        except OSError:
+        except (OSError, EOFError):
             continue
         for rid, facts in flighteff.parse_harness_log(lines).items():
             facts["harnessLog"] = path

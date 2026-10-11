@@ -97,14 +97,18 @@ class PlanTests(unittest.TestCase):
         self.assertEqual((), plan.missing)
         self.assertEqual(
             [RID + ".json", RID + "_status.json", RID + "_mission.json",
-             RID + "_mission.stdout.log", "2026-10-11_090001_harness.log", "KSP.log.gz"],
+             RID + "_mission.stdout.log", "2026-10-11_090001_harness.log.gz", "KSP.log.gz"],
             [e.dest_name for e in plan.entries])
         gz = [e for e in plan.entries if e.gzip]
-        self.assertEqual(1, len(gz))
-        self.assertEqual((RID + "_shots", "KSP.log"), gz[0].source_rel)
-        self.assertEqual(hlib.RESULTS_ARCHIVE_KSP_LOG_NAME, gz[0].dest_name)
+        self.assertEqual(2, len(gz))
+        self.assertEqual((RID + "_shots", "KSP.log"), gz[1].source_rel)
+        self.assertEqual(hlib.RESULTS_ARCHIVE_KSP_LOG_NAME, gz[1].dest_name)
         # The harness log's path is the shell's; the plan only names it.
         self.assertIsNone(plan.entries[4].source_rel)
+        # An already-gzipped source log keeps its name (back-fill from an archive).
+        again = hlib.plan_results_archive(RID, [RID + ".json"], False,
+                                          "2026-10-11_090001_harness.log.gz")
+        self.assertEqual("2026-10-11_090001_harness.log.gz", again.entries[1].dest_name)
 
     def test_bulky_and_foreign_artifacts_never_ride_along(self):
         plan = hlib.plan_results_archive(RID, self.ALL, True, None)
@@ -175,6 +179,74 @@ class HarnessLogMappingTests(unittest.TestCase):
                          hlib.harness_log_names_for_runs(logs, [RID]))
 
 
+class HarnessLogSliceTests(unittest.TestCase):
+    """An N-scenario selection writes ONE log; archiving it whole per run would
+    store N growing copies, so each run keeps only its scenario block."""
+
+    LOG = [
+        "[Harness][Info][Select] select expr='tier=nightly' -> 3 scenarios\n",
+        "[Harness][Info][Lock] run-lock acquired (acquired-free) path=x pid=1\n",
+        "[Harness][Info][Admit] admit scenario A\n",
+        "[Harness][Info][Result] result written C:\\r\\2026-10-11_0900_A.json\n",
+        "[Harness][Info][Cost] scenario cost attempts=1 wallTotal=10s terminal=PASS\n",
+        "[Harness][Info][Admit] admit scenario B\n",
+        "[Harness][Info][Result] result written C:\\r\\2026-10-11_0910_B.json\n",
+        "[Harness][Info][Retry] retry scenario=B attempt=2 reason=INVALID\n",
+        "[Harness][Info][Result] result written C:\\r\\2026-10-11_0920_B_a2.json\n",
+        "[Harness][Info][Cost] scenario cost attempts=2 wallTotal=20s terminal=PASS\n",
+        "[Harness][Info][Admit] admit scenario C\n",
+        "[Harness][Info][Result] result written C:\\r\\2026-10-11_0930_C.json\n",
+    ]
+
+    def test_a_slice_holds_only_its_own_scenario(self):
+        b = hlib.slice_harness_log_for_run(self.LOG, "2026-10-11_0910_B")
+        self.assertEqual([self.LOG[1]] + self.LOG[5:10], b)
+        joined = "".join(b)
+        self.assertNotIn("scenario A", joined)
+        self.assertNotIn("scenario C", joined)
+        self.assertIn("[Retry]", joined)
+        self.assertIn("[Cost]", joined)
+        # Both attempts of the retried scenario get the same block.
+        self.assertEqual(b, hlib.slice_harness_log_for_run(self.LOG, "2026-10-11_0920_B_a2"))
+
+    def test_first_and_still_open_blocks(self):
+        self.assertEqual(self.LOG[:5],
+                         hlib.slice_harness_log_for_run(self.LOG, "2026-10-11_0900_A"))
+        # The last block runs to the end of the log.
+        self.assertEqual([self.LOG[1]] + self.LOG[10:],
+                         hlib.slice_harness_log_for_run(self.LOG, "2026-10-11_0930_C"))
+
+    def test_an_unknown_run_or_a_suffixed_lookalike_is_not_matched(self):
+        self.assertIsNone(hlib.slice_harness_log_for_run(self.LOG, "2026-10-11_0900_Z"))
+        # "..._B.json" must not match the "..._B_a2.json" line.
+        self.assertIsNone(hlib.slice_harness_log_for_run([self.LOG[8]], "2026-10-11_0910_B"))
+
+    def test_the_flighteff_facts_survive_the_slice(self):
+        import flighteff
+        facts = flighteff.parse_harness_log(
+            hlib.slice_harness_log_for_run(self.LOG, "2026-10-11_0910_B"))
+        row = facts["2026-10-11_0920_B_a2"]
+        self.assertEqual(20, row["cost"]["wallTotal"])
+        self.assertEqual(1, len(row["retries"]))
+        self.assertIsNotNone(row["lock"])
+
+    def test_shell_keeps_the_full_log_when_the_run_is_absent(self):
+        tmp = tempfile.mkdtemp(prefix="parsek-slice-")
+        try:
+            results = os.path.join(tmp, "results")
+            log = _populate_results(results)
+            with open(log, "w") as fh:
+                fh.write("unrelated line\n")
+            final = run.archive_run_results(RID, results, os.path.join(tmp, "archive"),
+                                            log, _MemLogger(), worktree=None)
+            with open(os.path.join(final, "manifest.json")) as fh:
+                self.assertEqual("full", json.load(fh)["harnessLog"])
+            self.assertEqual("unrelated line\n",
+                             _read_gz(os.path.join(final, "2026-10-11_090001_harness.log.gz")))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 def _populate_results(results_dir, run_id=RID, ksp_text="[LOG 09:00:00.000] hello\n" * 500,
                       log_name="2026-10-11_090001_harness.log"):
     os.makedirs(os.path.join(results_dir, run_id + "_shots"), exist_ok=True)
@@ -191,7 +263,13 @@ def _populate_results(results_dir, run_id=RID, ksp_text="[LOG 09:00:00.000] hell
     with open(log, "w") as fh:
         fh.write("[Harness][Info][Result] result written %s\n"
                  % os.path.join(results_dir, run_id + ".json"))
+        fh.write("[Harness][Info][Cost] scenario cost attempts=1 wallTotal=5s terminal=PASS\n")
     return log
+
+
+def _read_gz(path):
+    with gzip.open(path, "rt", encoding="utf-8") as fh:
+        return fh.read()
 
 
 class ArchiveShellTests(unittest.TestCase):
@@ -213,7 +291,7 @@ class ArchiveShellTests(unittest.TestCase):
         final = self._archive()
         self.assertEqual(os.path.join(self.root, RID), final)
         self.assertEqual(sorted([RID + ".json", RID + "_mission.json", "KSP.log.gz",
-                                 "2026-10-11_090001_harness.log", "manifest.json"]),
+                                 "2026-10-11_090001_harness.log.gz", "manifest.json"]),
                          sorted(os.listdir(final)))
         with gzip.open(os.path.join(final, "KSP.log.gz"), "rt") as fh:
             with open(os.path.join(self.results, RID + "_shots", "KSP.log")) as src:
@@ -321,7 +399,7 @@ class FakeRunArchiveSmokeTests(unittest.TestCase):
         names = set(os.listdir(run_dir))
         self.assertIn(result["runId"] + ".json", names)
         self.assertIn("KSP.log.gz", names)
-        self.assertIn("2026-10-11_090000_harness.log", names)
+        self.assertIn("2026-10-11_090000_harness.log.gz", names)
         self.assertIn("manifest.json", names)
         self.assertFalse(any(n.endswith(".png") or n.endswith("_save") for n in names))
         with open(os.path.join(run_dir, "manifest.json")) as fh:
@@ -329,8 +407,9 @@ class FakeRunArchiveSmokeTests(unittest.TestCase):
         self.assertEqual("run", manifest["origin"])
         self.assertEqual(run.WORKTREE_ROOT, manifest["worktree"])
         # The copied invocation log already holds the scenario's Cost line.
-        with open(os.path.join(run_dir, "2026-10-11_090000_harness.log")) as fh:
-            self.assertIn("[Cost] scenario cost", fh.read())
+        self.assertEqual("slice", manifest["harnessLog"])
+        self.assertIn("[Cost] scenario cost",
+                      _read_gz(os.path.join(run_dir, "2026-10-11_090000_harness.log.gz")))
         with open(os.path.join(run_dir, result["runId"] + ".json")) as fh:
             self.assertEqual(hlib.VERDICT_PASS, json.load(fh)["verdict"])
 
@@ -377,10 +456,22 @@ class BackfillToolTests(unittest.TestCase):
         self.assertEqual("backfill", manifest["origin"])
         self.assertIsNone(manifest["gitHead"])
         self.assertEqual(os.path.join(self.tmp, "Parsek-x"), manifest["worktree"])
-        self.assertIn("2026-10-11_090001_harness.log",
-                      os.listdir(os.path.join(self.root, RID)))
-        self.assertIn("2026-09-01_090001_harness.log",
+        # An old PLAIN log is archived as this run's gzipped slice.
+        self.assertEqual("slice", manifest["harnessLog"])
+        text = _read_gz(os.path.join(self.root, RID, "2026-10-11_090001_harness.log.gz"))
+        self.assertIn(RID + ".json", text)
+        self.assertIn("[Cost] scenario cost", text)
+        self.assertIn("2026-09-01_090001_harness.log.gz",
                       os.listdir(os.path.join(self.root, "2026-09-01_0900_OLD")))
+
+    def test_backfill_reads_an_already_gzipped_harness_log(self):
+        old = os.path.join(self.results, "2026-10-11_090001_harness.log")
+        with open(old, "rb") as fin, gzip.open(old + ".gz", "wb") as fout:
+            shutil.copyfileobj(fin, fout)
+        os.remove(old)
+        self.assertEqual(0, self._main("--since", "2026-10-01"))
+        text = _read_gz(os.path.join(self.root, RID, "2026-10-11_090001_harness.log.gz"))
+        self.assertIn(RID + ".json", text)
 
     def test_since_dry_run_and_existing_runs(self):
         self.assertEqual(0, self._main("--dry-run"))

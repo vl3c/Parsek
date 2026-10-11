@@ -1363,12 +1363,15 @@ class ShellTests(unittest.TestCase):
         root = os.path.join(self.tmp, "archive")
         run_dir = os.path.join(root, rid)
         os.makedirs(run_dir)
-        for name in (rid + ".json", rid + "_status.json", rid + "_mission.stdout.log",
-                     "2026-10-01_123103_harness.log"):
+        for name in (rid + ".json", rid + "_status.json", rid + "_mission.stdout.log"):
             shutil.copy(os.path.join(self.tmp, name), os.path.join(run_dir, name))
-        with open(_KSP, "rb") as fin, gzip.open(os.path.join(run_dir, "KSP.log.gz"),
-                                                "wb") as fout:
-            shutil.copyfileobj(fin, fout)
+        # Both logs are gzipped in the archive; the harness log's [Cost] facts must
+        # still be read (the wallTotal assertion below depends on it).
+        for src, dest in ((_KSP, "KSP.log.gz"),
+                          (os.path.join(self.tmp, "2026-10-01_123103_harness.log"),
+                           "2026-10-01_123103_harness.log.gz")):
+            with open(src, "rb") as fin, gzip.open(os.path.join(run_dir, dest), "wb") as fout:
+                shutil.copyfileobj(fin, fout)
         # A half-built archive dir must never read as a run.
         os.makedirs(os.path.join(root, "." + rid + ".archive-tmp"))
         return root, rid

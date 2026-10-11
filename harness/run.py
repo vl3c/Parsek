@@ -4321,6 +4321,15 @@ def _read_git_head(worktree: str) -> Optional[str]:
     return head if proc.returncode == 0 and head else None
 
 
+def _read_text_lines_maybe_gz(path: str) -> List[str]:
+    """Lines with their endings, from a plain or gzipped text file."""
+    if path.endswith(".gz"):
+        with gzip.open(path, "rt", encoding="utf-8", errors="replace", newline="") as fh:
+            return fh.readlines()
+    with open(path, "r", encoding="utf-8", errors="replace", newline="") as fh:
+        return fh.readlines()
+
+
 def _rmtree_quiet(path: str) -> None:
     if os.path.isdir(path):
         shutil.rmtree(path, ignore_errors=True)
@@ -4362,12 +4371,23 @@ def archive_run_results(run_id: str, results_dir: str, archive_root: str,
         os.makedirs(tmp)
         files = []
         missing = list(plan.missing)
+        harness_log_kind = None
         for entry in plan.entries:
             src = (os.path.join(results_dir, *entry.source_rel)
                    if entry.source_rel is not None else harness_log_path)
             dst = os.path.join(tmp, entry.dest_name)
             try:
-                if entry.gzip:
+                if entry.source_rel is None:
+                    # Only this scenario's block of the per-invocation log
+                    # (hlib.slice_harness_log_for_run): whole-log copies grow
+                    # quadratically over a selection.
+                    lines = _read_text_lines_maybe_gz(src)
+                    block = hlib.slice_harness_log_for_run(lines, run_id)
+                    harness_log_kind = "slice" if block is not None else "full"
+                    with gzip.open(dst, "wt", encoding="utf-8", newline="",
+                                   compresslevel=6) as fout:
+                        fout.write("".join(block if block is not None else lines))
+                elif entry.gzip:
                     with open(src, "rb") as fin, \
                             gzip.open(dst, "wb", compresslevel=6) as fout:
                         shutil.copyfileobj(fin, fout, 1024 * 1024)
@@ -4385,7 +4405,7 @@ def archive_run_results(run_id: str, results_dir: str, archive_root: str,
         manifest = hlib.build_results_archive_manifest(
             run_id, origin, utcnow_iso(), worktree,
             _read_git_head(worktree) if (worktree and record_git_head) else None,
-            dll_sha, files, missing)
+            dll_sha, files, missing, harness_log=harness_log_kind)
         with open(os.path.join(tmp, hlib.RESULTS_ARCHIVE_MANIFEST_NAME), "w",
                   encoding="utf-8", newline="\n") as fh:
             fh.write(hlib.serialize_results_archive_manifest(manifest))

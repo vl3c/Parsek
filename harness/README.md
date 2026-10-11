@@ -1485,11 +1485,17 @@ attempt's durable small artifacts to
 ```
 <umbrella>/automation/results-archive/<runId>/
     <runId>.json  <runId>_status.json  <runId>_mission.json
-    <runId>_mission.stdout.log  <stamp>_harness.log  KSP.log.gz  manifest.json
+    <runId>_mission.stdout.log  <stamp>_harness.log.gz  KSP.log.gz  manifest.json
 ```
 
-`KSP.log.gz` is the collected `_shots/KSP.log` gzipped; screenshots, saves and
-contact sheets are NOT archived. `manifest.json` records the worktree, its git
+`KSP.log.gz` is the collected `_shots/KSP.log` gzipped. `<stamp>_harness.log.gz`
+is only THIS scenario's block of the per-invocation harness log
+(`hlib.slice_harness_log_for_run`: from after the previous scenario's
+`[Cost] scenario cost` line to this scenario's own, with the invocation's
+`[Lock]` lines prepended), so an N-scenario nightly stores N small blocks rather
+than N growing copies of one log; when the run id is not in the log the whole log
+is kept and `manifest.json` says `"harnessLog": "full"` instead of `"slice"`.
+Screenshots, saves and contact sheets are NOT archived. `manifest.json` records the worktree, its git
 HEAD, the deployed Parsek.dll sha256 and every file's archived and source size.
 Missing optional files are listed there, not fatal. The copy runs after the
 scenario's `[Cost]` line (so the archived harness log holds its retry and cost
@@ -1504,11 +1510,13 @@ a run id replaces it whole), and is verdict-neutral: a failure is one
 - Back-fill an existing results dir (a surviving snapshot, an old worktree):
   `python tools/archive_results.py --from <results-dir> [--from ...] [--since
   YYYY-MM-DD] [--overwrite] [--dry-run]`. Runs already archived are skipped
-  unless `--overwrite`; nothing in `--from` is touched.
-- Size: about 0.5 MB per run, measured on 10 flown runs (a 2.2 MB KSP.log
-  gzips to about 210 KB; the mission stdout and the harness log are most of the
-  rest). A KSP.log at the 64 MB artifact cap gzips to a few MB. Nothing prunes
-  the archive; it is meant to be permanent.
+  unless `--overwrite`; nothing in `--from` is touched. Source harness logs may
+  be plain or `.gz`; each run keeps only its own block, gzipped.
+- Size: about 0.4 MB per run (median 384 KB, max 437 KB over 10 flown runs): the
+  2.2 MB KSP.log gzips to about 210 KB, the harness-log block to about 14 KB, and
+  the uncompressed mission stdout (about 250 KB) is most of the rest. Growth is
+  linear in runs. A KSP.log at the 64 MB artifact cap gzips to a few MB. Nothing
+  prunes the archive; it is meant to be permanent.
 
 ### What accumulates, and what may be pruned
 
