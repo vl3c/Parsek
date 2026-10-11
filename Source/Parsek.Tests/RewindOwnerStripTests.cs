@@ -148,6 +148,100 @@ namespace Parsek.Tests
                 RecordingStore.RewindToLaunchLeadTimeSeconds);
         }
 
+        // ---- Vessel name decisions (vessel names design phase 1, until phase 2b links) ----
+
+        // catches: a Parsek rename moving the owner's leg names so the unanchored name fallback
+        // compares the NEW name against the quicksave's OLD one, leaving a re-keyed owner copy
+        // (fresh guid; the resume path cleared its spawn pid) unstripped - a duplicate after
+        // the rewind.
+        [Fact]
+        public void RenamedOwner_RekeyedCopyUnderTheOldName_IsStillStripped()
+        {
+            var owner = Rec("owner0001", "Kerbal X", "treeR", 10, 400, SecondPid, SecondGuid);
+            owner.TerminalStateValue = TerminalState.Landed;
+            Commit("treeR", owner);
+            Assert.True(MissionVesselNaming.ApplyRecordingRename(owner, "Relay-2"));
+            Assert.Equal("Relay-2", owner.VesselName);
+
+            string sfs = WriteSave(VesselNode("Kerbal X", OtherPid, "cccc3333cccc3333cccc3333cccc3333", "LANDED"));
+            PreProcess(sfs, owner);
+
+            Assert.DoesNotContain(OtherPid, SurvivingPids(sfs));
+        }
+
+        // catches: the alias set taking the identity's OTHER leg names. A naming part took over
+        // the merged leg's name at a dock ("Station Alpha"), then the player renamed the ship:
+        // a rewind to before the launch must not strip the real Station Alpha in the save.
+        [Fact]
+        public void RenamedOwner_DockNamingPartName_DoesNotStripTheRealStation()
+        {
+            var owner = Rec("owner0001", "Kerbal X", "treeR", 10, 400, SecondPid, SecondGuid);
+            owner.TerminalStateValue = TerminalState.Docked;
+            var merged = Rec("merged001", "Station Alpha", "treeR", 400, 900, SecondPid, SecondGuid);
+            merged.TerminalStateValue = TerminalState.Orbiting;
+            Commit("treeR", owner, merged);
+            Assert.True(MissionVesselNaming.ApplyRecordingRename(merged, "Relay"));
+            Assert.Equal("Relay", owner.VesselName);
+            Assert.Contains("Station Alpha", VesselNameStore.FindByGuid(SecondGuid).PriorNames);
+
+            const uint CopyPid = 3444000004u;
+            string sfs = WriteSave(
+                VesselNode("Station Alpha", OtherPid, "cccc3333cccc3333cccc3333cccc3333", "ORBITING"),
+                VesselNode("Kerbal X", CopyPid, "dddd4444dddd4444dddd4444dddd4444", "LANDED"));
+            PreProcess(sfs, owner);
+
+            List<uint> left = SurvivingPids(sfs);
+            Assert.Contains(OtherPid, left);
+            Assert.DoesNotContain(CopyPid, left);
+            Assert.DoesNotContain("Station Alpha", RecordingStore.BuildRewindOwnerStrip(owner).OwnerAliasNames);
+        }
+
+        // catches: design 8.17 staging, where the launch guid stays on a debris half: its name
+        // must not become an alias, or another launch's debris of that name is stripped.
+        [Fact]
+        public void RenamedOwner_DebrisHalfName_DoesNotStripAnotherLaunchsDebris()
+        {
+            var owner = Rec("owner0001", "Kerbal X", "treeR", 10, 400, SecondPid, SecondGuid);
+            owner.TerminalStateValue = TerminalState.Landed;
+            var debris = Rec("debris001", "Kerbal X Debris", "treeR", 400, 700, SecondPid, SecondGuid);
+            debris.IsDebris = true;
+            debris.TerminalStateValue = TerminalState.Destroyed;
+            Commit("treeR", owner, debris);
+            Assert.True(MissionVesselNaming.ApplyRecordingRename(owner, "Relay"));
+            Assert.Contains("Kerbal X Debris", VesselNameStore.FindByGuid(SecondGuid).PriorNames);
+
+            string sfs = WriteSave(
+                VesselNode("Kerbal X Debris", OtherPid, "cccc3333cccc3333cccc3333cccc3333", "ORBITING"));
+            PreProcess(sfs, owner);
+
+            Assert.Contains(OtherPid, SurvivingPids(sfs));
+        }
+
+        // The alias is the UNANCHORED fallback only: with the owner's own vessel in the save, a
+        // different launch under the old name is committed history and stays.
+        [Fact]
+        public void RenamedOwner_AnchoredOwner_KeepsAnotherLaunchUnderTheOldName()
+        {
+            var owner = Rec("owner0001", "Kerbal X", "treeR", 10, 400, SecondPid, SecondGuid);
+            owner.TerminalStateValue = TerminalState.Landed;
+            Commit("treeR", owner);
+            Assert.True(MissionVesselNaming.ApplyRecordingRename(owner, "Relay-2"));
+
+            string sfs = WriteSave(
+                VesselNode("Kerbal X", SecondPid, SecondGuid, "PRELAUNCH"),
+                VesselNode("Kerbal X", OtherPid, "cccc3333cccc3333cccc3333cccc3333", "LANDED"));
+            PreProcess(sfs, owner);
+
+            List<uint> left = SurvivingPids(sfs);
+            Assert.DoesNotContain(SecondPid, left);
+            Assert.Contains(OtherPid, left);
+            RecordingStore.RewindOwnerStrip strip = RecordingStore.BuildRewindOwnerStrip(owner);
+            Assert.Contains("Kerbal X", strip.OwnerAliasNames);
+            Assert.Equal(RecordingStore.RewindOwnerStripDecision.NotMatched,
+                RecordingStore.ClassifyRewindOwnerStripVessel(
+                    "Kerbal X", "cccc3333cccc3333cccc3333cccc3333", strip, ownerAnchored: true));
+        }
+
         // ---- The repro: ordinary play, the whole plain-rewind strip chain ----
 
         [Fact]

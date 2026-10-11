@@ -34,6 +34,7 @@ namespace Parsek.Tests
             MissionStructureListBuilder.SuppressLogging = true;
             MissionCompositionBuilder.SuppressLogging = true;
             DockEventGraph.SuppressLogging = true;
+            VesselNameStore.ResetForTesting();
         }
 
         public void Dispose()
@@ -43,6 +44,7 @@ namespace Parsek.Tests
             MissionStructureListBuilder.SuppressLogging = false;
             MissionCompositionBuilder.SuppressLogging = false;
             DockEventGraph.SuppressLogging = false;
+            VesselNameStore.ResetForTesting();
         }
 
         private static string MissionNameOf(string treeId)
@@ -416,6 +418,27 @@ namespace Parsek.Tests
             Assert.False(names.ContainsKey("eva"));
         }
 
+        // catches: name-first bucketing splitting one vessel with two captured names (a
+        // rename the store never saw) into an early and a late ordinal - the vessel that took
+        // "New" after W already carried it was "New [2]" although it appeared first. Vessel
+        // first: it is ONE vessel, keeps each leg's captured name, and its place among the
+        // vessels named "New" is its first appearance overall.
+        [Fact]
+        public void VesselFirst_OneVesselWithTwoCapturedNames_IsOneVessel()
+        {
+            Recording early = Rec("v1", "Old", 0, 50, pid: 1, guid: "g1", chain: "c", chainIndex: 0);
+            Recording late = Rec("v2", "New", 50, 100, pid: 1, guid: "g1", chain: "c", chainIndex: 1);
+            Recording w = Rec("w", "New", 30, 120, pid: 2, guid: "g2");
+            RecordingTree tree = Tree("t", new[] { early, late, w },
+                BP("s", BranchPointType.JointBreak, 30, new[] { "v1" }, new[] { "w" }));
+            Dictionary<string, string> names = MissionVesselNaming.Build(tree, MissionStructureBuilder.Build(tree),
+                MissionVesselNaming.LaunchIndex.Build(new[] { tree }), id => "M", out MissionVesselNaming.Tally tally);
+            Assert.Equal("Old", names["v1"]);
+            Assert.Equal("New", names["v2"]);
+            Assert.Equal("New [2]", names["w"]);
+            Assert.Equal(1, tally.Numbered);
+        }
+
         // catches: the partner test running the wrong way (the mission that launched first
         // reading its own vessel as the other mission's) or reading a root as a partner.
         [Fact]
@@ -492,16 +515,19 @@ namespace Parsek.Tests
             Dictionary<string, string> before = cache.GetOrBuild(tree, structure, trees, 7, 1, MissionNameOf);
             Assert.Equal("Kerbal X Probe", before[DockingProbe]);
 
-            Assert.True(MissionVesselNaming.ApplyRecordingRename(tree.Recordings[DockingProbe], "  Relay One "));
+            // The fixture loader reads no vessel sidecar, so it skips the load-time guid
+            // backfill production runs; a rename needs a known launch guid.
+            tree.Recordings[DockingProbe].RecordedVesselGuid = "0f0e0d0c0b0a09080706050403020100";
+            Assert.True(MissionVesselNaming.ApplyRecordingRename(tree.Recordings[DockingProbe], "  Relay One ", trees));
             Dictionary<string, string> after = cache.GetOrBuild(tree, structure, trees, 7, 1, MissionNameOf);
             Assert.Equal("Relay One", after[DockingProbe]);
             Assert.Equal(2, cache.Rebuilds);
 
             // Blank and unchanged names write nothing and invalidate nothing.
-            int version = MissionVesselNaming.NameVersion;
-            Assert.False(MissionVesselNaming.ApplyRecordingRename(tree.Recordings[DockingProbe], "   "));
-            Assert.False(MissionVesselNaming.ApplyRecordingRename(tree.Recordings[DockingProbe], "Relay One"));
-            Assert.Equal(version, MissionVesselNaming.NameVersion);
+            int version = DisplayNames.Version;
+            Assert.False(MissionVesselNaming.ApplyRecordingRename(tree.Recordings[DockingProbe], "   ", trees));
+            Assert.False(MissionVesselNaming.ApplyRecordingRename(tree.Recordings[DockingProbe], "Relay One", trees));
+            Assert.Equal(version, DisplayNames.Version);
             Assert.Same(after, cache.GetOrBuild(tree, structure, trees, 7, 1, MissionNameOf));
         }
 

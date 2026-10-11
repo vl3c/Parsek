@@ -8,6 +8,12 @@ All notable changes to Parsek are documented here.
 
 _(unreleased - entries accumulate here per commit)_
 
+### Changed
+
+- **Renaming a vessel in the Recordings tab renames the whole vessel.** Every recording of that
+  vessel, its ghost on the map and in the Tracking Station, and every Parsek window now show the
+  new name. EVA rows and very old recordings keep their names. (GC-7)
+
 ### Fixed
 
 - **Recovery and rewind no longer depend on a vessel's name.** A vessel renamed after it was

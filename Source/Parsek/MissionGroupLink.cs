@@ -135,6 +135,9 @@ namespace Parsek
             renamed += RenameOneGroup(oldRoot, newName) ? 1 : 0;
 
             MissionStore.RenameMission(main, newName);
+            // The group names moved even when the main mission's did not (a clone-only rename).
+            if (renamed > 0)
+                DisplayNames.NoteChanged("mission-group-rename", tree.Id);
 
             ParsekLog.Info("Mission",
                 $"RenameMissionGroup: tree={tree.Id} '{oldRoot}' -> '{newName}' " +

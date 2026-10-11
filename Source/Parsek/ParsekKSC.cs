@@ -301,6 +301,10 @@ namespace Parsek
             // to prevent future ghosts and premature vessel spawns.
             if (RecordingStore.RewindUTAdjustmentPending) return;
 
+            // Vessel name decisions re-applied when the committed set moved (vessel names
+            // design 7.4). Inert with no decision.
+            VesselNameStore.SelfHealTick(inFlight: false, realtime: Time.realtimeSinceStartup);
+
             // [ERS-exempt] reason: same as constructor — ParsekKSC keys ghost
             // state by committed recording index. See TODO(phase 6+) above.
             var committed = RecordingStore.CommittedRecordings;

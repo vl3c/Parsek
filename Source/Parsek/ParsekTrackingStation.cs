@@ -59,6 +59,8 @@ namespace Parsek
         private MapObject atmosphericFocusTarget;
         private string atmosphericFocusRecordingId;
         private int atmosphericFocusCachedIndex = -1;
+        // DisplayNames.Version the focus target's name was built against (vessel names design 7.11).
+        private int atmosphericFocusNameVersion = int.MinValue;
         private int ghostActionCacheFrame = -1;
         private double ghostActionCurrentUT;
         private Dictionary<uint, GhostChain> ghostActionChains = new Dictionary<uint, GhostChain>();
@@ -279,6 +281,10 @@ namespace Parsek
 
         void Update()
         {
+            // Vessel name decisions re-applied when the committed set moved (vessel names
+            // design 7.4). Inert with no decision.
+            VesselNameStore.SelfHealTick(inFlight: false, realtime: Time.realtimeSinceStartup);
+
             // Detect live recording commits (merge dialog, approval dialog) and force
             // an immediate lifecycle tick so proto-vessel ghosts appear without waiting
             // for the next LifecycleCheckIntervalSec tick.
@@ -1913,6 +1919,7 @@ namespace Parsek
                     body != null ? body.orbit : null,
                     MapObject.ObjectType.Generic);
                 atmosphericFocusRecordingId = selection.RecordingId;
+                atmosphericFocusNameVersion = DisplayNames.Version;
             }
 
             UpdateAtmosphericFocusTransform(atmosphericFocusTarget, worldPos);
@@ -1940,6 +1947,21 @@ namespace Parsek
             {
                 DestroyAtmosphericFocusTarget("focused-recording-missing");
                 return;
+            }
+
+            if (atmosphericFocusNameVersion != DisplayNames.Version)
+            {
+                // A rename moved the recording's display name: rename the target in place
+                // (recreating it would drop the camera's focus).
+                atmosphericFocusNameVersion = DisplayNames.Version;
+                string targetName = GhostMapPresence.BuildGhostProtoVesselName(recording.VesselName);
+                if (!string.Equals(atmosphericFocusTarget.DisplayName, targetName, System.StringComparison.Ordinal))
+                {
+                    atmosphericFocusTarget.DisplayName = targetName;
+                    atmosphericFocusTarget.name = targetName;
+                    ParsekLog.Verbose(Tag, "Atmospheric focus target renamed: recId=" +
+                        atmosphericFocusRecordingId + " name='" + targetName + "'");
+                }
             }
 
             if (recording.SpawnedVesselPersistentId != 0)

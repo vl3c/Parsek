@@ -630,6 +630,18 @@ namespace Parsek
                     e.WindowStartUT = c.WindowStartUT;
                     e.EndUT = c.EndUT;
                     e.Rec = c.Recording;
+                    // A rename re-applied to the recording (vessel names design 7.8) reaches the
+                    // node in place; the candidate carries rec.VesselName every tick.
+                    string displayName = GhostCommNetMath.ResolveNodeDisplayName(
+                        c.VesselName, e.Spec != null ? e.Spec.VesselName : null);
+                    if (!string.Equals(displayName, e.VesselName, StringComparison.Ordinal))
+                    {
+                        ParsekLog.Verbose("VesselNames",
+                            "Ghost CommNet node renamed: key=" + e.Key + " '" + (e.VesselName ?? "") +
+                            "' -> '" + displayName + "'");
+                        e.VesselName = displayName;
+                        if (e.Node != null) e.Node.displayName = displayName;
+                    }
                     if (e.Reason != c.Eligibility.Reason)
                     {
                         GhostCommNetMath.LogWindowChange(
@@ -741,8 +753,8 @@ namespace Parsek
             node.name = c.ChainSnapshot != null
                 ? GhostCommNetMath.NodeNamePrefix + c.Key
                 : GhostCommNetMath.NodeNameForRecording(c.RecordingId);
-            string vesselName = !string.IsNullOrEmpty(c.VesselName) ? c.VesselName : d.Spec.VesselName;
-            node.displayName = vesselName ?? "";
+            string vesselName = GhostCommNetMath.ResolveNodeDisplayName(c.VesselName, d.Spec.VesselName);
+            node.displayName = vesselName;
             node.isHome = false;
             node.distanceOffset = 0.0;
             node.isControlSource = false;

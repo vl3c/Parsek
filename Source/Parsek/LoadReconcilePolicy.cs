@@ -77,6 +77,8 @@ namespace Parsek
         GroupHierarchy,
         Missions,
         Milestones,
+        /// <summary><c>VesselNameStore</c>: the player's vessel name decisions (design-vessel-and-mission-names.md 7.6).</summary>
+        VesselNames,
     }
 
     /// <summary>What a load does with one category today.</summary>
@@ -358,6 +360,7 @@ namespace Parsek
                 case LoadStateCategory.Routes:
                 case LoadStateCategory.Missions:
                 case LoadStateCategory.Milestones:
+                case LoadStateCategory.VesselNames:
                     return false;
             }
             throw new ArgumentOutOfRangeException(nameof(category), category, "unknown LoadStateCategory");
@@ -415,6 +418,7 @@ namespace Parsek
                 case LoadStateCategory.GroupHierarchy: return DecideGroupHierarchy(kind);
                 case LoadStateCategory.Missions: return DecideMissions(kind);
                 case LoadStateCategory.Milestones: return DecideMilestones(kind);
+                case LoadStateCategory.VesselNames: return DecideVesselNames(kind);
             }
             throw new ArgumentOutOfRangeException(nameof(category), category, "unknown LoadStateCategory");
         }
@@ -913,6 +917,28 @@ namespace Parsek
                 case LoadKind.InSessionOther:
                     return Today(LoadReconcileAction.Save,
                         "list kept in memory; scene-change branch -> MilestoneStore.RestoreMutableState(node)");
+            }
+            throw UnknownKind(kind);
+        }
+
+        // Phase 1 of the vessel names design: every in-session kind keeps memory. Phase 2a flips
+        // StockRevert and DiscardReFly to an undo of the cancelled flight's stock decisions.
+        private static LoadReconcileDecision DecideVesselNames(LoadKind kind)
+        {
+            switch (kind)
+            {
+                case LoadKind.Cold:
+                    return Today(LoadReconcileAction.Save,
+                        "VesselNameStore.Load on the cold path (ParsekScenario.OnLoad, before the committed trees load)");
+                case LoadKind.PlainRewind:
+                case LoadKind.ReFlyStart:
+                case LoadKind.DiscardReFly:
+                case LoadKind.StockRevert:
+                case LoadKind.QuickloadFlight:
+                case LoadKind.InSessionOther:
+                    return Today(LoadReconcileAction.Memory,
+                        "VesselNameStore is static memory loaded on the cold path only; a decision names the "
+                        + "vessel across rewinds and reloads, and the OnLoad tail re-applies it");
             }
             throw UnknownKind(kind);
         }

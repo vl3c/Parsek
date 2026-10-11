@@ -1139,6 +1139,16 @@ namespace Parsek
             return NodeNamePrefix + (recordingId ?? "");
         }
 
+        /// <summary>
+        /// A ghost node's display name: the recording's display name (its vessel name after
+        /// the vessel name store applied a decision) first, the snapshot's name second.
+        /// </summary>
+        internal static string ResolveNodeDisplayName(string recordingVesselName, string snapshotVesselName)
+        {
+            if (!string.IsNullOrEmpty(recordingVesselName)) return recordingVesselName;
+            return snapshotVesselName ?? "";
+        }
+
         internal static string ChainKey(uint pid)
         {
             return "chain:" + pid.ToString(IC);

@@ -9,7 +9,8 @@ namespace Parsek
     /// and the Missions tab's vessel rows, so the two surfaces name a vessel the same way.
     ///
     /// <para>Two rules, both presentation only (no recording data is read for anything but
-    /// identity, nothing is written):</para>
+    /// identity; nothing is written except by the rename, which records a vessel name
+    /// decision):</para>
     /// <list type="bullet">
     /// <item>A leg whose launch identity (<see cref="VesselLaunchIdentity.RecordingsShareLaunch"/>)
     /// matches a vessel ANOTHER mission recorded earlier is that mission's vessel - a dock
@@ -26,10 +27,13 @@ namespace Parsek
     /// it undocks from another vessel, so a leg that continues one of this mission's own
     /// vessels after that vessel's own legs have ended, and shares part pids with it, is the
     /// same physical ship and joins it, the best-matching such leg per hop
-    /// (<see cref="MergeRepiddedContinuations"/>). Order:
-    /// first appearance UT; on a tie the vessel whose first leg shares part pids with its
-    /// parent lineage keeps the plain name; then the RecordingId. EVA legs keep the kerbal's
-    /// name (they are not in the map) and debris is never a leg.</item>
+    /// (<see cref="VesselIdentity.MergeRepiddedContinuations"/>). Which legs are one vessel
+    /// is <see cref="VesselIdentity"/>'s in-tree union, the same resolver the vessel name
+    /// store uses. Legs are grouped by vessel FIRST and then numbered per name, so a vessel
+    /// carrying two captured names is one vessel in both. Order: the vessel's first
+    /// appearance UT; on a tie the vessel whose first leg shares part pids with its parent
+    /// lineage keeps the plain name; then the RecordingId. EVA legs keep the kerbal's name
+    /// (they are not in the map) and debris is never a leg.</item>
     /// </list>
     ///
     /// <para>Numbering is per TREE, not per Mission: clones of a mission share the tree, and
@@ -85,42 +89,24 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Moves whenever a recording's name or part data changes in place, without a
-        /// committed-list mutation (a player rename, a hydration repair), so
-        /// <see cref="Cache"/> drops its names: <see cref="RecordingStore.StateVersion"/> does
-        /// not move on those and its listeners need not.
+        /// A Parsek row rename (the Recordings table's rename commit and the seam's op=edit
+        /// both land here): an identity-wide vessel name decision
+        /// (<see cref="VesselNameStore.RecordParsekRename"/>), so every leg of the row's
+        /// vessel takes the name. False (nothing written) for a blank or unchanged name, an
+        /// EVA row (its name is the kerbal's) and a vessel with no known launch guid; each
+        /// refusal is logged. <paramref name="universeForTesting"/> replaces the live trees the
+        /// identity is resolved over.
         /// </summary>
-        internal static int NameVersion { get; private set; }
-
-        /// <summary>Bumps <see cref="NameVersion"/> and logs why.</summary>
-        internal static void NoteRecordingNameOrPartsChanged(string reason, string recordingId)
+        internal static bool ApplyRecordingRename(
+            Recording rec, string newName, IEnumerable<RecordingTree> universeForTesting = null)
         {
-            NameVersion++;
-            ParsekLog.Verbose("Mission",
-                $"Vessel names invalidated: reason={reason ?? "<none>"} rec={recordingId ?? "<null>"} " +
-                $"nameVersion={NameVersion}");
-        }
-
-        /// <summary>
-        /// A recording rename: sets <see cref="Recording.VesselName"/> to the trimmed name and
-        /// invalidates the shared vessel names. False (nothing written) for a blank or unchanged
-        /// name. The Recordings table's rename commit and the seam's op=edit both land here.
-        /// </summary>
-        internal static bool ApplyRecordingRename(Recording rec, string newName)
-        {
-            string trimmed = newName?.Trim();
-            if (rec == null || string.IsNullOrEmpty(trimmed) || trimmed == rec.VesselName)
-                return false;
-            ParsekLog.Info("UI", $"Recording '{rec.VesselName}' renamed to '{trimmed}'");
-            rec.VesselName = trimmed;
-            NoteRecordingNameOrPartsChanged("rename", rec.RecordingId);
-            return true;
+            return VesselNameStore.RecordParsekRename(rec, newName, universeForTesting, out _);
         }
 
         /// <summary>
         /// The Missions tab's cross-frame cache of the naming pass: per tree names, the launch
         /// index and every recording's part pids, all keyed on
-        /// <see cref="RecordingStore.StateVersion"/>, <see cref="NameVersion"/> and a signature
+        /// <see cref="RecordingStore.StateVersion"/>, <see cref="DisplayNames.Version"/> and a signature
         /// of the missions' names (a partner phrase names another mission). A frame whose key matches reads the
         /// dictionaries and computes nothing; a moved key drops everything at once. Pure apart
         /// from what the caller passes in, so the reuse and the invalidation are unit-testable.
@@ -160,7 +146,7 @@ namespace Parsek
             {
                 if (tree == null || string.IsNullOrEmpty(tree.Id))
                     return new Dictionary<string, string>(StringComparer.Ordinal);
-                int currentNameVersion = NameVersion;
+                int currentNameVersion = DisplayNames.Version;
                 if (!primed || currentStateVersion != stateVersion
                     || currentMissionSignature != missionSignature
                     || currentNameVersion != nameVersion)
@@ -290,72 +276,79 @@ namespace Parsek
                 own.Add(leg);
             }
 
-            // 2. One vessel = the own legs sharing a ChainId or a launch identity.
+            // 2. One vessel = the own legs the shared resolver joins in-tree: ChainId, launch
+            //    identity, switch continuation, and a ship KSP re-pidded at an undock.
             own.Sort((a, b) => string.CompareOrdinal(a.RecordingId, b.RecordingId));
             var parent = new int[own.Count];
             for (int i = 0; i < own.Count; i++) parent[i] = i;
+            tally.Continuations = VesselIdentity.UnionInTreeLegs(tree, structure, own, parent, partPids);
+
+            // 3. Vessel first: group the legs by vessel, then number per name. A vessel's place
+            //    among the vessels carrying a name is its FIRST appearance overall, so one vessel
+            //    with two captured names (a rename the store never saw) is one vessel in both
+            //    buckets and never splits into an early and a late ordinal.
+            var vesselLegs = new Dictionary<int, List<MissionLeg>>();
             for (int i = 0; i < own.Count; i++)
             {
-                Recording ri = Rec(tree, own[i].RecordingId);
-                for (int j = i + 1; j < own.Count; j++)
-                {
-                    bool sameChain = !string.IsNullOrEmpty(own[i].ChainId)
-                        && string.Equals(own[i].ChainId, own[j].ChainId, StringComparison.Ordinal);
-                    if (sameChain
-                        || VesselLaunchIdentity.RecordingsShareLaunch(ri, Rec(tree, own[j].RecordingId)))
-                        Union(parent, i, j);
-                }
-            }
-
-            // 2b. A ship KSP re-pidded at an undock is the vessel it continues.
-            tally.Continuations = MergeRepiddedContinuations(tree, structure, own, parent, partPids);
-
-            // 3. Per name, the vessels carrying it; two or more get numbers.
-            var vesselsByName = new Dictionary<string, Dictionary<int, List<MissionLeg>>>(StringComparer.Ordinal);
-            for (int i = 0; i < own.Count; i++)
-            {
-                string name = LegName(own[i]);
-                int root = Find(parent, i);
-                if (!vesselsByName.TryGetValue(name, out Dictionary<int, List<MissionLeg>> byVessel))
-                {
-                    byVessel = new Dictionary<int, List<MissionLeg>>();
-                    vesselsByName[name] = byVessel;
-                }
-                if (!byVessel.TryGetValue(root, out List<MissionLeg> legs))
+                int root = VesselIdentity.Find(parent, i);
+                if (!vesselLegs.TryGetValue(root, out List<MissionLeg> legs))
                 {
                     legs = new List<MissionLeg>();
-                    byVessel[root] = legs;
+                    vesselLegs[root] = legs;
                 }
                 legs.Add(own[i]);
             }
-
-            foreach (KeyValuePair<string, Dictionary<int, List<MissionLeg>>> byName in vesselsByName)
+            var orderByRoot = new Dictionary<int, VesselOrder>();
+            var rootsByName = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+            foreach (KeyValuePair<int, List<MissionLeg>> v in vesselLegs)
             {
-                var vessels = new List<VesselOrder>();
-                foreach (List<MissionLeg> legs in byName.Value.Values)
+                List<MissionLeg> legs = v.Value;
+                MissionLeg first = legs[0];
+                for (int k = 1; k < legs.Count; k++)
                 {
-                    MissionLeg first = legs[0];
-                    for (int k = 1; k < legs.Count; k++)
-                    {
-                        int c = legs[k].StartUT.CompareTo(first.StartUT);
-                        if (c < 0 || (c == 0 && string.CompareOrdinal(legs[k].RecordingId, first.RecordingId) < 0))
-                            first = legs[k];
-                    }
-                    vessels.Add(new VesselOrder
-                    {
-                        Legs = legs,
-                        FirstUT = first.StartUT,
-                        SharesParentParts = SharesPartsWithParent(tree, first, partPids),
-                        FirstId = first.RecordingId,
-                    });
+                    int c = legs[k].StartUT.CompareTo(first.StartUT);
+                    if (c < 0 || (c == 0 && string.CompareOrdinal(legs[k].RecordingId, first.RecordingId) < 0))
+                        first = legs[k];
                 }
-                vessels.Sort(CompareVessel);
-                for (int v = 0; v < vessels.Count; v++)
+                orderByRoot[v.Key] = new VesselOrder
                 {
-                    string display = FormatNumbered(byName.Key, v + 1);
-                    if (v > 0) tally.Numbered += vessels[v].Legs.Count;
-                    foreach (MissionLeg leg in vessels[v].Legs)
-                        names[leg.RecordingId] = display;
+                    Root = v.Key,
+                    FirstUT = first.StartUT,
+                    SharesParentParts = SharesPartsWithParent(tree, first, partPids),
+                    FirstId = first.RecordingId,
+                };
+                var namesOfVessel = new HashSet<string>(StringComparer.Ordinal);
+                for (int k = 0; k < legs.Count; k++)
+                {
+                    string name = LegName(legs[k]);
+                    if (!namesOfVessel.Add(name)) continue;
+                    if (!rootsByName.TryGetValue(name, out List<int> roots2))
+                    {
+                        roots2 = new List<int>();
+                        rootsByName[name] = roots2;
+                    }
+                    roots2.Add(v.Key);
+                }
+            }
+
+            var ordinal = new Dictionary<string, Dictionary<int, int>>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, List<int>> byName in rootsByName)
+            {
+                var orders = new List<VesselOrder>(byName.Value.Count);
+                foreach (int root in byName.Value) orders.Add(orderByRoot[root]);
+                orders.Sort(CompareVessel);
+                var ranks = new Dictionary<int, int>();
+                for (int v = 0; v < orders.Count; v++) ranks[orders[v].Root] = v + 1;
+                ordinal[byName.Key] = ranks;
+            }
+            foreach (KeyValuePair<int, List<MissionLeg>> v in vesselLegs)
+            {
+                foreach (MissionLeg leg in v.Value)
+                {
+                    string name = LegName(leg);
+                    int rank = ordinal[name][v.Key];
+                    if (rank > 1) tally.Numbered++;
+                    names[leg.RecordingId] = FormatNumbered(name, rank);
                 }
             }
             return names;
@@ -363,7 +356,7 @@ namespace Parsek
 
         private struct VesselOrder
         {
-            internal List<MissionLeg> Legs;
+            internal int Root;
             internal double FirstUT;
             internal bool SharesParentParts;
             internal string FirstId;
@@ -415,142 +408,6 @@ namespace Parsek
             return found;
         }
 
-        /// <summary>
-        /// Joins each re-pidded continuation to the own vessel it continues, one hop at a time.
-        /// A candidate is a pair (own vessel V, leg L) where V holds L's NEAREST own lineage
-        /// ancestor (the walk up L's branch parents and chain predecessors passes through
-        /// partner legs and stops at the first own legs: the own ship docks into the partner's
-        /// stack and leaves it again), no leg of V runs past L's start, and L shares at least
-        /// one part pid with V. Each round every vessel's candidates are weighed together and
-        /// the best pair overall merges - most shared pids, then the later-ending vessel, then
-        /// the ids - so the ship's real half wins over a smaller piece that split off the
-        /// partner's stack a moment earlier. The round re-reads the current union-find roots,
-        /// so a ship re-pidded twice (A -> A' -> A'') chains: A'' only becomes a candidate of A
-        /// once A' has joined it, whatever the recording ids. The running test is the only
-        /// guard: a vessel that carries on past a split is never continued by the piece that
-        /// left it (a genuine same-named twin stays a second vessel), and once V absorbs one
-        /// half of an undock that half is running, so the other half cannot join V too. Each
-        /// leg joins at most one vessel. Returns the merges made.
-        /// </summary>
-        private static int MergeRepiddedContinuations(
-            RecordingTree tree, MissionStructure structure, List<MissionLeg> own, int[] parent,
-            Func<Recording, HashSet<uint>> partPids)
-        {
-            if (own.Count < 2) return 0;
-            var indexById = new Dictionary<string, int>(StringComparer.Ordinal);
-            for (int i = 0; i < own.Count; i++) indexById[own[i].RecordingId] = i;
-            var pidsByLeg = new HashSet<uint>[own.Count];
-            for (int i = 0; i < own.Count; i++)
-            {
-                Recording r = Rec(tree, own[i].RecordingId);
-                pidsByLeg[i] = r != null ? partPids(r) : new HashSet<uint>();
-            }
-            // The nearest own ancestors of each leg never change; only their roots do.
-            var nearest = new List<int>[own.Count];
-            for (int i = 0; i < own.Count; i++)
-                nearest[i] = NearestOwnAncestors(structure, own[i], indexById);
-
-            var joined = new HashSet<int>();
-            int merges = 0;
-            while (true)
-            {
-                Continuation best = default;
-                bool found = false;
-                for (int li = 0; li < own.Count; li++)
-                {
-                    if (joined.Contains(li) || pidsByLeg[li].Count == 0) continue;
-                    int legRoot = Find(parent, li);
-                    var tried = new HashSet<int>();
-                    foreach (int ai in nearest[li])
-                    {
-                        int vRoot = Find(parent, ai);
-                        if (vRoot == legRoot || !tried.Add(vRoot)) continue;
-                        if (!TryScore(own, pidsByLeg, parent, vRoot, li,
-                                out int shared, out double vesselEnd))
-                            continue;
-                        var c = new Continuation
-                        {
-                            Leg = li, Vessel = vRoot, Shared = shared, VesselEnd = vesselEnd,
-                        };
-                        if (!found || CompareContinuation(own, c, best) < 0)
-                        {
-                            best = c;
-                            found = true;
-                        }
-                    }
-                }
-                if (!found) break;
-                Union(parent, best.Leg, best.Vessel);
-                joined.Add(best.Leg);
-                merges++;
-            }
-            return merges;
-        }
-
-        // The own legs a leg L continues from directly: up its branch parents and chain
-        // predecessors, through partner legs, stopping at the first own leg on each path.
-        private static List<int> NearestOwnAncestors(
-            MissionStructure structure, MissionLeg leg, Dictionary<string, int> indexById)
-        {
-            var result = new List<int>();
-            var seen = new HashSet<string>(StringComparer.Ordinal) { leg.RecordingId };
-            var stack = new Stack<MissionLeg>();
-            stack.Push(leg);
-            while (stack.Count > 0)
-            {
-                MissionLeg cur = stack.Pop();
-                var ups = new List<string>(cur.BranchParentIds);
-                if (!string.IsNullOrEmpty(cur.SequencePrevId)) ups.Add(cur.SequencePrevId);
-                foreach (string up in ups)
-                {
-                    if (string.IsNullOrEmpty(up) || !seen.Add(up)) continue;
-                    if (indexById.TryGetValue(up, out int ai))
-                    {
-                        result.Add(ai);
-                        continue;
-                    }
-                    if (structure.LegsById.TryGetValue(up, out MissionLeg upLeg) && upLeg != null)
-                        stack.Push(upLeg);
-                }
-            }
-            return result;
-        }
-
-        // Vessel vRoot can take leg li: none of its legs runs past li's start, and they share
-        // at least one part pid with it.
-        private static bool TryScore(List<MissionLeg> own, HashSet<uint>[] pidsByLeg, int[] parent,
-            int vRoot, int li, out int shared, out double vesselEnd)
-        {
-            shared = 0;
-            vesselEnd = double.MinValue;
-            for (int k = 0; k < own.Count; k++)
-            {
-                if (Find(parent, k) != vRoot) continue;
-                if (own[k].EndUT > vesselEnd) vesselEnd = own[k].EndUT;
-                foreach (uint pid in pidsByLeg[k])
-                    if (pidsByLeg[li].Contains(pid)) shared++;
-            }
-            return shared > 0 && vesselEnd <= own[li].StartUT + EarlierEpsilonSeconds;
-        }
-
-        private static int CompareContinuation(List<MissionLeg> own, Continuation a, Continuation b)
-        {
-            int c = b.Shared.CompareTo(a.Shared);
-            if (c != 0) return c;
-            c = b.VesselEnd.CompareTo(a.VesselEnd);
-            if (c != 0) return c;
-            c = string.CompareOrdinal(own[a.Vessel].RecordingId, own[b.Vessel].RecordingId);
-            return c != 0 ? c : string.CompareOrdinal(own[a.Leg].RecordingId, own[b.Leg].RecordingId);
-        }
-
-        private struct Continuation
-        {
-            internal int Leg;
-            internal int Vessel;
-            internal int Shared;
-            internal double VesselEnd;
-        }
-
         // The tie-break: the vessel that kept the parent's parts is the one that continues it.
         private static bool SharesPartsWithParent(
             RecordingTree tree, MissionLeg leg, Func<Recording, HashSet<uint>> partPids)
@@ -571,21 +428,9 @@ namespace Parsek
             return false;
         }
 
-        /// <summary>A recording's part pids: its snapshot's PART nodes and its part events.
-        /// Parses the snapshot, so a per-frame caller goes through <see cref="Cache"/>.</summary>
-        internal static HashSet<uint> PartPids(Recording rec)
-        {
-            var pids = new HashSet<uint>();
-            ConfigNode snapshot = rec.GhostVisualSnapshot ?? rec.VesselSnapshot;
-            if (snapshot != null)
-                foreach (uint pid in VesselSnapshotOps.CollectPartPersistentIds(snapshot))
-                    if (pid != 0) pids.Add(pid);
-            if (rec.PartEvents != null)
-                for (int i = 0; i < rec.PartEvents.Count; i++)
-                    if (rec.PartEvents[i].partPersistentId != 0)
-                        pids.Add(rec.PartEvents[i].partPersistentId);
-            return pids;
-        }
+        /// <summary>A recording's part pids (<see cref="VesselIdentity.PartPids"/>). Parses the
+        /// snapshot, so a per-frame caller goes through <see cref="Cache"/>.</summary>
+        internal static HashSet<uint> PartPids(Recording rec) => VesselIdentity.PartPids(rec);
 
         private static string LegName(MissionLeg leg)
             => string.IsNullOrEmpty(leg.VesselName) ? "(vessel)" : leg.VesselName;
@@ -593,22 +438,5 @@ namespace Parsek
         private static Recording Rec(RecordingTree tree, string id)
             => id != null && tree?.Recordings != null
                && tree.Recordings.TryGetValue(id, out Recording r) ? r : null;
-
-        private static int Find(int[] parent, int i)
-        {
-            while (parent[i] != i)
-            {
-                parent[i] = parent[parent[i]];
-                i = parent[i];
-            }
-            return i;
-        }
-
-        private static void Union(int[] parent, int a, int b)
-        {
-            int ra = Find(parent, a), rb = Find(parent, b);
-            if (ra == rb) return;
-            if (ra < rb) parent[rb] = ra; else parent[ra] = rb;
-        }
     }
 }
