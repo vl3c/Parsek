@@ -240,12 +240,33 @@ namespace Parsek
             priors.Sort(StringComparer.Ordinal);
             foreach (string p in priors) AddPrior(d, p);
 
+            int keptGuids = 0;
             if (replaced != null)
             {
-                decisions.Remove(replaced);
+                // The new decision takes only THIS identity's guids. A guid of the replaced
+                // decision the identity no longer carries (two components it once saw joined
+                // that are apart now) keeps the replaced decision: renaming one vessel never
+                // erases another's name.
+                var remaining = new List<string>();
                 foreach (string g in replaced.Guids)
+                {
+                    bool mine = identity.Guids.Contains(g);
                     if (byGuid.TryGetValue(g, out VesselNameDecision cur) && ReferenceEquals(cur, replaced))
-                        byGuid.Remove(g);
+                    {
+                        if (mine) byGuid.Remove(g);
+                        else remaining.Add(g);
+                    }
+                }
+                replaced.Guids.Clear();
+                replaced.Guids.AddRange(remaining);
+                keptGuids = remaining.Count;
+                if (keptGuids == 0)
+                    decisions.Remove(replaced);
+                else
+                    ParsekLog.Info(Tag,
+                        "Replaced decision seq=" + replaced.Seq.ToString(CultureInfo.InvariantCulture) +
+                        " '" + replaced.Name + "' kept for " + keptGuids.ToString(CultureInfo.InvariantCulture) +
+                        " guid(s) outside identity=" + (identity.Key ?? "<none>"));
             }
             decisions.Add(d);
             foreach (string g in d.Guids) byGuid[g] = d;

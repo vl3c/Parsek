@@ -238,6 +238,158 @@ namespace Parsek.Tests
             Assert.Equal(1, linked.LinkEdges);
         }
 
+        // ---------------------------------------------------------------- edge 6 regressions (review of ed2040ace)
+
+        // catches: a pod staged off a booster that keeps the launch guid as DEBRIS (design 8.17)
+        // joining the launch vessel by part pids - the structure omits debris, so the guid's
+        // running half was invisible - and edge 1 then pulling the debris in too.
+        [Fact]
+        public void Edge6_PodStagedOffADebrisBooster_IsItsOwnVessel()
+        {
+            Recording L = Rec("L", "Rocket", 0, 100, pid: 1, guid: G1, partPids: new uint[] { 11, 12, 13 });
+            Recording B = Rec("B", "Rocket Debris", 100, 300, pid: 1, guid: G1, partPids: new uint[] { 11 });
+            B.IsDebris = true;
+            Recording P = Rec("P", "Rocket Probe", 100, 400, pid: 2, guid: G2, partPids: new uint[] { 12, 13 });
+            RecordingTree t = Tree("T", new[] { L, B, P },
+                BP("j", BranchPointType.JointBreak, 100, new[] { "L" }, new[] { "B", "P" }));
+            VesselIdentity.Resolution res = Resolve(t);
+            Assert.False(Same(res, "L", "P"));
+            Assert.True(Same(res, "L", "B"));
+
+            Assert.True(MissionVesselNaming.ApplyRecordingRename(P, "Lander", new[] { t }));
+            Assert.Equal("Rocket", L.VesselName);
+            Assert.Equal("Rocket Debris", B.VesselName);
+            Assert.Equal("Lander", P.VesselName);
+        }
+
+        // catches: two of one mission's own vessels that dock merging into one identity - the
+        // merged leg belongs to the dominant by guid, and the absorbed vessel stays itself
+        // (design 7.7).
+        [Fact]
+        public void Edge6_OwnDock_KeepsTheAbsorbedVesselSeparate()
+        {
+            Recording L = Rec("L", "Stack", 0, 10, pid: 1, guid: G1, partPids: new uint[] { 1, 2, 3, 4 });
+            Recording A = Rec("A", "Stack", 10, 50, pid: 1, guid: G1, partPids: new uint[] { 1, 2 });
+            Recording B = Rec("B", "Stack Lander", 10, 50, pid: 2, guid: G2, partPids: new uint[] { 3, 4 });
+            Recording M = Rec("M", "Stack", 50, 90, pid: 1, guid: G1, partPids: new uint[] { 1, 2, 3, 4 });
+            RecordingTree t = Tree("T", new[] { L, A, B, M },
+                BP("s", BranchPointType.JointBreak, 10, new[] { "L" }, new[] { "A", "B" }),
+                BP("d", BranchPointType.Dock, 50, new[] { "A", "B" }, new[] { "M" }));
+            VesselIdentity.Resolution res = Resolve(t);
+            Assert.False(Same(res, "A", "B"));
+            Assert.True(Same(res, "A", "M"));
+        }
+
+        private static RecordingTree LiveStagingTree(out Recording L, out Recording A, out Recording C)
+        {
+            // The active leg A is still being recorded: its points sit in the recorder buffer
+            // until the next save, so its EndUT reads 0 and it has no terminal state.
+            L = Rec("L", "Ship", 0, 100, pid: 1, guid: G1, partPids: new uint[] { 11, 12, 13, 14 });
+            A = Rec("A", "Ship", 100, double.NaN, pid: 1, guid: G1);
+            A.TerminalStateValue = null;
+            C = Rec("C", "Ship Probe", 100, double.NaN, pid: 2, guid: G2, partPids: new uint[] { 13, 14 });
+            C.TerminalStateValue = null;
+            return Tree("T", new[] { L, A, C },
+                BP("j", BranchPointType.JointBreak, 100, new[] { "L" }, new[] { "A", "C" }));
+        }
+
+        // catches: in the live tree a staged-off probe joining the ship until the next save,
+        // so a rename in that window indexed the probe's guid under the ship's decision.
+        [Fact]
+        public void Edge6_LiveTree_StagedProbeBeforeTheFlush_IsItsOwnVessel()
+        {
+            RecordingTree t = LiveStagingTree(out Recording L, out Recording A, out Recording C);
+            Assert.True(VesselIdentity.IsOpenLiveLeg(t, A));
+            Assert.False(VesselIdentity.IsOpenLiveLeg(t, L));
+            Assert.False(Same(Resolve(t), "L", "C"));
+
+            Assert.True(MissionVesselNaming.ApplyRecordingRename(L, "Relay-2", new[] { t }));
+            Assert.Equal("Relay-2", A.VesselName);
+            Assert.Equal("Ship Probe", C.VesselName);
+            Assert.Null(VesselNameStore.FindByGuid(G2));
+        }
+
+        // catches: the aftermath - renaming the probe once the window closed deleted the ship's
+        // decision for good (it took the guid the ship's decision held).
+        [Fact]
+        public void Edge6_LiveTree_RenamingTheProbeAfterTheFlush_KeepsTheShipsDecision()
+        {
+            RecordingTree t = LiveStagingTree(out Recording L, out Recording A, out Recording C);
+            Assert.True(MissionVesselNaming.ApplyRecordingRename(L, "Relay-2", new[] { t }));
+            A.ExplicitEndUT = 500;
+            A.TerminalStateValue = TerminalState.Orbiting;
+            Assert.False(Same(Resolve(t), "L", "C"));
+
+            Assert.True(MissionVesselNaming.ApplyRecordingRename(C, "Probe-1", new[] { t }));
+
+            Assert.Equal(2, VesselNameStore.Decisions.Count);
+            Assert.Equal("Relay-2", VesselNameStore.FindByGuid(G1).Name);
+            Assert.Equal("Probe-1", VesselNameStore.FindByGuid(G2).Name);
+            Assert.Equal("Relay-2", L.VesselName);
+            Assert.Equal("Relay-2", A.VesselName);
+            Assert.Equal("Probe-1", C.VesselName);
+        }
+
+        // catches: a replace that un-indexes EVERY guid of the replaced decision. A guid the
+        // identity no longer carries (two vessels a decision once saw joined) keeps the old
+        // decision, so renaming one vessel never erases the other's name.
+        [Fact]
+        public void Replace_KeepsTheOldDecisionForAGuidTheIdentityNoLongerCarries()
+        {
+            Recording h = Rec("h", "Ship", 0, 10, pid: 1, guid: G1, chain: "c", chainIndex: 0);
+            Recording k = Rec("k", "Ship", 10, 20, pid: 2, guid: G2, chain: "c", chainIndex: 1);
+            RecordingTree t = Tree("T", new[] { h, k });
+            Assert.True(MissionVesselNaming.ApplyRecordingRename(h, "Twin", new[] { t }));
+            VesselNameDecision first = VesselNameStore.FindByGuid(G2);
+
+            // The two are apart now; rename one of them.
+            k.ChainId = null;
+            k.ChainIndex = -1;
+            Assert.True(MissionVesselNaming.ApplyRecordingRename(h, "Solo", new[] { t }));
+
+            Assert.Equal(2, VesselNameStore.Decisions.Count);
+            Assert.Equal("Solo", VesselNameStore.FindByGuid(G1).Name);
+            Assert.Same(first, VesselNameStore.FindByGuid(G2));
+            Assert.Equal(new[] { G2 }, first.Guids.ToArray());
+            Assert.Equal("Twin", k.VesselName);
+            Assert.Contains(logLines, l => l.Contains("[INFO][VesselNames]")
+                && l.Contains("Replaced decision seq=1 'Twin' kept for 1 guid(s) outside identity=h"));
+        }
+
+        // catches: a fold that adds the loser's covered legs over the winner's uncovered ones -
+        // a leg stock named automatically under the winning decision would take its name.
+        [Fact]
+        public void Fold_KeepsAWinnerUncoveredLegUncovered()
+        {
+            var scenario = new ConfigNode("SCENARIO");
+            ConfigNode node = scenario.AddNode(VesselNameStore.NodeName);
+            ConfigNode older = node.AddNode("DECISION");
+            older.AddValue("seq", "1");
+            older.AddValue("guid", G1);
+            older.AddValue("name", "Old");
+            older.AddValue("covered", "x");
+            ConfigNode newer = node.AddNode("DECISION");
+            newer.AddValue("seq", "2");
+            newer.AddValue("guid", G2);
+            newer.AddValue("name", "New");
+            newer.AddValue("uncovered", "x");
+            VesselNameStore.Load(scenario);
+            Assert.Equal(2, VesselNameStore.Decisions.Count);
+
+            Recording x = Rec("x", "Auto", 0, 10, pid: 1, guid: G1);
+            Recording y = Rec("y", "New", 10, 20, pid: 2, guid: G2);
+            RecordingTree ta = Tree("A", new[] { x });
+            RecordingTree tb = Tree("B", new[] { y });
+            VesselIdentity.Resolution joined = VesselIdentity.Resolve(new[] { ta, tb }, null,
+                new[] { new KeyValuePair<string, string>(G2, G1) });
+            VesselNameStore.ApplyTo(joined, "test-join");
+
+            VesselNameDecision d = Assert.Single(VesselNameStore.Decisions);
+            Assert.DoesNotContain("x", d.CoveredLegIds);
+            Assert.Contains("x", d.UncoveredLegIds);
+            Assert.Equal("Auto", x.VesselName);
+        }
+
         // ---------------------------------------------------------------- decisions
 
         [Fact]

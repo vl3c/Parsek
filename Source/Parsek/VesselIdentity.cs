@@ -26,7 +26,9 @@ namespace Parsek
     /// conclusively differ (<see cref="VesselLaunchIdentity.RecordingsShareLaunch"/>, the rule
     /// the mission naming always used). Never across trees: pids are craft-baked.</item>
     /// <item>Inside ONE tree only: a re-pidded continuation (<see cref="MergeRepiddedContinuations"/>),
-    /// the fallback for undocks recorded before dock-absorb rows exist.</item>
+    /// the fallback for undocks recorded before dock-absorb rows exist: only a child of an
+    /// Undock branch point, and only onto a vessel that has ended (every recording carrying
+    /// its guids, debris included, and no open live leg).</item>
     /// </list>
     /// <para>EVA legs are kerbal identities and never part of a vessel. In the global
     /// <see cref="Resolve"/>, a tree's legs that carry ANOTHER mission's earlier launch (its
@@ -145,12 +147,20 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Edge 6. Joins each re-pidded continuation to the vessel it continues, one hop at a
-        /// time. A candidate is a pair (vessel V, leg L) where V holds L's NEAREST lineage
-        /// ancestor among <paramref name="legs"/> (the walk up L's branch parents and chain
-        /// predecessors passes through legs outside the subset - a partner's stack the ship
-        /// docked into - and stops at the first subset legs), no leg of V runs past L's start,
-        /// and L shares at least one part pid with V. Each round every vessel's candidates are
+        /// Edge 6: the fallback for undocks recorded before dock-absorb rows exist (design 6.2 /
+        /// 7.7). KSP gives the ship that leaves a dock a fresh guid and pid, so the leg it
+        /// starts is joined to the vessel it continues, one hop at a time. A candidate is a pair
+        /// (vessel V, leg L) where L is a child of an <see cref="BranchPointType.Undock"/>
+        /// branch point, V holds L's NEAREST lineage ancestor among <paramref name="legs"/>
+        /// (the walk up L's branch parents and chain predecessors passes through legs outside
+        /// the subset - a partner's stack the ship docked into - and stops at the first subset
+        /// legs), V has ENDED before L starts, and L shares at least one part pid with V.
+        /// "Ended" counts every recording of the tree carrying one of V's launch guids,
+        /// debris included (a staging split can leave the guid on a debris half the structure
+        /// omits), and an open live leg (no child branch point, no terminal state: its points
+        /// still sit in the recorder buffer, so its EndUT is not yet known) is running. A split,
+        /// a decouple or a dock never takes this edge: their legs are their own vessels, and a
+        /// dock's merged leg belongs to the dominant vessel by guid. Each round every vessel's candidates are
         /// weighed together and the best pair overall merges - most shared pids, then the
         /// later-ending vessel, then the ids - so the ship's real half wins over a smaller
         /// piece that split off the partner's stack a moment earlier. The round re-reads the
@@ -169,12 +179,19 @@ namespace Parsek
             if (partPids == null) partPids = PartPids;
             var indexById = new Dictionary<string, int>(StringComparer.Ordinal);
             for (int i = 0; i < legs.Count; i++) indexById[legs[i].RecordingId] = i;
-            var pidsByLeg = new HashSet<uint>[legs.Count];
+            var recs = new Recording[legs.Count];
+            var undockChild = new bool[legs.Count];
+            bool anyCandidate = false;
             for (int i = 0; i < legs.Count; i++)
             {
-                Recording r = Rec(tree, legs[i].RecordingId);
-                pidsByLeg[i] = r != null ? partPids(r) : new HashSet<uint>();
+                recs[i] = Rec(tree, legs[i].RecordingId);
+                undockChild[i] = IsUndockChild(tree, recs[i]);
+                anyCandidate |= undockChild[i];
             }
+            if (!anyCandidate) return 0;
+            var pidsByLeg = new HashSet<uint>[legs.Count];
+            for (int i = 0; i < legs.Count; i++)
+                pidsByLeg[i] = recs[i] != null ? partPids(recs[i]) : new HashSet<uint>();
             // The nearest subset ancestors of each leg never change; only their roots do.
             var nearest = new List<int>[legs.Count];
             for (int i = 0; i < legs.Count; i++)
@@ -188,14 +205,14 @@ namespace Parsek
                 bool found = false;
                 for (int li = 0; li < legs.Count; li++)
                 {
-                    if (joined.Contains(li) || pidsByLeg[li].Count == 0) continue;
+                    if (!undockChild[li] || joined.Contains(li) || pidsByLeg[li].Count == 0) continue;
                     int legRoot = Find(parent, li);
                     var tried = new HashSet<int>();
                     foreach (int ai in nearest[li])
                     {
                         int vRoot = Find(parent, ai);
                         if (vRoot == legRoot || !tried.Add(vRoot)) continue;
-                        if (!TryScore(legs, pidsByLeg, parent, vRoot, li,
+                        if (!TryScore(tree, legs, recs, pidsByLeg, parent, vRoot, li,
                                 out int shared, out double vesselEnd))
                             continue;
                         var c = new Continuation
@@ -247,21 +264,77 @@ namespace Parsek
             return result;
         }
 
-        // Vessel vRoot can take leg li: none of its legs runs past li's start, and they share
-        // at least one part pid with it.
-        private static bool TryScore(List<MissionLeg> legs, HashSet<uint>[] pidsByLeg, int[] parent,
-            int vRoot, int li, out int shared, out double vesselEnd)
+        // Vessel vRoot can take leg li: it has ended by li's start - none of its legs, and no
+        // recording of the tree carrying one of its guids (debris included), runs past it or
+        // is still open - and they share at least one part pid with it.
+        private static bool TryScore(RecordingTree tree, List<MissionLeg> legs, Recording[] recs,
+            HashSet<uint>[] pidsByLeg, int[] parent, int vRoot, int li,
+            out int shared, out double vesselEnd)
         {
             shared = 0;
             vesselEnd = double.MinValue;
+            var guids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             for (int k = 0; k < legs.Count; k++)
             {
                 if (Find(parent, k) != vRoot) continue;
+                if (IsOpenLiveLeg(tree, recs[k])) return false;
                 if (legs[k].EndUT > vesselEnd) vesselEnd = legs[k].EndUT;
+                string g = LegGuid(recs[k]);
+                if (g != null) guids.Add(g);
                 foreach (uint pid in pidsByLeg[k])
                     if (pidsByLeg[li].Contains(pid)) shared++;
             }
-            return shared > 0 && vesselEnd <= legs[li].StartUT + EarlierEpsilonSeconds;
+            if (shared == 0) return false;
+            if (guids.Count > 0 && tree?.Recordings != null)
+            {
+                foreach (Recording r in tree.Recordings.Values)
+                {
+                    if (!IsVesselLeg(r)) continue;
+                    string g = LegGuid(r);
+                    if (g == null || !guids.Contains(g)) continue;
+                    if (IsOpenLiveLeg(tree, r)) return false;
+                    double end = r.EndUT;
+                    if (end > vesselEnd) vesselEnd = end;
+                }
+            }
+            return vesselEnd <= legs[li].StartUT + EarlierEpsilonSeconds;
+        }
+
+        /// <summary>True when <paramref name="rec"/> starts at an Undock branch point of <paramref name="tree"/>.</summary>
+        internal static bool IsUndockChild(RecordingTree tree, Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.ParentBranchPointId) || tree?.BranchPoints == null)
+                return false;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                BranchPoint bp = tree.BranchPoints[i];
+                if (bp != null && string.Equals(bp.Id, rec.ParentBranchPointId, StringComparison.Ordinal))
+                    return bp.Type == BranchPointType.Undock;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// A live leg still being recorded: no child branch point, no terminal state, and no
+        /// later segment of its chain in <paramref name="tree"/> (a chain head an env / SOI
+        /// split continued carries neither of the first two either). Its points sit in the
+        /// recorder buffer until the next save, so its EndUT is not yet known and it counts as
+        /// running.
+        /// </summary>
+        internal static bool IsOpenLiveLeg(RecordingTree tree, Recording rec)
+        {
+            if (rec == null || !string.IsNullOrEmpty(rec.ChildBranchPointId) || rec.TerminalStateValue.HasValue)
+                return false;
+            if (string.IsNullOrEmpty(rec.ChainId) || tree?.Recordings == null)
+                return true;
+            foreach (Recording other in tree.Recordings.Values)
+            {
+                if (other == null || ReferenceEquals(other, rec)) continue;
+                if (string.Equals(other.ChainId, rec.ChainId, StringComparison.Ordinal)
+                    && other.ChainBranch == rec.ChainBranch && other.ChainIndex > rec.ChainIndex)
+                    return false;
+            }
+            return true;
         }
 
         private static int CompareContinuation(List<MissionLeg> legs, Continuation a, Continuation b)

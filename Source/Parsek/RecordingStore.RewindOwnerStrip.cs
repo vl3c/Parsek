@@ -31,6 +31,16 @@ namespace Parsek
             /// <summary>The owner's launch guid, normalized; null when unknown (name-only).</summary>
             internal string OwnerGuid;
 
+            /// <summary>
+            /// Other names the owner's vessel may carry in the quicksave: the names a vessel
+            /// name decision on the owner's identity replaced, plus the decision's own name
+            /// (<see cref="VesselNameStore"/>). The decision renames the owner's legs, while a
+            /// quicksave and a re-keyed owner copy (the resume path keeps the old guid and
+            /// clears the spawn pid) still carry an old name. Read only by the UNANCHORED name
+            /// fallback; Phase 2b link rows replace it.
+            /// </summary>
+            internal readonly HashSet<string> OwnerAliasNames = new HashSet<string>(StringComparer.Ordinal);
+
             /// <summary>Names stripped by name alone (the chain's EVA kerbals; or every name for
             /// a legacy caller that passes a plain name set).</summary>
             internal readonly HashSet<string> NameOnly = new HashSet<string>(StringComparer.Ordinal);
@@ -91,6 +101,14 @@ namespace Parsek
 
             strip.OwnerName = owner.VesselName;
             strip.OwnerGuid = VesselLaunchIdentity.NormalizeGuid(owner.RecordedVesselGuid);
+            VesselNameDecision decision = VesselNameStore.FindByGuid(strip.OwnerGuid);
+            if (decision != null)
+            {
+                if (!string.IsNullOrEmpty(decision.Name)) strip.OwnerAliasNames.Add(decision.Name);
+                foreach (string prior in decision.PriorNames)
+                    if (!string.IsNullOrEmpty(prior)) strip.OwnerAliasNames.Add(prior);
+                strip.OwnerAliasNames.Remove(strip.OwnerName ?? "");
+            }
             if (!string.IsNullOrEmpty(owner.ChainId))
             {
                 foreach (var committed in committedRecordings)
@@ -111,7 +129,7 @@ namespace Parsek
             if (!SuppressLogging)
                 ParsekLog.Verbose("Rewind",
                     $"Rewind owner strip: owner='{strip.OwnerName}' guid={strip.OwnerGuid ?? "(none, name-only)"} " +
-                    $"evaChildNames={strip.NameOnly.Count}");
+                    $"evaChildNames={strip.NameOnly.Count} ownerAliases={strip.OwnerAliasNames.Count}");
             return strip;
         }
 
@@ -144,6 +162,9 @@ namespace Parsek
         /// an unanchored owner, falls back to the name (the pre-identity behavior).</item>
         /// <item>A vessel under another name that carries the owner's launch guid is still the
         /// owner's vessel (a recording renamed after the flight): stripped by guid.</item>
+        /// <item>With the owner unanchored, a vessel under a name the owner's vessel name
+        /// decision replaced (<see cref="RewindOwnerStrip.OwnerAliasNames"/>) is stripped by
+        /// name, as the owner's name would be.</item>
         /// </list>
         /// </summary>
         internal static RewindOwnerStripDecision ClassifyRewindOwnerStripVessel(
@@ -167,6 +188,12 @@ namespace Parsek
             if (strip.OwnerGuid != null && guid != null
                 && string.Equals(guid, strip.OwnerGuid, StringComparison.OrdinalIgnoreCase))
                 return RewindOwnerStripDecision.StripOwnerGuid;
+
+            // Unanchored only, like the owner-name fallback above: a name the owner's identity
+            // carried before a vessel name decision (a re-keyed owner copy under its old name,
+            // whose fresh guid cannot match). An anchored owner is found by guid instead.
+            if (!ownerAnchored && vesselName != null && strip.OwnerAliasNames.Contains(vesselName))
+                return RewindOwnerStripDecision.StripName;
 
             return RewindOwnerStripDecision.NotMatched;
         }
