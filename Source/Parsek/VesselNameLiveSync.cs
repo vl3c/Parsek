@@ -42,7 +42,11 @@ namespace Parsek
         /// <summary>The current leg is stock's automatic name (ruling 4): the vessel keeps it.</summary>
         Uncovered,
         AlreadyNamed,
+        /// <summary>The live name is stale (the decision, a prior name or the leg's captured name).</summary>
         Write,
+        /// <summary>The live name is none of those: a name nobody chose, i.e. a stock automatic
+        /// rename after the leg opened (a player rename records a decision first). Never written.</summary>
+        UnchosenName,
     }
 
     /// <summary>Counts of one live write pass.</summary>
@@ -59,6 +63,8 @@ namespace Parsek
         internal int NoDecision;
         internal int SkippedGhost;
         internal int Failed;
+        internal int UnchosenName;
+        internal int LegsUncoveredByStockName;
     }
 
     /// <summary>
@@ -90,6 +96,9 @@ namespace Parsek
 
         /// <summary>Test seam: legs the "newest leg" fallback skips (production: superseded legs).</summary>
         internal static Func<string, bool> ExcludedLegForTesting;
+
+        /// <summary>Test seam for the capture localization (production: <see cref="Recording.ResolveLocalizedName"/>).</summary>
+        internal static Func<string, string> LocalizeForTesting;
 
         private static bool flightReadyPassArmed;
         private static bool loggedWaitingForStrip;
@@ -170,15 +179,60 @@ namespace Parsek
             return string.CompareOrdinal(aId, bId) > 0;
         }
 
-        /// <summary>The live write rule for one vessel (design 7.4 step 3). Pure.</summary>
-        internal static LiveWriteVerdict DecideLiveWrite(VesselNameDecision decision, string currentLegId, string liveName)
+        /// <summary>
+        /// The live write rule for one vessel (design 7.4 step 3). A covered current leg is
+        /// written only when the live name is STALE: the decision name, one of the decision's
+        /// prior names, or the leg's own captured name (a quicksave name after a load, a
+        /// stock-restored pre-dock name), compared raw and then localized the way a leg captures
+        /// it (<paramref name="localize"/>, null: <see cref="Recording.ResolveLocalizedName"/>).
+        /// Any other live name is a name nobody chose - a player rename always records a decision
+        /// first through the capture Postfix, and a Parsek write is the decision itself - so it is
+        /// stock's automatic rename after the leg opened (the old vessel renamed one Update after
+        /// a staging split, design 8.17) and is never written over (ruling 4). Pure apart from
+        /// the localizer.
+        /// </summary>
+        internal static LiveWriteVerdict DecideLiveWrite(
+            VesselNameDecision decision, string currentLegId, string liveName, Func<string, string> localize)
         {
             if (decision == null) return LiveWriteVerdict.NoDecision;
             if (string.IsNullOrEmpty(currentLegId)) return LiveWriteVerdict.NoCurrentLeg;
             if (decision.UncoveredLegIds.Contains(currentLegId)) return LiveWriteVerdict.Uncovered;
             if (!decision.CoveredLegIds.Contains(currentLegId)) return LiveWriteVerdict.Unclassified;
             if (string.Equals(liveName, decision.Name, StringComparison.Ordinal)) return LiveWriteVerdict.AlreadyNamed;
-            return LiveWriteVerdict.Write;
+            if (IsStaleKnownName(decision, currentLegId, liveName)) return LiveWriteVerdict.Write;
+            string localized = LocalizeCaptureName(liveName, localize);
+            if (!string.Equals(localized, liveName, StringComparison.Ordinal)
+                && IsStaleKnownName(decision, currentLegId, localized))
+                return LiveWriteVerdict.Write;
+            return LiveWriteVerdict.UnchosenName;
+        }
+
+        /// <summary>The decision name, a prior name, or the leg's captured name. Raw ordinal. Pure.</summary>
+        internal static bool IsStaleKnownName(VesselNameDecision d, string legId, string name)
+        {
+            if (d == null || string.IsNullOrEmpty(name)) return false;
+            if (d.CoversCapturedName(name)) return true;
+            return legId != null && d.CapturedNames.TryGetValue(legId, out string captured)
+                && string.Equals(captured, name, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// A live name in the form a leg captures it (<see cref="Recording.ResolveLocalizedName"/>,
+        /// which only resolves <c>#</c> tags); <paramref name="localize"/> overrides it.
+        /// </summary>
+        internal static string LocalizeCaptureName(string name, Func<string, string> localize)
+        {
+            if (string.IsNullOrEmpty(name)) return name;
+            if (localize != null) return localize(name) ?? name;
+            if (name[0] != '#') return name;
+            try
+            {
+                return Recording.ResolveLocalizedName(name);
+            }
+            catch (Exception)
+            {
+                return name;
+            }
         }
 
         /// <summary>
@@ -211,8 +265,13 @@ namespace Parsek
                 }
                 VesselNameDecision d = VesselNameStore.ResolveDecision(identity);
                 string leg = d != null ? ResolveCurrentLegId(identity, res, v.Guid, v.RecordingLegId, isExcludedLeg) : null;
-                switch (DecideLiveWrite(d, leg, v.Name))
+                switch (DecideLiveWrite(d, leg, v.Name, LocalizeForTesting))
                 {
+                    case LiveWriteVerdict.UnchosenName:
+                        r.UnchosenName++;
+                        if (KeepStockAutomaticName(res, d, leg, v, identity, reason))
+                            r.LegsUncoveredByStockName++;
+                        break;
                     case LiveWriteVerdict.NoDecision: r.NoDecision++; break;
                     case LiveWriteVerdict.NoCurrentLeg: r.NoCurrentLeg++; break;
                     case LiveWriteVerdict.Unclassified: r.Unclassified++; break;
@@ -249,8 +308,47 @@ namespace Parsek
                 " noIdentity=" + r.NoIdentity.ToString(CultureInfo.InvariantCulture) +
                 " noDecision=" + r.NoDecision.ToString(CultureInfo.InvariantCulture) +
                 " skippedGhost=" + r.SkippedGhost.ToString(CultureInfo.InvariantCulture) +
-                " failed=" + r.Failed.ToString(CultureInfo.InvariantCulture));
+                " failed=" + r.Failed.ToString(CultureInfo.InvariantCulture) +
+                " unchosenName=" + r.UnchosenName.ToString(CultureInfo.InvariantCulture) +
+                " legsUncoveredByStockName=" + r.LegsUncoveredByStockName.ToString(CultureInfo.InvariantCulture));
+            if (r.LegsUncoveredByStockName > 0)
+                DisplayNames.NoteChanged("vessel-names-stock-auto-name", reason);
             return r;
+        }
+
+        /// <summary>
+        /// A covered current leg whose live vessel carries a name nobody chose (stock's automatic
+        /// rename after the leg opened): never written over. When the leg is still open (the
+        /// recorder is recording this vessel on it) it is marked uncovered and its
+        /// <see cref="Recording.VesselName"/> (every copy) takes the live name in capture form,
+        /// exactly as if the leg had opened after the rename; a closed leg keeps its coverage.
+        /// True when a leg was uncovered.
+        /// </summary>
+        private static bool KeepStockAutomaticName(
+            VesselIdentity.Resolution res, VesselNameDecision d, string leg, LiveVesselEntry v,
+            VesselIdentity.Identity identity, string reason)
+        {
+            string captured = LocalizeCaptureName(v.Name, LocalizeForTesting);
+            bool open = !string.IsNullOrEmpty(v.RecordingLegId)
+                && string.Equals(v.RecordingLegId, leg, StringComparison.Ordinal);
+            List<Recording> copies = res.Copies(leg);
+            string old = copies != null && copies.Count > 0 && copies[0] != null ? copies[0].VesselName : null;
+            string head = "Live write rule: stock automatic name kept on pid=" +
+                v.Pid.ToString(CultureInfo.InvariantCulture) + " leg=" + leg + " '" + (old ?? "") + "' -> '" +
+                (captured ?? "") + "' (not the decision, a prior or the captured name): ";
+            string tail = " identity=" + (identity.Key ?? "<none>") + " seq=" + d.Seq.ToString(CultureInfo.InvariantCulture) +
+                " reason=" + (reason ?? "<none>");
+            if (!open)
+            {
+                ParsekLog.Info(Tag, head + "leg closed, coverage kept, no write" + tail);
+                return false;
+            }
+            VesselNameStore.MarkLegUncoveredByStockName(d, leg);
+            if (copies != null && !string.IsNullOrEmpty(captured))
+                foreach (Recording copy in copies)
+                    if (copy != null) copy.VesselName = captured;
+            ParsekLog.Info(Tag, head + "open leg marked uncovered, no write" + tail);
+            return true;
         }
 
         /// <summary>
@@ -480,6 +578,7 @@ namespace Parsek
         {
             LiveVesselsProviderForTesting = null;
             ExcludedLegForTesting = null;
+            LocalizeForTesting = null;
             flightReadyPassArmed = false;
             loggedWaitingForStrip = false;
             lastStripPassRealtime = float.MinValue;

@@ -279,7 +279,7 @@ namespace Parsek.Tests
             Assert.Equal(1, r.Uncovered);
 
             // The leg recording the vessel right now decides over the newest one.
-            FakeVessel recorded = Live(G1, 1, "Mission1 Probe", recordingLegId: "a1");
+            FakeVessel recorded = Live(G1, 1, "Mission1", recordingLegId: "a1");
             VesselNameLiveSync.ApplyLiveWriteRule(res, new[] { recorded.Entry }, null, "test", "test");
             Assert.Equal(new[] { "P1" }, recorded.Writes.ToArray());
         }
@@ -288,14 +288,105 @@ namespace Parsek.Tests
         public void DecideLiveWrite_Verdicts()
         {
             var d = new VesselNameDecision { Seq = 1, Name = "P1" };
+            d.PriorNames.Add("Old");
             d.CoveredLegIds.Add("c");
+            d.CapturedNames["c"] = "Captured";
             d.UncoveredLegIds.Add("u");
-            Assert.Equal(LiveWriteVerdict.NoDecision, VesselNameLiveSync.DecideLiveWrite(null, "c", "x"));
-            Assert.Equal(LiveWriteVerdict.NoCurrentLeg, VesselNameLiveSync.DecideLiveWrite(d, null, "x"));
-            Assert.Equal(LiveWriteVerdict.Uncovered, VesselNameLiveSync.DecideLiveWrite(d, "u", "x"));
-            Assert.Equal(LiveWriteVerdict.Unclassified, VesselNameLiveSync.DecideLiveWrite(d, "new", "x"));
-            Assert.Equal(LiveWriteVerdict.AlreadyNamed, VesselNameLiveSync.DecideLiveWrite(d, "c", "P1"));
-            Assert.Equal(LiveWriteVerdict.Write, VesselNameLiveSync.DecideLiveWrite(d, "c", "x"));
+            Assert.Equal(LiveWriteVerdict.NoDecision, VesselNameLiveSync.DecideLiveWrite(null, "c", "x", null));
+            Assert.Equal(LiveWriteVerdict.NoCurrentLeg, VesselNameLiveSync.DecideLiveWrite(d, null, "x", null));
+            Assert.Equal(LiveWriteVerdict.Uncovered, VesselNameLiveSync.DecideLiveWrite(d, "u", "x", null));
+            Assert.Equal(LiveWriteVerdict.Unclassified, VesselNameLiveSync.DecideLiveWrite(d, "new", "x", null));
+            Assert.Equal(LiveWriteVerdict.AlreadyNamed, VesselNameLiveSync.DecideLiveWrite(d, "c", "P1", null));
+            Assert.Equal(LiveWriteVerdict.Write, VesselNameLiveSync.DecideLiveWrite(d, "c", "Old", null));
+            Assert.Equal(LiveWriteVerdict.Write, VesselNameLiveSync.DecideLiveWrite(d, "c", "Captured", null));
+            Assert.Equal(LiveWriteVerdict.UnchosenName, VesselNameLiveSync.DecideLiveWrite(d, "c", "x", null));
+        }
+
+        // The staging race (design 8.17): the continuing vessel's new leg opened while it still
+        // carried the decision name, then ModuleDecouple renamed it automatically one Update
+        // later. A name nobody chose is never written over: the open leg becomes uncovered and
+        // takes the live name, as if it had opened after the rename (ruling 4).
+        [Fact]
+        public void LiveWrite_StagingRace_AnAutomaticNameAfterTheLegOpened_IsKept_AndUncoversTheOpenLeg()
+        {
+            Recording a1 = Rec("a1", "Mission1", 0, 100, pid: 1, guid: G1);
+            RecordingTree t = Tree("T", a1);
+            Assert.True(MissionVesselNaming.ApplyRecordingRename(a1, "P1", new[] { t }));
+            Recording a2 = Rec("a2", "P1", 100, 200, pid: 1, guid: G1);
+            a2.TreeId = "T";
+            t.Recordings["a2"] = a2;
+            VesselIdentity.Resolution res = Resolve(t);
+            VesselNameStore.ApplyTo(res, "test");
+            VesselNameDecision d = VesselNameStore.FindByGuid(G1);
+            Assert.Contains("a2", d.CoveredLegIds);
+            int display = DisplayNames.Version;
+
+            FakeVessel live = Live(G1, 1, "P1 Debris", recordingLegId: "a2");
+            LiveWriteResult r = VesselNameLiveSync.ApplyLiveWriteRule(res, new[] { live.Entry }, null, "test", "test");
+
+            Assert.Empty(live.Writes);
+            Assert.Equal(1, r.UnchosenName);
+            Assert.Equal(1, r.LegsUncoveredByStockName);
+            Assert.Contains("a2", d.UncoveredLegIds);
+            Assert.DoesNotContain("a2", d.CoveredLegIds);
+            Assert.Equal("P1 Debris", a2.VesselName);
+            Assert.Equal("P1", a1.VesselName);
+            Assert.True(DisplayNames.Version > display);
+            Assert.Contains(logLines, l => l.Contains("[INFO][VesselNames]")
+                && l.Contains("stock automatic name kept on pid=1 leg=a2 'P1' -> 'P1 Debris'")
+                && l.Contains("open leg marked uncovered, no write"));
+
+            // The apply pass keeps it that way, and the next live pass leaves the vessel alone.
+            VesselNameStore.ApplyTo(Resolve(t), "test");
+            Assert.Equal("P1 Debris", a2.VesselName);
+            LiveWriteResult again = VesselNameLiveSync.ApplyLiveWriteRule(Resolve(t), new[] { live.Entry }, null, "test", "test");
+            Assert.Empty(live.Writes);
+            Assert.Equal(1, again.Uncovered);
+        }
+
+        [Fact]
+        public void LiveWrite_AnAutomaticNameOnAClosedLeg_IsKept_AndTheLegStaysCovered()
+        {
+            Recording a1 = Rec("a1", "Mission1", 0, 100, pid: 1, guid: G1);
+            RecordingTree t = Tree("T", a1);
+            Assert.True(MissionVesselNaming.ApplyRecordingRename(a1, "P1", new[] { t }));
+            FakeVessel live = Live(G1, 1, "Something Automatic");
+            VesselNameLiveSync.ApplyLiveWriteRule(Resolve(t), new[] { live.Entry }, null, "test", "test");
+            Assert.Empty(live.Writes);
+            Assert.Contains("a1", VesselNameStore.FindByGuid(G1).CoveredLegIds);
+            Assert.Equal("P1", a1.VesselName);
+            Assert.Contains(logLines, l => l.Contains("leg closed, coverage kept, no write"));
+        }
+
+        // After a load the live vessel carries the quicksave's name, which is a prior name: stale.
+        [Fact]
+        public void LiveWrite_AfterALoad_APriorName_IsStillWritten()
+        {
+            Recording a1 = Rec("a1", "Mission1", 0, 100, pid: 1, guid: G1);
+            RecordingTree t = Tree("T", a1);
+            Assert.True(MissionVesselNaming.ApplyRecordingRename(a1, "Relay-1", new[] { t }));
+            Assert.True(MissionVesselNaming.ApplyRecordingRename(a1, "Relay-2", new[] { t }));
+            FakeVessel quicksaveName = Live(G1, 1, "Relay-1", recordingLegId: "a1");
+            FakeVessel launchName = Live(G1, 1, "Mission1");
+            VesselNameLiveSync.ApplyLiveWriteRule(Resolve(t), new[] { quicksaveName.Entry, launchName.Entry },
+                null, "post-load", "test");
+            Assert.Equal(new[] { "Relay-2" }, quicksaveName.Writes.ToArray());
+            Assert.Equal(new[] { "Relay-2" }, launchName.Writes.ToArray());
+            Assert.Contains("a1", VesselNameStore.FindByGuid(G1).CoveredLegIds);
+        }
+
+        // A stock craft name is a raw #autoLOC tag; the leg captured it localized.
+        [Fact]
+        public void LiveWrite_ALocalizedTagEqualToAPriorName_IsStillWritten()
+        {
+            Recording a1 = Rec("a1", "Kerbal X", 0, 100, pid: 1, guid: G1);
+            RecordingTree t = Tree("T", a1);
+            Assert.True(MissionVesselNaming.ApplyRecordingRename(a1, "Named X", new[] { t }));
+            VesselNameLiveSync.LocalizeForTesting = n => n == "#autoLOC_501224" ? "Kerbal X" : n;
+            FakeVessel live = Live(G1, 1, "#autoLOC_501224", recordingLegId: "a1");
+            LiveWriteResult r = VesselNameLiveSync.ApplyLiveWriteRule(Resolve(t), new[] { live.Entry }, null, "test", "test");
+            Assert.Equal(new[] { "Named X" }, live.Writes.ToArray());
+            Assert.Equal(0, r.UnchosenName);
         }
 
         [Fact]

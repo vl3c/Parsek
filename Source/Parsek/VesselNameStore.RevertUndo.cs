@@ -268,6 +268,19 @@ namespace Parsek
             return result;
         }
 
+        /// <summary>
+        /// The live write rule found the open current leg's vessel under a name nobody chose
+        /// (stock's automatic rename after the leg opened): the leg is stock-named, not covered.
+        /// </summary>
+        internal static void MarkLegUncoveredByStockName(VesselNameDecision d, string legId)
+        {
+            if (d == null || string.IsNullOrEmpty(legId)) return;
+            d.CoveredLegIds.Remove(legId);
+            d.CapturedNames.Remove(legId);
+            d.UncoveredLegIds.Add(legId);
+            Version++;
+        }
+
         private static void ClearRevertUndoState(bool resetEpoch)
         {
             undoEntries.Clear();
