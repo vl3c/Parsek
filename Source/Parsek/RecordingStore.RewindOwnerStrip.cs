@@ -32,12 +32,15 @@ namespace Parsek
             internal string OwnerGuid;
 
             /// <summary>
-            /// Other names the owner's vessel may carry in the quicksave: the names a vessel
-            /// name decision on the owner's identity replaced, plus the decision's own name
-            /// (<see cref="VesselNameStore"/>). The decision renames the owner's legs, while a
-            /// quicksave and a re-keyed owner copy (the resume path keeps the old guid and
-            /// clears the spawn pid) still carry an old name. Read only by the UNANCHORED name
-            /// fallback; Phase 2b link rows replace it.
+            /// Other names the owner's vessel may carry in the quicksave when a vessel name
+            /// decision (<see cref="VesselNameStore"/>) renamed the owner's legs: exactly the
+            /// owner recording's OWN captured name from before the decision applied (else its
+            /// current name) plus the decision name. A quicksave and a re-keyed owner copy (the
+            /// resume path keeps the old guid and clears the spawn pid) still carry the old
+            /// name. Never the identity's other leg names (a naming-part takeover at a dock, a
+            /// debris half's name): the strip is destructive and must match no more than it did
+            /// before the rename. Read only by the UNANCHORED name fallback; Phase 2b link rows
+            /// replace it.
             /// </summary>
             internal readonly HashSet<string> OwnerAliasNames = new HashSet<string>(StringComparer.Ordinal);
 
@@ -105,8 +108,10 @@ namespace Parsek
             if (decision != null)
             {
                 if (!string.IsNullOrEmpty(decision.Name)) strip.OwnerAliasNames.Add(decision.Name);
-                foreach (string prior in decision.PriorNames)
-                    if (!string.IsNullOrEmpty(prior)) strip.OwnerAliasNames.Add(prior);
+                string captured = owner.RecordingId != null
+                    && decision.CapturedNames.TryGetValue(owner.RecordingId, out string c)
+                    ? c : owner.VesselName;
+                if (!string.IsNullOrEmpty(captured)) strip.OwnerAliasNames.Add(captured);
                 strip.OwnerAliasNames.Remove(strip.OwnerName ?? "");
             }
             if (!string.IsNullOrEmpty(owner.ChainId))
@@ -162,9 +167,10 @@ namespace Parsek
         /// an unanchored owner, falls back to the name (the pre-identity behavior).</item>
         /// <item>A vessel under another name that carries the owner's launch guid is still the
         /// owner's vessel (a recording renamed after the flight): stripped by guid.</item>
-        /// <item>With the owner unanchored, a vessel under a name the owner's vessel name
-        /// decision replaced (<see cref="RewindOwnerStrip.OwnerAliasNames"/>) is stripped by
-        /// name, as the owner's name would be.</item>
+        /// <item>With the owner unanchored, a vessel under the owner recording's own name from
+        /// before a vessel name decision, or under the decision name
+        /// (<see cref="RewindOwnerStrip.OwnerAliasNames"/>), is stripped by name, as the
+        /// owner's name would be.</item>
         /// </list>
         /// </summary>
         internal static RewindOwnerStripDecision ClassifyRewindOwnerStripVessel(

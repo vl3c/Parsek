@@ -31,6 +31,14 @@ namespace Parsek
         internal readonly List<string> PriorNames = new List<string>();
         internal readonly HashSet<string> CoveredLegIds = new HashSet<string>(StringComparer.Ordinal);
         internal readonly HashSet<string> UncoveredLegIds = new HashSet<string>(StringComparer.Ordinal);
+        /// <summary>
+        /// Each covered leg's own captured name from before any decision applied to it (leg
+        /// id -> name). The destructive rewind owner strip reads the owner leg's entry so its
+        /// name fallback matches exactly what it matched before the rename, never the other
+        /// names the identity's legs carried (<see cref="PriorNames"/> is wider: it drives
+        /// coverage only).
+        /// </summary>
+        internal readonly Dictionary<string, string> CapturedNames = new Dictionary<string, string>(StringComparer.Ordinal);
         internal VesselNameSource Source;
         /// <summary>Diagnostics only.</summary>
         internal double DecidedUT;
@@ -70,6 +78,7 @@ namespace Parsek
         internal const string Tag = "VesselNames";
         internal const string NodeName = "VESSEL_NAMES";
         internal const string DecisionNodeName = "DECISION";
+        internal const string CapturedNodeName = "CAPTURED";
 
         internal const string RefusalBlank = "blank";
         internal const string RefusalUnchanged = "unchanged";
@@ -157,6 +166,8 @@ namespace Parsek
                 if (!winner.UncoveredLegIds.Contains(id)) winner.CoveredLegIds.Add(id);
             foreach (string id in loser.UncoveredLegIds)
                 if (!winner.CoveredLegIds.Contains(id)) winner.UncoveredLegIds.Add(id);
+            foreach (KeyValuePair<string, string> kv in loser.CapturedNames)
+                if (!winner.CapturedNames.ContainsKey(kv.Key)) winner.CapturedNames[kv.Key] = kv.Value;
             AddPrior(winner, loser.Name);
             foreach (string p in loser.PriorNames) AddPrior(winner, p);
             decisions.Remove(loser);
@@ -228,9 +239,16 @@ namespace Parsek
             {
                 d.CoveredLegIds.Add(legId);
                 List<Recording> copies = res.Copies(legId);
+                // A leg the replaced decision already renamed keeps its original capture.
+                if (replaced != null && replaced.CapturedNames.TryGetValue(legId, out string kept))
+                    d.CapturedNames[legId] = kept;
                 if (copies == null) continue;
                 foreach (Recording copy in copies)
-                    if (copy != null && !string.IsNullOrEmpty(copy.VesselName)) priors.Add(copy.VesselName);
+                {
+                    if (copy == null || string.IsNullOrEmpty(copy.VesselName)) continue;
+                    priors.Add(copy.VesselName);
+                    if (!d.CapturedNames.ContainsKey(legId)) d.CapturedNames[legId] = copy.VesselName;
+                }
             }
             if (replaced != null)
             {
@@ -399,7 +417,12 @@ namespace Parsek
                     {
                         bool covered = false;
                         foreach (Recording copy in copies)
-                            if (copy != null && d.CoversCapturedName(copy.VesselName)) { covered = true; break; }
+                            if (copy != null && d.CoversCapturedName(copy.VesselName))
+                            {
+                                covered = true;
+                                d.CapturedNames[legId] = copy.VesselName;
+                                break;
+                            }
                         if (covered) { d.CoveredLegIds.Add(legId); result.NewlyCovered++; }
                         else { d.UncoveredLegIds.Add(legId); result.NewlyUncovered++; }
                         storeChanged = true;
@@ -610,6 +633,14 @@ namespace Parsek
                 foreach (string p in d.PriorNames) dn.AddValue("prior", p);
                 foreach (string id in Sorted(d.CoveredLegIds)) dn.AddValue("covered", id);
                 foreach (string id in Sorted(d.UncoveredLegIds)) dn.AddValue("uncovered", id);
+                var capturedIds = new List<string>(d.CapturedNames.Keys);
+                capturedIds.Sort(StringComparer.Ordinal);
+                foreach (string id in capturedIds)
+                {
+                    ConfigNode cn = dn.AddNode(CapturedNodeName);
+                    cn.AddValue("leg", id);
+                    cn.AddValue("name", d.CapturedNames[id] ?? "");
+                }
                 dn.AddValue("source", d.Source.ToString());
                 dn.AddValue("ut", d.DecidedUT.ToString("R", ic));
             }
@@ -702,6 +733,13 @@ namespace Parsek
                 foreach (string id in dn.GetValues("covered")) if (!string.IsNullOrEmpty(id)) d.CoveredLegIds.Add(id);
                 foreach (string id in dn.GetValues("uncovered"))
                     if (!string.IsNullOrEmpty(id) && !d.CoveredLegIds.Contains(id)) d.UncoveredLegIds.Add(id);
+                foreach (ConfigNode cn in dn.GetNodes(CapturedNodeName))
+                {
+                    string leg = cn.GetValue("leg");
+                    string captured = cn.GetValue("name");
+                    if (!string.IsNullOrEmpty(leg) && !string.IsNullOrEmpty(captured))
+                        d.CapturedNames[leg] = captured;
+                }
                 string rawSource = dn.GetValue("source");
                 if (rawSource != null && Enum.TryParse(rawSource, false, out VesselNameSource source)
                     && Enum.IsDefined(typeof(VesselNameSource), source))

@@ -219,6 +219,11 @@ VESSEL_NAMES
         prior = P2                // one line per prior name
         covered = 3f0a...         // one line per covered leg id
         uncovered = 9b11...       // one line per uncovered leg id
+        CAPTURED                  // one per covered leg: its own name before any decision applied
+        {
+            leg = 3f0a...
+            name = Mission1
+        }
         source = StockDialog
         ut = 123456.7             // R, InvariantCulture, diagnostics only
     }
@@ -322,7 +327,7 @@ After a load the live stock vessels carry the quicksave's names. Re-apply:
 | Site | Today | Change | Risk if left |
 |---|---|---|---|
 | `RewindInvoker.ResolveInPlaceContinuationDebrisToKill` (`:3822-3866`) | kills left-alone quicksave vessels whose name matches a recording | guid + pid (as `StripOrphanedSpawnedVessels` does) | high: `Die()` on a same-named ship, or a doubled vessel |
-| `RecordingStore.RewindOwnerStrip` (`:86-164`), legacy `FromNames` overload | name-only fallback when unanchored (no quicksave vessel carries the owner guid) | Phase 0: unchanged (it is the only thing that strips a re-keyed owner copy: the resume path clears `SpawnedVesselPersistentId` and keeps the old guid). Phase 1 (done): the unanchored fallback also accepts the owner identity's decision name and prior names (`RewindOwnerStrip.OwnerAliasNames`), so renaming the owner's legs does not leave the copy, still under its old name, unstripped. Phase 2b: match the identity's full guid set (links included); name only for guid-less legacy | medium: strips another launch renamed to the owner's name |
+| `RecordingStore.RewindOwnerStrip` (`:86-164`), legacy `FromNames` overload | name-only fallback when unanchored (no quicksave vessel carries the owner guid) | Phase 0: unchanged (it is the only thing that strips a re-keyed owner copy: the resume path clears `SpawnedVesselPersistentId` and keeps the old guid). Phase 1 (done): the unanchored fallback also accepts `RewindOwnerStrip.OwnerAliasNames` = exactly the owner recording's own captured name from before the decision applied (the decision's per-leg `CapturedNames`, persisted as `CAPTURED { leg, name }` children of `DECISION`; else the owner's current name) plus the decision name, so renaming the owner's legs does not leave the copy, still under its old name, unstripped. Never the decision's wider `priorNames` (a naming-part name taken at a dock, a debris half's name): a destructive strip matches no more than it did before Phase 1. Phase 2b: match the identity's full guid set (links included); name only for guid-less legacy | medium: strips another launch renamed to the owner's name |
 | `VesselSpawner.ShouldRecoverBlockerVessel` (`:2959-2973`) | name equality before the spawn-pid check | replace the name gate with `VesselLaunchIdentity.LiveVesselIsRecordedSpawn` (guid-checked for adoption stamps, so a same-craft relaunch is never recovered) | medium: #112 recovery silently skipped, walkback instead |
 | `RecordingStore.SupersedeTerminalSpawn.cs:233` | same-name + UT contiguity fallback | `RecordingsShareLaunch` / identity | medium: missed supersede, double spawn |
 | `ParsekFlight.cs:14286`, `:14321` quickload restore | name fallback after pid | pid + guid only | low-medium |

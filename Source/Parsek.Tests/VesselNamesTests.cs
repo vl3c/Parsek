@@ -696,6 +696,11 @@ namespace Parsek.Tests
                 Assert.Equal(new[] { "Mission1" }, d.PriorNames.ToArray());
                 Assert.True(d.CoveredLegIds.SetEquals(new[] { "a1", "a2" }));
                 Assert.True(d.UncoveredLegIds.SetEquals(new[] { "a3" }));
+                // Each covered leg's own pre-decision name, for the rewind owner strip.
+                Assert.Equal(2, d.CapturedNames.Count);
+                Assert.Equal("Mission1", d.CapturedNames["a1"]);
+                Assert.Equal("Mission1", d.CapturedNames["a2"]);
+                Assert.Equal(2, node.GetNode("DECISION").GetNodes(VesselNameStore.CapturedNodeName).Length);
                 Assert.Same(d, VesselNameStore.FindByGuid(G2));
                 Assert.Contains(logLines, l => l.Contains("[INFO][VesselNames]")
                     && l.Contains("Loaded VESSEL_NAMES: decisions=1 skipped=0 nextSeq=2"));
