@@ -18,14 +18,15 @@ id = "VN-1-stock-rename-staging-f9"
 #   (b) The staging. The booster (no naming part) is named by stock's AutoRename from the
 #       parent's name at the split: "VN1 Alpha Probe", a NEW identity with no decision. The
 #       mission therefore tracks the sibling under that name. Every later rename of the pod
-#       leaves the booster's legs on that automatic name (ruling 4), and the pre-split launch
-#       leg follows the pod's identity (ruling 7). NOT exercised: the post-staging race
+#       leaves the booster's legs on that automatic name (ruling 4). GS-1's pod keeps ONE recording across the split (the parent keeps its recording; QL-4 / RF-1 logs:
+#       recordings=2), so here the launch leg IS the pod leg and legs=1; ruling 7 across a
+#       separate launch recording is proven by unit tests, not by this lane. NOT exercised: the post-staging race
 #       where the CONTROL part leaves on the new vessel and ModuleDecouple.WaitAndSwitchFocus
 #       renames the old vessel one Update later (design 8.17): this craft's root and only
 #       crew are in the pod, so the pod keeps control. That needs a craft whose command part
 #       is on the lower stage.
-#   (a) After landing: F5, then RenameVessel "VN1 Bravo": every leg of the pod's identity
-#       (the launch leg and the post-split pod leg, legs >= 2) is renamed, the booster is not.
+#   (a) After landing: F5, then RenameVessel "VN1 Bravo": the pod's identity (its one
+#       recording, from the pad) is renamed, the booster is not.
 #   (d) StopRecording, F9 in FLIGHT: the quicksave reloads the pod as "VN1 Alpha"; the
 #       OnLoad tail proto pass (or the first-tick post-load pass) writes "VN1 Bravo" back.
 #       The later Parsek rename's write-through line reads `'VN1 Bravo' -> 'VN1 Charlie'`,
@@ -137,14 +138,14 @@ allowedAnomalies = []
 # committed-restore clone's leg (GS-1 / QL-4's reasons).
 count = { min = 3, max = 14 }
 
-# REPORT-ONLY until a reading run. The committed legs: the pod's identity (launch leg and
-# post-split legs) all "VN1 Charlie", the booster's legs on the automatic "VN1 Alpha Probe",
+# REPORT-ONLY until a reading run. The committed legs: the pod's identity (its recording and
+# any commit-time optimizer split of it) all "VN1 Charlie", the booster's legs on the automatic "VN1 Alpha Probe",
 # no leg left on an earlier name. The save's live vessels: the pod "VN1 Charlie", the
 # booster "VN1 Alpha Probe".
 [expectations.recordings.structure]
 gating         = false
 committedTrees = { min = 1, max = 1 }
-recordingNames = { "VN1 Charlie" = { min = 2 }, "VN1 Alpha Probe" = { min = 1 }, "VN1 Bravo" = { max = 0 }, "VN1 Alpha" = { max = 0 }, "GS1 Auto-Chute Booster" = { max = 0 } }
+recordingNames = { "VN1 Charlie" = { min = 1 }, "VN1 Alpha Probe" = { min = 1 }, "VN1 Bravo" = { max = 0 }, "VN1 Alpha" = { max = 0 }, "GS1 Auto-Chute Booster" = { max = 0 } }
 vesselNames    = { "VN1 Charlie" = { min = 1, max = 1 }, "VN1 Alpha Probe" = { min = 1, max = 1 }, "VN1 Bravo" = { max = 0 }, "VN1 Alpha" = { max = 0 }, "GS1 Auto-Chute Booster" = { max = 0 } }
 
 [expectations.logContracts]
@@ -162,10 +163,10 @@ required = [
   # (b) The split: the booster becomes a controlled child under stock's automatic name.
   "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
 
-  # (a) The post-split rename covers at least two legs (the launch leg and the pod leg).
-  "renamevessel applied pid=[0-9]+ old='VN1 Alpha' new='VN1 Bravo' type=Ship active=true changed=true legs=(?:[2-9]|[1-9][0-9]+) decision=StockDialog decisionName='VN1 Bravo'",
-  "Vessel name decision recorded: identity=\\S+ 'VN1 Alpha' -> 'VN1 Bravo' source=StockDialog seq=[0-9]+ legs=(?:[2-9]|[1-9][0-9]+) ",
-  "Apply pass \\(stock-rename\\): identities=[0-9]+ withDecision=[0-9]+ newlyCovered=[0-9]+ newlyUncovered=[0-9]+ legsRenamed=(?:[2-9]|[1-9][0-9]+) ",
+  # (a) The post-split rename covers the pod's identity (legs >= 1: one recording on GS-1).
+  "renamevessel applied pid=[0-9]+ old='VN1 Alpha' new='VN1 Bravo' type=Ship active=true changed=true legs=[1-9][0-9]* decision=StockDialog decisionName='VN1 Bravo'",
+  "Vessel name decision recorded: identity=\\S+ 'VN1 Alpha' -> 'VN1 Bravo' source=StockDialog seq=[0-9]+ legs=[1-9][0-9]* ",
+  "Apply pass \\(stock-rename\\): identities=[0-9]+ withDecision=[0-9]+ newlyCovered=[0-9]+ newlyUncovered=[0-9]+ legsRenamed=[1-9][0-9]* ",
 
   # (d) The F9 reloads the pod under the quicksave's "VN1 Alpha"; a post-load pass writes
   # the decision back (the proto form at the OnLoad tail, the Vessel form on the first host
@@ -182,9 +183,9 @@ required = [
 
   # (c) The Parsek rename of the committed row writes through to the live pod, which
   # carries "VN1 Bravo" at that moment (the F9 outcome).
-  "\\[UI\\] Recording 'VN1 Bravo' renamed to 'VN1 Charlie' identity=\\S+ legs=(?:[2-9]|[1-9][0-9]+)",
+  "\\[UI\\] Recording 'VN1 Bravo' renamed to 'VN1 Charlie' identity=\\S+ legs=[1-9][0-9]*",
   "Vessel name decision recorded: identity=\\S+ 'VN1 Bravo' -> 'VN1 Charlie' source=ParsekRename ",
-  "Apply pass \\(parsek-rename\\): identities=[0-9]+ withDecision=[0-9]+ newlyCovered=[0-9]+ newlyUncovered=[0-9]+ legsRenamed=(?:[2-9]|[1-9][0-9]+) ",
+  "Apply pass \\(parsek-rename\\): identities=[0-9]+ withDecision=[0-9]+ newlyCovered=[0-9]+ newlyUncovered=[0-9]+ legsRenamed=[1-9][0-9]* ",
   "Write-through applied: vessel pid=[0-9]+ guid=[0-9a-f]+ 'VN1 Bravo' -> 'VN1 Charlie' loaded=true namingPart=\\S+ reason=parsek-rename",
   "uiaction edit window=missions field=recordingname key=[0-9a-f]+ draft=VN1 Charlie committed=true ",
 ]

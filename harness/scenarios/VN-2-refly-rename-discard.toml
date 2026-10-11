@@ -114,11 +114,11 @@ allowedAnomalies = []
 count = { min = 2, max = 14 }
 
 # REPORT-ONLY until a reading run. The committed legs after the discard: the booster on its
-# Parsek name, the pod's identity (launch leg and pod legs) on the Parsek name made inside
+# Parsek name, the pod's identity (its recording, legs >= 1 on GS-1) on the Parsek name made inside
 # the attempt, nothing on the cancelled stock name or a replaced name.
 [expectations.recordings.structure]
 gating         = false
-recordingNames = { "VN2 Booster" = { min = 1 }, "VN2 Pod" = { min = 2 }, "VN2 Booster Stock" = { max = 0 }, "GS1 Auto-Chute Booster Probe" = { max = 0 }, "GS1 Auto-Chute Booster" = { max = 0 } }
+recordingNames = { "VN2 Booster" = { min = 1 }, "VN2 Pod" = { min = 1 }, "VN2 Booster Stock" = { max = 0 }, "GS1 Auto-Chute Booster Probe" = { max = 0 }, "GS1 Auto-Chute Booster" = { max = 0 } }
 
 [expectations.logContracts]
 required = [
@@ -136,9 +136,9 @@ required = [
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke[\\s\\S]*Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ 'GS1 Auto-Chute Booster Probe' -> 'VN2 Booster' ",
   "renamevessel applied pid=[0-9]+ old='VN2 Booster' new='VN2 Booster Stock' type=\\S+ active=true changed=true legs=[1-9][0-9]* decision=StockDialog decisionName='VN2 Booster Stock'",
   "Stock rename captured: source=StockDialog pid=[0-9]+ guid=[0-9a-f]+ 'VN2 Booster' -> 'VN2 Booster Stock' ",
-  # (e) The Parsek rename inside the attempt renames the pod's identity, launch leg included.
+  # (e) The Parsek rename inside the attempt renames the pod's identity (one recording on GS-1).
   "uiaction edit window=missions field=recordingname key=[0-9a-f]+ draft=VN2 Pod committed=true ",
-  "Vessel name decision recorded: identity=\\S+ '[^'\\r\\n]*' -> 'VN2 Pod' source=ParsekRename seq=[0-9]+ legs=(?:[2-9]|[1-9][0-9]+) ",
+  "Vessel name decision recorded: identity=\\S+ '[^'\\r\\n]*' -> 'VN2 Pod' source=ParsekRename seq=[0-9]+ legs=[1-9][0-9]* ",
   # (e) The discard: QL-5's chain, then the undo of the attempt's epoch.
   "reflyrevert pressed dialog button='Discard Re-Fly' choice=discard",
   "Load classified: early=DiscardReFly refined=DiscardReFly scene=SPACECENTER",
