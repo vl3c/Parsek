@@ -1,0 +1,217 @@
+schema = 1
+id = "VN-1-stock-rename-staging-f9"
+# =====================================================================================
+# VN-1: VESSEL NAMES, THE STOCK RENAME ON A RECORDED FLIGHT (design
+# docs/dev/design-vessel-and-mission-names.md 15.3, todo GC-7). AUTHORED 2026-10-11 on
+# branch `vessel-names-links`, NEVER FLOWN: every token below is quoted from its emitting
+# source line, not from a run of this lane, and the saveParse blocks are REPORT-ONLY until
+# a reading run.
+#
+# THE FLIGHT. GS-1's two-stage hop (crewed mk1 pod as root on top, a probe-cored booster
+# below), recorded from the pad by StartRecording (autoRecordOnLaunch off, so the launch leg
+# opens under the craft's own name). Five checks in one flight:
+#   (g) RunTests VesselNames: the category's three FLIGHT cells against the recorded pad
+#       vessel (each restores the names and the decision store it found).
+#   (a) RenameVessel "VN1 Alpha" on the pad: the stock dialog's accept
+#       (Vessel.onVesselRenameAccept by reflection), so the Harmony capture records a
+#       StockDialog decision and the open launch leg is renamed.
+#   (b) The staging. The booster (no naming part) is named by stock's AutoRename from the
+#       parent's name at the split: "VN1 Alpha Probe", a NEW identity with no decision. The
+#       mission therefore tracks the sibling under that name. Every later rename of the pod
+#       leaves the booster's legs on that automatic name (ruling 4), and the pre-split launch
+#       leg follows the pod's identity (ruling 7). NOT exercised: the post-staging race
+#       where the CONTROL part leaves on the new vessel and ModuleDecouple.WaitAndSwitchFocus
+#       renames the old vessel one Update later (design 8.17): this craft's root and only
+#       crew are in the pod, so the pod keeps control. That needs a craft whose command part
+#       is on the lower stage.
+#   (a) After landing: F5, then RenameVessel "VN1 Bravo": every leg of the pod's identity
+#       (the launch leg and the post-split pod leg, legs >= 2) is renamed, the booster is not.
+#   (d) StopRecording, F9 in FLIGHT: the quicksave reloads the pod as "VN1 Alpha"; the
+#       OnLoad tail proto pass (or the first-tick post-load pass) writes "VN1 Bravo" back.
+#       The later Parsek rename's write-through line reads `'VN1 Bravo' -> 'VN1 Charlie'`,
+#       which is the outcome reading: the live pod carried Bravo after the F9.
+#   (c) Commit in flight (QL-4's StopRecording / CommitTree / StopRecording), then the
+#       Missions window's recording rename (UiAction op=edit field=recordingname commit=true)
+#       on the pod's leg captured by ListHandles: a ParsekRename decision written through to
+#       the live stock pod (ruling 3), renaming the committed legs.
+#
+# ON A PRE-FIX BUILD (no Phase 2a): no `Stock rename captured` line, no write-through, and
+# the commit finalizes the launch leg under 'GS1 Auto-Chute Booster'.
+# READING-RUN NOTES: a REJECTED RenameVessel `renamevessel-accept-unavailable` means the
+# KSP build lacks the private accept method (the capture patch warned at startup); a
+# missing `VN1 Alpha Probe` finalize line with a `GS1 Auto-Chute Booster Probe` one means
+# the first rename did not land before staging; an `edit-target-unavailable` REJECTED on the
+# op=edit step means the optimizer removed the captured leg id at the commit (re-key the
+# step to another committed row of the pod's identity).
+# =====================================================================================
+tier = "nightly"
+description = "VN-1: on GS-1's two-stage hop recorded from the pad, a stock rename dialog accept renames the recorded launch leg; staging names the booster by stock (VN1 Alpha Probe) and that name stays; a second stock rename after landing renames every leg of the pod's identity including the launch leg; an F9 to a quicksave from before it writes the name back to the reloaded pod; a Parsek recording rename after an in-flight commit writes through to the live pod. Runs the VesselNames in-game category on the recorded pad vessel."
+instanceProfile = "stock-minimal"
+tags = ["VN-1", "vessel-names", "GC-7", "rename", "staging", "quickload", "in-flight-commit",
+        "ingame-batch", "GS1", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "gs1_auto_chute_booster"
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },
+  # The launch leg must open under the craft's own name, so recording starts on the pad by
+  # the seam rather than at launch.
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },   expect = "OK" },
+  # LOAD-BEARING: the apply-pass, live-write and FinalizeTreeRecordings lines are Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },        expect = "OK" },
+  { cmd = "StartRecording",                                                            expect = "OK", budget = 180 },
+  # (g) The in-game category against the recorded pad vessel.
+  { cmd = "RunTests",       args = { category = "VesselNames" },                       expect = "OK", budget = 300 },
+  # (a) The first player rename, on the pad, before the split.
+  { cmd = "RenameVessel",   args = { name = "VN1 Alpha" },                             expect = "OK" },
+  { phase = "mission",                                                                 expect = "MISSION-OK", budget = 900 },
+  # F5 with the pod (and the booster) down, both under the pre-Bravo names.
+  { cmd = "SaveGame",       args = { name = "quicksave" },                             expect = "OK", budget = 120 },
+  # (a) The second player rename, after the split.
+  { cmd = "RenameVessel",   args = { name = "VN1 Bravo" },                             expect = "OK" },
+  # (d) F9 in FLIGHT. The LoadGame seam refuses a live recorder.
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave" },        expect = "OK", budget = 300 },
+  # Settle (QL-4's measured count): RestoreActiveTreeFromPending runs from OnFlightReady.
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  # The resumed tree's active leg: the pod's post-split leg, a row of the pod's identity.
+  { cmd = "ListHandles",    args = { kind = "active" }, label = "act",                 expect = "OK" },
+  # (c) Commit in flight, then the Parsek rename of a committed row.
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  { cmd = "CommitTree",                                                                expect = "OK", budget = 120 },
+  # CommitTree auto-resumes a recorder on the still-active vessel (H58 flight 1).
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  { cmd = "UiAction",       args = { op = "complexity", mode = "advanced" },           expect = "OK" },
+  { cmd = "UiAction",       args = { op = "open", window = "main" },                   expect = "OK" },
+  { cmd = "UiAction",       args = { op = "open", window = "missions" },               expect = "OK" },
+  { cmd = "UiAction",       args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "UiAction",       args = { op = "edit", window = "missions", field = "recordingname", key = "${act.activeRec}", draft = "VN1 Charlie", commit = "true" }, expect = "OK" },
+  { cmd = "FlushAndQuit",                                                              expect = "OK" },
+]
+
+[driver.missionParams]
+# GS-1's values VERBATIM, except the sibling's name: the booster is named by stock's
+# AutoRename from the parent's name at the split, which is "VN1 Alpha" by then.
+throttle = 1.0
+stagingApoapsisMeters = 700
+stagingMaxAltMeters = 1500
+apoapsisWindowMeters = { min = 600, max = 1600 }
+stageSettleFrames = 2
+chuteArmMaxRateMps = 30
+chuteFullDeployAltMeters = 600
+landedSituations = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds = 90
+coastTimeoutSeconds = 120
+stageTimeoutSeconds = 60
+descentTimeoutSeconds = 300
+siblingVesselName = "VN1 Alpha Probe"
+siblingDownTimeoutSeconds = 240
+
+[dimensionsCovered]
+# D14 values only (each already covered elsewhere). No D value names a vessel rename.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Launch leg, pod and booster legs, touchdown debris, the commit's optimizer splits and the
+# committed-restore clone's leg (GS-1 / QL-4's reasons).
+count = { min = 3, max = 14 }
+
+# REPORT-ONLY until a reading run. The committed legs: the pod's identity (launch leg and
+# post-split legs) all "VN1 Charlie", the booster's legs on the automatic "VN1 Alpha Probe",
+# no leg left on an earlier name. The save's live vessels: the pod "VN1 Charlie", the
+# booster "VN1 Alpha Probe".
+[expectations.recordings.structure]
+gating         = false
+committedTrees = { min = 1, max = 1 }
+recordingNames = { "VN1 Charlie" = { min = 2 }, "VN1 Alpha Probe" = { min = 1 }, "VN1 Bravo" = { max = 0 }, "VN1 Alpha" = { max = 0 }, "GS1 Auto-Chute Booster" = { max = 0 } }
+vesselNames    = { "VN1 Charlie" = { min = 1, max = 1 }, "VN1 Alpha Probe" = { min = 1, max = 1 }, "VN1 Bravo" = { max = 0 }, "VN1 Alpha" = { max = 0 }, "GS1 Auto-Chute Booster" = { max = 0 } }
+
+[expectations.logContracts]
+required = [
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  # (g) Interim pin until the first flight: total literal, the split regexed.
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=VesselNames scene=FLIGHT",
+
+  # (a) The pad rename: the seam's own line, then Parsek's capture of the stock accept
+  # (VesselNameLiveSync.OnStockRenameAccepted) and the decision (VesselNameStore).
+  "renamevessel applied pid=[0-9]+ old='GS1 Auto-Chute Booster' new='VN1 Alpha' type=Ship active=true changed=true legs=[1-9][0-9]* decision=StockDialog decisionName='VN1 Alpha'",
+  "Stock rename captured: source=StockDialog pid=[0-9]+ guid=[0-9a-f]+ 'GS1 Auto-Chute Booster' -> 'VN1 Alpha' seq=[0-9]+ namingPart=\\S+ currentLeg=[0-9a-f]+",
+  "Vessel name decision recorded: identity=\\S+ 'GS1 Auto-Chute Booster' -> 'VN1 Alpha' source=StockDialog seq=[0-9]+ legs=[1-9][0-9]* ",
+
+  # (b) The split: the booster becomes a controlled child under stock's automatic name.
+  "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
+
+  # (a) The post-split rename covers at least two legs (the launch leg and the pod leg).
+  "renamevessel applied pid=[0-9]+ old='VN1 Alpha' new='VN1 Bravo' type=Ship active=true changed=true legs=(?:[2-9]|[1-9][0-9]+) decision=StockDialog decisionName='VN1 Bravo'",
+  "Vessel name decision recorded: identity=\\S+ 'VN1 Alpha' -> 'VN1 Bravo' source=StockDialog seq=[0-9]+ legs=(?:[2-9]|[1-9][0-9]+) ",
+  "Apply pass \\(stock-rename\\): identities=[0-9]+ withDecision=[0-9]+ newlyCovered=[0-9]+ newlyUncovered=[0-9]+ legsRenamed=(?:[2-9]|[1-9][0-9]+) ",
+
+  # (d) The F9 reloads the pod under the quicksave's "VN1 Alpha"; a post-load pass writes
+  # the decision back (the proto form at the OnLoad tail, the Vessel form on the first host
+  # tick; either one).
+  "savegame name=quicksave folder=.+ saved=true",
+  "Load classified: early=InSession refined=QuickloadFlight scene=FLIGHT",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ 'VN1 Alpha' -> 'VN1 Bravo' ",
+
+  # (a) + (b) The commit after the F9: every leg of the pod's identity finalizes under
+  # "VN1 Bravo", the booster's legs under stock's "VN1 Alpha Probe".
+  "committree committed=true",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='VN1 Bravo' points=",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='VN1 Alpha Probe' points=",
+
+  # (c) The Parsek rename of the committed row writes through to the live pod, which
+  # carries "VN1 Bravo" at that moment (the F9 outcome).
+  "\\[UI\\] Recording 'VN1 Bravo' renamed to 'VN1 Charlie' identity=\\S+ legs=(?:[2-9]|[1-9][0-9]+)",
+  "Vessel name decision recorded: identity=\\S+ 'VN1 Bravo' -> 'VN1 Charlie' source=ParsekRename ",
+  "Apply pass \\(parsek-rename\\): identities=[0-9]+ withDecision=[0-9]+ newlyCovered=[0-9]+ newlyUncovered=[0-9]+ legsRenamed=(?:[2-9]|[1-9][0-9]+) ",
+  "Write-through applied: vessel pid=[0-9]+ guid=[0-9a-f]+ 'VN1 Bravo' -> 'VN1 Charlie' loaded=true namingPart=\\S+ reason=parsek-rename",
+  "uiaction edit window=missions field=recordingname key=[0-9a-f]+ draft=VN1 Charlie committed=true ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "renamevessel rejected",
+  "renamevessel error",
+  "Parsek rename refused",
+  # The F9 is not a revert: it keeps every rename (ruling 5).
+  "Revert undo: dropped",
+  # Nothing writes an earlier name back over a later decision.
+  "Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ '[^'\\r\\n]*' -> '(?:VN1 Alpha|GS1 Auto-Chute Booster)' ",
+  # The commit after the F9 finalizes no leg under a replaced name.
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='(?:VN1 Alpha|GS1 Auto-Chute Booster)' points=",
+  "Quickload resume prep skipped",
+]
+
+[runtime]
+# Wall for the whole drive phase including boot: two LoadGame (max(300,600)+60 each =
+# 1320), StartRecording 180, RunTests 300, mission 900, SaveGame 180, CommitTree 120, the
+# StopRecording / SetSetting / UiAction / RenameVessel / ListHandles steps on the default
+# budget. Expected wall about 10 minutes (boot, a ~100 s mission with a ~240 s booster
+# descent, one reload).
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

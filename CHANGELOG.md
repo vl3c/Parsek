@@ -36,6 +36,9 @@ _(unreleased - entries accumulate here per commit)_
 - **Harness run history survives worktree removal.** Every automated test run now also keeps a
   small copy of its results and logs in one shared folder outside the worktrees, and the flight
   efficiency report reads it, so deleting a worktree no longer loses its run history.
+- **Automated tests can rename a vessel the way a player does.** A new test command accepts the
+  stock rename dialog for a vessel, and three new test flights check vessel renames end to end:
+  staging, quickload, re-fly with Discard, a spawned vessel and a rewind. (GC-7)
 
 ---
 
