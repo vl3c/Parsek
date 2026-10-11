@@ -7023,6 +7023,75 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: the name a leg takes at its close. Only the RECORDED vessel itself may refresh
+        /// it, and only on a positive identity match: the live vessel's pid equals the recorded
+        /// pid AND both launch guids are known and equal. Otherwise (the vessel is gone, never
+        /// resolved, or a guid is unknown or differs) the leg keeps <paramref name="existingName"/>.
+        /// A name of another vessel (the stop-time active vessel) is never an input.
+        /// <paramref name="source"/> is <c>recorded-vessel</c>, <c>kept-existing</c> or
+        /// <c>none</c> (no live match and no existing name: the caller decides).
+        /// </summary>
+        internal static string ResolveRecordedVesselNameAtClose(
+            string existingName,
+            uint recordedPid,
+            string recordedGuid,
+            uint liveVesselPid,
+            string liveVesselGuid,
+            string liveVesselName,
+            out string source)
+        {
+            string rg = VesselLaunchIdentity.NormalizeGuid(recordedGuid);
+            string lg = VesselLaunchIdentity.NormalizeGuid(liveVesselGuid);
+            bool positive = recordedPid != 0
+                && liveVesselPid == recordedPid
+                && rg != null && lg != null
+                && string.Equals(rg, lg, StringComparison.OrdinalIgnoreCase);
+            if (positive && !string.IsNullOrEmpty(liveVesselName))
+            {
+                source = "recorded-vessel";
+                return liveVesselName;
+            }
+            if (!string.IsNullOrEmpty(existingName))
+            {
+                source = "kept-existing";
+                return existingName;
+            }
+            source = "none";
+            return null;
+        }
+
+        /// <summary>
+        /// The name of a standalone fallback leg (<see cref="FallbackCommitSplitRecorder"/>):
+        /// the recorded vessel's live name on a positive pid + guid match, else the name the
+        /// recorded vessel had when this leg started (the start-of-leg ghost snapshot), else
+        /// "Unknown Vessel". Logs the source.
+        /// </summary>
+        static string ResolveStandaloneFallbackLegName(FlightRecorder splitRec, Recording captured)
+        {
+            uint recordedPid = splitRec != null ? splitRec.RecordingVesselId : 0u;
+            string startName = Recording.ResolveLocalizedName(
+                captured?.GhostVisualSnapshot?.GetValue("name"));
+            Vessel recordedVessel = recordedPid != 0 ? FlightRecorder.FindVesselByPid(recordedPid) : null;
+            string name = ResolveRecordedVesselNameAtClose(
+                startName,
+                recordedPid,
+                captured?.RecordedVesselGuid,
+                recordedVessel != null ? recordedVessel.persistentId : 0u,
+                AnchorDetector.TryReadLiveVesselGuid(recordedVessel),
+                recordedVessel != null ? Recording.ResolveLocalizedName(recordedVessel.vesselName) : null,
+                out string source);
+            if (string.IsNullOrEmpty(name))
+            {
+                name = "Unknown Vessel";
+                source = "unknown";
+            }
+            ParsekLog.Verbose("Flight",
+                $"FallbackCommitSplitRecorder: leg name '{name}' source={source} pid={recordedPid} " +
+                $"(stop-time active-vessel name '{captured?.VesselName ?? "(null)"}' is not used)");
+            return name;
+        }
+
+        /// <summary>
         /// Fallback: if tree append fails, commit captured data directly.
         /// In always-tree mode the tree path should succeed for the active vessel;
         /// this fallback handles edge cases (no active tree, debris).
@@ -7047,8 +7116,12 @@ namespace Parsek
                     activeTree, splitRec.ActiveTree, captured, splitRec.RecordingVesselId))
                 return;
 
+            // The leg's name comes from the RECORDED vessel, never from the stop-time
+            // capture's VesselName (the ACTIVE vessel's name at stop, which after a split
+            // may already be the new pod).
+            string legName = ResolveStandaloneFallbackLegName(splitRec, captured);
             var rec = RecordingStore.CreateRecordingFromFlightData(
-                captured.Points, captured.VesselName,
+                captured.Points, legName,
                 orbitSegments: captured.OrbitSegments,
                 partEvents: captured.PartEvents,
                 flagEvents: captured.FlagEvents);
@@ -14222,7 +14295,8 @@ namespace Parsek
             // Wait up to 3 seconds for the current active vessel to match.
             // Primary match = PID (locale-proof, available immediately even when
             // vesselName is still a raw #autoLOC key). Bug #290b.
-            // Secondary match = vessel name (fallback for old recordings without PID).
+            // Secondary match = vessel name, only for identity-less legacy recordings (no PID
+            // and no launch guid; QuickloadResumeMatchGuard.MayMatchByNameFallback).
             // Tertiary (edge case 3): if the active recording was an EVA kerbal who got
             // boarded between quicksave and quickload, match against the parent recording's
             // vessel by walking ParentRecordingId up the EVA chain.
@@ -14286,8 +14360,14 @@ namespace Parsek
                             $"RestoreActiveTreeFromPending: PID match pid={targetPid}");
                         break;
                     }
-                    // Secondary: name match (fallback for old recordings without PID)
-                    if (!activeRecGuidRejected && v.vesselName == targetName)
+                    // Secondary: name match, ONLY for an identity-less legacy recording (no
+                    // pid and no launch guid). A recording with a pid or guid is matched by
+                    // identity alone: a renamed vessel keeps both, and a same-named vessel of
+                    // another launch must never be adopted.
+                    if (!activeRecGuidRejected
+                        && QuickloadResumeMatchGuard.MayMatchByNameFallback(
+                            targetPid, activeRec.RecordedVesselGuid)
+                        && v.vesselName == targetName)
                     {
                         matched = v;
                         ParsekLog.Verbose("Flight",
@@ -14322,7 +14402,9 @@ namespace Parsek
                         }
                         if (probe != null && (
                             (probe.VesselPersistentId != 0 && v.persistentId == probe.VesselPersistentId) ||
-                            v.vesselName == probe.VesselName))
+                            (QuickloadResumeMatchGuard.MayMatchByNameFallback(
+                                probe.VesselPersistentId, probe.RecordedVesselGuid)
+                             && v.vesselName == probe.VesselName)))
                         {
                             matched = v;
                             matchedRec = probe;
@@ -17230,10 +17312,10 @@ namespace Parsek
                     continue;
                 }
 
-                // Before spawning, recover any timeline-spawned vessel with the same name
-                // to prevent overlap collisions (e.g. an older committed recording already
-                // spawned the same vessel on the pad).
-                RecoverTimelineSpawnedVessel(leaf.VesselName);
+                // Before spawning, recover any timeline-spawned copy of the SAME vessel
+                // (by launch identity, never by name) to prevent overlap collisions (e.g. an
+                // older committed recording of this vessel already spawned it on the pad).
+                RecoverTimelineSpawnedVessel(leaf);
 
                 try
                 {
@@ -17357,18 +17439,43 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure selection half of <see cref="RecoverTimelineSpawnedVessel"/>: does committed
+        /// recording <paramref name="rec"/> hold a live timeline spawn of the same vessel the
+        /// tree leaf <paramref name="leaf"/> is about to spawn? By launch identity
+        /// (<see cref="VesselLaunchIdentity.RecordingsShareVesselIdentity"/>): a renamed copy
+        /// of the vessel still qualifies, and a different launch that merely shares the name
+        /// never does (its spawned vessel is another real ship). The name decides only for
+        /// guid-less legacy recordings.
+        /// </summary>
+        internal static bool IsTimelineSpawnOfLeafVessel(Recording rec, Recording leaf)
+        {
+            if (rec == null || leaf == null) return false;
+            if (!rec.VesselSpawned || rec.SpawnedVesselPersistentId == 0) return false;
+            return VesselLaunchIdentity.RecordingsShareVesselIdentity(rec, leaf);
+        }
+
+        /// <summary>
         /// Finds and recovers any in-scene vessel that was timeline-spawned from a
-        /// committed recording with the given name. Prevents overlap collisions when
+        /// committed recording of the same vessel as <paramref name="leaf"/>
+        /// (<see cref="IsTimelineSpawnOfLeafVessel"/>). Prevents overlap collisions when
         /// a tree commit spawns a vessel on top of an already-spawned timeline vessel.
         /// </summary>
-        void RecoverTimelineSpawnedVessel(string vesselName)
+        void RecoverTimelineSpawnedVessel(Recording leaf)
         {
+            string vesselName = leaf?.VesselName;
             var committed = RecordingStore.CommittedRecordings;
+            int skippedSameNameOtherVessel = 0;
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
-                if (!rec.VesselSpawned || rec.SpawnedVesselPersistentId == 0) continue;
-                if (rec.VesselName != vesselName) continue;
+                if (!IsTimelineSpawnOfLeafVessel(rec, leaf))
+                {
+                    if (rec != null && rec.VesselSpawned && rec.SpawnedVesselPersistentId != 0
+                        && !string.IsNullOrEmpty(vesselName)
+                        && string.Equals(rec.VesselName, vesselName, StringComparison.Ordinal))
+                        skippedSameNameOtherVessel++;
+                    continue;
+                }
 
                 // Find the loaded vessel by persistent ID
                 Vessel vessel = null;
@@ -17416,6 +17523,12 @@ namespace Parsek
                 rec.SpawnedVesselPersistentId = 0;
                 TerminalOrbitSpawnSafety.Clear(rec);
             }
+
+            if (skippedSameNameOtherVessel > 0)
+                ParsekLog.Info("Flight",
+                    $"RecoverTimelineSpawnedVessel: left {skippedSameNameOtherVessel} same-named timeline " +
+                    $"spawn(s) of OTHER vessels alone for leaf '{vesselName ?? "(null)"}' " +
+                    $"(launch guid {leaf?.RecordedVesselGuid ?? "(none)"} differs; a name is not an identity)");
         }
 
         #endregion

@@ -26366,6 +26366,7 @@ namespace Parsek.InGameTests
         public ConfigNode GhostVisualSnapshot => null;
         public ConfigNode VesselSnapshot => null;
         public string VesselName => "Bug613TestGhost";
+        public string RecordedVesselGuid => null;
         public string RecordingId => _recordingId;
         public bool LoopPlayback => false;
         public double LoopIntervalSeconds => 10;
@@ -26462,6 +26463,7 @@ namespace Parsek.InGameTests
         public ConfigNode GhostVisualSnapshot => null;
         public ConfigNode VesselSnapshot => null;
         public string VesselName => "Bug613TestEarlyDebris";
+        public string RecordedVesselGuid => null;
         public string RecordingId => "test-b613-earlydebris";
         public bool LoopPlayback => false;
         public double LoopIntervalSeconds => 10;
@@ -26561,6 +26563,7 @@ namespace Parsek.InGameTests
         public ConfigNode GhostVisualSnapshot => null;
         public ConfigNode VesselSnapshot => null;
         public string VesselName => "Bug613TestLoop";
+        public string RecordedVesselGuid => null;
         public string RecordingId => "test-b613-loop";
         public bool LoopPlayback => true;
         public double LoopIntervalSeconds => _loopIntervalSeconds;
@@ -26611,6 +26614,7 @@ namespace Parsek.InGameTests
         public ConfigNode GhostVisualSnapshot => null;
         public ConfigNode VesselSnapshot => null;
         public string VesselName => "TestReuse";
+        public string RecordedVesselGuid => null;
         public string RecordingId => "test-b406";
         public bool LoopPlayback => true;
         public double LoopIntervalSeconds => 10;
@@ -26693,6 +26697,7 @@ namespace Parsek.InGameTests
         public ConfigNode GhostVisualSnapshot => null;
         public ConfigNode VesselSnapshot => null;
         public string VesselName => "TestReuseVisibility";
+        public string RecordedVesselGuid => null;
         public string RecordingId => "test-b461";
         public bool LoopPlayback => true;
         public double LoopIntervalSeconds => 10;
@@ -26760,6 +26765,7 @@ namespace Parsek.InGameTests
         public ConfigNode GhostVisualSnapshot => null;
         public ConfigNode VesselSnapshot => null;
         public string VesselName => "PendingLoopBoundary";
+        public string RecordedVesselGuid => null;
         public string RecordingId => "test-b539";
         public bool LoopPlayback => true;
         public double LoopIntervalSeconds => 150.0;

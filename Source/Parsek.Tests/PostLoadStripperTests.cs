@@ -44,6 +44,7 @@ namespace Parsek.Tests
             public uint PersistentId { get; set; }
             public uint RootPartPersistentId { get; set; }
             public string VesselName { get; set; }
+            public string LaunchGuid { get; set; }
             public VesselType VesselType { get; set; } = VesselType.Ship;
             public Vessel LiveVessel => null; // tests do not construct live Unity objects
             public bool Died { get; private set; }

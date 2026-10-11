@@ -8169,9 +8169,10 @@ namespace Parsek
             // LedgerOrchestrator.PickRecoveryRecordingId, including through the DEFERRED
             // recovery-funds queue (which stores this struct verbatim), so a recovery paired
             // against a later FundsChanged(VesselRecovery) event still filters by launch. The
-            // payout-context lookup below still pairs by name; the pending-tree terminal
-            // update and the pending-owner check additionally gate on pid + this guid
-            // (MatchesVessel), degrading to name-only when either side is unknown.
+            // payout-context lookup below still pairs by name (both sides are this one live
+            // vessel); the pending-tree terminal update and the pending-owner check match by
+            // pid + this guid (MatchesVessel), falling back to the name only when either
+            // guid is unknown.
             // Stage 3: the pid rides along too, read by the picker ONLY as a genuine Parsek
             // spawn identity (a spawned vessel's fresh guid matches no recording).
             RecoveredVesselIdentity identity = RecoveredVesselIdentity.FromRawName(
@@ -8292,13 +8293,13 @@ namespace Parsek
 
         /// <summary>
         /// Finds pending-tree recordings of the given vessel and updates their terminal state.
-        /// A recording matches by name AND, when both sides know it, by launch identity: the
-        /// recovered vessel's <paramref name="vesselPid"/> must equal the recording's
-        /// <c>VesselPersistentId</c> and the launch Guids must not conclusively differ (see
-        /// <see cref="MatchesVessel(Recording, RecoveredVesselIdentity, uint)"/>). Without
-        /// the identity gate a stock KSC-declutter autoclean of an unrelated
-        /// "&lt;Craft&gt; Debris" stamped every same-named pending debris recording Recovered
-        /// and dropped its snapshot.
+        /// A recording matches by launch identity first (see
+        /// <see cref="ClassifyVesselMatch(Recording, RecoveredVesselIdentity, uint)"/>): equal
+        /// known launch Guids match under any name (a vessel renamed after its recording
+        /// captured the name still gets its stamp), a different known Guid or pid never
+        /// matches, and only an unknown Guid falls back to the name. Without the identity gate
+        /// a stock KSC-declutter autoclean of an unrelated "&lt;Craft&gt; Debris" stamped every
+        /// same-named pending debris recording Recovered and dropped its snapshot.
         /// Recovered/Destroyed can overwrite situation-based terminal states (Orbiting, Landed, etc.)
         /// that were set by OnSceneChangeRequested. Only prevents Destroyed from overwriting Recovered
         /// (onVesselTerminated fires after onVesselRecovered for the same vessel).
@@ -8325,9 +8326,11 @@ namespace Parsek
                 var pendingTree = RecordingStore.PendingTree;
                 int stampedCount = 0;
                 int skippedEarlierSegmentCount = 0;
+                int stampedRenamedCount = 0;
                 foreach (var rec in pendingTree.Recordings.Values)
                 {
-                    if (!MatchesVessel(rec, identity, vesselPid)
+                    VesselMatchKind matchKind = ClassifyVesselMatch(rec, identity, vesselPid);
+                    if (matchKind == VesselMatchKind.None
                         || !CanOverwriteTerminalState(rec.TerminalStateValue, state))
                         continue;
 
@@ -8343,10 +8346,22 @@ namespace Parsek
                         continue;
                     }
 
+                    if (matchKind == VesselMatchKind.LaunchIdentity
+                        && !identity.MatchesName(rec.VesselName))
+                        stampedRenamedCount++;
                     ApplyTerminalEventStamp(rec, state, ut, "UpdateRecordingsForTerminalEvent");
                     anyUpdated = true;
                     stampedCount++;
                     ParsekLog.Verbose("Scenario", $"Updated pending tree recording '{rec.VesselName}' with {state}");
+                }
+
+                if (stampedRenamedCount > 0)
+                {
+                    ParsekLog.Info("Scenario", string.Format(CultureInfo.InvariantCulture,
+                        "UpdateRecordingsForTerminalEvent: vessel='{0}' pid={1} state={2} " +
+                        "stampedByLaunchIdentity={3} under a different recorded name " +
+                        "(matched by launch guid; a vessel name is not its identity)",
+                        identity.DisplayName, vesselPid, state, stampedRenamedCount));
                 }
 
                 if (skippedEarlierSegmentCount > 0)
@@ -8360,9 +8375,8 @@ namespace Parsek
 
             // Committed recordings are never modified by terminal events. Recovery or
             // destruction of a real vessel (whether spawned by Parsek or pre-existing) must
-            // not alter frozen recording data — snapshot, terminal state, crew, or EndUT.
-            // Name-based matching is ambiguous (multiple recordings share vessel names) and
-            // any mutation persists through reverts, permanently preventing re-spawn.
+            // not alter frozen recording data - snapshot, terminal state, crew, or EndUT.
+            // Any mutation would persist through reverts, permanently preventing re-spawn.
 
             return anyUpdated;
         }
@@ -8443,7 +8457,7 @@ namespace Parsek
             RecoveredVesselIdentity identity,
             uint vesselPid = 0)
         {
-            if (!identity.HasName || !RecordingStore.HasPendingTree)
+            if ((!identity.HasName && !identity.HasLaunchGuid) || !RecordingStore.HasPendingTree)
                 return false;
 
             foreach (var rec in RecordingStore.PendingTree.Recordings.Values)
@@ -8471,10 +8485,10 @@ namespace Parsek
             if (existing.Value == TerminalState.Destroyed) return false;
 
             // Disassembled is final for the same reason, and has to be named separately
-            // because the caller matches by VESSEL NAME alone (MatchesVessel). A pocketed
-            // debris recording keeps the name of the craft the part came off, so a later
-            // recovery of ANY live vessel sharing that name would otherwise reach it,
-            // replace the verdict AND null its VesselSnapshot. Not cosmetic: Recovered is
+            // because the caller's match (MatchesVessel) still falls back to the VESSEL NAME
+            // when a launch guid is unknown. A pocketed debris recording keeps the name of the
+            // craft the part came off, so a later recovery of a live vessel sharing that name
+            // could otherwise reach it, replace the verdict AND null its VesselSnapshot. Not cosmetic: Recovered is
             // exactly what LedgerOrchestrator.AddVesselRecoveryCostActions and
             // ResurrectionRetirementEligibility key on, so the overwrite would start
             // paying recovery funds for a part that was merely put in a pocket.
@@ -8486,30 +8500,75 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Checks if a recording is the recovered / terminated vessel. The name must match, and
-        /// the launch identity narrows it (the persistentId is craft-baked and names repeat
-        /// across launches and debris): when the recovered vessel's pid and the recording's
-        /// <c>VesselPersistentId</c> are both known (non-zero) they must be equal, and a known
-        /// launch Guid on both sides must not differ. An unknown pid or Guid on either side
-        /// falls back to the name alone, so the gate only ever removes matches.
+        /// Checks if a recording is the recovered / terminated vessel
+        /// (<see cref="ClassifyVesselMatch"/>): a positive launch-Guid match (pids not
+        /// disagreeing) is sufficient whatever the names; the name is required only when a
+        /// launch Guid is unknown on either side.
         /// </summary>
         internal static bool MatchesVessel(
             Recording rec,
             RecoveredVesselIdentity identity,
             uint vesselPid = 0)
         {
-            if (rec == null ||
-                !identity.HasName ||
-                string.IsNullOrEmpty(rec.VesselName) ||
-                !identity.MatchesName(rec.VesselName))
-                return false;
+            return ClassifyVesselMatch(rec, identity, vesselPid) != VesselMatchKind.None;
+        }
+
+        /// <summary>How <see cref="ClassifyVesselMatch"/> tied a recording to a vessel.</summary>
+        internal enum VesselMatchKind
+        {
+            /// <summary>Not the same vessel.</summary>
+            None = 0,
+
+            /// <summary>Both launch Guids known and equal (and the pids do not disagree): the
+            /// same physical vessel whatever either side is called now.</summary>
+            LaunchIdentity = 1,
+
+            /// <summary>A launch Guid is unknown on at least one side (legacy data, or a seam
+            /// that could not read it): matched by name, narrowed by a known pid.</summary>
+            LegacyName = 2,
+        }
+
+        /// <summary>
+        /// Identity-first decision behind <see cref="MatchesVessel"/>. A vessel name is an
+        /// attribute, never a key (a player can rename a vessel after its recording captured
+        /// the name), so:
+        /// <list type="number">
+        /// <item>a known, non-zero pid on both sides that differs is never a match (the pid is
+        /// craft-baked, so equality proves nothing alone, but inequality is conclusive);</item>
+        /// <item>when both launch Guids are known they decide alone: equal is a match under
+        /// any name, different is never one (a relaunch of the same craft);</item>
+        /// <item>only when a Guid is unknown on either side does the name decide, as it did
+        /// before launch identity existed.</item>
+        /// </list>
+        /// Pure; the callers log.
+        /// </summary>
+        internal static VesselMatchKind ClassifyVesselMatch(
+            Recording rec,
+            RecoveredVesselIdentity identity,
+            uint vesselPid = 0)
+        {
+            if (rec == null)
+                return VesselMatchKind.None;
 
             if (vesselPid != 0 && rec.VesselPersistentId != 0
                 && rec.VesselPersistentId != vesselPid)
-                return false;
+                return VesselMatchKind.None;
 
-            return !VesselLaunchIdentity.GuidsConclusivelyDiffer(
-                rec.RecordedVesselGuid, identity.LaunchGuid);
+            string recGuid = VesselLaunchIdentity.NormalizeGuid(rec.RecordedVesselGuid);
+            string liveGuid = VesselLaunchIdentity.NormalizeGuid(identity.LaunchGuid);
+            if (recGuid != null && liveGuid != null)
+            {
+                return string.Equals(recGuid, liveGuid, StringComparison.OrdinalIgnoreCase)
+                    ? VesselMatchKind.LaunchIdentity
+                    : VesselMatchKind.None;
+            }
+
+            if (!identity.HasName ||
+                string.IsNullOrEmpty(rec.VesselName) ||
+                !identity.MatchesName(rec.VesselName))
+                return VesselMatchKind.None;
+
+            return VesselMatchKind.LegacyName;
         }
 
         #endregion
