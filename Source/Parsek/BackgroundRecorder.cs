@@ -1095,6 +1095,11 @@ namespace Parsek
                 // crash on the continuation can be detected via identity loss.
                 controllers: parentVessel != null
                     ? ControllerInfo.CaptureFromVessel(parentVessel)
+                    : null,
+                // The continuation records the live post-split parent vessel, so it captures
+                // that vessel's current name (not a copy of the closed parent leg's name).
+                liveParentName: parentVessel != null
+                    ? Recording.ResolveLocalizedName(parentVessel.vesselName)
                     : null);
 
             if (parentContRec != null)
@@ -1122,6 +1127,14 @@ namespace Parsek
                         $"guid={parentContRec.RecordedVesselGuid ?? "(none)"} " +
                         $"live={liveParentGuid ?? "(none)"} " +
                         $"parentRecGuid={parentRec.RecordedVesselGuid ?? "(none)"}");
+                }
+
+                if (!string.Equals(parentContRec.VesselName, parentRec.VesselName, StringComparison.Ordinal))
+                {
+                    ParsekLog.Info("BgRecorder",
+                        $"Parent continuation captured the live vessel name: recId={parentContRecId} " +
+                        $"name='{parentContRec.VesselName}' (closed parent leg '{parentRecordingId}' " +
+                        $"keeps '{parentRec.VesselName}')");
                 }
 
                 // Re-initialize tracking state for the parent continuation.
@@ -1726,7 +1739,8 @@ namespace Parsek
         internal static Recording TryBuildAndAttachParentContinuation(
             RecordingTree tree, BranchPoint bp, Recording parentRec, uint parentPid,
             double branchUT, bool parentVesselAlive, string continuationRecordingId,
-            string liveParentGuid, List<ControllerInfo> controllers)
+            string liveParentGuid, List<ControllerInfo> controllers,
+            string liveParentName = null)
         {
             if (!parentVesselAlive) return null;
 
@@ -1744,7 +1758,7 @@ namespace Parsek
                 RecordingId = continuationRecordingId,
                 TreeId = tree.Id,
                 VesselPersistentId = parentPid,
-                VesselName = parentRec.VesselName,
+                VesselName = ResolveParentContinuationName(liveParentName, parentRec.VesselName),
                 ParentBranchPointId = bp.Id,
                 ExplicitStartUT = branchUT,
                 IsDebris = parentRec.IsDebris,
@@ -1771,6 +1785,19 @@ namespace Parsek
             tree.AddOrReplaceRecording(parentContRec);
             tree.BackgroundMap[parentPid] = continuationRecordingId;
             return parentContRec;
+        }
+
+        /// <summary>
+        /// Pure: the name a background parent continuation captures. A new leg captures its
+        /// vessel's CURRENT name, so the continuation reads the live post-split parent vessel
+        /// (the vessel it records) rather than copying the closed parent leg's stored name:
+        /// stock may have renamed the parent after the split, and a copied name would carry
+        /// the old one onto a leg recorded after the rename. Falls back to the stored name only
+        /// when no live name is available.
+        /// </summary>
+        internal static string ResolveParentContinuationName(string liveParentName, string storedParentName)
+        {
+            return !string.IsNullOrEmpty(liveParentName) ? liveParentName : storedParentName;
         }
 
         /// <summary>

@@ -3129,16 +3129,24 @@ namespace Parsek
             // inter-cycle wait or before the span. Selection is two-tier so a structural fork
             // (e.g. a crew EVA peeling off at the same UT the parent vessel continues) does not
             // steal the camera from the through-line the player is watching:
-            //   tier 1 - a member whose VesselName matches the WATCHED member's VesselName always
-            //            beats a non-match (keeps the camera on the continuing craft L->cont, not
-            //            L->EVA-kerbal which shares the same StartUT);
+            //   tier 1 - a member that is the WATCHED member's vessel always beats a non-match
+            //            (keeps the camera on the continuing craft L->cont, not L->EVA-kerbal
+            //            which shares the same StartUT). Same vessel = same launch guid, with the
+            //            VesselName only as the fallback when a guid is unknown
+            //            (GhostPlaybackLogic.IsSameWatchedVessel): a name is not an identity;
             //   tier 2 - within the same tier, the newest segment (highest StartUT) wins.
-            // watchedVesselName is null when nothing is watched, so unwatched playback keeps the
+            // Both watched keys are null when nothing is watched, so unwatched playback keeps the
             // pure highest-StartUT behavior.
             string watchedVesselName = null;
+            string watchedVesselGuid = null;
+            bool hasWatched = false;
             if (watchedIndex >= 0 && watchedIndex < trajectories.Count
                 && trajectories[watchedIndex] != null)
+            {
+                hasWatched = true;
                 watchedVesselName = trajectories[watchedIndex].VesselName;
+                watchedVesselGuid = trajectories[watchedIndex].RecordedVesselGuid;
+            }
 
             int liveMemberIdx = -1;
             double liveStartUT = double.NegativeInfinity;
@@ -3163,9 +3171,10 @@ namespace Parsek
                         if (!GhostPlaybackLogic.IsLoopUTInMemberWindow(spanLoopUT, mStart, mEnd))
                             continue;
 
-                        bool matchesWatched = watchedVesselName != null
-                            && string.Equals(member.VesselName, watchedVesselName,
-                                StringComparison.Ordinal);
+                        bool matchesWatched = hasWatched
+                            && GhostPlaybackLogic.IsSameWatchedVessel(
+                                watchedVesselGuid, watchedVesselName,
+                                member.RecordedVesselGuid, member.VesselName);
 
                         if (GhostPlaybackLogic.IsBetterUnitCameraLiveMember(
                                 matchesWatched, mStart, liveMatchesWatched, liveStartUT))
@@ -3245,7 +3254,7 @@ namespace Parsek
             // duplicate "wrapped cycle" diagnostics.
             // Only hand the watch camera off to a SAME-VESSEL continuation of the through-line the
             // player is watching (liveMatchesWatched). When the watched member ends and the only
-            // in-window member is a different-named sibling (e.g. a kerbal who went EVA, or any
+            // in-window member is a different-vessel sibling (e.g. a kerbal who went EVA, or any
             // peeled-off piece), DO NOT retarget: leaving the camera on the ending member lets its
             // own terminal end take over (a terminal=Destroyed member fires ExplosionHoldStart from
             // UpdateOverlapPlayback later in the SAME frame, which HandleOverlapCameraAction applies
@@ -3253,7 +3262,7 @@ namespace Parsek
             // first moves watchedRecordingIndex off the member, so HandleOverlapCameraAction's
             // `watchedRecordingIndex != evt.Index` guard silently drops the explosion hold and the
             // camera jumps to the sibling at the moment of impact instead of holding the explosion.
-            // watchedVesselName is null when nothing is watched, so liveMatchesWatched is false and
+            // hasWatched is false when nothing is watched, so liveMatchesWatched is false and
             // retargetMemberIdx is -1; the retarget already cannot fire unwatched, so this is inert
             // there.
             // The watched through-line's END suppresses the handoff in two ways: (a) the watched

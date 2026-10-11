@@ -55,12 +55,15 @@ namespace Parsek.Tests
             };
         }
 
+        private const string LaunchGuidA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        private const string LaunchGuidB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
         [Fact]
         public void ShouldRecoverBlockerVessel_SelfPidMatch_ReturnsTrue()
         {
             // #112 quicksave-duplicate: KSP restored our own spawn with the same PID.
             var rec = MakeRecordedSpawn("Aeris 4A", spawnedPid: 12345);
-            Assert.True(VesselSpawner.ShouldRecoverBlockerVessel(rec, "Aeris 4A", "Aeris 4A", blockerPid: 12345));
+            Assert.True(VesselSpawner.ShouldRecoverBlockerVessel(rec, 12345, LaunchGuidB));
         }
 
         [Fact]
@@ -70,14 +73,41 @@ namespace Parsek.Tests
             // PID belongs to a DIFFERENT recording, so recovery would destroy sibling
             // work. Must return false so the caller falls through to walkback.
             var rec = MakeRecordedSpawn("Crater Crawler", spawnedPid: 11111);
-            Assert.False(VesselSpawner.ShouldRecoverBlockerVessel(rec, "Crater Crawler", "Crater Crawler", blockerPid: 22222));
+            Assert.False(VesselSpawner.ShouldRecoverBlockerVessel(rec, 22222, null));
+        }
+
+        // catches: the old name gate - the player renamed the Parsek-spawned vessel, the
+        // quicksave restored it under its new name, and the #112 recovery silently fell
+        // through to walkback. The spawn pid is KSP-unique, so the name is irrelevant.
+        [Fact]
+        public void ShouldRecoverBlockerVessel_RenamedOwnSpawn_StillRecovered()
+        {
+            var rec = MakeRecordedSpawn("Aeris 4A", spawnedPid: 12345);
+            rec.VesselPersistentId = 777u;
+            rec.RecordedVesselGuid = LaunchGuidA;
+            Assert.True(VesselSpawner.ShouldRecoverBlockerVessel(rec, 12345, LaunchGuidB));
+        }
+
+        // catches: an adoption stamp (spawn pid == the craft-baked recorded pid) recovering
+        // a RELAUNCH of the same craft that reuses the baked pid, whatever it is named.
+        [Fact]
+        public void ShouldRecoverBlockerVessel_AdoptionStampedRelaunchOfSameCraft_NeverRecovered()
+        {
+            var rec = MakeRecordedSpawn("Aeris 4A", spawnedPid: 12345);
+            rec.VesselPersistentId = 12345u;   // adoption stamp
+            rec.RecordedVesselGuid = LaunchGuidA;
+            // The relaunch carries the baked pid and a fresh guid; same name or not, never ours.
+            Assert.False(VesselSpawner.ShouldRecoverBlockerVessel(rec, 12345, LaunchGuidB));
+            // The adopted vessel itself (same launch guid) is still recoverable.
+            Assert.True(VesselSpawner.ShouldRecoverBlockerVessel(rec, 12345, LaunchGuidA));
         }
 
         [Fact]
-        public void ShouldRecoverBlockerVessel_DifferentName_ReturnsFalse()
+        public void ShouldRecoverBlockerVessel_AdoptionStampUnknownGuid_FallsBackToPid()
         {
             var rec = MakeRecordedSpawn("Aeris 4A", spawnedPid: 12345);
-            Assert.False(VesselSpawner.ShouldRecoverBlockerVessel(rec, "Kerbal X", "Aeris 4A", blockerPid: 12345));
+            rec.VesselPersistentId = 12345u;
+            Assert.True(VesselSpawner.ShouldRecoverBlockerVessel(rec, 12345, LaunchGuidB));
         }
 
         [Fact]
@@ -86,7 +116,15 @@ namespace Parsek.Tests
             // First-spawn case: recording has never spawned before (VesselSpawned=false).
             // There is no "previous spawn" to recover, so the blocker cannot be a #112 duplicate.
             var rec = new Recording { VesselName = "Aeris 4A" }; // VesselSpawned=false, SpawnedVesselPersistentId=0
-            Assert.False(VesselSpawner.ShouldRecoverBlockerVessel(rec, "Aeris 4A", "Aeris 4A", blockerPid: 99999));
+            Assert.False(VesselSpawner.ShouldRecoverBlockerVessel(rec, 99999, null));
+        }
+
+        [Fact]
+        public void ShouldRecoverBlockerVessel_SpawnedFlagCleared_ReturnsFalse()
+        {
+            var rec = MakeRecordedSpawn("Aeris 4A", spawnedPid: 12345);
+            rec.VesselSpawned = false;
+            Assert.False(VesselSpawner.ShouldRecoverBlockerVessel(rec, 12345, null));
         }
 
         [Fact]
@@ -95,51 +133,13 @@ namespace Parsek.Tests
             // Defensive: VesselSpawned=true but SpawnedVesselPersistentId=0 should never
             // match any real blocker PID.
             var rec = new Recording { VesselName = "Aeris 4A", VesselSpawned = true };
-            Assert.False(VesselSpawner.ShouldRecoverBlockerVessel(rec, "Aeris 4A", "Aeris 4A", blockerPid: 0));
+            Assert.False(VesselSpawner.ShouldRecoverBlockerVessel(rec, 0, null));
         }
 
         [Fact]
         public void ShouldRecoverBlockerVessel_NullRecording_ReturnsFalse()
         {
-            Assert.False(VesselSpawner.ShouldRecoverBlockerVessel(null, "Aeris 4A", "Aeris 4A", blockerPid: 12345));
-        }
-
-        [Fact]
-        public void ShouldRecoverBlockerVessel_NullBlockerName_ReturnsFalse()
-        {
-            var rec = MakeRecordedSpawn("Aeris 4A", spawnedPid: 12345);
-            Assert.False(VesselSpawner.ShouldRecoverBlockerVessel(rec, null, "Aeris 4A", blockerPid: 12345));
-        }
-
-        [Fact]
-        public void ShouldRecoverBlockerVessel_NullRecordingName_ReturnsFalse()
-        {
-            var rec = MakeRecordedSpawn("Aeris 4A", spawnedPid: 12345);
-            Assert.False(VesselSpawner.ShouldRecoverBlockerVessel(rec, "Aeris 4A", null, blockerPid: 12345));
-        }
-
-        [Fact]
-        public void ShouldRecoverBlockerVessel_EmptyBlockerName_ReturnsFalse()
-        {
-            var rec = MakeRecordedSpawn("Aeris 4A", spawnedPid: 12345);
-            Assert.False(VesselSpawner.ShouldRecoverBlockerVessel(rec, "", "Aeris 4A", blockerPid: 12345));
-        }
-
-        [Fact]
-        public void ShouldRecoverBlockerVessel_EmptyRecordingName_ReturnsFalse()
-        {
-            var rec = MakeRecordedSpawn("Aeris 4A", spawnedPid: 12345);
-            Assert.False(VesselSpawner.ShouldRecoverBlockerVessel(rec, "Aeris 4A", "", blockerPid: 12345));
-        }
-
-        [Fact]
-        public void ShouldRecoverBlockerVessel_CaseSensitive_ReturnsFalse()
-        {
-            // Ordinal comparison -- both names are already resolved via
-            // ResolveLocalizedName at the call site, so case differences signal
-            // different vessels.
-            var rec = MakeRecordedSpawn("Aeris 4A", spawnedPid: 12345);
-            Assert.False(VesselSpawner.ShouldRecoverBlockerVessel(rec, "aeris 4a", "Aeris 4A", blockerPid: 12345));
+            Assert.False(VesselSpawner.ShouldRecoverBlockerVessel(null, 12345, null));
         }
 
         // ────────────────────────────────────────────────────────────
@@ -169,25 +169,21 @@ namespace Parsek.Tests
             // Everything else about this blocker is a perfect match, so the latch is
             // the only thing standing between it and a second recovery.
             Assert.False(VesselSpawner.ShouldEnterDuplicateBlockerRecovery(
-                rec, blockerVesselLoaded: true, blockerName: "Aeris 4A",
-                resolvedRecordingName: "Aeris 4A", blockerPid: 12345));
+                rec, blockerVesselLoaded: true, blockerPid: 12345, blockerGuid: null));
 
             // Positive control: clear the latch and the same inputs DO enter recovery,
             // so the refusal above is the latch rather than a dead predicate.
             rec.DuplicateBlockerRecovered = false;
             Assert.True(VesselSpawner.ShouldEnterDuplicateBlockerRecovery(
-                rec, blockerVesselLoaded: true, blockerName: "Aeris 4A",
-                resolvedRecordingName: "Aeris 4A", blockerPid: 12345));
+                rec, blockerVesselLoaded: true, blockerPid: 12345, blockerGuid: null));
 
             // An unloaded (or absent) blocker cannot be recovered: the call site passes
             // false here for a null blockerVessel.
             Assert.False(VesselSpawner.ShouldEnterDuplicateBlockerRecovery(
-                rec, blockerVesselLoaded: false, blockerName: "Aeris 4A",
-                resolvedRecordingName: "Aeris 4A", blockerPid: 12345));
+                rec, blockerVesselLoaded: false, blockerPid: 12345, blockerGuid: null));
 
             Assert.False(VesselSpawner.ShouldEnterDuplicateBlockerRecovery(
-                null, blockerVesselLoaded: true, blockerName: "Aeris 4A",
-                resolvedRecordingName: "Aeris 4A", blockerPid: 12345));
+                null, blockerVesselLoaded: true, blockerPid: 12345, blockerGuid: null));
         }
 
         // ────────────────────────────────────────────────────────────

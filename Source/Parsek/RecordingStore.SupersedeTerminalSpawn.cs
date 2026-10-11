@@ -207,8 +207,9 @@ namespace Parsek
             // VesselPersistentId, so a bare pid match would mark an unrelated later launch as
             // superseding this prior's terminal spawn. Guid-disambiguate only the adoption-stamp
             // case (real spawns use a KSP-unique spawn pid that cannot collide). A relaunch then
-            // falls through to the name+UT-contiguity branch below, which rejects it (the relaunch's
-            // tree starts after prior ends). Null/unknown guid keeps today's pid-only behavior.
+            // falls through to the identity+UT-contiguity branch below, which rejects it (its
+            // launch guid differs, and its tree starts after prior ends). Null/unknown guid keeps
+            // today's pid-only behavior.
             bool spawnedPidMatch = prior.SpawnedVesselPersistentId == continued.VesselPersistentId;
             bool adoptionRelaunchCollision = spawnedPidMatch
                 && prior.SpawnedVesselPersistentId == prior.VesselPersistentId
@@ -230,7 +231,42 @@ namespace Parsek
                 return false;
             if (prior.EndUT > continued.StartUT + 1e-3)
                 return false;
-            if (!string.Equals(prior.VesselName, continued.VesselName, StringComparison.Ordinal))
+            if (!IsSameVesselForContinuationRepair(prior, continued, out reason))
+                return false;
+
+            return true;
+        }
+
+        /// <summary>
+        /// The vessel-identity half of the UT-contiguity repair branch of
+        /// <see cref="ShouldMarkSupersededTerminalSpawn"/> (the already-polluted shape where
+        /// the prior endpoint was spawned a second time and no longer carries the pid the
+        /// continuation used). Identity first: when both recordings carry a known launch guid
+        /// the guid decides alone - equal is the same launch whatever either is named
+        /// (<c>same-launch-overlapping-continuation-tree</c>), different is never a match even
+        /// under the same name (a relaunch of the same craft, or a spawned continuation whose
+        /// re-keyed guid no record links yet). Only when a guid is unknown on either side does
+        /// the legacy name rule decide (<c>same-name-overlapping-continuation-tree</c>). Pure.
+        /// </summary>
+        internal static bool IsSameVesselForContinuationRepair(
+            Recording prior, Recording continued, out string reason)
+        {
+            reason = null;
+            if (prior == null || continued == null)
+                return false;
+
+            string priorGuid = VesselLaunchIdentity.NormalizeGuid(prior.RecordedVesselGuid);
+            string continuedGuid = VesselLaunchIdentity.NormalizeGuid(continued.RecordedVesselGuid);
+            if (priorGuid != null && continuedGuid != null)
+            {
+                if (!string.Equals(priorGuid, continuedGuid, StringComparison.OrdinalIgnoreCase))
+                    return false;
+                reason = "same-launch-overlapping-continuation-tree";
+                return true;
+            }
+
+            if (string.IsNullOrEmpty(prior.VesselName)
+                || !string.Equals(prior.VesselName, continued.VesselName, StringComparison.Ordinal))
                 return false;
 
             reason = "same-name-overlapping-continuation-tree";

@@ -44,7 +44,8 @@ namespace Parsek
     /// (RecordingStore.SceneEntryFreshRolloutVesselPid) is the cheap same-scene fast
     /// path that identifies a brand-new launch even before guids are compared.
     /// An unknown guid on either side stays inconclusive so legacy recordings keep the
-    /// pre-guid pid/name fallback behavior.
+    /// pre-guid pid fallback behavior; the name fallback is reserved for recordings with
+    /// neither a pid nor a guid (<see cref="MayMatchByNameFallback"/>).
     /// </summary>
     internal static class QuickloadResumeMatchGuard
     {
@@ -95,6 +96,18 @@ namespace Parsek
         internal static bool LaunchGuidConclusivelyDiffers(string recordedVesselGuid, string candidateGuid)
         {
             return VesselLaunchIdentity.GuidsConclusivelyDiffer(recordedVesselGuid, candidateGuid);
+        }
+
+        /// <summary>
+        /// True only for an identity-less legacy recording - no recorded pid AND no launch
+        /// guid - the one case where the restore loop may still match the live vessel by NAME.
+        /// A recording that carries a pid or a guid is matched by identity only (pid, gated by
+        /// the guid): a vessel name is not an identity (a renamed vessel keeps its pid and guid,
+        /// and a same-named vessel of another launch must never be adopted).
+        /// </summary>
+        internal static bool MayMatchByNameFallback(uint recordedPid, string recordedVesselGuid)
+        {
+            return recordedPid == 0 && VesselLaunchIdentity.NormalizeGuid(recordedVesselGuid) == null;
         }
     }
 }

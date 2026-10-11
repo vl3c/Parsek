@@ -3180,8 +3180,9 @@ namespace Parsek
 
         /// <summary>
         /// Two-tier comparison used when scanning a unit's members to pick the live CAMERA member
-        /// for a watch handoff. A member whose vessel name matches the WATCHED member's vessel name
-        /// (the continuing through-line) always beats a non-match; within a tier, the newest segment
+        /// for a watch handoff. A member that is the WATCHED member's vessel
+        /// (<see cref="IsSameWatchedVessel"/>: launch guid, legacy name fallback) - the continuing
+        /// through-line - always beats a non-match; within a tier, the newest segment
         /// (highest StartUT) wins. Returns true when the candidate should replace the current best.
         ///
         /// This keeps the camera on the craft the player is watching across a structural fork where a
@@ -3192,6 +3193,25 @@ namespace Parsek
         /// member always wins. When nothing is watched the caller passes matchesWatched=false for
         /// every member, degrading this to a pure highest-StartUT pick. Pure; unit-tested.
         /// </summary>
+        /// <summary>
+        /// Whether a loop-unit member is the SAME vessel as the watched member, for the
+        /// watch-camera tiers below. Identity first: when both launch guids are known they
+        /// decide alone (a renamed leg of the watched vessel still matches; a same-named leg of
+        /// another vessel never does). Only when a guid is unknown on either side does the
+        /// legacy name equality decide. Nothing watched (<paramref name="watchedName"/> and
+        /// <paramref name="watchedGuid"/> both empty) never matches. Pure; unit-tested.
+        /// </summary>
+        internal static bool IsSameWatchedVessel(
+            string watchedGuid, string watchedName, string memberGuid, string memberName)
+        {
+            string w = VesselLaunchIdentity.NormalizeGuid(watchedGuid);
+            string m = VesselLaunchIdentity.NormalizeGuid(memberGuid);
+            if (w != null && m != null)
+                return string.Equals(w, m, StringComparison.OrdinalIgnoreCase);
+            return !string.IsNullOrEmpty(watchedName)
+                && string.Equals(memberName, watchedName, StringComparison.Ordinal);
+        }
+
         internal static bool IsBetterUnitCameraLiveMember(
             bool candidateMatchesWatched, double candidateStartUT,
             bool currentMatchesWatched, double currentStartUT)
@@ -3204,7 +3224,7 @@ namespace Parsek
         /// <summary>
         /// Gates the unit-handoff retarget so the camera only follows a SAME-VESSEL continuation of
         /// the through-line the player is watching. Returns <paramref name="liveMemberIdx"/> when the
-        /// chosen live member matches the watched vessel name (a continuation, e.g. launch stage ->
+        /// chosen live member is the watched vessel (a continuation, e.g. launch stage ->
         /// upper stage of the same craft), and -1 otherwise. A -1 result tells
         /// <see cref="ShouldRetargetWatchOnUnitHandoff"/> there is no member to hand off to, so the
         /// watch stays on the ending member and its own terminal end (explosion hold -> return to

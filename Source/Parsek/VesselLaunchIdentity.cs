@@ -80,6 +80,27 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True when two recordings record the same physical vessel by launch identity: when
+        /// both launch Guids are known they decide alone (equal = same vessel, whatever each
+        /// recording is named; different = never, even under the same name). Only when a Guid
+        /// is unknown on either side (guid-less legacy data) does the name decide, which is
+        /// what every such site did before launch identity existed. Unlike
+        /// <see cref="RecordingsShareLaunch"/> the pid is not consulted: a resumed spawned
+        /// vessel's recording carries the spawn pid with its original guid, and the guid is
+        /// launch-unique on its own.
+        /// </summary>
+        internal static bool RecordingsShareVesselIdentity(Recording a, Recording b)
+        {
+            if (a == null || b == null) return false;
+            string ga = NormalizeGuid(a.RecordedVesselGuid);
+            string gb = NormalizeGuid(b.RecordedVesselGuid);
+            if (ga != null && gb != null)
+                return string.Equals(ga, gb, StringComparison.OrdinalIgnoreCase);
+            return !string.IsNullOrEmpty(a.VesselName)
+                && string.Equals(a.VesselName, b.VesselName, StringComparison.Ordinal);
+        }
+
+        /// <summary>
         /// True when a candidate vessel (its <c>persistentId</c> and <c>Vessel.id</c> Guid) is the
         /// SAME launch as the recording's SPAWN / adoption endpoint, so a revert/rewind strip may
         /// remove it. Genuine Parsek spawns use a KSP-unique spawn pid (so

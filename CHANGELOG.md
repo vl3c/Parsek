@@ -8,6 +8,13 @@ All notable changes to Parsek are documented here.
 
 _(unreleased - entries accumulate here per commit)_
 
+### Fixed
+
+- **Recovery and rewind no longer depend on a vessel's name.** A vessel you renamed after it was
+  recorded is still marked Recovered with its recovery funds, and rewinds, spawns and the watch
+  camera find it by its launch, not its name. Another launch that shares the name is no longer
+  mistaken for it (GC-7).
+
 ### Dev
 
 - **CHANGELOG entries are kept to 5 lines.** Every over-long entry, in all versions, was condensed
