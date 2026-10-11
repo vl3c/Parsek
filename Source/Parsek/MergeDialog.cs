@@ -205,9 +205,7 @@ namespace Parsek
                 isReFlyDialog = true;
                 var marker = reFlyScenario.ActiveReFlySessionMarker;
                 Recording reFlyRec = FindReFlyRecording(marker, tree);
-                string vesselLabel = reFlyRec != null
-                    ? (reFlyRec.VesselName ?? tree.TreeName ?? "<unnamed>")
-                    : (tree.TreeName ?? "<unnamed>");
+                string vesselLabel = ResolveReFlyDialogVesselLabel(reFlyRec, tree);
                 double reFlyDuration = reFlyRec != null
                     ? System.Math.Max(0.0, reFlyRec.EndUT - reFlyRec.StartUT)
                     : ComputeTreeDurationRange(tree);
@@ -383,9 +381,7 @@ namespace Parsek
                 Recording reFlyRec = marker != null
                     ? FindReFlyRecording(marker, liveTree)
                     : null;
-                string vesselLabel = reFlyRec != null
-                    ? (reFlyRec.VesselName ?? liveTree.TreeName ?? "<unnamed>")
-                    : (liveTree.TreeName ?? "<unnamed>");
+                string vesselLabel = ResolveReFlyDialogVesselLabel(reFlyRec, liveTree);
                 double reFlyDuration = reFlyRec != null
                     ? System.Math.Max(0.0, reFlyRec.EndUT - reFlyRec.StartUT)
                     : ComputeTreeDurationRange(liveTree);
@@ -573,7 +569,7 @@ namespace Parsek
                 return false;
             }
 
-            // Read prior session metadata for the dialog body (TreeName and
+            // Read prior session metadata for the dialog body (mission name and
             // segment duration), routed through the same shared helper as the
             // scene-exit dialog so a 12s switch segment is visually distinct
             // from a 30-minute launch. If the active scenario / session is
@@ -669,7 +665,7 @@ namespace Parsek
                     ParsekLog.Warn("MergeDialog",
                         $"ShowPreSwitchDecisionDialog: BuildWholeTreeMergeDialogBody threw " +
                         $"{ex.GetType().Name}: {ex.Message} — using stub body");
-                    message = priorTree.TreeName ?? "<unnamed>";
+                    message = BuildPreSwitchStubBody(priorTree);
                 }
             }
             else
