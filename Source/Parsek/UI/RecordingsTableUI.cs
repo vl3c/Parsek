@@ -4909,8 +4909,9 @@ namespace Parsek
                 return;
             }
 
-            // Sets the name, logs it and invalidates the shared vessel names the Missions tab
-            // and the Log cache (a rename moves no StateVersion).
+            // Sets this one recording's name, logs it and bumps MissionVesselNaming.NameVersion,
+            // which only the Missions tab's naming cache reads (a rename moves no StateVersion,
+            // so the Mission Log, Timeline and other name caches do not refresh on it).
             MissionVesselNaming.ApplyRecordingRename(committed[ri], renamingRecordingText);
         }
 
