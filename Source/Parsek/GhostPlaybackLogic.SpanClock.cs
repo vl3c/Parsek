@@ -3179,21 +3179,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Two-tier comparison used when scanning a unit's members to pick the live CAMERA member
-        /// for a watch handoff. A member that is the WATCHED member's vessel
-        /// (<see cref="IsSameWatchedVessel"/>: launch guid, legacy name fallback) - the continuing
-        /// through-line - always beats a non-match; within a tier, the newest segment
-        /// (highest StartUT) wins. Returns true when the candidate should replace the current best.
-        ///
-        /// This keeps the camera on the craft the player is watching across a structural fork where a
-        /// piece peels off at the same UT the parent vessel continues (e.g. a crew EVA: the
-        /// continuing pod and the EVA kerbal share the same StartUT, so a plain highest-StartUT pick
-        /// would tie and could grab the kerbal). The caller seeds the scan with
-        /// currentMatchesWatched=false and currentStartUT=NegativeInfinity, so the first in-window
-        /// member always wins. When nothing is watched the caller passes matchesWatched=false for
-        /// every member, degrading this to a pure highest-StartUT pick. Pure; unit-tested.
-        /// </summary>
-        /// <summary>
         /// Whether a loop-unit member is the SAME vessel as the watched member, for the
         /// watch-camera tiers below. Identity first: when both launch guids are known they
         /// decide alone (a renamed leg of the watched vessel still matches; a same-named leg of
@@ -3212,6 +3197,21 @@ namespace Parsek
                 && string.Equals(memberName, watchedName, StringComparison.Ordinal);
         }
 
+        /// <summary>
+        /// Two-tier comparison used when scanning a unit's members to pick the live CAMERA member
+        /// for a watch handoff. A member that is the WATCHED member's vessel
+        /// (<see cref="IsSameWatchedVessel"/>: launch guid, legacy name fallback) - the continuing
+        /// through-line - always beats a non-match; within a tier, the newest segment
+        /// (highest StartUT) wins. Returns true when the candidate should replace the current best.
+        ///
+        /// This keeps the camera on the craft the player is watching across a structural fork where a
+        /// piece peels off at the same UT the parent vessel continues (e.g. a crew EVA: the
+        /// continuing pod and the EVA kerbal share the same StartUT, so a plain highest-StartUT pick
+        /// would tie and could grab the kerbal). The caller seeds the scan with
+        /// currentMatchesWatched=false and currentStartUT=NegativeInfinity, so the first in-window
+        /// member always wins. When nothing is watched the caller passes matchesWatched=false for
+        /// every member, degrading this to a pure highest-StartUT pick. Pure; unit-tested.
+        /// </summary>
         internal static bool IsBetterUnitCameraLiveMember(
             bool candidateMatchesWatched, double candidateStartUT,
             bool currentMatchesWatched, double currentStartUT)

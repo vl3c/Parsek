@@ -293,6 +293,97 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("keptActiveLaunch=1"));
         }
 
+        // catches: the identity arm running against PARENT-CHAIN recordings. The root R0 and
+        // its split-off debris continuation D share R0's pid + guid; R0 is only kill-eligible
+        // as the active recording's parent chain, so D (another name) must survive, exactly
+        // as under the original name-only rule.
+        [Fact]
+        public void ResolveDebris_ParentChainLaunchSharedWithSplitOffDebris_NotKilled()
+        {
+            var r0 = MakeRec("rec-r0", "Lander", 100u, GuidA);
+            var a = MakeRec("rec-a", "Lander", 200u, GuidB);
+            a.ParentBranchPointId = "bp-split";
+            var d = MakeRec("rec-d", "Lander Debris", 100u, GuidA);
+            d.ParentBranchPointId = "bp-split";
+            var active = MakeRec("rec-active", "Lander", 200u, GuidB);
+            active.ParentBranchPointId = "bp-cont";
+            var trees = KillTree(r0, a, d, active);
+            trees[0].BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-split", Type = BranchPointType.JointBreak,
+                ParentRecordingIds = new List<string> { "rec-r0" },
+                ChildRecordingIds = new List<string> { "rec-a", "rec-d" },
+            });
+            trees[0].BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-cont", Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { "rec-a" },
+                ChildRecordingIds = new List<string> { "rec-active" },
+            });
+
+            var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
+                InPlaceMarker(), trees,
+                new List<(uint, string, string)> { (100u, GuidA, "Lander Debris") },
+                protectedPids: new HashSet<uint> { 200u });
+
+            Assert.Empty(kill);
+        }
+
+        [Fact]
+        public void ResolveDebris_UnrelatedNonNamesakeDebris_Survives()
+        {
+            var active = MakeRec("rec-active", "Kerbal X", 200u, GuidC);
+            var debris = MakeRec("rec-debris", "Kerbal X Debris", 501u, GuidA);
+            debris.TerminalStateValue = TerminalState.Destroyed;
+
+            var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
+                InPlaceMarker(), KillTree(active, debris),
+                new List<(uint, string, string)> { (888u, GuidB, "Some Other Debris") },
+                protectedPids: null);
+
+            Assert.Empty(kill);
+        }
+
+        // catches: matchSpawn=false in the identity arm. The quicksave copy is the Destroyed
+        // recording's Parsek SPAWN (KSP-unique spawn pid), renamed, so only the spawn arm
+        // reaches it.
+        [Fact]
+        public void ResolveDebris_RenamedSpawnOfDestroyedRecording_KilledBySpawnIdentity()
+        {
+            var active = MakeRec("rec-active", "Kerbal X", 200u, GuidC);
+            var debris = MakeRec("rec-debris", "Kerbal X Debris", 501u, GuidA);
+            debris.TerminalStateValue = TerminalState.Destroyed;
+            debris.SpawnedVesselPersistentId = 9001u;
+
+            var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
+                InPlaceMarker(), KillTree(active, debris),
+                new List<(uint, string, string)> { (9001u, GuidB, "Renamed Spawn") },
+                protectedPids: null);
+
+            Assert.Equal(new List<uint> { 9001u }, kill);
+            Assert.Contains(logLines, l => l.Contains("byLaunchIdentity=1"));
+        }
+
+        // catches: matchSpawn=false in the active-launch guard. The candidate is the active
+        // recording's own Parsek spawn under a namesake of a Destroyed recording: without the
+        // spawn arm of the guard the debris-name rule would Die() it.
+        [Fact]
+        public void ResolveDebris_SpawnOfTheActiveRecording_NeverKilled()
+        {
+            var active = MakeRec("rec-active", "Kerbal X", 200u, GuidC);
+            active.SpawnedVesselPersistentId = 9002u;
+            var debris = MakeRec("rec-debris", "Kerbal X Debris", 501u, GuidA);
+            debris.TerminalStateValue = TerminalState.Destroyed;
+
+            var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
+                InPlaceMarker(), KillTree(active, debris),
+                new List<(uint, string, string)> { (9002u, GuidB, "Kerbal X Debris") },
+                protectedPids: null);
+
+            Assert.Empty(kill);
+            Assert.Contains(logLines, l => l.Contains("keptActiveLaunch=1"));
+        }
+
         [Fact]
         public void BuildLeftAlone_CarriesTheVesselLaunchGuid()
         {

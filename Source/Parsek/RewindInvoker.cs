@@ -3731,8 +3731,9 @@ namespace Parsek
         /// <paramref name="leftAlonePids"/> (a DEBRIS-only survey, see
         /// <see cref="IsDebrisKillSurveyCandidate"/>):
         /// <list type="number">
-        /// <item>by launch identity: the vessel is the same launch as a kill-eligible
-        /// recording in the marker's tree
+        /// <item>by launch identity: the vessel is the same launch as a Destroyed-terminal or
+        /// suppressed-subtree recording in the marker's tree (parent-chain recordings stay
+        /// name-only, see below)
         /// (<see cref="VesselLaunchIdentity.CandidateMatchesRecording"/> over the recorded
         /// source vessel and its spawn: pid plus a launch guid that does not conclusively
         /// differ, the same gate the rewind strip uses), whatever either is named, so a
@@ -3740,7 +3741,8 @@ namespace Parsek
         /// <item>by the prior-career relic rule: a debris vessel of ANOTHER launch whose name
         /// equals a kill-eligible recording's name (debris of an earlier flight of the same
         /// craft, the playtest's phantom-encounter cause). No identity reaches those; the name
-        /// is a deliberate, debris-scoped heuristic here, never an identity claim.</item>
+        /// is a deliberate, debris-scoped heuristic here, never an identity claim. It is also
+        /// the ONLY rule for parent-chain recordings, which keep their original name matching.</item>
         /// </list>
         /// The <paramref name="protectedPids"/> parameter excludes the actively re-flown
         /// vessel + the marker's recording vessel pid so #573's strip-kill protection is
@@ -3833,7 +3835,15 @@ namespace Parsek
             // the head of the suppressed subtree, so it would otherwise be picked up by
             // the suppressed-subtree predicate. The protected-pids check below already
             // shields the LIVE vessel; the identity skip is the second layer.
+            //
+            // The identity arm runs ONLY against Destroyed-terminal and suppressed-subtree
+            // recordings (identityEligible). A parent-chain recording keeps its original
+            // name-only matching: the parent chain's earliest leg shares its launch with
+            // vessels that split off later under another name (a root R0 and its debris
+            // continuation D keep R0's pid + guid), so an identity match there would Die()
+            // a vessel the name rule never reached.
             var killEligible = new List<Recording>();
+            var identityEligible = new List<Recording>();
             var killEligibleNames = new HashSet<string>(StringComparer.Ordinal);
             Recording activeRec = null;
             int destroyedTerminalRecs = 0;
@@ -3867,6 +3877,8 @@ namespace Parsek
                 if (!destroyedTerminal && !inSuppressedSubtree && !inActiveParentChain) continue;
 
                 killEligible.Add(rec);
+                if (destroyedTerminal || inSuppressedSubtree)
+                    identityEligible.Add(rec);
                 if (!string.IsNullOrEmpty(rec.VesselName))
                     killEligibleNames.Add(rec.VesselName);
                 if (destroyedTerminal) destroyedTerminalRecs++;
@@ -3891,10 +3903,11 @@ namespace Parsek
                     continue;
                 }
 
-                // Identity first: the quicksave copy of a kill-eligible recording's own
-                // vessel (or of its spawn), whatever either is called now.
+                // Identity first: the quicksave copy of a Destroyed-terminal or
+                // suppressed-subtree recording's own vessel (or of its spawn), whatever
+                // either is called now. Parent-chain recordings are name-only (above).
                 if (VesselLaunchIdentity.FindMatchingRecording(
-                        killEligible, pid, guid, matchSource: true, matchSpawn: true) != null)
+                        identityEligible, pid, guid, matchSource: true, matchSpawn: true) != null)
                 {
                     kill.Add(pid);
                     killedByIdentity++;
@@ -3920,6 +3933,7 @@ namespace Parsek
                     $"ResolveInPlaceContinuationDebrisToKill: matched {kill.Count} pid(s) " +
                     $"(byLaunchIdentity={killedByIdentity} byPriorCareerDebrisName={killedByDebrisName}) " +
                     $"against {killEligible.Count} kill-eligible recording(s) " +
+                    $"(identityEligible={identityEligible.Count}) " +
                     $"(destroyedTerminal={destroyedTerminalRecs} suppressedSubtree={suppressedSubtreeRecs} " +
                     $"parentChain={parentChainRecs}) " +
                     $"keptActiveLaunch={keptActiveIdentity} " +
