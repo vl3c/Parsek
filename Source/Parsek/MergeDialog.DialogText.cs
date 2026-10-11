@@ -132,6 +132,25 @@ namespace Parsek
             => string.IsNullOrEmpty(reason) ? "<unspecified>" : reason;
 
         /// <summary>
+        /// The Re-Fly merge dialogs' vessel label: the re-flown recording's vessel name, else
+        /// (no recording, or one with no name) the tree's display name
+        /// (<see cref="MissionStore.DisplayNameForTree(RecordingTree)"/>), else "&lt;unnamed&gt;".
+        /// Shared by the scene-exit and the pre-transition Re-Fly dialogs.
+        /// </summary>
+        internal static string ResolveReFlyDialogVesselLabel(Recording reFlyRec, RecordingTree tree)
+        {
+            string treeLabel = MissionStore.DisplayNameForTree(tree) ?? "<unnamed>";
+            return reFlyRec != null ? (reFlyRec.VesselName ?? treeLabel) : treeLabel;
+        }
+
+        /// <summary>
+        /// The pre-switch dialog's stub body when <see cref="BuildWholeTreeMergeDialogBody"/>
+        /// threw: the tree's display name alone, else "&lt;unnamed&gt;".
+        /// </summary>
+        internal static string BuildPreSwitchStubBody(RecordingTree tree)
+            => MissionStore.DisplayNameForTree(tree) ?? "<unnamed>";
+
+        /// <summary>
         /// Bug 3 (post-#876 playtest 2026-05-17): unified body for the
         /// whole-tree pre/post-transition merge dialog. Both switch-segment
         /// (short standalone segment) and long-lived launch trees render the

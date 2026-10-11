@@ -205,9 +205,7 @@ namespace Parsek
                 isReFlyDialog = true;
                 var marker = reFlyScenario.ActiveReFlySessionMarker;
                 Recording reFlyRec = FindReFlyRecording(marker, tree);
-                string vesselLabel = reFlyRec != null
-                    ? (reFlyRec.VesselName ?? MissionStore.DisplayNameForTree(tree) ?? "<unnamed>")
-                    : (MissionStore.DisplayNameForTree(tree) ?? "<unnamed>");
+                string vesselLabel = ResolveReFlyDialogVesselLabel(reFlyRec, tree);
                 double reFlyDuration = reFlyRec != null
                     ? System.Math.Max(0.0, reFlyRec.EndUT - reFlyRec.StartUT)
                     : ComputeTreeDurationRange(tree);
@@ -383,9 +381,7 @@ namespace Parsek
                 Recording reFlyRec = marker != null
                     ? FindReFlyRecording(marker, liveTree)
                     : null;
-                string vesselLabel = reFlyRec != null
-                    ? (reFlyRec.VesselName ?? MissionStore.DisplayNameForTree(liveTree) ?? "<unnamed>")
-                    : (MissionStore.DisplayNameForTree(liveTree) ?? "<unnamed>");
+                string vesselLabel = ResolveReFlyDialogVesselLabel(reFlyRec, liveTree);
                 double reFlyDuration = reFlyRec != null
                     ? System.Math.Max(0.0, reFlyRec.EndUT - reFlyRec.StartUT)
                     : ComputeTreeDurationRange(liveTree);
@@ -669,7 +665,7 @@ namespace Parsek
                     ParsekLog.Warn("MergeDialog",
                         $"ShowPreSwitchDecisionDialog: BuildWholeTreeMergeDialogBody threw " +
                         $"{ex.GetType().Name}: {ex.Message} — using stub body");
-                    message = MissionStore.DisplayNameForTree(priorTree) ?? "<unnamed>";
+                    message = BuildPreSwitchStubBody(priorTree);
                 }
             }
             else
