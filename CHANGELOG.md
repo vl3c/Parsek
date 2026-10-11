@@ -30,6 +30,10 @@ _(unreleased - entries accumulate here per commit)_
 
 - **CHANGELOG entries are kept to 5 lines.** Every over-long entry, in all versions, was condensed
   to its essentials, and a test now fails on any entry that runs longer.
+- **The Jool-to-Kerbin test flight warps faster near each planet.** It now fast-warps until
+  10,000 s before leaving Jool and before reaching Kerbin, not 100,000 s, which should save
+  about three minutes per run. A re-fly still has to show the same flight.
+  (HARNESS-FLIGHT-WALL-TIME)
 - **Harness run history survives worktree removal.** Every automated test run now also keeps a
   small copy of its results and logs in one shared folder outside the worktrees, and the flight
   efficiency report reads it, so deleting a worktree no longer loses its run history.

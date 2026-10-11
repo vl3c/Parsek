@@ -11149,7 +11149,7 @@ def _scenario_mission_params(name):
 
 class CoastNativeLeadTests(unittest.TestCase):
     """soiNativeLeadSeconds / triggerNativeLeadSeconds (COAST-TO-TARGET wall
-    time). Both default 0 = off; B26 and B22 opt in.
+    time). Both default 0 = off; B26, B22 and B29 opt in.
 
     The decide-level cells drive the REAL B26 spec params in its stage-2 Jool
     frame (target Vall, soi_lead 3,000, approach window 10,000, cap 3 = x50,
@@ -11161,6 +11161,7 @@ class CoastNativeLeadTests(unittest.TestCase):
     UT0 = 28_900_000.0
     B26 = "B26-laythe-vall-transfer.toml"
     B22 = "B22-jool-orbit.toml"
+    B29 = "B29-jool-kerbin-return.toml"
     KEYS = ("soiNativeLeadSeconds", "triggerNativeLeadSeconds")
 
     def _params(self, **keys):
@@ -11232,8 +11233,9 @@ class CoastNativeLeadTests(unittest.TestCase):
         p = mlib.b5_params_from_dict({})
         self.assertEqual((0.0, 0.0), (p.soi_native_lead, p.trigger_native_lead))
 
-    def test_the_two_opt_in_specs_arm_a_shorter_lead_above_the_floor(self):
-        for name, soi_native in ((self.B26, 400.0), (self.B22, 10000.0)):
+    def test_the_opt_in_specs_arm_a_shorter_lead_above_the_floor(self):
+        for name, soi_native in ((self.B26, 400.0), (self.B22, 10000.0),
+                                 (self.B29, 10000.0)):
             p = mlib.b5_params_from_dict(_scenario_mission_params(name))
             lead, reason = mlib.coast_soi_native_lead(p)
             self.assertEqual((soi_native, "soi-native"), (lead, reason), name)
