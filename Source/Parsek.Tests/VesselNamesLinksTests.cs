@@ -177,6 +177,86 @@ namespace Parsek.Tests
             Assert.Null(res.ResolveLiveVessel(G5, 43, null));
         }
 
+        // catches: FindGuid's path compression writing guidParent while Resolve enumerates its
+        // keys ("Collection was modified" on .NET Framework / Mono). Two uncarried link guids
+        // into one carried guid build a two-level chain for some ordinal orders.
+        [Fact]
+        public void Edge4_TwoUncarriedLinksIntoOneCarriedGuid_DoesNotThrow()
+        {
+            RecordingTree t = Tree("T", Rec("a", "Probe", 0, 10, pid: 1, guid: G2));
+            VesselIdentity.Resolution res = VesselIdentity.Resolve(new[] { t }, null, new[]
+            {
+                new KeyValuePair<string, string>(G3, G2),
+                new KeyValuePair<string, string>(G1, G2),
+            });
+            VesselIdentity.Identity id = res.ByRecordingId["a"];
+            Assert.Contains(G1, id.Guids);
+            Assert.Contains(G3, id.Guids);
+            Assert.Same(id, res.ResolveLiveVessel(G1, 5, null));
+        }
+
+        // Every ordering of a link set (chains, fans, a link-only middle guid) over every
+        // choice of the carried guid: ordinal guid order shapes the union-find, so no lucky
+        // order may hide a fault.
+        [Fact]
+        public void Edge4_EveryLinkOrderAndCarriedGuid_ResolvesOneIdentityWithEveryGuid()
+        {
+            string[] guids = { G1, G2, G3, G5, G6, G7 };
+            var shapes = new List<KeyValuePair<string, string>[]>();
+            foreach (int[] perm in Permutations(new[] { 0, 1, 2, 3 }))
+            {
+                string a = guids[perm[0]], b = guids[perm[1]], c = guids[perm[2]], d = guids[perm[3]];
+                shapes.Add(new[] { Pair(a, b), Pair(c, b), Pair(d, b) });        // fan into b
+                shapes.Add(new[] { Pair(a, b), Pair(b, c), Pair(c, d) });        // chain a->b->c->d
+                shapes.Add(new[] { Pair(c, d), Pair(b, c), Pair(a, b) });        // the chain, reversed
+                shapes.Add(new[] { Pair(a, b), Pair(c, d), Pair(b, d) });        // two pairs joined
+            }
+            int resolved = 0;
+            foreach (KeyValuePair<string, string>[] links in shapes)
+            {
+                var members = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (KeyValuePair<string, string> l in links) { members.Add(l.Key); members.Add(l.Value); }
+                foreach (string carried in members)
+                {
+                    RecordingTree t = Tree("T", Rec("a", "Probe", 0, 10, pid: 1, guid: carried));
+                    VesselIdentity.Resolution res = VesselIdentity.Resolve(new[] { t }, null, links);
+                    VesselIdentity.Identity id = res.ByRecordingId["a"];
+                    Assert.True(id.Guids.SetEquals(members));
+                    foreach (string g in members) Assert.Same(id, res.ResolveLiveVessel(g, 9, null));
+                    resolved++;
+                }
+            }
+            Assert.Equal(shapes.Count * 4, resolved);
+        }
+
+        private static KeyValuePair<string, string> Pair(string from, string to)
+            => new KeyValuePair<string, string>(from, to);
+
+        private static IEnumerable<int[]> Permutations(int[] items)
+        {
+            if (items.Length <= 1) { yield return items; yield break; }
+            for (int i = 0; i < items.Length; i++)
+            {
+                int[] rest = items.Where((_, k) => k != i).ToArray();
+                foreach (int[] p in Permutations(rest))
+                    yield return new[] { items[i] }.Concat(p).ToArray();
+            }
+        }
+
+        // A resolver fault in a Parsek rename refuses it through the refusal path, never
+        // throws into the Recordings-tab commit.
+        [Fact]
+        public void ParsekRename_AResolverFault_IsRefused_NotThrown()
+        {
+            Recording a = Rec("a", "Probe", 0, 10, pid: 1, guid: G1);
+            VesselNameStore.TreesProviderForTesting = () => throw new InvalidOperationException("boom");
+            Assert.False(VesselNameStore.RecordParsekRename(a, "Relay", null, out string refusal));
+            Assert.Equal(VesselNameStore.RefusalResolveFailed, refusal);
+            Assert.Equal(0, VesselNameStore.DecisionCount);
+            Assert.Contains(logLines, l => l.Contains("[WARN][VesselNames]")
+                && l.Contains("Parsek rename refused: rec=a name='Relay' reason=resolve-failed: InvalidOperationException: boom"));
+        }
+
         // catches: a link joining two decided components losing one decision's legs, or keeping
         // the older (lower seq) name.
         [Fact]
@@ -455,6 +535,52 @@ namespace Parsek.Tests
             int linked = logLines.FindIndex(l => l.Contains("Link added: kind=Resume guid=" + G5));
             int cleared = logLines.FindIndex(l => l.Contains("cleared prior spawn flags on resumed recording 'rec_tip'"));
             Assert.True(linked >= 0 && cleared > linked, "the link is recorded before the spawn pid is cleared");
+        }
+
+        // An adoption-stamp match (spawn pid == recorded pid: a pid the craft bakes, shared by
+        // every launch of it) resumes the recording but never writes a permanent link.
+        [Fact]
+        public void ResumeLink_NotRecordedForAnAdoptionStampMatch()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_adopt", TreeName = "Lander", RootRecordingId = "rec_root", ActiveRecordingId = "rec_root",
+            };
+            tree.Recordings["rec_root"] = new Recording
+            {
+                RecordingId = "rec_root", TreeId = "tree_adopt", VesselName = "Lander",
+                ExplicitStartUT = 100, ExplicitEndUT = 150, VesselPersistentId = 10, RecordedVesselGuid = G2,
+            };
+            tree.Recordings["rec_tip"] = new Recording
+            {
+                RecordingId = "rec_tip", TreeId = "tree_adopt", VesselName = "Lander",
+                ExplicitStartUT = 150, ExplicitEndUT = 200, VesselPersistentId = 20, RecordedVesselGuid = G1,
+                VesselSpawned = true, SpawnedVesselPersistentId = 20, TerminalStateValue = TerminalState.Landed,
+            };
+            tree.BackgroundMap[20] = "rec_tip";
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            foreach (Recording rec in tree.Recordings.Values)
+                RecordingStore.AddCommittedInternal(rec);
+
+            // The live vessel's guid is unknown, so the adoption stamp still matches by pid.
+            bool taken = ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore(
+                20, out RecordingTree liveTree, out string recId, out _, activeVesselGuid: null);
+            Assert.True(taken);
+            Assert.Equal("rec_tip", recId);
+            Assert.Equal(0, VesselNameStore.LinkCount);
+
+            // With a live guid the adoption-stamp branch matches too, and still writes no link.
+            VesselNameStore.ResetForTesting();
+            RecordingStore.ResetForTesting();
+            tree.Recordings["rec_tip"].SpawnedVesselPersistentId = 20;
+            tree.Recordings["rec_tip"].VesselSpawned = true;
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            foreach (Recording rec in tree.Recordings.Values)
+                RecordingStore.AddCommittedInternal(rec);
+            Assert.True(ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore(
+                20, out _, out _, out _, activeVesselGuid: G5));
+            Assert.Equal(0, VesselNameStore.LinkCount);
+            Assert.False(VesselNameStore.TryGetLink(G5, out _));
         }
 
         // ---------------------------------------------------------------- spawn backfill (6.2)

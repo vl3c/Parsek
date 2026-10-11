@@ -15709,10 +15709,13 @@ namespace Parsek
             // source PID that originally produced the committed recording.
             // Vessel names (design 6.2): the live vessel (a Parsek spawn, fresh guid) continues
             // the resumed recording's identity. Linked BEFORE the spawn pid is cleared below:
-            // after that nothing but this link joins the two guids.
+            // after that nothing but this link joins the two guids. Only through the
+            // genuine-spawn branch (the backfill's rule): an adoption-stamp match is a pid the
+            // craft bakes, never proof enough for a permanent link.
             if (liveTree.Recordings != null
                 && liveTree.Recordings.TryGetValue(targetRecordingId, out Recording linkRec)
-                && linkRec != null)
+                && linkRec != null
+                && VesselLaunchIdentity.IsGenuineSpawnPidMatch(linkRec, activeVesselPid))
             {
                 VesselNameStore.AddLink(activeVesselGuid, linkRec.RecordedVesselGuid,
                     VesselIdentityLinkKind.Resume,

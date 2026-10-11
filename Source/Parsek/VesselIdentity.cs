@@ -604,8 +604,9 @@ namespace Parsek
                 }
                 res.ByRecordingId[ids[n]] = identity;
             }
-            // Link guids join the identity of the recordings their component reaches.
-            foreach (string g in guidParent.Keys)
+            // Link guids join the identity of the recordings their component reaches. Iterates
+            // a snapshot of the keys: FindGuid's path compression writes guidParent.
+            foreach (string g in new List<string>(guidParent.Keys))
             {
                 if (!nodeByComponent.TryGetValue(FindGuid(guidParent, g), out int node)) continue;
                 byRoot[Find(uf, node)].Guids.Add(g);

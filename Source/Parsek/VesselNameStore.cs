@@ -94,6 +94,7 @@ namespace Parsek
         internal const string RefusalEva = "eva";
         internal const string RefusalNoGuid = "no-guid";
         internal const string RefusalNoRecording = "no-recording";
+        internal const string RefusalResolveFailed = "resolve-failed";
 
         private static readonly List<VesselNameDecision> decisions = new List<VesselNameDecision>();
         private static readonly Dictionary<string, VesselNameDecision> byGuid =
@@ -341,18 +342,32 @@ namespace Parsek
         internal static bool RecordParsekRename(
             Recording rec, string newName, IEnumerable<RecordingTree> universeForTesting, out string refusal)
         {
-            List<RecordingTree> trees = universeForTesting != null
-                ? new List<RecordingTree>(universeForTesting)
-                : GatherTrees();
-            List<Recording> loose = universeForTesting != null ? new List<Recording>() : GatherLoose(trees);
-            VesselIdentity.Resolution res = ResolveUniverse(trees, loose);
-            if (rec != null && !string.IsNullOrEmpty(rec.RecordingId)
-                && !res.ByRecordingId.ContainsKey(rec.RecordingId) && VesselIdentity.IsVesselLeg(rec))
+            VesselIdentity.Resolution res;
+            try
             {
-                // A row the resolver's universe does not hold (a recording outside every tree
-                // the store knows): it is its own identity.
-                loose.Add(rec);
+                List<RecordingTree> trees = universeForTesting != null
+                    ? new List<RecordingTree>(universeForTesting)
+                    : GatherTrees();
+                List<Recording> loose = universeForTesting != null ? new List<Recording>() : GatherLoose(trees);
                 res = ResolveUniverse(trees, loose);
+                if (rec != null && !string.IsNullOrEmpty(rec.RecordingId)
+                    && !res.ByRecordingId.ContainsKey(rec.RecordingId) && VesselIdentity.IsVesselLeg(rec))
+                {
+                    // A row the resolver's universe does not hold (a recording outside every tree
+                    // the store knows): it is its own identity.
+                    loose.Add(rec);
+                    res = ResolveUniverse(trees, loose);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Called from the Recordings-tab commit: a resolver fault refuses the rename
+                // through the ordinary refusal path, never throws into the UI.
+                refusal = RefusalResolveFailed;
+                ParsekLog.Warn(Tag, "Parsek rename refused: rec=" + (rec?.RecordingId ?? "<null>") +
+                    " name='" + (newName ?? "") + "' reason=" + refusal + ": " +
+                    ex.GetType().Name + ": " + ex.Message);
+                return false;
             }
 
             string oldName = rec?.VesselName;
