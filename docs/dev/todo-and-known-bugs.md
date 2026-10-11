@@ -3611,7 +3611,7 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   KSP.log), and `tools/archive_results.py --from <results-dir>` back-fills surviving
   snapshots. About 0.4 MB per run (10 flown runs measured), no pruning. Contract:
   `harness/README.md` "The machine-wide results archive".
-- [ ] WarpToUT 1x tail (branch `warptout-tail-trim`, PENDING FLIGHT PROOF). Audit
+- [x] WarpToUT 1x tail (branch `warptout-tail-trim`). Audit
   2026-10-11: the selector kept the bottom rung only while `rate * 2.5` game-s remained, so
   every capped rails warp ended on 12.2-12.3 s of 1x (AP-1 x2, CN-2, CN-3) and a physics warp
   on ~5 s (PWR 4.8 s); downshifts to a non-zero rung used stock's eased ramp (CN-3's 5x
@@ -3622,8 +3622,24 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   ladder arithmetic: about 8 s per capped rails warp (15 s -> 7 s from 25 game-s out) and 2 s
   per physics warp; the nightly has 7 such rails warps and 14 physics ones, so about 85 s per
   nightly, plus about 38 s on CN-3 (warp ~64 s -> ~27 s) and 9 s on OC-1 (~28 s -> ~19 s).
-  Confirm on the next nightly: `warptout complete elapsed=` per lane against its last run,
-  and the CN-3 / OC-1 / SS-1 contracts green at the new rates.
+  Flight proof on the branch (build sha 5d34c86d): AP-1 `2026-10-11_1657` PASS, its two
+  WarpToUT steps 20.2 -> 12.7 s and 32.2 -> 26.7 s against the same day's main run, attitude
+  counts unchanged (resolvedLines 971 / floor 400, surface 254 / 100); CN-3 and OC-1 PASS at
+  maxRate 50. The per-tier total is still to be read off the next nightly.
+- [x] Three analyzer over-counts (branch `flighteff-accuracy`; a 2026-10-11 archive read
+  found them inflating "recoverable"). (1) Native warp_to ramp: inside a native `warp_to`
+  (telemetry `warpTo=` ahead of ut) the target is capped at the best stock rails rate at
+  most seconds left / 2 (`NATIVE_WARP_RAMP_SECONDS`), so KSP's own step-down near the
+  target is `warped`, not low warp; machine rails with no `warpTo=` is unchanged. (2)
+  MechJeb executor settle: an un-held waiting-for-node stretch (no `node-wait:` line in the
+  visit) that ends in the executor's own rails warp, with no machine warp command, is by
+  design. (3) BDOCK DOCK phase: MechJeb's docking autopilot at `dockSpeedMetersPerSec`, by
+  design on the bdock / sdock / rdock machines. Archive 2026-10-11, recoverable before ->
+  after: B7 45.0 -> 1.1 s, B15 93.5 -> 5.1 s (CIRCULARIZE 40.9 s now by design), BDOCK-1
+  69.5 -> 0.0 s (69.4 s now by design), B29 242.9 -> 205.5 s (the machine x1000 coast
+  clamp keeps its 194.5 s; only native-only runs dropped, 31.6 s). Every 2026-10-11 run:
+  596.5 -> 272.8 s recoverable, 2,069 -> 2,180 s by design. `ci9_tip_dock` (tdock) delegates
+  the same DOCK phase but stays outside the scope, like the rendezvous lead.
 
 ## MISSIONS-TAB-MODEL1: the Missions tab redesign, first slice ("Model 1") [OWNER-APPROVED 2026-09-29, branch `missions-model1`. IN PROGRESS]
 

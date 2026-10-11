@@ -47,11 +47,13 @@ def _read(path):
 
 def _tel(phase="COAST", ap=100000.0, pe=90000.0, alt=95000.0, vspd=10.0,
          body="Kerbin", nodes=0, node_ut="nan", next_body="?", situation="ORBITING",
-         warp="NONEx1.000", ap_err="nan", ut=1000.0, include_ut=True):
+         warp="NONEx1.000", ap_err="nan", ut=1000.0, include_ut=True, warp_to=None):
     line = ("[Mission][VerboseRateLimited][%s] telemetry ap=%s pe=%s alt=%s vspd=%s "
             "body=%s nodes=%d nodeUt=%s nextBody=%s situation=%s warp=%s apErr=%s"
             % (phase, ap, pe, alt, vspd, body, nodes, node_ut, next_body, situation,
                warp, ap_err))
+    if warp_to is not None:
+        line += " warpTo=%s" % warp_to
     if include_ut:
         line += " ut=%.3f" % ut
     return line
@@ -655,7 +657,8 @@ class DocumentTests(unittest.TestCase):
         self.assertEqual(sorted(back), ["aggregate", "byDesignPolicy", "constants",
                                         "duplicatesDropped", "runs", "schema", "schemaVersion",
                                         "skipped"])
-        self.assertEqual(len(back["byDesignPolicy"]), len(fe.BY_DESIGN_POLICY) + 3)
+        self.assertEqual(len(back["byDesignPolicy"]), len(fe.BY_DESIGN_POLICY) + 5)
+        self.assertEqual(back["constants"]["nativeWarpRampSeconds"], 2.0)
         self.assertEqual(back["constants"]["rendezvousEarlyCancelSeconds"], 15.0)
         r = back["runs"][0]
         for key in ("runId", "scenario", "verdict", "totalWallSeconds", "missionWallSeconds",
@@ -1175,6 +1178,194 @@ class RendezvousLeadTests(unittest.TestCase):
                              "\n".join(lines), None, None)
         self.assertIn("rendezvous lead: visit 1 RENDEZVOUS nodeUt=7735.1 by design from "
                       "ut 7599.6 (hold warp target - early cancel)", fe.render_run(run))
+
+
+class NativeWarpRampTests(unittest.TestCase):
+    """Inside an active native warp_to (telemetry warpTo= ahead of ut) the
+    target rate is capped by the time left (NATIVE_WARP_RAMP_SECONDS); a rails
+    rate outside a native warp is measured against the legal rate as before."""
+
+    _ORBIT = dict(alt=700000.0, ap=800000.0, pe=650000.0)
+
+    def test_cap_values(self):
+        # 2026-10-11 B7 visit 6 points: (seconds left, cap)
+        for left, cap in ((85344.6, 10000.0), (4942.0, 1000.0), (622.3, 100.0),
+                          (196.7, 50.0), (31.5, 10.0), (1.9, 1.0), (250000.0, 100000.0)):
+            s = _sample(ut=1000.0, warp_to="%.3f" % (1000.0 + left))
+            self.assertEqual(fe.native_warp_cap(s), cap, left)
+        self.assertIsNone(fe.native_warp_cap(_sample(ut=1000.0)))
+        self.assertIsNone(fe.native_warp_cap(_sample(ut=1000.0, warp_to="nan")))
+        self.assertIsNone(fe.native_warp_cap(_sample(ut=1000.0, warp_to="999.000")))
+        self.assertIsNone(fe.native_warp_cap(_sample(include_ut=False, warp_to="5000.0")))
+
+    def test_every_real_ramp_frame_is_at_or_above_its_cap(self):
+        # (seconds left, rate) ramp-down frames of the 2026-10-11 B7 / B29 /
+        # B11 / B15 / B17 native warps: none may read low against the cap.
+        # MUTATION: NATIVE_WARP_RAMP_SECONDS = 1.0 reds the (114.8, 50) frame,
+        # 1.5 the (159.3, 63) and (166.3, 69) frames.
+        for left, rate in ((85344.6, 10000.0), (12944.6, 10000.0), (4942.0, 3340.088),
+                           (1534.3, 1000.0), (622.3, 550.0), (196.7, 88.0), (79.8, 50.0),
+                           (70.5, 84.998), (31.5, 32.4), (23.1, 20.398), (14.6, 10.0),
+                           (74187.0, 10000.0), (6784.5, 6579.956), (114.8, 50.0),
+                           (159.3, 63.0), (166.3, 69.0)):
+            s = _sample(ut=1000.0, warp_to="%.3f" % (1000.0 + left))
+            self.assertGreaterEqual(warp_audit.bucket_rate(rate), fe.native_warp_cap(s),
+                                    (left, rate))
+
+    def _ramp_log(self, native, prefix=()):
+        # 20 samples at RAILS x10000 every 10000 game s; the target 199000
+        # leaves 199000 .. 9000 s, so the cap is at most 10000 on every interval.
+        lines = ["[Mission][Info][PRELAUNCH] mission start name=b7_duna_flyby",
+                 _phase("PLAN", "COAST-TO-TARGET", 0.0)] + list(prefix)
+        lines += [_tel(phase="COAST-TO-TARGET", ut=10000.0 * i, warp="RAILSx10000.000",
+                       warp_to=("199000.000" if native else None), **self._ORBIT)
+                  for i in range(20)]
+        return "\n".join(lines)
+
+    def test_native_ramp_is_not_low_warp(self):
+        res = fe.analyze_mission(self._ramp_log(native=True), None)
+        self.assertEqual(res["buckets"]["lowWarp"], 0.0)
+        self.assertAlmostEqual(res["buckets"]["warped"], 19.0, places=6)
+        self.assertEqual(res["recoverable"], 0.0)
+
+    def test_machine_low_warp_still_counts(self):
+        """No warpTo= (a machine set_rails_warp, MechJeb autowarp, a pre-warpTo
+        log): x10000 below the legal x100000 is low warp, as before."""
+        for prefix in ((), ("[Mission][Info][COAST-TO-TARGET] action set_rails_warp "
+                            "value=6.000",)):
+            res = fe.analyze_mission(self._ramp_log(native=False, prefix=prefix), None)
+            self.assertAlmostEqual(res["buckets"]["lowWarp"], 19.0, places=6)
+            self.assertAlmostEqual(res["recoverable"],
+                                   19.0 - 190000.0 / 100000.0 - fe.RAMP_SETTLE_OVERHEAD_SECONDS,
+                                   places=3)
+
+    def test_slow_native_ramp_up_still_reads_low(self):
+        a = _sample(ut=1000.0, warp="RAILSx10.000", warp_to="1000000.0", **self._ORBIT)
+        b = _sample(ut=1010.0, warp="RAILSx50.000", warp_to="1000000.0", **self._ORBIT)
+        self.assertEqual(fe.classify_interval(a, b), ("lowWarp", fe.LOW_WARP_CAUSE))
+
+    def test_target_rate_takes_the_cap(self):
+        self.assertEqual(fe._target_rate("low-warp", "X", "Kerbin", 700000.0, None, 1000.0),
+                         1000.0)
+        self.assertEqual(fe._target_rate("low-warp", "X", "Kerbin", 700000.0, None, None),
+                         100000.0)
+        # the cap never raises the target above the legal rate
+        self.assertEqual(fe._target_rate("low-warp", "X", "Kerbin", 40000.0, None, 100000.0),
+                         10.0)
+
+
+class ExecutorWaitTests(unittest.TestCase):
+    """An un-held node wait that MechJeb's executor ends with its own rails
+    warp is by design (EXECUTOR_WAIT_REASON)."""
+
+    _ORBIT = dict(alt=750000.0, ap=778000.0, pe=562000.0)
+
+    def _run(self, phase="CIRCULARIZE", n=61, between=(), prefix=(), resume="RAILSx3.800",
+             resume_warp_to=None, mission="b15_eve_flyby"):
+        lines = ["[Mission][Info][PRELAUNCH] mission start name=%s" % mission,
+                 _phase("MJ-ASCENT", phase, 1880.0)] + list(prefix)
+        lines += [_tel(phase=phase, ut=1880.0 + i, nodes=1, node_ut="2484.4", **self._ORBIT)
+                  for i in range(n)]
+        lines += list(between)
+        if resume:
+            lines += [_tel(phase=phase, ut=1880.0 + n + 3.8 * k, nodes=1, node_ut="2484.4",
+                           warp=resume, warp_to=resume_warp_to, **self._ORBIT)
+                      for k in range(2)]
+        text = "\n".join(lines)
+        log = fe.parse_mission_log(text.splitlines())
+        ivs = fe.build_intervals(log)
+        fe.apply_policy(log, ivs, fe.MISSION_MACHINES.get(mission))
+        waits = [iv for iv in ivs if iv.bucket == "idle" and iv.cause == "waiting-for-node"]
+        return text, waits
+
+    def test_executor_resumed_warp_is_by_design(self):
+        text, waits = self._run()
+        self.assertEqual(len(waits), 61)
+        self.assertTrue(all(iv.by_design == fe.EXECUTOR_WAIT_REASON for iv in waits))
+        res = fe.analyze_mission(text, None)
+        self.assertEqual(res["recoverable"], 0.0)
+        rows = [r for r in res["recommendations"] if r["cause"] == "waiting-for-node"]
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(rows[0]["byDesign"])
+        self.assertEqual(rows[0]["byDesignReason"], fe.EXECUTOR_WAIT_REASON)
+        self.assertFalse(rows[0]["outcomeSensitive"])
+
+    def test_any_phase_without_a_rule(self):
+        _text, waits = self._run(phase="CAPTURE-BURN", mission="b11_mun_orbit")
+        early = [iv for iv in waits if 2484.4 - iv.ut > fe.capture_lead_seconds(None)[0]]
+        self.assertTrue(early)
+        self.assertTrue(all(iv.by_design == fe.EXECUTOR_WAIT_REASON for iv in early))
+
+    def test_a_machine_warp_command_keeps_it_recoverable(self):
+        for cmd in ("set_rails_warp value=3.000", "warp_to_ut value=2400.000",
+                    "set_physics_warp value=1.000"):
+            line = "[Mission][Info][CIRCULARIZE] action %s" % cmd
+            _text, waits = self._run(between=[line])
+            self.assertFalse(any(iv.by_design for iv in waits), cmd)
+        # a zero-valued set (a cancel) is not a warp writer
+        _text, waits = self._run(between=["[Mission][Info][CIRCULARIZE] action "
+                                          "set_rails_warp value=0.000"])
+        self.assertTrue(all(iv.by_design for iv in waits))
+
+    def test_no_resume_or_other_resume_keeps_it_recoverable(self):
+        for kw in (dict(resume=None), dict(resume="PHYSICSx2.000"),
+                   dict(resume="RAILSx3.800", resume_warp_to="3000.000")):
+            text, waits = self._run(**kw)
+            self.assertFalse(any(iv.by_design for iv in waits), kw)
+            self.assertGreater(fe.analyze_mission(text, None)["recoverable"], 0.0, kw)
+
+    def test_a_visit_with_a_node_wait_line_is_left_to_the_leads(self):
+        hold = ("[Mission][Info][CIRCULARIZE] action warp_to_ut value=1700.000 "
+                "text=node-wait: nodeUt=2484.4 halfBurn=5.2 lead=120")
+        _text, waits = self._run(prefix=[hold])
+        self.assertFalse(any(iv.by_design for iv in waits))
+
+    def test_an_existing_reason_is_not_replaced(self):
+        _text, waits = self._run(phase="TRANSFER-BURN")
+        self.assertTrue(waits)
+        self.assertTrue(all(iv.by_design == fe.by_design_reason("waiting-for-node",
+                                                                "TRANSFER-BURN")
+                            for iv in waits))
+
+
+class DockAutopilotTests(unittest.TestCase):
+    """The BDOCK machines' DOCK phase is MechJeb's docking autopilot: by design,
+    scoped to the rendezvous-lead machines."""
+
+    _ORBIT = dict(alt=116000.0, ap=117300.0, pe=115000.0)
+
+    def _res(self, mission, phase="DOCK"):
+        return fe.analyze_mission(
+            _mission_log(mission, phase, 61, vspd=-5.0, **self._ORBIT), None)
+
+    def test_bdock_machines_dock_is_by_design(self):
+        for mission in ("bdock_dock_transfer", "bdock_second_dock", "d5_redock"):
+            res = self._res(mission)
+            self.assertEqual(res["idleByCause"], {"coast-to-periapsis": 60.0}, mission)
+            self.assertEqual(res["recoverable"], 0.0, mission)
+            self.assertGreater(res["byDesign"], 0.0, mission)
+            row = res["recommendations"][0]
+            self.assertEqual(row["byDesignReason"], fe.DOCK_AUTOPILOT_REASON)
+            self.assertIn("dockSpeedMetersPerSec", row["site"])
+
+    def test_other_machines_and_phases_stay_recoverable(self):
+        for mission, phase in (("ci9_tip_dock", "DOCK"), ("b11_mun_orbit", "DOCK"),
+                               (None, "DOCK"), ("bdock_dock_transfer", "TRANSFER")):
+            res = self._res(mission, phase)
+            self.assertEqual(res["byDesign"], 0.0, (mission, phase))
+            self.assertGreater(res["recoverable"], 0.0, (mission, phase))
+
+    def test_dock_phase_is_bdock_only_and_the_key_exists(self):
+        tree = ast.parse(_read(_MLIB_PATH))
+        owners = set()
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant) \
+                    and n.value.value == fe.DOCK_AUTOPILOT_PHASE:
+                owners.update(getattr(t, "id", "?") for t in n.targets)
+        self.assertEqual(owners, {"BDOCK_DOCK"})
+        self.assertEqual(fe.DOCK_AUTOPILOT_MACHINES, fe.RENDEZVOUS_LEAD_MACHINES)
+        self.assertIn("dockSpeedMetersPerSec", fe.DOCK_AUTOPILOT_REASON)
+        self.assertIn("dockSpeedMetersPerSec", fe.site_hint("coast-to-apoapsis", "DOCK")[1])
 
 
 class PolicyMirrorTests(unittest.TestCase):

@@ -37,6 +37,13 @@ ESTIMATION CONTRACT (documented limits; every figure is an estimate):
      warp above 1x is ``physicsWarp`` (never lowWarp, never recoverable): the
      mission warp policy runs PARK / kx COAST at 4x physics on purpose, and
      kRPC's WarpTo drops into PHYSICS x3-4 for its own last game seconds.
+     Inside an active native warp_to (the telemetry ``warpTo=`` target is
+     ahead of ut) a rails interval is lowWarp only when its rate is below the
+     time-left cap as well (``native_warp_cap``: the best stock rails rate at
+     most seconds left / NATIVE_WARP_RAMP_SECONDS): the native ramp steps its
+     own rate down as the target nears, so its x10000 with a day left is the
+     warp, not a low factor. Machine-commanded rails (no ``warpTo=``) is
+     measured against the legal rate as before.
   5. Recoverable. For a contiguous run of idle (or lowWarp) intervals inside one
      visit: wall - (game / target rate) - RAMP_SETTLE_OVERHEAD_SECONDS, floored
      at 0. The target rate is the best LEGAL rails rate at the run's MINIMUM
@@ -47,7 +54,8 @@ ESTIMATION CONTRACT (documented limits; every figure is an estimate):
      policy is 4x PHYSICS warp, not rails, so the target is that 4x. The
      ideal assumes a warp-to that lands exactly on the next event; the
      overhead constant stands for the ramp up, the ramp down and the settle
-     that a real warp-to always pays.
+     that a real warp-to always pays. Inside a native warp_to the target is
+     also capped by ``native_warp_cap``.
   6. Long burns (>= LONG_BURN_MIN_SECONDS of 1x with a changing orbit) are
      physics-warp CANDIDATES, reported with an optional saving at
      BURN_PHYSICS_WARP_RATE that is NEVER added to the recoverable total
@@ -80,6 +88,18 @@ ESTIMATION CONTRACT (documented limits; every figure is an estimate):
      uses its ``node-wait:`` text (nodeUt - halfBurn - lead, or the ca-clamp
      UT when earlier, minus the early cancel); a node with no line at all (a
      pre-hold run) uses the constants alone, short by the half burn.
+     Two machine-agnostic MechJeb waits are by design too. The executor
+     settle (EXECUTOR_WAIT_REASON): a stretch of idle waiting-for-node in a
+     visit with NO ``node-wait:`` hold line, closed (same visit) by a RAILS
+     sample above 1x outside a native warp, with no machine warp command
+     (warp_to / warp_to_ut / a non-zero set_rails_warp or set_physics_warp)
+     from its first sample on: MechJeb's executor held 1x until aligned and
+     settled, then resumed its own warp. A stretch ending in a burn, a phase
+     change, the log's end or a machine warp keeps its classification, and a
+     visit with a hold line is left to the leads above. The docking autopilot
+     (DOCK_AUTOPILOT_REASON): every idle / lowWarp interval in the DOCK phase
+     of the RENDEZVOUS_LEAD_MACHINES, where MechJeb closes on the port at
+     dockSpeedMetersPerSec.
   9. Outcome-sensitive. (cause, phase) rows in ``OUTCOME_SENSITIVE`` stay
      recoverable, but the row carries ``outcomeSensitive`` and its text says a
      warp there may move the flight's outcome.
@@ -158,6 +178,14 @@ ONE_X_RATE_MAX = warp_audit.ONE_X_RATE_MAX
 NOMINAL_LINE_SECONDS = warp_audit.TELEMETRY_INTERVAL_SECONDS
 ORBIT_STATIC_TOLERANCE_M = 1.0
 RAMP_SETTLE_OVERHEAD_SECONDS = 10.0
+# A native kRPC warp_to asks for rate = game seconds left (clamped to the legal
+# maximum), takes the best stock rails rate not above it, and KSP eases between
+# rates, so the rate it can still HOLD at an interval's opening is the best
+# stock rails rate at most (seconds left / this constant). 2 s is the smallest
+# of 1 / 1.5 / 2 / 3 s under which no ramp-DOWN frame of the 2026-10-11
+# archived native warps buckets below its cap (1 s: x50 held at 115 s left on
+# B11 reads low; 1.5 s: the ease frames x57-x69 at 151-166 s left on B15 / B17).
+NATIVE_WARP_RAMP_SECONDS = 2.0
 LONG_BURN_MIN_SECONDS = 60.0
 BURN_PHYSICS_WARP_RATE = 2.0
 # An apErr above this (degrees) means the autopilot is still slewing; B4's own
@@ -237,6 +265,29 @@ RENDEZVOUS_LEAD_REASON = (
     "closest-approach guard clamps it), cancels the warp RV_EARLY_CANCEL_SECONDS "
     "early, then MechJeb's executor aligns and settles at 1x (mlib "
     "_bdock_rv_node_wait)")
+
+# An un-held node wait that MechJeb's executor ends with its OWN warp: the
+# executor rails-warps to ignition - 600 s, then holds 1x until the craft is
+# aligned and settled, then warps on by itself (NE_HINT). Only for a visit
+# with no node-wait hold line, so it never overlaps the capture / circularize
+# / rendezvous leads.
+EXECUTOR_WAIT_CAUSE = "waiting-for-node"
+EXECUTOR_WAIT_REASON = (
+    "MechJeb executor settle: with no node-wait hold in the visit, MechJeb's "
+    "NodeExecutor warps to ignition - 600 s, holds 1x until the craft is aligned "
+    "and settled (AlignedAndSettled), then resumes its own rails warp; that 1x "
+    "is the executor's gate, not a missing warp")
+
+# The BDOCK machines' DOCK phase is MechJeb's docking autopilot closing on the
+# target port at dockSpeedMetersPerSec (default 0.5 m/s): the approach speed,
+# not a warp, sets its wall. Scoped like the rendezvous lead.
+DOCK_AUTOPILOT_PHASE = "DOCK"
+DOCK_AUTOPILOT_MACHINES = RENDEZVOUS_LEAD_MACHINES
+DOCK_AUTOPILOT_REASON = (
+    "MechJeb docking autopilot: the bdock machine hands DOCK to MechJeb's docking "
+    "autopilot (mj_enable_docking), which closes on the target port at "
+    "dockSpeedMetersPerSec; warp cannot run during a docking approach, so the "
+    "lever is that spec key, not a warp")
 
 _ASCENT_REASON = (
     "MechJeb's ascent runs its circularization node through its own executor; "
@@ -393,6 +444,22 @@ def max_legal_rails_rate(body: str, altitude_m: float) -> Optional[float]:
     return RAILS_WARP_RATES[best]
 
 
+def native_warp_cap(s: "Sample") -> Optional[float]:
+    """The best rails rate a native warp_to can still hold at sample ``s``:
+    the best stock rails rate at most (target UT - ut) /
+    NATIVE_WARP_RAMP_SECONDS (1x when under one step). None when no native
+    warp is active at ``s`` (``warpTo=`` NaN or not ahead of ut, or ut
+    unread): the altitude-legal rate alone then sets the target."""
+    if not (_is_finite(s.warp_to) and _is_finite(s.ut)) or s.warp_to <= s.ut:
+        return None
+    reach = (s.warp_to - s.ut) / NATIVE_WARP_RAMP_SECONDS
+    best = RAILS_WARP_RATES[0]
+    for rate in RAILS_WARP_RATES:
+        if rate <= reach:
+            best = rate
+    return best
+
+
 def is_dwell_phase(phase: str) -> bool:
     if phase in DWELL_PHASE_EXTRAS:
         return True
@@ -458,6 +525,9 @@ class Sample:
     nodes: float
     node_ut: float
     ap_err: float
+    # warpTo=: the native warp_to target UT while one is active, else NaN
+    # (mission_runner TelemetrySnapshot.warping_to; NaN on older logs).
+    warp_to: float = float("nan")
 
 
 @dataclass
@@ -481,6 +551,9 @@ class Visit:
     # round(nodeUt, 1) -> (by-design start UT, source) for each RENDEZVOUS node
     # wait the policy pass judged (filled by apply_policy).
     rv_leads: Dict[float, Tuple[float, str]] = field(default_factory=dict)
+    # Any line of this visit carried a machine ``node-wait:`` hold text (an
+    # armed, declined or window-capped hold).
+    node_wait_line: bool = False
 
 
 @dataclass
@@ -567,7 +640,7 @@ def parse_mission_log(lines: Sequence[str]) -> MissionLog:
                 vspd=_f(kv.get("vspd")), body=kv.get("body", ""),
                 next_body=kv.get("nextBody", ""), situation=kv.get("situation", ""),
                 nodes=_f(kv.get("nodes")), node_ut=_f(kv.get("nodeUt")),
-                ap_err=_f(kv.get("apErr")))
+                ap_err=_f(kv.get("apErr")), warp_to=_f(kv.get("warpTo")))
             cur.samples.append(len(samples))
             samples.append(s)
             continue
@@ -575,6 +648,8 @@ def parse_mission_log(lines: Sequence[str]) -> MissionLog:
             continue
         if "TimeJump" in msg:
             cur.time_jumps += 1
+        if "node-wait:" in msg:
+            cur.node_wait_line = True
         if msg.startswith(_RV_GATE_PREFIX):
             new = msg[len(_RV_GATE_PREFIX):].split(" | ")[0].partition("->")[2]
             if new.startswith("declined:"):
@@ -652,6 +727,8 @@ class Interval:
     node_ut: float = float("nan")
     # Policy reason when this 1x / low-warp interval is left alone on purpose.
     by_design: str = ""
+    # native_warp_cap of the opening sample (None outside a native warp_to).
+    native_cap: Optional[float] = None
 
 
 def _orbit_changed(a: Sample, b: Sample) -> Optional[bool]:
@@ -726,6 +803,11 @@ def classify_interval(a: Sample, b: Sample) -> Tuple[str, str]:
         return "physicsWarp", ""
     if a.mode == "RAILS" and vac:
         best = max_legal_rails_rate(a.body, min(a.alt, b.alt) if _is_finite(b.alt) else a.alt)
+        cap = native_warp_cap(a)
+        if best is not None and cap is not None:
+            # A native warp_to steps its own rate down as its target nears:
+            # below the legal rate but at the time-left cap is not low warp.
+            best = min(best, cap)
         if best is not None and warp_audit.bucket_rate(rate) < best:
             return "lowWarp", LOW_WARP_CAUSE
     return "warped", ""
@@ -772,7 +854,7 @@ def build_intervals(log: MissionLog) -> List[Interval]:
         out.append(Interval(sample=i, visit=a.visit, phase=a.phase, wall=raw,
                             game=game, rate=a.rate, mode=a.mode, alt_min=alt_min,
                             body=a.body, bucket=bucket, cause=cause, ut=a.ut,
-                            node_ut=a.node_ut))
+                            node_ut=a.node_ut, native_cap=native_warp_cap(a)))
     by_visit: Dict[int, List[Interval]] = {}
     for iv in out:
         by_visit.setdefault(iv.visit, []).append(iv)
@@ -819,6 +901,7 @@ def apply_policy(log: MissionLog, intervals: List[Interval],
     lead_reasons = {CAPTURE_LEAD_KEY: CAPTURE_LEAD_REASON,
                     CIRCULARIZE_LEAD_KEY: CIRCULARIZE_LEAD_REASON}
     rv_on = machine in RENDEZVOUS_LEAD_MACHINES
+    dock_on = machine in DOCK_AUTOPILOT_MACHINES
     for iv in intervals:
         if iv.bucket not in ("idle", "lowWarp"):
             continue
@@ -834,8 +917,61 @@ def apply_policy(log: MissionLog, intervals: List[Interval],
             v.rv_leads.setdefault(round(iv.node_ut, 1), (start, source))
             if iv.ut >= start:
                 reason = RENDEZVOUS_LEAD_REASON
+        if not reason and dock_on and iv.phase == DOCK_AUTOPILOT_PHASE:
+            reason = DOCK_AUTOPILOT_REASON
         iv.by_design = reason
+    _mark_executor_waits(log, intervals)
     return leads
+
+
+_MACHINE_WARP_KINDS = ("warp_to_ut", "warp_to", "set_rails_warp", "set_physics_warp")
+
+
+def _mark_executor_waits(log: MissionLog, intervals: List[Interval]) -> None:
+    """EXECUTOR_WAIT_REASON on each maximal stretch of not-yet-by-design idle
+    ``waiting-for-node`` intervals in a visit with no node-wait hold line,
+    when the sample that closes the stretch (same visit) is RAILS above 1x
+    outside a native warp_to and the machine issued no warp command from the
+    stretch's first sample up to that sample: MechJeb's executor resumed its
+    own warp. A stretch that ends in a burn, a phase change, the log's end or
+    a machine warp keeps its classification."""
+    visits = {v.index: v for v in log.visits}
+    warp_after = {c.after_sample for c in log.commands
+                  if c.kind in _MACHINE_WARP_KINDS
+                  and (c.kind in ("warp_to_ut", "warp_to")
+                       or (_is_finite(c.value) and c.value > 0))}
+    ss = log.samples
+
+    def candidate(iv: Interval) -> bool:
+        v = visits.get(iv.visit)
+        return (iv.bucket == "idle" and iv.cause == EXECUTOR_WAIT_CAUSE
+                and not iv.by_design and v is not None and not v.node_wait_line)
+
+    k = 0
+    n = len(intervals)
+    while k < n:
+        if not candidate(intervals[k]):
+            k += 1
+            continue
+        first = k
+        while (k + 1 < n and candidate(intervals[k + 1])
+               and intervals[k + 1].visit == intervals[first].visit
+               and intervals[k + 1].sample == intervals[k].sample + 1):
+            k += 1
+        last = k
+        k += 1
+        end = intervals[last].sample + 1
+        if end >= len(ss):
+            continue
+        nxt = ss[end]
+        resumed = (nxt.visit == intervals[first].visit and nxt.mode == "RAILS"
+                   and _is_finite(nxt.rate) and nxt.rate > ONE_X_RATE_MAX
+                   and native_warp_cap(nxt) is None)
+        commanded = any(intervals[first].sample <= a <= intervals[last].sample
+                        for a in warp_after)
+        if resumed and not commanded:
+            for iv in intervals[first:last + 1]:
+                iv.by_design = EXECUTOR_WAIT_REASON
 
 
 # ---------------------------------------------------------------------------
@@ -868,13 +1004,17 @@ class Run:
 
 
 def _target_rate(cause: str, phase: str, body: str, alt_min: float,
-                 machine: Optional[str] = None) -> Optional[float]:
+                 machine: Optional[str] = None,
+                 native_cap: Optional[float] = None) -> Optional[float]:
     policy = policy_target_rate(cause, phase, machine)
     if policy is not None:
         return policy
     if cause == "attitude-align":
         return PHYSICS_WARP_RATES[-1]
-    return max_legal_rails_rate(body, alt_min)
+    legal = max_legal_rails_rate(body, alt_min)
+    if legal is not None and native_cap is not None:
+        return min(legal, native_cap)
+    return legal
 
 
 def build_runs(intervals: List[Interval], machine: Optional[str] = None) -> List[Run]:
@@ -915,7 +1055,8 @@ def build_runs(intervals: List[Interval], machine: Optional[str] = None) -> List
         gains: Dict[str, float] = {}
         unknown = False
         for iv in ivs:
-            rate = _target_rate(iv.cause, iv.phase, run.body, run.alt_min, machine)
+            rate = _target_rate(iv.cause, iv.phase, run.body, run.alt_min, machine,
+                                iv.native_cap)
             if rate is None:
                 unknown = True
                 break
@@ -1137,6 +1278,11 @@ SITE_HINTS: Dict[Tuple[str, str], Tuple[str, Tuple[str, ...]]] = {
     ("coast-to-entry", "REENTRY"): (
         "rails hops toward the atmosphere only above warpAboveAltMeters",
         ("warpAboveAltMeters", "warpHopSeconds")),
+    ("*", "DOCK"): (
+        "MechJeb's docking autopilot closes on the target port at "
+        "dockSpeedMetersPerSec (mission_runner.py ACTION_MJ_ENABLE_DOCKING); a "
+        "faster approach is the only lever, warp cannot run while docking",
+        ("dockSpeedMetersPerSec",)),
     ("low-warp", "COAST-TO-TARGET"): (
         "coast rails factor below the altitude-legal maximum",
         ("coastWarpFactor", "approachMaxWarpFactor", "soiNativeLeadSeconds",
@@ -1157,6 +1303,8 @@ SITE_HINTS: Dict[Tuple[str, str], Tuple[str, Tuple[str, ...]]] = {
 def site_hint(cause: str, phase: str) -> Tuple[str, Tuple[str, ...]]:
     if (cause, phase) in SITE_HINTS:
         return SITE_HINTS[(cause, phase)]
+    if ("*", phase) in SITE_HINTS:
+        return SITE_HINTS[("*", phase)]
     if (cause, "*") in SITE_HINTS:
         return SITE_HINTS[(cause, "*")]
     return ("1x %s in %s" % (cause, phase), ())
@@ -1872,6 +2020,7 @@ def build_document(runs: List[Dict], skipped: List[Dict], duplicates: int) -> Di
             "nodeWaitArrivalToleranceSeconds": NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS,
             "rendezvousEarlyCancelSeconds": RV_EARLY_CANCEL_SECONDS,
             "policyPhysicsRate": POLICY_PHYSICS_RATE,
+            "nativeWarpRampSeconds": NATIVE_WARP_RAMP_SECONDS,
         },
         "byDesignPolicy": [{"cause": c, "phase": p, "reason": why}
                            for (c, p), why in sorted(BY_DESIGN_POLICY.items())]
@@ -1882,7 +2031,12 @@ def build_document(runs: List[Dict], skipped: List[Dict], duplicates: int) -> Di
             "in a visit whose node-wait line printed its half burn)"},
            {"cause": RENDEZVOUS_LEAD_KEY[0], "phase": RENDEZVOUS_LEAD_KEY[1],
             "reason": RENDEZVOUS_LEAD_REASON + " (only inside the rendezvous lead, "
-            "BDOCK machines only)"}],
+            "BDOCK machines only)"},
+           {"cause": EXECUTOR_WAIT_CAUSE, "phase": "*",
+            "reason": EXECUTOR_WAIT_REASON + " (only a stretch the executor's own "
+            "rails warp ends, in a visit with no node-wait line)"},
+           {"cause": "*", "phase": DOCK_AUTOPILOT_PHASE,
+            "reason": DOCK_AUTOPILOT_REASON + " (BDOCK machines only)"}],
         "runs": runs,
         "skipped": skipped,
         "duplicatesDropped": duplicates,

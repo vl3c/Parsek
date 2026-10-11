@@ -36,6 +36,9 @@ _(unreleased - entries accumulate here per commit)_
 - **Harness run history survives worktree removal.** Every automated test run now also keeps a
   small copy of its results and logs in one shared folder outside the worktrees, and the flight
   efficiency report reads it, so deleting a worktree no longer loses its run history.
+- **The flight efficiency report counts less false waste.** KSP's own warp slowdown before a
+  warp target, MechJeb's settle before a burn and MechJeb's docking approach no longer count as
+  time a better warp could save. Real waste such as a capped coast warp still counts.
 
 ---
 
