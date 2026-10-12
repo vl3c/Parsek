@@ -552,6 +552,13 @@ class KrpcMissionControl(MissionControl):
         # The camera channel's own dark-channel Warn latch (same rationale as
         # the executor/periapsis/landing latches below).
         self._warned_camera_read = False
+        # Flameout-corrected available thrust (_read_available_thrust): the
+        # per-engine status-module cache, the probe's dark-channel Warn latch,
+        # and the last logged set of excluded engines (one Info line per
+        # change, not per frame).
+        self._engine_status_modules: dict = {}
+        self._warned_flameout_probe = False
+        self._flameout_correction_key: tuple = ()
         # DARK-CHANNEL WARN LATCHES (reviewer finding, 2026-07-25). Both opt-in
         # reads degrade to their UNREAD sentinel on a bare `except Exception`,
         # and both sentinels DISABLE machinery downstream (-1 grants no executor
@@ -966,8 +973,10 @@ class KrpcMissionControl(MissionControl):
                 # Flameout-staging evidence (twenty-second flight): total
                 # thrust the ACTIVE engines can produce right now; 0.0 while
                 # a burn is commanded = the active stage is dry/flamed out
-                # (the machine pops the next stage, bounded).
-                available_thrust=float(v.available_thrust),
+                # (the machine pops the next stage, bounded). Flamed-out
+                # engines are excluded here: kRPC alone keeps reporting their
+                # full thrust inside its HasFuel blind band.
+                available_thrust=self._read_available_thrust(v),
                 sibling_situation=sibling_situation,
                 sibling_present=sibling_present,
                 # Warp-toward-node + SOI-approach warp bounds (operator
@@ -3808,6 +3817,74 @@ class KrpcMissionControl(MissionControl):
         except Exception:
             # Present but unreadable: report presence, withhold the situation.
             return "", 1
+
+    def _read_available_thrust(self, v) -> float:
+        """Vessel available thrust with flamed-out engines excluded (todo
+        HARNESS-KRPC-FLAMEOUT-BLIND-BAND; rationale on
+        mlib.corrected_available_thrust). The raw ``v.available_thrust`` read
+        stays direct, so a failure raises into the caller's try exactly as
+        before. The per-engine probe runs only when the raw reading is
+        positive and ``v.thrust`` is zero (a flamed-out engine produces no
+        thrust), and any probe failure returns the raw reading: falling back
+        to 0.0 would pop a stage through the flameout watchdog."""
+        raw = float(v.available_thrust)
+        if not raw > 0.0:
+            return raw
+        try:
+            vessel_thrust = float(v.thrust)
+        except Exception:
+            return raw
+        if not vessel_thrust <= 0.0:
+            self._flameout_correction_key = ()
+            return raw
+        try:
+            engines = []
+            for e in v.parts.engines:
+                if not e.active:
+                    continue
+                avail = float(e.available_thrust)
+                if not avail > 0.0:
+                    engines.append(("", True, avail, False))
+                    continue
+                status_modules = self._engine_status_modules.get(e)
+                if status_modules is None:
+                    # Module handles live as long as the part, so the name
+                    # filter (one RPC per module) runs once per engine.
+                    status_modules = [
+                        m for m in e.part.modules
+                        if m.name in mlib.ENGINE_MODULE_NAMES
+                        and m.has_field_with_id(mlib.ENGINE_STATUS_FIELD_ID)]
+                    self._engine_status_modules[e] = status_modules
+                flamed = any(
+                    mlib.engine_status_is_flameout(
+                        m.get_field_by_id(mlib.ENGINE_STATUS_FIELD_ID))
+                    for m in status_modules)
+                title = str(e.part.title) if flamed else ""
+                engines.append((title, True, avail, flamed))
+        except Exception as exc:
+            if not self._warned_flameout_probe:
+                self._warned_flameout_probe = True
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Telemetry",
+                    "engine flameout probe UNREADABLE (%s: %s); available_thrust "
+                    "falls back to the raw kRPC reading, which keeps reporting "
+                    "full thrust on an engine flamed out with a propellant "
+                    "residual above kRPC's 0.02 HasFuel threshold. Logged once "
+                    "per run." % (type(exc).__name__, str(exc)[:160])))
+            return raw
+        corrected, excluded = mlib.corrected_available_thrust(
+            raw, vessel_thrust, engines)
+        key = tuple(excluded)
+        if key != self._flameout_correction_key:
+            self._flameout_correction_key = key
+            if excluded:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Info", "Telemetry",
+                    "available_thrust corrected for flamed-out engine(s) %s: "
+                    "raw=%.3f corrected=%.3f (kRPC HasFuel still true, "
+                    "ModuleEngines status reads Flame-Out)"
+                    % (", ".join(excluded), raw, corrected)))
+        return corrected
 
     def _read_nodes(self, control_handle):
         """The maneuver-node list, or the EMPTY-LIST sentinel when kRPC refuses.

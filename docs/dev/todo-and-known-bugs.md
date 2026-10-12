@@ -16,6 +16,39 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~HARNESS-KRPC-FLAMEOUT-BLIND-BAND: kRPC reports full available thrust on an engine KSP has flamed out, so the mission flameout-staging watchdog never stages~~ [FILED 2026-10-12 from two B16 flights. FIXED 2026-10-12, branch `flameout-blind-band`; unit tests; flown once 2026-10-12_1238 MISSION-OK, but that drain emptied the core to exactly lf=720.000 so kRPC itself read 0 thrust and the correction path did not fire live (no regression proven, the blind-band rescue not yet witnessed). harness]
+
+`B16-eve-orbit` `2026-10-12_1117` and `2026-10-12_1130_a2` (results under the
+`Parsek-flight-efficiency` worktree) both ended MISSION-FLAKE on the burn-stagnation watchdog: the
+Kerbal X core Mainsail flamed out mid TRANSFER-BURN (`flameout = True`, `EngineIgnited = True` in
+the produced save) with a 0.052 LiquidFuel residual, telemetry kept reading `avThr=1500000.000
+thr=0.000 lf=720.052`, the flameout watchdog (`mlib._b5_flameout_stage`, evidence
+`available_thrust <= 0.0`) never fired, and MechJeb's NodeExecutor sat on the dead engine with
+`nodeDv` frozen at 527.4. Cause, from decompiled code: KSP flames an engine out when a propellant's
+reachable amount is below `ModuleEngines.ignitionThreshold` (0.1) of one frame's demand
+(`CheckDeprived`; about 0.089 LF / 0.108 Ox for the Mainsail), while kRPC 0.5.4
+`Engine.HasFuel` only goes false below `actualTotalAvailable < 0.02` and `Engine.AvailableThrust`
+is gated on `HasFuel` alone. A residual between the two reads as full thrust. The passing B15
+(`automation/results-archive/2026-10-11_1204_B15-eve-flyby`) drained to exactly `lf=720.000`,
+read `avThr` 0 and staged twice. Every lane that drains the Kerbal X / Duna Rocket core mid-burn
+(B7, B11, B12, B15, B16, B18-B22, ...) carries the exposure.
+
+Fix: the measurement, not the decision. `KrpcMissionControl._read_available_thrust` (runner)
+keeps the raw `v.available_thrust` read, and when it is positive while `v.thrust` is 0 it reads
+each active engine's ModuleEngines / ModuleEnginesFX `status` field by id
+(`Module.GetFieldById`; the field is `guiActive`, and `ModuleEngines.Flameout` sets it to
+`#autoLOC_219016` = `Flame-Out!`) and drops flamed-out engines from the total
+(`mlib.corrected_available_thrust`, `mlib.engine_status_is_flameout`). Any probe failure returns
+the raw reading, never 0.0 (a spurious zero would pop a stage); the probe warns once per run, and
+one `available_thrust corrected for flamed-out engine(s) ...` Info line names the engine and the
+raw and corrected values per change. Tests: `FlameoutCorrectedAvailableThrustTests` (test_mlib,
+including the B16 shape driving the mid-burn watchdog) and `FlameoutCorrectedThrustReadTests`
+(test_observability, fake kRPC handles). Not covered: a multi-engine stage where one engine still
+burns while another flamed out (`v.thrust > 0` skips the probe; the watchdog's evidence is a
+zero total anyway).
+
+---
+
 ## ~~HARNESS-BOOT-HANG-KILLED-BUDGET: a KSP that hangs during its own boot is noticed only after the 660 s LoadGame wait, as a non-retried KILLED~~ [FILED 2026-10-12 from the nightly H69 flight. FIXED 2026-10-12, branch `harness-boot-watchdog`; fake-KSP smoke only, not flown. harness]
 
 `H69-autorecord-landed` `2026-10-12_0623` ended KILLED (budget) after 667 s. Its KSP.log (77 lines,

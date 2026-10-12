@@ -846,5 +846,121 @@ class WallBudgetBlockTests(unittest.TestCase):
         self.assertIsNone(block["wallRemainingSeconds"])
 
 
+class _FakeModule:
+    def __init__(self, name, status=None, raises=None):
+        self.name = name
+        self._status = status
+        self._raises = raises
+        self.status_reads = 0
+
+    def has_field_with_id(self, field_id):
+        return self._status is not None and field_id == "status"
+
+    def get_field_by_id(self, field_id):
+        self.status_reads += 1
+        if self._raises is not None:
+            raise self._raises
+        return self._status
+
+
+class _FakePart:
+    def __init__(self, title, modules):
+        self.title = title
+        self.modules = modules
+
+
+class _FakeEngine:
+    def __init__(self, title, active, available_thrust, modules):
+        self.active = active
+        self.available_thrust = available_thrust
+        self.part = _FakePart(title, modules)
+
+
+class _FakeParts:
+    def __init__(self, engines):
+        self.engines = engines
+
+
+class _FakeVessel:
+    def __init__(self, available_thrust, thrust, engines):
+        self.available_thrust = available_thrust
+        self.thrust = thrust
+        self.parts = _FakeParts(engines)
+
+
+class FlameoutCorrectedThrustReadTests(unittest.TestCase):
+    """KrpcMissionControl._read_available_thrust over fake kRPC handles
+    (HARNESS-KRPC-FLAMEOUT-BLIND-BAND): the runner reads the ModuleEngines
+    "status" field by id, excludes a "Flame-Out!" engine from the vessel
+    available thrust, logs the correction once per change, and falls back to
+    the raw reading on any probe failure."""
+
+    MAINSAIL = 1_500_000.0
+
+    def setUp(self):
+        self.lines = []
+        self._orig_sink = mission_runner._stdout_sink
+        mission_runner._stdout_sink = self.lines.append
+        self.control = mission_runner.KrpcMissionControl(client_name="test")
+
+    def tearDown(self):
+        mission_runner._stdout_sink = self._orig_sink
+
+    def _mainsail(self, status, raises=None):
+        return _FakeEngine("RE-M3 \"Mainsail\" Liquid Fuel Engine", True,
+                           self.MAINSAIL,
+                           [_FakeModule("ModuleGimbal"),
+                            _FakeModule("ModuleEngines", status, raises)])
+
+    def test_flamed_out_engine_reads_zero_and_logs_once(self):
+        v = _FakeVessel(self.MAINSAIL, 0.0, [self._mainsail("Flame-Out!")])
+        self.assertEqual(self.control._read_available_thrust(v), 0.0)
+        self.assertEqual(self.control._read_available_thrust(v), 0.0)
+        logged = [l for l in self.lines if "available_thrust corrected" in l]
+        self.assertEqual(len(logged), 1)
+        self.assertIn("Mainsail", logged[0])
+        self.assertIn("raw=1500000.000 corrected=0.000", logged[0])
+
+    def test_nominal_engine_keeps_the_raw_reading(self):
+        v = _FakeVessel(self.MAINSAIL, 0.0, [self._mainsail("Nominal")])
+        self.assertEqual(self.control._read_available_thrust(v),
+                         self.MAINSAIL)
+        self.assertEqual(self.lines, [])
+
+    def test_burning_vessel_skips_the_probe(self):
+        engine = self._mainsail("Flame-Out!")
+        v = _FakeVessel(self.MAINSAIL, 900_000.0, [engine])
+        self.assertEqual(self.control._read_available_thrust(v),
+                         self.MAINSAIL)
+        self.assertEqual(engine.part.modules[1].status_reads, 0)
+
+    def test_probe_failure_falls_back_to_raw_and_warns_once(self):
+        v = _FakeVessel(self.MAINSAIL, 0.0,
+                        [self._mainsail("Flame-Out!",
+                                        raises=RuntimeError("rpc"))])
+        for _ in range(3):
+            self.assertEqual(self.control._read_available_thrust(v),
+                             self.MAINSAIL)
+        warns = [l for l in self.lines if "flameout probe UNREADABLE" in l]
+        self.assertEqual(len(warns), 1)
+
+    def test_status_modules_are_cached_per_engine(self):
+        engine = self._mainsail("Flame-Out!")
+        v = _FakeVessel(self.MAINSAIL, 0.0, [engine])
+        self.control._read_available_thrust(v)
+        engine.part.modules = []   # a second module walk would see nothing
+        self.assertEqual(self.control._read_available_thrust(v), 0.0)
+
+    def test_relogs_after_the_engine_burned_again(self):
+        flamed = _FakeVessel(self.MAINSAIL, 0.0, [self._mainsail("Flame-Out!")])
+        self.control._read_available_thrust(flamed)
+        burning = _FakeVessel(self.MAINSAIL, 1_000_000.0,
+                              [self._mainsail("Nominal")])
+        self.control._read_available_thrust(burning)
+        self.control._read_available_thrust(flamed)
+        logged = [l for l in self.lines if "available_thrust corrected" in l]
+        self.assertEqual(len(logged), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
