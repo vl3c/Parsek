@@ -635,6 +635,8 @@ namespace Parsek
         /// <summary>
         /// Regenerate per-part identity fields (persistentId, flightID, missionID, launchID)
         /// on all PART sub-nodes. Returns old→new persistentId mapping for robotics patching. (#234)
+        /// When <paramref name="uidMap"/> is non-null it receives the old -> new part flightID
+        /// (<c>uid</c>) mapping, for the dock records that name parts by flightID.
         /// Delegate injection allows pure unit testing without KSP runtime.
         /// </summary>
         internal static Dictionary<uint, uint> RegeneratePartIdentities(
@@ -642,7 +644,8 @@ namespace Parsek
             Func<uint> generatePersistentId,
             Func<uint> generateFlightId,
             uint missionId,
-            uint launchId)
+            uint launchId,
+            Dictionary<uint, uint> uidMap = null)
         {
             var pidMap = new Dictionary<uint, uint>();
             if (spawnNode == null) return pidMap;
@@ -670,6 +673,10 @@ namespace Parsek
                 }
 
                 uint newUid = generateFlightId();
+                if (uidMap != null
+                    && uint.TryParse(partNode.GetValue("uid"), NumberStyles.Integer, CultureInfo.InvariantCulture, out uint oldUid)
+                    && oldUid != 0)
+                    uidMap[oldUid] = newUid;
                 partNode.SetValue("uid", newUid.ToString(CultureInfo.InvariantCulture), true);
                 partNode.SetValue("mid", mid, true);
                 partNode.SetValue("launchID", lid, true);

@@ -16,6 +16,10 @@ _(unreleased - entries accumulate here per commit)_
 - **Stock and Parsek vessel renames now stay in step.** Renaming a vessel with the stock rename
   button renames it in Parsek too, and a Parsek rename renames the real vessel. Names survive
   rewinds and quickloads; a stock rename made in a flight you then revert is cancelled. (GC-7)
+- **Spawned, resumed and undocked vessels keep the names you gave them.** A vessel Parsek spawns
+  at the end of a recording, a spawned vessel you fly again, and a ship that undocks after being
+  docked are still the same vessel: they carry your chosen name, and renaming them renames every
+  recording of that vessel. (GC-7)
 - **Merge dialogs and Logistics show a mission's current name.** After you rename a mission, the
   merge dialog, the Supply Route prompt and the Logistics labels use the new name, not the launch
   name. Logistics now numbers vessels like the Missions tab: one vessel is numbered once ("X",
@@ -39,6 +43,9 @@ _(unreleased - entries accumulate here per commit)_
 - **Harness run history survives worktree removal.** Every automated test run now also keeps a
   small copy of its results and logs in one shared folder outside the worktrees, and the flight
   efficiency report reads it, so deleting a worktree no longer loses its run history.
+- **Automated tests can rename a vessel the way a player does.** A new test command accepts the
+  stock rename dialog for a vessel, and three new test flights check vessel renames end to end:
+  staging, quickload, re-fly with Discard, a spawned vessel and a rewind. (GC-7)
 - **The flight efficiency report counts less false waste.** KSP's own warp slowdown before a
   warp target, MechJeb's settle before a burn and MechJeb's docking approach no longer count as
   time a better warp could save. Real waste such as a capped coast warp still counts.

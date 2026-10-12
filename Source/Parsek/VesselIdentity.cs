@@ -20,8 +20,11 @@ namespace Parsek
     /// <item>Same <see cref="Recording.ChainId"/>.</item>
     /// <item>A <see cref="BranchPointType.VesselSwitchContinuation"/> with one parent and one
     /// child (the hop <c>EffectiveState.WalkSlotVessel</c> takes).</item>
-    /// <item>Link rows (a re-keyed guid continuing another guid's identity): Phase 2b. The
-    /// seam is <c>guidLinks</c> on <see cref="Resolve"/>; nothing produces links yet.</item>
+    /// <item>Link rows (a re-keyed guid continuing another guid's identity: a Parsek spawn, a
+    /// resumed spawned vessel, an undock that returns a docked ship; <c>guidLinks</c> on
+    /// <see cref="Resolve"/>, fed from <see cref="VesselNameStore"/>). Guids joined by links
+    /// form one component even through a guid no recording carries (a spawned copy's guid
+    /// before it records a leg), and every link guid joins its identity's guid set.</item>
     /// <item>Inside ONE tree only: same persistent id and launch guids that do not
     /// conclusively differ (<see cref="VesselLaunchIdentity.RecordingsShareLaunch"/>, the rule
     /// the mission naming always used). Never across trees: pids are craft-baked.</item>
@@ -425,6 +428,11 @@ namespace Parsek
             internal int InTreeContinuations;
             internal int LinkEdges;
 
+            /// <summary>Edge-4 link rows by re-keyed guid (normalized): the guid it continues.
+            /// The live write rule follows them to find a re-keyed vessel's current leg.</summary>
+            internal readonly Dictionary<string, string> LinkTargets =
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
             internal bool TryGetIdentity(string recordingId, out Identity identity)
             {
                 identity = null;
@@ -454,7 +462,7 @@ namespace Parsek
         /// active tree; a tree id seen twice - the live clone of a committed tree - contributes
         /// the same keys) plus <paramref name="looseRecordings"/> (recordings no tree holds;
         /// they join through guid and chain only) into identities. <paramref name="guidLinks"/>
-        /// is the edge-4 seam (re-keyed guid -> guid it continues); null in Phase 1.
+        /// are the edge-4 link rows (re-keyed guid -> guid it continues).
         /// </summary>
         internal static Resolution Resolve(
             IEnumerable<RecordingTree> trees,
@@ -539,19 +547,44 @@ namespace Parsek
                 else firstByChain[chain] = n;
             }
 
-            // Edge 4 seam (Phase 2b link rows): a re-keyed guid joins the guid it continues.
+            // Edge 4: link rows. Guids joined by links form components (a component may pass
+            // through a guid no recording carries: a spawned copy before its first leg); every
+            // node carrying a guid of one component joins one identity.
+            var guidParent = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var nodeByComponent = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             if (guidLinks != null)
+            {
                 foreach (KeyValuePair<string, string> link in guidLinks)
                 {
                     string from = VesselLaunchIdentity.NormalizeGuid(link.Key);
                     string to = VesselLaunchIdentity.NormalizeGuid(link.Value);
-                    if (from == null || to == null) continue;
-                    if (firstByGuid.TryGetValue(from, out int a) && firstByGuid.TryGetValue(to, out int b))
+                    if (from == null || to == null
+                        || string.Equals(from, to, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (!res.LinkTargets.ContainsKey(from)) res.LinkTargets[from] = to;
+                    UnionGuid(guidParent, from, to);
+                }
+                var carried = new List<string>(firstByGuid.Keys);
+                carried.Sort(StringComparer.OrdinalIgnoreCase);
+                foreach (string g in carried)
+                {
+                    if (!guidParent.ContainsKey(g)) continue;
+                    string component = FindGuid(guidParent, g);
+                    int node = firstByGuid[g];
+                    if (nodeByComponent.TryGetValue(component, out int other))
                     {
-                        Union(uf, a, b);
-                        res.LinkEdges++;
+                        if (Find(uf, node) != Find(uf, other))
+                        {
+                            Union(uf, node, other);
+                            res.LinkEdges++;
+                        }
+                    }
+                    else
+                    {
+                        nodeByComponent[component] = node;
                     }
                 }
+            }
 
             var byRoot = new Dictionary<int, Identity>();
             for (int n = 0; n < ids.Count; n++)
@@ -571,6 +604,13 @@ namespace Parsek
                 }
                 res.ByRecordingId[ids[n]] = identity;
             }
+            // Link guids join the identity of the recordings their component reaches. Iterates
+            // a snapshot of the keys: FindGuid's path compression writes guidParent.
+            foreach (string g in new List<string>(guidParent.Keys))
+            {
+                if (!nodeByComponent.TryGetValue(FindGuid(guidParent, g), out int node)) continue;
+                byRoot[Find(uf, node)].Guids.Add(g);
+            }
             foreach (Identity identity in res.Identities)
             {
                 identity.LegIds.Sort(StringComparer.Ordinal);
@@ -581,6 +621,29 @@ namespace Parsek
             res.Identities.Sort((a, b) => string.CompareOrdinal(a.Key, b.Key));
             res.Legs = ids.Count;
             return res;
+        }
+
+        private static string FindGuid(Dictionary<string, string> parent, string g)
+        {
+            if (!parent.ContainsKey(g)) parent[g] = g;
+            string root = g;
+            while (!string.Equals(parent[root], root, StringComparison.OrdinalIgnoreCase))
+                root = parent[root];
+            while (!string.Equals(parent[g], root, StringComparison.OrdinalIgnoreCase))
+            {
+                string next = parent[g];
+                parent[g] = root;
+                g = next;
+            }
+            return root;
+        }
+
+        // Deterministic: the ordinally smaller root wins, whatever the link order.
+        private static void UnionGuid(Dictionary<string, string> parent, string a, string b)
+        {
+            string ra = FindGuid(parent, a), rb = FindGuid(parent, b);
+            if (string.Equals(ra, rb, StringComparison.OrdinalIgnoreCase)) return;
+            if (string.CompareOrdinal(ra, rb) < 0) parent[rb] = ra; else parent[ra] = rb;
         }
 
         // One tree's in-tree edges (3, 5, 6, and 1/2 locally) mapped onto the global nodes.

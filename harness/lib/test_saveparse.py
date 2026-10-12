@@ -3823,7 +3823,8 @@ class CommittedFixtureSweepTests(unittest.TestCase):
              "duplicateRecordingIds": [], "ghostChainNodes": 0,
              # The vessel census is NOT a Parsek surface: the host save's own craft
              # counts, and no committed recording means no spawned vessel.
-             "spawnedVessels": 0, "vesselNames": {"mk1-capsule": 1}},
+             "spawnedVessels": 0, "vesselNames": {"mk1-capsule": 1},
+             "recordingNames": {}},
             obs["recordings"]["structure"])
 
     def test_no_committed_fixture_persists_ghost_chain_state(self):
@@ -3930,6 +3931,65 @@ class VesselCensusFacetTests(unittest.TestCase):
             {"vesselNames": {"Rig": "one"}}))
         self.assertEqual([], saveparse.validate_structure_expectations(
             {"vesselNames": {"Logi Cargo Rig": {"min": 1, "max": 1}}}))
+
+
+class RecordingNameCensusFacetTests(unittest.TestCase):
+    """The vessel-names census of the committed legs: `recordingNames` counts every
+    RECORDING of a COMMITTED tree by its `vesselName`; an active tree is left out."""
+
+    @staticmethod
+    def _save(trees):
+        lines = ["GAME", "{", "\tSCENARIO", "\t{", "\t\tname = ParsekScenario"]
+        for tree_id, marker, names in trees:
+            lines += ["\t\tRECORDING_TREE", "\t\t{", "\t\t\tid = %s" % tree_id]
+            if marker:
+                lines.append("\t\t\t%s = True" % marker)
+            for i, name in enumerate(names):
+                lines += ["\t\t\tRECORDING", "\t\t\t{",
+                          "\t\t\t\trecordingId = %s-r%d" % (tree_id, i),
+                          "\t\t\t\tvesselName = %s" % name, "\t\t\t}"]
+            lines.append("\t\t}")
+        lines += ["\t}", "}", ""]
+        return "\n".join(lines)
+
+    def test_counts_committed_legs_by_name_and_skips_the_active_tree(self):
+        snap = saveparse.parse_parsek_scenario(self._save([
+            ("t1", None, ["VN1 Charlie", "VN1 Charlie", "VN1 Alpha Probe"]),
+            ("t2", "isActive", ["VN1 Charlie", "GS1 Auto-Chute Booster"]),
+        ]))
+        self.assertTrue(snap.parsed, snap.error)
+        obs = saveparse.observed_structure_facets(snap)["recordings"]["structure"]
+        self.assertEqual({"VN1 Charlie": 2, "VN1 Alpha Probe": 1}, obs["recordingNames"])
+        self.assertEqual(obs["recordingNames"], saveparse.recording_name_counts(snap))
+
+    def test_an_old_name_left_on_a_leg_reds_its_zero_window(self):
+        snap = saveparse.parse_parsek_scenario(self._save([
+            ("t1", None, ["VN1 Charlie", "GS1 Auto-Chute Booster"]),
+        ]))
+        exp = {"recordings": {"structure": {
+            "gating": True,
+            "recordingNames": {"VN1 Charlie": {"min": 2}, "GS1 Auto-Chute Booster": {"max": 0}}}}}
+        self.assertEqual([], saveparse.validate_structure_expectations(
+            exp["recordings"]["structure"]))
+        r = saveparse.evaluate_save_structure(exp, snap)
+        self.assertEqual(saveparse.STATUS_FAIL, r.status)
+        self.assertEqual(("recordings.structure.recordingNames.VN1 Charlie 1 < min 2",
+                          "recordings.structure.recordingNames.GS1 Auto-Chute Booster 1 > max 0"),
+                         r.mismatches)
+
+    def test_a_names_only_block_is_not_warned_as_empty(self):
+        # A structure block whose only windows are name censuses still asserts something.
+        for key in ("vesselNames", "recordingNames"):
+            with self.subTest(key=key):
+                self.assertEqual([], saveparse.save_structure_expectation_warnings(
+                    {"recordings": {"structure": {"gating": False, key: {"VN": {"min": 1}}}}}))
+
+    def test_recording_names_shape_is_validated(self):
+        self.assertTrue(saveparse.validate_structure_expectations({"recordingNames": 1}))
+        self.assertTrue(saveparse.validate_structure_expectations(
+            {"recordingNames": {"VN": "one"}}))
+        self.assertEqual([], saveparse.validate_structure_expectations(
+            {"recordingNames": {"VN1 Alpha Probe": {"min": 1}}}))
 
 
 class SpecSurfaceValidationTests(unittest.TestCase):

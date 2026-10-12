@@ -1144,7 +1144,7 @@ def save_windows(expectations: Dict, snapshot) -> List[Tuple[str, object, int, b
         for key in saveparse.STRUCTURE_SCALAR_KEYS:
             if key in structure:
                 out.append(("recordings.structure.%s" % key, structure[key], meas[key], a))
-        for group in ("terminalStates", "branchPoints", "vesselNames"):
+        for group in ("terminalStates", "branchPoints", "vesselNames", "recordingNames"):
             sub = structure.get(group)
             if isinstance(sub, dict):
                 for name, window in sub.items():

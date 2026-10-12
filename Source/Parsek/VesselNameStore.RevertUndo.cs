@@ -199,7 +199,7 @@ namespace Parsek
                 if (HasCurrentEpochStockEntries())
                 {
                     List<RecordingTree> trees = GatherTrees();
-                    res = VesselIdentity.Resolve(trees, GatherLoose(trees));
+                    res = ResolveUniverse(trees, GatherLoose(trees));
                 }
                 UndoResult r = UndoEpoch(FlightEpoch, res, reason);
                 // A cancelled Re-Fly attempt is over (a Retry starts a new one at its strip).

@@ -101,6 +101,20 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The GENUINE-spawn branch of <see cref="LiveVesselIsRecordedSpawn"/> alone: the pid is
+        /// the recording's spawn pid and that spawn pid is NOT an adoption stamp (it differs from
+        /// the recorded pid), so it was minted KSP-unique by a Parsek spawn and the match is
+        /// conclusive. False for an adoption stamp, whatever the guids say.
+        /// </summary>
+        internal static bool IsGenuineSpawnPidMatch(Recording rec, uint candidatePid)
+        {
+            if (rec == null || candidatePid == 0) return false;
+            uint spawnedPid = rec.SpawnedVesselPersistentId;
+            if (spawnedPid == 0 || spawnedPid != candidatePid) return false;
+            return !(rec.VesselPersistentId != 0 && spawnedPid == rec.VesselPersistentId);
+        }
+
+        /// <summary>
         /// True when a candidate vessel (its <c>persistentId</c> and <c>Vessel.id</c> Guid) is the
         /// SAME launch as the recording's SPAWN / adoption endpoint, so a revert/rewind strip may
         /// remove it. Genuine Parsek spawns use a KSP-unique spawn pid (so

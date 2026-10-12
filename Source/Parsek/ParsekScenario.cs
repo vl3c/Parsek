@@ -3805,6 +3805,7 @@ namespace Parsek
                         // The rewind save's vessels carry the names of its UT: re-apply the
                         // decisions (design 7.6 step 1; a rewind keeps every rename, ruling 5).
                         loadPhase = "vessel-names-apply";
+                        VesselNameStore.RunSpawnLinkBackfill("onload-tail:rewind");
                         VesselNameStore.ApplyAll("onload-tail:rewind", VesselNameLiveScope.ProtosOnly);
                         DiagnosticsComputation.EmitSceneLoadSnapshot(recordings.Count, HighLogic.LoadedScene.ToString());
                         loadedRecordingCount = recordings.Count;
@@ -4488,6 +4489,7 @@ namespace Parsek
                     RewindPointReaper.ReapOrphanedRPs();
 
                     loadPhase = "vessel-names-apply";
+                    VesselNameStore.RunSpawnLinkBackfill(isRevert ? "onload-tail:revert" : "onload-tail:scene-change");
                     VesselNameStore.ApplyAll(isRevert ? "onload-tail:revert" : "onload-tail:scene-change",
                         VesselNameLiveScope.ProtosOnly);
                     loadedRecordingCount = recordings.Count;
@@ -4873,6 +4875,7 @@ namespace Parsek
                 // After hydration repair and the journal finisher: re-apply every vessel name
                 // decision to the recordings this load produced (design 7.4 / 7.6).
                 loadPhase = "vessel-names-apply";
+                VesselNameStore.RunSpawnLinkBackfill("onload-tail:cold");
                 VesselNameStore.ApplyAll("onload-tail:cold", VesselNameLiveScope.ProtosOnly);
                 loadedRecordingCount = recordings.Count;
                 loadStatus = "completed";

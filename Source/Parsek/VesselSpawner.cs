@@ -745,7 +745,8 @@ namespace Parsek
             }
         }
 
-        public static uint RespawnVessel(ConfigNode vesselNode, HashSet<string> excludeCrew = null, bool preserveIdentity = false)
+        public static uint RespawnVessel(ConfigNode vesselNode, HashSet<string> excludeCrew = null, bool preserveIdentity = false,
+            Recording nameSource = null)
         {
             ProtoVessel pv = null;
             CrewInventoryRestoreResult crewInventoryRestore = default(CrewInventoryRestoreResult);
@@ -796,12 +797,13 @@ namespace Parsek
 
                 if (!preserveIdentity)
                 {
-                    RegenerateVesselIdentity(spawnNode);
+                    RegenerateVesselIdentity(spawnNode, nameSource);
                 }
                 else
                 {
                     ParsekLog.Info("Spawner", "RespawnVessel: preserving vessel identity (chain-tip spawn)");
                 }
+                VesselNameSpawn.ApplySpawnStamp(spawnNode, nameSource, "RespawnVessel");
                 EnsureSpawnReadiness(spawnNode);
 
                 if (!TryValidateSnapshotHasParts(spawnNode, out string materializationRejectionReason)
@@ -1191,7 +1193,8 @@ namespace Parsek
             HashSet<string> excludeCrew = null, bool preserveIdentity = false,
             TerminalState? terminalState = null,
             Quaternion? surfaceRelativeRotation = null,
-            Orbit orbitOverride = null)
+            Orbit orbitOverride = null,
+            Recording nameSource = null)
         {
             ProtoVessel pv = null;
             CrewInventoryRestoreResult crewInventoryRestore = default(CrewInventoryRestoreResult);
@@ -1300,12 +1303,13 @@ namespace Parsek
 
                 if (!preserveIdentity)
                 {
-                    RegenerateVesselIdentity(spawnNode);
+                    RegenerateVesselIdentity(spawnNode, nameSource);
                 }
                 else
                 {
                     ParsekLog.Info("Spawner", "SpawnAtPosition: preserving vessel identity (chain-tip spawn)");
                 }
+                VesselNameSpawn.ApplySpawnStamp(spawnNode, nameSource, "SpawnAtPosition");
                 EnsureSpawnReadiness(spawnNode);
 
                 if (!TryValidateSnapshotHasParts(spawnNode, out string materializationRejectionReason)
@@ -1709,7 +1713,8 @@ namespace Parsek
                         preserveIdentity: preserveIdentity,
                         terminalState: rec.TerminalStateValue,
                         surfaceRelativeRotation: surfaceRelativeRotationArg,
-                        orbitOverride: orbitalSpawnOrbit);
+                        orbitOverride: orbitalSpawnOrbit,
+                        nameSource: rec);
                     rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                     if (rec.VesselSpawned)
                     {
@@ -5176,7 +5181,7 @@ namespace Parsek
                 return 0;
             }
 
-            return RespawnVessel(snapshot, excludeCrew, preserveIdentity);
+            return RespawnVessel(snapshot, excludeCrew, preserveIdentity, nameSource: rec);
         }
 
         /// <summary>
@@ -5607,13 +5612,24 @@ namespace Parsek
         /// Spawning a copy with identical PIDs causes map view / tracking station issues.
         /// Regenerates vessel-level GUID + per-part persistentId/flightID/missionID/launchID (#234),
         /// cleans old PIDs from global registry (#237), patches robotics references (#238).
+        /// The fresh guid is linked to the source recording's guid (a Spawn link, design
+        /// vessel names 7.5; the snapshot's own guid when no recording is known), and the
+        /// regenerated part flightIDs are carried into the node's dock records and the
+        /// dock-absorb rows. Returns the old -> new part flightID map (empty when the per-part
+        /// pass was skipped).
         /// </summary>
-        private static void RegenerateVesselIdentity(ConfigNode spawnNode)
+        private static Dictionary<uint, uint> RegenerateVesselIdentity(ConfigNode spawnNode, Recording source)
         {
+            var uidMap = new Dictionary<uint, uint>();
             // Vessel-level identity
+            string oldGuid = VesselLaunchIdentity.TryReadVesselGuid(spawnNode);
             string newPid = Guid.NewGuid().ToString("N");
             spawnNode.SetValue("pid", newPid, true);
             spawnNode.SetValue("persistentId", "0", true);
+            string linkTarget = VesselNameStore.NormalizeKnownGuid(source?.RecordedVesselGuid)
+                ?? VesselNameStore.NormalizeKnownGuid(oldGuid);
+            VesselNameStore.AddLink(newPid, linkTarget, VesselIdentityLinkKind.Spawn,
+                "spawn rec=" + (source?.RecordingId ?? "<none>"));
 
             // Clean up old part PIDs from global registry before reassigning (#237)
             List<uint> oldPartPids = VesselSnapshotOps.CollectPartPersistentIds(spawnNode);
@@ -5628,24 +5644,32 @@ namespace Parsek
                     $"RegenerateVesselIdentity: vessel GUID regenerated (pid={newPid}), " +
                     $"{oldPartPids.Count} old PID(s) cleaned from registry, " +
                     "but no CurrentGame — per-part regeneration skipped");
-                return;
+                return uidMap;
             }
             uint missionId = (uint)Guid.NewGuid().GetHashCode();
             uint launchId = game.launchID++;
             var pidMap = VesselSnapshotOps.RegeneratePartIdentities(spawnNode,
                 () => FlightGlobals.GetUniquepersistentId(),
                 () => ShipConstruction.GetUniqueFlightID(game.flightState),
-                missionId, launchId);
+                missionId, launchId, uidMap);
 
             // Patch robotics controller references with new PIDs (#238)
             int roboticsPatched = 0;
             if (pidMap.Count > 0)
                 roboticsPatched = VesselSnapshotOps.PatchRoboticsReferences(spawnNode, pidMap);
 
+            // Dock records name parts by flightID: carry the regenerated uids into them, and
+            // into the dock-absorb rows, so an undock of the spawned stack is recognized.
+            int dockRefsRemapped = VesselNameSpawn.RemapDockRecordUids(spawnNode, uidMap);
+            int dockRowsCopied = VesselNameStore.CopyDockAbsorbsForUidMap(uidMap,
+                "spawn rec=" + (source?.RecordingId ?? "<none>"));
+
             ParsekLog.Verbose("Spawner",
                 $"Regenerated vessel identity: pid={newPid}, {pidMap.Count} part(s) regenerated, " +
                 $"{oldPartPids.Count} old PID(s) cleaned from registry" +
-                (roboticsPatched > 0 ? $", {roboticsPatched} robotics ref(s) patched" : ""));
+                (roboticsPatched > 0 ? $", {roboticsPatched} robotics ref(s) patched" : "") +
+                $", dockRefsRemapped={dockRefsRemapped} dockAbsorbRowsCopied={dockRowsCopied}");
+            return uidMap;
         }
 
         private static void EnsureSpawnReadiness(ConfigNode spawnNode)

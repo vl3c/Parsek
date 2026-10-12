@@ -652,6 +652,15 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     same session. Payload `choice= target= scene= session= rp= rpKept= slot=
     #     slotListed= unfinishedFlights= marker=`.
     "ReFlyRevert",
+    # ADDITIVE (47 -> 48 implemented, reserved unchanged at 4). SINGLE-PHASE, default 60 s.
+    #   RenameVessel name=<new name> [pid=<pid>], issued in FLIGHT: a player's accept in the
+    #     stock rename dialog for one live vessel (the active one when pid= is absent). It
+    #     invokes the private Vessel.onVesselRenameAccept(string, VesselType) by reflection
+    #     with the vessel's own type, so Parsek's Harmony capture pair records the decision
+    #     as for a player (vessel names, design-vessel-and-mission-names.md 15.3). OK
+    #     `pid= old= new= type= active= changed= legs= decision= decisionName=`; `old` is
+    #     the live stock name just before the accept, so a rename doubles as a read of it.
+    "RenameVessel",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1251,6 +1260,9 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     "KscMarkerRecover": TAIL_ROLE_WORLD_MUTATING,
     # ReFlyRevert ends or restarts a Re-Fly session and loads a save: InvokeRewind's role.
     "ReFlyRevert": TAIL_ROLE_WORLD_MUTATING,
+    # RenameVessel renames a live vessel (stock state a save captures) and records a
+    # Parsek name decision.
+    "RenameVessel": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1443,6 +1455,9 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # ReFlyRevert is `recording` for InvokeRewind's reason: its OK is "the Re-Fly revert
     # dialog's choice ran and its outcome settled", a Parsek feature under test.
     "ReFlyRevert": POST_MISSION_ROLE_RECORDING,
+    # RenameVessel is `recording`: its OK is "stock renamed the vessel and Parsek's capture
+    # ran", the subject the vessel-names claims are about, never a mission outcome.
+    "RenameVessel": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -3328,6 +3343,49 @@ def validate_refly_revert_step(index: int, step_args: Dict) -> List[str]:
 # The largest persistentId a literal ``Recover pid=`` can name: KSP's persistentId is a
 # uint, and the seam parses the arg with ``uint.TryParse``.
 RECOVER_PID_MAX = 4294967295
+
+
+# RenameVessel: mirrored from TestCommands/TestCommandRenameVessel.cs
+# (RenameVesselSourceSyncTests keeps them byte-equal). `name=` is REQUIRED and must not be
+# blank; `pid=` is OPTIONAL (absent = the active vessel) and, when present, has Recover's
+# grammar. Neither is a closed-value arg, so neither sits in VERB_SCOPED_CLOSED_ARGS (and
+# `name` is SetSetting / SaveGame / LoadGame's arg name too).
+RENAMEVESSEL_VERB = "RenameVessel"
+RENAMEVESSEL_NAME_KEY = "name"
+RENAMEVESSEL_PID_KEY = "pid"
+RENAMEVESSEL_REASONS: Tuple[str, ...] = (
+    "renamevessel-name-arg-missing", "renamevessel-name-arg-invalid",
+    "renamevessel-pid-arg-invalid", "renamevessel-no-active-vessel",
+    "renamevessel-vessel-not-found", "renamevessel-target-is-ghost",
+    "renamevessel-accept-unavailable",
+)
+
+
+def validate_rename_vessel_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``RenameVessel`` step: ``name=`` is REQUIRED and
+    must not be blank (the seam answers REJECTED renamevessel-name-arg-missing /
+    -arg-invalid), and an OPTIONAL literal ``pid=`` must be an ASCII decimal in
+    1..4294967295 (Recover's grammar); a ``${step.field}`` handle in either is checked by
+    the R10 static tier and resolved at run time."""
+    errors: List[str] = []
+    raw_name = step_args.get(RENAMEVESSEL_NAME_KEY)
+    if raw_name is None or str(raw_name) == "":
+        errors.append(
+            "driver.steps[%d].args.%s: %s REQUIRES it; the seam answers REJECTED "
+            "renamevessel-name-arg-missing" % (index, RENAMEVESSEL_NAME_KEY, RENAMEVESSEL_VERB))
+    elif str(raw_name).strip() == "":
+        errors.append(
+            "driver.steps[%d].args.%s: %r is blank; the seam answers REJECTED "
+            "renamevessel-name-arg-invalid" % (index, RENAMEVESSEL_NAME_KEY, raw_name))
+    raw_pid = step_args.get(RENAMEVESSEL_PID_KEY)
+    if raw_pid is not None and str(raw_pid) != "" and "${" not in str(raw_pid) and not (
+            re.fullmatch(r"[0-9]+", str(raw_pid))
+            and 0 < int(str(raw_pid)) <= RECOVER_PID_MAX):
+        errors.append(
+            "driver.steps[%d].args.%s: %r is not a positive decimal persistentId; the "
+            "seam answers REJECTED renamevessel-pid-arg-invalid"
+            % (index, RENAMEVESSEL_PID_KEY, raw_pid))
+    return errors
 
 
 def validate_real_spawn_recover_step(index: int, cmd: str, step_args: Dict) -> List[str]:
@@ -6431,6 +6489,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_ksc_marker_recover_step(i, step_args))
         elif cmd == REFLYREVERT_VERB:
             errors.extend(validate_refly_revert_step(i, step_args))
+        elif cmd == RENAMEVESSEL_VERB:
+            errors.extend(validate_rename_vessel_step(i, step_args))
         # R10 STATIC tier, pass 2 of 2: every ${ref.field} in this step's args must
         # be well-formed AND name an EARLIER seam step that expects OK. A fault here
         # would otherwise put a literal ${...} on the wire, where the seam resolves an
@@ -10099,6 +10159,17 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "reflyrevert-option-unavailable": "driver-gate",
     "reflyrevert-dialog-not-shown": "driver-dialog",
     "reflyrevert-choice-unavailable": "driver-dialog",
+    # RenameVessel: a missing / blank name, a malformed pid, a pid naming no live vessel and
+    # a ghost map vessel are the SPEC's fault; no active vessel and a KSP build without the
+    # stock accept method are live states the rename would not act in. Mirrored from the C#
+    # `Reasons` array (RenameVesselSourceSyncTests).
+    "renamevessel-name-arg-missing": "driver-arg",
+    "renamevessel-name-arg-invalid": "driver-arg",
+    "renamevessel-pid-arg-invalid": "driver-arg",
+    "renamevessel-no-active-vessel": "driver-gate",
+    "renamevessel-vessel-not-found": "driver-arg",
+    "renamevessel-target-is-ghost": "driver-arg",
+    "renamevessel-accept-unavailable": "driver-gate",
     # SimulateStockSwitchClick, arg half: site / selector spellings and target resolution.
     # target-not-found / -name-ambiguous / -is-ghost are arg-class because each one means
     # the SPEC named the wrong thing, the same call `unknown-target` gets for KscAction.
@@ -10747,7 +10818,9 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "recover-pid-arg-invalid", "recover-pid-arg-missing", "rect-arg-invalid",
     "rect-arg-missing", "reflyrevert-choice-arg-invalid",
     "reflyrevert-choice-arg-missing", "reflyrevert-target-arg-invalid",
-    "reflyrevert-target-arg-missing", "route-arg-missing", "run-await-arg-invalid",
+    "reflyrevert-target-arg-missing", "renamevessel-name-arg-invalid",
+    "renamevessel-name-arg-missing", "renamevessel-pid-arg-invalid",
+    "route-arg-missing", "run-await-arg-invalid",
     "run-category-arg-missing", "safewritecrash-phase-arg-invalid",
     "safewritecrash-phase-arg-missing", "safewritecrash-recording-arg-missing",
     "scene-arg-invalid", "select-include-arg-invalid", "select-include-arg-missing",

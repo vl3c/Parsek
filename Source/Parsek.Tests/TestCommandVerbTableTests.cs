@@ -60,6 +60,7 @@ namespace Parsek.Tests
         [InlineData("TrackingStationRecover")]
         [InlineData("KscMarkerRecover")]
         [InlineData("ReFlyRevert")]
+        [InlineData("RenameVessel")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -190,7 +191,9 @@ namespace Parsek.Tests
             // so the first number moves alone and by TWO, the mirror of their addition.
             // ReFlyRevert is ADDITIVE (46 -> 47; reserved unchanged at 4): the Esc menu's
             // Revert during a live Re-Fly, answered on Parsek's Re-Fly revert dialog.
-            Assert.Equal(47, TestCommandVerbs.ImplementedVerbNames.Count);
+            // RenameVessel is ADDITIVE (47 -> 48; reserved unchanged at 4): a player's accept
+            // in the stock rename dialog, so Parsek's rename capture runs as in play.
+            Assert.Equal(48, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

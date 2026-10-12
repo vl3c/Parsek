@@ -1106,7 +1106,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # REMOVAL by two.
         # 47 / 4 after ReFlyRevert, an ADDITION by one: the Esc menu's Revert during a
         # live Re-Fly, answered on Parsek's Re-Fly revert dialog.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 47)
+        # 48 / 4 after RenameVessel, an ADDITION by one: a player's accept in the stock
+        # rename dialog, so Parsek's vessel-name capture runs as in play.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 48)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -4428,6 +4430,15 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # cells never read it; CommittedBatchTallySourceSyncTests gates its `total=`. It LEFT
     # the same day: its reading run 2026-10-03_1440 (PASS attempt 1) measured the
     # prediction, `passed=1 failed=0 skipped=0`, and the spec pinned the line whole.
+    #
+    # VN-1-stock-rename-staging-f9 ENTERED on 2026-10-11 (vessel names, the VesselNames
+    # category's three FLIGHT cells run on GS-1's recorded pad vessel before the flight,
+    # `total=3` literal with the split regexed, predicted passed=3 skipped=0). Like CN-1 it
+    # is not an H-series id, so this class's own cells never read it;
+    # CommittedBatchTallySourceSyncTests gates its `total=`. It LEFT on 2026-10-12: its
+    # third flight, result 2026-10-12_0458 (PASS attempt 1), measured the prediction,
+    # `passed=3 failed=0 skipped=0`, and the spec pinned the line whole (the two flights
+    # before it were red on spec defects outside the batch).
     INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -16517,6 +16528,102 @@ class ReFlyRevertSourceSyncTests(unittest.TestCase):
         self.assertIn(hlib.REFLYREVERT_VERB, cmds)
         # The verb runs after the rewind that makes the session it reverts.
         self.assertLess(cmds.index("InvokeRewind"), cmds.index(hlib.REFLYREVERT_VERB))
+
+
+class RenameVesselSourceSyncTests(unittest.TestCase):
+    """`RenameVessel`. Reads OUTSIDE harness/: the verb, the two arg keys and the refusal
+    reasons (the `Reasons` array, IN ORDER) of the comment-stripped
+    TestCommands/TestCommandRenameVessel.cs, plus the C# verb's use of the capture patch's
+    own target method (a rename that bypassed the stock accept would record nothing)."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# RenameVessel tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_keys_and_reasons_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandRenameVessel.cs")
+        self.assertIn('internal const string Verb = "%s";' % hlib.RENAMEVESSEL_VERB, text)
+        self.assertIn('internal const string NameKey = "%s";' % hlib.RENAMEVESSEL_NAME_KEY, text)
+        self.assertIn('internal const string PidKey = "%s";' % hlib.RENAMEVESSEL_PID_KEY, text)
+        self.assertEqual(list(hlib.RENAMEVESSEL_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+        for reason in hlib.RENAMEVESSEL_REASONS:
+            self.assertIn(hlib._SEAM_REFUSAL_SUBKINDS.get(reason),
+                          ("driver-arg", "driver-gate"), reason)
+
+    def test_the_applier_drives_the_stock_accept_the_capture_patches(self):
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.RenameVessel.cs")
+        self.assertIn("VesselRenameAcceptCapturePatch.ResolveTargetMethodForTesting()", applier)
+        self.assertIn("accept.Invoke(v, new object[] { name, v.vesselType })", applier)
+        patch = self._source("Patches", "VesselRenameCapturePatch.cs")
+        self.assertIn('AccessTools.Method(typeof(Vessel), "onVesselRenameAccept", '
+                      'new[] { typeof(string), typeof(VesselType) })', patch)
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.RENAMEVESSEL_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(60.0, hlib.dispatch_deferral_budget(verb))
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertFalse(hlib.post_mission_step_gates(verb))
+        self.assertEqual("driver-gate",
+                         hlib.classify_seam_refusal_subkind("renamevessel-no-active-vessel"))
+        self.assertEqual("driver-arg",
+                         hlib.classify_seam_refusal_subkind("renamevessel-vessel-not-found"))
+        # The three spec-text refusals are deterministic (the retry sends the same args).
+        for reason in ("renamevessel-name-arg-missing", "renamevessel-name-arg-invalid",
+                       "renamevessel-pid-arg-invalid"):
+            self.assertIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        # A target lookup reads live state a load race could change.
+        for reason in ("renamevessel-vessel-not-found", "renamevessel-no-active-vessel"):
+            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+
+    def test_the_step_validator(self):
+        v = hlib.validate_rename_vessel_step
+        self.assertEqual([], v(0, {"name": "VN1 Alpha"}))
+        self.assertEqual([], v(0, {"name": "VN1 Alpha", "pid": "2200110033"}))
+        self.assertEqual([], v(0, {"name": "X", "pid": "${spawn.pid}"}))
+        self.assertEqual([], v(0, {"name": "X", "pid": ""}))
+        self.assertIn("renamevessel-name-arg-missing", v(0, {})[0])
+        self.assertIn("renamevessel-name-arg-missing", v(0, {"name": ""})[0])
+        self.assertIn("renamevessel-name-arg-invalid", v(0, {"name": "   "})[0])
+        for bad in ("0", "abc", "4294967296", "+5", " 5", "1.5"):
+            with self.subTest(pid=bad):
+                self.assertIn("renamevessel-pid-arg-invalid", v(0, {"name": "X", "pid": bad})[0])
+        self.assertEqual(2, len(v(0, {"pid": "0"})))
+
+    def test_validate_spec_runs_the_step_validator(self):
+        spec = copy.deepcopy(load_spec("B10-career-passive-safety.toml"))
+        steps = spec["driver"]["steps"]
+        steps.insert(len(steps) - 1, {"cmd": hlib.RENAMEVESSEL_VERB, "args": {"pid": "7"}})
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertTrue(any("renamevessel-name-arg-missing" in e for e in v.errors), v.errors)
+
+    VN_LANES = ("VN-1-stock-rename-staging-f9.toml", "VN-2-refly-rename-discard.toml",
+                "VN-3-spawn-rename-rewind.toml")
+
+    def test_the_committed_lanes_validate_and_drive_the_verb(self):
+        for name in self.VN_LANES:
+            with self.subTest(spec=name):
+                spec = load_spec(name)
+                schemas = {}
+                for path in glob.glob(os.path.join(MISSIONS_DIR, "*.schema.toml")):
+                    with open(path, "rb") as fh:
+                        schemas[os.path.basename(path)[:-len(".schema.toml")]] = tomllib.load(fh)
+                v = hlib.validate_spec(spec, load_registry(), mission_schemas=schemas)
+                self.assertEqual([], list(v.errors))
+                self.assertEqual([], list(v.warnings))
+                cmds = [s.get("cmd") for s in spec["driver"]["steps"]]
+                self.assertIn(hlib.RENAMEVESSEL_VERB, cmds)
+                # Never flown: the name censuses stay report-only until a reading run.
+                structure = spec["expectations"]["recordings"]["structure"]
+                self.assertIs(False, structure.get("gating"))
+                self.assertIn("recordingNames", structure)
 
 
 class GuiCensusSeamVerbTests(unittest.TestCase):

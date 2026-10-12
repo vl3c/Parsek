@@ -542,6 +542,11 @@ the updates below record how each verb arrived.
 > `RF-20-stashed-eva-slot-refly`. `FlySlot` stays reserved for the reason above. Full
 > contract below (`#### StashSlot`).
 
+> Update (RenameVessel, 2026-10-11): one ADDITIVE verb, `RenameVessel name= [pid=]`, taking
+> the table to **48 implemented / 4 reserved**. A player's accept in the stock rename dialog for
+> one live vessel, so Parsek's vessel-name capture runs as in play (vessel names, design
+> `design-vessel-and-mission-names.md` 15.3). Full contract below (`#### RenameVessel`).
+
 > Update (ReFlyRevert, 2026-10-07): one ADDITIVE verb, `ReFlyRevert choice= target=`,
 > taking the table to **47 implemented / 4 reserved**. The Esc menu's Revert during a live
 > Re-Fly session, through the stock pause menu and revert option into Parsek's Re-Fly revert
@@ -4175,6 +4180,40 @@ and `validate_refly_revert_step` checks both args pre-launch (not `VERB_SCOPED_C
 `choice` is `AnswerMergeDialog`'s key too). Pure half `TestCommandReFlyRevert`; applier
 `ParsekTestCommandAddon.ReFlyRevert.cs`. Lane: `QL-5-discard-refly-keeps-unfinished-flight`
 (never flown).
+
+#### RenameVessel (additive; a player's accept in the stock rename dialog)
+
+**Why.** Parsek captures a stock rename only through its Harmony Prefix / Postfix pair on the
+private `Vessel.onVesselRenameAccept(string, VesselType)` (`VesselRenameAcceptCapturePatch`;
+it never listens to `onVesselRename`, which stock also fires from automation). Writing
+`vesselName` directly renames the vessel and records nothing, so a lane that proves the
+vessel-names feature needs the accept itself (vessel names design 15.3).
+
+**Grammar.** `cmd=RenameVessel name=<new name> [pid=<persistentId>]`, issued in FLIGHT. `name=`
+REQUIRED, passed to stock verbatim; absent or empty is `renamevessel-name-arg-missing`, blank
+is `renamevessel-name-arg-invalid`. `pid=` OPTIONAL (absent: the active vessel), Recover's
+grammar (`uint.TryParse(NumberStyles.None)`, nonzero) else `renamevessel-pid-arg-invalid`.
+
+**Behavior.** Resolves the vessel among `FlightGlobals.Vessels` by pid (else the active one),
+refuses a ghost map vessel, then invokes the accept by reflection with the vessel's CURRENT
+type (`VesselRenameAcceptCapturePatch.ResolveTargetMethodForTesting`), so stock renames it,
+fires `onVesselRename` and the capture pair records a StockDialog decision when the vessel's
+identity is recorded. It reads the name back (`renamevessel-not-applied` ERROR when stock did
+not take it; `renamevessel-accept-threw` ERROR on an exception) and reports the identity's leg
+count and its decision without side effects (the highest-seq decision over the identity's
+guids). Line: `renamevessel applied pid= old='..' new='..' type= active= changed= legs=
+decision= decisionName='..'`; payload `pid old new type active changed legs decision
+decisionName` (`decision=none` when the store holds none). `old` is the live stock name just
+before the accept, so a rename doubles as a read of what a load or a write-through left on the
+vessel.
+
+**Phases.** SINGLE-PHASE, `RequiresFlight`, default budget (60 s). **Refusals** (REJECTED):
+the three arg reasons above and `renamevessel-vessel-not-found` / `-target-is-ghost`
+(arg-class), `renamevessel-no-active-vessel` / `-accept-unavailable` (gate-class). The three
+arg reasons are deterministic (`DETERMINISTIC_SEAM_ERROR_REASONS`). World-mutating tail role,
+`recording` post-mission role; state-mutating for the FlushAndQuit save. Pure half
+`TestCommandRenameVessel`, mirrored by `RenameVesselSourceSyncTests`. Lanes:
+`VN-1-stock-rename-staging-f9`, `VN-2-refly-rename-discard`, `VN-3-spawn-rename-rewind`.
 
 ### Addon lifecycle
 

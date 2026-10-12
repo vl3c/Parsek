@@ -903,6 +903,22 @@ def vessel_name_counts(snapshot: ParsekSaveSnapshot) -> Dict[str, int]:
     return counts
 
 
+def recording_name_counts(snapshot: ParsekSaveSnapshot) -> Dict[str, int]:
+    """COMMITTED recordings per ``vesselName`` (the leg's displayed vessel name). The
+    vessel-names census (design-vessel-and-mission-names.md 15.3): a player rename
+    renames every leg of the vessel's identity, so the old name's count drops to 0 and
+    the new one takes every leg, while a leg recorded under a stock automatic name (a
+    split child's "<parent> Probe") keeps it. Active / pending trees are left out: they
+    are the in-flight copy of what the next commit writes, not the committed record."""
+    counts: Dict[str, int] = {}
+    for t in snapshot.trees:
+        if not t.is_committed:
+            continue
+        for r in t.recordings:
+            counts[r.vessel_name] = counts.get(r.vessel_name, 0) + 1
+    return counts
+
+
 def duplicate_recording_ids(snapshot: ParsekSaveSnapshot) -> Tuple[str, ...]:
     """Recording ids appearing more than once across ALL trees, first-seen order.
     A duplicated id is a writer-contract violation worth surfacing in triage
@@ -1284,6 +1300,8 @@ def observed_structure_facets(snapshot: Optional[ParsekSaveSnapshot]) -> Dict[st
                 # committed spawns, and every non-SpaceObject vessel by name.
                 "spawnedVessels": spawned_vessel_count(snapshot),
                 "vesselNames": vessel_name_counts(snapshot),
+                # The vessel-names census of the committed legs (recording_name_counts).
+                "recordingNames": recording_name_counts(snapshot),
             },
             # Gate 12: the recorded-POINTS distribution, sibling of `structure`
             # and independently armable. Recorded UNCONDITIONALLY, which is how
@@ -1314,7 +1332,7 @@ STRUCTURE_BLOCK = "structure"  # nested under [expectations.recordings]
 STRUCTURE_BLOCK_KEYS: Tuple[str, ...] = (
     GATING_KEY, "trees", "committedTrees", "recordings",
     "terminalStates", "branchPoints", "ghostChainNodes", "spawnedVessels",
-    "vesselNames")
+    "vesselNames", "recordingNames")
 # The structure block's scalar (single-window) facets.
 STRUCTURE_SCALAR_KEYS: Tuple[str, ...] = (
     "trees", "committedTrees", "recordings", "ghostChainNodes", "spawnedVessels")
@@ -1488,7 +1506,8 @@ def validate_structure_expectations(block: Any) -> List[str]:
     errs.extend(_validate_gating("expectations.recordings.structure", block))
     errs.extend(_validate_armed_empty(
         "expectations.recordings.structure", block,
-        STRUCTURE_SCALAR_KEYS + ("terminalStates", "branchPoints", "vesselNames")))
+        STRUCTURE_SCALAR_KEYS + ("terminalStates", "branchPoints", "vesselNames",
+                                 "recordingNames")))
     errs.extend(_validate_armed_unreddable(
         "expectations.recordings.structure", block, STRUCTURE_SCALAR_KEYS))
     for key in STRUCTURE_SCALAR_KEYS:
@@ -1511,10 +1530,12 @@ def validate_structure_expectations(block: Any) -> List[str]:
         for name, window in sub.items():
             if name in names:
                 errs.extend(_validate_window("%s.%s" % (prefix, name), window))
-    if "vesselNames" in block:
+    for key in ("vesselNames", "recordingNames"):
+        if key not in block:
+            continue
         # Free-form names (a vessel name is not an enum), the routes body-group shape.
-        sub = block["vesselNames"]
-        prefix = "expectations.recordings.structure.vesselNames"
+        sub = block[key]
+        prefix = "expectations.recordings.structure.%s" % key
         if not isinstance(sub, dict):
             errs.append("%s: must be a table of { \"<vessel name>\" = <window> }" % prefix)
         else:
@@ -1632,8 +1653,8 @@ def save_structure_expectation_warnings(expectations: Optional[Dict]) -> List[st
     structure = (recordings.get(STRUCTURE_BLOCK)
                  if isinstance(recordings, dict) else None)
     if isinstance(structure, dict) and not any(
-            k in structure for k in STRUCTURE_SCALAR_KEYS + ("terminalStates",
-                                                              "branchPoints")):
+            k in structure for k in STRUCTURE_SCALAR_KEYS + (
+                "terminalStates", "branchPoints", "vesselNames", "recordingNames")):
         warns.append("expectations.recordings.structure: declared with no assertion "
                      "key - the block reports nothing and gates nothing")
     points = (recordings.get(POINTS_BLOCK)
@@ -1873,7 +1894,8 @@ def evaluate_save_structure(
                 if key in structure_spec:
                     _check_window("recordings.structure.%s" % key,
                                   structure_spec[key], measured[key], out)
-            for group in ("terminalStates", "branchPoints", "vesselNames"):
+            for group in ("terminalStates", "branchPoints", "vesselNames",
+                          "recordingNames"):
                 sub = structure_spec.get(group)
                 if not isinstance(sub, dict):
                     continue

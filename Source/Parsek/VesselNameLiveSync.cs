@@ -127,7 +127,10 @@ namespace Parsek
         /// A live vessel's CURRENT leg (design 7.4 step 3): <paramref name="recordingLegId"/> when
         /// it is a leg of <paramref name="identity"/>, else the newest leg (latest start, then
         /// latest end, then id) carrying the vessel's launch guid, preferring legs
-        /// <paramref name="isExcludedLeg"/> does not exclude (superseded legs). Null when none. Pure.
+        /// <paramref name="isExcludedLeg"/> does not exclude (superseded legs). A re-keyed vessel
+        /// no leg carries yet (a Parsek spawn, an undocked ship before its first leg) follows its
+        /// link rows (<see cref="VesselIdentity.Resolution.LinkTargets"/>) to the guid it
+        /// continues: for a spawned vessel that is the spawning leg's guid. Null when none. Pure.
         /// </summary>
         internal static string ResolveCurrentLegId(
             VesselIdentity.Identity identity, VesselIdentity.Resolution res,
@@ -137,7 +140,20 @@ namespace Parsek
             if (!string.IsNullOrEmpty(recordingLegId) && identity.LegIds.Contains(recordingLegId))
                 return recordingLegId;
             string g = VesselLaunchIdentity.NormalizeGuid(liveGuid);
-            if (g == null) return null;
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            while (g != null && visited.Add(g))
+            {
+                string leg = NewestLegCarryingGuid(identity, res, g, isExcludedLeg);
+                if (leg != null) return leg;
+                g = res.LinkTargets.TryGetValue(g, out string to) ? to : null;
+            }
+            return null;
+        }
+
+        private static string NewestLegCarryingGuid(
+            VesselIdentity.Identity identity, VesselIdentity.Resolution res, string g,
+            Func<string, bool> isExcludedLeg)
+        {
             string best = null, bestExcluded = null;
             Recording bestRec = null, bestExcludedRec = null;
             foreach (string legId in identity.LegIds)
@@ -456,7 +472,7 @@ namespace Parsek
                     return;
                 }
                 List<RecordingTree> trees = VesselNameStore.GatherTrees();
-                VesselIdentity.Resolution res = VesselIdentity.Resolve(trees, VesselNameStore.GatherLoose(trees));
+                VesselIdentity.Resolution res = VesselNameStore.ResolveUniverse(trees, VesselNameStore.GatherLoose(trees));
                 string guid = v.id.ToString("N");
                 string recordingLegId = ReadRecordingLegIdSafe(pid);
                 Func<string, bool> excluded = BuildExcludedLegPredicate(res);
@@ -548,7 +564,7 @@ namespace Parsek
             try
             {
                 List<RecordingTree> trees = VesselNameStore.GatherTrees();
-                VesselIdentity.Resolution res = VesselIdentity.Resolve(trees, VesselNameStore.GatherLoose(trees));
+                VesselIdentity.Resolution res = VesselNameStore.ResolveUniverse(trees, VesselNameStore.GatherLoose(trees));
                 VesselNameStore.ApplyTo(res, reason);
                 return RunLiveWritePass(res, reason, VesselNameLiveScope.FlightVessels, headless: false);
             }
@@ -618,6 +634,56 @@ namespace Parsek
             flightReadyPassArmed = false;
             lastStripPassRealtime = realtime;
             RunFlightPostLoadPass("post-load:refly-strip");
+        }
+
+        /// <summary>
+        /// <c>onPartCouple</c> (design 7.7): records the dock-absorb row of the vessel being
+        /// absorbed (its root part flightID at dock time and its launch guid). An EVA kerbal
+        /// and a ghost map vessel are skipped. Never throws.
+        /// </summary>
+        internal static void OnDockCouple(Vessel absorbed, Vessel dominant)
+        {
+            try
+            {
+                if (absorbed == null || ReferenceEquals(absorbed, dominant)) return;
+                if (absorbed.isEVA || GhostMapPresence.IsGhostMapVessel(absorbed.persistentId))
+                {
+                    ParsekLog.Verbose(Tag, "Dock absorb row skipped: pid=" +
+                        absorbed.persistentId.ToString(CultureInfo.InvariantCulture) +
+                        (absorbed.isEVA ? " (EVA kerbal)" : " (ghost map vessel)"));
+                    return;
+                }
+                Part root = absorbed.rootPart;
+                VesselNameStore.RecordDockAbsorb(root != null ? root.flightID : 0u, absorbed.id.ToString("N"),
+                    "dock pid=" + absorbed.persistentId.ToString(CultureInfo.InvariantCulture) +
+                    " into=" + (dominant != null ? dominant.persistentId.ToString(CultureInfo.InvariantCulture) : "<none>"));
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag, "Dock absorb row threw: " + ex.GetType().Name + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// <c>onVesselsUndocking</c> (design 7.7): the vessel that left (stock re-roots it on the
+        /// pre-dock root part when that part is in its subtree, <c>Part.Undock</c>) is linked to
+        /// the absorbed identity when a dock-absorb row names its root part. The link schedules
+        /// an apply pass, whose live write rule writes the decision through when the leaving
+        /// ship's leg is covered. Never throws.
+        /// </summary>
+        internal static void OnUndockSplit(Vessel leaving)
+        {
+            try
+            {
+                if (leaving == null || GhostMapPresence.IsGhostMapVessel(leaving.persistentId)) return;
+                Part root = leaving.rootPart;
+                VesselNameStore.TryLinkUndockReturn(root != null ? root.flightID : 0u, leaving.id.ToString("N"),
+                    "undock pid=" + leaving.persistentId.ToString(CultureInfo.InvariantCulture));
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag, "Undock link threw: " + ex.GetType().Name + ": " + ex.Message);
+            }
         }
 
         internal static void ResetForTesting()
@@ -709,6 +775,31 @@ namespace Parsek
             scopeLabel = "no-vessels:" + scene;
             return null;
         }
+
+        /// <summary>
+        /// The loaded game's proto vessels for the spawn-link backfill (OnLoad tail), or the test
+        /// provider's <see cref="VesselNameLiveScope.ProtosOnly"/> rows. Null outside the Unity
+        /// player or in a headless test universe.
+        /// </summary>
+        internal static List<LiveVesselEntry> GatherProtoVesselsForBackfill(string reason)
+        {
+            Func<VesselNameLiveScope, List<LiveVesselEntry>> provider = LiveVesselsProviderForTesting;
+            if (provider != null) return provider(VesselNameLiveScope.ProtosOnly);
+            if (VesselNameStore.TreesProviderForTesting != null) return null;
+            try
+            {
+                return GatherProtoEntriesCore(reason);
+            }
+            catch (Exception ex) when (ex is System.Security.SecurityException
+                || ex is TypeInitializationException || ex is MissingMethodException)
+            {
+                return null;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static List<LiveVesselEntry> GatherProtoEntriesCore(string reason)
+            => GatherProtoEntries(reason);
 
         private static List<LiveVesselEntry> GatherProtoEntries(string reason)
         {

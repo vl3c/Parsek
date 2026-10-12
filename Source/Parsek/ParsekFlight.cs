@@ -11467,6 +11467,11 @@ namespace Parsek
 
         void OnPartCouple(GameEvents.FromToAction<Part, Part> data)
         {
+            // Vessel names (design 7.7): stock fires onPartCouple from Part.Couple before the
+            // merge, with data.from on the vessel being absorbed (ModuleDockingNode.DockToVessel
+            // couples its own part to the dominant's). Recorded whatever the recorder state.
+            VesselNameLiveSync.OnDockCouple(data.from?.vessel, data.to?.vessel);
+
             // #267: skip if restore coroutine is mid-yield — it owns activeTree/recorder.
             // OnPartCouple's own null checks (L3784, L3845) already prevent most interference,
             // but the narrow window after recorder.StartRecording in the coroutine could allow
@@ -11872,6 +11877,11 @@ namespace Parsek
         /// </summary>
         void OnVesselsUndocking(Vessel oldVessel, Vessel newVessel)
         {
+            // Vessel names (design 7.7): the leaving vessel (fresh guid, re-rooted on its
+            // pre-dock root part) continues the absorbed identity when a dock-absorb row names
+            // its root. Linked whatever the recorder state.
+            VesselNameLiveSync.OnUndockSplit(newVessel);
+
             // #267: skip if restore coroutine is mid-yield; it owns activeTree/recorder.
             if (restoringActiveTree)
             {
@@ -15697,6 +15707,21 @@ namespace Parsek
             // snapshot refresh, and rollout-adoption paths key off VesselPersistentId and
             // must follow the vessel the player actually re-entered here, not the older
             // source PID that originally produced the committed recording.
+            // Vessel names (design 6.2): the live vessel (a Parsek spawn, fresh guid) continues
+            // the resumed recording's identity. Linked BEFORE the spawn pid is cleared below:
+            // after that nothing but this link joins the two guids. Only through the
+            // genuine-spawn branch (the backfill's rule): an adoption-stamp match is a pid the
+            // craft bakes, never proof enough for a permanent link.
+            if (liveTree.Recordings != null
+                && liveTree.Recordings.TryGetValue(targetRecordingId, out Recording linkRec)
+                && linkRec != null
+                && VesselLaunchIdentity.IsGenuineSpawnPidMatch(linkRec, activeVesselPid))
+            {
+                VesselNameStore.AddLink(activeVesselGuid, linkRec.RecordedVesselGuid,
+                    VesselIdentityLinkKind.Resume,
+                    "resume rec=" + targetRecordingId + " pid=" + activeVesselPid.ToString(CultureInfo.InvariantCulture));
+            }
+
             if (liveTree.Recordings != null
                 && liveTree.Recordings.TryGetValue(targetRecordingId, out Recording resumedRec)
                 && resumedRec != null
