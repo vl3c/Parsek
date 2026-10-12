@@ -1493,6 +1493,11 @@ namespace Parsek
                 // not to blame the re-fly pipeline — the real vessel predates
                 // the rewind and is outside the tree.
                 WarnOnLeftAloneNameCollisions(stripResult);
+
+                // Vessel names (design 7.6): the Re-Fly attempt starts a new flight epoch (its
+                // Discard / Retry cancel exactly its stock renames), and the post-load live write
+                // pass runs now that the strip has finished.
+                VesselNameLiveSync.OnReFlyStripComplete(sessionId, UnityEngine.Time.realtimeSinceStartup);
             }
             finally
             {

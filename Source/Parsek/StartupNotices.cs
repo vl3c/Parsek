@@ -44,6 +44,7 @@ namespace Parsek
             (new[] { "PhysicsFrame", "PartMassivePartCheck", "CheatTeleport", "HackGravity", "DockingNodeUndockIntent" }, "flight recording"),
             (new[] { "Revert", "HighLogic_LoadScene", "FloatingOrigin" }, "revert, rewind and scene changes"),
             (new[] { "FlightResultsDialogLog" }, "diagnostic logging"),
+            (new[] { "VesselRenameAccept", "PartVesselNamingAccept" }, "vessel names"),
         };
 
         /// <summary>

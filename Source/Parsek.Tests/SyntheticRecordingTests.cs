@@ -7623,11 +7623,12 @@ namespace Parsek.Tests
 
         /// <summary>
         /// Game seconds before a <c>WarpToUT</c> target at which the rails rate is back at
-        /// index 0 (stock's lowest non-1x rung, 5x, needs 2.5 real seconds before the target:
-        /// <c>TestCommandWarpToUT.MinRealSecondsAtRate</c>). The first 1x frame, where the
+        /// index 0 (stock's lowest non-1x rung, 5x, needs 0.5 real seconds before the target:
+        /// <c>TestCommandWarpToUT.BottomRungMinRealSeconds</c>). The first 1x frame, where the
         /// deferred queue flushes, is inside this span before the target.
         /// </summary>
-        internal const double SpawnSafetyWarpRampDownSeconds = 12.5;
+        internal const double SpawnSafetyWarpRampDownSeconds =
+            5.0 * Parsek.TestCommands.TestCommandWarpToUT.BottomRungMinRealSeconds;
 
         internal static RecordingBuilder SpawnSafetySituationCorrection(double baseUT)
         {

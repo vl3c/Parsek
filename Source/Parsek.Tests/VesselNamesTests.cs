@@ -764,18 +764,23 @@ namespace Parsek.Tests
         // ---------------------------------------------------------------- load policy
 
         [Fact]
-        public void LoadPolicy_VesselNames_ColdReadsTheSave_EveryInSessionKindKeepsMemory()
+        public void LoadPolicy_VesselNames_ColdReadsTheSave_RevertsUndo_OtherInSessionKindsKeepMemory()
         {
             Assert.False(LoadReconcilePolicy.IsConsumedEarly(LoadStateCategory.VesselNames));
             foreach (LoadKind kind in Enum.GetValues(typeof(LoadKind)).Cast<LoadKind>())
             {
                 LoadReconcileDecision d = LoadReconcilePolicy.Decide(kind, LoadStateCategory.VesselNames);
                 Assert.False(d.IsKnownGap);
-                Assert.Equal(kind == LoadKind.Cold ? LoadReconcileAction.Save : LoadReconcileAction.Memory, d.Action);
+                LoadReconcileAction expected = kind == LoadKind.Cold ? LoadReconcileAction.Save
+                    : kind == LoadKind.StockRevert || kind == LoadKind.DiscardReFly
+                        ? LoadReconcileAction.MemoryUndoRevertedFlight
+                        : LoadReconcileAction.Memory;
+                Assert.Equal(expected, d.Action);
             }
-            // All three refined in-session kinds agree today (Phase 2a flips StockRevert).
-            Assert.Equal(LoadReconcileAction.Memory,
-                LoadReconcilePolicy.DecideEarly(EarlyLoadKind.InSession, LoadStateCategory.VesselNames).Action);
+            // Phase 2a: the refined in-session kinds disagree (StockRevert undoes), so nothing
+            // before the revert detector can decide the category.
+            Assert.Throws<InvalidOperationException>(() =>
+                LoadReconcilePolicy.DecideEarly(EarlyLoadKind.InSession, LoadStateCategory.VesselNames));
         }
 
         // ---------------------------------------------------------------- display version + caches

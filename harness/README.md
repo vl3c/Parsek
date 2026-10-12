@@ -246,6 +246,16 @@ The estimation contract (full text in the `lib/flighteff.py` docstring):
 - Idle is split by a deterministic cause: dwell phase, attitude-align (apErr
   above 5 deg), waiting-for-node, soi-approach, coast-to-apoapsis,
   coast-to-entry, coast-to-periapsis, other-coast.
+- Native warp_to ramp. While a kRPC native `warp_to` is running (the telemetry
+  `warpTo=` target is ahead of ut) the game steps its own rate down as the target
+  nears: kRPC asks for a rate of the seconds left and KSP eases between stock rates.
+  There the target is also capped at the best stock rails rate at most seconds left
+  / 2 (`NATIVE_WARP_RAMP_SECONDS`, `flighteff.native_warp_cap`; 2 s is the smallest
+  constant under which no ramp-down frame of the 2026-10-11 archive reads low), and
+  an interval at or above that cap is `warped`, not `lowWarp`. A native ramp-UP
+  frame below the cap still reads low (the 10 s overhead absorbs it), and rails
+  with no `warpTo=` (a machine `set_rails_warp`, MechJeb autowarp) is measured
+  against the legal rate exactly as before.
 - Recoverable per contiguous idle / lowWarp run = wall - game / target rate - a
   fixed 10 s ramp-and-settle overhead, floored at 0. The target is the best legal
   rails rate at the run's minimum altitude, except attitude-align (4x physics,
@@ -284,6 +294,19 @@ The estimation contract (full text in the `lib/flighteff.py` docstring):
   its phase row. The capture hold releases 5 s before its target, the rendezvous
   hold 15 s; each lead uses its own machine's tolerance. The lead constants and the
   4x index are mirrored from mlib and pinned by `lib/test_flighteff.py`.
+  Plus the MechJeb executor settle (any machine, any phase): in a visit with no
+  `node-wait:` hold line, a 1x waiting-for-node stretch that ends in the
+  executor's OWN rails warp resuming (the next sample is RAILS above 1x with no
+  `warpTo=`, and the machine issued no warp_to / warp_to_ut / non-zero
+  set_rails_warp or set_physics_warp during the stretch) is MechJeb's
+  AlignedAndSettled gate at ignition - 600 s, not a missing warp
+  (`flighteff.EXECUTOR_WAIT_REASON`). A stretch ending in a burn, a phase change,
+  the log's end or a machine warp keeps its classification, and a visit with a
+  hold line is left to the leads. And the docking autopilot (the
+  `bdock_decide` / `sdock_decide` / `rdock_decide` machines only, the rendezvous
+  lead's scope): the DOCK phase is MechJeb's docking autopilot closing on the port
+  at `dockSpeedMetersPerSec` (default 0.5 m/s), so its 1x coast is by design and
+  the lever is that spec key (`flighteff.DOCK_AUTOPILOT_REASON`).
 - Outcome-sensitive. CIRCULARIZE node waits (B22) stay recoverable, but the row
   carries `outcomeSensitive: true` and says a warp there may move the outcome;
   the owner kept them recoverable (2026-10-03), a backlog target that needs a

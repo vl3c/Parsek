@@ -572,10 +572,18 @@ namespace Parsek.Tests
             Assert.False(anchored);
             Assert.Equal(RecordingStore.RewindOwnerStripDecision.StripName,
                 RecordingStore.ClassifyRewindOwnerStripVessel("Relay", GuidB, strip, anchored));
-            // Neither the name nor the guid reaches a copy under another name: the gap Phase
-            // 2b's Spawn / Resume links close (matching the identity's full guid set).
+            // Neither the name nor the guid reaches a copy under another name without a link.
             Assert.Equal(RecordingStore.RewindOwnerStripDecision.NotMatched,
                 RecordingStore.ClassifyRewindOwnerStripVessel("Relay-2", GuidB, strip, anchored));
+
+            // Phase 2b: the Resume link puts the copy's guid in the owner's identity guid set,
+            // so the copy is found by guid under any name.
+            Assert.True(VesselNameStore.AddLink(GuidB, GuidA, VesselIdentityLinkKind.Resume, "test"));
+            var linked = RecordingStore.BuildRewindOwnerStrip(owner);
+            bool linkedAnchored = RecordingStore.RewindOwnerStripIsAnchored(linked, new[] { GuidB });
+            Assert.True(linkedAnchored);
+            Assert.Equal(RecordingStore.RewindOwnerStripDecision.StripOwnerGuid,
+                RecordingStore.ClassifyRewindOwnerStripVessel("Relay-2", GuidB, linked, linkedAnchored));
         }
 
         // ============================================================

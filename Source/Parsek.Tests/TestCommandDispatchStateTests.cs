@@ -65,6 +65,7 @@ namespace Parsek.Tests
             public void TrackingStationRecover(ParsedCommand cmd) => Calls.Add("TrackingStationRecover");
             public void KscMarkerRecover(ParsedCommand cmd) => Calls.Add("KscMarkerRecover");
             public void ReFlyRevert(ParsedCommand cmd) => Calls.Add("ReFlyRevert");
+            public void RenameVessel(ParsedCommand cmd) => Calls.Add("RenameVessel");
         }
 
         [Fact]
@@ -185,6 +186,8 @@ namespace Parsek.Tests
         // ReFlyRevert: FLIGHT only, but the wrong scene is its own typed REJECTED
         // (reflyrevert-wrong-scene) rather than a 300 s not-in-flight defer.
         [InlineData("ReFlyRevert", "RequiresGameLoaded")]
+        // RenameVessel: a live vessel's stock rename dialog, FLIGHT only (the bounded defer).
+        [InlineData("RenameVessel", "RequiresFlight")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -242,6 +245,7 @@ namespace Parsek.Tests
             fake.TrackingStationRecover(cmd);
             fake.KscMarkerRecover(cmd);
             fake.ReFlyRevert(cmd);
+            fake.RenameVessel(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

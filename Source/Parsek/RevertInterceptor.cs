@@ -283,6 +283,11 @@ namespace Parsek
             ParsekLog.Info(SessionTag,
                 $"End reason=retry sess={oldSessionId} rp={rpId} slot={slot.SlotIndex} target={target}");
 
+            // Vessel names (design 7.6, ruling 5): Retry cancels the attempt the way a revert
+            // cancels a flight, so the stock renames made inside it are undone. Its load
+            // classifies ReFlyStart, which a fresh invoke shares, so the undo runs here.
+            VesselNameStore.UndoCurrentFlightEpoch("refly-retry sess=" + oldSessionId);
+
             // Clear the active marker so the new StartInvoke precondition
             // (§7.5) sees no active session. The provisional recording stays
             // in the committed list and will be swept as a zombie.

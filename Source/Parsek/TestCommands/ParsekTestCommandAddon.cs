@@ -1616,6 +1616,9 @@ namespace Parsek.TestCommands
         // ReFlyRevert: body + two-phase completion in the sibling
         // ParsekTestCommandAddon.ReFlyRevert.cs partial.
         void ITestCommandExecutor.ReFlyRevert(ParsedCommand cmd) => ReFlyRevertImpl(cmd);
+        // RenameVessel: body in the sibling ParsekTestCommandAddon.RenameVessel.cs. Single-phase
+        // (the stock accept and Parsek's capture run synchronously), so no TryComplete*.
+        void ITestCommandExecutor.RenameVessel(ParsedCommand cmd) => RenameVesselImpl(cmd);
 
         private void InvokeExecutor(ParsedCommand cmd)
         {
@@ -1683,6 +1686,7 @@ namespace Parsek.TestCommands
                 case "TrackingStationRecover": exec.TrackingStationRecover(cmd); break;
                 case "KscMarkerRecover": exec.KscMarkerRecover(cmd); break;
                 case "ReFlyRevert": exec.ReFlyRevert(cmd); break;
+                case "RenameVessel": exec.RenameVessel(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

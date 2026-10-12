@@ -111,6 +111,12 @@ namespace Parsek
         /// <summary>The load leaves the state as it is: no save copy is read and nothing reconciles
         /// it (the reason says when the cell is not reachable at all).</summary>
         Keep,
+        /// <summary>The in-memory state survives, minus what the cancelled flight added: the
+        /// vessel name decisions a stock rename made inside the reverted flight (or the
+        /// discarded Re-Fly attempt) are undone, newest first, after the revert detector ran
+        /// (<c>VesselNameStore.UndoCurrentFlightEpoch</c>; design-vessel-and-mission-names.md
+        /// 7.6, ruling 5).</summary>
+        MemoryUndoRevertedFlight,
     }
 
     /// <summary>
@@ -921,8 +927,20 @@ namespace Parsek
             throw UnknownKind(kind);
         }
 
-        // Phase 1 of the vessel names design: every in-session kind keeps memory. Phase 2a flips
-        // StockRevert and DiscardReFly to an undo of the cancelled flight's stock decisions.
+        private const string VesselNamesMemory =
+            "VesselNameStore is static memory loaded on the cold path only; a decision names the "
+            + "vessel across rewinds and reloads, and the OnLoad tail re-applies it (recordings and the "
+            + "save's proto vessels), the post-load pass the live vessels";
+        private const string VesselNamesUndo =
+            "ParsekScenario.OnLoad, after ClassifyRefined -> VesselNameStore.UndoCurrentFlightEpoch drops "
+            + "the StockDialog / StockPartNaming decisions of the current flight epoch newest first, "
+            + "restoring the decisions they replaced; ParsekRename decisions and a later one replacing "
+            + "a stock decision stay (ruling 5); then as Memory: ";
+
+        // Vessel names design 7.6 (ruling 5): a stock revert and Discard Re-fly cancel a flight
+        // epoch and undo its stock renames. A Re-Fly Retry classifies as ReFlyStart, which a fresh
+        // Re-Fly invoke shares (and that one cancels nothing), so the Retry undo runs in
+        // RevertInterceptor.RetryHandler before its load, not here.
         private static LoadReconcileDecision DecideVesselNames(LoadKind kind)
         {
             switch (kind)
@@ -930,15 +948,22 @@ namespace Parsek
                 case LoadKind.Cold:
                     return Today(LoadReconcileAction.Save,
                         "VesselNameStore.Load on the cold path (ParsekScenario.OnLoad, before the committed trees load)");
-                case LoadKind.PlainRewind:
-                case LoadKind.ReFlyStart:
-                case LoadKind.DiscardReFly:
                 case LoadKind.StockRevert:
+                    return Today(LoadReconcileAction.MemoryUndoRevertedFlight,
+                        VesselNamesUndo + VesselNamesMemory);
+                case LoadKind.DiscardReFly:
+                    return Today(LoadReconcileAction.MemoryUndoRevertedFlight,
+                        VesselNamesUndo + "the epoch is the discarded Re-Fly attempt's "
+                        + "(RewindInvoker.RunStripActivateMarker started it); " + VesselNamesMemory);
+                case LoadKind.ReFlyStart:
+                    return Today(LoadReconcileAction.Memory,
+                        VesselNamesMemory + "; a Retry (it classifies ReFlyStart too) has already undone the "
+                        + "cancelled attempt's stock decisions in RevertInterceptor.RetryHandler, before its load; "
+                        + "a fresh Re-Fly invoke undoes nothing");
+                case LoadKind.PlainRewind:
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
-                    return Today(LoadReconcileAction.Memory,
-                        "VesselNameStore is static memory loaded on the cold path only; a decision names the "
-                        + "vessel across rewinds and reloads, and the OnLoad tail re-applies it");
+                    return Today(LoadReconcileAction.Memory, VesselNamesMemory);
             }
             throw UnknownKind(kind);
         }

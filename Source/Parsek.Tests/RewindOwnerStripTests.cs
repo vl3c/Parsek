@@ -148,12 +148,12 @@ namespace Parsek.Tests
                 RecordingStore.RewindToLaunchLeadTimeSeconds);
         }
 
-        // ---- Vessel name decisions (vessel names design phase 1, until phase 2b links) ----
+        // ---- Vessel name decisions + link rows (vessel names design 7.9, phase 2b) ----
 
-        // catches: a Parsek rename moving the owner's leg names so the unanchored name fallback
+        // catches: a Parsek rename moving the owner's leg names so the owner-name fallback
         // compares the NEW name against the quicksave's OLD one, leaving a re-keyed owner copy
         // (fresh guid; the resume path cleared its spawn pid) unstripped - a duplicate after
-        // the rewind.
+        // the rewind. Phase 2b: the copy's Resume link guid is part of the owner's identity.
         [Fact]
         public void RenamedOwner_RekeyedCopyUnderTheOldName_IsStillStripped()
         {
@@ -162,11 +162,62 @@ namespace Parsek.Tests
             Commit("treeR", owner);
             Assert.True(MissionVesselNaming.ApplyRecordingRename(owner, "Relay-2"));
             Assert.Equal("Relay-2", owner.VesselName);
+            Assert.True(VesselNameStore.AddLink("cccc3333cccc3333cccc3333cccc3333", SecondGuid,
+                VesselIdentityLinkKind.Resume, "test"));
 
             string sfs = WriteSave(VesselNode("Kerbal X", OtherPid, "cccc3333cccc3333cccc3333cccc3333", "LANDED"));
             PreProcess(sfs, owner);
 
             Assert.DoesNotContain(OtherPid, SurvivingPids(sfs));
+            Assert.Contains(logLines, l => l.Contains("[Rewind]") && l.Contains("1 by owner guid"));
+        }
+
+        // The Phase 1 gap the links close: a re-keyed copy under a name none of the owner's
+        // legs ever carried (renamed in the Tracking Station after its spawn) is found by its
+        // Spawn link guid.
+        [Fact]
+        public void RenamedOwner_RekeyedCopyUnderAnyName_StrippedByLinkGuid()
+        {
+            var owner = Rec("owner0001", "Kerbal X", "treeR", 10, 400, SecondPid, SecondGuid);
+            owner.TerminalStateValue = TerminalState.Landed;
+            Commit("treeR", owner);
+            Assert.True(VesselNameStore.AddLink("cccc3333cccc3333cccc3333cccc3333", SecondGuid,
+                VesselIdentityLinkKind.Spawn, "test"));
+
+            string sfs = WriteSave(
+                VesselNode("Somebody Else", OtherPid, "cccc3333cccc3333cccc3333cccc3333", "LANDED"),
+                VesselNode("Station", 3555000005u, "dddd4444dddd4444dddd4444dddd4444", "ORBITING"));
+            PreProcess(sfs, owner);
+
+            List<uint> left = SurvivingPids(sfs);
+            Assert.DoesNotContain(OtherPid, left);
+            Assert.Contains(3555000005u, left);
+            Assert.Contains("cccc3333cccc3333cccc3333cccc3333",
+                RecordingStore.BuildRewindOwnerStrip(owner).OwnerIdentityGuids);
+        }
+
+        // catches: dropping the Phase 1 alias pair once links exist. A copy resumed BEFORE the
+        // upgrade has no Resume link (the resume cleared its spawn pid, so the load backfill
+        // cannot link it either); after a rename only the unanchored alias pair still finds it
+        // under its old name.
+        [Fact]
+        public void RenamedOwner_PreUpgradeResumedCopyWithoutLink_UnderTheOldName_IsStillStripped()
+        {
+            var owner = Rec("owner0001", "Kerbal X", "treeR", 10, 400, SecondPid, SecondGuid);
+            owner.TerminalStateValue = TerminalState.Landed;
+            owner.VesselSpawned = false;
+            owner.SpawnedVesselPersistentId = 0u;
+            Commit("treeR", owner);
+            Assert.True(MissionVesselNaming.ApplyRecordingRename(owner, "Relay-2"));
+            Assert.Equal(0, VesselNameStore.LinkCount);
+
+            string sfs = WriteSave(VesselNode("Kerbal X", OtherPid, "cccc3333cccc3333cccc3333cccc3333", "LANDED"));
+            PreProcess(sfs, owner);
+
+            Assert.DoesNotContain(OtherPid, SurvivingPids(sfs));
+            RecordingStore.RewindOwnerStrip strip = RecordingStore.BuildRewindOwnerStrip(owner);
+            Assert.True(strip.OwnerAliasNames.SetEquals(new[] { "Kerbal X" }));
+            Assert.DoesNotContain("cccc3333cccc3333cccc3333cccc3333", strip.OwnerIdentityGuids);
         }
 
         // catches: the alias set taking the identity's OTHER leg names. A naming part took over
@@ -183,6 +234,8 @@ namespace Parsek.Tests
             Assert.True(MissionVesselNaming.ApplyRecordingRename(merged, "Relay"));
             Assert.Equal("Relay", owner.VesselName);
             Assert.Contains("Station Alpha", VesselNameStore.FindByGuid(SecondGuid).PriorNames);
+            Assert.True(VesselNameStore.AddLink("dddd4444dddd4444dddd4444dddd4444", SecondGuid,
+                VesselIdentityLinkKind.Spawn, "test"));
 
             const uint CopyPid = 3444000004u;
             string sfs = WriteSave(
@@ -193,7 +246,9 @@ namespace Parsek.Tests
             List<uint> left = SurvivingPids(sfs);
             Assert.Contains(OtherPid, left);
             Assert.DoesNotContain(CopyPid, left);
-            Assert.DoesNotContain("Station Alpha", RecordingStore.BuildRewindOwnerStrip(owner).OwnerAliasNames);
+            RecordingStore.RewindOwnerStrip dockStrip = RecordingStore.BuildRewindOwnerStrip(owner);
+            Assert.DoesNotContain("cccc3333cccc3333cccc3333cccc3333", dockStrip.OwnerIdentityGuids);
+            Assert.DoesNotContain("Station Alpha", dockStrip.OwnerAliasNames);
         }
 
         // catches: design 8.17 staging, where the launch guid stays on a debris half: its name
@@ -217,8 +272,8 @@ namespace Parsek.Tests
             Assert.Contains(OtherPid, SurvivingPids(sfs));
         }
 
-        // The alias is the UNANCHORED fallback only: with the owner's own vessel in the save, a
-        // different launch under the old name is committed history and stays.
+        // With the owner's own vessel in the save, a different launch under the old name is
+        // committed history and stays.
         [Fact]
         public void RenamedOwner_AnchoredOwner_KeepsAnotherLaunchUnderTheOldName()
         {
@@ -443,6 +498,24 @@ namespace Parsek.Tests
             var legacy = RecordingStore.RewindOwnerStrip.FromNames(new[] { "Kerbal X" });
             Assert.Equal(RecordingStore.RewindOwnerStripDecision.StripName,
                 RecordingStore.ClassifyRewindOwnerStripVessel("Kerbal X", FirstGuid, legacy, false));
+        }
+
+        [Fact]
+        public void Classify_IdentityGuidSet_LinkGuidsCountAsTheOwner()
+        {
+            var strip = new RecordingStore.RewindOwnerStrip { OwnerName = "Relay", OwnerGuid = SecondGuid };
+            strip.OwnerIdentityGuids.Add(SecondGuid);
+            strip.OwnerIdentityGuids.Add("cccc3333cccc3333cccc3333cccc3333");
+
+            Assert.Equal(RecordingStore.RewindOwnerStripDecision.StripOwnerGuid,
+                RecordingStore.ClassifyRewindOwnerStripVessel("Kerbal X", "CCCC3333CCCC3333CCCC3333CCCC3333", strip, true));
+            Assert.Equal(RecordingStore.RewindOwnerStripDecision.StripName,
+                RecordingStore.ClassifyRewindOwnerStripVessel("Relay", "cccc3333cccc3333cccc3333cccc3333", strip, true));
+            Assert.Equal(RecordingStore.RewindOwnerStripDecision.KeepOtherLaunch,
+                RecordingStore.ClassifyRewindOwnerStripVessel("Relay", FirstGuid, strip, true));
+            Assert.Equal(RecordingStore.RewindOwnerStripDecision.NotMatched,
+                RecordingStore.ClassifyRewindOwnerStripVessel("Kerbal X", FirstGuid, strip, false));
+            Assert.True(RecordingStore.RewindOwnerStripIsAnchored(strip, new[] { "cccc3333-cccc-3333-cccc-3333cccc3333" }));
         }
 
         [Fact]

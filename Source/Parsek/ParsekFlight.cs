@@ -671,6 +671,18 @@ namespace Parsek
         internal FlightRecorder ActiveRecorderForSerialization => recorder;
 
         /// <summary>
+        /// The live tree's leg recording the live vessel <paramref name="vesselPid"/> right now
+        /// (the active recorder's leg, else its background leg), or null. The vessel names live
+        /// write rule reads it as the vessel's current leg (design 7.4 step 3).
+        /// </summary>
+        internal string ResolveRecordingLegIdForLiveVessel(uint vesselPid)
+            => VesselNameLiveSync.ResolveRecordingLegId(
+                activeTree,
+                recorder != null && recorder.IsRecording,
+                recorder != null ? recorder.RecordingVesselId : 0u,
+                vesselPid);
+
+        /// <summary>
         /// Captures a structured snapshot of every recorder-relevant field at the
         /// current instant. Used by <see cref="RecorderStateLog.RecState"/> emit sites for
         /// the structured <c>[RecState]</c> diagnostic dump. Pure data gather — no
@@ -1415,6 +1427,9 @@ namespace Parsek
             // Vessel name decisions re-applied when the committed set moved or (1 Hz) the
             // live tree gained a leg (vessel names design 7.4). Inert with no decision.
             VesselNameStore.SelfHealTick(inFlight: true, realtime: Time.realtimeSinceStartup);
+            // The post-load live write pass (design 7.6 step 2), once the flight is ready and
+            // no Re-Fly strip is still pending (RewindInvoker runs it itself after its strip).
+            VesselNameLiveSync.FlightHostTick(Time.realtimeSinceStartup);
 
             // Defensive clear for any prior-frame entries that did not reach
             // the camera pre-cull hook (for example, scene/camera teardown).
@@ -11452,6 +11467,11 @@ namespace Parsek
 
         void OnPartCouple(GameEvents.FromToAction<Part, Part> data)
         {
+            // Vessel names (design 7.7): stock fires onPartCouple from Part.Couple before the
+            // merge, with data.from on the vessel being absorbed (ModuleDockingNode.DockToVessel
+            // couples its own part to the dominant's). Recorded whatever the recorder state.
+            VesselNameLiveSync.OnDockCouple(data.from?.vessel, data.to?.vessel);
+
             // #267: skip if restore coroutine is mid-yield — it owns activeTree/recorder.
             // OnPartCouple's own null checks (L3784, L3845) already prevent most interference,
             // but the narrow window after recorder.StartRecording in the coroutine could allow
@@ -11857,6 +11877,11 @@ namespace Parsek
         /// </summary>
         void OnVesselsUndocking(Vessel oldVessel, Vessel newVessel)
         {
+            // Vessel names (design 7.7): the leaving vessel (fresh guid, re-rooted on its
+            // pre-dock root part) continues the absorbed identity when a dock-absorb row names
+            // its root. Linked whatever the recorder state.
+            VesselNameLiveSync.OnUndockSplit(newVessel);
+
             // #267: skip if restore coroutine is mid-yield; it owns activeTree/recorder.
             if (restoringActiveTree)
             {
@@ -12267,6 +12292,10 @@ namespace Parsek
         void OnFlightReady()
         {
             FlightReadyObserved = true;
+            // Vessel names (design 7.6): a new stock revert target starts a new flight epoch,
+            // and the first host tick re-applies the name decisions to every live vessel.
+            // First, before any early return below.
+            VesselNameLiveSync.OnFlightReady(FlightDriver.PostInitState, Time.realtimeSinceStartup);
             // From here on an onVesselSwitching in this scene is a real focus change;
             // the scene-entry initial focus fired before this point and was ignored.
             ParsekScenario.NoteFlightSceneReadyForVesselSwitchFlag();
@@ -15678,6 +15707,21 @@ namespace Parsek
             // snapshot refresh, and rollout-adoption paths key off VesselPersistentId and
             // must follow the vessel the player actually re-entered here, not the older
             // source PID that originally produced the committed recording.
+            // Vessel names (design 6.2): the live vessel (a Parsek spawn, fresh guid) continues
+            // the resumed recording's identity. Linked BEFORE the spawn pid is cleared below:
+            // after that nothing but this link joins the two guids. Only through the
+            // genuine-spawn branch (the backfill's rule): an adoption-stamp match is a pid the
+            // craft bakes, never proof enough for a permanent link.
+            if (liveTree.Recordings != null
+                && liveTree.Recordings.TryGetValue(targetRecordingId, out Recording linkRec)
+                && linkRec != null
+                && VesselLaunchIdentity.IsGenuineSpawnPidMatch(linkRec, activeVesselPid))
+            {
+                VesselNameStore.AddLink(activeVesselGuid, linkRec.RecordedVesselGuid,
+                    VesselIdentityLinkKind.Resume,
+                    "resume rec=" + targetRecordingId + " pid=" + activeVesselPid.ToString(CultureInfo.InvariantCulture));
+            }
+
             if (liveTree.Recordings != null
                 && liveTree.Recordings.TryGetValue(targetRecordingId, out Recording resumedRec)
                 && resumedRec != null

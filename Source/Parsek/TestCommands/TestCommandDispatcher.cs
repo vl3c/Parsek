@@ -284,6 +284,9 @@ namespace Parsek.TestCommands
         // ----- ReFlyRevert (the Esc menu's Revert during a live Re-Fly: the stock pause
         // menu, the stock revert option, then a button of Parsek's Re-Fly revert dialog) -----
         void ReFlyRevert(ParsedCommand cmd);
+        // ----- RenameVessel (a player's accept in the stock rename dialog, for one live
+        // vessel: Vessel.onVesselRenameAccept by reflection, so Parsek's capture runs) -----
+        void RenameVessel(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -581,6 +584,11 @@ namespace Parsek.TestCommands
                 // a typed REJECTED instead (reflyrevert-wrong-scene), next to its other
                 // pre-press refusal, reflyrevert-no-session.
                 ["ReFlyRevert"] = VerbSceneRequirement.RequiresGameLoaded,
+                // RenameVessel. RequiresFlight: the stock rename dialog it stands in for is
+                // reached from a live vessel's PAW / map header, and the verb resolves its
+                // target among FlightGlobals.Vessels. Rides the default budget (the wait is
+                // only the scene-arrival defer; the accept is synchronous).
+                ["RenameVessel"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>

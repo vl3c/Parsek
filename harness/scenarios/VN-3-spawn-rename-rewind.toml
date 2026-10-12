@@ -1,0 +1,173 @@
+schema = 1
+id = "VN-3-spawn-rename-rewind"
+# =====================================================================================
+# VN-3: VESSEL NAMES ON A PARSEK-SPAWNED VESSEL, ACROSS A REWIND (design
+# docs/dev/design-vessel-and-mission-names.md 7.5, 8.12 and 15.3, ruling 3, todo GC-7).
+# AUTHORED 2026-10-11 on branch `vessel-names-links`. FIRST FLIGHT `2026-10-11_1948`:
+# PARSEK-FAIL(expectations) on a SPEC defect: the spec predicted the rewind's KEPT branch,
+# which this host cannot reach (below); the product took the respawn branch and every final
+# name was right. The rewind tokens are now that run's measured respawn lines (result id
+# `2026-10-11_1647`). LIVE-PROVEN on the re-pinned spec: result `2026-10-11_1733` PASS
+# attempt 1 (automation DLL sha256 prefix 62700230107ab2b4). saveParse stays REPORT-ONLY
+# until an operator arms it.
+#
+# THE HOST is CI-8's / RSC-1's: gloops-airshow (a pod on the pad, FLIGHT) plus the
+# spawn-control-target preset, one committed recording `rsc-target-0001` of a landed probe
+# "Spawn Control Target" (launch guid set, a vessel snapshot) ~130 m from the pad, so Real
+# Spawn Control offers its row. On load TrimBoringTail cuts it to startUT 22.16 / EndUT
+# 82.16 (the preset authors 622.16; the stationary tail is trimmed), so RealSpawn's warp
+# lands near UT 82.
+#   (f) The Missions window renames the row to "VN3 Relay" BEFORE it spawns (a
+#       ParsekRename decision; no live vessel yet). RealSpawn presses the row's Warp; the
+#       spawn node is stamped with the decision (VesselNameSpawn.ApplySpawnStamp) and a Spawn
+#       link joins the fresh guid to the recording's. The first stock rename of the spawned
+#       vessel reads `old='VN3 Relay'` (the spawned vessel carries the decision name) and
+#       resolves its identity through that link (legs >= 1, decision=StockDialog).
+#   (c) A second Parsek rename ("VN3 Relay Parsek") writes through to the spawned live
+#       vessel through the Spawn link (ruling 3).
+#   (f) The rewind, design 8.12's RESPAWN branch. The pad pod's recording is started (its
+#       rewind save holds the spawned vessel as "VN3 Relay Parsek") and committed, and only
+#       then is the spawned vessel stock-renamed "VN3 Relay Final". The recording that
+#       spawned it starts after the save UT, so the playhead sweep latched it into replay
+#       scope, and WillReplayAfterRewind answers "replays" whatever the landing UT: the
+#       rewind strips the spawned vessel (`via holder-replays`), and the replay respawns it
+#       with a fresh guid, a second Spawn link (`links=2`) and the stamp of the CURRENT
+#       decision, "VN3 Relay Final" (a renamed spawned vessel keeps its name across a
+#       rewind). WarpToUT 660 before the pod's recording puts the rewind's landing UT
+#       (start - 15 s, 644.8 on the first flight) past the trimmed EndUT 82.16, so the
+#       respawn happens at once in the Space Center instead of waiting for the replay.
+# NOT COVERED: the KEPT branch (the rewind keeps the spawned vessel as committed history and
+# the OnLoad-tail pass writes the last name onto the reloaded vessel). It needs a host whose
+# spawning recording starts BEFORE the save UT, so it is never latched into replay scope.
+# Spawned vessel's naming part surviving onVesselWasModified is not driven either.
+# =====================================================================================
+tier = "nightly"
+description = "VN-3: on CI-8's spawn-control-target host, a Parsek rename made before a Real Spawn Control spawn stamps the spawned vessel; a stock rename of the spawned vessel resolves through the Spawn link; a second Parsek rename writes through to it; a Rewind-to-Launch strips it and the replay respawns it stamped with its last name."
+instanceProfile = "stock-minimal"
+tags = ["VN-3", "vessel-names", "GC-7", "rename", "spawn", "real-spawn-control",
+        "rewind-to-launch", "scene-ksc", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "spawn-control-target"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },
+  # LOAD-BEARING: the apply-pass, spawn-stamp and live-write lines are Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },        expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },   expect = "OK" },
+  # (f) The Parsek rename of the committed row, before the spawn.
+  { cmd = "UiAction",       args = { op = "complexity", mode = "advanced" },           expect = "OK" },
+  { cmd = "UiAction",       args = { op = "open", window = "main" },                   expect = "OK" },
+  { cmd = "UiAction",       args = { op = "open", window = "missions" },               expect = "OK" },
+  { cmd = "UiAction",       args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "UiAction",       args = { op = "edit", window = "missions", field = "recordingname", key = "rsc-target-0001", draft = "VN3 Relay", commit = "true" }, expect = "OK" },
+  # CI-8's settle: the proximity scan admits the row on its second sighting, 1.5 s apart.
+  { cmd = "WarpToUT",       args = { ut = "27", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "RealSpawn",      args = { rec = "rsc-target-0001" }, label = "spawn",       expect = "OK", budget = 120 },
+  # CI-6's four frames after the spawn (the added Spawn link's apply pass runs on the next
+  # host tick).
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  # (f) The spawned vessel carries the decision name; its stock rename resolves the
+  # identity through the Spawn link.
+  { cmd = "RenameVessel",   args = { pid = "${spawn.pid}", name = "VN3 Relay Stock" }, expect = "OK" },
+  # (c) A Parsek rename writes through to the spawned vessel.
+  { cmd = "UiAction",       args = { op = "edit", window = "missions", field = "recordingname", key = "rsc-target-0001", draft = "VN3 Relay Parsek", commit = "true" }, expect = "OK" },
+  # Puts the rewind's landing UT (the pod recording's start - 15 s) past the trimmed spawn
+  # EndUT 82.16, so the replay respawns the vessel at once in the Space Center. The clock is
+  # near UT 82 here, so this is ~580 s of game time: rails warp up to 50x (no recording is
+  # live yet; the first attempt timed out at 1x). Any target above ~100 would do.
+  { cmd = "WarpToUT",       args = { ut = "660", maxRate = "50" },                     expect = "OK", budget = 180 },
+  # The pad pod's recording: its start captures the rewind save (the spawned vessel in it
+  # is "VN3 Relay Parsek"). EVA-6's commit order.
+  { cmd = "StartRecording",                                                            expect = "OK", budget = 180 },
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  { cmd = "CommitTree",                                                                expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  # The last rename, after the save the rewind loads.
+  { cmd = "RenameVessel",   args = { pid = "${spawn.pid}", name = "VN3 Relay Final" }, expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                          expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                                  expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                              expect = "OK" },
+]
+
+[dimensionsCovered]
+# D14 values only (each already covered elsewhere). No D value names a vessel rename.
+D14 = ["sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The preset's one recording, the pad pod's (a near-instant start/stop keeps one, MC-3),
+# and the committed-restore clone's.
+count = { min = 2, max = 5 }
+
+# REPORT-ONLY until a reading run. One live vessel under the last name, none under an
+# earlier one; the spawning leg carries the last name.
+[expectations.recordings.structure]
+gating         = false
+vesselNames    = { "VN3 Relay Final" = { min = 1, max = 1 }, "VN3 Relay Parsek" = { max = 0 }, "VN3 Relay Stock" = { max = 0 }, "VN3 Relay" = { max = 0 }, "Spawn Control Target" = { max = 0 } }
+recordingNames = { "VN3 Relay Final" = { min = 1, max = 1 }, "Spawn Control Target" = { max = 0 } }
+
+[expectations.logContracts]
+required = [
+  # (f) The Parsek rename before the spawn.
+  "uiaction edit window=missions field=recordingname key=rsc-target-0001 draft=VN3 Relay committed=true ",
+  "\\[UI\\] Recording 'Spawn Control Target' renamed to 'VN3 Relay' identity=\\S+ legs=1",
+  "Vessel name decision recorded: identity=\\S+ 'Spawn Control Target' -> 'VN3 Relay' source=ParsekRename ",
+  # (f) The spawn is stamped with the decision and linked (VesselNameSpawn, VesselNameStore.Links).
+  "Spawn node stamped: rec=rsc-target-0001 'Spawn Control Target' -> 'VN3 Relay' namingPart=\\S+ context=",
+  "Link added: kind=Spawn guid=[0-9a-f]+ -> [0-9a-f]+ ",
+  # (f) The spawned vessel carries the decision name; its stock rename joins the identity.
+  "renamevessel applied pid=[0-9]+ old='VN3 Relay' new='VN3 Relay Stock' type=\\S+ active=false changed=true legs=[1-9][0-9]* decision=StockDialog decisionName='VN3 Relay Stock'",
+  "Stock rename captured: source=StockDialog pid=[0-9]+ guid=[0-9a-f]+ 'VN3 Relay' -> 'VN3 Relay Stock' ",
+  # (c) The Parsek rename writes through to the spawned vessel.
+  "Vessel name decision recorded: identity=\\S+ 'VN3 Relay Stock' -> 'VN3 Relay Parsek' source=ParsekRename ",
+  "Write-through applied: vessel pid=[0-9]+ guid=[0-9a-f]+ 'VN3 Relay Stock' -> 'VN3 Relay Parsek' loaded=\\w+ namingPart=\\S+ reason=parsek-rename",
+  # The rewind save, then the last rename reads the written-through name.
+  "Captured rewind save at UT",
+  "committree committed=true",
+  "renamevessel applied pid=[0-9]+ old='VN3 Relay Parsek' new='VN3 Relay Final' type=\\S+ active=false changed=true legs=[1-9][0-9]* decision=StockDialog decisionName='VN3 Relay Final'",
+  # (f) The rewind strips the spawned vessel and the replay respawns it, linked again and
+  # stamped with the current decision (measured on the first flight `2026-10-11_1948`).
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest",
+  "Rewind-to-Launch initiated to UT",
+  "Rewind strip scope: strip spawned pid=[0-9]+ of 'VN3 Relay Final' \\(id=rsc-target-0001\\) via holder-replays",
+  "Rewind-to-Launch initiated to UT[\\s\\S]*Link added: kind=Spawn guid=[0-9a-f]+ -> [0-9a-f]+ reason=spawn rec=rsc-target-0001 links=2",
+  "Rewind-to-Launch initiated to UT[\\s\\S]*Spawn node stamped: rec=rsc-target-0001 'Spawn Control Target' -> 'VN3 Relay Final' namingPart=\\S+ context=",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "renamevessel rejected",
+  "renamevessel error",
+  "Parsek rename refused",
+  "Spawn node left unstamped: rec=rsc-target-0001 ",
+  "Rewind strip scope: keep spawned pid=[0-9]+ of '[^'\\r\\n]*' \\(id=rsc-target-0001\\)",
+  # No RESPAWN after the rewind is stamped with a replaced name (anchored after the rewind:
+  # the first spawn is stamped 'VN3 Relay' with the same context, correctly).
+  "Rewind-to-Launch initiated to UT[\\s\\S]*Spawn node stamped: rec=rsc-target-0001 '[^'\\r\\n]*' -> '(?:VN3 Relay|VN3 Relay Stock|VN3 Relay Parsek)' namingPart=\\S+ context=RespawnVessel",
+  "invokerewindtolaunch refused",
+  # Nothing writes an earlier name back over a later decision.
+  "Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ '[^'\\r\\n]*' -> '(?:VN3 Relay|VN3 Relay Stock|Spawn Control Target)' ",
+]
+
+[runtime]
+# Wall for the whole drive phase including boot: LoadGame 300, two WarpToUT (6 s at 1x and ~580 s of game
+# time at up to 50x rails warp), RealSpawn 120, StartRecording 180, CommitTree 120,
+# InvokeRewindToLaunch 300, SaveGame 120, the UiAction / RenameVessel steps on the default
+# budget. Expected wall about 5 minutes.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
