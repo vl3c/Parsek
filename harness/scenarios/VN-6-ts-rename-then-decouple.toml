@@ -3,7 +3,7 @@ id = "VN-6-ts-rename-then-decouple"
 # =====================================================================================
 # VN-6: A TRACKING STATION RENAME OF AN UNLOADED VESSEL SURVIVES FLYING IT AND A PART EVENT
 # (design docs/dev/design-vessel-and-mission-names.md 5.1, 7.1, 7.3 and 15.3, todo GC-7).
-# AUTHORED 2026-10-12 on branch `vessel-names-proof`, NEVER FLOWN: a reading run. saveParse
+# AUTHORED 2026-10-12 on branch `vessel-names-proof`, LIVE-PROVEN 2026-10-12: result `2026-10-12_1421` PASS attempt 1 (first flight) on automation DLL 67e2036bd368d2a0. saveParse
 # stays REPORT-ONLY until an operator arms it.
 #
 # THE TRAP UNDER TEST (design 5.1). Stock's dialog accept updates the vessel's naming part

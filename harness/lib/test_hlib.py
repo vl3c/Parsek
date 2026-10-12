@@ -16897,6 +16897,17 @@ class RevertToLaunchSourceSyncTests(unittest.TestCase):
         self.assertEqual(1, len(errs))
         self.assertIn("takes no args", errs[0])
 
+    def test_validate_spec_runs_both_validators_on_one_step(self):
+        # The focusPid= check sits AFTER the per-verb elif chain, so a RevertToLaunch step
+        # carrying it reports both faults (it once split the chain and skipped this one).
+        spec = copy.deepcopy(load_spec("VN-5-stock-revert-cancels-rename.toml"))
+        for step in spec["driver"]["steps"]:
+            if step.get("cmd") == hlib.REVERTTOLAUNCH_VERB:
+                step["args"] = {"focusPid": "7"}
+        errs = hlib.validate_spec(spec, load_registry()).errors
+        self.assertTrue(any("takes no args" in e for e in errs), errs)
+        self.assertTrue(any("only the LoadGame verb reads it" in e for e in errs), errs)
+
 
 class GuiCensusSeamVerbTests(unittest.TestCase):
     """The GUI-census pair (`CaptureScreenshot` + `UiAction`), whose harness-side

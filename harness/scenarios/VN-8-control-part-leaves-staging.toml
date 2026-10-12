@@ -3,9 +3,28 @@ id = "VN-8-control-part-leaves-staging"
 # =====================================================================================
 # VN-8: THE SPLIT WHERE THE CONTROL PART LEAVES ON THE NEW VESSEL (design
 # docs/dev/design-vessel-and-mission-names.md 5.1, 7.4 step 3, 8.17 and 15.3, ruling 4, todo
-# GC-7). AUTHORED 2026-10-12 on branch `vessel-names-proof`, NEVER FLOWN: a READING RUN
-# whose saveParse census is the measurement. saveParse stays REPORT-ONLY until an operator
-# arms it.
+# GC-7). AUTHORED 2026-10-12 on branch `vessel-names-proof`. LIVE-PROVEN on its first
+# flight: result `2026-10-12_1418` PASS attempt 1 (automation DLL sha256 prefix
+# 67e2036bd368d2a0, wall 95 s). saveParse stays REPORT-ONLY until an operator arms it.
+#
+# THE MEASUREMENT (result `2026-10-12_1418`): committed legs `recordingNames {VN8 Alpha: 1,
+# VN8 Alpha Probe: 1}`, live vessels `vesselNames {VN8 Alpha Ship: 1, VN8 Alpha Probe: 1}`.
+# The launch leg KEPT the player's "VN8 Alpha", the booster leg kept stock's split name
+# "VN8 Alpha Probe", the live pod carries stock's automatic "VN8 Alpha Ship" and nothing
+# wrote or captured over it (`Live write rule: stock automatic name kept on pid=2200110033
+# ... 'VN8 Alpha' -> 'VN8 Alpha Ship' ... leg closed, coverage kept, no write`). Why the
+# launch leg was CLOSED when the automatic rename landed, and the defect it exposes (todo
+# VN8-FOCUS-SWITCH-SPLIT-PARENT-LEG-RECORDS-NEW-VESSEL): stock's WaitAndSwitchFocus moved
+# focus to the booster (`Vessel switch detected: 'VN8 Alpha Ship' -> 'VN8 Alpha Probe'`)
+# BEFORE Parsek's deferred joint-break check, the recorder had stopped at the split
+# ("chain boundary"), and `Recording resumed after false alarm` reopened the launch
+# recording `2db42e20` on the NEW active vessel, the booster. So the launch leg's post-split
+# points are the booster's, its `spawnedPid` is the booster's pid, and the commit's resume
+# added `Link added: kind=Resume guid=<booster guid> -> <pod guid>`, persisted in
+# VESSEL_NAMES: the booster now shares the launch identity (against ruling 4's "the split
+# child is a new identity"), so a later rename of either would rename both. The names the
+# lane pins are right; the identity graph under them is not. Pins stay as authored: they
+# assert the names, not the recorder's choice of vessel.
 #
 # THE RACE (decompiled ModuleDecouple.OnDecouple / WaitAndSwitchFocus, KSP 1.12.5). At a
 # decouple stock caches the part that owns the vessel's control point

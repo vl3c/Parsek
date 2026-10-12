@@ -3,7 +3,7 @@ id = "VN-4-dock-undock-rename"
 # =====================================================================================
 # VN-4: VESSEL NAMES ACROSS A DOCK / UNDOCK ROUND TRIP (design
 # docs/dev/design-vessel-and-mission-names.md 7.7 and 15.3, ruling 1, todo GC-7). AUTHORED
-# 2026-10-12 on branch `vessel-names-proof`, NEVER FLOWN: a reading run. saveParse stays
+# 2026-10-12 on branch `vessel-names-proof`, LIVE-PROVEN 2026-10-12: result `2026-10-12_1422` PASS attempt 1 (first flight) on automation DLL 67e2036bd368d2a0. saveParse stays
 # REPORT-ONLY until an operator arms it.
 #
 # THE HOST is CI-9's (nightly, live-proven): eva2-lko-crewed (the focused 28-part Kerbal X

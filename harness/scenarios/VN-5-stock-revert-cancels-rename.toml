@@ -3,8 +3,7 @@ id = "VN-5-stock-revert-cancels-rename"
 # =====================================================================================
 # VN-5: A PLAIN STOCK REVERT TO LAUNCH CANCELS THE STOCK RENAME MADE IN THAT FLIGHT AND
 # KEEPS THE PARSEK ONE (design docs/dev/design-vessel-and-mission-names.md 7.6 and 15.3,
-# ruling 5, todo GC-7). AUTHORED 2026-10-12 on branch `vessel-names-proof`, NEVER FLOWN: a
-# reading run. saveParse stays REPORT-ONLY until an operator arms it.
+# ruling 5, todo GC-7). AUTHORED 2026-10-12 on branch `vessel-names-proof`, LIVE-PROVEN 2026-10-12: result `2026-10-12_1420` PASS attempt 1 (first flight) on automation DLL 67e2036bd368d2a0. saveParse stays REPORT-ONLY until an operator arms it.
 #
 # WHY A NEW VERB. VN-2 proved the same undo through Discard Re-Fly (load kind DiscardReFly);
 # the plain stock revert (load kind StockRevert, the same MemoryUndoRevertedFlight policy

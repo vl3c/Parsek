@@ -4,7 +4,7 @@ id = "VN-7-preupgrade-spawn-backfill-rewind"
 # VN-7: A SAVE FROM BEFORE THE FEATURE: THE SPAWN-LINK BACKFILL ON ITS FIRST LOAD, THEN A
 # RENAME OF ITS PARSEK-SPAWNED VESSEL AND A REWIND THAT KEEPS IT (design
 # docs/dev/design-vessel-and-mission-names.md 6.2, 7.5, 8.12 and 15.3, todo GC-7). AUTHORED
-# 2026-10-12 on branch `vessel-names-proof`, NEVER FLOWN: a reading run. saveParse stays
+# 2026-10-12 on branch `vessel-names-proof`, LIVE-PROVEN 2026-10-12: result `2026-10-12_1429` PASS attempt 1 (second flight; the first, `2026-10-12_1421`, red on the write-back old-name spec defect fixed in eedf52980) on automation DLL 67e2036bd368d2a0. saveParse stays
 # REPORT-ONLY until an operator arms it.
 #
 # THE HOST is refly-a-recorded (RF-7M / RF-7T's, harvested 2026-09-08 from a manual session

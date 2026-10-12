@@ -6618,10 +6618,11 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_rename_vessel_step(i, step_args))
         elif cmd == PARTACTION_VERB:
             errors.extend(validate_part_action_step(i, step_args))
-        if LOADGAME_FOCUS_PID_KEY in step_args:
-            errors.extend(validate_loadgame_focus_step(i, cmd, step_args))
         elif cmd == REVERTTOLAUNCH_VERB:
             errors.extend(validate_revert_to_launch_step(i, step_args))
+        # LoadGame focusPid= (any verb: the validator flags it on a verb that ignores it).
+        if LOADGAME_FOCUS_PID_KEY in step_args:
+            errors.extend(validate_loadgame_focus_step(i, cmd, step_args))
         # R10 STATIC tier, pass 2 of 2: every ${ref.field} in this step's args must
         # be well-formed AND name an EARLIER seam step that expects OK. A fault here
         # would otherwise put a literal ${...} on the wire, where the seam resolves an
