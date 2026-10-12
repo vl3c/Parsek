@@ -204,6 +204,11 @@ SEAM_POLL_VERBOSE_EVERY_SECONDS = 10.0
 # ready. Far below its thresholds (hlib.BootWatchdogLimits), and coarse enough that
 # the fast seam poll right after the LoadGame write does not re-stat the log 40x/s.
 BOOT_WATCH_POLL_SECONDS = 0.5
+# After a watchdog kill (boot-hang or budget), how long to wait for the killed KSP to
+# actually exit. `taskkill /F` returns before the process is gone, and attempt 2's
+# zombie preflight refuses a still-alive KSP as a terminal INVALID(instance-busy),
+# which would lose the retry a boot-hang is owed.
+KILL_EXIT_WAIT_SECONDS = 30.0
 
 
 # ---------------------------------------------------------------------------
@@ -1605,6 +1610,26 @@ def _response_has_terminal(lines: Sequence[str], step_id: str) -> Optional[str]:
     return None
 
 
+def _wait_for_killed_exit(proc, runtime: "Runtime", logger: "HarnessLogger",
+                          tag: str, bound: float = KILL_EXIT_WAIT_SECONDS) -> bool:
+    """Wait (bounded) for a killed process to be gone, through the runtime seam
+    (poll_exit / now / sleep). True when it exited; on the bound, Warn and return
+    False so the caller carries on exactly as before the wait existed."""
+    start = runtime.now()
+    while True:
+        code = runtime.poll_exit(proc)
+        if code is not None:
+            logger.info(tag, "killed process exited after %.1fs exit=%s pid=%s"
+                        % (runtime.now() - start, code, getattr(proc, "pid", "?")))
+            return True
+        if runtime.now() - start >= bound:
+            logger.warn(tag, "killed process still alive after %.0fs pid=%s; continuing "
+                             "(the next attempt's zombie preflight may refuse it)"
+                        % (bound, getattr(proc, "pid", "?")))
+            return False
+        runtime.sleep(POLL_INTERVAL_SECONDS)
+
+
 def _ksp_log_identity(path: str) -> Optional[Tuple[int, int]]:
     """``(size, mtime_ns)`` of KSP.log, or None when it does not exist / cannot be
     stat'ed. Taken once before launch (the stale-log baseline) and on every boot poll."""
@@ -2295,6 +2320,7 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                                             "lastLine": last_line}
                         result.killed_pids = runtime.kill_tree(proc)
                         logger.info("Boot-Wait", "kill complete pids=%s" % result.killed_pids)
+                        _wait_for_killed_exit(proc, runtime, logger, "Boot-Wait")
                         return result
             if now - run_start > run_budget:
                 logger.warn("Budget", "budget exceeded scope=run elapsed=%.0f; killing process tree root pid=%d"
@@ -2303,6 +2329,7 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                 result.kill_scope = "run"
                 result.killed_pids = runtime.kill_tree(proc)
                 logger.info("Budget", "kill complete pids=%s" % result.killed_pids)
+                _wait_for_killed_exit(proc, runtime, logger, "Budget")
                 return result
             if now - step_start > step_wait:
                 logger.warn("Budget", "budget exceeded scope=step:%s elapsed=%.0f; killing process tree root pid=%d"
@@ -2311,6 +2338,7 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                 result.kill_scope = "step:%s" % verb
                 result.killed_pids = runtime.kill_tree(proc)
                 logger.info("Budget", "kill complete pids=%s" % result.killed_pids)
+                _wait_for_killed_exit(proc, runtime, logger, "Budget")
                 return result
             if now - last_verbose >= SEAM_POLL_VERBOSE_EVERY_SECONDS:
                 last_verbose = now

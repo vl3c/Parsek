@@ -1152,7 +1152,11 @@ launch; rule `no-mainmenu`). On a stall the tree is killed through the same
 (edge 2a). The previous run's KSP.log is still on disk at launch: its `(size,
 mtime)` is taken before the launch and `hlib.boot_log_scan_start` reads nothing
 until the file changes, then only this boot's bytes, so a stale MAINMENU line
-cannot disarm the watchdog. Thresholds (115 archived automation boots,
+cannot disarm the watchdog. After the kill (and after the two `drive_seam` budget
+kills) `run._wait_for_killed_exit` polls `poll_exit` for up to
+`KILL_EXIT_WAIT_SECONDS` (30 s), logging the exit or a Warn on the bound: `taskkill
+/F` returns before the process is gone, and attempt 2's zombie preflight would
+refuse a still-dying KSP as terminal INVALID(instance-busy). Thresholds (115 archived automation boots,
 2026-10-12): MAINMENU at 23.6 s min / 23.8 s median / 24.5 s p90 / 42.1 s max
 after the first log line, largest gap between two boot log lines 5.6 s; KSP.log is
 line-flushed. The H69 boot cost 660 s and no retry; the same hang now costs about

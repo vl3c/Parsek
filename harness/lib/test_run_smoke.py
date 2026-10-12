@@ -6848,3 +6848,43 @@ class BootStallWatchdogSmokeTests(unittest.TestCase):
         self.assertIn("boot ready via=mainmenu", log)
         self.assertNotIn("boot-hang:", log)
         self.assertNotIn("boot ready via=seam-response", log)
+
+    def test_a_slowly_dying_killed_ksp_is_waited_for_so_the_retry_still_boots(self):
+        """`taskkill /F` returns before KSP is gone. Without the post-kill wait, attempt
+        2's zombie preflight sees the dying KSP and ends the run terminal
+        INVALID(instance-busy), losing the retry a boot-hang is owed."""
+        class SlowDyingRuntime(_FastBootWatchRuntime):
+            DEATH_DELAY = 4.0
+
+            def __init__(self, mode):
+                super().__init__(mode)
+                self.dying_pid = None
+                self.dying_until = 0.0
+
+            def kill_tree(self, proc):
+                pids = super().kill_tree(proc)
+                self.dying_pid = proc.pid
+                self.dying_until = time.time() + self.DEATH_DELAY
+                return pids
+
+            def _dying(self):
+                return self.dying_pid is not None and time.time() < self.dying_until
+
+            def poll_exit(self, proc):
+                if self._dying() and proc.pid == self.dying_pid:
+                    return None
+                return super().poll_exit(proc)
+
+            def ksp_running(self, instance_dir):
+                return self.dying_pid if self._dying() else None
+
+        spec = _make_spec(self.template, 30, 25)
+        rt = SlowDyingRuntime("boothang")
+        result = run._run_scenario_with_retry(spec, self.instance, self.tmp, rt, self.logger)
+        self.assertEqual(2, rt.launch_count, "attempt 2 must boot, not be refused busy")
+        self.assertEqual((hlib.VERDICT_INVALID, hlib.BOOT_HANG_SUBKIND),
+                         (result["verdict"], result["subkind"]))
+        log = self._log_text()
+        self.assertEqual(2, log.count("[Boot-Wait] killed process exited after"))
+        self.assertNotIn("instance-busy", log)
+        self.assertNotIn("still alive after", log)

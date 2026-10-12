@@ -38,7 +38,10 @@ at 23.6-42.1 s (median 23.8 s), largest gap between boot log lines 5.6 s. The H6
 cost about 93 s plus one retry instead of 660 s and the lane. Smoke cells
 `BootStallWatchdogSmokeTests` (a stalled boot is killed INVALID(boot-hang) and retried, with a stale
 MAINMENU line in the old log; a slow growing boot followed by post-MAINMENU silence never trips);
-both mutation-checked. Not covered: a KSP that hangs AFTER MAINMENU (VB-1-KSP-HANG-AT-MAIN-MENU),
+both mutation-checked. Follow-up (same branch, from the review): after the kill (and after a
+budget kill) run.py waits up to 30 s for KSP to exit before the retry's zombie preflight, so a
+slowly dying KSP no longer turns the retry into INVALID(instance-busy); smoke cell
+`test_a_slowly_dying_killed_ksp_is_waited_for_so_the_retry_still_boots`. Not covered: a KSP that hangs AFTER MAINMENU (VB-1-KSP-HANG-AT-MAIN-MENU),
 which by design the watchdog never fires on.
 
 ---

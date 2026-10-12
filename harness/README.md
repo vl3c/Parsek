@@ -202,6 +202,10 @@ environment fault retried once like `boot-crash`, so a hung boot costs at most
 and the result JSON a `driver.bootHang` record; a normal boot logs `boot ready
 via=mainmenu elapsed=<s>`, after which the watchdog is off for the attempt. The
 previous run's KSP.log (still on disk at launch) is never read as this boot's.
+After this kill (and after a budget kill) the harness waits up to 30 s for KSP to
+actually exit (`run.KILL_EXIT_WAIT_SECONDS`), so the retry's zombie preflight does
+not refuse a still-dying KSP as `INVALID(instance-busy)`; past the bound it Warns
+and carries on.
 Thresholds come from 115 archived boots: MAINMENU at 23.6-42.1 s (median 23.8 s),
 longest pause between two boot log lines 5.6 s. Contract:
 `docs/dev/design-autotest-harness-core.md`, "Driving the seam".
