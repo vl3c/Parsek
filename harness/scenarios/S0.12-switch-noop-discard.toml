@@ -135,6 +135,11 @@ steps = [
   { cmd = "SetSetting",               args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting",               args = { name = "autoMerge", value = "true" },           expect = "OK" },
   { cmd = "SetSetting",               args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  # LOADGAME RACE (CI-1's header): since PR #2017's 25 ms polls the click lands ~0.3 s
+  # after the unpack, while the ship still reads under acceleration, and stock refuses
+  # the switch (ClearToSave; run 2026-10-12_1101 S0.12: G = 0.44, switch-refused-by-stock).
+  # A 1x wait from the fixture UT 421.19 to UT 424 lets the post-unpack load settle.
+  { cmd = "WarpToUT",                 args = { ut = "424", maxRate = "1" },                     expect = "OK", budget = 120 },
   { cmd = "SimulateStockSwitchClick", args = { vessel = "Kerbal X Probe" },                    expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                                    expect = "OK" },
   { cmd = "RecordingState",                                                                    expect = "OK" },
