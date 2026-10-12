@@ -671,6 +671,18 @@ namespace Parsek
         internal FlightRecorder ActiveRecorderForSerialization => recorder;
 
         /// <summary>
+        /// The live tree's leg recording the live vessel <paramref name="vesselPid"/> right now
+        /// (the active recorder's leg, else its background leg), or null. The vessel names live
+        /// write rule reads it as the vessel's current leg (design 7.4 step 3).
+        /// </summary>
+        internal string ResolveRecordingLegIdForLiveVessel(uint vesselPid)
+            => VesselNameLiveSync.ResolveRecordingLegId(
+                activeTree,
+                recorder != null && recorder.IsRecording,
+                recorder != null ? recorder.RecordingVesselId : 0u,
+                vesselPid);
+
+        /// <summary>
         /// Captures a structured snapshot of every recorder-relevant field at the
         /// current instant. Used by <see cref="RecorderStateLog.RecState"/> emit sites for
         /// the structured <c>[RecState]</c> diagnostic dump. Pure data gather — no
@@ -1415,6 +1427,9 @@ namespace Parsek
             // Vessel name decisions re-applied when the committed set moved or (1 Hz) the
             // live tree gained a leg (vessel names design 7.4). Inert with no decision.
             VesselNameStore.SelfHealTick(inFlight: true, realtime: Time.realtimeSinceStartup);
+            // The post-load live write pass (design 7.6 step 2), once the flight is ready and
+            // no Re-Fly strip is still pending (RewindInvoker runs it itself after its strip).
+            VesselNameLiveSync.FlightHostTick(Time.realtimeSinceStartup);
 
             // Defensive clear for any prior-frame entries that did not reach
             // the camera pre-cull hook (for example, scene/camera teardown).
@@ -12267,6 +12282,10 @@ namespace Parsek
         void OnFlightReady()
         {
             FlightReadyObserved = true;
+            // Vessel names (design 7.6): a new stock revert target starts a new flight epoch,
+            // and the first host tick re-applies the name decisions to every live vessel.
+            // First, before any early return below.
+            VesselNameLiveSync.OnFlightReady(FlightDriver.PostInitState, Time.realtimeSinceStartup);
             // From here on an onVesselSwitching in this scene is a real focus change;
             // the scene-entry initial focus fired before this point and was ignored.
             ParsekScenario.NoteFlightSceneReadyForVesselSwitchFlag();

@@ -3802,6 +3802,10 @@ namespace Parsek
                         loadPhase = "rewind";
                         HandleRewindOnLoad(node, recordings);
                         ReconcileReadableSidecarMirrorsOnLoadIfDisabled();
+                        // The rewind save's vessels carry the names of its UT: re-apply the
+                        // decisions (design 7.6 step 1; a rewind keeps every rename, ruling 5).
+                        loadPhase = "vessel-names-apply";
+                        VesselNameStore.ApplyAll("onload-tail:rewind", VesselNameLiveScope.ProtosOnly);
                         DiagnosticsComputation.EmitSceneLoadSnapshot(recordings.Count, HighLogic.LoadedScene.ToString());
                         loadedRecordingCount = recordings.Count;
                         loadStatus = "returned";
@@ -3956,6 +3960,16 @@ namespace Parsek
                         LogLoadClassification(earlyLoadKind, refinedLoadKind,
                             classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFlyTarget,
                             classifyHandoff);
+                    }
+
+                    // Vessel names (design 7.6, ruling 5): a stock revert or Discard Re-fly cancels
+                    // the current flight epoch, and with it the stock renames made inside it.
+                    // Before the OnLoad tail re-applies the decisions to recordings and protos.
+                    if (LoadReconcilePolicy.Decide(refinedLoadKind, LoadStateCategory.VesselNames).Action
+                        == LoadReconcileAction.MemoryUndoRevertedFlight)
+                    {
+                        loadPhase = "vessel-names-revert-undo";
+                        VesselNameStore.UndoCurrentFlightEpoch("onload:" + refinedLoadKind);
                     }
 
                     // Capture the launch UT for the editor-revert orphan-prune boundary. A fresh
@@ -4474,7 +4488,8 @@ namespace Parsek
                     RewindPointReaper.ReapOrphanedRPs();
 
                     loadPhase = "vessel-names-apply";
-                    VesselNameStore.ApplyAll(isRevert ? "onload-tail:revert" : "onload-tail:scene-change");
+                    VesselNameStore.ApplyAll(isRevert ? "onload-tail:revert" : "onload-tail:scene-change",
+                        VesselNameLiveScope.ProtosOnly);
                     loadedRecordingCount = recordings.Count;
                     loadStatus = isRevert ? "returned-revert" : "returned-scene-change";
                     return;
@@ -4858,7 +4873,7 @@ namespace Parsek
                 // After hydration repair and the journal finisher: re-apply every vessel name
                 // decision to the recordings this load produced (design 7.4 / 7.6).
                 loadPhase = "vessel-names-apply";
-                VesselNameStore.ApplyAll("onload-tail:cold");
+                VesselNameStore.ApplyAll("onload-tail:cold", VesselNameLiveScope.ProtosOnly);
                 loadedRecordingCount = recordings.Count;
                 loadStatus = "completed";
             }

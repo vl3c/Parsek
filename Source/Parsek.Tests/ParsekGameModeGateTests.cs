@@ -299,6 +299,8 @@ namespace Parsek.Tests
             "Parsek.Patches.SwitchIntentTrackingStationFlyPatch.Prefix",
             "Parsek.Patches.TechResearchPatch.Prefix",
             "Parsek.Patches.TechResearchSpendPatch.Prefix",
+            "Parsek.Patches.VesselRenameAcceptCapturePatch.Postfix",
+            "Parsek.Patches.PartVesselNamingAcceptCapturePatch.Postfix",
         };
 
         public static IEnumerable<object[]> GatedEntryPoints()

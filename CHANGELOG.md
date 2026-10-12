@@ -13,6 +13,9 @@ _(unreleased - entries accumulate here per commit)_
 - **Renaming a vessel in the Recordings tab renames the whole vessel.** Every recording of that
   vessel, its ghost on the map and in the Tracking Station, and every Parsek window now show the
   new name. EVA rows and very old recordings keep their names. (GC-7)
+- **Stock and Parsek vessel renames now stay in step.** Renaming a vessel with the stock rename
+  button renames it in Parsek too, and a Parsek rename renames the real vessel. Names survive
+  rewinds and quickloads; a stock rename made in a flight you then revert is cancelled. (GC-7)
 - **Merge dialogs and Logistics show a mission's current name.** After you rename a mission, the
   merge dialog, the Supply Route prompt and the Logistics labels use the new name, not the launch
   name. Logistics now numbers vessels like the Missions tab: one vessel is numbered once ("X",
