@@ -16807,6 +16807,51 @@ class PartActionSourceSyncTests(unittest.TestCase):
         self.assertTrue(any("partaction-part-arg-missing" in e for e in v.errors), v.errors)
 
 
+class LoadGameFocusPidSourceSyncTests(unittest.TestCase):
+    """`LoadGame focusPid=`. Reads OUTSIDE harness/: the key and the four refusal reasons of
+    the comment-stripped TestCommands/TestCommandLoadGame.cs, and the applier's write of the
+    resolved index into the loaded game before the route is decided."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# LoadGame focus tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_key_and_reasons_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandLoadGame.cs")
+        self.assertIn('internal const string FocusPidKey = "%s";' % hlib.LOADGAME_FOCUS_PID_KEY, text)
+        for const, reason in zip(("FocusPidArgInvalidReason", "FocusPidSceneConflictReason",
+                                  "FocusPidNotFoundReason", "FocusPidAmbiguousReason"),
+                                 hlib.LOADGAME_FOCUS_PID_REASONS):
+            self.assertIn('internal const string %s = "%s";' % (const, reason), text)
+            self.assertEqual("driver-arg", hlib._SEAM_REFUSAL_SUBKINDS.get(reason), reason)
+        for reason in ("focus-pid-arg-invalid", "focus-pid-scene-conflict"):
+            self.assertIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.cs")
+        self.assertIn("game.flightState.activeVesselIdx = focusIdx;", applier)
+        self.assertLess(applier.index("game.flightState.activeVesselIdx = focusIdx;"),
+                        applier.index("LoadRoute route = TestCommandLoadGame.DecideLoadRoute("))
+
+    def test_the_step_validator(self):
+        v = hlib.validate_loadgame_focus_step
+        self.assertEqual([], v(0, "LoadGame", {"name": "persistent"}))
+        self.assertEqual([], v(0, "LoadGame", {"focusPid": "3620499050"}))
+        self.assertEqual([], v(0, "LoadGame", {"focusPid": "${h.pid}"}))
+        self.assertIn("focus-pid-arg-invalid", v(0, "LoadGame", {"focusPid": "0"})[0])
+        self.assertIn("focus-pid-arg-invalid", v(0, "LoadGame", {"focusPid": "x"})[0])
+        self.assertIn("focus-pid-scene-conflict",
+                      v(0, "LoadGame", {"focusPid": "7", "scene": "trackstation"})[0])
+        self.assertIn("only the LoadGame verb reads it", v(0, "SaveGame", {"focusPid": "7"})[0])
+        spec = copy.deepcopy(load_spec("VN-6-ts-rename-then-decouple.toml"))
+        loads = [s for s in spec["driver"]["steps"] if s.get("cmd") == "LoadGame"]
+        self.assertEqual("3620499050", loads[1]["args"]["focusPid"])
+        loads[1]["args"]["focusPid"] = "0"
+        errs = hlib.validate_spec(spec, load_registry()).errors
+        self.assertTrue(any("focus-pid-arg-invalid" in e for e in errs), errs)
+
+
 class RevertToLaunchSourceSyncTests(unittest.TestCase):
     """`RevertToLaunch`. Reads OUTSIDE harness/: the verb and the refusal reasons (IN ORDER) of
     the comment-stripped TestCommands/TestCommandRevertToLaunch.cs, the applier's call of the

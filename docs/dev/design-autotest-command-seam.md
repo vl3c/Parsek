@@ -548,7 +548,16 @@ the updates below record how each verb arrived.
 > [part=] [pid=]` presses one button of one part's stock right-click menu, and `RevertToLaunch`
 > is stock's Revert to Launch outside a Re-Fly session. `RenameVessel` moves from
 > `RequiresFlight` to a new `RequiresVesselScene` row (FLIGHT or the Tracking Station). Full
-> contracts below (`#### PartAction`, `#### RevertToLaunch`).
+> contracts below (`#### PartAction`, `#### RevertToLaunch`). `LoadGame` gains an optional
+> `focusPid=<pid>`: fly the save's vessel with that persistentId instead of the save's
+> `activeVesselIdx` (the Tracking Station Fly button is a persistent save plus
+> `FlightDriver.StartAndFocusVessel(save, index)`, and a save written outside FLIGHT stores
+> `activeVessel = 0` because `FlightState(Game)` reads `FlightGlobals.ready`). Parsed before the
+> save is read (`focus-pid-arg-invalid`; `focus-pid-scene-conflict` beside `scene=`), resolved
+> over the save's protos (`focus-pid-not-found`, `focus-pid-ambiguous`), written into the loaded
+> game's `activeVesselIdx` before the route is decided, and logged `loadgame focus pid= idx=
+> name='..' saveActiveVesselIdx=`. All four refusals are arg-class; the first two deterministic.
+> Mirrored by `LoadGameFocusPidSourceSyncTests`; lane `VN-6-ts-rename-then-decouple`.
 
 > Update (RenameVessel, 2026-10-11): one ADDITIVE verb, `RenameVessel name= [pid=]`, taking
 > the table to **48 implemented / 4 reserved**. A player's accept in the stock rename dialog for

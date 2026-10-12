@@ -2429,6 +2429,39 @@ LOADGAME_SCENE_VALUES: Tuple[str, ...] = ("spacecenter", "trackstation")
 # step whose runtime state carries no marker - is NOT catchable here (it is a runtime
 # fact), which is why the seam still answers `recording-active` in that case rather
 # than executing: the arg buys nothing on its own.
+# `LoadGame focusPid=<pid>` (vessel names, 2026-10-12): fly the save's vessel with this
+# persistentId instead of the save's activeVesselIdx (the Tracking Station Fly button's
+# StartAndFocusVessel(save, index)); a save written outside FLIGHT stores activeVessel = 0.
+# Not a closed vocabulary: validate_loadgame_focus_step checks the pid grammar and that no
+# `scene=` rides beside it. Mirrored from TestCommandLoadGame (LoadGameFocusPidSourceSyncTests).
+LOADGAME_FOCUS_PID_KEY = "focusPid"
+LOADGAME_FOCUS_PID_REASONS: Tuple[str, ...] = (
+    "focus-pid-arg-invalid", "focus-pid-scene-conflict", "focus-pid-not-found",
+    "focus-pid-ambiguous",
+)
+
+
+def validate_loadgame_focus_step(index: int, cmd: str, step_args: Dict) -> List[str]:
+    """Pre-launch check of ``focusPid=``: only LoadGame reads it, never beside ``scene=``,
+    and a literal value is a positive ASCII decimal uint (a handle is left to R10)."""
+    if LOADGAME_FOCUS_PID_KEY not in step_args:
+        return []
+    raw = str(step_args.get(LOADGAME_FOCUS_PID_KEY))
+    if cmd != "LoadGame":
+        return ["driver.steps[%d].args.%s: only the LoadGame verb reads it, but this step is "
+                "%r -- the arg would be silently ignored" % (index, LOADGAME_FOCUS_PID_KEY, cmd)]
+    errors: List[str] = []
+    if "${" not in raw and not (re.fullmatch(r"[0-9]+", raw) and 0 < int(raw) <= 4294967295):
+        errors.append(
+            "driver.steps[%d].args.%s: %r is not a positive decimal persistentId; the seam "
+            "answers REJECTED focus-pid-arg-invalid" % (index, LOADGAME_FOCUS_PID_KEY, raw))
+    if LOADGAME_SCENE_KEY in step_args:
+        errors.append(
+            "driver.steps[%d].args.%s: a scene= route flies nothing; the seam answers REJECTED "
+            "focus-pid-scene-conflict" % (index, LOADGAME_FOCUS_PID_KEY))
+    return errors
+
+
 LOADGAME_ALLOW_LIVE_RECORDER_KEY = "allowLiveRecorder"
 LOADGAME_ALLOW_LIVE_RECORDER_VALUES: Tuple[str, ...] = ("refly",)
 
@@ -6585,6 +6618,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_rename_vessel_step(i, step_args))
         elif cmd == PARTACTION_VERB:
             errors.extend(validate_part_action_step(i, step_args))
+        if LOADGAME_FOCUS_PID_KEY in step_args:
+            errors.extend(validate_loadgame_focus_step(i, cmd, step_args))
         elif cmd == REVERTTOLAUNCH_VERB:
             errors.extend(validate_revert_to_launch_step(i, step_args))
         # R10 STATIC tier, pass 2 of 2: every ${ref.field} in this step's args must
@@ -10300,6 +10335,12 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # parsed but no re-fly marker was live), which already has its own row - and that
     # separation is the point: a TYPO and a wrong STATE must not report as one thing.
     "allow-live-recorder-arg-invalid": "driver-arg",
+    # LoadGame focusPid= (vessel names): a malformed pid and a scene= beside it are the
+    # SPEC's fault, and so are a pid the save does not carry and one it carries twice.
+    "focus-pid-arg-invalid": "driver-arg",
+    "focus-pid-scene-conflict": "driver-arg",
+    "focus-pid-not-found": "driver-arg",
+    "focus-pid-ambiguous": "driver-arg",
     # RecordingState awaitRecorderLive= (S4.4): the same arg-class refusal. Its other
     # outcome, a wait that never ends, is a DEFER (`refly-recorder-not-live`) and so
     # reaches the harness as TIMEOUT, which needs no row here.
@@ -11046,7 +11087,8 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "category-arg-empty", "dialog-arg-invalid", "edit-commit-arg-invalid",
     "edit-field-arg-missing", "edit-key-arg-missing", "expand-key-arg-missing",
     "factor-arg-invalid", "find-ctrl-arg-invalid", "find-index-arg-invalid",
-    "find-text-arg-missing", "goeditor-craft-arg-invalid",
+    "find-text-arg-missing", "focus-pid-arg-invalid", "focus-pid-scene-conflict",
+    "goeditor-craft-arg-invalid",
     "goeditor-facility-arg-invalid", "goeditor-facility-arg-missing",
     "index-arg-invalid", "interval-arg-invalid", "isolated-arg-invalid",
     "kind-arg-invalid", "kind-arg-missing", "kscrecover-pid-arg-invalid",

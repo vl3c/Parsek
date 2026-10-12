@@ -142,6 +142,71 @@ namespace Parsek.TestCommands
         /// <c>recording-active</c> guard, so the guard is unchanged for every caller that
         /// is not mid-re-fly.</para>
         /// </summary>
+        /// <summary>The optional <c>focusPid=</c> arg (vessel names, 2026-10-12): fly the save's
+        /// vessel with this persistentId instead of the save's <c>activeVesselIdx</c>. Stock's
+        /// Tracking Station Fly button is a persistent save plus
+        /// <c>FlightDriver.StartAndFocusVessel(save, index of the selected vessel)</c>, and a save
+        /// written outside FLIGHT always stores <c>activeVessel = 0</c>
+        /// (<c>FlightState(Game)</c> reads <c>FlightGlobals.ready</c>, false off-flight), so a
+        /// TS round trip cannot otherwise fly the vessel it renamed.</summary>
+        internal const string FocusPidKey = "focusPid";
+
+        /// <summary>Reject reason for a <c>focusPid=</c> that is not a positive decimal uint.</summary>
+        internal const string FocusPidArgInvalidReason = "focus-pid-arg-invalid";
+
+        /// <summary>Reject reason for a <c>focusPid=</c> beside a <c>scene=</c> (that route
+        /// flies nothing).</summary>
+        internal const string FocusPidSceneConflictReason = "focus-pid-scene-conflict";
+
+        /// <summary>Reject reason for a <c>focusPid=</c> no proto vessel of the save carries.</summary>
+        internal const string FocusPidNotFoundReason = "focus-pid-not-found";
+
+        /// <summary>Reject reason for a <c>focusPid=</c> two proto vessels of the save carry
+        /// (persistentIds are craft-baked; refusing beats flying the first one).</summary>
+        internal const string FocusPidAmbiguousReason = "focus-pid-ambiguous";
+
+        /// <summary>Parses the optional <c>focusPid=</c> (Recover's grammar: invariant decimal
+        /// uint, nonzero). Absent is <paramref name="hasFocus"/> false; an empty value is a typo
+        /// and invalid, like the other LoadGame args. Returns false when invalid.</summary>
+        internal static bool TryParseFocusPid(string raw, out uint pid, out bool hasFocus)
+        {
+            pid = 0;
+            hasFocus = false;
+            if (raw == null) return true;
+            if (!uint.TryParse(raw, System.Globalization.NumberStyles.None,
+                    CultureInfo.InvariantCulture, out uint parsed) || parsed == 0)
+                return false;
+            pid = parsed;
+            hasFocus = true;
+            return true;
+        }
+
+        /// <summary>The proto-vessel index carrying <paramref name="pid"/>: the index when
+        /// exactly one does, -1 when none (<paramref name="matches"/> 0) or several.</summary>
+        internal static int ResolveFocusIndex(IList<uint> protoPids, uint pid, out int matches)
+        {
+            matches = 0;
+            int index = -1;
+            if (protoPids == null) return -1;
+            for (int i = 0; i < protoPids.Count; i++)
+            {
+                if (protoPids[i] != pid) continue;
+                matches++;
+                if (index < 0) index = i;
+            }
+            return matches == 1 ? index : -1;
+        }
+
+        /// <summary>The focus refusal, in gate order, or null to proceed.</summary>
+        internal static string DecideFocus(bool hasFocus, RequestedBootScene requestedScene, int matches)
+        {
+            if (!hasFocus) return null;
+            if (requestedScene != RequestedBootScene.Unspecified) return FocusPidSceneConflictReason;
+            if (matches == 0) return FocusPidNotFoundReason;
+            if (matches > 1) return FocusPidAmbiguousReason;
+            return null;
+        }
+
         internal static bool TryParseAllowLiveRecorder(string raw, out bool allowReFly)
         {
             allowReFly = false;
