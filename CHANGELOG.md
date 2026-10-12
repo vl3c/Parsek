@@ -13,6 +13,9 @@ _(unreleased - entries accumulate here per commit)_
 - **Renaming a vessel in the Recordings tab renames the whole vessel.** Every recording of that
   vessel, its ghost on the map and in the Tracking Station, and every Parsek window now show the
   new name. EVA rows and very old recordings keep their names. (GC-7)
+- **Stock and Parsek vessel renames now stay in step.** Renaming a vessel with the stock rename
+  button renames it in Parsek too, and a Parsek rename renames the real vessel. Names survive
+  rewinds and quickloads; a stock rename made in a flight you then revert is cancelled. (GC-7)
 - **Merge dialogs and Logistics show a mission's current name.** After you rename a mission, the
   merge dialog, the Supply Route prompt and the Logistics labels use the new name, not the launch
   name. Logistics now numbers vessels like the Missions tab: one vessel is numbered once ("X",
@@ -28,15 +31,17 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Harness warps end sooner.** The test harness's time warp now stays at its lowest warp rate
+  until a few seconds before its target instead of spending the last ~12 s at 1x, and slows
+  down without stock's gradual ramp. Two lanes now warp at 50x instead of 10x.
 - **CHANGELOG entries are kept to 5 lines.** Every over-long entry, in all versions, was condensed
   to its essentials, and a test now fails on any entry that runs longer.
-- **The Jool-to-Kerbin test flight warps faster near each planet.** It now fast-warps until
-  10,000 s before leaving Jool and before reaching Kerbin, not 100,000 s, which should save
-  about three minutes per run. A re-fly still has to show the same flight.
-  (HARNESS-FLIGHT-WALL-TIME)
 - **Harness run history survives worktree removal.** Every automated test run now also keeps a
   small copy of its results and logs in one shared folder outside the worktrees, and the flight
   efficiency report reads it, so deleting a worktree no longer loses its run history.
+- **The flight efficiency report counts less false waste.** KSP's own warp slowdown before a
+  warp target, MechJeb's settle before a burn and MechJeb's docking approach no longer count as
+  time a better warp could save. Real waste such as a capped coast warp still counts.
 
 ---
 
