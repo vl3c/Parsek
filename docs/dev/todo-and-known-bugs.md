@@ -421,6 +421,21 @@ the ledger: recordingId=<id>`.
 
 ---
 
+## HC-2-ROLLOUT-CHARGE-NOT-RECORDED: HC-2's LaunchFromEditor rollout shows no funds charge and no VesselRollout ledger row [FILED 2026-10-12 from the nightly tier, run `2026-10-12_0641`. OPEN, not investigated]
+
+`HC-2-hard-career-earn-spend` `2026-10-12_0641` PARSEK-FAIL (expectations): its three required
+tokens `Game state: FundsChanged -300 (VesselRollout)`, `VesselRollout spending recorded: cost=300,`
+and `PatchFunds: no change needed (current=523458.0, target=523458.0)` are absent. Every driver
+step answered OK (GoToEditor VAB `Settings Probe`, LaunchFromEditor at 09:47:39, the four
+`hc2-rollout-settle` marks, the LedgerGroundTruth batch, the rewind). The KSP.log has no negative
+`FundsChanged` and no `VesselRollout` line at all after the launch: funds only rise (Progression
+rewards, 500,000 -> 517,760...), `FreshRollout: captured scene-entry vessel pid=1100000001
+('Settings Probe', StartupBehaviour=NEW_FROM_FILE)` fires at 09:47:43, and the ledger logs
+`TryAdoptRolloutAction: no unclaimed rollout action` / `CreateVesselCostActions: zero build cost
+and no rollout adoption`. So either stock charged nothing on this launch path or the
+`FundsChanged(VesselRollout)` event was not captured. Next: compare with HC-2's last green run
+(the duration ledger has n=2) and with the harness `LaunchFromEditor` path changes since it.
+
 ## REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START: S4.2 and S4.4 need the re-fly recorder live (or not yet) while the provisional is still empty, a window of a few frames [FILED 2026-10-07 from the F9 verification flights, branch `ql-lanes`, measured. S4.4 FIXED 2026-10-08 by a named-condition seam wait (branch `s44-refly-wait`), LIVE-PROVEN 2026-10-08: three flights `2026-10-08_1806`, `_1812`, `_1814`, each PASS attempt 1 with the wait answering `points=0 ... reFlyMarker=true`, the bare reload refused `recording-active` and the empty-provisional conclusion. OPEN for S4.2, harness]
 
 Two lanes gate on an UNFLOWN Re-Fly provisional, and both race the re-fly recorder's start, which
@@ -454,6 +469,12 @@ after InvokeRewind and pins `points=0` on the wait's own line (spec changed, not
 S4.2 is out of that change's scope and still races; it can adopt the same wait later, but its
 window is different (the RunTests batch spans the settle, so the wait alone does not keep the
 batch from outliving the hold).
+
+2026-10-12 nightly data point: `S4.2-refly-world-preservation` `2026-10-12_0850` PARSEK-FAIL on
+the same three tokens (`outcome=retired-empty-provisional`, `AppendRelations
+outcome=refused-unflown-provisional`, `outcome=concluded-no-supersede`) with every driver step OK;
+the log carries only `outcome=unbound-refly-provisional reason=refly-provisional-has-no-trajectory-
+at-save`, the shape this race produces.
 
 ---
 
@@ -3690,6 +3711,19 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   clamp keeps its 194.5 s; only native-only runs dropped, 31.6 s). Every 2026-10-11 run:
   596.5 -> 272.8 s recoverable, 2,069 -> 2,180 s by design. `ci9_tip_dock` (tdock) delegates
   the same DOCK phase but stays outside the scope, like the rendezvous lead.
+
+- [x] Nightly tier measured 2026-10-11/12 on main (88ee0a32e, with #2017 / #2075 / #2069; worktree
+  `Parsek-flight-efficiency`, paused twice at lane boundaries for another session): all 190
+  lanes flown, 186 PASS, 1 KILLED (H69 boot hang, fixed by #2078's watchdog), 3 PARSEK-FAIL
+  (HC-2-ROLLOUT-CHARGE-NOT-RECORDED, L2 teardown NRE, S4.2 recorder-start race; see those
+  entries). Tier wall 9.2 h over the 189 lanes with an analyzed log: missions 5.3 h with 471 s
+  recoverable left; outside missions 3.9 h = KSP boot 1.2 h (24.4 s per lane), seam steps 1.5 h
+  (real work: RunTests, WarpToUT, LoadGame), post-quit verifiers 0.6 h (12.0 s), pre-launch
+  0.25 h, seam gaps 4 min (1.3 s per lane, was 13.7 s before #2017). The 15 longest lanes are
+  45% of the tier (B29 2,039 s, V1-map-dwell 1,440 s, B14 1,431 s, BDOCK-1 1,393 s, B13
+  1,235 s, B4 1,112 s, B15 1,014 s). Further cuts are structural and need operator rulings:
+  shorten the dwell lanes, share flights between overlapping lanes, or move long lanes out of
+  nightly.
 
 ## MISSIONS-TAB-MODEL1: the Missions tab redesign, first slice ("Model 1") [OWNER-APPROVED 2026-09-29, branch `missions-model1`. IN PROGRESS]
 
@@ -8024,6 +8058,14 @@ race can red the lane about one flight in six, or (b) raise L2 to `maxTotal = 1`
 and lose the zero. Neither is taken here: this entry exists so the next red with
 exactly this stack is recognised as the known shape rather than re-triaged, and so
 a second occurrence turns the rate into a measurement worth deciding on.
+
+Second occurrence, a different component: `L2-ledger-groundtruth-career` `2026-10-12_0654`
+PARSEK-FAIL (unity-exception, total 1 over maxTotal 0) on one `NullReferenceException` at
+FlushAndQuit from MechJeb's teardown, `MuMech.MechJebCore.OnDestroy` -> `Vessel.get_isActiveVessel`
+-> `FlightGlobals.get_ActiveVessel`. So the zero gate is tripped by third-party and stock
+`OnDestroy` races at scene teardown, not by Parsek. Proposed decision: let the unity-exception
+verifier ignore exceptions whose top frame is an `OnDestroy` and that land after the FlushAndQuit
+request (or allowlist these two stacks), keeping the zero for everything during the flight.
 
 ## V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT: the V26M lane's map-open dwell sometimes holds a painting ghost and sometimes holds none, so its paint-arm reading is not reproducible from the step list [RAISED 2026-09-07 on branch `g10-leg-drop` from reading run 3. LANE/HARNESS item, NOT a product defect. OPEN, low priority]
 
