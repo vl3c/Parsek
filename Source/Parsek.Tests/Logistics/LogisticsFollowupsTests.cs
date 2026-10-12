@@ -65,7 +65,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(3, groups.Count);
             Assert.Equal("MissingRouteProof", groups[0].Key);
             Assert.Equal(3, groups[0].Members.Count);
-            Assert.Equal("No dock was recorded (3): Kerbal X [1], Kerbal X [2], Duna Supply 1",
+            Assert.Equal("No dock was recorded (3): Kerbal X, Kerbal X [2], Duna Supply 1",
                 groups[0].HeaderText);
             // Equal sizes keep input order: NoDeliveryManifest came before NotSealed.
             Assert.Equal("NoDeliveryManifest", groups[1].Key);
@@ -88,7 +88,7 @@ namespace Parsek.Tests.Logistics
             NearMissGroup g = Assert.Single(LogisticsNearMissPresentation.Group(inputs, StripBudget));
             Assert.Equal(new[] { "a", "b", "c", null },
                 g.Members.ConvertAll(m => m.TreeId).ToArray());
-            Assert.Equal(new[] { "R.1-S.2 [1]", "R.1-S.2 [2]", "R.2-S.3", "Orphan" },
+            Assert.Equal(new[] { "R.1-S.2", "R.1-S.2 [2]", "R.2-S.3", "Orphan" },
                 g.Members.ConvertAll(m => m.Label).ToArray());
         }
 
@@ -236,14 +236,16 @@ namespace Parsek.Tests.Logistics
             Assert.True(seen.Add(LogisticsNearMissPresentation.ShortReason(RouteAnalysisStatus.MissingRouteProof, true)));
         }
 
-        // catches: the shared numbering helper diverging from the Flights used line.
+        // catches: the near-miss numbering drifting from the square brackets the Missions
+        // vessel rows use (MissionVesselNaming.FormatNumbered: the first plain, then [2]),
+        // back to the per-occurrence "A [1]", "A [2]" it used to print.
         [Fact]
-        public void NumberRepeatedNames_MatchesFlightsUsed()
+        public void NumberRepeatedNames_FirstPlainThenTwo_LikeMissionVesselNaming()
         {
-            Assert.Equal(new[] { "A [1]", "B", "A [2]", "<unnamed>" },
-                LogisticsNearMissPresentation.NumberRepeatedNames(new[] { "A", "B", "A", null }));
-            Assert.Equal("Flights used: Depot [1], Probe, Depot [2]",
-                LogisticsRoutePresentation.FormatFlightsUsed(new[] { "Depot", "Probe", "Depot" }, null));
+            Assert.Equal(new[] { "A", "B", "A [2]", "<unnamed>", "A [3]" },
+                LogisticsNearMissPresentation.NumberRepeatedNames(new[] { "A", "B", "A", null, "A" }));
+            Assert.Equal(MissionVesselNaming.FormatNumbered("A", 2),
+                LogisticsNearMissPresentation.NumberRepeatedNames(new[] { "A", "A" })[1]);
         }
 
         // ------------------------------------------------------------------

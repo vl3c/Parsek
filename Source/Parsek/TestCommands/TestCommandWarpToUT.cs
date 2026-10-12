@@ -85,12 +85,14 @@ namespace Parsek.TestCommands
     ///
     /// <para><b>The ladder lowers itself.</b> <see cref="SelectRateIndex"/> requires at
     /// least <see cref="MinRealSecondsAtRate"/> REAL seconds of running at a rate before
-    /// it will select it, so as the target nears the selection walks back down the ladder
-    /// and reaches index 0 in the last few seconds. That is the mirror-direction
-    /// guarantee (a verb that raises warp must lower it deterministically): the ladder
-    /// lowers on approach, the applier force-sets rate 0 the instant the target is
-    /// reached, AND the timeout / exception paths force rate 0 before their terminal, so
-    /// no path leaves the game warped.</para>
+    /// it will select it (<see cref="BottomRungMinRealSeconds"/> on the bottom rung), so as
+    /// the target nears the selection walks back down the ladder and reaches index 0 in the
+    /// last few game-seconds; every downshift is instant
+    /// (<see cref="ShouldSetRateInstantly"/>). That is the mirror-direction guarantee (a
+    /// verb that raises warp must lower it deterministically): the ladder lowers on approach,
+    /// the applier force-sets rate 0 the instant the target is reached, AND the timeout /
+    /// exception paths force rate 0 before their terminal, so no path leaves the game
+    /// warped.</para>
     ///
     /// Kept pure so every cell is xUnit-covered without a live KSP scene.
     /// </summary>
@@ -122,6 +124,29 @@ namespace Parsek.TestCommands
         /// last selected rate.
         /// </summary>
         internal const double MinRealSecondsAtRate = 2.5;
+
+        /// <summary>
+        /// The minimum REAL seconds for the BOTTOM rung only (<see cref="BottomRungIndex"/>:
+        /// the lowest rate above 1x on the ladder handed in - rails 5x, physics 2x). Every
+        /// higher rung keeps <see cref="MinRealSecondsAtRate"/>. At 2.5 s the bottom rung
+        /// dropped to 1x with <c>5 * 2.5 = 12.5</c> game-seconds left on rails (measured
+        /// 12.2-12.3 s of 1x tail on every capped rails warp) and <c>2 * 2.5 = 5</c> on the
+        /// physics ladder (measured 4.8 s); at 0.5 s the tail is 2.5 and 1.0 game-seconds.
+        ///
+        /// <para>Why it cannot overshoot: the last frame that selects the bottom rung R leaves
+        /// at least <c>R * 0.5</c> game-seconds, and one frame at R advances the clock by
+        /// <c>R * dt</c>. The clock can only reach the arrival latch
+        /// (<see cref="UtToleranceSeconds"/>) while still at R when
+        /// <c>R * dt &gt;= R * 0.5 - 0.25</c>, i.e. a frame of at least 0.45 s at 5x or 0.375 s
+        /// at 2x. Unity caps the fixed steps per render frame at Time.maximumDeltaTime, which
+        /// GameSettings.ApplySettings sets to PHYSICS_FRAME_DT_LIMIT (decompiled; default 0.04 s,
+        /// 0.03 s on the harness instance), and rails warp advances UT per fixed step, so a hitch
+        /// cannot skip game time. Even a pessimistic 0.12 s frame advances 0.6 game-s at 5x
+        /// (leaving 1.9 s) and 0.24 at 2x (leaving 0.76 s), both above the 0.25 s latch, so the
+        /// warp always crosses into 1x before the latch and the final approach is a 1x frame, as
+        /// before.</para>
+        /// </summary>
+        internal const double BottomRungMinRealSeconds = 0.5;
 
         /// <summary>The <c>maxRate</c> value meaning "no cap" (the arg was absent).</summary>
         internal const double UncappedMaxRate = 0.0;
@@ -433,12 +458,46 @@ namespace Parsek.TestCommands
             => currentUT >= targetUT - toleranceSeconds;
 
         /// <summary>
+        /// The index of the BOTTOM rung: the lowest index above 0 whose rate is above 1x, or
+        /// -1 when the ladder has none (missing, empty, or only 1x). It is a property of the
+        /// whole ladder handed in, not of the ceiling or the cap: a ceiling or cap that rules
+        /// the rung out leaves nothing above 1x to select anyway.
+        /// </summary>
+        internal static int BottomRungIndex(IList<float> warpRates)
+        {
+            if (warpRates == null) return -1;
+            for (int i = 1; i < warpRates.Count; i++)
+                if (warpRates[i] > 1.0f) return i;
+            return -1;
+        }
+
+        /// <summary>
+        /// The minimum REAL seconds rung <paramref name="index"/> must be able to run for:
+        /// <see cref="BottomRungMinRealSeconds"/> on the bottom rung, otherwise
+        /// <see cref="MinRealSecondsAtRate"/>.
+        /// </summary>
+        internal static double MinRealSecondsForRung(int index, int bottomRungIndex)
+            => index > 0 && index == bottomRungIndex ? BottomRungMinRealSeconds : MinRealSecondsAtRate;
+
+        /// <summary>
+        /// Whether the applier requests <paramref name="desiredIndex"/> with stock's INSTANT
+        /// rate change rather than its eased ramp: always for 1x (as before) and for every
+        /// DOWNSHIFT (a rung below the one stock is at). An eased downshift keeps the clock
+        /// running near the higher rate for the length of the ramp (CN-3's 5x stretch read
+        /// 9.9x), which is exactly the span the ladder stepped down to avoid. Upshifts keep
+        /// stock's ramp.
+        /// </summary>
+        internal static bool ShouldSetRateInstantly(int desiredIndex, int currentIndex)
+            => desiredIndex <= 0 || desiredIndex < currentIndex;
+
+        /// <summary>
         /// Select the rails rate INDEX to request this frame.
         ///
         /// <para>Highest index <c>i</c> in <c>[0, maxAllowedIndex]</c> such that
         /// <c>warpRates[i]</c> is within the optional cap AND at least
         /// <see cref="MinRealSecondsAtRate"/> real seconds of running remain at that rate
-        /// (<c>warpRates[i] * MinRealSecondsAtRate &lt;= remainingSeconds</c>). Index 0
+        /// (<c>warpRates[i] * MinRealSecondsAtRate &lt;= remainingSeconds</c>; the bottom
+        /// rung uses <see cref="BottomRungMinRealSeconds"/> instead). Index 0
         /// (1x) is the floor and is returned when nothing qualifies, when the ladder is
         /// missing, or when the target is already reached
         /// (<c>remainingSeconds &lt;= 0</c>).</para>
@@ -472,12 +531,13 @@ namespace Parsek.TestCommands
             if (OneXWaitIgnoresTimeWarpLock(maxRateCap)) return 0;
 
             bool capped = maxRateCap > UncappedMaxRate;
+            int bottom = BottomRungIndex(warpRates);
             for (int i = ceiling; i > 0; i--)
             {
                 double rate = warpRates[i];
                 if (rate <= 0.0) continue;
                 if (capped && rate > maxRateCap) continue;
-                if (rate * MinRealSecondsAtRate <= remainingSeconds) return i;
+                if (rate * MinRealSecondsForRung(i, bottom) <= remainingSeconds) return i;
             }
             return 0;
         }

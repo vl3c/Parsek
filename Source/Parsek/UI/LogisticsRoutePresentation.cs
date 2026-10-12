@@ -630,27 +630,64 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The Advanced "Flights used:" line: the flights the route copies, in order, with
-        /// a repeated name numbered "Name [1]", "Name [2]" (the Mission Log convention)
-        /// instead of the old "rec N of tree 'X'" clauses. Null / empty names fall back to
-        /// <paramref name="fallbacks"/> (the short ids) entry by entry.
+        /// One recording's "Flights used" name: its vessel's name as the Missions tab and
+        /// the mission Log show it (<paramref name="treeVesselNames"/>,
+        /// <see cref="MissionVesselNaming.Build"/>'s map for the recording's tree: one
+        /// number per physical vessel, "X" then "X [2]", and another mission's vessel as its
+        /// partner phrase), else <paramref name="rawName"/> (an EVA leg, a standalone
+        /// recording, a leg the map does not name). <paramref name="vesselKey"/> identifies
+        /// the vessel for <see cref="FormatFlightsUsed"/>'s dedup (tree id + the numbered
+        /// name, which names one vessel within its tree); null when the name came from
+        /// <paramref name="rawName"/>, so such an entry is never folded into another.
         /// </summary>
-        internal static string FormatFlightsUsed(IReadOnlyList<string> names, IReadOnlyList<string> fallbacks)
+        internal static string ResolveFlightUsedName(
+            string recordingId, string rawName, string treeId,
+            IDictionary<string, string> treeVesselNames, out string vesselKey)
+        {
+            vesselKey = null;
+            if (!string.IsNullOrEmpty(recordingId) && treeVesselNames != null
+                && treeVesselNames.TryGetValue(recordingId, out string numbered)
+                && !string.IsNullOrEmpty(numbered))
+            {
+                vesselKey = (treeId ?? string.Empty) + "|" + numbered;
+                return numbered;
+            }
+            return rawName;
+        }
+
+        /// <summary>
+        /// The Advanced "Flights used:" line: the vessels the route's flights fly, in order,
+        /// named as the Missions tab names them (<see cref="ResolveFlightUsedName"/>: one
+        /// number per physical vessel, "X", "X [2]"), instead of the old "rec N of tree 'X'"
+        /// clauses. The names arrive already numbered; two legs of one vessel (equal
+        /// non-null <paramref name="vesselKeys"/>) are listed once, at the first. Null /
+        /// empty names fall back to <paramref name="fallbacks"/> (the short ids) entry by
+        /// entry, and such an entry is never folded.
+        /// </summary>
+        internal static string FormatFlightsUsed(
+            IReadOnlyList<string> names, IReadOnlyList<string> fallbacks,
+            IReadOnlyList<string> vesselKeys = null)
         {
             int count = names?.Count ?? 0;
             if (count == 0)
                 return "Flights used: -";
-            var resolved = new string[count];
+            var shown = new List<string>(count);
+            var seenKeys = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < count; i++)
             {
                 string n = names[i];
+                string key = vesselKeys != null && i < vesselKeys.Count ? vesselKeys[i] : null;
                 if (string.IsNullOrEmpty(n))
+                {
                     n = fallbacks != null && i < fallbacks.Count && !string.IsNullOrEmpty(fallbacks[i])
                         ? fallbacks[i] : "<unknown>";
-                resolved[i] = n;
+                    key = null;
+                }
+                if (key != null && !seenKeys.Add(key))
+                    continue;
+                shown.Add(n);
             }
-            return "Flights used: " + string.Join(", ",
-                LogisticsNearMissPresentation.NumberRepeatedNames(resolved));
+            return "Flights used: " + string.Join(", ", shown.ToArray());
         }
 
         /// <summary>

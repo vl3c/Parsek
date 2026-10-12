@@ -342,7 +342,11 @@ namespace Parsek.TestCommands
                 return;
             warpLastRequestedIndex = desired;
 
-            SafeSetWarpRate(desired, instant: desired == 0);
+            // Every downshift is instant, not only the one to 1x: stock's eased ramp would
+            // keep the clock near the higher rate for the ramp's length (CN-3's 5x stretch
+            // read 9.9x). Upshifts keep stock's ramp.
+            bool instant = TestCommandWarpToUT.ShouldSetRateInstantly(desired, SafeCurrentWarpRateIndex());
+            SafeSetWarpRate(desired, instant);
             int applied = SafeCurrentWarpRateIndex();
             double appliedRate = SafeCurrentWarpRate();
             if (appliedRate > warpMaxObservedRate) warpMaxObservedRate = appliedRate;
@@ -356,7 +360,8 @@ namespace Parsek.TestCommands
                 + $"rate={Inv(appliedRate)} mode={SafeWarpModeName()} "
                 + $"ceilingIndex={ceiling.ToString(CultureInfo.InvariantCulture)} "
                 + $"clamped={(applied < desired ? "true" : "false")} "
-                + $"remaining={Inv(remaining)}s ut={Inv(warpTargetUt)}");
+                + $"remaining={Inv(remaining)}s ut={Inv(warpTargetUt)} "
+                + $"instant={(instant ? "true" : "false")}");
         }
 
         /// <summary>Force rate index 0 instantly and log the reason. Idempotent.</summary>

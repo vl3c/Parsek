@@ -20,6 +20,10 @@ _(unreleased - entries accumulate here per commit)_
   at the end of a recording, a spawned vessel you fly again, and a ship that undocks after being
   docked are still the same vessel: they carry your chosen name, and renaming them renames every
   recording of that vessel. (GC-7)
+- **Merge dialogs and Logistics show a mission's current name.** After you rename a mission, the
+  merge dialog, the Supply Route prompt and the Logistics labels use the new name, not the launch
+  name. Logistics now numbers vessels like the Missions tab: one vessel is numbered once ("X",
+  "X [2]"), so two pieces of one flight no longer read "X [1], X [2]". (GC-7)
 
 ### Fixed
 
@@ -31,6 +35,9 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Harness warps end sooner.** The test harness's time warp now stays at its lowest warp rate
+  until a few seconds before its target instead of spending the last ~12 s at 1x, and slows
+  down without stock's gradual ramp. Two lanes now warp at 50x instead of 10x.
 - **CHANGELOG entries are kept to 5 lines.** Every over-long entry, in all versions, was condensed
   to its essentials, and a test now fails on any entry that runs longer.
 - **Harness run history survives worktree removal.** Every automated test run now also keeps a
@@ -39,6 +46,9 @@ _(unreleased - entries accumulate here per commit)_
 - **Automated tests can rename a vessel the way a player does.** A new test command accepts the
   stock rename dialog for a vessel, and three new test flights check vessel renames end to end:
   staging, quickload, re-fly with Discard, a spawned vessel and a rewind. (GC-7)
+- **The flight efficiency report counts less false waste.** KSP's own warp slowdown before a
+  warp target, MechJeb's settle before a burn and MechJeb's docking approach no longer count as
+  time a better warp could save. Real waste such as a capped coast warp still counts.
 
 ---
 
