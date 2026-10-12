@@ -1,0 +1,162 @@
+schema = 1
+id = "VN-8-control-part-leaves-staging"
+# =====================================================================================
+# VN-8: THE SPLIT WHERE THE CONTROL PART LEAVES ON THE NEW VESSEL (design
+# docs/dev/design-vessel-and-mission-names.md 5.1, 7.4 step 3, 8.17 and 15.3, ruling 4, todo
+# GC-7). AUTHORED 2026-10-12 on branch `vessel-names-proof`. LIVE-PROVEN on its first
+# flight: result `2026-10-12_1418` PASS attempt 1 (automation DLL sha256 prefix
+# 67e2036bd368d2a0, wall 95 s). saveParse stays REPORT-ONLY until an operator arms it.
+#
+# THE MEASUREMENT (result `2026-10-12_1418`): committed legs `recordingNames {VN8 Alpha: 1,
+# VN8 Alpha Probe: 1}`, live vessels `vesselNames {VN8 Alpha Ship: 1, VN8 Alpha Probe: 1}`.
+# The launch leg KEPT the player's "VN8 Alpha", the booster leg kept stock's split name
+# "VN8 Alpha Probe", the live pod carries stock's automatic "VN8 Alpha Ship" and nothing
+# wrote or captured over it (`Live write rule: stock automatic name kept on pid=2200110033
+# ... 'VN8 Alpha' -> 'VN8 Alpha Ship' ... leg closed, coverage kept, no write`). Why the
+# launch leg was CLOSED when the automatic rename landed, and the defect it exposes (todo
+# VN8-FOCUS-SWITCH-SPLIT-PARENT-LEG-RECORDS-NEW-VESSEL): stock's WaitAndSwitchFocus moved
+# focus to the booster (`Vessel switch detected: 'VN8 Alpha Ship' -> 'VN8 Alpha Probe'`)
+# BEFORE Parsek's deferred joint-break check, the recorder had stopped at the split
+# ("chain boundary"), and `Recording resumed after false alarm` reopened the launch
+# recording `2db42e20` on the NEW active vessel, the booster. So the launch leg's post-split
+# points are the booster's, its `spawnedPid` is the booster's pid, and the commit's resume
+# added `Link added: kind=Resume guid=<booster guid> -> <pod guid>`, persisted in
+# VESSEL_NAMES: the booster now shares the launch identity (against ruling 4's "the split
+# child is a new identity"), so a later rename of either would rename both. The names the
+# lane pins are right; the identity graph under them is not. Pins stay as authored: they
+# assert the names, not the recorder's choice of vessel.
+#
+# THE RACE (decompiled ModuleDecouple.OnDecouple / WaitAndSwitchFocus, KSP 1.12.5). At a
+# decouple stock caches the part that owns the vessel's control point
+# (FlightGlobals.GetPartUpwardsCached(vessel.ReferenceTransform)); one frame later, if that
+# part is now on a DIFFERENT vessel than the old one, stock retypes the OLD vessel, renames
+# it (UpdateVesselNaming, else Vessel.AutoRename(old, oldName): "<name> <type>") and
+# switches focus to the new vessel. That rename is AUTOMATIC: the player's decision must
+# not be written over it, and it must not become a decision (ruling 4).
+#
+# NO NEW CRAFT. The task's shape ("the probe core on the upper stage, the root on the lower
+# stage") needs only the control point on the non-root side of a decoupler, which GS-1's
+# craft already offers: its root is the crewed mk1 pod on top, and its booster below the
+# Decoupler.1 carries a probeCoreOcto2.v2. "Control From Here" on that probe core (the
+# stock PAW button, PartAction button=controlfrom) puts the control point on the side that
+# leaves. The decouple is the decoupler's own PAW Decouple (PartAction button=decouple), on
+# the pad, so no engine fires and no mission is needed (the gs1 mission cannot follow a
+# focus switch to the booster mid-flight).
+#   (1) StartRecording on the pad, then RenameVessel "VN8 Alpha": a StockDialog decision on
+#       the launch identity (the pod's).
+#   (2) Control From Here on the booster's probe core, then Decouple. The booster (new
+#       vessel, new identity) is named at the split by AutoRename from "VN8 Alpha" (VN-1
+#       measured "VN1 Alpha Probe" for the same craft). One frame later stock renames the
+#       POD (the old vessel, the launch identity) automatically and focuses the booster.
+#   (3) Commit. The census is the reading: the launch identity's legs, the booster's legs
+#       and the two live names.
+# PREDICTIONS (to be confirmed or re-pinned by the first flight):
+#   - HARD (required / forbidden below): the decouple's payload names the booster
+#     "VN8 Alpha Probe"; no write-through ever writes "VN8 Alpha" back over a live vessel
+#     (the stale-name rule leaves the unchosen automatic name alone).
+#   - REPORT-ONLY (structure): the live pod carries stock's automatic name (expected
+#     "VN8 Alpha Ship" or another "VN8 Alpha <type>"), so no live vessel is "VN8 Alpha";
+#     the launch leg keeps "VN8 Alpha" ONLY if Parsek closed the pod's pre-split leg at the
+#     split. VN-1 measured that GS-1's pod keeps ONE recording across a split it stays
+#     focused through; if the pod's recording is still open here when the automatic rename
+#     lands, design 7.4 step 3 marks it uncovered and it takes the automatic name too, and
+#     `recordingNames "VN8 Alpha"` reads 0. That reading is the product's documented
+#     behaviour, not a defect, and decides whether the claim "the launch leg keeps the
+#     player's name" can be pinned on this host.
+# =====================================================================================
+tier = "nightly"
+description = "VN-8: on GS-1's pad craft, a recorded stock rename (VN8 Alpha), then Control From Here on the booster's probe core and the decoupler's stock Decouple: the control part leaves on the new vessel, so stock renames the old one (the launch identity) automatically one frame later and focuses the booster; nothing writes the player's name over the automatic one. A reading run: the commit's name census is the measurement."
+instanceProfile = "stock-minimal"
+tags = ["VN-8", "vessel-names", "GC-7", "rename", "staging", "control-point",
+        "automatic-rename", "GS1", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },   expect = "OK" },
+  # LOAD-BEARING: the apply-pass and live-write lines are Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },        expect = "OK" },
+  # (1) The recorded player rename.
+  { cmd = "StartRecording",                                                            expect = "OK", budget = 180 },
+  { cmd = "RenameVessel",   args = { name = "VN8 Alpha" },                             expect = "OK" },
+  # (2) The control point onto the booster, then the decouple.
+  { cmd = "PartAction",     args = { button = "controlfrom", part = "probeCoreOcto2.v2" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "decouple", part = "Decoupler.1" }, label = "dec", expect = "OK" },
+  # WaitAndSwitchFocus runs one frame later; the split branch is deferred a frame and the
+  # live-tree self-heal checks once a real second. 1x to UT 60 (the save clock is 25.34 and
+  # the steps above take seconds, so the target is ahead; absolute, WarpToUT takes only
+  # `ut=`) gives every pass tens of seconds with the recorder live.
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "60", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "ListHandles",    args = { kind = "active" }, label = "act",                 expect = "OK" },
+  # (3) Commit.
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  { cmd = "CommitTree",                                                                expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c1",               expect = "OK" },
+  { cmd = "FlushAndQuit",                                                              expect = "OK" },
+]
+
+[dimensionsCovered]
+# D14 values only (each already covered elsewhere). No D value names a vessel rename.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The pod's recording(s) and the booster's (GS-1 / VN-1's floor of 2). The ceiling absorbs
+# a split of the pod's leg at the decouple and an optimizer split.
+count = { min = 2, max = 6 }
+
+# REPORT-ONLY: THE MEASUREMENT (header, PREDICTIONS).
+[expectations.recordings.structure]
+gating         = false
+committedTrees = { min = 1, max = 1 }
+recordingNames = { "VN8 Alpha" = { min = 1 }, "VN8 Alpha Probe" = { min = 1 }, "GS1 Auto-Chute Booster" = { max = 0 } }
+vesselNames    = { "VN8 Alpha" = { max = 0 }, "VN8 Alpha Probe" = { min = 1, max = 1 }, "GS1 Auto-Chute Booster" = { max = 0 } }
+
+[expectations.logContracts]
+required = [
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  # (1) The recorded player rename.
+  "renamevessel applied pid=[0-9]+ old='GS1 Auto-Chute Booster' new='VN8 Alpha' type=Ship active=true changed=true legs=[1-9][0-9]* decision=StockDialog decisionName='VN8 Alpha'",
+  "Stock rename captured: source=StockDialog pid=[0-9]+ guid=[0-9a-f]+ 'GS1 Auto-Chute Booster' -> 'VN8 Alpha' ",
+  # (2) The control point onto the booster's probe core, then the split: the booster is
+  # named at the split from the player's name. The payload is read before the one-frame
+  # automatic rename, so the active vessel is still the pod under the player's name.
+  "partaction applied button=controlfrom pid=[0-9]+ part='probeCoreOcto2.v2' partId=[0-9]+ event=MakeReference newPid=0 newName='' vessels=[0-9]+->[0-9]+ activePid=[0-9]+ activeName='VN8 Alpha'",
+  "partaction applied button=decouple pid=[0-9]+ part='Decoupler.1' partId=[0-9]+ event=Decouple newPid=[1-9][0-9]* newName='VN8 Alpha Probe' vessels=[0-9]+->[0-9]+ activePid=[0-9]+ activeName='VN8 Alpha'",
+  "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
+  "committree committed=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "renamevessel rejected",
+  "renamevessel error",
+  "partaction rejected",
+  "partaction error",
+  # THE CLAIM: the automatic rename of the old vessel is never overwritten with the
+  # player's name (7.4 step 3's stale-name condition).
+  "Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ '[^'\\r\\n]*' -> 'VN8 Alpha' ",
+  # The automatic rename is never captured as a player decision (ruling 4).
+  "Stock rename captured: source=\\w+ pid=[0-9]+ guid=[0-9a-f]+ 'VN8 Alpha' -> ",
+]
+
+[runtime]
+# Wall for the whole drive phase including boot: LoadGame 300, StartRecording 180, the
+# ~30 s 1x WarpToUT (budget 120), CommitTree 120, the rest on the default budget. Expected
+# wall about 2-3 minutes.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

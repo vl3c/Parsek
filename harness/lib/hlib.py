@@ -661,6 +661,18 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     `pid= old= new= type= active= changed= legs= decision= decisionName=`; `old` is
     #     the live stock name just before the accept, so a rename doubles as a read of it.
     "RenameVessel",
+    # ADDITIVE (48 -> 50 implemented, reserved unchanged at 4), the vessel-names proof pair
+    # (design-vessel-and-mission-names.md 15.3).
+    #   PartAction button=undock|decouple|controlfrom [part=<part name>] [pid=<pid>], FLIGHT,
+    #     SINGLE-PHASE, default 60 s: one button of one part's stock right-click menu
+    #     (ModuleDockingNode.Undock, ModuleDecouplerBase.Decouple, ModuleCommand.MakeReference)
+    #     pressed through its BaseEvent. OK `button= pid= part= partId= event= newPid= newName=
+    #     vesselsBefore= vesselsAfter= activePid= activeName=`.
+    #   RevertToLaunch (no args), FLIGHT, TWO-PHASE, 180 s: stock's Revert to Launch outside a
+    #     Re-Fly session (ReFlyRevert owns the in-session one), answered once the new flight is
+    #     ready. OK `scene= activePid= activeName= situation=`.
+    "PartAction",
+    "RevertToLaunch",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1028,6 +1040,10 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # then a quicksave LoadGame + scene load (Discard) or a flight reload (Retry). The
     # InvokeRewind / InvokeRewindToLaunch size.
     "ReFlyRevert": 300.0,
+    # DeferralBudget.RevertToLaunchSeconds: stock's flight reload from the post-init state,
+    # a FLIGHT bootstrap that reads no save off disk (the LaunchFromEditor size). Not a
+    # DEFERRED_SEAM_VERB: no spec declares a budget over the cap for it.
+    "RevertToLaunch": 180.0,
 }
 
 # Per-verb TAIL ROLE: what a seam verb DOES, used to decide whether it may still be
@@ -1263,6 +1279,10 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # RenameVessel renames a live vessel (stock state a save captures) and records a
     # Parsek name decision.
     "RenameVessel": TAIL_ROLE_WORLD_MUTATING,
+    # PartAction undocks / decouples / moves the control point of a live vessel.
+    "PartAction": TAIL_ROLE_WORLD_MUTATING,
+    # RevertToLaunch reloads the flight from stock's post-init state.
+    "RevertToLaunch": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1458,6 +1478,10 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # RenameVessel is `recording`: its OK is "stock renamed the vessel and Parsek's capture
     # ran", the subject the vessel-names claims are about, never a mission outcome.
     "RenameVessel": POST_MISSION_ROLE_RECORDING,
+    # PartAction and RevertToLaunch are `recording` for RenameVessel's reason: their OK is
+    # "stock ran the control", and the claims a lane pins are Parsek's response to it.
+    "PartAction": POST_MISSION_ROLE_RECORDING,
+    "RevertToLaunch": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -2405,6 +2429,39 @@ LOADGAME_SCENE_VALUES: Tuple[str, ...] = ("spacecenter", "trackstation")
 # step whose runtime state carries no marker - is NOT catchable here (it is a runtime
 # fact), which is why the seam still answers `recording-active` in that case rather
 # than executing: the arg buys nothing on its own.
+# `LoadGame focusPid=<pid>` (vessel names, 2026-10-12): fly the save's vessel with this
+# persistentId instead of the save's activeVesselIdx (the Tracking Station Fly button's
+# StartAndFocusVessel(save, index)); a save written outside FLIGHT stores activeVessel = 0.
+# Not a closed vocabulary: validate_loadgame_focus_step checks the pid grammar and that no
+# `scene=` rides beside it. Mirrored from TestCommandLoadGame (LoadGameFocusPidSourceSyncTests).
+LOADGAME_FOCUS_PID_KEY = "focusPid"
+LOADGAME_FOCUS_PID_REASONS: Tuple[str, ...] = (
+    "focus-pid-arg-invalid", "focus-pid-scene-conflict", "focus-pid-not-found",
+    "focus-pid-ambiguous",
+)
+
+
+def validate_loadgame_focus_step(index: int, cmd: str, step_args: Dict) -> List[str]:
+    """Pre-launch check of ``focusPid=``: only LoadGame reads it, never beside ``scene=``,
+    and a literal value is a positive ASCII decimal uint (a handle is left to R10)."""
+    if LOADGAME_FOCUS_PID_KEY not in step_args:
+        return []
+    raw = str(step_args.get(LOADGAME_FOCUS_PID_KEY))
+    if cmd != "LoadGame":
+        return ["driver.steps[%d].args.%s: only the LoadGame verb reads it, but this step is "
+                "%r -- the arg would be silently ignored" % (index, LOADGAME_FOCUS_PID_KEY, cmd)]
+    errors: List[str] = []
+    if "${" not in raw and not (re.fullmatch(r"[0-9]+", raw) and 0 < int(raw) <= 4294967295):
+        errors.append(
+            "driver.steps[%d].args.%s: %r is not a positive decimal persistentId; the seam "
+            "answers REJECTED focus-pid-arg-invalid" % (index, LOADGAME_FOCUS_PID_KEY, raw))
+    if LOADGAME_SCENE_KEY in step_args:
+        errors.append(
+            "driver.steps[%d].args.%s: a scene= route flies nothing; the seam answers REJECTED "
+            "focus-pid-scene-conflict" % (index, LOADGAME_FOCUS_PID_KEY))
+    return errors
+
+
 LOADGAME_ALLOW_LIVE_RECORDER_KEY = "allowLiveRecorder"
 LOADGAME_ALLOW_LIVE_RECORDER_VALUES: Tuple[str, ...] = ("refly",)
 
@@ -3386,6 +3443,74 @@ def validate_rename_vessel_step(index: int, step_args: Dict) -> List[str]:
             "seam answers REJECTED renamevessel-pid-arg-invalid"
             % (index, RENAMEVESSEL_PID_KEY, raw_pid))
     return errors
+
+
+# PartAction: mirrored from TestCommands/TestCommandPartAction.cs (PartActionSourceSyncTests).
+# `button=` is REQUIRED and closed (validated here, not as a VERB_SCOPED_CLOSED_ARGS row, so
+# the act-specific `part=` rule sits beside it). `part=` is REQUIRED for decouple and
+# controlfrom; `pid=` is OPTIONAL with Recover's grammar.
+PARTACTION_VERB = "PartAction"
+PARTACTION_BUTTON_KEY = "button"
+PARTACTION_PART_KEY = "part"
+PARTACTION_PID_KEY = "pid"
+PARTACTION_BUTTON_VALUES: Tuple[str, ...] = ("undock", "decouple", "controlfrom")
+PARTACTION_BUTTONS_REQUIRING_PART: Tuple[str, ...] = ("decouple", "controlfrom")
+PARTACTION_REASONS: Tuple[str, ...] = (
+    "partaction-button-arg-missing", "partaction-button-arg-invalid",
+    "partaction-part-arg-missing", "partaction-pid-arg-invalid",
+    "partaction-no-active-vessel", "partaction-vessel-not-found",
+    "partaction-target-is-ghost", "partaction-vessel-unloaded",
+    "partaction-part-not-found", "partaction-part-ambiguous",
+    "partaction-event-unavailable",
+)
+
+
+def validate_part_action_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``PartAction`` step: ``button=`` REQUIRED and one of
+    PARTACTION_BUTTON_VALUES (case-sensitive, the C# switch), ``part=`` REQUIRED for
+    ``decouple`` / ``controlfrom``, an OPTIONAL literal ``pid=`` an ASCII decimal in
+    1..4294967295. A ``${step.field}`` handle is left to the R10 static tier."""
+    errors: List[str] = []
+    act = step_args.get(PARTACTION_BUTTON_KEY)
+    if act is None or str(act) == "":
+        errors.append(
+            "driver.steps[%d].args.%s: %s REQUIRES it; the seam answers REJECTED "
+            "partaction-button-arg-missing" % (index, PARTACTION_BUTTON_KEY, PARTACTION_VERB))
+    elif "${" not in str(act) and str(act) not in PARTACTION_BUTTON_VALUES:
+        errors.append(
+            "driver.steps[%d].args.%s: %r is not one of %s; the seam answers REJECTED "
+            "partaction-button-arg-invalid"
+            % (index, PARTACTION_BUTTON_KEY, act, ", ".join(PARTACTION_BUTTON_VALUES)))
+    elif str(act) in PARTACTION_BUTTONS_REQUIRING_PART and not step_args.get(PARTACTION_PART_KEY):
+        errors.append(
+            "driver.steps[%d].args.%s: button=%s REQUIRES it; the seam answers REJECTED "
+            "partaction-part-arg-missing" % (index, PARTACTION_PART_KEY, act))
+    raw_pid = step_args.get(PARTACTION_PID_KEY)
+    if raw_pid is not None and str(raw_pid) != "" and "${" not in str(raw_pid) and not (
+            re.fullmatch(r"[0-9]+", str(raw_pid))
+            and 0 < int(str(raw_pid)) <= RECOVER_PID_MAX):
+        errors.append(
+            "driver.steps[%d].args.%s: %r is not a positive decimal persistentId; the "
+            "seam answers REJECTED partaction-pid-arg-invalid"
+            % (index, PARTACTION_PID_KEY, raw_pid))
+    return errors
+
+
+# RevertToLaunch: mirrored from TestCommands/TestCommandRevertToLaunch.cs
+# (RevertToLaunchSourceSyncTests). No args.
+REVERTTOLAUNCH_VERB = "RevertToLaunch"
+REVERTTOLAUNCH_REASONS: Tuple[str, ...] = (
+    "reverttolaunch-refly-session", "reverttolaunch-unavailable",
+)
+
+
+def validate_revert_to_launch_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``RevertToLaunch`` step: the verb takes no args, so
+    any arg would be sent and silently ignored."""
+    if not step_args:
+        return []
+    return ["driver.steps[%d].args: %s takes no args, so %s would be silently ignored"
+            % (index, REVERTTOLAUNCH_VERB, ", ".join(sorted(str(k) for k in step_args)))]
 
 
 def validate_real_spawn_recover_step(index: int, cmd: str, step_args: Dict) -> List[str]:
@@ -6491,6 +6616,13 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_refly_revert_step(i, step_args))
         elif cmd == RENAMEVESSEL_VERB:
             errors.extend(validate_rename_vessel_step(i, step_args))
+        elif cmd == PARTACTION_VERB:
+            errors.extend(validate_part_action_step(i, step_args))
+        elif cmd == REVERTTOLAUNCH_VERB:
+            errors.extend(validate_revert_to_launch_step(i, step_args))
+        # LoadGame focusPid= (any verb: the validator flags it on a verb that ignores it).
+        if LOADGAME_FOCUS_PID_KEY in step_args:
+            errors.extend(validate_loadgame_focus_step(i, cmd, step_args))
         # R10 STATIC tier, pass 2 of 2: every ${ref.field} in this step's args must
         # be well-formed AND name an EARLIER seam step that expects OK. A fault here
         # would otherwise put a literal ${...} on the wire, where the seam resolves an
@@ -10204,6 +10336,12 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # parsed but no re-fly marker was live), which already has its own row - and that
     # separation is the point: a TYPO and a wrong STATE must not report as one thing.
     "allow-live-recorder-arg-invalid": "driver-arg",
+    # LoadGame focusPid= (vessel names): a malformed pid and a scene= beside it are the
+    # SPEC's fault, and so are a pid the save does not carry and one it carries twice.
+    "focus-pid-arg-invalid": "driver-arg",
+    "focus-pid-scene-conflict": "driver-arg",
+    "focus-pid-not-found": "driver-arg",
+    "focus-pid-ambiguous": "driver-arg",
     # RecordingState awaitRecorderLive= (S4.4): the same arg-class refusal. Its other
     # outcome, a wait that never ends, is a DEFER (`refly-recorder-not-live`) and so
     # reaches the harness as TIMEOUT, which needs no row here.
@@ -10287,6 +10425,26 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "renamevessel-vessel-not-found": "driver-arg",
     "renamevessel-target-is-ghost": "driver-arg",
     "renamevessel-accept-unavailable": "driver-gate",
+    # PartAction: a missing / unknown button, a missing part, a malformed pid, a pid naming no
+    # live vessel, a ghost, a named part the vessel lacks and an ambiguous selector are the
+    # SPEC's fault; no active vessel, an unloaded vessel and a button stock does not show are
+    # live states the click would not act in. Mirrored from the C# `Reasons` array
+    # (PartActionSourceSyncTests).
+    "partaction-button-arg-missing": "driver-arg",
+    "partaction-button-arg-invalid": "driver-arg",
+    "partaction-part-arg-missing": "driver-arg",
+    "partaction-pid-arg-invalid": "driver-arg",
+    "partaction-no-active-vessel": "driver-gate",
+    "partaction-vessel-not-found": "driver-arg",
+    "partaction-target-is-ghost": "driver-arg",
+    "partaction-vessel-unloaded": "driver-gate",
+    "partaction-part-not-found": "driver-arg",
+    "partaction-part-ambiguous": "driver-arg",
+    "partaction-event-unavailable": "driver-gate",
+    # RevertToLaunch: a live Re-Fly marker and stock not offering the option are live states
+    # (RevertToLaunchSourceSyncTests).
+    "reverttolaunch-refly-session": "driver-gate",
+    "reverttolaunch-unavailable": "driver-gate",
     # SimulateStockSwitchClick, arg half: site / selector spellings and target resolution.
     # target-not-found / -name-ambiguous / -is-ghost are arg-class because each one means
     # the SPEC named the wrong thing, the same call `unknown-target` gets for KscAction.
@@ -10930,13 +11088,16 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "category-arg-empty", "dialog-arg-invalid", "edit-commit-arg-invalid",
     "edit-field-arg-missing", "edit-key-arg-missing", "expand-key-arg-missing",
     "factor-arg-invalid", "find-ctrl-arg-invalid", "find-index-arg-invalid",
-    "find-text-arg-missing", "goeditor-craft-arg-invalid",
+    "find-text-arg-missing", "focus-pid-arg-invalid", "focus-pid-scene-conflict",
+    "goeditor-craft-arg-invalid",
     "goeditor-facility-arg-invalid", "goeditor-facility-arg-missing",
     "index-arg-invalid", "interval-arg-invalid", "isolated-arg-invalid",
     "kind-arg-invalid", "kind-arg-missing", "kscrecover-pid-arg-invalid",
     "kscrecover-pid-arg-missing", "label-arg-invalid", "label-arg-missing",
     "loop-arg-invalid", "mock-arg-missing", "mode-arg-invalid", "mode-arg-missing",
-    "op-arg-invalid", "op-arg-missing", "picker-arg-conflict", "picker-arg-missing",
+    "op-arg-invalid", "op-arg-missing", "partaction-button-arg-invalid",
+    "partaction-button-arg-missing", "partaction-part-arg-missing",
+    "partaction-pid-arg-invalid", "picker-arg-conflict", "picker-arg-missing",
     "pid-arg-invalid", "pointer-arg-conflict", "pointer-arg-invalid",
     "pointer-arg-missing", "popup-arg-missing", "realspawn-rec-arg-missing",
     "recover-pid-arg-invalid", "recover-pid-arg-missing", "rect-arg-invalid",

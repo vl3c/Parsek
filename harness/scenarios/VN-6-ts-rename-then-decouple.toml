@@ -1,0 +1,148 @@
+schema = 1
+id = "VN-6-ts-rename-then-decouple"
+# =====================================================================================
+# VN-6: A TRACKING STATION RENAME OF AN UNLOADED VESSEL SURVIVES FLYING IT AND A PART EVENT
+# (design docs/dev/design-vessel-and-mission-names.md 5.1, 7.1, 7.3 and 15.3, todo GC-7).
+# AUTHORED 2026-10-12 on branch `vessel-names-proof`, LIVE-PROVEN 2026-10-12: result `2026-10-12_1421` PASS attempt 1 (first flight) on automation DLL 67e2036bd368d2a0. saveParse
+# stays REPORT-ONLY until an operator arms it.
+#
+# THE TRAP UNDER TEST (design 5.1). Stock's dialog accept updates the vessel's naming part
+# only through `vesselNamedBy`, which is null for an unloaded vessel and after every load.
+# Any later `onVesselWasModified` (a decouple, a dock, an undock) runs
+# `Vessel.UpdateVesselNaming`, which renames the vessel after its priority naming part. A
+# Tracking Station rename that left the part's `VESSELNAMING` on the old name therefore
+# reverts the first time the player changes the flown vessel. Parsek's capture writes the
+# priority naming part with the decision (on the proto part snapshots for an unloaded
+# vessel, `namingPart=proto-part`), so the name survives.
+#
+# THE HOST is depot-route-recorded (V18T / LT-4's): the active `Depot` (pid 3620499050,
+# guid 05d3ea0f..., five recordings of its identity, ORBITING) carries a naming part on its
+# mk1-3 pod (`VESSELNAMING name = Depot`, priority 10), the only committed fixture vessel
+# with one besides its `Transporter` neighbour. Its pod sits on a heat shield and a
+# Decoupler.2 above the service module, so a decouple is a real part event on it.
+#   (1) Boot straight into the Tracking Station (LoadGame scene=trackstation) and rename the
+#       unloaded Depot "VN6 Depot" (RenameVessel, now also a Tracking Station verb: the
+#       vessel info header's rename). The capture records a StockDialog decision and writes
+#       the proto naming part.
+#   (2) Fly it: SaveGame, then `LoadGame focusPid=3620499050`, which is the TS Fly button
+#       (a persistent save plus FlightDriver.StartAndFocusVessel(save, index of the
+#       vessel)). The focus arg is LOAD-BEARING: a save written outside FLIGHT stores
+#       `activeVessel = 0` (decompiled FlightState(Game): FlightGlobals.ready is false
+#       off-flight), and index 0 here is the asteroid `Ast. YRJ-552`, not the Depot (index
+#       9 in the fixture); SimulateStockSwitchClick cannot recover it (in-bubble only, and
+#       its TS site is reserved). The load line names the vessel it flies
+#       (`loadgame focus pid=3620499050 ... name='VN6 Depot'`, the TS save carrying the
+#       rename), and a same-name RenameVessel right after it (no pid: the ACTIVE vessel)
+#       pins the focus: `pid=3620499050 old='VN6 Depot' changed=false`, red at that step
+#       on any other focus. The scene-entry promotion recorder is stopped and its restore
+#       discarded (V18T / LT-4's pattern), so no self-heal pass can quietly re-apply a
+#       reverted name.
+#   (3) The part event: PartAction button=decouple part=Decoupler.2, the decoupler's stock
+#       Decouple. Part.decouple fires onVesselWasModified on the Depot synchronously, so the
+#       payload's activeName, read right after the call, IS the post-event name.
+#   (4) RenameVessel "VN6 Depot Final": `old='VN6 Depot'` reads the name the part event left.
+# PREDICTIONS a reading run must confirm: the TS capture reports `namingPart=proto-part`
+# (the Depot's Vessel in the TS is unloaded, `parts` empty); the decouple names the
+# service module by stock's AutoRename (its name is not pinned).
+# =====================================================================================
+tier = "nightly"
+description = "VN-6: on depot-route-recorded, a Tracking Station rename of the unloaded Depot (whose pod carries a naming part) writes the proto naming part; after flying it (save, then a flight load of it) a decouple fires stock's onVesselWasModified naming update and the name does not revert; a final stock rename reads it."
+instanceProfile = "stock-minimal"
+tags = ["VN-6", "vessel-names", "GC-7", "rename", "scene-trackstation", "naming-part",
+        "decouple", "logistics", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/depot-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  # (1) The Tracking Station rename of the unloaded Depot.
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  # LOAD-BEARING: the apply-pass and live-write lines are Verbose. Settings are
+  # process-global, so they survive the second LoadGame.
+  { cmd = "SetSetting",   args = { name = "verboseLogging", value = "true" },          expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" },     expect = "OK" },
+  { cmd = "RenameVessel", args = { pid = "3620499050", name = "VN6 Depot" },           expect = "OK" },
+  # (2) Fly it.
+  { cmd = "SaveGame",     args = { name = "persistent" },                              expect = "OK", budget = 120 },
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent", focusPid = "3620499050" }, expect = "OK", budget = 300 },
+  # The scene-entry promotion recorder (the Depot is the tip of a committed tree).
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  { cmd = "DiscardTree",                                                               expect = "OK" },
+  # The focus pin and the post-load read: a same-name rename of the ACTIVE vessel.
+  { cmd = "RenameVessel", args = { name = "VN6 Depot" },                               expect = "OK" },
+  # (3) The part event.
+  { cmd = "PartAction",   args = { button = "decouple", part = "Decoupler.2" }, label = "dec", expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  # (4) The read.
+  { cmd = "RenameVessel", args = { name = "VN6 Depot Final" },                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                              expect = "OK" },
+]
+
+[dimensionsCovered]
+# D14 values only (each already covered elsewhere). No D value names a vessel rename.
+D14 = ["sandbox", "scene-flight", "scene-ts"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's committed recordings (LT-4's pin on this host); the discarded restore adds
+# none.
+count = { min = 22, max = 22 }
+
+# REPORT-ONLY until a reading run. The Depot's identity legs carry the last name; the live
+# Depot carries it and nothing carries an earlier one.
+[expectations.recordings.structure]
+gating         = false
+recordingNames = { "VN6 Depot Final" = { min = 1 }, "VN6 Depot" = { max = 0 } }
+vesselNames    = { "VN6 Depot Final" = { min = 1, max = 1 }, "VN6 Depot" = { max = 0 }, "Depot" = { max = 0 } }
+
+[expectations.logContracts]
+required = [
+  "loadgame complete scene=TRACKSTATION save=\\S+ game-loaded=true",
+  # (1) The Tracking Station rename: a StockDialog decision, the PROTO naming part written.
+  "renamevessel applied pid=3620499050 old='Depot' new='VN6 Depot' type=Ship active=false changed=true legs=[1-9][0-9]* decision=StockDialog decisionName='VN6 Depot'",
+  "Stock rename captured: source=StockDialog pid=3620499050 guid=05d3ea0f3d5c4829b38ad0a5b3e3b222 'Depot' -> 'VN6 Depot' seq=[0-9]+ namingPart=proto-part ",
+  "Vessel name decision recorded: identity=\\S+ '[^'\\r\\n]+' -> 'VN6 Depot' source=StockDialog ",
+  # (2) Saved and flown.
+  "savegame name=persistent folder=\\S+ saved=true",
+  "loadgame focus pid=3620499050 idx=[0-9]+ name='VN6 Depot' saveActiveVesselIdx=[0-9]+",
+  "loadgame complete scene=FLIGHT save=\\S+ game-loaded=true",
+  # The focus pin: the ACTIVE vessel is the Depot, still under the TS name after the load.
+  "renamevessel applied pid=3620499050 old='VN6 Depot' new='VN6 Depot' type=Ship active=true changed=false legs=[1-9][0-9]* decision=StockDialog decisionName='VN6 Depot'",
+  # (3) The decouple: the Depot keeps the Tracking Station name right after the event.
+  "partaction applied button=decouple pid=3620499050 part='Decoupler.2' partId=[0-9]+ event=Decouple newPid=[1-9][0-9]* newName='[^'\\r\\n]*' vessels=[0-9]+->[0-9]+ activePid=3620499050 activeName='VN6 Depot'",
+  # (4) The read after the part event: no revert. The loaded rename now writes the part.
+  "renamevessel applied pid=3620499050 old='VN6 Depot' new='VN6 Depot Final' type=Ship active=true changed=true legs=[1-9][0-9]* decision=StockDialog decisionName='VN6 Depot Final'",
+  "Stock rename captured: source=StockDialog pid=3620499050 guid=05d3ea0f3d5c4829b38ad0a5b3e3b222 'VN6 Depot' -> 'VN6 Depot Final' seq=[0-9]+ namingPart=part ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "renamevessel rejected",
+  "renamevessel error",
+  "partaction rejected",
+  "partaction error",
+  "loadgame rejected",
+  # A naming-part revert healed by a later pass would print this; a revert left alone
+  # would fail the `old='VN6 Depot'` read instead.
+  "Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=3620499050 guid=[0-9a-f]+ 'Depot' -> ",
+]
+
+[runtime]
+# Wall for the whole drive phase including boot: two LoadGame (300 each, the second a
+# flight load of a 28-part vessel beside the Transporter), SaveGame 120, the rest on the
+# default budget. Expected wall about 3 minutes.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

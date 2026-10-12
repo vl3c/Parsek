@@ -61,6 +61,8 @@ namespace Parsek.Tests
         [InlineData("KscMarkerRecover")]
         [InlineData("ReFlyRevert")]
         [InlineData("RenameVessel")]
+        [InlineData("PartAction")]
+        [InlineData("RevertToLaunch")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -193,7 +195,9 @@ namespace Parsek.Tests
             // Revert during a live Re-Fly, answered on Parsek's Re-Fly revert dialog.
             // RenameVessel is ADDITIVE (47 -> 48; reserved unchanged at 4): a player's accept
             // in the stock rename dialog, so Parsek's rename capture runs as in play.
-            Assert.Equal(48, TestCommandVerbs.ImplementedVerbNames.Count);
+            // PartAction and RevertToLaunch are ADDITIVE (48 -> 50; reserved unchanged at 4):
+            // a part's stock right-click menu button, and stock's plain Revert to Launch.
+            Assert.Equal(50, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

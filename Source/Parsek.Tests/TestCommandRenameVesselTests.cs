@@ -32,11 +32,11 @@ namespace Parsek.Tests
         // ----- table rows -----
 
         [Fact]
-        public void TheVerbIsImplemented_FlightOnly_DefaultBudget_AndMutating()
+        public void TheVerbIsImplemented_VesselScenes_DefaultBudget_AndMutating()
         {
             Assert.Equal(TestCommandRenameVessel.Verb, Verb);
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(Verb));
-            Assert.Equal(VerbSceneRequirement.RequiresFlight, TestCommandDispatcher.RequirementFor(Verb));
+            Assert.Equal(VerbSceneRequirement.RequiresVesselScene, TestCommandDispatcher.RequirementFor(Verb));
             Assert.Equal(60.0, DeferralBudget.BudgetSeconds(Verb));
             Assert.True(TestCommandVerbs.IsStateMutatingVerb(Verb));
         }
@@ -53,11 +53,48 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Dispatch_DefersOutsideFlight()
+        public void Dispatch_ExecutesInTheTrackingStation()
         {
-            var r = TestCommandDispatcher.DecideDispatch(Cmd("name=VN"), At(TestCommandScene.SpaceCenter));
+            // The Tracking Station's vessel info header renames an unloaded vessel.
+            var r = TestCommandDispatcher.DecideDispatch(Cmd("name=VN pid=42"), At(TestCommandScene.TrackingStation));
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Theory]
+        [InlineData("SpaceCenter")]
+        [InlineData("MainMenu")]
+        [InlineData("Editor")]
+        [InlineData("Other")]
+        public void Dispatch_DefersOutsideFlightAndTheTrackingStation(string sceneName)
+        {
+            var scene = (TestCommandScene)System.Enum.Parse(typeof(TestCommandScene), sceneName);
+            var r = TestCommandDispatcher.DecideDispatch(Cmd("name=VN"), At(scene));
             Assert.Equal(DispatchDecision.Defer, r.Decision);
-            Assert.Equal(TestCommandDispatcher.NotInFlightReason, r.Reason);
+            Assert.Equal(TestCommandDispatcher.NotInVesselSceneReason, r.Reason);
+            Assert.Equal("not-in-vessel-scene", r.Reason);
+        }
+
+        [Fact]
+        public void IsVesselScene_IsExactlyFlightAndTheTrackingStation()
+        {
+            foreach (TestCommandScene scene in System.Enum.GetValues(typeof(TestCommandScene)))
+            {
+                bool expected = scene == TestCommandScene.Flight || scene == TestCommandScene.TrackingStation;
+                Assert.Equal(expected, TestCommandDispatcher.IsVesselScene(scene));
+            }
+        }
+
+        [Fact]
+        public void RequiresVesselScene_IsExactlyRenameVessel()
+        {
+            int rows = 0;
+            foreach (var kv in TestCommandDispatcher.PreconditionTable)
+            {
+                if (kv.Value != VerbSceneRequirement.RequiresVesselScene) continue;
+                rows++;
+                Assert.Equal(Verb, kv.Key);
+            }
+            Assert.Equal(1, rows);
         }
 
         [Fact]
