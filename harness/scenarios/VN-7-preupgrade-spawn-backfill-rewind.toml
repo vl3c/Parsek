@@ -1,0 +1,140 @@
+schema = 1
+id = "VN-7-preupgrade-spawn-backfill-rewind"
+# =====================================================================================
+# VN-7: A SAVE FROM BEFORE THE FEATURE: THE SPAWN-LINK BACKFILL ON ITS FIRST LOAD, THEN A
+# RENAME OF ITS PARSEK-SPAWNED VESSEL AND A REWIND THAT KEEPS IT (design
+# docs/dev/design-vessel-and-mission-names.md 6.2, 7.5, 8.12 and 15.3, todo GC-7). AUTHORED
+# 2026-10-12 on branch `vessel-names-proof`, LIVE-PROVEN 2026-10-12: result `2026-10-12_1429` PASS attempt 1 (second flight; the first, `2026-10-12_1421`, red on the write-back old-name spec defect fixed in eedf52980) on automation DLL 67e2036bd368d2a0. saveParse stays
+# REPORT-ONLY until an operator arms it.
+#
+# THE HOST is refly-a-recorded (RF-7M / RF-7T's, harvested 2026-09-08 from a manual session
+# on DLL 2effc9d49, long before the vessel-names store): no VESSEL_NAMES node, and the
+# corpus's ONE genuine Parsek spawn whose vessel is still live. Recording
+# `rec_d4b696b61b544c1e8013073c611c8477` ("Kerbal X With Probe", the probe's re-fly,
+# recorded pid 3950992018, launch guid ae3f3c10...) spawned pid 3049612057 (KSP-unique, so
+# IsGenuineSpawnPidMatch), and that vessel is in the save, ORBITING, with its own fresh
+# guid 61c1c39c.... Every other fixture spawn is an adoption stamp (spawned pid == recorded
+# pid), which the backfill must never link. The active vessel is the pad Kerbal X
+# (#autoLOC_501224, PRELAUNCH); the save clock is UT 700.
+#   (1) The first (cold) load runs the OnLoad-tail Spawn-link backfill: one Spawn link
+#       61c1c39c... -> ae3f3c10.... Without it the spawned vessel's guid matches no leg and a
+#       stock rename of it records nothing (`legs=0 decision=none`).
+#   (2) A stock rename of the unloaded spawned vessel, "VN7 Relay", resolves its identity
+#       through the backfilled link (`legs>=1 decision=StockDialog`).
+#   (3) A pad recording on the Kerbal X captures a rewind save at UT ~700 (the spawned
+#       vessel in it is "VN7 Relay"), and is committed (VN-3's order).
+#   (4) The last rename, "VN7 Relay Final", after that save.
+#   (5) Rewind-to-Launch of the pad tree (landing ~15 s before its start, ~UT 685). THE KEPT
+#       BRANCH of 8.12, which VN-3's host cannot reach: the spawning recording's activation
+#       start (UT 190) is before the save UT, so the playhead sweep never latched it into
+#       replay scope and the rewind keeps the spawned vessel as committed history; the
+#       rewind save reloads it as "VN7 Relay", and the OnLoad-tail proto pass writes
+#       "VN7 Relay Final" onto it.
+# PREDICTIONS a reading run must confirm: the kept branch (no other recording that replays
+# after the landing UT re-produces pid 3049612057: no chain member, no superseding
+# continuation, no other recording of that pid); the proto write's reason
+# `onload-tail:rewind` (the rewind lands in the Space Center).
+# =====================================================================================
+tier = "nightly"
+description = "VN-7: on refly-a-recorded (a pre-feature save with a live Parsek-spawned probe and no vessel-names store), the first load backfills the probe's Spawn link; a stock rename of the spawned probe resolves through it; after a committed pad recording captures a rewind save, a last rename; a Rewind-to-Launch keeps the probe as committed history (8.12's kept branch) and writes its last name onto the reloaded vessel."
+instanceProfile = "stock-minimal"
+tags = ["VN-7", "vessel-names", "GC-7", "rename", "backfill", "spawn-link", "pre-upgrade",
+        "rewind-to-launch", "scene-ksc", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/refly-a-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  # (1) The cold load: the backfill runs at its OnLoad tail.
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },
+  # RF-7T's pattern on this host: no scene-entry recorder.
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  { cmd = "DiscardTree",                                                               expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },   expect = "OK" },
+  # LOAD-BEARING: the apply-pass, live-write and strip-scope lines are Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },        expect = "OK" },
+  # (2) The stock rename of the spawned probe, through the backfilled link.
+  { cmd = "RenameVessel",   args = { pid = "3049612057", name = "VN7 Relay" },         expect = "OK" },
+  # (3) The pad recording: its start captures the rewind save; EVA-6's commit order.
+  { cmd = "StartRecording",                                                            expect = "OK", budget = 180 },
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  { cmd = "CommitTree",                                                                expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  # (4) The last rename, after the rewind save.
+  { cmd = "RenameVessel",   args = { pid = "3049612057", name = "VN7 Relay Final" },   expect = "OK" },
+  # (5) The rewind.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                          expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                                  expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                              expect = "OK" },
+]
+
+[dimensionsCovered]
+# D14 values only (each already covered elsewhere). No D value names a vessel rename or a
+# save upgrade.
+D14 = ["sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's ten (RF-7T's pin) plus the committed pad recording (a near-instant
+# start/stop keeps one, MC-3). The ceiling absorbs an optimizer split.
+count = { min = 11, max = 13 }
+
+# REPORT-ONLY until a reading run. One live probe under the last name, none under an
+# earlier one; the spawning leg carries the last name.
+[expectations.recordings.structure]
+gating         = false
+recordingNames = { "VN7 Relay Final" = { min = 1 }, "VN7 Relay" = { max = 0 } }
+vesselNames    = { "VN7 Relay Final" = { min = 1, max = 1 }, "VN7 Relay" = { max = 0 }, "Kerbal X With Probe" = { max = 0 } }
+
+[expectations.logContracts]
+required = [
+  # (1) The cold load and its backfill: exactly the one genuine spawn linked.
+  "Load classified: early=Cold refined=Cold scene=FLIGHT",
+  "Spawn link backfill \\(onload-tail:cold\\): vessels=[0-9]+ genuineSpawnMatches=[1-9][0-9]* adoptionStampSkipped=[0-9]+ added=1 alreadyLinked=0 links=1",
+  "Link added: kind=Spawn guid=61c1c39c65bb4ef6b1a61970c309f613 -> ae3f3c10ebbd440c875b325e318a9315 reason=backfill:onload-tail:cold rec=rec_d4b696b61b544c1e8013073c611c8477 links=1",
+  # (2) The stock rename resolves the spawned probe's identity through the link.
+  "renamevessel applied pid=3049612057 old='Kerbal X With Probe' new='VN7 Relay' type=Probe active=false changed=true legs=[1-9][0-9]* decision=StockDialog decisionName='VN7 Relay'",
+  "Stock rename captured: source=StockDialog pid=3049612057 guid=61c1c39c65bb4ef6b1a61970c309f613 'Kerbal X With Probe' -> 'VN7 Relay' ",
+  # (3) The rewind save and the commit.
+  "Captured rewind save at UT",
+  "committree committed=true",
+  # (4) The last rename reads the first one.
+  "renamevessel applied pid=3049612057 old='VN7 Relay' new='VN7 Relay Final' type=Probe active=false changed=true legs=[1-9][0-9]* decision=StockDialog decisionName='VN7 Relay Final'",
+  # (5) The rewind keeps the spawned probe and writes its last name onto the reloaded one.
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest",
+  "Rewind-to-Launch initiated to UT",
+  "Rewind strip scope: keep spawned pid=3049612057 of 'VN7 Relay Final' \\(id=rec_d4b696b61b544c1e8013073c611c8477\\) as committed history",
+  "Rewind-to-Launch initiated to UT[\\s\\S]*Write-through applied \\(proto\\): pid=3049612057 guid=61c1c39c65bb4ef6b1a61970c309f613 '[^'\r\n]*' -> 'VN7 Relay Final' namingPart=\\S+ reason=onload-tail:rewind",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "renamevessel rejected",
+  "renamevessel error",
+  "Parsek rename refused",
+  "invokerewindtolaunch refused",
+  # The backfill never links an adoption stamp: exactly one link exists after the cold load.
+  "Spawn link backfill \\(onload-tail:cold\\): [^\\r\\n]*added=(?:[02-9]|[1-9][0-9]+) ",
+  # A strip would mean the probe was latched into replay scope (VN-3's respawn branch).
+  "Rewind strip scope: strip spawned pid=3049612057 ",
+  # Nothing writes an earlier name back over a later decision.
+  "Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=3049612057 guid=[0-9a-f]+ '[^'\\r\\n]*' -> '(?:VN7 Relay|Kerbal X With Probe)' ",
+]
+
+[runtime]
+# Wall for the whole drive phase including boot: LoadGame 300, StartRecording 180,
+# CommitTree 120, InvokeRewindToLaunch 300, SaveGame 120, the rest on the default budget.
+# Expected wall about 3 minutes.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

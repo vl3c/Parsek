@@ -1063,6 +1063,13 @@ namespace Parsek.TestCommands
                 TryCompleteReFlyRevert(now);
                 return;
             }
+            // RevertToLaunch, in the .RevertToLaunch.cs partial: stock's plain Revert to
+            // Launch, answered once the NEW flight scene settled.
+            if (completionVerb == TestCommandRevertToLaunch.Verb)
+            {
+                TryCompleteRevertToLaunch(now);
+                return;
+            }
 
             bool done = false;
             string verdict = null;
@@ -1619,6 +1626,11 @@ namespace Parsek.TestCommands
         // RenameVessel: body in the sibling ParsekTestCommandAddon.RenameVessel.cs. Single-phase
         // (the stock accept and Parsek's capture run synchronously), so no TryComplete*.
         void ITestCommandExecutor.RenameVessel(ParsedCommand cmd) => RenameVesselImpl(cmd);
+        // PartAction: body in the sibling ParsekTestCommandAddon.PartAction.cs. Single-phase
+        // (the pressed part-menu event runs synchronously), so no TryComplete*.
+        void ITestCommandExecutor.PartAction(ParsedCommand cmd) => PartActionImpl(cmd);
+        // RevertToLaunch: body + two-phase completion in ParsekTestCommandAddon.RevertToLaunch.cs.
+        void ITestCommandExecutor.RevertToLaunch(ParsedCommand cmd) => RevertToLaunchImpl(cmd);
 
         private void InvokeExecutor(ParsedCommand cmd)
         {
@@ -1687,6 +1699,8 @@ namespace Parsek.TestCommands
                 case "KscMarkerRecover": exec.KscMarkerRecover(cmd); break;
                 case "ReFlyRevert": exec.ReFlyRevert(cmd); break;
                 case "RenameVessel": exec.RenameVessel(cmd); break;
+                case "PartAction": exec.PartAction(cmd); break;
+                case "RevertToLaunch": exec.RevertToLaunch(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");
@@ -2034,6 +2048,25 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // focusPid= (vessel names): fly the save's vessel with this pid, the Tracking
+            // Station Fly button's StartAndFocusVessel(save, index). Parsed before the save is
+            // read; resolved against its protos below.
+            string focusArg = ArgOrNull(cmd, TestCommandLoadGame.FocusPidKey);
+            if (!TestCommandLoadGame.TryParseFocusPid(focusArg, out uint focusPid, out bool hasFocus))
+            {
+                ParsekLog.Warn(Tag,
+                    $"loadgame rejected reason={TestCommandLoadGame.FocusPidArgInvalidReason} focusPid={focusArg ?? string.Empty}");
+                SetExecResult("REJECTED", null, $"{TestCommandLoadGame.FocusPidArgInvalidReason} focusPid={focusArg ?? string.Empty}");
+                return;
+            }
+            if (hasFocus && requestedScene != RequestedBootScene.Unspecified)
+            {
+                ParsekLog.Warn(Tag,
+                    $"loadgame rejected reason={TestCommandLoadGame.FocusPidSceneConflictReason} focusPid={focusArg} scene={sceneArg}");
+                SetExecResult("REJECTED", null, TestCommandLoadGame.FocusPidSceneConflictReason);
+                return;
+            }
+
             // THE ADMIT SIDE OF RF-3/A1 IS LOGGED HERE, and it has to be: the refusal Warns
             // with its reason, but a load that was ADMITTED past the recording-active guard
             // used to be indistinguishable in KSP.log from a load taken with no recorder at
@@ -2056,6 +2089,28 @@ namespace Parsek.TestCommands
                 ParsekLog.Error(Tag, $"loadgame failed save={save ?? string.Empty}: {ex.Message}");
                 SetExecResult("ERROR", null, "load-failed");
                 return;
+            }
+
+            if (hasFocus && game != null && game.flightState != null)
+            {
+                var protoPids = new List<uint>();
+                if (game.flightState.protoVessels != null)
+                    for (int i = 0; i < game.flightState.protoVessels.Count; i++)
+                        protoPids.Add(game.flightState.protoVessels[i] != null
+                            ? game.flightState.protoVessels[i].persistentId : 0u);
+                int focusIdx = TestCommandLoadGame.ResolveFocusIndex(protoPids, focusPid, out int matches);
+                string focusReason = TestCommandLoadGame.DecideFocus(true, requestedScene, matches);
+                if (focusReason != null)
+                {
+                    ParsekLog.Warn(Tag,
+                        $"loadgame rejected reason={focusReason} focusPid={focusPid} matches={matches} protoVessels={protoPids.Count}");
+                    SetExecResult("REJECTED", null, focusReason);
+                    return;
+                }
+                ParsekLog.Info(Tag,
+                    $"loadgame focus pid={focusPid} idx={focusIdx} name='{game.flightState.protoVessels[focusIdx].vesselName}' " +
+                    $"saveActiveVesselIdx={game.flightState.activeVesselIdx}");
+                game.flightState.activeVesselIdx = focusIdx;
             }
 
             LoadRoute route = TestCommandLoadGame.DecideLoadRoute(

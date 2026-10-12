@@ -7,7 +7,7 @@ namespace Parsek.TestCommands
     /// <summary>
     /// Pure half of the automation-only <c>RenameVessel</c> verb (vessel names, design
     /// <c>design-vessel-and-mission-names.md</c> section 15.3): a player's accept in the stock
-    /// rename dialog, for one live vessel in FLIGHT.
+    /// rename dialog, for one live vessel in FLIGHT or the Tracking Station.
     ///
     /// <para><b>Why the stock accept and not a name write.</b> Parsek captures a stock rename
     /// ONLY through its Harmony Prefix / Postfix pair on the private
@@ -21,7 +21,10 @@ namespace Parsek.TestCommands
     /// <para><b>Grammar.</b> <c>cmd=RenameVessel name=&lt;new name&gt; [pid=&lt;persistentId&gt;]</c>.
     /// <c>name=</c> is REQUIRED and must not be blank (the stock dialog accepts any non-empty
     /// name; Parsek refuses a blank one). <c>pid=</c> names a live non-ghost vessel by its
-    /// persistentId; absent, the ACTIVE vessel. Issued in FLIGHT (<c>RequiresFlight</c>).
+    /// persistentId; absent, the ACTIVE vessel. Issued in FLIGHT or the Tracking Station
+    /// (<c>RequiresVesselScene</c>; the TS vessel info header renames an UNLOADED vessel, whose
+    /// naming part the capture writes on its proto part snapshots, and has no active vessel, so
+    /// a TS rename names its <c>pid=</c>).
     /// SINGLE-PHASE on the default budget: the accept runs synchronously and the capture runs
     /// inside it.</para>
     ///

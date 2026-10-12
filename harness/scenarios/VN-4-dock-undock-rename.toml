@@ -1,0 +1,205 @@
+schema = 1
+id = "VN-4-dock-undock-rename"
+# =====================================================================================
+# VN-4: VESSEL NAMES ACROSS A DOCK / UNDOCK ROUND TRIP (design
+# docs/dev/design-vessel-and-mission-names.md 7.7 and 15.3, ruling 1, todo GC-7). AUTHORED
+# 2026-10-12 on branch `vessel-names-proof`, LIVE-PROVEN 2026-10-12: result `2026-10-12_1422` PASS attempt 1 (first flight) on automation DLL 67e2036bd368d2a0. saveParse stays
+# REPORT-ONLY until an operator arms it.
+#
+# THE HOST is CI-9's (nightly, live-proven): eva2-lko-crewed (the focused 28-part Kerbal X
+# orbital stage in LKO, pid 3620499050) plus the chain-tip-dock preset, whose committed
+# parentless background recording `ctd-tip-rec` is a 3-part docking target (pid 3156176881,
+# launch guid derived from its id) that Real Spawn Control spawns ~140 m ahead with its
+# ORIGINAL identity (`Chain tip spawn: ... preserveIdentity=true`). Mission ci9_tip_dock
+# matches velocity and hard-docks the Kerbal X to it. The Kerbal X is dominant (stock
+# Vessel.GetDominantVessel: same type, far more mass), so the target is the ABSORBED vessel,
+# and stock's undock (always the child side of the coupling joint, the absorbed one) makes
+# it the LEAVING vessel with a fresh guid.
+#
+# THE FLIGHT, every step a player's:
+#   (a) A stock rename of the spawned target, "VN4 Tug" (RenameVessel, the dialog accept):
+#       a StockDialog decision on its identity, whose pre-dock leg is `ctd-tip-rec`.
+#   (b) The dock (mission). Parsek records the absorbed target's dock-absorb row at
+#       onPartCouple (root part flightID -> its guid).
+#   (c) WHILE DOCKED, the Missions window renames the target's pre-dock leg
+#       `ctd-tip-rec` to "VN4 Tug Docked": a ParsekRename decision for the ABSORBED identity,
+#       dormant (no live vessel carries it; the merged ship is the Kerbal X's identity, and
+#       nothing may rename it).
+#   (d) The undock: PartAction button=undock presses the docking port's stock "Undock" (the
+#       PAW button). Stock re-keys the leaving target (new guid) and restores its pre-dock
+#       name from DockedVesselInfo, "VN4 Tug". The dock-absorb row turns into an UndockReturn
+#       link (leaving guid -> absorbed guid), and the live write rule writes the decision
+#       made while docked through: 'VN4 Tug' -> 'VN4 Tug Docked'.
+#   (e) A stock rename of the leaving ship, "VN4 Tug Final": its `old='VN4 Tug Docked'` is
+#       the write-through read back, and its decision line names the identity's CURRENT leg
+#       as 'VN4 Tug Docked', which only the link can produce (without it the new guid is a
+#       new identity whose only leg captured 'VN4 Tug'). Commit, then the save must show
+#       "VN4 Tug Final" on the pre-dock leg AND the post-undock leg (ruling 1).
+# PREDICTIONS a reading run must confirm: the post-undock leg exists by the final rename
+# (the undock branch is deferred a frame; four RecordingState settles cover it, so the
+# rename's `legs=` is pinned [1-9], the leg count read off the save instead); the write-
+# through reason is a self-heal (`self-heal:link-added` or `self-heal:live-tree-legs`).
+# READING-RUN NOTES: `partaction-event-unavailable` on the undock means neither port shows
+# Undock (a same-vessel dock would show UndockSameVessel instead); `partaction-part-
+# ambiguous` means the merged ship carries two docked pairs.
+# =====================================================================================
+tier = "nightly"
+description = "VN-4: on CI-9's chain-tip-dock host, a stock rename of the Real-Spawned docking target before the dock; the Kerbal X docks to it (the target is absorbed); while docked a Parsek rename of the target's pre-dock leg; the undock (the docking port's stock Undock) links the leaving ship back to its pre-dock identity and writes the name chosen while docked onto it; a final stock rename covers the pre-dock and post-undock legs."
+instanceProfile = "stock-minimal"
+tags = ["VN-4", "vessel-names", "GC-7", "rename", "dock", "undock", "undock-return-link",
+        "dock-absorb-row", "real-spawn", "mechjeb", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "chain-tip-dock"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "ci9_tip_dock"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # LOAD-BEARING: the apply-pass, dock-absorb, link and live-write lines are partly Verbose.
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "chains" }, label = "chains", expect = "OK" },
+  # CI-9's settle: the proximity scan admits a row on its second sighting, 1.5 s apart.
+  { cmd = "WarpToUT", args = { ut = "428", maxRate = "1" }, expect = "OK", budget = 120 },
+  { cmd = "RealSpawn", args = { rec = "${chains.chain0tip}" }, label = "spawn", expect = "OK", budget = 120 },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # (a) The stock rename of the spawned target, before the dock. The mission targets it by
+  # this name (missionParams.targetName).
+  { cmd = "RenameVessel", args = { pid = "${spawn.pid}", name = "VN4 Tug" }, expect = "OK" },
+  { cmd = "StartRecording", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # (b) The dock.
+  { phase = "mission", expect = "MISSION-OK", budget = 6000 },
+  # (c) While docked: the Parsek rename of the absorbed target's pre-dock leg.
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "edit", window = "missions", field = "recordingname", key = "${chains.chain0tip}", draft = "VN4 Tug Docked", commit = "true" }, expect = "OK" },
+  # (d) The undock: the docking port's stock Undock on the merged Kerbal X.
+  { cmd = "PartAction", args = { button = "undock" }, label = "und", expect = "OK" },
+  # The undock branch is deferred a frame and the link's apply pass runs on the next host
+  # tick (CI-6's four-frame settle).
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # (e) The final stock rename of the leaving ship; `old=` reads the write-through.
+  { cmd = "RenameVessel", args = { pid = "${und.newPid}", name = "VN4 Tug Final" }, expect = "OK" },
+  { cmd = "CommitTree", expect = "OK", budget = 120 },
+  # CommitTree auto-resumes a recorder on the still-active vessel (H58 flight 1).
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[driver.missionParams]
+# CI-9's values VERBATIM, except the target's name: the stock rename above renamed it.
+targetName                  = "VN4 Tug"
+rendezvousAboveMeters       = 250
+startSettleSeconds          = 5
+targetTimeoutSeconds        = 60
+settleSeconds               = 10
+approachDistanceMeters      = 100
+maxPhasingOrbits            = 5
+matchSpeedMetersPerSec      = 1.0
+matchTimeoutSeconds         = 600
+dockSpeedMetersPerSec       = 0.5
+rendezvousTimeoutSeconds    = 30000
+dockTimeoutSeconds          = 1800
+dockNoProgressSeconds       = 120
+
+[dimensionsCovered]
+# D14 values only (each already covered elsewhere). No D value names a vessel rename, and
+# the dock is CI-9's second witness of a cell CI-9 / BDOCK-1 already hold.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# CI-9's four (the injected carrier root and tip, the Kerbal X's pre-dock parent and its
+# merged child) plus the undock's split children. The ceiling absorbs optimizer splits.
+count = { min = 4, max = 12 }
+
+# REPORT-ONLY until a reading run. The target's identity (its pre-dock leg and its
+# post-undock leg) all "VN4 Tug Final", no leg on an earlier name; the save's live vessels:
+# the leaving ship "VN4 Tug Final", the Kerbal X unrenamed.
+[expectations.recordings.structure]
+gating         = false
+recordingNames = { "VN4 Tug Final" = { min = 2 }, "VN4 Tug Docked" = { max = 0 }, "VN4 Tug" = { max = 0 }, "CTD Target" = { max = 0 } }
+vesselNames    = { "VN4 Tug Final" = { min = 1, max = 1 }, "Kerbal X" = { min = 1, max = 1 }, "VN4 Tug Docked" = { max = 0 }, "VN4 Tug" = { max = 0 }, "CTD Target" = { max = 0 } }
+
+[expectations.logContracts]
+required = [
+  # The host: the tip spawns with its original pid (CI-9's own tokens).
+  "\\[Ghoster\\] Chain tip spawn: pid=3156176881 vessel=CTD Target preserveIdentity=true",
+  "realspawn complete rec=ctd-tip-rec pid=3156176881 vessel=CTD Target ",
+
+  # (a) The stock rename of the spawned target resolves its identity (the pre-dock leg).
+  "renamevessel applied pid=3156176881 old='CTD Target' new='VN4 Tug' type=\\S+ active=false changed=true legs=[1-9][0-9]* decision=StockDialog decisionName='VN4 Tug'",
+  "Stock rename captured: source=StockDialog pid=3156176881 guid=[0-9a-f]+ 'CTD Target' -> 'VN4 Tug' ",
+  "Vessel name decision recorded: identity=\\S+ 'CTD Target' -> 'VN4 Tug' source=StockDialog ",
+
+  # (b) The dock: the Kerbal X survives, the target is absorbed, and its row is recorded.
+  "OnPartCouple producer classified: kind=DockingPort ",
+  "Tree dock merge completed",
+  "Dock absorb row recorded: rootUid=[1-9][0-9]* guid=[0-9a-f]+ reason=dock pid=3156176881 into=3620499050 rows=[1-9][0-9]*",
+
+  # (c) While docked: a ParsekRename decision for the absorbed identity.
+  "uiaction edit window=missions field=recordingname key=ctd-tip-rec draft=VN4 Tug Docked committed=true ",
+  "\\[UI\\] Recording 'VN4 Tug' renamed to 'VN4 Tug Docked' identity=\\S+ legs=[1-9][0-9]*",
+  "Vessel name decision recorded: identity=\\S+ 'VN4 Tug' -> 'VN4 Tug Docked' source=ParsekRename ",
+
+  # (d) The undock: stock restores the pre-dock name on the leaving ship, the row becomes
+  # an UndockReturn link, and the name chosen while docked is written through.
+  "partaction applied button=undock pid=3620499050 part='dockingPort2' partId=[0-9]+ event=Undock newPid=[1-9][0-9]* newName='VN4 Tug' ",
+  "Undock: dock absorb row hit rootUid=[1-9][0-9]* absorbedGuid=[0-9a-f]+ leavingGuid=[0-9a-f]+ linkAdded=true reason=undock pid=[0-9]+",
+  "Link added: kind=UndockReturn guid=[0-9a-f]+ -> [0-9a-f]+ reason=undock pid=[0-9]+ links=[1-9][0-9]*",
+  "partaction applied button=undock [\\s\\S]*Write-through applied: vessel pid=[0-9]+ guid=[0-9a-f]+ 'VN4 Tug' -> 'VN4 Tug Docked' loaded=true namingPart=\\S+ reason=\\S+",
+
+  # (e) The final stock rename reads the write-through and joins the pre-dock identity.
+  "renamevessel applied pid=[0-9]+ old='VN4 Tug Docked' new='VN4 Tug Final' type=\\S+ active=false changed=true legs=[1-9][0-9]* decision=StockDialog decisionName='VN4 Tug Final'",
+  "Vessel name decision recorded: identity=\\S+ 'VN4 Tug Docked' -> 'VN4 Tug Final' source=StockDialog ",
+  "committree committed=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "renamevessel rejected",
+  "renamevessel error",
+  "partaction rejected",
+  "partaction error",
+  "Parsek rename refused",
+  "realspawn rejected",
+  # The row must turn into a link; a miss leaves the leaving ship a new identity.
+  "Undock: no dock absorb row for rootUid=",
+  # The merged Kerbal X is the dominant identity: nothing renames it.
+  "Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=3620499050 ",
+  # Nothing writes an earlier name back over a later decision.
+  "Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ '[^'\\r\\n]*' -> '(?:CTD Target|VN4 Tug)' ",
+  # CI-9's: the absorbed tip is a merge, never a death or a second spawn.
+  "Spawn-death detected[^\\n]*(?:CTD Target|VN4 Tug)",
+  "Chain tip spawn: pid=3156176881[\\s\\S]*Chain tip spawn: pid=3156176881",
+]
+
+[runtime]
+# CI-9's wall plus the post-dock seam steps: LoadGame 300, WarpToUT 120, RealSpawn 120,
+# mission 6000 (a MATCH-VELOCITY dock in practice), CommitTree 120, the rest on the default
+# budget. Expected wall about 15 minutes.
+budgetSeconds = 7200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
