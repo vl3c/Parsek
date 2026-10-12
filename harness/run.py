@@ -200,6 +200,10 @@ POLL_INTERVAL_SECONDS = hlib.SEAM_SLOW_POLL_SECONDS
 # A seam step's "still waiting" Verbose line is time-throttled (it used to be every
 # 40th poll, i.e. every 10 s at the old flat 0.25 s cadence).
 SEAM_POLL_VERBOSE_EVERY_SECONDS = 10.0
+# How often the boot-stall watchdog stats + reads KSP.log while the boot is not yet
+# ready. Far below its thresholds (hlib.BootWatchdogLimits), and coarse enough that
+# the fast seam poll right after the LoadGame write does not re-stat the log 40x/s.
+BOOT_WATCH_POLL_SECONDS = 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -407,6 +411,11 @@ class Runtime:
     def launch(self, exe: str, args: Sequence[str], env: Dict[str, str], cwd: str):
         return subprocess.Popen([exe] + list(args), env=env, cwd=cwd,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def boot_watchdog_limits(self) -> "hlib.BootWatchdogLimits":
+        """The boot-stall watchdog thresholds (hlib constants). A seam so the
+        fake-KSP smoke can drive the watchdog in seconds instead of minutes."""
+        return hlib.BootWatchdogLimits()
 
     def poll_exit(self, proc) -> Optional[int]:
         return proc.poll()
@@ -1596,6 +1605,98 @@ def _response_has_terminal(lines: Sequence[str], step_id: str) -> Optional[str]:
     return None
 
 
+def _ksp_log_identity(path: str) -> Optional[Tuple[int, int]]:
+    """``(size, mtime_ns)`` of KSP.log, or None when it does not exist / cannot be
+    stat'ed. Taken once before launch (the stale-log baseline) and on every boot poll."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (int(st.st_size), int(st.st_mtime_ns))
+
+
+class BootWatch:
+    """The boot-stall watchdog's I/O half (decisions: hlib.decide_boot_stall,
+    hlib.boot_log_scan_start, hlib.scan_boot_ready). Watches THIS launch's KSP.log
+    from launch until the boot is READY - hlib.BOOT_READY_MARKER seen, or any seam
+    response line - and then latches off for the rest of the attempt, so it can never
+    fire after MAINMENU. Growth is measured on file size; KSP.log is line-flushed."""
+
+    TAIL_KEEP_BYTES = 4096
+
+    def __init__(self, log_path: str, pre_identity: Optional[Tuple[int, int]],
+                 launch_time: float, limits: "hlib.BootWatchdogLimits"):
+        self.log_path = log_path
+        self.pre_identity = pre_identity
+        self.launch_time = launch_time
+        self.limits = limits
+        self.offset: Optional[int] = None   # None while the file is still the stale log
+        self.size = 0
+        self.last_growth = launch_time
+        self.carry = b""
+        self.tail = b""
+        self.ready = False
+        self.ready_via = ""
+        self.next_poll = launch_time
+
+    def mark_ready(self, via: str, now: float, logger: "HarnessLogger") -> None:
+        if self.ready:
+            return
+        self.ready = True
+        self.ready_via = via
+        logger.info("Boot-Wait", "boot ready via=%s elapsed=%.1fs kspLogBytes=%d; "
+                                 "boot-stall watchdog off for this attempt"
+                    % (via, now - self.launch_time, self.size))
+
+    def _read_new(self, now: float) -> bool:
+        """Read this launch's new KSP.log bytes; True when the MAINMENU marker is
+        among them. A size change (either way) counts as growth."""
+        ident = _ksp_log_identity(self.log_path)
+        if self.offset is None:
+            start = hlib.boot_log_scan_start(self.pre_identity, ident)
+            if start is None:
+                return False
+            self.offset = start
+            self.size = ident[0]
+            self.last_growth = now
+        elif ident is None:
+            return False
+        else:
+            if ident[0] != self.size:
+                self.last_growth = now
+            if ident[0] < self.offset:
+                self.offset = 0
+                self.carry = b""
+            self.size = ident[0]
+        if self.size <= self.offset:
+            return False
+        try:
+            with open(self.log_path, "rb") as fh:
+                fh.seek(self.offset)
+                chunk = fh.read(self.size - self.offset)
+        except OSError:
+            return False
+        self.offset += len(chunk)
+        self.tail = (self.tail + chunk)[-self.TAIL_KEEP_BYTES:]
+        found, self.carry = hlib.scan_boot_ready(self.carry, chunk)
+        return found
+
+    def poll(self, now: float, logger: "HarnessLogger") -> Optional["hlib.BootStallDecision"]:
+        """A stalled decision, or None (ready, not yet due, or not stalled)."""
+        if self.ready or now < self.next_poll:
+            return None
+        self.next_poll = now + BOOT_WATCH_POLL_SECONDS
+        if self._read_new(now):
+            self.mark_ready("mainmenu", now, logger)
+            return None
+        decision = hlib.decide_boot_stall(now - self.launch_time, now - self.last_growth,
+                                          False, self.limits)
+        return decision if decision.stalled else None
+
+    def last_line(self) -> str:
+        return hlib.last_complete_log_line(self.tail)
+
+
 class DriveResult:
     def __init__(self):
         self.steps_with_ids: List[Dict] = []
@@ -1603,6 +1704,11 @@ class DriveResult:
         self.killed = False
         self.kill_scope = ""
         self.boot_crashed = False
+        # The boot-stall watchdog killed the tree before the boot was ready
+        # (INVALID boot-hang, retryable). `boot_hang` is the record: rule,
+        # stallSeconds, elapsedSeconds, kspLogBytes, lastLine.
+        self.boot_hung = False
+        self.boot_hang: Optional[Dict] = None
         self.batch_crashed = False
         self.pending_step_id: Optional[str] = None
         self.exit_code: Optional[int] = None
@@ -1990,7 +2096,8 @@ def _record_mid_mission_seam_writes(result: "DriveResult", mission_ctx, reserved
 def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                runtime: Runtime, logger: HarnessLogger, run_budget: float,
                mission_ctx: Optional[MissionContext] = None,
-               run_id: Optional[str] = None) -> DriveResult:
+               run_id: Optional[str] = None,
+               boot_watch: Optional[BootWatch] = None) -> DriveResult:
     result = DriveResult()
     steps = (spec.get("driver", {}) or {}).get("steps", []) or []
     commands_path = os.path.join(instance_dir, "parsek-test-commands.txt")
@@ -2166,6 +2273,29 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                 return result
 
             now = runtime.now()
+            # Boot-stall watchdog: only until the boot is ready (MAINMENU in this
+            # launch's KSP.log, or any seam response), then latched off. A boot
+            # crash (exit above) outranks it; it fires long before the 660 s
+            # LoadGame wait would have.
+            if boot_watch is not None and not boot_watch.ready:
+                if any_response_seen:
+                    boot_watch.mark_ready("seam-response", now, logger)
+                else:
+                    stall = boot_watch.poll(now, logger)
+                    if stall is not None:
+                        elapsed = now - boot_watch.launch_time
+                        last_line = boot_watch.last_line()
+                        logger.warn("Boot-Wait", hlib.format_boot_hang_line(
+                            stall, elapsed, boot_watch.size, last_line))
+                        result.boot_hung = True
+                        result.boot_hang = {"rule": stall.rule,
+                                            "stallSeconds": int(round(stall.stall_seconds)),
+                                            "elapsedSeconds": int(round(elapsed)),
+                                            "kspLogBytes": boot_watch.size,
+                                            "lastLine": last_line}
+                        result.killed_pids = runtime.kill_tree(proc)
+                        logger.info("Boot-Wait", "kill complete pids=%s" % result.killed_pids)
+                        return result
             if now - run_start > run_budget:
                 logger.warn("Budget", "budget exceeded scope=run elapsed=%.0f; killing process tree root pid=%d"
                             % (now - run_start, proc.pid))
@@ -2465,7 +2595,11 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         except OSError:
             log_text = ""
 
-    killed = drive.killed
+    # A boot-hang kill takes the KILLED short-circuit (the tree was killed, so the
+    # save is not ground truth and the log is read in killed-run mode) but is NOT a
+    # watchdog-budget KILLED: verifiers["killed"] below stays drive.killed, and
+    # classify_verdict names it INVALID boot-hang off driver["boot_hung"].
+    killed = drive.killed or drive.boot_hung
     detail: Dict[str, Dict] = {}
     # SF1: every subprocess-scoped verifier retry that fired this attempt, recorded in
     # the durable result JSON so a recovered flake is auditable AND the flake ledger can
@@ -2478,7 +2612,8 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     # The composition (seam-only vs autopilot carve-out, the EVA-4 missionOutcome
     # row) is missionverify.compose_driver_validity, which the mission mutation
     # checker replays; this shell keeps the log line and the R10 override below.
-    dv = missionverify.compose_driver_validity(ev, mission, drive.boot_crashed,
+    dv = missionverify.compose_driver_validity(ev, mission,
+                                               drive.boot_crashed or drive.boot_hung,
                                                drive.batch_crashed)
     driver_valid = dv.driver_valid
     stage_subkind = dv.stage_subkind
@@ -2592,7 +2727,7 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                    sel.multi, sel.per_category_count))
 
     verifiers: Dict = {
-        "killed": killed,
+        "killed": drive.killed,
         "batch_expected": requires_batch,
         "batch_present": batch_present,
         # False on every seam-only driver (no mission step -> every step already gates
@@ -2607,6 +2742,7 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         "instance_busy": False,
         "boot_crashed": drive.boot_crashed,
         "boot_crash_repeated": False,  # set by the caller across attempts
+        "boot_hung": drive.boot_hung,
         "batch_crashed": drive.batch_crashed,
         "valid": driver_valid,
         "stage_subkind": stage_subkind or "driver-stage",
@@ -3763,7 +3899,14 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         env.pop("PARSEK_ANALYZER_BASELINE_MODE", None)  # never set at KSP launch
         run_budget = float((spec.get("runtime", {}) or {}).get("budgetSeconds", 600))
         exe = runtime.resolve_exe(instance_dir)
+        # The boot-stall watchdog's stale-log baseline: KSP truncates KSP.log at
+        # boot, so the file as it stands BEFORE the launch is the previous run's.
+        ksp_log_path = os.path.join(instance_dir, "KSP.log")
+        boot_log_baseline = _ksp_log_identity(ksp_log_path)
         proc = runtime.launch(exe, [], env, instance_dir)
+        limits_fn = getattr(runtime, "boot_watchdog_limits", None)
+        boot_limits = limits_fn() if callable(limits_fn) else hlib.BootWatchdogLimits()
+        boot_watch = BootWatch(ksp_log_path, boot_log_baseline, runtime.now(), boot_limits)
         logger.info("Launch", "launch exe=%s pid=%s env=[TEST_COMMANDS=1 AUTORUN=%s EXIT=%s ISOLATED=%s RENDER_MANIFEST=%s] batchIsolated=%s budget=%ds"
                     % (exe, proc.pid, env.get("PARSEK_AUTORUN_TESTS", "unset"),
                        env.get("PARSEK_AUTORUN_EXIT", "0"),
@@ -3773,7 +3916,8 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
 
         # ---- DRIVE + BUDGET ----------------------------------------------
         drive = drive_seam(spec, instance_dir, run_save_name, proc, runtime, logger,
-                           run_budget, mission_ctx=mission_ctx, run_id=run_id)
+                           run_budget, mission_ctx=mission_ctx, run_id=run_id,
+                           boot_watch=boot_watch)
 
         # ---- VERIFY ------------------------------------------------------
         facts = run_verifiers(spec, instance_dir, run_save_name, drive, runtime, logger,
@@ -4504,6 +4648,10 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
     # that case, so a default-policy run's record is unchanged.
     if drive is not None and drive.tail_skip_opted_out:
         driver_rec[hlib.SKIP_TAIL_ON_UNMET_MISSION_KEY] = False
+    # The boot-stall watchdog's record. Emitted only when it fired, so every other
+    # run's record is unchanged.
+    if drive is not None and drive.boot_hang is not None:
+        driver_rec["bootHang"] = dict(drive.boot_hang)
     # HARNESS-MIDMISSION-COMMIT-BYPASS (report-only): the route-1 writes the tail gate
     # never sees. Emitted only when the mission actually wrote some, so every existing
     # run's record -- including every seam-only driver's -- is byte-identical.
@@ -4531,7 +4679,8 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
     verifiers_detail = facts["detail"] if facts else {}
     ef = spec.get("expectedFail", {}) or {}
 
-    killed = bool(drive and drive.killed)
+    # kspExit.killed reports that the harness killed the tree, by either watchdog.
+    killed = bool(drive and (drive.killed or drive.boot_hung))
     exit_code = drive.exit_code if drive else None
 
     # collect-logs on non-PASS (design results layout / edge 18).
