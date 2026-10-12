@@ -746,11 +746,13 @@ max = 7
 # limits native targets with it. mlib rejects a value under
 # 120 + 4 x RAILS_WARP_RATES[ceiling] (ceiling = approachMaxWarpFactor, else
 # coastWarpFactor). The flyby EXIT warp keeps soiLeadSeconds. Optional; 0 = off.
+# max is B22's 1,000,000 (the soiLeadSeconds scale): this lane's floor at
+# approachMaxWarpFactor 5 is 4,120, above the 3,600 the block first carried.
 [params.soiNativeLeadSeconds]
 required = false
 type = "number"
 min = 0.0
-max = 3600.0
+max = 1000000.0
 
 # triggerNativeLeadSeconds: the TIME-mode correction-trigger native warp (target
 # = the trigger UT) stays armed while time-to-trigger exceeds this many GAME s,
@@ -759,7 +761,7 @@ max = 3600.0
 required = false
 type = "number"
 min = 0.0
-max = 3600.0
+max = 1000000.0
 
 # =============================================================================
 # ORBIT-START (the b23/b24 block, LIVE-PROVEN on B23 flight 2). With

@@ -3590,7 +3590,7 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   167,279; the two pre-change runs differ by ~980 m). B22 2026-10-03_1106 vs 2026-10-01_2235
   coast wall 368 s -> 315 s, corrections 124.10 / 72.73 (was 124.10 / 72.81), Jool park
   within 19 km of 584,339 km.
-- [ ] Opt B30 and B29 into the coast native lead (and `circularizeNodeWaitWarp` where the
+- [ ] Opt B30 (B29: dropped, next item) into the coast native lead (and `circularizeNodeWaitWarp` where the
   lane has a park round-out node), then re-fly both and compare against their last runs:
   phase list, correction dv, arrival periapsis, capture and park. Last-run recoverable per
   the analyzer: B30 `2026-10-01_1009` ~740 s (capture 468 s and PARK 125 s are already fixed
@@ -3599,6 +3599,20 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   `RAILS_WARP_RATES[approachMaxWarpFactor]`. About 1.5 h of machine time; coordinate the
   machine lock with the other sessions before provisioning. Queued 2026-10-03 (operator: no
   more flights for now).
+- [x] ~~B29 coast native lead~~ DROPPED 2026-10-12 (operator ruling: measure variance first,
+  drop if main repeats). Opted in with B22's values (`soiNativeLeadSeconds` 10,000,
+  `triggerNativeLeadSeconds` 30), B29 `2026-10-11_1701` saved 207 s of mission wall
+  (2,023 -> 1,816 s) with identical corrections (1.97 / 21.00 m/s) but a Kerbin arrival
+  periapsis of 119.7 km and park pe 118.4 km. Plain main flew 102.1 km / 100.8 km
+  (`2026-10-11_1239`) and again 101.6 km / 100.3 km (`2026-10-12_0504`), so main varies by
+  ~0.5 km and the opt-in shifted the outcome by ~17 km. Not explained by the arrival-quality
+  round's timing alone: main's two runs planned it 60 s apart (ut 60,363,980 / 60,363,920)
+  and landed 0.5 km apart, the opt-in planned it at 60,364,000. Kept from the branch: the
+  b29 schema max for both keys raised from 3,600 to 1,000,000 (B29's floor is 4,120, so the
+  old max made every legal value unloadable). Open: find what the opt-in changes on B29's
+  final approach before retrying, and `_b5_native_warp` (`harness/missions/lib/mlib.py`
+  ~13469) re-issuing on +-200 s / +2,000 s SOI-estimate flips (~26 s of re-ramp on B29's
+  Jool exit).
 - [ ] Optional refresh re-flies of the b5 lanes last flown before #1958: B24, B33, B34, B35,
   B25, B28, B23 and B12. Their capture and PARK waste is already fixed in code; re-flying
   only refreshes the analyzer totals (~150-250 s recoverable each on the stale runs) and
