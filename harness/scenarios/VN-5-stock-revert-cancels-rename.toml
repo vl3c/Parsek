@@ -1,0 +1,156 @@
+schema = 1
+id = "VN-5-stock-revert-cancels-rename"
+# =====================================================================================
+# VN-5: A PLAIN STOCK REVERT TO LAUNCH CANCELS THE STOCK RENAME MADE IN THAT FLIGHT AND
+# KEEPS THE PARSEK ONE (design docs/dev/design-vessel-and-mission-names.md 7.6 and 15.3,
+# ruling 5, todo GC-7). AUTHORED 2026-10-12 on branch `vessel-names-proof`, NEVER FLOWN: a
+# reading run. saveParse stays REPORT-ONLY until an operator arms it.
+#
+# WHY A NEW VERB. VN-2 proved the same undo through Discard Re-Fly (load kind DiscardReFly);
+# the plain stock revert (load kind StockRevert, the same MemoryUndoRevertedFlight policy
+# cell) had no driver: ReFlyRevert refuses `reflyrevert-no-session` outside a Re-Fly, and
+# the only caller of FlightDriver.RevertToLaunch was the isolated in-game RevertFlow cell
+# (H64), which restores its batch baseline afterwards. `RevertToLaunch` calls the Esc menu
+# option's callback, so stock fires OnRevertToLaunchFlightState and reloads the post-init
+# flight state exactly as for a player.
+#
+# THE FLIGHT. gs1-two-stage-pad (GS-1's PRELAUNCH craft, H64's host): loading a PRELAUNCH
+# vessel sets stock's CanRevertToPostInit, so Revert to Launch is offered on the pad, and
+# the post-init state is the pad craft as loaded, still "GS1 Auto-Chute Booster". The load
+# is the flight entry that starts the flight epoch (`Flight epoch -> N`).
+#   (1) A near-instant pad recording, committed (VN-3's StartRecording / StopRecording /
+#       CommitTree / StopRecording order), so the vessel has a committed leg a Missions row
+#       rename can reach and the revert cannot take away.
+#   (2) The Missions window renames that row "VN5 Parsek": a ParsekRename decision, written
+#       through to the live pad craft (ruling 3).
+#   (3) RenameVessel "VN5 Stock", the stock dialog accept: a StockDialog decision that
+#       replaces the Parsek one; its undo entry holds the replaced decision.
+#   (4) RevertToLaunch. The load classifies StockRevert, and the undo walks the epoch newest
+#       first: the stock decision is dropped and "VN5 Parsek" restored, the ParsekRename
+#       entry is kept (`entries=2 undone=1 keptParsekRename=1`). The reverted pad craft comes
+#       back from the post-init state as "GS1 Auto-Chute Booster", a prior name of the
+#       restored decision, so a post-load pass writes "VN5 Parsek" through.
+#   (5) RenameVessel to the SAME name "VN5 Parsek" is a pure read (stock accepts it,
+#       Parsek's capture ignores an unchanged name): `old='VN5 Parsek' changed=false
+#       decision=ParsekRename` is the outcome reading.
+# PREDICTIONS a reading run must confirm: the post-load write is the OnLoad tail's proto pass
+# (`onload-tail:revert`) or the first-tick pass (`post-load:flight-ready`), either accepted;
+# the committed tree survives the revert (committed recordings stay in memory across an
+# in-session load), which the final read's `legs=[1-9]` and the save census witness.
+# READING-RUN NOTES: `reverttolaunch-unavailable` means stock did not offer the option (a
+# save whose active vessel was not PRELAUNCH at load); an `edit-target-unavailable` on the
+# edit step means the commit's optimizer renamed the captured leg id away.
+# =====================================================================================
+tier = "nightly"
+description = "VN-5: on GS-1's PRELAUNCH craft, a committed pad recording; a Parsek recording rename (VN5 Parsek) written through to the pad craft; a stock rename (VN5 Stock) replacing it; a plain stock Revert to Launch (no Re-Fly) is classified StockRevert, drops the stock rename, restores the Parsek one and writes it back onto the reverted craft."
+instanceProfile = "stock-minimal"
+tags = ["VN-5", "vessel-names", "GC-7", "rename", "stock-revert", "revert-undo",
+        "GS1", "runtime-handles", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },   expect = "OK" },
+  # LOAD-BEARING: the apply-pass and live-write lines are Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },        expect = "OK" },
+  # (1) The committed pad leg.
+  { cmd = "StartRecording",                                                            expect = "OK", budget = 180 },
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  { cmd = "CommitTree",                                                                expect = "OK", budget = 120 },
+  # CommitTree auto-resumes a recorder on the still-active vessel (H58 flight 1).
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c0",               expect = "OK" },
+  # (2) The Parsek rename of the committed row.
+  { cmd = "UiAction",       args = { op = "complexity", mode = "advanced" },           expect = "OK" },
+  { cmd = "UiAction",       args = { op = "open", window = "main" },                   expect = "OK" },
+  { cmd = "UiAction",       args = { op = "open", window = "missions" },               expect = "OK" },
+  { cmd = "UiAction",       args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "UiAction",       args = { op = "edit", window = "missions", field = "recordingname", key = "${c0.rec0}", draft = "VN5 Parsek", commit = "true" }, expect = "OK" },
+  # (3) The stock rename in the same flight.
+  { cmd = "RenameVessel",   args = { name = "VN5 Stock" },                             expect = "OK" },
+  # (4) The plain stock revert.
+  { cmd = "RevertToLaunch",                                                            expect = "OK", budget = 180 },
+  # The post-load pass runs on the first host tick after onFlightReady.
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  # (5) A same-name rename: a read of the live name and of the decision the store holds.
+  { cmd = "RenameVessel",   args = { name = "VN5 Parsek" },                            expect = "OK" },
+  { cmd = "FlushAndQuit",                                                              expect = "OK" },
+]
+
+[dimensionsCovered]
+# D14 values only (each already covered elsewhere). D1 `commit-revert-merge` stays H64's
+# claim: this lane's revert is the same stock call, here driven by the seam.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The committed near-instant pad recording (a start/stop keeps one, MC-3); the revert does
+# not commit the resumed stub. The ceiling absorbs an optimizer split.
+count = { min = 1, max = 3 }
+
+# REPORT-ONLY until a reading run. The committed leg and the live pad craft carry the
+# Parsek name; nothing carries the cancelled stock name.
+[expectations.recordings.structure]
+gating         = false
+recordingNames = { "VN5 Parsek" = { min = 1 }, "VN5 Stock" = { max = 0 }, "GS1 Auto-Chute Booster" = { max = 0 } }
+vesselNames    = { "VN5 Parsek" = { min = 1, max = 1 }, "VN5 Stock" = { max = 0 }, "GS1 Auto-Chute Booster" = { max = 0 } }
+
+[expectations.logContracts]
+required = [
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "committree committed=true",
+  # (2) The Parsek rename, written through to the pad craft.
+  "uiaction edit window=missions field=recordingname key=[0-9a-f]+ draft=VN5 Parsek committed=true ",
+  "\\[UI\\] Recording 'GS1 Auto-Chute Booster' renamed to 'VN5 Parsek' identity=\\S+ legs=[1-9][0-9]*",
+  "Vessel name decision recorded: identity=\\S+ 'GS1 Auto-Chute Booster' -> 'VN5 Parsek' source=ParsekRename ",
+  "Write-through applied: vessel pid=[0-9]+ guid=[0-9a-f]+ 'GS1 Auto-Chute Booster' -> 'VN5 Parsek' loaded=true namingPart=\\S+ reason=parsek-rename",
+  # (3) The stock rename replaces it.
+  "renamevessel applied pid=[0-9]+ old='VN5 Parsek' new='VN5 Stock' type=Ship active=true changed=true legs=[1-9][0-9]* decision=StockDialog decisionName='VN5 Stock'",
+  "Stock rename captured: source=StockDialog pid=[0-9]+ guid=[0-9a-f]+ 'VN5 Parsek' -> 'VN5 Stock' ",
+  # (4) The plain revert: classified StockRevert, the stock decision dropped, the Parsek one
+  # restored and kept, and the restored name written onto the reverted craft.
+  "reverttolaunch start pid=[0-9]+ name='VN5 Stock' situation=PRELAUNCH ",
+  "Load classified: early=\\w+ refined=StockRevert scene=FLIGHT",
+  "Revert undo: dropped StockDialog decision seq=[0-9]+ 'VN5 Stock', restored seq=[0-9]+ 'VN5 Parsek' guids=[1-9]",
+  "Revert undo \\(onload:StockRevert\\): epoch=[0-9]+ entries=2 undone=1 keptParsekRename=1 keptReplacedLater=0 ",
+  "reverttolaunch start [\\s\\S]*Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ 'GS1 Auto-Chute Booster' -> 'VN5 Parsek' [^\\r\\n]*reason=(?:onload-tail:revert|post-load:flight-ready)",
+  "reverttolaunch complete pid=[0-9]+ name='[^'\\r\\n]*' situation=PRELAUNCH elapsed=",
+  # (5) The read: the live craft carries the Parsek name and the store holds the Parsek
+  # decision.
+  "renamevessel applied pid=[0-9]+ old='VN5 Parsek' new='VN5 Parsek' type=Ship active=true changed=false legs=[1-9][0-9]* decision=ParsekRename decisionName='VN5 Parsek'",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "renamevessel rejected",
+  "renamevessel error",
+  "reverttolaunch rejected",
+  "reverttolaunch error",
+  "Parsek rename refused",
+  # The revert never writes the cancelled stock name back.
+  "reverttolaunch start [\\s\\S]*Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ '[^'\\r\\n]*' -> 'VN5 Stock' ",
+  # A revert is not a quickload: the F9 path would keep every rename.
+  "Load classified: early=\\w+ refined=QuickloadFlight ",
+]
+
+[runtime]
+# Wall for the whole drive phase including boot: LoadGame 300, StartRecording 180,
+# CommitTree 120, RevertToLaunch 180 (a flight reload), the rest on the default budget.
+# Expected wall about 3 minutes (boot, one pad reload).
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

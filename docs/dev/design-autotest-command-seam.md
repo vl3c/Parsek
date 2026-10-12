@@ -542,6 +542,14 @@ the updates below record how each verb arrived.
 > `RF-20-stashed-eva-slot-refly`. `FlySlot` stays reserved for the reason above. Full
 > contract below (`#### StashSlot`).
 
+> Update (PartAction / RevertToLaunch, 2026-10-12): two ADDITIVE verbs, taking the table to
+> **50 implemented / 4 reserved**, for the remaining vessel-name claims (design
+> `design-vessel-and-mission-names.md` 15.3): `PartAction button=undock|decouple|controlfrom
+> [part=] [pid=]` presses one button of one part's stock right-click menu, and `RevertToLaunch`
+> is stock's Revert to Launch outside a Re-Fly session. `RenameVessel` moves from
+> `RequiresFlight` to a new `RequiresVesselScene` row (FLIGHT or the Tracking Station). Full
+> contracts below (`#### PartAction`, `#### RevertToLaunch`).
+
 > Update (RenameVessel, 2026-10-11): one ADDITIVE verb, `RenameVessel name= [pid=]`, taking
 > the table to **48 implemented / 4 reserved**. A player's accept in the stock rename dialog for
 > one live vessel, so Parsek's vessel-name capture runs as in play (vessel names, design
@@ -4189,7 +4197,10 @@ it never listens to `onVesselRename`, which stock also fires from automation). W
 `vesselName` directly renames the vessel and records nothing, so a lane that proves the
 vessel-names feature needs the accept itself (vessel names design 15.3).
 
-**Grammar.** `cmd=RenameVessel name=<new name> [pid=<persistentId>]`, issued in FLIGHT. `name=`
+**Grammar.** `cmd=RenameVessel name=<new name> [pid=<persistentId>]`, issued in FLIGHT or the
+Tracking Station (since 2026-10-12; the TS vessel info header's rename, on an UNLOADED vessel,
+where the capture writes the naming part on the proto part snapshots, `namingPart=proto-part`;
+the TS has no active vessel, so a TS rename names its `pid=`). `name=`
 REQUIRED, passed to stock verbatim; absent or empty is `renamevessel-name-arg-missing`, blank
 is `renamevessel-name-arg-invalid`. `pid=` OPTIONAL (absent: the active vessel), Recover's
 grammar (`uint.TryParse(NumberStyles.None)`, nonzero) else `renamevessel-pid-arg-invalid`.
@@ -4207,13 +4218,83 @@ decisionName` (`decision=none` when the store holds none). `old` is the live sto
 before the accept, so a rename doubles as a read of what a load or a write-through left on the
 vessel.
 
-**Phases.** SINGLE-PHASE, `RequiresFlight`, default budget (60 s). **Refusals** (REJECTED):
-the three arg reasons above and `renamevessel-vessel-not-found` / `-target-is-ghost`
+**Phases.** SINGLE-PHASE, `RequiresVesselScene` (FLIGHT or the Tracking Station; elsewhere the
+bounded DEFER `not-in-vessel-scene`; `RequiresFlight` before 2026-10-12), default budget (60 s).
+**Refusals** (REJECTED): the three arg reasons above and `renamevessel-vessel-not-found` / `-target-is-ghost`
 (arg-class), `renamevessel-no-active-vessel` / `-accept-unavailable` (gate-class). The three
 arg reasons are deterministic (`DETERMINISTIC_SEAM_ERROR_REASONS`). World-mutating tail role,
 `recording` post-mission role; state-mutating for the FlushAndQuit save. Pure half
 `TestCommandRenameVessel`, mirrored by `RenameVesselSourceSyncTests`. Lanes:
-`VN-1-stock-rename-staging-f9`, `VN-2-refly-rename-discard`, `VN-3-spawn-rename-rewind`.
+`VN-1-stock-rename-staging-f9`, `VN-2-refly-rename-discard`, `VN-3-spawn-rename-rewind`, and the
+wave-2 lanes `VN-4` .. `VN-8` (`VN-6-ts-rename-then-decouple` renames from the Tracking Station).
+
+#### PartAction (additive; one button of one part's stock right-click menu)
+
+**Why.** Three vessel-name claims hinge on a stock part event no mission or verb drove: an
+undock after a dock (the dock-absorb row turning into an UndockReturn link), a decouple after a
+load (stock's `onVesselWasModified` re-derives the name from the priority naming part, so a
+rename that left the part behind reverts), and Control From Here on a part below a decoupler
+(the staging race where `ModuleDecouple.WaitAndSwitchFocus` renames the OLD vessel one Update
+after the split). The PAW buttons are `KSPEvent`s; the verb invokes the module's own
+`BaseEvent`, exactly what the button does.
+
+**Grammar.** `cmd=PartAction button=<undock|decouple|controlfrom> [part=<part name>]
+[pid=<persistentId>]`, issued in FLIGHT. `button=` REQUIRED, closed, case-sensitive
+(`partaction-button-arg-missing` / `-arg-invalid`); `part=` is the part's runtime name (dot form,
+`Decoupler.1`), REQUIRED for `decouple` and `controlfrom` (`partaction-part-arg-missing`),
+OPTIONAL for `undock`; `pid=` OPTIONAL (absent: the active vessel), Recover's grammar
+(`partaction-pid-arg-invalid`).
+
+**Behavior.** Resolves a LOADED, non-ghost vessel (`-no-active-vessel`, `-vessel-not-found`,
+`-target-is-ghost`, `-vessel-unloaded`), then collects the candidate buttons: every module on the
+named part (or on any part, for an undock without `part=`) whose event for the button
+(`Undock`; `Decouple`; `MakeReference`, else `MakeReferenceTransform`) is `active` and
+`guiActive`. An undock folds the two ports of a docked pair into one candidate. Exactly one
+candidate is pressed; none is `partaction-part-not-found` (a named part the vessel lacks) or
+`partaction-event-unavailable` (no live button), more than one `partaction-part-ambiguous`.
+`BaseEvent.Invoke()` runs synchronously, so the vessel an undock or a decouple creates exists
+on return: it is the pid present after the call and absent before. Line `partaction applied
+button= pid= part='..' partId= event= newPid= newName='..' vessels=N->M activePid=
+activeName='..'`; payload `button pid part partId event newPid newName vesselsBefore
+vesselsAfter activePid activeName`. Names are read at once, so stock's one-Update rename after
+a staging split is NOT in them (VN-8 reads it from the save).
+
+**Phases.** SINGLE-PHASE, `RequiresFlight`, default budget (60 s); an exception from the event is
+the ERROR `partaction-event-threw`. The four arg reasons are deterministic
+(`DETERMINISTIC_SEAM_ERROR_REASONS`). World-mutating tail role, `recording` post-mission role;
+state-mutating for the FlushAndQuit save. Pure half `TestCommandPartAction`, applier
+`ParsekTestCommandAddon.PartAction.cs`, mirrored by `PartActionSourceSyncTests`. Lanes:
+`VN-4-dock-undock-rename` (undock), `VN-6-ts-rename-then-decouple` (decouple),
+`VN-8-control-part-leaves-staging` (controlfrom + decouple).
+
+#### RevertToLaunch (additive; stock's Revert to Launch outside a Re-Fly)
+
+**Why.** The plain revert (load kind StockRevert, the `MemoryUndoRevertedFlight` cell of the
+`VesselNames` policy row) had no driver: `ReFlyRevert` refuses `reflyrevert-no-session`
+outside a Re-Fly, and the only other caller of `FlightDriver.RevertToLaunch` is the isolated
+in-game `RevertFlow` cell, which restores its batch baseline afterwards.
+
+**Grammar.** `cmd=RevertToLaunch`, no args, issued in FLIGHT.
+
+**Behavior.** Refuses a live Re-Fly marker (`reverttolaunch-refly-session`: the prefix would
+answer with Parsek's Re-Fly dialog, which is `ReFlyRevert`'s job) and a flight stock offers no
+Revert to Launch in (`reverttolaunch-unavailable`: `FlightDriver.CanRevertToPostInit` false, no
+`PostInitState`, or the game's `CanRestart` off; loading a PRELAUNCH vessel sets
+`CanRevertToPostInit`). Otherwise it logs `reverttolaunch start pid= name='..' situation=
+recording= hasActiveTree=` and calls `FlightDriver.RevertToLaunch()`, the Esc menu option's
+callback, so stock fires `OnRevertToLaunchFlightState` and reloads the post-init flight state.
+It completes once a NEW flight is ready (LoadGame's flight-ready rule: a `ParsekFlight` other
+than the starting one that observed its `onFlightReady`, and an unpacked active vessel): line
+`reverttolaunch complete pid= name='..' situation= elapsed=`, payload `scene activePid
+activeName situation`.
+
+**Phases.** TWO-PHASE, `RequiresFlight`, 180 s (`DeferralBudget.RevertToLaunchSeconds`, the
+`LaunchFromEditor` size: a flight bootstrap that reads no save; NOT a `DEFERRED_SEAM_VERB`).
+Dispatch refuses it over a LoadGame in flight or a merge journal (the `ExitToSpaceCenter` pair).
+ERRORs: `reverttolaunch-threw`, `revert-failed-returned-to-menu`, `revert-timeout`. Both REJECTED
+reasons are gate-class. World-mutating tail role, `recording` post-mission role. Pure half
+`TestCommandRevertToLaunch`, applier `ParsekTestCommandAddon.RevertToLaunch.cs`, mirrored by
+`RevertToLaunchSourceSyncTests`. Lane: `VN-5-stock-revert-cancels-rename`.
 
 ### Addon lifecycle
 
@@ -4338,6 +4419,7 @@ wall-clock. Some verbs need a different bound and override the default:
 | `Recover` | 120 s | TWO-PHASE, the `ExitToSpaceCenter` size: stock's save, the Space Center load and the 8-frame delay before `VesselRetrieval.recoverVessels`; NOT a `DEFERRED_SEAM_VERB` |
 | `TrackingStationRecover` | 120 s | TWO-PHASE, the `Recover` size: the Tracking Station load, a few frames of select / confirm / summary dismissal, and the Space Center load back; NOT a `DEFERRED_SEAM_VERB` |
 | `KscMarkerRecover` | 60 s | TWO-PHASE, the default size named: no scene load, the 180-frame marker wait, stock's one-frame recovery and a summary dismissal; NOT a `DEFERRED_SEAM_VERB` |
+| `RevertToLaunch` | 180 s | TWO-PHASE, the `LaunchFromEditor` size: stock's flight reload from the post-init state plus LoadGame's flight-ready wait; no save is parsed off disk, so NOT a `DEFERRED_SEAM_VERB` |
 | `ReFlyRevert` | 300 s | TWO-PHASE, the `InvokeRewind` / `InvokeRewindToLaunch` size: the resume settle (up to 30 s) and the stock menus, then Discard's quicksave `LoadGame` plus the Space Center / editor load or Retry's flight reload; a `DEFERRED_SEAM_VERB` |
 | `AnswerMergeDialog` | 60 s | MEASURED 2026-10-06 over 859 collected runs (2026-09-10 to 2026-10-05): OK n=65, p50 3.3 s, p99 6.6 s, max 7.2 s. 4x the OK max is 29 s; the floor is twice `TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds` (30 s), which the re-fly fallback spends before the driven exit (unit-guarded). Was 120 s; all 6 non-OK outcomes (4 `no-refly-dialog` TIMEOUT, 2 `answer-timeout` ERROR) waited the full 120 s and none was a slow success |
 | `EvaGroundScience` | 60 s | MEASURED 2026-10-06 over the same corpus: OK n=412, p50 0.9 s, p99 5.5 s, max 5.5 s (step 3.3, take 0.5, place 3.6, pickup 5.5). Each action is its own command, so the budget bounds one action. 4x the OK max is only 22 s, but the place ladder counts frames (about 1,000 worst case), so 60 s keeps it inside the budget down to about 17 fps. Was 120 s (the EvaExit size); all 37 timeouts (27 `step-timeout`, 5 `placement-timeout`, 3 `place-gate-timeout`, 2 `pickup-timeout`) waited the full 120 s, 4,440 s in all |

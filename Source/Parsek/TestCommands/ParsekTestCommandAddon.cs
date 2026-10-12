@@ -1063,6 +1063,13 @@ namespace Parsek.TestCommands
                 TryCompleteReFlyRevert(now);
                 return;
             }
+            // RevertToLaunch, in the .RevertToLaunch.cs partial: stock's plain Revert to
+            // Launch, answered once the NEW flight scene settled.
+            if (completionVerb == TestCommandRevertToLaunch.Verb)
+            {
+                TryCompleteRevertToLaunch(now);
+                return;
+            }
 
             bool done = false;
             string verdict = null;
@@ -1619,6 +1626,11 @@ namespace Parsek.TestCommands
         // RenameVessel: body in the sibling ParsekTestCommandAddon.RenameVessel.cs. Single-phase
         // (the stock accept and Parsek's capture run synchronously), so no TryComplete*.
         void ITestCommandExecutor.RenameVessel(ParsedCommand cmd) => RenameVesselImpl(cmd);
+        // PartAction: body in the sibling ParsekTestCommandAddon.PartAction.cs. Single-phase
+        // (the pressed part-menu event runs synchronously), so no TryComplete*.
+        void ITestCommandExecutor.PartAction(ParsedCommand cmd) => PartActionImpl(cmd);
+        // RevertToLaunch: body + two-phase completion in ParsekTestCommandAddon.RevertToLaunch.cs.
+        void ITestCommandExecutor.RevertToLaunch(ParsedCommand cmd) => RevertToLaunchImpl(cmd);
 
         private void InvokeExecutor(ParsedCommand cmd)
         {
@@ -1687,6 +1699,8 @@ namespace Parsek.TestCommands
                 case "KscMarkerRecover": exec.KscMarkerRecover(cmd); break;
                 case "ReFlyRevert": exec.ReFlyRevert(cmd); break;
                 case "RenameVessel": exec.RenameVessel(cmd); break;
+                case "PartAction": exec.PartAction(cmd); break;
+                case "RevertToLaunch": exec.RevertToLaunch(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

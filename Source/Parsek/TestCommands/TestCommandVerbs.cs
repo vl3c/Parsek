@@ -316,7 +316,22 @@ namespace Parsek.TestCommands
             // own type, so Parsek's Harmony capture pair records the decision exactly as for
             // a player. Contract on TestCommandRenameVessel; SINGLE-PHASE, RequiresFlight,
             // default budget. State-mutating (it renames a live vessel and records a decision).
+            // Since 2026-10-12 it also runs in the Tracking Station (RequiresVesselScene), on an
+            // unloaded vessel, the TS vessel-info header's rename.
             "RenameVessel",
+            // ADDITIVE (48 -> 50 implemented, reserved unchanged at 4): the two stock controls
+            // the remaining vessel-name claims need (design-vessel-and-mission-names.md 15.3).
+            //   PartAction button=undock|decouple|controlfrom [part=] [pid=] presses one button of
+            //     one part's stock right-click menu (ModuleDockingNode.Undock,
+            //     ModuleDecouplerBase.Decouple, ModuleCommand.MakeReference) through its
+            //     BaseEvent. Contract on TestCommandPartAction; SINGLE-PHASE, RequiresFlight,
+            //     default budget.
+            //   RevertToLaunch is stock's Revert to Launch OUTSIDE a Re-Fly (ReFlyRevert owns
+            //     the in-session one): FlightDriver.RevertToLaunch(), answered once the new
+            //     flight settles. Contract on TestCommandRevertToLaunch; TWO-PHASE,
+            //     RequiresFlight, 180 s.
+            "PartAction",
+            "RevertToLaunch",
         };
 
         // Reserved (recognized, not implemented in v1): 4 verbs.

@@ -1108,7 +1108,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # live Re-Fly, answered on Parsek's Re-Fly revert dialog.
         # 48 / 4 after RenameVessel, an ADDITION by one: a player's accept in the stock
         # rename dialog, so Parsek's vessel-name capture runs as in play.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 48)
+        # 50 / 4 after PartAction and RevertToLaunch, an ADDITION by two: a part's stock
+        # right-click menu button, and stock's plain Revert to Launch (vessel-names proof).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 50)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -16703,7 +16705,10 @@ class RenameVesselSourceSyncTests(unittest.TestCase):
         self.assertTrue(any("renamevessel-name-arg-missing" in e for e in v.errors), v.errors)
 
     VN_LANES = ("VN-1-stock-rename-staging-f9.toml", "VN-2-refly-rename-discard.toml",
-                "VN-3-spawn-rename-rewind.toml")
+                "VN-3-spawn-rename-rewind.toml", "VN-4-dock-undock-rename.toml",
+                "VN-5-stock-revert-cancels-rename.toml", "VN-6-ts-rename-then-decouple.toml",
+                "VN-7-preupgrade-spawn-backfill-rewind.toml",
+                "VN-8-control-part-leaves-staging.toml")
 
     def test_the_committed_lanes_validate_and_drive_the_verb(self):
         for name in self.VN_LANES:
@@ -16722,6 +16727,130 @@ class RenameVesselSourceSyncTests(unittest.TestCase):
                 structure = spec["expectations"]["recordings"]["structure"]
                 self.assertIs(False, structure.get("gating"))
                 self.assertIn("recordingNames", structure)
+
+
+class PartActionSourceSyncTests(unittest.TestCase):
+    """`PartAction`. Reads OUTSIDE harness/: the verb, the three arg keys, the closed `button=`
+    vocabulary and the refusal reasons (both arrays IN ORDER) of the comment-stripped
+    TestCommands/TestCommandPartAction.cs, plus the applier's press through the module's own
+    BaseEvent (a direct method call would skip nothing today, but the PAW invokes the event)."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# PartAction tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_keys_values_and_reasons_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandPartAction.cs")
+        self.assertIn('internal const string Verb = "%s";' % hlib.PARTACTION_VERB, text)
+        self.assertIn('internal const string ButtonKey = "%s";' % hlib.PARTACTION_BUTTON_KEY, text)
+        self.assertIn('internal const string PartKey = "%s";' % hlib.PARTACTION_PART_KEY, text)
+        self.assertIn('internal const string PidKey = "%s";' % hlib.PARTACTION_PID_KEY, text)
+        for token, const in zip(hlib.PARTACTION_BUTTON_VALUES,
+                                ("UndockToken", "DecoupleToken", "ControlFromToken")):
+            self.assertIn('internal const string %s = "%s";' % (const, token), text)
+        self.assertIn("ButtonValues = { UndockToken, DecoupleToken, ControlFromToken };", text)
+        self.assertIn("kind == PartActionKind.Decouple || kind == PartActionKind.ControlFrom", text)
+        self.assertEqual(("decouple", "controlfrom"), hlib.PARTACTION_BUTTONS_REQUIRING_PART)
+        self.assertEqual(list(hlib.PARTACTION_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+        for reason in hlib.PARTACTION_REASONS:
+            self.assertIn(hlib._SEAM_REFUSAL_SUBKINDS.get(reason),
+                          ("driver-arg", "driver-gate"), reason)
+
+    def test_the_applier_presses_the_part_menu_event(self):
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.PartAction.cs")
+        self.assertIn("c.Event.Invoke();", applier)
+        self.assertIn("module.Events[eventNames[e]]", applier)
+        self.assertIn("!ev.active || !ev.guiActive", applier)
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.PARTACTION_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(60.0, hlib.dispatch_deferral_budget(verb))
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertFalse(hlib.post_mission_step_gates(verb))
+        # PartAction validates its own closed `button=`; no closed-arg row claims the key.
+        self.assertNotIn(hlib.PARTACTION_BUTTON_KEY, hlib.VERB_SCOPED_CLOSED_ARGS)
+        for reason in ("partaction-button-arg-missing", "partaction-button-arg-invalid",
+                       "partaction-part-arg-missing", "partaction-pid-arg-invalid"):
+            self.assertIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        for reason in ("partaction-vessel-not-found", "partaction-event-unavailable",
+                       "partaction-no-active-vessel"):
+            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+
+    def test_the_step_validator(self):
+        v = hlib.validate_part_action_step
+        self.assertEqual([], v(0, {"button": "undock"}))
+        self.assertEqual([], v(0, {"button": "undock", "pid": "${spawn.pid}"}))
+        self.assertEqual([], v(0, {"button": "decouple", "part": "Decoupler.1"}))
+        self.assertEqual([], v(0, {"button": "controlfrom", "part": "probeCoreOcto2.v2", "pid": "7"}))
+        self.assertIn("partaction-button-arg-missing", v(0, {})[0])
+        self.assertIn("partaction-button-arg-invalid", v(0, {"button": "Undock"})[0])
+        self.assertIn("partaction-button-arg-invalid", v(0, {"button": "stage"})[0])
+        self.assertIn("partaction-part-arg-missing", v(0, {"button": "decouple"})[0])
+        self.assertIn("partaction-part-arg-missing", v(0, {"button": "controlfrom", "part": ""})[0])
+        for bad in ("0", "abc", "4294967296", "+5"):
+            with self.subTest(pid=bad):
+                self.assertIn("partaction-pid-arg-invalid", v(0, {"button": "undock", "pid": bad})[0])
+
+    def test_validate_spec_runs_the_step_validator(self):
+        spec = copy.deepcopy(load_spec("B10-career-passive-safety.toml"))
+        steps = spec["driver"]["steps"]
+        steps.insert(len(steps) - 1, {"cmd": hlib.PARTACTION_VERB, "args": {"button": "decouple"}})
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertTrue(any("partaction-part-arg-missing" in e for e in v.errors), v.errors)
+
+
+class RevertToLaunchSourceSyncTests(unittest.TestCase):
+    """`RevertToLaunch`. Reads OUTSIDE harness/: the verb and the refusal reasons (IN ORDER) of
+    the comment-stripped TestCommands/TestCommandRevertToLaunch.cs, the applier's call of the
+    stock option's callback, and the C# budget row."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# RevertToLaunch tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_verb_and_reasons_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandRevertToLaunch.cs")
+        self.assertIn('internal const string Verb = "%s";' % hlib.REVERTTOLAUNCH_VERB, text)
+        self.assertEqual(list(hlib.REVERTTOLAUNCH_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+        for reason in hlib.REVERTTOLAUNCH_REASONS:
+            self.assertEqual("driver-gate", hlib._SEAM_REFUSAL_SUBKINDS.get(reason), reason)
+
+    def test_the_applier_calls_the_stock_option_and_the_budget_matches(self):
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.RevertToLaunch.cs")
+        self.assertIn("FlightDriver.RevertToLaunch();", applier)
+        self.assertIn("TestCommandLoadGame.IsFlightReadyForThisLoad(", applier)
+        dispatcher = self._source("TestCommands", "TestCommandDispatcher.cs")
+        self.assertIn("internal const double RevertToLaunchSeconds = %.1f;"
+                      % hlib.dispatch_deferral_budget(hlib.REVERTTOLAUNCH_VERB), dispatcher)
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.REVERTTOLAUNCH_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(180.0, hlib.dispatch_deferral_budget(verb))
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        for reason in hlib.REVERTTOLAUNCH_REASONS:
+            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+
+    def test_the_step_validator(self):
+        self.assertEqual([], hlib.validate_revert_to_launch_step(0, {}))
+        errs = hlib.validate_revert_to_launch_step(3, {"target": "launch"})
+        self.assertEqual(1, len(errs))
+        self.assertIn("takes no args", errs[0])
 
 
 class GuiCensusSeamVerbTests(unittest.TestCase):

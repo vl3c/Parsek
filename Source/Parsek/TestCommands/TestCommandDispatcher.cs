@@ -287,6 +287,11 @@ namespace Parsek.TestCommands
         // ----- RenameVessel (a player's accept in the stock rename dialog, for one live
         // vessel: Vessel.onVesselRenameAccept by reflection, so Parsek's capture runs) -----
         void RenameVessel(ParsedCommand cmd);
+        // ----- PartAction (one button of one part's stock right-click menu: Undock,
+        // Decouple, Control From Here) -----
+        void PartAction(ParsedCommand cmd);
+        // ----- RevertToLaunch (stock's Revert to Launch outside a Re-Fly session) -----
+        void RevertToLaunch(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -305,6 +310,11 @@ namespace Parsek.TestCommands
         /// Space Center or the Tracking Station; else Defer(not-in-warp-scene). WarpToUT
         /// only.</summary>
         RequiresWarpScene,
+
+        /// <summary>Requires a scene that holds live <c>Vessel</c> objects a player can rename:
+        /// FLIGHT or the Tracking Station; else Defer(not-in-vessel-scene). RenameVessel
+        /// only.</summary>
+        RequiresVesselScene,
     }
 
     /// <summary>
@@ -355,6 +365,21 @@ namespace Parsek.TestCommands
             => scene == TestCommandScene.Flight
                || scene == TestCommandScene.SpaceCenter
                || scene == TestCommandScene.TrackingStation;
+
+        /// <summary>
+        /// The wrong-scene DEFER token for a <see cref="VerbSceneRequirement.RequiresVesselScene"/>
+        /// verb (RenameVessel): the run is in a scene with no renamable live vessel (the main
+        /// menu, the Space Center, the editor). A bounded defer, the FLIGHT verbs' shape.
+        /// </summary>
+        internal const string NotInVesselSceneReason = "not-in-vessel-scene";
+
+        /// <summary>
+        /// The scenes where stock lets a player rename a vessel from its live <c>Vessel</c>:
+        /// FLIGHT (PAW, map header) and the Tracking Station (the vessel info header). KSP
+        /// 1.12.5 has no Space Center rename path (design 5.1).
+        /// </summary>
+        internal static bool IsVesselScene(TestCommandScene scene)
+            => scene == TestCommandScene.Flight || scene == TestCommandScene.TrackingStation;
 
         /// <summary>
         /// FLIGHT verbs that answer <c>REJECTED not-in-flight</c> at once in a settled
@@ -584,11 +609,19 @@ namespace Parsek.TestCommands
                 // a typed REJECTED instead (reflyrevert-wrong-scene), next to its other
                 // pre-press refusal, reflyrevert-no-session.
                 ["ReFlyRevert"] = VerbSceneRequirement.RequiresGameLoaded,
-                // RenameVessel. RequiresFlight: the stock rename dialog it stands in for is
-                // reached from a live vessel's PAW / map header, and the verb resolves its
-                // target among FlightGlobals.Vessels. Rides the default budget (the wait is
-                // only the scene-arrival defer; the accept is synchronous).
-                ["RenameVessel"] = VerbSceneRequirement.RequiresFlight,
+                // RenameVessel. RequiresVesselScene (RequiresFlight before 2026-10-12): the
+                // stock rename dialog it stands in for is reached from a live vessel's PAW /
+                // map header in FLIGHT and from the vessel info header in the Tracking
+                // Station, and the verb resolves its target among FlightGlobals.Vessels, which
+                // both scenes fill. Rides the default budget (the wait is only the
+                // scene-arrival defer; the accept is synchronous).
+                ["RenameVessel"] = VerbSceneRequirement.RequiresVesselScene,
+                // PartAction. RequiresFlight: a part's right-click menu exists only on a loaded
+                // vessel in FLIGHT. Default budget (the event runs synchronously).
+                ["PartAction"] = VerbSceneRequirement.RequiresFlight,
+                // RevertToLaunch. RequiresFlight: stock offers Revert to Launch only from the
+                // flight Esc menu. RevertToLaunchSeconds (180 s, a FLIGHT bootstrap).
+                ["RevertToLaunch"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>
@@ -639,6 +672,8 @@ namespace Parsek.TestCommands
                 return DispatchResult.Defer("game-not-loaded");
             if (req == VerbSceneRequirement.RequiresWarpScene && !IsWarpScene(state.Scene))
                 return DispatchResult.Defer(NotInWarpSceneReason);
+            if (req == VerbSceneRequirement.RequiresVesselScene && !IsVesselScene(state.Scene))
+                return DispatchResult.Defer(NotInVesselSceneReason);
 
             // 4. Per-verb extra guards (mirroring how the LoadGame guards live here).
             switch (parsed.Verb)
@@ -818,6 +853,9 @@ namespace Parsek.TestCommands
                 // takes the same pair: never over a LoadGame's own scene change, never over a
                 // re-fly merge journal mid-finalize (the dialog also hides Discard then).
                 case "ReFlyRevert":
+                // RevertToLaunch reloads the flight from stock's post-init state: the same
+                // pair, for the same two reasons.
+                case "RevertToLaunch":
                     // The ExitToSpaceCenter pair, for its two reasons: Recover drives a
                     // scene exit (TrackingStationRecover two: into the Tracking Station and
                     // back; KscMarkerRecover a recovery plus stock's persistent save) and
@@ -1102,6 +1140,10 @@ namespace Parsek.TestCommands
         /// Their size, 300 s.</summary>
         internal const double ReFlyRevertSeconds = 300.0;
 
+        /// <summary>RevertToLaunch: stock's flight reload from the post-init state, a FLIGHT
+        /// bootstrap that re-reads no save off disk (the LaunchFromEditor size).</summary>
+        internal const double RevertToLaunchSeconds = 180.0;
+
         /// <summary>
         /// The deferral budget (seconds) for <paramref name="verb"/>. For RunTests the
         /// scenario's declared runtime budget is authoritative when supplied via
@@ -1155,6 +1197,8 @@ namespace Parsek.TestCommands
                     return KscMarkerRecoverSeconds;
                 case "ReFlyRevert":
                     return ReFlyRevertSeconds;
+                case "RevertToLaunch":
+                    return RevertToLaunchSeconds;
                 // KscAction rides the default 60 s (career-ready / SPACECENTER wait; the
                 // action itself is immediate). SimulateStockSwitchClick rides it too: it is
                 // SINGLE-phase (the switch and its consume are synchronous inside

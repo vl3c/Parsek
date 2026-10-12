@@ -46,6 +46,10 @@ _(unreleased - entries accumulate here per commit)_
 - **Automated tests can rename a vessel the way a player does.** A new test command accepts the
   stock rename dialog for a vessel, and three new test flights check vessel renames end to end:
   staging, quickload, re-fly with Discard, a spawned vessel and a rewind. (GC-7)
+- **Automated tests can undock, decouple, pick a control point and revert to launch.** Two new
+  test commands press a part's stock menu buttons and stock's Revert to Launch, and vessel renames
+  also work from the Tracking Station. Five new test flights check renames across a dock and
+  undock, a revert, a Tracking Station rename, an older save and a staging split. (GC-7)
 - **The flight efficiency report counts less false waste.** KSP's own warp slowdown before a
   warp target, MechJeb's settle before a burn and MechJeb's docking approach no longer count as
   time a better warp could save. Real waste such as a capped coast warp still counts.
