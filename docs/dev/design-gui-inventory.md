@@ -1036,8 +1036,9 @@ with the block's label style from the widest Every readout (`1x (every window)` 
 so both `-` buttons share a column and both `+` buttons another whatever the values; both rows
 take one height, a slot-button line's (`StepperRowHeight`), whether or not the block's slot
 column reaches them; a `-` at its
-floor (1x / 0) is greyed with its reason on hover. Then `Flights used:` (names, a
-repeated name numbered `Name [1]`, `Name [2]`) and the manual-looping clause after
+floor (1x / 0) is greyed with its reason on hover. Then `Flights used:` (the vessels, named as
+the Missions tab names them: one number per vessel, `Name`, `Name [2]`, two legs of one vessel
+listed once) and the manual-looping clause after
 `Built from mission 'X'.`. The route's runs are the Route History's, not the block's.
 
 The block has its own Interact column under the row's: every detail line ends in one slot cell
@@ -1097,10 +1098,10 @@ title), and adds a `Picks up:` block for a run that loads cargo.
 
 Below the table, `Missions that cannot become routes yet (N)` (collapsed by default) draws ONE
 line per reason (`LogisticsNearMissPresentation.Group`): a caret, the short reason, the count
-and a preview of names up to 60 characters, `No dock was recorded (18): Kerbal X [1], Kerbal X
+and a preview of names up to 60 characters, `No dock was recorded (18): Kerbal X, Kerbal X
 [2], Duna Supply 1 ...`, largest group first; the hover is `Missions: ` and every name, cut
-with `, +N more` to the strip. A repeated name is numbered `Name [1]`, `Name [2]` across the
-whole list. A group opens (key `nearmiss:group:<status>`, collapsed by default) to one row per
+with `, +N more` to the strip. A name is the mission's current name (else the launch name), and
+a repeated one is numbered `Name`, `Name [2]` across the whole list. A group opens (key `nearmiss:group:<status>`, collapsed by default) to one row per
 mission with its own `Dismiss` in the Interact column. Above the rows the full reason sentence
 shows once only when every mission shares it AND it says more than the short reason
 (`LogisticsNearMissPresentation.ReasonAddsToShort`: advice or a count; `No dock was recorded on

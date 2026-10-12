@@ -1634,6 +1634,18 @@ highest rung whose rate is within the optional cap AND can still run for
 `MinRealSecondsAtRate` (2.5 s, stock's own `WarpTo` default `minTimeWarping`) before the
 target arrives, bounded by the ceiling stock publishes
 (`TimeWarp.GetMaxRateForAltitude`, lifted for a landed vessel and for no active vessel).
+The BOTTOM rung alone (`BottomRungIndex`: the lowest rate above 1x on the ladder handed in,
+rails 5x, physics 2x) uses `BottomRungMinRealSeconds` (0.5 s) instead, so the 1x tail of a
+warp is 2.5 game-s on rails and 1.0 on the physics ladder (it was 12.5 and 5.0, measured
+12.2-12.3 s and 4.8 s). It cannot overshoot: the last frame at the bottom rung R starts at
+least `R * 0.5` game-s out and advances `R * dt`, so reaching the 0.25 s arrival latch at R
+takes a frame of `(R * 0.5 - 0.25) / R` = 0.45 s at 5x or 0.375 s at 2x, more than ten times
+the per-frame cap Unity applies (`Time.maximumDeltaTime` = `GameSettings.PHYSICS_FRAME_DT_LIMIT`,
+default 0.04 s, 0.03 s on the harness instance; rails warp advances UT per fixed step, so a
+hitch cannot skip game time); the final approach is a 1x frame, as before. A span under the
+bottom rung's threshold, and every `maxRate=1` wait, runs at 1x. Every DOWNSHIFT is requested
+with stock's instant rate change (`ShouldSetRateInstantly`; the eased ramp kept a 5x stretch
+reading 9.9x); upshifts keep stock's ramp.
 The applier then reads `TimeWarp.CurrentRateIndex` back and logs `requested=` beside
 `applied=` and `clamped=`. **A clamp is therefore NOT a refusal.** It is a slower warp, and
 in the limit (a vessel under drag inside the atmosphere, pinned to 1x) the verb degrades
@@ -1648,7 +1660,7 @@ alone is waited out first, see the Contract).
 (CLAUDE.md: a fix derived from an asymmetry must be checked in the mirror direction) for a
 verb that RAISES warp is that it must LOWER it deterministically. Three mechanisms, in
 increasing order of bluntness: the ladder selector walks itself down on approach and
-returns rung 0 inside the last 2.5 s purely as a function of the shrinking span; the
+returns rung 0 inside the last 2.5 game-s purely as a function of the shrinking span; the
 applier force-sets rate 0 the instant the target is reached; and the timeout and exception
 paths force rate 0 BEFORE their terminal, so a run that classifies INVALID off this verb
 cannot hand a warped game to whatever runs next. Crucially the SUCCESS predicate itself
@@ -1663,8 +1675,8 @@ timeout terminal is `ERROR msg=warp-timeout`.
 
 **Observability.** All at `[Parsek][INFO][TestCommands]`, InvariantCulture:
 `warptout start ut=<t> delta=<d>s maxRate=<c> rate=<r> ceilingIndex=<i>` once;
-`warptout rate requested=<i> applied=<j> rate=<r> ceilingIndex=<c> clamped=<bool>
-remaining=<s>s ut=<t>` on each ladder CHANGE (bounded by the ladder's own length, so it is
+`warptout rate requested=<i> applied=<j> rate=<r> mode=<m> ceilingIndex=<c> clamped=<bool>
+remaining=<s>s ut=<t> instant=<bool>` on each ladder CHANGE (bounded by the ladder's own length, so it is
 plain Info rather than rate-limited); `warptout dewarp reason=<r> fromIndex=<i> rate=<r>`
 whenever the rate is forced down; and `warptout complete reachedUT=<u> ut=<t> rate=<r>
 maxRate=<m> elapsed=<e>s` on success. Refusals log `warptout refused reason=<r> ...` at
@@ -1673,7 +1685,7 @@ Warn and the timeout logs at Error.
 **Pure decision.** `TestCommandWarpToUT` (`ResolveTargetUt`, `ResolveMaxRate`,
 `IsForwardWarp`, `EvaluateFeasibility`, `EvaluateSceneFeasibility`,
 `IsTransientPhysicsHoldOnly`, `ShouldDeferForPhysicsHold`, `HasReached`, `SelectRateIndex`,
-`DecideWarpCompletion`, `BuildCompletePayload`, and the refusal-reason constants) plus
+`BottomRungIndex`, `MinRealSecondsForRung`, `ShouldSetRateInstantly`, `DecideWarpCompletion`, `BuildCompletePayload`, and the refusal-reason constants) plus
 `TestCommandDispatcher.IsWarpScene` and the `WarpToUT` dispatch case,
 xUnit-covered in `TestCommandWarpToUTTests.cs`. The partial
 `ParsekTestCommandAddon.WarpToUT.cs` only samples live KSP state and calls

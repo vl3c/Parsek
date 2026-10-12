@@ -401,14 +401,20 @@ namespace Parsek.Tests.Logistics
                 false, double.NaN, null, "(none)", 0, Date));
         }
 
-        // "rec N of tree" replaced by Mission Log numbering of repeated names.
+        // "rec N of tree" replaced by the vessel names: the names arrive numbered (one number
+        // per vessel), two legs of one vessel (one key) list once, an unresolved id reads its
+        // short id and never folds.
         [Fact]
-        public void FlightsUsed_NumbersRepeatedNamesAndDropsTreeWords()
+        public void FlightsUsed_ListsEachVesselOnceAndDropsTreeWords()
         {
             string line = LogisticsRoutePresentation.FormatFlightsUsed(
-                new List<string> { "Duna Supply 1", "Probe", "Depot", "Depot", null },
-                new List<string> { "a", "b", "c", "d", "e1234567" });
-            Assert.Equal("Flights used: Duna Supply 1, Probe, Depot [1], Depot [2], e1234567", line);
+                new List<string> { "Duna Supply 1", "Probe", "Depot", "Depot", "Depot [2]", null, null },
+                new List<string> { "a", "b", "c", "d", "e", "f1234567", "f1234567" },
+                new List<string> { "t|Duna Supply 1", "t|Probe", "t|Depot", "t|Depot", "t|Depot [2]", "x", "x" });
+            Assert.Equal("Flights used: Duna Supply 1, Probe, Depot, Depot [2], f1234567, f1234567", line);
+            // No keys: nothing folds and nothing is renumbered.
+            Assert.Equal("Flights used: Depot, Probe, Depot",
+                LogisticsRoutePresentation.FormatFlightsUsed(new[] { "Depot", "Probe", "Depot" }, null));
             Assert.DoesNotContain("tree", line);
             Assert.DoesNotContain("rec ", line);
             Assert.Equal("Flights used: -", LogisticsRoutePresentation.FormatFlightsUsed(null, null));

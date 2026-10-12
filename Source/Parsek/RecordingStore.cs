@@ -5779,11 +5779,11 @@ namespace Parsek
         /// gate stays green: the raw-list reads stay behind
         /// <see cref="TryFindCommittedRecordingById"/> and
         /// <see cref="TryResolveTreeById"/> in this already-allowlisted file.
-        /// <paramref name="treeName"/> is <see cref="RecordingTree.TreeName"/>, the raw
-        /// launch name the tree was created with: nothing keeps it in step with the
-        /// mission's name (a mission rename through MissionGroupLink renames the groups
-        /// and <c>Mission.Name</c>, never <c>TreeName</c>), so after a mission rename this
-        /// returns the launch name, not the mission's current name.
+        /// <paramref name="treeName"/> is the tree's display name
+        /// (<see cref="MissionStore.DisplayNameForTree(RecordingTree)"/>): its original
+        /// mission's current name, else <see cref="RecordingTree.TreeName"/>, the raw launch
+        /// name. A mission rename renames the groups and <c>Mission.Name</c>, never
+        /// <c>TreeName</c>, so the log line below keeps printing the raw TreeName.
         /// </para>
         /// </summary>
         internal static bool TryResolveRecordingDisplayInfo(
@@ -5792,9 +5792,29 @@ namespace Parsek
             out string treeName,
             out int treeOrder)
         {
+            return TryResolveRecordingDisplayInfo(recordingId, out recordingName, out treeName,
+                out treeOrder, out _, out _);
+        }
+
+        /// <summary>
+        /// <see cref="TryResolveRecordingDisplayInfo(string, out string, out string, out int)"/>
+        /// that also hands back the committed recording and its owning tree (null for a
+        /// standalone recording), so the Logistics "Flights used" line can number the
+        /// recording's vessel the way the Missions tab does (<see cref="MissionVesselNaming"/>).
+        /// </summary>
+        internal static bool TryResolveRecordingDisplayInfo(
+            string recordingId,
+            out string recordingName,
+            out string treeName,
+            out int treeOrder,
+            out Recording recording,
+            out RecordingTree owningTree)
+        {
             recordingName = null;
             treeName = null;
             treeOrder = -1;
+            recording = null;
+            owningTree = null;
 
             Recording rec = TryFindCommittedRecordingById(recordingId);
             if (rec == null)
@@ -5806,17 +5826,21 @@ namespace Parsek
 
             recordingName = string.IsNullOrEmpty(rec.VesselName) ? "Untitled" : rec.VesselName;
             treeOrder = rec.TreeOrder;
+            string rawTreeName = null;
 
             if (!string.IsNullOrEmpty(rec.TreeId)
                 && TryResolveTreeById(rec.TreeId, out RecordingTree tree, out _)
                 && tree != null)
             {
-                treeName = tree.TreeName;
+                rawTreeName = tree.TreeName;
+                treeName = MissionStore.DisplayNameForTree(tree);
+                owningTree = tree;
             }
+            recording = rec;
 
             ParsekLog.Verbose("RecordingStore",
                 $"Logistics display resolve id={Shorten(recordingId)} resolved=true "
-                + $"name='{recordingName}' tree='{treeName ?? "<none>"}' order={treeOrder.ToString(CultureInfo.InvariantCulture)}");
+                + $"name='{recordingName}' tree='{rawTreeName ?? "<none>"}' order={treeOrder.ToString(CultureInfo.InvariantCulture)}");
             return true;
         }
 
