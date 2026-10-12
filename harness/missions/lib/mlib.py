@@ -1890,6 +1890,79 @@ FLAMEOUT_THROTTLE_EPS = 0.01
 FLAMEOUT_DEBOUNCE_FRAMES = 2
 MAX_FLAMEOUT_STAGES = 2
 
+# Flameout blind band in the available-thrust MEASUREMENT (todo
+# HARNESS-KRPC-FLAMEOUT-BLIND-BAND). KSP flames an engine out when a
+# propellant's reachable amount is below ModuleEngines.ignitionThreshold (0.1)
+# of one frame's demand (CheckDeprived), but kRPC 0.5.4 Engine.HasFuel only
+# goes false below actualTotalAvailable < 0.02, and Engine.AvailableThrust is
+# gated on HasFuel alone. Between the two thresholds kRPC reports the FULL
+# available thrust of a flamed-out engine, so the flameout watchdog above never
+# sees 0.0. The runner corrects the reading from each active engine's
+# ModuleEngines "status" KSPField (guiActive, so readable through kRPC
+# Module.GetFieldById): ModuleEngines.Flameout sets it to #autoLOC_219016,
+# "Flame-Out!" in the stock en-us dictionary, and UnFlameout resets it to
+# #autoLOC_219034 "Nominal" on every non-deprived frame.
+ENGINE_STATUS_FIELD_ID = "status"
+ENGINE_MODULE_NAMES = ("ModuleEngines", "ModuleEnginesFX")
+_ENGINE_FLAMEOUT_STATUS_NORMALIZED = "flameout"
+
+
+def engine_status_is_flameout(status) -> bool:
+    """True when a ModuleEngines "status" field value reads as flamed out.
+    Compares case-, space- and punctuation-insensitively ("Flame-Out!" ->
+    "flameout") so a reformatted localization of the same words still
+    matches. None / non-string (an unread field) is NOT flamed out."""
+    if not isinstance(status, str):
+        return False
+    norm = "".join(ch for ch in status.lower() if ch.isalnum())
+    return norm == _ENGINE_FLAMEOUT_STATUS_NORMALIZED
+
+
+def corrected_available_thrust(raw_available_thrust: float,
+                               vessel_thrust: float,
+                               engines) -> Tuple[float, List[str]]:
+    """Return ``(available_thrust, excluded_titles)`` with flamed-out engines
+    removed from kRPC's vessel available thrust.
+
+    ``engines`` is an iterable of ``(title, active, available_thrust,
+    flamed_out)`` tuples, one per engine part (``flamed_out`` from
+    ``engine_status_is_flameout``; an unread status passes False), or None
+    when the per-engine probe failed. The correction applies only when the raw
+    reading is positive and the vessel is producing NO thrust (a flamed-out
+    engine produces none, so a burning vessel needs no probe); in every other
+    case, and whenever no active engine reads flamed out, the raw value is
+    returned unchanged. Failure modes fall back to the raw reading, never to
+    0.0: a spurious zero would pop a stage through the watchdog.
+
+    Mirrors kRPC Vessel.AvailableThrust (the sum of AvailableThrust over the
+    ACTIVE engines) minus the flamed-out ones; the corrected value is the sum
+    of the remaining engines, so an all-flamed-out vessel reads exactly 0.0."""
+    raw = raw_available_thrust
+    if not (_is_finite(raw) and raw > 0.0):
+        return raw, []
+    if not (_is_finite(vessel_thrust) and vessel_thrust <= 0.0):
+        return raw, []
+    if engines is None:
+        return raw, []
+    kept = 0.0
+    excluded: List[str] = []
+    try:
+        for title, active, avail, flamed_out in engines:
+            if not active:
+                continue
+            if not _is_finite(avail):
+                return raw, []
+            if flamed_out:
+                if avail > 0.0:
+                    excluded.append(str(title))
+                continue
+            kept += avail
+    except (TypeError, ValueError):
+        return raw, []
+    if not excluded:
+        return raw, []
+    return kept, excluded
+
 # Arrival-quality re-correction (twenty-third live flight 2026-07-22, finding
 # 16): both altitude-triggered correction rounds executed to <1 m/s residual
 # and the flyby STILL arrived at pe -31.8 km -- the blind altitude triggers

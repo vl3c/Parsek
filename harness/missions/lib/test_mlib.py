@@ -11875,5 +11875,101 @@ class PausedClockWatchdogTests(unittest.TestCase):
                          mlib.resolve_flight_verdict(end, met))
 
 
+class FlameoutCorrectedAvailableThrustTests(unittest.TestCase):
+    """HARNESS-KRPC-FLAMEOUT-BLIND-BAND: kRPC 0.5.4 keeps reporting the full
+    available thrust of an engine KSP has flamed out while its propellant
+    residual sits between ModuleEngines' 10%-of-a-frame flameout threshold and
+    kRPC's 0.02 HasFuel threshold (B16 2026-10-12: Mainsail flamed out with
+    0.052 LF left, avThr stayed 1500000, the watchdog never staged). The
+    corrected measurement must read 0.0 there, and must fall back to the raw
+    reading (never to 0.0) whenever the evidence is missing."""
+
+    MAINSAIL = 1_500_000.0
+
+    def test_status_parse_matches_the_stock_flameout_string(self):
+        self.assertTrue(mlib.engine_status_is_flameout("Flame-Out!"))
+        self.assertTrue(mlib.engine_status_is_flameout(" flame out "))
+        for other in ("Nominal", "Off", "Occluded", "", None, 0,
+                      "LiquidFuel deprived"):
+            self.assertFalse(mlib.engine_status_is_flameout(other), other)
+
+    def test_flamed_out_core_reads_exactly_zero(self):
+        thrust, excluded = mlib.corrected_available_thrust(
+            self.MAINSAIL, 0.0,
+            [("RE-M3 Mainsail", True, self.MAINSAIL, True)])
+        self.assertEqual(thrust, 0.0)
+        self.assertEqual(excluded, ["RE-M3 Mainsail"])
+
+    def test_only_flamed_engines_are_removed(self):
+        thrust, excluded = mlib.corrected_available_thrust(
+            self.MAINSAIL + 60_000.0, 0.0,
+            [("Mainsail", True, self.MAINSAIL, True),
+             ("Terrier", True, 60_000.0, False),
+             ("Poodle", False, 250_000.0, False)])
+        self.assertEqual(thrust, 60_000.0)
+        self.assertEqual(excluded, ["Mainsail"])
+
+    def test_inactive_flamed_engine_is_ignored(self):
+        # kRPC's vessel total sums ACTIVE engines only; an inactive one is
+        # not in the raw reading, so it is never "removed" from it.
+        raw = 60_000.0
+        self.assertEqual(
+            mlib.corrected_available_thrust(
+                raw, 0.0, [("Mainsail", False, self.MAINSAIL, True),
+                           ("Terrier", True, raw, False)]),
+            (raw, []))
+
+    def test_no_flameout_returns_the_raw_reading_unchanged(self):
+        raw = 1_499_999.75
+        self.assertEqual(
+            mlib.corrected_available_thrust(
+                raw, 0.0, [("Mainsail", True, 1_500_000.0, False)]),
+            (raw, []))
+
+    def test_a_thrusting_vessel_is_never_corrected(self):
+        self.assertEqual(
+            mlib.corrected_available_thrust(
+                self.MAINSAIL, 1_200_000.0,
+                [("Mainsail", True, self.MAINSAIL, True)]),
+            (self.MAINSAIL, []))
+
+    def test_missing_evidence_falls_back_to_raw_never_zero(self):
+        engines = [("Mainsail", True, self.MAINSAIL, True)]
+        nan = float("nan")
+        for raw, vthr, eng in (
+                (self.MAINSAIL, 0.0, None),          # probe failed
+                (self.MAINSAIL, nan, engines),       # thrust unread
+                (self.MAINSAIL, 0.0,                 # per-engine NaN
+                 [("Mainsail", True, nan, True)]),
+                (self.MAINSAIL, 0.0, [("bad",)])):   # malformed tuple
+            thrust, excluded = mlib.corrected_available_thrust(raw, vthr, eng)
+            self.assertEqual(thrust, raw)
+            self.assertEqual(excluded, [])
+        thrust, excluded = mlib.corrected_available_thrust(nan, 0.0, engines)
+        self.assertTrue(math.isnan(thrust))
+        self.assertEqual(mlib.corrected_available_thrust(0.0, 0.0, engines),
+                         (0.0, []))
+
+    def test_corrected_reading_drives_the_mid_burn_watchdog(self):
+        # The B16 shape: TRANSFER-BURN, executor throttle collapsed to 0,
+        # node still pending after a burn ran (mid_burn). With the corrected
+        # 0.0 the watchdog stages; with the raw 1.5 MN it never did.
+        corrected, _ = mlib.corrected_available_thrust(
+            self.MAINSAIL, 0.0, [("Mainsail", True, self.MAINSAIL, True)])
+        state = _b5_state(mlib.B5_TRANSFER_BURN, planned_node_count=1)
+        frame = snap(ut=10.0, body="Kerbin", node_count=1, node_dv=527.4,
+                     throttle=0.0, available_thrust=corrected)
+        actions = []
+        for _ in range(mlib.FLAMEOUT_DEBOUNCE_FRAMES):
+            state, actions = mlib._b5_flameout_stage(state, frame, mid_burn=True)
+        self.assertEqual(actions, [Action(mlib.ACTION_ACTIVATE_STAGE)])
+        state = _b5_state(mlib.B5_TRANSFER_BURN, planned_node_count=1)
+        raw_frame = replace(frame, available_thrust=self.MAINSAIL)
+        for _ in range(mlib.FLAMEOUT_DEBOUNCE_FRAMES + 2):
+            state, actions = mlib._b5_flameout_stage(
+                state, raw_frame, mid_burn=True)
+            self.assertEqual(actions, [])
+
+
 if __name__ == "__main__":
     unittest.main()
