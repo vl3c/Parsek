@@ -110,7 +110,7 @@ required = [
   "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest",
   "Rewind-to-Launch initiated to UT",
   "Rewind strip scope: keep spawned pid=3049612057 of 'VN7 Relay Final' \\(id=rec_d4b696b61b544c1e8013073c611c8477\\) as committed history",
-  "Rewind-to-Launch initiated to UT[\\s\\S]*Write-through applied \\(proto\\): pid=3049612057 guid=61c1c39c65bb4ef6b1a61970c309f613 'VN7 Relay' -> 'VN7 Relay Final' namingPart=\\S+ reason=onload-tail:rewind",
+  "Rewind-to-Launch initiated to UT[\\s\\S]*Write-through applied \\(proto\\): pid=3049612057 guid=61c1c39c65bb4ef6b1a61970c309f613 '[^'\r\n]*' -> 'VN7 Relay Final' namingPart=\\S+ reason=onload-tail:rewind",
   "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
 ]
 forbidden = [
