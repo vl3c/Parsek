@@ -679,6 +679,17 @@ and harmless. S4.4 stays as above (a few-frame window the retry policy absorbs).
 cell (`InertStepWaitLintTests`) refuses a run of 40+ inert steps without an `# inert-wait:`
 note.
 
+Follow-up 2026-10-12 (operator tier on main `7cbe594c0`, branch `gui9-hidden-hold`): the
+20-step filter missed lanes whose wait is a SHORT run or a run of `UiAction op=describe`. Five
+red on it, each fixed with the same 1x `WarpToUT` to a UT derived from the run's own log:
+`GUI-9` (six `describe` steps held the all-hidden map view for the 2.0 s rate-limited `Map
+marker summary`: UT 62), `MC-5` (three `RecordingState` per ghost watch window: UT 22422 /
+22623), `S1.9` (twelve probes sized at 0.253 s for ~2.0 s of mesh builds: UT 58, staircase's
+first step 8.0 -> 5.0 s), `V10` (two probes between bracketing jumps, too short for the map
+probe's 0.5 s Tier-B snapshot to sample the off state: 1 s holds after the jumps to 31275842
+and 31276442); `S0.8` / `S0.12` (post-load acceleration, #2080) are the same class. Re-flown
+green on the branch: GUI-9 `2026-10-12_2348`, S1.9 `_2350`, V10 `_2351`, MC-5 `2026-10-12_2352`.
+
 Flights owed (each changed spec once): LF-2 and EX-1 first, then QL-4 / QL-4b / QL-4c, then
 SS-1, LF-1, EX-2, EVA-6, EVA-7, EVA-9, EVA-10, BAY-1, CI-5 to CI-11, H59, B32, V26M, V27M, RF-7T,
 and the V16-V30 player-loop / arrival lanes.
