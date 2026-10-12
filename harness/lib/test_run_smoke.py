@@ -6748,3 +6748,143 @@ class HarnessOverheadSmokeTests(unittest.TestCase):
         log = self._log_text()
         self.assertLess(log.index("verify analyzer subprocess-retry RECOVERED"),
                         log.index("verify logValidate subprocess-retry: attempt 1"))
+
+
+class _FastBootWatchRuntime(FakeRuntime):
+    """FakeRuntime with the boot-stall watchdog's thresholds shrunk to seconds, so a
+    smoke cell can drive both rules without waiting 90 s / 240 s. The margins over
+    the fake's own timings (slowboot: one line every 0.3 s, MAINMENU at ~2.5 s, then
+    5 s of silence) are the same shape as the production margins over real boots."""
+
+    def boot_watchdog_limits(self):
+        return hlib.BootWatchdogLimits(no_growth_seconds=2.0, mainmenu_deadline_seconds=6.0)
+
+
+class BootStallWatchdogSmokeTests(unittest.TestCase):
+    """The boot-stall watchdog end to end (todo HARNESS-BOOT-HANG-KILLED-BUDGET).
+
+    H69 2026-10-12: KSP wedged loading an assembly 1 s into its boot and the harness
+    waited out the whole 660 s LoadGame step before a non-retried KILLED(budget).
+    Guards: a boot whose KSP.log stops growing before MAINMENU is killed early as a
+    RETRIED INVALID(boot-hang), a stale previous-run KSP.log carrying its own MAINMENU
+    line does not disarm it, and a slow but growing boot followed by a long silence
+    AFTER MAINMENU never trips it."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-bootwatch-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "bootwatch_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _log_text(self):
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_a_boot_stalled_before_mainmenu_is_killed_invalid_boot_hang_and_retried(self):
+        # The previous run's KSP.log, with its own MAINMENU line, is still on disk at
+        # launch. It must not mark this boot ready (the fake appends; real KSP
+        # truncates - both paths skip the stale bytes).
+        import _fake_ksp
+        with open(os.path.join(self.instance, "KSP.log"), "w", encoding="utf-8") as fh:
+            fh.write("[LOG] previous run\n" + _fake_ksp.MAINMENU_LINE)
+        # A small run budget: if the watchdog failed to fire, the run would end
+        # KILLED(budget) here instead of waiting out a 600 s LoadGame step.
+        spec = _make_spec(self.template, 30, 25)
+        rt = _FastBootWatchRuntime("boothang")
+        started = time.time()
+        result = run._run_scenario_with_retry(spec, self.instance, self.tmp, rt, self.logger)
+        wall = time.time() - started
+
+        self.assertEqual(2, rt.launch_count, "boot-hang must be retried once")
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"], result.get("subkind"))
+        self.assertEqual(hlib.BOOT_HANG_SUBKIND, result["subkind"])
+        self.assertEqual(2, result["attempt"])
+        self.assertTrue(result["kspExit"]["killed"])
+        hang = result["driver"]["bootHang"]
+        self.assertEqual(hlib.BOOT_STALL_RULE_NO_GROWTH, hang["rule"])
+        self.assertIn("MechJebLib", hang["lastLine"])
+        self.assertGreaterEqual(hang["stallSeconds"], 2)
+        # The killed boot is not evidence about Parsek: save verifiers are skipped.
+        self.assertEqual("SKIPPED", result["verifiers"]["analyzer"]["status"])
+        # Attempt 1 left its own INVALID(boot-hang) record.
+        firsts = [f for f in os.listdir(run.RESULTS_DIR) if f.endswith("_SMOKE-fake.json")]
+        self.assertEqual(1, len(firsts), os.listdir(run.RESULTS_DIR))
+        with open(os.path.join(run.RESULTS_DIR, firsts[0]), "r", encoding="utf-8") as fh:
+            first = json.load(fh)
+        self.assertEqual((hlib.VERDICT_INVALID, hlib.BOOT_HANG_SUBKIND),
+                         (first["verdict"], first["subkind"]))
+        log = self._log_text()
+        self.assertEqual(2, log.count("boot-hang: rule=no-growth"))
+        self.assertIn("lastLine='[LOG] Load(Assembly): MechJeb2/Plugins/MechJebLib'", log)
+        self.assertIn("retry scenario=SMOKE-fake attempt=2", log)
+        self.assertNotIn("boot ready via=", log)
+        self.assertNotIn("budget exceeded", log)
+        self.assertLess(wall, 60.0)
+
+    def test_a_slow_growing_boot_then_post_mainmenu_silence_never_trips(self):
+        spec = _make_spec(self.template, 30, 600)
+        rt = _FastBootWatchRuntime("slowboot")
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"],
+                         "%s (%s)" % (result["verdict"], result.get("subkind")))
+        self.assertNotIn("bootHang", result["driver"])
+        self.assertFalse(result["kspExit"]["killed"])
+        log = self._log_text()
+        # Latched at MAINMENU (before the first seam response), and silent after:
+        # the 5 s post-MAINMENU silence exceeds both shrunk thresholds.
+        self.assertIn("boot ready via=mainmenu", log)
+        self.assertNotIn("boot-hang:", log)
+        self.assertNotIn("boot ready via=seam-response", log)
+
+    def test_a_slowly_dying_killed_ksp_is_waited_for_so_the_retry_still_boots(self):
+        """`taskkill /F` returns before KSP is gone. Without the post-kill wait, attempt
+        2's zombie preflight sees the dying KSP and ends the run terminal
+        INVALID(instance-busy), losing the retry a boot-hang is owed."""
+        class SlowDyingRuntime(_FastBootWatchRuntime):
+            DEATH_DELAY = 4.0
+
+            def __init__(self, mode):
+                super().__init__(mode)
+                self.dying_pid = None
+                self.dying_until = 0.0
+
+            def kill_tree(self, proc):
+                pids = super().kill_tree(proc)
+                self.dying_pid = proc.pid
+                self.dying_until = time.time() + self.DEATH_DELAY
+                return pids
+
+            def _dying(self):
+                return self.dying_pid is not None and time.time() < self.dying_until
+
+            def poll_exit(self, proc):
+                if self._dying() and proc.pid == self.dying_pid:
+                    return None
+                return super().poll_exit(proc)
+
+            def ksp_running(self, instance_dir):
+                return self.dying_pid if self._dying() else None
+
+        spec = _make_spec(self.template, 30, 25)
+        rt = SlowDyingRuntime("boothang")
+        result = run._run_scenario_with_retry(spec, self.instance, self.tmp, rt, self.logger)
+        self.assertEqual(2, rt.launch_count, "attempt 2 must boot, not be refused busy")
+        self.assertEqual((hlib.VERDICT_INVALID, hlib.BOOT_HANG_SUBKIND),
+                         (result["verdict"], result["subkind"]))
+        log = self._log_text()
+        self.assertEqual(2, log.count("[Boot-Wait] killed process exited after"))
+        self.assertNotIn("instance-busy", log)
+        self.assertNotIn("still alive after", log)

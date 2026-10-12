@@ -16,6 +16,36 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~HARNESS-BOOT-HANG-KILLED-BUDGET: a KSP that hangs during its own boot is noticed only after the 660 s LoadGame wait, as a non-retried KILLED~~ [FILED 2026-10-12 from the nightly H69 flight. FIXED 2026-10-12, branch `harness-boot-watchdog`; fake-KSP smoke only, not flown. harness]
+
+`H69-autorecord-landed` `2026-10-12_0623` ended KILLED (budget) after 667 s. Its KSP.log (77 lines,
+`_shots/KSP.log`) stops 3 s after launch, 1 s after `Log Initiated`, at
+`Load(Assembly): MechJeb2/Plugins/MechJebLib`, and never reaches MAINMENU; the harness log shows
+only `poll: pendingId=0001` lines until `[Budget] budget exceeded scope=step:LoadGame elapsed=660`.
+The LoadGame wait is max(300, seam deferral 600) + 60 s, a KILLED is never retried, so the lane
+was lost. A normal boot reaches MAINMENU in about 24 s. Related data point: about a week earlier
+AH-1 ended INVALID boot-crash on its first boot after a provision (its result is no longer on
+disk); that path was already retried.
+
+Fix: a boot-stall watchdog in `run.py` (`BootWatch`, decisions in `hlib.decide_boot_stall` /
+`boot_log_scan_start` / `scan_boot_ready`). From launch until the boot is ready (the `Scene
+Change : From LOADING to MAINMENU` line in this launch's KSP.log, or any seam response), the boot
+is stalled when KSP.log has not grown for 90 s or MAINMENU has not appeared within 240 s. The tree
+is then killed and the attempt is `INVALID(boot-hang)`, retryable once like boot-crash, with a
+`[Boot-Wait] boot-hang: rule=... stall=... lastLine=...` line and a `driver.bootHang` record. The
+previous run's KSP.log is never read as this boot's. Thresholds from 115 archived boots: MAINMENU
+at 23.6-42.1 s (median 23.8 s), largest gap between boot log lines 5.6 s. The H69 hang would now
+cost about 93 s plus one retry instead of 660 s and the lane. Smoke cells
+`BootStallWatchdogSmokeTests` (a stalled boot is killed INVALID(boot-hang) and retried, with a stale
+MAINMENU line in the old log; a slow growing boot followed by post-MAINMENU silence never trips);
+both mutation-checked. Follow-up (same branch, from the review): after the kill (and after a
+budget kill) run.py waits up to 30 s for KSP to exit before the retry's zombie preflight, so a
+slowly dying KSP no longer turns the retry into INVALID(instance-busy); smoke cell
+`test_a_slowly_dying_killed_ksp_is_waited_for_so_the_retry_still_boots`. Not covered: a KSP that hangs AFTER MAINMENU (VB-1-KSP-HANG-AT-MAIN-MENU),
+which by design the watchdog never fires on.
+
+---
+
 ## KB-STRATEGY-SLOT-NEEDED-NO-LIVE-LANE: the Administration Accept refusal for a strategy that would take the slot a committed activation needs has never been pressed in game [FILED 2026-10-10 from the branch cleanup. OPEN, harness, low]
 
 `StrategyReservationPredicates.EvaluateActivation` refuses an activation two ways when the
@@ -167,7 +197,10 @@ defect as far as the log shows (nothing Parsek-side ran after MAINMENU). Proposa
 no-seam-heartbeat check in `run.py` - when the seam has acknowledged nothing (no `recv`, no
 journal CLAIMED) a bounded time after KSP reached MAINMENU (or after the log stops growing), end
 the attempt as a retryable `INVALID` (for example `subkind=boot-stall`) instead of waiting out the
-deferred step budget.
+deferred step budget. 2026-10-12: HARNESS-BOOT-HANG-KILLED-BUDGET added a boot-stall watchdog
+(`INVALID(boot-hang)`), but it covers only the boot BEFORE MAINMENU and is latched off at the
+MAINMENU line, so this post-MAINMENU shape is still open; a follow-up could extend the same
+no-growth rule up to the first seam response.
 
 ---
 

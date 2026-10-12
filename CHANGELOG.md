@@ -49,6 +49,9 @@ _(unreleased - entries accumulate here per commit)_
 - **The flight efficiency report counts less false waste.** KSP's own warp slowdown before a
   warp target, MechJeb's settle before a burn and MechJeb's docking approach no longer count as
   time a better warp could save. Real waste such as a capped coast warp still counts.
+- **A test run whose KSP hangs while starting up is stopped and retried.** If the game stops
+  logging before reaching the main menu, the harness ends that attempt within minutes instead of
+  waiting 11 minutes, and tries once more.
 
 ---
 

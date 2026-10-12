@@ -7755,6 +7755,82 @@ class ClassifyAnalyzerTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
+class BootStallWatchdogTests(unittest.TestCase):
+    """hlib's half of the boot-stall watchdog (todo HARNESS-BOOT-HANG-KILLED-BUDGET).
+    Guards: a ready boot never stalls, a silent log stalls on the no-growth rule, a
+    growing log that never reaches MAINMENU stalls on the deadline, and a stale
+    previous-run KSP.log (with its own MAINMENU line) is never read as this boot."""
+
+    LIM = hlib.BootWatchdogLimits(no_growth_seconds=90.0, mainmenu_deadline_seconds=240.0)
+
+    def test_defaults_are_the_named_constants(self):
+        lim = hlib.BootWatchdogLimits()
+        self.assertEqual(hlib.BOOT_STALL_NO_GROWTH_SECONDS, lim.no_growth_seconds)
+        self.assertEqual(hlib.BOOT_MAINMENU_DEADLINE_SECONDS, lim.mainmenu_deadline_seconds)
+        # Margin over the slowest measured real boot (42.1 s) and line gap (5.6 s).
+        self.assertGreaterEqual(lim.mainmenu_deadline_seconds, 4 * 42.1)
+        self.assertGreaterEqual(lim.no_growth_seconds, 10 * 5.6)
+        self.assertLess(lim.no_growth_seconds, lim.mainmenu_deadline_seconds)
+        self.assertIn(hlib.BOOT_HANG_SUBKIND, hlib.RETRYABLE_INVALID_SUBKINDS)
+        self.assertNotIn(hlib.BOOT_HANG_SUBKIND, hlib.FLAKE_EXEMPT_INVALID_SUBKINDS)
+
+    def test_ready_boot_never_stalls(self):
+        d = hlib.decide_boot_stall(10000.0, 10000.0, True, self.LIM)
+        self.assertFalse(d.stalled)
+
+    def test_normal_and_slow_growing_boots_do_not_stall(self):
+        for elapsed, since in ((24.0, 0.5), (42.1, 5.6), (200.0, 30.0), (239.0, 89.0)):
+            with self.subTest(elapsed=elapsed, since=since):
+                self.assertFalse(hlib.decide_boot_stall(elapsed, since, False, self.LIM).stalled)
+
+    def test_silent_log_stalls_on_no_growth(self):
+        d = hlib.decide_boot_stall(91.0, 90.0, False, self.LIM)
+        self.assertEqual((True, hlib.BOOT_STALL_RULE_NO_GROWTH, 90.0),
+                         (d.stalled, d.rule, d.stall_seconds))
+        # Both rules true: the more specific no-growth diagnosis wins.
+        self.assertEqual(hlib.BOOT_STALL_RULE_NO_GROWTH,
+                         hlib.decide_boot_stall(300.0, 120.0, False, self.LIM).rule)
+
+    def test_growing_log_without_mainmenu_stalls_on_deadline(self):
+        d = hlib.decide_boot_stall(240.0, 1.0, False, self.LIM)
+        self.assertEqual((True, hlib.BOOT_STALL_RULE_NO_MAINMENU, 240.0),
+                         (d.stalled, d.rule, d.stall_seconds))
+
+    def test_scan_start_ignores_the_stale_log(self):
+        stale = (5000, 111)
+        self.assertIsNone(hlib.boot_log_scan_start(stale, stale))
+        self.assertIsNone(hlib.boot_log_scan_start(stale, None))
+        self.assertIsNone(hlib.boot_log_scan_start(None, None))
+        self.assertEqual(0, hlib.boot_log_scan_start(None, (10, 222)))
+        # Truncated by the new boot: read it all.
+        self.assertEqual(0, hlib.boot_log_scan_start(stale, (300, 222)))
+        # Appended to (or regrown past a tiny old log): skip the old bytes.
+        self.assertEqual(5000, hlib.boot_log_scan_start(stale, (5000, 222)))
+        self.assertEqual(5000, hlib.boot_log_scan_start(stale, (9000, 222)))
+
+    def test_scan_finds_a_marker_split_across_reads(self):
+        line = ("[LOG 09:37:41.565] [HighLogic]: ===== %s =====\n"
+                % hlib.BOOT_READY_MARKER).encode("ascii")
+        cut = line.index(b"MAINMENU") + 3
+        found, carry = hlib.scan_boot_ready(b"", line[:cut])
+        self.assertFalse(found)
+        found, _ = hlib.scan_boot_ready(carry, line[cut:])
+        self.assertTrue(found)
+        self.assertFalse(hlib.scan_boot_ready(
+            b"", b"Scene Change : From MAINMENU to SPACECENTER\n")[0])
+
+    def test_last_line_and_hang_line(self):
+        tail = b"[LOG 1] a\r\n[LOG 2] Load(Assembly): MechJeb2/Plugins/MechJebLib\r\n\r\n"
+        last = hlib.last_complete_log_line(tail)
+        self.assertEqual("[LOG 2] Load(Assembly): MechJeb2/Plugins/MechJebLib", last)
+        self.assertEqual("", hlib.last_complete_log_line(b""))
+        line = hlib.format_boot_hang_line(
+            hlib.BootStallDecision(True, hlib.BOOT_STALL_RULE_NO_GROWTH, 90.4), 91.6, 6924, last)
+        for token in ("boot-hang:", "rule=no-growth", "stall=90s", "elapsed=92s",
+                      "kspLogBytes=6924", "MechJebLib", "INVALID boot-hang"):
+            self.assertIn(token, line)
+
+
 def _clean_pass_facts():
     driver = {
         "spec_valid": True, "admission_ok": True, "instance_lock_ok": True,
@@ -7814,6 +7890,28 @@ class ClassifyVerdictMatrixTests(unittest.TestCase):
         r2 = self._classify(d, v, attempt=2)
         self.assertEqual(r2.subkind, "boot-crash-repeated")
         self.assertFalse(hlib.should_retry(r2, 2, "once"))
+
+    def test_boot_hang_is_retryable_invalid_never_killed_or_parsek_fail(self):
+        """The boot-stall watchdog's kill is an environment fault: INVALID boot-hang,
+        retried once like boot-crash, and it outranks every verifier flag (a killed
+        boot's log validation and batch rows are not evidence about Parsek)."""
+        d, v = _clean_pass_facts()
+        d["boot_hung"] = True
+        d["valid"] = False
+        v["batch_present"] = False
+        v["log_validate_failed"] = True
+        r = self._classify(d, v)
+        self.assertEqual((r.verdict, r.subkind), ("INVALID", hlib.BOOT_HANG_SUBKIND))
+        self.assertTrue(r.retryable)
+        self.assertTrue(hlib.should_retry(r, 1, "once"))
+        self.assertFalse(hlib.should_retry(r, 2, "once"))
+        self.assertFalse(hlib.should_retry(r, 1, "never"))
+        retry, skip = hlib.decide_retry(r, 1, "once", {})
+        self.assertTrue(retry)
+        self.assertIsNone(skip)
+        # A boot crash (the process exited on its own) keeps its own subkind.
+        d["boot_crashed"] = True
+        self.assertEqual(self._classify(d, v).subkind, "boot-crash")
 
     def test_batch_crashed_is_parsek_fail_not_retried(self):
         d, v = _clean_pass_facts()

@@ -1140,6 +1140,30 @@ boot budget: if the KSP process EXITS during boot-wait with no response line, th
 is a boot crash (edge cases below); if the boot budget elapses with KSP still alive
 and no response, the watchdog kills the tree -> KILLED.
 
+Boot-stall watchdog (H69 2026-10-12, todo HARNESS-BOOT-HANG-KILLED-BUDGET): inside
+BOOT-WAIT, `run.py`'s `BootWatch` tails THIS launch's KSP.log until the boot is
+READY - `hlib.BOOT_READY_MARKER` (`Scene Change : From LOADING to MAINMENU`) or any
+seam response line - and is then latched off for the attempt, so it never fires
+after MAINMENU. Before that, `hlib.decide_boot_stall` calls the boot stalled when
+the log has not grown for `BOOT_STALL_NO_GROWTH_SECONDS` (90 s; rule `no-growth`)
+or the marker has not appeared within `BOOT_MAINMENU_DEADLINE_SECONDS` (240 s from
+launch; rule `no-mainmenu`). On a stall the tree is killed through the same
+`kill_tree` as the budget kill and the attempt is `INVALID(boot-hang)`, retryable
+(edge 2a). The previous run's KSP.log is still on disk at launch: its `(size,
+mtime)` is taken before the launch and `hlib.boot_log_scan_start` reads nothing
+until the file changes, then only this boot's bytes, so a stale MAINMENU line
+cannot disarm the watchdog. After the kill (and after the two `drive_seam` budget
+kills) `run._wait_for_killed_exit` polls `poll_exit` for up to
+`KILL_EXIT_WAIT_SECONDS` (30 s), logging the exit or a Warn on the bound: `taskkill
+/F` returns before the process is gone, and attempt 2's zombie preflight would
+refuse a still-dying KSP as terminal INVALID(instance-busy). Thresholds (115 archived automation boots,
+2026-10-12): MAINMENU at 23.6 s min / 23.8 s median / 24.5 s p90 / 42.1 s max
+after the first log line, largest gap between two boot log lines 5.6 s; KSP.log is
+line-flushed. The H69 boot cost 660 s and no retry; the same hang now costs about
+93 s (its log went silent 3 s after launch) and one retry, and at most 240 s for a boot that keeps
+logging without reaching MAINMENU. A boot crash (exit) outranks it; the run budget
+still applies.
+
 Self-exit precedence (S6): "KSP exited on its own" (a process exit the harness did
 NOT cause by a watchdog kill) classifies by WHERE the run was, and the two cases do
 not overlap:
@@ -1770,8 +1794,11 @@ retry_policy)` maps to the taxonomy:
   INVALID then attempt-2 clean terminates PASS with the note recorded (there is no
   FLAKE verdict; see below).
 - **INVALID**: admission diff, driver stage failed, boot crash (repeated boot crash
-  -> subkind boot-crash-repeated, still INVALID, no new top-level verdict),
-  instance-locked (lock race) / instance-busy (zombie KSP), verifier tooling
+  -> subkind boot-crash-repeated, still INVALID, no new top-level verdict), boot
+  hang (subkind boot-hang: the boot-stall watchdog killed a KSP that stalled before
+  MAINMENU; retryable like boot-crash, checked right after it and ahead of every
+  verifier flag; there is no repeated variant, a second boot-hang is terminal by the
+  attempt cap), instance-locked (lock race) / instance-busy (zombie KSP), verifier tooling
   timeout, analyzer-error, spec invalid, or fixture STALE / fixture-authoring
   (BASELINE-FORBIDDEN-only). Retryable-once for driver / tooling
   stages (`retry.policy = once`): a first INVALID triggers one retry; a second
@@ -1941,6 +1968,11 @@ Each: scenario -> expected behavior -> v1 or deferred.
    elapses with the process alive and zero response lines -> watchdog kills the
    tree -> KILLED. The KSP.log will lack the seam's "armed" line, which the harness
    records as the likely cause (env not propagated). v1.
+2a. **KSP hangs during its own boot, before MAINMENU** (H69 2026-10-12: KSP.log
+   stopped 1 s in at an assembly load). -> The boot-stall watchdog (Driving the
+   seam) sees KSP.log stop growing for 90 s, or no MAINMENU line by 240 s, kills
+   the tree and classifies INVALID (subkind boot-hang), retried once. A boot that
+   reaches MAINMENU and then never answers stays edge 2. Shipped 2026-10-12.
 3. **LoadGame returns ERROR msg=load-failed** (template save missing / incompatible
    / wrong KSP version). -> The `LoadGame` step's observed verdict `ERROR` != its
    `expect=OK` -> driver stage failed at step 1 -> INVALID (subkind load-failed),
@@ -2211,7 +2243,11 @@ to the per-response-line poll (one summary line, not one per poll).
   kspAlive=<bool> anyResponse=<bool>" so a stuck boot shows exactly what it waited
   on; `Warn` "boot-crash: process exited (exit=<c>) with no response -> INVALID"
   (classified on no-response regardless of exit code, N5; edge 1) or `Warn`
-  "boot-timeout: killing tree" (edge 2). Post-boot self-exit with a pending step:
+  "boot-timeout: killing tree" (edge 2). Boot-stall watchdog (edge 2a): `Info`
+  "boot ready via=<mainmenu|seam-response> elapsed=<s> kspLogBytes=<n>" once, or
+  `Warn` "boot-hang: rule=<no-growth|no-mainmenu> stall=<s> elapsed=<s>
+  kspLogBytes=<n> lastLine=<last KSP.log line>; killing process tree -> INVALID
+  boot-hang" then `Info` "kill complete pids=[...]". Post-boot self-exit with a pending step:
   `Warn` "batch-crashed: KSP exited (exit=<c>) with step id=<id> pending -> PARSEK-FAIL"
   (S6, edge 11).
 - **BUDGET / KILL**: `Warn` "budget exceeded scope=<run|step:<cmd>> elapsed=<s>;
@@ -2411,6 +2447,13 @@ CI exercises the tail/kill/verify plumbing without a real game:
 - **Fake-KSP boot crash -> INVALID + retry.** The stub exits during boot-wait with
   no response; run.py must classify INVALID(boot-crash) and retry once. Fails if a
   boot crash wedges the run or is not retried.
+- **Fake-KSP boot hang -> INVALID(boot-hang) + retry; slow boot -> no trip.**
+  (`BootStallWatchdogSmokeTests`, thresholds shrunk through
+  `Runtime.boot_watchdog_limits`.) `boothang` writes two lines and wedges with a
+  stale MAINMENU line from a "previous run" already in KSP.log: the watchdog must
+  fire on no-growth, classify INVALID(boot-hang) and retry once. `slowboot` grows
+  the log slowly, writes MAINMENU, then goes silent longer than both thresholds
+  before answering: the run must PASS with no boot-hang line.
 - **Fake-mission UNMET -> the world-mutating tail is never written to the channel.**
   Over a fake mission scripted to ASSERT-FAIL (and, separately, to write no result at
   all) with an EVA-4-shaped tail, run.py must leave `EvaExit` and `CommitTree` OUT of

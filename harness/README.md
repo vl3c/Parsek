@@ -186,6 +186,30 @@ warp watchdog owns pauses then), after a seam step (perform() blocks for the
 whole step, so the watch re-arms), when the machine state declares
 `game_pause_owned` (no mission does today), or on an unread pause state.
 
+### The boot-stall watchdog (a KSP that hangs before MAINMENU)
+
+A KSP that wedges during its own boot used to be noticed only when the first
+LoadGame step's wait ran out: 660 s, then a non-retried `KILLED(budget)` (H69
+`2026-10-12_0623`, KSP.log stopped 1 s in at `Load(Assembly): MechJebLib`).
+`run.py`'s `BootWatch` now tails THIS launch's KSP.log from launch until the boot
+is ready (the `Scene Change : From LOADING to MAINMENU` line, or any seam
+response) and kills the process tree when the log has not grown for 90 s
+(`hlib.BOOT_STALL_NO_GROWTH_SECONDS`) or MAINMENU has not appeared within 240 s
+(`hlib.BOOT_MAINMENU_DEADLINE_SECONDS`). The attempt is `INVALID(boot-hang)`, an
+environment fault retried once like `boot-crash`, so a hung boot costs at most
+240 s plus a retry instead of 660 s and a lost lane. The harness log carries
+`[Boot-Wait] boot-hang: rule=<no-growth|no-mainmenu> stall=<s> ... lastLine=...`,
+and the result JSON a `driver.bootHang` record; a normal boot logs `boot ready
+via=mainmenu elapsed=<s>`, after which the watchdog is off for the attempt. The
+previous run's KSP.log (still on disk at launch) is never read as this boot's.
+After this kill (and after a budget kill) the harness waits up to 30 s for KSP to
+actually exit (`run.KILL_EXIT_WAIT_SECONDS`), so the retry's zombie preflight does
+not refuse a still-dying KSP as `INVALID(instance-busy)`; past the bound it Warns
+and carries on.
+Thresholds come from 115 archived boots: MAINMENU at 23.6-42.1 s (median 23.8 s),
+longest pause between two boot log lines 5.6 s. Contract:
+`docs/dev/design-autotest-harness-core.md`, "Driving the seam".
+
 ### The chute-unobservable terminal (a pad hop watching the wrong parts)
 
 B1, SBR (through B1) and EVA-4 build their runner with `read_chute=True`, and the
@@ -1430,6 +1454,9 @@ What a red means:
   (`cd harness && python provision/provision.py --profile stock-minimal`).
 - **KILLED** - a budget kill. Always called out explicitly in the tally so it
   cannot hide behind twenty passes beside it.
+- **INVALID `boot-hang`** - KSP stalled before MAINMENU and the boot-stall
+  watchdog killed it (see "The boot-stall watchdog"). Retried once; two in a row
+  point at the instance (a corrupt plugin, a mod load wedge), not at Parsek.
 - **INVALID with `retrySkipped` in its result JSON** - the attempt failed on a
   deterministic seam error (an `ERROR` / `REJECTED` reply whose reason is in
   `hlib.DETERMINISTIC_SEAM_ERROR_REASONS`: a protocol reject, a spec-text argument

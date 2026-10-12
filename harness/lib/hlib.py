@@ -9916,11 +9916,128 @@ EXPECTATION_REQUIRED_INVALID_PREFIX = "logContracts.required invalid regex: "
 EXPECTATION_FORBIDDEN_HIT_PREFIX = "logContracts.forbidden matched: "
 EXPECTATION_FORBIDDEN_INVALID_PREFIX = "logContracts.forbidden invalid regex: "
 
+# ---------------------------------------------------------------------------
+# Boot-stall watchdog (todo HARNESS-BOOT-HANG-KILLED-BUDGET). Pure decisions; run.py
+# owns the KSP.log reads and the kill.
+#
+# H69 2026-10-12: KSP wedged 1 s after "Log Initiated" (loading MechJebLib) and the
+# harness only noticed when the LoadGame step wait ran out, 660 s later, as a
+# non-retried KILLED(budget). A boot is now watched from launch until the FIRST of
+# BOOT_READY_MARKER in this launch's KSP.log or any seam response line, and is
+# stalled when the log has not grown for BOOT_STALL_NO_GROWTH_SECONDS or the marker
+# has not appeared within BOOT_MAINMENU_DEADLINE_SECONDS of launch. Once the boot is
+# ready the watchdog is latched off for the rest of the attempt.
+#
+# Thresholds, measured 2026-10-12 over the 115 archived automation runs with a
+# MAINMENU line (automation/results-archive/*/KSP.log.gz): first log line to
+# MAINMENU min 23.6 s, median 23.8 s, p90 24.5 s, max 42.1 s (the slow tail is the
+# first boot after a provision; uncached ModuleManager boots measured 25 s); the
+# largest gap between two log lines before MAINMENU was 5.6 s. KSP.log is
+# line-flushed (the H69 log ends on a complete line at a non-block size), so file
+# growth tracks line output. 90 s of silence is 16x the largest measured gap and
+# 240 s to MAINMENU is 5.7x the slowest measured boot.
+# ---------------------------------------------------------------------------
+
+BOOT_HANG_SUBKIND = "boot-hang"
+BOOT_READY_MARKER = "Scene Change : From LOADING to MAINMENU"
+BOOT_STALL_NO_GROWTH_SECONDS = 90.0
+BOOT_MAINMENU_DEADLINE_SECONDS = 240.0
+
+BOOT_STALL_RULE_NO_GROWTH = "no-growth"
+BOOT_STALL_RULE_NO_MAINMENU = "no-mainmenu"
+
+
+@dataclass(frozen=True)
+class BootWatchdogLimits:
+    no_growth_seconds: float = BOOT_STALL_NO_GROWTH_SECONDS
+    mainmenu_deadline_seconds: float = BOOT_MAINMENU_DEADLINE_SECONDS
+
+
+@dataclass(frozen=True)
+class BootStallDecision:
+    stalled: bool
+    rule: str = ""
+    stall_seconds: float = 0.0
+
+
+def decide_boot_stall(elapsed_since_launch: float, seconds_since_growth: float,
+                      boot_ready: bool,
+                      limits: Optional[BootWatchdogLimits] = None) -> BootStallDecision:
+    """Whether a boot that has not yet reached MAINMENU is stalled.
+
+    ``seconds_since_growth`` counts from the last observed growth of THIS launch's
+    KSP.log, or from launch when the log has not been touched yet. A ready boot is
+    never stalled, whatever the clocks say. The no-growth rule is checked first: it
+    is the more specific diagnosis (the H69 shape), and it names the silence."""
+    if boot_ready:
+        return BootStallDecision(False)
+    lim = limits or BootWatchdogLimits()
+    if seconds_since_growth >= lim.no_growth_seconds:
+        return BootStallDecision(True, BOOT_STALL_RULE_NO_GROWTH, float(seconds_since_growth))
+    if elapsed_since_launch >= lim.mainmenu_deadline_seconds:
+        return BootStallDecision(True, BOOT_STALL_RULE_NO_MAINMENU, float(elapsed_since_launch))
+    return BootStallDecision(False)
+
+
+def boot_log_scan_start(pre_identity: Optional[Tuple[int, int]],
+                        cur_identity: Optional[Tuple[int, int]]) -> Optional[int]:
+    """The byte offset to start scanning KSP.log from for this launch, or None while
+    the file still belongs to the previous run.
+
+    Identities are ``(size, mtime_ns)``; ``pre_identity`` is taken just before the
+    launch. KSP truncates KSP.log at boot, so a file identical to the pre-launch one
+    is the stale log and is not read (a stale MAINMENU line must never mark this boot
+    ready). A changed file shorter than before was truncated: scan from 0. A changed
+    file at least as long was appended to (or regrew past a tiny old log between two
+    polls): scan from the old size, which skips only bytes far ahead of the marker."""
+    if cur_identity is None:
+        return None
+    if pre_identity is None:
+        return 0
+    if cur_identity == pre_identity:
+        return None
+    pre_size = pre_identity[0]
+    return 0 if cur_identity[0] < pre_size else pre_size
+
+
+def scan_boot_ready(carry: bytes, chunk: bytes) -> Tuple[bool, bytes]:
+    """Scan a new KSP.log chunk for ``BOOT_READY_MARKER``. ``carry`` is the tail of
+    the previous chunk, so a marker split across two reads is still found. Returns
+    ``(found, next_carry)``."""
+    marker = BOOT_READY_MARKER.encode("ascii")
+    buf = carry + chunk
+    if marker in buf:
+        return True, b""
+    keep = len(marker) - 1
+    return False, buf[-keep:]
+
+
+def last_complete_log_line(tail: bytes) -> str:
+    """The last non-empty line of a KSP.log tail, decoded leniently and stripped, or
+    "" when there is none. Used only for the boot-hang log line and result record."""
+    text = tail.decode("utf-8", errors="replace")
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if line:
+            return line
+    return ""
+
+
+def format_boot_hang_line(decision: BootStallDecision, elapsed_since_launch: float,
+                          log_bytes: int, last_line: str) -> str:
+    """The one Warn line written when the boot watchdog fires."""
+    return ("boot-hang: rule=%s stall=%.0fs elapsed=%.0fs kspLogBytes=%d lastLine=%r; "
+            "killing process tree -> INVALID %s (retry per policy)"
+            % (decision.rule, decision.stall_seconds, elapsed_since_launch, log_bytes,
+               last_line or "<none>", BOOT_HANG_SUBKIND))
+
+
 # INVALID subkinds that are retry-once-then-INVALID for the driver/tooling
 # stages (design). Everything else (admission, instance-locked/busy, fixture-*,
-# spec-invalid, boot-crash-repeated) is a terminal INVALID.
+# spec-invalid, boot-crash-repeated) is a terminal INVALID. boot-hang is the
+# boot-stall watchdog's kill, an environment fault retried like boot-crash.
 RETRYABLE_INVALID_SUBKINDS: Tuple[str, ...] = (
-    "boot-crash", "load-failed", "driver-verdict-mismatch", "driver-stage",
+    "boot-crash", BOOT_HANG_SUBKIND, "load-failed", "driver-verdict-mismatch", "driver-stage",
     "seam-timeout", "tooling", "analyzer-error",
     # M-B1 mission subkinds (design "hlib additions"): the FOUR retryable mission
     # verdicts join the driver/tooling retry set. tooling-venv is TERMINAL and is
@@ -10583,6 +10700,7 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
       spec-invalid / admission / instance-locked / instance-busy -> INVALID (no retry)
       watchdog KILL -> KILLED (no retry; torn save skipped)
       boot-crash -> INVALID (retry once; repeated -> boot-crash-repeated, terminal)
+      boot-hang (boot-stall watchdog kill before MAINMENU) -> INVALID (retry once)
       post-boot self-exit w/ pending step OR expected-batch absent -> PARSEK-FAIL(batch-crashed)
       driver stage failed -> INVALID (retry once)
       verifier tooling timeout / analyzer-error -> INVALID (retry the subprocess)
@@ -10615,6 +10733,12 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
             base = V(VERDICT_INVALID, "boot-crash-repeated", "deterministic boot crash on retry")
         else:
             base = V(VERDICT_INVALID, "boot-crash", "process exited during boot-wait", retryable=True)
+    elif driver.get("boot_hung", False):
+        # After boot-crash and ahead of every verifier flag: the tree was killed
+        # before the game reached MAINMENU, so nothing downstream is evidence about
+        # Parsek. Not KILLED: the run budget did not expire, the boot stalled.
+        base = V(VERDICT_INVALID, BOOT_HANG_SUBKIND,
+                 "boot stalled before MAINMENU; watchdog killed the tree", retryable=True)
     elif driver.get("batch_crashed", False):
         base = V(VERDICT_PARSEK_FAIL, "batch-crashed", "post-boot self-exit aborted the batch")
     elif not driver.get("valid", True):
