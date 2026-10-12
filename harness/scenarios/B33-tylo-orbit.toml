@@ -125,7 +125,15 @@ D14 = ["jool", "tylo", "warp-rails", "scene-flight", "sandbox"]
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 1, max = 2 }
+# RE-PINNED 1..2 -> 3 exact 2026-10-12 under the operator ruling of 2026-10-01 that closed
+# INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS (a multi-split in-flight commit is re-pinned exact, as
+# B13 8 -> 11). This lane was last read 2026-09-25, before #1931 made the mission commit run
+# the optimizer, and 2026-10-01 dropped the orbit starts as split-free; an airless-moon
+# arrival is not. Run 2026-10-12_1719 (MISSION-OK) read `recordings.count 3 > max 2` alone
+# with two splits at the Tylo arrival: `Split candidate (PersistedPhaseChange) ... sec=23
+# prev=ExoBallistic next=Approach` and `Split candidate (ExoPropulsiveAtCrossing) ... sec=24
+# prev=Approach next=ExoPropulsive` (the capture burn), then `committed=1->3`.
+count = { min = 3, max = 3 }
 
 [expectations.logContracts]
 required  = [
