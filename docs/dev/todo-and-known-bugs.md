@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~HARNESS-KRPC-FLAMEOUT-BLIND-BAND: kRPC reports full available thrust on an engine KSP has flamed out, so the mission flameout-staging watchdog never stages~~ [FILED 2026-10-12 from two B16 flights. FIXED 2026-10-12, branch `flameout-blind-band`; unit tests only, NOT YET FLOWN: needs a B16 re-fly to prove. harness]
+## ~~HARNESS-KRPC-FLAMEOUT-BLIND-BAND: kRPC reports full available thrust on an engine KSP has flamed out, so the mission flameout-staging watchdog never stages~~ [FILED 2026-10-12 from two B16 flights. FIXED 2026-10-12, branch `flameout-blind-band`; unit tests; flown once 2026-10-12_1238 MISSION-OK, but that drain emptied the core to exactly lf=720.000 so kRPC itself read 0 thrust and the correction path did not fire live (no regression proven, the blind-band rescue not yet witnessed). harness]
 
 `B16-eve-orbit` `2026-10-12_1117` and `2026-10-12_1130_a2` (results under the
 `Parsek-flight-efficiency` worktree) both ended MISSION-FLAKE on the burn-stagnation watchdog: the
