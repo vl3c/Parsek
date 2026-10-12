@@ -341,7 +341,8 @@ class CircularizeNodeWaitTests(unittest.TestCase):
         self.assertTrue(mlib.b5_params_from_dict(
             {"circularizeNodeWaitWarp": True}).circularize_node_wait_warp)
 
-    def test_only_b22_opts_in(self):
+    def test_the_opted_in_lanes_are_exactly_the_proven_set(self):
+        # B22 proved the hold 2026-10-03; B19 / B20 opted in 2026-10-12 pending their re-fly.
         here = os.path.dirname(os.path.abspath(__file__))
         scen = os.path.join(os.path.dirname(os.path.dirname(here)), "scenarios")
         armed = []
@@ -353,7 +354,8 @@ class CircularizeNodeWaitTests(unittest.TestCase):
             mp = spec.get("driver", {}).get("missionParams", {})
             if "circularizeNodeWaitWarp" in mp:
                 armed.append((name, mp["circularizeNodeWaitWarp"]))
-        self.assertEqual([("B22-jool-orbit.toml", True)], armed)
+        self.assertEqual([("B19-dres-orbit.toml", True), ("B20-moho-orbit.toml", True),
+                          ("B22-jool-orbit.toml", True)], armed)
 
     def test_the_hold_never_covers_a_transfer_node(self):
         """Owner ruling: a held TLI moved B13's landing site. The key adds
