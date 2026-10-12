@@ -299,13 +299,18 @@ steps = [
   { cmd = "RecordingState",                                                       expect = "OK" },
   { cmd = "RecordingState",                                                       expect = "OK" },
   { cmd = "RecordingState",                                                       expect = "OK" },
+  # THE DWELL IS NOW HELD BY GAME TIME. Since PR #2017's 25 ms seam polls the twelve probes
+  # above last about 0.3 s, not 3.0 s, and run 2026-10-12_2125 red on 21 showcase rows whose
+  # MeshSpawned never printed (87 spawned). A 1x WarpToUT to UT 58 holds 3 s past the entry
+  # jump; the staircase's first step drops 8.0 -> 5.0 s so it still ends at UT 87.
+  { cmd = "WarpToUT",   args = { ut = "58", maxRate = "1" },                      expect = "OK", budget = 120 },
   # STEPS 20-34. THE STAIRCASE. Every one is `deltaSeconds`, so it is forward BY
   #     CONSTRUCTION and `timejump refused reason=backward-jump` cannot happen however
   #     slow the machine is. Four steps of 8 s cover the 26.16 s from the entry jump to
   #     the window end on the jumps alone (55 -> 63 -> 71 -> 79 -> 87); the four probes
   #     after each buy frames at that phase so part events are consumed and applied with
   #     the mesh on screen.
-  { cmd = "TimeJump",   args = { deltaSeconds = "8.0" },                          expect = "OK", budget = 120 },
+  { cmd = "TimeJump",   args = { deltaSeconds = "5.0" },                          expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                       expect = "OK" },
   { cmd = "RecordingState",                                                       expect = "OK" },
   { cmd = "RecordingState",                                                       expect = "OK" },
