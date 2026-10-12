@@ -4435,8 +4435,11 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # category's three FLIGHT cells run on GS-1's recorded pad vessel before the flight,
     # `total=3` literal with the split regexed, predicted passed=3 skipped=0). Like CN-1 it
     # is not an H-series id, so this class's own cells never read it;
-    # CommittedBatchTallySourceSyncTests gates its `total=`.
-    INTERIM_PIN_IDS: set = {"VN-1-stock-rename-staging-f9"}
+    # CommittedBatchTallySourceSyncTests gates its `total=`. It LEFT on 2026-10-12: its
+    # third flight, result 2026-10-12_0458 (PASS attempt 1), measured the prediction,
+    # `passed=3 failed=0 skipped=0`, and the spec pinned the line whole (the two flights
+    # before it were red on spec defects outside the batch).
+    INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against

@@ -3,9 +3,11 @@ id = "VN-1-stock-rename-staging-f9"
 # =====================================================================================
 # VN-1: VESSEL NAMES, THE STOCK RENAME ON A RECORDED FLIGHT (design
 # docs/dev/design-vessel-and-mission-names.md 15.3, todo GC-7). AUTHORED 2026-10-11 on
-# branch `vessel-names-links`. Two flights, both red on SPEC defects only; every final name
-# was right both times. Not re-flown since the second fix. saveParse stays REPORT-ONLY until
-# a green reading run.
+# branch `vessel-names-links`. LIVE-PROVEN on its third flight: result `2026-10-12_0458` PASS
+# attempt 1 (automation DLL sha256 prefix 62700230107ab2b4), `BATCH_COMPLETE v1 total=3
+# passed=3 failed=0 skipped=0`, now pinned WHOLE. The two flights before it were red on SPEC
+# defects only, every final name right both times. saveParse stays REPORT-ONLY until an
+# operator arms it.
 #   - result `2026-10-11_1649` (logs `2026-10-11_1953`): PARSEK-FAIL(expectations) on the
 #     recordings count alone (min 3, read 2: pod and booster, no optimizer split, no
 #     debris). Floor now 2.
@@ -168,8 +170,9 @@ vesselNames    = { "VN1 Charlie" = { min = 1, max = 1 }, "VN1 Alpha Probe" = { m
 [expectations.logContracts]
 required = [
   "startrecording recordingId=[0-9a-f]+ already=false",
-  # (g) Interim pin until the first flight: total literal, the split regexed.
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=VesselNames scene=FLIGHT",
+  # (g) Pinned WHOLE off result `2026-10-12_0458` (three FLIGHT cells, all reachable on the
+  # recorded pad vessel).
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=VesselNames scene=FLIGHT",
 
   # (a) The pad rename: the seam's own line, then Parsek's capture of the stock accept
   # (VesselNameLiveSync.OnStockRenameAccepted) and the decision (VesselNameStore).
