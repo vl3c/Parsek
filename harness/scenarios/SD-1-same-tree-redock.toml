@@ -97,7 +97,12 @@ trees           = { min = 3, max = 3 }
 committedTrees  = { min = 3, max = 3 }
 recordings      = { min = 34, max = 34 }
 branchPoints    = { Dock = { min = 3, max = 3 }, Undock = { min = 2, max = 2 }, JointBreak = { min = 15, max = 15 } }
-terminalStates  = { Docked = { min = 4, max = 4 }, Orbiting = { min = 8, max = 8 }, Destroyed = { min = 19, max = 19 } }
+# Destroyed RE-PINNED 19 -> 18 2026-10-13: since #2015 a non-final chain segment is not finalized
+# as a leaf (`FinalizeIndividualRecording: '8267c27c...' is a non-final chain segment`), so one
+# recording that read Destroyed now carries no terminal (34 recordings, 30 with a terminal).
+# Read 18 on 2026-10-12_2129 and 2026-10-13_0329, every other window unchanged; CI-3's
+# 2026-10-07 SubOrbital re-pin is the same change.
+terminalStates  = { Docked = { min = 4, max = 4 }, Orbiting = { min = 8, max = 8 }, Destroyed = { min = 18, max = 18 } }
 ghostChainNodes = { max = 0 }
 
 [expectations.logContracts]
