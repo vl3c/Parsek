@@ -16,6 +16,121 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## REFLY-FORK-SELF-SPAWN-AFTER-QUICKSAVE: during a Re-Fly, a save turns the session's own fork into an "ended" recording and Parsek spawns a real copy of it; the copy's breakup debris is then attributed to the Re-Fly recording [FILED 2026-10-13 from CI-3, reproduced twice. OPEN, Parsek, high]
+
+`CI-3-chain-rederive-readback` reds PARSEK-FAIL on analyzer `INV4-PARTEVENT-PID` on two runs
+(`2026-10-12_1810`, `2026-10-13_0304`). The lane rewinds a slot (Re-Fly), `SaveGame quicksave`,
+then `LoadGame quicksave allowLiveRecorder=refly`. Two defects, both older than the red:
+
+1. SELF-SPAWN. `SaveGame` copies the live recorder's points into the session's fork (index #21,
+   `rec_...`), so the fork reads as ended (endUT ~693.7), and the past-end completion for a
+   playback-disabled ghost (`GhostPlaybackEngine.cs` ~1171-1181) fires its terminal spawn:
+   `PlaybackCompleted index=21 ... needsSpawn=True` then `Vessel spawn for #21 (Kerbal X Probe)
+   pid=495850567` (0304 KSP.log:13668-13678; twice in that run, and twice in the green
+   `logs/2026-10-07_0331_CI-3-chain-rederive-readback`). Neither `finalNeedsSpawn`
+   (`ParsekFlight.cs` ~19218-19236) nor `ShouldSpawnAtRecordingEnd` (`GhostPlaybackLogic.cs`
+   ~8176) excludes the active Re-Fly session's provisional / the live recorder's recording
+   (`isActiveChainMember` is hard-coded false). A player who saves mid-Re-Fly can get a real
+   duplicate of the vessel being re-flown.
+2. FOREIGN DEBRIS ATTRIBUTED TO THE FORK. Both the live vessel and the spawned copy break on
+   their first unpacked physics frame (breakForce 0, the rewind-point state is unstable on
+   unpack: the 2026-09-22 green run lost the same two Rockomax32.BW tanks on its rewind
+   unpack). `DeferredJointBreakCheck` (`ParsekFlight.cs` ~7593-7633) takes EVERY vessel not in
+   `preBreakVesselPids`, so it sweeps in the copy's fragments although `ParsekFlight.cs` ~13345
+   already logged them as `originalPid=495850567` (a different vessel): `newVessels=13` on 0304.
+   Each CRASH-classified fragment then gets `RecordFallbackDecoupleEvent` (`FlightRecorder.cs`
+   ~1720-1754) on the fork, whose docstring assumes the root part separated from the recording
+   vessel. Every unresolved INV4 pid is a regenerated copy pid unique to its run (0304:
+   595832184 716316011 2812521149 1959506014 4216142280 867109314; 1810: 2648861443, root of a
+   child logged `originalPid=3059730645`); the live vessel's pids repeat across runs and resolve.
+
+Why it went red now: PR #2059 (2026-10-09) made a FLIGHT `LoadGame` answer only after the active
+vessel unpacked; before it, the lane's next steps ran on a still-packed vessel and nothing broke
+(the 10-07 green log has zero `Unpacking` lines). Fix: (1) needsSpawn=false for the active Re-Fly
+session's provisional / the live recorder's recording (pure test over `ShouldSpawnAtRecordingEnd`
++ the ComputePlaybackFlags inputs); (2) drop deferred-scan candidates whose decouple origin pid is
+neither the recorded pid nor one of its fragments (pure helper test: a foreign origin gives 0 new
+vessels and no fallback event); (3) separately, an in-game repro of the rewind-point vessel's
+joint break on unpack. Diagnosed read-only; nothing changed.
+
+## BDOCK2-RENDEZVOUS-PHASING-BURN-DEORBITS-THE-INTERCEPTOR: MechJeb's rendezvous plan from BDOCK-2's 95 x 84 km interceptor orbit drops periapsis into the atmosphere and the craft crashes [FILED 2026-10-13 from the operator tier, reproduced twice. OPEN, harness mission]
+
+`BDOCK-2-second-dock-harvest` went INVALID (mission `vessel-lost`) on `2026-10-12_1748` and again
+on the re-flight `2026-10-13_0309`, identically: in RENDEZVOUS the interceptor sits in a stable
+95 x 84 km orbit, the rendezvous node-wait hold warps to ut ~11042 and releases correctly
+(`rendezvous hold release (arrived ut=11041.8 target=11055.1)`), and the node at ut 11178.2 is
+executed as a burn that takes periapsis from ~84 km to ~31 km (`SUB_ORBITAL`); the craft
+re-enters and is destroyed near alt 655 m (`Collision Enhancer EXPLODE`) about 900 s later.
+BDOCK-1 (same intercept machine) passed on 2026-10-11; BDOCK-2 was green on 2026-09-23 and
+2026-10-02 (`2026-10-02_2037`, with the #1964 rendezvous hold). Not a Parsek defect. Unproven
+trigger: PR #2059 (2026-10-09, LoadGame answers after the unpack) shifted the interceptor's
+launch time, hence the station phase MechJeb plans the rendezvous against; from an orbit this
+low any phasing orbit below it is atmospheric. Fix candidates: park the interceptor higher, or
+cap MechJeb's rendezvous phasing (a lower bound on the phasing periapsis / max phasing orbits),
+then re-fly.
+
+## HARNESS-MODDED-COMPAT-NEVER-PROVISIONED: the MC lanes fly whatever Parsek.dll the modded-compat instance last received [FILED 2026-10-12 from the operator tier. OPEN, harness]
+
+The five MC lanes (`MC-1`..`MC-3` nightly, `MC-4` / `MC-5` operator) run on
+`automation/modded-compat`, but neither `run.py` nor `tools/tier_runner.py` provisions an
+instance, and the admit check compares the instance's DLL with its own manifest, never with the
+current build. On 2026-10-12 that instance still carried a 2026-09-26 build (sha256 prefix
+`18c227db`, no LoadGame flight-ready wait), so the nightly MC passes of 2026-10-11 and today's
+MC-4 pass exercised two-week-old code, and `MC-5-persistent-rotation` `2026-10-12_1954` (+ a2)
+went INVALID on `SpinVessel REJECTED spinvessel-vessel-packed` because LoadGame answered before
+the unpack. Provisioned from main `7cbe594c0` (`fec17391`) the same night: MC-1..MC-4 PASS,
+MC-5 then red on a shrunk watch window (fixed separately, see HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
+Fix options: provision every profile a tier selects (tier_runner), or have admit refuse an
+instance whose deployed DLL hash differs from stock-minimal's after a provision.
+
+## RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE: RF-1's D4 `hysteresis` token no longer prints, because the launch no longer happens inside the post-load settle [FILED 2026-10-12 from the operator tier. OPEN, harness, operator call]
+
+`RF-1-continuation-stays-open` `2026-10-12_2026` PARSEK-FAIL on its required
+`Environment transition: SurfaceStationary -> SurfaceMobile ... (debounce=3.0s)` alone (the D4
+`hysteresis` witness). The launch is now at UT 27.24 (MechJeb `LaunchStarted`), after the
+LoadGame flight-ready wait, and the classifier goes `SurfaceStationary -> Atmospheric at
+UT=27.90 (debounce=0.5s)`; GS-1 on the same `gs1-two-stage-pad` profile reads 27.92 today
+(`2026-10-12_1830`, PASS, token not pinned). The last green RF-1 (`2026-09-29_1520`) launched
+at ~26.56, before the flight-ready wait existed, apparently inside the post-load settle, so the
+lit stack sat more than 3 s on the pad. `EnvironmentDetector.cs` is unchanged since
+2026-09-11. Not a Parsek defect: the claim's witness was a race. Needs a lane that genuinely
+moves on the surface for over 3 s (a rover, or a held launch), or the claim re-opened.
+
+## REFLY-UNBOUND-PROVISIONAL-TAGS-AWARDS-TO-ORIGIN: while a re-fly provisional has no recorder, a career award is tagged to the superseded origin and the merge tombstones it [FILED 2026-10-12 from the RF-3 tombstone reading. OPEN, product question]
+
+`ParsekFlight.GetActiveRecordingIdForTagging` (ParsekFlight.cs ~246) returns
+`activeTree.ActiveRecordingId` while the provisional is unbound
+(`outcome=unbound-refly-provisional`), which is the origin the merge supersedes. An award
+earned in that window is therefore tagged to the origin and retired by the attempt's own merge.
+On 2026-10-01 (`logs/2026-10-01_1100_RF-3-refly-discard-then-commit`) this retired five
+spuriously re-paid record bands (`Tombstoned 5 career actions (... Milestone=5 ...)`), which
+was harmless; for a genuine award it would cost the player earnings. Decide whether unbound
+re-fly awards should tag to the provisional instead.
+
+## W1-CAMERA-LIVE-HANDOFF-NO-LONGER-PRINTS: W1's `camera-live member #0->#1` hand-off token is missing on every run since its last green (2026-08-28) [FILED 2026-10-13 from the operator tier, reproduced three times. OPEN, render, untriaged]
+
+`W1-watch-distance-cutoff` reds PARSEK-FAIL on its required `Chain-loop unit owner=0 camera-live
+member #0->#1 at loopUT=434\.5` alone on `2026-10-12_2346`, `2026-10-13_0331` and `_0335`. The
+chain unit evaluates the jump to UT 21984 correctly (`member #0 hidden: loopUT=434.59 outside its
+window [34.54,212.20]`, and the later `camera-live member #1->#2 at loopUT=1214.57` does print),
+but no #0 -> #1 hand-off is logged. The green reading `logs/2026-08-28_1902_W1-watch-distance-cutoff`
+printed it on the jump frame, 0.18 s after StartLoopPlayback, with the clock still before the
+loop relaunch (UT ~21569.0 vs relaunchUt 21583.97). Not the #2017 step timing: `_0335` held a 1x
+`WarpToUT ut=21570` (0.8 s of frames, branch `tier-fixes-1013`, not landed) between
+StartLoopPlayback and the jump and still printed no hand-off; the unit logged nothing during the
+pre-relaunch hold. So the unit no longer treats member #0 as camera-live before its first
+in-window evaluation. Six weeks of chain-loop / LiveAt changes separate the two runs (e.g. #1820);
+bisect by flying W1 on older mains, or read the hand-off logger's initial-member rule.
+
+## TIER-2026-10-12-LANE-VARIANCE: four operator-tier reds that were flight variance, not defects [FILED 2026-10-13. OPEN for the two operator calls below, harness]
+
+- GS-10 2026-10-12_1834 PARSEK-FAIL on the TTL PAIR token (the spec's FLAKE WATCH POINT): of the last pair (expiryUT 125.9) pid 4066981309 hit the ground at ~UT 125.8 ('Debris TTL: vessel destroyed/despawned') and only 513253397 printed 'Debris TTL expired ... expiry=125.9 currentUT=126.0'; the middle pairs were all destroyed before expiry. Margin < 0.2 s. Operator call: keep the pair token, or relax it to at least one expiry.
+- RF-9 2026-10-12_2119 PARSEK-FAIL on `Forwarded 19 permanent state event(s)` (read 21): a dropped booster destroyed an R8winglet 1.3 s after separation (`Part event: Destroyed` + `Decoupled 'R8winglet'`), two correctly forwarded seeds more. Re-flown green 2026-10-13_0305 (19). Flight variance on an exact count. Operator call: keep the exact count or accept the collision case.
+- GUI-7 `2026-10-12_1927` INVALID on `UiAction ERROR pointer-not-applied want=133,94
+  after=84,337`; the retry `_1929_a2` PASSED.
+- V7M `2026-10-12_2340` INVALID on `EnterWatchMode REJECTED no-watchable-ghost`; the retry
+  `_2341_a2` PASSED.
+
 ## ~~HARNESS-KRPC-FLAMEOUT-BLIND-BAND: kRPC reports full available thrust on an engine KSP has flamed out, so the mission flameout-staging watchdog never stages~~ [FILED 2026-10-12 from two B16 flights. FIXED 2026-10-12, branch `flameout-blind-band`; unit tests; flown once 2026-10-12_1238 MISSION-OK, but that drain emptied the core to exactly lf=720.000 so kRPC itself read 0 thrust and the correction path did not fire live (no regression proven, the blind-band rescue not yet witnessed). harness]
 
 `B16-eve-orbit` `2026-10-12_1117` and `2026-10-12_1130_a2` (results under the
@@ -511,6 +626,8 @@ at-save`, the shape this race produces.
 
 ---
 
+Data point 2026-10-12 (operator tier): S4.4 2026-10-12_2128 PARSEK-FAIL on `outcome=retired-empty-provisional` / `AppendRelations outcome=refused-unflown-provisional` missing: the same race (operator tier, attempt 1, PARSEK-FAIL is not retried).
+
 ## V16M-ICON-OFF-ORBIT-AT-TIMEJUMP-LANDING: V16M's ghost map icon sits ~1.3 deg off its orbit on the frame a TimeJump lands [FILED 2026-10-07 from the PR #2051 flights, measured twice. OPEN, render, not yet triaged]
 
 `V16M-laythe-player-loop` reads PARSEK-FAIL on the unallowed Tier-C anomaly `icon-off-orbit`
@@ -526,6 +643,8 @@ probe on the jump frame (`MapRenderProbe`, `ProtoIcon` placement against `orbitE
 the window by flying V16M on an older main.
 
 ---
+
+Data point 2026-10-12 (operator tier): 2026-10-12_2140 read the same 4 icon-off-orbit hits at the TimeJump landing frames (UT 29874214.000 / 30933832.000, angle 1.30-1.31 deg), a third reading after 2026-10-08_0101 / _0236.
 
 ## ~~QUICKLOAD-RESUMED-MEMBER-KEEPS-ABANDONED-FUTURE-MERGE-STATE: an F9 resumes a tree member with the merge state its abandoned future's commit gave it~~ [FILED 2026-10-07 from the QL-4 / QL-4b / QL-4c reading runs, branch `f9-verify`, verified in the produced saves and by code read. FIXED 2026-10-07, branch `ql-merge-state` (PR #2049). LIVE-PROVEN 2026-10-07: QL-4 / QL-4b / QL-4c PASS attempt 1 on both commits (`2026-10-07_2016` / `_2022` / `_2027`, then `_2055` / `_2043` / `_2049`), each logging `mergeStatesReset=1` and `ReapOrphanedRPs: reaped=1 remaining=0`, report-only `rewindPoints` clean]
 
@@ -3622,6 +3741,14 @@ Lost: about 26 min with a dialog up, about 25 min of it avoidable (RB-1 is about
   Awake, before the name is set). No harness cell reads these lines yet.
 
 ## HARNESS-FLIGHT-WALL-TIME: auto-flights spend ~40% of their mission wall time idle at 1x [FILED 2026-10-01, branch `flight-efficiency`. MEASURED; the warp-policy fix is a separate session]
+
+MEASURED 2026-10-12/13 (daily + operator tiers on main `7cbe594c0`, 181 lanes, 189 attempt runs):
+12.1 h of wall. Longest: B20 4,655 s, B21 3,045 s, B19 2,950 s, V24W 2,868 s, B22 2,247 s, B30
+1,763 s, B16 1,536 s, BDOCK-2 1,299 s. Daily lanes are boot-bound (kspBoot ~24 s mean, KSPCF
+FastLoader and the ModuleManager cache already active; preLaunch ~6 s, verifiers ~8 s). Operator
+mission wall 34,927 s: idle at 1x 9,895 s, recoverable 4,640 s (low-warp 2,144 s, of which B20's
+coast 1,315 s; waiting-for-node 1,963 s, of which the B19 / B20 / B21 park round-out ~1,773 s,
+tried and dropped below), by design 6,064 s.
 
 `harness/tools/flight_efficiency.py` (pure core `harness/lib/flighteff.py`, contract in its
 docstring and `harness/README.md` "Flight efficiency") now measures where a run's wall time
