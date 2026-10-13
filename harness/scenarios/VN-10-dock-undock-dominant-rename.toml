@@ -3,7 +3,7 @@ id = "VN-10-dock-undock-dominant-rename"
 # =====================================================================================
 # VN-10: ONE RENAME COVERS EVERY SEPARATE RECORDING OF AN IDENTITY (design
 # docs/dev/design-vessel-and-mission-names.md 6.2, 7.2, 7.4 and 15.3, rulings 1 and 7, todo
-# GC-7). AUTHORED 2026-10-13 on branch `vessel-names-proof3`. NEVER FLOWN: a reading run,
+# GC-7). AUTHORED 2026-10-13 on branch `vessel-names-proof3`. LIVE-PROVEN 2026-10-13 on its first flight: result `2026-10-13_0606` PASS attempt 1 (automation DLL sha256 prefix 6356e1cba57673ea, wall 354 s). Was a reading run,
 # saveParse REPORT-ONLY. No RunTests step, so no batch pin.
 #
 # WHY THIS HOST. Ruling 7 says a rename names the vessel's whole identity, every leg of it.
@@ -34,6 +34,14 @@ id = "VN-10-dock-undock-dominant-rename"
 # PREDICTIONS a reading run must confirm: the exact leg count (3, unless an optimizer split
 # adds one); the write-through reason (`parsek-rename`, VN-1's); the CommitTree auto-resume
 # leg (H58) inherits the decision name.
+#
+# MEASURED (result `2026-10-13_0606`): the stock rename answered `legs=3`, its decision
+# `legs=3 guids=1` (one launch guid: the guid edge alone joins the three recordings) and its
+# apply pass `legsRenamed=3`; the row rename of the pre-dock leg recorded `legs=3` and wrote
+# `'VN10 Kerbal' -> 'VN10 Kerbal Final'` onto pid 3620499050. Census `recordingNames {VN10 Kerbal
+# Final: 3, CTD Target: 2, CTD Carrier: 1}` (VN-4's shape: the target's pre-dock and post-undock
+# legs kept stock's name; the CommitTree auto-resume leg is not committed), `vesselNames
+# {VN10 Kerbal Final: 1, CTD Target: 1, Kerbal X Probe: 1}` (the probe is the fixture's).
 # =====================================================================================
 tier = "nightly"
 description = "VN-10: on CI-9's chain-tip-dock host, the dominant Kerbal X docks to the Real-Spawned target and undocks, leaving three separate recordings of one launch (pre-dock, merged, post-undock); a stock rename after the undock covers all three, and after the commit a Parsek rename of the oldest (pre-dock) recording renames the identity and is written onto the live Kerbal X; the leaving target keeps its own name."

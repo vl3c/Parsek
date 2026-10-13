@@ -3,7 +3,7 @@ id = "VN-12-spawn-resume-rename"
 # =====================================================================================
 # VN-12: A PARSEK-SPAWNED VESSEL FLOWN AGAIN, THE RESUME OF ITS COMMITTED TREE (design
 # docs/dev/design-vessel-and-mission-names.md 6.2 edge 4, 7.5 and 15.3, todo GC-7).
-# AUTHORED 2026-10-13 on branch `vessel-names-proof3`. NEVER FLOWN: a reading run, saveParse
+# AUTHORED 2026-10-13 on branch `vessel-names-proof3`. LIVE-PROVEN 2026-10-13 on its first flight: result `2026-10-13_0602` PASS attempt 1 (automation DLL sha256 prefix 6356e1cba57673ea, wall 85 s). Was a reading run, saveParse
 # REPORT-ONLY. No RunTests step, so no batch pin.
 #
 # THE RESUME. Flying a vessel Real Spawn Control (or an end-of-recording spawn) created makes
@@ -42,6 +42,14 @@ id = "VN-12-spawn-resume-rename"
 # PromoteFromBackground, pinned by alternation); the clock after the load (near UT 82.5,
 # VN-3's measurement after its RealSpawn), so the 1x wait to UT 100 is about 17 s; the
 # write-through reason (`parsek-rename`).
+#
+# MEASURED (result `2026-10-13_0602`): the focused load resumed via PromoteFromBackground on
+# the genuine-spawn branch (`vesselPid=1036564453->2462213699`), `Link already present:
+# kind=Spawn ... (requested Resume, reason=resume rec=rsc-target-0001 ...)`; the stock rename's
+# decision `legs=1 guids=2`; the CommitTree auto-resume was the adoption-stamp branch
+# (`vesselPid=2462213699->2462213699`, via ResumeActiveRecording, no link request); the row
+# rename wrote `'VN12 Relay Resumed' -> 'VN12 Relay Final'` onto the probe. Census
+# `recordingNames {VN12 Relay Final: 1}`, `vesselNames {VN12 Relay Final: 1, mk1-capsule: 1}`.
 # =====================================================================================
 tier = "nightly"
 description = "VN-12: on CI-8's spawn-control-target host, a Real Spawn of the committed landed probe, then a focused flight load onto it resumes its committed tree (the genuine-spawn branch of the resume: the Resume link request meets the Spawn link already joining the two guids, and the spawn pid is cleared); a stock rename of the resumed vessel resolves the identity with both guids, and after the commit a Parsek rename of the recording is written onto the live probe."

@@ -3,7 +3,7 @@ id = "VN-11-part-naming-accept"
 # =====================================================================================
 # VN-11: THE STOCK PART NAMING DIALOG (design docs/dev/design-vessel-and-mission-names.md 5.1,
 # 7.1 and 15.3, ruling 4, todo GC-7). AUTHORED 2026-10-13 on branch `vessel-names-proof3`.
-# NEVER FLOWN: a reading run, saveParse REPORT-ONLY. No RunTests step, so no batch pin.
+# LIVE-PROVEN 2026-10-13 on its first flight: result `2026-10-13_0600` PASS attempt 1 (automation DLL sha256 prefix 6356e1cba57673ea, wall 89 s). Was a reading run, saveParse REPORT-ONLY. No RunTests step, so no batch pin.
 #
 # The second stock rename path Parsek captures: the PAW "Name Vessel" button of a command
 # part opens a part naming dialog (name, type, a 0..20 priority slider) whose accept is the
@@ -33,6 +33,12 @@ id = "VN-11-part-naming-accept"
 #   (5) A 1x wait (the split's deferred branch and the live passes), commit.
 # PREDICTIONS a reading run must confirm: the booster leg captures "VN11 Lower" uncovered and
 # nothing writes over it; the capture's `namingPart=part` on (2).
+#
+# MEASURED (result `2026-10-13_0600`): `part='mk1pod.v2' priority=5 ... changed=true legs=1
+# decision=StockPartNaming`, captured `namingPart=part`; `part='probeCoreOcto2.v2' priority=2
+# ... changed=false`, ignored `reason=name-unchanged`; the decouple named the booster
+# `VN11 Lower`. Census `recordingNames {VN11 Capsule: 1, VN11 Lower: 1}`, `vesselNames
+# {VN11 Capsule: 1, VN11 Lower: 1}`, as predicted.
 # =====================================================================================
 tier = "nightly"
 description = "VN-11: on GS-1's pad craft, recorded, the stock part naming dialog's accept (RenameVessel part= priority=) on the pod at priority 5 renames the vessel and is captured as a StockPartNaming decision; a second part naming on the booster's probe core at priority 2 only pre-sets the booster's split name, records nothing, and after the decouple the booster carries that stock name with nothing written over it."

@@ -3,7 +3,7 @@ id = "VN-13-ghost-map-commnet-rename"
 # =====================================================================================
 # VN-13: A RENAME REACHES A PLAYING GHOST'S MAP PROTOVESSEL AND ITS COMMNET NODE IN PLACE
 # (design docs/dev/design-vessel-and-mission-names.md 7.8 and 15.3, todo GC-7). AUTHORED
-# 2026-10-13 on branch `vessel-names-proof3`. NEVER FLOWN: a reading run, saveParse
+# 2026-10-13 on branch `vessel-names-proof3`. LIVE-PROVEN 2026-10-13 on its first flight: result `2026-10-13_0559` PASS attempt 1 (automation DLL sha256 prefix 6356e1cba57673ea, wall 82 s). Was a reading run, saveParse
 # REPORT-ONLY. No RunTests step, so no batch pin.
 #
 # THE CLAIM (7.8). A renamed recording's ghost keeps its map / Tracking Station ProtoVessel
@@ -34,6 +34,11 @@ id = "VN-13-ghost-map-commnet-rename"
 # RenameGhostProtoInPlace.
 # PREDICTIONS a reading run must confirm: `scanned=1 renamed=1` (relay B is hidden and has no
 # proto, relay C's looped run is over); the CommNet rename line once.
+#
+# MEASURED (result `2026-10-13_0559`): `Ghost proto rename (flight): scanned=1 renamed=1
+# unresolved=0`, `Ghost CommNet node renamed: key=cn-relay-a 'CN Relay A' -> 'VN13 Relay'`, no
+# proto created and no node registered under the new name. Census `recordingNames {VN13 Relay:
+# 1, CN Relay B: 1, CN Relay C: 1}`.
 # =====================================================================================
 tier = "nightly"
 description = "VN-13: on CN-1's host (gloops-airshow plus the ghost-commnet-relay preset, FLIGHT), a Parsek rename of the playing relay A's recording renames its flight map ghost ProtoVessel in place (no rebuild) and its ghost CommNet node's display name."

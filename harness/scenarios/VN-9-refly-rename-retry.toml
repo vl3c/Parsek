@@ -3,7 +3,7 @@ id = "VN-9-refly-rename-retry"
 # =====================================================================================
 # VN-9: VESSEL NAMES ACROSS A RE-FLY RETRY (design docs/dev/design-vessel-and-mission-names.md
 # 7.6 and 15.3, rulings 5 and 8, todo GC-7). AUTHORED 2026-10-13 on branch
-# `vessel-names-proof3`. NEVER FLOWN: a reading run, saveParse REPORT-ONLY. No RunTests step,
+# `vessel-names-proof3`. LIVE-PROVEN 2026-10-13 on its first flight: result `2026-10-13_0603` PASS attempt 1 (automation DLL sha256 prefix 6356e1cba57673ea, wall 156 s). Was a reading run, saveParse REPORT-ONLY. No RunTests step,
 # so no batch pin.
 #
 # VN-2's flight with the attempt ending in Retry instead of Discard. Retry is the third way a
@@ -39,6 +39,13 @@ id = "VN-9-refly-rename-retry"
 # PREDICTIONS a reading run must confirm: the retry's `legsRestored=` (pinned [0-9]+); which
 # OnLoad / post-load pass writes the second write-through (proto or vessel, pinned by the
 # alternation VN-2 uses); `rpKept=` on the retry's completion line (not pinned).
+#
+# MEASURED (result `2026-10-13_0603`): `Revert undo (refly-retry sess=...): epoch=3 entries=2
+# undone=1 keptParsekRename=1 keptReplacedLater=0 legsRestored=3`; the retried reload wrote
+# `(proto) 'GS1 Auto-Chute Booster Probe' -> 'VN9 Booster' reason=onload-tail:scene-change` (the
+# same write as the first reload and the Discard reload); the retry completed `scene=FLIGHT
+# rpKept=true slotListed=false` (the slot is the live attempt's, not listed while it runs); the
+# exit undo read `entries=0`. Census `recordingNames {VN9 Booster: 1, VN9 Pod: 1}`.
 # =====================================================================================
 tier = "nightly"
 description = "VN-9: on RF-1's flight (VN-2's road), a Parsek rename of the booster's leg before the re-fly, then inside the attempt a Parsek rename of the pod and a stock rename of the booster; Retry from Rewind Point through the Esc menu undoes the attempt's stock rename before the reload (RetryHandler) and keeps the Parsek one, so the retried attempt reloads the booster and writes the restored Parsek name onto it; Discard Re-Fly then exits."
