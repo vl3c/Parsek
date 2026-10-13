@@ -1,6 +1,6 @@
 ---
 name: run-tier
-description: Fly one harness tier (daily|nightly|operator) on request and report the outcome
+description: Fly one harness tier (daily|nightly|operator|longhaul) on request and report the outcome
 ---
 
 # Run a harness tier
@@ -52,10 +52,11 @@ call, always. Never provision silently.
 ## 3. Fly it
 
 ```bash
-cd harness && python tools/tier_runner.py --tier <daily|nightly|operator>
+cd harness && python tools/tier_runner.py --tier <daily|nightly|operator|longhaul>
 ```
 
-Run it in the background and monitor. It takes minutes to hours. Do not attach a
+Run it in the background and monitor. It takes minutes to hours (`longhaul`,
+the >= 30 min interplanetary lanes, is about 5 h of p50 wall on its own). Do not attach a
 timeout of your own: run.py owns per-spec budgets. Tail
 `harness/results/tier-runs/<tier>_<stamp>.log` for progress.
 

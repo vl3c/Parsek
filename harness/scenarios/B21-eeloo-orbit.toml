@@ -1100,7 +1100,11 @@ id = "B21-eeloo-orbit"
 #                   The budget was sized on the four-round-at-cap tail, which is a
 #                   BOUND and not an expectation, so this is NOT a reason to trim it;
 #                   the measured expectation for a green run is ~3,100 s.
-tier = "operator"
+# LONG-HAUL TIER (owner ruling 2026-10-14): moved out of `operator` because its
+# measured wall (coverage/duration.json p50 3,083 s) is at least the 1,800 s
+# threshold (hlib.LONGHAUL_MIN_P50_SECONDS). Still on request only: no cadence
+# maps to `longhaul`; fly it with `--tier longhaul` / `--id`.
+tier = "longhaul"
 description = "Eeloo ORBIT across a heliocentric traverse, on the stock Duna Rocket: 700 km park, PRE-TRANSFER JETTISON of the spent chemical stack onto the LV-N, ejection at the Kerbin->Eeloo window, corrections, CAPTURE inside Eeloo's SOI, held park and a mid-mission CommitTree -- the flight whose committed recording becomes the eeloo-orbit-recorded fixture."
 instanceProfile = "stock-minimal"
 tags = ["B21", "eeloo", "orbit", "mechjeb", "interplanetary", "cross-soi", "capture", "commit-in-foreign-soi", "jettison", "flown"]

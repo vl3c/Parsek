@@ -739,7 +739,11 @@ id = "B22-jool-orbit"
 #   `captureBurnTimeoutSeconds` at 400,000 is a CERTAIN loss on every attempt and
 #   every source agrees.
 # =====================================================================================
-tier = "operator"
+# LONG-HAUL TIER (owner ruling 2026-10-14): moved out of `operator` because its
+# measured wall (coverage/duration.json p50 2,441 s) is at least the 1,800 s
+# threshold (hlib.LONGHAUL_MIN_P50_SECONDS). Still on request only: no cadence
+# maps to `longhaul`; fly it with `--tier longhaul` / `--id`.
+tier = "longhaul"
 description = "Jool ORBIT across a heliocentric traverse, on the stock Duna Rocket: 700 km park, PRE-TRANSFER JETTISON of the spent chemical stack onto the LV-N, ejection at the Kerbin->Jool window, corrections, CAPTURE into a moon-clear Jool orbit (aim 600 Mm altitude, above Pol's 205.666 Mm clearance edge), held park and a mid-mission CommitTree -- the flight whose committed recording becomes the jool-orbit-recorded fixture. THE PLANET ONLY: Laythe / Vall / Tylo / Bop / Pol are deliberately out of scope."
 instanceProfile = "stock-minimal"
 # THE `flown` TAG WAS ADDED AFTER THE 2026-08-17 GREEN RUN, and was deliberately absent

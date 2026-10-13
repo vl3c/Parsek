@@ -1,6 +1,6 @@
 """Fly ONE harness tier on request: the entry point an agent invokes.
 
-    cd harness && python tools/tier_runner.py --tier {daily|nightly|operator}
+    cd harness && python tools/tier_runner.py --tier {daily|nightly|operator|longhaul}
 
 HOW IT IS USED. The operator asks an agent to run the tests "by type"; the agent
 runs this, monitors it, and reports back. The `run-tier` project skill
@@ -130,8 +130,10 @@ import provlib  # noqa: E402
 
 # The tiers this entry point offers. NOT hlib.TIERS: `perpr` is a PR gate,
 # `weekly` currently has no committed specs, and `pending-fixture` is an
-# EXCLUSION marker. Widening this set is an operating decision, not a typo fix.
-TIER_CHOICES: Tuple[str, ...] = ("daily", "nightly", "operator")
+# EXCLUSION marker. Widening this set is an operating decision, not a typo fix
+# (`longhaul`: owner ruling 2026-10-14, the >= 30 min interplanetary lanes split out
+# of `operator` so each is its own deliberate request).
+TIER_CHOICES: Tuple[str, ...] = ("daily", "nightly", "operator", "longhaul")
 
 OUTCOME_GREEN = "GREEN"
 OUTCOME_RED = "RED"

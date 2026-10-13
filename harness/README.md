@@ -1355,7 +1355,7 @@ build/instance agreement, invocation, and what to say about the result. The same
 command works typed by hand:
 
 ```
-cd harness && python tools/tier_runner.py --tier daily     # or nightly / operator
+cd harness && python tools/tier_runner.py --tier daily     # or nightly / operator / longhaul
 ```
 
 `tools/tier_runner.py` is a thin wrapper around `run.py` that owns only what
@@ -1366,24 +1366,36 @@ and never provisions.
 
 | Tier | Specs | What it is |
 |---|---|---|
-| `daily` | 22 | the everyday set; ~20 min observed |
-| `nightly` | 46 | the full set; hours |
-| `operator` | 11 | explicit-invocation-only specs (see below) |
+| `daily` | 27 | the everyday set |
+| `nightly` | 203 | the full cadence set; hours |
+| `operator` | 148 | explicit-invocation-only specs (see below) |
+| `longhaul` | 6 | the operator-class interplanetary lanes of 30 min or more each (see below) |
 
-Spec counts are as of 2026-08-05 and DRIFT as specs land; recount with
+Spec counts are as of 2026-10-14 and DRIFT as specs land; recount with
 `python run.py --dry-run --tier <t>` (launches nothing, takes no lock).
 
-`--tier` is an EXACT match, so the three are disjoint: `--tier nightly` does not
-re-run the daily specs. Asking for two types means two requests, deliberately -
-one run holds the machine, and the second would skip rather than queue.
+`--tier` is an EXACT match, so the tiers are disjoint: `--tier nightly` does not
+re-run the daily specs, and `--tier operator` does not fly the long-haul lanes.
+Asking for two types means two requests, deliberately - one run holds the
+machine, and the second would skip rather than queue.
+
+**The `longhaul` tier** (owner ruling 2026-10-14) holds the operator-class lanes
+whose measured wall, `coverage/duration.json` p50, is at least 1,800 s
+(`hlib.LONGHAUL_MIN_P50_SECONDS`): `B16-eve-orbit`, `B19-dres-orbit`,
+`B20-moho-orbit`, `B21-eeloo-orbit`, `B22-jool-orbit` and
+`V24W-duna-one-warp-stair`, about 5 h of p50 wall together. Split out so a
+`--tier operator` request stays affordable; it is on request exactly like
+`operator` (`hlib.ON_REQUEST_TIERS`, no cadence maps to it). The set is pinned by
+`LongHaulTierMembershipTests` in `lib/test_hlib.py`; moving a lane in or out is an
+owner call made by editing the spec's `tier` and that tuple together.
 
 **The `operator` tier is requestable** even though `hlib.CADENCE_TIERS` maps no
 cadence to it: the carve-out's rule is that an operator-tiered spec runs "ONLY
 on an explicit `--tier operator` / `--id` invocation", and this runner's
 invocation is exactly that - not a `--cadence` sweep that would pick the tier up
 implicitly. The cost the carve-out protects against is real, though (a
-(b)-tiered spec is EXPENSIVE AND UNFLOWN, e.g. B16-eve-orbit at ~2.6 h per
-attempt), so treat that tier as a deliberate, occasional request.
+(b)-tiered spec is EXPENSIVE AND UNFLOWN), so treat that tier, and `longhaul`
+even more so, as a deliberate, occasional request.
 
 **`--tier operator` now contains two lanes that need a hand-staged fixture.**
 `GUI-1-census-ksc` and `GUI-2-census-flight` name an OPERATOR-LOCAL template
