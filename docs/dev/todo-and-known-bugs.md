@@ -69,19 +69,20 @@ low any phasing orbit below it is atmospheric. Fix candidates: park the intercep
 cap MechJeb's rendezvous phasing (a lower bound on the phasing periapsis / max phasing orbits),
 then re-fly.
 
-## HARNESS-MODDED-COMPAT-NEVER-PROVISIONED: the MC lanes fly whatever Parsek.dll the modded-compat instance last received [FILED 2026-10-12 from the operator tier. OPEN, harness]
+## HARNESS-MODDED-COMPAT-NEVER-PROVISIONED: the MC lanes on modded-compat fly whatever Parsek.dll that instance last received [FILED 2026-10-12 from the operator tier. OPEN, harness]
 
-The five MC lanes (`MC-1`..`MC-3` nightly, `MC-4` / `MC-5` operator) run on
-`automation/modded-compat`, but neither `run.py` nor `tools/tier_runner.py` provisions an
-instance, and the admit check compares the instance's DLL with its own manifest, never with the
-current build. On 2026-10-12 that instance still carried a 2026-09-26 build (sha256 prefix
-`18c227db`, no LoadGame flight-ready wait), so the nightly MC passes of 2026-10-11 and today's
-MC-4 pass exercised two-week-old code, and `MC-5-persistent-rotation` `2026-10-12_1954` (+ a2)
-went INVALID on `SpinVessel REJECTED spinvessel-vessel-packed` because LoadGame answered before
-the unpack. Provisioned from main `7cbe594c0` (`fec17391`) the same night: MC-1..MC-4 PASS,
-MC-5 then red on a shrunk watch window (fixed separately, see HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
-Fix options: provision every profile a tier selects (tier_runner), or have admit refuse an
-instance whose deployed DLL hash differs from stock-minimal's after a provision.
+Four MC lanes (`MC-1`..`MC-3` nightly, `MC-5` operator; MC-4 is `instanceProfile =
+"stock-minimal"`) run on `automation/modded-compat`, but neither `run.py` nor
+`tools/tier_runner.py` provisions an instance, and the admit check compares the instance's DLL
+with its own manifest, never with the current build. On 2026-10-12 that instance still carried a
+2026-09-26 build (sha256 prefix `18c227db`, no LoadGame flight-ready wait): the nightly MC-1..MC-3
+passes (`2026-10-12_0733`..`_0735`) exercised two-week-old code, and `MC-5-persistent-rotation`
+`2026-10-12_1952` (+ `_1954_a2`) went INVALID on `SpinVessel REJECTED spinvessel-vessel-packed`
+because LoadGame answered before the unpack. Provisioned from main `7cbe594c0` (`fec17391`) the same
+night: MC-1..MC-3 PASS, MC-5 then red on a shrunk watch window (fixed in #2083, see
+HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS). Fix options: provision every profile a tier selects
+(tier_runner), or have admit refuse an instance whose deployed DLL hash differs from
+stock-minimal's after a provision.
 
 ## RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE: RF-1's D4 `hysteresis` token no longer prints, because the launch no longer happens inside the post-load settle [FILED 2026-10-12 from the operator tier. OPEN, harness, operator call]
 
@@ -624,9 +625,10 @@ outcome=refused-unflown-provisional`, `outcome=concluded-no-supersede`) with eve
 the log carries only `outcome=unbound-refly-provisional reason=refly-provisional-has-no-trajectory-
 at-save`, the shape this race produces.
 
----
 
 Data point 2026-10-12 (operator tier): S4.4 2026-10-12_2128 PARSEK-FAIL on `outcome=retired-empty-provisional` / `AppendRelations outcome=refused-unflown-provisional` missing: the same race (operator tier, attempt 1, PARSEK-FAIL is not retried).
+
+---
 
 ## V16M-ICON-OFF-ORBIT-AT-TIMEJUMP-LANDING: V16M's ghost map icon sits ~1.3 deg off its orbit on the frame a TimeJump lands [FILED 2026-10-07 from the PR #2051 flights, measured twice. OPEN, render, not yet triaged]
 
@@ -642,9 +644,10 @@ that introduced it lies between that build and main at `5d98479fb`. Next: read t
 probe on the jump frame (`MapRenderProbe`, `ProtoIcon` placement against `orbitEff`) and bisect
 the window by flying V16M on an older main.
 
----
 
 Data point 2026-10-12 (operator tier): 2026-10-12_2140 read the same 4 icon-off-orbit hits at the TimeJump landing frames (UT 29874214.000 / 30933832.000, angle 1.30-1.31 deg), a third reading after 2026-10-08_0101 / _0236.
+
+---
 
 ## ~~QUICKLOAD-RESUMED-MEMBER-KEEPS-ABANDONED-FUTURE-MERGE-STATE: an F9 resumes a tree member with the merge state its abandoned future's commit gave it~~ [FILED 2026-10-07 from the QL-4 / QL-4b / QL-4c reading runs, branch `f9-verify`, verified in the produced saves and by code read. FIXED 2026-10-07, branch `ql-merge-state` (PR #2049). LIVE-PROVEN 2026-10-07: QL-4 / QL-4b / QL-4c PASS attempt 1 on both commits (`2026-10-07_2016` / `_2022` / `_2027`, then `_2055` / `_2043` / `_2049`), each logging `mergeStatesReset=1` and `ReapOrphanedRPs: reaped=1 remaining=0`, report-only `rewindPoints` clean]
 
