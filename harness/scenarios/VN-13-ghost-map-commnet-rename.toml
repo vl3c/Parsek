@@ -1,0 +1,123 @@
+schema = 1
+id = "VN-13-ghost-map-commnet-rename"
+# =====================================================================================
+# VN-13: A RENAME REACHES A PLAYING GHOST'S MAP PROTOVESSEL AND ITS COMMNET NODE IN PLACE
+# (design docs/dev/design-vessel-and-mission-names.md 7.8 and 15.3, todo GC-7). AUTHORED
+# 2026-10-13 on branch `vessel-names-proof3`. NEVER FLOWN: a reading run, saveParse
+# REPORT-ONLY. No RunTests step, so no batch pin.
+#
+# THE CLAIM (7.8). A renamed recording's ghost keeps its map / Tracking Station ProtoVessel
+# and its ghost CommNet node: GhostMapPresence.RefreshGhostProtoNamesIfDisplayNamesMoved
+# renames the proto in place when DisplayNames.Version moves (no event, no rebuild: a
+# rebuild trips line-blink / icon-jump and drops targets), and GhostCommNetManager's host
+# tick renames the node's display name from the recording each tick. Until this lane no host
+# had a ghost of a renamed recording in view: every collected `Ghost proto rename` line
+# reads `renamed=0`, and the VesselNames in-game cell asserts over zero entries.
+#
+# THE HOST is CN-1's (nightly, armed): gloops-airshow (FLIGHT, a pod on the pad) plus the
+# ghost-commnet-relay preset. Relay A (`cn-relay-a`, "CN Relay A", an orbiting relay whose
+# window opens at the save's UT + 1 s, UT 22.2) has a flight map ProtoVessel
+# ("Ghost: CN Relay A", created from its visible segment) and a registered ghost CommNet node
+# (key cn-relay-a, vessel "CN Relay A"), both measured in CN-1's collected log
+# `2026-10-09_0515`. Its recording carries a derived launch guid, so a Parsek rename of its
+# row is an identity-wide decision (a guid-less row would be refused).
+#   (1) CN-1's 1x wait to UT 24 (the window open, the proto created, the node registered).
+#   (2) The Missions window renames row `cn-relay-a` "VN13 Relay" (ParsekRename; the apply
+#       pass renames the leg and moves DisplayNames.Version).
+#   (3) A 1x wait to UT 30 so the per-frame flight map lifecycle and the CommNet host tick
+#       run several times.
+# NOT COVERED: the Tracking Station call site of the same rename
+# (UpdateTrackingStationGhostLifecycle -> RefreshGhostProtoNamesIfDisplayNamesMoved
+# ("trackstation")) and the TS atmospheric focus target: the Tracking Station hosts no
+# Parsek window and RenameVessel refuses a ghost (`renamevessel-target-is-ghost`), so no
+# player rename can happen there while a ghost proto is in view. Both scenes run the same
+# RenameGhostProtoInPlace.
+# PREDICTIONS a reading run must confirm: `scanned=1 renamed=1` (relay B is hidden and has no
+# proto, relay C's looped run is over); the CommNet rename line once.
+# =====================================================================================
+tier = "nightly"
+description = "VN-13: on CN-1's host (gloops-airshow plus the ghost-commnet-relay preset, FLIGHT), a Parsek rename of the playing relay A's recording renames its flight map ghost ProtoVessel in place (no rebuild) and its ghost CommNet node's display name."
+instanceProfile = "stock-minimal"
+tags = ["VN-13", "vessel-names", "GC-7", "rename", "ghost-map", "ghost-commnet",
+        "injected-recordings", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "ghost-commnet-relay"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # LOAD-BEARING: the ghost proto and CommNet rename lines are Verbose.
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # (1) CN-1's 1x wait: relay A's window (UT 22.2) open, its proto and node live.
+  { cmd = "WarpToUT",   args = { ut = "24", maxRate = "1" }, expect = "OK", budget = 120 },
+  # (2) The Parsek rename of relay A's row.
+  { cmd = "UiAction",   args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction",   args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction",   args = { op = "open", window = "missions" }, expect = "OK" },
+  { cmd = "UiAction",   args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "UiAction",   args = { op = "edit", window = "missions", field = "recordingname", key = "cn-relay-a", draft = "VN13 Relay", commit = "true" }, expect = "OK" },
+  # (3) Several lifecycle and CommNet ticks (absolute UT; the clock is near 25 here).
+  { cmd = "WarpToUT",   args = { ut = "30", maxRate = "1" }, expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# D14 values only (each already covered elsewhere). D6 `commnet-relay` stays CN-1's.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The preset's three relays (CN-1's exact pin); nothing records.
+count = { min = 3, max = 3 }
+
+# REPORT-ONLY until a reading run.
+[expectations.recordings.structure]
+gating         = false
+recordingNames = { "VN13 Relay" = { min = 1, max = 1 }, "CN Relay A" = { max = 0 }, "CN Relay B" = { min = 1, max = 1 } }
+
+[expectations.logContracts]
+required = [
+  # The host (CN-1's measured tokens): relay A's flight map proto and its CommNet node.
+  "\\[GhostMap\\] Created ghost vessel 'Ghost: CN Relay A' ghostPid=[0-9]+ type=Relay ",
+  "\\[GhostCommNet\\] Registered ghost node: key=cn-relay-a node=ParsekGhost:cn-relay-a vessel=\"CN Relay A\" scene=FLIGHT ",
+  # (2) The Parsek rename of the row.
+  "uiaction edit window=missions field=recordingname key=cn-relay-a draft=VN13 Relay committed=true ",
+  "\\[UI\\] Recording 'CN Relay A' renamed to 'VN13 Relay' identity=\\S+ legs=1",
+  "Vessel name decision recorded: identity=\\S+ 'CN Relay A' -> 'VN13 Relay' source=ParsekRename ",
+  # THE CLAIM: the proto renamed in place after the rename, and the node's display name.
+  "key=cn-relay-a draft=VN13 Relay committed=true [\\s\\S]*Ghost proto rename \\(flight\\): scanned=[1-9][0-9]* renamed=[1-9][0-9]* unresolved=0 displayVersion=[1-9][0-9]*",
+  "Ghost CommNet node renamed: key=cn-relay-a 'CN Relay A' -> 'VN13 Relay'",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "Parsek rename refused",
+  # NO REBUILD: a rebuilt proto would be created under the new name, a re-registered node
+  # would print the new name on its registration line.
+  "Created ghost vessel 'Ghost: VN13 Relay'",
+  "Registered ghost node: key=cn-relay-a [^\\r\\n]*vessel=\"VN13 Relay\"",
+  # (the quit's own teardown, CN-1T's exemption, is not a rebuild)
+  "key=cn-relay-a draft=VN13 Relay committed=true [\\s\\S]*Removed ghost node: key=cn-relay-a .* reason=(?!Parsek(?:Flight|TrackingStation) destroyed)",
+  # A proto the rename could not resolve to its recording.
+  "Ghost proto rename \\(flight\\): scanned=[0-9]+ renamed=[0-9]+ unresolved=[1-9]",
+  # CN-1's.
+  "Ghost node pre-update threw",
+  "DriveGhostCommNet threw",
+]
+
+[runtime]
+# CN-1's wall (LoadGame 300, two short 1x waits of about 3 s and 6 s, the UI steps on the
+# default budget). Expected wall about 1 minute.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

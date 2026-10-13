@@ -660,6 +660,10 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     as for a player (vessel names, design-vessel-and-mission-names.md 15.3). OK
     #     `pid= old= new= type= active= changed= legs= decision= decisionName=`; `old` is
     #     the live stock name just before the accept, so a rename doubles as a read of it.
+    #     2026-10-13 (no count change): `part=<part name> priority=<n>` drives the stock PART
+    #     naming dialog's accept instead (Part.onVesselNamingAccept(string, VesselType, int)),
+    #     which renames the vessel only when the part becomes its priority naming part; the
+    #     OK payload adds `part= partId= priority= requested=`.
     "RenameVessel",
     # ADDITIVE (48 -> 50 implemented, reserved unchanged at 4), the vessel-names proof pair
     # (design-vessel-and-mission-names.md 15.3).
@@ -3410,10 +3414,21 @@ RECOVER_PID_MAX = 4294967295
 RENAMEVESSEL_VERB = "RenameVessel"
 RENAMEVESSEL_NAME_KEY = "name"
 RENAMEVESSEL_PID_KEY = "pid"
+# The part-naming pair (both or neither): `part=` the runtime part name, `priority=` the
+# part naming dialog's slider value, 0..GameSettings.VESSEL_NAMING_PRIORTY_LEVEL_MAX. The
+# seam reads the live ceiling; the pre-launch check uses stock's shipped default (20), the
+# value every provisioned instance runs with.
+RENAMEVESSEL_PART_KEY = "part"
+RENAMEVESSEL_PRIORITY_KEY = "priority"
+RENAMEVESSEL_PRIORITY_MAX_DEFAULT = 20
 RENAMEVESSEL_REASONS: Tuple[str, ...] = (
     "renamevessel-name-arg-missing", "renamevessel-name-arg-invalid",
-    "renamevessel-pid-arg-invalid", "renamevessel-no-active-vessel",
+    "renamevessel-pid-arg-invalid", "renamevessel-priority-arg-missing",
+    "renamevessel-priority-arg-invalid", "renamevessel-priority-without-part",
+    "renamevessel-no-active-vessel",
     "renamevessel-vessel-not-found", "renamevessel-target-is-ghost",
+    "renamevessel-vessel-unloaded", "renamevessel-part-not-found",
+    "renamevessel-part-ambiguous", "renamevessel-part-naming-unavailable",
     "renamevessel-accept-unavailable",
 )
 
@@ -3442,6 +3457,28 @@ def validate_rename_vessel_step(index: int, step_args: Dict) -> List[str]:
             "driver.steps[%d].args.%s: %r is not a positive decimal persistentId; the "
             "seam answers REJECTED renamevessel-pid-arg-invalid"
             % (index, RENAMEVESSEL_PID_KEY, raw_pid))
+    raw_part = step_args.get(RENAMEVESSEL_PART_KEY)
+    raw_priority = step_args.get(RENAMEVESSEL_PRIORITY_KEY)
+    has_part = raw_part is not None and str(raw_part) != ""
+    has_priority = raw_priority is not None and str(raw_priority) != ""
+    if has_priority and not has_part:
+        errors.append(
+            "driver.steps[%d].args.%s: given without %s=; the seam answers REJECTED "
+            "renamevessel-priority-without-part"
+            % (index, RENAMEVESSEL_PRIORITY_KEY, RENAMEVESSEL_PART_KEY))
+    elif has_part and not has_priority:
+        errors.append(
+            "driver.steps[%d].args.%s: %s= REQUIRES it (the part naming dialog's slider); "
+            "the seam answers REJECTED renamevessel-priority-arg-missing"
+            % (index, RENAMEVESSEL_PRIORITY_KEY, RENAMEVESSEL_PART_KEY))
+    elif has_priority and "${" not in str(raw_priority) and not (
+            re.fullmatch(r"[0-9]+", str(raw_priority))
+            and int(str(raw_priority)) <= RENAMEVESSEL_PRIORITY_MAX_DEFAULT):
+        errors.append(
+            "driver.steps[%d].args.%s: %r is not a decimal in 0..%d (the part naming "
+            "slider); the seam answers REJECTED renamevessel-priority-arg-invalid"
+            % (index, RENAMEVESSEL_PRIORITY_KEY, raw_priority,
+               RENAMEVESSEL_PRIORITY_MAX_DEFAULT))
     return errors
 
 
@@ -10425,6 +10462,16 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "renamevessel-vessel-not-found": "driver-arg",
     "renamevessel-target-is-ghost": "driver-arg",
     "renamevessel-accept-unavailable": "driver-gate",
+    # The part-naming pair: an unpaired or out-of-range priority, a part name the vessel does
+    # not carry (or carries twice) are the SPEC's fault; an unloaded vessel (no part menu) and
+    # a part whose menu shows no naming button are live states the accept would not act in.
+    "renamevessel-priority-arg-missing": "driver-arg",
+    "renamevessel-priority-arg-invalid": "driver-arg",
+    "renamevessel-priority-without-part": "driver-arg",
+    "renamevessel-vessel-unloaded": "driver-gate",
+    "renamevessel-part-not-found": "driver-arg",
+    "renamevessel-part-ambiguous": "driver-arg",
+    "renamevessel-part-naming-unavailable": "driver-gate",
     # PartAction: a missing / unknown button, a missing part, a malformed pid, a pid naming no
     # live vessel, a ghost, a named part the vessel lacks and an ambiguous selector are the
     # SPEC's fault; no active vessel, an unloaded vessel and a button stock does not show are
@@ -11105,6 +11152,8 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "reflyrevert-choice-arg-missing", "reflyrevert-target-arg-invalid",
     "reflyrevert-target-arg-missing", "renamevessel-name-arg-invalid",
     "renamevessel-name-arg-missing", "renamevessel-pid-arg-invalid",
+    "renamevessel-priority-arg-invalid", "renamevessel-priority-arg-missing",
+    "renamevessel-priority-without-part",
     "route-arg-missing", "run-await-arg-invalid",
     "run-category-arg-missing", "safewritecrash-phase-arg-invalid",
     "safewritecrash-phase-arg-missing", "safewritecrash-recording-arg-missing",

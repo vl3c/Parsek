@@ -1,0 +1,191 @@
+schema = 1
+id = "VN-9-refly-rename-retry"
+# =====================================================================================
+# VN-9: VESSEL NAMES ACROSS A RE-FLY RETRY (design docs/dev/design-vessel-and-mission-names.md
+# 7.6 and 15.3, rulings 5 and 8, todo GC-7). AUTHORED 2026-10-13 on branch
+# `vessel-names-proof3`. NEVER FLOWN: a reading run, saveParse REPORT-ONLY. No RunTests step,
+# so no batch pin.
+#
+# VN-2's flight with the attempt ending in Retry instead of Discard. Retry is the third way a
+# player cancels a Re-Fly attempt (Esc -> Revert Flight -> Revert to Launch -> "Retry from
+# Rewind Point" in Parsek's dialog). Its load classifies ReFlyStart, which a fresh invoke
+# shares, so the undo does not run in OnLoad: RevertInterceptor.RetryHandler calls
+# VesselNameStore.UndoCurrentFlightEpoch("refly-retry sess=<old>") BEFORE it re-invokes the
+# rewind (the ReFlyStart VesselNames cell stays Memory). Until this lane that call was
+# proven by unit tests only (VesselNamesStockTests). ALSO the FIRST flight of ReFlyRevert's
+# `choice=retry` branch (QL-5 and VN-2 fly only `discard`): its settle is "FLIGHT, game
+# loaded, no pending invoke, a live marker of a NEW session".
+#
+# THE HOST is RF-1's / VN-2's flight (GS-1 exiting with the booster under canopy, its
+# staging RewindPoint's booster slot open), verbatim up to the attempt.
+#   (d) BEFORE the rewind, the Missions window renames the booster's origin leg "VN9 Booster"
+#       (ParsekRename). The re-fly reloads the booster from the rewind point's quicksave as
+#       "GS1 Auto-Chute Booster Probe" and the OnLoad tail writes "VN9 Booster" back (VN-2's
+#       proven chain).
+#   (e) INSIDE the attempt: a Parsek rename of the pod's origin leg ("VN9 Pod") and a stock
+#       rename of the live booster ("VN9 Booster Stock", a StockDialog decision in the
+#       attempt's epoch).
+#   (f) RETRY (ReFlyRevert choice=retry). RetryHandler ends the session (`End reason=retry`),
+#       undoes the attempt's epoch (entries=2 undone=1 keptParsekRename=1: the stock rename
+#       dropped, "VN9 Booster" restored, the pod's Parsek rename kept) and re-invokes the
+#       same rewind point and slot. The quicksave again names the booster "GS1 Auto-Chute
+#       Booster Probe", and the second reload's pass writes "VN9 Booster" (the RESTORED
+#       decision), never "VN9 Booster Stock".
+#   (g) The read: a same-name RenameVessel in the retried attempt answers `old='VN9 Booster'
+#       changed=false decision=ParsekRename` (VN-5's read shape).
+#   (h) Exit through Discard Re-Fly (VN-2's proven path) so the save holds the committed
+#       origin legs only; the retried attempt's epoch has no entries (the same-name accept
+#       records nothing), so that undo reads entries=0.
+# PREDICTIONS a reading run must confirm: the retry's `legsRestored=` (pinned [0-9]+); which
+# OnLoad / post-load pass writes the second write-through (proto or vessel, pinned by the
+# alternation VN-2 uses); `rpKept=` on the retry's completion line (not pinned).
+# =====================================================================================
+tier = "nightly"
+description = "VN-9: on RF-1's flight (VN-2's road), a Parsek rename of the booster's leg before the re-fly, then inside the attempt a Parsek rename of the pod and a stock rename of the booster; Retry from Rewind Point through the Esc menu undoes the attempt's stock rename before the reload (RetryHandler) and keeps the Parsek one, so the retried attempt reloads the booster and writes the restored Parsek name onto it; Discard Re-Fly then exits."
+instanceProfile = "stock-minimal"
+tags = ["VN-9", "vessel-names", "GC-7", "rename", "rewind", "refly", "refly-retry",
+        "revert-undo", "GS1", "runtime-handles", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "gs1_auto_chute_booster"
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  # RF-1's / VN-2's prefix verbatim (flight, scene-exit auto-merge, back into FLIGHT).
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "true" },    expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoMerge", value = "true" },             expect = "OK" },
+  # LOAD-BEARING: the apply-pass, live-write and link lines are Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },        expect = "OK" },
+  { phase = "mission",                                                                 expect = "MISSION-OK", budget = 900 },
+  { cmd = "ExitToSpaceCenter",                                                         expect = "OK", budget = 120 },
+  { cmd = "SaveGame",       args = { name = "persistent" },                            expect = "OK" },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },   expect = "OK" },
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  # rp0 = the staging RewindPoint; slot 0 = the pod (focus), slot 1 = the booster.
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "handles",       expect = "OK" },
+  # (d) The Parsek rename of the booster's origin leg, before the rewind.
+  { cmd = "UiAction",       args = { op = "complexity", mode = "advanced" },           expect = "OK" },
+  { cmd = "UiAction",       args = { op = "open", window = "main" },                   expect = "OK" },
+  { cmd = "UiAction",       args = { op = "open", window = "missions" },               expect = "OK" },
+  { cmd = "UiAction",       args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "UiAction",       args = { op = "edit", window = "missions", field = "recordingname", key = "${handles.rp0slot1}", draft = "VN9 Booster", commit = "true" }, expect = "OK" },
+  { cmd = "InvokeRewind",   args = { rp = "${handles.rp0}", slot = "1" },            expect = "OK", budget = 300 },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                    expect = "OK", budget = 120 },
+  # (e) Inside the attempt (the windows re-opened in the reloaded scene).
+  { cmd = "UiAction",       args = { op = "open", window = "main" },                   expect = "OK" },
+  { cmd = "UiAction",       args = { op = "open", window = "missions" },               expect = "OK" },
+  { cmd = "UiAction",       args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "UiAction",       args = { op = "edit", window = "missions", field = "recordingname", key = "${handles.rp0slot0}", draft = "VN9 Pod", commit = "true" }, expect = "OK" },
+  { cmd = "RenameVessel",   args = { name = "VN9 Booster Stock" },                     expect = "OK" },
+  # (f) Retry from Rewind Point through the stock Esc menu and Parsek's revert dialog.
+  { cmd = "ReFlyRevert",    args = { choice = "retry", target = "launch" },            expect = "OK", budget = 300 },
+  # The retried attempt's re-fly recorder is live, so its strip and post-load pass ran.
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                    expect = "OK", budget = 120 },
+  # (g) The read: the booster carries the restored Parsek name.
+  { cmd = "RenameVessel",   args = { name = "VN9 Booster" },                           expect = "OK" },
+  # (h) Exit (VN-2's Discard), so the save holds the committed origin legs.
+  { cmd = "ReFlyRevert",    args = { choice = "discard", target = "launch" },          expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "FlushAndQuit",                                                              expect = "OK" },
+]
+
+[driver.missionParams]
+# RF-1's / VN-2's values VERBATIM (GS-1's plus siblingAirborneAtExit).
+throttle = 1.0
+stagingApoapsisMeters = 700
+stagingMaxAltMeters = 1500
+apoapsisWindowMeters = { min = 600, max = 1600 }
+stageSettleFrames = 2
+chuteArmMaxRateMps = 30
+chuteFullDeployAltMeters = 600
+landedSituations = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds = 90
+coastTimeoutSeconds = 120
+stageTimeoutSeconds = 60
+descentTimeoutSeconds = 300
+siblingVesselName = "GS1 Auto-Chute Booster Probe"
+siblingAirborneAtExit = true
+siblingDownTimeoutSeconds = 240
+
+[dimensionsCovered]
+# D14 values only (each already covered elsewhere). No D value names a vessel rename.
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# RF-1's / VN-2's window: pod and booster legs, touchdown debris, optimizer splits.
+count = { min = 2, max = 14 }
+
+# REPORT-ONLY until a reading run. The committed legs after the exit: the booster on its
+# Parsek name, the pod on the Parsek name made inside the cancelled attempt, nothing on the
+# cancelled stock name or a replaced name.
+[expectations.recordings.structure]
+gating         = false
+recordingNames = { "VN9 Booster" = { min = 1 }, "VN9 Pod" = { min = 1 }, "VN9 Booster Stock" = { max = 0 }, "GS1 Auto-Chute Booster Probe" = { max = 0 }, "GS1 Auto-Chute Booster" = { max = 0 } }
+
+[expectations.logContracts]
+required = [
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='GS1 Auto-Chute Booster' recordings=[1-9][0-9]*",
+  # (d) The Parsek rename before the rewind, written onto the reloaded booster.
+  "uiaction edit window=missions field=recordingname key=[0-9a-f]+ draft=VN9 Booster committed=true ",
+  "Vessel name decision recorded: identity=\\S+ 'GS1 Auto-Chute Booster Probe' -> 'VN9 Booster' source=ParsekRename ",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke[\\s\\S]*Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ 'GS1 Auto-Chute Booster Probe' -> 'VN9 Booster' ",
+  # (e) Inside the first attempt.
+  "uiaction edit window=missions field=recordingname key=[0-9a-f]+ draft=VN9 Pod committed=true ",
+  "Vessel name decision recorded: identity=\\S+ '[^'\\r\\n]*' -> 'VN9 Pod' source=ParsekRename seq=[0-9]+ legs=[1-9][0-9]* ",
+  "renamevessel applied pid=[0-9]+ old='VN9 Booster' new='VN9 Booster Stock' type=\\S+ active=true changed=true legs=[1-9][0-9]* decision=StockDialog decisionName='VN9 Booster Stock'",
+  "Stock rename captured: source=StockDialog pid=[0-9]+ guid=[0-9a-f]+ 'VN9 Booster' -> 'VN9 Booster Stock' ",
+  # (f) THE CLAIM: Retry ends the session and undoes the attempt's epoch before it
+  # re-invokes the rewind (RevertInterceptor.RetryHandler).
+  "reflyrevert pressed dialog button='Retry from Rewind Point' choice=retry",
+  "End reason=retry sess=\\S+ rp=rp_[0-9a-f]{32} slot=[0-9]+ target=Launch",
+  "End reason=retry[\\s\\S]*Revert undo: dropped StockDialog decision seq=[0-9]+ 'VN9 Booster Stock', restored seq=[0-9]+ 'VN9 Booster' guids=[1-9]",
+  "Revert undo \\(refly-retry sess=\\S+\\): epoch=[0-9]+ entries=2 undone=1 keptParsekRename=1 keptReplacedLater=0 legsRestored=[0-9]+ ",
+  "End reason=retry[\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
+  "End reason=retry[\\s\\S]*Flight epoch -> [0-9]+ reason=refly-attempt-start sess=",
+  # The retried reload writes the RESTORED decision onto the booster.
+  "End reason=retry[\\s\\S]*Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ 'GS1 Auto-Chute Booster Probe' -> 'VN9 Booster' ",
+  "reflyrevert complete choice=retry target=launch scene=FLIGHT ",
+  # (g) The read in the retried attempt.
+  "renamevessel applied pid=[0-9]+ old='VN9 Booster' new='VN9 Booster' type=\\S+ active=true changed=false legs=[1-9][0-9]* decision=ParsekRename decisionName='VN9 Booster'",
+  # (h) The exit: nothing left to undo in the retried attempt.
+  "reflyrevert pressed dialog button='Discard Re-Fly' choice=discard",
+  "Load classified: early=DiscardReFly refined=DiscardReFly scene=SPACECENTER",
+  "Revert undo \\(onload:DiscardReFly\\): epoch=[0-9]+ entries=0 undone=0 keptParsekRename=0 ",
+  "reflyrevert complete choice=discard target=launch scene=SPACECENTER ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "renamevessel rejected",
+  "renamevessel error",
+  "reflyrevert rejected",
+  "reflyrevert error",
+  "Parsek rename refused",
+  # The cancelled stock rename is never written onto any vessel (a missed undo would write
+  # it over the quicksave's name on the retried reload).
+  "Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ '[^'\\r\\n]*' -> 'VN9 Booster Stock' ",
+  "Live write rule: stock automatic name kept on",
+  "In-session load found no staged-list handoff",
+  "DiscardReFly load intent dropped as stale",
+  "RetryHandler: (?:cannot resolve|rp=\\S+ ut=\\S+ is in the future)",
+]
+
+[runtime]
+# VN-2's wall plus one Retry reload (ReFlyRevert 300 + the refly wait 120) and the read.
+# Expected wall about 4 minutes (VN-2 flew 152 s).
+budgetSeconds = 4800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

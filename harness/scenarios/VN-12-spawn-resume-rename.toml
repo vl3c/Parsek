@@ -1,0 +1,168 @@
+schema = 1
+id = "VN-12-spawn-resume-rename"
+# =====================================================================================
+# VN-12: A PARSEK-SPAWNED VESSEL FLOWN AGAIN, THE RESUME OF ITS COMMITTED TREE (design
+# docs/dev/design-vessel-and-mission-names.md 6.2 edge 4, 7.5 and 15.3, todo GC-7).
+# AUTHORED 2026-10-13 on branch `vessel-names-proof3`. NEVER FLOWN: a reading run, saveParse
+# REPORT-ONLY. No RunTests step, so no batch pin.
+#
+# THE RESUME. Flying a vessel Real Spawn Control (or an end-of-recording spawn) created makes
+# ParsekFlight.TryRestoreCommittedTreeForSpawnedActiveVessel take a copy-on-write clone of
+# the committed tree and continue the recording that spawned it
+# (TryTakeCommittedTreeForSpawnedVesselRestore). Before it clears the recording's spawn pid
+# (after which no pid joins the spawned vessel's fresh guid to the recording's launch guid)
+# it requests a Resume link, but only on a GENUINE spawn (spawn pid != the recording's
+# vessel pid): an adoption stamp, which every collected log's resume so far was (VN-1, VN-6,
+# VN-7, RF-3, CI-3, ...), never links. MEASURED BEFORE AUTHORING: across every collected
+# log only VN-8's defect path (todo VN8-FOCUS-SWITCH-SPLIT-PARENT-LEG-RECORDS-NEW-VESSEL)
+# resumed on a spawn pid that differed from the vessel pid; no lane resumed a real Parsek
+# spawn. For a genuine spawn the request lands on the Spawn link RegenerateVesselIdentity
+# already added (the same guid pair), so the store answers `Link already present:
+# kind=Spawn ... (requested Resume, reason=resume rec=...)` rather than `Link added:
+# kind=Resume`; `Link added: kind=Resume` is reachable only for a spawn with no Spawn link
+# (one made before the links shipped and resumed before any OnLoad tail backfilled it), and
+# the backfill runs on every OnLoad tail (VN-7). So this lane proves the resume's link step
+# on the shape production reaches, and that the renames of the resumed vessel follow the
+# identity once the spawn pid is gone.
+#
+# THE HOST is CI-8's / VN-3's: gloops-airshow (a pod on the pad, FLIGHT) plus the
+# spawn-control-target preset, one committed landed probe recording `rsc-target-0001`.
+#   (1) RealSpawn it (regenerated identity, `Link added: kind=Spawn`; no decision yet, so
+#       the spawn node is not stamped and the vessel is "Spawn Control Target").
+#   (2) SaveGame, then `LoadGame focusPid=${spawn.pid}` (the TS Fly button's focused flight
+#       load, VN-6's step): the flight starts on the spawned probe, and the restore resumes
+#       `rsc-target-0001` (`cleared prior spawn flags ... wasSpawnedPid=<spawn pid>`).
+#   (3) A stock rename of the resumed vessel, "VN12 Relay Resumed": its decision resolves
+#       the identity with both guids (`guids=2`: the recording's and the link's), and its
+#       current leg is the resumed recording.
+#   (4) A 1x wait (the resumed recording samples), commit, stop the auto-resumed recorder.
+#   (5) A Parsek rename of `rsc-target-0001`, "VN12 Relay Final": written through onto the
+#       live probe, whose guid only the link joins to the recording's.
+# PREDICTIONS a reading run must confirm: the restore action (ResumeActiveRecording or
+# PromoteFromBackground, pinned by alternation); the clock after the load (near UT 82.5,
+# VN-3's measurement after its RealSpawn), so the 1x wait to UT 100 is about 17 s; the
+# write-through reason (`parsek-rename`).
+# =====================================================================================
+tier = "nightly"
+description = "VN-12: on CI-8's spawn-control-target host, a Real Spawn of the committed landed probe, then a focused flight load onto it resumes its committed tree (the genuine-spawn branch of the resume: the Resume link request meets the Spawn link already joining the two guids, and the spawn pid is cleared); a stock rename of the resumed vessel resolves the identity with both guids, and after the commit a Parsek rename of the recording is written onto the live probe."
+instanceProfile = "stock-minimal"
+tags = ["VN-12", "vessel-names", "GC-7", "rename", "real-spawn", "resume", "resume-link",
+        "spawn-link", "focus-load", "runtime-handles", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "spawn-control-target"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },
+  # LOAD-BEARING: the link, apply-pass and live-write lines are Verbose. Settings are
+  # process-global, so they survive the second LoadGame.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },        expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },   expect = "OK" },
+  # (1) CI-8's settle (the proximity scan admits the row on its second sighting, 1.5 s
+  # apart), then the spawn.
+  { cmd = "WarpToUT",       args = { ut = "27", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "RealSpawn",      args = { rec = "rsc-target-0001" }, label = "spawn",       expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  # (2) Fly the spawned probe.
+  { cmd = "SaveGame",       args = { name = "persistent" },                            expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", focusPid = "${spawn.pid}" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  # (3) The stock rename of the resumed vessel.
+  { cmd = "RenameVessel",   args = { name = "VN12 Relay Resumed" },                    expect = "OK" },
+  # (4) The resumed recording samples, then the commit.
+  { cmd = "WarpToUT",       args = { ut = "100", maxRate = "1" },                      expect = "OK", budget = 120 },
+  { cmd = "CommitTree",                                                                expect = "OK", budget = 120 },
+  # CommitTree auto-resumes a recorder on the still-active vessel (H58 flight 1).
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  # (5) The Parsek rename of the recording, written onto the live probe.
+  { cmd = "UiAction",       args = { op = "complexity", mode = "advanced" },           expect = "OK" },
+  { cmd = "UiAction",       args = { op = "open", window = "main" },                   expect = "OK" },
+  { cmd = "UiAction",       args = { op = "open", window = "missions" },               expect = "OK" },
+  { cmd = "UiAction",       args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "UiAction",       args = { op = "edit", window = "missions", field = "recordingname", key = "rsc-target-0001", draft = "VN12 Relay Final", commit = "true" }, expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  # The read: the live probe carries the row's name.
+  { cmd = "RenameVessel",   args = { name = "VN12 Relay Final" },                      expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c1",               expect = "OK" },
+  { cmd = "FlushAndQuit",                                                              expect = "OK" },
+]
+
+[dimensionsCovered]
+# D14 values only (each already covered elsewhere). No D value names a vessel rename.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The preset's one recording (resumed, so still one), the committed-restore clone's (VN-3's
+# window), and a post-commit auto-resume leg.
+count = { min = 1, max = 6 }
+
+# REPORT-ONLY until a reading run. One live probe under the row's name; the resumed
+# recording on it, nothing on an earlier name.
+[expectations.recordings.structure]
+gating         = false
+vesselNames    = { "VN12 Relay Final" = { min = 1, max = 1 }, "VN12 Relay Resumed" = { max = 0 }, "Spawn Control Target" = { max = 0 } }
+recordingNames = { "VN12 Relay Final" = { min = 1 }, "VN12 Relay Resumed" = { max = 0 }, "Spawn Control Target" = { max = 0 } }
+
+[expectations.logContracts]
+required = [
+  # (1) The genuine spawn and its Spawn link (VN-3's tokens).
+  "Link added: kind=Spawn guid=[0-9a-f]+ -> [0-9a-f]+ reason=spawn rec=rsc-target-0001 links=1",
+  "realspawn complete rec=rsc-target-0001 pid=[0-9]+ vessel=Spawn Control Target ",
+  # (2) The focused load, then the resume of the committed tree on the spawned vessel.
+  "savegame name=persistent folder=\\S+ saved=true",
+  "loadgame focus pid=[0-9]+ idx=[0-9]+ name='Spawn Control Target' saveActiveVesselIdx=[0-9]+",
+  "loadgame complete scene=FLIGHT save=\\S+ game-loaded=true",
+  # THE CLAIM, link half: the genuine-spawn branch requested the Resume link and found the
+  # Spawn link joining the same two guids ...
+  "Link already present: kind=Spawn guid=[0-9a-f]+ to=[0-9a-f]+ \\(requested Resume, reason=resume rec=rsc-target-0001 pid=[0-9]+\\)",
+  # ... then cleared the spawn pid (a genuine spawn: the spawn pid differs from the
+  # recording's vessel pid, which this line shows being replaced by it).
+  "TryTakeCommittedTreeForSpawnedVesselRestore: cleared prior spawn flags on resumed recording 'rsc-target-0001' \\(wasSpawnedPid=[0-9]+, vesselPid=[0-9]+->[0-9]+\\)",
+  "TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree '[^'\\r\\n]*' for vessel 'Spawn Control Target' pid=[0-9]+ via (?:ResumeActiveRecording|PromoteFromBackground)",
+  # (3) THE CLAIM, rename half: the resumed vessel's stock rename resolves the identity
+  # with both guids and names the resumed recording as its current leg.
+  "renamevessel applied pid=[0-9]+ old='Spawn Control Target' new='VN12 Relay Resumed' type=\\S+ active=true changed=true legs=[1-9][0-9]* decision=StockDialog decisionName='VN12 Relay Resumed'",
+  "Vessel name decision recorded: identity=\\S+ 'Spawn Control Target' -> 'VN12 Relay Resumed' source=StockDialog seq=[0-9]+ legs=[1-9][0-9]* guids=[2-9] ",
+  "Stock rename captured: source=StockDialog pid=[0-9]+ guid=[0-9a-f]+ 'Spawn Control Target' -> 'VN12 Relay Resumed' seq=[0-9]+ namingPart=\\S+ currentLeg=rsc-target-0001",
+  "committree committed=true",
+  # (5) The Parsek rename after the commit, written onto the live probe.
+  "uiaction edit window=missions field=recordingname key=rsc-target-0001 draft=VN12 Relay Final committed=true ",
+  "Vessel name decision recorded: identity=\\S+ 'VN12 Relay Resumed' -> 'VN12 Relay Final' source=ParsekRename ",
+  "Write-through applied: vessel pid=[0-9]+ guid=[0-9a-f]+ 'VN12 Relay Resumed' -> 'VN12 Relay Final' loaded=true namingPart=\\S+ reason=\\S+",
+  "renamevessel applied pid=[0-9]+ old='VN12 Relay Final' new='VN12 Relay Final' type=\\S+ active=true changed=false legs=[1-9][0-9]* decision=ParsekRename decisionName='VN12 Relay Final'",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "renamevessel rejected",
+  "renamevessel error",
+  "loadgame rejected",
+  "realspawn rejected",
+  "Parsek rename refused",
+  # A different continuation already claimed the live guid (identity edge 4 broken).
+  "Link kept: guid=",
+  # The resume never picks the gloops pod, and the restore attach never fails.
+  "TryRestoreCommittedTreeForSpawnedActiveVessel: tree '[^'\\r\\n]*' matched vessel '[^'\\r\\n]*' pid=[0-9]+ via \\w+, but recorder attach failed",
+]
+
+[runtime]
+# Two LoadGame (300 each), the 1x WarpToUT to 27 (~6 s) and to 100 (~17 s), RealSpawn 120,
+# CommitTree 120, the rest on the default budget. Expected wall about 2 minutes.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

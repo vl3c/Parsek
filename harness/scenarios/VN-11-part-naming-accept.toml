@@ -1,0 +1,134 @@
+schema = 1
+id = "VN-11-part-naming-accept"
+# =====================================================================================
+# VN-11: THE STOCK PART NAMING DIALOG (design docs/dev/design-vessel-and-mission-names.md 5.1,
+# 7.1 and 15.3, ruling 4, todo GC-7). AUTHORED 2026-10-13 on branch `vessel-names-proof3`.
+# NEVER FLOWN: a reading run, saveParse REPORT-ONLY. No RunTests step, so no batch pin.
+#
+# The second stock rename path Parsek captures: the PAW "Name Vessel" button of a command
+# part opens a part naming dialog (name, type, a 0..20 priority slider) whose accept is the
+# private Part.onVesselNamingAccept(string, VesselType, int), wrapped by
+# PartVesselNamingAcceptCapturePatch. Stock then re-derives the vessel's name
+# (Vessel.UpdateVesselNaming): the part with the strictly highest priority above 0 names the
+# vessel. So a part naming either RENAMES the vessel (the part became the namer: Parsek
+# records a StockPartNaming decision) or only PRE-SETS the name the part's side takes at a
+# future split (the vessel keeps its name: Parsek records nothing, and the split child's
+# automatic name stays an uncovered stock name, ruling 4). Until this lane no seam verb
+# reached the dialog; `RenameVessel part=<part name> priority=<n>` (2026-10-13) invokes that
+# accept with the type the dialog opens on, as `RenameVessel` without `part=` does for the
+# vessel dialog.
+#
+# THE HOST is GS-1's pad craft (VN-8's): mk1pod.v2 (root, ModuleCommand) / parachute /
+# Decoupler.1 / probeCoreOcto2.v2 (ModuleCommand) / booster. No part carries a VESSELNAMING
+# in the fixture, so no part names the vessel yet. The control point stays on the pod (VN-8's
+# focus switch is NOT in play: no Control From Here).
+#   (1) StartRecording on the pad.
+#   (2) Part naming on the pod, priority 5, "VN11 Capsule": the pod becomes the namer, the
+#       vessel is renamed (`changed=true`), a StockPartNaming decision.
+#   (3) Part naming on the booster's probe core, priority 2, "VN11 Lower": 2 < 5, the vessel
+#       keeps "VN11 Capsule" (`changed=false`), the capture ignores it (`reason=
+#       name-unchanged`), no decision under that name.
+#   (4) The decoupler's stock Decouple (PartAction): stock names the new booster vessel from
+#       its naming part, "VN11 Lower", and the pod vessel keeps "VN11 Capsule".
+#   (5) A 1x wait (the split's deferred branch and the live passes), commit.
+# PREDICTIONS a reading run must confirm: the booster leg captures "VN11 Lower" uncovered and
+# nothing writes over it; the capture's `namingPart=part` on (2).
+# =====================================================================================
+tier = "nightly"
+description = "VN-11: on GS-1's pad craft, recorded, the stock part naming dialog's accept (RenameVessel part= priority=) on the pod at priority 5 renames the vessel and is captured as a StockPartNaming decision; a second part naming on the booster's probe core at priority 2 only pre-sets the booster's split name, records nothing, and after the decouple the booster carries that stock name with nothing written over it."
+instanceProfile = "stock-minimal"
+tags = ["VN-11", "vessel-names", "GC-7", "rename", "part-naming", "staging",
+        "automatic-rename", "GS1", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },   expect = "OK" },
+  # LOAD-BEARING: the ignored-capture and apply-pass lines are Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },        expect = "OK" },
+  # (1) The recorded pad vessel.
+  { cmd = "StartRecording",                                                            expect = "OK", budget = 180 },
+  # (2) The pod becomes the vessel's naming part.
+  { cmd = "RenameVessel",   args = { name = "VN11 Capsule", part = "mk1pod.v2", priority = "5" }, expect = "OK" },
+  # (3) A lower-priority naming on the booster's probe core: a pre-set split name only.
+  { cmd = "RenameVessel",   args = { name = "VN11 Lower", part = "probeCoreOcto2.v2", priority = "2" }, expect = "OK" },
+  # (4) The split.
+  { cmd = "PartAction",     args = { button = "decouple", part = "Decoupler.1" }, label = "dec", expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  # (5) VN-8's 1x wait to UT 60 (the save clock is 25.34; absolute, WarpToUT takes only
+  # `ut=`), so the deferred split branch and the 1 Hz live-tree self-heal both run.
+  { cmd = "WarpToUT",       args = { ut = "60", maxRate = "1" },                       expect = "OK", budget = 120 },
+  # The read: the pod still carries the part naming's name.
+  { cmd = "RenameVessel",   args = { name = "VN11 Capsule" },                          expect = "OK" },
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  { cmd = "CommitTree",                                                                expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c1",               expect = "OK" },
+  { cmd = "FlushAndQuit",                                                              expect = "OK" },
+]
+
+[dimensionsCovered]
+# D14 values only (each already covered elsewhere). No D value names a vessel rename.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# VN-8's window: the pod's recording(s) and the booster's, plus a split of the pod's leg at
+# the decouple and an optimizer split.
+count = { min = 2, max = 6 }
+
+# REPORT-ONLY until a reading run.
+[expectations.recordings.structure]
+gating         = false
+committedTrees = { min = 1, max = 1 }
+recordingNames = { "VN11 Capsule" = { min = 1 }, "VN11 Lower" = { min = 1 }, "GS1 Auto-Chute Booster" = { max = 0 } }
+vesselNames    = { "VN11 Capsule" = { min = 1, max = 1 }, "VN11 Lower" = { min = 1, max = 1 }, "GS1 Auto-Chute Booster" = { max = 0 } }
+
+[expectations.logContracts]
+required = [
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  # (2) THE CLAIM, renaming half: the part naming renames the vessel and is captured.
+  "renamevessel applied part='mk1pod.v2' partId=[0-9]+ priority=5 requested='VN11 Capsule' pid=[0-9]+ old='GS1 Auto-Chute Booster' new='VN11 Capsule' type=\\S+ active=true changed=true legs=[1-9][0-9]* decision=StockPartNaming decisionName='VN11 Capsule'",
+  "Stock rename captured: source=StockPartNaming pid=[0-9]+ guid=[0-9a-f]+ 'GS1 Auto-Chute Booster' -> 'VN11 Capsule' seq=[0-9]+ namingPart=\\S+ ",
+  "Vessel name decision recorded: identity=\\S+ 'GS1 Auto-Chute Booster' -> 'VN11 Capsule' source=StockPartNaming ",
+  # (3) THE CLAIM, pre-set half: the vessel keeps its name and nothing is recorded.
+  "renamevessel applied part='probeCoreOcto2.v2' partId=[0-9]+ priority=2 requested='VN11 Lower' pid=[0-9]+ old='VN11 Capsule' new='VN11 Capsule' type=\\S+ active=true changed=false legs=[1-9][0-9]* decision=StockPartNaming decisionName='VN11 Capsule'",
+  "Stock rename ignored: source=StockPartNaming pid=[0-9]+ reason=name-unchanged",
+  # (4) The split: the booster is named from its pre-set naming part; the pod keeps its name.
+  "partaction applied button=decouple pid=[0-9]+ part='Decoupler.1' partId=[0-9]+ event=Decouple newPid=[1-9][0-9]* newName='VN11 Lower' vessels=[0-9]+->[0-9]+ activePid=[0-9]+ activeName='VN11 Capsule'",
+  "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
+  # The read after the wait.
+  "renamevessel applied pid=[0-9]+ old='VN11 Capsule' new='VN11 Capsule' type=\\S+ active=true changed=false legs=[1-9][0-9]* decision=StockPartNaming decisionName='VN11 Capsule'",
+  "committree committed=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "renamevessel rejected",
+  "renamevessel error",
+  "partaction rejected",
+  "partaction error",
+  # The pre-set name is never a player decision (ruling 4) ...
+  "Vessel name decision recorded: [^\\r\\n]*-> 'VN11 Lower' ",
+  "Stock rename captured: [^\\r\\n]*-> 'VN11 Lower' ",
+  # ... and the booster's stock split name is never written over.
+  "Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ 'VN11 Lower' -> ",
+]
+
+[runtime]
+# VN-8's wall (95 s measured): LoadGame 300, StartRecording 180, the ~30 s 1x WarpToUT
+# (budget 120), CommitTree 120, the rest on the default budget.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
