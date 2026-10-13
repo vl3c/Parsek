@@ -680,7 +680,7 @@ cell (`InertStepWaitLintTests`) refuses a run of 40+ inert steps without an `# i
 note.
 
 Follow-up 2026-10-12 (operator tier on main `7cbe594c0`, branch `gui9-hidden-hold`): the
-20-step filter missed lanes whose wait is a SHORT run or a run of `UiAction op=describe`. Five
+20-step filter missed lanes whose wait is a SHORT run or a run of `UiAction op=describe`. Four
 red on it, each fixed with the same 1x `WarpToUT` to a UT derived from the run's own log:
 `GUI-9` (six `describe` steps held the all-hidden map view for the 2.0 s rate-limited `Map
 marker summary`: UT 62), `MC-5` (three `RecordingState` per ghost watch window: UT 22422 /
