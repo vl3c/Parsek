@@ -153,7 +153,7 @@ required = [
   "End reason=retry[\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
   "End reason=retry[\\s\\S]*Flight epoch -> [0-9]+ reason=refly-attempt-start sess=",
   # The retried reload writes the RESTORED decision onto the booster.
-  "End reason=retry[\\s\\S]*Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ 'GS1 Auto-Chute Booster Probe' -> 'VN9 Booster' ",
+  "End reason=retry[\\s\\S]*Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ 'GS1 Auto-Chute Booster Probe' -> 'VN9 Booster' [\\s\\S]*reflyrevert complete choice=retry",
   "reflyrevert complete choice=retry target=launch scene=FLIGHT ",
   # (g) The read in the retried attempt.
   "renamevessel applied pid=[0-9]+ old='VN9 Booster' new='VN9 Booster' type=\\S+ active=true changed=false legs=[1-9][0-9]* decision=ParsekRename decisionName='VN9 Booster'",

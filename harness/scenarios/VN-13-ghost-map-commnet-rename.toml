@@ -92,7 +92,7 @@ required = [
   "\\[UI\\] Recording 'CN Relay A' renamed to 'VN13 Relay' identity=\\S+ legs=1",
   "Vessel name decision recorded: identity=\\S+ 'CN Relay A' -> 'VN13 Relay' source=ParsekRename ",
   # THE CLAIM: the proto renamed in place after the rename, and the node's display name.
-  "key=cn-relay-a draft=VN13 Relay committed=true [\\s\\S]*Ghost proto rename \\(flight\\): scanned=[1-9][0-9]* renamed=[1-9][0-9]* unresolved=0 displayVersion=[1-9][0-9]*",
+  "uiaction edit initiated window=missions field=recordingname key=cn-relay-a draft=VN13 Relay commit=true [\\s\\S]*Ghost proto rename \\(flight\\): scanned=[1-9][0-9]* renamed=[1-9][0-9]* unresolved=0 displayVersion=[1-9][0-9]*",
   "Ghost CommNet node renamed: key=cn-relay-a 'CN Relay A' -> 'VN13 Relay'",
 ]
 forbidden = [
