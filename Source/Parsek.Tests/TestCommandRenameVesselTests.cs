@@ -192,9 +192,16 @@ namespace Parsek.Tests
                 TestCommandRenameVessel.NameArgMissingReason,
                 TestCommandRenameVessel.NameArgInvalidReason,
                 TestCommandRenameVessel.PidArgInvalidReason,
+                TestCommandRenameVessel.PriorityArgMissingReason,
+                TestCommandRenameVessel.PriorityArgInvalidReason,
+                TestCommandRenameVessel.PriorityWithoutPartReason,
                 TestCommandRenameVessel.NoActiveVesselReason,
                 TestCommandRenameVessel.VesselNotFoundReason,
                 TestCommandRenameVessel.TargetIsGhostReason,
+                TestCommandRenameVessel.VesselUnloadedReason,
+                TestCommandRenameVessel.PartNotFoundReason,
+                TestCommandRenameVessel.PartAmbiguousReason,
+                TestCommandRenameVessel.PartNamingUnavailableReason,
                 TestCommandRenameVessel.AcceptUnavailableReason,
             }, TestCommandRenameVessel.Reasons);
             Assert.Equal(new[]
@@ -274,6 +281,139 @@ namespace Parsek.Tests
                 "renamevessel applied pid=7 old='' new='X' type=Probe active=false changed=true " +
                 "legs=0 decision=none decisionName=''",
                 TestCommandRenameVessel.FormatAppliedLine(7u, null, "X", "Probe", false, 0, null));
+        }
+
+        // ----- part naming (part= priority=) -----
+
+        [Fact]
+        public void ParsePartNaming_BothAbsentIsTheVesselAccept()
+        {
+            Assert.Null(TestCommandRenameVessel.ParsePartNaming(null, null, 20,
+                out string partName, out int priority, out bool hasPart));
+            Assert.False(hasPart);
+            Assert.Null(partName);
+            Assert.Equal(0, priority);
+            Assert.Null(TestCommandRenameVessel.ParsePartNaming("", "", 20, out partName, out priority, out hasPart));
+            Assert.False(hasPart);
+        }
+
+        [Theory]
+        [InlineData("mk1pod.v2", "0", 0)]
+        [InlineData("mk1pod.v2", "5", 5)]
+        [InlineData("probeCoreOcto2.v2", "20", 20)]
+        public void ParsePartNaming_AcceptsAPartAndAPriorityInTheSliderRange(string part, string raw, int expected)
+        {
+            Assert.Null(TestCommandRenameVessel.ParsePartNaming(part, raw, 20,
+                out string partName, out int priority, out bool hasPart));
+            Assert.True(hasPart);
+            Assert.Equal(part, partName);
+            Assert.Equal(expected, priority);
+        }
+
+        [Theory]
+        [InlineData(null, "5", "renamevessel-priority-without-part")]
+        [InlineData("", "5", "renamevessel-priority-without-part")]
+        [InlineData("mk1pod.v2", null, "renamevessel-priority-arg-missing")]
+        [InlineData("mk1pod.v2", "", "renamevessel-priority-arg-missing")]
+        [InlineData("mk1pod.v2", "21", "renamevessel-priority-arg-invalid")]
+        [InlineData("mk1pod.v2", "-1", "renamevessel-priority-arg-invalid")]
+        [InlineData("mk1pod.v2", "+5", "renamevessel-priority-arg-invalid")]
+        [InlineData("mk1pod.v2", " 5", "renamevessel-priority-arg-invalid")]
+        [InlineData("mk1pod.v2", "2.5", "renamevessel-priority-arg-invalid")]
+        [InlineData("mk1pod.v2", "high", "renamevessel-priority-arg-invalid")]
+        [InlineData("mk1pod.v2", "99999999999", "renamevessel-priority-arg-invalid")]
+        public void ParsePartNaming_RefusesAnUnpairedOrOutOfRangePriority(string part, string raw, string reason)
+        {
+            Assert.Equal(reason, TestCommandRenameVessel.ParsePartNaming(part, raw, 20,
+                out string partName, out int priority, out bool _));
+            Assert.Null(partName);
+            Assert.Equal(0, priority);
+        }
+
+        [Fact]
+        public void ParsePartNaming_TheCeilingIsTheGivenSliderMax()
+        {
+            Assert.Null(TestCommandRenameVessel.ParsePartNaming("p", "30", 30, out _, out int priority, out _));
+            Assert.Equal(30, priority);
+            Assert.Equal(TestCommandRenameVessel.PriorityArgInvalidReason,
+                TestCommandRenameVessel.ParsePartNaming("p", "11", 10, out _, out _, out _));
+        }
+
+        [Fact]
+        public void APartNamingCommandReachesTheVerbWithItsArgs()
+        {
+            ParsedCommand cmd = Cmd("name=VN11%20Capsule part=mk1pod.v2 priority=5");
+            Assert.True(cmd.ParseOk);
+            Assert.Equal("mk1pod.v2", cmd.Args[TestCommandRenameVessel.PartKey]);
+            Assert.Equal("5", cmd.Args[TestCommandRenameVessel.PriorityKey]);
+            var r = TestCommandDispatcher.DecideDispatch(cmd, At(TestCommandScene.Flight));
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Fact]
+        public void DecidePartTarget_RefusesInGateOrder()
+        {
+            Assert.Equal("renamevessel-vessel-unloaded",
+                TestCommandRenameVessel.DecidePartTarget(false, 0, false, false));
+            Assert.Equal("renamevessel-part-not-found",
+                TestCommandRenameVessel.DecidePartTarget(true, 0, true, true));
+            Assert.Equal("renamevessel-part-ambiguous",
+                TestCommandRenameVessel.DecidePartTarget(true, 2, true, true));
+            Assert.Equal("renamevessel-part-naming-unavailable",
+                TestCommandRenameVessel.DecidePartTarget(true, 1, false, false));
+            Assert.Equal("renamevessel-accept-unavailable",
+                TestCommandRenameVessel.DecidePartTarget(true, 1, true, false));
+            Assert.Null(TestCommandRenameVessel.DecidePartTarget(true, 1, true, true));
+        }
+
+        [Fact]
+        public void ThePartNamingButtonIsStocksSetVesselNamingEvent()
+        {
+            Assert.Equal("SetVesselNaming", TestCommandRenameVessel.PartNamingEventName);
+        }
+
+        [Fact]
+        public void WasPartNamingApplied_NeedsTheNamingNameAndPriority()
+        {
+            Assert.True(TestCommandRenameVessel.WasPartNamingApplied("VN", 5, true, "VN", 5));
+            Assert.False(TestCommandRenameVessel.WasPartNamingApplied("VN", 5, false, null, 0));
+            Assert.False(TestCommandRenameVessel.WasPartNamingApplied("VN", 5, true, "vn", 5));
+            Assert.False(TestCommandRenameVessel.WasPartNamingApplied("VN", 5, true, "VN", 4));
+        }
+
+        [Fact]
+        public void BuildPartOkPayload_IsTheVesselPayloadPlusThePartFields()
+        {
+            List<KeyValuePair<string, string>> p = TestCommandRenameVessel.BuildPartOkPayload(
+                "probeCoreOcto2.v2", 4012u, 2, "VN11 Lower",
+                2200110033u, "VN11 Capsule", "VN11 Capsule", "Ship", true, 1,
+                Decision(3, "VN11 Capsule", VesselNameSource.StockPartNaming));
+            Assert.Equal(new[]
+            {
+                "pid", "old", "new", "type", "active", "changed", "legs", "decision", "decisionName",
+                "part", "partId", "priority", "requested",
+            }, p.Select(kv => kv.Key).ToArray());
+            Assert.Equal("false", Value(p, "changed"));
+            Assert.Equal("StockPartNaming", Value(p, "decision"));
+            Assert.Equal("probeCoreOcto2.v2", Value(p, "part"));
+            Assert.Equal("4012", Value(p, "partId"));
+            Assert.Equal("2", Value(p, "priority"));
+            Assert.Equal("VN11 Lower", Value(p, "requested"));
+        }
+
+        [Fact]
+        public void FormatPartAppliedLine_PutsThePartFirstSoAVesselPatternNeverMatchesIt()
+        {
+            string line = TestCommandRenameVessel.FormatPartAppliedLine(
+                "mk1pod.v2", 77u, 5, "VN11 Capsule",
+                42u, "GS1 Auto-Chute Booster", "VN11 Capsule", "Ship", true, 1,
+                Decision(1, "VN11 Capsule", VesselNameSource.StockPartNaming));
+            Assert.Equal(
+                "renamevessel applied part='mk1pod.v2' partId=77 priority=5 requested='VN11 Capsule' " +
+                "pid=42 old='GS1 Auto-Chute Booster' new='VN11 Capsule' type=Ship active=true " +
+                "changed=true legs=1 decision=StockPartNaming decisionName='VN11 Capsule'",
+                line);
+            Assert.False(line.StartsWith("renamevessel applied pid=", System.StringComparison.Ordinal));
         }
     }
 }

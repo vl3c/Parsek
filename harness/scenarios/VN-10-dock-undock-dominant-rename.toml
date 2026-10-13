@@ -1,0 +1,193 @@
+schema = 1
+id = "VN-10-dock-undock-dominant-rename"
+# =====================================================================================
+# VN-10: ONE RENAME COVERS EVERY SEPARATE RECORDING OF AN IDENTITY (design
+# docs/dev/design-vessel-and-mission-names.md 6.2, 7.2, 7.4 and 15.3, rulings 1 and 7, todo
+# GC-7). AUTHORED 2026-10-13 on branch `vessel-names-proof3`. LIVE-PROVEN 2026-10-13 on its first flight: result `2026-10-13_0606` PASS attempt 1 (automation DLL sha256 prefix 6356e1cba57673ea, wall 354 s). Was a reading run,
+# saveParse REPORT-ONLY. No RunTests step, so no batch pin.
+#
+# WHY THIS HOST. Ruling 7 says a rename names the vessel's whole identity, every leg of it.
+# VN-1 could not prove it across SEPARATE recordings: GS-1's pod keeps one recording across
+# its split. CI-9's / VN-4's dock round trip gives the dominant Kerbal X three separate
+# recordings of one launch (VN-4's census read `Kerbal X: 3`): the pre-dock leg
+# StartRecording opens, the merged leg the dock opens (the Kerbal X is dominant, so the
+# merged ship keeps its Vessel.id), and the post-undock leg the undock's split opens (the
+# Kerbal X stays, the absorbed target leaves with a fresh guid). All three carry the Kerbal X's
+# launch guid, so they are one identity through the guid edge.
+#
+# THE FLIGHT (CI-9's verbatim, no rename of the target, so the mission targets "CTD Target"):
+#   (a) RealSpawn the chain tip, StartRecording on the Kerbal X (label `rec`: its id is the
+#       pre-dock leg), the dock (mission).
+#   (b) The undock: PartAction button=undock (VN-4's step); four settles so the deferred
+#       split branch has opened the post-undock leg (VN-4's log: CreateSplitBranch:exit
+#       0.2 s before its rename).
+#   (c) A STOCK rename of the active Kerbal X, "VN10 Kerbal": its decision covers all three
+#       legs (`legs=` pinned >= 3 on the seam answer and the decision line) and the apply
+#       pass renames them (`legsRenamed=` >= 3).
+#   (d) Commit, then a PARSEK rename of the PRE-DOCK leg (`${rec.recordingId}`, the oldest of
+#       the three) to "VN10 Kerbal Final": a row rename of one old recording renames the
+#       identity (legs >= 3) and is written through onto the live Kerbal X (pid 3620499050),
+#       which only the identity join produces (the row is two recordings away from the
+#       vessel's current leg).
+#   The leaving target (a separate identity: fresh guid, no dock-absorb row consumed into
+#   the Kerbal X's identity) keeps its own names throughout.
+# PREDICTIONS a reading run must confirm: the exact leg count (3, unless an optimizer split
+# adds one); the write-through reason (`parsek-rename`, VN-1's); the CommitTree auto-resume
+# leg (H58) inherits the decision name.
+#
+# MEASURED (result `2026-10-13_0606`): the stock rename answered `legs=3`, its decision
+# `legs=3 guids=1` (one launch guid: the guid edge alone joins the three recordings) and its
+# apply pass `legsRenamed=3`; the row rename of the pre-dock leg recorded `legs=3` and wrote
+# `'VN10 Kerbal' -> 'VN10 Kerbal Final'` onto pid 3620499050. Census `recordingNames {VN10 Kerbal
+# Final: 3, CTD Target: 2, CTD Carrier: 1}` (VN-4's shape: the target's pre-dock and post-undock
+# legs kept stock's name; the CommitTree auto-resume leg is not committed), `vesselNames
+# {VN10 Kerbal Final: 1, CTD Target: 1, Kerbal X Probe: 1}` (the probe is the fixture's).
+# =====================================================================================
+tier = "nightly"
+description = "VN-10: on CI-9's chain-tip-dock host, the dominant Kerbal X docks to the Real-Spawned target and undocks, leaving three separate recordings of one launch (pre-dock, merged, post-undock); a stock rename after the undock covers all three, and after the commit a Parsek rename of the oldest (pre-dock) recording renames the identity and is written onto the live Kerbal X; the leaving target keeps its own name."
+instanceProfile = "stock-minimal"
+tags = ["VN-10", "vessel-names", "GC-7", "rename", "dock", "undock", "ruling-7",
+        "identity", "real-spawn", "mechjeb", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "chain-tip-dock"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "ci9_tip_dock"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # LOAD-BEARING: the apply-pass and live-write lines are Verbose.
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "chains" }, label = "chains", expect = "OK" },
+  # CI-9's settle: the proximity scan admits a row on its second sighting, 1.5 s apart.
+  { cmd = "WarpToUT", args = { ut = "428", maxRate = "1" }, expect = "OK", budget = 120 },
+  { cmd = "RealSpawn", args = { rec = "${chains.chain0tip}" }, label = "spawn", expect = "OK", budget = 120 },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # (a) The pre-dock leg.
+  { cmd = "StartRecording", label = "rec", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { phase = "mission", expect = "MISSION-OK", budget = 6000 },
+  # (b) The undock: the docking port's stock Undock on the merged Kerbal X.
+  { cmd = "PartAction", args = { button = "undock" }, label = "und", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # (c) The stock rename of the active Kerbal X, after the undock.
+  { cmd = "RenameVessel", args = { name = "VN10 Kerbal" }, expect = "OK" },
+  { cmd = "CommitTree", expect = "OK", budget = 120 },
+  # CommitTree auto-resumes a recorder on the still-active vessel (H58 flight 1).
+  { cmd = "StopRecording", expect = "OK" },
+  # (d) The Parsek rename of the pre-dock leg, written through onto the live Kerbal X.
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "edit", window = "missions", field = "recordingname", key = "${rec.recordingId}", draft = "VN10 Kerbal Final", commit = "true" }, expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # The read: the live Kerbal X carries the row's name.
+  { cmd = "RenameVessel", args = { name = "VN10 Kerbal Final" }, expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[driver.missionParams]
+# CI-9's values VERBATIM.
+targetName                  = "CTD Target"
+rendezvousAboveMeters       = 250
+startSettleSeconds          = 5
+targetTimeoutSeconds        = 60
+settleSeconds               = 10
+approachDistanceMeters      = 100
+maxPhasingOrbits            = 5
+matchSpeedMetersPerSec      = 1.0
+matchTimeoutSeconds         = 600
+dockSpeedMetersPerSec       = 0.5
+rendezvousTimeoutSeconds    = 30000
+dockTimeoutSeconds          = 1800
+dockNoProgressSeconds       = 120
+
+[dimensionsCovered]
+# D14 values only (each already covered elsewhere). No D value names a vessel rename.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# VN-4's window: the injected carrier root and tip, the Kerbal X's three legs, the undock's
+# target leg, optimizer splits.
+count = { min = 4, max = 12 }
+
+# REPORT-ONLY until a reading run. The Kerbal X's three committed legs on the row's name,
+# none on an earlier one; the leaving target on its own name.
+[expectations.recordings.structure]
+gating         = false
+recordingNames = { "VN10 Kerbal Final" = { min = 3 }, "VN10 Kerbal" = { max = 0 }, "Kerbal X" = { max = 0 }, "CTD Target" = { min = 1 } }
+vesselNames    = { "VN10 Kerbal Final" = { min = 1, max = 1 }, "Kerbal X" = { max = 0 }, "CTD Target" = { min = 1, max = 1 } }
+
+[expectations.logContracts]
+required = [
+  # The host (CI-9's / VN-4's tokens).
+  "\\[Ghoster\\] Chain tip spawn: pid=3156176881 vessel=CTD Target preserveIdentity=true",
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "OnPartCouple producer classified: kind=DockingPort ",
+  "Tree dock merge completed",
+  "partaction applied button=undock pid=3620499050 part='dockingPort2' partId=[0-9]+ event=Undock newPid=[1-9][0-9]* newName='CTD Target' ",
+  "partaction applied button=undock [\\s\\S]*CreateSplitBranch:exit\\] mode=tree ",
+  # (c) THE CLAIM, stock side: one stock rename after the undock covers the identity's
+  # three separate recordings.
+  "renamevessel applied pid=3620499050 old='Kerbal X' new='VN10 Kerbal' type=\\S+ active=true changed=true legs=[3-9] decision=StockDialog decisionName='VN10 Kerbal'",
+  "Stock rename captured: source=StockDialog pid=3620499050 guid=[0-9a-f]+ 'Kerbal X' -> 'VN10 Kerbal' ",
+  "Vessel name decision recorded: identity=\\S+ 'Kerbal X' -> 'VN10 Kerbal' source=StockDialog seq=[0-9]+ legs=[3-9] ",
+  # The apply pass right after the decision (it runs inside the capture, before the
+  # captured line). PREDICTED legsRenamed=3; [2-9] tolerates the open leg's copy already
+  # carrying the new name.
+  "Vessel name decision recorded: identity=\\S+ 'Kerbal X' -> 'VN10 Kerbal' [\\s\\S]*Apply pass \\(stock-rename\\): [^\\r\\n]*legsRenamed=[2-9]",
+  "committree committed=true",
+  # (d) THE CLAIM, Parsek side: a row rename of the oldest leg renames the identity and is
+  # written onto the live vessel.
+  "uiaction edit window=missions field=recordingname key=[0-9a-f]+ draft=VN10 Kerbal Final committed=true ",
+  "\\[UI\\] Recording 'VN10 Kerbal' renamed to 'VN10 Kerbal Final' identity=\\S+ legs=[3-9]",
+  "Vessel name decision recorded: identity=\\S+ 'VN10 Kerbal' -> 'VN10 Kerbal Final' source=ParsekRename seq=[0-9]+ legs=[3-9] ",
+  "Write-through applied: vessel pid=3620499050 guid=[0-9a-f]+ 'VN10 Kerbal' -> 'VN10 Kerbal Final' loaded=true namingPart=\\S+ reason=\\S+",
+  "renamevessel applied pid=3620499050 old='VN10 Kerbal Final' new='VN10 Kerbal Final' type=\\S+ active=true changed=false legs=[3-9][0-9]* decision=ParsekRename decisionName='VN10 Kerbal Final'",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "renamevessel rejected",
+  "renamevessel error",
+  "partaction rejected",
+  "partaction error",
+  "Parsek rename refused",
+  "realspawn rejected",
+  # The leaving target is its own identity: nothing writes the Kerbal X's names onto it,
+  # and nothing writes over its stock-restored pre-dock name.
+  "Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ 'CTD Target' -> ",
+  "Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=3156176881 ",
+  # CI-9's: the absorbed tip is a merge, never a death or a second spawn.
+  "Spawn-death detected[^\\n]*CTD Target",
+  "Chain tip spawn: pid=3156176881[\\s\\S]*Chain tip spawn: pid=3156176881",
+]
+
+[runtime]
+# VN-4's wall (CI-9's mission, a MATCH-VELOCITY dock in practice; VN-4 flew 351 s) plus the
+# post-commit UI steps. Expected wall about 6-15 minutes.
+budgetSeconds = 7200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

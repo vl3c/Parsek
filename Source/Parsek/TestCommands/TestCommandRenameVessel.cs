@@ -36,19 +36,44 @@ namespace Parsek.TestCommands
     /// after the call (<c>none</c> / empty when it holds none). Line:
     /// <c>renamevessel applied pid= old='..' new='..' type= active= changed= legs= decision=
     /// decisionName='..'</c>.</para>
+    ///
+    /// <para><b>Part naming</b> (<c>part=&lt;part name&gt; priority=&lt;n&gt;</c>, both or
+    /// neither): the accept of the stock part naming dialog instead (the PAW "Name Vessel" on a
+    /// command part, <c>Part.SetVesselNaming</c>), the private
+    /// <c>Part.onVesselNamingAccept(string, VesselType, int)</c> that
+    /// <c>PartVesselNamingAcceptCapturePatch</c> wraps, invoked with the type the dialog opens
+    /// on (the part's own naming type, else the vessel's) and the slider's priority
+    /// (0..<c>GameSettings.VESSEL_NAMING_PRIORTY_LEVEL_MAX</c>). Stock renames the vessel only
+    /// when the part becomes its strictly highest-priority naming part (a capture with source
+    /// <c>StockPartNaming</c>); a lower priority only pre-sets the name a future split gives the
+    /// part's side, and the vessel keeps its name (no decision). <c>part=</c> is the runtime
+    /// part name (dot form, PartAction's rule) and must name exactly one part of a LOADED
+    /// vessel whose PAW shows the naming button. The answer adds <c>part= partId= priority=
+    /// requested=</c>; <c>new</c> is the VESSEL's name after the accept, so <c>changed=false</c>
+    /// is the pre-set case. Line: <c>renamevessel applied part='..' partId= priority=
+    /// requested='..' pid= old='..' new='..' ...</c> (the vessel line's tail).</para>
     /// </summary>
     internal static class TestCommandRenameVessel
     {
         internal const string Verb = "RenameVessel";
         internal const string NameKey = "name";
         internal const string PidKey = "pid";
+        internal const string PartKey = "part";
+        internal const string PriorityKey = "priority";
 
         internal const string NameArgMissingReason = "renamevessel-name-arg-missing";
         internal const string NameArgInvalidReason = "renamevessel-name-arg-invalid";
         internal const string PidArgInvalidReason = "renamevessel-pid-arg-invalid";
+        internal const string PriorityArgMissingReason = "renamevessel-priority-arg-missing";
+        internal const string PriorityArgInvalidReason = "renamevessel-priority-arg-invalid";
+        internal const string PriorityWithoutPartReason = "renamevessel-priority-without-part";
         internal const string NoActiveVesselReason = "renamevessel-no-active-vessel";
         internal const string VesselNotFoundReason = "renamevessel-vessel-not-found";
         internal const string TargetIsGhostReason = "renamevessel-target-is-ghost";
+        internal const string VesselUnloadedReason = "renamevessel-vessel-unloaded";
+        internal const string PartNotFoundReason = "renamevessel-part-not-found";
+        internal const string PartAmbiguousReason = "renamevessel-part-ambiguous";
+        internal const string PartNamingUnavailableReason = "renamevessel-part-naming-unavailable";
         internal const string AcceptUnavailableReason = "renamevessel-accept-unavailable";
 
         // Post-call ERROR terminals: the accept ran (or was attempted) and did not rename.
@@ -62,11 +87,24 @@ namespace Parsek.TestCommands
             "renamevessel-name-arg-missing",
             "renamevessel-name-arg-invalid",
             "renamevessel-pid-arg-invalid",
+            "renamevessel-priority-arg-missing",
+            "renamevessel-priority-arg-invalid",
+            "renamevessel-priority-without-part",
             "renamevessel-no-active-vessel",
             "renamevessel-vessel-not-found",
             "renamevessel-target-is-ghost",
+            "renamevessel-vessel-unloaded",
+            "renamevessel-part-not-found",
+            "renamevessel-part-ambiguous",
+            "renamevessel-part-naming-unavailable",
             "renamevessel-accept-unavailable",
         };
+
+        /// <summary>The part event whose dialog the part naming accept belongs to: the PAW
+        /// "Name Vessel" button (<c>Part.SetVesselNaming</c>, decompiled KSP 1.12.5). Shown in
+        /// flight when the part's <c>AvailablePart.showVesselNaming</c> (a command part or a
+        /// seat by default) and <c>GameSettings.SHOW_VESSEL_NAMING_IN_FLIGHT</c>.</summary>
+        internal const string PartNamingEventName = "SetVesselNaming";
 
         /// <summary>The post-call ERROR vocabulary.</summary>
         internal static readonly string[] ErrorReasons =
@@ -110,6 +148,58 @@ namespace Parsek.TestCommands
             hasPid = true;
             return null;
         }
+
+        /// <summary>
+        /// Parses the OPTIONAL part-naming pair. Both absent (or empty): the vessel accept,
+        /// <paramref name="hasPart"/> false. <c>priority=</c> without <c>part=</c> is refused (the
+        /// slider exists only in the part dialog); <c>part=</c> without <c>priority=</c> is
+        /// missing; the priority is a decimal int from 0 to <paramref name="priorityMax"/> (the
+        /// dialog slider's range, <c>GameSettings.VESSEL_NAMING_PRIORTY_LEVEL_MAX</c>). The part
+        /// name is kept verbatim. Returns null on success or the refusal reason.
+        /// </summary>
+        internal static string ParsePartNaming(string rawPart, string rawPriority, int priorityMax,
+            out string partName, out int priority, out bool hasPart)
+        {
+            partName = null;
+            priority = 0;
+            hasPart = !string.IsNullOrEmpty(rawPart);
+            bool hasPriority = !string.IsNullOrEmpty(rawPriority);
+            if (!hasPart)
+                return hasPriority ? PriorityWithoutPartReason : null;
+            if (!hasPriority)
+                return PriorityArgMissingReason;
+            if (!int.TryParse(rawPriority, NumberStyles.None, CultureInfo.InvariantCulture, out int parsed)
+                || parsed < 0 || parsed > priorityMax)
+                return PriorityArgInvalidReason;
+            partName = rawPart;
+            priority = parsed;
+            return null;
+        }
+
+        /// <summary>
+        /// The part gate of the part-naming accept, after <see cref="DecideTarget"/>'s vessel
+        /// half: the vessel must be loaded (a part menu exists only on a loaded vessel's parts),
+        /// exactly one part must carry the name (<paramref name="namedParts"/> none: not found;
+        /// several: ambiguous, never a silent first pick), that part's PAW must show the naming
+        /// button, and the stock part accept method must resolve. Returns null to proceed.
+        /// </summary>
+        internal static string DecidePartTarget(bool vesselLoaded, int namedParts, bool namingButtonShown,
+            bool acceptAvailable)
+        {
+            if (!vesselLoaded) return VesselUnloadedReason;
+            if (namedParts == 0) return PartNotFoundReason;
+            if (namedParts > 1) return PartAmbiguousReason;
+            if (!namingButtonShown) return PartNamingUnavailableReason;
+            if (!acceptAvailable) return AcceptUnavailableReason;
+            return null;
+        }
+
+        /// <summary>True when the part accept did what it was asked: the part now carries a
+        /// naming with the requested name (ordinal) and priority.</summary>
+        internal static bool WasPartNamingApplied(string requested, int requestedPriority,
+            bool hasNaming, string namingName, int namingPriority)
+            => hasNaming && string.Equals(requested, namingName, StringComparison.Ordinal)
+               && requestedPriority == namingPriority;
 
         /// <summary>
         /// The target gate, in the order the applier meets it: the vessel (named by pid, else
@@ -170,6 +260,42 @@ namespace Parsek.TestCommands
                 new KeyValuePair<string, string>("decisionName",
                     decision != null ? decision.Name ?? string.Empty : string.Empty),
             };
+        }
+
+        /// <summary>The part-naming OK payload: the vessel payload, then <c>part= partId=
+        /// priority= requested=</c>.</summary>
+        internal static List<KeyValuePair<string, string>> BuildPartOkPayload(
+            string partName, uint partId, int priority, string requested,
+            uint pid, string oldName, string newName, string vesselType, bool active,
+            int legs, VesselNameDecision decision)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            List<KeyValuePair<string, string>> p = BuildOkPayload(
+                pid, oldName, newName, vesselType, active, legs, decision);
+            p.Add(new KeyValuePair<string, string>("part", partName ?? string.Empty));
+            p.Add(new KeyValuePair<string, string>("partId", partId.ToString(ic)));
+            p.Add(new KeyValuePair<string, string>("priority", priority.ToString(ic)));
+            p.Add(new KeyValuePair<string, string>("requested", requested ?? string.Empty));
+            return p;
+        }
+
+        /// <summary>The grep-stable part-naming success line: the part fields, then the vessel
+        /// line's tail from <c>pid=</c> on, so a pattern anchored on
+        /// <c>renamevessel applied pid=</c> (a vessel accept) never matches a part accept.</summary>
+        internal static string FormatPartAppliedLine(
+            string partName, uint partId, int priority, string requested,
+            uint pid, string oldName, string newName, string vesselType, bool active,
+            int legs, VesselNameDecision decision)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            const string Prefix = "renamevessel applied ";
+            string vesselLine = FormatAppliedLine(pid, oldName, newName, vesselType, active, legs, decision);
+            return Prefix
+                + "part='" + (partName ?? string.Empty) + "'"
+                + " partId=" + partId.ToString(ic)
+                + " priority=" + priority.ToString(ic)
+                + " requested='" + (requested ?? string.Empty) + "' "
+                + vesselLine.Substring(Prefix.Length);
         }
 
         /// <summary>The grep-stable success line. Names are single-quoted so a spec can anchor

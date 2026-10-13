@@ -16648,6 +16648,9 @@ class RenameVesselSourceSyncTests(unittest.TestCase):
         self.assertIn('internal const string Verb = "%s";' % hlib.RENAMEVESSEL_VERB, text)
         self.assertIn('internal const string NameKey = "%s";' % hlib.RENAMEVESSEL_NAME_KEY, text)
         self.assertIn('internal const string PidKey = "%s";' % hlib.RENAMEVESSEL_PID_KEY, text)
+        self.assertIn('internal const string PartKey = "%s";' % hlib.RENAMEVESSEL_PART_KEY, text)
+        self.assertIn('internal const string PriorityKey = "%s";' % hlib.RENAMEVESSEL_PRIORITY_KEY,
+                      text)
         self.assertEqual(list(hlib.RENAMEVESSEL_REASONS),
                          StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
         for reason in hlib.RENAMEVESSEL_REASONS:
@@ -16661,6 +16664,13 @@ class RenameVesselSourceSyncTests(unittest.TestCase):
         patch = self._source("Patches", "VesselRenameCapturePatch.cs")
         self.assertIn('AccessTools.Method(typeof(Vessel), "onVesselRenameAccept", '
                       'new[] { typeof(string), typeof(VesselType) })', patch)
+        # The part-naming accept is the PART capture patch's own target too, and the slider
+        # ceiling the seam enforces is stock's live setting.
+        self.assertIn("PartVesselNamingAcceptCapturePatch.ResolveTargetMethodForTesting()", applier)
+        self.assertIn("partAccept.Invoke(part, new object[] { name, type, priority })", applier)
+        self.assertIn("GameSettings.VESSEL_NAMING_PRIORTY_LEVEL_MAX", applier)
+        self.assertIn('AccessTools.Method(typeof(Part), "onVesselNamingAccept",', patch)
+        self.assertIn('new[] { typeof(string), typeof(VesselType), typeof(int) })', patch)
 
     def test_the_verb_is_registered_on_every_axis(self):
         verb = hlib.RENAMEVESSEL_VERB
@@ -16677,8 +16687,17 @@ class RenameVesselSourceSyncTests(unittest.TestCase):
                          hlib.classify_seam_refusal_subkind("renamevessel-vessel-not-found"))
         # The three spec-text refusals are deterministic (the retry sends the same args).
         for reason in ("renamevessel-name-arg-missing", "renamevessel-name-arg-invalid",
-                       "renamevessel-pid-arg-invalid"):
+                       "renamevessel-pid-arg-invalid", "renamevessel-priority-arg-missing",
+                       "renamevessel-priority-arg-invalid",
+                       "renamevessel-priority-without-part"):
             self.assertIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        self.assertEqual("driver-gate",
+                         hlib.classify_seam_refusal_subkind("renamevessel-vessel-unloaded"))
+        self.assertEqual("driver-gate",
+                         hlib.classify_seam_refusal_subkind(
+                             "renamevessel-part-naming-unavailable"))
+        self.assertEqual("driver-arg",
+                         hlib.classify_seam_refusal_subkind("renamevessel-part-ambiguous"))
         # A target lookup reads live state a load race could change.
         for reason in ("renamevessel-vessel-not-found", "renamevessel-no-active-vessel"):
             self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
@@ -16696,6 +16715,19 @@ class RenameVesselSourceSyncTests(unittest.TestCase):
             with self.subTest(pid=bad):
                 self.assertIn("renamevessel-pid-arg-invalid", v(0, {"name": "X", "pid": bad})[0])
         self.assertEqual(2, len(v(0, {"pid": "0"})))
+        # The part-naming pair: both or neither, the priority in the slider's range.
+        self.assertEqual([], v(0, {"name": "X", "part": "mk1pod.v2", "priority": "5"}))
+        self.assertEqual([], v(0, {"name": "X", "part": "mk1pod.v2", "priority": "0"}))
+        self.assertEqual([], v(0, {"name": "X", "part": "mk1pod.v2", "priority": "20"}))
+        self.assertEqual([], v(0, {"name": "X", "part": "p", "priority": "${h.prio}"}))
+        self.assertIn("renamevessel-priority-without-part", v(0, {"name": "X", "priority": "5"})[0])
+        self.assertIn("renamevessel-priority-arg-missing", v(0, {"name": "X", "part": "p"})[0])
+        self.assertIn("renamevessel-priority-arg-missing",
+                      v(0, {"name": "X", "part": "p", "priority": ""})[0])
+        for bad in ("21", "-1", "+5", " 5", "2.5", "high"):
+            with self.subTest(priority=bad):
+                self.assertIn("renamevessel-priority-arg-invalid",
+                              v(0, {"name": "X", "part": "p", "priority": bad})[0])
 
     def test_validate_spec_runs_the_step_validator(self):
         spec = copy.deepcopy(load_spec("B10-career-passive-safety.toml"))

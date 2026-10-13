@@ -4234,8 +4234,36 @@ bounded DEFER `not-in-vessel-scene`; `RequiresFlight` before 2026-10-12), defaul
 arg reasons are deterministic (`DETERMINISTIC_SEAM_ERROR_REASONS`). World-mutating tail role,
 `recording` post-mission role; state-mutating for the FlushAndQuit save. Pure half
 `TestCommandRenameVessel`, mirrored by `RenameVesselSourceSyncTests`. Lanes:
-`VN-1-stock-rename-staging-f9`, `VN-2-refly-rename-discard`, `VN-3-spawn-rename-rewind`, and the
-wave-2 lanes `VN-4` .. `VN-8` (`VN-6-ts-rename-then-decouple` renames from the Tracking Station).
+`VN-1-stock-rename-staging-f9`, `VN-2-refly-rename-discard`, `VN-3-spawn-rename-rewind`, the
+wave-2 lanes `VN-4` .. `VN-8` (`VN-6-ts-rename-then-decouple` renames from the Tracking Station)
+and the wave-3 lanes `VN-9` .. `VN-13`.
+
+**Part naming** (2026-10-13, additive within the verb, no verb-count change). `part=<part
+name> priority=<n>` (both or neither) drives the stock PART naming dialog instead: the PAW
+"Name Vessel" button (`Part.SetVesselNaming`, shown in flight on a part whose
+`AvailablePart.showVesselNaming` holds, a command part or a seat by default, while
+`GameSettings.SHOW_VESSEL_NAMING_IN_FLIGHT`) whose accept is the private
+`Part.onVesselNamingAccept(string, VesselType, int)` that `PartVesselNamingAcceptCapturePatch`
+wraps. The applier invokes it by reflection on the one part of the (loaded) vessel whose runtime
+name is `part=` (dot form, PartAction's rule), with the type the dialog opens on (the part's
+own naming type, else the vessel's: `VesselRenameDialog.SpawnNameFromPart` in flight) and
+`priority=` (the slider, 0..`GameSettings.VESSEL_NAMING_PRIORTY_LEVEL_MAX`, 20 in stock). Stock
+then re-derives the vessel's name (`Vessel.UpdateVesselNaming`: the part with the strictly
+highest priority above 0 names it), so the accept either renames the vessel (a capture with
+source `StockPartNaming`) or only pre-sets the name the part's side takes at a future split
+(the vessel keeps its name; the capture logs `Stock rename ignored: source=StockPartNaming ...
+reason=name-unchanged`). It reads the part's naming back (`renamevessel-not-applied` when it
+does not carry the requested name and priority). Line: `renamevessel applied part='..' partId=
+priority= requested='..' pid= old='..' new='..' type= active= changed= legs= decision=
+decisionName='..'` (the vessel line's tail; `new` is the VESSEL's name after the accept, so
+`changed=false` is the pre-set case, and a pattern anchored on `renamevessel applied pid=` never
+matches a part accept); the payload appends `part partId priority requested`. Refusals, in
+gate order after the vessel half: `renamevessel-priority-arg-missing` (part without priority),
+`-priority-arg-invalid` (not 0..max), `-priority-without-part` (all three arg-class and
+deterministic), then `renamevessel-vessel-unloaded` (gate-class: no part menu on an unloaded
+vessel), `-part-not-found` / `-part-ambiguous` (arg-class), `-part-naming-unavailable`
+(gate-class: the part's menu shows no naming button) and `-accept-unavailable`. Lane:
+`VN-11-part-naming-accept`.
 
 #### PartAction (additive; one button of one part's stock right-click menu)
 
