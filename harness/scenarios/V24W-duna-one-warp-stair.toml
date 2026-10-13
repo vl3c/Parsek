@@ -597,7 +597,9 @@ arriveOffsetSeconds  = 18329155.146610025
 # arrive + 61,354, past the Ike return - the supervisor decision in section 4.
 parkOffsetSeconds    = 18390509.0
 dwellLeadSeconds     = 300
-dwellHoldSeconds     = 900
+# 900 -> 120 per docs/dev/research/harness-dwell-and-shared-flight-audit-2026-10-14.md (A1): the above-1x buckets and seam traversals come
+# from the stair, not the 1x tail. PENDING a confirm flight.
+dwellHoldSeconds     = 120
 mapCamera            = true
 cameraFocusBody      = "Duna"
 cameraPitchDeg       = -60

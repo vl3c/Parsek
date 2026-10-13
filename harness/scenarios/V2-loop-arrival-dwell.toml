@@ -104,11 +104,14 @@ treeId               = "ccb5e4afd7974dbe9118090468ac00ae"
 departOffsetSeconds  = 89448.917
 arriveOffsetSeconds  = 4474604.451
 parkOffsetSeconds    = 4506361.140
-dwellLeadSeconds     = 120
+# 120 -> 30 per docs/dev/research/harness-dwell-and-shared-flight-audit-2026-10-14.md (A4): both handoff tokens fire within ~1 s of the
+# window instant, still inside [window-30, window+60]. PENDING a confirm flight.
+dwellLeadSeconds     = 30
 # The hold must SPAN the window (flight 5: holds of [window-120, window-60]
 # left the map BEFORE each handoff instant, so the seam crossing itself was
 # never watched). 300 s dwells [window-120, window+180] at 1x.
-dwellHoldSeconds     = 300
+# 300 -> 90 per the same audit (A4). PENDING a confirm flight.
+dwellHoldSeconds     = 90
 cameraFocusBody      = "Duna"
 cameraPitchDeg       = -60
 cameraHeadingDeg     = 0
