@@ -2,7 +2,7 @@
 
 *Design document for Gloops, a standalone KSP1 mod that records a vessel and replays it as looping ghosts, and for the reference design of a ghost core shared with Parsek (not scheduled, ruling 10). Rewritten 2026-10-05 from an owner interview and a measured read of the codebase; it supersedes the 2026-04 draft, whose "ready to move" extraction table no longer matched the code (section 10 records the measurements).*
 
-**Status (2026-10-06):** model and boundary agreed. **No extraction is scheduled**: there is no current standalone use, Parsek is the priority, and the near-term work is Parsek-only simplification (section 12). No code has moved. The in-Parsek Gloops recorder (unreachable by players since 0.10.4) is deleted as dead code in its own PR (branch `gloops-dead-code-removal`; plan `docs/dev/plans/remove-player-looping.md` PR 1); looping is untouched by it. Gloops itself is to be built anew later.
+**Status (2026-10-06):** model and boundary agreed. **No extraction is scheduled**: there is no current standalone use, Parsek is the priority, and the near-term work is Parsek-only simplification (section 12). No code has moved. The in-Parsek Gloops recorder (unreachable by players since 0.10.4) is deleted as dead code (PR #2022; plan `docs/dev/plans/remove-player-looping.md` PR 1); looping is untouched by it, and removing player-authored looping from Parsek is on hold (owner, 2026-10-13). Gloops itself is to be built anew later.
 
 ---
 
@@ -18,7 +18,7 @@ Rulings 2-5 and sections 4 and 11 describe the SHARED-CORE path (a Core consumed
 6. **Recording is separate.** Parsek and standalone Gloops may run different versions, so they record separately and know nothing about each other. Gloops' recorder starts from Parsek's building blocks (forked, or shared on the shared-Core path); neither reads the other's data.
 7. **No export bridge for now.** Parsek does not export `.gloop` files; Gloops does not import Parsek recordings.
 8. **The take model** in section 5, including the hard rule that nothing pops into existence.
-9. **Looping at will is a Gloops feature, not a Parsek one.** Parsek removes per-recording player loops and the Missions tab loop controls; in Parsek a mission loops only behind a logistics route, as a gameplay object with real effects. The loop infrastructure routes run on stays in Parsek. Plan: `docs/dev/plans/remove-player-looping.md`.
+9. **Looping at will is a Gloops feature, not a Parsek one.** Parsek removes per-recording player loops and the Missions tab loop controls; in Parsek a mission loops only behind a logistics route, as a gameplay object with real effects. The loop infrastructure routes run on stays in Parsek. Plan: `docs/dev/plans/remove-player-looping.md`. On hold since 2026-10-13: Parsek keeps its player loops for now.
 10. **No extraction now.** No standalone use is planned; Parsek is the priority. When a standalone Gloops is wanted, the expected route is a fork of Parsek's ghost code at that moment (section 12), not a shared Core maintained in parallel.
 
 ---
@@ -156,7 +156,7 @@ Only trackable vessels branch (`ParsekFlight.IsTrackableVessel`: a `ModuleComman
 
 ---
 
-## 7. The in-Parsek Gloops recorder (deleted, branch `gloops-dead-code-removal`)
+## 7. The in-Parsek Gloops recorder (deleted, PR #2022)
 
 - **What it was.** A second `FlightRecorder` with `IsGloopsMode = true` (`ParsekFlight.StartGloopsRecording`), ticked by `PhysicsFramePatch.GloopsRecorderInstance` alongside the main recorder. It follows ONE vessel pid; any pid change auto-stops and commits (`FlightRecorder.HandleVesselSwitchDuringRecording`). Commit (`RecordingStore.CommitGloopsRecording`) adds one treeless `IsGhostOnly` recording to the "Gloops - Ghosts Only" group, looping off.
 - **Gates.** `IsGloopsMode` skips pre-launch resources, the rewind save, route origin proof, the run-cargo manifest and all harvest capture. About 15 career sites exclude `IsGhostOnly` recordings: ledger vessel cost / crew assignment / crew penalty and `PurgeGhostOnlyActionsFromLedger`, crew recovery, pending-ledger vessel match, end-of-recording spawn, CommNet continuation, map-presence retention.

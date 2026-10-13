@@ -2095,7 +2095,7 @@ UP TO THREE ON 2026-10-06 (`quickload-after-save`): `QL-4b-quickload-from-space-
 
 UP TO ONE ON 2026-10-06 (the quickload abandoned-future fix): `QL-4-quickload-booster-terminal`, the live proof of TA-4 (todo QUICKLOAD-FUTURE-TERMINAL-LEAKS-INTO-RESUMED-TREE), authored to land with the fix and never flown.
 
-DOWN TO ZERO ON 2026-10-06 (PR #2022, branch `gloops-dead-code-removal`): `GUI-2-census-flight` re-flew its current spec PASS (`2026-10-06_1721`) and moved to the live-proven table.
+DOWN TO ZERO ON 2026-10-06 (PR #2022): `GUI-2-census-flight` re-flew its current spec PASS (`2026-10-06_1721`) and moved to the live-proven table.
 
 DOWN TO ONE ON 2026-10-06 (`todo-rotation-v9`): `RR-1-relaunch-rewind-keeps-earlier-launch`, `EVA-9-ground-science-cluster-spawn-flight`, `EVA-10-mun-ground-science-cluster` and `GUI-1-census-ksc` were promoted to the live-proven table after a spec-logic review (each row there records its PASS flights and what is still owed). `GUI-2-census-flight` stays: its newest flight `2026-09-22_1844` predates the spec's `screenResolution = "1920x1080"` and two window-table changes, so the committed spec shape has never flown; it needs one re-fly.
 
