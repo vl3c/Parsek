@@ -172,7 +172,11 @@ id = "B20-moho-orbit"
 #   fuel            405.402 units of LF at commit -> ~1,991 m/s still in the stage
 #   recordings      5, named by UT in the fixture's provenance block
 # =====================================================================================
-tier = "operator"
+# LONG-HAUL TIER (owner ruling 2026-10-14): moved out of `operator` because its
+# measured wall (coverage/duration.json p50 4,791 s) is at least the 1,800 s
+# threshold (hlib.LONGHAUL_MIN_P50_SECONDS). Still on request only: no cadence
+# maps to `longhaul`; fly it with `--tier longhaul` / `--id`.
+tier = "longhaul"
 description = "Moho ORBIT across a heliocentric traverse, on the stock Duna Rocket: 700 km park, PRE-TRANSFER JETTISON of the spent chemical stack onto the LV-N, ejection at the Kerbin->Moho window, corrections, CAPTURE inside Moho's SOI, held park and a mid-mission CommitTree -- the flight whose committed recording becomes the moho-orbit-recorded fixture, and with it the re-aim synthesizer's own documented failure case (7 deg, ecc ~0.2) as read evidence."
 instanceProfile = "stock-minimal"
 tags = ["B20", "moho", "orbit", "mechjeb", "interplanetary", "cross-soi", "capture", "commit-in-foreign-soi", "jettison", "flown"]

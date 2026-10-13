@@ -74,9 +74,9 @@ SCHEMA_VERSION = 1
 # Vocabulary tables (design Data Model + consumed seam verb table).
 # ---------------------------------------------------------------------------
 
-# Scenario tiers (design spec `tier` enum). Two non-cadence readiness tiers exist
-# alongside the four cadence tiers; CADENCE_TIERS maps NO cadence to either, so
-# neither is ever scheduled by a --cadence run:
+# Scenario tiers (design spec `tier` enum). Three non-cadence tiers exist
+# alongside the four cadence tiers; CADENCE_TIERS maps NO cadence to any of them,
+# so none is ever scheduled by a --cadence run:
 # - `pending-fixture`: the scenario's fixture save is not committed yet; excluding
 #   it prevents a terminal INVALID(staging) on every daily run self-quarantining a
 #   scenario that never actually ran (M-A5 integration item 4). An operator
@@ -91,7 +91,23 @@ SCHEMA_VERSION = 1
 #   inline PROMOTE note naming the nightly tier to restore after its first
 #   green flight. It runs ONLY on an explicit `--tier operator` / `--id`
 #   invocation. A `pending-operator` tag alone is non-gating; the tier is.
-TIERS: Tuple[str, ...] = ("perpr", "daily", "nightly", "weekly", "pending-fixture", "operator")
+# - `longhaul`: the operator tier's long interplanetary lanes, split out by owner
+#   ruling 2026-10-14 so `--tier operator` stays an affordable request. The rule is
+#   mechanical: an operator-class spec whose measured wall
+#   (harness/coverage/duration.json p50) is at least LONGHAUL_MIN_P50_SECONDS. It is
+#   on-request exactly like `operator` (no cadence maps to it) and runs ONLY on an
+#   explicit `--tier longhaul` / `--id` invocation. `--tier` is an exact match, so
+#   the two tiers are disjoint and `--tier operator` does not select these lanes.
+TIERS: Tuple[str, ...] = ("perpr", "daily", "nightly", "weekly", "pending-fixture",
+                          "operator", "longhaul")
+
+# The on-request tiers: in no cadence set, flown only when someone asks for them
+# by `--tier` / `--id`. `pending-fixture` is in no cadence set either but is a
+# readiness EXCLUSION, not an on-request tier, so it is not listed.
+ON_REQUEST_TIERS: Tuple[str, ...] = ("operator", "longhaul")
+
+# The long-haul threshold: 30 minutes of measured p50 wall per lane.
+LONGHAUL_MIN_P50_SECONDS: float = 1800.0
 
 # The two provisioned instance profiles (design + M-A6).
 INSTANCE_PROFILES: Tuple[str, ...] = ("stock-minimal", "modded-compat")
@@ -7323,8 +7339,9 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
 
 # A cadence maps to a tier set (design section 10). per-pr is analyzer-on-fixtures
 # only (no KSP), but at the SELECTION layer it resolves to the perpr tier specs.
-# NOTE: "operator" is intentionally in NO set here - operator-tier specs are never
-# picked up by a cadence and run only under an explicit `--tier operator` / `--id`.
+# NOTE: the ON_REQUEST_TIERS ("operator", "longhaul") are intentionally in NO set
+# here - their specs are never picked up by a cadence and run only under an explicit
+# `--tier operator` / `--tier longhaul` / `--id`.
 CADENCE_TIERS: Dict[str, Tuple[str, ...]] = {
     "per-pr": ("perpr",),
     "daily": ("daily",),

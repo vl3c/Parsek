@@ -191,15 +191,22 @@ id = "B16-eve-orbit"
 # should be flown anyway (the PROVISIONAL pins above need a human reading the
 # result).
 #
+# LONG-HAUL TIER (owner ruling 2026-10-14): moved from `operator` to `longhaul`
+# because its measured wall (coverage/duration.json p50 1,825 s) is at least the
+# 1,800 s threshold (hlib.LONGHAUL_MIN_P50_SECONDS). `longhaul` is in no cadence
+# set either, so everything above about `operator` holds for it unchanged; fly it
+# with `--tier longhaul` / `--id B16-eve-orbit`.
+#
 # PROMOTE IT: the moment B16 flies GREEN and the PROVISIONAL pins are replaced
 # with MEASURED ones, set `tier = "nightly"` and update the
 # docs/dev/autotest-status.md row. B15 is the precedent for the whole
 # sequence -- it was tiered nightly while unflown and cost seven flights to
 # turn green, which is the experience this line exists to not repeat.
-tier = "operator"
+tier = "longhaul"
 description = "Eve ORBIT / commit-in-target-orbit across a heliocentric traverse: MechJeb ascent to a HIGH (700 km) park, OperationInterplanetaryTransfer ejection at the next Kerbin->Eve window, heliocentric coast with time-to-SOI corrections, CAPTURE burn (circularize at a ~5,000 km periapsis) inside the Eve SOI, a held stable park below Gilly's orbit, and a mid-mission command-seam CommitTree that closes the tree WHILE PARKED IN EVE'S SOI."
 instanceProfile = "stock-minimal"
-# `pending-operator` ADDED 2026-08-01. B16 is `tier = "operator"` AND carries a
+# `pending-operator` ADDED 2026-08-01. B16 is on-request tier (`operator`, now
+# `longhaul` by the 2026-10-14 split) AND carries a
 # documented outstanding human call - the PROMOTE note ABOVE ("the PROVISIONAL pins
 # above need a human reading the result"; "the moment B16 flies GREEN ... set
 # tier = nightly"). `docs/dev/autotest-status.md` records it as "TIER NOT CHANGED ...
