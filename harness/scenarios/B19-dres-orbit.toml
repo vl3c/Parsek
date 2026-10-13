@@ -409,13 +409,6 @@ parkSituations             = ["ORBITING"]
 # parked-in-foreign-SOI coverage the harvested fixture will carry, so it is
 # deliberately not warped.
 parkDwellSeconds           = 180
-
-# CIRCULARIZE NODE WAIT (opted in 2026-10-12, B22's key): hold the park round-out's
-# executor hand-off and rails-warp to node UT - half burn - the orient lead, instead of
-# MechJeb's ~590 s 1x wait (2026-10-12 main run). B22's proof left its park trim within
-# 17 m and its Jool arrival within 0.01%; this lane's re-fly must show the same park,
-# corrections and arrival as the unheld main run before the key stays.
-circularizeNodeWaitWarp    = true
 parkDebounceFrames         = 3
 parkTimeoutSeconds         = 600
 commitTimeoutSeconds       = 300
