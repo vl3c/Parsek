@@ -203,7 +203,12 @@ allowedAnomalies = []
 # Mainsail still held ~40% of its LFO at orbit insertion. The earlier {1,12}
 # window was a first-flight placeholder for an uncounted population; it is now
 # counted. RE-PIN, do not re-widen, if a later run differs.
-count = { min = 3, max = 3 }
+# RE-PINNED 3 -> 4 2026-10-12 (the post-#1931 in-flight optimizer split, todo
+# INFLIGHT-COMMIT split re-pin queue): run 2026-10-12_1143 read `recordings.count 4 > max 3`
+# alone, with exactly one split in its KSP.log: `Split candidate (PersistedPhaseChange) ...
+# sec=3 splitUT=232.64 prev=Atmospheric next=ExoBallistic`, then `CommitTreeFlight:
+# optimization pass ran committed=3->4`. The same +1 B7 / B11 / B12 / B15 took on 2026-10-01.
+count = { min = 4, max = 4 }
 
 [expectations.logContracts]
 # The lifecycle pair every flown scenario asserts, PLUS the debris-creation token

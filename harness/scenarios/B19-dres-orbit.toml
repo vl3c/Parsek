@@ -466,7 +466,12 @@ allowedAnomalies = []
 # each, is exactly what this run measures. min 3 gates the ascent population that
 # IS measured; max 12 absorbs the jettison debris. RE-PIN to the measured value
 # once green -- do NOT leave this wide.
-count = { min = 5, max = 5 }
+# RE-PINNED 5 -> 6 2026-10-12 (the post-#1931 in-flight optimizer split re-pin queue):
+# run 2026-10-12_1149 read `recordings.count 6 > max 5` alone, MISSION-OK, with exactly one
+# split in its KSP.log: `Split candidate (PersistedPhaseChange) ... sec=3 splitUT=225.38
+# prev=Atmospheric next=ExoBallistic`, then `CommitTreeFlight: optimization pass ran
+# committed=5->6`. The same +1 B7 / B11 / B12 / B15 / B18 took.
+count = { min = 6, max = 6 }
 
 [expectations.logContracts]
 # Every token sourced from its ACTUAL emitting call site; the interplanetary

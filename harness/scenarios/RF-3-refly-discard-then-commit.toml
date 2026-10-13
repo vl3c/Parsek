@@ -193,7 +193,14 @@ forbidden = [
 gating        = true
 rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { min = 2 }
-tombstones    = { min = 1 }
+# RE-PINNED { min = 1 } -> { max = 0 } 2026-10-12. The FIVE above were never kerbal deaths: the
+# 10-01 merge logged `Tombstoned 5 career actions (... Milestone=5 ...)`, the RecordsAltitude x2 /
+# RecordsDistance x2 / RecordsSpeed bands stock RE-PAID during the re-fly's TimeJump (tagged
+# to the slot origin b07cfd6c and retired by its own merge). #2024 (pre-ledger progress seed)
+# and #2028 (record rows carry their thresholds) stopped the re-pay, so run 2026-10-12_2110
+# logs `Tombstoned 0` on both merges; the fixture's ledger holds no Dead KerbalAssignment and no
+# row tagged to either slot origin. max = 0 also reds if the band re-pay ever returns.
+tombstones    = { max = 0 }
 
 [runtime]
 # Budget arithmetic: LoadGame x3 1980 + SetSetting x5 600 + StopRecording x3 360 +

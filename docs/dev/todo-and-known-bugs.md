@@ -3713,10 +3713,21 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   final approach before retrying, and `_b5_native_warp` (`harness/missions/lib/mlib.py`
   ~13469) re-issuing on +-200 s / +2,000 s SOI-estimate flips (~26 s of re-ramp on B29's
   Jool exit).
-- [ ] Optional refresh re-flies of the b5 lanes last flown before #1958: B24, B33, B34, B35,
-  B25, B28, B23 and B12. Their capture and PARK waste is already fixed in code; re-flying
-  only refreshes the analyzer totals (~150-250 s recoverable each on the stale runs) and
-  confirms the fix holds. Batch them (for example a nightly tier) rather than one by one.
+- [x] ~~B19 / B20 / B21 park round-out hold~~ DROPPED 2026-10-13 (the B29 rule). The 2026-10-12
+  operator tier measured ~590 s of 1x CIRCULARIZE node wait on each (the largest recoverable rows
+  after B20's coast). Opted into `circularizeNodeWaitWarp` on branch `repin-duna-rocket`, the
+  confirm re-flights saved ~520 s each (B19 2,950 -> 2,410 s, B20 4,655 -> 4,135 s, B21 3,045
+  -> 2,535 s) and matched main to the metre through the park trim and ORBIT (B19 trim ap
+  769,645 vs 769,648 m), but every arrival then diverged: the transfer node moved 3-33 s and
+  the parks read Dres ap 850,661 m (main `2026-10-12_1149` 1,051,483 m; 1,110 km in 2026-08),
+  Moho 396,037 m (main `_1259` 428,433 m), Eeloo 10,482,265 m (main `_1431` 10,621,342 m).
+  Main's own run-to-run spread on these lanes is not measured, so the outcome is not shown
+  unchanged and the key stays on B22 only. Open: two more plain-main flights per lane would
+  say whether those parks are inside main's spread (about 3 h of machine time).
+- [x] Optional refresh re-flies of the b5 lanes last flown before #1958: B24, B33, B34, B35,
+  B25, B28, B23 and B12. Done by the 2026-10-11 nightly and 2026-10-12 operator tiers: each
+  MISSION-OK, analyzer recoverable now 51-108 s per lane (B24 108, B34 57, B35 / B25 56, B33
+  54, B28 51); B33 needed the count window above, everything else green.
 - [x] The run corpus survives worktree removal (HARNESS-RESULTS-ARCHIVE, branch
   `harness-results-archive`). The ~860-run corpus measured above lived in the worktrees'
   gitignored `harness/results/` and was lost when those worktrees were removed. `run.py` now
@@ -4094,7 +4105,7 @@ read as a background vessel), the cleanup sites that null the field when the lat
 removed. The switch-segment subtree walk now finds branches by parent id (fixed above); the rest
 are unaudited for impact. Fix direction: the same parent-id lookup where a walk needs every child.
 
-## INFLIGHT-COMMIT-SPLIT-STALE-RECORDING-COUNTS: #1931 adds a chain segment to every in-flight-committed flight that leaves an atmosphere, and lane count pins written before it go red [FILED 2026-10-01, branch `arm-last19`. LANE WINDOWS, not a Parsek defect. NIGHTLY SET RE-READ 2026-10-01 on branch `split-count-repin` (see the update below); OPEN for the six operator lanes not flown and for the four multi-split findings filed as INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS]
+## ~~INFLIGHT-COMMIT-SPLIT-STALE-RECORDING-COUNTS: #1931 adds a chain segment to every in-flight-committed flight that leaves an atmosphere, and lane count pins written before it go red~~ [FILED 2026-10-01, branch `arm-last19`. LANE WINDOWS, not a Parsek defect. CLOSED 2026-10-13: the nightly set re-read 2026-10-01, the multi-split findings closed by the 2026-10-01 ruling, the operator lanes B16 / B18-B21 / B33 re-pinned and re-flown on branch `repin-duna-rocket`]
 
 #1931 (IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-PASS, merged 2026-09-30) made the seam / mission
 `CommitTree` run `RecordingStore.RunOptimizationPass`, as the merge dialog and the scene-exit
@@ -4143,11 +4154,18 @@ count. Flown once each on current main:
   and read 6 on `recordings.count 6 > max 5` alone with exactly one ascent-exit split
   (`committed=5->6`): re-pinned 5 -> 6 on branch `mission-warp-fix`, re-flown green on the pin
   (`2026-10-01_2235`, PASS attempt 1, count 6).
-- [ ] Re-pin B16, B18, B19, B20 and B21: fly each once on a post-#1931 build, re-pin
-  `recordings.count` exact by the measured delta (cite each `Split candidate ...
-  Atmospheric->ExoBallistic` line), re-fly to confirm, and file any non-count failure as a
-  finding. Five long operator lanes, roughly 3-5 h of machine time with the confirm flights.
-  Queued 2026-10-03 with no session assigned (operator ruling).
+- [x] Re-pin B16, B18, B19, B20 and B21 (2026-10-12/13, branch `repin-duna-rocket`, main
+  `7cbe594c0`). Each operator-tier reading failed on `recordings.count` alone with exactly one
+  `Split candidate (PersistedPhaseChange) ... prev=Atmospheric next=ExoBallistic`: B16 8 -> 9
+  (`2026-10-12_1238`), B18 3 -> 4 (`_1143`), B19 5 -> 6 (`_1149`), B20 5 -> 6 (`_1259`), B21
+  5 -> 6 (`_1431`). Re-flown green on the pins: B18 `2026-10-12_2354`, B16 `2026-10-13_0010`,
+  B19 `_0032_a2` (attempt 1 a boot stall, killed by the watchdog), B20 `_0113`, B21 `_0221`.
+  B16's first two readings were the flameout race (HARNESS-KRPC-FLAMEOUT-BLIND-BAND).
+  The orbit-start drop above was wrong for an airless-moon arrival: B33 (last read 2026-09-25)
+  committed `1->3` on `2026-10-12_1719` (an `ExoBallistic -> Approach` dip before the capture
+  burn) and `1->1` on the confirm `2026-10-13_0001` (no dip), so its window is 1..3. RF-3's
+  armed `tombstones { min = 1 }` was a stale reading of five re-paid record milestones, which
+  #2024 / #2028 removed: re-pinned `{ max = 0 }`, green `2026-10-12_2359`.
 
 ## KSP-SETTINGS-AUDIT-2026-09-26: stock difficulty, game-mode and settings.cfg values Parsek mishandles or has never run under [FILED 2026-09-26 from the stock-settings audit, branch `ksp-settings-audit`. OPEN; owner rulings taken 2026-09-26 (Q1-Q4); Q5 and Q6 are supervisor defaults the owner did not override; 2026-10-03 (branch `settings-risks`): S4 struck and live-proven by ZF-1, reward multipliers with money changing hands live-proven by HC-2, the quickload-off Re-Fly closed by evidence under S7; still open: S10 (UI_SCALE)]
 

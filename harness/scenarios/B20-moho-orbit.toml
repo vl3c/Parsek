@@ -492,7 +492,12 @@ allowedAnomalies = []
 # this profile, which is what makes 5 a pin rather than one run's snapshot.
 # The pre-flight window was the deliberately wide {3,12} B19 also flew on; it did its
 # job and is now closed.
-count = { min = 5, max = 5 }
+# RE-PINNED 5 -> 6 2026-10-12 (the post-#1931 in-flight optimizer split re-pin queue):
+# run 2026-10-12_1259 read `recordings.count 6 > max 5` alone, MISSION-OK, with exactly one
+# split in its KSP.log: `Split candidate (PersistedPhaseChange) ... sec=3 splitUT=225.60
+# prev=Atmospheric next=ExoBallistic`, then `CommitTreeFlight: optimization pass ran
+# committed=5->6`. The same +1 B7 / B11 / B12 / B15 / B16 / B18 / B19 took.
+count = { min = 6, max = 6 }
 
 [expectations.logContracts]
 # Every token sourced from its ACTUAL emitting call site; the interplanetary
