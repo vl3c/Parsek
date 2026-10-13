@@ -381,6 +381,28 @@ soiLeadSeconds             = 100000
 # bounded wall cost for an unbounded diagnostic one. Pay the wall time.
 approachWindowSeconds      = 200000
 approachMaxWarpFactor      = 4
+# (3) WALL TIME, PENDING A RE-FLY (neither key has flown on this lane yet). Two
+# measured costs, both on the 2026-10-12_1259 and 2026-10-13_1713 runs:
+#   - THE LATCHED APPROACH: the clamp latched at UT ~2,780,700 on the one frame
+#     that read `tts=100001 nextBody=Moho`; every later approach frame read
+#     `tts=nan nextBody=?`, so the latched clamp held x100 for the whole
+#     ~100,000 game s to the boundary (SOI entry UT ~2,880,722), ~1,000 wall s.
+#     approachLatchNativeWarp remembers ut + tts from that frame (2,880,701,
+#     slightly early; on rails with no burn the encounter UT does not move) and
+#     native-warps the blind latched frames to it minus soiNativeLeadSeconds;
+#     the x100 cap then flies only the last soiNativeLeadSeconds.
+#   - THE KERBIN ESCAPE: with the native warp stopping soiLeadSeconds short of
+#     the exit boundary, ~33,000 game s of the escape rode the rails at x100.
+#     soiNativeLeadSeconds lets the native warp run to the exit SOI minus 600.
+# soiNativeLeadSeconds 600: CONSTRAINT (mlib rejects a smaller value at load)
+# >= 120 + 4 x RAILS_WARP_RATES[approachMaxWarpFactor] = 120 + 4 x 100 = 520,
+# the 120 s retarget drift plus one pessimistic 4 s frame at the x100 cap; 600
+# adds under one more such frame. It shortens only the NATIVE warp's stop (a
+# native warp lands on its target UT); soiLeadSeconds above keeps the rolling
+# rails sizing, the flyby EXIT warp and the correction-trigger native warp
+# (triggerNativeLeadSeconds deliberately NOT armed here).
+soiNativeLeadSeconds       = 600
+approachLatchNativeWarp    = true
 flipPhysicsWarpFactor      = 1
 # Moho has NO atmosphere; its peaks reach ~6.8 km. 50 km is ~7x the highest
 # terrain and asserts the whole in-SOI stay (arrival AND park) stayed in clean

@@ -1286,7 +1286,7 @@ SITE_HINTS: Dict[Tuple[str, str], Tuple[str, Tuple[str, ...]]] = {
     ("low-warp", "COAST-TO-TARGET"): (
         "coast rails factor below the altitude-legal maximum",
         ("coastWarpFactor", "approachMaxWarpFactor", "soiNativeLeadSeconds",
-         "triggerNativeLeadSeconds")),
+         "triggerNativeLeadSeconds", "approachLatchNativeWarp")),
     ("low-warp", "TARGET-FLYBY"): (
         "flyby rails factor below the altitude-legal maximum",
         ("flybyWarpFactor", "flybyMaxWarpFactor")),
