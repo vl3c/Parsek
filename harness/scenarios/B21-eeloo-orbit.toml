@@ -1438,6 +1438,15 @@ soiLeadSeconds             = 100000
 # game s at x1,000 is ~200 wall s, which the re-sized mission budget absorbs.
 approachWindowSeconds      = 200000
 approachMaxWarpFactor      = 5
+
+# COAST NATIVE LEAD (opted in 2026-10-13 with B20, pending a re-fly): soiLeadSeconds 100,000
+# kept the Kerbin escape and the target approach on the capped rails ladder for ~100,000 game
+# s each. soiNativeLeadSeconds lets the native warp run to the SOI boundary minus 4,200 s
+# (floor 120 + 4 x RAILS_WARP_RATES[5] = 4,120), and approachLatchNativeWarp holds a native
+# warp to the remembered entry UT across the blind (tts nan) latched approach frames; the
+# x1000 cap still flies the last lead. The re-fly must show the same park as plain main.
+soiNativeLeadSeconds       = 4200
+approachLatchNativeWarp    = true
 flipPhysicsWarpFactor      = 1
 # Eeloo has NO atmosphere; its peaks reach ~3.9 km. 50 km is ~12.8x the highest
 # terrain -- a WIDER ratio than Dres's ~9x from the same floor, so the value is kept
