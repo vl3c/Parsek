@@ -185,9 +185,9 @@ id = "B16-eve-orbit"
 # for a lane whose first flight has not happened: a SYSTEMATIC failure (which
 # is what the Eve lane's first six B15 flights all were) reds both attempts
 # identically and reds the whole sweep nightly until someone sits down and
-# flies it. `operator` is exactly the "not schedulable yet" knob -- it is in NO
-# cadence set (hlib.CADENCE_TIERS), so B16 runs only on an explicit
-# `--tier operator` / `--id B16-eve-orbit`, which is how its first flight
+# flies it. An on-request tier (now `longhaul`, see the note below) is exactly the
+# "not schedulable yet" knob -- it is in NO cadence set (hlib.CADENCE_TIERS), so B16
+# runs only on an explicit `--tier longhaul` / `--id B16-eve-orbit`, which is how its first flight
 # should be flown anyway (the PROVISIONAL pins above need a human reading the
 # result).
 #
