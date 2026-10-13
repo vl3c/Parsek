@@ -1533,6 +1533,12 @@ parkSituations             = ["ORBITING"]
 # parked-in-foreign-SOI coverage the harvested fixture will carry, so it is
 # deliberately not warped.
 parkDwellSeconds           = 180
+
+# CIRCULARIZE NODE WAIT (owner ruling 2026-10-14: B21 only, after a confirm flight). Main's
+# Eeloo park spread (10,621,342 / 9,699,388 m, 2026-10-12_1431 / 2026-10-13_1533) covered the
+# first held run (10,482,265 m, 2026-10-13_0221); B19's held run moved ~200 km against a 29 m
+# main spread, so the key stays off there and on B20.
+circularizeNodeWaitWarp    = true
 parkDebounceFrames         = 3
 parkTimeoutSeconds         = 600
 commitTimeoutSeconds       = 300
