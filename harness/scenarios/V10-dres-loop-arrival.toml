@@ -254,9 +254,15 @@ steps = [
   { cmd = "TimeJump", args = { ut = "31275842" }, expect = "OK", budget = 300 },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
+  # Since PR #2017's 25 ms seam polls the two probes after each jump last ~50 ms, and run
+  # 2026-10-12_2131 printed no line-blink line at all: the map probe's Tier-B snapshot is
+  # rate-limited (0.5 s), so the off state before the window edge may never be sampled.
+  # A 1 s 1x hold after each of the two bracketing jumps restores a sampled frame there.
+  { cmd = "WarpToUT", args = { ut = "31275843", maxRate = "1" }, expect = "OK", budget = 120 },
   { cmd = "TimeJump", args = { ut = "31276442" }, expect = "OK", budget = 300 },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "WarpToUT", args = { ut = "31276443", maxRate = "1" }, expect = "OK", budget = 120 },
   { cmd = "TimeJump", args = { ut = "31277342" }, expect = "OK", budget = 300 },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "RecordingState",                                                  expect = "OK" },
