@@ -142,10 +142,18 @@ steps = [
   { cmd = "StartLoopPlayback", args = { tree = "${c.rec0tree}" },                      expect = "OK", budget = 300 },
   { cmd = "TimeJump",       args = { deltaSeconds = "16" },                            expect = "OK", budget = 300 },
   { cmd = "EnterWatchMode",                                                            expect = "OK" },
+  # WATCH WINDOWS ARE HELD BY GAME TIME. Since PR #2017's 25 ms seam polls three
+  # RecordingState steps last about 0.1 s, so run 2026-10-12_2003 rendered only 9 attitude
+  # lines sweeping 6.4 deg (floors 25 / 24 deg) on the checkpoint-orbit-spin ref. That run
+  # reached UT 22418.36 after the +16 s jump and ~22618.6 after the +200 s jump, so a 1x
+  # WarpToUT to 22422 / 22623 holds the first window about 3.5 s; the second starts from the
+  # first warp's stop + 200 (~22622.1), so it holds ~0.9 s (the re-fly still swept 167 deg).
+  { cmd = "WarpToUT",       args = { ut = "22422", maxRate = "1" },                    expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                            expect = "OK" },
   { cmd = "RecordingState",                                                            expect = "OK" },
   { cmd = "RecordingState",                                                            expect = "OK" },
   { cmd = "TimeJump",       args = { deltaSeconds = "200" },                           expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",       args = { ut = "22623", maxRate = "1" },                    expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                            expect = "OK" },
   { cmd = "RecordingState",                                                            expect = "OK" },
   { cmd = "RecordingState",                                                            expect = "OK" },
@@ -211,7 +219,8 @@ attitude = { maxRotDeg = 0.05, minSweepDeg = 24.0, resolvedLines = { min = 25 },
 
 [runtime]
 # 300 LoadGame + 180 StartRecording + 300 WarpToUT (650 s of rails warp at up to 50x)
-# + 120 CommitTree + 300 StartLoopPlayback + two 300 TimeJumps + the fast verbs + margin.
+# + 120 CommitTree + 300 StartLoopPlayback + two 300 TimeJumps + two 120 1x WarpToUT holds
+# + the fast verbs + margin (step budgets sum to 2040).
 budgetSeconds = 2100
 
 [retry]

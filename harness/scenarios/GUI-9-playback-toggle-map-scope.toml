@@ -161,6 +161,12 @@ steps = [
   # empty rather than one caught mid-retire.
   { cmd = "UiAction",          args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction",          args = { op = "describe" }, expect = "OK" },
+  # Since PR #2017's 25 ms seam polls the six steps around this point take about 0.2 s, not
+  # the ~3 s they were sized for (run 2026-10-12_1931 red on exactly this token: two
+  # summaries in the whole run, none inside the hidden view). A 1x WarpToUT to UT 62 holds
+  # the view by GAME time instead: the TimeJump to UT 55 plus this point's ~1 s puts the
+  # view near UT 56, so about 6 s pass here, three limiter intervals.
+  { cmd = "WarpToUT",          args = { ut = "62", maxRate = "1" }, expect = "OK", budget = 120 },
   { cmd = "CaptureScreenshot", args = { label = "scope-map-all-hidden-held" }, expect = "OK" },
   { cmd = "DumpGuiTree",       args = { label = "scope-map-all-hidden-held" }, expect = "OK" },
   { cmd = "UiAction",          args = { op = "describe" }, expect = "OK" },
