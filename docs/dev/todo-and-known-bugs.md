@@ -976,9 +976,9 @@ What a separate pad segment buys or costs each consumer (code read):
   launch row is the chain head and reads the chain's duration, `TimelineBuilder.GetChainDuration`).
 - Recordings table: one extra "surface" row of about 5 s inside the launch's chain block.
 - Loops: the only real benefit, a loopable ascent that starts at liftoff instead of at ignition.
-  Owner ruling 2026-10-05 (branch `player-loop-removal`): per-recording player loops are being
-  removed, Parsek loops only behind routes, and a route loop replays the whole flight, pad run
-  included, so the benefit is on its way out. Route origin proof and the route-run manifest read
+  Owner ruling 2026-10-05 planned to remove per-recording player loops (Parsek looping only
+  behind routes, where a route loop replays the whole flight, pad run included); that removal is
+  on hold since 2026-10-13 (PLAYER-LOOPING-REMOVAL), so the benefit stands for now. Route origin proof and the route-run manifest read
   the chain head's start fields, which the first segment keeps either way.
 - KSC pad retirement (`LaunchSiteExclusionZones` / `SpawnCollisionDetector`): none; it judges the
   flight's END, which is on the last segment.
@@ -3435,7 +3435,16 @@ Open for a ruling, each reproduced on every recorded retry with no pass lost: `u
 out because each reads live scene or career state a load race could change; adding one is a
 one-line edit to the set plus its justification.
 
-## PLAYER-LOOPING-REMOVAL: Parsek stops letting the player loop ghosts at will [OWNER-APPROVED 2026-10-05, plan `docs/dev/plans/remove-player-looping.md`, branch `ccr-8a19466a-qh7ey4`. PLANNED, not started]
+## PLAYER-LOOPING-REMOVAL: Parsek stops letting the player loop ghosts at will [OWNER-APPROVED 2026-10-05, plan `docs/dev/plans/remove-player-looping.md`, branch `ccr-8a19466a-qh7ey4`. ON HOLD 2026-10-13: the owner decided not to remove looping yet]
+
+**On hold (owner, 2026-10-13):** looping stays for now. Only plan PR 1 landed (the dead
+in-Parsek Gloops recorder, PR #2022); the partial UI-removal branch `player-loop-removal` was
+deleted unmerged. If this is picked up again, re-derive the plan against the code then. Two
+findings from the 2026-10-05 inventory worth keeping: `RecordingOptimizer.CanAutoMerge` and
+`GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT` read a recording's stale
+`LoopIntervalSeconds` / `LoopStartUT` / `LoopEndUT` even when its loop is off, and
+`UiSurface.MissionsLoopControls` also gates Clone, Delete, the include checkboxes and the
+vessel-detail expansion, not just the loop controls.
 
 Owner rulings 2026-10-05: per-recording player loops (Recordings tab loop column, period,
 time unit, auto loop range) are removed entirely and existing saves drop them; in Parsek a
@@ -3446,7 +3455,7 @@ without a schema generation bump (plan section 5, ratified 2026-10-05); the harn
 keeps store-mission looping reachable from automation only (plan section 6). PR sequence:
 plan section 7.
 
-## GLOOPS-EXTRACTION-2026-10-05: Gloops leaves Parsek; model agreed, extraction not scheduled [FILED 2026-10-05 from an owner interview and a measured read of the code, branch `ccr-8a19466a-qh7ey4`. OPEN; extraction not scheduled. In-Parsek recorder DELETED as dead code on branch `gloops-dead-code-removal`]
+## GLOOPS-EXTRACTION-2026-10-05: Gloops leaves Parsek; model agreed, extraction not scheduled [FILED 2026-10-05 from an owner interview and a measured read of the code, branch `ccr-8a19466a-qh7ey4`. OPEN; extraction not scheduled. In-Parsek recorder DELETED as dead code, PR #2022]
 
 **Owner rulings 2026-10-05** (full text: `docs/dev/gloops-recorder-design.md` section 1):
 the in-Parsek Gloops feature is deleted from Parsek; Gloops becomes a standalone mod in
@@ -3463,10 +3472,9 @@ was stale: the engine reads `RecordingStore` trees directly, `GhostPlaybackLogic
 the tree / chain / mission layer, and the recorders are entangled with tree, rewind and
 logistics code (design section 10).
 
-**Next work** is `docs/dev/plans/remove-player-looping.md`: PR 1 deletes the in-Parsek
-Gloops recorder (DONE on branch `gloops-dead-code-removal`, looping untouched); PRs 2-4 remove
-player-authored looping (per-recording loops and the Missions tab loop controls; in Parsek a
-mission loops only behind a logistics route).
+**Done:** the in-Parsek Gloops recorder is deleted (PR #2022, plan
+`docs/dev/plans/remove-player-looping.md` PR 1). Removing player-authored looping (plan PRs
+2-4) is on hold (PLAYER-LOOPING-REMOVAL, owner 2026-10-13).
 
 **Defects in the in-Parsek Gloops recorder, found 2026-10-05.** All are resolved by the
 removal; none is to be fixed in place. Each is a requirement the standalone take recorder
