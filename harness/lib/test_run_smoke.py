@@ -7460,6 +7460,94 @@ class PipelinedEdgeSmokeTests(unittest.TestCase):
         self.assertEqual(["PASS"], [r["verdict"] for r in results["PE-B"]])
         self.assertEqual(2, log.count("[Cost] scenario cost"))
 
+    # ---- a Ctrl-C that lands inside the worker join ----
+
+    def _interrupt_first_join(self, ids, **kwargs):
+        orig_join = run._BackgroundVerifier.join
+        orig_finalize = run._pipeline_finalize
+        state = {"raised": False, "alive_at_raise": None, "finalize_while_alive": []}
+
+        def join(bg, logger):
+            if not state["raised"] and bg._thread.name.startswith("verifier-post-quit"):
+                state["raised"] = True
+                state["alive_at_raise"] = bg.alive()
+                raise KeyboardInterrupt()
+            return orig_join(bg, logger)
+
+        def finalize(scen, umbrella_root, logger):
+            alive = [t.name for t in threading.enumerate()
+                     if t.name.startswith("verifier-post-quit") and t.is_alive()]
+            if alive:
+                state["finalize_while_alive"].append((scen.spec.get("id"), alive))
+            return orig_finalize(scen, umbrella_root, logger)
+        result = self._select(ids, {}, runtime_cls=_SlowVerifyRuntime,
+                              patches=[(run._BackgroundVerifier, "join", join),
+                                       (run, "_pipeline_finalize", finalize)], **kwargs)
+        return result, state
+
+    def _assert_landed_once(self, results, log, sid):
+        (r,) = results[sid]
+        self.assertEqual("PASS", r["verdict"])
+        self.assertIn("attemptsWallSeconds", r)
+        self.assertTrue(self._archived(r["runId"]))
+        self.assertEqual(1, log.count("verdict=PASS scenario=%s attempt=1" % sid))
+        self.assertEqual(1, log.count("scenario cost attempts=1 wallTotal=%ds terminal=PASS"
+                                      % r["attemptsWallSeconds"]))
+
+    def test_an_interrupted_join_still_lands_the_lane_once(self):
+        (code, results, rt, log), state = self._interrupt_first_join(["PE-A", "PE-B"])
+        self.assertTrue(self.interrupted)
+        self.assertTrue(state["alive_at_raise"], "the interrupt must hit a live worker")
+        self.assertEqual([], state["finalize_while_alive"])
+        self.assertEqual(["PE-A#1", "PE-B#1"], rt.launch_order)
+        self._assert_landed_once(results, log, "PE-A")
+        self._assert_landed_once(results, log, "PE-B")  # flown, not yet started
+        self.assertEqual(2, log.count("[Cost] scenario cost"))
+        self.assertIn("waiting up to", log)
+
+    def test_an_interrupted_in_place_join_waits_for_the_live_instance_reader(self):
+        (code, results, rt, log), state = self._interrupt_first_join(
+            ["PE-A", "PE-B"], copy_fails=("PE-A",))
+        self.assertTrue(self.interrupted)
+        self.assertTrue(state["alive_at_raise"])
+        self.assertEqual([], state["finalize_while_alive"])
+        self.assertEqual(["PE-A#1"], rt.launch_order, "nothing staged over the live reader")
+        self._assert_landed_once(results, log, "PE-A")
+        self.assertEqual(1, log.count("[Cost] scenario cost"))
+        self.assertFalse(any(t.name.startswith("verifier-post-quit") and t.is_alive()
+                             for t in threading.enumerate()))
+
+    # ---- a foreign KSP refuses as fast as serial ----
+
+    def test_a_foreign_ksp_refuses_without_the_prior_lane_wait(self):
+        start = time.time()
+        code, results, rt, log = self._select(
+            ["PE-A", "PE-B"], {}, runtime_cls=_ForeignKspRuntime,
+            patches=[(run, "PIPELINED_PRIOR_KSP_EXIT_WAIT_SECONDS", 60.0)])
+        self.assertLess(time.time() - start, 30.0)
+        self.assertEqual(1, code)
+        for sid in ("PE-A", "PE-B"):
+            self.assertEqual([("INVALID", "instance-busy")],
+                             [(r["verdict"], r["subkind"]) for r in results[sid]])
+        self.assertNotIn("waiting up to", log)
+        self.assertEqual([], rt.launch_order)
+
+
+class _SlowVerifyRuntime(_SelectionRuntime):
+    """Post-quit work that takes a second (the log validation), so a lane's worker
+    is still running when the next join is attempted."""
+
+    def run_log_validate(self, log_path, killed, no_recording, timeout):
+        time.sleep(1.0)
+        return super().run_log_validate(log_path, killed, no_recording, timeout)
+
+
+class _ForeignKspRuntime(_SelectionRuntime):
+    """A KSP the harness never launched is running the whole time."""
+
+    def ksp_running(self, instance_dir):
+        return 4242
+
 
 class _DyingRuntime(_SelectionRuntime):
     """A watchdog-killed KSP that the process probe still sees for DEATH seconds
@@ -7573,6 +7661,7 @@ class _InstanceReadWalker:
     NON_READS = {"bool", "os.path.basename"}
     STRING_METHODS = {"rstrip", "lstrip", "strip", "endswith", "startswith"}
     PLACEHOLDERS = {"run_save_name": "<runSave>"}
+    RECORDED_PATH_KEYS = {"reportTxt", "reportJson"}
 
     def __init__(self, sources):
         # sources: {"run": text, "hlib": text}
@@ -7725,22 +7814,50 @@ class _InstanceReadWalker:
                 return
             self.problems.append("%s: root-derived value used as .%s" % (where, parent.attr))
             return
+        # Formatting makes a NEW string the walk cannot follow, so it is allowed
+        # only when that string goes straight into a logger call.
+        fmt = None
         if isinstance(parent, ast.Tuple) and isinstance(parents.get(parent), ast.BinOp) \
-                and isinstance(parents[parent].op, ast.Mod):
-            return  # string formatting
-        if isinstance(parent, ast.BinOp) and isinstance(parent.op, ast.Mod) \
+                and isinstance(parents[parent].op, ast.Mod) and parents[parent].right is parent:
+            fmt = parents[parent]
+        elif isinstance(parent, ast.BinOp) and isinstance(parent.op, ast.Mod) \
                 and parent.right is expr:
+            fmt = parent
+        elif isinstance(parent, ast.FormattedValue):
+            fmt = parents.get(parent)
+        if fmt is not None:
+            call = parents.get(fmt)
+            if isinstance(call, ast.Call) and fmt in call.args \
+                    and (self._dotted(call.func) or "").startswith("logger."):
+                return
+            self.problems.append("%s: root-derived value (%s) formatted into a string that "
+                                 "is not a log line" % (where, "/".join(rel) or "<root>"))
             return
-        if isinstance(parent, (ast.FormattedValue, ast.BoolOp, ast.Compare)):
+        if isinstance(parent, ast.Compare):
             return
-        if isinstance(parent, ast.UnaryOp) and isinstance(parent.op, ast.Not):
+        if isinstance(parent, (ast.BoolOp, ast.UnaryOp)) and _in_test_position(expr, parents):
             return
         if isinstance(parent, (ast.If, ast.IfExp, ast.While)) and parent.test is expr:
             return
         if isinstance(parent, ast.Dict) and expr in parent.values:
-            return  # recorded as a string in a result row
+            key = parent.keys[parent.values.index(expr)]
+            if isinstance(key, ast.Constant) and key.value in self.RECORDED_PATH_KEYS:
+                return  # the analyzer row's report paths (remapped, never opened)
         self.problems.append("%s: unrecognized use of a root-derived value (%s) in %s"
                              % (where, "/".join(rel) or "<root>", type(parent).__name__))
+
+
+def _in_test_position(expr, parents):
+    """True when ``expr`` only feeds a truth test: through and / or / not up to an
+    if / while / conditional-expression test (an ``x or y`` VALUE is not a test)."""
+    node = expr
+    parent = parents.get(node)
+    while isinstance(parent, ast.BoolOp) or (isinstance(parent, ast.UnaryOp)
+                                             and isinstance(parent.op, ast.Not)):
+        if isinstance(parent, ast.UnaryOp):
+            return True  # `not x` is a bool whatever x is
+        node, parent = parent, parents.get(parent)
+    return isinstance(parent, (ast.If, ast.While, ast.IfExp)) and parent.test is node
 
 
 def _run_walker(run_text=None):
@@ -7848,9 +7965,18 @@ def _collect_logs_problems(text):
                     continue
                 problems.append("%s: .%s on %s" % (where, parent.attr, "/".join(rel)))
                 continue
-            if isinstance(parent, (ast.FormattedValue, ast.Compare, ast.BoolOp)):
+            if isinstance(parent, ast.FormattedValue):
+                joined = parents.get(parent)
+                call = parents.get(joined)
+                if isinstance(call, ast.Call) and isinstance(call.func, ast.Name) \
+                        and call.func.id == "print":
+                    continue  # console text only
+                problems.append("%s: %s formatted into a string that is not printed"
+                                % (where, "/".join(rel) or "<root>"))
                 continue
-            if isinstance(parent, ast.UnaryOp) and isinstance(parent.op, ast.Not):
+            if isinstance(parent, ast.Compare):
+                continue
+            if isinstance(parent, (ast.BoolOp, ast.UnaryOp)) and _in_test_position(expr, parents):
                 continue
             problems.append("%s: unrecognized use of %s in %s"
                             % (where, "/".join(rel) or "<root>", type(parent).__name__))
@@ -7905,7 +8031,13 @@ class PipelinedVerifyCopySetTests(unittest.TestCase):
                 ("    os.path.join(instance_dir, some_name)\n", "unrecognized path component"),
                 ("    pathlib.Path(instance_dir)\n", "passed to pathlib.Path"),
                 ("    other_save = os.path.join(instance_dir, \"saves\", \"other\")\n"
-                 "    open(other_save)\n", "saves/other")):
+                 "    open(other_save)\n", "saves/other"),
+                ('    _p = {"k": os.path.join(instance_dir, "Logs", "x.log")}\n',
+                 "Logs/x.log"),
+                ('    open(f"{instance_dir}/Logs/z.log")\n', "formatted into a string"),
+                ('    open("%s/Logs/z.log" % instance_dir)\n', "formatted into a string"),
+                ("    _o = save_dir or instance_dir\n", "BoolOp"),
+                ('    open(instance_dir + "/Logs/w.log")\n', "BinOp")):
             with self.subTest(inject=inject.strip()):
                 w = self._mutant(inject)
                 self.assertTrue(any(needle in p for p in w.problems), w.problems)
@@ -7936,7 +8068,9 @@ class PipelinedVerifyCopySetTests(unittest.TestCase):
                  "Logs/kRPC/x.log"),
                 ('    copy_file(Path(ksp_dir) / "saves" / "other" / "x.sfs", out_dir)\n',
                  "saves/other"),
-                ("    os.listdir(ksp_dir)\n", "passed to")):
+                ("    os.listdir(ksp_dir)\n", "passed to"),
+                ('    open(f"{ksp_dir}/Logs/z.log")\n', "not printed"),
+                ("    other = save_dir or ksp_dir\n", "BoolOp")):
             with self.subTest(inject=inject.strip()):
                 problems, _ = _collect_logs_problems(text.replace(anchor, anchor + inject))
                 self.assertTrue(any(needle in p for p in problems), problems)

@@ -406,9 +406,10 @@ in `docs/dev/todo-and-known-bugs.md`), and what `run.py` does about them:
   retries), each flight is bracketed by `[Lane] lane flight begin/end` lines, and a
   scenario's post-quit lines (verify, Result, Retry, Cost) are written as one block
   at its terminal. `[Pipeline] post-quit copy ... wall=` is the copy's cost. A
-  killed predecessor's KSP gets up to 180 s to exit before the next preflight
+  KSP the harness killed gets up to 180 s to exit before the next preflight
   refuses instance-busy; a worker that raises gives its lane an
-  INVALID(`post-quit-error`) row; Ctrl-C closes every open scenario first. Opt
+  INVALID(`post-quit-error`) row; Ctrl-C waits for the lane in post-quit work
+  and closes every open scenario before the lock is released. Opt
   out with `PARSEK_HARNESS_SERIAL_VERIFY=1` or `run.py --serial-verify` (the serial
   loop, unchanged). Contract: `docs/dev/design-autotest-harness-core.md`
   "Pipelined post-quit verification".

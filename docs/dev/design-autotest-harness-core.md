@@ -1489,8 +1489,11 @@ function. A root-derived value may only be joined further (string literals, modu
 string constants, `run_save_name`, or any expression inside a copied directory), read
 by a known reader, in which case the FULL relative path must be a copied file or lie
 inside a copied directory, handed whole to collect-logs, or used in a way that reads
-nothing (truth test, comparison, formatting, a string method, a dict value). Anything
-else, including a `*parts` join or a `pathlib` wrap, fails the suite. The same walk
+nothing: a truth test (an `x or y` VALUE is not one), a comparison, a string method,
+formatting straight into a logger call, or the analyzer row's `reportTxt` /
+`reportJson` dict values. Anything else, including a `*parts` join, a `pathlib` wrap,
+an f-string or `%` that is not a log line, a concatenation or another dict value, fails
+the suite. The same walk
 covers `scripts/collect-logs.py`'s `ksp_dir / ...` and `Path(ksp_dir) / ...` chains
 (its `detect_save` family is exempt: it runs only without `--save`, which the harness
 always passes, and the test pins that). Mutation cells inject a deeper uncopied read,
@@ -1506,19 +1509,28 @@ on the lane that just flew, so lane N+2 never launches before lane N has landed.
 **What the serial chain used to cover.** A watchdog kill waits at most
 `KILL_EXIT_WAIT_SECONDS` (30 s) for the KSP tree; serial then spent a minute or more
 in the verifier chain before the next zombie preflight. Pipelined, that preflight
-comes seconds later, so when it sees a live KSP it first waits (bounded,
+comes seconds later, so after a lane whose KSP the harness killed (the deferred
+attempt's `ksp_killed`), a live KSP at the next preflight is first waited for (bounded,
 `PIPELINED_PRIOR_KSP_EXIT_WAIT_SECONDS` = 180 s, logged `[Preflight] ... still
 running; waiting` / `prior KSP exited after`) before refusing INVALID(instance-busy):
-an innocent lane is never refused for its predecessor's slow teardown.
+an innocent lane is never refused for its predecessor's slow teardown. Any other live
+KSP is foreign and refuses at once, as on the serial path.
 
 **Failures inside the pipeline.** A worker that raises keeps its buffered lines and
 gives its lane an INVALID(`post-quit-error`) row whose note names the exception (not
 retryable, flake-exempt: a harness defect, not the scenario), and the selection goes
 on. An exception or Ctrl-C in the main loop (`_pipeline_drain`) lands the lane in
-post-quit work and any lane that has flown but not started, then closes every
-scenario still open (an owed retry is NOT flown, the attempt so far is the terminal)
-with its held lines, flakedThenPassed rewrite, `attemptsWallSeconds`, Cost line and
-archive entry, before re-raising.
+post-quit work and then any lane that has flown but not started (one at a time, as in
+the loop), then closes every scenario still open (an owed retry is NOT flown, the
+attempt so far is the terminal) with its held lines, flakedThenPassed rewrite,
+`attemptsWallSeconds`, Cost line and archive entry, before re-raising and so before
+the caller releases the lock. The loop clears its `worker` only after that lane's join
+returned and `_PipelineLane` remembers how far the join got (`joined` / `recorded`),
+so a Ctrl-C inside the join is resumed by the drain without dropping or
+double-recording the attempt. The drain first waits for the lane's thread (bounded,
+`PIPELINE_DRAIN_JOIN_SECONDS`, logged; a further Ctrl-C is logged and ignored), so
+nothing is finalized, and the lock is not released, while a worker (an in-place one
+reads the LIVE instance) is still running.
 
 **Retry ordering change.** A lane's verdict is known only after the next lane has
 flown. Each turn the loop joins the worker, folds the result in through the same
