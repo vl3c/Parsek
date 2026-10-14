@@ -11,8 +11,9 @@ FAILURE. Here the death is the SUCCESS terminal, and it has to be: an unmet
 mission drives `hlib.plan_unmet_mission_tail`, which runs the CLEANUP steps only,
 so CommitTree would be SKIPPED and there would be no committed recording and no
 ledger row left to check. The rationale in full is at the CL1_* constants in
-mlib; the SPEC (`harness/scenarios/CL-1-pod-impact.toml`) states it too, because
-a reader of the spec must not have to find it here.
+mlib; the SPEC that flies this mission (`harness/scenarios/CL-2-pod-impact-ledger.toml`,
+which absorbed CL-1-pod-impact on 2026-10-14) states it too, because a reader of the
+spec must not have to find it here.
 
 WHAT MAKES THE TERMINAL HONEST. The machine gates on an OBSERVED kRPC read of the
 KERBAL'S OWN roster status (`SpaceCenter.GetKerbal(name).RosterStatus`), never on

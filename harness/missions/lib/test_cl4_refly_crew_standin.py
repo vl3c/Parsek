@@ -29,7 +29,31 @@ if _LIB not in sys.path:
 import hlib  # noqa: E402
 
 SPEC_PATH = os.path.join(_HARNESS, "scenarios", "CL-4-refly-crew-standin.toml")
+# CL-3-refly-crew-tombstone was absorbed into this spec on 2026-10-14 (owner ruling B,
+# shared-flight merges) and its file deleted. Its shape is pinned as literals below
+# (as last committed, origin/main 41abe0984) so the "CL-3's shape plus one SetSetting"
+# claim stays checkable.
 CL3_PATH = os.path.join(_HARNESS, "scenarios", "CL-3-refly-crew-tombstone.toml")
+CL3_FIXTURE = {"saveTemplate": "fixtures/saves/career-pad-craft",
+               "injectedRecordings": "rewind-crew-loss", "craft": []}
+CL3_MISSION = "cl3_refly_crew_tombstone"
+CL3_MISSION_PARAMS = {
+    "rewindPointId": "rp_cl_root", "rewindSlot": 1, "stopFrames": 40, "idleFrames": 40,
+    "rewindFrames": 40, "verifyFrames": 40, "minUtRegressionSeconds": 1.0,
+    "relaunchThrottle": 1.0, "relaunchMinAltitudeGainMeters": 100.0,
+    "relaunchFrames": 240, "loopPointsFrames": 40,
+}
+CL3_STEPS = ["LoadGame", "SetSetting", "TimeJump", "mission", "AnswerMergeDialog",
+             "RecordingState", "FlushAndQuit"]
+CL3_CLAIMS = {
+    "D1": ("auto-record-launch",),
+    "D9": ("rewind-to-separation", "refly-gate", "reconciliation-bundle",
+           "read-back-guard", "supersede-relation", "merge-journal", "tombstones"),
+    "D12": ("dead-crew-strip",),
+    "D14": ("kerbin", "career", "scene-flight"),
+}
+CL3_STRUCTURE = {"gating": True, "trees": {"min": 1, "max": 1},
+                 "committedTrees": {"min": 1, "max": 1}, "recordings": {"min": 4}}
 REGISTRY_PATH = os.path.join(_HARNESS, "coverage", "registry.toml")
 
 STAND_IN_TOKEN_PREFIX = "Stand-in generated: "
@@ -47,7 +71,6 @@ class Cl4ClaimPinTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.spec = _load(SPEC_PATH)
-        cls.cl3 = _load(CL3_PATH)
         cls.registry = _load(REGISTRY_PATH)
         cls.claimed = cls.spec.get("dimensionsCovered", {})
         contracts = cls.spec["expectations"]["logContracts"]
@@ -61,13 +84,25 @@ class Cl4ClaimPinTests(unittest.TestCase):
         verdict = hlib.validate_spec(self.spec, self.registry)
         self.assertTrue(verdict.ok, list(verdict.errors))
 
-    def test_the_d12_claims_are_exactly_stand_ins_and_the_rep_penalty(self):
-        # `tombstones` and `dead-crew-strip` are CL-3's; re-claiming them here would
-        # double-count the same tokens on the same shape. `tombstone-rep-penalty`
-        # joined on 2026-09-10 when the product change shipped.
-        self.assertEqual(["stand-ins", "tombstone-rep-penalty"],
+    def test_the_d12_claims_are_this_lanes_two_plus_cl3s_strip(self):
+        # `stand-ins` and `tombstone-rep-penalty` (joined 2026-09-10 when the product
+        # change shipped) are this lane's own; `dead-crew-strip` and the D9 re-fly
+        # cells moved here with CL-3's absorption on 2026-10-14 (CL-3 no longer flies,
+        # so nothing double-counts).
+        self.assertEqual(["stand-ins", "tombstone-rep-penalty", "dead-crew-strip"],
                          self.claimed.get("D12", []))
-        self.assertEqual([], self.claimed.get("D9", []))
+
+    def test_cl3_is_absorbed_and_its_claims_survive(self):
+        self.assertFalse(os.path.exists(CL3_PATH),
+                         "CL-3 was absorbed into CL-4 on 2026-10-14; re-adding it is "
+                         "a new owner decision")
+        for dim, values in CL3_CLAIMS.items():
+            for value in values:
+                self.assertIn(value, self.claimed.get(dim, []), "%s %s" % (dim, value))
+
+    def test_cl3s_structure_block_survives(self):
+        self.assertEqual(CL3_STRUCTURE,
+                         self.spec["expectations"]["recordings"]["structure"])
 
     def test_the_rep_penalty_claim_is_gated_by_its_own_required_token(self):
         # CLAIM-IS-NOT-GATE, second cell: the claim is legal only while the spec
@@ -113,11 +148,10 @@ class Cl4ClaimPinTests(unittest.TestCase):
     def test_the_shape_is_cl3s_step_for_step(self):
         # Same fixture, preset, mission and mission params, plus exactly one added
         # SetSetting (verboseLogging) and nothing else.
-        self.assertEqual(self.cl3["fixture"], self.spec["fixture"])
-        self.assertEqual(self.cl3["driver"]["mission"], self.spec["driver"]["mission"])
-        self.assertEqual(self.cl3["driver"]["missionParams"],
-                         self.spec["driver"]["missionParams"])
-        cl3_steps = [s.get("cmd", "mission") for s in self.cl3["driver"]["steps"]]
+        self.assertEqual(CL3_FIXTURE, self.spec["fixture"])
+        self.assertEqual(CL3_MISSION, self.spec["driver"]["mission"])
+        self.assertEqual(CL3_MISSION_PARAMS, self.spec["driver"]["missionParams"])
+        cl3_steps = list(CL3_STEPS)
         cl4_steps = [s.get("cmd", "mission") for s in self.spec["driver"]["steps"]]
         cl4_minus_verbose = list(cl4_steps)
         cl4_minus_verbose.remove("SetSetting")

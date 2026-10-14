@@ -30,12 +30,32 @@
 #                physics warp, and at least one of them closed on a trigger rather
 #                than the backstop.
 # The analyzer row (INV1..INV12) runs on the same save as on every lane.
+#
+# B2 ABSORBED (2026-10-14, owner ruling B on the shared-flight audit,
+# docs/dev/research/harness-dwell-and-shared-flight-audit-2026-10-14.md section B2):
+# B2-lko-ascent flew this exact mission, fixture and missionParams with the default
+# samplingDensity (1, the same Medium this lane sets) and committed right after the
+# circularization, so its flight is a prefix of this one and it is retired. Every gate
+# B2 held already runs here verbatim: recordings.count {7,8} (B2's population, re-pin
+# contract below), the required tokens `Recording started`, `ProcessBreakupEvent:
+# debris child created` (the FOREGROUND debris-creation site: the Kerbal X sheds its
+# boosters while it is the active vessel, so the background site never fires on this
+# profile; re-derive against a log before widening it) and the commit-caused
+# `Recording stopped.` token, and the ERROR forbid. B2's [dimensionsCovered] claims
+# move here (D1 auto-record-launch, D3 orbital-checkpoint + parent-anchored-debris,
+# D4 atmospheric + exo-propulsive). Evaluated offline against this lane's
+# `2026-10-12_0741` (PASS): B2's 3 tokens present, forbidden clean, count 8 in {7,8};
+# its KSP.log closes an Atmospheric, an ExoPropulsive and an OrbitalCheckpoint
+# section on the focused vessel. The cost: B2's committed recording no longer ends at
+# the circularization; it carries the physics-warp coast. B2's full per-token
+# rationale is in git history (harness/scenarios/B2-lko-ascent.toml at origin/main
+# 41abe0984). CONFIRMED on the merged spec: run 2026-10-14_1737 PASS.
 schema = 1
 id = "PWR-2-physwarp-ascent-medium"
 tier = "nightly"
 description = "Recorder under PHYSICS warp at the Medium sampling density: B2's MechJeb LKO ascent (its own 2x physics warp mid-ascent) plus a 4x WarpToUT ladder=phys orbital coast, with samplingDensity=1; the saveParse sampling block holds every recorded gap to the Medium min/max/threshold bounds with a one-physics-frame allowance and requires gaps recorded under physics warp."
 instanceProfile = "stock-minimal"
-tags = ["PWR", "PWR-2", "physics-warp", "sampling", "flown", "mechjeb"]
+tags = ["PWR", "PWR-2", "B2", "S0.2", "physics-warp", "sampling", "flown", "mechjeb"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/b2-lko-craft"
@@ -75,7 +95,19 @@ ascentTimeoutSeconds      = 420
 circularizeTimeoutSeconds = 300
 
 [dimensionsCovered]
+# MOVED FROM B2 (2026-10-14 merge, see the header):
+# `auto-record-launch` <- `Recording started` under autoRecordOnLaunch.
+D1  = ["auto-record-launch"]
 D2  = ["density-presets", "physics-warp-medium"]
+# `parent-anchored-debris` <- the `ProcessBreakupEvent: debris child created` token:
+# both creation sites call Recording.ApplyParentAnchorContract unconditionally and its
+# only reachable no-op is an empty parent id, which neither call site can pass, so "a
+# debris child recording was created" implies "parent-anchored" here. The token gates
+# CREATION, not the anchor resolving at playback (the analyzer INV rules own that).
+# `orbital-checkpoint` <- the MechJeb coast to apoapsis closes an OrbitalCheckpoint
+# section on the focused vessel (claimed by B2 off the same flight).
+D3  = ["orbital-checkpoint", "parent-anchored-debris"]
+D4  = ["atmospheric", "exo-propulsive"]
 D14 = ["kerbin", "warp-phys"]
 
 [expectations]
@@ -83,7 +115,15 @@ allowedAnomalies = []
 
 [expectations.recordings]
 # B2's population (main ascent + the in-flight optimizer's ascent-exit split + six
-# booster debris children); density does not move a split.
+# booster debris children); density does not move a split. The pin is B2's (moved
+# with the 2026-10-14 merge): `b2_decide` has exactly one ACTION_ACTIVATE_STAGE, at
+# ignition, and the spent core never autostages off, so 1 root + 6 boosters = 7 is
+# structural and the 8th slot absorbs the split. MEASURED 7 on B2's
+# `2026-07-25_0824_B2-lko-ascent` (before #1931's in-flight optimizer split); 8 since,
+# on B2 `2026-10-11_1234` and on this lane's `2026-10-03_1044` / `2026-10-12_0741`.
+# RE-PIN CONTRACT: if a run
+# legitimately differs, re-pin to the measured value and record which recordings it
+# produced; do NOT widen back toward 1.
 count = { min = 7, max = 8 }
 
 [expectations.recordings.sampling]
