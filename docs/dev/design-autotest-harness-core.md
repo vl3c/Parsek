@@ -1482,7 +1482,7 @@ lane's KSP has exited. Copies, never links: KSP truncates `KSP.log` and rewrites
 root files in place. A copy that fails (Warn `post-quit copy FAILED`) degrades that
 one lane to verifying in place before the next lane stages.
 
-`test_run_smoke.PipelinedVerifyCopySetTests` keeps the set honest with a fail-closed
+`test_run_smoke.PipelinedVerifyCopySetTests` keeps the set honest with an
 AST walk (`_InstanceReadWalker`) over the call graph from `_verify_classify_finish`,
 following every call that passes a root-derived value into another `run.py` / `hlib`
 function. A root-derived value may only be joined further (string literals, module

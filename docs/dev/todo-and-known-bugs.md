@@ -3940,8 +3940,7 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   1,235 s, B4 1,112 s, B15 1,014 s). Further cuts are structural and need operator rulings:
   shorten the dwell lanes, share flights between overlapping lanes, or move long lanes out of
   nightly.
-- [ ] Pipelined post-quit verification (owner ruling 2026-10-14, branch `pipelined-verify`;
-  PENDING A LIVE TIER COMPARISON). After KSP exits, a lane spent ~10.4 s mean (postQuitTail)
+- [x] ~~Pipelined post-quit verification~~ (owner ruling 2026-10-14, branch `pipelined-verify`). After KSP exits, a lane spent ~10.4 s mean (postQuitTail)
   in the verifiers, collect-logs, snapshot, artifacts and result writes before the next lane's
   ~25 s boot began. `run.py` now copies the lane's post-quit inputs (KSP.log, results file,
   render manifest, ModuleManager logs, the produced save, this run's screenshots, Player.log)
@@ -3951,11 +3950,12 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   every result); a retry now flies one lane later. Review follow-up: the next lane's zombie
   preflight waits up to 180 s for a killed predecessor's KSP instead of refusing it busy; a
   raising worker is an INVALID(post-quit-error) row; Ctrl-C / an exception closes every open
-  scenario; the copy-set test is a fail-closed call-graph walk. Opt out:
+  scenario; the copy-set test is an AST walk of the post-quit call graph (13 reviewer mutations, 12 red; a
+  conditional-expression alias of the instance root is the one known miss). Opt out:
   `PARSEK_HARNESS_SERIAL_VERIFY=1` or `--serial-verify`. Contract: `design-autotest-harness-core.md` "Pipelined post-quit
-  verification". To close: fly one nightly pipelined and compare its tier wall and per-lane
-  kspBoot (CPU contention with the verifiers) against the 2026-10-11/12 nightly above; expected
-  ~30 min saved per nightly less the `[Pipeline] post-quit copy ... wall=` cost.
+  verification". MEASURED 2026-10-14, the daily tier (27 lanes) flown back to back from this
+  branch: serial (`--serial-verify`) 1,425 s, pipelined 1,242 s, 183 s (13%, ~6.8 s per lane)
+  saved, all 27 lanes PASS both ways. At that rate a ~200-lane nightly saves ~20 min.
 
 ## MISSIONS-TAB-MODEL1: the Missions tab redesign, first slice ("Model 1") [OWNER-APPROVED 2026-09-29, branch `missions-model1`. IN PROGRESS]
 
