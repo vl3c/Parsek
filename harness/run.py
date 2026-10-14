@@ -35,6 +35,7 @@ import sys
 import threading
 import time
 import tomllib
+from collections import deque
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
@@ -209,6 +210,11 @@ BOOT_WATCH_POLL_SECONDS = 0.5
 # zombie preflight refuses a still-alive KSP as a terminal INVALID(instance-busy),
 # which would lose the retry a boot-hang is owed.
 KILL_EXIT_WAIT_SECONDS = 30.0
+# Pipelined verification only: how long the next lane's zombie preflight waits for a
+# still-running KSP (the previous lane's, typically a watchdog kill still tearing
+# down) before refusing instance-busy. The serial path's verifier chain used to
+# cover this window.
+PIPELINED_PRIOR_KSP_EXIT_WAIT_SECONDS = 180.0
 
 
 # ---------------------------------------------------------------------------
@@ -489,10 +495,30 @@ class Runtime:
         return self._run(args, timeout, cwd=WORKTREE_ROOT)
 
     def run_collect_logs(self, label: str, save_name: str, instance_dir: str,
-                         timeout: float) -> ToolResult:
+                         timeout: float, player_log: Optional[str] = None) -> ToolResult:
         args = [sys.executable, os.path.join(SCRIPTS_DIR, "collect-logs.py"),
                 label, "--save", save_name, "--ksp-dir", instance_dir]
+        # Pipelined verification hands collect-logs a private copy of Player.log:
+        # the machine-wide one is rewritten by the next lane's boot.
+        if player_log:
+            args += ["--player-log", player_log]
         return self._run(args, timeout, cwd=WORKTREE_ROOT)
+
+    def player_log_path(self) -> Optional[str]:
+        """Unity's Player.log for KSP (the path collect-logs.py's find_player_log
+        reads). It is machine-wide, outside the instance, and rewritten by every
+        KSP boot, so the pipelined post-quit copy has to take it too."""
+        if sys.platform == "win32":
+            appdata = os.environ.get("APPDATA")
+            if not appdata:
+                return None
+            return os.path.normpath(os.path.join(appdata, "..", "LocalLow", "Squad",
+                                                 "Kerbal Space Program", "Player.log"))
+        home = os.path.expanduser("~")
+        if sys.platform == "darwin":
+            return os.path.join(home, "Library", "Logs", "Unity", "Player.log")
+        return os.path.join(home, ".config", "unity3d", "Squad", "Kerbal Space Program",
+                            "Player.log")
 
     def run_inject(self, instance_dir: str, save_name: str, timeout: float,
                    preset: str = "all-synthetic") -> ToolResult:
@@ -1628,6 +1654,26 @@ def _wait_for_killed_exit(proc, runtime: "Runtime", logger: "HarnessLogger",
                         % (bound, getattr(proc, "pid", "?")))
             return False
         runtime.sleep(POLL_INTERVAL_SECONDS)
+
+
+def _wait_for_prior_ksp_exit(runtime: "Runtime", instance_dir: str, pid,
+                             logger: "HarnessLogger",
+                             bound: Optional[float] = None):
+    """Poll ``runtime.ksp_running`` until no KSP is live or ``bound`` seconds pass.
+    Returns the pid still running (the caller refuses instance-busy) or None."""
+    if bound is None:
+        bound = PIPELINED_PRIOR_KSP_EXIT_WAIT_SECONDS
+    start = runtime.now()
+    logger.info("Preflight", "a KSP (pid=%s) is still running; waiting up to %.0fs for it "
+                             "to exit before the zombie check refuses" % (pid, bound))
+    while pid is not None and runtime.now() - start < bound:
+        runtime.sleep(POLL_INTERVAL_SECONDS)
+        pid = runtime.ksp_running(instance_dir)
+    if pid is None:
+        logger.info("Preflight", "prior KSP exited after %.1fs" % (runtime.now() - start))
+    else:
+        logger.warn("Preflight", "KSP pid=%s still running after %.0fs" % (pid, bound))
+    return pid
 
 
 def _ksp_log_identity(path: str) -> Optional[Tuple[int, int]]:
@@ -3503,6 +3549,7 @@ class _BackgroundVerifier:
 
     def __init__(self, name: str, fn):
         self._buffer = _BufferedLogger()
+        self._replayed = False
         self._result = None
         self._error: Optional[BaseException] = None
         self.wall: Optional[float] = None
@@ -3521,11 +3568,19 @@ class _BackgroundVerifier:
 
     def join(self, logger):
         self._thread.join()
-        if logger is not None:
+        if logger is not None and not self._replayed:
+            # Flagged first: a join resumed after an interrupt must not replay twice.
+            self._replayed = True
             self._buffer.replay(logger)
         if self._error is not None:
             raise self._error
         return self._result
+
+    def alive(self) -> bool:
+        return self._thread.is_alive()
+
+    def wait(self, timeout: float) -> None:
+        self._thread.join(timeout)
 
 
 def _run_analyzer(save_dir: str, runtime: Runtime, logger: HarnessLogger,
@@ -3654,6 +3709,163 @@ def _run_log_validate_retrying(runtime, log_path, no_rec, logger):
 
 
 # ---------------------------------------------------------------------------
+# Pipelined post-quit verification (owner ruling 2026-10-14: "verify lane N while
+# lane N+1 boots; same verifiers, same verdicts; a retry decision may land one
+# lane later"). Once a lane's KSP has exited, everything the post-quit steps read
+# from the shared instance is copied into results/.verify-private/<runId>/ (same
+# relative layout), and the verifier chain, classification, collect-logs, the
+# produced-save snapshot, the artifact copy and the result writes all run on that
+# copy on a worker thread while the main loop stages and launches the next lane.
+#
+# The copy set is every instance path the post-quit code reads (kept honest by
+# test_run_smoke.PipelinedVerifyCopySetTests, which walks that code for them):
+#   KSP.log                    run_verifiers (log text, logValidate), the artifact
+#                              copy, collect-logs
+#   parsek-test-results.txt    _parse_results, collect-logs
+#   parsek-render-manifest.txt read_render_manifest, the artifact copy, collect-logs
+#   Logs/ModuleManager/*.log   collect-logs
+#   saves/<runSave>/           the analyzer (which also WRITES analysis/ there),
+#                              count_recordings, read_save_structure,
+#                              read_sampling_input, the careerSave read, the
+#                              produced-save snapshot, collect-logs
+#   Screenshots/ (this run's)  the artifact copy; selected at copy time
+#   Player.log (machine-wide)  collect-logs; the next boot rewrites it
+# plus the deployed Parsek.dll's sha256, taken in the main loop for the archive.
+# ---------------------------------------------------------------------------
+
+POST_QUIT_COPY_DIRNAME = ".verify-private"
+POST_QUIT_ROOT_FILES: Tuple[str, ...] = (
+    "KSP.log",
+    RESULTS_FILE,
+    RENDER_MANIFEST_FILENAME,
+    os.path.join("Logs", "ModuleManager", "ModuleManager.log"),
+    os.path.join("Logs", "ModuleManager", "MMPatch.log"),
+)
+POST_QUIT_PLAYER_LOG_NAME = "Player.log"
+# The directories _take_post_quit_copy copies whole (relative to the instance;
+# "<runSave>" is the lane's run save leaf). Screenshots/ holds only this run's
+# selected files, which are the only ones the artifact step reads.
+POST_QUIT_COPIED_DIRS: Tuple[Tuple[str, ...], ...] = (("saves", "<runSave>"), ("Screenshots",))
+
+
+class _PostQuitCopy:
+    """A lane's private, immutable copy of its post-quit inputs."""
+
+    def __init__(self, root: str, instance_dir: str,
+                 screenshot_plan: Optional[Tuple[List[str], int, int]],
+                 player_log: str):
+        self.root = root
+        self.instance_dir = instance_dir
+        self.screenshot_plan = screenshot_plan
+        # Always a path inside ``root`` (present or not), so collect-logs never
+        # falls back to the machine-wide Player.log the next lane has rewritten.
+        self.player_log = player_log
+
+
+class _DeferredAttempt:
+    """What run_attempt returns with ``defer_post_quit``: the attempt's run id, its
+    post-quit copy (None for a pre-launch refusal or a copy that failed),
+    ``finish(logger) -> result`` for the worker, ``in_place`` when ``finish``
+    reads the live instance (the copy failed), so the caller must let it land
+    before the next lane stages, and ``fail(logger, exc) -> result``, which writes
+    the INVALID(post-quit-error) row when ``finish`` raised (None: no row), and
+    ``ksp_killed`` when the harness killed this lane's KSP (its tree may outlive
+    the kill wait, so the next lane's preflight waits for it)."""
+
+    def __init__(self, run_id: Optional[str], post_quit_copy: Optional[_PostQuitCopy],
+                 finish, in_place: bool = False, fail=None, ksp_killed: bool = False):
+        self.run_id = run_id
+        self.post_quit_copy = post_quit_copy
+        self.finish = finish
+        self.in_place = in_place
+        self.fail = fail
+        self.ksp_killed = ksp_killed
+
+
+def _take_post_quit_copy(run_id: str, instance_dir: str, run_save_name: Optional[str],
+                         run_start_epoch: float, runtime: Runtime,
+                         logger) -> Optional[_PostQuitCopy]:
+    """Copy the lane's post-quit inputs out of the instance (see the section
+    comment). Plain copies, never links: KSP truncates KSP.log and rewrites the
+    root files in place at the next boot. Returns None (Warn) when any copy fails;
+    the caller then verifies on the live instance before the next lane stages."""
+    t0 = time.monotonic()
+    root = os.path.join(RESULTS_DIR, POST_QUIT_COPY_DIRNAME, run_id)
+    files = 0
+    total = 0
+    try:
+        shutil.rmtree(root, ignore_errors=True)
+        os.makedirs(root)
+        for rel in POST_QUIT_ROOT_FILES:
+            src = os.path.join(instance_dir, rel)
+            if not os.path.isfile(src):
+                continue
+            dst = os.path.join(root, rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(src, dst)
+            files += 1
+            total += os.path.getsize(dst)
+        if run_save_name:
+            save_src = os.path.join(instance_dir, "saves", run_save_name)
+            if os.path.isdir(save_src):
+                save_dst = os.path.join(root, "saves", run_save_name)
+                shutil.copytree(save_src, save_dst)
+                files += _dir_file_count(save_dst)
+                total += _dir_size_bytes(save_dst)
+        plan = _plan_run_screenshots(os.path.join(instance_dir, "Screenshots"),
+                                     run_start_epoch)
+        if plan is not None:
+            shots = os.path.join(root, "Screenshots")
+            os.makedirs(shots)
+            for name in plan[0]:
+                try:
+                    shutil.copy2(os.path.join(instance_dir, "Screenshots", name), shots)
+                    files += 1
+                except OSError:
+                    # The artifact step counts it as copy-failed, as it would
+                    # have counted a failed copy from the instance.
+                    continue
+        player_log = os.path.join(root, POST_QUIT_PLAYER_LOG_NAME)
+        player_src = runtime.player_log_path()
+        if player_src and os.path.isfile(player_src):
+            shutil.copy2(player_src, player_log)
+            files += 1
+    except Exception as exc:  # noqa: BLE001 - degrade to verifying in place
+        shutil.rmtree(root, ignore_errors=True)
+        logger.warn("Pipeline", "post-quit copy FAILED run=%s (%s: %s); verifying this "
+                                "lane on the live instance before the next lane stages"
+                    % (run_id, type(exc).__name__, exc))
+        return None
+    logger.info("Pipeline", "post-quit copy run=%s files=%d bytes=%d wall=%.2fs -> %s"
+                % (run_id, files, total, time.monotonic() - t0, root))
+    return _PostQuitCopy(root, instance_dir, plan, player_log)
+
+
+def _remap_post_quit_paths(detail: Dict, post_quit_copy: _PostQuitCopy) -> None:
+    """The analyzer row records where its report files were written. On the copy
+    that is under the private root, which is deleted after the lane; record the
+    instance path the serial path records, so the row is the same either way (the
+    report itself survives in results/<runId>_save/analysis/ when the snapshot ran)."""
+    row = detail.get("analyzer")
+    if not isinstance(row, dict):
+        return
+    for key in ("reportTxt", "reportJson"):
+        value = row.get(key)
+        if not isinstance(value, str):
+            continue
+        rel = os.path.relpath(value, post_quit_copy.root)
+        if rel != os.pardir and not rel.startswith(os.pardir + os.sep):
+            row[key] = os.path.join(post_quit_copy.instance_dir, rel)
+
+
+def _instance_dll_sha(instance_dir: Optional[str]) -> Optional[str]:
+    if not instance_dir:
+        return None
+    path = os.path.join(instance_dir, PARSEK_DLL_REL)
+    return _sha256_file(path) if os.path.isfile(path) else None
+
+
+# ---------------------------------------------------------------------------
 # One scenario, one attempt.
 # ---------------------------------------------------------------------------
 
@@ -3779,12 +3991,42 @@ def _make_run_id(scenario_id: str, attempt: int, run_ordinal: int = 1,
 
 def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runtime,
                 attempt: int, prior_boot_crashed: bool, logger: HarnessLogger,
-                run_ordinal: int = 1) -> Dict:
+                run_ordinal: int = 1, defer_post_quit: bool = False,
+                wait_for_prior_ksp: bool = False):
+    """One attempt. Returns its result dict, or, with ``defer_post_quit`` (the
+    pipelined selection loop), a ``_DeferredAttempt`` whose ``finish(logger)`` runs
+    everything after KSP exited (verifier chain, classify, result + artifact
+    writes) over a private copy of the lane's artifacts, so the caller can stage
+    and boot the next lane meanwhile. Admission, staging, launch, drive and the
+    teardown resets in the finally stay here, serial, either way."""
     scenario_id = spec.get("id")
     profile = spec.get("instanceProfile")
     started = utcnow_iso()
     start_wall = runtime.now()
     run_id = _make_run_id(scenario_id, attempt, run_ordinal, logger)
+
+    def _refuse(verdict, admission):
+        # A pre-launch refusal reads nothing from the instance after this point, so
+        # deferring it only moves its result write onto the post-quit worker (the
+        # one writer of results/ while the next lane flies).
+        if defer_post_quit:
+            return _DeferredAttempt(run_id, None, lambda lg: _terminal_result(
+                spec, profile, attempt, started, start_wall, runtime, verdict,
+                admission=admission, logger=lg, run_id=run_id),
+                fail=lambda lg, exc: _post_quit_failure(lg, exc, admission))
+        return _terminal_result(spec, profile, attempt, started, start_wall, runtime,
+                                verdict, admission=admission, logger=logger,
+                                run_id=run_id)
+
+    def _post_quit_failure(lg, exc, admission):
+        # The pipelined worker raised. The lane still gets a result row, INVALID and
+        # naming the exception, never a verdict the chain did not reach.
+        what = "post-quit work raised %s: %s" % (type(exc).__name__, exc)
+        return _terminal_result(spec, profile, attempt, started, start_wall, runtime,
+                                hlib.Verdict(hlib.VERDICT_INVALID,
+                                             hlib.POST_QUIT_ERROR_SUBKIND, False, what,
+                                             note=what),
+                                admission=admission, logger=lg, run_id=run_id)
 
     # ---- ADMIT -----------------------------------------------------------
     manifest, incomplete = read_manifest(instance_dir)
@@ -3801,12 +4043,9 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         for d in admit_diff:
             logger.warn("Admit", "admit drift field=%s expected=%s actual=%s"
                         % (d["field"], d["expected"], d["actual"]))
-        return _terminal_result(spec, profile, attempt, started, start_wall, runtime,
-                                hlib.Verdict(hlib.VERDICT_INVALID, admission.subkind, False,
-                                             "admission %s" % admission.subkind),
-                                admission={"admitted": False, "subkind": admission.subkind,
-                                           "diff": admit_diff},
-                                logger=logger, run_id=run_id)
+        return _refuse(hlib.Verdict(hlib.VERDICT_INVALID, admission.subkind, False,
+                                    "admission %s" % admission.subkind),
+                       {"admitted": False, "subkind": admission.subkind, "diff": admit_diff})
 
     admission_rec = {"admitted": True, "subkind": "", "diff": []}
 
@@ -3825,10 +4064,9 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         if not venv_ok:
             logger.warn("Mission", "mission venv drift/missing: %s vs %s; INVALID %s (terminal, no KSP boot)"
                         % (REQUIREMENTS_PATH, VENV_STAMP_PATH, venv_subkind))
-            return _terminal_result(spec, profile, attempt, started, start_wall, runtime,
-                                    hlib.Verdict(hlib.VERDICT_INVALID, venv_subkind, False,
-                                                 "mission venv %s" % venv_result),
-                                    admission=admission_rec, logger=logger, run_id=run_id)
+            return _refuse(hlib.Verdict(hlib.VERDICT_INVALID, venv_subkind, False,
+                                        "mission venv %s" % venv_result),
+                           admission_rec)
         mission_ctx = MissionContext(
             mission_name=str(driver.get("mission")),
             venv_python=VENV_PYTHON,
@@ -3853,15 +4091,23 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         # orphan from a killed run). It cannot bind a pid to a directory, so the
         # message must not claim it did.
         zombie_pid = runtime.ksp_running(instance_dir)
+        if zombie_pid is not None and defer_post_quit and wait_for_prior_ksp:
+            # Pipelined: this preflight now runs seconds after the previous lane's
+            # KSP was killed, where the serial path first spent its verifier chain
+            # (a minute or more) - and a watchdog kill only waits
+            # KILL_EXIT_WAIT_SECONDS for the tree to go. Give that KSP the time the
+            # serial path gave it before refusing a lane that is not at fault. Only
+            # after a lane whose KSP the harness killed: any other live KSP is
+            # foreign and refuses at once, as on the serial path.
+            zombie_pid = _wait_for_prior_ksp_exit(runtime, instance_dir, zombie_pid, logger)
         if zombie_pid is not None:
             logger.warn("Preflight", "instance-busy: a live KSP_x64.exe (pid=%s) is running on this machine; "
                         "the probe cannot tell which install it belongs to, so refusing before %s "
                         "(INVALID instance-busy). Close KSP, or check for an orphan from a killed run."
                         % (zombie_pid, instance_dir))
-            return _terminal_result(spec, profile, attempt, started, start_wall, runtime,
-                                    hlib.Verdict(hlib.VERDICT_INVALID, "instance-busy", False,
-                                                 "a live KSP is bound to the instance"),
-                                    admission=admission_rec, logger=logger, run_id=run_id)
+            return _refuse(hlib.Verdict(hlib.VERDICT_INVALID, "instance-busy", False,
+                                        "a live KSP is bound to the instance"),
+                           admission_rec)
         logger.info("Preflight", "zombie-check instance=%s result=CLEAR" % profile)
 
         # ---- STAGE -------------------------------------------------------
@@ -3872,10 +4118,9 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
                 "stage-inject-noop": "fixture injection wrote no fixture "
                                      "(fail-closed staging postcondition)",
             }.get(stage_subkind, "fixture staging failed")
-            return _terminal_result(spec, profile, attempt, started, start_wall, runtime,
-                                    hlib.Verdict(hlib.VERDICT_INVALID, stage_subkind or "staging",
-                                                 False, reason),
-                                    admission=admission_rec, logger=logger, run_id=run_id)
+            return _refuse(hlib.Verdict(hlib.VERDICT_INVALID, stage_subkind or "staging",
+                                        False, reason),
+                           admission_rec)
 
         # ---- SEED BASELINE (M-B2, ledger scenarios) ----------------------
         # Acquire the fixture seed pre-launch by running the analyzer over the STAGED
@@ -3887,10 +4132,9 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
                                               run_id, runtime, logger)
         if seed_capture.status in ("invalid-fixture", "invalid-tooling"):
             subkind = "fixture-authoring" if seed_capture.status == "invalid-fixture" else "tooling"
-            return _terminal_result(spec, profile, attempt, started, start_wall, runtime,
-                                    hlib.Verdict(hlib.VERDICT_INVALID, subkind, False,
-                                                 "ledger seed baseline %s" % seed_capture.status),
-                                    admission=admission_rec, logger=logger, run_id=run_id)
+            return _refuse(hlib.Verdict(hlib.VERDICT_INVALID, subkind, False,
+                                        "ledger seed baseline %s" % seed_capture.status),
+                           admission_rec)
 
         # ---- LAUNCH ------------------------------------------------------
         env = dict(os.environ)
@@ -3947,60 +4191,43 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
                            run_budget, mission_ctx=mission_ctx, run_id=run_id,
                            boot_watch=boot_watch)
 
-        # ---- VERIFY ------------------------------------------------------
-        facts = run_verifiers(spec, instance_dir, run_save_name, drive, runtime, logger,
-                              seed_capture=seed_capture, run_id=run_id)
-        driver_facts = facts["driver"]
-        # NOTE (N4): v1 flags boot-crash-repeated on ANY second boot-crash. The S7
-        # boot-crash SIGNATURE compare (exit code + last KSP.log lines) that would
-        # distinguish a deterministic boot crash from two unrelated boot flakes is
-        # DEFERRED; here a second consecutive boot-crash attempt is treated as
-        # repeated regardless of signature.
-        if drive.boot_crashed and prior_boot_crashed:
-            driver_facts["boot_crash_repeated"] = True
-
-        # ---- CLASSIFY ----------------------------------------------------
-        ef = spec.get("expectedFail", {}) or {}
-        bug_id = ef.get("bugId", "") or ""
-        ef_subkind = ef.get("subkind", "") or ""
-        ef_mismatches = ef.get(hlib.EXPECTED_FAIL_MISMATCHES_KEY)
-        base = hlib.classify_verdict(driver_facts, facts["verifiers"], {}, attempt,
-                                     (spec.get("retry", {}) or {}).get("policy", "once"))
-        # Signature match (S2): expectedFail.subkind narrows the demotion to one
-        # PARSEK-FAIL class; an empty subkind falls back to bugId-only matching (any
-        # PARSEK-FAIL demotes), warned here at demotion time so the bugId-only scope
-        # is visible in the log. An optional expectedFail.mismatches narrows it to
-        # ONE defect: the failing verifier's mismatch set must equal the declared one.
-        observed_mismatches = hlib.expected_fail_observed_mismatches(
-            base.subkind, facts.get("detail"))
-        ef_optional = ef.get(hlib.EXPECTED_FAIL_OPTIONAL_MISMATCHES_KEY)
-        signature_matched = hlib.expected_fail_signature_matched(
-            base.verdict, base.subkind, ef_subkind, ef_mismatches, observed_mismatches,
-            ef_optional)
-        if (bug_id and ef_mismatches is not None
-                and base.verdict == hlib.VERDICT_PARSEK_FAIL and not signature_matched):
-            declared = set(ef_mismatches)
-            seen = set(observed_mismatches or []) - set(ef_optional or [])
-            logger.warn("Classify", "expected-fail bugId=%s mismatch signature not met: "
-                                    "runSubkind=%s unexpected=%s missing=%s (stays PARSEK-FAIL)"
-                        % (bug_id, base.subkind, sorted(seen - declared),
-                           sorted(declared - seen)))
-        if bug_id and base.verdict == hlib.VERDICT_PARSEK_FAIL and not ef_subkind:
-            logger.warn("Classify", "expected-fail bugId=%s has no subkind; matching on bugId only (any PARSEK-FAIL demotes to EXPECTED-FAIL)"
-                        % bug_id)
-        verdict = hlib.classify_expected_fail(base, bug_id, signature_matched)
-        logger.info("Classify", "verdict=%s scenario=%s attempt=%d reason=%s"
-                    % (verdict.verdict, scenario_id, attempt, verdict.reason))
-        if bug_id:
-            logger.info("Classify", "expected-fail bugId=%s matched=%s"
-                        % (bug_id, verdict.expected_fail_matched))
-        if verdict.verdict == hlib.VERDICT_XPASS:
-            logger.warn("Classify", "XPASS bugId=%s scenario=%s: confirm bug closed, remove expectedFail key"
-                        % (bug_id, scenario_id))
-
-        return _finish_result(spec, profile, attempt, started, start_wall, runtime,
-                              verdict, admission_rec, drive, facts, run_save_name,
-                              instance_dir, logger, run_id=run_id)
+        # ---- POST-QUIT -----------------------------------------------------
+        # The lane's KSP has exited. Pipelined: copy what the post-quit steps read
+        # out of the shared instance, then hand them to the caller's worker; the
+        # next lane may stage over the instance as soon as this returns.
+        if defer_post_quit:
+            post_quit_copy = _take_post_quit_copy(run_id, instance_dir, run_save_name,
+                                                  start_wall, runtime, logger)
+            if post_quit_copy is not None:
+                def _finish_on_copy(lg):
+                    try:
+                        return _verify_classify_finish(
+                            spec, profile, attempt, started, start_wall, runtime,
+                            admission_rec, drive, run_save_name, post_quit_copy.root,
+                            prior_boot_crashed, seed_capture, run_id, lg,
+                            post_quit_copy=post_quit_copy)
+                    finally:
+                        shutil.rmtree(post_quit_copy.root, ignore_errors=True)
+                return _DeferredAttempt(
+                    run_id, post_quit_copy, _finish_on_copy,
+                    fail=lambda lg, exc: _post_quit_failure(lg, exc, admission_rec),
+                    ksp_killed=bool(drive.killed_pids))
+            # The copy failed: verify on the live instance. ``in_place`` makes the
+            # caller run this to completion before it stages the next lane (and,
+            # like every post-quit job, after the previous lane's has landed).
+            return _DeferredAttempt(
+                run_id, None,
+                lambda lg: _verify_classify_finish(
+                    spec, profile, attempt, started, start_wall, runtime, admission_rec,
+                    drive, run_save_name, instance_dir, prior_boot_crashed, seed_capture,
+                    run_id, lg),
+                in_place=True,
+                fail=lambda lg, exc: _post_quit_failure(lg, exc, admission_rec),
+                ksp_killed=bool(drive.killed_pids))
+        return _verify_classify_finish(spec, profile, attempt, started, start_wall,
+                                       runtime, admission_rec, drive, run_save_name,
+                                       instance_dir, prior_boot_crashed, seed_capture,
+                                       run_id, logger)
     finally:
         # Leave the instance's tracer settings in the declared baseline state no
         # matter HOW this attempt ended - PASS, verifier red, budget-watchdog
@@ -4014,6 +4241,76 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         restore_ksp_screen_settings(instance_dir, logger, "teardown")
         # And the stock gameplay settings a `kspSettings` lane moved.
         restore_ksp_gameplay_settings(instance_dir, logger, "teardown")
+
+
+def _verify_classify_finish(spec: Dict, profile, attempt: int, started: str,
+                            start_wall: float, runtime: Runtime, admission_rec: Dict,
+                            drive: "DriveResult", run_save_name: str, verify_root: str,
+                            prior_boot_crashed: bool, seed_capture: "SeedCapture",
+                            run_id: str, logger,
+                            post_quit_copy: Optional["_PostQuitCopy"] = None) -> Dict:
+    """Everything after the lane's KSP exited: the verifier chain, classification
+    and the result / artifact writes. ``verify_root`` is the instance dir on the
+    serial path, or the private post-quit copy (same layout) on the pipelined one;
+    nothing here reads any other instance path."""
+    scenario_id = spec.get("id")
+    # ---- VERIFY ------------------------------------------------------
+    facts = run_verifiers(spec, verify_root, run_save_name, drive, runtime, logger,
+                          seed_capture=seed_capture, run_id=run_id)
+    if post_quit_copy is not None:
+        _remap_post_quit_paths(facts["detail"], post_quit_copy)
+    driver_facts = facts["driver"]
+    # NOTE (N4): v1 flags boot-crash-repeated on ANY second boot-crash. The S7
+    # boot-crash SIGNATURE compare (exit code + last KSP.log lines) that would
+    # distinguish a deterministic boot crash from two unrelated boot flakes is
+    # DEFERRED; here a second consecutive boot-crash attempt is treated as
+    # repeated regardless of signature.
+    if drive.boot_crashed and prior_boot_crashed:
+        driver_facts["boot_crash_repeated"] = True
+
+    # ---- CLASSIFY ----------------------------------------------------
+    ef = spec.get("expectedFail", {}) or {}
+    bug_id = ef.get("bugId", "") or ""
+    ef_subkind = ef.get("subkind", "") or ""
+    ef_mismatches = ef.get(hlib.EXPECTED_FAIL_MISMATCHES_KEY)
+    base = hlib.classify_verdict(driver_facts, facts["verifiers"], {}, attempt,
+                                 (spec.get("retry", {}) or {}).get("policy", "once"))
+    # Signature match (S2): expectedFail.subkind narrows the demotion to one
+    # PARSEK-FAIL class; an empty subkind falls back to bugId-only matching (any
+    # PARSEK-FAIL demotes), warned here at demotion time so the bugId-only scope
+    # is visible in the log. An optional expectedFail.mismatches narrows it to
+    # ONE defect: the failing verifier's mismatch set must equal the declared one.
+    observed_mismatches = hlib.expected_fail_observed_mismatches(
+        base.subkind, facts.get("detail"))
+    ef_optional = ef.get(hlib.EXPECTED_FAIL_OPTIONAL_MISMATCHES_KEY)
+    signature_matched = hlib.expected_fail_signature_matched(
+        base.verdict, base.subkind, ef_subkind, ef_mismatches, observed_mismatches,
+        ef_optional)
+    if (bug_id and ef_mismatches is not None
+            and base.verdict == hlib.VERDICT_PARSEK_FAIL and not signature_matched):
+        declared = set(ef_mismatches)
+        seen = set(observed_mismatches or []) - set(ef_optional or [])
+        logger.warn("Classify", "expected-fail bugId=%s mismatch signature not met: "
+                                "runSubkind=%s unexpected=%s missing=%s (stays PARSEK-FAIL)"
+                    % (bug_id, base.subkind, sorted(seen - declared),
+                       sorted(declared - seen)))
+    if bug_id and base.verdict == hlib.VERDICT_PARSEK_FAIL and not ef_subkind:
+        logger.warn("Classify", "expected-fail bugId=%s has no subkind; matching on bugId only (any PARSEK-FAIL demotes to EXPECTED-FAIL)"
+                    % bug_id)
+    verdict = hlib.classify_expected_fail(base, bug_id, signature_matched)
+    logger.info("Classify", "verdict=%s scenario=%s attempt=%d reason=%s"
+                % (verdict.verdict, scenario_id, attempt, verdict.reason))
+    if bug_id:
+        logger.info("Classify", "expected-fail bugId=%s matched=%s"
+                    % (bug_id, verdict.expected_fail_matched))
+    if verdict.verdict == hlib.VERDICT_XPASS:
+        logger.warn("Classify", "XPASS bugId=%s scenario=%s: confirm bug closed, remove expectedFail key"
+                    % (bug_id, scenario_id))
+
+    return _finish_result(spec, profile, attempt, started, start_wall, runtime,
+                          verdict, admission_rec, drive, facts, run_save_name,
+                          verify_root, logger, run_id=run_id,
+                          post_quit_copy=post_quit_copy)
 
 
 def _terminal_result(spec, profile, attempt, started, start_wall, runtime, verdict,
@@ -4060,13 +4357,35 @@ def _copy_bounded(src, out, limit: int) -> int:
     return copied
 
 
+def _plan_run_screenshots(screenshots_dir: str, run_start_epoch: float
+                          ) -> Optional[Tuple[List[str], int, int]]:
+    """``hlib.select_run_screenshots`` over the files in ``screenshots_dir``, or None
+    when the dir is absent. Shared by the artifact step and the pipelined post-quit
+    copy, which selects at copy time and copies only the selected files."""
+    if not os.path.isdir(screenshots_dir):
+        return None
+    candidates = []
+    for name in sorted(os.listdir(screenshots_dir)):
+        path = os.path.join(screenshots_dir, name)
+        if os.path.isfile(path):
+            try:
+                st = os.stat(path)
+                candidates.append((name, st.st_mtime, st.st_size))
+            except OSError:
+                continue
+    return hlib.select_run_screenshots(candidates, run_start_epoch)
+
+
 def _collect_run_artifacts(run_id: str, instance_dir: Optional[str],
-                           run_start_epoch: float, logger: HarnessLogger) -> Dict:
+                           run_start_epoch: float, logger: HarnessLogger,
+                           screenshot_plan: Optional[Tuple[List[str], int, int]] = None
+                           ) -> Dict:
     """Copy the run's KSP.log (bounded, hlib.plan_artifact_log_copy) and any
     run-window Screenshots/ images (hlib.select_run_screenshots) into
     ``results/<runId>_shots/``, then run the shots-dir retention pass
     (hlib.select_shots_dirs_to_prune). Returns the additive ``artifacts``
-    result block."""
+    result block. ``screenshot_plan`` is the selection the pipelined post-quit
+    copy already made (its Screenshots/ holds only the selected files)."""
     artifacts: Dict = dict(_EMPTY_ARTIFACTS)
     if not instance_dir:
         return artifacts
@@ -4125,18 +4444,10 @@ def _collect_run_artifacts(run_id: str, instance_dir: Optional[str],
         # (<label>.gui.json, written into the same directory by GuiTreeRecorder)
         # rides along: hlib.ARTIFACT_SHOTS_SUFFIXES carries that suffix too.
         screenshots_dir = os.path.join(instance_dir, "Screenshots")
-        if os.path.isdir(screenshots_dir):
-            candidates = []
-            for name in sorted(os.listdir(screenshots_dir)):
-                path = os.path.join(screenshots_dir, name)
-                if os.path.isfile(path):
-                    try:
-                        st = os.stat(path)
-                        candidates.append((name, st.st_mtime, st.st_size))
-                    except OSError:
-                        continue
-            selected, prior, over_cap = hlib.select_run_screenshots(
-                candidates, run_start_epoch)
+        plan = (screenshot_plan if screenshot_plan is not None
+                else _plan_run_screenshots(screenshots_dir, run_start_epoch))
+        if plan is not None:
+            selected, prior, over_cap = plan
             copy_missed = 0
             for name in selected:
                 try:
@@ -4507,19 +4818,27 @@ def _rmtree_quiet(path: str) -> None:
         shutil.rmtree(path, ignore_errors=True)
 
 
+# Sentinel: archive_run_results hashes the instance's deployed DLL itself.
+_DLL_SHA_FROM_INSTANCE = object()
+
+
 def archive_run_results(run_id: str, results_dir: str, archive_root: str,
                         harness_log_path: Optional[str], logger,
                         instance_dir: Optional[str] = None,
                         worktree: Optional[str] = WORKTREE_ROOT,
                         origin: str = "run",
-                        record_git_head: bool = True) -> Optional[str]:
+                        record_git_head: bool = True,
+                        parsek_dll_sha256=_DLL_SHA_FROM_INSTANCE) -> Optional[str]:
     """Copy one run's durable artifacts into ``<archive_root>/<runId>/``.
 
     Built in ``.<runId>.archive-tmp`` and renamed into place, so a re-archive
     of the same run replaces the old dir whole and a reader never sees a torn
     one. Returns the archived dir, or None when skipped / failed (a Warn is
     logged). Never raises. ``record_git_head=False`` is the back-fill shape:
-    the worktree's HEAD today says nothing about the HEAD that flew the run."""
+    the worktree's HEAD today says nothing about the HEAD that flew the run.
+    ``parsek_dll_sha256`` given (pipelined verification) is the hash taken when
+    the lane's KSP exited; the instance is not read, since by then the next lane
+    has staged it."""
     try:
         try:
             names = os.listdir(results_dir)
@@ -4570,7 +4889,9 @@ def archive_run_results(run_id: str, results_dir: str, archive_root: str,
                 # A file that vanished or is unreadable costs only itself.
                 missing.append("%s (%s)" % (entry.dest_name, type(exc).__name__))
         dll_sha = None
-        if instance_dir:
+        if parsek_dll_sha256 is not _DLL_SHA_FROM_INSTANCE:
+            dll_sha = parsek_dll_sha256
+        elif instance_dir:
             dll_path = os.path.join(instance_dir, PARSEK_DLL_REL)
             if os.path.isfile(dll_path):
                 dll_sha = _sha256_file(dll_path)
@@ -4597,9 +4918,13 @@ def archive_run_results(run_id: str, results_dir: str, archive_root: str,
 
 
 def _archive_attempt_results(results: Sequence[Dict], umbrella_root: Optional[str],
-                             instance_dir: Optional[str], logger) -> None:
+                             instance_dir: Optional[str], logger,
+                             dll_sha_by_run: Optional[Dict[str, Optional[str]]] = None
+                             ) -> None:
     """Archive every attempt of one scenario run. Runs AFTER the scenario's
-    Cost line, so the copied harness log carries its Retry / Cost facts."""
+    Cost line, so the copied harness log carries its Retry / Cost facts.
+    ``dll_sha_by_run`` (pipelined verification) carries each attempt's DLL hash,
+    taken when its KSP exited, in place of a read of the live instance."""
     if hlib.results_archive_disabled(os.environ):
         logger.verbose("Archive", "results archive disabled by %s"
                        % hlib.RESULTS_ARCHIVE_OPT_OUT_ENV)
@@ -4609,7 +4934,14 @@ def _archive_attempt_results(results: Sequence[Dict], umbrella_root: Optional[st
     root = results_archive_root(umbrella_root)
     for result in results:
         run_id = (result or {}).get("runId")
-        if run_id:
+        if not run_id:
+            continue
+        if dll_sha_by_run is not None:
+            archive_run_results(run_id, RESULTS_DIR, root,
+                                getattr(logger, "log_path", None), logger,
+                                instance_dir=None,
+                                parsek_dll_sha256=dll_sha_by_run.get(run_id))
+        else:
             archive_run_results(run_id, RESULTS_DIR, root,
                                 getattr(logger, "log_path", None), logger,
                                 instance_dir=instance_dir)
@@ -4617,7 +4949,8 @@ def _archive_attempt_results(results: Sequence[Dict], umbrella_root: Optional[st
 
 def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict,
                    admission, drive, facts, run_save_name, instance_dir, logger,
-                   run_id: Optional[str] = None) -> Dict:
+                   run_id: Optional[str] = None,
+                   post_quit_copy: Optional["_PostQuitCopy"] = None) -> Dict:
     scenario_id = spec.get("id")
     ended = utcnow_iso()
     wall = int(runtime.now() - start_wall)
@@ -4714,8 +5047,13 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
     # collect-logs on non-PASS (design results layout / edge 18).
     collect = {"ran": False, "path": None}
     if verdict.verdict != hlib.VERDICT_PASS and run_save_name and instance_dir:
-        res = runtime.run_collect_logs(scenario_id, run_save_name, instance_dir,
-                                       COLLECT_LOGS_TIMEOUT_SECONDS)
+        if post_quit_copy is not None:
+            res = runtime.run_collect_logs(scenario_id, run_save_name, instance_dir,
+                                           COLLECT_LOGS_TIMEOUT_SECONDS,
+                                           player_log=post_quit_copy.player_log)
+        else:
+            res = runtime.run_collect_logs(scenario_id, run_save_name, instance_dir,
+                                           COLLECT_LOGS_TIMEOUT_SECONDS)
         if res.ok:
             collect = {"ran": True, "path": _extract_collect_path(res.stdout)}
             logger.info("Collect", "collect-logs label=%s -> %s" % (scenario_id, collect["path"]))
@@ -4768,7 +5106,9 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
                                                  instance_dir, run_save_name, logger)
     # V3 always-collect: the light UNCONDITIONAL artifact snapshot (KSP.log +
     # run-window screenshots into results/<runId>_shots/), verdict-neutral.
-    result["artifacts"] = _collect_run_artifacts(run_id, instance_dir, start_wall, logger)
+    result["artifacts"] = _collect_run_artifacts(
+        run_id, instance_dir, start_wall, logger,
+        screenshot_plan=post_quit_copy.screenshot_plan if post_quit_copy else None)
     write_result(result, logger, append_summary=False)
     # V3 contact sheet: AFTER the durable result lands so the sheet reads the
     # written record. Failure-isolated; never moves the verdict.
@@ -5196,6 +5536,9 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
     parser.add_argument("--umbrella-root", help="override the umbrella root (default: parent of the worktree)")
     parser.add_argument("--instance-dir", help="override the resolved instance dir (single-profile runs / tests)")
     parser.add_argument("--no-coverage", action="store_true", help="skip the coverage/flake refresh")
+    parser.add_argument("--serial-verify", action="store_true",
+                        help="verify each lane before the next one stages (the pre-2026-10-14 "
+                             "path); same as %s=1" % hlib.SERIAL_VERIFY_ENV)
     args = parser.parse_args(argv)
 
     runtime = runtime or Runtime()
@@ -5294,6 +5637,13 @@ def _run_selection(selected, specs, registry, umbrella_root, args, runtime, logg
     # Validate every selected spec; an invalid spec is SKIPPED with an INVALID-SPEC
     # result (never launches KSP), so one broken spec cannot abort the batch.
     bug_ids = _load_bug_ids()
+    if hlib.pipelined_verify_enabled(os.environ, bool(getattr(args, "serial_verify", False))):
+        exit_code, ran_any = _run_selection_pipelined(selected, registry, bug_ids,
+                                                      umbrella_root, args, runtime, logger,
+                                                      lock_path, expr)
+        if ran_any and not args.no_coverage:
+            refresh_coverage_and_flake(specs, registry, logger)
+        return exit_code
     exit_code = 0
     ran_any = False
     ran_count = 0
@@ -5359,6 +5709,81 @@ def _run_selection(selected, specs, registry, umbrella_root, args, runtime, logg
     return exit_code
 
 
+class _ScenarioRetryState:
+    """One scenario's attempts under its retry policy. The serial path
+    (_run_scenario_with_retry) and the pipelined selection loop fold attempts in
+    through the same ``record`` / ``finish`` calls, so the retry decision, the
+    terminal, the flakedThenPassed rewrite and the Retry / Classify / Cost lines are
+    one implementation; the pipelined loop differs only in WHEN an attempt's result
+    arrives (one lane later) and so when attempt 2 flies."""
+
+    def __init__(self, spec: Dict, run_ordinal: int):
+        self.spec = spec
+        self.retry_policy = (spec.get("retry", {}) or {}).get("policy", "once")
+        self.attempts: List[hlib.Verdict] = []
+        self.attempt_results: List[Dict] = []
+        self.last_result: Optional[Dict] = None
+        self.prior_boot_crashed = False
+        self.attempts_wall = 0.0
+        self.attempts_run = 0
+        # ONE run-instance ordinal for the whole scenario run, resolved (and warned
+        # about) exactly once by the caller, then carried into both attempts --
+        # `..._run2` and `..._run2_a2` -- instead of each attempt disambiguating on
+        # its own and drifting onto different stems. Each attempt still re-stamps
+        # its own minute (a long flight rolls the clock over), so the ordinal is
+        # what is carried, not the whole id; `_a<N>` stays the terminal suffix.
+        self.run_ordinal = run_ordinal
+
+    def record(self, result: Dict, logger) -> bool:
+        """Fold in one finished attempt; True when the policy calls for another."""
+        attempt = self.attempts_run + 1
+        self.last_result = result
+        self.attempt_results.append(result)
+        self.attempts_run = attempt
+        wall = result.get("wallSeconds")
+        if isinstance(wall, (int, float)) and not isinstance(wall, bool):
+            self.attempts_wall += float(wall)
+        v = hlib.Verdict(result["verdict"], result.get("subkind", ""), False,
+                         "", result.get("expectedFail", {}).get("matched", False),
+                         result.get("note", ""))
+        self.attempts.append(v)
+        self.prior_boot_crashed = (result.get("subkind") == "boot-crash")
+        retry, retry_skip = hlib.decide_retry(v, attempt, self.retry_policy, result)
+        if retry_skip is not None:
+            result[hlib.RETRY_SKIPPED_KEY] = retry_skip
+            logger.info("Retry", hlib.format_retry_skip_line(self.spec.get("id"), retry_skip))
+        if not retry:
+            return False
+        logger.info("Retry", "retry scenario=%s attempt=2 reason=%s"
+                    % (self.spec.get("id"), result["verdict"]))
+        return True
+
+    def finish(self, logger) -> "hlib.Verdict":
+        """The terminal: flakedThenPassed rewrite, enriched result, sheet, Cost line.
+        Returns the terminal verdict; the caller archives after this."""
+        last_result = self.last_result
+        terminal = hlib.resolve_terminal(self.attempts)
+        flaked_then_passed = (terminal.note == "flakedThenPassed"
+                              and last_result is not None)
+        if flaked_then_passed:
+            last_result["note"] = "flakedThenPassed"
+            logger.info("Classify", "verdict=PASS scenario=%s reason=flakedThenPassed (attempt-1 INVALID)"
+                        % self.spec.get("id"))
+        if last_result is not None:
+            last_result["attemptsWallSeconds"] = int(round(self.attempts_wall))
+            # Re-write the enriched record. The summary line is appended ONLY on
+            # the flakedThenPassed path (which is what it always did); the plain
+            # path already wrote its summary line inside run_attempt and must not
+            # write a second one.
+            write_result(last_result, logger, append_summary=flaked_then_passed)
+            # Re-render the sheet + index over the enriched record (idempotent;
+            # failure-isolated exactly like the in-attempt generation).
+            _generate_contact_sheet(last_result["runId"], logger)
+        logger.info("Cost", "scenario cost attempts=%d wallTotal=%ds terminal=%s"
+                    % (self.attempts_run, int(round(self.attempts_wall)), terminal.verdict))
+        return terminal
+
+
 def _run_scenario_with_retry(spec, instance_dir, umbrella_root, runtime, logger) -> Dict:
     """Run a scenario with the spec's retry policy and return the LAST attempt's
     result, enriched with ``attemptsWallSeconds`` (audit finding G6).
@@ -5367,67 +5792,336 @@ def _run_scenario_with_retry(spec, instance_dir, umbrella_root, runtime, logger)
     B7-duna burning 794 + 776 = 1,570 wall seconds across two INVALID attempts
     and producing nothing was traceable only as two unrelated summary lines.
     """
-    retry_policy = (spec.get("retry", {}) or {}).get("policy", "once")
-    attempts: List[hlib.Verdict] = []
-    attempt_results: List[Dict] = []
-    last_result = None
-    prior_boot_crashed = False
-    attempts_wall = 0.0
-    attempts_run = 0
-    # ONE run-instance ordinal for the whole scenario run, resolved (and warned
-    # about) exactly once here, then carried into both attempts -- `..._run2` and
-    # `..._run2_a2` -- instead of each attempt disambiguating on its own and
-    # drifting onto different stems. Each attempt still re-stamps its own minute
-    # (a long flight rolls the clock over), so the ordinal is what is carried,
-    # not the whole id; `_a<N>` stays the terminal suffix either way.
-    run_ordinal = _resolve_run_id(spec.get("id"), 1, 1, logger).ordinal
+    state = _ScenarioRetryState(spec, _resolve_run_id(spec.get("id"), 1, 1, logger).ordinal)
     for attempt in (1, 2):
         result = run_attempt(spec, instance_dir, umbrella_root, runtime, attempt,
-                             prior_boot_crashed, logger, run_ordinal=run_ordinal)
-        last_result = result
-        attempt_results.append(result)
-        attempts_run += 1
-        wall = result.get("wallSeconds")
-        if isinstance(wall, (int, float)) and not isinstance(wall, bool):
-            attempts_wall += float(wall)
-        v = hlib.Verdict(result["verdict"], result.get("subkind", ""), False,
-                         "", result.get("expectedFail", {}).get("matched", False),
-                         result.get("note", ""))
-        attempts.append(v)
-        prior_boot_crashed = (result.get("subkind") == "boot-crash")
-        retry, retry_skip = hlib.decide_retry(v, attempt, retry_policy, result)
-        if retry_skip is not None:
-            result[hlib.RETRY_SKIPPED_KEY] = retry_skip
-            logger.info("Retry", hlib.format_retry_skip_line(spec.get("id"), retry_skip))
-        if not retry:
+                             state.prior_boot_crashed, logger, run_ordinal=state.run_ordinal)
+        if not state.record(result, logger):
             break
-        logger.info("Retry", "retry scenario=%s attempt=2 reason=%s"
-                    % (spec.get("id"), result["verdict"]))
-
-    terminal = hlib.resolve_terminal(attempts)
-    flaked_then_passed = (terminal.note == "flakedThenPassed"
-                          and last_result is not None)
-    if flaked_then_passed:
-        last_result["note"] = "flakedThenPassed"
-        logger.info("Classify", "verdict=PASS scenario=%s reason=flakedThenPassed (attempt-1 INVALID)"
-                    % spec.get("id"))
-    if last_result is not None:
-        last_result["attemptsWallSeconds"] = int(round(attempts_wall))
-        # Re-write the enriched record. The summary line is appended ONLY on
-        # the flakedThenPassed path (which is what it always did); the plain
-        # path already wrote its summary line inside run_attempt and must not
-        # write a second one.
-        write_result(last_result, logger, append_summary=flaked_then_passed)
-        # Re-render the sheet + index over the enriched record (idempotent;
-        # failure-isolated exactly like the in-attempt generation).
-        _generate_contact_sheet(last_result["runId"], logger)
-    logger.info("Cost", "scenario cost attempts=%d wallTotal=%ds terminal=%s"
-                % (attempts_run, int(round(attempts_wall)), terminal.verdict))
+    state.finish(logger)
     # HARNESS-RESULTS-ARCHIVE: copy each attempt's durable artifacts outside the
     # worktree. Verdict-neutral (Warn on failure); last, so the copied harness
     # log already holds this scenario's Retry / Cost lines.
-    _archive_attempt_results(attempt_results, umbrella_root, instance_dir, logger)
-    return last_result
+    _archive_attempt_results(state.attempt_results, umbrella_root, instance_dir, logger)
+    return state.last_result
+
+
+class _PipelineScenario:
+    """One admitted scenario in the pipelined selection loop."""
+
+    def __init__(self, spec: Dict, instance_dir: str, state: _ScenarioRetryState):
+        self.spec = spec
+        self.instance_dir = instance_dir
+        self.state = state
+        # The scenario's post-quit lines (worker output, Retry, Classify, Result,
+        # Sheet, Cost) are held here until its terminal and then written as ONE
+        # block, so a Cost block in the invocation log carries only this
+        # scenario's Result / Retry / Cost lines while other lanes fly in between.
+        self.deferred = _BufferedLogger()
+        # runId -> the deployed DLL's sha256 when that attempt's KSP exited, for
+        # the archive (which runs after the next lane has staged the instance).
+        self.dll_sha_by_run: Dict[str, Optional[str]] = {}
+        self.finalized = False
+
+
+_TERMINAL_RED_VERDICTS = (hlib.VERDICT_PARSEK_FAIL, hlib.VERDICT_INVALID,
+                          hlib.VERDICT_KILLED, hlib.VERDICT_XPASS)
+
+
+def _pipeline_finalize(scen: _PipelineScenario, umbrella_root: str, logger) -> int:
+    """The scenario's terminal: finish (rewrite, sheet, Cost) into its held block,
+    write the block, then archive (which slices the block back out of the log).
+    Returns the exit-code contribution. Idempotent: a second call is a no-op."""
+    if scen.finalized:
+        return 0
+    scen.finalized = True
+    if scen.state.attempts_run:
+        scen.state.finish(scen.deferred)
+    scen.deferred.replay(logger)
+    scen.deferred = _BufferedLogger()
+    if not scen.state.attempts_run:
+        return 0
+    _archive_attempt_results(scen.state.attempt_results, umbrella_root, scen.instance_dir,
+                             logger, dll_sha_by_run=scen.dll_sha_by_run)
+    last = scen.state.last_result or {}
+    return 1 if last.get("verdict") in _TERMINAL_RED_VERDICTS else 0
+
+
+class _PipelineLane:
+    """One lane's post-quit work on its worker thread, plus how far the main loop
+    got with it. ``joined`` / ``recorded`` make _pipeline_join safe to call again
+    after an interrupted call (the drain does), without dropping or double-recording
+    the attempt: _ScenarioRetryState.record is not idempotent."""
+
+    def __init__(self, scen: Optional[_PipelineScenario], deferred: _DeferredAttempt):
+        self.scen = scen
+        self.deferred = deferred
+        self.bg = _BackgroundVerifier("post-quit-%s" % (deferred.run_id or "row"),
+                                      deferred.finish)
+        self.joined = False
+        self.result: Optional[Dict] = None
+        self.recorded = False
+        self.retry = False
+
+
+def _pipeline_join(lane: _PipelineLane, queue, umbrella_root: str, logger,
+                   allow_retry: bool = True,
+                   no_retry_reason: str = "the machine lock was lost") -> int:
+    """Wait for a lane's post-quit work, fold its result into the scenario and
+    either queue the retry at the FRONT (it flies next, i.e. right after the lane
+    that was flying meanwhile) or finalize. Returns the exit-code contribution.
+
+    A worker that RAISED still yields a row: its buffered lines are kept and
+    ``fail`` writes INVALID(post-quit-error) naming the exception, so a harness
+    defect can never read as a verdict the chain did not reach. Re-entrant: a call
+    interrupted part-way (Ctrl-C inside the join) is resumed by the next call."""
+    scen, deferred = lane.scen, lane.deferred
+    target = scen.deferred if scen is not None else logger
+    if not lane.joined:
+        try:
+            result = lane.bg.join(target)
+        except Exception as exc:  # noqa: BLE001 - becomes the lane's INVALID row
+            target.error("Pipeline", "post-quit work FAILED run=%s (%s: %s); the lane is "
+                                     "INVALID(%s)"
+                         % (deferred.run_id, type(exc).__name__, exc,
+                            hlib.POST_QUIT_ERROR_SUBKIND))
+            result = deferred.fail(target, exc) if deferred.fail is not None else None
+            if result is None:
+                lane.joined = lane.recorded = True
+                return 1
+        lane.result = result
+        lane.joined = True
+    if scen is None:
+        # A spec-invalid row: no scenario, no Cost line, exactly as serial.
+        lane.recorded = True
+        return 0
+    if not lane.recorded:
+        lane.retry = scen.state.record(lane.result, scen.deferred)
+        lane.recorded = True
+        if lane.retry and allow_retry:
+            queue.appendleft(("retry", scen))
+            return 0
+        if lane.retry:
+            scen.deferred.warn("Retry", "retry scenario=%s attempt=2 NOT flown: %s; "
+                                        "attempt 1 is the terminal"
+                               % (scen.spec.get("id"), no_retry_reason))
+    elif ("retry", scen) in queue:
+        return 0  # its owed retry is queued; whoever empties the queue closes it
+    return _pipeline_finalize(scen, umbrella_root, logger)
+
+
+# How long the drain keeps waiting for a lane's post-quit thread (it may be reading
+# the LIVE instance, for an in-place lane) before it gives up on that lane. The
+# caller releases the machine lock after the drain, so this bounds that wait too.
+PIPELINE_DRAIN_JOIN_SECONDS = float(ANALYZER_TIMEOUT_SECONDS + COLLECT_LOGS_TIMEOUT_SECONDS)
+
+
+def _pipeline_wait_thread(lane: _PipelineLane, logger, bound: float) -> bool:
+    """Block (bounded, logged) until the lane's worker thread has finished; another
+    Ctrl-C while waiting is logged and the wait goes on. True when it finished."""
+    start = time.monotonic()
+    announced = False
+    while lane.bg.alive():
+        waited = time.monotonic() - start
+        if waited >= bound:
+            logger.error("Pipeline", "post-quit work for run=%s still running after %.0fs; "
+                                     "leaving it unfinalized" % (lane.deferred.run_id, bound))
+            return False
+        if not announced:
+            logger.warn("Pipeline", "stopping: waiting up to %.0fs for run=%s's post-quit "
+                                    "work to finish before the lock is released"
+                        % (bound, lane.deferred.run_id))
+            announced = True
+        try:
+            lane.bg.wait(1.0)
+        except KeyboardInterrupt:
+            logger.warn("Pipeline", "interrupt ignored: run=%s's post-quit work is still "
+                                    "running (%.0fs of %.0fs)"
+                        % (lane.deferred.run_id, time.monotonic() - start, bound))
+    return True
+
+
+def _pipeline_drain(worker, flown, queue, active, umbrella_root: str, logger,
+                    reason: str) -> None:
+    """The selection is stopping early (an exception, Ctrl-C). Land the lane in
+    post-quit work and the lane that just flew, then close every scenario that has
+    attempts but no terminal yet (an owed retry, or the retry that was flying), so
+    each keeps its result rows, held lines, Cost line and archive entry. A lane's
+    thread is waited for (bounded) before anything is finalized, and before the
+    caller releases the lock. Best effort: a failure here is logged, never raised
+    over the original exception."""
+    # One lane at a time, as in the loop: the flown lane's worker starts only once
+    # the lane in post-quit work has landed, so no two write results/ at once.
+    for item in (worker, flown):
+        if item is None:
+            continue
+        lane = item
+        if not isinstance(item, _PipelineLane):
+            try:
+                lane = _PipelineLane(*item)
+            except BaseException as exc:  # noqa: BLE001 - never mask the original
+                logger.error("Pipeline", "starting the last lane's post-quit work FAILED "
+                                         "(%s: %s)" % (type(exc).__name__, exc))
+                continue
+        if not _pipeline_wait_thread(lane, logger, PIPELINE_DRAIN_JOIN_SECONDS):
+            # Still running past the bound: starting another lane's work beside it
+            # would break the one-writer rule, so stop here.
+            break
+        try:
+            _pipeline_join(lane, queue, umbrella_root, logger, allow_retry=False,
+                           no_retry_reason=reason)
+        except BaseException as exc:  # noqa: BLE001 - never mask the original
+            logger.error("Pipeline", "draining run=%s FAILED (%s: %s)"
+                         % (lane.deferred.run_id, type(exc).__name__, exc))
+    open_scens = [item for kind, item in queue if kind == "retry"]
+    if active is not None and active not in open_scens:
+        open_scens.append(active)
+    for scen in open_scens:
+        if scen.finalized:
+            continue
+        if scen.state.attempts_run:
+            scen.deferred.warn("Retry", "retry scenario=%s attempt=%d NOT flown: %s; "
+                                        "attempt %d is the terminal"
+                               % (scen.spec.get("id"), scen.state.attempts_run + 1,
+                                  reason, scen.state.attempts_run))
+        try:
+            _pipeline_finalize(scen, umbrella_root, logger)
+        except BaseException as exc:  # noqa: BLE001 - never mask the original
+            logger.error("Pipeline", "closing scenario=%s FAILED (%s: %s)"
+                         % (scen.spec.get("id"), type(exc).__name__, exc))
+    queue.clear()
+
+
+def _run_selection_pipelined(selected, registry, bug_ids, umbrella_root, args, runtime,
+                             logger, lock_path, expr) -> Tuple[int, bool]:
+    """The selection loop with pipelined post-quit verification. Returns
+    ``(exit_code, ran_any)``.
+
+    One lane flies at a time and at most one lane is in post-quit work, so the
+    machine lock, instance staging and KSP launch stay strictly serial. Each turn:
+    join the worker (the lane before the one that just flew), queue its retry or
+    finalize its scenario, start the worker on the lane that just flew, then fly
+    the next queued lane. A retry therefore flies one lane later than on the
+    serial path; per-scenario attempt numbering, run ids, the retry rules and the
+    terminal lines are unchanged (_ScenarioRetryState)."""
+    logger.info("Pipeline", "post-quit verification pipelined: lane N verifies on a "
+                            "private copy while lane N+1 stages and boots; a retry "
+                            "flies after the lane in flight (opt out: %s=1 or "
+                            "--serial-verify)" % hlib.SERIAL_VERIFY_ENV)
+    try:
+        # Load once here: the worker and the main loop both render sheets.
+        _load_contact_sheet_module()
+    except Exception:  # noqa: BLE001 - the sheet step logs its own failure later
+        pass
+    # A copy is deleted when its lane lands; one left behind belongs to an
+    # invocation that died mid-lane. This one holds the machine lock, so none of
+    # them is in use.
+    stale_copies = os.path.join(RESULTS_DIR, POST_QUIT_COPY_DIRNAME)
+    if os.path.isdir(stale_copies):
+        logger.info("Pipeline", "removing %d stale post-quit copy dir(s) left by an "
+                                "earlier invocation: %s"
+                    % (len(os.listdir(stale_copies)), stale_copies))
+        shutil.rmtree(stale_copies, ignore_errors=True)
+    exit_code = 0
+    ran_any = False
+    ran_count = 0
+    queue = deque(("new", spec) for spec in selected)
+    worker = None
+    flown = None
+    active = None
+    prior_ksp_killed = False
+    try:
+        while queue or worker is not None or flown is not None:
+            # `worker` is cleared only once its join has returned, so an interrupt
+            # inside the join leaves the lane where _pipeline_drain finds it.
+            if worker is not None:
+                exit_code = max(exit_code, _pipeline_join(worker, queue, umbrella_root,
+                                                          logger))
+                worker = None
+            if flown is not None:
+                pending, flown = flown, None
+                worker = _PipelineLane(*pending)
+                if worker.deferred.in_place:
+                    # Its finish reads the live instance: land it before anything
+                    # stages over that.
+                    exit_code = max(exit_code, _pipeline_join(worker, queue, umbrella_root,
+                                                              logger))
+                    worker = None
+            if not queue:
+                continue
+            # Same contract as the serial loop: losing the lock is fatal, and every
+            # scenario that has not flown gets its INVALID(instance-locked) row.
+            if not heartbeat_run_lock(lock_path, runtime, logger, selection=expr):
+                logger.error("Lock", "lost the machine lock mid-selection; a sibling has "
+                                     "reclaimed it. Stopping after %d scenario(s) rather "
+                                     "than running unlocked." % ran_count)
+                if worker is not None:
+                    exit_code = max(exit_code, _pipeline_join(worker, queue, umbrella_root,
+                                                              logger, allow_retry=False))
+                    worker = None
+                note = "machine lock lost mid-selection after %d scenario(s)" % ran_count
+                for kind, item in list(queue):
+                    if kind == "new":
+                        _write_instance_locked_result(item, note, runtime, logger)
+                    else:
+                        item.deferred.warn("Retry", "retry scenario=%s attempt=2 NOT "
+                                                    "flown: %s; attempt 1 is the terminal"
+                                           % (item.spec.get("id"), note))
+                        exit_code = max(exit_code,
+                                        _pipeline_finalize(item, umbrella_root, logger))
+                queue.clear()
+                return max(exit_code, 1), ran_any
+            kind, item = queue.popleft()
+            if kind == "new":
+                spec = item
+                mission_schemas, mission_errors = resolve_mission_schemas(spec, logger)
+                validation = hlib.validate_spec(spec, registry, bug_ids, mission_schemas)
+                for w in validation.warnings:
+                    logger.warn("Select", "spec warning id=%s: %s" % (spec.get("id"), w))
+                all_errors = list(validation.errors) + mission_errors
+                if all_errors:
+                    logger.warn("Select", "spec invalid id=%s reasons=%s"
+                                % (spec.get("id"), all_errors))
+                    flown = (None, _DeferredAttempt(
+                        None, None,
+                        lambda lg, s=spec, e=all_errors: _write_invalid_spec_result(
+                            s, e, runtime, lg)))
+                    exit_code = 1
+                    continue
+                profile = spec.get("instanceProfile")
+                instance_dir = resolve_instance_dir(profile, umbrella_root, args.instance_dir)
+                if instance_dir is None:
+                    logger.error("Admit", "cannot resolve instance dir for profile=%s" % profile)
+                    exit_code = 1
+                    continue
+                ran_any = True
+                ran_count += 1
+                scen = _PipelineScenario(spec, instance_dir, _ScenarioRetryState(
+                    spec, _resolve_run_id(spec.get("id"), 1, 1, logger).ordinal))
+            else:
+                scen = item
+            scenario_id = scen.spec.get("id")
+            attempt = scen.state.attempts_run + 1
+            active = scen
+            logger.info("Lane", hlib.format_lane_begin_message(scenario_id, attempt))
+            deferred = run_attempt(scen.spec, scen.instance_dir, umbrella_root, runtime,
+                                   attempt, scen.state.prior_boot_crashed, logger,
+                                   run_ordinal=scen.state.run_ordinal,
+                                   defer_post_quit=True,
+                                   wait_for_prior_ksp=prior_ksp_killed)
+            prior_ksp_killed = deferred.ksp_killed
+            scen.dll_sha_by_run[deferred.run_id] = _instance_dll_sha(scen.instance_dir)
+            logger.info("Lane", hlib.format_lane_end_message(deferred.run_id, scenario_id,
+                                                             attempt))
+            flown = (scen, deferred)
+            active = None
+    except BaseException as exc:
+        # An exception (or Ctrl-C): land what is in flight and close every open
+        # scenario before the caller releases the lock, then re-raise.
+        _pipeline_drain(worker, flown, queue, active, umbrella_root, logger,
+                        "the selection stopped (%s)" % type(exc).__name__)
+        raise
+    return exit_code, ran_any
 
 
 def _prebuild_tests_for_selection(runtime, logger) -> bool:

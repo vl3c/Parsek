@@ -745,6 +745,16 @@ approachWindowSeconds      = 20000
 # machine's own poll cadence argues for the clamp, and x50 is kept on a first flight
 # because the cost of being wrong is a swallowed periapsis.
 approachMaxWarpFactor      = 3
+# COAST NATIVE LEAD (owner ruling 2026-10-14, "tests pass and we still catch bugs";
+# CONFIRMED: run 2026-10-14_1805 PASS, 1,719 s vs 1,763 s): the SOI native warp stops 400 game s short of the
+# Mun EXIT (rounds still pending there) instead of soiLeadSeconds 3,000. mlib
+# rejects a value under 120 + 4 x RAILS_WARP_RATES[3] = 120 + 4 x 50 = 320. On the
+# Minmus approach, while an arrival re-correction round is left, the arrival-window
+# rule (mlib.coast_soi_arrival_lead) lifts the lead back to soiLeadSeconds 3,000 so
+# the coast stops inside that round's 600-3,600 s window; the saving is the Mun
+# exit only. The flyby EXIT warp keeps soiLeadSeconds; triggerNativeLeadSeconds
+# stays off.
+soiNativeLeadSeconds       = 400
 # LIVE, and the one warp key on this lane whose value is actually consumed twice: it
 # is the rails-stair FLOOR in COAST-TO-TARGET.
 flybyWarpFactor            = 2

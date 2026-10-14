@@ -1019,6 +1019,11 @@ approachMaxWarpFactor      = 3
 #     retarget drift plus one pessimistic 4 s frame at the cap.
 #   triggerNativeLeadSeconds 30: the correction-trigger native warp (target = the
 #     trigger UT) stays armed until 30 game s before the trigger.
+#   ARRIVAL WINDOW (2026-10-14, after B25 2026-10-14_1726 skipped its arrival
+#     re-correction this way): on the Vall approach, while an arrival extra round
+#     is left, mlib.coast_soi_arrival_lead lifts the SOI lead back to
+#     soiLeadSeconds 3,000 so the coast stops inside that round's 600-3,600 s
+#     window; the Laythe exit keeps 400.
 # The flyby EXIT warp keeps soiLeadSeconds. Both default 0 = off.
 soiNativeLeadSeconds       = 400
 triggerNativeLeadSeconds   = 30

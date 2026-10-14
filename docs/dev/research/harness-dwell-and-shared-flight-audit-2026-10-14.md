@@ -1,7 +1,8 @@
 # Harness dwell and shared-flight audit (2026-10-14)
 
-Status: PROPOSAL ONLY. Nothing in this document has been applied. No spec, mission or
-harness file was changed; no flight was run. Every proposal below waits for an owner
+Status: PROPOSAL, partly applied. B1-B4 (the SAFE shared-flight merges) were accepted by
+owner ruling B on 2026-10-14 and are implemented on branch `shared-flight-merges` (no flight
+yet; each host owes one confirm flight). Everything else below still waits for an owner
 decision, per the 2026-10-14 rulings:
 
 - (A) dwell lanes: "audit, then propose cuts".
@@ -42,10 +43,10 @@ unless marked p50.
 | A7 | GS-2 / GS-3 / RF-18 / RF-20 / ST-2 | 4 operator, 1 nightly | `postDeployDwellSeconds` 45 -> 20 | ~25 each | SAFE\* (low value) |
 | A8 | B13 / B14 landed dwell | nightly | none | 0 | NO |
 | A9 | GS-7 PLAYBACK-WAIT (349 s) and the kx replay waits generally | - | none | 0 | NO |
-| B1 | GS-4 absorbed into GS-9 | nightly | retire GS-4's flight, carry its expectations on GS-9 | ~325 (p50 338) | SAFE |
-| B2 | B2-lko-ascent absorbed into PWR-2 | nightly | carry B2's expectations on PWR-2 | ~272 | SAFE |
-| B3 | CL-1 absorbed into CL-2 | nightly | carry CL-1's expectations on CL-2 | ~154 | SAFE (reverses a recorded design choice) |
-| B4 | CL-3 absorbed into CL-4 | operator | carry CL-3's expectations on CL-4 | ~64 | SAFE |
+| B1 | GS-4 absorbed into GS-9 | nightly | retire GS-4's flight, carry its expectations on GS-9 | ~325 (p50 338) | SAFE; implemented on branch shared-flight-merges |
+| B2 | B2-lko-ascent absorbed into PWR-2 | nightly | carry B2's expectations on PWR-2 | ~272 | SAFE; implemented on branch shared-flight-merges |
+| B3 | CL-1 absorbed into CL-2 | nightly | carry CL-1's expectations on CL-2 | ~154 | SAFE (reverses a recorded design choice); implemented on branch shared-flight-merges |
+| B4 | CL-3 absorbed into CL-4 | operator | carry CL-3's expectations on CL-4 | ~64 | SAFE; implemented on branch shared-flight-merges |
 | B5 | B17 absorbed into V3C | nightly | carry B17's expectations on V3C | ~810 | NEEDS-RE-PIN + harvest-source caveat |
 | B6 | B11 absorbed into V1 | nightly | carry B11's expectations on V1 | ~715 | NEEDS-RE-PIN + harvest-source caveat |
 | B7 | RF-18 into RF-20, CI-9 into VN-10, RF-1 into RF-4, VN-2 into VN-9 | mixed | - | - | NO (checked, conflicts) |
@@ -278,6 +279,12 @@ vs landed), so the orbit lane's terminal tokens never fire on the landing flight
 
 ### B1. GS-4-kerbalx-rewind-watch into GS-9-kerbalx-repeat-rewind (nightly) - SAFE
 
+IMPLEMENTED on branch `shared-flight-merges` (2026-10-14): GS-4's 4 missing required
+tokens, its rewindPoints {1,1} pin, its unityExceptions block (maxTotal 6,
+maxParsekFrames 0) and its D1 / D5 / D12 / D14 / D16 claims moved to GS-9; GS-4 deleted.
+The merged GS-9 spec re-evaluated offline PASS against `2026-10-11_1542`. Confirm flight
+owed.
+
 Same mission, fixture and steps; the only param difference is `rewindCycles = 2` on GS-9
 (GS-9's header: "REPEAT-REWIND IDEMPOTENCE on the GS-4 subject"). Evaluated against host
 run `2026-10-11_1542_GS-9-kerbalx-repeat-rewind`: GS-4's 20 required tokens all present,
@@ -290,6 +297,10 @@ claims, and GS-4's `[dimensionsCovered]` move to GS-9.
 
 ### B2. B2-lko-ascent into PWR-2-physwarp-ascent-medium (nightly) - SAFE
 
+IMPLEMENTED on branch `shared-flight-merges` (2026-10-14): B2's gates were already on
+PWR-2 verbatim; its D1 / D3 / D4 claims moved; B2 deleted. The merged PWR-2 spec
+re-evaluated offline PASS against `2026-10-12_0741`. Confirm flight owed.
+
 PWR-2 flies "B2's LKO ascent" with `samplingDensity = 1`, which is the default
 (`ParsekSettings.cs:213`), then adds a 4x physics-warp coast before `CommitTree`. Evaluated
 against `2026-10-12_0741_PWR-2`: B2's 3 required tokens present, forbidden clean,
@@ -299,6 +310,11 @@ carries the physics-warp tail. If B2 is meant as the un-warped control for the P
 keep it; nothing in the PWR specs reads B2's results.
 
 ### B3. CL-1-pod-impact into CL-2-pod-impact-ledger (nightly) - SAFE, owner call
+
+IMPLEMENTED on branch `shared-flight-merges` (2026-10-14), the owner accepting the
+reversal: CL-1's gates and claims were already on CL-2; CL-1 deleted and its
+no-commit / no-ledger atom cells retired. The merged CL-2 spec re-evaluated offline
+PASS against `2026-10-11_1443`. Confirm flight owed.
 
 Evaluated against `2026-10-11_1443_CL-2`: CL-1's 8 required tokens present, forbidden
 clean, recordings.count 1 in {1,1}. Saves ~154 s per nightly. CL-2 adds `autoMerge = true`
@@ -310,6 +326,11 @@ report show the atom and its extension separately"), guarded by
 Accepting B3 reverses that choice.
 
 ### B4. CL-3-refly-crew-tombstone into CL-4-refly-crew-standin (operator) - SAFE
+
+IMPLEMENTED on branch `shared-flight-merges` (2026-10-14): CL-3's gating
+recordings.structure block and its D1 / D9 / D12 claims moved to CL-4 (its rewind
+floors are implied by CL-4's tighter tombstones >= 2); CL-3 deleted. The merged CL-4
+spec re-evaluated offline PASS against `2026-10-12_1813`. Confirm flight owed.
 
 CL-4 is CL-3 plus `verboseLogging = true`. Evaluated against `2026-10-12_1813_CL-4`: 8
 required present, forbidden clean, count 4 >= 1, trees 1, committedTrees 1, recordings 4,

@@ -48,7 +48,31 @@ import mlib                     # noqa: E402
 import oracle                   # noqa: E402
 
 SPEC_PATH = os.path.join(_HARNESS, "scenarios", "CL-2-pod-impact-ledger.toml")
+# CL-1-pod-impact was absorbed into this spec on 2026-10-14 (owner ruling B, shared-flight
+# merges) and its file deleted; the path is kept so a re-added CL-1 reds below.
 CL1_SPEC_PATH = os.path.join(_HARNESS, "scenarios", "CL-1-pod-impact.toml")
+
+# CL-1's gating contract as last committed (origin/main 41abe0984), pinned as literals
+# because the spec that held it is gone and this spec is now the only place it runs.
+CL1_REQUIRED = (
+    "Recording started",
+    "Destroy-reason override: .* reason=destroy_event",
+    "Active vessel destroyed during recording",
+    "Active vessel destroyed in tree mode",
+    "Game state: CrewStatusChanged 'Jebediah Kerman' Assigned .* Dead",
+    "ShowPostDestructionTreeMergeDialog: finalized tree",
+    "pending tree stashed",
+    "Recording stopped",
+)
+CL1_FORBIDDEN = (r"\[Parsek\]\[ERROR\]",)
+CL1_COUNT = {"min": 1, "max": 1}
+CL1_FIXTURE = {"saveTemplate": "fixtures/saves/career-pad-craft",
+               "injectedRecordings": "none", "craft": []}
+CL1_MISSION_PARAMS = {"throttle": 1.0, "crewName": "Jebediah Kerman",
+                      "flightTimeoutSeconds": 300,
+                      "landedSituations": ["LANDED", "SPLASHED"]}
+CL1_CLAIMS = {"D1": ("auto-record-launch",), "D12": ("crew-death-in-flight",),
+              "D14": ("kerbin", "career", "scene-flight")}
 REGISTRY_PATH = os.path.join(_HARNESS, "coverage", "registry.toml")
 
 # MEASURED career pools, identical across the two archived CL-1 flights
@@ -112,49 +136,40 @@ def _index_of_mission(spec):
 # ---------------------------------------------------------------------------
 
 
-class Cl2ExtendsCl1WithoutEditingItTests(unittest.TestCase):
-    """CL-1 stays the ATOM and CL-2 is the extension. If a future change collapses
-    them back into one spec, `test_cl1_crew_loss.py`'s pins and these have to be
-    reconciled deliberately rather than silently."""
+class Cl2CarriesTheAbsorbedCl1AtomTests(unittest.TestCase):
+    """CL-1 was the ATOM and CL-2 its extension until 2026-10-14, when the owner
+    ruling on the shared-flight audit absorbed CL-1 into CL-2: CL-1's flight was a
+    prefix of this one, so this spec now carries every gate CL-1 held. These cells pin
+    that the absorbed contract survives intact, so a later edit cannot quietly drop the
+    atom's checks from the only flight that still runs them."""
 
     @classmethod
     def setUpClass(cls):
         cls.spec = _read_spec(SPEC_PATH)
-        cls.cl1 = _read_spec(CL1_SPEC_PATH)
 
-    def test_cl1_is_untouched_and_still_declares_no_ledger_block(self):
-        # The mirror of test_cl1_crew_loss.py's own cell, asserted from THIS side:
-        # the whole reason CL-2 exists as a separate spec id is that adding a ledger
-        # block or a commit route to CL-1 would red that cell. A future author who
-        # "consolidates" the two specs reds here as well as there.
-        self.assertNotIn("ledger", self.cl1["expectations"])
-        self.assertNotIn("CommitTree", [s.get("cmd") for s in self.cl1["driver"]["steps"]])
-        self.assertNotIn("ExitToSpaceCenter",
-                         [s.get("cmd") for s in self.cl1["driver"]["steps"]])
+    def test_cl1_is_absorbed_not_duplicated(self):
+        # A re-added CL-1 would fly the same flight twice for no new check.
+        self.assertFalse(os.path.exists(CL1_SPEC_PATH),
+                         "CL-1 was absorbed into CL-2 on 2026-10-14; re-adding it is "
+                         "a new owner decision")
 
-    def test_the_two_specs_are_distinct_ids(self):
+    def test_this_spec_id(self):
         self.assertEqual("CL-2-pod-impact-ledger", self.spec["id"])
-        self.assertNotEqual(self.cl1["id"], self.spec["id"])
 
-    def test_the_fixture_is_shared_verbatim(self):
-        # NOT a new fixture: `FixtureDriftTests` (test_cl1_crew_loss.py) is what keeps
-        # career-pad-craft honest, and it only guards the ONE path. A CL-2 that forked
-        # the fixture would be unguarded.
-        self.assertEqual(self.cl1["fixture"], self.spec["fixture"])
+    def test_the_fixture_is_cl1s_verbatim(self):
+        # `FixtureDriftTests` (test_cl1_crew_loss.py) keeps career-pad-craft honest
+        # and only guards that ONE path.
+        self.assertEqual(CL1_FIXTURE, self.spec["fixture"])
 
-    def test_the_mission_and_its_params_are_shared_verbatim(self):
-        # The flight profile is the claim "same atom, one more step". A divergent
-        # missionParams value here would fork the profile the two specs share, and the
-        # measured numbers in CL-2's ledger manifest come from CL-1's flights.
+    def test_the_mission_and_its_params_are_cl1s_verbatim(self):
+        # The measured numbers in the ledger manifest come from CL-1's flights; a
+        # divergent missionParams value would fork the profile they describe.
         self.assertEqual("cl1_pod_impact", self.spec["driver"]["mission"])
-        self.assertEqual(self.cl1["driver"]["mission"], self.spec["driver"]["mission"])
-        self.assertEqual(self.cl1["driver"]["missionParams"],
-                         self.spec["driver"]["missionParams"])
+        self.assertEqual(CL1_MISSION_PARAMS, self.spec["driver"]["missionParams"])
 
     def test_this_spec_does_drive_a_commit_route_and_does_declare_a_ledger_block(self):
-        # THE INVERSION, in one cell. CL-1's cell asserts the negatives because the
-        # commit was UNREACHABLE on its profile; CL-2 exists because R12's
-        # ExitToSpaceCenter made it reachable, so the positives are the contract.
+        # The extension in one cell: R12's ExitToSpaceCenter made the commit
+        # reachable, so the positives are the contract.
         self.assertIn("ExitToSpaceCenter", _cmds(self.spec))
         self.assertIn("ledger", self.spec["expectations"])
         self.assertIsInstance(self.spec["expectations"]["ledger"], dict)
@@ -165,19 +180,24 @@ class Cl2ExtendsCl1WithoutEditingItTests(unittest.TestCase):
         # be false. (A future OUTCOME-role post-mission verb would change this.)
         self.assertIsNone(mlib.mission_handoff_contract(self.spec["driver"]["mission"]))
 
-    def test_every_cl1_required_token_survives_into_cl2(self):
-        # CL-2 is a SUPERSET of the atom, not a divergent fork: the recorder-side
-        # tokens must all still be gated, so a regression in the destruction path
-        # reds on both specs rather than only on the nightly one.
+    def test_every_cl1_required_token_survives(self):
         cl2_required = self.spec["expectations"]["logContracts"]["required"]
-        for token in self.cl1["expectations"]["logContracts"]["required"]:
+        for token in CL1_REQUIRED:
             self.assertIn(token, cl2_required,
-                          "CL-2 dropped CL-1's required token %r; it must remain a "
-                          "superset of the atom" % token)
+                          "CL-2 dropped absorbed CL-1's required token %r" % token)
 
-    def test_the_forbidden_pattern_is_unchanged(self):
-        self.assertEqual(self.cl1["expectations"]["logContracts"]["forbidden"],
-                         self.spec["expectations"]["logContracts"]["forbidden"])
+    def test_cl1s_forbidden_pattern_survives(self):
+        for token in CL1_FORBIDDEN:
+            self.assertIn(token, self.spec["expectations"]["logContracts"]["forbidden"])
+
+    def test_cl1s_count_window_is_kept(self):
+        self.assertEqual(CL1_COUNT, self.spec["expectations"]["recordings"]["count"])
+
+    def test_cl1s_claims_survive(self):
+        claims = self.spec["dimensionsCovered"]
+        for dim, values in CL1_CLAIMS.items():
+            for value in values:
+                self.assertIn(value, claims.get(dim, []), "%s %s" % (dim, value))
 
 
 # ---------------------------------------------------------------------------

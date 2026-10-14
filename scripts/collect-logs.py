@@ -394,6 +394,9 @@ def main():
     parser.add_argument("--output-dir", default=None, help="Output base directory (default: <repo>/logs/)")
     parser.add_argument("--skip-validation", action="store_true", help="Skip KSP.log contract validation")
     parser.add_argument("--skip-recordings", action="store_true", help="Skip copying Parsek/Recordings sidecars")
+    parser.add_argument("--player-log", default=None,
+                        help="Player.log to copy instead of the machine-wide one (the harness passes "
+                             "a private copy taken before the next KSP boot rewrites it)")
     args = parser.parse_args()
 
     # Resolve KSP directory
@@ -437,7 +440,7 @@ def main():
     # KSP logs
     print("KSP logs:")
     copy_file(ksp_dir / "KSP.log", out_dir)
-    player_log = find_player_log()
+    player_log = Path(args.player_log) if args.player_log else find_player_log()
     if player_log:
         copy_file(player_log, out_dir)
     copy_file(ksp_dir / "parsek-test-results.txt", out_dir)
