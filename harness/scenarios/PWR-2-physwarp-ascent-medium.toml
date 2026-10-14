@@ -49,7 +49,7 @@
 # section on the focused vessel. The cost: B2's committed recording no longer ends at
 # the circularization; it carries the physics-warp coast. B2's full per-token
 # rationale is in git history (harness/scenarios/B2-lko-ascent.toml at origin/main
-# 41abe0984). PENDING A CONFIRM FLIGHT of this host on the merged spec.
+# 41abe0984). CONFIRMED on the merged spec: run 2026-10-14_1737 PASS.
 schema = 1
 id = "PWR-2-physwarp-ascent-medium"
 tier = "nightly"

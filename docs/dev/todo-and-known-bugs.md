@@ -3950,9 +3950,9 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   `2026-10-11_1443`, CL-4 `2026-10-12_1813`). Saves about 750 s per nightly tier run and
   64 s per operator pass. Cost accepted by the ruling: coarser failure attribution (a red in
   the host's own extension also reds the absorbed claims).
-- [ ] Confirm-fly the four merged hosts on their merged specs: GS-9-kerbalx-repeat-rewind,
-  PWR-2-physwarp-ascent-medium, CL-2-pod-impact-ledger (nightly) and CL-4-refly-crew-standin
-  (operator). Until then each host's merged gates rest on one archived run.
+- [x] ~~Confirm-fly the four merged hosts on their merged specs~~: all PASS on 2026-10-14 -
+  GS-9 `2026-10-14_1744` (492 s), PWR-2 `2026-10-14_1737` (299 s), CL-2 `2026-10-14_1742`
+  (168 s), CL-4 `2026-10-14_1753` (67 s); host walls unchanged from their prior runs.
 
 ## MISSIONS-TAB-MODEL1: the Missions tab redesign, first slice ("Model 1") [OWNER-APPROVED 2026-09-29, branch `missions-model1`. IN PROGRESS]
 

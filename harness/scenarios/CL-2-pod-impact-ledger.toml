@@ -31,8 +31,8 @@ id = "CL-2-pod-impact-ledger"
 # The cost: the atom and its extension no longer show separately in the coverage
 # report, and a red in the exit / commit / ledger half now also reds the atom's
 # claims. CL-1's full per-token rationale is in git history
-# (harness/scenarios/CL-1-pod-impact.toml at origin/main 41abe0984). PENDING A CONFIRM
-# FLIGHT of this host on the merged spec.
+# (harness/scenarios/CL-1-pod-impact.toml at origin/main 41abe0984). CONFIRMED on the
+# merged spec: run 2026-10-14_1742 PASS.
 #
 # WHAT THIS SPEC ADDS OVER CL-1, and nothing else:
 #   1. `SetSetting autoMerge=true` BEFORE the flight. MANDATORY, not stylistic -

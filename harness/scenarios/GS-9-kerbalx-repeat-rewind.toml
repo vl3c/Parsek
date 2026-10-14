@@ -167,7 +167,7 @@ id = "GS-9-kerbalx-repeat-rewind"
 # <= 6 with parsekFrames 0. The cost is coarser attribution: a red in the second cycle
 # now also reds GS-4's single-cycle claims. GS-4's full per-token rationale is in git
 # history (harness/scenarios/GS-4-kerbalx-rewind-watch.toml at origin/main 41abe0984).
-# PENDING A CONFIRM FLIGHT of this host on the merged spec.
+# CONFIRMED on the merged spec: run 2026-10-14_1744 PASS (2026-10-14).
 # =====================================================================================
 tier = "nightly"
 description = "Repeat-rewind idempotence on the GS-4 subject (ghost-replay Tier B item 8): staged Kerbal X ascent, commit, Rewind-to-Launch, Jumping Flea watch anchor, map view + watch mode, playback to completion - then a SECOND Rewind-to-Launch off the SAME committed tree with the same watcher and the same watch, via the kx machine's new rewindCycles=2 opt-in. Asks whether the parsek_rw_* quicksave is reusable and whether the second replay renders and derenders exactly what the first did. READ 2026-09-10 (`2026-09-10_1944`, PASS attempt 1, outcome O1 IDEMPOTENT: the same parsek_rw_ quicksave reloaded twice, 8 MeshSpawned + 8 MeshDestroyed in each cycle). ARMED off those bytes: ghostLifecycle gating at exact 8 / 16 / 16 and a per-cycle exactly-8 census in the logContracts. LIVE-PROVEN 2026-09-11: armed re-flight `2026-09-11_0109` PASS (O1 again, 8 + 8 per cycle) and negative control `2026-09-11_0119` (destroyLines 16 -> 17) red PARSEK-FAIL(ghost-lifecycle) on exactly that window; D9 rewind-to-launch and D6 basic-playback / mesh-lifecycle-derender re-claimed."

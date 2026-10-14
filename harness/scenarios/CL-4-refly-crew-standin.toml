@@ -131,8 +131,8 @@ tier = "operator"
 # CL-3's full per-token rationale, including its DELIBERATELY NOT CLAIMED list (D8,
 # D9 head-tip-split / terminal-kind-classify, D4), is in git history
 # (harness/scenarios/CL-3-refly-crew-tombstone.toml at origin/main 41abe0984); those
-# omissions still hold for this lane. PENDING A CONFIRM FLIGHT of this host on the
-# merged spec.
+# omissions still hold for this lane. CONFIRMED on the merged spec:
+# run 2026-10-14_1753 PASS.
 # =====================================================================================
 description = "Stage B's last flight-closable cell, D12 stand-ins: CL-3's crew-loss re-fly (career-pad-craft + rewind-crew-loss, rewind rp_cl_root slot 1, relaunch, merge) with the tombstone's release of the death-sourced permanent reservation gated through to the Parsek-generated stand-in that release triggers."
 instanceProfile = "stock-minimal"
