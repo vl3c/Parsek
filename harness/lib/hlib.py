@@ -11263,23 +11263,93 @@ def deterministic_seam_error_retry_skip(result: Dict) -> Optional[Dict]:
             "verb": step.get("cmd"), "seamVerdict": step.get("verdict")}
 
 
+# ---------------------------------------------------------------------------
+# Deterministic mission losses are not retried either (same operator ruling). A
+# mission verdict is retried by default because most autopilot failures are
+# random; a reason whose leading token is named here is a mission terminal that
+# the same fixture and the same drive reproduce. run.py copies the mission's
+# reason onto its row as ``missionReason`` only when that token is in this set,
+# so every other mission row stays byte-identical.
+#
+#   orbit-lost: mlib's IN-ORBIT INVARIANT. A B-DOCK stay-in-orbit phase whose
+#     craft re-entered on a sub-atmospheric periapsis. BDOCK-2 2026-10-12_1748
+#     and its re-flight 2026-10-13_0309 flew the same rendezvous node into the
+#     same 97 x 31 km orbit (todo BDOCK2-RENDEZVOUS-PHASING-BURN-DEORBITS-THE-
+#     INTERCEPTOR): the node is planned from the fixture's geometry.
+# ---------------------------------------------------------------------------
+DETERMINISTIC_MISSION_REASONS: Tuple[str, ...] = ("orbit-lost",)
+MISSION_REASON_KEY = "missionReason"
+RETRY_SKIP_RULE_DETERMINISTIC_MISSION_LOSS = "deterministic-mission-loss"
+
+
+def mission_reason_token(reason: Optional[str]) -> str:
+    """The leading token of a mission verdict reason: the text before the first
+    ':' or whitespace (``orbit-lost: phase ...`` reads ``orbit-lost``). ""
+    when absent or not a string."""
+    if not isinstance(reason, str):
+        return ""
+    head = reason.strip().split(None, 1)
+    if not head:
+        return ""
+    return head[0].split(":", 1)[0]
+
+
+def is_deterministic_mission_reason(reason: Optional[str]) -> bool:
+    """True when a mission reason names a deterministic loss (see the set)."""
+    return mission_reason_token(reason) in DETERMINISTIC_MISSION_REASONS
+
+
+def deterministic_mission_loss_retry_skip(result: Dict) -> Optional[Dict]:
+    """The ``retrySkipped`` record when this attempt failed on a mission row whose
+    MISSION-ASSERT-FAIL reason is a deterministic loss, else None.
+
+    All must hold: the attempt is INVALID(mission); its unmet mission row carries
+    ``missionVerdict`` MISSION-ASSERT-FAIL and a ``missionReason`` whose token is
+    in DETERMINISTIC_MISSION_REASONS. Pure."""
+    if not isinstance(result, dict):
+        return None
+    if result.get("verdict") != VERDICT_INVALID or result.get("subkind") != "mission":
+        return None
+    steps = ((result.get("driver") or {}).get("steps")) or []
+    row = next((s for s in steps
+                if isinstance(s, dict) and s.get("phase") == "mission"), None)
+    if row is None or row.get("met") is not False:
+        return None
+    if row.get("missionVerdict") != MISSION_VERDICT_ASSERT_FAIL:
+        return None
+    reason = row.get(MISSION_REASON_KEY)
+    if not is_deterministic_mission_reason(reason):
+        return None
+    return {"rule": RETRY_SKIP_RULE_DETERMINISTIC_MISSION_LOSS,
+            "reason": mission_reason_token(reason), "stepId": str(row.get("id", "")),
+            "missionVerdict": row.get("missionVerdict")}
+
+
 def decide_retry(verdict: Verdict, attempt: int, retry_policy: str,
                  result: Optional[Dict]) -> Tuple[bool, Optional[Dict]]:
     """``(retry, retrySkipped)`` for one finished attempt.
 
-    ``should_retry`` decides first and is unchanged; only when it says retry is the
-    deterministic-seam-error veto consulted. The verdict and subkind are never
-    touched: the veto changes the retry decision and nothing else."""
+    ``should_retry`` decides first and is unchanged; only when it says retry are
+    the two vetoes consulted (a deterministic seam error, a deterministic mission
+    loss). The verdict and subkind are never touched: a veto changes the retry
+    decision and nothing else."""
     if not should_retry(verdict, attempt, retry_policy):
         return False, None
     skip = deterministic_seam_error_retry_skip(result or {})
+    if skip is None:
+        skip = deterministic_mission_loss_retry_skip(result or {})
     if skip is not None:
         return False, skip
     return True, None
 
 
 def format_retry_skip_line(scenario_id: str, skip: Dict) -> str:
-    """The one harness-log line written when the veto fires."""
+    """The one harness-log line written when a veto fires."""
+    if skip.get("rule") == RETRY_SKIP_RULE_DETERMINISTIC_MISSION_LOSS:
+        return ("retry skipped scenario=%s rule=%s stepId=%s missionVerdict=%s "
+                "reason=%s (deterministic mission loss; a retry would reproduce it)"
+                % (scenario_id, skip.get("rule"), skip.get("stepId"),
+                   skip.get("missionVerdict"), skip.get("reason")))
     return ("retry skipped scenario=%s rule=%s stepId=%s verb=%s seamVerdict=%s "
             "reason=%s (deterministic seam error; a retry would reproduce it)"
             % (scenario_id, skip.get("rule"), skip.get("stepId"), skip.get("verb"),

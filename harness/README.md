@@ -1478,7 +1478,10 @@ What a red means:
   verb=... reason=...` line. Recheck it by hand; every other retryable INVALID
   (timeouts, deferrals, mission / autopilot / tooling faults) still retries once.
   Contract: `docs/dev/design-autotest-harness-core.md`, "Deterministic seam
-  errors are not retried".
+  errors are not retried". A mission MISSION-ASSERT-FAIL whose reason leads with a
+  token in `hlib.DETERMINISTIC_MISSION_REASONS` (today `orbit-lost`: a B-DOCK craft
+  re-entered in a stay-in-orbit phase) is not retried either; its row carries
+  `missionReason` and the log line reads `rule=deterministic-mission-loss`.
 - **XPASS** - amber. An expected-fail guard now passes: confirm the bug is
   closed, then remove the `expectedFail` key so it stops being expected.
 

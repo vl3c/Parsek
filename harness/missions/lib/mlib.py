@@ -16910,6 +16910,57 @@ BDOCK_DOCKED_TARGET_DIST_EPS = 10.0   # metres
 # the machine flakes the stall fast (well inside the transfer budget).
 BDOCK_TRANSFER_STALL_FRAMES = 20
 
+# ---------------------------------------------------------------------------
+# IN-ORBIT INVARIANT (todo BDOCK2-RENDEZVOUS-PHASING-BURN-DEORBITS-THE-INTERCEPTOR).
+#
+# From RENDEZVOUS on, every B-DOCK phase flies a craft that must stay in orbit:
+# MechJeb's rendezvous / kill-rel-vel / docking autopilots and the transfer and
+# undock steps never descend on purpose. BDOCK-2 2026-10-12_1748 and
+# 2026-10-13_0309 both executed a rendezvous node (ut 11178.2, 96.7 m/s) that
+# left the Interceptor on a 97 x 31 km orbit; it fell for ~800 game seconds and
+# the mission only ended on `vessel-lost` after the crash. Nothing rescues that
+# flight, and a re-flight of the same fixture flies the same node.
+#
+# The breach is the craft BOTH below the floor AND on an orbit whose periapsis is
+# below it: it has re-entered and nothing burned it back out. Periapsis alone is
+# not enough. The 2026-09-23_1704 BDOCK-2 PASS flew the same kind of node, read
+# pe 33 km -> -101 km for ~106 s while MechJeb's close-range intercept burns
+# climbed it back to the Station, and its altitude never dropped below 89 km.
+# The floor is the body's atmosphere top, or IN_ORBIT_AIRLESS_FLOOR_M on an
+# airless body (above the highest stock moon terrain). An unread altitude,
+# periapsis or atmosphere depth never breaches (fail open: the shared vessel-lost
+# and frozen-telemetry terminals still own a destroyed craft).
+#
+# The verdict is MISSION-ASSERT-FAIL with a reason that starts with
+# ORBIT_LOST_REASON_TOKEN; hlib.DETERMINISTIC_MISSION_REASONS names that token,
+# so run.py does not retry it (the same fixture reproduces the same node).
+ORBIT_LOST_REASON_TOKEN = "orbit-lost"
+IN_ORBIT_AIRLESS_FLOOR_M = 15000.0
+IN_ORBIT_BREACH_DEBOUNCE = DEFAULT_DEBOUNCE_K
+# Two node reads within this many seconds of each other are the same node (a
+# node's UT jitters by a fraction of a second while the executor burns it).
+IN_ORBIT_NODE_IDENTITY_SECONDS = 1.0
+
+
+def in_orbit_floor(atmosphere_depth: float,
+                   airless_floor: float = IN_ORBIT_AIRLESS_FLOOR_M) -> float:
+    """The altitude a stay-in-orbit craft must keep its periapsis above: the
+    atmosphere top, ``airless_floor`` on an airless body (depth 0), NaN when the
+    depth is unread or negative."""
+    if not _is_finite(atmosphere_depth) or atmosphere_depth < 0.0:
+        return float("nan")
+    return float(atmosphere_depth) if atmosphere_depth > 0.0 else float(airless_floor)
+
+
+def in_orbit_breached(altitude: float, periapsis: float, atmosphere_depth: float,
+                      airless_floor: float = IN_ORBIT_AIRLESS_FLOOR_M) -> bool:
+    """True when the craft is below the in-orbit floor on a sub-floor periapsis.
+    Fails open (False) on any unread input."""
+    floor = in_orbit_floor(atmosphere_depth, airless_floor)
+    if not (_is_finite(floor) and _is_finite(altitude) and _is_finite(periapsis)):
+        return False
+    return periapsis < floor and altitude < floor
+
 
 @dataclass(frozen=True)
 class BDockParams:
@@ -17130,6 +17181,18 @@ class BDockState:
     rv_idle_frames: int = 0
     rv_warp_key: str = ""
     rv_warp_decision: str = ""
+    # IN-ORBIT INVARIANT evidence (stay-in-orbit phases only). The consecutive
+    # breached-frame streak; the most recent maneuver node read (its UT and the
+    # largest dv read for it, i.e. its planned size); and, frozen at the first
+    # frame whose periapsis fell below the floor, that UT and the node read then
+    # (the burn that caused it). The low-periapsis fields clear when the
+    # periapsis climbs back above the floor.
+    orbit_breach_streak: int = 0
+    orbit_last_node_ut: Optional[float] = None
+    orbit_last_node_dv: float = float("nan")
+    orbit_pe_low_ut: Optional[float] = None
+    orbit_pe_low_node_ut: Optional[float] = None
+    orbit_pe_low_node_dv: float = float("nan")
 
 
 def bdock_initial_state(params: BDockParams) -> BDockState:
@@ -17191,6 +17254,77 @@ def _bdock_stay_or_flake(state: BDockState,
     if _bdock_over_budget(state, snapshot):
         return _bdock_flake(state)
     return state
+
+
+# The phases that fly a craft which must stay in orbit (see IN-ORBIT INVARIANT).
+# The ascents / circularizations legitimately read a sub-atmospheric periapsis and
+# SEPARATE follows a circularization, so none of them is here.
+_BDOCK_IN_ORBIT_PHASES: Tuple[str, ...] = (
+    BDOCK_RENDEZVOUS, BDOCK_MATCH_VELOCITY, BDOCK_DOCK, BDOCK_TRANSFER, BDOCK_UNDOCK)
+
+
+def _bdock_in_orbit_step(state: BDockState,
+                         snapshot: TelemetrySnapshot) -> BDockState:
+    """One stay-in-orbit frame of the IN-ORBIT INVARIANT: track the latest node,
+    freeze the node read when the periapsis first falls below the floor, and end
+    the mission MISSION-ASSERT-FAIL (reason ``orbit-lost: ...``) after
+    IN_ORBIT_BREACH_DEBOUNCE consecutive breached frames. Pure."""
+    st = state
+    if snapshot.node_count > 0 and _is_finite(snapshot.node_ut):
+        node_ut = float(snapshot.node_ut)
+        dv = float(snapshot.node_dv) if _is_finite(snapshot.node_dv) else float("nan")
+        same = (st.orbit_last_node_ut is not None
+                and abs(node_ut - st.orbit_last_node_ut) <= IN_ORBIT_NODE_IDENTITY_SECONDS)
+        if not same:
+            st = replace(st, orbit_last_node_ut=node_ut, orbit_last_node_dv=dv)
+        elif _is_finite(dv) and not (dv <= st.orbit_last_node_dv):
+            st = replace(st, orbit_last_node_dv=dv)
+    floor = in_orbit_floor(snapshot.atmosphere_depth)
+    if _is_finite(floor) and _is_finite(snapshot.periapsis):
+        if snapshot.periapsis < floor:
+            if st.orbit_pe_low_ut is None:
+                st = replace(st, orbit_pe_low_ut=(float(snapshot.ut)
+                                                  if _is_finite(snapshot.ut) else None),
+                             orbit_pe_low_node_ut=st.orbit_last_node_ut,
+                             orbit_pe_low_node_dv=st.orbit_last_node_dv)
+        elif st.orbit_pe_low_ut is not None:
+            st = replace(st, orbit_pe_low_ut=None, orbit_pe_low_node_ut=None,
+                         orbit_pe_low_node_dv=float("nan"))
+    if not in_orbit_breached(snapshot.altitude, snapshot.periapsis,
+                             snapshot.atmosphere_depth):
+        return replace(st, orbit_breach_streak=0) if st.orbit_breach_streak else st
+    streak = st.orbit_breach_streak + 1
+    st = replace(st, orbit_breach_streak=streak)
+    if streak < IN_ORBIT_BREACH_DEBOUNCE:
+        return st
+    return replace(st, done=True, verdict=MISSION_ASSERT_FAIL,
+                   loss_reason=format_orbit_lost_reason(
+                       st.phase, snapshot.periapsis, snapshot.altitude,
+                       snapshot.atmosphere_depth, st.orbit_pe_low_ut,
+                       st.orbit_pe_low_node_ut, st.orbit_pe_low_node_dv))
+
+
+def format_orbit_lost_reason(phase: str, periapsis: float, altitude: float,
+                             atmosphere_depth: float, pe_low_ut: Optional[float],
+                             node_ut: Optional[float], node_dv: float) -> str:
+    """The ``orbit-lost`` loss reason: the token first (hlib reads it), then the
+    phase, the periapsis / altitude against the floor, and the node that was
+    being flown when the periapsis first fell below it."""
+    floor = in_orbit_floor(atmosphere_depth)
+    what = ("atmosphere top" if _is_finite(atmosphere_depth) and atmosphere_depth > 0.0
+            else "airless floor")
+    if pe_low_ut is None:
+        cause = "periapsis already below it on entry"
+    elif node_ut is None:
+        cause = "periapsis fell below it at ut=%.1f with no maneuver node read" % pe_low_ut
+    else:
+        cause = ("periapsis fell below it at ut=%.1f, after the node at ut=%.1f "
+                 "planned dv=%s m/s" % (pe_low_ut, node_ut,
+                                        ("%.1f" % node_dv) if _is_finite(node_dv) else "nan"))
+    return ("%s: phase %s: pe=%.0f m alt=%.0f m are below the %.0f m %s in a "
+            "stay-in-orbit phase (%s); the craft has re-entered and cannot "
+            "complete the rendezvous"
+            % (ORBIT_LOST_REASON_TOKEN, phase, periapsis, altitude, floor, what, cause))
 
 
 def _bdock_ascent_entry_actions(target_apoapsis: float) -> List[Action]:
@@ -17614,6 +17748,13 @@ def bdock_decide(state: BDockState,
                 loss_reason=("vessel-lost (telemetry frozen %d consecutive samples "
                              "while airborne; vessel presumed destroyed)" % limit)), []
         state = replace(state, frozen_sig=new_sig, frozen_count=new_count)
+
+    # IN-ORBIT INVARIANT: a stay-in-orbit phase whose craft has re-entered ends
+    # here, deterministically named, instead of falling to the vessel-lost crash.
+    if state.phase in _BDOCK_IN_ORBIT_PHASES:
+        state = _bdock_in_orbit_step(state, snapshot)
+        if state.done:
+            return state, []
 
     p = state.params
 

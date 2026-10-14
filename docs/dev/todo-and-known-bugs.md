@@ -69,6 +69,14 @@ low any phasing orbit below it is atmospheric. Fix candidates: park the intercep
 cap MechJeb's rendezvous phasing (a lower bound on the phasing periapsis / max phasing orbits),
 then re-fly.
 
+Fail-fast (branch `bdock-failfast`): mlib's IN-ORBIT INVARIANT ends a B-DOCK stay-in-orbit phase
+(RENDEZVOUS, MATCH-VELOCITY, DOCK, TRANSFER, UNDOCK; shared by BDOCK-1/2, CI-9 and SD-1) as
+MISSION-ASSERT-FAIL `orbit-lost: ...` after 3 frames below the atmosphere top on a sub-atmospheric
+periapsis, naming pe, the floor and the node flown when pe first fell below it. On the measured
+red telemetry it fires at the atmosphere entry, ut 11496 instead of the ~12010 crash; the green
+BDOCK-2 `2026-09-23_1704` (pe to -101 km, alt never below 89 km) and BDOCK-1 never trip it.
+`orbit-lost` is in `hlib.DETERMINISTIC_MISSION_REASONS`, so run.py does not retry it.
+
 ## HARNESS-MODDED-COMPAT-NEVER-PROVISIONED: the MC lanes on modded-compat fly whatever Parsek.dll that instance last received [FILED 2026-10-12 from the operator tier. OPEN, harness]
 
 Four MC lanes (`MC-1`..`MC-3` nightly, `MC-5` operator; MC-4 is `instanceProfile =
