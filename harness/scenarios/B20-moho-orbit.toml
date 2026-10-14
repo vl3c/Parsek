@@ -386,7 +386,8 @@ soiLeadSeconds             = 100000
 approachWindowSeconds      = 200000
 approachMaxWarpFactor      = 4
 # (3) COAST NATIVE LEAD, ARMED under the owner ruling of 2026-10-14 ("tests pass and we
-# still catch bugs"; PENDING A CONFIRM FLIGHT). soiNativeLeadSeconds 600 flew green twice
+# still catch bugs"; CONFIRMED with the arrival-window rule: run 2026-10-14_1851 PASS,
+# 3,381 s vs plain main 4,135-4,678 s; the Moho approach stopped at tts 3,480). soiNativeLeadSeconds 600 flew green twice
 # (runs 2026-10-13_2255 and 2026-10-14_0154, ~1,300 s faster per run), but those flights
 # predate the arrival-window rule: the native warp ran from the Moho clock straight to
 # tts 600, past the 600-3,600 s window of the arrival-quality re-correction, so that

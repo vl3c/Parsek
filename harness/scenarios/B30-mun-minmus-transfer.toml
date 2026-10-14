@@ -746,7 +746,7 @@ approachWindowSeconds      = 20000
 # because the cost of being wrong is a swallowed periapsis.
 approachMaxWarpFactor      = 3
 # COAST NATIVE LEAD (owner ruling 2026-10-14, "tests pass and we still catch bugs";
-# PENDING A CONFIRM FLIGHT): the SOI native warp stops 400 game s short of the
+# CONFIRMED: run 2026-10-14_1805 PASS, 1,719 s vs 1,763 s): the SOI native warp stops 400 game s short of the
 # Mun EXIT (rounds still pending there) instead of soiLeadSeconds 3,000. mlib
 # rejects a value under 120 + 4 x RAILS_WARP_RATES[3] = 120 + 4 x 50 = 320. On the
 # Minmus approach, while an arrival re-correction round is left, the arrival-window

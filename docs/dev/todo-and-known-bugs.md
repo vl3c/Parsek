@@ -3883,7 +3883,7 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   blind frames and `blind_soi_hold` keeps an in-flight warp, so the key ships default-off and
   unarmed, unit-tested only. B19's 29 m main spread shows the faster coast moves
   WHEN the late correction fires, so the arrival genuinely changes, not only its noise.
-- [ ] Coast native lead armed on B20, B28 and B30 (owner ruling 2026-10-14, branch
+- [x] ~~Coast native lead armed on B20, B28 and B30~~ (owner ruling 2026-10-14, branch
   `coast-lead-b5`; new bar "tests pass and we still catch bugs" replaces the outcome-unchanged
   gate). `soiNativeLeadSeconds` (value / mlib floor / soiLeadSeconds): B20 600 / 520 / 100,000,
   B28 400 / 320 / 3,000, B30 400 / 320 / 3,000. The confirm flight B25 `2026-10-14_1726` (lead
@@ -3898,7 +3898,10 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   543,562 m parks against main's 428-497 km); its Moho approach now stops at 3,480. B26
   (400) changes on its Vall approach (3,000 while an extra is left). B21 / B22 unchanged.
   Not armed anywhere: `approachLatchNativeWarp`, `circularizeNodeWaitWarp` (B21-only),
-  `triggerNativeLeadSeconds`. Open: confirm flights of B20, B26, B28, B30.
+  `triggerNativeLeadSeconds`. Confirmed green 2026-10-14 on the arrival-window rule: B20
+  `2026-10-14_1851` (3,381 s vs plain main 4,135-4,678 s), B28 `_1834` (338 s vs 390 s), B30
+  `_1805` (1,719 s vs 1,763 s), B26 `_1839` (679 s vs 635 s; its Vall arrival re-correction
+  window is now reachable).
 - [x] Optional refresh re-flies of the b5 lanes last flown before #1958: B24, B33, B34, B35,
   B25, B28, B23 and B12. Done by the 2026-10-11 nightly and 2026-10-12 operator tiers: each
   MISSION-OK, analyzer recoverable now 51-108 s per lane (B24 108, B34 57, B35 / B25 56, B33
