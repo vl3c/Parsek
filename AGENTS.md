@@ -47,7 +47,7 @@ Its DEPLOY phase copies THIS worktree's `Source/Parsek/bin/Debug/Parsek.dll` (or
 
 **`provision.py` and `harness/run.py` are mutually exclusive machine-wide** through one lockfile, `<umbrella>/automation/.ksp-machine.lock`. Provisioning aborts `EC-10 machine locked ...` naming the holder's worktree and selection; `run.py` refuses with `INVALID(instance-locked)`. That is the guard working, not a failure. It reclaims when the holder is dead or its 8h lease expires; delete the lockfile only when certain nothing is running. Full contract: `harness/README.md` -> "The machine lock". The lock does NOT protect a finished run's produced save: a sibling run sharing the same `saveTemplate` re-stages over it within seconds, so make the snapshot + harvest (`--save-dir <snapshot>`) the first chained post-flight action, commit the fixture immediately, and never pass `--force` to a fixture harvest (the situation gate is the only thing between a clobbered save and a silently wrong fixture).
 
-Harness flights are run on request only: `python harness/tools/tier_runner.py --tier {daily|nightly|operator}` or the `run-tier` skill (`harness/README.md` -> "Running a tier on request"). Never provision or fly autonomously; provisioning replaces the automation DLL underneath every sibling session.
+Harness flights are run on request only: `python harness/tools/tier_runner.py --tier {daily|nightly|operator|longhaul}` or the `run-tier` skill (`harness/README.md` -> "Running a tier on request"). Never provision or fly autonomously; provisioning replaces the automation DLL underneath every sibling session.
 
 ### Verify the deployed DLL after building
 

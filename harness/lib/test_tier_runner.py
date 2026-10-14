@@ -383,8 +383,20 @@ class LockPreflightTests(unittest.TestCase):
 
 
 class TierVocabularyTests(unittest.TestCase):
-    def test_only_the_three_requestable_tiers_are_offered(self):
-        self.assertEqual(cr.TIER_CHOICES, ("daily", "nightly", "operator"))
+    def test_only_the_four_requestable_tiers_are_offered(self):
+        self.assertEqual(cr.TIER_CHOICES, ("daily", "nightly", "operator", "longhaul"))
+
+    def test_the_on_request_tiers_are_all_offered(self):
+        # An on-request tier this runner refused would be unflyable by type.
+        import hlib
+        for tier in hlib.ON_REQUEST_TIERS:
+            self.assertIn(tier, cr.TIER_CHOICES)
+
+    def test_longhaul_builds_an_exact_tier_argv(self):
+        self.assertEqual(cr.build_run_argv("longhaul")[2:4], ["--tier", "longhaul"])
+
+    def test_a_longhaul_log_name_is_rotatable(self):
+        self.assertIsNotNone(cr.parse_tier_run_log_stamp("longhaul_2026-10-14_120000.log"))
 
     def test_every_offered_tier_is_a_real_harness_tier(self):
         import hlib
