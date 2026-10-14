@@ -355,6 +355,56 @@ Each recommendation names its code site: the mission shell and the mlib state
 machine that drives the phase, plus the spec `missionParams` keys that control it
 (`lib/test_flighteff.py` pins every named key to a `params.get` in mlib).
 
+### Authoring a fast lane (checklist for every new spec)
+
+Owner directive 2026-10-14: a new lane ships with the speed work already done, so no
+later efficiency pass has to revisit it. The 2026-10-11..14 passes (PRs #2080-#2095) are
+where each item below came from. Apply every item that fits the lane, and say in the
+spec header which ones were considered and not applied, and why. The bar is the owner's:
+the lane must still pass and still catch the bugs it exists for; faster is better within
+that.
+
+1. **Reuse a flight before adding one.** If the new lane's flight is a prefix of (or
+   identical to) an existing lane's flight on the same fixture, add its expectations,
+   tokens and `[dimensionsCovered]` claims to that host instead of writing a new spec
+   (the shared-flight merges, #2094; audit
+   `docs/dev/research/harness-dwell-and-shared-flight-audit-2026-10-14.md`).
+2. **No fixed-length idle waits.** Since #2017 an inert seam step costs one frame. A
+   wait for game time is `WarpToUT` with an explicit UT (`args = { ut = "<UT>",
+   maxRate = "1" }` when it must stay at 1x, a rails rate when it may warp), never a
+   chain of no-op steps or a wall-clock sleep (#2080, #2083).
+3. **Dwell and hold lengths are the minimum that proves the claim**, not a round
+   number: size `dwellHoldSeconds`, `dwellLeadSeconds`, `soiDwellLeadSeconds` /
+   `soiDwellTrailSeconds` and similar keys from what the verifier actually needs to
+   observe (#2090 cut V24W 900 -> 120 s, V3F / V3R 300 -> 20 s with no lost signal).
+4. **Burns stay at 1x** (owner ruling; no physics warp during a burn). Everything
+   around them warps under the mission warp policy below.
+5. **b5 coasts.** Arm `soiNativeLeadSeconds` (at least
+   `mlib.soi_native_lead_floor`, below `soiLeadSeconds`) when the coast has an SOI
+   crossing BEFORE the target approach (home-SOI exit, a planet entry before a moon);
+   a lane that starts in the target parent's orbit gains nothing from it. The target
+   approach itself stops at the arrival re-correction window
+   (`mlib.coast_soi_arrival_lead`, #2095), so never size a lead to skip that window.
+   Park-orbit round-out skips (`circularizeNodeWaitWarp`) and the approach latch need
+   a plain-main variance baseline and a confirm flight first; today only B21 arms the
+   round-out skip.
+6. **Fail fast on a doomed attempt.** When the mission can tell the outcome is
+   already lost (an orbit that re-enters in a stay-in-orbit phase, a node whose
+   resulting periapsis is inside the atmosphere), end it with a clear
+   `MISSION-ASSERT-FAIL` reason instead of riding the fall at 1x (#2092, #2093). Set
+   `[retry] policy = "none"` when the lane's outcome is deterministic, so a red is not
+   flown twice.
+7. **Tight count windows.** Pin `count`, `rewindPoints`, `tombstones` and similar
+   windows to the measured value (or the smallest honest range) after the first
+   flight, so a variance regression reds instead of hiding (#2084).
+8. **Tier by measured cost.** After the first flights, a lane whose
+   `coverage/duration.json` p50 is at least `hlib.LONGHAUL_MIN_P50_SECONDS` (1,800 s)
+   belongs in `longhaul`, not `operator` / `nightly` (#2088).
+9. **Measure before declaring it done.** Run
+   `python tools/flight_efficiency.py --scenario <id>` on the first green flight and
+   act on any 1x idle or capped-coast waste it reports, or record in the spec header
+   why it stays.
+
 ### Harness overhead (seam polling and the verifier build)
 
 Two harness-side costs the analyzer measured outside the mission (HARNESS-OVERHEAD

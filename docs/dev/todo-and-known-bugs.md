@@ -69,6 +69,15 @@ low any phasing orbit below it is atmospheric. Fix candidates: park the intercep
 cap MechJeb's rendezvous phasing (a lower bound on the phasing periapsis / max phasing orbits),
 then re-fly.
 
+Fail-fast (branch `bdock-failfast`): mlib's IN-ORBIT INVARIANT ends a B-DOCK stay-in-orbit phase
+(RENDEZVOUS, MATCH-VELOCITY, DOCK, TRANSFER, UNDOCK; the machine runs under BDOCK-1, BDOCK-2,
+CI-9, SD-1, VN-4 and VN-10) as
+MISSION-ASSERT-FAIL `orbit-lost: ...` after 3 frames below the atmosphere top on a sub-atmospheric
+periapsis, naming pe, the floor and the node flown when pe first fell below it. On the measured
+red telemetry it fires at the atmosphere entry, ut 11496 instead of the ~12010 crash; the green
+BDOCK-2 `2026-09-23_1704` (pe to -101 km, alt never below 89 km) and BDOCK-1 never trip it.
+The verdict keeps each spec's retry policy (BDOCK-2 is `none`; the others retry once).
+
 ## HARNESS-MODDED-COMPAT-NEVER-PROVISIONED: the MC lanes on modded-compat fly whatever Parsek.dll that instance last received [FILED 2026-10-12 from the operator tier. OPEN, harness]
 
 Four MC lanes (`MC-1`..`MC-3` nightly, `MC-5` operator; MC-4 is `instanceProfile =
@@ -3830,7 +3839,7 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   167,279; the two pre-change runs differ by ~980 m). B22 2026-10-03_1106 vs 2026-10-01_2235
   coast wall 368 s -> 315 s, corrections 124.10 / 72.73 (was 124.10 / 72.81), Jool park
   within 19 km of 584,339 km.
-- [ ] Opt B30 (B29: dropped, next item) into the coast native lead (and `circularizeNodeWaitWarp` where the
+- [ ] Opt B30 (armed 2026-10-14, see the coast-lead-b5 item below; B29: dropped, next item) into the coast native lead (and `circularizeNodeWaitWarp` where the
   lane has a park round-out node), then re-fly both and compare against their last runs:
   phase list, correction dv, arrival periapsis, capture and park. Last-run recoverable per
   the analyzer: B30 `2026-10-01_1009` ~740 s (capture 468 s and PARK 125 s are already fixed
@@ -3883,6 +3892,25 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   blind frames and `blind_soi_hold` keeps an in-flight warp, so the key ships default-off and
   unarmed, unit-tested only. B19's 29 m main spread shows the faster coast moves
   WHEN the late correction fires, so the arrival genuinely changes, not only its noise.
+- [x] ~~Coast native lead armed on B20, B28 and B30~~ (owner ruling 2026-10-14, branch
+  `coast-lead-b5`; new bar "tests pass and we still catch bugs" replaces the outcome-unchanged
+  gate). `soiNativeLeadSeconds` (value / mlib floor / soiLeadSeconds): B20 600 / 520 / 100,000,
+  B28 400 / 320 / 3,000, B30 400 / 320 / 3,000. The confirm flight B25 `2026-10-14_1726` (lead
+  400) went MISSION-ASSERT-FAIL, Laythe pe -152 km: the native warp ran from tts 473,306 to
+  tts 400, straight past the arrival re-correction window (600-3,600 s), where the unarmed
+  `2026-10-12_1620` re-corrected at tts ~2,517 to pe 71 km. Fix: `mlib.coast_soi_arrival_lead`
+  lifts an armed lead to min(soiLeadSeconds, 3,480) while that round can still fire (rounds
+  done, corrections on, an extra left, SOI clock not naming another body); non-target
+  crossings keep the short lead. That leaves B23 / B24 / B25 / B33 / B34 / B35 (start in the
+  target parent's orbit, so the target approach is their only crossing) nothing to save, so
+  they are NOT armed. B20's two greens at 600 skipped the window too (likely its 381,492 /
+  543,562 m parks against main's 428-497 km); its Moho approach now stops at 3,480. B26
+  (400) changes on its Vall approach (3,000 while an extra is left). B21 / B22 unchanged.
+  Not armed anywhere: `approachLatchNativeWarp`, `circularizeNodeWaitWarp` (B21-only),
+  `triggerNativeLeadSeconds`. Confirmed green 2026-10-14 on the arrival-window rule: B20
+  `2026-10-14_1851` (3,381 s vs plain main 4,135-4,678 s), B28 `_1834` (338 s vs 390 s), B30
+  `_1805` (1,719 s vs 1,763 s), B26 `_1839` (679 s vs 635 s; its Vall arrival re-correction
+  window is now reachable).
 - [x] Optional refresh re-flies of the b5 lanes last flown before #1958: B24, B33, B34, B35,
   B25, B28, B23 and B12. Done by the 2026-10-11 nightly and 2026-10-12 operator tiers: each
   MISSION-OK, analyzer recoverable now 51-108 s per lane (B24 108, B34 57, B35 / B25 56, B33
@@ -3956,6 +3984,19 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   verification". MEASURED 2026-10-14, the daily tier (27 lanes) flown back to back from this
   branch: serial (`--serial-verify`) 1,425 s, pipelined 1,242 s, 183 s (13%, ~6.8 s per lane)
   saved, all 27 lanes PASS both ways. At that rate a ~200-lane nightly saves ~20 min.
+- [x] Shared flights, owner ruling B 2026-10-14 on
+  `docs/dev/research/harness-dwell-and-shared-flight-audit-2026-10-14.md` (the four SAFE
+  rows), branch `shared-flight-merges`: GS-4 into GS-9, B2 into PWR-2, CL-1 into CL-2 (nightly)
+  and CL-3 into CL-4 (operator). Each absorbed lane flew a prefix of its host's flight; its
+  gating expectations and `[dimensionsCovered]` claims moved onto the host and the spec was
+  deleted (384 -> 380 scenarios). Every moved gate was evaluated offline against the host's
+  latest archived run and holds (GS-9 `2026-10-11_1542`, PWR-2 `2026-10-12_0741`, CL-2
+  `2026-10-11_1443`, CL-4 `2026-10-12_1813`). Saves about 750 s per nightly tier run and
+  64 s per operator pass. Cost accepted by the ruling: coarser failure attribution (a red in
+  the host's own extension also reds the absorbed claims).
+- [x] ~~Confirm-fly the four merged hosts on their merged specs~~: all PASS on 2026-10-14 -
+  GS-9 `2026-10-14_1744` (492 s), PWR-2 `2026-10-14_1737` (299 s), CL-2 `2026-10-14_1742`
+  (168 s), CL-4 `2026-10-14_1753` (67 s); host walls unchanged from their prior runs.
 
 ## MISSIONS-TAB-MODEL1: the Missions tab redesign, first slice ("Model 1") [OWNER-APPROVED 2026-09-29, branch `missions-model1`. IN PROGRESS]
 

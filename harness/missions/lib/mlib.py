@@ -222,7 +222,8 @@ EVA4_PHASES: Tuple[str, ...] = (EVA4_PRELAUNCH, EVA4_ASCENT, EVA4_COAST, EVA4_DE
 EVA4_WINDOW_DEBOUNCE_K = 2
 
 # ---------------------------------------------------------------------------
-# CL-1 phase names (mission cl1_pod_impact; scenario CL-1-pod-impact). THE ATOM
+# CL-1 phase names (mission cl1_pod_impact; flown by scenario CL-2-pod-impact-ledger,
+# which absorbed scenario CL-1-pod-impact on 2026-10-14). THE ATOM
 # of the crew-loss lane: a crewed pod launches, does NOT deploy a chute, and hits
 # the ground. The crew dies. That is the entire mission.
 #
@@ -5226,7 +5227,10 @@ class B5Params:
                                            # pessimistic 4 s frame at the rails
                                            # ceiling); b5_params_from_dict
                                            # rejects a smaller value. The flyby
-                                           # EXIT warp keeps soi_lead. Spec key
+                                           # EXIT warp keeps soi_lead. While an
+                                           # arrival extra round can still fire,
+                                           # coast_soi_arrival_lead lifts it to
+                                           # min(soi_lead, 3,480). Spec key
                                            # soiNativeLeadSeconds.
     trigger_native_lead: float = 0.0       # GAME s. When > 0, the TIME-mode
                                            # correction-trigger native warp
@@ -12068,6 +12072,63 @@ def coast_trigger_native_lead(params: "B5Params") -> Tuple[float, str]:
     return params.trigger_native_lead, "trigger-native"
 
 
+# Where an armed SOI native lead stops the coast while the ARRIVAL-QUALITY
+# RE-CORRECTION can still fire: the top of its window, less the retarget drift.
+# The native target is re-issued only when the SOI estimate moves more than
+# WARP_RETARGET_THRESHOLD_SECONDS, so the warp lands at tts in [3,360, 3,600].
+# From the low end, (3,360 - 600) / (4 s x RAILS_WARP_RATES[cap]) pessimistic
+# rails frames remain inside the window before tts reaches
+# ARRIVAL_RECORRECT_MIN_TTS_SECONDS: 13.8 at cap 3 (x50), 6.9 at cap 4 (x100),
+# both above the ARRIVAL_BAD_DEBOUNCE_FRAMES + 1 = 4 the gate needs. Cap 5
+# (x1,000) cannot hold the debounce in this window at a pessimistic frame
+# whatever the lead, so the lanes flying it keep their own sizing.
+ARRIVAL_WINDOW_NATIVE_LEAD_SECONDS = (ARRIVAL_RECORRECT_MAX_TTS_SECONDS
+                                      - WARP_RETARGET_THRESHOLD_SECONDS)
+
+
+def arrival_recorrect_open(params: "B5Params", rounds_pending: bool,
+                           extra_rounds_done: int, next_body: str) -> bool:
+    """PURE. True iff the ARRIVAL-QUALITY RE-CORRECTION could still fire on
+    this coast: corrections enabled, no altitude / time round pending, an extra
+    round left, and the SOI clock not POSITIVELY naming another body.
+
+    The arrival periapsis and the tts window are deliberately NOT read: the
+    point is to stop the native warp where the gate can look, and the conic
+    read flaps under warp. The next-body term fails OPEN (a blank read counts
+    as the target), so a blank frame can only pull the native target EARLIER;
+    a positively foreign clock (the home-SOI exit, a planet entry before a
+    moon) keeps the short lead. In the transfer-parent frame a foreign reading
+    is already held by coast_foreign_soi_clock_hold before any target is
+    derived, so it cannot push an in-flight warp later either."""
+    return (not rounds_pending
+            and params.course_correct_periapsis > 0.0
+            and extra_rounds_done < MAX_ARRIVAL_EXTRA_ROUNDS
+            and soi_clock_describes_target(next_body, params.target_body))
+
+
+def coast_soi_arrival_lead(params: "B5Params", lead: float, reason: str,
+                           arrival_open: bool) -> Tuple[float, str]:
+    """PURE. The SOI native lead after the arrival-window rule.
+
+    An armed ``soiNativeLeadSeconds`` shorter than the arrival re-correction
+    window would native-warp straight past it (B25 2026-10-14_1726: lead 400
+    from tts 473,306 to tts 400, the extra round never looked, and Laythe
+    arrived at pe -152 km where the unarmed 2026-10-12_1620 re-corrected at
+    tts ~2,517 to pe 71 km). While ``arrival_open``, the lead is therefore at
+    least ``min(soi_lead, ARRIVAL_WINDOW_NATIVE_LEAD_SECONDS)``: soi_lead itself
+    when it already sits inside the window (the unarmed behaviour), else the
+    window top. Returns ``(lead, reason)`` unchanged when the key is unarmed
+    (``default``, so every unarmed lane is byte-identical), when the window is
+    closed, or when the armed lead is already at least that long (B21 4,200,
+    B22 10,000); otherwise ``(window lead, "arrival-window")``."""
+    if reason == "default" or not arrival_open:
+        return lead, reason
+    window_lead = min(params.soi_lead, ARRIVAL_WINDOW_NATIVE_LEAD_SECONDS)
+    if window_lead <= lead:
+        return lead, reason
+    return window_lead, "arrival-window"
+
+
 def _b5_coast_lead_note(state: "B5State", key: str,
                         detail: str = "") -> "B5State":
     """Record a coast native-lead decision. ``coast_lead_decision`` is a
@@ -15564,6 +15625,17 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # (soi_lead unless soiNativeLeadSeconds is armed). The flyby EXIT warp
         # in TARGET-FLYBY keeps soi_lead.
         soi_native_lead, soi_native_reason = coast_soi_native_lead(state.params)
+        # ARRIVAL WINDOW: an armed short lead must not native-warp past the
+        # arrival re-correction's window while that round can still fire. The
+        # branch-(b) condition, its target and the approach clamp all read this
+        # one effective lead, so an in-flight warp is never cancelled by a
+        # disagreement between them.
+        soi_native_lead, soi_native_reason = coast_soi_arrival_lead(
+            state.params, soi_native_lead, soi_native_reason,
+            arrival_recorrect_open(state.params, rounds_pending,
+                                   stayed.extra_rounds_done, snapshot.next_body))
+        lead_tag = (":" + soi_native_reason
+                    if soi_native_reason == "arrival-window" else "")
         if snapshot.node_count != 0:
             # (a) Pending node: NATIVE warp to node_ut minus the ARRIVAL
             # MARGIN (operator PR gate: nodeWarpLeadSeconds retired -- the
@@ -15672,7 +15744,7 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             native_target = snapshot.ut + snapshot.time_to_soi - soi_native_lead
             if soi_native_reason != "default":
                 stayed = _b5_coast_lead_note(
-                    stayed, "soi:native:%s" % snapshot.body,
+                    stayed, "soi:native:%s%s" % (snapshot.body, lead_tag),
                     "lead=%s (%s) tts=%s target=%s"
                     % (_obs_fmt(soi_native_lead), soi_native_reason,
                        _obs_fmt(snapshot.time_to_soi), _obs_fmt(native_target)))
@@ -15701,7 +15773,7 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                     and _is_finite(snapshot.time_to_soi)
                     and 0.0 < snapshot.time_to_soi <= soi_native_lead):
                 stayed = _b5_coast_lead_note(
-                    stayed, "soi:rails:%s" % snapshot.body,
+                    stayed, "soi:rails:%s%s" % (snapshot.body, lead_tag),
                     "lead=%s (%s) tts=%s inside the native lead; rails last-mile"
                     % (_obs_fmt(soi_native_lead), soi_native_reason,
                        _obs_fmt(snapshot.time_to_soi)))
@@ -16910,6 +16982,64 @@ BDOCK_DOCKED_TARGET_DIST_EPS = 10.0   # metres
 # the machine flakes the stall fast (well inside the transfer budget).
 BDOCK_TRANSFER_STALL_FRAMES = 20
 
+# ---------------------------------------------------------------------------
+# IN-ORBIT INVARIANT (todo BDOCK2-RENDEZVOUS-PHASING-BURN-DEORBITS-THE-INTERCEPTOR).
+#
+# From RENDEZVOUS on, every B-DOCK phase flies a craft that must stay in orbit
+# (the machine runs under BDOCK-1, BDOCK-2, CI-9, SD-1, VN-4 and VN-10):
+# MechJeb's rendezvous / kill-rel-vel / docking autopilots and the transfer and
+# undock steps never descend on purpose. BDOCK-2 2026-10-12_1748 and
+# 2026-10-13_0309 both executed a rendezvous node (ut 11178.2, 96.7 m/s) that
+# left the Interceptor on a 97 x 31 km orbit; it fell for ~800 game seconds and
+# the mission only ended on `vessel-lost` after the crash. Nothing rescues that
+# flight, and a re-flight of the same fixture flies the same node.
+#
+# The breach is the craft BOTH below the floor AND on an orbit whose periapsis is
+# below it: it has re-entered and nothing burned it back out. Periapsis alone is
+# not enough. The 2026-09-23_1704 BDOCK-2 PASS flew the same kind of node, read
+# pe 33 km -> -101 km for ~106 s while MechJeb's close-range intercept burns
+# climbed it back to the Station, and its altitude never dropped below 89 km.
+# The floor is the body's atmosphere top, or IN_ORBIT_AIRLESS_FLOOR_M on an
+# airless body (above the highest stock moon terrain). An unread altitude,
+# periapsis or atmosphere depth never breaches (fail open: the shared vessel-lost
+# and frozen-telemetry terminals still own a destroyed craft).
+#
+# The altitude is the snapshot's surface altitude (above terrain or sea), which
+# reads up to the local terrain height LOW over land, so over high ground the
+# breach can fire a few km above the real atmosphere top. The periapsis term
+# already says the craft will enter the atmosphere unless it burns, so firing
+# a few km early only ends a doomed attempt sooner.
+#
+# The verdict is MISSION-ASSERT-FAIL with a reason that starts with
+# ORBIT_LOST_REASON_TOKEN. It is retried like any mission verdict under the
+# spec's retry policy: on a launch-timing geometry a re-flight can differ.
+ORBIT_LOST_REASON_TOKEN = "orbit-lost"
+IN_ORBIT_AIRLESS_FLOOR_M = 15000.0
+IN_ORBIT_BREACH_DEBOUNCE = DEFAULT_DEBOUNCE_K
+# Two node reads within this many seconds of each other are the same node (a
+# node's UT jitters by a fraction of a second while the executor burns it).
+IN_ORBIT_NODE_IDENTITY_SECONDS = 1.0
+
+
+def in_orbit_floor(atmosphere_depth: float,
+                   airless_floor: float = IN_ORBIT_AIRLESS_FLOOR_M) -> float:
+    """The altitude a stay-in-orbit craft must keep its periapsis above: the
+    atmosphere top, ``airless_floor`` on an airless body (depth 0), NaN when the
+    depth is unread or negative."""
+    if not _is_finite(atmosphere_depth) or atmosphere_depth < 0.0:
+        return float("nan")
+    return float(atmosphere_depth) if atmosphere_depth > 0.0 else float(airless_floor)
+
+
+def in_orbit_breached(altitude: float, periapsis: float, atmosphere_depth: float,
+                      airless_floor: float = IN_ORBIT_AIRLESS_FLOOR_M) -> bool:
+    """True when the craft is below the in-orbit floor on a sub-floor periapsis.
+    Fails open (False) on any unread input."""
+    floor = in_orbit_floor(atmosphere_depth, airless_floor)
+    if not (_is_finite(floor) and _is_finite(altitude) and _is_finite(periapsis)):
+        return False
+    return periapsis < floor and altitude < floor
+
 
 @dataclass(frozen=True)
 class BDockParams:
@@ -17130,6 +17260,18 @@ class BDockState:
     rv_idle_frames: int = 0
     rv_warp_key: str = ""
     rv_warp_decision: str = ""
+    # IN-ORBIT INVARIANT evidence (stay-in-orbit phases only). The consecutive
+    # breached-frame streak; the most recent maneuver node read (its UT and the
+    # largest dv read for it, i.e. its planned size); and, frozen at the first
+    # frame whose periapsis fell below the floor, that UT and the node read then
+    # (the burn that caused it). The low-periapsis fields clear when the
+    # periapsis climbs back above the floor.
+    orbit_breach_streak: int = 0
+    orbit_last_node_ut: Optional[float] = None
+    orbit_last_node_dv: float = float("nan")
+    orbit_pe_low_ut: Optional[float] = None
+    orbit_pe_low_node_ut: Optional[float] = None
+    orbit_pe_low_node_dv: float = float("nan")
 
 
 def bdock_initial_state(params: BDockParams) -> BDockState:
@@ -17191,6 +17333,77 @@ def _bdock_stay_or_flake(state: BDockState,
     if _bdock_over_budget(state, snapshot):
         return _bdock_flake(state)
     return state
+
+
+# The phases that fly a craft which must stay in orbit (see IN-ORBIT INVARIANT).
+# The ascents / circularizations legitimately read a sub-atmospheric periapsis and
+# SEPARATE follows a circularization, so none of them is here.
+_BDOCK_IN_ORBIT_PHASES: Tuple[str, ...] = (
+    BDOCK_RENDEZVOUS, BDOCK_MATCH_VELOCITY, BDOCK_DOCK, BDOCK_TRANSFER, BDOCK_UNDOCK)
+
+
+def _bdock_in_orbit_step(state: BDockState,
+                         snapshot: TelemetrySnapshot) -> BDockState:
+    """One stay-in-orbit frame of the IN-ORBIT INVARIANT: track the latest node,
+    freeze the node read when the periapsis first falls below the floor, and end
+    the mission MISSION-ASSERT-FAIL (reason ``orbit-lost: ...``) after
+    IN_ORBIT_BREACH_DEBOUNCE consecutive breached frames. Pure."""
+    st = state
+    if snapshot.node_count > 0 and _is_finite(snapshot.node_ut):
+        node_ut = float(snapshot.node_ut)
+        dv = float(snapshot.node_dv) if _is_finite(snapshot.node_dv) else float("nan")
+        same = (st.orbit_last_node_ut is not None
+                and abs(node_ut - st.orbit_last_node_ut) <= IN_ORBIT_NODE_IDENTITY_SECONDS)
+        if not same:
+            st = replace(st, orbit_last_node_ut=node_ut, orbit_last_node_dv=dv)
+        elif _is_finite(dv) and not (dv <= st.orbit_last_node_dv):
+            st = replace(st, orbit_last_node_dv=dv)
+    floor = in_orbit_floor(snapshot.atmosphere_depth)
+    if _is_finite(floor) and _is_finite(snapshot.periapsis):
+        if snapshot.periapsis < floor:
+            if st.orbit_pe_low_ut is None:
+                st = replace(st, orbit_pe_low_ut=(float(snapshot.ut)
+                                                  if _is_finite(snapshot.ut) else None),
+                             orbit_pe_low_node_ut=st.orbit_last_node_ut,
+                             orbit_pe_low_node_dv=st.orbit_last_node_dv)
+        elif st.orbit_pe_low_ut is not None:
+            st = replace(st, orbit_pe_low_ut=None, orbit_pe_low_node_ut=None,
+                         orbit_pe_low_node_dv=float("nan"))
+    if not in_orbit_breached(snapshot.altitude, snapshot.periapsis,
+                             snapshot.atmosphere_depth):
+        return replace(st, orbit_breach_streak=0) if st.orbit_breach_streak else st
+    streak = st.orbit_breach_streak + 1
+    st = replace(st, orbit_breach_streak=streak)
+    if streak < IN_ORBIT_BREACH_DEBOUNCE:
+        return st
+    return replace(st, done=True, verdict=MISSION_ASSERT_FAIL,
+                   loss_reason=format_orbit_lost_reason(
+                       st.phase, snapshot.periapsis, snapshot.altitude,
+                       snapshot.atmosphere_depth, st.orbit_pe_low_ut,
+                       st.orbit_pe_low_node_ut, st.orbit_pe_low_node_dv))
+
+
+def format_orbit_lost_reason(phase: str, periapsis: float, altitude: float,
+                             atmosphere_depth: float, pe_low_ut: Optional[float],
+                             node_ut: Optional[float], node_dv: float) -> str:
+    """The ``orbit-lost`` loss reason: the token first, then the
+    phase, the periapsis / altitude against the floor, and the node that was
+    being flown when the periapsis first fell below it."""
+    floor = in_orbit_floor(atmosphere_depth)
+    what = ("atmosphere top" if _is_finite(atmosphere_depth) and atmosphere_depth > 0.0
+            else "airless floor")
+    if pe_low_ut is None:
+        cause = "periapsis already below it on entry"
+    elif node_ut is None:
+        cause = "periapsis fell below it at ut=%.1f with no maneuver node read" % pe_low_ut
+    else:
+        cause = ("periapsis fell below it at ut=%.1f, after the node at ut=%.1f "
+                 "planned dv=%s m/s" % (pe_low_ut, node_ut,
+                                        ("%.1f" % node_dv) if _is_finite(node_dv) else "nan"))
+    return ("%s: phase %s: pe=%.0f m alt=%.0f m are below the %.0f m %s in a "
+            "stay-in-orbit phase (%s); the craft has re-entered and cannot "
+            "complete the rendezvous"
+            % (ORBIT_LOST_REASON_TOKEN, phase, periapsis, altitude, floor, what, cause))
 
 
 def _bdock_ascent_entry_actions(target_apoapsis: float) -> List[Action]:
@@ -17614,6 +17827,13 @@ def bdock_decide(state: BDockState,
                 loss_reason=("vessel-lost (telemetry frozen %d consecutive samples "
                              "while airborne; vessel presumed destroyed)" % limit)), []
         state = replace(state, frozen_sig=new_sig, frozen_count=new_count)
+
+    # IN-ORBIT INVARIANT: a stay-in-orbit phase whose craft has re-entered ends
+    # here, deterministically named, instead of falling to the vessel-lost crash.
+    if state.phase in _BDOCK_IN_ORBIT_PHASES:
+        state = _bdock_in_orbit_step(state, snapshot)
+        if state.done:
+            return state, []
 
     p = state.params
 

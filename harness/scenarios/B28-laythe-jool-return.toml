@@ -939,6 +939,15 @@ coastWarpFactor            = 5
 soiLeadSeconds             = 3000
 approachWindowSeconds      = 10000
 approachMaxWarpFactor      = 3
+# COAST NATIVE LEAD (owner ruling 2026-10-14, "tests pass and we still catch bugs";
+# CONFIRMED: run 2026-10-14_1834 PASS, 338 s vs 390 s): the SOI native warp stops 400 game s short of the
+# boundary instead of soiLeadSeconds 3,000, and the rails last-mile (time stair +
+# approachMaxWarpFactor cap) runs unchanged from there. mlib rejects a value under
+# 120 + 4 x RAILS_WARP_RATES[3] = 120 + 4 x 50 = 320. The arrival-window rule
+# (mlib.coast_soi_arrival_lead) never lifts it here: courseCorrectPeriapsisMeters
+# is 0, so no arrival re-correction can fire. The flyby EXIT warp keeps
+# soiLeadSeconds; triggerNativeLeadSeconds stays off.
+soiNativeLeadSeconds       = 400
 flybyWarpFactor            = 3
 flybyMaxWarpFactor         = 4
 nodeArrivalMarginSeconds   = 15

@@ -3136,7 +3136,9 @@ class MissionParamsMatchTheSpecsTests(unittest.TestCase):
 
     _PAIRS = (
         ("B1_PARAMS", "B1-pad-hop"),
-        ("B2_PARAMS", "B2-lko-ascent"),
+        # B2-lko-ascent was absorbed into PWR-2 on 2026-10-14 (shared-flight merge);
+        # PWR-2 ships B2's missionParams value for value.
+        ("B2_PARAMS", "PWR-2-physwarp-ascent-medium"),
         ("B4_PARAMS", "B4-reentry-splashdown"),
         ("B5_PARAMS", "B5-mun-flyby"),
         ("B7_PARAMS", "B7-duna-flyby"),
@@ -3150,11 +3152,11 @@ class MissionParamsMatchTheSpecsTests(unittest.TestCase):
     #             keys the dict has and the spec does not)
     _KEY_DIVERGENCES = {
         # `launchSiteLatitude` is OPTIONAL in b2_lko_ascent.schema.toml and the
-        # B2 spec omits it (mlib defaults it to 0.0). The fixture sets it
+        # B2 profile (flown by PWR-2) omits it (mlib defaults it to 0.0). The fixture sets it
         # EXPLICITLY, to the same 0.0, so the optional-key parse path is
         # exercised by a fake flight instead of only by a schema unit test.
         # Behaviourally identical to the spec; kept deliberately.
-        "B2-lko-ascent": ((), ("launchSiteLatitude",)),
+        "PWR-2-physwarp-ascent-medium": ((), ("launchSiteLatitude",)),
     }
 
     # spec id -> {key: (fixture value, spec value)}

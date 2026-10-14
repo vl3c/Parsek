@@ -435,6 +435,10 @@ values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "
 # atom is meant to be extended into, not what it proves - until their own lanes took
 # them: `dead-crew-strip` by CL-3 (2026-08-05), `tombstone-rep-penalty` by CL-4
 # (2026-09-10, once the product change shipped).
+# DECLARERS SINCE THE 2026-10-14 SHARED-FLIGHT MERGES (owner ruling B): CL-1 was
+# absorbed into CL-2 (which already claimed `crew-death-in-flight`), and CL-3 into
+# CL-4, which now claims `dead-crew-strip` and CL-3's D9 re-fly cells off the same
+# tokens CL-3 carried.
 #
 # STILL UNCOVERED after `CL-2-pod-impact-ledger` (the extension's STAGE A, 2026-07-30),
 # and deliberately so: CL-2 reaches the pending-tree AUTO-COMMIT and claims the D8
@@ -593,8 +597,10 @@ values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "
 #
 # `crew-swap` - the in-flight seat swap of a reserved kerbal for its stand-in
 # (`CrewReservationManager` Pass 1): `Swapped '<reserved>' -> '<stand-in>' in part`
-# plus `Crew swap complete: N succeeded`, N >= 1. DECLARER: GS-4-kerbalx-rewind-watch
-# (the watcher Flea rolls out with a kerbal the committed future still reserves).
+# plus `Crew swap complete: N succeeded`, N >= 1. DECLARER: GS-9-kerbalx-repeat-rewind
+# since 2026-10-14 (it absorbed the original declarer GS-4-kerbalx-rewind-watch in the
+# shared-flight merges and carries both tokens; the watcher Flea rolls out with a kerbal
+# the committed future still reserves).
 #
 # `missed-endut-auto-free` - ParsekScenario's OnLoad pass that frees the crew of a
 # recording whose EndUT passed without a spawn. Its `Auto-unreserved crew for
@@ -752,7 +758,9 @@ values = ["timeline-projection"]
 # `sfs-scenario-node` - Parsek's ScenarioModule state written into the save and read
 # back: `OnSave: saving N committed tree(s)` (ParsekScenario.cs:1400), N >= 1, on a
 # lane whose gating saveParse block parses the produced save's ParsekScenario node.
-# DECLARER: GS-4-kerbalx-rewind-watch (`[expectations.rewind]`, gating).
+# DECLARER: GS-9-kerbalx-repeat-rewind since 2026-10-14 (`[expectations.rewind]`,
+# gating, rewindPoints {1,1}); it absorbed the original declarer
+# GS-4-kerbalx-rewind-watch in the shared-flight merges.
 #
 # `deflate-snapshots` IS CLAIMED by coverage wave 5 (2026-09-26). The log label alone
 # (`snapshotEncoding=DeflateV1` on `SaveRecordingFiles`) is a constant and a successful
