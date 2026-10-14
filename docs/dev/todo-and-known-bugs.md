@@ -97,10 +97,13 @@ local minimum it lands in both move with geometry, so no launch time or park orb
 Fix (branch `bdock2-rendezvous`): mlib's RENDEZVOUS NODE GUARD reads every rendezvous node's
 post-node periapsis (kRPC `Node.orbit`). A node leaving pe under the atmosphere top + 5 km never
 burns: the guard switches the AP off, clears the node, computes the coplanar Hohmann window from
-the measured phase (`target_phase_deg`, `hohmann_wait_seconds`), asks MechJeb's transfer
-operation for a FIXED-TIME node at that window (TimeSelector X_FROM_NOW: OperationGeneric then
-passes fixedTime=true, so only the transfer time is optimized), checks and flies it, then turns
-the AP back on for the arrival. One own transfer per flight; a second deorbiting node, a
+the measured phase (`target_phase_deg`, `hohmann_wait_seconds`), adds its own prograde node
+there (kRPC `Control.add_node`, vis-viva `hohmann_burn_dv`, 15.6 m/s for 689.9 -> 709.3 km),
+checks and flies it with MechJeb's node executor (rails hold carries the wait), then turns the
+AP back on for the arrival. Confirm `2026-10-14_1947` proved the guard (it caught the same
+121 m/s / pe -13.3 km node) but MechJeb's transfer operation, asked for a node at the window
+(TimeSelector X_FROM_NOW), returned one 3,719 s later (73.5 m/s, pe 59 km), so the own node is
+the machine's. One own transfer per flight; a second deorbiting node, a
 deorbiting own node or an unreadable phase ends the mission `rendezvous-plan-deorbits: ...`
 before that burn. The launch hold (`interceptorLaunchNotBeforeUt = 9195`) stays; the 60 km
 closest-approach gate is dropped (the guard catches the 26 km velocity-match node at plan time

@@ -2208,35 +2208,6 @@ class KrpcMissionControl(MissionControl):
             except Exception as exc:
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Rendezvous", "rendezvous AP disable failed: %s" % (exc,)))
-        elif kind == mlib.ACTION_MJ_PLAN_TRANSFER_AT:
-            # RENDEZVOUS NODE GUARD own transfer: OperationGeneric with its
-            # TimeSelector at X_FROM_NOW makes MechJeb plan a FIXED-TIME
-            # two-impulse intercept from that burn time (decompiled 2.15.1
-            # OperationGeneric.MakeNodesImpl: a non-COMPUTED time reference
-            # sets fixedTime=true). Read the node back and log it; the machine
-            # guards it like any rendezvous node before it flies.
-            try:
-                if len(control.nodes) > 0:
-                    control.remove_nodes()
-                op = self._mechjeb.maneuver_planner.operation_transfer
-                op.capture = False
-                op.plan_capture = False
-                op.rendezvous = True
-                ts = op.time_selector
-                ts.time_reference = self._mechjeb.TimeReference.x_from_now
-                ts.lead_time = float(action.value)
-                op.make_nodes()
-                back = control.nodes
-                _stdout_sink(mlib.format_mission_log_line(
-                    "Info", "Plan",
-                    "own transfer planned lead=%.1f s: nodes=%d ut=%s dv=%s nextPe=%s"
-                    % (float(action.value), len(back),
-                       _fmt(float(back[0].ut)) if back else "-",
-                       _fmt(float(back[0].delta_v)) if back else "-",
-                       _fmt(self._read_node_next_pe(back)))))
-            except Exception as exc:
-                _stdout_sink(mlib.format_mission_log_line(
-                    "Warn", "Plan", "own transfer make_nodes failed: %s" % (exc,)))
         elif kind == mlib.ACTION_MJ_KILL_REL_VEL:
             # Belt+braces to the rendezvous AP's own terminal match: plan +
             # execute a kill-relative-velocity node. Throw/log/swallow (a

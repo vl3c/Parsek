@@ -21,8 +21,10 @@ onto a 101.6 x -13.5 km orbit. Geometry alone cannot make MechJeb's planner safe
 THE FIX. The RENDEZVOUS NODE GUARD never lets a node burn whose post-node
 periapsis (kRPC Node.orbit) is under the atmosphere top + 5 km: it switches the
 AP off, clears the node, computes the coplanar Hohmann window from the measured
-phase, asks MechJeb for a FIXED-TIME transfer at that time, flies it, and turns
-the AP back on for the arrival. The launch hold stays: it keeps the 26 km pass
+phase, adds its own prograde node there (kRPC Control.add_node, the vis-viva
+Hohmann dv), guards and flies it, and turns the AP back on for the arrival.
+MechJeb's transfer operation was tried first and, asked for that time on
+2026-10-14_1947, returned a node 3,719 s later (73.5 m/s, pe 59 km). The launch hold stays: it keeps the 26 km pass
 out of the first orbit.
 
 The GEOMETRY cells propagate the fixture's Station orbit and the 2026-10-13
@@ -47,6 +49,7 @@ for _p in (_MISSIONS, _HERE):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import mission_runner  # noqa: E402
 import mlib  # noqa: E402
 from test_mlib import snap  # noqa: E402
 
@@ -263,6 +266,106 @@ class NodeGuardPureTests(unittest.TestCase):
         self.assertIsNone(mlib.hohmann_wait_seconds(10.0, 7e5, 7e5, KERBIN_MU))
 
 
+def _prograde_post_burn_pe(sma, ecc, nu_deg, dv, mu=KERBIN_MU):
+    """Periapsis altitude after a pure prograde dv at true anomaly ``nu``
+    (2D two-body)."""
+    nu = math.radians(nu_deg)
+    p = sma * (1 - ecc * ecc)
+    r = p / (1 + ecc * math.cos(nu))
+    vr = math.sqrt(mu / p) * ecc * math.sin(nu)
+    vt = math.sqrt(mu / p) * (1 + ecc * math.cos(nu))
+    v = math.hypot(vr, vt)
+    vr, vt = vr * (v + dv) / v, vt * (v + dv) / v
+    h = r * vt
+    energy = (vr * vr + vt * vt) / 2 - mu / r
+    a = -mu / (2 * energy)
+    e = math.sqrt(max(0.0, 1 + 2 * energy * h * h / (mu * mu)))
+    return a * (1 - e) - 600000.0
+
+
+class OwnTransferNodeTests(unittest.TestCase):
+    # 2026-10-14_1947 at the guard trip: sma 689,934 -> 709,291 m.
+    R1, R2 = 689934.0, 709291.0
+
+    def test_this_runs_transfer_is_a_15_6_m_s_prograde_raise(self):
+        dv = mlib.hohmann_burn_dv(self.R1, self.R2, KERBIN_MU)
+        self.assertAlmostEqual(15.60, dv, delta=0.02)
+        # BDOCK-1's MechJeb Hohmann for nearly the same raise was 17.2 m/s.
+        self.assertLess(dv, 20.0)
+
+    def test_the_post_node_periapsis_stays_at_the_park(self):
+        # Wherever along the 95 x 84 km park the window falls, a prograde
+        # 15.6 m/s burn never lowers pe below ~84 km: the guard passes it.
+        dv = mlib.hohmann_burn_dv(self.R1, self.R2, KERBIN_MU)
+        pes = [_prograde_post_burn_pe(self.R1, 0.00803, nu, dv)
+               for nu in range(0, 360, 15)]
+        self.assertGreater(min(pes), 84000.0)
+        self.assertFalse(mlib.rv_node_deorbits(1, min(pes), 70000.0))
+
+    def test_a_lower_target_is_a_retrograde_burn(self):
+        self.assertLess(mlib.hohmann_burn_dv(self.R2, self.R1, KERBIN_MU), 0.0)
+        self.assertIsNone(mlib.hohmann_burn_dv(NAN, self.R2, KERBIN_MU))
+        self.assertIsNone(mlib.hohmann_burn_dv(self.R1, self.R2, 0.0))
+
+
+class _FakeNode(object):
+    def __init__(self, ut, prograde):
+        self.ut = ut
+        self.prograde = prograde
+
+
+class _FakeControl(object):
+    def __init__(self):
+        self.nodes = []
+        self.calls = []
+
+    def add_node(self, ut, prograde=0.0, normal=0.0, radial=0.0):
+        self.calls.append((ut, prograde, normal, radial))
+        node = _FakeNode(ut, prograde)
+        self.nodes.append(node)
+        return node
+
+
+class _FakeVessel(object):
+    def __init__(self, control):
+        self.control = control
+
+
+class _FakeSpaceCenter(object):
+    def __init__(self, vessel):
+        self.active_vessel = vessel
+
+
+class _FakeConn(object):
+    def __init__(self, space_center):
+        self.space_center = space_center
+
+
+class OwnTransferRunnerSeamTests(unittest.TestCase):
+    """The machine's own-transfer action through the real runner perform():
+    one kRPC Control.add_node(ut, prograde=dv) call, nothing else."""
+
+    def test_the_guard_action_adds_one_prograde_node_at_the_window(self):
+        fake = _FakeControl()
+        c = mission_runner.KrpcMissionControl()
+        c._conn = _FakeConn(_FakeSpaceCenter(_FakeVessel(fake)))
+        st = rv_state(rv_guard_mode=mlib.RV_GUARD_REPLANNING)
+        _, actions = mlib.bdock_decide(st, rv_frame(
+            ut=10051.0, mj_rendezvous_enabled=False, node_count=0,
+            target_phase_deg=51.04, orbit_sma=689934.0, target_sma=709291.0,
+            body_mu=KERBIN_MU))
+        self.assertEqual([mlib.ACTION_ADD_MANEUVER_NODE], _kinds_of(actions))
+        c.perform(actions[0])
+        self.assertEqual(1, len(fake.calls))
+        ut, prograde, normal, radial = fake.calls[0]
+        self.assertAlmostEqual(actions[0].node_ut, ut, places=6)
+        self.assertAlmostEqual(15.60, prograde, delta=0.02)
+        self.assertEqual((0.0, 0.0), (normal, radial))
+        # A stale second add never stacks a second transfer burn.
+        c.perform(actions[0])
+        self.assertEqual(1, len(fake.calls))
+
+
 def _kinds_of(actions):
     return [a.kind for a in actions]
 
@@ -291,12 +394,14 @@ class NodeGuardMachineTests(unittest.TestCase):
         st, actions = mlib.bdock_decide(st, rv_frame(
             ut=10051.0, mj_rendezvous_enabled=False, node_count=0, **GUARD_GEOMETRY))
         self.assertEqual(mlib.RV_GUARD_OWN_PLANNED, st.rv_guard_mode)
-        self.assertEqual([mlib.ACTION_MJ_PLAN_TRANSFER_AT], _kinds_of(actions))
-        lead = actions[0].value
-        self.assertAlmostEqual(mlib.hohmann_wait_seconds(
-            47.7, 689901.4, 709675.6, KERBIN_MU), lead, places=6)
+        self.assertEqual([mlib.ACTION_ADD_MANEUVER_NODE], _kinds_of(actions))
+        wait = mlib.hohmann_wait_seconds(47.7, 689901.4, 709675.6, KERBIN_MU)
+        self.assertAlmostEqual(10051.0 + wait, actions[0].node_ut, places=6)
+        self.assertAlmostEqual(mlib.hohmann_burn_dv(689901.4, 709675.6, KERBIN_MU),
+                               actions[0].value, places=9)
+        self.assertEqual("Transfer", actions[0].text)
         self.assertTrue(st.rv_own_transfer_used)
-        own_ut = 10051.0 + lead
+        own_ut = actions[0].node_ut
         # The planned node (a ~11 m/s prograde raise, pe unchanged) is flown.
         st, actions = mlib.bdock_decide(st, rv_frame(
             ut=10052.0, mj_rendezvous_enabled=False, node_count=1, node_ut=own_ut,
@@ -338,7 +443,7 @@ class NodeGuardMachineTests(unittest.TestCase):
         st = self._replanning()
         st, actions = mlib.bdock_decide(st, rv_frame(
             ut=10051.0, mj_rendezvous_enabled=False, node_count=0, **GUARD_GEOMETRY))
-        return st, 10051.0 + actions[0].value
+        return st, actions[0].node_ut
 
     def test_an_own_node_is_flown_only_on_a_readable_periapsis(self):
         st, own_ut = self._own_planned()

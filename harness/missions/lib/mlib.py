@@ -945,14 +945,6 @@ ACTION_MJ_ENABLE_RENDEZVOUS = "mj_enable_rendezvous"       # value = distance m
 # OnModuleDisabled aborts the node executor), so it stops re-planning while
 # the machine replaces its node.
 ACTION_MJ_DISABLE_RENDEZVOUS = "mj_disable_rendezvous"     # value = None
-# RENDEZVOUS NODE GUARD: MechJeb's transfer-to-target operation (the
-# OperationGeneric the rendezvous AP's Hohmann branch also calls) with its
-# TimeSelector set to X_FROM_NOW = value seconds. A set time reference makes
-# OperationGeneric pass fixedTime=true to DeltaVAndTimeForHohmannTransfer, so
-# MechJebLib's TwoImpulseTransfer optimizes only the transfer time from that
-# burn time instead of choosing the burn time itself. Intercept only
-# (capture=False), rendezvous=True. Throw/log/swallow like the PLAN_* actions.
-ACTION_MJ_PLAN_TRANSFER_AT = "mj_plan_transfer_at"         # value = lead s
 # Kill relative velocity to the target (MechJeb maneuver_planner
 # operation_kill_rel_vel, OR rely on the rendezvous AP's own terminal match).
 # The runner clears any stale node then retargets the op to XFromNow + ~15 s lead
@@ -17189,10 +17181,14 @@ class BDockState:
 # the node would leave the periapsis under the floor (atmosphere top +
 # RV_GUARD_MARGIN_M, or RV_GUARD_AIRLESS_FLOOR_M), never lets it burn: it
 # switches the AP off, clears the node, computes the coplanar Hohmann window
-# from the measured phase angle (hohmann_wait_seconds), and asks MechJeb's
-# transfer operation for a node at THAT time (ACTION_MJ_PLAN_TRANSFER_AT,
-# fixedTime), which is the ordinary prograde Hohmann raise. It flies that node
-# with the executor, then switches the AP back on for the arrival (a velocity
+# from the measured phase angle (hohmann_wait_seconds), and adds its OWN
+# prograde node there (ACTION_ADD_MANEUVER_NODE, kRPC Control.add_node) with
+# the vis-viva Hohmann dv (hohmann_burn_dv). MechJeb's transfer operation is
+# NOT used: asked for a node at that time (TimeSelector X_FROM_NOW) on
+# 2026-10-14_1947 it returned one 3,719 s later (73.5 m/s, pe 59 km), so it
+# does not honour the selected time on this path. The guard checks the own
+# node like any other, flies it with MechJeb's node executor (the rails hold
+# carries the wait), then switches the AP back on for the arrival (a velocity
 # match at a near-zero closest approach, BDOCK-1's second node). One own
 # transfer per flight: a second deorbiting node, an own node that would itself
 # deorbit, or an unreadable phase ends the mission MISSION-ASSERT-FAIL
@@ -17272,6 +17268,17 @@ def hohmann_wait_seconds(phase_deg: float, r1: float, r2: float,
     if rel > 0.0:
         return ((phase_deg - lead_req) % 360.0) / rel
     return ((lead_req - phase_deg) % 360.0) / (-rel)
+
+
+def hohmann_burn_dv(r1: float, r2: float, mu: float) -> Optional[float]:
+    """Signed prograde dv (m/s) of the first Hohmann burn from a circular
+    orbit of radius ``r1`` to one of ``r2`` (vis-viva): positive raises,
+    negative lowers. None on unread / degenerate inputs."""
+    if not all(_is_finite(x) for x in (r1, r2, mu)):
+        return None
+    if r1 <= 0.0 or r2 <= 0.0 or mu <= 0.0:
+        return None
+    return math.sqrt(mu / r1) * (math.sqrt(2.0 * r2 / (r1 + r2)) - 1.0)
 
 
 def format_rv_guard_reason(why: str, node_ut: float, node_dv: float,
@@ -17794,22 +17801,19 @@ def _bdock_rv_guard(state: BDockState, snapshot: TelemetrySnapshot
             return st, []
         wait = hohmann_wait_seconds(snapshot.target_phase_deg, snapshot.orbit_sma,
                                     snapshot.target_sma, snapshot.body_mu)
-        if wait is None or not _is_finite(snapshot.ut):
+        dv = hohmann_burn_dv(snapshot.orbit_sma, snapshot.target_sma, snapshot.body_mu)
+        if wait is None or dv is None or not _is_finite(snapshot.ut):
             if frames >= RV_GUARD_STEP_FRAMES:
                 return _bdock_rv_guard_fail(
                     st, snapshot, "the target phase was unreadable (phase=%s)"
                     % _obs_fmt(snapshot.target_phase_deg))
             return st, []
         lead = max(wait, RV_OWN_MIN_LEAD_S)
+        node_ut = float(snapshot.ut) + lead
         return (replace(st, rv_guard_mode=RV_GUARD_OWN_PLANNED, rv_guard_frames=0,
-                        rv_own_transfer_used=True,
-                        rv_own_node_ut=float(snapshot.ut) + lead),
-                [Action(ACTION_MJ_PLAN_TRANSFER_AT, lead,
-                        text=("node guard: own Hohmann at phase=%.2f deg in %.0f s "
-                              "(ut=%.1f; sma %.0f -> %.0f m)"
-                              % (snapshot.target_phase_deg, lead,
-                                 float(snapshot.ut) + lead, snapshot.orbit_sma,
-                                 snapshot.target_sma)))])
+                        rv_own_transfer_used=True, rv_own_node_ut=node_ut),
+                [Action(ACTION_ADD_MANEUVER_NODE, float(dv), node_ut=node_ut,
+                        text="Transfer")])
 
     if mode == RV_GUARD_OWN_PLANNED:
         if snapshot.node_count < 1:
