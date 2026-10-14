@@ -17,6 +17,23 @@ id = "CL-2-pod-impact-ledger"
 # that guards it; a NEW spec id keeps CL-1 the atom, keeps every one of its pins
 # valid, and lets the coverage report show the atom and its extension separately.
 #
+# SUPERSEDED 2026-10-14: CL-1 ABSORBED. The owner ruling B on the shared-flight audit
+# (docs/dev/research/harness-dwell-and-shared-flight-audit-2026-10-14.md section B3)
+# reverses the paragraph above: CL-1-pod-impact flew this exact mission, fixture and
+# missionParams and never committed, so its flight is a prefix of this one and it is
+# retired. Every gate CL-1 held already runs here verbatim: its 8 required tokens
+# (kept as this spec's leading "CL-1's atom" group), its ERROR forbid and its
+# recordings.count {1,1}; its [dimensionsCovered] claims (D1 auto-record-launch, D12
+# crew-death-in-flight, D14 kerbin / career / scene-flight) were already claimed here.
+# `autoMerge = true` is set before the flight, which CL-1 never set; it acts only at
+# the scene exit, after every CL-1 token has fired. Evaluated offline against this
+# lane's `2026-10-11_1443` (PASS): CL-1's 8 tokens present, forbidden clean, count 1.
+# The cost: the atom and its extension no longer show separately in the coverage
+# report, and a red in the exit / commit / ledger half now also reds the atom's
+# claims. CL-1's full per-token rationale is in git history
+# (harness/scenarios/CL-1-pod-impact.toml at origin/main 41abe0984). PENDING A CONFIRM
+# FLIGHT of this host on the merged spec.
+#
 # WHAT THIS SPEC ADDS OVER CL-1, and nothing else:
 #   1. `SetSetting autoMerge=true` BEFORE the flight. MANDATORY, not stylistic -
 #      see the step-list note.

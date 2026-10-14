@@ -685,7 +685,9 @@ class CommittedSpecValidationTests(unittest.TestCase):
         """Direct guard on the exact BLOCKER-1 shape: an autopilot spec's ``steps``
         must live in the ``[driver]`` table with the mission handoff step present,
         NOT re-nested under ``[driver.missionParams]``."""
-        for name in ("B1-pad-hop.toml", "B2-lko-ascent.toml",
+        # B2-lko-ascent was absorbed into PWR-2 (2026-10-14 shared-flight merge); PWR-2
+        # flies B2's autopilot shape, so it stands in for it here.
+        for name in ("B1-pad-hop.toml", "PWR-2-physwarp-ascent-medium.toml",
                      "B4-reentry-splashdown.toml"):
             with self.subTest(spec=name):
                 with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
@@ -8951,7 +8953,8 @@ class UnityExceptionScanTests(unittest.TestCase):
         expected = {
             "B10-career-passive-safety.toml": 0,
             "CL-2-pod-impact-ledger.toml": 0,
-            "CL-3-refly-crew-tombstone.toml": 0,
+            # CL-3-refly-crew-tombstone (0) was absorbed into CL-4 on 2026-10-14 (shared-
+            # flight merge); CL-4 already carried the same 0.
             # CL-4: CL-3's shape on CL-3's fixture and mission (six 0 readings there) plus
             # its own three driver-valid runs 2026-09-09 (_1813 / _1815 / _1817), every one
             # total=0; gating on its first flight was therefore a re-measurement, not a bet.
@@ -9039,7 +9042,10 @@ class UnityExceptionScanTests(unittest.TestCase):
             # GS-12 (2026-09-24): GS-4's ceiling on GS-4's subject and teardown; its
             # reading run `2026-09-24_1911` read total 0.
             "GS-12-kerbalx-loop-cycles.toml": 6,
-            "GS-4-kerbalx-rewind-watch.toml": 6,
+            # GS-9 (2026-10-14): GS-4 was absorbed into it (shared-flight merge) and its
+            # block moved with it, ceiling unchanged. GS-9 flies GS-4's subject twice;
+            # its readings: `2026-09-10_1944` total 4, `2026-10-11_1542` total 1.
+            "GS-9-kerbalx-repeat-rewind.toml": 6,
         }
         armed = {}
         armed_parsek_frames = {}
@@ -9097,7 +9103,9 @@ class UnityExceptionScanTests(unittest.TestCase):
         # GS-12: reading run `2026-09-24_1911` parsekFrames 0 (total 0); armed with the
         # lane's other blocks off that run, GS-4's value on GS-4's subject.
         "GS-12-kerbalx-loop-cycles.toml": 0,
-        "GS-4-kerbalx-rewind-watch.toml": 0,
+        # GS-9 (2026-10-14): GS-4's key, moved with GS-4's absorption into it; GS-9's
+        # `2026-10-11_1542` read parsekFrames 0 (total 1).
+        "GS-9-kerbalx-repeat-rewind.toml": 0,
         # 4 collected logs, parsekFrames 0 in each: the two INVALID reading attempts
         # `2026-08-28_1859` / `_1902` and the two driver-valid PASS readings
         # `2026-09-10_1936` / `_1939` (the PASS log of `2026-08-28_1624` is no longer on
@@ -9785,33 +9793,11 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # machine-checked below; the rest are human judgements recorded here.
     CARRIERS = {
         "R1-rewind-loop-flown.toml":   "tier=operator",
-        # Landed 2026-08-03 with the CL stage-B re-fly lane. FLOWN since: three runs
-        # (two PASS + a deliberate negative control) on 2026-08-03, armed the same
-        # day, plus the crewless-root discrimination run on 2026-08-04. THREE of the
-        # four debts this entry has carried are DISCHARGED - the `vesselStateChanged`
-        # row was removed (it was constant-False on this lane), the arming follow-up
-        # was done, and the `dead-crew-strip` fixture-change-plus-re-fly was SPENT
-        # (2026-08-04_2136), which claimed the cell. What is recorded below is the one
-        # debt still open, and it is narrower than its predecessor.
-        "CL-3-refly-crew-tombstone.toml":
-                                       "tier=operator AND one open operator call: the "
-                                       "CONFIRM FLY of the D12 `dead-crew-strip` "
-                                       "token. The cell is CLAIMED as of 2026-08-05, "
-                                       "off a re-pinned half (ii) - `permanent=0` in "
-                                       "the `Recomputed after tombstones:` line - and "
-                                       "the 2026-08-04_2136 crewless-root re-fly that "
-                                       "measured the semantics: the death-sourced "
-                                       "reservation IS released, the survivor is the "
-                                       "re-flown fork's own live one, and the stand-in "
-                                       "is CREATED BY the release (a Dead row makes "
-                                       "the reservation permanent and PostWalk skips "
-                                       "permanents before slot creation, so the old "
-                                       "`forbidden=[Stand-in generated]` candidate was "
-                                       "INVERTED). The gate-armed confirm fly is "
-                                       "DONE: 2026-08-04_2324, PASS attempt 1, the "
-                                       "`permanent=0` token matched live. What the "
-                                       "tag still names is the human tier-promotion "
-                                       "call, nothing else.",
+        # CL-3-refly-crew-tombstone carried the tag until 2026-10-14, when it was absorbed
+        # into CL-4 (shared-flight merge). Its one remaining debt was the human
+        # tier-promotion call (its dead-crew-strip confirm fly was DONE 2026-08-04_2324);
+        # CL-4 flies the same operator-tier profile and carries no tag, so the entry
+        # retired with the spec rather than moving.
         "EVA-1-pad-flag.toml":         "open promotion call - 'the tier stays nightly until the "
                                        "operator promotes it'. P1/P3/P6 are all done and it has "
                                        "been LIVE-PROVEN since 2026-07-24, so nothing is blocked "
@@ -11029,7 +11015,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # MC-2, which were already nightly there.
     TIER_PROMOTED_2026_09_15 = (
         "MC-3-better-time-warp.toml",
-        "GS-4-kerbalx-rewind-watch.toml",
+        # GS-4-kerbalx-rewind-watch was the fourth; it was absorbed into GS-9 on
+        # 2026-10-14 (shared-flight merge), so its flight now runs on GS-9's nightly slot.
         "GS-8-kerbalx-zone-round-trip.toml",
         "GS-9-kerbalx-repeat-rewind.toml",
     )
@@ -11348,23 +11335,28 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # CRITERION (b), 2026-09-10: per-lane render-token controls on the destination
     # pin (body -> Eeloo), V15M `2026-09-10_1914` and V15T `2026-09-10_1917`, each
     # red on exactly the inverted element, drift gate met.
-    ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml",
+    ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml",
                        # PWR-1/2/3: `recordings.sampling` armed 2026-10-02 (branch
                        # `physwarp-recording`) off the reading runs `2026-10-02_2102` /
                        # `_2057` / `_2108`; offline negative control in the status row.
                        "PWR-1-physwarp-ascent-low.toml", "PWR-2-physwarp-ascent-medium.toml",
                        "PWR-3-physwarp-ascent-high.toml",
-                       # CL-3 (on the line above) `recordings.structure`: armed 2026-09-29
-                       # (branch `arm-batch2`) off `2026-09-29_1535`, the first flight since
-                       # the TimeJump 61 fix (todo CL-LANES-INJECTED-RP-IN-THE-FUTURE); 5 of 5
-                       # bounds inverted offline, each red on exactly its window.
+                       # CL-3 `recordings.structure`: armed 2026-09-29 (branch `arm-batch2`)
+                       # off `2026-09-29_1535`, the first flight since the TimeJump 61 fix
+                       # (todo CL-LANES-INJECTED-RP-IN-THE-FUTURE); 5 of 5 bounds inverted
+                       # offline, each red on exactly its window. CL-3 was absorbed into CL-4
+                       # on 2026-10-14 (shared-flight merge) and that block moved to CL-4
+                       # unchanged (CL-4 `2026-10-12_1813` read trees 1 / committedTrees 1 /
+                       # recordings 4).
                        # CL-4: `rewind` armed 2026-09-09 off its own reading run
                        # `2026-09-09_1813_CL-4-refly-crew-standin` (supersedeRows 1, tombstones 1,
                        # CL-3's facets on CL-3's shape; rewindPoints unpinned, the RP is reaped);
                        # `tombstones` re-pinned 1 -> 2 on 2026-09-10 off `2026-09-09_2158_CL-4-refly-crew-standin`
                        # (the KerbalDeath reputation penalty row is tombstoned with the death).
                        "CL-4-refly-crew-standin.toml",
-                       # GS-4: `rewind` armed 2026-09-23 with rewindPoints {1,1} on the
+                       # GS-4 (absorbed into GS-9 on 2026-10-14, shared-flight merge; the
+                       # rewindPoints pin moved to GS-9, which is listed below on its own
+                       # 2026-09-27 arming): `rewind` armed 2026-09-23 with rewindPoints {1,1} on the
                        # operator ruling that a rewind point always survives a
                        # Rewind-to-Launch (todo RP-SURVIVES-REWIND-TO-LAUNCH). Armed flight
                        # `2026-09-23_2012` PASS (rewindPoints 1); negative control
@@ -11375,7 +11367,6 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # tombstone; spawnedVessels 0 and vesselNames {Jumping Flea: 1}, the
                        # exactly-one-real-vessel ruling measured).
                        "GS-12-kerbalx-loop-cycles.toml",
-                       "GS-4-kerbalx-rewind-watch.toml",
                        # RF-14: `rewind` armed 2026-09-24 off its reading run
                        # `2026-09-23_2147` (rewindPoints 1, supersedeRows 1, tombstones 0):
                        # the point the Rewind-to-Launch carried, one fork row from the
@@ -13624,7 +13615,9 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         # sequence - the map is closed before watch entry).
         # NEGATIVE CONTROL: `2026-08-28_1550` - temporary spawned={min 9} red
         # PARSEK-FAIL(ghost-lifecycle) on exactly that window, then reverted.
-        "GS-4-kerbalx-rewind-watch.toml",
+        # That was GS-4-kerbalx-rewind-watch, absorbed into GS-9 on 2026-10-14
+        # (shared-flight merge): GS-9 (listed above) already gated the same census at
+        # the tighter spawned {8,8} + requireBalanced, so the entry retired with GS-4.
         # ARMED 2026-09-02, three-run discipline discharged ON ONE LANE'S OWN
         # FLIGHTS rather than borrowed: `2026-09-02_1420` (revision 1),
         # `2026-09-02_1505` (revision 2 - red on spec-side vessel-name tokens, not
@@ -13804,7 +13797,8 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         #     `spawned = { min = 8 }`, still REPORT-ONLY. Arming (through
         #     GHOSTLIFE_ARMED_SPECS above) follows the standard three-run
         #     discipline as its own pass.
-        "GS-4-kerbalx-rewind-watch.toml",
+        #     RETIRED 2026-10-14: GS-4 was absorbed into GS-9 (shared-flight merge),
+        #     which flies the same census twice and is listed below.
         # [D] THE THIRD DECLARER, and the first whose subject is the PART-EVENT
         #     APPLIER rather than the mesh census: GS-6 re-flies GS-4's craft and
         #     profile with a scripted part-event timeline inserted (the PART-SWEEP
@@ -21786,7 +21780,7 @@ class LogContractPatternCompilabilityTests(unittest.TestCase):
     (it used to return 0 before reaching it - see the dry-run cell below)."""
 
     def _spec_with_patterns(self, facet, patterns):
-        spec = load_spec("B2-lko-ascent.toml")
+        spec = load_spec("PWR-2-physwarp-ascent-medium.toml")
         spec["expectations"]["logContracts"][facet] = patterns
         return spec
 
@@ -21847,7 +21841,7 @@ class LogContractPatternCompilabilityTests(unittest.TestCase):
         # Guards the `if patterns is None: continue` branch. Deleting it would
         # reject every spec that omits `forbidden` - all 38 happen to declare
         # both, so nothing else notices.
-        spec = load_spec("B2-lko-ascent.toml")
+        spec = load_spec("PWR-2-physwarp-ascent-medium.toml")
         del spec["expectations"]["logContracts"]["forbidden"]
         self.assertTrue(hlib.validate_spec(spec, load_registry()).ok)
         spec["expectations"]["logContracts"]["required"] = []
@@ -21887,7 +21881,7 @@ class LogContractPatternCompilabilityTests(unittest.TestCase):
             for name in os.listdir(SCENARIOS_DIR):
                 if name.endswith(".toml"):
                     shutil.copy(os.path.join(SCENARIOS_DIR, name), os.path.join(tmp, name))
-            target = os.path.join(tmp, "B2-lko-ascent.toml")
+            target = os.path.join(tmp, "PWR-2-physwarp-ascent-medium.toml")
             if mutate is not None:
                 with open(target, encoding="utf-8") as fh:
                     body = fh.read()
@@ -21903,7 +21897,7 @@ class LogContractPatternCompilabilityTests(unittest.TestCase):
             run.default_harness_log_path = lambda: os.path.join(tmp, "harness.log")
             try:
                 with contextlib.redirect_stdout(io.StringIO()):
-                    return run.run(["--id", "B2-lko-ascent", "--dry-run", "--no-coverage"])
+                    return run.run(["--id", "PWR-2-physwarp-ascent-medium", "--dry-run", "--no-coverage"])
             finally:
                 # NOTE these are process-global mutations, safe only because
                 # stdlib unittest runs sequentially. A future parallel runner
@@ -21926,7 +21920,7 @@ class LogContractPatternCompilabilityTests(unittest.TestCase):
             # Fail LOUD if the spec's token is reworded: a no-op replace would
             # leave the spec valid and this cell would assert 1 == 0 with no clue
             # why. The point is to feed validate_spec an UNCOMPILABLE pattern.
-            assert broken != body, "B2's debris token moved; update this mutation"
+            assert broken != body, "PWR-2's debris token moved; update this mutation"
             return broken
         self.assertEqual(1, self._dry_run_exit_code(break_pattern))
 
@@ -21954,8 +21948,10 @@ class DebrisPopulationGateTests(unittest.TestCase):
     # service stage via the ACTION_ACTIVATE_STAGE REENTRY pays after the deorbit cutoff.
     # Only B2 stages once (at ignition) and therefore floors at 7. The first cut
     # floored B4 at 7 by keying on _b5_flameout_stage alone.
+    # B2-lko-ascent was absorbed into PWR-2 on 2026-10-14 (shared-flight merge): PWR-2
+    # flies B2's mission, fixture and missionParams and carries B2's window and token.
     GATED = {
-        "B2-lko-ascent.toml":         (7, 8, "b2_decide", False),
+        "PWR-2-physwarp-ascent-medium.toml": (7, 8, "b2_decide", False),
         "B4-reentry-splashdown.toml": (11, 11, "b4_decide", True),
         "B5-mun-flyby.toml":          (8, 9, "b5_decide", True),
         "B6-minmus-flyby.toml":       (8, 9, "b5_decide", True),
@@ -21993,7 +21989,8 @@ class DebrisPopulationGateTests(unittest.TestCase):
     # (`if driver_valid and not short_circuited`). Their .prec counts are lower
     # and are not this population.
     MEASURED = {
-        "B2-lko-ascent.toml":         (7, ("2026-07-25_0824_B2-lko-ascent",)),
+        # PWR-2 carries B2's population and cites B2's measurement (the same flight).
+        "PWR-2-physwarp-ascent-medium.toml": (7, ("2026-07-25_0824_B2-lko-ascent",)),
         # 9 since 2026-09-24: the flight now drops the core AND the Poodle stack
         # (reentryStageCount = 3) so the pod reenters alone and its chute can open.
         # 11 since 2026-10-01: plus #1931's two in-flight optimizer splits.
@@ -22321,10 +22318,18 @@ class DebrisPopulationGateTests(unittest.TestCase):
         self.assertIn(self.CELL, load_registry()["D3"]["values"])
 
     def test_the_gate_bites_end_to_end(self):
-        spec = load_spec("B2-lko-ascent.toml")
+        spec = load_spec("PWR-2-physwarp-ascent-medium.toml")
         exp = spec["expectations"]
-        # B2's stop token is the commit-caused stop (known-gate 17), not the bare line.
-        good = ("Recording started\n%s\nCommitTreeFlight: starting tree commit at UT=264.5\n"
+        # PWR-2 carries B2's tokens since the 2026-10-14 merge plus its own physics-warp
+        # tokens, so the PASS log carries the warp lines too; the FAIL half below is
+        # B2's debris / count regression. The stop token is the commit-caused stop
+        # (known-gate 17), not the bare line.
+        good = ("Recording started\n%s\n"
+                "[Parsek][INFO][Recorder] TrackSection closed: env=ExoBallistic "
+                "warpRuns=phys:21:303.651-364.441:max=4.000\n"
+                "warptout start ut=480 ladder=phys\n"
+                "warptout complete reachedUT=480.02 ut=480 maxRate=4 ladder=phys\n"
+                "CommitTreeFlight: starting tree commit at UT=480.5\n"
                 "Recording stopped. 226 points, 1 orbit segments over 195.4s\n"
                 % self.EMITTED_FG)
         self.assertEqual("PASS", hlib.evaluate_expectations(exp, 7, good).status)

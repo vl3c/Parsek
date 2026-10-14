@@ -74,7 +74,12 @@ from test_shells import FakeMissionControl, run  # noqa: E402
 
 SCHEMA_PATH = os.path.join(_MISSIONS, "cl3_refly_crew_tombstone.schema.toml")
 SHELL_PATH = os.path.join(_MISSIONS, "cl3_refly_crew_tombstone.py")
-SPEC_PATH = os.path.join(_HARNESS, "scenarios", "CL-3-refly-crew-tombstone.toml")
+# CL-3-refly-crew-tombstone was absorbed into CL-4 on 2026-10-14 (owner ruling B,
+# shared-flight merges): CL-4 flies CL-3's mission, fixture, missionParams and step list
+# (plus a verboseLogging SetSetting) and carries every CL-3 gate and claim, so the
+# spec-side cells below read the HOST. Cells that pinned a CL-3-only fact are noted
+# where they changed.
+SPEC_PATH = os.path.join(_HARNESS, "scenarios", "CL-4-refly-crew-standin.toml")
 REGISTRY_PATH = os.path.join(_HARNESS, "coverage", "registry.toml")
 
 
@@ -1483,7 +1488,7 @@ class Cl3SpecValidationTests(unittest.TestCase):
         self.assertEqual(cl3.MISSION_NAME, self.spec["driver"]["mission"])
 
     def test_the_id_matches_the_filename_and_the_tier_is_operator(self):
-        self.assertEqual("CL-3-refly-crew-tombstone", self.spec["id"])
+        self.assertEqual("CL-4-refly-crew-standin", self.spec["id"])
         self.assertEqual(
             self.spec["id"] + ".toml", os.path.basename(SPEC_PATH))
         self.assertEqual("operator", self.spec["tier"])
@@ -1497,10 +1502,10 @@ class Cl3SpecValidationTests(unittest.TestCase):
         tags = self.spec["tags"]
         self.assertIn("flown", tags)
         self.assertNotIn("pending-flight", tags)
-        # It also carries `pending-operator`, and that carries an obligation:
-        # `test_hlib.py::PendingOperatorTagHonestyTests.CARRIERS` must name it
-        # with the debt it owes, in the same commit. That cell reds if it does not.
-        self.assertIn("pending-operator", tags)
+        # CL-3 also carried `pending-operator` for its tier-promotion call; that
+        # entry retired with CL-3 on 2026-10-14 and the host carries no such tag
+        # (test_hlib.py::PendingOperatorTagHonestyTests.CARRIERS records why).
+        self.assertNotIn("pending-operator", tags)
 
 
 class Cl3SpecStepListTests(unittest.TestCase):
@@ -1514,10 +1519,12 @@ class Cl3SpecStepListTests(unittest.TestCase):
         # TimeJump 61 s before the mission (todo CL-LANES-INJECTED-RP-IN-THE-FUTURE):
         # the injected rp_cl_root sits 60 s ahead of the host save's clock, and the
         # future-rewind-point gate refuses InvokeRewind until the clock reaches it.
+        # The host (CL-4, since the 2026-10-14 merge) adds one verboseLogging
+        # SetSetting before the TimeJump; everything else is CL-3's list.
         self.assertEqual(
-            ["LoadGame", "SetSetting", "TimeJump", None, "AnswerMergeDialog",
-             "RecordingState", "FlushAndQuit"], _cmds(self.spec))
-        self.assertEqual(3, _index_of_mission(self.spec))
+            ["LoadGame", "SetSetting", "SetSetting", "TimeJump", None,
+             "AnswerMergeDialog", "RecordingState", "FlushAndQuit"], _cmds(self.spec))
+        self.assertEqual(4, _index_of_mission(self.spec))
 
     def test_the_steps_are_scoped_to_the_driver_table_not_the_params_sub_table(self):
         # THE TOML TRAP, pinned mechanically: a `steps` key written AFTER the
@@ -1632,7 +1639,9 @@ class Cl3SpecArmedTests(unittest.TestCase):
         self.assertIn("rewind", self.exp)
         self.assertIn("rewind", saveparse.armed_structure_blocks(self.exp))
         self.assertEqual({"min": 1}, self.exp["rewind"]["supersedeRows"])
-        self.assertEqual({"min": 1}, self.exp["rewind"]["tombstones"])
+        # CL-3's floor was 1; the host (CL-4, since the 2026-10-14 merge) pins 2 (the
+        # death row plus its KerbalDeath rep-penalty row), which implies CL-3's 1.
+        self.assertEqual({"min": 2}, self.exp["rewind"]["tombstones"])
         # rewindPoints stays UNDECLARED: the measurement read 0 because the merge
         # journal REAPS the RP, so asserting its presence post-merge would assert
         # the opposite of correct behaviour.
@@ -1670,7 +1679,8 @@ class Cl3SpecArmedTests(unittest.TestCase):
                 gating_lines.append(stripped)
         # EXACTLY TWO non-comment `gating` lines in the whole file (rewind, then
         # structure), so a third armed block cannot appear without this cell noticing.
-        self.assertEqual(["gating       = true", "gating         = true"], gating_lines)
+        # (The spacing is CL-4's, the host since the 2026-10-14 merge.)
+        self.assertEqual(["gating        = true", "gating         = true"], gating_lines)
 
     def test_it_is_on_the_save_structure_armed_allowlist(self):
         # THE CROSS-FILE HALF, read out of the guard's own source rather than
@@ -1884,7 +1894,9 @@ class Cl3SpecLogContractTests(unittest.TestCase):
         # action rather than about any tombstone at all - a merge that retired two
         # milestones and no crew row would satisfy a bare `Tombstoned [1-9]` and
         # prove nothing this spec is about.
-        pattern = self._one("Tombstoned")
+        # The host also requires a `Reputation=[1-9]` Tombstoned token (CL-4's own
+        # cell); CL-3's is the Kerbal one.
+        pattern = self._one("Kerbal=[1-9]")
         self.assertRegex(self.TOMBSTONE_LINE, pattern)
         self.assertNotRegex(self.TOMBSTONE_EMPTY, pattern)
         self.assertNotRegex(self.TOMBSTONE_NO_KERBAL, pattern)
@@ -1974,7 +1986,10 @@ class Cl3SpecCoverageClaimTests(unittest.TestCase):
         # `dead-crew-strip` CLAIMED 2026-08-05, and this is the claim-is-not-gate
         # half: the claim is legal only while the spec still REQUIRES the token
         # that gates the registry's re-pinned half (ii).
-        self.assertEqual(["dead-crew-strip"], self.claimed.get("D12", []))
+        # Since the 2026-10-14 merge the host (CL-4) claims CL-3's dead-crew-strip
+        # next to its own two cells (test_cl4_refly_crew_standin.py gates those).
+        self.assertEqual(["stand-ins", "tombstone-rep-penalty", "dead-crew-strip"],
+                         self.claimed.get("D12", []))
         self.assertTrue(self._has("Recomputed after tombstones:"),
                         "D12 dead-crew-strip is claimed with no recompute token")
         # `permanent=0` IS the assertion, and the TRAILING SPACE is load-bearing
@@ -2032,33 +2047,19 @@ class Cl3SpecCoverageClaimTests(unittest.TestCase):
         # not carry.
         self.assertIn("tombstones", self.claimed.get("D9", []))
         self.assertNotIn("tombstones", self.claimed.get("D8", []))
-        self.assertNotIn("tombstone-rep-penalty", self.claimed.get("D12", []))
+        # (`tombstone-rep-penalty` is claimed by the host since the 2026-10-14 merge,
+        # off its own required token, so it left this fence.)
         # D8 is not claimed AT ALL: the merge does recalc the ledger, but no token
         # here names a module or the recalc engine, and this spec cannot carry the
         # oracle facets that back CL-2's D8 claims (the ledger block is illegal
         # alongside InvokeRewind).
         self.assertEqual([], self.claimed.get("D8", []))
 
-    def test_the_rep_penalty_cell_is_cl4s_and_this_spec_carries_no_token_for_it(self):
-        # Until 2026-09-10 the registry recorded `tombstone-rep-penalty` UNREACHABLE
-        # BY ANY FLIGHT (no production code constructed a KerbalDeath rep-penalty
-        # action). The product change shipped that day and `CL-4-refly-crew-standin`
-        # claims the cell off a REQUIRED `Tombstoned ... Reputation=[1-9]` token. This
-        # spec keeps CL-3's original `Kerbal=[1-9]` token only, so it MUST NOT claim
-        # the cell: the claim would have no gate here.
-        self.assertIn("`tombstone-rep-penalty` IS REACHABLE", self.registry_text)
-        self.assertFalse(any("Reputation=[1-9]" in tok for tok in
-                             self.spec["expectations"]["logContracts"]["required"]))
-        # This used to assert `claimed["D12"] == []`, which stopped being the
-        # honest check on 2026-08-05 when `dead-crew-strip` was claimed. The
-        # guarantee it was really buying is narrower and survives the change:
-        # THIS value cannot arrive by an edit that only touches a list...
-        self.assertNotIn("tombstone-rep-penalty", self.claimed.get("D12", []))
-        # ...and the spec carries the REASON, not merely the omission, so the
-        # next author does not re-derive it from the product: the past-tense record
-        # of why it was unreachable, and whose it is now.
-        self.assertIn("recorded it UNREACHABLE BY ANY FLIGHT", _spec_text())
-        self.assertIn("`CL-4-refly-crew-standin` claims the cell", _spec_text())
+    # RETIRED 2026-10-14 with CL-3's absorption into CL-4:
+    # `test_the_rep_penalty_cell_is_cl4s_and_this_spec_carries_no_token_for_it` pinned
+    # that CL-3 carried no `Reputation=[1-9]` token and so could not claim
+    # `tombstone-rep-penalty`. The host carries that token and that claim
+    # (test_cl4_refly_crew_standin.py gates both).
 
     def test_head_tip_split_and_terminal_kind_classify_stay_unclaimed(self):
         # `head-tip-split` fires only when the closure-root recording SPANS the
@@ -2179,18 +2180,12 @@ class Cl3SpecFeasibilityDerivationTests(unittest.TestCase):
         self.assertTrue(mlib.all_assertions_met(rows),
                         [r.name for r in rows if not r.met])
 
-    def test_the_spec_records_the_removal_where_the_operator_reads_it(self):
-        # A derived blocker that is not written where the operator reads it is a
-        # blocker rediscovered by a flight - and a blocker that was FIXED but not
-        # written up is a fix a later author undoes.
-        text = _spec_text()
-        self.assertIn("vesselStateChanged", text)
-        self.assertIn("REMOVED", text)
-        # The vacuous escape hatch must stay named as rejected, not merely unused.
-        self.assertIn("0.0", text)
-        self.assertNotIn("OPEN GATE", text,
-                         "the gate is closed; stale 'OPEN GATE' prose would send "
-                         "an operator hunting a blocker that no longer exists")
+    # RETIRED 2026-10-14 with CL-3's absorption into CL-4:
+    # `test_the_spec_records_the_removal_where_the_operator_reads_it` read CL-3's header
+    # for the `vesselStateChanged` REMOVED record; that header is in git history
+    # (harness/scenarios/CL-3-refly-crew-tombstone.toml at origin/main 41abe0984). The
+    # cells above still pin the removal in the schema and the mission.
+
 
 
 

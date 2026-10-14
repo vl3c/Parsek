@@ -112,11 +112,32 @@ tier = "operator"
 # checked event/row pairing) were re-flown on their DLL: `2026-09-09_2348_CL-4-refly-crew-standin`
 # PASS, same nine WARNs, same `CreatedThisCommitFromLivePool` / `Reputation=1` chain;
 # CL-3 `2026-09-09_2349` and CL-2 `2026-09-09_2350` PASS alongside.
+#
+# CL-3 ABSORBED (2026-10-14, owner ruling B on the shared-flight audit,
+# docs/dev/research/harness-dwell-and-shared-flight-audit-2026-10-14.md section B4):
+# CL-3-refly-crew-tombstone flew this exact mission, fixture, missionParams and step
+# list minus the verboseLogging SetSetting, so it is retired and this lane carries
+# every gate it held: its 8 required tokens and ERROR forbid (all already here), its
+# rewind floors (supersedeRows >= 1, tombstones >= 1; this spec's tombstones >= 2 is
+# the tighter intersection), its unityExceptions maxTotal 0 (already here), and its
+# gating [expectations.recordings.structure] block (trees {1,1}, committedTrees {1,1},
+# recordings >= 4), moved below. Its [dimensionsCovered] claims move here too: D1
+# auto-record-launch, D9 rewind-to-separation / refly-gate / reconciliation-bundle /
+# read-back-guard / supersede-relation / merge-journal / tombstones, D12
+# dead-crew-strip. Evaluated offline against this lane's `2026-10-12_1813` (PASS):
+# CL-3's 8 tokens present, forbidden clean, count 4, trees 1, committedTrees 1,
+# recordings 4, supersedeRows 1, tombstones 2, unityExceptions 0. The cost: a red on
+# the stand-in or rep-penalty token now also reds the re-fly / tombstone claims.
+# CL-3's full per-token rationale, including its DELIBERATELY NOT CLAIMED list (D8,
+# D9 head-tip-split / terminal-kind-classify, D4), is in git history
+# (harness/scenarios/CL-3-refly-crew-tombstone.toml at origin/main 41abe0984); those
+# omissions still hold for this lane. PENDING A CONFIRM FLIGHT of this host on the
+# merged spec.
 # =====================================================================================
 description = "Stage B's last flight-closable cell, D12 stand-ins: CL-3's crew-loss re-fly (career-pad-craft + rewind-crew-loss, rewind rp_cl_root slot 1, relaunch, merge) with the tombstone's release of the death-sourced permanent reservation gated through to the Parsek-generated stand-in that release triggers."
 instanceProfile = "stock-minimal"
-tags = ["rewind", "refly", "merge", "tombstone", "crew-loss", "stand-in", "CL4", "D12",
-        "kerbin", "career", "reading-run"]
+tags = ["rewind", "refly", "merge", "tombstone", "crew-loss", "stand-in", "CL3", "CL4", "D9",
+        "D12", "kerbin", "career", "reading-run", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/career-pad-craft"
@@ -166,12 +187,32 @@ loopPointsFrames              = 40
 # CLAIM-IS-NOT-GATE: `stand-ins` is claimed off the REQUIRED `Stand-in generated ... for
 # slot 'Jebediah Kerman'` token, observed under this id on the reading run
 # (`2026-09-09_1813`), on the registry's pinned definition (a Parsek-GENERATED stand-in
-# for a reservation slot). D9 `tombstones` and D12 `dead-crew-strip` are CL-3's and are
-# not re-claimed here. `tombstone-rep-penalty` (2026-09-10) is claimed off the REQUIRED
+# for a reservation slot). `tombstone-rep-penalty` (2026-09-10) is claimed off the REQUIRED
 # `Tombstoned ... Reputation=[1-9]` token, observed under this id on the re-pin reading
 # run (`2026-09-09_2158_CL-4-refly-crew-standin`), on the registry's pinned definition (a
 # `ReputationPenalty(KerbalDeath)` row tombstoned by the supersede merge).
-D12 = ["stand-ins", "tombstone-rep-penalty"]
+#
+# MOVED FROM CL-3 (2026-10-14 merge, see the header). Each is backed by a required token
+# below that CL-3 carried:
+# D1 `auto-record-launch` <- "Recording started", the RE-FLY leg's stage activation
+#   under the pinned `autoRecordOnLaunch = true`.
+D1  = ["auto-record-launch"]
+# D9 `rewind-to-separation` / `refly-gate` <- "Re-Fly (Rewind-to-Separation)
+#   StartInvoke" + "Invocation complete" (both firing distinguishes a real end-to-end
+#   re-fly from a verb that merely returned); `reconciliation-bundle` <-
+#   "ConsumePostLoad: restoring bundle with route-retire cutoffUT="; `read-back-guard`
+#   <- "Restored: recs=.* pendingScience="; `supersede-relation` and `merge-journal` <-
+#   "Added [1-9][0-9]* supersede relations for subtree rooted at" (the rows are written
+#   from inside the journal-driven merge, R1's precedent); `tombstones` <- the
+#   "Tombstoned ... Kerbal=[1-9]" token AND the gating `[expectations.rewind]
+#   tombstones` floor.
+D9  = ["rewind-to-separation", "refly-gate", "reconciliation-bundle", "read-back-guard",
+       "supersede-relation", "merge-journal", "tombstones"]
+# D12 `dead-crew-strip` <- "Recomputed after tombstones: [0-9]+ reservations remain
+#   \(permanent=0 ", the ELS recompute's split: a tombstone that fails to strip the Dead
+#   row leaves `permanent=1` and reds this spec (the registry's D12 block carries the
+#   2026-08-05 re-pin record).
+D12 = ["stand-ins", "tombstone-rep-penalty", "dead-crew-strip"]
 D14 = ["kerbin", "career", "scene-flight"]
 
 [expectations]
@@ -210,6 +251,18 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 gating        = true
 supersedeRows = { min = 1 }
 tombstones    = { min = 2 }
+
+# MOVED FROM CL-3 (2026-10-14 merge). ARMED on CL-3 2026-09-29 (branch `arm-batch2`) off
+# its reading `2026-09-29_1535` (PASS attempt 1): trees 1, committedTrees 1, recordings 4,
+# its 5 bounds inverted offline against that save each red on exactly their window.
+# `recordings` is a FLOOR of 4 (the 3 injected + at least one the re-fly produced); the
+# terminal-state mix is left undeclared because it depends on where the relaunch leg
+# ends. This lane's `2026-10-12_1813` read trees 1, committedTrees 1, recordings 4.
+[expectations.recordings.structure]
+gating         = true
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 4 }
 
 [expectations.unityExceptions]
 maxTotal = 0

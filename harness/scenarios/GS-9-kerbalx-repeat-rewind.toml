@@ -149,11 +149,30 @@ id = "GS-9-kerbalx-repeat-rewind"
 # overreads it: it exercises the EVALUATOR against real bytes, not a fresh flight, so it
 # cannot witness a product change that would alter the log between runs. The live
 # control stays owed on the next GS-9 flight, per memo s2.
+#
+# GS-4 ABSORBED (2026-10-14, owner ruling B on the shared-flight audit,
+# docs/dev/research/harness-dwell-and-shared-flight-audit-2026-10-14.md section B1):
+# GS-4-kerbalx-rewind-watch flew this exact mission, fixture and step list with
+# rewindCycles = 1, so its flight is a prefix of this one and it is retired. Every gate
+# GS-4 held now runs here: its 4 required tokens this spec lacked (the RP carry-over
+# line, the two CrewReservation swap lines, the ParsekScenario OnSave line), its
+# rewindPoints {1,1} pin (the intersection with this spec's unpinned rewindPoints), its
+# [expectations.unityExceptions] block (maxTotal 6, maxParsekFrames 0) and its
+# [dimensionsCovered] claims (D1 auto-record-launch, D5 controlled-decoupled-child,
+# D12 crew-swap, D14 kerbin / sandbox / scene-flight / scene-ksc / scene-map, D16
+# sfs-scenario-node). GS-4's other blocks were already here at equal or tighter windows
+# (recordings.count {8,8}, ghostLifecycle spawned {8,8} + requireBalanced, structure).
+# Evaluated offline against this lane's latest archived run `2026-10-11_1542` (PASS):
+# all 20 GS-4 tokens present, forbidden clean, rewindPoints 1, unityExceptions total 1
+# <= 6 with parsekFrames 0. The cost is coarser attribution: a red in the second cycle
+# now also reds GS-4's single-cycle claims. GS-4's full per-token rationale is in git
+# history (harness/scenarios/GS-4-kerbalx-rewind-watch.toml at origin/main 41abe0984).
+# PENDING A CONFIRM FLIGHT of this host on the merged spec.
 # =====================================================================================
 tier = "nightly"
 description = "Repeat-rewind idempotence on the GS-4 subject (ghost-replay Tier B item 8): staged Kerbal X ascent, commit, Rewind-to-Launch, Jumping Flea watch anchor, map view + watch mode, playback to completion - then a SECOND Rewind-to-Launch off the SAME committed tree with the same watcher and the same watch, via the kx machine's new rewindCycles=2 opt-in. Asks whether the parsek_rw_* quicksave is reusable and whether the second replay renders and derenders exactly what the first did. READ 2026-09-10 (`2026-09-10_1944`, PASS attempt 1, outcome O1 IDEMPOTENT: the same parsek_rw_ quicksave reloaded twice, 8 MeshSpawned + 8 MeshDestroyed in each cycle). ARMED off those bytes: ghostLifecycle gating at exact 8 / 16 / 16 and a per-cycle exactly-8 census in the logContracts. LIVE-PROVEN 2026-09-11: armed re-flight `2026-09-11_0109` PASS (O1 again, 8 + 8 per cycle) and negative control `2026-09-11_0119` (destroyLines 16 -> 17) red PARSEK-FAIL(ghost-lifecycle) on exactly that window; D9 rewind-to-launch and D6 basic-playback / mesh-lifecycle-derender re-claimed."
 instanceProfile = "stock-minimal"
-tags = ["GS9", "rewind-to-launch", "repeat-rewind", "watch-mode", "ghost-render", "derender", "ghost-lifecycle"]
+tags = ["GS9", "GS4", "rewind-to-launch", "repeat-rewind", "watch-mode", "ghost-render", "derender", "staging", "map-view", "ghost-lifecycle"]
 
 [fixture]
 # GS-4's fixture, verbatim: gs1-two-stage-pad (the inert ParsekScenario node, a
@@ -220,6 +239,28 @@ D9 = ["rewind-to-launch", "rewind-to-launch-repeat"]
 #   cycles) plus the ARMED ghostLifecycle windows; the negative control proved the
 #   `destroyLines` window gates on its own.
 D6 = ["basic-playback", "mesh-lifecycle-derender"]
+# MOVED FROM GS-4 (2026-10-14 merge, see the header). Each is backed by a required
+# token below that GS-4 carried:
+# `auto-record-launch` <- "Auto-record started (..." (the PRELAUNCH->FLYING or
+#   first-staging-on-pad trigger line).
+D1 = ["auto-record-launch"]
+# `controlled-decoupled-child` <- "ProcessBreakupEvent: controlled child created:
+#   pid=..." - the fueled core coming off through the istg=2 decoupler with its RC-L01.
+D5 = ["controlled-decoupled-child"]
+# `crew-swap` <- BOTH "Swapped '<reserved>' -> '<stand-in>' in part '"
+#   (CrewReservationManager, the arrow is U+2192, spelled `\u2192` in the regex) and
+#   "Crew swap complete: N succeeded" with N >= 1: after the rewind the watcher Jumping
+#   Flea rolls out with a kerbal the committed Kerbal X future still reserves, and the
+#   in-flight swap replaces it with its stand-in.
+D12 = ["crew-swap"]
+# `scene-ksc` <- "invokerewindtolaunch complete" (emitted only with the scene read
+#   back as SPACECENTER); `scene-map` <- "entermapview ok mapOpen=true".
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "scene-map"]
+# `sfs-scenario-node` <- "OnSave: saving N committed tree(s)" with N >= 1 (the
+#   ScenarioModule writing its committed-tree state), READ BACK by the gating
+#   [expectations.rewind] block: saveParse parses the produced save's ParsekScenario
+#   node, so a missing or unreadable node reds rewindPoints {1,1}.
+D16 = ["sfs-scenario-node"]
 
 [expectations]
 # PLACEMENT IS LOAD-BEARING: `allowedAnomalies` must precede every
@@ -267,6 +308,9 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
              "Committed tree '.+' \\([1-9][0-9]* recordings\\)",
              "Rewind-to-Launch initiated to UT",
+             # From GS-4 (2026-10-14 merge): the one RP carried across the rewind
+             # reload from memory; pairs with rewindPoints {1,1} below.
+             "RewindPoints carried across rewind: installed=1 ",
              "invokerewindtolaunch complete rec=",
              "entermapview ok mapOpen=true",
              "exitmapview ok mapOpen=false",
@@ -290,7 +334,12 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "Rewind-to-Launch initiated to UT[^\\n]*\\n(?:(?:(?![^\\n]*(?:phase=MeshSpawned |Rewind-to-Launch initiated))[^\\n]*\\n)*[^\\n]*phase=MeshSpawned [^\\n]*\\n){8}(?:(?![^\\n]*(?:phase=MeshSpawned |Rewind-to-Launch initiated))[^\\n]*\\n)*[^\\n]*Rewind-to-Launch initiated to UT",
              "Rewind-to-Launch initiated to UT[^\\n]*\\n(?:(?:(?![^\\n]*(?:phase=MeshDestroyed |Rewind-to-Launch initiated))[^\\n]*\\n)*[^\\n]*phase=MeshDestroyed [^\\n]*\\n){8}(?:(?![^\\n]*(?:phase=MeshDestroyed |Rewind-to-Launch initiated))[^\\n]*\\n)*[^\\n]*Rewind-to-Launch initiated to UT",
              "Rewind-to-Launch initiated to UT[^\\n]*\\n(?:(?:(?![^\\n]*(?:phase=MeshSpawned |Rewind-to-Launch initiated))[^\\n]*\\n)*[^\\n]*phase=MeshSpawned [^\\n]*\\n){8}(?:(?![^\\n]*(?:phase=MeshSpawned |Rewind-to-Launch initiated))[^\\n]*\\n)*(?![^\\n]*(?:phase=MeshSpawned |Rewind-to-Launch initiated))[^\\n]*\\Z",
-             "Rewind-to-Launch initiated to UT[^\\n]*\\n(?:(?:(?![^\\n]*(?:phase=MeshDestroyed |Rewind-to-Launch initiated))[^\\n]*\\n)*[^\\n]*phase=MeshDestroyed [^\\n]*\\n){8}(?:(?![^\\n]*(?:phase=MeshDestroyed |Rewind-to-Launch initiated))[^\\n]*\\n)*(?![^\\n]*(?:phase=MeshDestroyed |Rewind-to-Launch initiated))[^\\n]*\\Z"]
+             "Rewind-to-Launch initiated to UT[^\\n]*\\n(?:(?:(?![^\\n]*(?:phase=MeshDestroyed |Rewind-to-Launch initiated))[^\\n]*\\n)*[^\\n]*phase=MeshDestroyed [^\\n]*\\n){8}(?:(?![^\\n]*(?:phase=MeshDestroyed |Rewind-to-Launch initiated))[^\\n]*\\n)*(?![^\\n]*(?:phase=MeshDestroyed |Rewind-to-Launch initiated))[^\\n]*\\Z",
+             # From GS-4 (2026-10-14 merge): D12 crew-swap + D16 sfs-scenario-node
+             # (see [dimensionsCovered]).
+             "\\[CrewReservation\\] Swapped '[^']+' \\u2192 '[^']+' in part '",
+             "\\[CrewReservation\\] Crew swap complete: [1-9][0-9]* succeeded",
+             "\\[Scenario\\] OnSave: saving [1-9][0-9]* committed tree\\(s\\)"]
 # The suite-wide ERROR pattern (it also covers the seam verbs' own failure terminals:
 # rewind-failed / rewind-timeout / enterwatchmode timeout log at ERROR), plus the
 # one-shot-quicksave refusal text (outcome O2) wherever the product or the seam
@@ -321,10 +370,15 @@ requireBalanced = true
 # over (the 2026-09-11 reading measured 0 / 0, rewindPoints 0). ARMED 2026-09-27 (branch
 # `arm-batch2`) off the reading `2026-09-27_2040` on current main (PASS attempt 1):
 # supersedeRows 0, tombstones 0; rewindPoints now reads 1, the point the rewinds carry
-# (RP-SURVIVES-REWIND-TO-LAUNCH), and stays unpinned. Both bounds inverted offline
-# against that save each red on exactly their window.
+# (RP-SURVIVES-REWIND-TO-LAUNCH). Both bounds inverted offline against that save each
+# red on exactly their window. rewindPoints {1,1} is GS-4's pin, moved here with the
+# 2026-10-14 merge (ARMED on GS-4 2026-09-23: armed flight `2026-09-23_2012` PASS,
+# negative control `2026-09-23_2021` on the pre-fix DLL red on exactly
+# `rewind.rewindPoints 0 < min 1`); this lane's `2026-10-11_1542` read 1 after two
+# rewinds.
 [expectations.rewind]
 gating        = true
+rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
@@ -340,6 +394,17 @@ committedTrees = { min = 1, max = 1 }
 recordings     = { min = 8 }
 branchPoints   = { JointBreak = { min = 4 } }
 terminalStates = { SubOrbital = { min = 2 }, Destroyed = { min = 4 } }
+
+# MOVED FROM GS-4 (2026-10-14 merge). maxTotal 6 is the legal maximum of the known stock
+# class set on this subject (STAGING 1 + MAP-FOCUS 2 + HATCH-TOOLTIP 1 +
+# MECHJEB-ONDESTROY 1 + FLIGHT-CAMERA-STARTUP 1; operator re-pin 2026-09-15, the H23
+# rule), never a reason to tolerate a Parsek frame; maxParsekFrames 0 is the
+# independent Parsek-frame ceiling (armed on GS-4 2026-09-22, todo
+# UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES). This lane's two-cycle teardown read
+# total 4 on `2026-09-10_1944` and total 1 / parsekFrames 0 on `2026-10-11_1542`.
+[expectations.unityExceptions]
+maxTotal = 6
+maxParsekFrames = 0
 
 [runtime]
 # WALL clock for the WHOLE drive phase including KSP boot. GS-4's healthy worst case

@@ -40,7 +40,11 @@ import cl1_pod_impact          # noqa: E402
 import oracle                  # noqa: E402
 from test_shells import FakeMissionControl, run, snap  # noqa: E402
 
-SPEC_PATH = os.path.join(_HARNESS, "scenarios", "CL-1-pod-impact.toml")
+# CL-1-pod-impact was absorbed into CL-2 on 2026-10-14 (owner ruling B, shared-flight
+# merges): CL-2 flies CL-1's mission, fixture and missionParams and carries every CL-1
+# gate, so the spec-side cells below read the HOST. The two cells that pinned CL-1's
+# no-commit / no-ledger atom shape retired with the spec (see SpecContractTests).
+SPEC_PATH = os.path.join(_HARNESS, "scenarios", "CL-2-pod-impact-ledger.toml")
 FIXTURE_SFS = os.path.join(_HARNESS, "fixtures", "saves",
                            "career-pad-craft", "persistent.sfs")
 REGISTRY_PATH = os.path.join(_HARNESS, "coverage", "registry.toml")
@@ -1388,30 +1392,12 @@ class SpecContractTests(unittest.TestCase):
         self.assertEqual(1, len(mission))
         self.assertEqual("MISSION-OK", mission[0]["expect"])
 
-    def test_the_spec_drives_no_commit_and_declares_no_ledger_block(self):
-        # PROVEN UNREACHABLE, not a preference (Opus review panel 2026-07-28,
-        # reviewer 2). When the ACTIVE RECORDED vessel is destroyed in tree mode,
-        # ParsekFlight stashes the tree as PENDING and nulls activeTree, so the
-        # seam's CommitTree fails its HasActiveTree guard: the archived crash of
-        # this exact craft logs `committree no-active-tree` and
-        # `OnSave: saving 0 committed tree(s)`
-        # (logs/2026-07-20_1829_B1-pad-hop/KSP.log:11310, :11325). An unmet step
-        # would make the run driver-INVALID and SKIP every verifier below it, so
-        # the scenario would produce no evidence about the death at all.
-        #
-        # Everything commit-dependent goes with it: the two ledger tokens and
-        # `[expectations.ledger]`. This cell is what stops them being re-added
-        # without the commit route that makes them reachable.
-        cmds = [s.get("cmd") for s in self.spec["driver"]["steps"]]
-        self.assertNotIn("CommitTree", cmds)
-        self.assertNotIn("ledger", self.spec["expectations"])
-        required = self.spec["expectations"]["logContracts"]["required"]
-        for commit_only in ("PopulateCrewEndStates", "CreateKerbalAssignmentActions",
-                            "committree"):
-            self.assertFalse(
-                any(commit_only in p for p in required),
-                "%s is emitted only on a commit this scenario cannot reach"
-                % commit_only)
+    # RETIRED 2026-10-14 with CL-1's absorption into CL-2:
+    # `test_the_spec_drives_no_commit_and_declares_no_ledger_block` and
+    # `test_no_ledger_dimension_is_claimed` pinned the ATOM's shape (no commit route out
+    # of the destroyed-vessel flight, so no ledger block and no D8 claim). The host adds
+    # exactly that route (ExitToSpaceCenter under autoMerge) and its ledger block, so
+    # both assertions are false of it by design; the owner ruling accepted the reversal.
 
     def test_the_destruction_path_tokens_are_required(self):
         # The three tokens that pin the recorder-side shape of a crew loss end to
@@ -1423,11 +1409,6 @@ class SpecContractTests(unittest.TestCase):
                       "ShowPostDestructionTreeMergeDialog: finalized tree",
                       "pending tree stashed"):
             self.assertIn(token, required)
-
-    def test_no_ledger_dimension_is_claimed(self):
-        # D8 is entirely commit-time. Claiming any of it while driving no commit
-        # would be coverage this scenario does not earn.
-        self.assertNotIn("D8", self.spec["dimensionsCovered"])
 
     def test_the_scenario_claims_the_new_crew_death_dimension_value(self):
         with open(REGISTRY_PATH, "rb") as fh:
