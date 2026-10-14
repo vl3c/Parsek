@@ -6888,3 +6888,1189 @@ class BootStallWatchdogSmokeTests(unittest.TestCase):
         self.assertEqual(2, log.count("[Boot-Wait] killed process exited after"))
         self.assertNotIn("instance-busy", log)
         self.assertNotIn("still alive after", log)
+
+
+# ---------------------------------------------------------------------------
+# Pipelined post-quit verification (owner ruling 2026-10-14). A multi-lane
+# selection is driven through the production selection loop twice, once
+# pipelined and once with the serial opt-out, over identical sandboxes; every
+# verdict, result record, retry and archive entry must agree, and no post-quit
+# read may reach the live instance once the next lane has staged.
+# ---------------------------------------------------------------------------
+
+import contextlib  # noqa: E402
+import gzip  # noqa: E402
+import threading  # noqa: E402
+from unittest import mock  # noqa: E402
+
+import flighteff  # noqa: E402
+
+# Process-wide audit hook (sys.addaudithook cannot be removed), inert unless a
+# test arms it: records every open / listdir made by a harness worker thread
+# (the post-quit worker and the logValidate overlap both run as "verifier-*").
+_WORKER_IO = {"armed": False, "paths": []}
+_WORKER_IO_HOOKED = False
+
+
+def _worker_io_hook(event, args):
+    if not _WORKER_IO["armed"] or event not in ("open", "os.listdir", "os.scandir"):
+        return
+    if not args or isinstance(args[0], int) or args[0] is None:
+        return
+    name = threading.current_thread().name
+    if not name.startswith("verifier-"):
+        return
+    try:
+        path = os.path.abspath(os.fsdecode(args[0]))
+    except (TypeError, ValueError):
+        return
+    _WORKER_IO["paths"].append((name, path))
+
+
+def _arm_worker_io_hook():
+    global _WORKER_IO_HOOKED
+    if not _WORKER_IO_HOOKED:
+        sys.addaudithook(_worker_io_hook)
+        _WORKER_IO_HOOKED = True
+    _WORKER_IO["paths"] = []
+    _WORKER_IO["armed"] = True
+
+
+def _disarm_worker_io_hook():
+    _WORKER_IO["armed"] = False
+
+
+def _inside(path, root):
+    path = os.path.normcase(os.path.abspath(path))
+    root = os.path.normcase(os.path.abspath(root))
+    return path == root or path.startswith(root + os.sep)
+
+
+class _SelectionRuntime(FakeRuntime):
+    """FakeRuntime for a whole selection: no dotnet prebuild, a per-(scenario,
+    attempt) fake-KSP mode, a machine-wide Player.log every boot rewrites, and a
+    collect-logs stub that records what it was pointed at."""
+
+    def __init__(self, plan, player_log):
+        super().__init__("pass")
+        self.plan = plan
+        self.player_log = player_log
+        self.current_scenario = None
+        self.current_gen = 0
+        self.attempts = {}
+        self.launch_order = []
+        self.collect_calls = []
+
+    def build_tests(self, timeout):
+        return run.ToolResult(0, False)
+
+    def tests_assembly_present(self):
+        return True
+
+    def player_log_path(self):
+        return self.player_log
+
+    def launch(self, exe, args, env, cwd):
+        sid = self.current_scenario
+        n = self.attempts.get(sid, 0) + 1
+        self.attempts[sid] = n
+        self.mode = self.plan.get((sid, n), "pass")
+        self.launch_order.append("%s#%d" % (sid, n))
+        with open(self.player_log, "w", encoding="utf-8") as fh:
+            fh.write("PLAYER gen=%d\n" % self.current_gen)
+        return super().launch(exe, args, env, cwd)
+
+    def run_collect_logs(self, label, save_name, instance_dir, timeout, player_log=None):
+        text = None
+        if player_log and os.path.isfile(player_log):
+            with open(player_log, encoding="utf-8") as fh:
+                text = fh.read()
+        kspl = os.path.join(instance_dir, "KSP.log")
+        log_text = None
+        if os.path.isfile(kspl):
+            with open(kspl, encoding="utf-8") as fh:
+                log_text = fh.read()
+        self.collect_calls.append({"label": label, "instanceDir": instance_dir,
+                                   "playerLog": player_log, "playerText": text,
+                                   "kspLog": log_text})
+        return run.ToolResult(0, False, stdout="../logs/2026-07-12_0000_%s\n" % label)
+
+
+class _Valid:
+    errors = []
+    warnings = []
+
+
+class PipelinedSelectionSmokeTests(unittest.TestCase):
+    """Four scenarios, one retried: A passes; B boot-crashes then passes
+    (flakedThenPassed); C hits a deterministic seam error (never retried); D
+    passes. The same selection runs pipelined and serial."""
+
+    STAMP = "2026-10-14_0000"
+    PLAN = {("PQ-B", 1): "bootcrash"}
+
+    @classmethod
+    def setUpClass(cls):
+        # Both selections fly once for the whole class (ten fake lanes).
+        cls._orig_results = run.RESULTS_DIR
+        cls._orig_stamp = run._run_id_stamp
+        cls._orig_stage = run.stage_fixture
+        run._run_id_stamp = lambda: cls.STAMP
+        cls.sandboxes = []
+        try:
+            cls.flights = (cls._fly(serial=False), cls._fly(serial=True))
+        finally:
+            _disarm_worker_io_hook()
+            run.RESULTS_DIR = cls._orig_results
+            run._run_id_stamp = cls._orig_stamp
+            run.stage_fixture = cls._orig_stage
+
+    @classmethod
+    def tearDownClass(cls):
+        for box in cls.sandboxes:
+            shutil.rmtree(box, ignore_errors=True)
+
+    @classmethod
+    def _specs(cls, template):
+        def seam(sid):
+            spec = _make_spec(template, 30, 600)
+            spec["id"] = sid
+            return spec
+        c = seam("PQ-C")
+        # A kind-less ListHandles: the fake seam answers REJECTED kind-arg-missing,
+        # a deterministic seam error (#2016) that must never be retried.
+        c["driver"]["steps"] = [
+            {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
+             "expect": "OK", "budget": 30},
+            {"cmd": "ListHandles", "args": {}, "expect": "OK"},
+            {"cmd": "FlushAndQuit", "expect": "OK"},
+        ]
+        c["expectations"]["logContracts"]["required"] = []
+        return [seam("PQ-A"), seam("PQ-B"), c, seam("PQ-D")]
+
+    @classmethod
+    def _fly(cls, serial):
+        box = tempfile.mkdtemp(prefix="parsek-pipelined-")
+        cls.sandboxes.append(box)
+        instance = os.path.join(box, "instance")
+        os.makedirs(instance)
+        _write_manifest(instance, "stock-minimal")
+        template = os.path.join(box, "fresh-career")
+        os.makedirs(template)
+        with open(os.path.join(template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        run.RESULTS_DIR = os.path.join(box, "results")
+        rt = _SelectionRuntime(dict(cls.PLAN), os.path.join(box, "Player.log"))
+        dll = os.path.join(instance, run.PARSEK_DLL_REL)
+        gen_dll_sha = {}
+        orig_stage = cls._orig_stage
+
+        def staging(spec, instance_dir, runtime, logger):
+            # Stage, then make the instance unmistakably the NEXT lane's: a fresh
+            # KSP.log (KSP truncates it at boot), a generation stamp in the staged
+            # save, and different DLL bytes. A post-quit read of the live instance
+            # after this point would carry the wrong generation.
+            out = orig_stage(spec, instance_dir, runtime, logger)
+            rt.current_gen += 1
+            gen = rt.current_gen
+            rt.current_scenario = spec.get("id")
+            with open(os.path.join(instance_dir, "KSP.log"), "w", encoding="utf-8") as fh:
+                fh.write("[LOG] HARNESS-TEST staged gen=%d\n" % gen)
+            save = os.path.join(instance_dir, "saves", out[1])
+            if os.path.isdir(save):
+                with open(os.path.join(save, "gen.txt"), "w") as fh:
+                    fh.write("%d" % gen)
+            os.makedirs(os.path.dirname(dll), exist_ok=True)
+            with open(dll, "wb") as fh:
+                fh.write(b"dll gen=%d" % gen)
+            gen_dll_sha[gen] = hashlib.sha256(b"dll gen=%d" % gen).hexdigest()
+            return out
+
+        run.stage_fixture = staging
+        logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "pq_harness.log"))
+        env = {k: v for k, v in os.environ.items()
+               if k not in (hlib.SERIAL_VERIFY_ENV, hlib.RESULTS_ARCHIVE_OPT_OUT_ENV)}
+        if serial:
+            env[hlib.SERIAL_VERIFY_ENV] = "1"
+        args = mock.Mock(instance_dir=instance, no_coverage=True, serial_verify=False)
+        specs = cls._specs(template)
+        if not serial:
+            _arm_worker_io_hook()
+        try:
+            with mock.patch.dict(os.environ, env, clear=True), \
+                    mock.patch.object(hlib, "validate_spec", lambda *a, **k: _Valid()), \
+                    mock.patch.object(run, "resolve_mission_schemas", lambda s, lg=None: (None, [])):
+                code = run._run_selection(specs, specs, {}, box, args, rt, logger, None,
+                                          "id=PQ-*")
+        finally:
+            _disarm_worker_io_hook()
+            logger.close()
+            run.stage_fixture = orig_stage
+        results = {}
+        for name in sorted(os.listdir(run.RESULTS_DIR)):
+            if name.endswith(".json") and not name.endswith(("_status.json", "_mission.json")):
+                with open(os.path.join(run.RESULTS_DIR, name), encoding="utf-8") as fh:
+                    obj = json.load(fh)
+                if isinstance(obj, dict) and "runId" in obj:
+                    results[obj["runId"]] = obj
+        with open(logger.log_path, encoding="utf-8") as fh:
+            log_lines = fh.readlines()
+        return {"box": box, "instance": instance, "code": code, "rt": rt,
+                "results": results, "log": log_lines, "gen_dll_sha": gen_dll_sha,
+                "results_dir": run.RESULTS_DIR,
+                "archive": os.path.join(box, *hlib.RESULTS_ARCHIVE_RELPATH),
+                "worker_io": list(_WORKER_IO["paths"])}
+
+    @staticmethod
+    def _normalized(result, box):
+        out = copy.deepcopy(result)
+        for key in ("startedUtc", "endedUtc", "wallSeconds", "attemptsWallSeconds"):
+            out.pop(key, None)
+        text = json.dumps(out, sort_keys=True)
+        return json.loads(text.replace(json.dumps(box)[1:-1], "<BOX>"))
+
+    def _both(self):
+        return self.flights
+
+    def test_same_verdicts_results_and_retries_either_way(self):
+        piped, serial = self._both()
+        self.assertEqual(serial["code"], piped["code"])
+        self.assertEqual(1, piped["code"], "PQ-C's INVALID makes the selection red")
+        self.assertEqual(sorted(serial["results"]), sorted(piped["results"]))
+        self.assertEqual(5, len(piped["results"]), "A, B a1, B a2, C, D")
+        for rid in sorted(serial["results"]):
+            with self.subTest(runId=rid):
+                self.assertEqual(self._normalized(serial["results"][rid], serial["box"]),
+                                 self._normalized(piped["results"][rid], piped["box"]))
+        by_scenario = {}
+        for r in piped["results"].values():
+            by_scenario.setdefault(r["scenarioId"], []).append(r)
+        b = sorted(by_scenario["PQ-B"], key=lambda r: r["attempt"])
+        self.assertEqual([(1, "INVALID", "boot-crash"), (2, "PASS", "")],
+                         [(r["attempt"], r["verdict"], r["subkind"]) for r in b])
+        self.assertTrue(b[1]["runId"].endswith("_a2"))
+        self.assertEqual("flakedThenPassed", b[1]["note"])
+        (c,) = by_scenario["PQ-C"]
+        self.assertEqual(("INVALID", "driver-verdict-mismatch"), (c["verdict"], c["subkind"]))
+        self.assertEqual("kind-arg-missing", c[hlib.RETRY_SKIPPED_KEY]["reason"])
+        for sid in ("PQ-A", "PQ-D"):
+            self.assertEqual(["PASS"], [r["verdict"] for r in by_scenario[sid]])
+
+    def test_the_retry_flies_one_lane_later(self):
+        piped, serial = self._both()
+        self.assertEqual(["PQ-A#1", "PQ-B#1", "PQ-B#2", "PQ-C#1", "PQ-D#1"],
+                         serial["rt"].launch_order)
+        # Pipelined: B's attempt-1 verdict is known only after C has flown, so the
+        # retry flies right after C (the lane in flight), ahead of D.
+        self.assertEqual(["PQ-A#1", "PQ-B#1", "PQ-C#1", "PQ-B#2", "PQ-D#1"],
+                         piped["rt"].launch_order)
+
+    def test_no_post_quit_read_touches_the_live_instance(self):
+        piped, serial = self._both()
+        for flight in (piped, serial):
+            order = flight["rt"].launch_order
+            for rid, r in flight["results"].items():
+                with self.subTest(mode="serial" if flight is serial else "pipelined", runId=rid):
+                    gen = order.index("%s#%d" % (r["scenarioId"], r["attempt"])) + 1
+                    shots_log = os.path.join(flight["results_dir"], rid + "_shots", "KSP.log")
+                    with open(shots_log, encoding="utf-8") as fh:
+                        text = fh.read()
+                    self.assertIn("staged gen=%d\n" % gen, text)
+                    self.assertEqual(1, text.count("staged gen="), text[:200])
+                    if r["snapshot"]["ran"]:
+                        with open(os.path.join(flight["results_dir"], r["snapshot"]["path"],
+                                               "gen.txt")) as fh:
+                            self.assertEqual(str(gen), fh.read())
+                    if flight is piped:
+                        # The serial path hashes the instance DLL at the scenario's
+                        # end (after B's retry restaged it); pipelined archives the
+                        # hash taken when each lane's own KSP exited.
+                        with open(os.path.join(flight["archive"], rid, "manifest.json")) as fh:
+                            self.assertEqual(flight["gen_dll_sha"][gen],
+                                             json.load(fh)["parsekDllSha256"])
+        # collect-logs (non-PASS lanes) read the lane's own private copy, Player.log
+        # included, never the instance the next lane had already staged.
+        calls = piped["rt"].collect_calls
+        self.assertEqual(["PQ-B", "PQ-C"], sorted(c["label"] for c in calls))
+        order = piped["rt"].launch_order
+        for call in calls:
+            gen = order.index("%s#1" % call["label"]) + 1
+            self.assertFalse(_inside(call["instanceDir"], piped["instance"]))
+            self.assertIn("staged gen=%d\n" % gen, call["kspLog"])
+            self.assertEqual("PLAYER gen=%d\n" % gen, call["playerText"])
+        # Every file the worker threads opened or listed: none under the instance,
+        # and (positive control: the hook sees worker I/O) some under the copies.
+        io = piped["worker_io"]
+        live = [p for _t, p in io if _inside(p, piped["instance"])]
+        self.assertEqual([], live)
+        copies = os.path.join(piped["results_dir"], run.POST_QUIT_COPY_DIRNAME)
+        self.assertTrue(any(_inside(p, copies) for _t, p in io))
+        # The private copies are gone once their lane landed.
+        self.assertEqual([], os.listdir(copies) if os.path.isdir(copies) else [])
+
+    def test_the_harness_log_keeps_each_scenario_whole(self):
+        piped, serial = self._both()
+        lines = piped["log"]
+        self.assertTrue(any(hlib.HARNESS_LOG_LANE_BEGIN_MARKER in ln for ln in lines))
+        self.assertFalse(any(hlib.HARNESS_LOG_LANE_BEGIN_MARKER in ln
+                             for ln in serial["log"]), "serial logs exactly as before")
+        for flight in (piped, serial):
+            facts = flighteff.parse_harness_log(flight["log"])
+            for rid, r in flight["results"].items():
+                with self.subTest(runId=rid):
+                    expected_attempts = 2 if r["scenarioId"] == "PQ-B" else 1
+                    self.assertEqual(expected_attempts, facts[rid]["cost"]["attempts"])
+                    self.assertEqual(expected_attempts - 1, len(facts[rid]["retries"]))
+        for rid, r in piped["results"].items():
+            with self.subTest(runId=rid):
+                block = "".join(hlib.slice_harness_log_for_run(lines, rid))
+                own = [x for x, o in piped["results"].items()
+                       if o["scenarioId"] == r["scenarioId"]]
+                for other, o in piped["results"].items():
+                    marker = "lane flight end runId=%s " % other
+                    if other in own:
+                        self.assertIn(marker, block)
+                        self.assertIn("%s.json" % other, block)
+                    else:
+                        self.assertNotIn(marker, block)
+                        self.assertNotIn("%s.json" % other, block)
+                self.assertEqual(1, block.count(hlib.HARNESS_LOG_COST_MARKER))
+                with gzip.open(os.path.join(piped["archive"], rid,
+                                            os.path.basename(_log_name(piped)) + ".gz"),
+                               "rt", encoding="utf-8") as fh:
+                    self.assertEqual(block, fh.read())
+
+    def test_a_tier_summary_reads_the_same_either_way(self):
+        piped, serial = self._both()
+
+        def rows(flight):
+            return sorted((r["scenarioId"], r["attempt"], r["verdict"], r.get("note", ""))
+                          for r in flight["results"].values())
+        self.assertEqual(rows(serial), rows(piped))
+        for flight in (piped, serial):
+            with open(os.path.join(flight["results_dir"], "summary.txt")) as fh:
+                summary = sorted(" ".join(ln.split()[1:]).rsplit(" wall=", 1)[0]
+                                 for ln in fh)
+            flight["summary"] = summary
+        self.assertEqual(serial["summary"], piped["summary"])
+
+
+def _log_name(flight):
+    return os.path.join(flight["results_dir"], "pq_harness.log")
+
+
+class PipelinedEdgeSmokeTests(unittest.TestCase):
+    """The pipelined loop's two degraded paths: a post-quit copy that fails
+    (verified in place, before the next lane stages) and a lock lost while a
+    lane is in post-quit work or owes a retry."""
+
+    def setUp(self):
+        self.box = tempfile.mkdtemp(prefix="parsek-pipelined-edge-")
+        self.instance = os.path.join(self.box, "instance")
+        os.makedirs(self.instance)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.box, "fresh-career")
+        os.makedirs(self.template)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        self._orig_stage = run.stage_fixture
+        run.RESULTS_DIR = os.path.join(self.box, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "edge_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        run.stage_fixture = self._orig_stage
+        self.logger.close()
+        shutil.rmtree(self.box, ignore_errors=True)
+
+    def _select(self, ids, plan, heartbeats=None, copy_fails=(), budgets=None,
+                serial=False, runtime_cls=None, interrupt_at_stage=None, patches=()):
+        rt = (runtime_cls or _SelectionRuntime)(plan, os.path.join(self.box, "Player.log"))
+        orig_stage = self._orig_stage
+        self.results_at_stage = {}
+        stages = []
+
+        def staging(spec, instance_dir, runtime, logger):
+            stages.append(spec.get("id"))
+            if interrupt_at_stage is not None and len(stages) == interrupt_at_stage:
+                raise KeyboardInterrupt()
+            rt.current_scenario = spec.get("id")
+            self.results_at_stage[spec.get("id")] = sorted(
+                n for n in os.listdir(run.RESULTS_DIR)
+                if n.endswith(".json") and n.count("_") == 2)
+            return orig_stage(spec, instance_dir, runtime, logger)
+        run.stage_fixture = staging
+        specs = []
+        for sid in ids:
+            spec = _make_spec(self.template, *((budgets or {}).get(sid, (30, 600))))
+            spec["id"] = sid
+            specs.append(spec)
+        orig_copy = run._take_post_quit_copy
+
+        def copy(run_id, *a, **k):
+            if any(run_id.endswith(s) for s in copy_fails):
+                return None
+            return orig_copy(run_id, *a, **k)
+        beats = iter(heartbeats or [])
+        env = {k: v for k, v in os.environ.items()
+               if k not in (hlib.SERIAL_VERIFY_ENV, hlib.RESULTS_ARCHIVE_OPT_OUT_ENV)}
+        if serial:
+            env[hlib.SERIAL_VERIFY_ENV] = "1"
+        args = mock.Mock(instance_dir=self.instance, no_coverage=True, serial_verify=False)
+        self.interrupted = False
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.dict(os.environ, env, clear=True))
+            stack.enter_context(mock.patch.object(hlib, "validate_spec",
+                                                  lambda *a, **k: _Valid()))
+            stack.enter_context(mock.patch.object(run, "resolve_mission_schemas",
+                                                  lambda s, lg=None: (None, [])))
+            stack.enter_context(mock.patch.object(run, "_take_post_quit_copy", copy))
+            stack.enter_context(mock.patch.object(run, "heartbeat_run_lock",
+                                                  lambda *a, **k: next(beats, True)))
+            for target, name, value in patches:
+                stack.enter_context(mock.patch.object(target, name, value))
+            try:
+                code = run._run_selection(specs, specs, {}, self.box, args, rt,
+                                          self.logger, "lock", "id=PE-*")
+            except KeyboardInterrupt:
+                self.interrupted = True
+                code = None
+        results = {}
+        for name in os.listdir(run.RESULTS_DIR):
+            if name.endswith(".json"):
+                with open(os.path.join(run.RESULTS_DIR, name), encoding="utf-8") as fh:
+                    obj = json.load(fh)
+                if isinstance(obj, dict) and "runId" in obj:
+                    results.setdefault(obj["scenarioId"], []).append(obj)
+        with open(self.logger.log_path, encoding="utf-8") as fh:
+            log = fh.read()
+        return code, results, rt, log
+
+    def test_a_failed_copy_verifies_in_place_with_the_same_verdict(self):
+        code, results, rt, log = self._select(["PE-A", "PE-B"], {}, copy_fails=("PE-A",))
+        self.assertEqual(0, code)
+        self.assertEqual(["PASS"], [r["verdict"] for r in results["PE-A"]])
+        self.assertEqual(["PASS"], [r["verdict"] for r in results["PE-B"]])
+        self.assertEqual(["PE-A#1", "PE-B#1"], rt.launch_order)
+        a_rid = results["PE-A"][0]["runId"]
+        # Verified on the live instance, so it landed before PE-B staged over it.
+        self.assertIn(a_rid + ".json", self.results_at_stage["PE-B"])
+        self.assertIn("post-quit copy", log)
+        # The in-place lane's lines still land in its own post-quit block.
+        block = "".join(hlib.slice_harness_log_for_run(log.splitlines(True), a_rid))
+        self.assertIn("verdict=PASS scenario=PE-A", block)
+        self.assertNotIn("scenario=PE-B", block)
+
+    def test_a_lost_lock_lands_the_lane_in_work_and_refuses_the_rest(self):
+        # Beat 1 flies A; beat 2 (A in post-quit work) fails.
+        code, results, rt, log = self._select(["PE-A", "PE-B"], {}, heartbeats=[True, False])
+        self.assertEqual(1, code)
+        self.assertEqual(["PE-A#1"], rt.launch_order)
+        self.assertEqual(["PASS"], [r["verdict"] for r in results["PE-A"]])
+        self.assertEqual([("INVALID", "instance-locked")],
+                         [(r["verdict"], r["subkind"]) for r in results["PE-B"]])
+        self.assertIn("lost the machine lock mid-selection", log)
+
+    def test_a_lost_lock_ends_an_owed_retry_on_attempt_one(self):
+        # A boot-crashes; B flies while A verifies; A's retry is queued when A
+        # lands, and beat 3 (before that retry) fails.
+        code, results, rt, log = self._select(["PE-A", "PE-B"], {("PE-A", 1): "bootcrash"},
+                                              heartbeats=[True, True, False])
+        self.assertEqual(1, code)
+        self.assertEqual(["PE-A#1", "PE-B#1"], rt.launch_order)
+        self.assertEqual([(1, "INVALID", "boot-crash")],
+                         [(r["attempt"], r["verdict"], r["subkind"]) for r in results["PE-A"]])
+        self.assertEqual(["PASS"], [r["verdict"] for r in results["PE-B"]])
+        self.assertIn("retry scenario=PE-A attempt=2 NOT flown", log)
+        self.assertIn("scenario cost attempts=1 wallTotal=", log)
+
+    # ---- a killed lane's KSP still tearing down when the next lane preflights ----
+
+    def _archived(self, run_id):
+        return os.path.isfile(os.path.join(self.box, *hlib.RESULTS_ARCHIVE_RELPATH,
+                                           run_id, "manifest.json"))
+
+    def _killed_then_pass(self, serial):
+        code, results, rt, log = self._select(
+            ["PE-A", "PE-B"], {("PE-A", 1): "hang"}, budgets={"PE-A": (1, 2)},
+            serial=serial, runtime_cls=_DyingRuntime)
+        self.assertEqual(["PE-A#1", "PE-B#1"], rt.launch_order)
+        self.assertEqual(["KILLED"], [r["verdict"] for r in results["PE-A"]])
+        self.assertEqual([("PASS", "")], [(r["verdict"], r["subkind"]) for r in results["PE-B"]],
+                         "the lane after a killed one must not be refused instance-busy")
+        return log
+
+    def test_a_killed_lane_does_not_refuse_the_next_one_pipelined(self):
+        log = self._killed_then_pass(serial=False)
+        self.assertIn("prior KSP exited after", log)
+
+    def test_a_killed_lane_does_not_refuse_the_next_one_serial(self):
+        self._killed_then_pass(serial=True)
+
+    # ---- the selection stopping mid-lane ----
+
+    def test_an_interrupt_while_the_next_lane_stages_lands_the_lane_in_work(self):
+        code, results, rt, log = self._select(["PE-A", "PE-B"], {}, interrupt_at_stage=2)
+        self.assertTrue(self.interrupted)
+        (a,) = results["PE-A"]
+        self.assertEqual("PASS", a["verdict"])
+        self.assertIn("attemptsWallSeconds", a)
+        self.assertEqual(1, log.count("scenario cost attempts=1"))
+        self.assertTrue(self._archived(a["runId"]))
+        self.assertNotIn("PE-B", results)
+
+    def test_an_interrupt_before_an_owed_retry_closes_both_scenarios(self):
+        # Stages: A (boot crash), B (A verifies meanwhile; its retry is queued),
+        # then A's retry is interrupted while B is in post-quit work.
+        code, results, rt, log = self._select(["PE-A", "PE-B"], {("PE-A", 1): "bootcrash"},
+                                              interrupt_at_stage=3)
+        self.assertTrue(self.interrupted)
+        self.assertEqual([(1, "INVALID", "boot-crash")],
+                         [(r["attempt"], r["verdict"], r["subkind"]) for r in results["PE-A"]])
+        self.assertEqual(["PASS"], [r["verdict"] for r in results["PE-B"]])
+        for r in results["PE-A"] + results["PE-B"]:
+            self.assertIn("attemptsWallSeconds", r)
+            self.assertTrue(self._archived(r["runId"]))
+        self.assertIn("retry scenario=PE-A attempt=2 NOT flown: the selection stopped "
+                      "(KeyboardInterrupt)", log)
+        # A's held attempt-1 block was written, not dropped.
+        self.assertIn("verdict=INVALID scenario=PE-A attempt=1", log)
+        self.assertEqual(2, log.count("[Cost] scenario cost"))
+
+    def test_a_raising_worker_is_an_invalid_row_not_a_lost_lane(self):
+        orig = run._verify_classify_finish
+
+        def boom(*args, **kwargs):
+            if args[0].get("id") == "PE-A":
+                args[13].info("Verify", "verify reached the synthetic defect")
+                raise RuntimeError("synthetic worker defect")
+            return orig(*args, **kwargs)
+        code, results, rt, log = self._select(
+            ["PE-A", "PE-B"], {}, patches=[(run, "_verify_classify_finish", boom)])
+        self.assertEqual(1, code)
+        self.assertEqual(["PE-A#1", "PE-B#1"], rt.launch_order, "never retried")
+        (a,) = results["PE-A"]
+        self.assertEqual((hlib.VERDICT_INVALID, hlib.POST_QUIT_ERROR_SUBKIND),
+                         (a["verdict"], a["subkind"]))
+        self.assertIn("RuntimeError: synthetic worker defect", a["note"])
+        self.assertTrue(self._archived(a["runId"]))
+        self.assertIn("verify reached the synthetic defect", log)
+        self.assertIn("post-quit work FAILED", log)
+        self.assertEqual(["PASS"], [r["verdict"] for r in results["PE-B"]])
+        self.assertEqual(2, log.count("[Cost] scenario cost"))
+
+    # ---- a Ctrl-C that lands inside the worker join ----
+
+    def _interrupt_first_join(self, ids, **kwargs):
+        orig_join = run._BackgroundVerifier.join
+        orig_finalize = run._pipeline_finalize
+        state = {"raised": False, "alive_at_raise": None, "finalize_while_alive": []}
+
+        def join(bg, logger):
+            if not state["raised"] and bg._thread.name.startswith("verifier-post-quit"):
+                state["raised"] = True
+                state["alive_at_raise"] = bg.alive()
+                raise KeyboardInterrupt()
+            return orig_join(bg, logger)
+
+        def finalize(scen, umbrella_root, logger):
+            alive = [t.name for t in threading.enumerate()
+                     if t.name.startswith("verifier-post-quit") and t.is_alive()]
+            if alive:
+                state["finalize_while_alive"].append((scen.spec.get("id"), alive))
+            return orig_finalize(scen, umbrella_root, logger)
+        result = self._select(ids, {}, runtime_cls=_SlowVerifyRuntime,
+                              patches=[(run._BackgroundVerifier, "join", join),
+                                       (run, "_pipeline_finalize", finalize)], **kwargs)
+        return result, state
+
+    def _assert_landed_once(self, results, log, sid):
+        (r,) = results[sid]
+        self.assertEqual("PASS", r["verdict"])
+        self.assertIn("attemptsWallSeconds", r)
+        self.assertTrue(self._archived(r["runId"]))
+        self.assertEqual(1, log.count("verdict=PASS scenario=%s attempt=1" % sid))
+        self.assertEqual(1, log.count("scenario cost attempts=1 wallTotal=%ds terminal=PASS"
+                                      % r["attemptsWallSeconds"]))
+
+    def test_an_interrupted_join_still_lands_the_lane_once(self):
+        (code, results, rt, log), state = self._interrupt_first_join(["PE-A", "PE-B"])
+        self.assertTrue(self.interrupted)
+        self.assertTrue(state["alive_at_raise"], "the interrupt must hit a live worker")
+        self.assertEqual([], state["finalize_while_alive"])
+        self.assertEqual(["PE-A#1", "PE-B#1"], rt.launch_order)
+        self._assert_landed_once(results, log, "PE-A")
+        self._assert_landed_once(results, log, "PE-B")  # flown, not yet started
+        self.assertEqual(2, log.count("[Cost] scenario cost"))
+        self.assertIn("waiting up to", log)
+
+    def test_an_interrupted_in_place_join_waits_for_the_live_instance_reader(self):
+        (code, results, rt, log), state = self._interrupt_first_join(
+            ["PE-A", "PE-B"], copy_fails=("PE-A",))
+        self.assertTrue(self.interrupted)
+        self.assertTrue(state["alive_at_raise"])
+        self.assertEqual([], state["finalize_while_alive"])
+        self.assertEqual(["PE-A#1"], rt.launch_order, "nothing staged over the live reader")
+        self._assert_landed_once(results, log, "PE-A")
+        self.assertEqual(1, log.count("[Cost] scenario cost"))
+        self.assertFalse(any(t.name.startswith("verifier-post-quit") and t.is_alive()
+                             for t in threading.enumerate()))
+
+    # ---- a foreign KSP refuses as fast as serial ----
+
+    def test_a_foreign_ksp_refuses_without_the_prior_lane_wait(self):
+        start = time.time()
+        code, results, rt, log = self._select(
+            ["PE-A", "PE-B"], {}, runtime_cls=_ForeignKspRuntime,
+            patches=[(run, "PIPELINED_PRIOR_KSP_EXIT_WAIT_SECONDS", 60.0)])
+        self.assertLess(time.time() - start, 30.0)
+        self.assertEqual(1, code)
+        for sid in ("PE-A", "PE-B"):
+            self.assertEqual([("INVALID", "instance-busy")],
+                             [(r["verdict"], r["subkind"]) for r in results[sid]])
+        self.assertNotIn("waiting up to", log)
+        self.assertEqual([], rt.launch_order)
+
+
+class _SlowVerifyRuntime(_SelectionRuntime):
+    """Post-quit work that takes a second (the log validation), so a lane's worker
+    is still running when the next join is attempted."""
+
+    def run_log_validate(self, log_path, killed, no_recording, timeout):
+        time.sleep(1.0)
+        return super().run_log_validate(log_path, killed, no_recording, timeout)
+
+
+class _ForeignKspRuntime(_SelectionRuntime):
+    """A KSP the harness never launched is running the whole time."""
+
+    def ksp_running(self, instance_dir):
+        return 4242
+
+
+class _DyingRuntime(_SelectionRuntime):
+    """A watchdog-killed KSP that the process probe still sees for DEATH seconds
+    (the tree outliving KILL_EXIT_WAIT_SECONDS). The killed-run log validation
+    takes VERIFY seconds, standing in for the minute the serial path spent in its
+    verifier chain before the next preflight."""
+
+    DEATH = 2.0
+    VERIFY = 3.0
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.killed_at = None
+
+    def kill_tree(self, proc):
+        pids = super().kill_tree(proc)
+        self.killed_at = time.time()
+        return pids
+
+    def ksp_running(self, instance_dir):
+        if self.killed_at is not None and time.time() < self.killed_at + self.DEATH:
+            return 4242
+        return None
+
+    def run_log_validate(self, log_path, killed, no_recording, timeout):
+        if killed:
+            time.sleep(self.VERIFY)
+        return super().run_log_validate(log_path, killed, no_recording, timeout)
+
+
+class PipelinedVerifyOptOutTests(unittest.TestCase):
+    def test_on_by_default_and_off_by_env_or_flag(self):
+        self.assertTrue(hlib.pipelined_verify_enabled({}, False))
+        self.assertTrue(hlib.pipelined_verify_enabled({hlib.SERIAL_VERIFY_ENV: "0"}, False))
+        self.assertTrue(hlib.pipelined_verify_enabled({hlib.SERIAL_VERIFY_ENV: ""}, False))
+        for value in ("1", "true", "yes", " On "):
+            self.assertFalse(hlib.pipelined_verify_enabled({hlib.SERIAL_VERIFY_ENV: value},
+                                                           False), value)
+        self.assertFalse(hlib.pipelined_verify_enabled({}, True))
+
+    def test_the_cli_flag_exists(self):
+        self.assertIn("serial_verify", _calls_kwarg_names(run.run))
+
+    def test_the_pipelined_loop_stops_on_a_lost_lock(self):
+        source = textwrap.dedent(inspect.getsource(run._run_selection_pipelined))
+        tree = ast.parse(source)
+        guarded = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.If) and isinstance(node.test, ast.UnaryOp):
+                called = {n.func.id for n in ast.walk(node.test)
+                          if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+                if "heartbeat_run_lock" in called:
+                    guarded.append(any(isinstance(n, ast.Return) for n in ast.walk(node)))
+        self.assertTrue(guarded and all(guarded))
+
+
+def _calls_kwarg_names(fn):
+    """`dest`-style names of the argparse flags fn declares."""
+    tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+    out = set()
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "add_argument"):
+            for a in node.args:
+                if isinstance(a, ast.Constant) and isinstance(a.value, str) \
+                        and a.value.startswith("--"):
+                    out.add(a.value[2:].replace("-", "_"))
+    return out
+
+
+def _copy_set():
+    """(files, dirs) the post-quit copy holds, as relative path tuples."""
+    files = {tuple(rel.replace("\\", "/").split("/")) for rel in run.POST_QUIT_ROOT_FILES}
+    dirs = {tuple(d) for d in run.POST_QUIT_COPIED_DIRS}
+    return files, dirs
+
+
+def _covered(rel, files, dirs):
+    return rel in files or any(rel[:len(d)] == d for d in dirs)
+
+
+def _in_copied_dir(rel, dirs):
+    return any(rel[:len(d)] == d for d in dirs)
+
+
+def _split_parts(text):
+    return tuple(p for p in text.replace("\\", "/").split("/") if p)
+
+
+class _InstanceReadWalker:
+    """Fail-closed AST walk of every value derived from the instance root in the
+    post-quit call graph of run.py (following calls into run.py / hlib functions).
+
+    A root-derived value may only be: joined further with os.path.join (string
+    literals, module string constants, ``run_save_name``, or - inside a copied
+    directory - any expression); read by a known reader (open, os.path.isfile /
+    isdir / exists / getsize, os.listdir / stat / walk, shutil.copy* / copytree, the
+    analyzer / log-validation subprocesses), in which case the full relative path
+    must be a copied file or lie inside a copied directory; passed whole (the root
+    only) to collect-logs, whose own reads are checked separately; or used in a
+    way that reads nothing (a truth test, a comparison, string formatting, a string
+    method, ``bool`` / ``os.path.basename``, a dict value). Anything else is a
+    problem, so a new kind of read cannot pass unnoticed."""
+
+    READERS = {"os.path.isfile", "os.path.isdir", "os.path.exists", "os.path.getsize",
+               "os.path.getmtime", "os.listdir", "os.scandir", "os.stat", "os.walk",
+               "shutil.copy", "shutil.copy2", "shutil.copyfile", "shutil.copytree",
+               "gzip.open", "open"}
+    SUBPROCESS_READERS = {"runtime.run_analyzer", "runtime.run_log_validate",
+                          "runtime.run_seed_analyzer"}
+    NON_READS = {"bool", "os.path.basename"}
+    STRING_METHODS = {"rstrip", "lstrip", "strip", "endswith", "startswith"}
+    PLACEHOLDERS = {"run_save_name": "<runSave>"}
+    RECORDED_PATH_KEYS = {"reportTxt", "reportJson"}
+
+    def __init__(self, sources):
+        # sources: {"run": text, "hlib": text}
+        self.modules = {}
+        for mod, text in sources.items():
+            tree = ast.parse(text)
+            self.modules[mod] = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+        self.files, self.dirs = _copy_set()
+        self.problems = []
+        self.reads = set()
+        self._seen = set()
+
+    @staticmethod
+    def _dotted(node):
+        parts = []
+        while isinstance(node, ast.Attribute):
+            parts.append(node.attr)
+            node = node.value
+        if isinstance(node, ast.Name):
+            parts.append(node.id)
+            return ".".join(reversed(parts))
+        return None
+
+    def walk(self, mod, fn_name, bindings):
+        key = (mod, fn_name, tuple(sorted(bindings.items())))
+        if key in self._seen:
+            return
+        self._seen.add(key)
+        fn = self.modules[mod][fn_name]
+        parents = {}
+        for node in ast.walk(fn):
+            for child in ast.iter_child_nodes(node):
+                parents[child] = node
+        taint = dict(bindings)
+        changed = True
+        while changed:
+            changed = False
+            for node in ast.walk(fn):
+                if isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                        and isinstance(node.targets[0], ast.Name):
+                    rel = self._eval(node.value, taint, "%s.%s" % (mod, fn_name), report=False)
+                    name = node.targets[0].id
+                    if rel is not None and taint.get(name) != rel and name not in bindings:
+                        taint[name] = rel
+                        changed = True
+        where = "%s.%s" % (mod, fn_name)
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) \
+                    and node.id in taint:
+                self._usage(node, taint[node.id], taint, parents, mod, where)
+
+    def _component(self, arg, rel, where):
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+            return _split_parts(arg.value)
+        if isinstance(arg, ast.Name) and isinstance(getattr(run, arg.id, None), str):
+            return _split_parts(getattr(run, arg.id))
+        if isinstance(arg, ast.Name) and arg.id in self.PLACEHOLDERS:
+            return (self.PLACEHOLDERS[arg.id],)
+        if isinstance(arg, ast.Starred):
+            return None
+        if _in_copied_dir(rel, self.dirs):
+            return ("*",)
+        return None
+
+    def _eval(self, node, taint, where, report=True):
+        """The relative path a root-derived expression denotes, or None."""
+        if isinstance(node, ast.Name):
+            return taint.get(node.id)
+        if isinstance(node, ast.Call) and self._dotted(node.func) == "os.path.join" \
+                and node.args:
+            rel = self._eval(node.args[0], taint, where, report)
+            if rel is None:
+                return None
+            for arg in node.args[1:]:
+                part = self._component(arg, rel, where)
+                if part is None:
+                    if report:
+                        self.problems.append("%s: unrecognized path component %s under %s"
+                                             % (where, ast.dump(arg)[:60], "/".join(rel)))
+                    return None
+                rel = rel + part
+            return rel
+        return None
+
+    def _read(self, rel, where, how):
+        self.reads.add(rel)
+        if not _covered(rel, self.files, self.dirs):
+            self.problems.append("%s: %s reads %s, which the post-quit copy does not hold"
+                                 % (where, how, "/".join(rel) or "<instance root>"))
+
+    def _usage(self, node, rel, taint, parents, mod, where):
+        expr = node
+        parent = parents.get(expr)
+        # Climb through joins rooted on this value.
+        while isinstance(parent, ast.Call) and self._dotted(parent.func) == "os.path.join" \
+                and parent.args and parent.args[0] is expr:
+            rel = self._eval(parent, taint, where)
+            if rel is None:
+                return
+            expr, parent = parent, parents.get(parent)
+        # Through value-preserving wrappers.
+        while isinstance(parent, ast.IfExp) and expr is not parent.test:
+            expr, parent = parent, parents.get(parent)
+        if isinstance(parent, ast.keyword):
+            kw = parent.arg
+            expr, parent = parent, parents.get(parent)
+        else:
+            kw = None
+        if isinstance(parent, ast.Assign) and parent.value is expr:
+            if len(parent.targets) == 1 and isinstance(parent.targets[0], ast.Name):
+                return
+            self.problems.append("%s: root-derived value assigned to a non-name" % where)
+            return
+        if isinstance(parent, ast.Call) and (expr in parent.args or kw is not None):
+            name = self._dotted(parent.func)
+            if name in self.READERS:
+                self._read(rel, where, name)
+                return
+            if name in self.SUBPROCESS_READERS:
+                self._read(rel, where, name)
+                return
+            if name == "runtime.run_collect_logs" and rel == ():
+                return  # collect-logs.py's reads: test_every_collect_logs_instance_read_*
+            if name in self.NON_READS or (name or "").startswith("logger."):
+                return
+            target_mod, target_fn = None, None
+            if name in self.modules["run"]:
+                target_mod, target_fn = "run", name
+            elif name and name.startswith("hlib.") and name[5:] in self.modules["hlib"]:
+                target_mod, target_fn = "hlib", name[5:]
+            if target_fn is not None:
+                params = [a.arg for a in self.modules[target_mod][target_fn].args.args]
+                if kw is not None:
+                    param = kw
+                else:
+                    index = parent.args.index(expr)
+                    if index >= len(params) or any(isinstance(a, ast.Starred)
+                                                   for a in parent.args[:index + 1]):
+                        self.problems.append("%s: root-derived value passed positionally "
+                                             "past %s's named params" % (where, name))
+                        return
+                    param = params[index]
+                self.walk(target_mod, target_fn, {param: rel})
+                return
+            self.problems.append("%s: root-derived value (%s) passed to %s"
+                                 % (where, "/".join(rel) or "<root>", name or ast.dump(parent.func)[:40]))
+            return
+        if isinstance(parent, ast.Attribute) and parent.value is expr:
+            if parent.attr in self.STRING_METHODS:
+                return
+            self.problems.append("%s: root-derived value used as .%s" % (where, parent.attr))
+            return
+        # Formatting makes a NEW string the walk cannot follow, so it is allowed
+        # only when that string goes straight into a logger call.
+        fmt = None
+        if isinstance(parent, ast.Tuple) and isinstance(parents.get(parent), ast.BinOp) \
+                and isinstance(parents[parent].op, ast.Mod) and parents[parent].right is parent:
+            fmt = parents[parent]
+        elif isinstance(parent, ast.BinOp) and isinstance(parent.op, ast.Mod) \
+                and parent.right is expr:
+            fmt = parent
+        elif isinstance(parent, ast.FormattedValue):
+            fmt = parents.get(parent)
+        if fmt is not None:
+            call = parents.get(fmt)
+            if isinstance(call, ast.Call) and fmt in call.args \
+                    and (self._dotted(call.func) or "").startswith("logger."):
+                return
+            self.problems.append("%s: root-derived value (%s) formatted into a string that "
+                                 "is not a log line" % (where, "/".join(rel) or "<root>"))
+            return
+        if isinstance(parent, ast.Compare):
+            return
+        if isinstance(parent, (ast.BoolOp, ast.UnaryOp)) and _in_test_position(expr, parents):
+            return
+        if isinstance(parent, (ast.If, ast.IfExp, ast.While)) and parent.test is expr:
+            return
+        if isinstance(parent, ast.Dict) and expr in parent.values:
+            key = parent.keys[parent.values.index(expr)]
+            if isinstance(key, ast.Constant) and key.value in self.RECORDED_PATH_KEYS:
+                return  # the analyzer row's report paths (remapped, never opened)
+        self.problems.append("%s: unrecognized use of a root-derived value (%s) in %s"
+                             % (where, "/".join(rel) or "<root>", type(parent).__name__))
+
+
+def _in_test_position(expr, parents):
+    """True when ``expr`` only feeds a truth test: through and / or / not up to an
+    if / while / conditional-expression test (an ``x or y`` VALUE is not a test)."""
+    node = expr
+    parent = parents.get(node)
+    while isinstance(parent, ast.BoolOp) or (isinstance(parent, ast.UnaryOp)
+                                             and isinstance(parent.op, ast.Not)):
+        if isinstance(parent, ast.UnaryOp):
+            return True  # `not x` is a bool whatever x is
+        node, parent = parent, parents.get(parent)
+    return isinstance(parent, (ast.If, ast.While, ast.IfExp)) and parent.test is node
+
+
+def _run_walker(run_text=None):
+    if run_text is None:
+        run_text = inspect.getsource(run)
+    walker = _InstanceReadWalker({"run": run_text, "hlib": inspect.getsource(hlib)})
+    walker.walk("run", "_verify_classify_finish", {"verify_root": ()})
+    return walker
+
+
+def _collect_logs_problems(text):
+    """The same fail-closed walk for scripts/collect-logs.py: every ``ksp_dir``
+    rooted ``/`` chain (and ``Path(ksp_dir)``) is resolved to its full relative
+    path, which every read must find in the copy set."""
+    files, dirs = _copy_set()
+    tree = ast.parse(text)
+    exempt = {"detect_save", "_detect_save_from_ksp_log", "_detect_save_from_mtime"}
+    readers = {"copy_file", "copy_parsek_sidecar_dirs", "run_log_validation"}
+    method_reads = {"is_file", "is_dir", "exists", "read_text", "read_bytes", "stat"}
+    problems, reads = [], set()
+    for fn in tree.body:
+        if not isinstance(fn, ast.FunctionDef) or fn.name in exempt:
+            continue
+        params = {a.arg for a in fn.args.args}
+        names = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)}
+        if "ksp_dir" not in params and "ksp_dir" not in names:
+            continue
+        parents = {}
+        for node in ast.walk(fn):
+            for child in ast.iter_child_nodes(node):
+                parents[child] = node
+        taint = {"ksp_dir": ()}
+
+        def chain(expr, rel):
+            parent = parents.get(expr)
+            while True:
+                if isinstance(parent, ast.Call) and isinstance(parent.func, ast.Name) \
+                        and parent.func.id == "Path" and parent.args and parent.args[0] is expr:
+                    expr, parent = parent, parents.get(parent)
+                    continue
+                if isinstance(parent, ast.BinOp) and isinstance(parent.op, ast.Div) \
+                        and parent.left is expr:
+                    right = parent.right
+                    if isinstance(right, ast.Constant) and isinstance(right.value, str):
+                        rel = rel + _split_parts(right.value)
+                    elif isinstance(right, ast.Name) and right.id == "save_name":
+                        rel = rel + ("<runSave>",)
+                    elif _in_copied_dir(rel, dirs):
+                        rel = rel + ("*",)
+                    else:
+                        problems.append("%s: unrecognized component under %s"
+                                        % (fn.name, "/".join(rel)))
+                        return None, None, None
+                    expr, parent = parent, parents.get(parent)
+                    continue
+                return expr, parent, rel
+
+        changed = True
+        while changed:
+            changed = False
+            for node in ast.walk(fn):
+                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) \
+                        and node.id in taint:
+                    expr, parent, rel = chain(node, taint[node.id])
+                    if isinstance(parent, ast.Assign) and len(parent.targets) == 1 \
+                            and isinstance(parent.targets[0], ast.Name) and expr is not node:
+                        name = parent.targets[0].id
+                        if taint.get(name) != rel:
+                            taint[name] = rel
+                            changed = True
+        for node in ast.walk(fn):
+            if not (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+                    and node.id in taint):
+                continue
+            expr, parent, rel = chain(node, taint[node.id])
+            if expr is None:
+                continue
+            where = fn.name
+            if isinstance(parent, ast.Assign):
+                continue
+            if isinstance(parent, ast.Call) and expr in parent.args:
+                fname = parent.func.id if isinstance(parent.func, ast.Name) else None
+                if fname in readers:
+                    reads.add(rel)
+                    if not _covered(rel, files, dirs):
+                        problems.append("%s: %s reads %s" % (where, fname, "/".join(rel)))
+                    continue
+                if fname in ("copy_render_manifest_if_current", "detect_save") and rel == ():
+                    continue  # walked as its own function / only reached without --save
+                if fname == "write_log_validation_failure":
+                    continue  # writes the path's text, reads nothing
+                problems.append("%s: %s passed to %s" % (where, "/".join(rel) or "<root>",
+                                                         fname or ast.dump(parent.func)[:40]))
+                continue
+            if isinstance(parent, ast.Attribute) and parent.value is expr:
+                if parent.attr == "glob" and _in_copied_dir(rel, dirs):
+                    continue
+                if parent.attr in method_reads:
+                    if rel == () and parent.attr == "is_dir":
+                        continue  # the install dir exists; reads nothing in it
+                    reads.add(rel)
+                    if not _covered(rel, files, dirs):
+                        problems.append("%s: .%s() reads %s" % (where, parent.attr,
+                                                                 "/".join(rel)))
+                    continue
+                problems.append("%s: .%s on %s" % (where, parent.attr, "/".join(rel)))
+                continue
+            if isinstance(parent, ast.FormattedValue):
+                joined = parents.get(parent)
+                call = parents.get(joined)
+                if isinstance(call, ast.Call) and isinstance(call.func, ast.Name) \
+                        and call.func.id == "print":
+                    continue  # console text only
+                problems.append("%s: %s formatted into a string that is not printed"
+                                % (where, "/".join(rel) or "<root>"))
+                continue
+            if isinstance(parent, ast.Compare):
+                continue
+            if isinstance(parent, (ast.BoolOp, ast.UnaryOp)) and _in_test_position(expr, parents):
+                continue
+            problems.append("%s: unrecognized use of %s in %s"
+                            % (where, "/".join(rel) or "<root>", type(parent).__name__))
+    return problems, reads
+
+
+class PipelinedVerifyCopySetTests(unittest.TestCase):
+    """The post-quit copy must hold every instance path the post-quit code reads.
+    A fail-closed AST walk over the call graph from _verify_classify_finish (see
+    _InstanceReadWalker), and the same over scripts/collect-logs.py, with
+    mutation cells proving the walk reds on the reads it exists to catch."""
+
+    ANCHOR = '    log_path = os.path.join(instance_dir, "KSP.log")\n'
+
+    def _run_text(self):
+        return inspect.getsource(run)
+
+    def _mutant(self, inject, helper=""):
+        text = self._run_text()
+        self.assertEqual(1, text.count(self.ANCHOR))
+        text = text.replace(self.ANCHOR, self.ANCHOR + inject)
+        if helper:
+            anchor = "def run_verifiers("
+            text = text.replace(anchor, helper + "\n\n" + anchor, 1)
+        return _run_walker(text)
+
+    def test_every_post_quit_instance_read_is_copied(self):
+        walker = _run_walker()
+        self.assertEqual([], walker.problems)
+        # Not vacuous: the walk reached the reads the copy set was built from.
+        for rel in (("KSP.log",), (run.RESULTS_FILE,), (run.RENDER_MANIFEST_FILENAME,),
+                    ("saves", "<runSave>"), ("saves", "<runSave>", "persistent.sfs"),
+                    ("saves", "<runSave>", "Parsek", "Recordings"), ("Screenshots",)):
+            self.assertIn(rel, walker.reads)
+
+    def test_the_walk_reds_a_deeper_uncopied_read(self):
+        w = self._mutant('    os.path.isfile(os.path.join(instance_dir, "Logs", "kRPC", "x.log"))\n')
+        self.assertTrue(any("Logs/kRPC/x.log" in p for p in w.problems), w.problems)
+
+    def test_the_walk_reds_a_read_through_a_helper(self):
+        w = self._mutant("    _peek_extra(instance_dir)\n",
+                         helper="def _peek_extra(root):\n"
+                                "    with open(os.path.join(root, \"extra.txt\")) as fh:\n"
+                                "        return fh.read()")
+        self.assertTrue(any("_peek_extra" in p and "extra.txt" in p for p in w.problems),
+                        w.problems)
+
+    def test_the_walk_reds_unrecognized_constructions(self):
+        for inject, needle in (
+                ("    os.listdir(instance_dir)\n", "<instance root>"),
+                ("    os.path.join(instance_dir, *parts)\n", "unrecognized path component"),
+                ("    os.path.join(instance_dir, some_name)\n", "unrecognized path component"),
+                ("    pathlib.Path(instance_dir)\n", "passed to pathlib.Path"),
+                ("    other_save = os.path.join(instance_dir, \"saves\", \"other\")\n"
+                 "    open(other_save)\n", "saves/other"),
+                ('    _p = {"k": os.path.join(instance_dir, "Logs", "x.log")}\n',
+                 "Logs/x.log"),
+                ('    open(f"{instance_dir}/Logs/z.log")\n', "formatted into a string"),
+                ('    open("%s/Logs/z.log" % instance_dir)\n', "formatted into a string"),
+                ("    _o = save_dir or instance_dir\n", "BoolOp"),
+                ('    open(instance_dir + "/Logs/w.log")\n', "BinOp")):
+            with self.subTest(inject=inject.strip()):
+                w = self._mutant(inject)
+                self.assertTrue(any(needle in p for p in w.problems), w.problems)
+
+    def _collect_logs_text(self):
+        with open(os.path.join(HARNESS_ROOT, "..", "scripts", "collect-logs.py"),
+                  encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_every_collect_logs_instance_read_is_copied(self):
+        problems, reads = _collect_logs_problems(self._collect_logs_text())
+        self.assertEqual([], problems)
+        for rel in (("KSP.log",), (run.RESULTS_FILE,), (run.RENDER_MANIFEST_FILENAME,),
+                    ("Logs", "ModuleManager", "ModuleManager.log"),
+                    ("saves", "<runSave>", "persistent.sfs")):
+            self.assertIn(rel, reads)
+        # detect_save (and its helpers, exempt above) only runs without --save,
+        # which the harness always passes.
+        src = textwrap.dedent(inspect.getsource(run.Runtime.run_collect_logs))
+        self.assertIn('"--save", save_name', src)
+
+    def test_the_collect_logs_walk_reds_a_deeper_uncopied_read(self):
+        text = self._collect_logs_text()
+        anchor = '    copy_file(ksp_dir / "KSP.log", out_dir)\n'
+        self.assertEqual(1, text.count(anchor))
+        for inject, needle in (
+                ('    copy_file(ksp_dir / "Logs" / "kRPC" / "x.log", out_dir)\n',
+                 "Logs/kRPC/x.log"),
+                ('    copy_file(Path(ksp_dir) / "saves" / "other" / "x.sfs", out_dir)\n',
+                 "saves/other"),
+                ("    os.listdir(ksp_dir)\n", "passed to"),
+                ('    open(f"{ksp_dir}/Logs/z.log")\n', "not printed"),
+                ("    other = save_dir or ksp_dir\n", "BoolOp")):
+            with self.subTest(inject=inject.strip()):
+                problems, _ = _collect_logs_problems(text.replace(anchor, anchor + inject))
+                self.assertTrue(any(needle in p for p in problems), problems)

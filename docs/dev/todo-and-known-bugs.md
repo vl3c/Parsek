@@ -3968,6 +3968,22 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   1,235 s, B4 1,112 s, B15 1,014 s). Further cuts are structural and need operator rulings:
   shorten the dwell lanes, share flights between overlapping lanes, or move long lanes out of
   nightly.
+- [x] ~~Pipelined post-quit verification~~ (owner ruling 2026-10-14, branch `pipelined-verify`). After KSP exits, a lane spent ~10.4 s mean (postQuitTail)
+  in the verifiers, collect-logs, snapshot, artifacts and result writes before the next lane's
+  ~25 s boot began. `run.py` now copies the lane's post-quit inputs (KSP.log, results file,
+  render manifest, ModuleManager logs, the produced save, this run's screenshots, Player.log)
+  into `results/.verify-private/<runId>/` and runs all of that on a worker over the copy while
+  the next lane stages and boots; one lane in post-quit work at a time, lock / stage / launch
+  serial. Same verdicts and records (fake-KSP smoke flies one selection both ways and diffs
+  every result); a retry now flies one lane later. Review follow-up: the next lane's zombie
+  preflight waits up to 180 s for a killed predecessor's KSP instead of refusing it busy; a
+  raising worker is an INVALID(post-quit-error) row; Ctrl-C / an exception closes every open
+  scenario; the copy-set test is an AST walk of the post-quit call graph (13 reviewer mutations, 12 red; a
+  conditional-expression alias of the instance root is the one known miss). Opt out:
+  `PARSEK_HARNESS_SERIAL_VERIFY=1` or `--serial-verify`. Contract: `design-autotest-harness-core.md` "Pipelined post-quit
+  verification". MEASURED 2026-10-14, the daily tier (27 lanes) flown back to back from this
+  branch: serial (`--serial-verify`) 1,425 s, pipelined 1,242 s, 183 s (13%, ~6.8 s per lane)
+  saved, all 27 lanes PASS both ways. At that rate a ~200-lane nightly saves ~20 min.
 - [x] Shared flights, owner ruling B 2026-10-14 on
   `docs/dev/research/harness-dwell-and-shared-flight-audit-2026-10-14.md` (the four SAFE
   rows), branch `shared-flight-merges`: GS-4 into GS-9, B2 into PWR-2, CL-1 into CL-2 (nightly)

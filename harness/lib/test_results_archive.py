@@ -247,6 +247,85 @@ class HarnessLogSliceTests(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+class PipelinedHarnessLogSliceTests(unittest.TestCase):
+    """Pipelined verification writes B's flight while A's post-quit block is still
+    held, and B's retry after C's flight. The lane markers let the slice put each
+    scenario back together; parse_harness_log needs nothing new because the held
+    blocks keep Result / Retry / Cost lines grouped per scenario."""
+
+    @staticmethod
+    def _lane(sid, attempt, rid, body):
+        return (["[Harness][Info][Lane] %s\n" % hlib.format_lane_begin_message(sid, attempt)]
+                + ["[Harness][Info][Drive] %s\n" % b for b in body]
+                + ["[Harness][Info][Lane] %s\n"
+                   % hlib.format_lane_end_message(rid, sid, attempt)])
+
+    def _log(self):
+        r = "C:\\r\\"
+        return (["[Harness][Info][Lock] run-lock acquired (acquired-free) path=x pid=1\n"]
+                + self._lane("A", 1, "T_A", ["fly A"])
+                + self._lane("B", 1, "T_B", ["fly B1"])
+                + ["[Harness][Info][Verify] verify A\n",
+                   "[Harness][Info][Result] result written %sT_A.json\n" % r,
+                   "[Harness][Info][Cost] scenario cost attempts=1 wallTotal=10s terminal=PASS\n"]
+                + self._lane("C", 1, "T_C", ["fly C"])
+                + self._lane("B", 2, "T_B_a2", ["fly B2"])
+                + ["[Harness][Info][Verify] verify C\n",
+                   "[Harness][Info][Result] result written %sT_C.json\n" % r,
+                   "[Harness][Info][Cost] scenario cost attempts=1 wallTotal=9s terminal=PASS\n",
+                   "[Harness][Info][Verify] verify B1\n",
+                   "[Harness][Info][Result] result written %sT_B.json\n" % r,
+                   "[Harness][Info][Retry] retry scenario=B attempt=2 reason=INVALID\n",
+                   "[Harness][Info][Verify] verify B2\n",
+                   "[Harness][Info][Result] result written %sT_B_a2.json\n" % r,
+                   "[Harness][Info][Cost] scenario cost attempts=2 wallTotal=20s terminal=PASS\n"])
+
+    def test_each_slice_holds_its_own_flights_and_block_only(self):
+        log = self._log()
+        cases = (("T_A", ["fly A", "verify A"], ["fly B", "fly C", "verify C"]),
+                 ("T_C", ["fly C", "verify C"], ["fly A", "fly B", "verify B"]),
+                 ("T_B", ["fly B1", "fly B2", "verify B1", "[Retry]", "verify B2"],
+                  ["fly A", "fly C", "verify A", "verify C"]))
+        for rid, mine, theirs in cases:
+            with self.subTest(runId=rid):
+                text = "".join(hlib.slice_harness_log_for_run(log, rid))
+                for s in mine:
+                    self.assertIn(s, text)
+                for s in theirs:
+                    self.assertNotIn(s, text)
+                self.assertEqual(1, text.count("[Cost]"))
+                self.assertIn("[Lock]", text)
+        self.assertEqual(hlib.slice_harness_log_for_run(log, "T_B"),
+                         hlib.slice_harness_log_for_run(log, "T_B_a2"))
+
+    def test_flights_come_first_then_the_post_quit_block(self):
+        keys = ("fly B1", "fly B2", "verify B1", "verify B2")
+        b = hlib.slice_harness_log_for_run(self._log(), "T_B")
+        order = [k for ln in b for k in keys if k in ln]
+        self.assertEqual(list(keys), order)
+
+    def test_the_flighteff_facts_read_the_same(self):
+        import flighteff
+        facts = flighteff.parse_harness_log(self._log())
+        self.assertEqual(2, facts["T_B_a2"]["cost"]["attempts"])
+        self.assertEqual(1, len(facts["T_B"]["retries"]))
+        self.assertEqual(0, len(facts["T_C"]["retries"]))
+        self.assertEqual(10, facts["T_A"]["cost"]["wallTotal"])
+
+    def test_an_unterminated_flight_is_nobodys(self):
+        cut = self._log() + [
+            "[Harness][Info][Lane] %s\n" % hlib.format_lane_begin_message("D", 1),
+            "[Harness][Info][Drive] fly D\n"]
+        for rid in ("T_A", "T_B", "T_C"):
+            self.assertNotIn("fly D", "".join(hlib.slice_harness_log_for_run(cut, rid)))
+
+    def test_a_serial_log_slices_exactly_as_before(self):
+        log = HarnessLogSliceTests.LOG
+        self.assertEqual(log[:5], hlib.slice_harness_log_for_run(log, "2026-10-11_0900_A"))
+        self.assertEqual([log[1]] + log[5:10],
+                         hlib.slice_harness_log_for_run(log, "2026-10-11_0910_B"))
+
+
 def _populate_results(results_dir, run_id=RID, ksp_text="[LOG 09:00:00.000] hello\n" * 500,
                       log_name="2026-10-11_090001_harness.log"):
     os.makedirs(os.path.join(results_dir, run_id + "_shots"), exist_ok=True)

@@ -145,12 +145,17 @@ delivers the plan's daily cadence.
    |             (hlib.decide_save_snapshot; per-scenario         |
    |             retention + stale-tmp sweep). Verdict-neutral.   |
    +--------------------------------------------------------------+
+   Steps 1-5 (and the teardown resets) are the FLIGHT and stay strictly
+   serial. By default steps 6-10 are PIPELINED: they run on a worker over a
+   private copy of the lane's artifacts while the next lane stages and boots
+   (see "Pipelined post-quit verification"). PARSEK_HARNESS_SERIAL_VERIFY=1
+   or --serial-verify runs them in place, before the next lane, as drawn.
             |
             |  retry once if hlib.decide_retry says so (should_retry,
             |  then the deterministic-seam-error veto): the decision
-            |  is taken by run_with_retry AFTER the whole attempt
-            |  returns, so attempt 1 keeps its own snapshot and its
-            |  own results/<runId>_save/ dir
+            |  is taken AFTER the whole attempt returns (pipelined: when
+            |  its post-quit work lands, one lane later), so attempt 1
+            |  keeps its own snapshot and its own results/<runId>_save/ dir
             v
    harness/coverage.py  (reads all specs + all results + registry)
             |
@@ -1442,6 +1447,130 @@ spec-pinned larger per-step budget still wins; capped at the run budget). This c
 the gap where only the two-phase `RunTests`/`LoadGame`/`InvokeRewind`/`TimeJump` verbs
 were protected.
 
+### Pipelined post-quit verification
+
+Owner ruling 2026-10-14: "pipelined verification - verify lane N while lane N+1
+boots; same verifiers, same verdicts; a retry decision may land one lane later".
+Measured before the change: after KSP exits, each lane spent ~10.4 s mean in the
+verifier chain (analyzer ~8.6 s and logValidate ~7.1 s concurrently, each a pwsh +
+`dotnet test --no-build` process), collect-logs, the snapshot, the artifact copy,
+the contact sheet and the result writes, all before the next lane's ~25 s boot began.
+
+**What runs where.** `run.py`'s `_run_selection_pipelined` is the default selection
+loop. `run_attempt(..., defer_post_quit=True)` does ADMIT, STAGE, LAUNCH, DRIVE and
+the teardown resets on the main thread exactly as before, then, instead of
+verifying, takes a private copy of every instance path the post-quit code reads into
+`results/.verify-private/<runId>/` (same relative layout) and returns a deferred
+attempt. A worker thread (`_BackgroundVerifier`) then runs `_verify_classify_finish`
+with that copy as the instance root: the whole verifier chain, classification,
+collect-logs, the produced-save snapshot, the artifact copy and the result / sheet
+writes. The copy is deleted when the worker finishes. A pre-launch refusal is
+deferred too (it copies nothing), so the worker is the only writer of `results/`
+while a lane flies.
+
+**The copy set** (the post-quit code's every instance read; `run.py`'s section
+comment cites each reader; `run.POST_QUIT_ROOT_FILES` / `POST_QUIT_COPIED_DIRS` are
+the set): `KSP.log`,
+`parsek-test-results.txt`, `parsek-render-manifest.txt`,
+`Logs/ModuleManager/{ModuleManager,MMPatch}.log`, `saves/<runSave>/` (the analyzer
+writes its `analysis/` report into the copy), this run's `Screenshots/` files
+(selected at copy time with `hlib.select_run_screenshots`, the selection carried to
+the artifact step), and the machine-wide Unity `Player.log` (outside the instance,
+rewritten by every boot; collect-logs takes it through its new `--player-log`). The
+deployed DLL's sha256 for the archive manifest is hashed on the main thread when the
+lane's KSP has exited. Copies, never links: KSP truncates `KSP.log` and rewrites the
+root files in place. A copy that fails (Warn `post-quit copy FAILED`) degrades that
+one lane to verifying in place before the next lane stages.
+
+`test_run_smoke.PipelinedVerifyCopySetTests` keeps the set honest with an
+AST walk (`_InstanceReadWalker`) over the call graph from `_verify_classify_finish`,
+following every call that passes a root-derived value into another `run.py` / `hlib`
+function. A root-derived value may only be joined further (string literals, module
+string constants, `run_save_name`, or any expression inside a copied directory), read
+by a known reader, in which case the FULL relative path must be a copied file or lie
+inside a copied directory, handed whole to collect-logs, or used in a way that reads
+nothing: a truth test (an `x or y` VALUE is not one), a comparison, a string method,
+formatting straight into a logger call, or the analyzer row's `reportTxt` /
+`reportJson` dict values. Anything else, including a `*parts` join, a `pathlib` wrap,
+an f-string or `%` that is not a log line, a concatenation or another dict value, fails
+the suite. The same walk
+covers `scripts/collect-logs.py`'s `ksp_dir / ...` and `Path(ksp_dir) / ...` chains
+(its `detect_save` family is exempt: it runs only without `--save`, which the harness
+always passes, and the test pins that). Mutation cells inject a deeper uncopied read,
+a read through a helper and each unrecognized construction, and require a red.
+
+**Serial guarantees kept.** One KSP at a time; the machine lock is still held for the
+whole invocation and heartbeated before every flight (a failed heartbeat stops the
+selection: the lane in post-quit work lands first, an owed retry is NOT flown and its
+attempt 1 becomes the terminal, every unflown scenario gets INVALID(instance-locked)).
+At most one lane is in post-quit work: the loop joins it before it starts the worker
+on the lane that just flew, so lane N+2 never launches before lane N has landed.
+
+**What the serial chain used to cover.** A watchdog kill waits at most
+`KILL_EXIT_WAIT_SECONDS` (30 s) for the KSP tree; serial then spent a minute or more
+in the verifier chain before the next zombie preflight. Pipelined, that preflight
+comes seconds later, so after a lane whose KSP the harness killed (the deferred
+attempt's `ksp_killed`), a live KSP at the next preflight is first waited for (bounded,
+`PIPELINED_PRIOR_KSP_EXIT_WAIT_SECONDS` = 180 s, logged `[Preflight] ... still
+running; waiting` / `prior KSP exited after`) before refusing INVALID(instance-busy):
+an innocent lane is never refused for its predecessor's slow teardown. Any other live
+KSP is foreign and refuses at once, as on the serial path.
+
+**Failures inside the pipeline.** A worker that raises keeps its buffered lines and
+gives its lane an INVALID(`post-quit-error`) row whose note names the exception (not
+retryable, flake-exempt: a harness defect, not the scenario), and the selection goes
+on. An exception or Ctrl-C in the main loop (`_pipeline_drain`) lands the lane in
+post-quit work and then any lane that has flown but not started (one at a time, as in
+the loop), then closes every scenario still open (an owed retry is NOT flown, the
+attempt so far is the terminal) with its held lines, flakedThenPassed rewrite,
+`attemptsWallSeconds`, Cost line and archive entry, before re-raising and so before
+the caller releases the lock. The loop clears its `worker` only after that lane's join
+returned and `_PipelineLane` remembers how far the join got (`joined` / `recorded`),
+so a Ctrl-C inside the join is resumed by the drain without dropping or
+double-recording the attempt. The drain first waits for the lane's thread (bounded,
+`PIPELINE_DRAIN_JOIN_SECONDS`, logged; a further Ctrl-C is logged and ignored), so
+nothing is finalized, and the lock is not released, while a worker (an in-place one
+reads the LIVE instance) is still running.
+
+**Retry ordering change.** A lane's verdict is known only after the next lane has
+flown. Each turn the loop joins the worker, folds the result in through the same
+`_ScenarioRetryState.record` the serial path uses (`hlib.decide_retry`, the #2016
+deterministic-seam-error veto, `retrySkipped`), and queues an owed retry at the FRONT,
+so it flies right after the lane that was in flight: serial `A, B, B_a2, C, D`
+becomes `A, B, C, B_a2, D` when B retries. Attempt numbering, the `_a2` run id, the
+run-instance ordinal, `flakedThenPassed`, `attemptsWallSeconds` and the
+`[Classify]` / `[Cost]` lines are unchanged (`_ScenarioRetryState.finish`).
+
+**The harness log.** Flight lines are written live. Each flight is bracketed by
+`[Lane] lane flight begin scenario=<id> attempt=<n>` and `[Lane] lane flight end
+runId=<runId> ...`. A scenario's post-quit lines (worker output, Retry, Classify,
+Result, Sheet, Cost) are held until its terminal and written as one block, so every
+`[Cost]` block still holds exactly one scenario's Result / Retry / Cost lines
+(`flighteff.parse_harness_log` reads it unchanged), and
+`hlib.slice_harness_log_for_run` lifts the bracketed flights out, finds the Cost
+block, and puts back the flights whose run ids that block wrote: each archived slice
+holds every line of its scenario (flights first, then the block) and none of a
+neighbour's. A serial log carries no markers and slices as before.
+
+**Same verdicts, same records.** The analyzer row's `reportTxt` / `reportJson` are
+mapped back to the instance path the serial path records (the report survives in
+`results/<runId>_save/analysis/` when the snapshot ran). `wallSeconds` /
+`endedUtc` still measure the attempt to the end of its post-quit work, which now
+overlaps the next lane's boot, so per-lane walls no longer add up to the tier wall.
+`test_run_smoke.PipelinedSelectionSmokeTests` flies one four-scenario selection both
+ways and compares every result record, the retry behaviour (a boot crash then PASS,
+a deterministic `kind-arg-missing` that is never retried), the summary and the
+archive; its staging hook rewrites the instance's KSP.log, save, DLL and Player.log
+per lane, and an audit hook records every file a worker thread opens or lists, to
+prove no post-quit read reaches the live instance once the next lane has staged.
+
+**Opt-out.** `PARSEK_HARNESS_SERIAL_VERIFY=1` (or `run.py --serial-verify`) runs the
+unchanged serial loop. Deliberately still serial in both modes: the seed baseline
+(it reads the STAGED save before launch), the teardown resets, admission and the
+zombie preflight. Expected saving per lane is the post-quit tail (~10 s), less the
+copy (logged as `[Pipeline] post-quit copy ... wall=`) and any boot slowdown from the
+verifiers sharing the CPU with KSP's load; pending a live tier comparison.
+
 ### The verifier chain (order and short-circuit)
 
 Run after the process exits (cleanly, via FlushAndQuit / autorun-exit, or by kill).
@@ -2281,7 +2410,15 @@ to the per-response-line poll (one summary line, not one per poll).
   scenario): <names>", and for the orphan sweep `Info` "retention swept <n>
   stale save-snapshot tmp dir(s) (a run killed mid-copy leaves one): <names>".
 - **RETRY**: `Info` "retry scenario=<id> attempt=2 reason=<first-verdict>" or
-  `Info` "no retry (policy=<p> verdict=<V>)".
+  `Info` "no retry (policy=<p> verdict=<V>)". Pipelined, when the lock is lost with a
+  retry owed: `Warn` "retry scenario=<id> attempt=2 NOT flown: ...".
+- **PIPELINE / LANE** (pipelined post-quit verification only): `Info` once per
+  selection "post-quit verification pipelined: ..."; per flight `Info` "lane flight
+  begin scenario=<id> attempt=<n>" and "lane flight end runId=<runId> scenario=<id>
+  attempt=<n>" (the markers `hlib.slice_harness_log_for_run` keys on), and between
+  them `Info` "post-quit copy run=<runId> files=<n> bytes=<b> wall=<s>s -> <dir>" or
+  `Warn` "post-quit copy FAILED run=<runId> (...); verifying this lane on the live
+  instance before the next lane stages".
 - **COVERAGE** (`coverage.py`): `Info`
   "coverage: values=<n> covered=<c> uncovered=<u> expectedFail=<e> xpass=<x>";
   per uncovered value `Verbose`; per quarantine `Warn`
@@ -2470,6 +2607,15 @@ CI exercises the tail/kill/verify plumbing without a real game:
   `skipTailOnUnmetMission = false` restores the legacy full tail. Fails the moment the
   harness goes back to driving irreversible in-world verbs over a flight that never
   reached its envelope.
+- **Fake-KSP multi-lane selection, pipelined vs serial.**
+  (`PipelinedSelectionSmokeTests`, `PipelinedEdgeSmokeTests`,
+  `PipelinedVerifyCopySetTests`.) Four scenarios through `_run_selection` both ways:
+  identical result records, verdict set, retries (boot crash then PASS; a
+  deterministic seam error never retried), summary and archive; the retry flies one
+  lane later when pipelined; per-lane instance mutations at stage plus an audit hook
+  on the worker threads prove no post-quit read reaches the live instance. Edge
+  cells: a failed copy verifies in place; a lost lock lands the lane in work, ends an
+  owed retry on attempt 1 and refuses the rest.
 - **PENDING-OPERATOR live smoke (once, before nightly is trusted).** On a
   provisioned stock-minimal instance, run the daily selection: confirm the harness
   admits the instance, stages the fresh-career fixture, boots via the seam
