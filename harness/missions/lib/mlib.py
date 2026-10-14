@@ -16913,7 +16913,8 @@ BDOCK_TRANSFER_STALL_FRAMES = 20
 # ---------------------------------------------------------------------------
 # IN-ORBIT INVARIANT (todo BDOCK2-RENDEZVOUS-PHASING-BURN-DEORBITS-THE-INTERCEPTOR).
 #
-# From RENDEZVOUS on, every B-DOCK phase flies a craft that must stay in orbit:
+# From RENDEZVOUS on, every B-DOCK phase flies a craft that must stay in orbit
+# (the machine runs under BDOCK-1, BDOCK-2, CI-9, SD-1, VN-4 and VN-10):
 # MechJeb's rendezvous / kill-rel-vel / docking autopilots and the transfer and
 # undock steps never descend on purpose. BDOCK-2 2026-10-12_1748 and
 # 2026-10-13_0309 both executed a rendezvous node (ut 11178.2, 96.7 m/s) that
@@ -16931,9 +16932,15 @@ BDOCK_TRANSFER_STALL_FRAMES = 20
 # periapsis or atmosphere depth never breaches (fail open: the shared vessel-lost
 # and frozen-telemetry terminals still own a destroyed craft).
 #
+# The altitude is the snapshot's surface altitude (above terrain or sea), which
+# reads up to the local terrain height LOW over land, so over high ground the
+# breach can fire a few km above the real atmosphere top. The periapsis term
+# already says the craft will enter the atmosphere unless it burns, so firing
+# a few km early only ends a doomed attempt sooner.
+#
 # The verdict is MISSION-ASSERT-FAIL with a reason that starts with
-# ORBIT_LOST_REASON_TOKEN; hlib.DETERMINISTIC_MISSION_REASONS names that token,
-# so run.py does not retry it (the same fixture reproduces the same node).
+# ORBIT_LOST_REASON_TOKEN. It is retried like any mission verdict under the
+# spec's retry policy: on a launch-timing geometry a re-flight can differ.
 ORBIT_LOST_REASON_TOKEN = "orbit-lost"
 IN_ORBIT_AIRLESS_FLOOR_M = 15000.0
 IN_ORBIT_BREACH_DEBOUNCE = DEFAULT_DEBOUNCE_K
@@ -17307,7 +17314,7 @@ def _bdock_in_orbit_step(state: BDockState,
 def format_orbit_lost_reason(phase: str, periapsis: float, altitude: float,
                              atmosphere_depth: float, pe_low_ut: Optional[float],
                              node_ut: Optional[float], node_dv: float) -> str:
-    """The ``orbit-lost`` loss reason: the token first (hlib reads it), then the
+    """The ``orbit-lost`` loss reason: the token first, then the
     phase, the periapsis / altitude against the floor, and the node that was
     being flown when the periapsis first fell below it."""
     floor = in_orbit_floor(atmosphere_depth)

@@ -2471,53 +2471,6 @@ class ScenarioCostAccountingTests(unittest.TestCase):
         self.assertIn("stepId=0009 verb=EvaGroundScience", log)
         self.assertIn("reason=active-vessel-lost", log)
 
-    @staticmethod
-    def _mission_fail(reason):
-        mission = {"phase": "mission", "id": "0004", "expect": "MISSION-OK",
-                   "verdict": "INVALID", "missionVerdict": "MISSION-ASSERT-FAIL",
-                   "met": False, "subkind": "mission"}
-        if reason is not None:
-            mission["missionReason"] = reason
-        return {"verdict": "INVALID", "subkind": "mission",
-                "driver": {"steps": [
-                    {"cmd": "LoadGame", "id": "0001", "expect": "OK",
-                     "verdict": "OK", "met": True}, mission],
-                    "allExpectedMet": False},
-                "verifiers": {}}
-
-    def test_a_deterministic_mission_loss_is_not_retried_and_is_recorded(self):
-        result, attempts = self._drive_rows(
-            [self._mission_fail("orbit-lost: phase RENDEZVOUS: pe=26253 m"),
-             {"verdict": "PASS"}])
-        self.assertEqual(1, attempts)
-        self.assertEqual(("INVALID", "mission"), (result["verdict"], result["subkind"]))
-        self.assertEqual({"rule": "deterministic-mission-loss", "reason": "orbit-lost",
-                          "stepId": "0004", "missionVerdict": "MISSION-ASSERT-FAIL"},
-                         result["retrySkipped"])
-        log = self._log_text()
-        self.assertIn("retry skipped scenario=S1 rule=deterministic-mission-loss", log)
-
-    def test_a_mission_loss_without_a_deterministic_reason_still_retries(self):
-        result, attempts = self._drive_rows(
-            [self._mission_fail(None), {"verdict": "PASS"}])
-        self.assertEqual(2, attempts)
-        self.assertNotIn("retrySkipped", result)
-
-    def test_only_a_deterministic_mission_reason_is_read_off_the_result(self):
-        path = os.path.join(self.tmp, "mission_result.json")
-        for reason, expected in (
-                ("orbit-lost: phase DOCK: pe=1 m", "orbit-lost: phase DOCK: pe=1 m"),
-                ("vessel-lost (unreadable)", None), (None, None)):
-            with self.subTest(reason=reason):
-                body = {"schema": 1, "verdict": "MISSION-ASSERT-FAIL"}
-                if reason is not None:
-                    body["reason"] = reason
-                with open(path, "w", encoding="utf-8") as fh:
-                    json.dump(body, fh)
-                self.assertEqual(expected, run._read_deterministic_mission_reason(path))
-        self.assertIsNone(run._read_deterministic_mission_reason(
-            os.path.join(self.tmp, "absent.json")))
-
     def test_a_timing_seam_error_still_retries_and_records_nothing(self):
         result, attempts = self._drive_rows(
             [self._seam_fail("ERROR", "step-timeout"), {"verdict": "PASS"}])

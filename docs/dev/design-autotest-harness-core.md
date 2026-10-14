@@ -1896,28 +1896,6 @@ timing reason or a reason outside the set. The EVA-8 deaths of 2026-09-29 that t
 ruling cites reached the harness as `step-timeout`; today's build answers them
 `active-vessel-lost` (up to 2 of those retries, 601 s, would now be skipped; both
 reproduced INVALID).
-
-#### Deterministic mission losses are not retried (same ruling)
-
-A mission verdict maps to a retryable INVALID subkind because most autopilot
-failures are random. `decide_retry` consults a second veto,
-`deterministic_mission_loss_retry_skip`, after the seam veto. It fires when the
-attempt is INVALID(`mission`), its unmet mission row carries `missionVerdict`
-MISSION-ASSERT-FAIL, and the row's `missionReason` leads with a token in the
-closed set `hlib.DETERMINISTIC_MISSION_REASONS`. `run.py` copies the mission
-result's `reason` onto the row as `missionReason` ONLY when its token is in that
-set, so every other mission row is byte-identical. The one member today is
-`orbit-lost`, mlib's IN-ORBIT INVARIANT for the B-DOCK machine family: a craft
-below the atmosphere top (or the airless floor) on a sub-floor periapsis in a
-stay-in-orbit phase (RENDEZVOUS, MATCH-VELOCITY, DOCK, TRANSFER, UNDOCK). Its
-evidence is BDOCK-2 2026-10-12_1748 and its re-flight 2026-10-13_0309, which flew
-the same rendezvous node into the same 97 x 31 km orbit from the same fixture
-(todo BDOCK2-RENDEZVOUS-PHASING-BURN-DEORBITS-THE-INTERCEPTOR). When it fires,
-the log line reads `[Retry] retry skipped scenario=... rule=deterministic-mission-loss
-stepId=... missionVerdict=... reason=...` and `retrySkipped` is
-`{rule, reason, stepId, missionVerdict}`. `ReasonTokenSyncTests`
-(`missions/lib/test_bdock_orbit_invariant.py`) fails when mlib's token and the
-hlib set drift apart.
 ### Coverage + flake generation
 
 `harness/coverage.py` (pure core in `hlib.compute_coverage` /

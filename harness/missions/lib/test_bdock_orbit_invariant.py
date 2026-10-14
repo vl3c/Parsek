@@ -6,7 +6,7 @@ From RENDEZVOUS on, a B-DOCK craft must stay in orbit. BDOCK-2 2026-10-12_1748 a
 Interceptor on a 97 x 31 km orbit, fell into the atmosphere at ut 11494 and crashed
 at ut ~12010, ending only on `vessel-lost`. The invariant ends such a flight when
 the craft is below the atmosphere top on a sub-atmospheric periapsis, naming the
-node that caused it, and the reason token keeps run.py from retrying it.
+node that caused it.
 
 The frames below are the MEASURED telemetry of those runs (mission stdout
 `telemetry` lines) and of the two green runs that must never trip it:
@@ -26,11 +26,10 @@ from dataclasses import replace
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _MISSIONS = os.path.dirname(_HERE)                       # harness/missions
 _HARNESS = os.path.dirname(_MISSIONS)                    # harness/
-for _p in (_MISSIONS, _HERE, os.path.join(_HARNESS, "lib")):
+for _p in (_MISSIONS, _HERE):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import hlib  # noqa: E402
 import mlib  # noqa: E402
 from test_mlib import snap  # noqa: E402
 
@@ -249,17 +248,13 @@ class MachineTests(unittest.TestCase):
         self.assertIn(mlib.ACTION_CANCEL_WARP, [a.kind for a in actions])
 
 
-class ReasonTokenSyncTests(unittest.TestCase):
+class ReasonTests(unittest.TestCase):
 
-    def test_the_reason_token_is_a_deterministic_mission_reason(self):
-        """run.py skips the retry only when hlib names mlib's token: rename either
-        side and a deterministic deorbit is flown twice."""
-        self.assertIn(mlib.ORBIT_LOST_REASON_TOKEN, hlib.DETERMINISTIC_MISSION_REASONS)
+    def test_the_reason_leads_with_the_token(self):
         reason = mlib.format_orbit_lost_reason(
             mlib.BDOCK_RENDEZVOUS, 26253.0, 69797.0, KERBIN_ATMO, 11180.07,
             11178.153, 96.723)
-        self.assertTrue(hlib.is_deterministic_mission_reason(reason))
-        self.assertEqual("orbit-lost", hlib.mission_reason_token(reason))
+        self.assertTrue(reason.startswith(mlib.ORBIT_LOST_REASON_TOKEN + ": "))
 
     def test_the_airless_wording(self):
         reason = mlib.format_orbit_lost_reason(

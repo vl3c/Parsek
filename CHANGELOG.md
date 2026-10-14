@@ -62,7 +62,7 @@ _(unreleased - entries accumulate here per commit)_
   waiting 11 minutes, and tries once more.
 - **Docking test flights stop as soon as the ship falls out of orbit.** When a rendezvous burn
   drops the ship into the atmosphere, the flight ends at once, naming the burn that caused it,
-  instead of falling for several more minutes. It is not retried, since a re-flight repeats it.
+  instead of falling for several more minutes.
 
 ---
 

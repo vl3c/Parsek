@@ -1801,15 +1801,6 @@ def _read_mission_verdict(result_path: str) -> Optional[str]:
     return missionverify.mission_verdict_of(_read_mission_result(result_path))
 
 
-def _read_deterministic_mission_reason(result_path: str) -> Optional[str]:
-    """The mission result's ``reason`` when its leading token names a
-    deterministic loss (hlib.DETERMINISTIC_MISSION_REASONS), else None. Only
-    such a reason is copied onto the mission row, so every other row keeps its
-    shape; hlib.decide_retry reads it to skip the retry."""
-    reason = missionverify.mission_reason_of(_read_mission_result(result_path))
-    return reason if hlib.is_deterministic_mission_reason(reason) else None
-
-
 def _read_mission_wall_seconds(result_path: str) -> Optional[float]:
     """The mission's OWN measured wall span, for the harness-vs-mission residue
     (audit finding G6).
@@ -2002,7 +1993,6 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
     polls = 0
     verdict: Optional[str] = None
     expiry_reason: Optional[str] = None
-    deterministic_reason: Optional[str] = None
     while True:
         polls += 1
         exit_code = runtime.poll_exit(mproc)
@@ -2011,8 +2001,6 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
             met, subkind = hlib.classify_mission_step(verdict)
             logger.info("Mission", "mission subprocess exit=%s verdict=%s met=%s"
                         % (exit_code, verdict if verdict is not None else "<no-result>", met))
-            if not met:
-                deterministic_reason = _read_deterministic_mission_reason(result_path)
             break
         now = runtime.now()
         if now - run_start > run_budget:
@@ -2075,10 +2063,6 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
                            "missionVerdict": verdict, "met": met, "subkind": subkind or ""}
     if expiry_reason:
         result.mission_step["reason"] = expiry_reason
-    if deterministic_reason:
-        result.mission_step[hlib.MISSION_REASON_KEY] = deterministic_reason
-        logger.info("Mission", "mission reason is a deterministic loss (no retry): %s"
-                    % deterministic_reason)
     # R10: emitted only when the mission params actually carried a reference, so a
     # pre-R10 autopilot run's mission row is byte-identical.
     if param_subs:
@@ -4671,8 +4655,6 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
                     "subkind": m["subkind"] or None}
             if m.get("reason"):
                 mrow["reason"] = m["reason"]
-            if m.get(hlib.MISSION_REASON_KEY):
-                mrow[hlib.MISSION_REASON_KEY] = m[hlib.MISSION_REASON_KEY]
             # R10 (both emitted only when present, so a pre-R10 mission row is
             # byte-identical): what the params resolved to, or the reference that
             # stopped the spawn.

@@ -57,15 +57,6 @@ def mission_verdict_of(obj: Optional[Dict]) -> Optional[str]:
     return v if isinstance(v, str) else None
 
 
-def mission_reason_of(obj: Optional[Dict]) -> Optional[str]:
-    """The result's ``reason`` string, or None when the result is unreadable or
-    carries no string reason."""
-    if obj is None:
-        return None
-    r = obj.get("reason")
-    return r if isinstance(r, str) else None
-
-
 def mission_wall_seconds_of(obj: Optional[Dict]) -> Optional[float]:
     """The mission's own measured wall span (audit finding G6), or None."""
     if obj is None:
