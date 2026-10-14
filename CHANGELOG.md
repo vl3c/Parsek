@@ -67,6 +67,9 @@ _(unreleased - entries accumulate here per commit)_
 - **Docking test flights stop as soon as the ship falls out of orbit.** When a rendezvous burn
   drops the ship into the atmosphere, the flight ends at once, naming the burn that caused it,
   instead of falling for several more minutes.
+- **Docking test flights never fly a rendezvous burn that would end in the atmosphere.** Such
+  a burn now ends the flight before it fires. The second-dock flight also waits to launch until
+  the station is where the first docking flight met it.
 
 ---
 

@@ -735,6 +735,7 @@ class KrpcMissionControl(MissionControl):
             target_rel_speed = float("nan")
             target_ca_ut = float("nan")
             target_ca_distance = float("nan")
+            node_next_pe = float("nan")
             docking_state = ""
             target_set = False
             mj_rv_enabled = False
@@ -752,6 +753,7 @@ class KrpcMissionControl(MissionControl):
                 target_distance, target_rel_speed, target_set = \
                     self._read_target_controller()
                 target_ca_ut, target_ca_distance = self._read_target_closest_approach(sc, v)
+                node_next_pe = self._read_node_next_pe(nodes)
                 mj_rv_enabled, mj_dock_enabled = self._read_docking_ap_enabled()
                 docking_state = self._read_docking_state(v)
                 try:
@@ -1001,6 +1003,7 @@ class KrpcMissionControl(MissionControl):
                 target_rel_speed=target_rel_speed,
                 target_ca_ut=target_ca_ut,
                 target_ca_distance=target_ca_distance,
+                node_next_pe=node_next_pe,
                 docking_state=docking_state,
                 target_set=target_set,
                 mj_rendezvous_enabled=mj_rv_enabled,
@@ -2184,6 +2187,17 @@ class KrpcMissionControl(MissionControl):
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Rendezvous", "autowarp set failed: %s" % (exc,)))
             rv.enabled = True
+        elif kind == mlib.ACTION_MJ_DISABLE_RENDEZVOUS:
+            # RENDEZVOUS NODE GUARD: stop the AP re-planning (its
+            # OnModuleDisabled aborts the executor). Logged, never raised.
+            try:
+                self._mechjeb.rendezvous_autopilot.enabled = False
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Info", "Rendezvous", "rendezvous AP disabled (%s)"
+                    % (getattr(action, "text", None) or "no reason")))
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Rendezvous", "rendezvous AP disable failed: %s" % (exc,)))
         elif kind == mlib.ACTION_MJ_KILL_REL_VEL:
             # Belt+braces to the rendezvous AP's own terminal match: plan +
             # execute a kill-relative-velocity node. Throw/log/swallow (a
@@ -3210,6 +3224,18 @@ class KrpcMissionControl(MissionControl):
             except Exception:
                 pass
         return distance, rel_speed, target_set
+
+    def _read_node_next_pe(self, nodes) -> float:
+        """Periapsis altitude (m) of the orbit after the first maneuver node
+        (kRPC Node.orbit), the RENDEZVOUS NODE GUARD's input; NaN with no node
+        or on any fault, which never trips the guard and never counts toward
+        the vessel-lost read-fail streak."""
+        try:
+            if not nodes:
+                return float("nan")
+            return float(nodes[0].orbit.periapsis_altitude)
+        except Exception:
+            return float("nan")
 
     def _read_target_closest_approach(self, sc, vessel) -> Tuple[float, float]:
         """(time, distance) of the next closest approach to the TARGET VESSEL

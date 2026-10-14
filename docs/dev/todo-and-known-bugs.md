@@ -53,7 +53,7 @@ neither the recorded pid nor one of its fragments (pure helper test: a foreign o
 vessels and no fallback event); (3) separately, an in-game repro of the rewind-point vessel's
 joint break on unpack. Diagnosed read-only; nothing changed.
 
-## BDOCK2-RENDEZVOUS-PHASING-BURN-DEORBITS-THE-INTERCEPTOR: MechJeb's rendezvous plan from BDOCK-2's 95 x 84 km interceptor orbit drops periapsis into the atmosphere and the craft crashes [FILED 2026-10-13 from the operator tier, reproduced twice. OPEN, harness mission]
+## BDOCK2-RENDEZVOUS-PHASING-BURN-DEORBITS-THE-INTERCEPTOR: MechJeb's rendezvous plan from BDOCK-2's 95 x 84 km interceptor orbit drops periapsis into the atmosphere and the craft crashes [FILED 2026-10-13 from the operator tier, reproduced twice. FIXED on branch `bdock2-rendezvous` (PR #2093), confirmed green `2026-10-14_2113`, harness mission]
 
 `BDOCK-2-second-dock-harvest` went INVALID (mission `vessel-lost`) on `2026-10-12_1748` and again
 on the re-flight `2026-10-13_0309`, identically: in RENDEZVOUS the interceptor sits in a stable
@@ -68,6 +68,71 @@ launch time, hence the station phase MechJeb plans the rendezvous against; from 
 low any phasing orbit below it is atmospheric. Fix candidates: park the interceptor higher, or
 cap MechJeb's rendezvous phasing (a lower bound on the phasing periapsis / max phasing orbits),
 then re-fly.
+
+Root cause (2026-10-14): not phasing, and not #2059. The 09-23 PASS launched at ut 8952.8 and
+the reds at 8953.3 / 8953.4; all three started RENDEZVOUS ~193 km from the Station (192.2 vs
+193.3 km) and planned the SAME first node (85.975 m/s at ut 11177.6 on 09-23, 96.7 m/s at
+11178.2 on 10-13), which took pe to 33.6 / 31.3 km on both. Decompiled MechJeb 2.15.1
+`MechJebModuleRendezvousAutopilot.Drive` tries, before its Hohmann and phasing branches,
+`Orbit.NextClosestApproachDistance(target, now) < target.semiMajorAxis / 25` (one period of
+the vessel's orbit) and then places `DeltaVToMatchVelocities` at that closest approach. The
+fixture's Station is 15.75 deg ahead at RENDEZVOUS start (fixture elements + the recorded
+Interceptor orbit segment reproduce the 193.3 km distance) and the lower Interceptor closes
+15 deg per orbit, so they pass 26 km apart at ut 11178, under 709.7 km / 25 = 28.4 km. Matching
+the Station's velocity 23 km below it gives a = 664 km (both runs measured 664.3 km). The 09-23
+run survived only because MechJeb's close-range intercept burns (317 and 240 m/s, pe down to
+-101 km) climbed back to the Station. BDOCK-1 starts ~58 deg ahead and gets a plain 17 m/s
+Hohmann. The 10-02 green run is not on disk to compare.
+
+First fix (launch hold only) flown `2026-10-14_1754`, still red: the hold worked (launch ut
+9176.1, Station 52 deg ahead, tgtD 615.6 km, as modelled), MechJeb flew a 6.3 m/s plane match
+(LAN 292 -> 145.8 deg, relative inclination 0.16 deg -> under 0.05), then its Hohmann branch
+planned 121.1 m/s at ut 10239.1, 190 s ahead, onto sma 644 km ecc 0.089 (101.6 x -13.5 km)
+while the true Hohmann window was ~3 orbits away. That branch is
+`DeltaVAndTimeForHohmannTransfer` -> MechJebLib `TwoImpulseTransfer.NextManeuver`: an alglib
+local minimization of |dv1| + |dv2| over burn delay AND transfer time, seeded at "burn now",
+with no periapsis term, accepted when under five orbits away. Which branch fires and which
+local minimum it lands in both move with geometry, so no launch time or park orbit fixes it.
+
+Own-transfer attempts (removed): the guard first replaced the bad node with MechJeb's transfer
+operation at the Hohmann window (`2026-10-14_1947`: it returned a node 3,719 s later, 73.5 m/s,
+pe 59 km), then with the machine's own `add_node` circular Hohmann (`2026-10-14_2037`: flown,
+112.3 x 86.8 km, but the Station was ~4 deg / ~50 km away at arrival because the burn was not at
+the new orbit's periapsis and the Station is eccentric; MechJeb's velocity match left 15.4 km
+and its close-range branch, closing speed = distance/100 capped at 100 m/s and not exposed by
+kRPC, planned an 88 m/s intercept to pe 5.9 km). Eccentricity is not the BDOCK-1/2 difference:
+BDOCK-1's Station is the same 117 x 102 km, ecc 0.011 orbit.
+
+Fix (branch `bdock2-rendezvous`, owner decision 2026-10-15 option (b)): start BDOCK-2's
+RENDEZVOUS like BDOCK-1's. `interceptorLaunchNotBeforeUt = 22422` (a ~3.7 game-hour rails
+hold) is the launch with the Station 58 deg ahead whose launch plane is closest to the
+Station's: relative inclination ~0.010 deg (LAN ~5.5 deg off; MechJeb plane-matches above
+0.05), so MechJeb should skip the plane match and plan its plain Hohmann at RENDEZVOUS start.
+Derived in `test_bdock2_rendezvous_geometry.LaunchHoldUtTests` from the fixture Station orbit,
+the propagated Interceptor orbit (reproduces both red start distances) and a LAN-vs-launch-UT
+fit over seven measured launches, BDOCK-1 included (residuals under 0.7 deg). Launches with the
+Station 58 deg ahead recur every ~2,203 s; the next-best one (ut 20215) is at 0.046 deg. The hold
+tolerance is now 2 s (WarpTo lands ~18 s early; the hold re-issues instead of launching 3 deg
+early). mlib's RENDEZVOUS NODE GUARD stays: any rendezvous node whose post-node periapsis (kRPC
+`Node.orbit`) is under the atmosphere top + 5 km is never flown, and the mission ends
+`rendezvous-plan-deorbits: ...` (AP off, nodes cleared). It runs only in RENDEZVOUS; BDOCK-1's
+measured nodes never trip it and the archived CI-9 / SD-1 / VN-4 / VN-10 runs never entered
+RENDEZVOUS. CONFIRMED: `2026-10-14_2113` PASS (1,616 s): hold reached ut 22420.2, no plane
+match, MechJeb's first node 16.5 m/s with pe ~84 km, then MATCH-VELOCITY, DOCK, MISSION-OK.
+
+Fixture note: the hold does not change the Station's orbit, but a re-harvest from the retuned
+flight shifts every UT by ~13,470 s. CI-4 pins the committed fixture's UTs and ids (RP
+`rp_91b25a0c` at UT 9257.8, docks at 8949.3 / 11794.7, `spawnUT=11806.7`, tree `ac9641d6`),
+SD-1 names tree `ac9641d6`, and `test_saveparse` pins its counts; do not re-harvest without
+re-deriving those. The bg subject 1223410921 stays near the Station for ~8 game hours from the
+fixture UT (to ~37,750), which the retuned flight (launch 22,422 + ~7,000 s rendezvous) fits.
+
+Fallback if the retuned hold is red (owner NO-GO for now, 2026-10-15): a machine rendezvous
+planner. Read both orbits' elements through kRPC, propagate them in mlib (pure Kepler), grid-
+search burn time and transfer time with a Lambert solve, reject any arc whose periapsis is under
+the guard floor, author guarded transfer and arrival nodes with `add_node`, and hand off to
+MATCH-VELOCITY at 250 m or less, or to MechJeb's rendezvous AP within ~2 km (closing speed
+distance/100 is then 20 m/s or less).
 
 Fail-fast (branch `bdock-failfast`): mlib's IN-ORBIT INVARIANT ends a B-DOCK stay-in-orbit phase
 (RENDEZVOUS, MATCH-VELOCITY, DOCK, TRANSFER, UNDOCK; the machine runs under BDOCK-1, BDOCK-2,

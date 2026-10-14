@@ -942,6 +942,10 @@ ACTION_SET_TARGET_DOCKING_PORT = "set_target_docking_port" # value = None
 # False (the AP self-disables when finished, NIT-15) AND target_distance
 # <= the desired distance.
 ACTION_MJ_ENABLE_RENDEZVOUS = "mj_enable_rendezvous"       # value = distance m
+# RENDEZVOUS NODE GUARD: switch MechJeb's rendezvous AP off (its
+# OnModuleDisabled aborts the node executor) so a deorbiting node it planned
+# is never flown after the guard ends the mission.
+ACTION_MJ_DISABLE_RENDEZVOUS = "mj_disable_rendezvous"     # value = None
 # Kill relative velocity to the target (MechJeb maneuver_planner
 # operation_kill_rel_vel, OR rely on the rendezvous AP's own terminal match).
 # The runner clears any stale node then retargets the op to XFromNow + ~15 s lead
@@ -3519,6 +3523,10 @@ class TelemetrySnapshot:
     # vessel set; NaN when unread, which refuses every rendezvous warp.
     target_ca_ut: float = float("nan")
     target_ca_distance: float = float("nan")
+    # RENDEZVOUS NODE GUARD input (read only by docking missions): the
+    # periapsis ALTITUDE (m) of the orbit after the first maneuver node (kRPC
+    # Node.orbit). NaN when unread, which never trips the guard.
+    node_next_pe: float = float("nan")
 
 
 # ---------------------------------------------------------------------------
@@ -17274,6 +17282,67 @@ class BDockState:
     orbit_pe_low_node_dv: float = float("nan")
 
 
+# ---------------------------------------------------------------------------
+# RENDEZVOUS NODE GUARD (todo BDOCK2-RENDEZVOUS-PHASING-BURN-DEORBITS-THE-
+# INTERCEPTOR).
+#
+# MechJeb 2.15.1's rendezvous AP (decompiled MechJebModuleRendezvousAutopilot.
+# Drive) plans its node from one of: a velocity match at the next closest
+# approach when that approach is under target sma/25 (BDOCK-2 2026-10-12 /
+# 2026-10-13: a 96.7 m/s node at a 26 km pass, pe 84 -> 31 km); a plane match;
+# or "Hohmann", which is OrbitalManeuverCalculator.DeltaVAndTimeForHohmannTransfer
+# -> MechJebLib TwoImpulseTransfer.NextManeuver: an alglib minbleic LOCAL
+# minimization of |dv1| + |dv2| over the burn delay AND the transfer time,
+# seeded at "burn now", unbounded, with no periapsis or terrain term. After a
+# 6.3 m/s plane match it planned 121 m/s onto a 101.6 x -13.5 km orbit on
+# 2026-10-14_1754 / _1947 / _2037.
+#
+# The guard reads every node the AP plans (kRPC Node.orbit periapsis) and, if
+# the node would leave the periapsis under the floor (atmosphere top +
+# RV_GUARD_MARGIN_M, or RV_GUARD_AIRLESS_FLOOR_M), never lets it burn: the AP
+# is switched off, the nodes cleared, and the mission ends MISSION-ASSERT-FAIL
+# ``rendezvous-plan-deorbits: ...``. The geometry that keeps MechJeb on its
+# plain Hohmann is the launch hold's job (see LAUNCH HOLD); a machine-planned
+# replacement transfer was tried and removed (the own circular Hohmann missed
+# the eccentric Station by 15-50 km, and MechJeb's close-range branch then
+# deorbits too; see the todo entry for the Lambert fallback).
+RV_GUARD_MARGIN_M = 5000.0
+RV_GUARD_AIRLESS_FLOOR_M = 15000.0
+RV_GUARD_REASON_TOKEN = "rendezvous-plan-deorbits"
+
+
+def rv_guard_floor(atmosphere_depth: float) -> float:
+    """The lowest periapsis a rendezvous node may leave: the atmosphere top
+    plus RV_GUARD_MARGIN_M, RV_GUARD_AIRLESS_FLOOR_M on an airless body, NaN
+    when the depth is unread."""
+    if not _is_finite(atmosphere_depth) or atmosphere_depth < 0.0:
+        return float("nan")
+    if atmosphere_depth > 0.0:
+        return float(atmosphere_depth) + RV_GUARD_MARGIN_M
+    return RV_GUARD_AIRLESS_FLOOR_M
+
+
+def rv_node_deorbits(node_count: int, node_next_pe: float,
+                     atmosphere_depth: float) -> bool:
+    """True when the pending node would leave the periapsis under the guard
+    floor. Fails open (False) on no node or any unread input."""
+    if node_count < 1:
+        return False
+    floor = rv_guard_floor(atmosphere_depth)
+    return _is_finite(floor) and _is_finite(node_next_pe) and node_next_pe < floor
+
+
+def format_rv_guard_reason(why: str, node_ut: float, node_dv: float,
+                           node_next_pe: float, floor: float) -> str:
+    """The ``rendezvous-plan-deorbits`` loss reason (token first)."""
+    def f(x, fmt="%.1f"):
+        return (fmt % x) if _is_finite(x) else "nan"
+    return ("%s: %s (node ut=%s dv=%s m/s would leave pe=%s m, floor %s m); "
+            "the node was not flown"
+            % (RV_GUARD_REASON_TOKEN, why, f(node_ut), f(node_dv),
+               f(node_next_pe, "%.0f"), f(floor, "%.0f")))
+
+
 def bdock_initial_state(params: BDockParams) -> BDockState:
     return BDockState(params=params)
 
@@ -17798,6 +17867,28 @@ def _bdock_rv_hold_teardown(decide):
     return decide_with_teardown
 
 
+def _bdock_rv_guard_fail(state: BDockState, snapshot: TelemetrySnapshot,
+                         why: str) -> Tuple[BDockState, List[Action]]:
+    reason = format_rv_guard_reason(why, snapshot.node_ut, snapshot.node_dv,
+                                    snapshot.node_next_pe,
+                                    rv_guard_floor(snapshot.atmosphere_depth))
+    return (replace(state, done=True, verdict=MISSION_ASSERT_FAIL, loss_reason=reason),
+            [Action(ACTION_MJ_DISABLE_RENDEZVOUS),
+             Action(ACTION_MJ_ABORT_AND_CLEAR_NODES)])
+
+
+def _bdock_rv_guard(state: BDockState, snapshot: TelemetrySnapshot
+                    ) -> Optional[Tuple[BDockState, List[Action]]]:
+    """One RENDEZVOUS frame of the RENDEZVOUS NODE GUARD: the terminal
+    ``(state, actions)`` when the pending node would deorbit, else None. The
+    hold teardown decorator cancels an armed rails hold on the terminal. Pure."""
+    if not rv_node_deorbits(snapshot.node_count, snapshot.node_next_pe,
+                            snapshot.atmosphere_depth):
+        return None
+    return _bdock_rv_guard_fail(state, snapshot,
+                                "MechJeb's rendezvous AP planned a deorbiting node")
+
+
 @_bdock_rv_hold_teardown
 def bdock_decide(state: BDockState,
                  snapshot: TelemetrySnapshot) -> Tuple[BDockState, List[Action]]:
@@ -17948,6 +18039,13 @@ def bdock_decide(state: BDockState,
         return _bdock_stay_or_flake(state, snapshot), []
 
     if state.phase == BDOCK_RENDEZVOUS:
+        # RENDEZVOUS NODE GUARD first: a node that would deorbit never burns.
+        guarded = _bdock_rv_guard(state, snapshot)
+        if guarded is not None:
+            g_state, g_actions = guarded
+            if not g_state.done and _bdock_over_budget(g_state, snapshot):
+                return _bdock_flake(g_state), g_actions
+            return g_state, g_actions
         # Latch: the AP self-disables when finished (NIT-15).
         st = state
         if snapshot.mj_rendezvous_enabled:
@@ -18387,6 +18485,9 @@ class SDockParams:
     # Per-tail-phase give-up (GAME s). A tail phase over it DEGRADES to
     # SDOCK-TERMINAL (never a flake: the dock already happened).
     bg_phase_timeout: float = 120.0
+    # LAUNCH HOLD (see _sdock_launch_hold): the game UT before which the
+    # Interceptor is not launched. NaN launches at once (the pre-hold shape).
+    launch_not_before_ut: float = float("nan")
 
 
 def sdock_params_from_dict(params: Dict) -> SDockParams:
@@ -18400,6 +18501,8 @@ def sdock_params_from_dict(params: Dict) -> SDockParams:
         bg_return_settle_seconds=float(params.get("bgReturnSettleSeconds", 10)),
         bg_background_hold_seconds=float(params.get("bgBackgroundHoldSeconds", 10)),
         bg_phase_timeout=float(params.get("bgPhaseTimeoutSeconds", 120)),
+        launch_not_before_ut=float(params.get("interceptorLaunchNotBeforeUt",
+                                              float("nan"))),
     )
 
 
@@ -18423,6 +18526,11 @@ class SDockState:
     bg_switch_result: str = ""        # "" / "OK" / "ERROR" / "TIMEOUT" / "WRONG-VESSEL" / "BUDGET"
     bg_event_emitted: bool = False
     bg_background_emitted: bool = False
+    # LAUNCH HOLD bookkeeping: native warps issued, the UT of the last one, and
+    # the one-shot cancel once the hold UT is reached.
+    launch_hold_issues: int = 0
+    launch_hold_last_issue_ut: float = float("nan")
+    launch_hold_cancelled: bool = False
 
 
 def sdock_initial_state(params: SDockParams) -> SDockState:
@@ -18452,6 +18560,68 @@ def _sdock_elapsed(state: SDockState, snapshot: TelemetrySnapshot) -> float:
     return snapshot.ut - state.phase_entry_ut
 
 
+# ---------------------------------------------------------------------------
+# LAUNCH HOLD (todo BDOCK2-RENDEZVOUS-PHASING-BURN-DEORBITS-THE-INTERCEPTOR).
+# The fixture fixes the Station's orbit, so the Interceptor's launch UT alone
+# fixes the geometry its rendezvous starts from. Launched at the fixture's
+# first frame (ut 8953.4) the Station is 15.75 deg ahead at RENDEZVOUS start
+# (ut 9263.2) and the lower, faster Interceptor closes 15 deg per orbit, so the
+# pair passes 26 km apart one orbit later and MechJeb flies the velocity-match
+# node that deorbits it (see RENDEZVOUS NODE GUARD). Each second of delay
+# adds (Station mean motion - Kerbin rotation) = 0.1801 - 0.0167 = 0.1634 deg
+# of lead, and turns the launch plane's LAN by the Kerbin rotation (0.0167
+# deg/s). The spec's interceptorLaunchNotBeforeUt holds the Station (on rails)
+# until the UT that starts the rendezvous like BDOCK-1: the Station ~58 deg
+# ahead AND the launch plane within ~0.01 deg of the Station's, so MechJeb skips
+# the plane match and plans its plain Hohmann (derivation and measurements in
+# test_bdock2_rendezvous_geometry.LaunchHoldUtTests).
+#
+# The hold rails-warps with a native warp_to and launches once the UT is
+# within SDOCK_LAUNCH_HOLD_TOLERANCE_S of the target and the game reads 1x.
+# KSP's WarpTo lands up to ~19 s early (2026-10-14: 9176..9178 for 9195), which
+# is 3 deg of lead, so an early landing at 1x re-issues the warp (bounded, see
+# below) rather than launching. A warp that never takes is re-issued at most
+# SDOCK_LAUNCH_HOLD_MAX_ISSUES times; past that the hold waits at 1x, so a
+# broken warp costs wall time, never geometry.
+SDOCK_LAUNCH_HOLD_TOLERANCE_S = 2.0
+SDOCK_LAUNCH_HOLD_REISSUE_S = 10.0
+SDOCK_LAUNCH_HOLD_MAX_ISSUES = 3
+
+
+def _sdock_launch_hold(state: SDockState, snapshot: TelemetrySnapshot
+                       ) -> Optional[Tuple[SDockState, List[Action]]]:
+    """One PRELAUNCH frame of the LAUNCH HOLD: ``(state, actions)`` while the
+    launch waits, None when it may go now. Pure."""
+    target = state.params.launch_not_before_ut
+    if not (_is_finite(target) and _is_finite(snapshot.ut)):
+        return None
+    ut = float(snapshot.ut)
+    # A native warp_to in flight reads warping_to before the game leaves 1x, so
+    # either signal counts as an active warp (never re-issue over it, never
+    # launch under it).
+    warping = snapshot.warp_mode != WARP_NONE or _is_finite(snapshot.warping_to)
+    if ut < target - SDOCK_LAUNCH_HOLD_TOLERANCE_S:
+        due = (state.launch_hold_issues == 0
+               or (state.launch_hold_issues < SDOCK_LAUNCH_HOLD_MAX_ISSUES
+                   and _is_finite(state.launch_hold_last_issue_ut)
+                   and ut - state.launch_hold_last_issue_ut >= SDOCK_LAUNCH_HOLD_REISSUE_S))
+        if not warping and due:
+            return (replace(state, launch_hold_issues=state.launch_hold_issues + 1,
+                            launch_hold_last_issue_ut=ut),
+                    [Action(ACTION_WARP_TO_UT, float(target),
+                            text=("launch hold: warp to the Interceptor launch ut=%.1f "
+                                  "(now %.1f, issue %d)"
+                                  % (target, ut, state.launch_hold_issues + 1)))])
+        return state, []
+    if warping and state.launch_hold_issues > 0:
+        if state.launch_hold_cancelled:
+            return state, []
+        return (replace(state, launch_hold_cancelled=True),
+                [Action(ACTION_CANCEL_WARP,
+                        text="launch hold reached (ut=%.1f target=%.1f)" % (ut, target))])
+    return None
+
+
 def sdock_decide(state: SDockState,
                  snapshot: TelemetrySnapshot) -> Tuple[SDockState, List[Action]]:
     """Advance the B-DOCK-2 machine one frame; return (new_state, actions)."""
@@ -18461,6 +18631,9 @@ def sdock_decide(state: SDockState,
 
     # ---- START seam: the Station is the booted fixture's active vessel. ----
     if state.phase == BDOCK_PRELAUNCH:
+        held = _sdock_launch_hold(state, snapshot)
+        if held is not None:
+            return held
         inner = _bdock_enter(state.inner, BDOCK_INT_LAUNCH, snapshot.ut)
         return (_sdock_mirror(state, inner),
                 [Action(ACTION_CAPTURE_STATION),
