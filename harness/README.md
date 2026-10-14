@@ -392,6 +392,23 @@ in `docs/dev/todo-and-known-bugs.md`), and what `run.py` does about them:
   `verify timing analyzer=... logValidate=... mode=concurrent|sequential` is the
   new line. Without a prebuild (a `run_attempt` driven directly) the chain stays
   sequential and the scripts build for themselves.
+- **Pipelined post-quit verification** (owner ruling 2026-10-14; ~10.4 s per lane
+  measured between KSP's exit and the next boot). By default, once a lane's KSP has
+  exited, `run.py` copies everything the post-quit steps read out of the instance
+  into `results/.verify-private/<runId>/` (`KSP.log`, `parsek-test-results.txt`,
+  the render manifest, the ModuleManager logs, `saves/<runSave>/`, this run's
+  screenshots, and the machine-wide `Player.log`), then runs the verifier chain,
+  classification, collect-logs, the snapshot, the artifact copy and the result
+  writes on that copy on a worker thread while the next lane stages and boots. One
+  KSP at a time, at most one lane in post-quit work, the lock heartbeated before
+  every flight. Verdicts and result records are the serial path's; what changes:
+  a retry flies one lane later (`A, B, B_a2, C` becomes `A, B, C, B_a2` when B
+  retries), each flight is bracketed by `[Lane] lane flight begin/end` lines, and a
+  scenario's post-quit lines (verify, Result, Retry, Cost) are written as one block
+  at its terminal. `[Pipeline] post-quit copy ... wall=` is the copy's cost. Opt
+  out with `PARSEK_HARNESS_SERIAL_VERIFY=1` or `run.py --serial-verify` (the serial
+  loop, unchanged). Contract: `docs/dev/design-autotest-harness-core.md`
+  "Pipelined post-quit verification".
 
 ### The mission warp policy (what a mission warps, and why)
 
@@ -1556,7 +1573,13 @@ is only THIS scenario's block of the per-invocation harness log
 `[Cost] scenario cost` line to this scenario's own, with the invocation's
 `[Lock]` lines prepended), so an N-scenario nightly stores N small blocks rather
 than N growing copies of one log; when the run id is not in the log the whole log
-is kept and `manifest.json` says `"harnessLog": "full"` instead of `"slice"`.
+is kept and `manifest.json` says `"harnessLog": "full"` instead of `"slice"`. A
+pipelined invocation (the default) writes a scenario's flights live and its
+post-quit block at its terminal, so its lines are not contiguous; the slice then
+lifts out the `[Lane]`-bracketed flights, finds the Cost block, and puts back the
+flights whose run ids that block wrote, so the slice still holds the whole
+scenario and nothing of its neighbours. The DLL sha256 a pipelined run archives is
+the one hashed when that lane's KSP exited.
 Screenshots, saves and contact sheets are NOT archived. `manifest.json` records the worktree, its git
 HEAD, the deployed Parsek.dll sha256 and every file's archived and source size.
 Missing optional files are listed there, not fatal. The copy runs after the

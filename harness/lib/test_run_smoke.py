@@ -6888,3 +6888,596 @@ class BootStallWatchdogSmokeTests(unittest.TestCase):
         self.assertEqual(2, log.count("[Boot-Wait] killed process exited after"))
         self.assertNotIn("instance-busy", log)
         self.assertNotIn("still alive after", log)
+
+
+# ---------------------------------------------------------------------------
+# Pipelined post-quit verification (owner ruling 2026-10-14). A multi-lane
+# selection is driven through the production selection loop twice, once
+# pipelined and once with the serial opt-out, over identical sandboxes; every
+# verdict, result record, retry and archive entry must agree, and no post-quit
+# read may reach the live instance once the next lane has staged.
+# ---------------------------------------------------------------------------
+
+import gzip  # noqa: E402
+import threading  # noqa: E402
+from unittest import mock  # noqa: E402
+
+import flighteff  # noqa: E402
+
+# Process-wide audit hook (sys.addaudithook cannot be removed), inert unless a
+# test arms it: records every open / listdir made by a harness worker thread
+# (the post-quit worker and the logValidate overlap both run as "verifier-*").
+_WORKER_IO = {"armed": False, "paths": []}
+_WORKER_IO_HOOKED = False
+
+
+def _worker_io_hook(event, args):
+    if not _WORKER_IO["armed"] or event not in ("open", "os.listdir", "os.scandir"):
+        return
+    if not args or isinstance(args[0], int) or args[0] is None:
+        return
+    name = threading.current_thread().name
+    if not name.startswith("verifier-"):
+        return
+    try:
+        path = os.path.abspath(os.fsdecode(args[0]))
+    except (TypeError, ValueError):
+        return
+    _WORKER_IO["paths"].append((name, path))
+
+
+def _arm_worker_io_hook():
+    global _WORKER_IO_HOOKED
+    if not _WORKER_IO_HOOKED:
+        sys.addaudithook(_worker_io_hook)
+        _WORKER_IO_HOOKED = True
+    _WORKER_IO["paths"] = []
+    _WORKER_IO["armed"] = True
+
+
+def _disarm_worker_io_hook():
+    _WORKER_IO["armed"] = False
+
+
+def _inside(path, root):
+    path = os.path.normcase(os.path.abspath(path))
+    root = os.path.normcase(os.path.abspath(root))
+    return path == root or path.startswith(root + os.sep)
+
+
+class _SelectionRuntime(FakeRuntime):
+    """FakeRuntime for a whole selection: no dotnet prebuild, a per-(scenario,
+    attempt) fake-KSP mode, a machine-wide Player.log every boot rewrites, and a
+    collect-logs stub that records what it was pointed at."""
+
+    def __init__(self, plan, player_log):
+        super().__init__("pass")
+        self.plan = plan
+        self.player_log = player_log
+        self.current_scenario = None
+        self.current_gen = 0
+        self.attempts = {}
+        self.launch_order = []
+        self.collect_calls = []
+
+    def build_tests(self, timeout):
+        return run.ToolResult(0, False)
+
+    def tests_assembly_present(self):
+        return True
+
+    def player_log_path(self):
+        return self.player_log
+
+    def launch(self, exe, args, env, cwd):
+        sid = self.current_scenario
+        n = self.attempts.get(sid, 0) + 1
+        self.attempts[sid] = n
+        self.mode = self.plan.get((sid, n), "pass")
+        self.launch_order.append("%s#%d" % (sid, n))
+        with open(self.player_log, "w", encoding="utf-8") as fh:
+            fh.write("PLAYER gen=%d\n" % self.current_gen)
+        return super().launch(exe, args, env, cwd)
+
+    def run_collect_logs(self, label, save_name, instance_dir, timeout, player_log=None):
+        text = None
+        if player_log and os.path.isfile(player_log):
+            with open(player_log, encoding="utf-8") as fh:
+                text = fh.read()
+        kspl = os.path.join(instance_dir, "KSP.log")
+        log_text = None
+        if os.path.isfile(kspl):
+            with open(kspl, encoding="utf-8") as fh:
+                log_text = fh.read()
+        self.collect_calls.append({"label": label, "instanceDir": instance_dir,
+                                   "playerLog": player_log, "playerText": text,
+                                   "kspLog": log_text})
+        return run.ToolResult(0, False, stdout="../logs/2026-07-12_0000_%s\n" % label)
+
+
+class _Valid:
+    errors = []
+    warnings = []
+
+
+class PipelinedSelectionSmokeTests(unittest.TestCase):
+    """Four scenarios, one retried: A passes; B boot-crashes then passes
+    (flakedThenPassed); C hits a deterministic seam error (never retried); D
+    passes. The same selection runs pipelined and serial."""
+
+    STAMP = "2026-10-14_0000"
+    PLAN = {("PQ-B", 1): "bootcrash"}
+
+    @classmethod
+    def setUpClass(cls):
+        # Both selections fly once for the whole class (ten fake lanes).
+        cls._orig_results = run.RESULTS_DIR
+        cls._orig_stamp = run._run_id_stamp
+        cls._orig_stage = run.stage_fixture
+        run._run_id_stamp = lambda: cls.STAMP
+        cls.sandboxes = []
+        try:
+            cls.flights = (cls._fly(serial=False), cls._fly(serial=True))
+        finally:
+            _disarm_worker_io_hook()
+            run.RESULTS_DIR = cls._orig_results
+            run._run_id_stamp = cls._orig_stamp
+            run.stage_fixture = cls._orig_stage
+
+    @classmethod
+    def tearDownClass(cls):
+        for box in cls.sandboxes:
+            shutil.rmtree(box, ignore_errors=True)
+
+    @classmethod
+    def _specs(cls, template):
+        def seam(sid):
+            spec = _make_spec(template, 30, 600)
+            spec["id"] = sid
+            return spec
+        c = seam("PQ-C")
+        # A kind-less ListHandles: the fake seam answers REJECTED kind-arg-missing,
+        # a deterministic seam error (#2016) that must never be retried.
+        c["driver"]["steps"] = [
+            {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
+             "expect": "OK", "budget": 30},
+            {"cmd": "ListHandles", "args": {}, "expect": "OK"},
+            {"cmd": "FlushAndQuit", "expect": "OK"},
+        ]
+        c["expectations"]["logContracts"]["required"] = []
+        return [seam("PQ-A"), seam("PQ-B"), c, seam("PQ-D")]
+
+    @classmethod
+    def _fly(cls, serial):
+        box = tempfile.mkdtemp(prefix="parsek-pipelined-")
+        cls.sandboxes.append(box)
+        instance = os.path.join(box, "instance")
+        os.makedirs(instance)
+        _write_manifest(instance, "stock-minimal")
+        template = os.path.join(box, "fresh-career")
+        os.makedirs(template)
+        with open(os.path.join(template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        run.RESULTS_DIR = os.path.join(box, "results")
+        rt = _SelectionRuntime(dict(cls.PLAN), os.path.join(box, "Player.log"))
+        dll = os.path.join(instance, run.PARSEK_DLL_REL)
+        gen_dll_sha = {}
+        orig_stage = cls._orig_stage
+
+        def staging(spec, instance_dir, runtime, logger):
+            # Stage, then make the instance unmistakably the NEXT lane's: a fresh
+            # KSP.log (KSP truncates it at boot), a generation stamp in the staged
+            # save, and different DLL bytes. A post-quit read of the live instance
+            # after this point would carry the wrong generation.
+            out = orig_stage(spec, instance_dir, runtime, logger)
+            rt.current_gen += 1
+            gen = rt.current_gen
+            rt.current_scenario = spec.get("id")
+            with open(os.path.join(instance_dir, "KSP.log"), "w", encoding="utf-8") as fh:
+                fh.write("[LOG] HARNESS-TEST staged gen=%d\n" % gen)
+            save = os.path.join(instance_dir, "saves", out[1])
+            if os.path.isdir(save):
+                with open(os.path.join(save, "gen.txt"), "w") as fh:
+                    fh.write("%d" % gen)
+            os.makedirs(os.path.dirname(dll), exist_ok=True)
+            with open(dll, "wb") as fh:
+                fh.write(b"dll gen=%d" % gen)
+            gen_dll_sha[gen] = hashlib.sha256(b"dll gen=%d" % gen).hexdigest()
+            return out
+
+        run.stage_fixture = staging
+        logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "pq_harness.log"))
+        env = {k: v for k, v in os.environ.items()
+               if k not in (hlib.SERIAL_VERIFY_ENV, hlib.RESULTS_ARCHIVE_OPT_OUT_ENV)}
+        if serial:
+            env[hlib.SERIAL_VERIFY_ENV] = "1"
+        args = mock.Mock(instance_dir=instance, no_coverage=True, serial_verify=False)
+        specs = cls._specs(template)
+        if not serial:
+            _arm_worker_io_hook()
+        try:
+            with mock.patch.dict(os.environ, env, clear=True), \
+                    mock.patch.object(hlib, "validate_spec", lambda *a, **k: _Valid()), \
+                    mock.patch.object(run, "resolve_mission_schemas", lambda s, lg=None: (None, [])):
+                code = run._run_selection(specs, specs, {}, box, args, rt, logger, None,
+                                          "id=PQ-*")
+        finally:
+            _disarm_worker_io_hook()
+            logger.close()
+            run.stage_fixture = orig_stage
+        results = {}
+        for name in sorted(os.listdir(run.RESULTS_DIR)):
+            if name.endswith(".json") and not name.endswith(("_status.json", "_mission.json")):
+                with open(os.path.join(run.RESULTS_DIR, name), encoding="utf-8") as fh:
+                    obj = json.load(fh)
+                if isinstance(obj, dict) and "runId" in obj:
+                    results[obj["runId"]] = obj
+        with open(logger.log_path, encoding="utf-8") as fh:
+            log_lines = fh.readlines()
+        return {"box": box, "instance": instance, "code": code, "rt": rt,
+                "results": results, "log": log_lines, "gen_dll_sha": gen_dll_sha,
+                "results_dir": run.RESULTS_DIR,
+                "archive": os.path.join(box, *hlib.RESULTS_ARCHIVE_RELPATH),
+                "worker_io": list(_WORKER_IO["paths"])}
+
+    @staticmethod
+    def _normalized(result, box):
+        out = copy.deepcopy(result)
+        for key in ("startedUtc", "endedUtc", "wallSeconds", "attemptsWallSeconds"):
+            out.pop(key, None)
+        text = json.dumps(out, sort_keys=True)
+        return json.loads(text.replace(json.dumps(box)[1:-1], "<BOX>"))
+
+    def _both(self):
+        return self.flights
+
+    def test_same_verdicts_results_and_retries_either_way(self):
+        piped, serial = self._both()
+        self.assertEqual(serial["code"], piped["code"])
+        self.assertEqual(1, piped["code"], "PQ-C's INVALID makes the selection red")
+        self.assertEqual(sorted(serial["results"]), sorted(piped["results"]))
+        self.assertEqual(5, len(piped["results"]), "A, B a1, B a2, C, D")
+        for rid in sorted(serial["results"]):
+            with self.subTest(runId=rid):
+                self.assertEqual(self._normalized(serial["results"][rid], serial["box"]),
+                                 self._normalized(piped["results"][rid], piped["box"]))
+        by_scenario = {}
+        for r in piped["results"].values():
+            by_scenario.setdefault(r["scenarioId"], []).append(r)
+        b = sorted(by_scenario["PQ-B"], key=lambda r: r["attempt"])
+        self.assertEqual([(1, "INVALID", "boot-crash"), (2, "PASS", "")],
+                         [(r["attempt"], r["verdict"], r["subkind"]) for r in b])
+        self.assertTrue(b[1]["runId"].endswith("_a2"))
+        self.assertEqual("flakedThenPassed", b[1]["note"])
+        (c,) = by_scenario["PQ-C"]
+        self.assertEqual(("INVALID", "driver-verdict-mismatch"), (c["verdict"], c["subkind"]))
+        self.assertEqual("kind-arg-missing", c[hlib.RETRY_SKIPPED_KEY]["reason"])
+        for sid in ("PQ-A", "PQ-D"):
+            self.assertEqual(["PASS"], [r["verdict"] for r in by_scenario[sid]])
+
+    def test_the_retry_flies_one_lane_later(self):
+        piped, serial = self._both()
+        self.assertEqual(["PQ-A#1", "PQ-B#1", "PQ-B#2", "PQ-C#1", "PQ-D#1"],
+                         serial["rt"].launch_order)
+        # Pipelined: B's attempt-1 verdict is known only after C has flown, so the
+        # retry flies right after C (the lane in flight), ahead of D.
+        self.assertEqual(["PQ-A#1", "PQ-B#1", "PQ-C#1", "PQ-B#2", "PQ-D#1"],
+                         piped["rt"].launch_order)
+
+    def test_no_post_quit_read_touches_the_live_instance(self):
+        piped, serial = self._both()
+        for flight in (piped, serial):
+            order = flight["rt"].launch_order
+            for rid, r in flight["results"].items():
+                with self.subTest(mode="serial" if flight is serial else "pipelined", runId=rid):
+                    gen = order.index("%s#%d" % (r["scenarioId"], r["attempt"])) + 1
+                    shots_log = os.path.join(flight["results_dir"], rid + "_shots", "KSP.log")
+                    with open(shots_log, encoding="utf-8") as fh:
+                        text = fh.read()
+                    self.assertIn("staged gen=%d\n" % gen, text)
+                    self.assertEqual(1, text.count("staged gen="), text[:200])
+                    if r["snapshot"]["ran"]:
+                        with open(os.path.join(flight["results_dir"], r["snapshot"]["path"],
+                                               "gen.txt")) as fh:
+                            self.assertEqual(str(gen), fh.read())
+                    if flight is piped:
+                        # The serial path hashes the instance DLL at the scenario's
+                        # end (after B's retry restaged it); pipelined archives the
+                        # hash taken when each lane's own KSP exited.
+                        with open(os.path.join(flight["archive"], rid, "manifest.json")) as fh:
+                            self.assertEqual(flight["gen_dll_sha"][gen],
+                                             json.load(fh)["parsekDllSha256"])
+        # collect-logs (non-PASS lanes) read the lane's own private copy, Player.log
+        # included, never the instance the next lane had already staged.
+        calls = piped["rt"].collect_calls
+        self.assertEqual(["PQ-B", "PQ-C"], sorted(c["label"] for c in calls))
+        order = piped["rt"].launch_order
+        for call in calls:
+            gen = order.index("%s#1" % call["label"]) + 1
+            self.assertFalse(_inside(call["instanceDir"], piped["instance"]))
+            self.assertIn("staged gen=%d\n" % gen, call["kspLog"])
+            self.assertEqual("PLAYER gen=%d\n" % gen, call["playerText"])
+        # Every file the worker threads opened or listed: none under the instance,
+        # and (positive control: the hook sees worker I/O) some under the copies.
+        io = piped["worker_io"]
+        live = [p for _t, p in io if _inside(p, piped["instance"])]
+        self.assertEqual([], live)
+        copies = os.path.join(piped["results_dir"], run.POST_QUIT_COPY_DIRNAME)
+        self.assertTrue(any(_inside(p, copies) for _t, p in io))
+        # The private copies are gone once their lane landed.
+        self.assertEqual([], os.listdir(copies) if os.path.isdir(copies) else [])
+
+    def test_the_harness_log_keeps_each_scenario_whole(self):
+        piped, serial = self._both()
+        lines = piped["log"]
+        self.assertTrue(any(hlib.HARNESS_LOG_LANE_BEGIN_MARKER in ln for ln in lines))
+        self.assertFalse(any(hlib.HARNESS_LOG_LANE_BEGIN_MARKER in ln
+                             for ln in serial["log"]), "serial logs exactly as before")
+        for flight in (piped, serial):
+            facts = flighteff.parse_harness_log(flight["log"])
+            for rid, r in flight["results"].items():
+                with self.subTest(runId=rid):
+                    expected_attempts = 2 if r["scenarioId"] == "PQ-B" else 1
+                    self.assertEqual(expected_attempts, facts[rid]["cost"]["attempts"])
+                    self.assertEqual(expected_attempts - 1, len(facts[rid]["retries"]))
+        for rid, r in piped["results"].items():
+            with self.subTest(runId=rid):
+                block = "".join(hlib.slice_harness_log_for_run(lines, rid))
+                own = [x for x, o in piped["results"].items()
+                       if o["scenarioId"] == r["scenarioId"]]
+                for other, o in piped["results"].items():
+                    marker = "lane flight end runId=%s " % other
+                    if other in own:
+                        self.assertIn(marker, block)
+                        self.assertIn("%s.json" % other, block)
+                    else:
+                        self.assertNotIn(marker, block)
+                        self.assertNotIn("%s.json" % other, block)
+                self.assertEqual(1, block.count(hlib.HARNESS_LOG_COST_MARKER))
+                with gzip.open(os.path.join(piped["archive"], rid,
+                                            os.path.basename(_log_name(piped)) + ".gz"),
+                               "rt", encoding="utf-8") as fh:
+                    self.assertEqual(block, fh.read())
+
+    def test_a_tier_summary_reads_the_same_either_way(self):
+        piped, serial = self._both()
+
+        def rows(flight):
+            return sorted((r["scenarioId"], r["attempt"], r["verdict"], r.get("note", ""))
+                          for r in flight["results"].values())
+        self.assertEqual(rows(serial), rows(piped))
+        for flight in (piped, serial):
+            with open(os.path.join(flight["results_dir"], "summary.txt")) as fh:
+                summary = sorted(" ".join(ln.split()[1:]).rsplit(" wall=", 1)[0]
+                                 for ln in fh)
+            flight["summary"] = summary
+        self.assertEqual(serial["summary"], piped["summary"])
+
+
+def _log_name(flight):
+    return os.path.join(flight["results_dir"], "pq_harness.log")
+
+
+class PipelinedEdgeSmokeTests(unittest.TestCase):
+    """The pipelined loop's two degraded paths: a post-quit copy that fails
+    (verified in place, before the next lane stages) and a lock lost while a
+    lane is in post-quit work or owes a retry."""
+
+    def setUp(self):
+        self.box = tempfile.mkdtemp(prefix="parsek-pipelined-edge-")
+        self.instance = os.path.join(self.box, "instance")
+        os.makedirs(self.instance)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.box, "fresh-career")
+        os.makedirs(self.template)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        self._orig_stage = run.stage_fixture
+        run.RESULTS_DIR = os.path.join(self.box, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "edge_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        run.stage_fixture = self._orig_stage
+        self.logger.close()
+        shutil.rmtree(self.box, ignore_errors=True)
+
+    def _select(self, ids, plan, heartbeats=None, copy_fails=()):
+        rt = _SelectionRuntime(plan, os.path.join(self.box, "Player.log"))
+        orig_stage = self._orig_stage
+        self.results_at_stage = {}
+
+        def staging(spec, instance_dir, runtime, logger):
+            rt.current_scenario = spec.get("id")
+            self.results_at_stage[spec.get("id")] = sorted(
+                n for n in os.listdir(run.RESULTS_DIR)
+                if n.endswith(".json") and n.count("_") == 2)
+            return orig_stage(spec, instance_dir, runtime, logger)
+        run.stage_fixture = staging
+        specs = []
+        for sid in ids:
+            spec = _make_spec(self.template, 30, 600)
+            spec["id"] = sid
+            specs.append(spec)
+        orig_copy = run._take_post_quit_copy
+
+        def copy(run_id, *a, **k):
+            if any(run_id.endswith(s) for s in copy_fails):
+                return None
+            return orig_copy(run_id, *a, **k)
+        beats = iter(heartbeats or [])
+        env = {k: v for k, v in os.environ.items()
+               if k not in (hlib.SERIAL_VERIFY_ENV, hlib.RESULTS_ARCHIVE_OPT_OUT_ENV)}
+        args = mock.Mock(instance_dir=self.instance, no_coverage=True, serial_verify=False)
+        with mock.patch.dict(os.environ, env, clear=True), \
+                mock.patch.object(hlib, "validate_spec", lambda *a, **k: _Valid()), \
+                mock.patch.object(run, "resolve_mission_schemas", lambda s, lg=None: (None, [])), \
+                mock.patch.object(run, "_take_post_quit_copy", copy), \
+                mock.patch.object(run, "heartbeat_run_lock",
+                                  lambda *a, **k: next(beats, True)):
+            code = run._run_selection(specs, specs, {}, self.box, args, rt, self.logger,
+                                      "lock", "id=PE-*")
+        results = {}
+        for name in os.listdir(run.RESULTS_DIR):
+            if name.endswith(".json"):
+                with open(os.path.join(run.RESULTS_DIR, name), encoding="utf-8") as fh:
+                    obj = json.load(fh)
+                if isinstance(obj, dict) and "runId" in obj:
+                    results.setdefault(obj["scenarioId"], []).append(obj)
+        with open(self.logger.log_path, encoding="utf-8") as fh:
+            log = fh.read()
+        return code, results, rt, log
+
+    def test_a_failed_copy_verifies_in_place_with_the_same_verdict(self):
+        code, results, rt, log = self._select(["PE-A", "PE-B"], {}, copy_fails=("PE-A",))
+        self.assertEqual(0, code)
+        self.assertEqual(["PASS"], [r["verdict"] for r in results["PE-A"]])
+        self.assertEqual(["PASS"], [r["verdict"] for r in results["PE-B"]])
+        self.assertEqual(["PE-A#1", "PE-B#1"], rt.launch_order)
+        a_rid = results["PE-A"][0]["runId"]
+        # Verified on the live instance, so it landed before PE-B staged over it.
+        self.assertIn(a_rid + ".json", self.results_at_stage["PE-B"])
+        self.assertIn("post-quit copy", log)
+        # The in-place lane's lines still land in its own post-quit block.
+        block = "".join(hlib.slice_harness_log_for_run(log.splitlines(True), a_rid))
+        self.assertIn("verdict=PASS scenario=PE-A", block)
+        self.assertNotIn("scenario=PE-B", block)
+
+    def test_a_lost_lock_lands_the_lane_in_work_and_refuses_the_rest(self):
+        # Beat 1 flies A; beat 2 (A in post-quit work) fails.
+        code, results, rt, log = self._select(["PE-A", "PE-B"], {}, heartbeats=[True, False])
+        self.assertEqual(1, code)
+        self.assertEqual(["PE-A#1"], rt.launch_order)
+        self.assertEqual(["PASS"], [r["verdict"] for r in results["PE-A"]])
+        self.assertEqual([("INVALID", "instance-locked")],
+                         [(r["verdict"], r["subkind"]) for r in results["PE-B"]])
+        self.assertIn("lost the machine lock mid-selection", log)
+
+    def test_a_lost_lock_ends_an_owed_retry_on_attempt_one(self):
+        # A boot-crashes; B flies while A verifies; A's retry is queued when A
+        # lands, and beat 3 (before that retry) fails.
+        code, results, rt, log = self._select(["PE-A", "PE-B"], {("PE-A", 1): "bootcrash"},
+                                              heartbeats=[True, True, False])
+        self.assertEqual(1, code)
+        self.assertEqual(["PE-A#1", "PE-B#1"], rt.launch_order)
+        self.assertEqual([(1, "INVALID", "boot-crash")],
+                         [(r["attempt"], r["verdict"], r["subkind"]) for r in results["PE-A"]])
+        self.assertEqual(["PASS"], [r["verdict"] for r in results["PE-B"]])
+        self.assertIn("retry scenario=PE-A attempt=2 NOT flown", log)
+        self.assertIn("scenario cost attempts=1 wallTotal=", log)
+
+
+class PipelinedVerifyOptOutTests(unittest.TestCase):
+    def test_on_by_default_and_off_by_env_or_flag(self):
+        self.assertTrue(hlib.pipelined_verify_enabled({}, False))
+        self.assertTrue(hlib.pipelined_verify_enabled({hlib.SERIAL_VERIFY_ENV: "0"}, False))
+        self.assertTrue(hlib.pipelined_verify_enabled({hlib.SERIAL_VERIFY_ENV: ""}, False))
+        for value in ("1", "true", "yes", " On "):
+            self.assertFalse(hlib.pipelined_verify_enabled({hlib.SERIAL_VERIFY_ENV: value},
+                                                           False), value)
+        self.assertFalse(hlib.pipelined_verify_enabled({}, True))
+
+    def test_the_cli_flag_exists(self):
+        self.assertIn("serial_verify", _calls_kwarg_names(run.run))
+
+    def test_the_pipelined_loop_stops_on_a_lost_lock(self):
+        source = textwrap.dedent(inspect.getsource(run._run_selection_pipelined))
+        tree = ast.parse(source)
+        guarded = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.If) and isinstance(node.test, ast.UnaryOp):
+                called = {n.func.id for n in ast.walk(node.test)
+                          if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+                if "heartbeat_run_lock" in called:
+                    guarded.append(any(isinstance(n, ast.Return) for n in ast.walk(node)))
+        self.assertTrue(guarded and all(guarded))
+
+
+def _calls_kwarg_names(fn):
+    """`dest`-style names of the argparse flags fn declares."""
+    tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+    out = set()
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "add_argument"):
+            for a in node.args:
+                if isinstance(a, ast.Constant) and isinstance(a.value, str) \
+                        and a.value.startswith("--"):
+                    out.add(a.value[2:].replace("-", "_"))
+    return out
+
+
+class PipelinedVerifyCopySetTests(unittest.TestCase):
+    """The post-quit copy must hold every instance path the post-quit code reads.
+    Walks the code (AST, so comments cannot satisfy it) for instance-rooted path
+    joins and collect-logs.py's ``ksp_dir / ...`` reads, and checks each first
+    path component against the copy set."""
+
+    # Functions that run after KSP exited, in run.py, with the parameter that
+    # names the instance (or private-copy) root in each.
+    POST_QUIT = {
+        "run_verifiers": "instance_dir",
+        "_parse_results": "instance_dir",
+        "read_render_manifest": "instance_dir",
+        "_finish_result": "instance_dir",
+        "_collect_run_artifacts": "instance_dir",
+        "_snapshot_produced_save": "instance_dir",
+        "_verify_classify_finish": "verify_root",
+    }
+
+    def _copy_heads(self):
+        heads = {"saves", "Screenshots"}
+        for rel in run.POST_QUIT_ROOT_FILES:
+            heads.add(rel.replace("\\", "/").split("/")[0])
+        return heads
+
+    def _first_component(self, node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value.replace("\\", "/").split("/")[0]
+        if isinstance(node, ast.Name) and isinstance(getattr(run, node.id, None), str):
+            return getattr(run, node.id).replace("\\", "/").split("/")[0]
+        return None
+
+    def test_every_instance_join_in_post_quit_code_is_copied(self):
+        heads = self._copy_heads()
+        seen = set()
+        for fn_name, root_param in self.POST_QUIT.items():
+            tree = ast.parse(textwrap.dedent(inspect.getsource(getattr(run, fn_name))))
+            for node in ast.walk(tree):
+                if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                        and node.func.attr == "join" and len(node.args) >= 2
+                        and isinstance(node.args[0], ast.Name)
+                        and node.args[0].id == root_param):
+                    continue
+                head = self._first_component(node.args[1])
+                with self.subTest(fn=fn_name, head=head):
+                    self.assertIsNotNone(head, "an instance join run.py cannot name")
+                    self.assertIn(head, heads)
+                seen.add(head)
+        # The walk is not vacuous: it finds the reads this set was built from.
+        self.assertTrue({"KSP.log", "saves", "Screenshots", run.RESULTS_FILE,
+                         run.RENDER_MANIFEST_FILENAME} <= seen, seen)
+
+    def test_every_collect_logs_instance_read_is_copied(self):
+        path = os.path.join(HARNESS_ROOT, "..", "scripts", "collect-logs.py")
+        with open(path, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        heads = self._copy_heads()
+        seen = set()
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div)):
+                continue
+            left = node.left
+            rooted = (isinstance(left, ast.Name) and left.id == "ksp_dir") or (
+                isinstance(left, ast.Call) and isinstance(left.func, ast.Name)
+                and left.func.id == "Path" and left.args
+                and isinstance(left.args[0], ast.Name) and left.args[0].id == "ksp_dir")
+            if not rooted or not isinstance(node.right, ast.Constant):
+                continue
+            head = str(node.right.value).split("/")[0]
+            seen.add(head)
+            with self.subTest(head=head):
+                self.assertIn(head, heads)
+        self.assertTrue({"KSP.log", "saves", "Logs", run.RESULTS_FILE,
+                         run.RENDER_MANIFEST_FILENAME} <= seen, seen)

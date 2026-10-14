@@ -3940,6 +3940,19 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   1,235 s, B4 1,112 s, B15 1,014 s). Further cuts are structural and need operator rulings:
   shorten the dwell lanes, share flights between overlapping lanes, or move long lanes out of
   nightly.
+- [ ] Pipelined post-quit verification (owner ruling 2026-10-14, branch `pipelined-verify`;
+  PENDING A LIVE TIER COMPARISON). After KSP exits, a lane spent ~10.4 s mean (postQuitTail)
+  in the verifiers, collect-logs, snapshot, artifacts and result writes before the next lane's
+  ~25 s boot began. `run.py` now copies the lane's post-quit inputs (KSP.log, results file,
+  render manifest, ModuleManager logs, the produced save, this run's screenshots, Player.log)
+  into `results/.verify-private/<runId>/` and runs all of that on a worker over the copy while
+  the next lane stages and boots; one lane in post-quit work at a time, lock / stage / launch
+  serial. Same verdicts and records (fake-KSP smoke flies one selection both ways and diffs
+  every result); a retry now flies one lane later. Opt out: `PARSEK_HARNESS_SERIAL_VERIFY=1` or
+  `--serial-verify`. Contract: `design-autotest-harness-core.md` "Pipelined post-quit
+  verification". To close: fly one nightly pipelined and compare its tier wall and per-lane
+  kspBoot (CPU contention with the verifiers) against the 2026-10-11/12 nightly above; expected
+  ~30 min saved per nightly less the `[Pipeline] post-quit copy ... wall=` cost.
 
 ## MISSIONS-TAB-MODEL1: the Missions tab redesign, first slice ("Model 1") [OWNER-APPROVED 2026-09-29, branch `missions-model1`. IN PROGRESS]
 

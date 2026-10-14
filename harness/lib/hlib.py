@@ -13010,6 +13010,24 @@ def results_archive_disabled(env: Optional[Dict[str, str]]) -> bool:
     return value.strip().lower() not in _ARCHIVE_FALSE_VALUES
 
 
+# Pipelined post-quit verification (owner ruling 2026-10-14): lane N's verifier
+# chain, classification and result writes run on a private copy of its artifacts
+# while lane N+1 stages and boots. This env var (or run.py --serial-verify) puts
+# every lane back on the serial path, verify-then-next-lane, unchanged.
+SERIAL_VERIFY_ENV = "PARSEK_HARNESS_SERIAL_VERIFY"
+
+
+def pipelined_verify_enabled(env: Optional[Dict[str, str]], serial_flag: bool) -> bool:
+    """True unless the CLI flag or a truthy SERIAL_VERIFY_ENV asks for the serial path.
+    Same truthiness rule as the archive opt-out (empty / 0 / false / no / off is off)."""
+    if serial_flag:
+        return False
+    value = (env or {}).get(SERIAL_VERIFY_ENV)
+    if value is None:
+        return True
+    return value.strip().lower() in _ARCHIVE_FALSE_VALUES
+
+
 def results_archive_relpath(run_id: str) -> Tuple[str, ...]:
     """The archived run dir relative to the umbrella root."""
     return RESULTS_ARCHIVE_RELPATH + (run_id,)
@@ -13122,21 +13140,63 @@ HARNESS_LOG_COST_MARKER = "[Cost] scenario cost"
 HARNESS_LOG_LOCK_MARKER = "[Lock]"
 
 
-def slice_harness_log_for_run(lines: Sequence[str], run_id: str) -> Optional[List[str]]:
-    """This run's scenario block out of a per-invocation harness log.
+# Pipelined verification (SERIAL_VERIFY_ENV unset) writes a lane's flight lines live
+# while the previous lane's post-quit lines are still pending, so a scenario's lines
+# are no longer contiguous in the invocation log. run.py brackets every flight with
+# the two lane lines below (step "Lane") and holds each scenario's post-quit lines
+# (verify, classify, result writes, Retry, Cost) until its terminal, so a Cost block
+# still holds exactly one scenario's Result / Retry / Cost lines and its flights are
+# found by run id. A serial-mode log carries no markers and slices exactly as before.
+HARNESS_LOG_LANE_BEGIN_MARKER = "[Lane] lane flight begin"
+HARNESS_LOG_LANE_END_MARKER = "[Lane] lane flight end"
+_LANE_END_RUN_ID_RE = re.compile(r"\[Lane\] lane flight end runId=(\S+)")
+_RESULT_WRITTEN_PATH_RE = re.compile(r"result written (\S+)$")
 
-    One run.py invocation flies a whole selection into ONE log, so archiving
-    the whole log per run stores N growing copies for an N-run selection. Each
-    scenario block ends at its ``[Cost] scenario cost`` line, so the block is
-    everything after the previous Cost line (or the log start) up to and
-    including the next Cost line at or after this run's ``result written
-    .../<runId>.json`` line (or the end of the log). Both attempts of a retried
-    scenario share one block, which holds the ``[Retry]`` and ``[Cost]`` lines.
-    The invocation's ``[Lock]`` lines from before the block are prepended so a
-    later scenario's slice still carries the lock facts. Returns None when the
-    log never wrote this run's result (the caller then keeps the whole log).
-    Lines keep whatever endings the caller passed.
-    """
+
+def format_lane_begin_message(scenario_id: str, attempt: int) -> str:
+    return "lane flight begin scenario=%s attempt=%d" % (scenario_id, attempt)
+
+
+def format_lane_end_message(run_id: str, scenario_id: str, attempt: int) -> str:
+    return "lane flight end runId=%s scenario=%s attempt=%d" % (run_id, scenario_id, attempt)
+
+
+def _lane_segments(lines: Sequence[str]) -> List[Tuple[int, int, Optional[str]]]:
+    """``(first, last, runId)`` index ranges of the bracketed flights, in log order.
+    A begin with no end closes at the next begin (or the log end) with runId None,
+    so a flight that died mid-lane is dropped from every slice rather than glued to
+    a neighbour. An end with no open begin is an ordinary line."""
+    segments: List[Tuple[int, int, Optional[str]]] = []
+    open_at: Optional[int] = None
+    for i, line in enumerate(lines):
+        if HARNESS_LOG_LANE_BEGIN_MARKER in line:
+            if open_at is not None:
+                segments.append((open_at, i - 1, None))
+            open_at = i
+        elif HARNESS_LOG_LANE_END_MARKER in line and open_at is not None:
+            m = _LANE_END_RUN_ID_RE.search(line)
+            segments.append((open_at, i, m.group(1) if m else None))
+            open_at = None
+    if open_at is not None:
+        segments.append((open_at, len(lines) - 1, None))
+    return segments
+
+
+def _result_written_run_ids(lines: Sequence[str]) -> Set[str]:
+    out: Set[str] = set()
+    for line in lines:
+        if "result written" not in line:
+            continue
+        m = _RESULT_WRITTEN_PATH_RE.search(line.rstrip())
+        if not m:
+            continue
+        name = m.group(1).replace("\\", "/").rsplit("/", 1)[-1]
+        if name.endswith(".json"):
+            out.add(name[:-len(".json")])
+    return out
+
+
+def _cost_block_bounds(lines: Sequence[str], run_id: str) -> Optional[Tuple[int, int]]:
     token = run_id + ".json"
     hit = None
     for i, line in enumerate(lines):
@@ -13155,8 +13215,54 @@ def slice_harness_log_for_run(lines: Sequence[str], run_id: str) -> Optional[Lis
         if HARNESS_LOG_COST_MARKER in lines[j]:
             end = j + 1
             break
-    header = [ln for ln in lines[:start] if HARNESS_LOG_LOCK_MARKER in ln]
-    return header + list(lines[start:end])
+    return start, end
+
+
+def slice_harness_log_for_run(lines: Sequence[str], run_id: str) -> Optional[List[str]]:
+    """This run's scenario block out of a per-invocation harness log.
+
+    One run.py invocation flies a whole selection into ONE log, so archiving
+    the whole log per run stores N growing copies for an N-run selection. Each
+    scenario block ends at its ``[Cost] scenario cost`` line, so the block is
+    everything after the previous Cost line (or the log start) up to and
+    including the next Cost line at or after this run's ``result written
+    .../<runId>.json`` line (or the end of the log). Both attempts of a retried
+    scenario share one block, which holds the ``[Retry]`` and ``[Cost]`` lines.
+    The invocation's ``[Lock]`` lines from before the block are prepended so a
+    later scenario's slice still carries the lock facts. Returns None when the
+    log never wrote this run's result (the caller then keeps the whole log).
+    Lines keep whatever endings the caller passed.
+
+    A pipelined log (lane markers present): the bracketed flights are lifted out
+    first, the Cost block is found over what remains, and the flights whose run id
+    that block wrote a result for go back between the header and the block. The
+    slice then holds every line of this scenario and none of a neighbour's: its
+    flights in attempt order, then its post-quit block.
+    """
+    segments = _lane_segments(lines)
+    if not segments:
+        bounds = _cost_block_bounds(lines, run_id)
+        if bounds is None:
+            return None
+        start, end = bounds
+        header = [ln for ln in lines[:start] if HARNESS_LOG_LOCK_MARKER in ln]
+        return header + list(lines[start:end])
+    in_segment: Set[int] = set()
+    for first, last, _rid in segments:
+        in_segment.update(range(first, last + 1))
+    rest = [ln for i, ln in enumerate(lines) if i not in in_segment]
+    bounds = _cost_block_bounds(rest, run_id)
+    if bounds is None:
+        return None
+    start, end = bounds
+    header = [ln for ln in rest[:start] if HARNESS_LOG_LOCK_MARKER in ln]
+    body = list(rest[start:end])
+    own = _result_written_run_ids(body)
+    flights: List[str] = []
+    for first, last, rid in segments:
+        if rid is not None and rid in own:
+            flights.extend(lines[first:last + 1])
+    return header + flights + body
 
 
 def harness_log_names_for_runs(log_texts: Dict[str, str],
