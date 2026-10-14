@@ -224,9 +224,9 @@ dwellRampStepFrames        = 10
 dwellRampFrames            = 600
 # The headline moment: native-warp to soi_entry - 300 s, then cross the
 # RECORDED Kerbin->Mun boundary UT at held 10x (factor 2) until entry + 300 s.
-# ~600 game-s at 10x = ~60 wall s of dense sampling bracketing the crossing.
-# 300 -> 60 (lead and trail) per docs/dev/research/harness-dwell-and-shared-flight-audit-2026-10-14.md (A5): the crossing runs at 1x,
-# and the parity samples sit within ~40 s of the recorded crossing. Confirmed green 2026-10-14_0138 (961 s).
+# The window is lead + trail game-s commanded at soiDwellCrossFactor (10x).
+# 300 -> 60 (lead and trail) per docs/dev/research/harness-dwell-and-shared-flight-audit-2026-10-14.md (A5): the measured crossing
+# ran at 1x despite the 10x command, and the parity samples sit within ~40 s of the recorded crossing. Confirmed green 2026-10-14_0138 (961 s).
 soiDwellLeadSeconds        = 60.0
 soiDwellWarpFrames         = 1200
 soiDwellCrossFactor        = 2
