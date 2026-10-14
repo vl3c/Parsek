@@ -17635,7 +17635,9 @@ def _bdock_rv_hold_step(state: BDockState, snapshot: TelemetrySnapshot
           > RV_WARP_NODE_IDENTITY_SECONDS):
         reason = "node-moved nodeUt=%.1f held=%.1f" % (snapshot.node_ut,
                                                         state.rv_hold_node_ut)
-    elif not snapshot.mj_rendezvous_enabled:
+    elif (not snapshot.mj_rendezvous_enabled
+          and state.rv_guard_mode != RV_GUARD_OWN_BURNING):
+        # The node guard flies its own transfer with the AP off on purpose.
         reason = "ap-off"
     elif snapshot.warp_mode == WARP_PHYSICS:
         reason = "physics-warp (rails only)"
@@ -17818,6 +17820,14 @@ def _bdock_rv_guard(state: BDockState, snapshot: TelemetrySnapshot
         if trips:
             return _bdock_rv_guard_fail(
                 st, snapshot, "the own Hohmann transfer node would deorbit too")
+        # Fly it only on a GUARDED read: a NaN periapsis or depth never trips,
+        # so it must not count as a pass either.
+        if not (_is_finite(snapshot.node_next_pe)
+                and _is_finite(rv_guard_floor(snapshot.atmosphere_depth))):
+            if frames >= RV_GUARD_STEP_FRAMES:
+                return _bdock_rv_guard_fail(
+                    st, snapshot, "the own transfer node's periapsis was unreadable")
+            return st, []
         return (replace(st, rv_guard_mode=RV_GUARD_OWN_BURNING, rv_guard_frames=0),
                 [Action(ACTION_MJ_EXECUTE_NODES,
                         text=("node guard: fly the own transfer node ut=%.1f dv=%.1f "

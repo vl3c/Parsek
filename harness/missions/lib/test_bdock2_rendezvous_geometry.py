@@ -334,6 +334,67 @@ class NodeGuardMachineTests(unittest.TestCase):
         self.assertIn("own Hohmann transfer node would deorbit", st.loss_reason)
         self.assertNotIn(mlib.ACTION_MJ_EXECUTE_NODES, _kinds_of(actions))
 
+    def _own_planned(self):
+        st = self._replanning()
+        st, actions = mlib.bdock_decide(st, rv_frame(
+            ut=10051.0, mj_rendezvous_enabled=False, node_count=0, **GUARD_GEOMETRY))
+        return st, 10051.0 + actions[0].value
+
+    def test_an_own_node_is_flown_only_on_a_readable_periapsis(self):
+        st, own_ut = self._own_planned()
+        st, actions = mlib.bdock_decide(st, rv_frame(
+            ut=10052.0, mj_rendezvous_enabled=False, node_count=1, node_ut=own_ut,
+            node_dv=11.2, node_next_pe=NAN))
+        self.assertEqual(mlib.RV_GUARD_OWN_PLANNED, st.rv_guard_mode)
+        self.assertEqual([], actions)
+        st, actions = mlib.bdock_decide(st, rv_frame(
+            ut=10053.0, mj_rendezvous_enabled=False, node_count=1, node_ut=own_ut,
+            node_dv=11.2, node_next_pe=84300.0))
+        self.assertEqual([mlib.ACTION_MJ_EXECUTE_NODES], _kinds_of(actions))
+
+    def test_a_never_readable_own_node_ends_the_mission(self):
+        st, own_ut = self._own_planned()
+        for k in range(mlib.RV_GUARD_STEP_FRAMES):
+            st, actions = mlib.bdock_decide(st, rv_frame(
+                ut=10052.0 + k, altitude=94500.0 - 5.0 * k,
+                mj_rendezvous_enabled=False, node_count=1, node_ut=own_ut,
+                node_dv=11.2, node_next_pe=NAN))
+            self.assertNotIn(mlib.ACTION_MJ_EXECUTE_NODES, _kinds_of(actions))
+            if st.done:
+                break
+        self.assertTrue(st.done)
+        self.assertIn("own transfer node's periapsis was unreadable", st.loss_reason)
+
+    def test_the_rails_hold_carries_the_own_node_wait_with_the_ap_off(self):
+        """The hold arms on the own node and is NOT released 'ap-off' (the AP
+        is off on purpose); it holds until the arrival tolerance. MUTATION:
+        drop the own-burning exemption and the second frame releases."""
+        st, own_ut = self._own_planned()
+        base = dict(mj_rendezvous_enabled=False, node_count=1, node_ut=own_ut,
+                    node_dv=11.2, node_next_pe=84300.0, available_thrust=250000.0,
+                    vessel_mass=10000.0, time_to_soi=NAN, warp_mode="NONE",
+                    target_distance=500000.0, target_ca_ut=own_ut + 1000.0,
+                    target_ca_distance=400000.0)
+        st, _ = mlib.bdock_decide(st, rv_frame(ut=10052.0, **base))
+        self.assertEqual(mlib.RV_GUARD_OWN_BURNING, st.rv_guard_mode)
+        held_actions = []
+        for k in range(1, 6):
+            st, actions = mlib.bdock_decide(st, rv_frame(ut=10052.0 + k * 0.5, **base))
+            held_actions += actions
+        self.assertIsNotNone(st.rv_hold_ut)
+        self.assertIn(mlib.ACTION_WARP_TO_UT, _kinds_of(held_actions))
+        hold_ut = st.rv_hold_ut
+        st, actions = mlib.bdock_decide(st, rv_frame(
+            ut=10100.0, **dict(base, warp_mode="RAILS", warp_rate=50.0,
+                                 warping_to=hold_ut)))
+        self.assertIsNotNone(st.rv_hold_ut)
+        self.assertNotIn("ap-off", st.rv_warp_decision)
+        self.assertEqual([], actions)
+        st, actions = mlib.bdock_decide(st, rv_frame(
+            ut=hold_ut - 1.0, **dict(base, warp_mode="RAILS", warp_rate=10.0,
+                                       warping_to=hold_ut)))
+        self.assertIn("arrived", st.rv_warp_decision)
+
     def test_an_unreadable_phase_ends_the_mission_after_the_step_budget(self):
         st = self._replanning()
         for k in range(mlib.RV_GUARD_STEP_FRAMES):
