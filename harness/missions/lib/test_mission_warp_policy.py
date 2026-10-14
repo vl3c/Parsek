@@ -353,7 +353,7 @@ class CircularizeNodeWaitTests(unittest.TestCase):
             mp = spec.get("driver", {}).get("missionParams", {})
             if "circularizeNodeWaitWarp" in mp:
                 armed.append((name, mp["circularizeNodeWaitWarp"]))
-        self.assertEqual([("B22-jool-orbit.toml", True)], armed)
+        self.assertEqual([("B21-eeloo-orbit.toml", True), ("B22-jool-orbit.toml", True)], armed)
 
     def test_the_hold_never_covers_a_transfer_node(self):
         """Owner ruling: a held TLI moved B13's landing site. The key adds

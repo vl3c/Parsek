@@ -385,6 +385,10 @@ soiLeadSeconds             = 100000
 # bounded wall cost for an unbounded diagnostic one. Pay the wall time.
 approachWindowSeconds      = 200000
 approachMaxWarpFactor      = 4
+# (3) COAST NATIVE LEAD tried and DROPPED 2026-10-14 (soiNativeLeadSeconds 600 +
+# approachLatchNativeWarp): ~1,300 s faster per run, but the Moho parks read 381,492 m
+# (2026-10-13_2255) and 543,562 m (2026-10-14_0154) against plain main's 428,433 / 444,354 /
+# 496,511 m, both outside main's spread (owner gate 2026-10-14). B21 keeps both keys.
 flipPhysicsWarpFactor      = 1
 # Moho has NO atmosphere; its peaks reach ~6.8 km. 50 km is ~7x the highest
 # terrain and asserts the whole in-SOI stay (arrival AND park) stayed in clean

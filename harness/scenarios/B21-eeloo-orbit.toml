@@ -1442,6 +1442,15 @@ soiLeadSeconds             = 100000
 # game s at x1,000 is ~200 wall s, which the re-sized mission budget absorbs.
 approachWindowSeconds      = 200000
 approachMaxWarpFactor      = 5
+
+# COAST NATIVE LEAD (2026-10-14): soiLeadSeconds 100,000 kept the Kerbin escape and the
+# target approach on the capped rails ladder for ~100,000 game s each. soiNativeLeadSeconds
+# lets the native warp run to the SOI boundary minus 4,200 s (floor 120 + 4 x
+# RAILS_WARP_RATES[5] = 4,120); the x1000 cap flies the last lead. Confirmed with the park
+# skip below on 2026-10-14_0039 (park inside plain main's spread, wall 3,045 -> 2,448 s).
+# approachLatchNativeWarp is NOT armed: it never fired in that run (the clock first read
+# finite 4,201 s out, already inside the lead), so it bought nothing here.
+soiNativeLeadSeconds       = 4200
 flipPhysicsWarpFactor      = 1
 # Eeloo has NO atmosphere; its peaks reach ~3.9 km. 50 km is ~12.8x the highest
 # terrain -- a WIDER ratio than Dres's ~9x from the same floor, so the value is kept
@@ -1528,6 +1537,12 @@ parkSituations             = ["ORBITING"]
 # parked-in-foreign-SOI coverage the harvested fixture will carry, so it is
 # deliberately not warped.
 parkDwellSeconds           = 180
+
+# CIRCULARIZE NODE WAIT (owner ruling 2026-10-14: B21 only, after a confirm flight). Main's
+# Eeloo park spread (10,621,342 / 9,699,388 m, 2026-10-12_1431 / 2026-10-13_1533) covered the
+# first held run (10,482,265 m, 2026-10-13_0221); B19's held run moved ~200 km against a 29 m
+# main spread, so the key stays off there and on B20.
+circularizeNodeWaitWarp    = true
 parkDebounceFrames         = 3
 parkTimeoutSeconds         = 600
 commitTimeoutSeconds       = 300

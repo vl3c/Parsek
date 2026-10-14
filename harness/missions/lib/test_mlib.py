@@ -11402,6 +11402,315 @@ class CoastNativeLeadTests(unittest.TestCase):
         self.assertEqual([Action(mlib.ACTION_SET_RAILS_WARP, 2.0)], out[3][0])
 
 
+class ApproachLatchNativeWarpTests(unittest.TestCase):
+    """approachLatchNativeWarp (COAST-TO-TARGET wall time; default off, B20 opts
+    in). Once the approach clamp has latched, a blind time_to_soi used to hold
+    the rails cap to the boundary; armed, the remembered absolute entry UT
+    (ut + tts from the last latched reading of the TARGET's clock) supplies a
+    native target instead.
+
+    The decide-level cells drive the REAL B20 spec params (window 200,000, cap
+    4 = x100, soiNativeLeadSeconds 600) through the measured shape of the
+    2026-10-12_1259 / 2026-10-13_1713 runs: `tts=100001.413 nextBody=Moho` read
+    ONCE at UT ~2,780,694, then `tts=nan nextBody=?` for the rest of the
+    approach, then the Moho SOI entry at UT ~2,880,722 (21 s after the
+    estimate, the slightly-early side)."""
+
+    B20 = "B20-moho-orbit.toml"
+    LATCH_UT = 2780694.0
+    TTS = 100001.413
+    ENTRY = LATCH_UT + TTS          # 2,880,695.413, the remembered estimate
+    SOI_UT = 2880722.0              # the measured crossing
+    LEAD = 600.0
+    CAP = 4
+
+    def _params(self, armed=True):
+        # B20's own params plus the opt-in keys it flew with on 2026-10-13/14 (the
+        # spec dropped them after the outcome gate; the measured shape is still B20's).
+        mp = _scenario_mission_params(self.B20)
+        mp["soiNativeLeadSeconds"] = self.LEAD
+        mp.pop("approachLatchNativeWarp", None)
+        if armed:
+            mp["approachLatchNativeWarp"] = True
+        return mlib.b5_params_from_dict(mp)
+
+    def _state(self, params):
+        st = mlib._b5_enter(mlib.b5_initial_state(params),
+                            mlib.B5_COAST_TO_TARGET, self.LATCH_UT - 1000.0, None)
+        # Where a real B20 flight is by tts ~ 100k: both trigger rounds flown.
+        return replace(st, correction_rounds_done=2)
+
+    def _snap(self, i, ut, tts=float("nan"), next_body="", body="Sun", **kw):
+        base = dict(ut=ut, time_to_soi=tts, next_body=next_body, body=body,
+                    situation="ORBITING", altitude=1.0e10 + i * 1e3,
+                    apoapsis=1.0e10 + i * 1e3, periapsis=4.7e9 + i * 1e2,
+                    node_count=0)
+        base.update(kw)
+        return snap(**base)
+
+    def _drive(self, params, frames):
+        """``frames`` = [(ut, tts, next_body, body, extra-kwargs)]; returns
+        [(actions, state)] per frame."""
+        st = self._state(params)
+        out = []
+        for i, (ut, tts, nb, body, kw) in enumerate(frames):
+            st, actions = mlib.b5_decide(st, self._snap(i, ut, tts, nb, body, **kw))
+            self.assertFalse(st.done, (ut, st.loss_reason, st.flake_reason))
+            out.append((actions, st))
+        return out
+
+    def _warping(self, target):
+        return dict(warping_to=target, warp_mode="RAILS", warp_rate=100000.0)
+
+    # --- the key, the spec and the pins ----------------------------------
+
+    def test_the_key_defaults_off(self):
+        self.assertFalse(mlib.B5Params.__dataclass_fields__[
+            "approach_latch_native_warp"].default)
+        self.assertFalse(mlib.b5_params_from_dict({}).approach_latch_native_warp)
+        self.assertTrue(mlib.b5_params_from_dict(
+            {"approachLatchNativeWarp": True}).approach_latch_native_warp)
+        self.assertIsNone(mlib.b5_initial_state(self._params()).approach_entry_ut)
+
+    def test_no_spec_arms_the_key(self):
+        armed = []
+        for name in sorted(os.listdir(os.path.join(HARNESS_ROOT, "scenarios"))):
+            if not name.endswith(".toml"):
+                continue
+            with open(os.path.join(HARNESS_ROOT, "scenarios", name), "rb") as fh:
+                mp = tomllib.load(fh).get("driver", {}).get("missionParams", {})
+            if mp.get("approachLatchNativeWarp"):
+                armed.append(name)
+        self.assertEqual([], armed)
+
+    def test_the_specs_that_arm_a_soi_native_lead(self):
+        armed = []
+        for name in sorted(os.listdir(os.path.join(HARNESS_ROOT, "scenarios"))):
+            if not name.endswith(".toml"):
+                continue
+            with open(os.path.join(HARNESS_ROOT, "scenarios", name), "rb") as fh:
+                mp = tomllib.load(fh).get("driver", {}).get("missionParams", {})
+            if mp.get("soiNativeLeadSeconds"):
+                armed.append(name)
+        self.assertEqual(["B21-eeloo-orbit.toml",
+                          "B22-jool-orbit.toml", "B26-laythe-vall-transfer.toml"], armed)
+
+    def test_b21_arms_a_soi_native_lead_above_its_floor_and_no_trigger_lead(self):
+        p = mlib.b5_params_from_dict(_scenario_mission_params("B21-eeloo-orbit.toml"))
+        self.assertEqual((4200.0, "soi-native"), mlib.coast_soi_native_lead(p))
+        self.assertEqual(4120.0, mlib.soi_native_lead_floor(
+            p.approach_max_warp_factor, p.coast_warp_factor))
+        self.assertLess(4200.0, p.soi_lead)
+        self.assertEqual((p.soi_lead, "default"), mlib.coast_trigger_native_lead(p))
+        self.assertFalse(p.approach_latch_native_warp)
+
+    def test_b20_dropped_the_coast_keys(self):
+        p = mlib.b5_params_from_dict(_scenario_mission_params(self.B20))
+        self.assertFalse(p.approach_latch_native_warp)
+        self.assertEqual((p.soi_lead, "default"), mlib.coast_soi_native_lead(p))
+
+    def test_the_b20_family_schemas_declare_the_keys(self):
+        for mission in ("b19_dres_orbit", "b20_moho_orbit", "b21_eeloo_orbit"):
+            with open(os.path.join(HARNESS_ROOT, "missions",
+                                   mission + ".schema.toml"), "rb") as fh:
+                params = tomllib.load(fh)["params"]
+            self.assertEqual("bool", params["approachLatchNativeWarp"]["type"], mission)
+            for key in ("soiNativeLeadSeconds", "triggerNativeLeadSeconds"):
+                self.assertEqual("number", params[key]["type"], (mission, key))
+            for key in ("approachLatchNativeWarp", "soiNativeLeadSeconds",
+                        "triggerNativeLeadSeconds"):
+                self.assertFalse(params[key]["required"], (mission, key))
+
+    # --- (a)-(c) the clamp -----------------------------------------------
+
+    def test_off_latched_blind_frame_is_the_cap_with_no_native_target(self):
+        nan = float("nan")
+        for entry in ((), (None,)):
+            self.assertEqual((self.CAP, None), mlib.approach_warp_clamp(
+                nan, self.LATCH_UT + 15.0, self.LEAD, 200000.0, self.CAP, 7,
+                None, True, *entry))
+            # An existing native target is dropped exactly as before.
+            self.assertEqual((self.CAP, None), mlib.approach_warp_clamp(
+                nan, self.LATCH_UT + 15.0, self.LEAD, 200000.0, self.CAP, 0,
+                self.ENTRY - self.LEAD, True, *entry))
+
+    def test_armed_latched_blind_frame_targets_the_entry_minus_the_lead(self):
+        nan = float("nan")
+        target = self.ENTRY - self.LEAD
+        self.assertEqual((self.CAP, target), mlib.approach_warp_clamp(
+            nan, self.LATCH_UT + 15.0, self.LEAD, 200000.0, self.CAP, 7,
+            None, True, self.ENTRY))
+        # Never LATER than a native target another branch already chose ...
+        self.assertEqual((self.CAP, target - 5000.0), mlib.approach_warp_clamp(
+            nan, self.LATCH_UT + 15.0, self.LEAD, 200000.0, self.CAP, 0,
+            target - 5000.0, True, self.ENTRY))
+        # ... and pulled back to it from a later one.
+        self.assertEqual((self.CAP, target), mlib.approach_warp_clamp(
+            nan, self.LATCH_UT + 15.0, self.LEAD, 200000.0, self.CAP, 0,
+            target + 5000.0, True, self.ENTRY))
+
+    def test_armed_inside_the_lead_is_the_cap_with_no_native_target(self):
+        nan = float("nan")
+        for ut in (self.ENTRY - self.LEAD, self.ENTRY - 1.0, self.ENTRY + 30.0):
+            self.assertEqual((self.CAP, None), mlib.approach_warp_clamp(
+                nan, ut, self.LEAD, 200000.0, self.CAP, 7, None, True,
+                self.ENTRY), ut)
+
+    def test_the_entry_ut_never_acts_on_an_unlatched_or_unarmed_clamp(self):
+        nan = float("nan")
+        # Unlatched blind frame: fails open, untouched.
+        self.assertEqual((7, None), mlib.approach_warp_clamp(
+            nan, self.LATCH_UT, self.LEAD, 200000.0, self.CAP, 7, None, False,
+            self.ENTRY))
+        # Window off: untouched.
+        self.assertEqual((7, None), mlib.approach_warp_clamp(
+            nan, self.LATCH_UT, self.LEAD, 0.0, self.CAP, 7, None, True,
+            self.ENTRY))
+        # A readable clock: the entry UT plays no part.
+        self.assertEqual(mlib.approach_warp_clamp(
+            50000.0, self.LATCH_UT, self.LEAD, 200000.0, self.CAP, 0,
+            self.LATCH_UT + 49400.0, True),
+            mlib.approach_warp_clamp(
+            50000.0, self.LATCH_UT, self.LEAD, 200000.0, self.CAP, 0,
+            self.LATCH_UT + 49400.0, True, self.ENTRY))
+
+    # --- (d) remembering, refreshing and clearing the entry UT -----------
+
+    def test_the_entry_ut_state_predicate(self):
+        f = mlib.approach_entry_ut_state
+        nan = float("nan")
+        self.assertEqual(self.ENTRY, f(True, True, self.TTS, "Moho", "Moho",
+                                       self.LATCH_UT, None))
+        # A fresher reading of the target's clock wins.
+        self.assertEqual(self.LATCH_UT + 50.0 + 99990.0, f(
+            True, True, 99990.0, "Moho", "Moho", self.LATCH_UT + 50.0, self.ENTRY))
+        # Blind, foreign, unread-ut and non-positive readings keep the last one.
+        for tts, nb, ut in ((nan, "", self.LATCH_UT), (45901.0, "Mun", self.LATCH_UT),
+                            (self.TTS, "Moho", nan), (0.0, "Moho", self.LATCH_UT)):
+            self.assertEqual(self.ENTRY, f(True, True, tts, nb, "Moho", ut,
+                                           self.ENTRY), (tts, nb, ut))
+        # A released latch or an unarmed key holds nothing.
+        self.assertIsNone(f(True, False, self.TTS, "Moho", "Moho", self.LATCH_UT,
+                            self.ENTRY))
+        self.assertIsNone(f(False, True, self.TTS, "Moho", "Moho", self.LATCH_UT,
+                            self.ENTRY))
+
+    def test_decide_refreshes_the_entry_ut_and_clears_it_on_arrival(self):
+        target = self.ENTRY - self.LEAD
+        out = self._drive(self._params(), (
+            (self.LATCH_UT, self.TTS, "Moho", "Sun", {}),
+            (self.LATCH_UT + 15.0, float("nan"), "", "Sun", self._warping(target)),
+            # A fresh reading 50 s later moves the estimate by +20 s (under the
+            # 120 s retarget floor, so the running warp is not re-issued).
+            (self.LATCH_UT + 5000.0, self.TTS - 5000.0 + 20.0, "Moho", "Sun",
+             self._warping(target)),
+            (self.LATCH_UT + 6000.0, float("nan"), "", "Sun", self._warping(target)),
+            (self.SOI_UT, float("nan"), "", "Moho", {})))
+        self.assertEqual(self.ENTRY, out[0][1].approach_entry_ut)
+        self.assertEqual(self.ENTRY, out[1][1].approach_entry_ut)
+        self.assertAlmostEqual(self.ENTRY + 20.0, out[2][1].approach_entry_ut, places=6)
+        self.assertEqual(out[2][1].approach_entry_ut, out[3][1].approach_entry_ut)
+        self.assertEqual([], out[2][0])
+        self.assertEqual([], out[3][0])
+        # The arrival hop releases the latch AND drops the estimate.
+        self.assertEqual(mlib.B5_TARGET_FLYBY, out[4][1].phase)
+        self.assertFalse(out[4][1].approach_latched)
+        self.assertIsNone(out[4][1].approach_entry_ut)
+
+    def test_a_phase_entry_drops_the_entry_ut(self):
+        st = replace(self._state(self._params()), approach_latched=True,
+                     approach_entry_ut=self.ENTRY)
+        entered = mlib._b5_enter(st, mlib.B5_PLAN_CORRECTION, self.LATCH_UT, None)
+        self.assertIsNone(entered.approach_entry_ut)
+
+    def test_off_the_entry_ut_is_never_written(self):
+        out = self._drive(self._params(armed=False), (
+            (self.LATCH_UT, self.TTS, "Moho", "Sun", {}),
+            (self.LATCH_UT + 15.0, float("nan"), "", "Sun",
+             self._warping(self.ENTRY - self.LEAD))))
+        for _, st in out:
+            self.assertTrue(st.approach_latched)
+            self.assertIsNone(st.approach_entry_ut)
+
+    # --- (e) the measured B20 shape through b5_decide --------------------
+
+    def _b20_shape(self):
+        """The measured approach: one finite target reading, then a long blind
+        native warp, ONE dropped-warp frame (the game stops warping with the
+        clock still blind), the warp resumed, arrival at the native target,
+        the capped rails last-mile, the SOI crossing."""
+        target = self.ENTRY - self.LEAD
+        frames = [(self.LATCH_UT, self.TTS, "Moho", "Sun", {})]
+        for i in range(1, 61):
+            frames.append((self.LATCH_UT + 15.0 + i * 1500.0, float("nan"), "",
+                           "Sun", self._warping(target)))
+        drop = len(frames)
+        frames.append((self.LATCH_UT + 92000.0, float("nan"), "", "Sun",
+                       dict(warp_mode="NONE", warp_rate=1.0)))
+        for i in range(1, 41):
+            frames.append((self.LATCH_UT + 92000.0 + i * 150.0, float("nan"), "",
+                           "Sun", self._warping(target)))
+        arrive = len(frames)
+        frames.append((target + 0.5, float("nan"), "", "Sun", {}))
+        ut = target + 0.5
+        while ut + 50.0 < self.SOI_UT:
+            ut += 50.0
+            frames.append((ut, float("nan"), "", "Sun",
+                           dict(warp_mode="RAILS", warp_rate=100.0)))
+        frames.append((self.SOI_UT, float("nan"), "", "Moho",
+                       dict(warp_mode="RAILS", warp_rate=100.0)))
+        return frames, drop, arrive
+
+    def test_the_b20_shape_holds_one_native_warp_and_hands_to_the_cap_in_the_lead(self):
+        frames, drop, arrive = self._b20_shape()
+        target = self.ENTRY - self.LEAD
+        out = self._drive(self._params(), frames)
+        warp_to = [Action(mlib.ACTION_WARP_TO_UT, target)]
+        # The latch frame arms the native warp at entry - lead.
+        self.assertEqual(warp_to, out[0][0])
+        self.assertTrue(out[0][1].approach_latched)
+        # Every blind frame while warping: HELD, nothing emitted.
+        for i in list(range(1, drop)) + list(range(drop + 1, arrive)):
+            self.assertEqual([], out[i][0], (i, frames[i][0]))
+            self.assertEqual(target, out[i][1].warp_to_cmd, i)
+        # The dropped-warp frame RE-ARMS the same absolute target (the bounded
+        # self-heal), never a cancel.
+        self.assertEqual(warp_to, out[drop][0])
+        # Arrival: the native warp is done; the x100 cap flies the lead.
+        self.assertEqual([Action(mlib.ACTION_SET_RAILS_WARP, float(self.CAP))],
+                         out[arrive][0])
+        self.assertIsNone(out[arrive][1].warp_to_cmd)
+        self.assertGreaterEqual(frames[arrive][0], self.ENTRY - self.LEAD)
+        for i in range(arrive + 1, len(frames) - 1):
+            self.assertEqual([], out[i][0], (i, frames[i][0]))
+            self.assertEqual(self.CAP, out[i][1].warp_cmd)
+        # No thrash: two warp_to_ut issues in the whole approach, no cancel.
+        coast = [a for acts, _ in out[:-1] for a in acts]
+        self.assertEqual(2, sum(1 for a in coast if a.kind == mlib.ACTION_WARP_TO_UT))
+        self.assertFalse([a for a in coast if a.kind == mlib.ACTION_CANCEL_WARP])
+        self.assertEqual(2, out[-2][1].phase_warp_issues)
+        self.assertLess(out[-2][1].phase_warp_issues, mlib.MAX_PHASE_WARP_ISSUES)
+        # The crossing hops to TARGET-FLYBY with the approach state released.
+        self.assertEqual(mlib.B5_TARGET_FLYBY, out[-1][1].phase)
+        self.assertFalse(out[-1][1].approach_latched)
+        self.assertIsNone(out[-1][1].approach_entry_ut)
+        # One gate line names the held decision.
+        self.assertTrue(any("approach:native-held:Sun" in st.coast_lead_decision
+                            for _, st in out))
+
+    def test_the_b20_shape_with_the_key_off_cancels_on_the_dropped_warp(self):
+        """The contrast: unarmed, the same dropped-warp frame cancels the warp
+        and the latched cap then rails the remaining ~89,000 game s at x100."""
+        frames, drop, _ = self._b20_shape()
+        out = self._drive(self._params(armed=False), frames[:drop + 2])
+        self.assertEqual([Action(mlib.ACTION_WARP_TO_UT, self.ENTRY - self.LEAD)],
+                         out[0][0])
+        for i in range(1, drop):
+            self.assertEqual([], out[i][0], i)
+        self.assertEqual([Action(mlib.ACTION_CANCEL_WARP)], out[drop][0])
+        self.assertIsNone(out[drop][1].warp_to_cmd)
+
+
 class B5PreTransferJettisonTests(unittest.TestCase):
     """The optional pre-transfer jettison: armed, it pops an EXACT number of
     stages thrust-safe and then certifies BOTH that a stack separated and that

@@ -5243,6 +5243,18 @@ class B5Params:
     # burn - NODE_WAIT_ORIENT_LEAD_SECONDS first. False = every lane flown to
     # date, byte for byte. Spec key circularizeNodeWaitWarp.
     circularize_node_wait_warp: bool = False
+    # --- APPROACH LATCH NATIVE WARP (wall time; OFF by default) ---------------
+    # Once the target-SOI approach clamp has LATCHED, kRPC can stop predicting
+    # the encounter for the rest of the approach (time_to_soi nan, next_body
+    # unread), and the latched clamp then holds the rails CAP for every game
+    # second to the boundary (B20: ~100,000 game s at x100, ~1,000 wall s).
+    # True remembers the absolute SOI-entry UT (ut + time_to_soi) from the
+    # latched frames that DID read the target's clock, and on a blind latched
+    # frame native-warps to that UT minus the coast's effective native lead
+    # instead (approach_warp_clamp). With no rails burn the encounter UT does
+    # not move, so the remembered UT stays valid. False = every lane flown to
+    # date, byte for byte. Spec key approachLatchNativeWarp.
+    approach_latch_native_warp: bool = False
 
 
 def b5_params_from_dict(params: Dict) -> B5Params:
@@ -5632,6 +5644,8 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         trigger_native_lead=float(params.get("triggerNativeLeadSeconds", 0.0)),
         # Circularize node-wait hold: off unless a spec arms it.
         circularize_node_wait_warp=bool(params.get("circularizeNodeWaitWarp", False)),
+        # Approach-latch native warp: off unless a spec arms it.
+        approach_latch_native_warp=bool(params.get("approachLatchNativeWarp", False)),
     )
 
 
@@ -11377,6 +11391,14 @@ class B5State:
     # approaching anything -- slow, never wrong, and bounded by the phase's own
     # game-time budget.
     approach_latched: bool = False
+    # The latched approach's absolute target-SOI entry UT estimate
+    # (ut + time_to_soi), written only while approachLatchNativeWarp is armed
+    # (approach_entry_ut_state), so it stays None on every other lane.
+    # Refreshed by every latched frame that reads the TARGET's clock, cleared
+    # when the latch releases and on every phase entry (a correction burn
+    # outside the coast moves the encounter, so the estimate must not survive
+    # it).
+    approach_entry_ut: Optional[float] = None
     # Coast native-lead decision (soiNativeLeadSeconds / triggerNativeLeadSeconds):
     # the stable key of the last decision and its gate-line text (a
     # MACHINE_DIFF_FIELDS entry). Written only while a lead key is armed, so
@@ -11876,8 +11898,29 @@ def approach_latch_state(time_to_soi, next_body, window, body, target_body,
     return latched
 
 
+def approach_entry_ut_state(armed, latched, time_to_soi, next_body,
+                            target_body, ut, prev):
+    """PURE. The latched approach's absolute target-SOI entry UT for this
+    frame (approachLatchNativeWarp), or None.
+
+      - not armed, or not latched -> None (an unlatched coast has no approach
+        to describe, and a released latch must not leave a stale UT behind);
+      - a finite, positive ``time_to_soi`` whose ``next_body`` IS the target,
+        with a finite ``ut`` -> ``ut + time_to_soi``, so every fresh reading of
+        the target's own clock replaces the remembered one;
+      - anything else (a blind clock, an unread or foreign next body) -> keep
+        ``prev``. On rails with no burn the encounter UT does not move, so the
+        last reading of the target's clock stays a sound estimate."""
+    if not armed or not latched:
+        return None
+    if (_is_finite(time_to_soi) and time_to_soi > 0.0 and _is_finite(ut)
+            and target_body and next_body == target_body):
+        return float(ut + time_to_soi)
+    return prev
+
+
 def approach_warp_clamp(time_to_soi, ut, soi_lead, window, cap,
-                        desired, native_target, latched=False):
+                        desired, native_target, latched=False, entry_ut=None):
     """PURE. Clamp the coast's warp intent while on FINAL APPROACH to the target
     SOI, so no single poll can swallow the SOI-entry -> periapsis coast.
 
@@ -11908,6 +11951,14 @@ def approach_warp_clamp(time_to_soi, ut, soi_lead, window, cap,
     ``soiNativeLeadSeconds``. Passing the raw soi_lead with that key armed
     would pull the shorter native target straight back to ``tts - soi_lead``.
 
+    ``entry_ut`` (approachLatchNativeWarp; None = off) is the latched
+    approach's remembered absolute SOI-entry UT (``approach_entry_ut_state``).
+    On a LATCHED frame with a blind ``time_to_soi`` it supplies the native
+    target the clock cannot: ``entry_ut - soi_lead`` while that is still ahead
+    of ``ut`` (never later than an existing ``native_target``), with
+    ``desired`` capped as the fallback. Inside the lead, or with no
+    remembered UT, the frame takes the unchanged cap-only disposition.
+
     OFF BY DEFAULT: ``window <= 0`` returns the inputs untouched, so every lane
     that does not arm it is byte-identical. Fails OPEN on a non-finite
     ``time_to_soi`` (an unread clock never triggers a clamp) and only ever
@@ -11921,11 +11972,18 @@ def approach_warp_clamp(time_to_soi, ut, soi_lead, window, cap,
             # length, and clamping it would tax the whole coast.
             return desired, native_target
         # LATCHED: the approach WAS entered and the clock blinked, so the
-        # ceiling is held. The native target cannot be recomputed without a
-        # tts, so it is dropped rather than left armed at a stale value --
-        # the same disposition the inside-the-lead branch below takes.
+        # ceiling is held. Without a tts the native target can only come from
+        # the remembered absolute entry UT (approachLatchNativeWarp); without
+        # one it is dropped rather than left armed at a stale value -- the
+        # same disposition the inside-the-lead branch below takes.
         if cap > 0 and (desired <= 0 or desired > cap):
             desired = cap
+        if (entry_ut is not None and _is_finite(entry_ut) and _is_finite(ut)
+                and entry_ut - soi_lead > ut):
+            held = entry_ut - soi_lead
+            if native_target is not None:
+                held = min(native_target, held)
+            return desired, held
         return desired, None
     if time_to_soi > window:
         return desired, native_target
@@ -12273,6 +12331,7 @@ def _b5_enter(state: B5State, new_phase: str, ut: float,
         peak_apoapsis=peak,
         phases_reached=state.phases_reached + (new_phase,),
         phase_warp_issues=0,
+        approach_entry_ut=None,
         done=(new_phase in (B5_RETURN, B5_ORBIT_COMMITTED, B5_SURFACE_COMMITTED)),
     )
 
@@ -15660,10 +15719,31 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             snapshot.body, state.params.target_body, stayed.approach_latched)
         if approach_latched != stayed.approach_latched:
             stayed = replace(stayed, approach_latched=approach_latched)
+        # APPROACH-LATCH NATIVE WARP (approachLatchNativeWarp; None and inert
+        # unless armed). The remembered entry UT is ABSOLUTE, so every blind
+        # frame derives the SAME native target as the frame before it, and
+        # _b5_native_warp sees no retarget and emits nothing while the warp
+        # runs: the held-absolute-target rule of B12 flight 2's thrash fix
+        # (coast_native_warp_hold), applied to the latched ceiling. Only a
+        # fresh reading of the target's clock moves it, under the ordinary
+        # asymmetric retarget thresholds.
+        entry_ut = approach_entry_ut_state(
+            state.params.approach_latch_native_warp, approach_latched,
+            snapshot.time_to_soi, snapshot.next_body,
+            state.params.target_body, snapshot.ut, stayed.approach_entry_ut)
+        if entry_ut != stayed.approach_entry_ut:
+            stayed = replace(stayed, approach_entry_ut=entry_ut)
         desired, native_target = approach_warp_clamp(
             snapshot.time_to_soi, snapshot.ut, soi_native_lead,
             state.params.approach_window, state.params.approach_max_warp_factor,
-            desired, native_target, approach_latched)
+            desired, native_target, approach_latched, entry_ut)
+        if (entry_ut is not None and native_target is not None
+                and not _is_finite(snapshot.time_to_soi)):
+            stayed = _b5_coast_lead_note(
+                stayed, "approach:native-held:%s" % snapshot.body,
+                "lead=%s (%s) entryUt=%s target=%s"
+                % (_obs_fmt(soi_native_lead), soi_native_reason,
+                   _obs_fmt(entry_ut), _obs_fmt(native_target)))
         if native_target is not None:
             # THRASH WATCHDOG (B12 flight 2 liveness): a healthy coast issues
             # the native warp a handful of times (arm + the occasional
