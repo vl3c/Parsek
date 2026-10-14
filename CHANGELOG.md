@@ -60,9 +60,9 @@ _(unreleased - entries accumulate here per commit)_
 - **A test run whose KSP hangs while starting up is stopped and retried.** If the game stops
   logging before reaching the main menu, the harness ends that attempt within minutes instead of
   waiting 11 minutes, and tries once more.
-- **Docking test flights never fly a rendezvous burn that would end in the atmosphere.** When
-  MechJeb plans such a burn, the flight drops it and flies an ordinary transfer timed from the
-  station's position instead. The second-dock flight also launches at a set time now.
+- **Docking test flights never fly a rendezvous burn that would end in the atmosphere.** Such
+  a burn now ends the flight before it fires. The second-dock flight also waits to launch until
+  the station is where the first docking flight met it.
 
 ---
 

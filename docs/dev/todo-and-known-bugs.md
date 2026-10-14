@@ -94,21 +94,44 @@ local minimization of |dv1| + |dv2| over burn delay AND transfer time, seeded at
 with no periapsis term, accepted when under five orbits away. Which branch fires and which
 local minimum it lands in both move with geometry, so no launch time or park orbit fixes it.
 
-Fix (branch `bdock2-rendezvous`): mlib's RENDEZVOUS NODE GUARD reads every rendezvous node's
-post-node periapsis (kRPC `Node.orbit`). A node leaving pe under the atmosphere top + 5 km never
-burns: the guard switches the AP off, clears the node, computes the coplanar Hohmann window from
-the measured phase (`target_phase_deg`, `hohmann_wait_seconds`), adds its own prograde node
-there (kRPC `Control.add_node`, vis-viva `hohmann_burn_dv`, 15.6 m/s for 689.9 -> 709.3 km),
-checks and flies it with MechJeb's node executor (rails hold carries the wait), then turns the
-AP back on for the arrival. Confirm `2026-10-14_1947` proved the guard (it caught the same
-121 m/s / pe -13.3 km node) but MechJeb's transfer operation, asked for a node at the window
-(TimeSelector X_FROM_NOW), returned one 3,719 s later (73.5 m/s, pe 59 km), so the own node is
-the machine's. One own transfer per flight; a second deorbiting node, a
-deorbiting own node or an unreadable phase ends the mission `rendezvous-plan-deorbits: ...`
-before that burn. The launch hold (`interceptorLaunchNotBeforeUt = 9195`) stays; the 60 km
-closest-approach gate is dropped (the guard catches the 26 km velocity-match node at plan time
-and recovers it). The guard runs only in RENDEZVOUS: BDOCK-1's measured nodes never trip it, and
-the archived CI-9 / SD-1 / VN-4 / VN-10 runs never entered RENDEZVOUS. Needs a BDOCK-2 flight.
+Own-transfer attempts (removed): the guard first replaced the bad node with MechJeb's transfer
+operation at the Hohmann window (`2026-10-14_1947`: it returned a node 3,719 s later, 73.5 m/s,
+pe 59 km), then with the machine's own `add_node` circular Hohmann (`2026-10-14_2037`: flown,
+112.3 x 86.8 km, but the Station was ~4 deg / ~50 km away at arrival because the burn was not at
+the new orbit's periapsis and the Station is eccentric; MechJeb's velocity match left 15.4 km
+and its close-range branch, closing speed = distance/100 capped at 100 m/s and not exposed by
+kRPC, planned an 88 m/s intercept to pe 5.9 km). Eccentricity is not the BDOCK-1/2 difference:
+BDOCK-1's Station is the same 117 x 102 km, ecc 0.011 orbit.
+
+Fix (branch `bdock2-rendezvous`, owner decision 2026-10-15 option (b)): start BDOCK-2's
+RENDEZVOUS like BDOCK-1's. `interceptorLaunchNotBeforeUt = 22422` (a ~3.7 game-hour rails
+hold) is the launch with the Station 58 deg ahead whose launch plane is closest to the
+Station's: relative inclination ~0.010 deg (LAN ~5.5 deg off; MechJeb plane-matches above
+0.05), so MechJeb should skip the plane match and plan its plain Hohmann at RENDEZVOUS start.
+Derived in `test_bdock2_rendezvous_geometry.LaunchHoldUtTests` from the fixture Station orbit,
+the propagated Interceptor orbit (reproduces both red start distances) and a LAN-vs-launch-UT
+fit over seven measured launches, BDOCK-1 included (residuals under 0.7 deg). Launches with the
+Station 58 deg ahead recur every ~2,203 s; the next-best one (ut 20215) is at 0.046 deg. The hold
+tolerance is now 2 s (WarpTo lands ~18 s early; the hold re-issues instead of launching 3 deg
+early). mlib's RENDEZVOUS NODE GUARD stays: any rendezvous node whose post-node periapsis (kRPC
+`Node.orbit`) is under the atmosphere top + 5 km is never flown, and the mission ends
+`rendezvous-plan-deorbits: ...` (AP off, nodes cleared). It runs only in RENDEZVOUS; BDOCK-1's
+measured nodes never trip it and the archived CI-9 / SD-1 / VN-4 / VN-10 runs never entered
+RENDEZVOUS. Needs a BDOCK-2 flight.
+
+Fixture note: the hold does not change the Station's orbit, but a re-harvest from the retuned
+flight shifts every UT by ~13,470 s. CI-4 pins the committed fixture's UTs and ids (RP
+`rp_91b25a0c` at UT 9257.8, docks at 8949.3 / 11794.7, `spawnUT=11806.7`, tree `ac9641d6`),
+SD-1 names tree `ac9641d6`, and `test_saveparse` pins its counts; do not re-harvest without
+re-deriving those. The bg subject 1223410921 stays near the Station for ~8 game hours from the
+fixture UT (to ~37,750), which the retuned flight (launch 22,422 + ~7,000 s rendezvous) fits.
+
+Fallback if the retuned hold is red (owner NO-GO for now, 2026-10-15): a machine rendezvous
+planner. Read both orbits' elements through kRPC, propagate them in mlib (pure Kepler), grid-
+search burn time and transfer time with a Lambert solve, reject any arc whose periapsis is under
+the guard floor, author guarded transfer and arrival nodes with `add_node`, and hand off to
+MATCH-VELOCITY at 250 m or less, or to MechJeb's rendezvous AP within ~2 km (closing speed
+distance/100 is then 20 m/s or less).
 
 ## HARNESS-MODDED-COMPAT-NEVER-PROVISIONED: the MC lanes on modded-compat fly whatever Parsek.dll that instance last received [FILED 2026-10-12 from the operator tier. OPEN, harness]
 

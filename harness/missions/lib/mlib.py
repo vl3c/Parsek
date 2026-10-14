@@ -942,8 +942,8 @@ ACTION_SET_TARGET_DOCKING_PORT = "set_target_docking_port" # value = None
 # <= the desired distance.
 ACTION_MJ_ENABLE_RENDEZVOUS = "mj_enable_rendezvous"       # value = distance m
 # RENDEZVOUS NODE GUARD: switch MechJeb's rendezvous AP off (its
-# OnModuleDisabled aborts the node executor), so it stops re-planning while
-# the machine replaces its node.
+# OnModuleDisabled aborts the node executor) so a deorbiting node it planned
+# is never flown after the guard ends the mission.
 ACTION_MJ_DISABLE_RENDEZVOUS = "mj_disable_rendezvous"     # value = None
 # Kill relative velocity to the target (MechJeb maneuver_planner
 # operation_kill_rel_vel, OR rely on the rendezvous AP's own terminal match).
@@ -3522,19 +3522,10 @@ class TelemetrySnapshot:
     # vessel set; NaN when unread, which refuses every rendezvous warp.
     target_ca_ut: float = float("nan")
     target_ca_distance: float = float("nan")
-    # RENDEZVOUS NODE GUARD inputs (read only by docking missions; NaN when
-    # unread, which never trips the guard and never plans a transfer):
-    # ``node_next_pe`` is the periapsis ALTITUDE (m) of the orbit after the
-    # first maneuver node (kRPC Node.orbit); ``target_phase_deg`` is the signed
-    # angle from the vessel to the target vessel in the vessel's orbital plane,
-    # positive when the target is AHEAD (mlib.signed_phase_deg over the
-    # body's non-rotating frame); ``orbit_sma`` / ``target_sma`` (m) and
-    # ``body_mu`` (m^3/s^2) size the machine's own Hohmann window.
+    # RENDEZVOUS NODE GUARD input (read only by docking missions): the
+    # periapsis ALTITUDE (m) of the orbit after the first maneuver node (kRPC
+    # Node.orbit). NaN when unread, which never trips the guard.
     node_next_pe: float = float("nan")
-    target_phase_deg: float = float("nan")
-    orbit_sma: float = float("nan")
-    target_sma: float = float("nan")
-    body_mu: float = float("nan")
 
 
 # ---------------------------------------------------------------------------
@@ -17147,15 +17138,6 @@ class BDockState:
     rv_idle_frames: int = 0
     rv_warp_key: str = ""
     rv_warp_decision: str = ""
-    # RENDEZVOUS NODE GUARD. ``rv_guard_mode`` is "" (MechJeb's AP drives) or
-    # one of RV_GUARD_REPLANNING / RV_GUARD_OWN_PLANNED / RV_GUARD_OWN_BURNING;
-    # ``rv_guard_frames`` counts polls in the current step; the tripped node's
-    # evidence and the own transfer's planned UT ride for the log and reason.
-    rv_guard_mode: str = ""
-    rv_guard_frames: int = 0
-    rv_own_transfer_used: bool = False
-    rv_own_node_ut: Optional[float] = None
-    rv_guard_trip: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -17169,41 +17151,22 @@ class BDockState:
 # or "Hohmann", which is OrbitalManeuverCalculator.DeltaVAndTimeForHohmannTransfer
 # -> MechJebLib TwoImpulseTransfer.NextManeuver: an alglib minbleic LOCAL
 # minimization of |dv1| + |dv2| over the burn delay AND the transfer time,
-# seeded at "burn now", unbounded, with no periapsis or terrain term, accepted
-# whenever the burn is under five orbits away. From the 2026-10-14_1754 launch
-# hold geometry (Station ~52 deg ahead, the true Hohmann ~3 orbits out) it
-# returned, after a 6.3 m/s plane match, a 121.1 m/s node 190 s ahead whose
-# orbit was 101.6 x -13.5 km (sma 644 km): a Lambert arc through the planet.
-# Which branch fires, and which local minimum the optimizer lands in, both
-# move with the launch geometry, so no park orbit or launch time makes them safe.
+# seeded at "burn now", unbounded, with no periapsis or terrain term. After a
+# 6.3 m/s plane match it planned 121 m/s onto a 101.6 x -13.5 km orbit on
+# 2026-10-14_1754 / _1947 / _2037.
 #
 # The guard reads every node the AP plans (kRPC Node.orbit periapsis) and, if
 # the node would leave the periapsis under the floor (atmosphere top +
-# RV_GUARD_MARGIN_M, or RV_GUARD_AIRLESS_FLOOR_M), never lets it burn: it
-# switches the AP off, clears the node, computes the coplanar Hohmann window
-# from the measured phase angle (hohmann_wait_seconds), and adds its OWN
-# prograde node there (ACTION_ADD_MANEUVER_NODE, kRPC Control.add_node) with
-# the vis-viva Hohmann dv (hohmann_burn_dv). MechJeb's transfer operation is
-# NOT used: asked for a node at that time (TimeSelector X_FROM_NOW) on
-# 2026-10-14_1947 it returned one 3,719 s later (73.5 m/s, pe 59 km), so it
-# does not honour the selected time on this path. The guard checks the own
-# node like any other, flies it with MechJeb's node executor (the rails hold
-# carries the wait), then switches the AP back on for the arrival (a velocity
-# match at a near-zero closest approach, BDOCK-1's second node). One own
-# transfer per flight: a second deorbiting node, an own node that would itself
-# deorbit, or an unreadable phase ends the mission MISSION-ASSERT-FAIL
-# ``rendezvous-plan-deorbits: ...`` before any of those burns.
+# RV_GUARD_MARGIN_M, or RV_GUARD_AIRLESS_FLOOR_M), never lets it burn: the AP
+# is switched off, the nodes cleared, and the mission ends MISSION-ASSERT-FAIL
+# ``rendezvous-plan-deorbits: ...``. The geometry that keeps MechJeb on its
+# plain Hohmann is the launch hold's job (see LAUNCH HOLD); a machine-planned
+# replacement transfer was tried and removed (the own circular Hohmann missed
+# the eccentric Station by 15-50 km, and MechJeb's close-range branch then
+# deorbits too; see the todo entry for the Lambert fallback).
 RV_GUARD_MARGIN_M = 5000.0
 RV_GUARD_AIRLESS_FLOOR_M = 15000.0
 RV_GUARD_REASON_TOKEN = "rendezvous-plan-deorbits"
-# The own transfer's minimum lead: the executor turns to the burn vector first.
-RV_OWN_MIN_LEAD_S = 90.0
-# Polls a guard step may wait for its precondition (AP off and nodes cleared /
-# the planned node to appear / a readable phase) before the mission ends.
-RV_GUARD_STEP_FRAMES = 40
-RV_GUARD_REPLANNING = "replanning"
-RV_GUARD_OWN_PLANNED = "own-planned"
-RV_GUARD_OWN_BURNING = "own-burning"
 
 
 def rv_guard_floor(atmosphere_depth: float) -> float:
@@ -17225,60 +17188,6 @@ def rv_node_deorbits(node_count: int, node_next_pe: float,
         return False
     floor = rv_guard_floor(atmosphere_depth)
     return _is_finite(floor) and _is_finite(node_next_pe) and node_next_pe < floor
-
-
-def signed_phase_deg(r1, v1, r2) -> float:
-    """Angle (deg, -180..180] from position ``r1`` to ``r2`` about the orbit
-    normal ``r1 x v1``: positive when ``r2`` lies ahead along the motion. Both
-    cross products share one formula, so the sign does not depend on the
-    frame's handedness. NaN on a degenerate input."""
-    try:
-        def cross(a, b):
-            return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2],
-                    a[0] * b[1] - a[1] * b[0])
-
-        def dot(a, b):
-            return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-
-        h = cross(r1, v1)
-        hn = math.sqrt(dot(h, h))
-        if not hn > 0.0:
-            return float("nan")
-        y = dot(cross(r1, r2), h) / hn
-        x = dot(r1, r2)
-        return math.degrees(math.atan2(y, x))
-    except (TypeError, IndexError, ValueError):
-        return float("nan")
-
-
-def hohmann_wait_seconds(phase_deg: float, r1: float, r2: float,
-                         mu: float) -> Optional[float]:
-    """Seconds until a coplanar circular Hohmann from radius ``r1`` to ``r2``
-    meets a target ``phase_deg`` ahead (the target's lead must equal
-    180 - n2 * t_transfer); None on unread / degenerate inputs or equal radii."""
-    if not all(_is_finite(x) for x in (phase_deg, r1, r2, mu)):
-        return None
-    if r1 <= 0.0 or r2 <= 0.0 or mu <= 0.0 or abs(r1 - r2) < 1.0:
-        return None
-    n1 = math.degrees(math.sqrt(mu / r1 ** 3))
-    n2 = math.degrees(math.sqrt(mu / r2 ** 3))
-    t_transfer = math.pi * math.sqrt(((r1 + r2) / 2.0) ** 3 / mu)
-    lead_req = 180.0 - n2 * t_transfer
-    rel = n1 - n2
-    if rel > 0.0:
-        return ((phase_deg - lead_req) % 360.0) / rel
-    return ((lead_req - phase_deg) % 360.0) / (-rel)
-
-
-def hohmann_burn_dv(r1: float, r2: float, mu: float) -> Optional[float]:
-    """Signed prograde dv (m/s) of the first Hohmann burn from a circular
-    orbit of radius ``r1`` to one of ``r2`` (vis-viva): positive raises,
-    negative lowers. None on unread / degenerate inputs."""
-    if not all(_is_finite(x) for x in (r1, r2, mu)):
-        return None
-    if r1 <= 0.0 or r2 <= 0.0 or mu <= 0.0:
-        return None
-    return math.sqrt(mu / r1) * (math.sqrt(2.0 * r2 / (r1 + r2)) - 1.0)
 
 
 def format_rv_guard_reason(why: str, node_ut: float, node_dv: float,
@@ -17642,9 +17551,7 @@ def _bdock_rv_hold_step(state: BDockState, snapshot: TelemetrySnapshot
           > RV_WARP_NODE_IDENTITY_SECONDS):
         reason = "node-moved nodeUt=%.1f held=%.1f" % (snapshot.node_ut,
                                                         state.rv_hold_node_ut)
-    elif (not snapshot.mj_rendezvous_enabled
-          and state.rv_guard_mode != RV_GUARD_OWN_BURNING):
-        # The node guard flies its own transfer with the AP off on purpose.
+    elif not snapshot.mj_rendezvous_enabled:
         reason = "ap-off"
     elif snapshot.warp_mode == WARP_PHYSICS:
         reason = "physics-warp (rails only)"
@@ -17695,9 +17602,7 @@ def _bdock_rv_node_wait(state: BDockState, snapshot: TelemetrySnapshot
         return _bdock_rv_hold_step(st, snapshot)
     if not st.params.rendezvous_node_wait_warp:
         return st, []
-    ap_on = (snapshot.mj_rendezvous_enabled
-             or st.rv_guard_mode == RV_GUARD_OWN_BURNING)
-    if (not ap_on or snapshot.node_count < 1
+    if (not snapshot.mj_rendezvous_enabled or snapshot.node_count < 1
             or not _is_finite(snapshot.node_ut)):
         return _bdock_rv_note(st, "idle:no-node"), []
     if (st.rv_spent_node_ut is not None
@@ -17761,100 +17666,14 @@ def _bdock_rv_guard_fail(state: BDockState, snapshot: TelemetrySnapshot,
 
 def _bdock_rv_guard(state: BDockState, snapshot: TelemetrySnapshot
                     ) -> Optional[Tuple[BDockState, List[Action]]]:
-    """One RENDEZVOUS frame of the RENDEZVOUS NODE GUARD: ``(state, actions)``
-    when the guard owns the frame, None when MechJeb's AP drives it. Pure."""
-    mode = state.rv_guard_mode
-    trips = rv_node_deorbits(snapshot.node_count, snapshot.node_next_pe,
-                             snapshot.atmosphere_depth)
-    if mode == "":
-        if not trips:
-            return None
-        trip = ("node ut=%.1f dv=%.1f m/s next pe=%.0f m"
-                % (snapshot.node_ut, snapshot.node_dv, snapshot.node_next_pe))
-        if state.rv_own_transfer_used:
-            return _bdock_rv_guard_fail(
-                state, snapshot, "MechJeb planned a second deorbiting node after "
-                "the own transfer")
-        st = state
-        actions: List[Action] = []
-        if st.rv_hold_ut is not None:
-            st = _bdock_rv_clear(st, "released:guard")
-            actions.append(Action(ACTION_CANCEL_WARP,
-                                  text="rendezvous hold torn down: node guard"))
-        actions += [Action(ACTION_MJ_DISABLE_RENDEZVOUS,
-                           text="node guard: " + trip),
-                    Action(ACTION_MJ_ABORT_AND_CLEAR_NODES,
-                           text="node guard: " + trip)]
-        return (replace(st, rv_guard_mode=RV_GUARD_REPLANNING, rv_guard_frames=0,
-                        rv_guard_trip=trip), actions)
-
-    frames = state.rv_guard_frames + 1
-    st = replace(state, rv_guard_frames=frames)
-    if mode == RV_GUARD_REPLANNING:
-        if snapshot.mj_rendezvous_enabled or snapshot.node_count > 0:
-            if frames >= RV_GUARD_STEP_FRAMES:
-                return _bdock_rv_guard_fail(
-                    st, snapshot, "the rendezvous AP did not stand down")
-            if frames % DEFAULT_DEBOUNCE_K == 0:
-                return st, [Action(ACTION_MJ_DISABLE_RENDEZVOUS),
-                            Action(ACTION_MJ_ABORT_AND_CLEAR_NODES)]
-            return st, []
-        wait = hohmann_wait_seconds(snapshot.target_phase_deg, snapshot.orbit_sma,
-                                    snapshot.target_sma, snapshot.body_mu)
-        dv = hohmann_burn_dv(snapshot.orbit_sma, snapshot.target_sma, snapshot.body_mu)
-        if wait is None or dv is None or not _is_finite(snapshot.ut):
-            if frames >= RV_GUARD_STEP_FRAMES:
-                return _bdock_rv_guard_fail(
-                    st, snapshot, "the target phase was unreadable (phase=%s)"
-                    % _obs_fmt(snapshot.target_phase_deg))
-            return st, []
-        lead = max(wait, RV_OWN_MIN_LEAD_S)
-        node_ut = float(snapshot.ut) + lead
-        return (replace(st, rv_guard_mode=RV_GUARD_OWN_PLANNED, rv_guard_frames=0,
-                        rv_own_transfer_used=True, rv_own_node_ut=node_ut),
-                [Action(ACTION_ADD_MANEUVER_NODE, float(dv), node_ut=node_ut,
-                        text="Transfer")])
-
-    if mode == RV_GUARD_OWN_PLANNED:
-        if snapshot.node_count < 1:
-            if frames >= RV_GUARD_STEP_FRAMES:
-                return _bdock_rv_guard_fail(
-                    st, snapshot, "the own transfer plan produced no node")
-            return st, []
-        if trips:
-            return _bdock_rv_guard_fail(
-                st, snapshot, "the own Hohmann transfer node would deorbit too")
-        # Fly it only on a GUARDED read: a NaN periapsis or depth never trips,
-        # so it must not count as a pass either.
-        if not (_is_finite(snapshot.node_next_pe)
-                and _is_finite(rv_guard_floor(snapshot.atmosphere_depth))):
-            if frames >= RV_GUARD_STEP_FRAMES:
-                return _bdock_rv_guard_fail(
-                    st, snapshot, "the own transfer node's periapsis was unreadable")
-            return st, []
-        return (replace(st, rv_guard_mode=RV_GUARD_OWN_BURNING, rv_guard_frames=0),
-                [Action(ACTION_MJ_EXECUTE_NODES,
-                        text=("node guard: fly the own transfer node ut=%.1f dv=%.1f "
-                              "m/s next pe=%.0f m" % (snapshot.node_ut,
-                                                      snapshot.node_dv,
-                                                      snapshot.node_next_pe)))])
-
-    # RV_GUARD_OWN_BURNING: the executor flies the node (the rails hold may
-    # carry its wait); once it is gone past its UT, the AP takes the arrival.
-    done = (snapshot.node_count < 1 and _is_finite(snapshot.ut)
-            and st.rv_own_node_ut is not None and snapshot.ut > st.rv_own_node_ut)
-    if done:
-        p = st.params
-        return (replace(st, rv_guard_mode="", rv_guard_frames=0,
-                        rendezvous_min_distance=float("inf"),
-                        rendezvous_noprogress_count=0),
-                [Action(ACTION_MJ_ENABLE_RENDEZVOUS, value=p.approach_distance,
-                        limit=p.max_phasing_orbits,
-                        text="node guard: own transfer flown; AP back on")])
-    if trips:
-        return _bdock_rv_guard_fail(
-            st, snapshot, "the own transfer node changed into a deorbiting one")
-    return _bdock_rv_node_wait(st, snapshot)
+    """One RENDEZVOUS frame of the RENDEZVOUS NODE GUARD: the terminal
+    ``(state, actions)`` when the pending node would deorbit, else None. The
+    hold teardown decorator cancels an armed rails hold on the terminal. Pure."""
+    if not rv_node_deorbits(snapshot.node_count, snapshot.node_next_pe,
+                            snapshot.atmosphere_depth):
+        return None
+    return _bdock_rv_guard_fail(state, snapshot,
+                                "MechJeb's rendezvous AP planned a deorbiting node")
 
 
 @_bdock_rv_hold_teardown
@@ -18530,17 +18349,21 @@ def _sdock_elapsed(state: SDockState, snapshot: TelemetrySnapshot) -> float:
 # pair passes 26 km apart one orbit later and MechJeb flies the velocity-match
 # node that deorbits it (see RENDEZVOUS NODE GUARD). Each second of delay
 # adds (Station mean motion - Kerbin rotation) = 0.1801 - 0.0167 = 0.1634 deg
-# of lead. The spec's interceptorLaunchNotBeforeUt holds the Station (on rails)
-# until that UT, so the rendezvous starts from BDOCK-1's proven geometry (the
-# Station ~55 deg ahead, MechJeb's ordinary Hohmann ~3.5 orbits out) whatever
-# the harness spent reaching the first frame.
+# of lead, and turns the launch plane's LAN by the Kerbin rotation (0.0167
+# deg/s). The spec's interceptorLaunchNotBeforeUt holds the Station (on rails)
+# until the UT that starts the rendezvous like BDOCK-1: the Station ~58 deg
+# ahead AND the launch plane within ~0.01 deg of the Station's, so MechJeb skips
+# the plane match and plans its plain Hohmann (derivation and measurements in
+# test_bdock2_rendezvous_geometry.LaunchHoldUtTests).
 #
 # The hold rails-warps with a native warp_to and launches once the UT is
-# within SDOCK_LAUNCH_HOLD_TOLERANCE_S of the target (KSP's WarpTo lands up to
-# ~13 s early; 20 s of slack is 3.3 deg of lead) and the game reads 1x. A warp
-# that never takes is re-issued at most SDOCK_LAUNCH_HOLD_MAX_ISSUES times; past
-# that the hold waits at 1x, so a broken warp costs wall time, never geometry.
-SDOCK_LAUNCH_HOLD_TOLERANCE_S = 20.0
+# within SDOCK_LAUNCH_HOLD_TOLERANCE_S of the target and the game reads 1x.
+# KSP's WarpTo lands up to ~19 s early (2026-10-14: 9176..9178 for 9195), which
+# is 3 deg of lead, so an early landing at 1x re-issues the warp (bounded, see
+# below) rather than launching. A warp that never takes is re-issued at most
+# SDOCK_LAUNCH_HOLD_MAX_ISSUES times; past that the hold waits at 1x, so a
+# broken warp costs wall time, never geometry.
+SDOCK_LAUNCH_HOLD_TOLERANCE_S = 2.0
 SDOCK_LAUNCH_HOLD_REISSUE_S = 10.0
 SDOCK_LAUNCH_HOLD_MAX_ISSUES = 3
 

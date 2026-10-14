@@ -736,10 +736,6 @@ class KrpcMissionControl(MissionControl):
             target_ca_ut = float("nan")
             target_ca_distance = float("nan")
             node_next_pe = float("nan")
-            target_phase_deg = float("nan")
-            orbit_sma = float("nan")
-            target_sma = float("nan")
-            body_mu = float("nan")
             docking_state = ""
             target_set = False
             mj_rv_enabled = False
@@ -758,8 +754,6 @@ class KrpcMissionControl(MissionControl):
                     self._read_target_controller()
                 target_ca_ut, target_ca_distance = self._read_target_closest_approach(sc, v)
                 node_next_pe = self._read_node_next_pe(nodes)
-                (target_phase_deg, orbit_sma, target_sma,
-                 body_mu) = self._read_rendezvous_geometry(sc, v, body)
                 mj_rv_enabled, mj_dock_enabled = self._read_docking_ap_enabled()
                 docking_state = self._read_docking_state(v)
                 try:
@@ -1010,10 +1004,6 @@ class KrpcMissionControl(MissionControl):
                 target_ca_ut=target_ca_ut,
                 target_ca_distance=target_ca_distance,
                 node_next_pe=node_next_pe,
-                target_phase_deg=target_phase_deg,
-                orbit_sma=orbit_sma,
-                target_sma=target_sma,
-                body_mu=body_mu,
                 docking_state=docking_state,
                 target_set=target_set,
                 mj_rendezvous_enabled=mj_rv_enabled,
@@ -3246,27 +3236,6 @@ class KrpcMissionControl(MissionControl):
             return float(nodes[0].orbit.periapsis_altitude)
         except Exception:
             return float("nan")
-
-    def _read_rendezvous_geometry(self, sc, vessel, body
-                                  ) -> Tuple[float, float, float, float]:
-        """(target phase deg, own sma m, target sma m, body mu) for the
-        RENDEZVOUS NODE GUARD's own Hohmann window. The phase is
-        mlib.signed_phase_deg over the body's non-rotating frame (positive =
-        target ahead). All NaN with no target vessel or on any fault."""
-        nan = float("nan")
-        try:
-            tv = sc.target_vessel
-            if tv is None:
-                return nan, nan, nan, nan
-            frame = body.non_rotating_reference_frame
-            phase = mlib.signed_phase_deg(vessel.position(frame),
-                                          vessel.velocity(frame),
-                                          tv.position(frame))
-            return (float(phase), float(vessel.orbit.semi_major_axis),
-                    float(tv.orbit.semi_major_axis),
-                    float(body.gravitational_parameter))
-        except Exception:
-            return nan, nan, nan, nan
 
     def _read_target_closest_approach(self, sc, vessel) -> Tuple[float, float]:
         """(time, distance) of the next closest approach to the TARGET VESSEL

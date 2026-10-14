@@ -107,14 +107,16 @@ dockNoProgressSeconds       = 120
 # Launched at the fixture's first frame (ut ~8953) the Station is 15.75 deg ahead at
 # RENDEZVOUS start and passes 26 km above the Interceptor one orbit later, inside
 # MechJeb's sma/25 velocity-match branch: the 96.7 m/s node that deorbited the
-# 2026-10-12_1748 / 2026-10-13_0309 flights. Each second of launch delay adds 0.1634 deg
-# of lead, so ut 9195 starts the rendezvous with the Station ~55 deg ahead (BDOCK-1's
-# geometry); any launch ut in ~9010..9335 keeps the lead in 25..78 deg. The hold only
-# keeps the 26 km velocity-match pass out of the first orbit: 2026-10-14_1754 launched
-# on it and MechJeb's free-time Hohmann still planned a 121 m/s node through the
-# planet. The machine's RENDEZVOUS NODE GUARD (mlib) owns that: no node that would
-# leave pe under 75 km burns; it is replaced by the machine-timed Hohmann.
-interceptorLaunchNotBeforeUt  = 9195
+# 2026-10-12_1748 / 2026-10-13_0309 flights. Launched at ut ~9176 (lead ~52 deg) the
+# launch plane sat 0.16 deg off the Station's, MechJeb plane-matched first and then
+# planned a 121 m/s node through the planet (2026-10-14_1754 / _1947 / _2037). BDOCK-1
+# starts with the Station ~58 deg ahead and the planes ~0.007 deg apart. Each second of
+# delay adds 0.1634 deg of lead and turns the launch LAN by 0.0167 deg; ut 22422 is the
+# 58-deg launch whose plane is closest to the Station's (~0.010 deg, LAN ~5.5 deg off),
+# about 3.7 game hours of rails hold. Derivation: test_bdock2_rendezvous_geometry.
+# The mlib RENDEZVOUS NODE GUARD ends the mission before any node that would leave pe
+# under 75 km.
+interceptorLaunchNotBeforeUt  = 22422
 # The background tail. 1223410921 is bdock-recorded's undocked Interceptor half;
 # propagated from the fixture's own orbit nodes it stays within ~0.9 km of the
 # Station for eight game hours, inside the 2.25 km orbital load range.
