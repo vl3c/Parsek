@@ -60,6 +60,9 @@ _(unreleased - entries accumulate here per commit)_
 - **A test run whose KSP hangs while starting up is stopped and retried.** If the game stops
   logging before reaching the main menu, the harness ends that attempt within minutes instead of
   waiting 11 minutes, and tries once more.
+- **Docking test flights stop as soon as the ship falls out of orbit.** When a rendezvous burn
+  drops the ship into the atmosphere, the flight ends at once, naming the burn that caused it,
+  instead of falling for several more minutes.
 
 ---
 
