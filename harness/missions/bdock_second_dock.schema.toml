@@ -115,6 +115,21 @@ type = "int"
 min = 2
 max = 1000
 
+# --- Rendezvous geometry (todo BDOCK2-RENDEZVOUS-PHASING-BURN-DEORBITS-THE-INTERCEPTOR). ---
+# The game UT before which the Interceptor is not launched (the Station rails-warps
+# to it); absent launches at the first frame.
+[params.interceptorLaunchNotBeforeUt]
+required = false
+type = "number"
+min = 0.0
+
+# The smallest next-orbit closest approach at which SET-TARGET enables MechJeb's
+# rendezvous AP; 0 / absent disables the gate.
+[params.rendezvousMinCaDistanceMeters]
+required = false
+type = "number"
+min = 0.0
+
 # --- The background tail (GAME seconds at 1x; the tail never warps). ---
 # persistentId of the pre-existing vessel the tail stock-clicks; 0 disables the tail.
 [params.bgSubjectPid]

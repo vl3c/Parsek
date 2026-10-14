@@ -60,6 +60,9 @@ _(unreleased - entries accumulate here per commit)_
 - **A test run whose KSP hangs while starting up is stopped and retried.** If the game stops
   logging before reaching the main menu, the harness ends that attempt within minutes instead of
   waiting 11 minutes, and tries once more.
+- **The second-dock test flight launches at a set time.** Launched at once, its ship met the
+  station too soon, and MechJeb's first rendezvous burn dropped it into the atmosphere. It now
+  waits until the station is well ahead, and stops before any burn if the approach is too close.
 
 ---
 

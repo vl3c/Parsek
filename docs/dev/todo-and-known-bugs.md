@@ -53,7 +53,7 @@ neither the recorded pid nor one of its fragments (pure helper test: a foreign o
 vessels and no fallback event); (3) separately, an in-game repro of the rewind-point vessel's
 joint break on unpack. Diagnosed read-only; nothing changed.
 
-## BDOCK2-RENDEZVOUS-PHASING-BURN-DEORBITS-THE-INTERCEPTOR: MechJeb's rendezvous plan from BDOCK-2's 95 x 84 km interceptor orbit drops periapsis into the atmosphere and the craft crashes [FILED 2026-10-13 from the operator tier, reproduced twice. OPEN, harness mission]
+## BDOCK2-RENDEZVOUS-PHASING-BURN-DEORBITS-THE-INTERCEPTOR: MechJeb's rendezvous plan from BDOCK-2's 95 x 84 km interceptor orbit drops periapsis into the atmosphere and the craft crashes [FILED 2026-10-13 from the operator tier, reproduced twice. ROOT CAUSE FOUND, fix on branch `bdock2-rendezvous`, NOT YET FLOWN, harness mission]
 
 `BDOCK-2-second-dock-harvest` went INVALID (mission `vessel-lost`) on `2026-10-12_1748` and again
 on the re-flight `2026-10-13_0309`, identically: in RENDEZVOUS the interceptor sits in a stable
@@ -68,6 +68,30 @@ launch time, hence the station phase MechJeb plans the rendezvous against; from 
 low any phasing orbit below it is atmospheric. Fix candidates: park the interceptor higher, or
 cap MechJeb's rendezvous phasing (a lower bound on the phasing periapsis / max phasing orbits),
 then re-fly.
+
+Root cause (2026-10-14): not phasing, and not #2059. The 09-23 PASS launched at ut 8952.8 and
+the reds at 8953.3 / 8953.4; all three started RENDEZVOUS ~193 km from the Station (192.2 vs
+193.3 km) and planned the SAME first node (85.975 m/s at ut 11177.6 on 09-23, 96.7 m/s at
+11178.2 on 10-13), which took pe to 33.6 / 31.3 km on both. Decompiled MechJeb 2.15.1
+`MechJebModuleRendezvousAutopilot.Drive` tries, before its Hohmann and phasing branches,
+`Orbit.NextClosestApproachDistance(target, now) < target.semiMajorAxis / 25` (one period of
+the vessel's orbit) and then places `DeltaVToMatchVelocities` at that closest approach. The
+fixture's Station is 15.75 deg ahead at RENDEZVOUS start (fixture elements + the recorded
+Interceptor orbit segment reproduce the 193.3 km distance) and the lower Interceptor closes
+15 deg per orbit, so they pass 26 km apart at ut 11178, under 709.7 km / 25 = 28.4 km. Matching
+the Station's velocity 23 km below it gives a = 664 km (both runs measured 664.3 km). The 09-23
+run survived only because MechJeb's close-range intercept burns (317 and 240 m/s, pe down to
+-101 km) climbed back to the Station. BDOCK-1 starts ~58 deg ahead and gets a plain 17 m/s
+Hohmann. The 10-02 green run is not on disk to compare.
+
+Fix (branch `bdock2-rendezvous`): BDOCK-2's `interceptorLaunchNotBeforeUt = 9195` rails-warps the
+Station until ut 9195 before the launch (mlib `_sdock_launch_hold`), so the rendezvous starts
+with the Station ~55 deg ahead and the next-orbit pass ~480 km away; the launch UT pins the
+geometry whatever the harness spends reaching the first frame (each second adds 0.1634 deg; any
+launch in ~9010..9335 stays in 25..78 deg). `rendezvousMinCaDistanceMeters = 60000` arms a gate in
+SET-TARGET (`rendezvous_geometry_refusal`) that ends the mission `rendezvous-geometry: ...`
+before any burn if the next-orbit closest approach is ever under 60 km. Both keys default off,
+so BDOCK-1, CI-9 and SD-1 are unchanged. Needs a BDOCK-2 flight to close.
 
 ## HARNESS-MODDED-COMPAT-NEVER-PROVISIONED: the MC lanes on modded-compat fly whatever Parsek.dll that instance last received [FILED 2026-10-12 from the operator tier. OPEN, harness]
 

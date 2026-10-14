@@ -103,6 +103,17 @@ dockSpeedMetersPerSec       = 0.5
 rendezvousTimeoutSeconds    = 30000
 dockTimeoutSeconds          = 1800
 dockNoProgressSeconds       = 120
+# Rendezvous geometry (todo BDOCK2-RENDEZVOUS-PHASING-BURN-DEORBITS-THE-INTERCEPTOR).
+# Launched at the fixture's first frame (ut ~8953) the Station is 15.75 deg ahead at
+# RENDEZVOUS start and passes 26 km above the Interceptor one orbit later, inside
+# MechJeb's sma/25 velocity-match branch: the 96.7 m/s node that deorbited the
+# 2026-10-12_1748 / 2026-10-13_0309 flights. Each second of launch delay adds 0.1634 deg
+# of lead, so ut 9195 starts the rendezvous with the Station ~55 deg ahead (BDOCK-1's
+# geometry, a plain Hohmann ~3.5 orbits out); any launch ut in ~9010..9335 keeps the
+# lead in 25..78 deg. The gate refuses to enable the rendezvous AP when the next-orbit
+# closest approach is under 60 km (2x MechJeb's ~28 km threshold).
+interceptorLaunchNotBeforeUt  = 9195
+rendezvousMinCaDistanceMeters = 60000
 # The background tail. 1223410921 is bdock-recorded's undocked Interceptor half;
 # propagated from the fixture's own orbit nodes it stays within ~0.9 km of the
 # Station for eight game hours, inside the 2.25 km orbital load range.
