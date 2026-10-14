@@ -534,13 +534,6 @@ coastWarpFactor            = 5
 soiLeadSeconds             = 1200
 approachWindowSeconds      = 8000
 approachMaxWarpFactor      = 2
-# COAST NATIVE LEAD (owner ruling 2026-10-14, "tests pass and we still catch bugs";
-# PENDING A CONFIRM FLIGHT): the SOI native warp stops 200 game s short of the
-# boundary instead of soiLeadSeconds 1,200, and the rails last-mile (time stair +
-# approachMaxWarpFactor cap) runs unchanged from there. mlib rejects a value under
-# 120 + 4 x RAILS_WARP_RATES[2] = 120 + 4 x 10 = 160. The flyby EXIT warp keeps
-# soiLeadSeconds; triggerNativeLeadSeconds stays off.
-soiNativeLeadSeconds       = 200
 # The in-SOI floor/ceiling pair, DOWN from the 3/4 every other capture lane
 # carries (header, IN-SOI PAIR). In capture mode the flyby warp is
 # periapsis-clock bounded native warp anyway, so these are the fallback stair

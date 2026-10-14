@@ -11172,10 +11172,14 @@ class CoastNativeLeadTests(unittest.TestCase):
         return mlib.b5_params_from_dict(mp)
 
     def _state(self, params, rounds_done=2):
+        # Arrival extras EXHAUSTED, so the soiNativeLeadSeconds cells read the
+        # armed lead itself; the arrival-window rule that applies while an
+        # extra round is left is pinned by ArrivalWindowLeadTests.
         st = mlib._b5_enter(mlib.b5_initial_state(params),
                             mlib.B5_COAST_TO_TARGET, self.UT0 - 100.0, None)
         return replace(st, relay_stage=mlib.RELAY_STAGE_TRANSFER,
-                       correction_rounds_done=rounds_done)
+                       correction_rounds_done=rounds_done,
+                       extra_rounds_done=mlib.MAX_ARRIVAL_EXTRA_ROUNDS)
 
     def _snap(self, ut, tts, **kw):
         base = dict(ut=ut, body="Jool", next_body="Vall", time_to_soi=tts,
@@ -11403,6 +11407,155 @@ class CoastNativeLeadTests(unittest.TestCase):
         self.assertEqual([Action(mlib.ACTION_SET_RAILS_WARP, 2.0)], out[3][0])
 
 
+class ArrivalWindowLeadTests(unittest.TestCase):
+    """The arrival-window rule on an armed soiNativeLeadSeconds: while the
+    ARRIVAL-QUALITY RE-CORRECTION can still fire, the native warp stops inside
+    its window, never at the short lead.
+
+    The decide cells drive the REAL B25 spec params with the lead it flew red
+    (2026-10-14_1726: soiNativeLeadSeconds 400, Jool frame, target Laythe, the
+    one altitude round flown, tts=473305.727), where the warp ran straight to
+    tts=400 and the extra round never looked."""
+
+    UT0 = 28_340_794.162
+    TTS = 473_305.727
+    B25 = "B25-laythe-orbit.toml"
+
+    def _params(self, lead=400.0):
+        mp = _scenario_mission_params(self.B25)
+        mp["soiNativeLeadSeconds"] = lead
+        return mlib.b5_params_from_dict(mp)
+
+    def _state(self, params, extras=0, rounds_done=1):
+        st = mlib._b5_enter(mlib.b5_initial_state(params),
+                            mlib.B5_COAST_TO_TARGET, self.UT0 - 100.0, None)
+        return replace(st, correction_rounds_done=rounds_done,
+                       extra_rounds_done=extras)
+
+    def _snap(self, ut, tts, next_body="Laythe", **kw):
+        base = dict(ut=ut, body="Jool", next_body=next_body, time_to_soi=tts,
+                    situation="ORBITING", altitude=2.0e7, apoapsis=2.8e7,
+                    periapsis=5.8e8, eccentricity=0.9, node_count=0)
+        base.update(kw)
+        return snap(**base)
+
+    def _drive(self, st, frames):
+        out = []
+        for ut, tts, kw in frames:
+            st, actions = mlib.b5_decide(st, self._snap(ut, tts, **kw))
+            out.append((actions, st))
+        return out
+
+    # --- the pure rule ----------------------------------------------------
+
+    def test_the_window_lead_is_the_window_top_less_the_retarget_drift(self):
+        self.assertEqual(3480.0, mlib.ARRIVAL_WINDOW_NATIVE_LEAD_SECONDS)
+        self.assertEqual(mlib.ARRIVAL_RECORRECT_MAX_TTS_SECONDS
+                         - mlib.WARP_RETARGET_THRESHOLD_SECONDS,
+                         mlib.ARRIVAL_WINDOW_NATIVE_LEAD_SECONDS)
+        # The landing band [3,360, 3,600] keeps the debounce + 1 pessimistic
+        # frames above the window floor at caps 3 and 4.
+        low = (mlib.ARRIVAL_WINDOW_NATIVE_LEAD_SECONDS
+               - mlib.WARP_RETARGET_THRESHOLD_SECONDS)
+        for cap in (3, 4):
+            frame = mlib.COAST_NATIVE_LEAD_FRAME_SECONDS * mlib.RAILS_WARP_RATES[cap]
+            self.assertGreater(low - mlib.ARRIVAL_RECORRECT_MIN_TTS_SECONDS,
+                               (mlib.ARRIVAL_BAD_DEBOUNCE_FRAMES + 1) * frame, cap)
+
+    def test_the_open_predicate(self):
+        p = self._params()
+        self.assertTrue(mlib.arrival_recorrect_open(p, False, 0, "Laythe"))
+        self.assertTrue(mlib.arrival_recorrect_open(p, False, 1, ""))
+        self.assertFalse(mlib.arrival_recorrect_open(p, True, 0, "Laythe"))
+        self.assertFalse(mlib.arrival_recorrect_open(
+            p, False, mlib.MAX_ARRIVAL_EXTRA_ROUNDS, "Laythe"))
+        self.assertFalse(mlib.arrival_recorrect_open(p, False, 0, "Tylo"))
+        self.assertFalse(mlib.arrival_recorrect_open(
+            replace(p, course_correct_periapsis=0.0), False, 0, "Laythe"))
+
+    def test_the_lead_resolution(self):
+        p = self._params()
+        # Open: soi_lead 3,000 already sits inside the window.
+        self.assertEqual((3000.0, "arrival-window"),
+                         mlib.coast_soi_arrival_lead(p, 400.0, "soi-native", True))
+        # Closed: the armed lead.
+        self.assertEqual((400.0, "soi-native"),
+                         mlib.coast_soi_arrival_lead(p, 400.0, "soi-native", False))
+        # Unarmed: untouched whatever the window.
+        self.assertEqual((3000.0, "default"),
+                         mlib.coast_soi_arrival_lead(p, 3000.0, "default", True))
+        # A long soi_lead (B20 100,000): the window top.
+        b20 = mlib.b5_params_from_dict(_scenario_mission_params("B20-moho-orbit.toml"))
+        self.assertEqual((3480.0, "arrival-window"), mlib.coast_soi_arrival_lead(
+            b20, *mlib.coast_soi_native_lead(b20), True))
+        # A lead already past the window (B21 4,200, B22 10,000): unchanged.
+        for spec, lead in (("B21-eeloo-orbit.toml", 4200.0),
+                           ("B22-jool-orbit.toml", 10000.0)):
+            q = mlib.b5_params_from_dict(_scenario_mission_params(spec))
+            self.assertEqual((lead, "soi-native"), mlib.coast_soi_arrival_lead(
+                q, *mlib.coast_soi_native_lead(q), True), spec)
+
+    # --- the B25 red shape ------------------------------------------------
+
+    def test_the_b25_red_shape_warps_to_the_window_and_the_extra_round_fires(self):
+        bad = -152320.536
+        rails = dict(warp_mode="RAILS", warp_rate=50.0)
+        out = self._drive(self._state(self._params()), [
+            (self.UT0, self.TTS, {}),
+            (self.UT0 + self.TTS - 3000.0, 3000.0, dict(next_pe=bad)),
+            (self.UT0 + self.TTS - 2800.0, 2800.0, dict(next_pe=bad, **rails)),
+            (self.UT0 + self.TTS - 2600.0, 2600.0, dict(next_pe=bad, **rails))])
+        # Native warp to tts 3,000 (inside the window), NOT to tts 400.
+        self.assertEqual([Action(mlib.ACTION_WARP_TO_UT, self.UT0 + self.TTS - 3000.0)],
+                         out[0][0])
+        self.assertIn("soi:native:Jool:arrival-window lead=3000.000 (arrival-window)",
+                      out[0][1].coast_lead_decision)
+        # Inside the window: the capped rails last-mile, and the debounced
+        # sub-floor arrival grants the extra round on the third frame.
+        self.assertEqual([Action(mlib.ACTION_SET_RAILS_WARP, 3.0)], out[1][0])
+        self.assertEqual(mlib.B5_COAST_TO_TARGET, out[2][1].phase)
+        self.assertEqual(mlib.B5_PLAN_CORRECTION, out[3][1].phase)
+        self.assertEqual(1, out[3][1].extra_rounds_done)
+
+    def test_extras_exhausted_keeps_the_armed_lead(self):
+        """Extras exhausted reads the armed 400 -- exactly the target the red
+        run issued (target=28814099.889 at tts=473305.727)."""
+        ut = self.UT0 + 400.0
+        out = self._drive(self._state(self._params(), extras=mlib.MAX_ARRIVAL_EXTRA_ROUNDS),
+                          [(ut, self.TTS, {})])
+        self.assertEqual([Action(mlib.ACTION_WARP_TO_UT, ut + self.TTS - 400.0)],
+                         out[0][0])
+        self.assertAlmostEqual(28814099.889, ut + self.TTS - 400.0, places=3)
+        self.assertIn("soi:native:Jool lead=400.000 (soi-native)",
+                      out[0][1].coast_lead_decision)
+
+    def test_rounds_pending_keeps_the_armed_lead(self):
+        out = self._drive(self._state(self._params(), rounds_done=0),
+                          [(self.UT0, self.TTS, dict(altitude=float("nan")))])
+        self.assertEqual([Action(mlib.ACTION_WARP_TO_UT, self.UT0 + self.TTS - 400.0)],
+                         out[0][0])
+
+    def test_unarmed_is_byte_identical(self):
+        out = self._drive(self._state(self._params(lead=0.0)), [(self.UT0, self.TTS, {})])
+        self.assertEqual([Action(mlib.ACTION_WARP_TO_UT, self.UT0 + self.TTS - 3000.0)],
+                         out[0][0])
+        self.assertEqual("", out[0][1].coast_lead_decision)
+
+    def test_an_in_flight_window_warp_is_held_to_the_landing(self):
+        """Branch condition, target and clamp read one lead: frames between
+        the old 400 and the window lead do not cancel or retarget the warp."""
+        target = self.UT0 + self.TTS - 3000.0
+        out = self._drive(self._state(self._params()), [
+            (self.UT0, self.TTS, {}),
+            (self.UT0 + 100000.0, self.TTS - 100000.0, dict(warping_to=target)),
+            (target - 50.0, 3050.0, dict(warping_to=target)),
+            (target, 3000.0, {})])
+        self.assertEqual([], out[1][0])
+        self.assertEqual([], out[2][0])
+        self.assertEqual(target, out[2][1].warp_to_cmd)
+        self.assertEqual([Action(mlib.ACTION_SET_RAILS_WARP, 3.0)], out[3][0])
+
+
 class ApproachLatchNativeWarpTests(unittest.TestCase):
     """approachLatchNativeWarp (COAST-TO-TARGET wall time; default off, B20 opts
     in). Once the approach clamp has latched, a blind time_to_soi used to hold
@@ -11440,7 +11593,11 @@ class ApproachLatchNativeWarpTests(unittest.TestCase):
         st = mlib._b5_enter(mlib.b5_initial_state(params),
                             mlib.B5_COAST_TO_TARGET, self.LATCH_UT - 1000.0, None)
         # Where a real B20 flight is by tts ~ 100k: both trigger rounds flown.
-        return replace(st, correction_rounds_done=2)
+        # Arrival extras EXHAUSTED so the latch cells keep reading the 600 s
+        # lead; with an extra left the arrival-window rule lifts it to 3,480
+        # (ArrivalWindowLeadTests).
+        return replace(st, correction_rounds_done=2,
+                       extra_rounds_done=mlib.MAX_ARRIVAL_EXTRA_ROUNDS)
 
     def _snap(self, i, ut, tts=float("nan"), next_body="", body="Sun", **kw):
         base = dict(ut=ut, time_to_soi=tts, next_body=next_body, body=body,
@@ -11494,33 +11651,53 @@ class ApproachLatchNativeWarpTests(unittest.TestCase):
                 mp = tomllib.load(fh).get("driver", {}).get("missionParams", {})
             if mp.get("soiNativeLeadSeconds"):
                 armed.append(name)
-        # B21 / B22 / B26 by measurement; B20 and the short b5 lanes by the owner
-        # ruling of 2026-10-14 ("tests pass and we still catch bugs").
+        # B21 / B22 / B26 by measurement; B20, B28 and B30 by the owner ruling of
+        # 2026-10-14 ("tests pass and we still catch bugs").
         self.assertEqual(["B20-moho-orbit.toml", "B21-eeloo-orbit.toml",
-                          "B22-jool-orbit.toml", "B23-ike-orbit.toml",
-                          "B24-gilly-orbit.toml", "B25-laythe-orbit.toml",
-                          "B26-laythe-vall-transfer.toml",
+                          "B22-jool-orbit.toml", "B26-laythe-vall-transfer.toml",
                           "B28-laythe-jool-return.toml",
-                          "B30-mun-minmus-transfer.toml", "B33-tylo-orbit.toml",
-                          "B34-bop-orbit.toml", "B35-pol-orbit.toml"], armed)
+                          "B30-mun-minmus-transfer.toml"], armed)
 
-    # spec -> (soiNativeLeadSeconds, its mlib floor) under the 2026-10-14 ruling.
+    # spec -> (soiNativeLeadSeconds, its mlib floor, the TARGET-approach lead
+    # while an arrival extra round is left) under the 2026-10-14 ruling. B28
+    # flies no corrections, so its window never opens and the armed lead holds.
     RULING_2026_10_14 = {
-        "B20-moho-orbit.toml": (600.0, 520.0),
-        "B23-ike-orbit.toml": (600.0, 520.0),
-        "B24-gilly-orbit.toml": (200.0, 160.0),
-        "B25-laythe-orbit.toml": (400.0, 320.0),
-        "B28-laythe-jool-return.toml": (400.0, 320.0),
-        "B30-mun-minmus-transfer.toml": (400.0, 320.0),
-        "B33-tylo-orbit.toml": (400.0, 320.0),
-        "B34-bop-orbit.toml": (400.0, 320.0),
-        "B35-pol-orbit.toml": (400.0, 320.0),
+        "B20-moho-orbit.toml": (600.0, 520.0, 3480.0),
+        "B28-laythe-jool-return.toml": (400.0, 320.0, 400.0),
+        "B30-mun-minmus-transfer.toml": (400.0, 320.0, 3000.0),
     }
 
+    # Lanes the ruling named but the arrival-window rule leaves nothing to save
+    # on: they start in orbit of the target's parent, so their ONLY crossing is
+    # the target approach, where the window lifts the lead back to
+    # soiLeadSeconds. Flown red with the key on B25 (2026-10-14_1726).
+    DROPPED_2026_10_14 = {
+        "B23-ike-orbit.toml": 600.0,
+        "B24-gilly-orbit.toml": 200.0,
+        "B25-laythe-orbit.toml": 400.0,
+        "B33-tylo-orbit.toml": 400.0,
+        "B34-bop-orbit.toml": 400.0,
+        "B35-pol-orbit.toml": 400.0,
+    }
+
+    def test_the_dropped_lanes_would_gain_nothing_on_their_only_crossing(self):
+        for spec, lead in self.DROPPED_2026_10_14.items():
+            mp = _scenario_mission_params(spec)
+            self.assertTrue(mp.get("startInOrbit"), spec)
+            self.assertGreater(mp["courseCorrectPeriapsisMeters"], 0, spec)
+            mp["soiNativeLeadSeconds"] = lead
+            p = mlib.b5_params_from_dict(mp)
+            self.assertEqual((p.soi_lead, "arrival-window"), mlib.coast_soi_arrival_lead(
+                p, *mlib.coast_soi_native_lead(p), True), spec)
+
     def test_the_ruling_lanes_arm_only_the_soi_lead_between_floor_and_soi_lead(self):
-        for spec, (lead, floor) in self.RULING_2026_10_14.items():
+        for spec, (lead, floor, target_lead) in self.RULING_2026_10_14.items():
             p = mlib.b5_params_from_dict(_scenario_mission_params(spec))
             self.assertEqual((lead, "soi-native"), mlib.coast_soi_native_lead(p), spec)
+            self.assertEqual(target_lead, mlib.coast_soi_arrival_lead(
+                p, lead, "soi-native", mlib.arrival_recorrect_open(
+                    p, False, 0, p.target_body))[0], spec)
+            self.assertLessEqual(target_lead, p.soi_lead, spec)
             self.assertEqual(floor, mlib.soi_native_lead_floor(
                 p.approach_max_warp_factor, p.coast_warp_factor), spec)
             self.assertLess(floor, lead, spec)

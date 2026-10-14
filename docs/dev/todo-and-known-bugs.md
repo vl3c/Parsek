@@ -3883,15 +3883,22 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   blind frames and `blind_soi_hold` keeps an in-flight warp, so the key ships default-off and
   unarmed, unit-tested only. B19's 29 m main spread shows the faster coast moves
   WHEN the late correction fires, so the arrival genuinely changes, not only its noise.
-- [ ] Coast native lead armed on B20 and the short b5 lanes (owner ruling 2026-10-14, branch
+- [ ] Coast native lead armed on B20, B28 and B30 (owner ruling 2026-10-14, branch
   `coast-lead-b5`; new bar "tests pass and we still catch bugs" replaces the outcome-unchanged
-  gate). `soiNativeLeadSeconds` (value / mlib floor / soiLeadSeconds): B20 600 / 520 / 100,000
-  (flown green `2026-10-13_2255` and `2026-10-14_0154`; Moho parks 381,492 / 543,562 m against
-  main's 428-497 km recorded as ACCEPTED SCATTER, not outcome-unchanged); B23 600 / 520 / 3,000;
-  B24 200 / 160 / 1,200; B25, B28, B30, B33, B34, B35 400 / 320 / 3,000. Not armed:
-  `approachLatchNativeWarp` (never fired), `circularizeNodeWaitWarp` (B21-only ruling),
-  `triggerNativeLeadSeconds`. b23 / b24 / b25 / b30 schemas gained both lead keys. Open: one
-  confirm flight per lane (the eight short lanes have not flown the key).
+  gate). `soiNativeLeadSeconds` (value / mlib floor / soiLeadSeconds): B20 600 / 520 / 100,000,
+  B28 400 / 320 / 3,000, B30 400 / 320 / 3,000. The confirm flight B25 `2026-10-14_1726` (lead
+  400) went MISSION-ASSERT-FAIL, Laythe pe -152 km: the native warp ran from tts 473,306 to
+  tts 400, straight past the arrival re-correction window (600-3,600 s), where the unarmed
+  `2026-10-12_1620` re-corrected at tts ~2,517 to pe 71 km. Fix: `mlib.coast_soi_arrival_lead`
+  lifts an armed lead to min(soiLeadSeconds, 3,480) while that round can still fire (rounds
+  done, corrections on, an extra left, SOI clock not naming another body); non-target
+  crossings keep the short lead. That leaves B23 / B24 / B25 / B33 / B34 / B35 (start in the
+  target parent's orbit, so the target approach is their only crossing) nothing to save, so
+  they are NOT armed. B20's two greens at 600 skipped the window too (likely its 381,492 /
+  543,562 m parks against main's 428-497 km); its Moho approach now stops at 3,480. B26
+  (400) changes on its Vall approach (3,000 while an extra is left). B21 / B22 unchanged.
+  Not armed anywhere: `approachLatchNativeWarp`, `circularizeNodeWaitWarp` (B21-only),
+  `triggerNativeLeadSeconds`. Open: confirm flights of B20, B26, B28, B30.
 - [x] Optional refresh re-flies of the b5 lanes last flown before #1958: B24, B33, B34, B35,
   B25, B28, B23 and B12. Done by the 2026-10-11 nightly and 2026-10-12 operator tiers: each
   MISSION-OK, analyzer recoverable now 51-108 s per lane (B24 108, B34 57, B35 / B25 56, B33
