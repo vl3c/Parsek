@@ -290,7 +290,8 @@ budget must out-wait the whole attempt:
 - `runtime.budgetSeconds >= sum(step budgets) + margin` -- the outer KSP run budget
   covers every budgeted step (LoadGame + the mission step; CommitTree / FlushAndQuit
   are fast and unbudgeted) plus slack. B1: 1320 >= 240 (LoadGame) + 900 (mission) +
-  margin. B2: 1200 >= 240 + 780 + margin.
+  margin. B2, flown by PWR-2 with its WarpToUT coast step: 1500 >= 240 + 780 + 300 +
+  margin.
 
 A spec that violates the second rule surfaces as a KILLED attempt (M-A5 watchdog),
 not a hang; a spec-validation cross-check of the arithmetic is a deferred cheap guard

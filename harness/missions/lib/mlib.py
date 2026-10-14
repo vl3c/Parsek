@@ -222,7 +222,8 @@ EVA4_PHASES: Tuple[str, ...] = (EVA4_PRELAUNCH, EVA4_ASCENT, EVA4_COAST, EVA4_DE
 EVA4_WINDOW_DEBOUNCE_K = 2
 
 # ---------------------------------------------------------------------------
-# CL-1 phase names (mission cl1_pod_impact; scenario CL-1-pod-impact). THE ATOM
+# CL-1 phase names (mission cl1_pod_impact; flown by scenario CL-2-pod-impact-ledger,
+# which absorbed scenario CL-1-pod-impact on 2026-10-14). THE ATOM
 # of the crew-loss lane: a crewed pod launches, does NOT deploy a chute, and hits
 # the ground. The crew dies. That is the entire mission.
 #

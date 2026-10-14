@@ -126,23 +126,32 @@ class B1DocSpecSyncTests(unittest.TestCase):
 class B2DocSpecSyncTests(unittest.TestCase):
     """B2's numbers share the same design-doc sentences as B1's, and a blanket
     search-and-replace for a B1 value has already matched B2's block once on this
-    branch. Pin B2 too so the next one is caught."""
+    branch. Pin B2 too so the next one is caught.
+
+    B2-lko-ascent was absorbed into PWR-2 on 2026-10-14 (shared-flight merge), so the
+    B2 mission's budgets are now PWR-2's: same mission step budget, plus a budgeted
+    WarpToUT coast step in the runtime sum."""
 
     @classmethod
     def setUpClass(cls):
-        cls.spec = _spec("B2-lko-ascent.toml")
+        cls.spec = _spec("PWR-2-physwarp-ascent-medium.toml")
 
     def test_design_doc_matches_b2_spec(self):
         text = _read(os.path.join(DOCS, "design-autotest-mission-library.md"))
         mission = _mission_step_budget(self.spec)
         wall = self.spec["runtime"]["budgetSeconds"]
+        warp = [s.get("budget") for s in self.spec["driver"]["steps"]
+                if s.get("cmd") == "WarpToUT"]
+        self.assertEqual(1, len(warp), "PWR-2 must carry exactly one WarpToUT step")
         m = re.search(r"B2: (\d+) >= 30 \+\s*\n?\s*\(420\+300\)", text)
         self.assertIsNotNone(m, "B2 mission-budget invariant sentence not found")
         self.assertEqual(int(m.group(1)), int(mission))
-        m = re.search(r"B2: (\d+) >= 240 \+ (\d+) \+ margin", text)
+        m = re.search(r"B2, flown by PWR-2 with its WarpToUT coast step: (\d+) >= 240 \+"
+                      r" (\d+) \+\s+(\d+) \+\s+margin", text)
         self.assertIsNotNone(m, "B2 runtime-budget invariant sentence not found")
         self.assertEqual(int(m.group(1)), int(wall))
         self.assertEqual(int(m.group(2)), int(mission))
+        self.assertEqual(int(m.group(3)), int(warp[0]))
 
 
 class B13B14DocSpecSyncTests(unittest.TestCase):

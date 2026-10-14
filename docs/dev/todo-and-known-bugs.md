@@ -3949,6 +3949,19 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   1,235 s, B4 1,112 s, B15 1,014 s). Further cuts are structural and need operator rulings:
   shorten the dwell lanes, share flights between overlapping lanes, or move long lanes out of
   nightly.
+- [x] Shared flights, owner ruling B 2026-10-14 on
+  `docs/dev/research/harness-dwell-and-shared-flight-audit-2026-10-14.md` (the four SAFE
+  rows), branch `shared-flight-merges`: GS-4 into GS-9, B2 into PWR-2, CL-1 into CL-2 (nightly)
+  and CL-3 into CL-4 (operator). Each absorbed lane flew a prefix of its host's flight; its
+  gating expectations and `[dimensionsCovered]` claims moved onto the host and the spec was
+  deleted (384 -> 380 scenarios). Every moved gate was evaluated offline against the host's
+  latest archived run and holds (GS-9 `2026-10-11_1542`, PWR-2 `2026-10-12_0741`, CL-2
+  `2026-10-11_1443`, CL-4 `2026-10-12_1813`). Saves about 750 s per nightly tier run and
+  64 s per operator pass. Cost accepted by the ruling: coarser failure attribution (a red in
+  the host's own extension also reds the absorbed claims).
+- [x] ~~Confirm-fly the four merged hosts on their merged specs~~: all PASS on 2026-10-14 -
+  GS-9 `2026-10-14_1744` (492 s), PWR-2 `2026-10-14_1737` (299 s), CL-2 `2026-10-14_1742`
+  (168 s), CL-4 `2026-10-14_1753` (67 s); host walls unchanged from their prior runs.
 
 ## MISSIONS-TAB-MODEL1: the Missions tab redesign, first slice ("Model 1") [OWNER-APPROVED 2026-09-29, branch `missions-model1`. IN PROGRESS]
 
