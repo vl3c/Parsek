@@ -5227,7 +5227,10 @@ class B5Params:
                                            # pessimistic 4 s frame at the rails
                                            # ceiling); b5_params_from_dict
                                            # rejects a smaller value. The flyby
-                                           # EXIT warp keeps soi_lead. Spec key
+                                           # EXIT warp keeps soi_lead. While an
+                                           # arrival extra round can still fire,
+                                           # coast_soi_arrival_lead lifts it to
+                                           # min(soi_lead, 3,480). Spec key
                                            # soiNativeLeadSeconds.
     trigger_native_lead: float = 0.0       # GAME s. When > 0, the TIME-mode
                                            # correction-trigger native warp
@@ -12069,6 +12072,63 @@ def coast_trigger_native_lead(params: "B5Params") -> Tuple[float, str]:
     return params.trigger_native_lead, "trigger-native"
 
 
+# Where an armed SOI native lead stops the coast while the ARRIVAL-QUALITY
+# RE-CORRECTION can still fire: the top of its window, less the retarget drift.
+# The native target is re-issued only when the SOI estimate moves more than
+# WARP_RETARGET_THRESHOLD_SECONDS, so the warp lands at tts in [3,360, 3,600].
+# From the low end, (3,360 - 600) / (4 s x RAILS_WARP_RATES[cap]) pessimistic
+# rails frames remain inside the window before tts reaches
+# ARRIVAL_RECORRECT_MIN_TTS_SECONDS: 13.8 at cap 3 (x50), 6.9 at cap 4 (x100),
+# both above the ARRIVAL_BAD_DEBOUNCE_FRAMES + 1 = 4 the gate needs. Cap 5
+# (x1,000) cannot hold the debounce in this window at a pessimistic frame
+# whatever the lead, so the lanes flying it keep their own sizing.
+ARRIVAL_WINDOW_NATIVE_LEAD_SECONDS = (ARRIVAL_RECORRECT_MAX_TTS_SECONDS
+                                      - WARP_RETARGET_THRESHOLD_SECONDS)
+
+
+def arrival_recorrect_open(params: "B5Params", rounds_pending: bool,
+                           extra_rounds_done: int, next_body: str) -> bool:
+    """PURE. True iff the ARRIVAL-QUALITY RE-CORRECTION could still fire on
+    this coast: corrections enabled, no altitude / time round pending, an extra
+    round left, and the SOI clock not POSITIVELY naming another body.
+
+    The arrival periapsis and the tts window are deliberately NOT read: the
+    point is to stop the native warp where the gate can look, and the conic
+    read flaps under warp. The next-body term fails OPEN (a blank read counts
+    as the target), so a blank frame can only pull the native target EARLIER;
+    a positively foreign clock (the home-SOI exit, a planet entry before a
+    moon) keeps the short lead. In the transfer-parent frame a foreign reading
+    is already held by coast_foreign_soi_clock_hold before any target is
+    derived, so it cannot push an in-flight warp later either."""
+    return (not rounds_pending
+            and params.course_correct_periapsis > 0.0
+            and extra_rounds_done < MAX_ARRIVAL_EXTRA_ROUNDS
+            and soi_clock_describes_target(next_body, params.target_body))
+
+
+def coast_soi_arrival_lead(params: "B5Params", lead: float, reason: str,
+                           arrival_open: bool) -> Tuple[float, str]:
+    """PURE. The SOI native lead after the arrival-window rule.
+
+    An armed ``soiNativeLeadSeconds`` shorter than the arrival re-correction
+    window would native-warp straight past it (B25 2026-10-14_1726: lead 400
+    from tts 473,306 to tts 400, the extra round never looked, and Laythe
+    arrived at pe -152 km where the unarmed 2026-10-12_1620 re-corrected at
+    tts ~2,517 to pe 71 km). While ``arrival_open``, the lead is therefore at
+    least ``min(soi_lead, ARRIVAL_WINDOW_NATIVE_LEAD_SECONDS)``: soi_lead itself
+    when it already sits inside the window (the unarmed behaviour), else the
+    window top. Returns ``(lead, reason)`` unchanged when the key is unarmed
+    (``default``, so every unarmed lane is byte-identical), when the window is
+    closed, or when the armed lead is already at least that long (B21 4,200,
+    B22 10,000); otherwise ``(window lead, "arrival-window")``."""
+    if reason == "default" or not arrival_open:
+        return lead, reason
+    window_lead = min(params.soi_lead, ARRIVAL_WINDOW_NATIVE_LEAD_SECONDS)
+    if window_lead <= lead:
+        return lead, reason
+    return window_lead, "arrival-window"
+
+
 def _b5_coast_lead_note(state: "B5State", key: str,
                         detail: str = "") -> "B5State":
     """Record a coast native-lead decision. ``coast_lead_decision`` is a
@@ -15565,6 +15625,17 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # (soi_lead unless soiNativeLeadSeconds is armed). The flyby EXIT warp
         # in TARGET-FLYBY keeps soi_lead.
         soi_native_lead, soi_native_reason = coast_soi_native_lead(state.params)
+        # ARRIVAL WINDOW: an armed short lead must not native-warp past the
+        # arrival re-correction's window while that round can still fire. The
+        # branch-(b) condition, its target and the approach clamp all read this
+        # one effective lead, so an in-flight warp is never cancelled by a
+        # disagreement between them.
+        soi_native_lead, soi_native_reason = coast_soi_arrival_lead(
+            state.params, soi_native_lead, soi_native_reason,
+            arrival_recorrect_open(state.params, rounds_pending,
+                                   stayed.extra_rounds_done, snapshot.next_body))
+        lead_tag = (":" + soi_native_reason
+                    if soi_native_reason == "arrival-window" else "")
         if snapshot.node_count != 0:
             # (a) Pending node: NATIVE warp to node_ut minus the ARRIVAL
             # MARGIN (operator PR gate: nodeWarpLeadSeconds retired -- the
@@ -15673,7 +15744,7 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             native_target = snapshot.ut + snapshot.time_to_soi - soi_native_lead
             if soi_native_reason != "default":
                 stayed = _b5_coast_lead_note(
-                    stayed, "soi:native:%s" % snapshot.body,
+                    stayed, "soi:native:%s%s" % (snapshot.body, lead_tag),
                     "lead=%s (%s) tts=%s target=%s"
                     % (_obs_fmt(soi_native_lead), soi_native_reason,
                        _obs_fmt(snapshot.time_to_soi), _obs_fmt(native_target)))
@@ -15702,7 +15773,7 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                     and _is_finite(snapshot.time_to_soi)
                     and 0.0 < snapshot.time_to_soi <= soi_native_lead):
                 stayed = _b5_coast_lead_note(
-                    stayed, "soi:rails:%s" % snapshot.body,
+                    stayed, "soi:rails:%s%s" % (snapshot.body, lead_tag),
                     "lead=%s (%s) tts=%s inside the native lead; rails last-mile"
                     % (_obs_fmt(soi_native_lead), soi_native_reason,
                        _obs_fmt(snapshot.time_to_soi)))
