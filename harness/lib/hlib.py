@@ -12111,8 +12111,11 @@ FLAKE_NUMERATOR_VERDICTS: Tuple[str, ...] = (VERDICT_INVALID, VERDICT_KILLED)
 # retryable subkind -- boot-crash, driver-stage, seam-timeout, the mission
 # subkinds -- keeps counting: those ARE the scenario being unstable, which is
 # exactly what quarantine exists to catch.
+# The pipelined post-quit worker raised (a harness defect, not the scenario): the
+# lane gets an INVALID row naming the exception. Not retryable, flake-exempt.
+POST_QUIT_ERROR_SUBKIND = "post-quit-error"
 FLAKE_EXEMPT_INVALID_SUBKINDS: Tuple[str, ...] = (
-    VENV_INVALID_SUBKIND, "instance-locked", "instance-busy",
+    VENV_INVALID_SUBKIND, "instance-locked", "instance-busy", POST_QUIT_ERROR_SUBKIND,
     # The selection-start Parsek.Tests build failed: a property of the worktree, and
     # every selected scenario receives the same row before any KSP boot.
     TESTS_BUILD_INVALID_SUBKIND,

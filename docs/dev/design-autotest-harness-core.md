@@ -1469,9 +1469,8 @@ deferred too (it copies nothing), so the worker is the only writer of `results/`
 while a lane flies.
 
 **The copy set** (the post-quit code's every instance read; `run.py`'s section
-comment cites each reader, and `test_run_smoke.PipelinedVerifyCopySetTests` walks
-the code, AST-based, for instance-rooted joins in the post-quit functions and for
-`ksp_dir / ...` reads in `scripts/collect-logs.py`): `KSP.log`,
+comment cites each reader; `run.POST_QUIT_ROOT_FILES` / `POST_QUIT_COPIED_DIRS` are
+the set): `KSP.log`,
 `parsek-test-results.txt`, `parsek-render-manifest.txt`,
 `Logs/ModuleManager/{ModuleManager,MMPatch}.log`, `saves/<runSave>/` (the analyzer
 writes its `analysis/` report into the copy), this run's `Screenshots/` files
@@ -1483,12 +1482,43 @@ lane's KSP has exited. Copies, never links: KSP truncates `KSP.log` and rewrites
 root files in place. A copy that fails (Warn `post-quit copy FAILED`) degrades that
 one lane to verifying in place before the next lane stages.
 
+`test_run_smoke.PipelinedVerifyCopySetTests` keeps the set honest with a fail-closed
+AST walk (`_InstanceReadWalker`) over the call graph from `_verify_classify_finish`,
+following every call that passes a root-derived value into another `run.py` / `hlib`
+function. A root-derived value may only be joined further (string literals, module
+string constants, `run_save_name`, or any expression inside a copied directory), read
+by a known reader, in which case the FULL relative path must be a copied file or lie
+inside a copied directory, handed whole to collect-logs, or used in a way that reads
+nothing (truth test, comparison, formatting, a string method, a dict value). Anything
+else, including a `*parts` join or a `pathlib` wrap, fails the suite. The same walk
+covers `scripts/collect-logs.py`'s `ksp_dir / ...` and `Path(ksp_dir) / ...` chains
+(its `detect_save` family is exempt: it runs only without `--save`, which the harness
+always passes, and the test pins that). Mutation cells inject a deeper uncopied read,
+a read through a helper and each unrecognized construction, and require a red.
+
 **Serial guarantees kept.** One KSP at a time; the machine lock is still held for the
 whole invocation and heartbeated before every flight (a failed heartbeat stops the
 selection: the lane in post-quit work lands first, an owed retry is NOT flown and its
 attempt 1 becomes the terminal, every unflown scenario gets INVALID(instance-locked)).
 At most one lane is in post-quit work: the loop joins it before it starts the worker
 on the lane that just flew, so lane N+2 never launches before lane N has landed.
+
+**What the serial chain used to cover.** A watchdog kill waits at most
+`KILL_EXIT_WAIT_SECONDS` (30 s) for the KSP tree; serial then spent a minute or more
+in the verifier chain before the next zombie preflight. Pipelined, that preflight
+comes seconds later, so when it sees a live KSP it first waits (bounded,
+`PIPELINED_PRIOR_KSP_EXIT_WAIT_SECONDS` = 180 s, logged `[Preflight] ... still
+running; waiting` / `prior KSP exited after`) before refusing INVALID(instance-busy):
+an innocent lane is never refused for its predecessor's slow teardown.
+
+**Failures inside the pipeline.** A worker that raises keeps its buffered lines and
+gives its lane an INVALID(`post-quit-error`) row whose note names the exception (not
+retryable, flake-exempt: a harness defect, not the scenario), and the selection goes
+on. An exception or Ctrl-C in the main loop (`_pipeline_drain`) lands the lane in
+post-quit work and any lane that has flown but not started, then closes every
+scenario still open (an owed retry is NOT flown, the attempt so far is the terminal)
+with its held lines, flakedThenPassed rewrite, `attemptsWallSeconds`, Cost line and
+archive entry, before re-raising.
 
 **Retry ordering change.** A lane's verdict is known only after the next lane has
 flown. Each turn the loop joins the worker, folds the result in through the same

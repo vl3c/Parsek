@@ -210,6 +210,11 @@ BOOT_WATCH_POLL_SECONDS = 0.5
 # zombie preflight refuses a still-alive KSP as a terminal INVALID(instance-busy),
 # which would lose the retry a boot-hang is owed.
 KILL_EXIT_WAIT_SECONDS = 30.0
+# Pipelined verification only: how long the next lane's zombie preflight waits for a
+# still-running KSP (the previous lane's, typically a watchdog kill still tearing
+# down) before refusing instance-busy. The serial path's verifier chain used to
+# cover this window.
+PIPELINED_PRIOR_KSP_EXIT_WAIT_SECONDS = 180.0
 
 
 # ---------------------------------------------------------------------------
@@ -1649,6 +1654,26 @@ def _wait_for_killed_exit(proc, runtime: "Runtime", logger: "HarnessLogger",
                         % (bound, getattr(proc, "pid", "?")))
             return False
         runtime.sleep(POLL_INTERVAL_SECONDS)
+
+
+def _wait_for_prior_ksp_exit(runtime: "Runtime", instance_dir: str, pid,
+                             logger: "HarnessLogger",
+                             bound: Optional[float] = None):
+    """Poll ``runtime.ksp_running`` until no KSP is live or ``bound`` seconds pass.
+    Returns the pid still running (the caller refuses instance-busy) or None."""
+    if bound is None:
+        bound = PIPELINED_PRIOR_KSP_EXIT_WAIT_SECONDS
+    start = runtime.now()
+    logger.info("Preflight", "a KSP (pid=%s) is still running; waiting up to %.0fs for it "
+                             "to exit before the zombie check refuses" % (pid, bound))
+    while pid is not None and runtime.now() - start < bound:
+        runtime.sleep(POLL_INTERVAL_SECONDS)
+        pid = runtime.ksp_running(instance_dir)
+    if pid is None:
+        logger.info("Preflight", "prior KSP exited after %.1fs" % (runtime.now() - start))
+    else:
+        logger.warn("Preflight", "KSP pid=%s still running after %.0fs" % (pid, bound))
+    return pid
 
 
 def _ksp_log_identity(path: str) -> Optional[Tuple[int, int]]:
@@ -3708,6 +3733,10 @@ POST_QUIT_ROOT_FILES: Tuple[str, ...] = (
     os.path.join("Logs", "ModuleManager", "MMPatch.log"),
 )
 POST_QUIT_PLAYER_LOG_NAME = "Player.log"
+# The directories _take_post_quit_copy copies whole (relative to the instance;
+# "<runSave>" is the lane's run save leaf). Screenshots/ holds only this run's
+# selected files, which are the only ones the artifact step reads.
+POST_QUIT_COPIED_DIRS: Tuple[Tuple[str, ...], ...] = (("saves", "<runSave>"), ("Screenshots",))
 
 
 class _PostQuitCopy:
@@ -3727,16 +3756,18 @@ class _PostQuitCopy:
 class _DeferredAttempt:
     """What run_attempt returns with ``defer_post_quit``: the attempt's run id, its
     post-quit copy (None for a pre-launch refusal or a copy that failed),
-    ``finish(logger) -> result`` for the worker, and ``in_place`` when ``finish``
+    ``finish(logger) -> result`` for the worker, ``in_place`` when ``finish``
     reads the live instance (the copy failed), so the caller must let it land
-    before the next lane stages."""
+    before the next lane stages, and ``fail(logger, exc) -> result``, which writes
+    the INVALID(post-quit-error) row when ``finish`` raised (None: no row)."""
 
     def __init__(self, run_id: Optional[str], post_quit_copy: Optional[_PostQuitCopy],
-                 finish, in_place: bool = False):
+                 finish, in_place: bool = False, fail=None):
         self.run_id = run_id
         self.post_quit_copy = post_quit_copy
         self.finish = finish
         self.in_place = in_place
+        self.fail = fail
 
 
 def _take_post_quit_copy(run_id: str, instance_dir: str, run_save_name: Optional[str],
@@ -3968,10 +3999,21 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         if defer_post_quit:
             return _DeferredAttempt(run_id, None, lambda lg: _terminal_result(
                 spec, profile, attempt, started, start_wall, runtime, verdict,
-                admission=admission, logger=lg, run_id=run_id))
+                admission=admission, logger=lg, run_id=run_id),
+                fail=lambda lg, exc: _post_quit_failure(lg, exc, admission))
         return _terminal_result(spec, profile, attempt, started, start_wall, runtime,
                                 verdict, admission=admission, logger=logger,
                                 run_id=run_id)
+
+    def _post_quit_failure(lg, exc, admission):
+        # The pipelined worker raised. The lane still gets a result row, INVALID and
+        # naming the exception, never a verdict the chain did not reach.
+        what = "post-quit work raised %s: %s" % (type(exc).__name__, exc)
+        return _terminal_result(spec, profile, attempt, started, start_wall, runtime,
+                                hlib.Verdict(hlib.VERDICT_INVALID,
+                                             hlib.POST_QUIT_ERROR_SUBKIND, False, what,
+                                             note=what),
+                                admission=admission, logger=lg, run_id=run_id)
 
     # ---- ADMIT -----------------------------------------------------------
     manifest, incomplete = read_manifest(instance_dir)
@@ -4036,6 +4078,13 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         # orphan from a killed run). It cannot bind a pid to a directory, so the
         # message must not claim it did.
         zombie_pid = runtime.ksp_running(instance_dir)
+        if zombie_pid is not None and defer_post_quit:
+            # Pipelined: this preflight now runs seconds after the previous lane's
+            # KSP was killed, where the serial path first spent its verifier chain
+            # (a minute or more) - and a watchdog kill only waits
+            # KILL_EXIT_WAIT_SECONDS for the tree to go. Give that KSP the time the
+            # serial path gave it before refusing a lane that is not at fault.
+            zombie_pid = _wait_for_prior_ksp_exit(runtime, instance_dir, zombie_pid, logger)
         if zombie_pid is not None:
             logger.warn("Preflight", "instance-busy: a live KSP_x64.exe (pid=%s) is running on this machine; "
                         "the probe cannot tell which install it belongs to, so refusing before %s "
@@ -4144,7 +4193,9 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
                             post_quit_copy=post_quit_copy)
                     finally:
                         shutil.rmtree(post_quit_copy.root, ignore_errors=True)
-                return _DeferredAttempt(run_id, post_quit_copy, _finish_on_copy)
+                return _DeferredAttempt(
+                    run_id, post_quit_copy, _finish_on_copy,
+                    fail=lambda lg, exc: _post_quit_failure(lg, exc, admission_rec))
             # The copy failed: verify on the live instance. ``in_place`` makes the
             # caller run this to completion before it stages the next lane (and,
             # like every post-quit job, after the previous lane's has landed).
@@ -4154,7 +4205,8 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
                     spec, profile, attempt, started, start_wall, runtime, admission_rec,
                     drive, run_save_name, instance_dir, prior_boot_crashed, seed_capture,
                     run_id, lg),
-                in_place=True)
+                in_place=True,
+                fail=lambda lg, exc: _post_quit_failure(lg, exc, admission_rec))
         return _verify_classify_finish(spec, profile, attempt, started, start_wall,
                                        runtime, admission_rec, drive, run_save_name,
                                        instance_dir, prior_boot_crashed, seed_capture,
@@ -5752,6 +5804,7 @@ class _PipelineScenario:
         # runId -> the deployed DLL's sha256 when that attempt's KSP exited, for
         # the archive (which runs after the next lane has staged the instance).
         self.dll_sha_by_run: Dict[str, Optional[str]] = {}
+        self.finalized = False
 
 
 _TERMINAL_RED_VERDICTS = (hlib.VERDICT_PARSEK_FAIL, hlib.VERDICT_INVALID,
@@ -5761,10 +5814,16 @@ _TERMINAL_RED_VERDICTS = (hlib.VERDICT_PARSEK_FAIL, hlib.VERDICT_INVALID,
 def _pipeline_finalize(scen: _PipelineScenario, umbrella_root: str, logger) -> int:
     """The scenario's terminal: finish (rewrite, sheet, Cost) into its held block,
     write the block, then archive (which slices the block back out of the log).
-    Returns the exit-code contribution."""
-    scen.state.finish(scen.deferred)
+    Returns the exit-code contribution. Idempotent: a second call is a no-op."""
+    if scen.finalized:
+        return 0
+    scen.finalized = True
+    if scen.state.attempts_run:
+        scen.state.finish(scen.deferred)
     scen.deferred.replay(logger)
     scen.deferred = _BufferedLogger()
+    if not scen.state.attempts_run:
+        return 0
     _archive_attempt_results(scen.state.attempt_results, umbrella_root, scen.instance_dir,
                              logger, dll_sha_by_run=scen.dll_sha_by_run)
     last = scen.state.last_result or {}
@@ -5772,24 +5831,76 @@ def _pipeline_finalize(scen: _PipelineScenario, umbrella_root: str, logger) -> i
 
 
 def _pipeline_join(worker, queue, umbrella_root: str, logger,
-                   allow_retry: bool = True) -> int:
+                   allow_retry: bool = True,
+                   no_retry_reason: str = "the machine lock was lost") -> int:
     """Wait for a lane's post-quit work, fold its result into the scenario and
     either queue the retry at the FRONT (it flies next, i.e. right after the lane
-    that was flying meanwhile) or finalize. Returns the exit-code contribution."""
-    scen, _deferred, bg = worker
+    that was flying meanwhile) or finalize. Returns the exit-code contribution.
+
+    A worker that RAISED still yields a row: its buffered lines are kept and
+    ``fail`` writes INVALID(post-quit-error) naming the exception, so a harness
+    defect can never read as a verdict the chain did not reach."""
+    scen, deferred, bg = worker
+    target = scen.deferred if scen is not None else logger
+    try:
+        result = bg.join(target)
+    except Exception as exc:  # noqa: BLE001 - becomes the lane's INVALID row
+        target.error("Pipeline", "post-quit work FAILED run=%s (%s: %s); the lane is "
+                                 "INVALID(%s)"
+                     % (deferred.run_id, type(exc).__name__, exc,
+                        hlib.POST_QUIT_ERROR_SUBKIND))
+        if deferred.fail is None:
+            return 1
+        result = deferred.fail(target, exc)
+        if scen is None:
+            return 1
     if scen is None:
         # A spec-invalid row: no scenario, no Cost line, exactly as serial.
-        bg.join(logger)
         return 0
-    result = bg.join(scen.deferred)
     if scen.state.record(result, scen.deferred):
         if allow_retry:
             queue.appendleft(("retry", scen))
             return 0
-        scen.deferred.warn("Retry", "retry scenario=%s attempt=2 NOT flown: the machine "
-                                    "lock was lost; attempt 1 is the terminal"
-                           % scen.spec.get("id"))
+        scen.deferred.warn("Retry", "retry scenario=%s attempt=2 NOT flown: %s; attempt 1 "
+                                    "is the terminal" % (scen.spec.get("id"), no_retry_reason))
     return _pipeline_finalize(scen, umbrella_root, logger)
+
+
+def _pipeline_drain(worker, flown, queue, active, umbrella_root: str, logger,
+                    reason: str) -> None:
+    """The selection is stopping early (an exception, Ctrl-C). Land the lane in
+    post-quit work and the lane that just flew, then close every scenario that has
+    attempts but no terminal yet (an owed retry, or the retry that was flying), so
+    each keeps its result rows, held lines, Cost line and archive entry. Best
+    effort: a failure here is logged, never raised over the original exception."""
+    for pending in (worker, None if flown is None else "flown"):
+        if pending is None:
+            continue
+        try:
+            if pending == "flown":
+                pending = _pipeline_start(*flown)
+            _pipeline_join(pending, queue, umbrella_root, logger, allow_retry=False,
+                           no_retry_reason=reason)
+        except BaseException as exc:  # noqa: BLE001 - never mask the original
+            logger.error("Pipeline", "draining a lane FAILED (%s: %s)"
+                         % (type(exc).__name__, exc))
+    open_scens = [item for kind, item in queue if kind == "retry"]
+    if active is not None and active not in open_scens:
+        open_scens.append(active)
+    for scen in open_scens:
+        if scen.finalized:
+            continue
+        if scen.state.attempts_run:
+            scen.deferred.warn("Retry", "retry scenario=%s attempt=%d NOT flown: %s; "
+                                        "attempt %d is the terminal"
+                               % (scen.spec.get("id"), scen.state.attempts_run + 1,
+                                  reason, scen.state.attempts_run))
+        try:
+            _pipeline_finalize(scen, umbrella_root, logger)
+        except BaseException as exc:  # noqa: BLE001 - never mask the original
+            logger.error("Pipeline", "closing scenario=%s FAILED (%s: %s)"
+                         % (scen.spec.get("id"), type(exc).__name__, exc))
+    queue.clear()
 
 
 def _pipeline_start(scen: Optional[_PipelineScenario], deferred: _DeferredAttempt):
@@ -5833,6 +5944,7 @@ def _run_selection_pipelined(selected, registry, bug_ids, umbrella_root, args, r
     queue = deque(("new", spec) for spec in selected)
     worker = None
     flown = None
+    active = None
     try:
         while queue or worker is not None or flown is not None:
             if worker is not None:
@@ -5868,7 +5980,8 @@ def _run_selection_pipelined(selected, registry, bug_ids, umbrella_root, args, r
                         item.deferred.warn("Retry", "retry scenario=%s attempt=2 NOT "
                                                     "flown: %s; attempt 1 is the terminal"
                                            % (item.spec.get("id"), note))
-                        _pipeline_finalize(item, umbrella_root, logger)
+                        exit_code = max(exit_code,
+                                        _pipeline_finalize(item, umbrella_root, logger))
                 queue.clear()
                 return max(exit_code, 1), ran_any
             kind, item = queue.popleft()
@@ -5902,6 +6015,7 @@ def _run_selection_pipelined(selected, registry, bug_ids, umbrella_root, args, r
                 scen = item
             scenario_id = scen.spec.get("id")
             attempt = scen.state.attempts_run + 1
+            active = scen
             logger.info("Lane", hlib.format_lane_begin_message(scenario_id, attempt))
             deferred = run_attempt(scen.spec, scen.instance_dir, umbrella_root, runtime,
                                    attempt, scen.state.prior_boot_crashed, logger,
@@ -5911,14 +6025,13 @@ def _run_selection_pipelined(selected, registry, bug_ids, umbrella_root, args, r
             logger.info("Lane", hlib.format_lane_end_message(deferred.run_id, scenario_id,
                                                              attempt))
             flown = (scen, deferred)
-    finally:
-        # An exception (or Ctrl-C) while a lane is in post-quit work: let that
-        # lane's result land before the caller releases the lock.
-        if worker is not None:
-            try:
-                worker[2].join(logger)
-            except BaseException:  # noqa: BLE001 - best effort on the way out
-                pass
+            active = None
+    except BaseException as exc:
+        # An exception (or Ctrl-C): land what is in flight and close every open
+        # scenario before the caller releases the lock, then re-raise.
+        _pipeline_drain(worker, flown, queue, active, umbrella_root, logger,
+                        "the selection stopped (%s)" % type(exc).__name__)
+        raise
     return exit_code, ran_any
 
 

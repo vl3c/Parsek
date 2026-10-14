@@ -6898,6 +6898,7 @@ class BootStallWatchdogSmokeTests(unittest.TestCase):
 # read may reach the live instance once the next lane has staged.
 # ---------------------------------------------------------------------------
 
+import contextlib  # noqa: E402
 import gzip  # noqa: E402
 import threading  # noqa: E402
 from unittest import mock  # noqa: E402
@@ -7283,12 +7284,17 @@ class PipelinedEdgeSmokeTests(unittest.TestCase):
         self.logger.close()
         shutil.rmtree(self.box, ignore_errors=True)
 
-    def _select(self, ids, plan, heartbeats=None, copy_fails=()):
-        rt = _SelectionRuntime(plan, os.path.join(self.box, "Player.log"))
+    def _select(self, ids, plan, heartbeats=None, copy_fails=(), budgets=None,
+                serial=False, runtime_cls=None, interrupt_at_stage=None, patches=()):
+        rt = (runtime_cls or _SelectionRuntime)(plan, os.path.join(self.box, "Player.log"))
         orig_stage = self._orig_stage
         self.results_at_stage = {}
+        stages = []
 
         def staging(spec, instance_dir, runtime, logger):
+            stages.append(spec.get("id"))
+            if interrupt_at_stage is not None and len(stages) == interrupt_at_stage:
+                raise KeyboardInterrupt()
             rt.current_scenario = spec.get("id")
             self.results_at_stage[spec.get("id")] = sorted(
                 n for n in os.listdir(run.RESULTS_DIR)
@@ -7297,7 +7303,7 @@ class PipelinedEdgeSmokeTests(unittest.TestCase):
         run.stage_fixture = staging
         specs = []
         for sid in ids:
-            spec = _make_spec(self.template, 30, 600)
+            spec = _make_spec(self.template, *((budgets or {}).get(sid, (30, 600))))
             spec["id"] = sid
             specs.append(spec)
         orig_copy = run._take_post_quit_copy
@@ -7309,15 +7315,27 @@ class PipelinedEdgeSmokeTests(unittest.TestCase):
         beats = iter(heartbeats or [])
         env = {k: v for k, v in os.environ.items()
                if k not in (hlib.SERIAL_VERIFY_ENV, hlib.RESULTS_ARCHIVE_OPT_OUT_ENV)}
+        if serial:
+            env[hlib.SERIAL_VERIFY_ENV] = "1"
         args = mock.Mock(instance_dir=self.instance, no_coverage=True, serial_verify=False)
-        with mock.patch.dict(os.environ, env, clear=True), \
-                mock.patch.object(hlib, "validate_spec", lambda *a, **k: _Valid()), \
-                mock.patch.object(run, "resolve_mission_schemas", lambda s, lg=None: (None, [])), \
-                mock.patch.object(run, "_take_post_quit_copy", copy), \
-                mock.patch.object(run, "heartbeat_run_lock",
-                                  lambda *a, **k: next(beats, True)):
-            code = run._run_selection(specs, specs, {}, self.box, args, rt, self.logger,
-                                      "lock", "id=PE-*")
+        self.interrupted = False
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.dict(os.environ, env, clear=True))
+            stack.enter_context(mock.patch.object(hlib, "validate_spec",
+                                                  lambda *a, **k: _Valid()))
+            stack.enter_context(mock.patch.object(run, "resolve_mission_schemas",
+                                                  lambda s, lg=None: (None, [])))
+            stack.enter_context(mock.patch.object(run, "_take_post_quit_copy", copy))
+            stack.enter_context(mock.patch.object(run, "heartbeat_run_lock",
+                                                  lambda *a, **k: next(beats, True)))
+            for target, name, value in patches:
+                stack.enter_context(mock.patch.object(target, name, value))
+            try:
+                code = run._run_selection(specs, specs, {}, self.box, args, rt,
+                                          self.logger, "lock", "id=PE-*")
+            except KeyboardInterrupt:
+                self.interrupted = True
+                code = None
         results = {}
         for name in os.listdir(run.RESULTS_DIR):
             if name.endswith(".json"):
@@ -7367,6 +7385,110 @@ class PipelinedEdgeSmokeTests(unittest.TestCase):
         self.assertIn("retry scenario=PE-A attempt=2 NOT flown", log)
         self.assertIn("scenario cost attempts=1 wallTotal=", log)
 
+    # ---- a killed lane's KSP still tearing down when the next lane preflights ----
+
+    def _archived(self, run_id):
+        return os.path.isfile(os.path.join(self.box, *hlib.RESULTS_ARCHIVE_RELPATH,
+                                           run_id, "manifest.json"))
+
+    def _killed_then_pass(self, serial):
+        code, results, rt, log = self._select(
+            ["PE-A", "PE-B"], {("PE-A", 1): "hang"}, budgets={"PE-A": (1, 2)},
+            serial=serial, runtime_cls=_DyingRuntime)
+        self.assertEqual(["PE-A#1", "PE-B#1"], rt.launch_order)
+        self.assertEqual(["KILLED"], [r["verdict"] for r in results["PE-A"]])
+        self.assertEqual([("PASS", "")], [(r["verdict"], r["subkind"]) for r in results["PE-B"]],
+                         "the lane after a killed one must not be refused instance-busy")
+        return log
+
+    def test_a_killed_lane_does_not_refuse_the_next_one_pipelined(self):
+        log = self._killed_then_pass(serial=False)
+        self.assertIn("prior KSP exited after", log)
+
+    def test_a_killed_lane_does_not_refuse_the_next_one_serial(self):
+        self._killed_then_pass(serial=True)
+
+    # ---- the selection stopping mid-lane ----
+
+    def test_an_interrupt_while_the_next_lane_stages_lands_the_lane_in_work(self):
+        code, results, rt, log = self._select(["PE-A", "PE-B"], {}, interrupt_at_stage=2)
+        self.assertTrue(self.interrupted)
+        (a,) = results["PE-A"]
+        self.assertEqual("PASS", a["verdict"])
+        self.assertIn("attemptsWallSeconds", a)
+        self.assertEqual(1, log.count("scenario cost attempts=1"))
+        self.assertTrue(self._archived(a["runId"]))
+        self.assertNotIn("PE-B", results)
+
+    def test_an_interrupt_before_an_owed_retry_closes_both_scenarios(self):
+        # Stages: A (boot crash), B (A verifies meanwhile; its retry is queued),
+        # then A's retry is interrupted while B is in post-quit work.
+        code, results, rt, log = self._select(["PE-A", "PE-B"], {("PE-A", 1): "bootcrash"},
+                                              interrupt_at_stage=3)
+        self.assertTrue(self.interrupted)
+        self.assertEqual([(1, "INVALID", "boot-crash")],
+                         [(r["attempt"], r["verdict"], r["subkind"]) for r in results["PE-A"]])
+        self.assertEqual(["PASS"], [r["verdict"] for r in results["PE-B"]])
+        for r in results["PE-A"] + results["PE-B"]:
+            self.assertIn("attemptsWallSeconds", r)
+            self.assertTrue(self._archived(r["runId"]))
+        self.assertIn("retry scenario=PE-A attempt=2 NOT flown: the selection stopped "
+                      "(KeyboardInterrupt)", log)
+        # A's held attempt-1 block was written, not dropped.
+        self.assertIn("verdict=INVALID scenario=PE-A attempt=1", log)
+        self.assertEqual(2, log.count("[Cost] scenario cost"))
+
+    def test_a_raising_worker_is_an_invalid_row_not_a_lost_lane(self):
+        orig = run._verify_classify_finish
+
+        def boom(*args, **kwargs):
+            if args[0].get("id") == "PE-A":
+                args[13].info("Verify", "verify reached the synthetic defect")
+                raise RuntimeError("synthetic worker defect")
+            return orig(*args, **kwargs)
+        code, results, rt, log = self._select(
+            ["PE-A", "PE-B"], {}, patches=[(run, "_verify_classify_finish", boom)])
+        self.assertEqual(1, code)
+        self.assertEqual(["PE-A#1", "PE-B#1"], rt.launch_order, "never retried")
+        (a,) = results["PE-A"]
+        self.assertEqual((hlib.VERDICT_INVALID, hlib.POST_QUIT_ERROR_SUBKIND),
+                         (a["verdict"], a["subkind"]))
+        self.assertIn("RuntimeError: synthetic worker defect", a["note"])
+        self.assertTrue(self._archived(a["runId"]))
+        self.assertIn("verify reached the synthetic defect", log)
+        self.assertIn("post-quit work FAILED", log)
+        self.assertEqual(["PASS"], [r["verdict"] for r in results["PE-B"]])
+        self.assertEqual(2, log.count("[Cost] scenario cost"))
+
+
+class _DyingRuntime(_SelectionRuntime):
+    """A watchdog-killed KSP that the process probe still sees for DEATH seconds
+    (the tree outliving KILL_EXIT_WAIT_SECONDS). The killed-run log validation
+    takes VERIFY seconds, standing in for the minute the serial path spent in its
+    verifier chain before the next preflight."""
+
+    DEATH = 2.0
+    VERIFY = 3.0
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.killed_at = None
+
+    def kill_tree(self, proc):
+        pids = super().kill_tree(proc)
+        self.killed_at = time.time()
+        return pids
+
+    def ksp_running(self, instance_dir):
+        if self.killed_at is not None and time.time() < self.killed_at + self.DEATH:
+            return 4242
+        return None
+
+    def run_log_validate(self, log_path, killed, no_recording, timeout):
+        if killed:
+            time.sleep(self.VERIFY)
+        return super().run_log_validate(log_path, killed, no_recording, timeout)
+
 
 class PipelinedVerifyOptOutTests(unittest.TestCase):
     def test_on_by_default_and_off_by_env_or_flag(self):
@@ -7408,76 +7530,413 @@ def _calls_kwarg_names(fn):
     return out
 
 
-class PipelinedVerifyCopySetTests(unittest.TestCase):
-    """The post-quit copy must hold every instance path the post-quit code reads.
-    Walks the code (AST, so comments cannot satisfy it) for instance-rooted path
-    joins and collect-logs.py's ``ksp_dir / ...`` reads, and checks each first
-    path component against the copy set."""
+def _copy_set():
+    """(files, dirs) the post-quit copy holds, as relative path tuples."""
+    files = {tuple(rel.replace("\\", "/").split("/")) for rel in run.POST_QUIT_ROOT_FILES}
+    dirs = {tuple(d) for d in run.POST_QUIT_COPIED_DIRS}
+    return files, dirs
 
-    # Functions that run after KSP exited, in run.py, with the parameter that
-    # names the instance (or private-copy) root in each.
-    POST_QUIT = {
-        "run_verifiers": "instance_dir",
-        "_parse_results": "instance_dir",
-        "read_render_manifest": "instance_dir",
-        "_finish_result": "instance_dir",
-        "_collect_run_artifacts": "instance_dir",
-        "_snapshot_produced_save": "instance_dir",
-        "_verify_classify_finish": "verify_root",
-    }
 
-    def _copy_heads(self):
-        heads = {"saves", "Screenshots"}
-        for rel in run.POST_QUIT_ROOT_FILES:
-            heads.add(rel.replace("\\", "/").split("/")[0])
-        return heads
+def _covered(rel, files, dirs):
+    return rel in files or any(rel[:len(d)] == d for d in dirs)
 
-    def _first_component(self, node):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            return node.value.replace("\\", "/").split("/")[0]
-        if isinstance(node, ast.Name) and isinstance(getattr(run, node.id, None), str):
-            return getattr(run, node.id).replace("\\", "/").split("/")[0]
+
+def _in_copied_dir(rel, dirs):
+    return any(rel[:len(d)] == d for d in dirs)
+
+
+def _split_parts(text):
+    return tuple(p for p in text.replace("\\", "/").split("/") if p)
+
+
+class _InstanceReadWalker:
+    """Fail-closed AST walk of every value derived from the instance root in the
+    post-quit call graph of run.py (following calls into run.py / hlib functions).
+
+    A root-derived value may only be: joined further with os.path.join (string
+    literals, module string constants, ``run_save_name``, or - inside a copied
+    directory - any expression); read by a known reader (open, os.path.isfile /
+    isdir / exists / getsize, os.listdir / stat / walk, shutil.copy* / copytree, the
+    analyzer / log-validation subprocesses), in which case the full relative path
+    must be a copied file or lie inside a copied directory; passed whole (the root
+    only) to collect-logs, whose own reads are checked separately; or used in a
+    way that reads nothing (a truth test, a comparison, string formatting, a string
+    method, ``bool`` / ``os.path.basename``, a dict value). Anything else is a
+    problem, so a new kind of read cannot pass unnoticed."""
+
+    READERS = {"os.path.isfile", "os.path.isdir", "os.path.exists", "os.path.getsize",
+               "os.path.getmtime", "os.listdir", "os.scandir", "os.stat", "os.walk",
+               "shutil.copy", "shutil.copy2", "shutil.copyfile", "shutil.copytree",
+               "gzip.open", "open"}
+    SUBPROCESS_READERS = {"runtime.run_analyzer", "runtime.run_log_validate",
+                          "runtime.run_seed_analyzer"}
+    NON_READS = {"bool", "os.path.basename"}
+    STRING_METHODS = {"rstrip", "lstrip", "strip", "endswith", "startswith"}
+    PLACEHOLDERS = {"run_save_name": "<runSave>"}
+
+    def __init__(self, sources):
+        # sources: {"run": text, "hlib": text}
+        self.modules = {}
+        for mod, text in sources.items():
+            tree = ast.parse(text)
+            self.modules[mod] = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+        self.files, self.dirs = _copy_set()
+        self.problems = []
+        self.reads = set()
+        self._seen = set()
+
+    @staticmethod
+    def _dotted(node):
+        parts = []
+        while isinstance(node, ast.Attribute):
+            parts.append(node.attr)
+            node = node.value
+        if isinstance(node, ast.Name):
+            parts.append(node.id)
+            return ".".join(reversed(parts))
         return None
 
-    def test_every_instance_join_in_post_quit_code_is_copied(self):
-        heads = self._copy_heads()
-        seen = set()
-        for fn_name, root_param in self.POST_QUIT.items():
-            tree = ast.parse(textwrap.dedent(inspect.getsource(getattr(run, fn_name))))
-            for node in ast.walk(tree):
-                if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                        and node.func.attr == "join" and len(node.args) >= 2
-                        and isinstance(node.args[0], ast.Name)
-                        and node.args[0].id == root_param):
+    def walk(self, mod, fn_name, bindings):
+        key = (mod, fn_name, tuple(sorted(bindings.items())))
+        if key in self._seen:
+            return
+        self._seen.add(key)
+        fn = self.modules[mod][fn_name]
+        parents = {}
+        for node in ast.walk(fn):
+            for child in ast.iter_child_nodes(node):
+                parents[child] = node
+        taint = dict(bindings)
+        changed = True
+        while changed:
+            changed = False
+            for node in ast.walk(fn):
+                if isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                        and isinstance(node.targets[0], ast.Name):
+                    rel = self._eval(node.value, taint, "%s.%s" % (mod, fn_name), report=False)
+                    name = node.targets[0].id
+                    if rel is not None and taint.get(name) != rel and name not in bindings:
+                        taint[name] = rel
+                        changed = True
+        where = "%s.%s" % (mod, fn_name)
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) \
+                    and node.id in taint:
+                self._usage(node, taint[node.id], taint, parents, mod, where)
+
+    def _component(self, arg, rel, where):
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+            return _split_parts(arg.value)
+        if isinstance(arg, ast.Name) and isinstance(getattr(run, arg.id, None), str):
+            return _split_parts(getattr(run, arg.id))
+        if isinstance(arg, ast.Name) and arg.id in self.PLACEHOLDERS:
+            return (self.PLACEHOLDERS[arg.id],)
+        if isinstance(arg, ast.Starred):
+            return None
+        if _in_copied_dir(rel, self.dirs):
+            return ("*",)
+        return None
+
+    def _eval(self, node, taint, where, report=True):
+        """The relative path a root-derived expression denotes, or None."""
+        if isinstance(node, ast.Name):
+            return taint.get(node.id)
+        if isinstance(node, ast.Call) and self._dotted(node.func) == "os.path.join" \
+                and node.args:
+            rel = self._eval(node.args[0], taint, where, report)
+            if rel is None:
+                return None
+            for arg in node.args[1:]:
+                part = self._component(arg, rel, where)
+                if part is None:
+                    if report:
+                        self.problems.append("%s: unrecognized path component %s under %s"
+                                             % (where, ast.dump(arg)[:60], "/".join(rel)))
+                    return None
+                rel = rel + part
+            return rel
+        return None
+
+    def _read(self, rel, where, how):
+        self.reads.add(rel)
+        if not _covered(rel, self.files, self.dirs):
+            self.problems.append("%s: %s reads %s, which the post-quit copy does not hold"
+                                 % (where, how, "/".join(rel) or "<instance root>"))
+
+    def _usage(self, node, rel, taint, parents, mod, where):
+        expr = node
+        parent = parents.get(expr)
+        # Climb through joins rooted on this value.
+        while isinstance(parent, ast.Call) and self._dotted(parent.func) == "os.path.join" \
+                and parent.args and parent.args[0] is expr:
+            rel = self._eval(parent, taint, where)
+            if rel is None:
+                return
+            expr, parent = parent, parents.get(parent)
+        # Through value-preserving wrappers.
+        while isinstance(parent, ast.IfExp) and expr is not parent.test:
+            expr, parent = parent, parents.get(parent)
+        if isinstance(parent, ast.keyword):
+            kw = parent.arg
+            expr, parent = parent, parents.get(parent)
+        else:
+            kw = None
+        if isinstance(parent, ast.Assign) and parent.value is expr:
+            if len(parent.targets) == 1 and isinstance(parent.targets[0], ast.Name):
+                return
+            self.problems.append("%s: root-derived value assigned to a non-name" % where)
+            return
+        if isinstance(parent, ast.Call) and (expr in parent.args or kw is not None):
+            name = self._dotted(parent.func)
+            if name in self.READERS:
+                self._read(rel, where, name)
+                return
+            if name in self.SUBPROCESS_READERS:
+                self._read(rel, where, name)
+                return
+            if name == "runtime.run_collect_logs" and rel == ():
+                return  # collect-logs.py's reads: test_every_collect_logs_instance_read_*
+            if name in self.NON_READS or (name or "").startswith("logger."):
+                return
+            target_mod, target_fn = None, None
+            if name in self.modules["run"]:
+                target_mod, target_fn = "run", name
+            elif name and name.startswith("hlib.") and name[5:] in self.modules["hlib"]:
+                target_mod, target_fn = "hlib", name[5:]
+            if target_fn is not None:
+                params = [a.arg for a in self.modules[target_mod][target_fn].args.args]
+                if kw is not None:
+                    param = kw
+                else:
+                    index = parent.args.index(expr)
+                    if index >= len(params) or any(isinstance(a, ast.Starred)
+                                                   for a in parent.args[:index + 1]):
+                        self.problems.append("%s: root-derived value passed positionally "
+                                             "past %s's named params" % (where, name))
+                        return
+                    param = params[index]
+                self.walk(target_mod, target_fn, {param: rel})
+                return
+            self.problems.append("%s: root-derived value (%s) passed to %s"
+                                 % (where, "/".join(rel) or "<root>", name or ast.dump(parent.func)[:40]))
+            return
+        if isinstance(parent, ast.Attribute) and parent.value is expr:
+            if parent.attr in self.STRING_METHODS:
+                return
+            self.problems.append("%s: root-derived value used as .%s" % (where, parent.attr))
+            return
+        if isinstance(parent, ast.Tuple) and isinstance(parents.get(parent), ast.BinOp) \
+                and isinstance(parents[parent].op, ast.Mod):
+            return  # string formatting
+        if isinstance(parent, ast.BinOp) and isinstance(parent.op, ast.Mod) \
+                and parent.right is expr:
+            return
+        if isinstance(parent, (ast.FormattedValue, ast.BoolOp, ast.Compare)):
+            return
+        if isinstance(parent, ast.UnaryOp) and isinstance(parent.op, ast.Not):
+            return
+        if isinstance(parent, (ast.If, ast.IfExp, ast.While)) and parent.test is expr:
+            return
+        if isinstance(parent, ast.Dict) and expr in parent.values:
+            return  # recorded as a string in a result row
+        self.problems.append("%s: unrecognized use of a root-derived value (%s) in %s"
+                             % (where, "/".join(rel) or "<root>", type(parent).__name__))
+
+
+def _run_walker(run_text=None):
+    if run_text is None:
+        run_text = inspect.getsource(run)
+    walker = _InstanceReadWalker({"run": run_text, "hlib": inspect.getsource(hlib)})
+    walker.walk("run", "_verify_classify_finish", {"verify_root": ()})
+    return walker
+
+
+def _collect_logs_problems(text):
+    """The same fail-closed walk for scripts/collect-logs.py: every ``ksp_dir``
+    rooted ``/`` chain (and ``Path(ksp_dir)``) is resolved to its full relative
+    path, which every read must find in the copy set."""
+    files, dirs = _copy_set()
+    tree = ast.parse(text)
+    exempt = {"detect_save", "_detect_save_from_ksp_log", "_detect_save_from_mtime"}
+    readers = {"copy_file", "copy_parsek_sidecar_dirs", "run_log_validation"}
+    method_reads = {"is_file", "is_dir", "exists", "read_text", "read_bytes", "stat"}
+    problems, reads = [], set()
+    for fn in tree.body:
+        if not isinstance(fn, ast.FunctionDef) or fn.name in exempt:
+            continue
+        params = {a.arg for a in fn.args.args}
+        names = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)}
+        if "ksp_dir" not in params and "ksp_dir" not in names:
+            continue
+        parents = {}
+        for node in ast.walk(fn):
+            for child in ast.iter_child_nodes(node):
+                parents[child] = node
+        taint = {"ksp_dir": ()}
+
+        def chain(expr, rel):
+            parent = parents.get(expr)
+            while True:
+                if isinstance(parent, ast.Call) and isinstance(parent.func, ast.Name) \
+                        and parent.func.id == "Path" and parent.args and parent.args[0] is expr:
+                    expr, parent = parent, parents.get(parent)
                     continue
-                head = self._first_component(node.args[1])
-                with self.subTest(fn=fn_name, head=head):
-                    self.assertIsNotNone(head, "an instance join run.py cannot name")
-                    self.assertIn(head, heads)
-                seen.add(head)
-        # The walk is not vacuous: it finds the reads this set was built from.
-        self.assertTrue({"KSP.log", "saves", "Screenshots", run.RESULTS_FILE,
-                         run.RENDER_MANIFEST_FILENAME} <= seen, seen)
+                if isinstance(parent, ast.BinOp) and isinstance(parent.op, ast.Div) \
+                        and parent.left is expr:
+                    right = parent.right
+                    if isinstance(right, ast.Constant) and isinstance(right.value, str):
+                        rel = rel + _split_parts(right.value)
+                    elif isinstance(right, ast.Name) and right.id == "save_name":
+                        rel = rel + ("<runSave>",)
+                    elif _in_copied_dir(rel, dirs):
+                        rel = rel + ("*",)
+                    else:
+                        problems.append("%s: unrecognized component under %s"
+                                        % (fn.name, "/".join(rel)))
+                        return None, None, None
+                    expr, parent = parent, parents.get(parent)
+                    continue
+                return expr, parent, rel
+
+        changed = True
+        while changed:
+            changed = False
+            for node in ast.walk(fn):
+                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) \
+                        and node.id in taint:
+                    expr, parent, rel = chain(node, taint[node.id])
+                    if isinstance(parent, ast.Assign) and len(parent.targets) == 1 \
+                            and isinstance(parent.targets[0], ast.Name) and expr is not node:
+                        name = parent.targets[0].id
+                        if taint.get(name) != rel:
+                            taint[name] = rel
+                            changed = True
+        for node in ast.walk(fn):
+            if not (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+                    and node.id in taint):
+                continue
+            expr, parent, rel = chain(node, taint[node.id])
+            if expr is None:
+                continue
+            where = fn.name
+            if isinstance(parent, ast.Assign):
+                continue
+            if isinstance(parent, ast.Call) and expr in parent.args:
+                fname = parent.func.id if isinstance(parent.func, ast.Name) else None
+                if fname in readers:
+                    reads.add(rel)
+                    if not _covered(rel, files, dirs):
+                        problems.append("%s: %s reads %s" % (where, fname, "/".join(rel)))
+                    continue
+                if fname in ("copy_render_manifest_if_current", "detect_save") and rel == ():
+                    continue  # walked as its own function / only reached without --save
+                if fname == "write_log_validation_failure":
+                    continue  # writes the path's text, reads nothing
+                problems.append("%s: %s passed to %s" % (where, "/".join(rel) or "<root>",
+                                                         fname or ast.dump(parent.func)[:40]))
+                continue
+            if isinstance(parent, ast.Attribute) and parent.value is expr:
+                if parent.attr == "glob" and _in_copied_dir(rel, dirs):
+                    continue
+                if parent.attr in method_reads:
+                    if rel == () and parent.attr == "is_dir":
+                        continue  # the install dir exists; reads nothing in it
+                    reads.add(rel)
+                    if not _covered(rel, files, dirs):
+                        problems.append("%s: .%s() reads %s" % (where, parent.attr,
+                                                                 "/".join(rel)))
+                    continue
+                problems.append("%s: .%s on %s" % (where, parent.attr, "/".join(rel)))
+                continue
+            if isinstance(parent, (ast.FormattedValue, ast.Compare, ast.BoolOp)):
+                continue
+            if isinstance(parent, ast.UnaryOp) and isinstance(parent.op, ast.Not):
+                continue
+            problems.append("%s: unrecognized use of %s in %s"
+                            % (where, "/".join(rel) or "<root>", type(parent).__name__))
+    return problems, reads
+
+
+class PipelinedVerifyCopySetTests(unittest.TestCase):
+    """The post-quit copy must hold every instance path the post-quit code reads.
+    A fail-closed AST walk over the call graph from _verify_classify_finish (see
+    _InstanceReadWalker), and the same over scripts/collect-logs.py, with
+    mutation cells proving the walk reds on the reads it exists to catch."""
+
+    ANCHOR = '    log_path = os.path.join(instance_dir, "KSP.log")\n'
+
+    def _run_text(self):
+        return inspect.getsource(run)
+
+    def _mutant(self, inject, helper=""):
+        text = self._run_text()
+        self.assertEqual(1, text.count(self.ANCHOR))
+        text = text.replace(self.ANCHOR, self.ANCHOR + inject)
+        if helper:
+            anchor = "def run_verifiers("
+            text = text.replace(anchor, helper + "\n\n" + anchor, 1)
+        return _run_walker(text)
+
+    def test_every_post_quit_instance_read_is_copied(self):
+        walker = _run_walker()
+        self.assertEqual([], walker.problems)
+        # Not vacuous: the walk reached the reads the copy set was built from.
+        for rel in (("KSP.log",), (run.RESULTS_FILE,), (run.RENDER_MANIFEST_FILENAME,),
+                    ("saves", "<runSave>"), ("saves", "<runSave>", "persistent.sfs"),
+                    ("saves", "<runSave>", "Parsek", "Recordings"), ("Screenshots",)):
+            self.assertIn(rel, walker.reads)
+
+    def test_the_walk_reds_a_deeper_uncopied_read(self):
+        w = self._mutant('    os.path.isfile(os.path.join(instance_dir, "Logs", "kRPC", "x.log"))\n')
+        self.assertTrue(any("Logs/kRPC/x.log" in p for p in w.problems), w.problems)
+
+    def test_the_walk_reds_a_read_through_a_helper(self):
+        w = self._mutant("    _peek_extra(instance_dir)\n",
+                         helper="def _peek_extra(root):\n"
+                                "    with open(os.path.join(root, \"extra.txt\")) as fh:\n"
+                                "        return fh.read()")
+        self.assertTrue(any("_peek_extra" in p and "extra.txt" in p for p in w.problems),
+                        w.problems)
+
+    def test_the_walk_reds_unrecognized_constructions(self):
+        for inject, needle in (
+                ("    os.listdir(instance_dir)\n", "<instance root>"),
+                ("    os.path.join(instance_dir, *parts)\n", "unrecognized path component"),
+                ("    os.path.join(instance_dir, some_name)\n", "unrecognized path component"),
+                ("    pathlib.Path(instance_dir)\n", "passed to pathlib.Path"),
+                ("    other_save = os.path.join(instance_dir, \"saves\", \"other\")\n"
+                 "    open(other_save)\n", "saves/other")):
+            with self.subTest(inject=inject.strip()):
+                w = self._mutant(inject)
+                self.assertTrue(any(needle in p for p in w.problems), w.problems)
+
+    def _collect_logs_text(self):
+        with open(os.path.join(HARNESS_ROOT, "..", "scripts", "collect-logs.py"),
+                  encoding="utf-8") as fh:
+            return fh.read()
 
     def test_every_collect_logs_instance_read_is_copied(self):
-        path = os.path.join(HARNESS_ROOT, "..", "scripts", "collect-logs.py")
-        with open(path, encoding="utf-8") as fh:
-            tree = ast.parse(fh.read())
-        heads = self._copy_heads()
-        seen = set()
-        for node in ast.walk(tree):
-            if not (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div)):
-                continue
-            left = node.left
-            rooted = (isinstance(left, ast.Name) and left.id == "ksp_dir") or (
-                isinstance(left, ast.Call) and isinstance(left.func, ast.Name)
-                and left.func.id == "Path" and left.args
-                and isinstance(left.args[0], ast.Name) and left.args[0].id == "ksp_dir")
-            if not rooted or not isinstance(node.right, ast.Constant):
-                continue
-            head = str(node.right.value).split("/")[0]
-            seen.add(head)
-            with self.subTest(head=head):
-                self.assertIn(head, heads)
-        self.assertTrue({"KSP.log", "saves", "Logs", run.RESULTS_FILE,
-                         run.RENDER_MANIFEST_FILENAME} <= seen, seen)
+        problems, reads = _collect_logs_problems(self._collect_logs_text())
+        self.assertEqual([], problems)
+        for rel in (("KSP.log",), (run.RESULTS_FILE,), (run.RENDER_MANIFEST_FILENAME,),
+                    ("Logs", "ModuleManager", "ModuleManager.log"),
+                    ("saves", "<runSave>", "persistent.sfs")):
+            self.assertIn(rel, reads)
+        # detect_save (and its helpers, exempt above) only runs without --save,
+        # which the harness always passes.
+        src = textwrap.dedent(inspect.getsource(run.Runtime.run_collect_logs))
+        self.assertIn('"--save", save_name', src)
+
+    def test_the_collect_logs_walk_reds_a_deeper_uncopied_read(self):
+        text = self._collect_logs_text()
+        anchor = '    copy_file(ksp_dir / "KSP.log", out_dir)\n'
+        self.assertEqual(1, text.count(anchor))
+        for inject, needle in (
+                ('    copy_file(ksp_dir / "Logs" / "kRPC" / "x.log", out_dir)\n',
+                 "Logs/kRPC/x.log"),
+                ('    copy_file(Path(ksp_dir) / "saves" / "other" / "x.sfs", out_dir)\n',
+                 "saves/other"),
+                ("    os.listdir(ksp_dir)\n", "passed to")):
+            with self.subTest(inject=inject.strip()):
+                problems, _ = _collect_logs_problems(text.replace(anchor, anchor + inject))
+                self.assertTrue(any(needle in p for p in problems), problems)

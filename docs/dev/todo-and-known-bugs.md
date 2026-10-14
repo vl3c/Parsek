@@ -3948,8 +3948,11 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   into `results/.verify-private/<runId>/` and runs all of that on a worker over the copy while
   the next lane stages and boots; one lane in post-quit work at a time, lock / stage / launch
   serial. Same verdicts and records (fake-KSP smoke flies one selection both ways and diffs
-  every result); a retry now flies one lane later. Opt out: `PARSEK_HARNESS_SERIAL_VERIFY=1` or
-  `--serial-verify`. Contract: `design-autotest-harness-core.md` "Pipelined post-quit
+  every result); a retry now flies one lane later. Review follow-up: the next lane's zombie
+  preflight waits up to 180 s for a killed predecessor's KSP instead of refusing it busy; a
+  raising worker is an INVALID(post-quit-error) row; Ctrl-C / an exception closes every open
+  scenario; the copy-set test is a fail-closed call-graph walk. Opt out:
+  `PARSEK_HARNESS_SERIAL_VERIFY=1` or `--serial-verify`. Contract: `design-autotest-harness-core.md` "Pipelined post-quit
   verification". To close: fly one nightly pipelined and compare its tier wall and per-lane
   kspBoot (CPU contention with the verifiers) against the 2026-10-11/12 nightly above; expected
   ~30 min saved per nightly less the `[Pipeline] post-quit copy ... wall=` cost.
