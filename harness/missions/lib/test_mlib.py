@@ -11472,7 +11472,7 @@ class ApproachLatchNativeWarpTests(unittest.TestCase):
             {"approachLatchNativeWarp": True}).approach_latch_native_warp)
         self.assertIsNone(mlib.b5_initial_state(self._params()).approach_entry_ut)
 
-    def test_b20_is_the_only_spec_that_arms_the_key(self):
+    def test_no_spec_arms_the_key(self):
         armed = []
         for name in sorted(os.listdir(os.path.join(HARNESS_ROOT, "scenarios"))):
             if not name.endswith(".toml"):
@@ -11481,7 +11481,7 @@ class ApproachLatchNativeWarpTests(unittest.TestCase):
                 mp = tomllib.load(fh).get("driver", {}).get("missionParams", {})
             if mp.get("approachLatchNativeWarp"):
                 armed.append(name)
-        self.assertEqual(["B21-eeloo-orbit.toml"], armed)
+        self.assertEqual([], armed)
 
     def test_the_specs_that_arm_a_soi_native_lead(self):
         armed = []
@@ -11502,7 +11502,7 @@ class ApproachLatchNativeWarpTests(unittest.TestCase):
             p.approach_max_warp_factor, p.coast_warp_factor))
         self.assertLess(4200.0, p.soi_lead)
         self.assertEqual((p.soi_lead, "default"), mlib.coast_trigger_native_lead(p))
-        self.assertTrue(p.approach_latch_native_warp)
+        self.assertFalse(p.approach_latch_native_warp)
 
     def test_b20_dropped_the_coast_keys(self):
         p = mlib.b5_params_from_dict(_scenario_mission_params(self.B20))
