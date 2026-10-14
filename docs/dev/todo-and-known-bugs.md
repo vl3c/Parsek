@@ -3864,6 +3864,22 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   Main's own run-to-run spread on these lanes is not measured, so the outcome is not shown
   unchanged and the key stays on B22 only. Open: two more plain-main flights per lane would
   say whether those parks are inside main's spread (about 3 h of machine time).
+- [x] Coast native lead + latched-approach native warp, measured against plain-main variance
+  (2026-10-13/14, branch `coast-native-lead-2`, owner gate: keep an opt-in only where the arrival
+  stays inside main's own spread). New default-off b5 key `approachLatchNativeWarp`: on the
+  latched target-SOI approach with a blind clock (`tts=nan`, which B19-B21 read for most of the
+  approach), native-warp to the remembered entry UT minus the native lead instead of holding the
+  rails cap for the whole window. Plain-main parks (park apoapsis): B19 1,051,483 / 1,051,512 m
+  (`2026-10-12_1149`, `2026-10-13_1624`); B20 428,433 / 444,354 / 496,511 m (`_1259`,
+  `2026-10-13_1713`, `_2137`); B21 10,621,342 / 9,699,388 / 12,791,382 m (`_1431`, `_1533`,
+  `_2046`). Opt-in flights: B21 (coast lead 4,200 s + latch + `circularizeNodeWaitWarp`, the
+  owner's B21-only park-skip ruling) `2026-10-14_0039` 11,593,287 m, corrections 166.79 / 5.79
+  m/s against main's 166.80 / 5.52 and 166.79 / 5.43, wall 3,045 -> 2,448 s: KEPT. B19 (coast
+  lead) `2026-10-13_2351` 942,969 m (second correction 15.97 vs 14.03 / 14.26), wall -110 s:
+  DROPPED. B20 (coast lead 600 s + latch) `2026-10-13_2255` 381,492 m and `2026-10-14_0154`
+  543,562 m, wall ~4,650 -> ~3,355 s: DROPPED (both outside main's spread; the mean matches, the
+  spread widens, so an owner may revisit). B19's 29 m main spread shows the faster coast moves
+  WHEN the late correction fires, so the arrival genuinely changes, not only its noise.
 - [x] Optional refresh re-flies of the b5 lanes last flown before #1958: B24, B33, B34, B35,
   B25, B28, B23 and B12. Done by the 2026-10-11 nightly and 2026-10-12 operator tiers: each
   MISSION-OK, analyzer recoverable now 51-108 s per lane (B24 108, B34 57, B35 / B25 56, B33
