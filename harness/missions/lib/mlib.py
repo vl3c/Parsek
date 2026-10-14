@@ -17159,7 +17159,10 @@ class BDockState:
 # closest approach (the same one-period horizon) is under
 # rendezvous_min_ca_distance, ending the mission MISSION-ASSERT-FAIL with a
 # reason that leads with RENDEZVOUS_GEOMETRY_REASON_TOKEN, before any burn. An
-# unread closest approach fails open (the AP is enabled, as before the gate).
+# unread closest approach fails OPEN by design (the AP is enabled, as before the
+# gate): the runner reads NaN on any kRPC fault, and a refusal on a transient
+# read miss would end a healthy flight; the launch hold is what sets the
+# geometry, the gate only names a geometry the hold failed to set.
 RENDEZVOUS_GEOMETRY_REASON_TOKEN = "rendezvous-geometry"
 
 
@@ -18328,12 +18331,16 @@ def _sdock_launch_hold(state: SDockState, snapshot: TelemetrySnapshot
     if not (_is_finite(target) and _is_finite(snapshot.ut)):
         return None
     ut = float(snapshot.ut)
+    # A native warp_to in flight reads warping_to before the game leaves 1x, so
+    # either signal counts as an active warp (never re-issue over it, never
+    # launch under it).
+    warping = snapshot.warp_mode != WARP_NONE or _is_finite(snapshot.warping_to)
     if ut < target - SDOCK_LAUNCH_HOLD_TOLERANCE_S:
         due = (state.launch_hold_issues == 0
                or (state.launch_hold_issues < SDOCK_LAUNCH_HOLD_MAX_ISSUES
                    and _is_finite(state.launch_hold_last_issue_ut)
                    and ut - state.launch_hold_last_issue_ut >= SDOCK_LAUNCH_HOLD_REISSUE_S))
-        if snapshot.warp_mode == WARP_NONE and due:
+        if not warping and due:
             return (replace(state, launch_hold_issues=state.launch_hold_issues + 1,
                             launch_hold_last_issue_ut=ut),
                     [Action(ACTION_WARP_TO_UT, float(target),
@@ -18341,7 +18348,7 @@ def _sdock_launch_hold(state: SDockState, snapshot: TelemetrySnapshot
                                   "(now %.1f, issue %d)"
                                   % (target, ut, state.launch_hold_issues + 1)))])
         return state, []
-    if snapshot.warp_mode != WARP_NONE and state.launch_hold_issues > 0:
+    if warping and state.launch_hold_issues > 0:
         if state.launch_hold_cancelled:
             return state, []
         return (replace(state, launch_hold_cancelled=True),

@@ -228,8 +228,9 @@ def _prelaunch(target=9195.0):
     return mlib.sdock_initial_state(params)
 
 
-def _pad(ut, warp="NONE"):
-    return snap(ut=ut, warp_mode=warp, altitude=116184.3, apoapsis=117171.5,
+def _pad(ut, warp="NONE", warping_to=NAN):
+    return snap(ut=ut, warp_mode=warp, warping_to=warping_to,
+                altitude=116184.3, apoapsis=117171.5,
                 periapsis=101410.0, situation="ORBITING", body="Kerbin")
 
 
@@ -263,6 +264,20 @@ class LaunchHoldTests(unittest.TestCase):
         st, actions = mlib.sdock_decide(st, _pad(9191.0, "RAILS"))
         self.assertEqual([], actions)
         st, actions = mlib.sdock_decide(st, _pad(9191.5))
+        self.assertEqual(mlib.BDOCK_INT_LAUNCH, st.phase)
+
+    def test_a_set_warping_to_counts_as_an_active_warp(self):
+        """A native warp_to reads warping_to while the game still reads 1x: no
+        re-issue over it, and no launch under it (MUTATION: read warp_mode only
+        and both halves red)."""
+        st, _ = mlib.sdock_decide(_prelaunch(), _pad(8953.4))
+        st, actions = mlib.sdock_decide(st, _pad(8970.0, warping_to=9195.0))
+        self.assertEqual([], actions)
+        self.assertEqual(1, st.launch_hold_issues)
+        st, actions = mlib.sdock_decide(st, _pad(9190.0, warping_to=9195.0))
+        self.assertEqual(mlib.BDOCK_PRELAUNCH, st.phase)
+        self.assertEqual([mlib.ACTION_CANCEL_WARP], _kinds(actions))
+        st, actions = mlib.sdock_decide(st, _pad(9191.0))
         self.assertEqual(mlib.BDOCK_INT_LAUNCH, st.phase)
 
     def test_a_warp_that_never_takes_is_reissued_a_bounded_number_of_times(self):
