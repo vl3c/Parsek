@@ -356,7 +356,6 @@ soiLeadSeconds             = 100000
 # which the re-sized mission budget absorbs.
 approachWindowSeconds      = 200000
 approachMaxWarpFactor      = 5
-
 flipPhysicsWarpFactor      = 1
 # Dres has NO atmosphere; its peaks reach ~5.7 km. 50 km is ~9x the highest
 # terrain and asserts the whole in-SOI stay (arrival AND park) stayed in clean
