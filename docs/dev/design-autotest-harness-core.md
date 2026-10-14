@@ -202,7 +202,7 @@ Treat this paragraph as the amendment of record for plan section 4.
 ```toml
 schema = 1
 id = "B10-career-passive-safety"
-tier = "daily"                       # perpr | daily | nightly | weekly | pending-fixture
+tier = "daily"                       # perpr | daily | nightly | weekly | pending-fixture | operator | longhaul
 # pending-fixture is a READINESS state, not a cadence: a spec whose fixture save is
 # not committed yet self-declares it so it is EXCLUDED from every --cadence run (no
 # cadence maps to it) instead of INVALID(staging)-ing terminally each daily run and
@@ -977,6 +977,10 @@ NO cadence resolves to the `pending-fixture` tier (integration item 4): a spec w
 fixture save is not committed yet is excluded from EVERY `--cadence` run so it cannot
 INVALID(staging) terminally and self-quarantine a scenario that never ran; `--tier
 pending-fixture` still selects it for an operator smoke run once the fixture lands.
+The two ON-REQUEST tiers, `operator` and `longhaul` (`hlib.ON_REQUEST_TIERS`), are in
+no cadence set either and fly only under an explicit `--tier` / `--id`; `longhaul`
+holds the operator-class lanes whose `coverage/duration.json` p50 is at least 1,800 s
+(owner ruling 2026-10-14), so a `--tier operator` request stays affordable.
 Selection is pure (`hlib.select_scenarios(specs, expr)`), so the exact set a
 cadence resolves to is unit-tested. Selected specs are validated
 (`hlib.validate_spec`); any invalid spec is reported and SKIPPED with an

@@ -7650,6 +7650,7 @@ class SelectionTests(unittest.TestCase):
         {"id": "D", "tier": "perpr", "tags": []},
         {"id": "E", "tier": "operator", "tags": ["rewind", "pending-operator"]},
         {"id": "P", "tier": "pending-fixture", "tags": ["awaiting-fixture"]},
+        {"id": "L", "tier": "longhaul", "tags": ["interplanetary"]},
     ]
 
     def test_by_id(self):
@@ -7685,6 +7686,21 @@ class SelectionTests(unittest.TestCase):
         self.assertIn("operator", hlib.TIERS)
         self.assertNotIn("operator", [t for ts in hlib.CADENCE_TIERS.values() for t in ts])
 
+    def test_longhaul_is_an_on_request_tier_in_no_cadence(self):
+        self.assertIn("longhaul", hlib.TIERS)
+        self.assertEqual(hlib.ON_REQUEST_TIERS, ("operator", "longhaul"))
+        for tier in hlib.ON_REQUEST_TIERS:
+            self.assertIn(tier, hlib.TIERS)
+            self.assertNotIn(tier, [t for ts in hlib.CADENCE_TIERS.values() for t in ts])
+        for cadence in ("per-pr", "daily", "nightly", "weekly"):
+            got = [s["id"] for s in hlib.select_scenarios(self.SPECS, "--cadence " + cadence)]
+            self.assertNotIn("L", got, "longhaul spec leaked into cadence %s" % cadence)
+
+    def test_longhaul_and_operator_tiers_are_disjoint_selections(self):
+        # --tier is an exact match: neither on-request tier pulls in the other.
+        self.assertEqual([s["id"] for s in hlib.select_scenarios(self.SPECS, "--tier longhaul")], ["L"])
+        self.assertEqual([s["id"] for s in hlib.select_scenarios(self.SPECS, "--tier operator")], ["E"])
+
     def test_cadence_daily(self):
         # Item 4: a daily cadence run must NOT pick up the pending-fixture spec (it
         # would INVALID(staging) terminally and self-quarantine a scenario that never ran).
@@ -7703,6 +7719,54 @@ class SelectionTests(unittest.TestCase):
 
     def test_unknown_kind_empty(self):
         self.assertEqual(hlib.select_scenarios(self.SPECS, "--bogus x"), [])
+
+
+class LongHaulTierMembershipTests(unittest.TestCase):
+    """The 2026-10-14 long-haul split (owner ruling), pinned over the COMMITTED
+    corpus through the same loader and selector `run.py --tier X --dry-run` uses.
+
+    The membership rule is mechanical - an operator-class spec whose measured
+    coverage/duration.json p50 is at least hlib.LONGHAUL_MIN_P50_SECONDS - but the
+    ledger moves on every refresh, so the set is PINNED here rather than recomputed:
+    re-tiering a lane in or out is an owner call recorded by editing this tuple."""
+
+    LONGHAUL_IDS = (
+        "B16-eve-orbit",
+        "B19-dres-orbit",
+        "B20-moho-orbit",
+        "B21-eeloo-orbit",
+        "B22-jool-orbit",
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        cls.specs = run.load_all_specs()
+
+    def _ids(self, expr):
+        return sorted(s.get("id") for s in hlib.select_scenarios(self.specs, expr))
+
+    def test_tier_longhaul_selects_exactly_the_pinned_set(self):
+        self.assertEqual(sorted(self.LONGHAUL_IDS), self._ids("--tier longhaul"))
+
+    def test_tier_operator_no_longer_selects_them(self):
+        self.assertEqual([], sorted(set(self.LONGHAUL_IDS) & set(self._ids("--tier operator"))))
+
+    def test_no_cadence_selects_them(self):
+        for cadence in ("per-pr", "daily", "nightly", "weekly"):
+            with self.subTest(cadence=cadence):
+                self.assertEqual(
+                    [], sorted(set(self.LONGHAUL_IDS) & set(self._ids("--cadence " + cadence))))
+
+    def test_every_longhaul_spec_validates(self):
+        # The dry-run path validates every selected spec, so a tier outside
+        # hlib.TIERS would surface there as an INVALID-SPEC; check it here instead.
+        registry = run.load_registry()
+        for spec in self.specs:
+            if spec.get("tier") == "longhaul":
+                with self.subTest(spec=spec.get("id")):
+                    errors = [e for e in hlib.validate_spec(spec, registry).errors
+                              if e.startswith("tier:")]
+                    self.assertEqual([], errors)
 
 
 # ---------------------------------------------------------------------------
@@ -9754,7 +9818,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "except the cadence decision itself, which only a human "
                                        "makes. NOT tier=operator: a nightly spec can owe operator "
                                        "work, exactly as S1.5 does.",
-        "B16-eve-orbit.toml":          "tier=operator AND a documented outstanding human call - "
+        "B16-eve-orbit.toml":          "tier=longhaul AND a documented outstanding human call - "
                                        "the PROMOTE note ('the PROVISIONAL pins need a human "
                                        "reading the result'); status doc: 'TIER NOT CHANGED ... "
                                        "left as an explicit human call'.",
@@ -10853,11 +10917,15 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     def test_carriers_claiming_operator_tier_really_are_operator_tier(self):
         """The one half of a carrier's justification that IS machine-checkable."""
         specs = self._specs()
-        # startswith, not ==: a reason may CITE operator-tier and then add more
-        # (B16 does), and that citation must still be checked.
-        wrong = sorted(n for n, why in self.CARRIERS.items()
-                       if why.startswith("tier=operator") and specs[n][0] != "operator")
-        self.assertEqual([], wrong, "CARRIERS claims tier=operator for a spec that is not")
+        # A prefix match, not ==: a reason may CITE its on-request tier and then add
+        # more (B16 does), and that citation must still be checked. Every on-request
+        # tier is covered, so a carrier citing `tier=longhaul` is checked too.
+        wrong = []
+        for n, why in self.CARRIERS.items():
+            m = re.match(r"tier=([A-Za-z-]+)", why)
+            if m and specs[n][0] != m.group(1):
+                wrong.append(n)
+        self.assertEqual([], sorted(wrong), "CARRIERS cites a tier the spec does not have")
 
     def test_every_untagged_candidate_is_classified(self):
         """The completeness half, over BOTH populations that can owe operator
@@ -10868,8 +10936,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         candidate is honest for three reasons - the debt is discharged, it
         belongs to another spec, or the tier is a mechanism rather than a debt
         (the FORGE runs) - and each must be a recorded human call."""
+        # Both on-request tiers count: a lane moved from `operator` to `longhaul`
+        # (owner ruling 2026-10-14) owes the same recorded human call it did before.
         mentions = sorted(n for n, (tier, tagged, m) in self._specs().items()
-                          if (m or tier == "operator") and not tagged)
+                          if (m or tier in hlib.ON_REQUEST_TIERS) and not tagged)
         self.assertEqual(sorted(self.REVIEWED_UNTAGGED), mentions,
                          "an untagged spec mentions PENDING-OPERATOR without a recorded "
                          "classification; read its row in docs/dev/autotest-status.md, then "
