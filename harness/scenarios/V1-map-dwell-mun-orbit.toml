@@ -226,7 +226,7 @@ dwellRampFrames            = 600
 # RECORDED Kerbin->Mun boundary UT at held 10x (factor 2) until entry + 300 s.
 # ~600 game-s at 10x = ~60 wall s of dense sampling bracketing the crossing.
 # 300 -> 60 (lead and trail) per docs/dev/research/harness-dwell-and-shared-flight-audit-2026-10-14.md (A5): the crossing runs at 1x,
-# and the parity samples sit within ~40 s of the recorded crossing. PENDING a confirm flight.
+# and the parity samples sit within ~40 s of the recorded crossing. Confirmed green 2026-10-14_0138 (961 s).
 soiDwellLeadSeconds        = 60.0
 soiDwellWarpFrames         = 1200
 soiDwellCrossFactor        = 2

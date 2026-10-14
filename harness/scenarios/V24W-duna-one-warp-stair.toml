@@ -598,7 +598,7 @@ arriveOffsetSeconds  = 18329155.146610025
 parkOffsetSeconds    = 18390509.0
 dwellLeadSeconds     = 300
 # 900 -> 120 per docs/dev/research/harness-dwell-and-shared-flight-audit-2026-10-14.md (A1): the above-1x buckets and seam traversals come
-# from the stair, not the 1x tail. PENDING a confirm flight.
+# from the stair, not the 1x tail. Confirmed green 2026-10-14_0129 (521 s).
 dwellHoldSeconds     = 120
 mapCamera            = true
 cameraFocusBody      = "Duna"

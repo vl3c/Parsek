@@ -76,7 +76,7 @@ departOffsetSeconds  = 89448.917
 arriveOffsetSeconds  = 4474604.451
 parkOffsetSeconds    = 4506361.140
 # 120 -> 10 and hold 300 -> 20 per docs/dev/research/harness-dwell-and-shared-flight-audit-2026-10-14.md (A2): every required
-# token fires at ARM and the parked holds are vacuous (hidden-by-zone). PENDING a confirm flight.
+# token fires at ARM and the parked holds are vacuous (hidden-by-zone). Confirmed green 2026-10-14_0120 (113 s).
 dwellLeadSeconds     = 10
 dwellHoldSeconds     = 20
 mapCamera            = false
