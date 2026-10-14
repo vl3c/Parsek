@@ -1382,8 +1382,8 @@ machine, and the second would skip rather than queue.
 **The `longhaul` tier** (owner ruling 2026-10-14) holds the operator-class lanes
 whose measured wall, `coverage/duration.json` p50, is at least 1,800 s
 (`hlib.LONGHAUL_MIN_P50_SECONDS`): `B16-eve-orbit`, `B19-dres-orbit`,
-`B20-moho-orbit`, `B21-eeloo-orbit`, `B22-jool-orbit` and
-`V24W-duna-one-warp-stair`, about 5 h of p50 wall together. Split out so a
+`B20-moho-orbit`, `B21-eeloo-orbit` and `B22-jool-orbit`, about 4 h of p50 wall
+together (V24W left again on 2026-10-14 after its dwell cut). Split out so a
 `--tier operator` request stays affordable; it is on request exactly like
 `operator` (`hlib.ON_REQUEST_TIERS`, no cadence maps to it). The set is pinned by
 `LongHaulTierMembershipTests` in `lib/test_hlib.py`; moving a lane in or out is an

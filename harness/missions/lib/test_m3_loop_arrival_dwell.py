@@ -588,10 +588,11 @@ def v24w_params(**over):
         "arriveOffsetSeconds": V24W_ARRIVE,
         "parkOffsetSeconds": V24W_PARK,
         "dwellLeadSeconds": 300.0,
-        "dwellHoldSeconds": 900.0,
+        # The spec's own value (900 -> 120 per the 2026-10-14 dwell audit, A1).
+        "dwellHoldSeconds": 120.0,
         # The spec's own value, and it MUST exceed dwellHoldSeconds: the stall
-        # detector fires between the two, so the 600 s default would flake a
-        # 900 s hold by construction.
+        # detector fires between the two (the spec keeps 1800 from the old
+        # 900 s hold).
         "holdTimeoutSeconds": 1800.0,
     }
     base.update(over)

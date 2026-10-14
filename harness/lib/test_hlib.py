@@ -7736,7 +7736,6 @@ class LongHaulTierMembershipTests(unittest.TestCase):
         "B20-moho-orbit",
         "B21-eeloo-orbit",
         "B22-jool-orbit",
-        "V24W-duna-one-warp-stair",
     )
 
     @classmethod
