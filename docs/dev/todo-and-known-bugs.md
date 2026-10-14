@@ -84,14 +84,28 @@ run survived only because MechJeb's close-range intercept burns (317 and 240 m/s
 -101 km) climbed back to the Station. BDOCK-1 starts ~58 deg ahead and gets a plain 17 m/s
 Hohmann. The 10-02 green run is not on disk to compare.
 
-Fix (branch `bdock2-rendezvous`): BDOCK-2's `interceptorLaunchNotBeforeUt = 9195` rails-warps the
-Station until ut 9195 before the launch (mlib `_sdock_launch_hold`), so the rendezvous starts
-with the Station ~55 deg ahead and the next-orbit pass ~480 km away; the launch UT pins the
-geometry whatever the harness spends reaching the first frame (each second adds 0.1634 deg; any
-launch in ~9010..9335 stays in 25..78 deg). `rendezvousMinCaDistanceMeters = 60000` arms a gate in
-SET-TARGET (`rendezvous_geometry_refusal`) that ends the mission `rendezvous-geometry: ...`
-before any burn if the next-orbit closest approach is ever under 60 km. Both keys default off,
-so BDOCK-1, CI-9 and SD-1 are unchanged. Needs a BDOCK-2 flight to close.
+First fix (launch hold only) flown `2026-10-14_1754`, still red: the hold worked (launch ut
+9176.1, Station 52 deg ahead, tgtD 615.6 km, as modelled), MechJeb flew a 6.3 m/s plane match
+(LAN 292 -> 145.8 deg, relative inclination 0.16 deg -> under 0.05), then its Hohmann branch
+planned 121.1 m/s at ut 10239.1, 190 s ahead, onto sma 644 km ecc 0.089 (101.6 x -13.5 km)
+while the true Hohmann window was ~3 orbits away. That branch is
+`DeltaVAndTimeForHohmannTransfer` -> MechJebLib `TwoImpulseTransfer.NextManeuver`: an alglib
+local minimization of |dv1| + |dv2| over burn delay AND transfer time, seeded at "burn now",
+with no periapsis term, accepted when under five orbits away. Which branch fires and which
+local minimum it lands in both move with geometry, so no launch time or park orbit fixes it.
+
+Fix (branch `bdock2-rendezvous`): mlib's RENDEZVOUS NODE GUARD reads every rendezvous node's
+post-node periapsis (kRPC `Node.orbit`). A node leaving pe under the atmosphere top + 5 km never
+burns: the guard switches the AP off, clears the node, computes the coplanar Hohmann window from
+the measured phase (`target_phase_deg`, `hohmann_wait_seconds`), asks MechJeb's transfer
+operation for a FIXED-TIME node at that window (TimeSelector X_FROM_NOW: OperationGeneric then
+passes fixedTime=true, so only the transfer time is optimized), checks and flies it, then turns
+the AP back on for the arrival. One own transfer per flight; a second deorbiting node, a
+deorbiting own node or an unreadable phase ends the mission `rendezvous-plan-deorbits: ...`
+before that burn. The launch hold (`interceptorLaunchNotBeforeUt = 9195`) stays; the 60 km
+closest-approach gate is dropped (the guard catches the 26 km velocity-match node at plan time
+and recovers it). The guard runs only in RENDEZVOUS: BDOCK-1's measured nodes never trip it, and
+the archived CI-9 / SD-1 / VN-4 / VN-10 runs never entered RENDEZVOUS. Needs a BDOCK-2 flight.
 
 ## HARNESS-MODDED-COMPAT-NEVER-PROVISIONED: the MC lanes on modded-compat fly whatever Parsek.dll that instance last received [FILED 2026-10-12 from the operator tier. OPEN, harness]
 

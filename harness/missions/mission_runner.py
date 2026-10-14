@@ -735,6 +735,11 @@ class KrpcMissionControl(MissionControl):
             target_rel_speed = float("nan")
             target_ca_ut = float("nan")
             target_ca_distance = float("nan")
+            node_next_pe = float("nan")
+            target_phase_deg = float("nan")
+            orbit_sma = float("nan")
+            target_sma = float("nan")
+            body_mu = float("nan")
             docking_state = ""
             target_set = False
             mj_rv_enabled = False
@@ -752,6 +757,9 @@ class KrpcMissionControl(MissionControl):
                 target_distance, target_rel_speed, target_set = \
                     self._read_target_controller()
                 target_ca_ut, target_ca_distance = self._read_target_closest_approach(sc, v)
+                node_next_pe = self._read_node_next_pe(nodes)
+                (target_phase_deg, orbit_sma, target_sma,
+                 body_mu) = self._read_rendezvous_geometry(sc, v, body)
                 mj_rv_enabled, mj_dock_enabled = self._read_docking_ap_enabled()
                 docking_state = self._read_docking_state(v)
                 try:
@@ -1001,6 +1009,11 @@ class KrpcMissionControl(MissionControl):
                 target_rel_speed=target_rel_speed,
                 target_ca_ut=target_ca_ut,
                 target_ca_distance=target_ca_distance,
+                node_next_pe=node_next_pe,
+                target_phase_deg=target_phase_deg,
+                orbit_sma=orbit_sma,
+                target_sma=target_sma,
+                body_mu=body_mu,
                 docking_state=docking_state,
                 target_set=target_set,
                 mj_rendezvous_enabled=mj_rv_enabled,
@@ -2184,6 +2197,46 @@ class KrpcMissionControl(MissionControl):
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Rendezvous", "autowarp set failed: %s" % (exc,)))
             rv.enabled = True
+        elif kind == mlib.ACTION_MJ_DISABLE_RENDEZVOUS:
+            # RENDEZVOUS NODE GUARD: stop the AP re-planning (its
+            # OnModuleDisabled aborts the executor). Logged, never raised.
+            try:
+                self._mechjeb.rendezvous_autopilot.enabled = False
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Info", "Rendezvous", "rendezvous AP disabled (%s)"
+                    % (getattr(action, "text", None) or "no reason")))
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Rendezvous", "rendezvous AP disable failed: %s" % (exc,)))
+        elif kind == mlib.ACTION_MJ_PLAN_TRANSFER_AT:
+            # RENDEZVOUS NODE GUARD own transfer: OperationGeneric with its
+            # TimeSelector at X_FROM_NOW makes MechJeb plan a FIXED-TIME
+            # two-impulse intercept from that burn time (decompiled 2.15.1
+            # OperationGeneric.MakeNodesImpl: a non-COMPUTED time reference
+            # sets fixedTime=true). Read the node back and log it; the machine
+            # guards it like any rendezvous node before it flies.
+            try:
+                if len(control.nodes) > 0:
+                    control.remove_nodes()
+                op = self._mechjeb.maneuver_planner.operation_transfer
+                op.capture = False
+                op.plan_capture = False
+                op.rendezvous = True
+                ts = op.time_selector
+                ts.time_reference = self._mechjeb.TimeReference.x_from_now
+                ts.lead_time = float(action.value)
+                op.make_nodes()
+                back = control.nodes
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Info", "Plan",
+                    "own transfer planned lead=%.1f s: nodes=%d ut=%s dv=%s nextPe=%s"
+                    % (float(action.value), len(back),
+                       _fmt(float(back[0].ut)) if back else "-",
+                       _fmt(float(back[0].delta_v)) if back else "-",
+                       _fmt(self._read_node_next_pe(back)))))
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Plan", "own transfer make_nodes failed: %s" % (exc,)))
         elif kind == mlib.ACTION_MJ_KILL_REL_VEL:
             # Belt+braces to the rendezvous AP's own terminal match: plan +
             # execute a kill-relative-velocity node. Throw/log/swallow (a
@@ -3210,6 +3263,39 @@ class KrpcMissionControl(MissionControl):
             except Exception:
                 pass
         return distance, rel_speed, target_set
+
+    def _read_node_next_pe(self, nodes) -> float:
+        """Periapsis altitude (m) of the orbit after the first maneuver node
+        (kRPC Node.orbit), the RENDEZVOUS NODE GUARD's input; NaN with no node
+        or on any fault, which never trips the guard and never counts toward
+        the vessel-lost read-fail streak."""
+        try:
+            if not nodes:
+                return float("nan")
+            return float(nodes[0].orbit.periapsis_altitude)
+        except Exception:
+            return float("nan")
+
+    def _read_rendezvous_geometry(self, sc, vessel, body
+                                  ) -> Tuple[float, float, float, float]:
+        """(target phase deg, own sma m, target sma m, body mu) for the
+        RENDEZVOUS NODE GUARD's own Hohmann window. The phase is
+        mlib.signed_phase_deg over the body's non-rotating frame (positive =
+        target ahead). All NaN with no target vessel or on any fault."""
+        nan = float("nan")
+        try:
+            tv = sc.target_vessel
+            if tv is None:
+                return nan, nan, nan, nan
+            frame = body.non_rotating_reference_frame
+            phase = mlib.signed_phase_deg(vessel.position(frame),
+                                          vessel.velocity(frame),
+                                          tv.position(frame))
+            return (float(phase), float(vessel.orbit.semi_major_axis),
+                    float(tv.orbit.semi_major_axis),
+                    float(body.gravitational_parameter))
+        except Exception:
+            return nan, nan, nan, nan
 
     def _read_target_closest_approach(self, sc, vessel) -> Tuple[float, float]:
         """(time, distance) of the next closest approach to the TARGET VESSEL

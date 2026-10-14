@@ -123,13 +123,6 @@ required = false
 type = "number"
 min = 0.0
 
-# The smallest next-orbit closest approach at which SET-TARGET enables MechJeb's
-# rendezvous AP; 0 / absent disables the gate.
-[params.rendezvousMinCaDistanceMeters]
-required = false
-type = "number"
-min = 0.0
-
 # --- The background tail (GAME seconds at 1x; the tail never warps). ---
 # persistentId of the pre-existing vessel the tail stock-clicks; 0 disables the tail.
 [params.bgSubjectPid]

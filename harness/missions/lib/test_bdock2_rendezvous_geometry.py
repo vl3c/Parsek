@@ -12,16 +12,22 @@ the Station's sma/25 = 28.4 km. Matching the Station's velocity 23 km below it
 gave 2026-10-13_0309 a 96.7 m/s node and a 97 x 31 km orbit (a = 664 km, the
 Station's speed at r = 690 km); the 2026-09-23_1704 PASS flew the same node.
 
-THE FIX. The LAUNCH HOLD (the spec's interceptorLaunchNotBeforeUt) launches at a
-UT that starts the rendezvous with the Station ~55 deg ahead, BDOCK-1's proven
-geometry; the RENDEZVOUS GEOMETRY GATE refuses to enable the AP when the next-orbit
-closest approach is under the spec's floor.
+THE CONFIRM FLIGHT 2026-10-14_1754 flew the launch hold (Station 52 deg ahead,
+tgtD 615.6 km) and still deorbited: after a 6.3 m/s plane match MechJeb's
+"Hohmann" (MechJebLib TwoImpulseTransfer, a free burn-time / transfer-time local
+optimizer with no periapsis term) planned 121.1 m/s at ut 10239.1, 190 s ahead,
+onto a 101.6 x -13.5 km orbit. Geometry alone cannot make MechJeb's planner safe.
 
-The GEOMETRY cells propagate the fixture's Station orbit and the red run's
-recorded Interceptor orbit (coplanar two-body; both inclinations are under
-0.09 deg) and reproduce the measured 193.3 km RENDEZVOUS-start distance and the
-26 km pass, then show the spec's launch UT clears both MechJeb's threshold and
-the gate's floor.
+THE FIX. The RENDEZVOUS NODE GUARD never lets a node burn whose post-node
+periapsis (kRPC Node.orbit) is under the atmosphere top + 5 km: it switches the
+AP off, clears the node, computes the coplanar Hohmann window from the measured
+phase, asks MechJeb for a FIXED-TIME transfer at that time, flies it, and turns
+the AP back on for the arrival. The launch hold stays: it keeps the 26 km pass
+out of the first orbit.
+
+The GEOMETRY cells propagate the fixture's Station orbit and the 2026-10-13
+Interceptor orbit (coplanar two-body; both inclinations are under 0.09 deg) and
+reproduce the measured RENDEZVOUS-start distances of both red flights.
 
 NO krpc, NO KSP, NO network.
 """
@@ -135,18 +141,22 @@ class GeometryModelTests(unittest.TestCase):
         self.assertAlmostEqual(26300.0, ca, delta=1500.0)
         self.assertAlmostEqual(RED_NODE_UT, ca_ut, delta=5.0)
 
-    def test_the_spec_launch_ut_clears_mechjebs_branch_and_the_gate(self):
+    def test_the_confirm_flight_geometry_is_reproduced(self):
+        # 2026-10-14_1754: the hold launched at ut 9176.1 (cancel at "hold
+        # reached ut=9176.1"); RENDEZVOUS entry read tgtD=615,629.5 m.
+        lead, dist, ca, _, station = _geometry(9176.1 - RED_LAUNCH_UT)
+        self.assertAlmostEqual(615629.5, dist, delta=5000.0)
+        self.assertAlmostEqual(52.1, lead, delta=0.3)
+        # The 26 km velocity-match pass is out of the first orbit, as designed.
+        self.assertGreater(ca, 10.0 * station["sma"] / 25.0)
+
+    def test_the_spec_launch_ut_keeps_the_velocity_match_pass_out(self):
         params = _spec_params()
         delay = params["interceptorLaunchNotBeforeUt"] - RED_LAUNCH_UT
         lead, _, ca, _, station = _geometry(delay)
-        # BDOCK-1's proven start (~58 deg ahead) is inside the band; under ~25 deg
-        # the next-orbit pass approaches the threshold, over ~78 deg MechJeb's
-        # Hohmann is beyond its five-orbit horizon (it would phase instead).
         self.assertGreater(lead, 25.0)
         self.assertLess(lead, 78.0)
-        self.assertGreater(ca, 5.0 * params["rendezvousMinCaDistanceMeters"])
-        self.assertGreater(params["rendezvousMinCaDistanceMeters"],
-                           station["sma"] / 25.0)
+        self.assertGreater(ca, 10.0 * station["sma"] / 25.0)
 
     def test_the_lead_rate_is_station_mean_motion_minus_kerbin_rotation(self):
         lead0 = _geometry(0.0)[0]
@@ -158,69 +168,189 @@ class GeometryModelTests(unittest.TestCase):
         self.assertAlmostEqual(rate * 100.0, lead100 - lead0, delta=0.1)
 
 
-class GeometryGateTests(unittest.TestCase):
-
-    def test_the_gate_is_off_unless_armed(self):
-        for floor in (0.0, -1.0, NAN):
-            with self.subTest(floor=floor):
-                self.assertIsNone(mlib.rendezvous_geometry_refusal(
-                    26300.0, 11178.2, 9263.2, floor))
-
-    def test_an_unread_closest_approach_fails_open(self):
-        self.assertIsNone(mlib.rendezvous_geometry_refusal(NAN, NAN, 9263.2, 60000.0))
-
-    def test_the_red_pass_is_refused_and_named(self):
-        reason = mlib.rendezvous_geometry_refusal(26300.0, 11178.2, 9263.2, 60000.0)
-        self.assertTrue(reason.startswith("rendezvous-geometry: the target passes "
-                                          "26300 m from the Interceptor at "
-                                          "ut=11178.2 (1915 s ahead), inside the "
-                                          "60000 m rendezvous floor"), reason)
-
-    def test_a_far_pass_and_the_floor_itself_are_allowed(self):
-        self.assertIsNone(mlib.rendezvous_geometry_refusal(60000.0, 1.0, 0.0, 60000.0))
-        self.assertIsNone(mlib.rendezvous_geometry_refusal(480000.0, 1.0, 0.0, 60000.0))
+# 2026-10-14_1754 RENDEZVOUS, mission stdout + the produced save's Interceptor
+# orbit segments: the 6.3 m/s plane match (pe unchanged) and the 121.1 m/s node
+# whose orbit was sma 644,059 m ecc 0.0893 (pe -13.5 km).
+CONFIRM_PLANE_NODE = dict(ut=9487.012, node_count=1, node_ut=10041.303,
+                          node_dv=6.327, node_next_pe=84330.0)
+CONFIRM_BAD_NODE = dict(ut=10049.001, node_count=1, node_ut=10239.116,
+                        node_dv=121.123, node_next_pe=644059.08 * (1 - 0.089295) - 600000.0)
+# BDOCK-1 2026-10-11_1400 (PASS): its Hohmann raise (17.2 m/s, ap -> 117 km,
+# pe kept at 84 km) and its arrival velocity match (14.6 m/s onto the Station's
+# 117 x 102 km orbit).
+BDOCK1_NODES = (dict(ut=699.47, node_count=1, node_ut=7748.234, node_dv=17.219,
+                     node_next_pe=84341.0),
+                dict(ut=7757.306, node_count=1, node_ut=8672.480, node_dv=14.606,
+                     node_next_pe=101700.0))
+# The geometry when the guard trips: Station 47.7 deg ahead, the post-plane-match
+# Interceptor sma, the fixture Station sma, Kerbin mu.
+GUARD_GEOMETRY = dict(target_phase_deg=47.7, orbit_sma=689901.4,
+                      target_sma=709675.6, body_mu=KERBIN_MU)
 
 
-def _set_target_state(floor):
-    params = replace(mlib.BDockParams(), rendezvous_min_ca_distance=floor)
-    st = mlib.bdock_initial_state(params)
-    return replace(st, phase=mlib.BDOCK_SET_TARGET, phase_entry_ut=9262.7,
-                   phases_reached=st.phases_reached + (mlib.BDOCK_SET_TARGET,))
+def rv_frame(**kw):
+    base = dict(apoapsis=95505.0, periapsis=84300.0, altitude=94500.0,
+                situation="ORBITING", body="Kerbin", atmosphere_depth=70000.0,
+                mj_rendezvous_enabled=True, target_set=True,
+                target_distance=500000.0, target_rel_speed=60.0)
+    base.update(kw)
+    return snap(**base)
 
 
-def _target_frame(ca_distance, ca_ut=11178.2):
-    return snap(ut=9263.24, target_set=True, target_distance=193278.9,
-                target_ca_distance=ca_distance, target_ca_ut=ca_ut,
-                apoapsis=95440.3, periapsis=84354.3, altitude=90388.2,
-                situation="ORBITING", body="Kerbin")
+def rv_state(**kw):
+    st = mlib.bdock_initial_state(mlib.BDockParams())
+    st = replace(st, phase=mlib.BDOCK_RENDEZVOUS, phase_entry_ut=9486.492,
+                 phases_reached=st.phases_reached + (mlib.BDOCK_RENDEZVOUS,),
+                 rendezvous_ever_enabled=True, rendezvous_min_distance=math.inf)
+    return replace(st, **kw)
 
 
-class SetTargetGateTests(unittest.TestCase):
+class NodeGuardPureTests(unittest.TestCase):
 
-    def test_an_armed_gate_ends_the_mission_before_any_burn(self):
-        st, actions = mlib.bdock_decide(_set_target_state(60000.0), _target_frame(26300.0))
+    def test_the_confirm_flights_node_deorbits(self):
+        self.assertTrue(mlib.rv_node_deorbits(1, CONFIRM_BAD_NODE["node_next_pe"],
+                                              70000.0))
+
+    def test_the_2026_10_13_velocity_match_node_deorbits(self):
+        # 96.7 m/s at the 26 km pass: pe 84 -> 31 km.
+        self.assertTrue(mlib.rv_node_deorbits(1, 31304.0, 70000.0))
+
+    def test_plane_match_and_bdock1_nodes_do_not(self):
+        for node in (CONFIRM_PLANE_NODE,) + BDOCK1_NODES:
+            with self.subTest(node_ut=node["node_ut"]):
+                self.assertFalse(mlib.rv_node_deorbits(
+                    1, node["node_next_pe"], 70000.0))
+
+    def test_the_floor_is_the_atmosphere_top_plus_the_margin(self):
+        self.assertEqual(75000.0, mlib.rv_guard_floor(70000.0))
+        self.assertTrue(mlib.rv_node_deorbits(1, 74999.0, 70000.0))
+        self.assertFalse(mlib.rv_node_deorbits(1, 75000.0, 70000.0))
+        self.assertEqual(mlib.RV_GUARD_AIRLESS_FLOOR_M, mlib.rv_guard_floor(0.0))
+
+    def test_unread_inputs_and_no_node_fail_open(self):
+        self.assertFalse(mlib.rv_node_deorbits(0, -13450.0, 70000.0))
+        self.assertFalse(mlib.rv_node_deorbits(1, NAN, 70000.0))
+        self.assertFalse(mlib.rv_node_deorbits(1, -13450.0, NAN))
+
+    def test_signed_phase(self):
+        r1, v1 = (700.0, 0.0, 0.0), (0.0, 2.2, 0.0)
+        ahead = (700.0 * math.cos(math.radians(30)), 700.0 * math.sin(math.radians(30)), 0)
+        behind = (ahead[0], -ahead[1], 0.0)
+        self.assertAlmostEqual(30.0, mlib.signed_phase_deg(r1, v1, ahead), places=6)
+        self.assertAlmostEqual(-30.0, mlib.signed_phase_deg(r1, v1, behind), places=6)
+        # The same geometry mirrored (a left-handed frame) keeps the sign.
+        m = lambda v: (v[0], v[2], v[1])  # noqa: E731
+        self.assertAlmostEqual(30.0, mlib.signed_phase_deg(m(r1), m(v1), m(ahead)),
+                               places=6)
+        self.assertTrue(math.isnan(mlib.signed_phase_deg(r1, (0, 0, 0), ahead)))
+
+    def test_the_hohmann_window(self):
+        wait = mlib.hohmann_wait_seconds(47.7, 689901.4, 709675.6, KERBIN_MU)
+        n1 = math.degrees(math.sqrt(KERBIN_MU / 689901.4 ** 3))
+        n2 = math.degrees(math.sqrt(KERBIN_MU / 709675.6 ** 3))
+        t = math.pi * math.sqrt(((689901.4 + 709675.6) / 2) ** 3 / KERBIN_MU)
+        lead_req = 180.0 - n2 * t
+        self.assertAlmostEqual(3.7, lead_req, delta=0.1)
+        self.assertAlmostEqual((47.7 - lead_req) / (n1 - n2), wait, places=6)
+        self.assertAlmostEqual(5670.0, wait, delta=60.0)    # ~3 Interceptor orbits
+        # Already past the window: wait a full synodic period, never negative.
+        late = mlib.hohmann_wait_seconds(lead_req - 1.0, 689901.4, 709675.6, KERBIN_MU)
+        self.assertGreater(late, 40000.0)
+        # A higher vessel waits for the target to catch up.
+        up = mlib.hohmann_wait_seconds(-40.0, 709675.6, 689901.4, KERBIN_MU)
+        self.assertGreater(up, 0.0)
+        self.assertIsNone(mlib.hohmann_wait_seconds(NAN, 1.0, 2.0, KERBIN_MU))
+        self.assertIsNone(mlib.hohmann_wait_seconds(10.0, 7e5, 7e5, KERBIN_MU))
+
+
+def _kinds_of(actions):
+    return [a.kind for a in actions]
+
+
+class NodeGuardMachineTests(unittest.TestCase):
+
+    def test_bdock1_and_the_plane_match_never_trip(self):
+        st = rv_state()
+        for node in (CONFIRM_PLANE_NODE,) + BDOCK1_NODES:
+            st, actions = mlib.bdock_decide(st, rv_frame(**node))
+            self.assertEqual("", st.rv_guard_mode)
+            self.assertNotIn(mlib.ACTION_MJ_DISABLE_RENDEZVOUS, _kinds_of(actions))
+        self.assertFalse(st.done)
+
+    def test_the_confirm_flights_node_is_replaced_by_the_own_transfer(self):
+        st, actions = mlib.bdock_decide(rv_state(), rv_frame(**CONFIRM_BAD_NODE))
+        self.assertEqual(mlib.RV_GUARD_REPLANNING, st.rv_guard_mode)
+        self.assertEqual([mlib.ACTION_MJ_DISABLE_RENDEZVOUS,
+                          mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES], _kinds_of(actions))
+        self.assertIn("dv=121.1", st.rv_guard_trip)
+        # AP still on / node still there: wait (re-issue every K polls).
+        st, actions = mlib.bdock_decide(st, rv_frame(ut=10050.0, **{
+            k: v for k, v in CONFIRM_BAD_NODE.items() if k != "ut"}))
+        self.assertEqual(mlib.RV_GUARD_REPLANNING, st.rv_guard_mode)
+        # AP off, nodes gone: plan the own transfer at the Hohmann window.
+        st, actions = mlib.bdock_decide(st, rv_frame(
+            ut=10051.0, mj_rendezvous_enabled=False, node_count=0, **GUARD_GEOMETRY))
+        self.assertEqual(mlib.RV_GUARD_OWN_PLANNED, st.rv_guard_mode)
+        self.assertEqual([mlib.ACTION_MJ_PLAN_TRANSFER_AT], _kinds_of(actions))
+        lead = actions[0].value
+        self.assertAlmostEqual(mlib.hohmann_wait_seconds(
+            47.7, 689901.4, 709675.6, KERBIN_MU), lead, places=6)
+        self.assertTrue(st.rv_own_transfer_used)
+        own_ut = 10051.0 + lead
+        # The planned node (a ~11 m/s prograde raise, pe unchanged) is flown.
+        st, actions = mlib.bdock_decide(st, rv_frame(
+            ut=10052.0, mj_rendezvous_enabled=False, node_count=1, node_ut=own_ut,
+            node_dv=11.2, node_next_pe=84300.0))
+        self.assertEqual(mlib.RV_GUARD_OWN_BURNING, st.rv_guard_mode)
+        self.assertEqual([mlib.ACTION_MJ_EXECUTE_NODES], _kinds_of(actions))
+        # Node gone past its UT: the AP takes the arrival.
+        st, actions = mlib.bdock_decide(st, rv_frame(
+            ut=own_ut + 20.0, mj_rendezvous_enabled=False, node_count=0,
+            apoapsis=115000.0))
+        self.assertEqual("", st.rv_guard_mode)
+        self.assertEqual([mlib.ACTION_MJ_ENABLE_RENDEZVOUS], _kinds_of(actions))
+        self.assertFalse(st.done)
+        # A SECOND deorbiting node ends the mission before it burns.
+        st, actions = mlib.bdock_decide(st, rv_frame(
+            ut=own_ut + 30.0, apoapsis=115000.0, node_count=1, node_ut=own_ut + 300,
+            node_dv=90.0, node_next_pe=20000.0))
         self.assertTrue(st.done)
         self.assertEqual(mlib.MISSION_ASSERT_FAIL, st.verdict)
-        self.assertTrue(st.loss_reason.startswith("rendezvous-geometry: "))
-        self.assertEqual(mlib.BDOCK_SET_TARGET, st.phase)
-        self.assertEqual([], actions)
+        self.assertTrue(st.loss_reason.startswith("rendezvous-plan-deorbits: "))
+        self.assertIn(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES, _kinds_of(actions))
 
-    def test_a_clear_geometry_enables_the_ap(self):
-        st, actions = mlib.bdock_decide(_set_target_state(60000.0),
-                                        _target_frame(480000.0))
-        self.assertEqual(mlib.BDOCK_RENDEZVOUS, st.phase)
-        self.assertEqual([mlib.ACTION_MJ_ENABLE_RENDEZVOUS], [a.kind for a in actions])
+    def _replanning(self):
+        st, _ = mlib.bdock_decide(rv_state(), rv_frame(**CONFIRM_BAD_NODE))
+        return st
 
-    def test_bdock1_default_is_unchanged(self):
-        # BDOCK-1 / CI-9 / SD-1 do not set the key: the gate is off.
-        self.assertEqual(0.0, mlib.bdock_params_from_dict({}).rendezvous_min_ca_distance)
-        st, actions = mlib.bdock_decide(_set_target_state(0.0), _target_frame(26300.0))
-        self.assertEqual(mlib.BDOCK_RENDEZVOUS, st.phase)
-        self.assertEqual([mlib.ACTION_MJ_ENABLE_RENDEZVOUS], [a.kind for a in actions])
+    def test_an_own_node_that_deorbits_is_not_flown(self):
+        st = self._replanning()
+        st, _ = mlib.bdock_decide(st, rv_frame(
+            ut=10051.0, mj_rendezvous_enabled=False, node_count=0, **GUARD_GEOMETRY))
+        st, actions = mlib.bdock_decide(st, rv_frame(
+            ut=10052.0, mj_rendezvous_enabled=False, node_count=1, node_ut=15700.0,
+            node_dv=80.0, node_next_pe=40000.0))
+        self.assertTrue(st.done)
+        self.assertIn("own Hohmann transfer node would deorbit", st.loss_reason)
+        self.assertNotIn(mlib.ACTION_MJ_EXECUTE_NODES, _kinds_of(actions))
 
-    def test_an_unread_closest_approach_enables_the_ap(self):
-        st, _ = mlib.bdock_decide(_set_target_state(60000.0), _target_frame(NAN, NAN))
-        self.assertEqual(mlib.BDOCK_RENDEZVOUS, st.phase)
+    def test_an_unreadable_phase_ends_the_mission_after_the_step_budget(self):
+        st = self._replanning()
+        for k in range(mlib.RV_GUARD_STEP_FRAMES):
+            st, _ = mlib.bdock_decide(st, rv_frame(
+                ut=10051.0 + k, altitude=94500.0 - 5.0 * k,
+                mj_rendezvous_enabled=False, node_count=0))
+            if st.done:
+                break
+        self.assertTrue(st.done)
+        self.assertIn("target phase was unreadable", st.loss_reason)
+
+    def test_an_armed_rails_hold_is_torn_down_on_the_trip(self):
+        st = rv_state(rv_hold_ut=10100.0, rv_hold_node_ut=10239.116,
+                      rv_hold_warp_cmd=10100.0)
+        st, actions = mlib.bdock_decide(st, rv_frame(**CONFIRM_BAD_NODE))
+        self.assertEqual(mlib.ACTION_CANCEL_WARP, actions[0].kind)
+        self.assertIsNone(st.rv_hold_ut)
 
 
 def _prelaunch(target=9195.0):
@@ -309,7 +439,7 @@ class LaunchHoldTests(unittest.TestCase):
     def test_the_spec_key_reaches_the_params(self):
         params = mlib.sdock_params_from_dict(_spec_params())
         self.assertEqual(9195.0, params.launch_not_before_ut)
-        self.assertEqual(60000.0, params.bdock.rendezvous_min_ca_distance)
+        self.assertNotIn("rendezvousMinCaDistanceMeters", _spec_params())
 
 
 if __name__ == "__main__":
