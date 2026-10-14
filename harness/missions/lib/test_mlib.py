@@ -11478,7 +11478,7 @@ class ApproachLatchNativeWarpTests(unittest.TestCase):
                 mp = tomllib.load(fh).get("driver", {}).get("missionParams", {})
             if mp.get("approachLatchNativeWarp"):
                 armed.append(name)
-        self.assertEqual(["B19-dres-orbit.toml", self.B20, "B21-eeloo-orbit.toml"], armed)
+        self.assertEqual([self.B20, "B21-eeloo-orbit.toml"], armed)
 
     def test_the_specs_that_arm_a_soi_native_lead(self):
         armed = []
@@ -11489,7 +11489,7 @@ class ApproachLatchNativeWarpTests(unittest.TestCase):
                 mp = tomllib.load(fh).get("driver", {}).get("missionParams", {})
             if mp.get("soiNativeLeadSeconds"):
                 armed.append(name)
-        self.assertEqual(["B19-dres-orbit.toml", "B20-moho-orbit.toml", "B21-eeloo-orbit.toml",
+        self.assertEqual(["B20-moho-orbit.toml", "B21-eeloo-orbit.toml",
                           "B22-jool-orbit.toml", "B26-laythe-vall-transfer.toml"], armed)
 
     def test_b20_arms_a_soi_native_lead_above_its_floor_and_no_trigger_lead(self):
