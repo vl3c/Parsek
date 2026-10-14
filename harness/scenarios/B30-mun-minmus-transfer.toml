@@ -745,6 +745,13 @@ approachWindowSeconds      = 20000
 # machine's own poll cadence argues for the clamp, and x50 is kept on a first flight
 # because the cost of being wrong is a swallowed periapsis.
 approachMaxWarpFactor      = 3
+# COAST NATIVE LEAD (owner ruling 2026-10-14, "tests pass and we still catch bugs";
+# PENDING A CONFIRM FLIGHT): the SOI native warp stops 400 game s short of the
+# boundary instead of soiLeadSeconds 3,000, and the rails last-mile (time stair +
+# approachMaxWarpFactor cap) runs unchanged from there. mlib rejects a value under
+# 120 + 4 x RAILS_WARP_RATES[3] = 120 + 4 x 50 = 320. The flyby EXIT warp keeps
+# soiLeadSeconds; triggerNativeLeadSeconds stays off.
+soiNativeLeadSeconds       = 400
 # LIVE, and the one warp key on this lane whose value is actually consumed twice: it
 # is the rails-stair FLOOR in COAST-TO-TARGET.
 flybyWarpFactor            = 2

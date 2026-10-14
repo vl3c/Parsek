@@ -11149,7 +11149,8 @@ def _scenario_mission_params(name):
 
 class CoastNativeLeadTests(unittest.TestCase):
     """soiNativeLeadSeconds / triggerNativeLeadSeconds (COAST-TO-TARGET wall
-    time). Both default 0 = off; B26 and B22 opt in.
+    time). Both default 0 = off; B22 and B26 opt into both, B21, B20 and the
+    short b5 lanes into soiNativeLeadSeconds only.
 
     The decide-level cells drive the REAL B26 spec params in its stage-2 Jool
     frame (target Vall, soi_lead 3,000, approach window 10,000, cap 3 = x50,
@@ -11425,8 +11426,9 @@ class ApproachLatchNativeWarpTests(unittest.TestCase):
     CAP = 4
 
     def _params(self, armed=True):
-        # B20's own params plus the opt-in keys it flew with on 2026-10-13/14 (the
-        # spec dropped them after the outcome gate; the measured shape is still B20's).
+        # B20's own params (soiNativeLeadSeconds 600 armed since the 2026-10-14
+        # ruling) plus the latch it flew with on 2026-10-13/14; the spec leaves the
+        # latch unarmed (it never fired), the measured shape is still B20's.
         mp = _scenario_mission_params(self.B20)
         mp["soiNativeLeadSeconds"] = self.LEAD
         mp.pop("approachLatchNativeWarp", None)
@@ -11492,8 +11494,41 @@ class ApproachLatchNativeWarpTests(unittest.TestCase):
                 mp = tomllib.load(fh).get("driver", {}).get("missionParams", {})
             if mp.get("soiNativeLeadSeconds"):
                 armed.append(name)
-        self.assertEqual(["B21-eeloo-orbit.toml",
-                          "B22-jool-orbit.toml", "B26-laythe-vall-transfer.toml"], armed)
+        # B21 / B22 / B26 by measurement; B20 and the short b5 lanes by the owner
+        # ruling of 2026-10-14 ("tests pass and we still catch bugs").
+        self.assertEqual(["B20-moho-orbit.toml", "B21-eeloo-orbit.toml",
+                          "B22-jool-orbit.toml", "B23-ike-orbit.toml",
+                          "B24-gilly-orbit.toml", "B25-laythe-orbit.toml",
+                          "B26-laythe-vall-transfer.toml",
+                          "B28-laythe-jool-return.toml",
+                          "B30-mun-minmus-transfer.toml", "B33-tylo-orbit.toml",
+                          "B34-bop-orbit.toml", "B35-pol-orbit.toml"], armed)
+
+    # spec -> (soiNativeLeadSeconds, its mlib floor) under the 2026-10-14 ruling.
+    RULING_2026_10_14 = {
+        "B20-moho-orbit.toml": (600.0, 520.0),
+        "B23-ike-orbit.toml": (600.0, 520.0),
+        "B24-gilly-orbit.toml": (200.0, 160.0),
+        "B25-laythe-orbit.toml": (400.0, 320.0),
+        "B28-laythe-jool-return.toml": (400.0, 320.0),
+        "B30-mun-minmus-transfer.toml": (400.0, 320.0),
+        "B33-tylo-orbit.toml": (400.0, 320.0),
+        "B34-bop-orbit.toml": (400.0, 320.0),
+        "B35-pol-orbit.toml": (400.0, 320.0),
+    }
+
+    def test_the_ruling_lanes_arm_only_the_soi_lead_between_floor_and_soi_lead(self):
+        for spec, (lead, floor) in self.RULING_2026_10_14.items():
+            p = mlib.b5_params_from_dict(_scenario_mission_params(spec))
+            self.assertEqual((lead, "soi-native"), mlib.coast_soi_native_lead(p), spec)
+            self.assertEqual(floor, mlib.soi_native_lead_floor(
+                p.approach_max_warp_factor, p.coast_warp_factor), spec)
+            self.assertLess(floor, lead, spec)
+            self.assertLess(lead, p.soi_lead, spec)
+            self.assertEqual((p.soi_lead, "default"),
+                             mlib.coast_trigger_native_lead(p), spec)
+            self.assertFalse(p.approach_latch_native_warp, spec)
+            self.assertFalse(p.circularize_node_wait_warp, spec)
 
     def test_b21_arms_a_soi_native_lead_above_its_floor_and_no_trigger_lead(self):
         p = mlib.b5_params_from_dict(_scenario_mission_params("B21-eeloo-orbit.toml"))
@@ -11504,10 +11539,10 @@ class ApproachLatchNativeWarpTests(unittest.TestCase):
         self.assertEqual((p.soi_lead, "default"), mlib.coast_trigger_native_lead(p))
         self.assertFalse(p.approach_latch_native_warp)
 
-    def test_b20_dropped_the_coast_keys(self):
+    def test_b20_arms_the_coast_lead_and_no_latch(self):
         p = mlib.b5_params_from_dict(_scenario_mission_params(self.B20))
         self.assertFalse(p.approach_latch_native_warp)
-        self.assertEqual((p.soi_lead, "default"), mlib.coast_soi_native_lead(p))
+        self.assertEqual((self.LEAD, "soi-native"), mlib.coast_soi_native_lead(p))
 
     def test_the_b20_family_schemas_declare_the_keys(self):
         for mission in ("b19_dres_orbit", "b20_moho_orbit", "b21_eeloo_orbit"):

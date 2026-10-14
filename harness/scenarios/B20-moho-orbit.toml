@@ -385,10 +385,15 @@ soiLeadSeconds             = 100000
 # bounded wall cost for an unbounded diagnostic one. Pay the wall time.
 approachWindowSeconds      = 200000
 approachMaxWarpFactor      = 4
-# (3) COAST NATIVE LEAD tried and DROPPED 2026-10-14 (soiNativeLeadSeconds 600 +
-# approachLatchNativeWarp): ~1,300 s faster per run, but the Moho parks read 381,492 m
-# (2026-10-13_2255) and 543,562 m (2026-10-14_0154) against plain main's 428,433 / 444,354 /
-# 496,511 m, both outside main's spread (owner gate 2026-10-14). B21 keeps both keys.
+# (3) COAST NATIVE LEAD, ARMED under the owner ruling of 2026-10-14 ("tests pass and we
+# still catch bugs"; PENDING A CONFIRM FLIGHT). soiNativeLeadSeconds 600 flew green twice
+# (runs 2026-10-13_2255 and 2026-10-14_0154, ~1,300 s faster per run). Their Moho parks
+# read 381,492 m and 543,562 m against plain main's 428,433 / 444,354 / 496,511 m: that
+# is ACCEPTED SCATTER under the new bar, NOT an unchanged outcome. The SOI native warp
+# stops 600 game s short of the boundary instead of soiLeadSeconds 100,000; mlib rejects a
+# value under 120 + 4 x RAILS_WARP_RATES[4] = 120 + 4 x 100 = 520. approachLatchNativeWarp
+# stays OFF (it flew with the lead but never fired), as does triggerNativeLeadSeconds.
+soiNativeLeadSeconds       = 600
 flipPhysicsWarpFactor      = 1
 # Moho has NO atmosphere; its peaks reach ~6.8 km. 50 km is ~7x the highest
 # terrain and asserts the whole in-SOI stay (arrival AND park) stayed in clean

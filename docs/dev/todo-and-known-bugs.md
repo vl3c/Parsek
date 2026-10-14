@@ -3830,7 +3830,7 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   167,279; the two pre-change runs differ by ~980 m). B22 2026-10-03_1106 vs 2026-10-01_2235
   coast wall 368 s -> 315 s, corrections 124.10 / 72.73 (was 124.10 / 72.81), Jool park
   within 19 km of 584,339 km.
-- [ ] Opt B30 (B29: dropped, next item) into the coast native lead (and `circularizeNodeWaitWarp` where the
+- [ ] Opt B30 (armed 2026-10-14, see the coast-lead-b5 item below; B29: dropped, next item) into the coast native lead (and `circularizeNodeWaitWarp` where the
   lane has a park round-out node), then re-fly both and compare against their last runs:
   phase list, correction dv, arrival periapsis, capture and park. Last-run recoverable per
   the analyzer: B30 `2026-10-01_1009` ~740 s (capture 468 s and PARK 125 s are already fixed
@@ -3883,6 +3883,15 @@ changed in a separate session; re-run the tool over the next nightly to measure 
   blind frames and `blind_soi_hold` keeps an in-flight warp, so the key ships default-off and
   unarmed, unit-tested only. B19's 29 m main spread shows the faster coast moves
   WHEN the late correction fires, so the arrival genuinely changes, not only its noise.
+- [ ] Coast native lead armed on B20 and the short b5 lanes (owner ruling 2026-10-14, branch
+  `coast-lead-b5`; new bar "tests pass and we still catch bugs" replaces the outcome-unchanged
+  gate). `soiNativeLeadSeconds` (value / mlib floor / soiLeadSeconds): B20 600 / 520 / 100,000
+  (flown green `2026-10-13_2255` and `2026-10-14_0154`; Moho parks 381,492 / 543,562 m against
+  main's 428-497 km recorded as ACCEPTED SCATTER, not outcome-unchanged); B23 600 / 520 / 3,000;
+  B24 200 / 160 / 1,200; B25, B28, B30, B33, B34, B35 400 / 320 / 3,000. Not armed:
+  `approachLatchNativeWarp` (never fired), `circularizeNodeWaitWarp` (B21-only ruling),
+  `triggerNativeLeadSeconds`. b23 / b24 / b25 / b30 schemas gained both lead keys. Open: one
+  confirm flight per lane (the eight short lanes have not flown the key).
 - [x] Optional refresh re-flies of the b5 lanes last flown before #1958: B24, B33, B34, B35,
   B25, B28, B23 and B12. Done by the 2026-10-11 nightly and 2026-10-12 operator tiers: each
   MISSION-OK, analyzer recoverable now 51-108 s per lane (B24 108, B34 57, B35 / B25 56, B33
