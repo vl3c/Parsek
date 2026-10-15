@@ -359,7 +359,12 @@ namespace Parsek.Logistics
                 item.StoredPartSnapshot, vessel.protoVessel);
             if (pps == null) return 0;
 
-            if (!module.StoreCargoPartAtSlot(pps, slot.SlotIndex)) return 0;
+            // Parsek's own write: the foreign-transfer recorder must not read the slot
+            // events it fires as a kerbal's transfer.
+            using (ParsekInventoryWrites.Begin())
+            {
+                if (!module.StoreCargoPartAtSlot(pps, slot.SlotIndex)) return 0;
+            }
 
             // Stock returns true even when nothing was stored (a null
             // partInfo silently no-ops), so read the slot back for the real
@@ -378,7 +383,10 @@ namespace Parsek.Logistics
             // inventory-changed events. Read the resulting quantity back so
             // the reported actual is what the slot really holds.
             if (units > 1)
-                module.UpdateStackAmountAtSlot(slot.SlotIndex, units);
+            {
+                using (ParsekInventoryWrites.Begin())
+                    module.UpdateStackAmountAtSlot(slot.SlotIndex, units);
+            }
             return storedPart.quantity > 0 ? storedPart.quantity : 0;
         }
 

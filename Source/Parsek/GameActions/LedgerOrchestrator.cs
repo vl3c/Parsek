@@ -8313,6 +8313,8 @@ namespace Parsek
             ReputationSeedOrigin repSeedOrigin = EnsureReputationSeedForCommit();
 
             int gapsClosed = 0;
+            int reFlyWindowsExtended = 0;
+            int retiredProvisionalRows = 0;
             bool commitSucceeded = false;
             // Every recording's rows are filed before ONE walk runs
             // (OPTIMIZER-SPLIT-RETAG-COMMIT-WALK-TRANSIENT-CLAMP). The live pools already
@@ -8334,6 +8336,12 @@ namespace Parsek
                     double adjusted = AdjustStartUtForChainGap(rec, startUT, chainEndUTs);
                     if (adjusted < startUT) gapsClosed++;
                     startUT = adjusted;
+
+                    // A Re-Fly attempt owns the awards tagged to it before its recorder bound.
+                    double reFlyAdjusted = AdjustStartUtForReFlyProvisional(
+                        rec, startUT, ResolveRewindPointUt);
+                    if (reFlyAdjusted < startUT) reFlyWindowsExtended++;
+                    startUT = reFlyAdjusted;
 
                     IReadOnlyList<PendingScienceSubject> perRecordingPending;
                     if (!pendingByRecording.TryGetValue(rec.RecordingId, out perRecordingPending))
@@ -8359,6 +8367,11 @@ namespace Parsek
                     }
                 }
 
+                Recording retiredProvisional = ResolveRetiredReFlyProvisionalForCommit(tree);
+                if (retiredProvisional != null)
+                    retiredProvisionalRows = FileRetiredReFlyProvisionalRows(
+                        retiredProvisional.RecordingId, repSeedOrigin, "retired-provisional-tree-commit");
+
                 commitSucceeded = true;
             }
             catch
@@ -8366,7 +8379,7 @@ namespace Parsek
                 // Rows already filed for earlier recordings stay in the ledger; walk them
                 // so live state matches what was filed, as the per-recording walks did
                 // before the batch walk. The original exception still propagates.
-                if (filedCommits.Count > 0)
+                if (filedCommits.Count > 0 || retiredProvisionalRows > 0)
                 {
                     try
                     {
@@ -8436,7 +8449,7 @@ namespace Parsek
             // 6. One walk for the whole tree, then each recording's post-walk
             // reconciliation (it reads the walk's derived fields). An empty tree files
             // nothing and walks nothing.
-            if (filedCommits.Count > 0)
+            if (filedCommits.Count > 0 || retiredProvisionalRows > 0)
             {
                 ParsekLog.Info(Tag,
                     $"NotifyLedgerTreeCommitted: filed rows for " +
@@ -8454,7 +8467,8 @@ namespace Parsek
             ParsekLog.Verbose(Tag,
                 $"NotifyLedgerTreeCommitted: tree='{tree.TreeName}' " +
                 $"recordings={tree.Recordings.Count}, chainSegments={chainEndUTs.Count}, " +
-                $"gapsClosed={gapsClosed}");
+                $"gapsClosed={gapsClosed}, reFlyWindowsExtended={reFlyWindowsExtended}, " +
+                $"retiredProvisionalRows={retiredProvisionalRows}");
         }
 
         private static Dictionary<string, IReadOnlyList<PendingScienceSubject>> BuildTreePendingScienceRouting(
@@ -8519,7 +8533,10 @@ namespace Parsek
                 {
                     RecordingId = rec.RecordingId,
                     ChainId = rec.ChainId,
-                    StartUT = AdjustStartUtForChainGap(rec, rec.StartUT, chainEndUTs),
+                    StartUT = AdjustStartUtForReFlyProvisional(
+                        rec,
+                        AdjustStartUtForChainGap(rec, rec.StartUT, chainEndUTs),
+                        ResolveRewindPointUt),
                     EndUT = rec.EndUT
                 });
             }
@@ -8884,6 +8901,196 @@ namespace Parsek
             }
 
             return startUT;
+        }
+
+        /// <summary>
+        /// REFLY-UNBOUND-PROVISIONAL-TAGS-AWARDS-TO-ORIGIN: an award earned while a Re-Fly
+        /// session's provisional had no recorder bound is tagged to the provisional
+        /// (<see cref="ReFlyAwardTagging"/>), at a UT before the provisional's first trajectory
+        /// point. The converter's lower bound would drop it, so a provisional's commit window
+        /// opens at its rewind point's UT. Only the provisional's OWN tagged events are read
+        /// through this window (the converter scopes by tag), so nothing is taken from another
+        /// recording. A chain continuation (an optimizer split's later half) keeps the chain
+        /// rule: the split retag already moved every event at or after the cut onto it.
+        /// Pure apart from the lookup.
+        /// </summary>
+        internal static double AdjustStartUtForReFlyProvisional(
+            Recording rec, double startUT, Func<string, double> rewindPointUtLookup)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.ProvisionalForRpId))
+                return startUT;
+            if (rec.IsChainRecording && rec.ChainIndex > 0)
+                return startUT;
+            if (rewindPointUtLookup == null)
+                return startUT;
+
+            double rpUT = rewindPointUtLookup(rec.ProvisionalForRpId);
+            if (double.IsNaN(rpUT) || double.IsInfinity(rpUT) || rpUT <= 0.0 || rpUT >= startUT)
+                return startUT;
+
+            ParsekLog.Verbose(Tag,
+                $"Re-Fly attempt window: extended startUT from " +
+                $"{startUT.ToString("F1", CultureInfo.InvariantCulture)} to " +
+                $"{rpUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"for recording '{rec.RecordingId}' (rp={rec.ProvisionalForRpId})");
+            return rpUT;
+        }
+
+        /// <summary>
+        /// The UT of a rewind point by id, or NaN when the scenario does not hold it. Falls
+        /// back to the live Re-Fly marker's own copy of the UT when the marker names the point.
+        /// </summary>
+        internal static double ResolveRewindPointUt(string rewindPointId)
+        {
+            if (string.IsNullOrEmpty(rewindPointId))
+                return double.NaN;
+            var scenario = ParsekScenario.Instance;
+            if (ReferenceEquals(null, scenario))
+                return double.NaN;
+            var points = scenario.RewindPoints;
+            if (points != null)
+            {
+                for (int i = 0; i < points.Count; i++)
+                {
+                    var rp = points[i];
+                    if (rp != null && string.Equals(rp.RewindPointId, rewindPointId, StringComparison.Ordinal))
+                        return rp.UT;
+                }
+            }
+            var marker = scenario.ActiveReFlySessionMarker;
+            if (marker != null
+                && string.Equals(marker.RewindPointId, rewindPointId, StringComparison.Ordinal))
+                return marker.RewindPointUT;
+            return double.NaN;
+        }
+
+        /// <summary>
+        /// The Re-Fly provisional of the live session when a prune retired it out of
+        /// <paramref name="tree"/> this session (<see cref="ReFlyProvisionalRetirement"/>),
+        /// so this commit will not file it; null otherwise.
+        /// </summary>
+        private static Recording ResolveRetiredReFlyProvisionalForCommit(RecordingTree tree)
+        {
+            if (tree == null || tree.Recordings == null)
+                return null;
+            var scenario = ParsekScenario.Instance;
+            if (ReferenceEquals(null, scenario))
+                return null;
+            var marker = scenario.ActiveReFlySessionMarker;
+            Recording retired = ReFlyProvisionalRetirement.Peek(marker);
+            if (retired == null || string.IsNullOrEmpty(retired.RecordingId))
+                return null;
+            if (!string.Equals(retired.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
+                return null;
+            if (!string.Equals(retired.TreeId, tree.Id, StringComparison.Ordinal))
+                return null;
+            if (tree.Recordings.ContainsKey(retired.RecordingId)
+                || RecordingStore.IsCommittedRecordingId(retired.RecordingId))
+                return null;
+            return retired;
+        }
+
+        /// <summary>
+        /// REFLY-UNBOUND-PROVISIONAL-TAGS-AWARDS-TO-ORIGIN, retired-attempt half: the awards
+        /// a Re-Fly attempt earned before its recorder bound are tagged to its provisional
+        /// (<see cref="ReFlyAwardTagging"/>). When the provisional carried nothing the merge
+        /// could play, the scene-exit prune retires it out of the tree and the merge concludes
+        /// with no supersede (<c>outcome=concluded-no-supersede</c>), so no recording commit
+        /// ever converts those events and the next walk would patch the career below what KSP
+        /// already paid. The player merged rather than discarded, so the awards stay: each
+        /// event and pending science subject tagged to the retired provisional is filed here as
+        /// an untagged row (the shape it had before the attempt owned it, and the shape the
+        /// conclusion's ledger-tag re-home gives a retired provisional's rows), and the store
+        /// copies are untagged with it. Runs inside the tree commit, before its one walk, so
+        /// the walk that applies the tree applies these rows too. Returns the rows added.
+        /// </summary>
+        internal static int FileRetiredReFlyProvisionalRows(
+            string recordingId, ReputationSeedOrigin repSeedOrigin, string reason)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return 0;
+
+            Initialize();
+
+            var tagged = new List<GameStateEvent>();
+            var storeEvents = GameStateStore.Events;
+            for (int i = 0; i < storeEvents.Count; i++)
+            {
+                var e = storeEvents[i];
+                if (!string.Equals(e.recordingId ?? "", recordingId, StringComparison.Ordinal))
+                    continue;
+                e.recordingId = "";
+                tagged.Add(e);
+            }
+
+            var subjects = new List<PendingScienceSubject>();
+            double minUT = double.MaxValue, maxUT = double.MinValue;
+            var pending = GameStateRecorder.PendingScienceSubjects;
+            for (int i = 0; i < pending.Count; i++)
+            {
+                var s = pending[i];
+                if (!string.Equals(s.recordingId ?? "", recordingId, StringComparison.Ordinal))
+                    continue;
+                s.recordingId = "";
+                subjects.Add(s);
+                if (s.captureUT < minUT) minUT = s.captureUT;
+                if (s.captureUT > maxUT) maxUT = s.captureUT;
+            }
+
+            if (tagged.Count == 0 && subjects.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Retired Re-Fly provisional '{recordingId}' ({reason}): no tagged events " +
+                    "or pending science to file");
+                return 0;
+            }
+
+            var actions = GameStateEventConverter.ConvertEvents(
+                tagged, null, double.NegativeInfinity, double.PositiveInfinity);
+            List<GameAction> scienceActions = null;
+            if (subjects.Count > 0)
+            {
+                scienceActions = GameStateEventConverter.ConvertScienceSubjects(
+                    subjects, null, minUT - 1.0, maxUT + 1.0);
+                actions.AddRange(scienceActions);
+            }
+
+            ReputationSeedOrigin origin = repSeedOrigin != ReputationSeedOrigin.NotYetCaptured
+                ? repSeedOrigin
+                : EnsureReputationSeedForCommit();
+            StampReputationRowsAgainstSeed(actions, origin, "retired-refly-provisional=" + recordingId);
+
+            int converted = actions.Count;
+            actions = DeduplicateAgainstLedger(actions);
+            for (int i = 0; i < actions.Count; i++)
+                actions[i].Sequence = AllocateKscSequence();
+            Ledger.AddActions(actions);
+
+            if (scienceActions != null)
+            {
+                var survivingScience = new List<GameAction>();
+                for (int i = 0; i < actions.Count; i++)
+                    if (actions[i].Type == GameActionType.ScienceEarning)
+                        survivingScience.Add(actions[i]);
+                if (survivingScience.Count > 0)
+                    GameStateStore.CommitScienceActions(survivingScience);
+            }
+
+            int subjectsRemoved = RemovePendingScienceSubjectsForRecordings(
+                new[] { recordingId }, reason);
+            int eventsUntagged = GameStateStore.RetagEventsForRecording(recordingId, "");
+
+            ParsekLog.Info(Tag,
+                $"Re-Fly award handoff: outcome=filed-retired-provisional-rows " +
+                $"provisional={recordingId} reason={reason} " +
+                $"rows={actions.Count.ToString(CultureInfo.InvariantCulture)} " +
+                $"events={tagged.Count.ToString(CultureInfo.InvariantCulture)} " +
+                $"science={subjects.Count.ToString(CultureInfo.InvariantCulture)} " +
+                $"deduped={(converted - actions.Count).ToString(CultureInfo.InvariantCulture)} " +
+                $"subjectsRemoved={subjectsRemoved.ToString(CultureInfo.InvariantCulture)} " +
+                $"eventsUntagged={eventsUntagged.ToString(CultureInfo.InvariantCulture)} " +
+                "- the attempt was merged, so what it earned before its recorder bound stays");
+            return actions.Count;
         }
 
         // ================================================================

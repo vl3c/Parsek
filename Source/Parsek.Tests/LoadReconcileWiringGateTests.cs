@@ -312,6 +312,31 @@ namespace Parsek.Tests
             Assert.Contains("if (!dispatched) DiscardReFlyLoadIntent.Clear(", Collapse(body));
         }
 
+        /// <summary>
+        /// The Discard Re-fly writes the loaded rewind-point game to persistent.sfs after the
+        /// load-failure return and before the scene request (the scene start reloads that file),
+        /// and puts a detached tree back committed before it arms the scene exit that drops the
+        /// live tree.
+        /// </summary>
+        [Fact]
+        public void DiscardReFlyWritesPersistentAndRestoresTheDetachedTreeBeforeTheScene()
+        {
+            string body = PreparedMethodBody(InterceptorPath, "internal static void DiscardReFlyHandler(");
+
+            Assert.Equal(1, Occurrences(body, "WriteRewindPointGameAsPersistent("));
+            Assert.Equal(1, Occurrences(body, "RestoreDetachedTreeAfterEscDiscard("));
+            int loadFailed = IndexOrFail(body, "if (!loadSucceeded)");
+            int write = IndexOrFail(body, "WriteRewindPointGameAsPersistent(");
+            int restore = IndexOrFail(body, "RestoreDetachedTreeAfterEscDiscard(");
+            int suppress = IndexOrFail(body, "ArmNextTreeSceneExitCommitSuppression(");
+            int dispatch = IndexOrFail(body, "DispatchScene(");
+
+            Assert.True(loadFailed < write && write < dispatch,
+                "the persistent.sfs write runs after the load-failure return and before the scene request");
+            Assert.True(loadFailed < restore && restore < suppress,
+                "the detached tree is restored after the load succeeded and before the scene exit is told to drop it");
+        }
+
         [Fact]
         public void DiscardIntentHasOneArmSiteAndOneReader()
         {

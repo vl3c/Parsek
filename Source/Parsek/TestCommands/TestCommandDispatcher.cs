@@ -292,6 +292,9 @@ namespace Parsek.TestCommands
         void PartAction(ParsedCommand cmd);
         // ----- RevertToLaunch (stock's Revert to Launch outside a Re-Fly session) -----
         void RevertToLaunch(ParsedCommand cmd);
+        // ----- DriveVessel (D4 hysteresis: drive the active landed vessel on its own wheel
+        // motors for a span of game time) -----
+        void DriveVessel(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -622,6 +625,9 @@ namespace Parsek.TestCommands
                 // RevertToLaunch. RequiresFlight: stock offers Revert to Launch only from the
                 // flight Esc menu. RevertToLaunchSeconds (180 s, a FLIGHT bootstrap).
                 ["RevertToLaunch"] = VerbSceneRequirement.RequiresFlight,
+                // DriveVessel. RequiresFlight: it drives the active vessel's wheel motors.
+                // Default budget (the drive span is capped well under it).
+                ["DriveVessel"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>

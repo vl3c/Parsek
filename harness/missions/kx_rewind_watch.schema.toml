@@ -555,6 +555,18 @@ max = 10000
 required = false
 type = "bool"
 
+# THE LAST-PAIR HOLD (GS-10; OPTIONAL, omitted or 0 = off). Game seconds the core
+# burns on with the LAST booster pair still attached before the close cut zeroes
+# the throttle and drops it, so the pair and the stack leave the burn with the same
+# extra energy, fall together inside the physics bubble, and the pair's coast
+# outgrows its 60 s debris TTL by a margin. `stackCutAtLastBoosterDrop` also
+# requires the full hold. Refused without `impactCutAtLastBoosterDrop`.
+[params.impactLastPairHoldSeconds]
+required = false
+type = "float"
+min = 0.0
+max = 120.0
+
 # THE DEBRIS-PROMOTION SWITCH (D5 `staging-debris-promotion`; OPTIONAL, "" = off).
 # The VESSEL name the dropped boosters read. After IMPACT-AUTORECORD-OFF the machine
 # waits `promoteSwitchDelayFrames`, switches kRPC's active vessel to the NEAREST

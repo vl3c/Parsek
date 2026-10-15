@@ -178,6 +178,14 @@ id = "RF-1-continuation-stays-open"
 # `2026-09-10_1739`. The first armed re-flight `2026-09-10_2011` red on a UT literal
 # (re-pinned from bytes); the re-pin flew green as `2026-09-11_0138`, with one negative
 # control per token (`_0142`, `_0147`). GROUP 6 and [dimensionsCovered] carry the record.
+#
+# D4 `hysteresis` MOVED OUT (owner ruling 2026-10-15, todo
+# RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE): its `SurfaceStationary -> SurfaceMobile ...
+# (debounce=3.0s)` token only printed while the lit launch sat over 3 s on the pad inside
+# a post-load race, and stopped printing once LoadGame waited for flight-ready
+# (`2026-10-12_2026`). The token and the claim now live on
+# RVR-21-rover-drive-surface-hysteresis, a rover driven on its wheels; this lane keeps
+# `surface-graze-suppression`.
 # =====================================================================================
 tier = "operator"
 description = "GS-1 inverted: the same two-stage flight exits to the Space Center with the auto-chute booster STILL UNDER CANOPY, so the non-focus slot is promoted CommittedProvisional and its flight-authored RewindPoint survives - then the lane re-enters FLIGHT, reads the live RewindPoint id off ListHandles and RE-FLIES that slot, the first re-fly in the suite of a RewindPoint KSP physics authored during the same run."
@@ -275,11 +283,9 @@ siblingDownTimeoutSeconds = 240
 # over 17 required + 4 forbidden, rewind block PASS, 0 ERROR lines). The wave's first
 # armed run `2026-09-10_2011` red on the GROUP 6 UT literal and is not a citation. Every
 # count below is from `_0138`, one token set per cell:
-#  - D4 `hysteresis` <- GROUP 6's `Environment transition: SurfaceStationary ->
-#    SurfaceMobile at UT=... (debounce=3.0s)` (1, UT=29.76). Negative control
-#    `2026-09-11_0142`: `(debounce=3\.0s)` -> `(immediate, debounce=0\.0s)`, the
-#    detector's real immediate-branch shape. PARSEK-FAIL(expectation) on exactly that
-#    entry, drift gate original 1 / inverted 0 in its own KSP.log.
+#  - (D4 `hysteresis` was claimed here off GROUP 6's debounced `SurfaceStationary ->
+#    SurfaceMobile ... (debounce=3.0s)` token, with control `2026-09-11_0142`. MOVED to
+#    RVR-21-rover-drive-surface-hysteresis 2026-10-15 with its token; see the header.)
 #  - D4 `surface-graze-suppression` <- GROUP 6's `Split summary: ... surfaceGrazeForward=1
 #    surfaceGrazeBackward=1 ...` (2, one per commit pass). Negative control
 #    `2026-09-11_0147`: `surfaceGrazeForward=1` -> `=0`, PARSEK-FAIL(expectation) on
@@ -301,12 +307,12 @@ siblingDownTimeoutSeconds = 240
 #    auto-commit.
 #  - D5 `controlled-decoupled-child` <- `ProcessBreakupEvent: controlled child created`
 #    (1) + the two-pid `Controllable split children` (1).
-# The two D4 tokens are the lane's only NEW tokens, so they are the ones with their own
-# controls; the other cells rest on tokens required since the 2026-09-08 reading run and
-# move `coveredBy` only. NOT `rp-disk-reaper`: this lane asserts the reaper DECLINED,
-# which is the opposite of exercising it.
+# The D4 token is the lane's only NEW token, so it is the one with its own control; the
+# other cells rest on tokens required since the 2026-09-08 reading run and move
+# `coveredBy` only. NOT `rp-disk-reaper`: this lane asserts the reaper DECLINED, which is
+# the opposite of exercising it.
 D1  = ["auto-record-launch", "commit-scene-exit", "auto-merge"]
-D4  = ["hysteresis", "surface-graze-suppression"]
+D4  = ["surface-graze-suppression"]
 D5  = ["controlled-decoupled-child"]
 D9  = ["rewind-to-separation", "refly-gate", "unfinished-flights-stash"]
 D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
@@ -353,39 +359,19 @@ count = { min = 2, max = 8 }
 # `count=1`: this run authored exactly one RewindPoint, so a zero-member enumeration -
 # which would make the `${handles.rp0}` substitution unresolvable - cannot read green.
 #
-# GROUP 6 - THE TWO ENVIRONMENT / OPTIMIZER CELLS THIS PROFILE EXERCISES. Added
-# 2026-09-10 (claim-gap wave A1-6) off reading run
-# `2026-09-10_1739_RF-1-continuation-stays-open` (wave DLL a0abbed1, PASS attempt 1,
-# mismatches=0, all 15 older required tokens matched). The D4 claims they support were
-# taken 2026-09-11, after the armed re-flight of the re-pinned spec (`2026-09-11_0138`,
-# PASS attempt 1, mismatches=0) and one negative control per token, each
-# PARSEK-FAIL(expectation) on exactly its inverted entry with the drift gate held in its
-# own KSP.log: `2026-09-11_0142` (hysteresis) and `2026-09-11_0147`
-# (surface-graze-suppression). See [dimensionsCovered].
-#   `Environment transition: SurfaceStationary -> SurfaceMobile at UT=29.76
-#    (debounce=3.0s)` (INFO, EnvironmentDetector's DEBOUNCED branch: the pending
-#   classification is confirmed only after the 3.0 s surface-speed debounce elapsed).
-#   The basis for D4 `hysteresis`, which the catalog places under environment
-#   classification. The immediate branch prints `(immediate, debounce=0.0s)` and cannot
-#   match. NOT FlightRecorder's `Atmosphere boundary confirmed` timer or
-#   BackgroundRecorder's `Environment transition: pid=` line (0 of each in the reading).
-#   THE UT IS REGEXED; RE-PINNED 2026-09-10 FROM BYTES. It was first pinned literal at
-#   UT=29.76, byte-equal on all seven flights of this profile then read (GS-1
-#   `2026-08-05_1025` / `_1026` / `_1052` / `_1110` / `_1141`, RF-1 `2026-09-09_0254`,
-#   the reading). The armed re-flight `2026-09-10_2011` (same wave DLL, spec unedited)
-#   refuted that. It printed `... at UT=29.78 (debounce=3.0s)` and read
-#   PARSEK-FAIL(expectation) on that one entry; the other 16 required tokens, the 4
-#   forbids and the armed rewind block all held. The whole launch timeline sat one
-#   physics tick (0.02 s) later (MechJeb `LaunchStarted = 26.58` against 26.56 in the
-#   reading), while the SurfaceStationary section still closed after 3.18 s and the
-#   debounce still read 3.0 s. The UT is the launch tick, not the mechanism, so it is
-#   free, and `debounce=3\.0s` is the witness. Filed as
-#   RF1-HYSTERESIS-UT-LITERAL-REFUTED-BY-LAUNCH-TICK. The re-pin matches every wave run:
-#   `_1739` 29.76, `_2011` 29.78, then the 2026-09-11 armed re-flight `_0138` 29.76 and
-#   its controls `_0142` 29.78 / `_0147` 29.76. The reading's other two debounced
-#   transitions
-#   (SurfaceMobile -> Atmospheric, Atmospheric -> SurfaceStationary, both 0.5 s) are
-#   not pinned; they moved too (30.80 / 121.68 in the reading, 30.78 / 117.80 in `_2011`).
+# GROUP 6 - THE OPTIMIZER CELL THIS PROFILE EXERCISES. Added 2026-09-10 (claim-gap wave
+# A1-6) off reading run `2026-09-10_1739_RF-1-continuation-stays-open` (wave DLL a0abbed1,
+# PASS attempt 1, mismatches=0, all 15 older required tokens matched). The D4 claim it
+# supports was taken 2026-09-11, after the armed re-flight of the re-pinned spec
+# (`2026-09-11_0138`, PASS attempt 1, mismatches=0) and a negative control,
+# `2026-09-11_0147`, PARSEK-FAIL(expectation) on exactly its inverted entry with the drift
+# gate held in its own KSP.log. See [dimensionsCovered].
+#   (GROUP 6 also held EnvironmentDetector's `Environment transition: SurfaceStationary ->
+#   SurfaceMobile at UT=... (debounce=3.0s)`, the D4 `hysteresis` witness, until
+#   2026-10-15. It printed only while the lit launch sat over 3 s on the pad inside a
+#   post-load race, and `2026-10-12_2026` red on it alone once LoadGame waited for
+#   flight-ready. Owner ruling 2026-10-15 moved the token and the claim to
+#   RVR-21-rover-drive-surface-hysteresis, whose rover really drives on the surface.)
 #   `Split summary: rec=<id> evaluated=2 ... surfaceGrazeForward=1
 #    surfaceGrazeBackward=1 ...` (Verbose, RecordingOptimizer; the `verboseLogging` step
 #   is load-bearing for it too). The basis for D4 `surface-graze-suppression`. The pod's
@@ -410,7 +396,6 @@ required  = ["Recording started",
              "Invocation complete",
              "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
              "Restored: recs=.* pendingScience=",
-             "Environment transition: SurfaceStationary -> SurfaceMobile at UT=[0-9.]+ \\(debounce=3\\.0s\\)",
              "Split summary: rec=[0-9a-f]{32} evaluated=2 grazeForward=0 grazeBackward=0 surfaceGrazeForward=1 surfaceGrazeBackward=1 seamSkipped=0 exoCoastBodyChangeKept=0 splittableButRejected=0"]
 # THE THREE FORBIDDEN PATTERNS, and what each would mean.
 #

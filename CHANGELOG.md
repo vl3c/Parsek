@@ -27,6 +27,31 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Rewards earned right after a Re-Fly starts now belong to that attempt.** A reward earned in
+  the first moments of a Re-Fly, before Parsek starts recording it, is kept when you merge the
+  attempt and removed when you discard it, like the rest of the attempt's rewards. Before, it
+  could survive a discard or be lost at the merge.
+  (REFLY-UNBOUND-PROVISIONAL-TAGS-AWARDS-TO-ORIGIN)
+- **Discard Re-fly takes you back to the rewind point.** After a quicksave or quickload during a
+  Re-Fly, Discard Re-fly could land you at the Space Center later than the separation, with the
+  discarded attempt's vessel still flying. It now always returns to the moment you rewound to.
+- **Discard Re-fly after a quickload keeps the original flight.** Discarding a Re-Fly from the Esc
+  menu after an F9 inside it could drop the whole flight it belonged to from the timeline. The
+  original flight now stays, as it does when you discard from the merge dialog.
+- **Rewinding past a delivery no longer loses the delivered vessel.** When a tug docks to a depot
+  and carries it to a station, a rewind to before the docks now holds back both the depot and the
+  station, and the recorded station with the depot attached appears once when the flight ends.
+  Before, the old station stayed as it was and the depot was lost.
+  (CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS)
+- **Cargo a kerbal moves to or from another vessel survives a rewind.** Taking a stored part out
+  of a parked rover's container, or putting one in, now makes that rover part of the flight: after
+  a rewind it waits as a ghost and comes back with its new contents, so the part is no longer
+  duplicated or lost. (EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED)
+- **Supply routes keep their cargo hold and recovery credit across scene changes and loads.** A
+  multi-stop route that already loaded at one depot keeps the rest of its cargo reserved after a
+  scene change, so another route can no longer take it before the next stop. A recovery credit
+  owed by a route whose source recording went missing is now paid after the save loads, at the
+  right time, instead of during the load. (ROUTE-ESCROW-LOST-ON-SCENE-SWITCH)
 - **Docking a fleet of identical ships no longer mixes up their histories.** When your ship docks
   to another and takes it over, Parsek now remembers which launch of that ship it was. A later
   launch of the same design no longer has its vessel hidden or spawned at the wrong time because

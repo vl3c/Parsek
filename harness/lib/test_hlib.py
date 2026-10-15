@@ -1112,7 +1112,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # rename dialog, so Parsek's vessel-name capture runs as in play.
         # 50 / 4 after PartAction and RevertToLaunch, an ADDITION by two: a part's stock
         # right-click menu button, and stock's plain Revert to Launch (vessel-names proof).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 50)
+        # 51 / 4 after DriveVessel, an ADDITION by one: a landed vessel driven on its own
+        # wheel motors, the D4 hysteresis host (ruling RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 51)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -10273,8 +10275,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "operator by the reading-run discipline; LIVE-PROVEN, rewind block "
             "armed 2026-09-09. Claim-gap wave: armed re-flight _2011 red on a UT "
             "literal (re-pinned from bytes); the re-pin flew green 2026-09-11 "
-            "(_0138, controls _0142 / _0147), so D4 hysteresis + "
-            "surface-graze-suppression and seven coveredBy-only cells are claimed",
+            "(_0138, controls _0142 / _0147), so D4 surface-graze-suppression and "
+            "seven coveredBy-only cells are claimed (D4 hysteresis moved to RVR-21 "
+            "2026-10-15)",
         "RF-2-two-reflies-in-sequence.toml":
             "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
             "FLOWN. Owes a flight, not a human call",
@@ -17003,6 +17006,116 @@ class RevertToLaunchSourceSyncTests(unittest.TestCase):
         errs = hlib.validate_spec(spec, load_registry()).errors
         self.assertTrue(any("takes no args" in e for e in errs), errs)
         self.assertTrue(any("only the LoadGame verb reads it" in e for e in errs), errs)
+
+
+class DriveVesselSourceSyncTests(unittest.TestCase):
+    """`DriveVessel`. Reads OUTSIDE harness/: the verb, the two arg keys, the seconds cap and
+    the refusal / error reasons (IN ORDER) of the comment-stripped
+    TestCommands/TestCommandDriveVessel.cs, and the applier's drive through the stock
+    fly-by-wire hook, so the pre-launch validator cannot drift from what the seam accepts."""
+
+    SPEC = "RVR-21-rover-drive-surface-hysteresis.toml"
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# DriveVessel tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_keys_bounds_and_reasons_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandDriveVessel.cs")
+        self.assertIn('internal const string Verb = "%s";' % hlib.DRIVEVESSEL_VERB, text)
+        self.assertIn('internal const string ThrottleKey = "%s";' % hlib.DRIVEVESSEL_THROTTLE_KEY, text)
+        self.assertIn('internal const string SecondsKey = "%s";' % hlib.DRIVEVESSEL_SECONDS_KEY, text)
+        self.assertIn("internal const double MaxSeconds = %.1f;" % hlib.DRIVEVESSEL_MAX_SECONDS, text)
+        self.assertIn("parsed == 0f || parsed < -1f || parsed > 1f", text)
+        self.assertEqual(list(hlib.DRIVEVESSEL_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+        self.assertEqual(list(hlib.DRIVEVESSEL_ERROR_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "ErrorReasons"))
+        for reason in hlib.DRIVEVESSEL_REASONS:
+            expected = "driver-arg" if "-arg-" in reason else "driver-gate"
+            self.assertEqual(expected, hlib._SEAM_REFUSAL_SUBKINDS.get(reason), reason)
+            if "-arg-" in reason:
+                self.assertIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+            else:
+                self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        # The post-start ERRORs are not refusals: the drive ran, so a retry may differ.
+        for reason in hlib.DRIVEVESSEL_ERROR_REASONS:
+            self.assertNotIn(reason, hlib._SEAM_REFUSAL_SUBKINDS)
+            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+
+    def test_the_applier_drives_through_the_fly_by_wire_hook(self):
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.DriveVessel.cs")
+        self.assertIn("v.OnFlyByWire += DriveVesselFlyByWire;", applier)
+        self.assertIn("v.OnFlyByWire -= DriveVesselFlyByWire;", applier)
+        self.assertIn("s.wheelThrottle = driveThrottle;", applier)
+        addon = self._source("TestCommands", "ParsekTestCommandAddon.cs")
+        # ClearTwoPhase owns the unsubscribe, so no exit path leaves the callback behind.
+        clear = addon[addon.index("private void ClearTwoPhase()"):]
+        clear = clear[:clear.index("\n        }\n")]
+        self.assertIn("RemoveDriveVesselCallback();", clear)
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.DRIVEVESSEL_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(60.0, hlib.dispatch_deferral_budget(verb))
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertFalse(hlib.post_mission_step_gates(verb))
+
+    def test_the_step_validator(self):
+        v = hlib.validate_drive_vessel_step
+        self.assertEqual([], v(0, {"wheelThrottle": "1", "seconds": "8"}))
+        self.assertEqual([], v(0, {"wheelThrottle": "-0.5", "seconds": "30"}))
+        self.assertIn("drivevessel-throttle-arg-missing", v(0, {"seconds": "8"})[0])
+        self.assertIn("drivevessel-seconds-arg-missing", v(0, {"wheelThrottle": "1"})[0])
+        for bad in ("0", "1.5", "-2", "nan", "inf", "full"):
+            with self.subTest(wheelThrottle=bad):
+                errs = v(0, {"wheelThrottle": bad, "seconds": "8"})
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("drivevessel-throttle-arg-invalid", errs[0])
+        for bad in ("0", "-1", "30.5", "nan", "eight"):
+            with self.subTest(seconds=bad):
+                errs = v(0, {"wheelThrottle": "1", "seconds": bad})
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("drivevessel-seconds-arg-invalid", errs[0])
+        errs = v(2, {"wheelThrottle": "1", "seconds": "8", "brakes": "false"})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("silently ignored", errs[0])
+
+    def test_validate_spec_runs_the_step_validator(self):
+        spec = copy.deepcopy(load_spec(self.SPEC))
+        drives = [s for s in spec["driver"]["steps"] if s.get("cmd") == hlib.DRIVEVESSEL_VERB]
+        self.assertEqual(1, len(drives))
+        self.assertEqual([], list(hlib.validate_spec(spec, load_registry()).errors))
+        drives[0]["args"] = {"wheelThrottle": "1"}
+        errs = hlib.validate_spec(spec, load_registry()).errors
+        self.assertTrue(any("drivevessel-seconds-arg-missing" in e for e in errs), errs)
+
+    def test_the_lane_drives_past_the_debounce_with_a_recording_live(self):
+        # The lane exists for ONE claim: a recorder-observed SurfaceStationary ->
+        # SurfaceMobile transition confirmed after the 3.0 s debounce. Its drive must
+        # outlast that debounce with margin, and must sit between StartRecording and
+        # StopRecording, or the claim's token cannot print.
+        spec = load_spec(self.SPEC)
+        cmds = [s.get("cmd") for s in spec["driver"]["steps"]]
+        start = cmds.index("StartRecording")
+        drive = cmds.index(hlib.DRIVEVESSEL_VERB)
+        stop = cmds.index("StopRecording", drive)
+        self.assertLess(start, drive)
+        self.assertLess(drive, stop)
+        seconds = float(spec["driver"]["steps"][drive]["args"]["seconds"])
+        self.assertGreaterEqual(seconds, 2 * 3.0)
+        self.assertIn("hysteresis", spec["dimensionsCovered"]["D4"])
+        required = spec["expectations"]["logContracts"]["required"]
+        self.assertTrue(any("SurfaceStationary -> SurfaceMobile" in r
+                            and "debounce=3\\.0s" in r for r in required), required)
+        self.assertTrue(any(r.startswith("drivevessel end: outcome=moved") for r in required),
+                        required)
 
 
 class GuiCensusSeamVerbTests(unittest.TestCase):

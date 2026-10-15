@@ -693,6 +693,14 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     ready. OK `scene= activePid= activeName= situation=`.
     "PartAction",
     "RevertToLaunch",
+    # ADDITIVE (50 -> 51 implemented, reserved unchanged at 4), the D4 `hysteresis` host.
+    #   DriveVessel wheelThrottle=<-1..1, not 0> seconds=<game s, (0, 30]>, FLIGHT, TWO-PHASE,
+    #     default 60 s: drives the active LANDED / SPLASHED vessel on its own wheel motors (a
+    #     Vessel.OnFlyByWire wheelThrottle, Brakes released for the drive and restored after)
+    #     until the game clock covered the span. OK only when the vessel really moved (max
+    #     srfSpeed >= 0.5 m/s): `moved=true gameSeconds= maxSrfSpeed= pathMeters=
+    #     displacementMeters= situation=`; otherwise ERROR drivevessel-did-not-move.
+    "DriveVessel",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1303,6 +1311,8 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     "PartAction": TAIL_ROLE_WORLD_MUTATING,
     # RevertToLaunch reloads the flight from stock's post-init state.
     "RevertToLaunch": TAIL_ROLE_WORLD_MUTATING,
+    # DriveVessel moves a live vessel across the surface (and toggles its Brakes group).
+    "DriveVessel": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1502,6 +1512,10 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # "stock ran the control", and the claims a lane pins are Parsek's response to it.
     "PartAction": POST_MISSION_ROLE_RECORDING,
     "RevertToLaunch": POST_MISSION_ROLE_RECORDING,
+    # DriveVessel is `recording` for SpinVessel's reason: it sets up the subject a recording
+    # claim is about (a vessel moving on the surface), and the recorder's own lines re-derive
+    # what it did.
+    "DriveVessel": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -3564,6 +3578,73 @@ def validate_revert_to_launch_step(index: int, step_args: Dict) -> List[str]:
         return []
     return ["driver.steps[%d].args: %s takes no args, so %s would be silently ignored"
             % (index, REVERTTOLAUNCH_VERB, ", ".join(sorted(str(k) for k in step_args)))]
+
+
+# DriveVessel: mirrored from TestCommands/TestCommandDriveVessel.cs
+# (DriveVesselSourceSyncTests). Both args REQUIRED: `wheelThrottle=` a finite value in
+# [-1, 1] other than 0, `seconds=` a finite span of game seconds in (0, 30].
+DRIVEVESSEL_VERB = "DriveVessel"
+DRIVEVESSEL_THROTTLE_KEY = "wheelThrottle"
+DRIVEVESSEL_SECONDS_KEY = "seconds"
+DRIVEVESSEL_MAX_SECONDS = 30.0
+DRIVEVESSEL_REASONS: Tuple[str, ...] = (
+    "drivevessel-throttle-arg-missing", "drivevessel-throttle-arg-invalid",
+    "drivevessel-seconds-arg-missing", "drivevessel-seconds-arg-invalid",
+    "drivevessel-no-active-vessel", "drivevessel-vessel-packed",
+    "drivevessel-not-on-surface", "drivevessel-no-wheel-motor",
+)
+DRIVEVESSEL_ERROR_REASONS: Tuple[str, ...] = (
+    "drivevessel-vessel-lost", "drivevessel-did-not-move", "drivevessel-timeout",
+)
+
+
+def _finite_float_or_none(raw) -> Optional[float]:
+    try:
+        value = float(str(raw))
+    except ValueError:
+        return None
+    return value if math.isfinite(value) else None
+
+
+def validate_drive_vessel_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``DriveVessel`` step: ``wheelThrottle=`` and
+    ``seconds=`` REQUIRED and in range (the C# validators' bounds), and no other key (the
+    verb reads none, so it would be sent and silently ignored)."""
+    errors: List[str] = []
+    raw = step_args.get(DRIVEVESSEL_THROTTLE_KEY)
+    if raw is None or str(raw) == "":
+        errors.append(
+            "driver.steps[%d].args.%s: %s REQUIRES it; the seam answers REJECTED "
+            "drivevessel-throttle-arg-missing"
+            % (index, DRIVEVESSEL_THROTTLE_KEY, DRIVEVESSEL_VERB))
+    else:
+        value = _finite_float_or_none(raw)
+        if value is None or value == 0.0 or not -1.0 <= value <= 1.0:
+            errors.append(
+                "driver.steps[%d].args.%s: %r is not a finite value in [-1, 1] other than 0; "
+                "the seam answers REJECTED drivevessel-throttle-arg-invalid"
+                % (index, DRIVEVESSEL_THROTTLE_KEY, raw))
+    raw = step_args.get(DRIVEVESSEL_SECONDS_KEY)
+    if raw is None or str(raw) == "":
+        errors.append(
+            "driver.steps[%d].args.%s: %s REQUIRES it; the seam answers REJECTED "
+            "drivevessel-seconds-arg-missing"
+            % (index, DRIVEVESSEL_SECONDS_KEY, DRIVEVESSEL_VERB))
+    else:
+        value = _finite_float_or_none(raw)
+        if value is None or not 0.0 < value <= DRIVEVESSEL_MAX_SECONDS:
+            errors.append(
+                "driver.steps[%d].args.%s: %r is not a game-second span in (0, %g]; the "
+                "seam answers REJECTED drivevessel-seconds-arg-invalid"
+                % (index, DRIVEVESSEL_SECONDS_KEY, raw, DRIVEVESSEL_MAX_SECONDS))
+    extra = sorted(str(k) for k in step_args
+                   if k not in (DRIVEVESSEL_THROTTLE_KEY, DRIVEVESSEL_SECONDS_KEY))
+    if extra:
+        errors.append("driver.steps[%d].args: %s reads only %s and %s, so %s would be "
+                      "silently ignored"
+                      % (index, DRIVEVESSEL_VERB, DRIVEVESSEL_THROTTLE_KEY,
+                         DRIVEVESSEL_SECONDS_KEY, ", ".join(extra)))
+    return errors
 
 
 def validate_real_spawn_recover_step(index: int, cmd: str, step_args: Dict) -> List[str]:
@@ -6673,6 +6754,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_part_action_step(i, step_args))
         elif cmd == REVERTTOLAUNCH_VERB:
             errors.extend(validate_revert_to_launch_step(i, step_args))
+        elif cmd == DRIVEVESSEL_VERB:
+            errors.extend(validate_drive_vessel_step(i, step_args))
         # LoadGame focusPid= (any verb: the validator flags it on a verb that ignores it).
         if LOADGAME_FOCUS_PID_KEY in step_args:
             errors.extend(validate_loadgame_focus_step(i, cmd, step_args))
@@ -6990,6 +7073,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                     "the flight, where evaluate_expectations would red the run on "
                     "a collected log."
                     % (facet, pat, exc, '"\\\\("'))
+    # forwardedSeeds shape, for the same reason: a malformed item is a pre-launch
+    # rejection, never an item that evaluates as a silent no-op after the flight.
+    if FORWARDED_SEEDS_KEY in log_contracts:
+        errors.extend(validate_forwarded_seeds_spec(log_contracts.get(FORWARDED_SEEDS_KEY)))
 
     # Exactly one QUIT owner: a FlushAndQuit step XOR autorun.exit = true (N3).
     has_flush = any((s or {}).get("cmd") == "FlushAndQuit" for s in steps)
@@ -7999,6 +8086,249 @@ class ExpectationResult:
 RESERVED_EXPECTATION_BLOCKS: Tuple[str, ...] = ("route", "loop")
 
 
+# ---------------------------------------------------------------------------
+# logContracts.forwardedSeeds: judge the optimizer's forwarded permanent seeds
+# themselves, not only their count (owner ruling 2026-10-15, todo
+# TIER-2026-10-12-LANE-VARIANCE).
+#
+# `RecordingOptimizer.ForwardPermanentStateEvents` prints, once per split:
+#   Forwarded <N> permanent state event(s) as seeds at UT=<f1>: [<entry>, <entry>, ...]
+# with each entry `Type:partName#pid`, sorted by type, part name, pid (ordinal), and a
+# null part name printed as `?` (`RecordingOptimizer.FormatForwardedSeedList`). A DLL
+# older than that line prints the count only; such a line is a candidate that can
+# never satisfy an item (the mismatch says so).
+#
+# Spec shape (under [expectations.logContracts]):
+#   forwardedSeeds = [
+#     { expected = ["Decoupled:launchClamp1", ...],
+#       acceptableExtraGroups = [ { part = "R8winglet", types = ["Decoupled", "Destroyed"] } ] },
+#   ]
+# An item is satisfied when SOME seed line's entries (pid ignored) contain the
+# `expected` multiset, and every leftover entry belongs to a pid whose leftover entries
+# are EXACTLY one declared group: the declared part name on every entry and the
+# declared types, each once. Several pids may each match a group. A lone half of a
+# group, a group split across two pids, an unknown extra, a surplus copy of an
+# expected entry and a missing expected entry all fail. Items are independent, so two
+# items may be satisfied by two different lines (or both by one).
+#
+# A group's part may not also be named by the item's `expected` entries: with that
+# restriction the leftover set is unique (which instance of an expected entry is
+# consumed never matters), so the verdict needs no search.
+# ---------------------------------------------------------------------------
+
+FORWARDED_SEEDS_KEY = "forwardedSeeds"
+FORWARDED_SEEDS_ITEM_KEYS: Tuple[str, ...] = ("expected", "acceptableExtraGroups")
+FORWARDED_SEEDS_GROUP_KEYS: Tuple[str, ...] = ("part", "types")
+# The PartEventType names `RecordingOptimizer.IsPermanentVisualStateEvent` accepts,
+# the only types a forwarded seed can carry. A spec naming anything else would wait
+# for a seed that can never be printed.
+FORWARDED_SEED_TYPES: Tuple[str, ...] = (
+    "Decoupled", "Destroyed", "FairingJettisoned", "ParachuteDestroyed", "ShroudJettisoned")
+EXPECTATION_FORWARDED_SEEDS_MISS_PREFIX = "logContracts.forwardedSeeds not satisfied: "
+# The substring every forwarded-seed line carries (the mutation lane indexes lines by it).
+FORWARDED_SEEDS_LINE_MARKER = "permanent state event(s) as seeds at UT="
+_FORWARDED_SEEDS_LINE_RE = re.compile(
+    r"Forwarded (\d+) permanent state event\(s\) as seeds at UT=([0-9.]+)"
+    r"(?:: \[([^\]\r\n]*)\])?")
+_FORWARDED_SEED_ENTRY_RE = re.compile(r"^([A-Za-z]+):(\S+)#([0-9]+)$")
+_FORWARDED_SEED_PART_RE = re.compile(r"^[^\s#,\[\]:]+$")
+
+
+@dataclass(frozen=True)
+class ForwardedSeedLine:
+    """One parsed `Forwarded N ...` line. ``entries`` is ((type, part, pid), ...);
+    ``problem`` is non-empty when the line cannot be judged (count-only line, an entry
+    outside the grammar, or N disagreeing with the entry count)."""
+    line_no: int
+    count: int
+    ut: str
+    entries: Tuple[Tuple[str, str, int], ...]
+    problem: str = ""
+
+
+def parse_forwarded_seed_lines(log_text: str) -> List[ForwardedSeedLine]:
+    """Every `Forwarded N permanent state event(s) as seeds at UT=...` line, in log
+    order, with its seed list parsed. Pure."""
+    out: List[ForwardedSeedLine] = []
+    # Split on "\n" only (as the mutation lane's log model does), so line_no indexes
+    # the same line in both.
+    for i, line in enumerate((log_text or "").split("\n")):
+        if FORWARDED_SEEDS_LINE_MARKER not in line:
+            continue
+        m = _FORWARDED_SEEDS_LINE_RE.search(line)
+        if m is None:
+            continue
+        count = int(m.group(1))
+        ut = m.group(2)
+        body = m.group(3)
+        if body is None:
+            out.append(ForwardedSeedLine(i + 1, count, ut, (),
+                                         "count-only line (no seed list; a DLL older "
+                                         "than the forwarded seed list)"))
+            continue
+        entries: List[Tuple[str, str, int]] = []
+        bad: List[str] = []
+        for raw in ([s.strip() for s in body.split(",")] if body.strip() else []):
+            em = _FORWARDED_SEED_ENTRY_RE.match(raw)
+            if em is None:
+                bad.append(raw)
+            else:
+                entries.append((em.group(1), em.group(2), int(em.group(3))))
+        problem = ""
+        if bad:
+            problem = "unparseable seed entr%s %s" % ("y" if len(bad) == 1 else "ies", bad)
+        elif len(entries) != count:
+            problem = "count %d != %d listed seed(s)" % (count, len(entries))
+        out.append(ForwardedSeedLine(i + 1, count, ut, tuple(entries), problem))
+    return out
+
+
+def judge_forwarded_seed_line(item: Dict, line: ForwardedSeedLine
+                              ) -> Tuple[List[str], List[str]]:
+    """(missing expected entries, unacceptable extra entries) of one seed line against
+    one validated ``forwardedSeeds`` item. Both empty and no ``line.problem`` ->
+    satisfied. Pure."""
+    expected = [str(e) for e in (item.get("expected") or [])]
+    groups = item.get("acceptableExtraGroups") or []
+    need: Dict[str, int] = {}
+    for key in expected:
+        need[key] = need.get(key, 0) + 1
+    left = list(line.entries)
+    missing: List[str] = []
+    for key in sorted(need):
+        typ, _, part = key.partition(":")
+        idx = [j for j, e in enumerate(left) if e[0] == typ and e[1] == part]
+        if len(idx) < need[key]:
+            missing.extend([key] * (need[key] - len(idx)))
+        for j in sorted(idx[:need[key]], reverse=True):
+            del left[j]
+    by_pid: Dict[int, List[Tuple[str, str, int]]] = {}
+    for e in left:
+        by_pid.setdefault(e[2], []).append(e)
+    unacceptable: List[str] = []
+    for pid in sorted(by_pid):
+        ents = by_pid[pid]
+        types = sorted(e[0] for e in ents)
+        ok = any(isinstance(g, dict)
+                 and all(e[1] == g.get("part") for e in ents)
+                 and types == sorted(str(t) for t in (g.get("types") or []))
+                 for g in groups)
+        if not ok:
+            unacceptable.extend("%s:%s#%d" % e for e in sorted(ents))
+    return missing, unacceptable
+
+
+def evaluate_forwarded_seeds(items: object, log_text: str) -> List[str]:
+    """Mismatch strings for a spec's ``logContracts.forwardedSeeds`` (empty -> every
+    item satisfied). An unsatisfied item names the CLOSEST candidate line and what it
+    lacked or carried extra, so a red reads without opening the log. Pure."""
+    if not isinstance(items, list) or not items:
+        return []
+    lines = parse_forwarded_seed_lines(log_text)
+    mismatches: List[str] = []
+    for i, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        n_expected = len(item.get("expected") or [])
+        if not lines:
+            mismatches.append(
+                "%s[%d] (%d expected): no `Forwarded N permanent state event(s) as seeds "
+                "at UT=...` line in the log" % (EXPECTATION_FORWARDED_SEEDS_MISS_PREFIX,
+                                                i, n_expected))
+            continue
+        best = None
+        for ln in lines:
+            missing, extra = judge_forwarded_seed_line(item, ln)
+            if not missing and not extra and not ln.problem:
+                best = None
+                break
+            score = (1 if ln.problem else 0, len(missing) + len(extra))
+            if best is None or score < best[0]:
+                best = (score, ln, missing, extra)
+        else:
+            _, ln, missing, extra = best
+            detail = "missing %s; unacceptable extra %s" % (missing, extra)
+            if ln.problem:
+                detail = "%s; %s" % (ln.problem, detail)
+            mismatches.append(
+                "%s[%d] (%d expected) by none of %d seed line(s); closest is log line %d "
+                "(Forwarded %d at UT=%s): %s"
+                % (EXPECTATION_FORWARDED_SEEDS_MISS_PREFIX, i, n_expected, len(lines),
+                   ln.line_no, ln.count, ln.ut, detail))
+    return mismatches
+
+
+def validate_forwarded_seeds_spec(value: object) -> List[str]:
+    """Spec errors for ``[expectations.logContracts] forwardedSeeds``. Pure."""
+    key = "expectations.logContracts.%s" % FORWARDED_SEEDS_KEY
+    if not isinstance(value, list) or not value:
+        return ["%s: %r must be a non-empty list of tables" % (key, value)]
+    errors: List[str] = []
+    for i, item in enumerate(value):
+        ik = "%s[%d]" % (key, i)
+        if not isinstance(item, dict):
+            errors.append("%s: %r must be a table" % (ik, item))
+            continue
+        unknown = sorted(k for k in item if k not in FORWARDED_SEEDS_ITEM_KEYS)
+        if unknown:
+            errors.append("%s: unknown key(s) %s (accepted: %s)"
+                          % (ik, unknown, list(FORWARDED_SEEDS_ITEM_KEYS)))
+        expected = item.get("expected")
+        expected_parts: Set[str] = set()
+        if not isinstance(expected, list) or not expected:
+            errors.append("%s.expected: %r must be a non-empty list of \"Type:partName\" "
+                          "strings (an empty list would let any seed-free line pass)"
+                          % (ik, expected))
+        else:
+            for e in expected:
+                typ, sep, part = (e.partition(":") if isinstance(e, str) else ("", "", ""))
+                if not sep or typ not in FORWARDED_SEED_TYPES or not _FORWARDED_SEED_PART_RE.match(part):
+                    errors.append("%s.expected: %r must be \"Type:partName\" with Type in %s "
+                                  "and a part name carrying no whitespace or #,[]: (the pid "
+                                  "is not part of an expected entry)"
+                                  % (ik, e, list(FORWARDED_SEED_TYPES)))
+                else:
+                    expected_parts.add(part)
+        groups = item.get("acceptableExtraGroups")
+        if groups is None:
+            continue
+        if not isinstance(groups, list):
+            errors.append("%s.acceptableExtraGroups: %r must be a list of tables" % (ik, groups))
+            continue
+        seen: Set[Tuple[str, Tuple[str, ...]]] = set()
+        for j, g in enumerate(groups):
+            gk = "%s.acceptableExtraGroups[%d]" % (ik, j)
+            if not isinstance(g, dict):
+                errors.append("%s: %r must be a table" % (gk, g))
+                continue
+            unknown = sorted(k for k in g if k not in FORWARDED_SEEDS_GROUP_KEYS)
+            if unknown:
+                errors.append("%s: unknown key(s) %s (accepted: %s)"
+                              % (gk, unknown, list(FORWARDED_SEEDS_GROUP_KEYS)))
+            part = g.get("part")
+            types = g.get("types")
+            if not isinstance(part, str) or not _FORWARDED_SEED_PART_RE.match(part):
+                errors.append("%s.part: %r must be a part name with no whitespace or #,[]:"
+                              % (gk, part))
+            elif part in expected_parts:
+                errors.append("%s.part: %r is also named by %s.expected; a group's part must "
+                              "not be, or which seed is the extra would be ambiguous"
+                              % (gk, part, ik))
+            if (not isinstance(types, list) or not types
+                    or not all(isinstance(t, str) and t in FORWARDED_SEED_TYPES for t in types)):
+                errors.append("%s.types: %r must be a non-empty list of types from %s"
+                              % (gk, types, list(FORWARDED_SEED_TYPES)))
+            elif len(set(types)) != len(types):
+                errors.append("%s.types: %r names a type twice (a pid's seed set carries "
+                              "each type once)" % (gk, types))
+            elif isinstance(part, str):
+                sig = (part, tuple(sorted(types)))
+                if sig in seen:
+                    errors.append("%s: duplicates an earlier group" % gk)
+                seen.add(sig)
+    return errors
+
+
 def observed_expectation_facets(recording_count: Optional[int]) -> Dict[str, Any]:
     """Build the MEASURED-facet dict verifier 7 records alongside its verdict.
 
@@ -8045,9 +8375,11 @@ def evaluate_expectations(
 ) -> ExpectationResult:
     """Evaluate the v1-EVALUATED expectation blocks with tolerances.
 
-    v1 evaluates: ``recordings.count`` (min/max window) and
+    v1 evaluates: ``recordings.count`` (min/max window),
     ``logContracts.required`` / ``logContracts.forbidden`` (LITERAL KSP.log line
-    regex patterns applied with ``re.search`` over the log body). A mismatch ->
+    regex patterns applied with ``re.search`` over the log body) and
+    ``logContracts.forwardedSeeds`` (the optimizer's forwarded seed lists, judged
+    entry by entry by ``evaluate_forwarded_seeds``). A mismatch ->
     FAIL (the caller reds PARSEK-FAIL expectation). The route/loop blocks are
     RESERVED: parsed + recorded SKIPPED until their verifiers land, so a scenario
     written now needs no format break then. ``world`` is NO LONGER reserved here
@@ -8093,6 +8425,7 @@ def evaluate_expectations(
                 mismatches.append("%s%s" % (EXPECTATION_FORBIDDEN_HIT_PREFIX, pat))
         except re.error:
             mismatches.append("%s%s" % (EXPECTATION_FORBIDDEN_INVALID_PREFIX, pat))
+    mismatches.extend(evaluate_forwarded_seeds(log_contracts.get(FORWARDED_SEEDS_KEY), text))
 
     reserved = tuple(b for b in RESERVED_EXPECTATION_BLOCKS if b in expectations)
     status = "PASS" if not mismatches else "FAIL"
@@ -10509,6 +10842,17 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # (RevertToLaunchSourceSyncTests).
     "reverttolaunch-refly-session": "driver-gate",
     "reverttolaunch-unavailable": "driver-gate",
+    # DriveVessel: a missing / out-of-range arg is the SPEC's fault; no active vessel, a packed
+    # vessel, a vessel off the surface and one with no wheel motor are live states the drive
+    # would not act in (DriveVesselSourceSyncTests).
+    "drivevessel-throttle-arg-missing": "driver-arg",
+    "drivevessel-throttle-arg-invalid": "driver-arg",
+    "drivevessel-seconds-arg-missing": "driver-arg",
+    "drivevessel-seconds-arg-invalid": "driver-arg",
+    "drivevessel-no-active-vessel": "driver-gate",
+    "drivevessel-vessel-packed": "driver-gate",
+    "drivevessel-not-on-surface": "driver-gate",
+    "drivevessel-no-wheel-motor": "driver-gate",
     # SimulateStockSwitchClick, arg half: site / selector spellings and target resolution.
     # target-not-found / -name-ambiguous / -is-ghost are arg-class because each one means
     # the SPEC named the wrong thing, the same call `unknown-target` gets for KscAction.
@@ -11149,7 +11493,10 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "physics-warp-not-in-flight",
     "allow-live-recorder-arg-invalid", "await-recorder-live-arg-invalid",
     "cadence-arg-invalid", "cadence-arg-missing",
-    "category-arg-empty", "dialog-arg-invalid", "edit-commit-arg-invalid",
+    "category-arg-empty", "dialog-arg-invalid",
+    "drivevessel-seconds-arg-invalid", "drivevessel-seconds-arg-missing",
+    "drivevessel-throttle-arg-invalid", "drivevessel-throttle-arg-missing",
+    "edit-commit-arg-invalid",
     "edit-field-arg-missing", "edit-key-arg-missing", "expand-key-arg-missing",
     "factor-arg-invalid", "find-ctrl-arg-invalid", "find-index-arg-invalid",
     "find-text-arg-missing", "focus-pid-arg-invalid", "focus-pid-scene-conflict",

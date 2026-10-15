@@ -851,11 +851,11 @@ closure(r) = { r }
       stop — c has a parent outside the subtree (mixed-parent halt)
 ```
 
-The same-PID gate, chain-sibling, PID-peer and debris expansions are unchanged. Owner ruling 2026-09-27 (section 1.6) adds four rules, all logged in the closure summary line (`stretchSeeds=`, `evaKerbalsAdded=`, `sameVesselBoards=`, `placedPartsAdded=`) and per admission (`admitted own-EVA kerbal child=`, `admitted same-vessel board child=`, `admitted placed ground part child=`):
+The same-PID gate, chain-sibling, PID-peer and debris expansions are unchanged. Owner ruling 2026-09-27 (section 1.6) adds four rules, all logged in the closure summary line (`stretchSeeds=`, `evaKerbalsAdded=`, `sameVesselBoards=`, `placedPartsAdded=`) and per admission (`admitted own-EVA kerbal child=`, `admitted same-vessel board child=`, `admitted kerbal side-branch child=`):
 
 - **Own EVA crew.** At an `EVA` branch point whose parent is the dequeued VESSEL recording, the kerbal child (an `EvaCrewName` recording, committed, not the live session's own, split at or after the rewind UT) is admitted although its pid differs (`EffectiveState.IsOwnEvaKerbalClosureChild`, a pure gate that names the failed condition).
 - **Same-vessel Board.** A `Board` child that carries the pid of a VESSEL parent already in the closure is admitted even when the kerbal parent is the one dequeued, so the order in which the vessel and the kerbal leave the queue does not matter. A `Board` with a parent outside the closure still halts (mixed-parent).
-- **Placed parts.** A kerbal in the closure pulls in its `GroundPartPlaced` children, found by parent id.
+- **Placed parts and cargo partners.** A kerbal in the closure pulls in the children of his kerbal side branches, found by parent id: `GroundPartPlaced` (a part he placed) and `InventoryTransfer` (a foreign vessel whose inventory he changed, flight recorder design section 4.12). Both count in `placedPartsAdded=`.
 - **Stretch seeding.** A closure rooted anywhere but the slot origin (the merge-time root is the marker's `SupersedeTargetId`, the walked tip) is seeded with the own-vessel stretch walked backward from the root (`EffectiveState.CollectOwnVesselStretchBackward`): back across switch-continuation, own-EVA and same-vessel-Board points to the slot origin, stopping at a re-fly fork and before any recording whose sampled content starts before `marker.RewindPointUT` (a spanning recording belongs to `RecordingTreeSplitter`, which now also looks for it along the stretch). Skipped for a legacy marker with no `RewindPointUT`.
 
 A kerbal who goes EVA DURING the session is not a supersede source: his recording is the session's own and is not a committed closure member when the merge runs.

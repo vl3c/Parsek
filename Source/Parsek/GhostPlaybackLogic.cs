@@ -8746,13 +8746,14 @@ namespace Parsek
             if (!TryResolveTreeContext(rec, treeContext, out tree))
                 return false;
 
-            // Check if any branch point lists this recording as a parent. A ground-part
-            // placement is skipped: its parent (the placing kerbal) keeps recording past it
-            // and stays the leaf of its own flight (design section 4.11).
+            // Check if any branch point lists this recording as a parent. A kerbal side
+            // branch (a ground-part placement, a foreign vessel's inventory transfer) is
+            // skipped: its parent (the kerbal) keeps recording past it and stays the leaf of
+            // its own flight (design sections 4.11 and 4.12).
             for (int b = 0; b < tree.BranchPoints.Count; b++)
             {
                 var bp = tree.BranchPoints[b];
-                if (bp == null || bp.Type == BranchPointType.GroundPartPlaced)
+                if (bp == null || RecordingTree.IsKerbalSideBranch(bp.Type))
                     continue;
                 // A branch point a split moved onto a later chain segment that the vessel flew
                 // on past does not end the segment either.

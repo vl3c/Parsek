@@ -264,6 +264,20 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// The retired provisional noted for <paramref name="marker"/>'s session, WITHOUT
+        /// clearing the slot (the tree commit files its awards; the conclusion still takes
+        /// it). Null when nothing was noted or the note is another session's.
+        /// </summary>
+        internal static Recording Peek(ReFlySessionMarker marker)
+        {
+            if (marker == null || recording == null)
+                return null;
+            if (!string.Equals(sessionId, marker.SessionId, StringComparison.Ordinal))
+                return null;
+            return recording;
+        }
+
         internal static void Clear(string clearReason)
         {
             if (recording != null)

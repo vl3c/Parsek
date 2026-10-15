@@ -63,6 +63,7 @@ namespace Parsek.Tests
         [InlineData("RenameVessel")]
         [InlineData("PartAction")]
         [InlineData("RevertToLaunch")]
+        [InlineData("DriveVessel")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -197,7 +198,9 @@ namespace Parsek.Tests
             // in the stock rename dialog, so Parsek's rename capture runs as in play.
             // PartAction and RevertToLaunch are ADDITIVE (48 -> 50; reserved unchanged at 4):
             // a part's stock right-click menu button, and stock's plain Revert to Launch.
-            Assert.Equal(50, TestCommandVerbs.ImplementedVerbNames.Count);
+            // DriveVessel is ADDITIVE (50 -> 51; reserved unchanged at 4): the D4 hysteresis
+            // host, a landed vessel driven on its own wheel motors.
+            Assert.Equal(51, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

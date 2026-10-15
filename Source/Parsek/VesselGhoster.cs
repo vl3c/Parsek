@@ -367,7 +367,7 @@ namespace Parsek
                     spawnedPid, vesselName ?? "(unknown)"));
 
             // Destroy ghost GO if it exists, and remove tracking entry
-            CleanupGhostedVessel(chain.OriginalVesselPid);
+            ReleaseChainClaims(chain);
 
             return spawnedPid;
         }
@@ -622,7 +622,7 @@ namespace Parsek
                     spawnedPid, tipRecording.VesselName ?? "(unknown)"));
 
             chain.SpawnBlocked = false;
-            CleanupGhostedVessel(chain.OriginalVesselPid);
+            ReleaseChainClaims(chain);
 
             return spawnedPid;
         }
@@ -679,7 +679,7 @@ namespace Parsek
             if (chain != null)
             {
                 chain.SpawnBlocked = false;
-                CleanupGhostedVessel(chain.OriginalVesselPid);
+                ReleaseChainClaims(chain);
             }
             return true;
         }
@@ -730,7 +730,7 @@ namespace Parsek
             if (chain != null)
             {
                 chain.SpawnBlocked = false;
-                CleanupGhostedVessel(chain.OriginalVesselPid);
+                ReleaseChainClaims(chain);
             }
 
             uint adoptedPid = tipRecording.SpawnedVesselPersistentId;
@@ -1035,7 +1035,7 @@ namespace Parsek
                     string.Format(ic, "walkback chain tip '{0}'",
                         tipRecording.RecordingId ?? tipRecording.VesselName));
                 chain.SpawnBlocked = false;
-                CleanupGhostedVessel(chain.OriginalVesselPid);
+                ReleaseChainClaims(chain);
                 return walkbackPid;
             }
 
@@ -1369,9 +1369,39 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The chain's tip settled (spawned, adopted, or retired at the KSC): every vessel the
+        /// chain held back leaves the ghosted set, its key and each claim folded into it. A
+        /// pid left behind would read as still ghosted by the chain once the tip spawns under
+        /// it (the tip keeps a folded claim's pid when that vessel dominated the dock).
+        /// </summary>
+        internal void ReleaseChainClaims(GhostChain chain)
+        {
+            if (chain == null)
+                return;
+            int released = 0;
+            if (CleanupGhostedVessel(chain.OriginalVesselPid))
+                released++;
+            if (chain.ClaimedVessels != null)
+            {
+                for (int i = 0; i < chain.ClaimedVessels.Count; i++)
+                {
+                    uint pid = chain.ClaimedVessels[i].Pid;
+                    if (pid != chain.OriginalVesselPid && CleanupGhostedVessel(pid))
+                        released++;
+                }
+            }
+            ParsekLog.Verbose(Tag,
+                string.Format(ic,
+                    "Chain claims released: chain={0} claimedVessels={1} released={2}",
+                    chain.OriginalVesselPid,
+                    chain.ClaimedVessels != null ? chain.ClaimedVessels.Count : 0,
+                    released));
+        }
+
+        /// <summary>
         /// Destroy ghost GO and remove tracking entry for a ghosted vessel.
         /// </summary>
-        private void CleanupGhostedVessel(uint originalPid)
+        private bool CleanupGhostedVessel(uint originalPid)
         {
             GhostedVesselInfo info;
             if (ghostedVessels.TryGetValue(originalPid, out info))
@@ -1383,7 +1413,9 @@ namespace Parsek
                         string.Format(ic, "Destroyed ghost GO for pid={0}", originalPid));
                 }
                 ghostedVessels.Remove(originalPid);
+                return true;
             }
+            return false;
         }
 
         /// <summary>

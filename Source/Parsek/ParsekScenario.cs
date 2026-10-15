@@ -3701,7 +3701,10 @@ namespace Parsek
                 bool classifyRewinding = RewindContext.IsRewinding;
                 bool classifyReFlyInvoke = RewindInvokeContext.Pending;
                 bool classifyDiscardReFly = DiscardReFlyLoadIntent.TryConsume(
-                    HighLogic.LoadedScene, "ParsekScenario.OnLoad", out RevertTarget discardReFlyIntentTarget);
+                    HighLogic.LoadedScene, "ParsekScenario.OnLoad", out RevertTarget discardReFlyIntentTarget,
+                    HighLogic.CurrentGame?.flightState != null
+                        ? HighLogic.CurrentGame.flightState.universalTime
+                        : double.NaN);
                 string classifyDiscardReFlyTarget = classifyDiscardReFly
                     ? discardReFlyIntentTarget.ToString()
                     : null;
@@ -8691,9 +8694,9 @@ namespace Parsek
         /// M4b Phase B2 (plan D11 / OQ7): drop the RAM-only cargo escrow on any
         /// within-game scene change. A multi-stop cycle's in-flight reservation is
         /// recomputed from pending route state on the next
-        /// <see cref="RouteOrchestrator.Tick(double)"/> - the B3 C1 dispatchAlready-resume
-        /// re-establishes the un-fired windows' hold
-        /// (<see cref="RouteOrchestrator.ReEstablishEscrowForUnfiredWindows"/>); the
+        /// <see cref="RouteOrchestrator.Tick(double)"/> - its pre-pass re-establishes the
+        /// un-fired windows' hold before any route runs
+        /// (<see cref="RouteOrchestrator.ReEstablishInFlightCycleEscrow"/>); the
         /// single-stop path has no dispatch-to-debit gap. Clearing here prevents a stale
         /// craft-baked-pid reservation from mis-gating a competing route after the
         /// scene reloads. DROP-not-revert (no ledger row to reverse).
