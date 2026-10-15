@@ -171,7 +171,7 @@ lit stack sat more than 3 s on the pad. `EnvironmentDetector.cs` is unchanged si
 2026-09-11. Not a Parsek defect: the claim's witness was a race. Needs a lane that genuinely
 moves on the surface for over 3 s (a rover, or a held launch), or the claim re-opened.
 
-## REFLY-UNBOUND-PROVISIONAL-TAGS-AWARDS-TO-ORIGIN: while a re-fly provisional has no recorder, a career award is tagged to the superseded origin and the merge tombstones it [FILED 2026-10-12 from the RF-3 tombstone reading. OPEN, product question]
+## REFLY-UNBOUND-PROVISIONAL-TAGS-AWARDS-TO-ORIGIN: while a re-fly provisional has no recorder, a career award is tagged to the superseded origin and the merge tombstones it [FILED 2026-10-12 from the RF-3 tombstone reading. RULED 2026-10-15: tag to the Re-Fly attempt. OPEN, product, ruled; not built]
 
 `ParsekFlight.GetActiveRecordingIdForTagging` (ParsekFlight.cs ~246) returns
 `activeTree.ActiveRecordingId` while the provisional is unbound
@@ -181,6 +181,15 @@ On 2026-10-01 (`logs/2026-10-01_1100_RF-3-refly-discard-then-commit`) this retir
 spuriously re-paid record bands (`Tombstoned 5 career actions (... Milestone=5 ...)`), which
 was harmless; for a genuine award it would cost the player earnings. Decide whether unbound
 re-fly awards should tag to the provisional instead.
+
+Owner ruling 2026-10-15 (option A of three; B kept today's tagging, C tagged to no recording and
+would keep a discarded attempt's earnings): an award earned while the provisional is unbound tags
+to the Re-Fly attempt's provisional, so it survives the merge and is dropped only with a discarded
+attempt, like every award the attempt earns once its recorder binds. Fix: make
+`GetActiveRecordingIdForTagging` answer the session's provisional id while the marker's
+provisional is unbound. Required test: the RF-3 shape, where the unbound stretch re-earns record
+bands the superseded origin already earned, must not pay them twice after the merge (that
+double-pay risk is inferred from the RF-3 log, not traced).
 
 ## W1-CAMERA-LIVE-HANDOFF-NO-LONGER-PRINTS: W1's `camera-live member #0->#1` hand-off token is missing on every run since its last green (2026-08-28) [FILED 2026-10-13 from the operator tier, reproduced three times. OPEN, render, untriaged]
 
@@ -6393,7 +6402,7 @@ divergence layout, which needs a career whose timeline ends later than now, so a
 photographing them needs a rewound career first.
 
 ---
-## GUI-STATE-GALLERY-2026-09-21: ~312 of ~480 enumerated GUI states are unphotographed, most of them unreachable by flying, so the mirror shows a product that never fails [FILED 2026-09-21 off the state-coverage audit. DESIGN LANDED (`docs/dev/design-gui-state-gallery.md`), nothing implemented. OPEN; blocked on seven owner yes/no answers in that doc's section 16]
+## GUI-STATE-GALLERY-2026-09-21: ~312 of ~480 enumerated GUI states are unphotographed, most of them unreachable by flying, so the mirror shows a product that never fails [FILED 2026-09-21 off the state-coverage audit. DESIGN LANDED (`docs/dev/design-gui-state-gallery.md`), P1, P1b and the mirror half of P2 built. OPEN; all seven owner questions answered YES 2026-09-21 (design section 16), remainder is P2's `GalleryRun` verb and lanes, then P3-P7]
 
 **PART LANDED 2026-09-22 (the MIRROR half of phase P2, owner rulings 1, 5 and
 7).** Three things the loop needed, all in `harness/tools/gui_mirror.py`, all
