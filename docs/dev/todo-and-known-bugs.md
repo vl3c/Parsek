@@ -363,7 +363,8 @@ UT 21569 (anchor 21583.97). The red logs show `[MissionLoopFirstRun] Loop units 
 ... live=1` on the jump frame: the unit's FIRST evaluation is the jump, it already selects #1, and
 the engine stored a first selection silently, so no hand-off could print. Ghost #1's spawn and the
 1069 km refusal are unchanged. Fix: the engine and Space Center log a unit's first evaluation
-(`... first evaluation: camera-live member #1 at loopUT=434.59 cycle=0`), and W1 requires that line.
+(`... first evaluation: camera-live member #1 at loopUT=434.59 cycle=0`), and W1 requires that line,
+still accepting the old hand-off for a run that dwells past the anchor before its jump.
 
 ## TIER-2026-10-12-LANE-VARIANCE: four operator-tier reds that were flight variance, not defects [FILED 2026-10-13. OPEN for the two operator calls below, harness]
 

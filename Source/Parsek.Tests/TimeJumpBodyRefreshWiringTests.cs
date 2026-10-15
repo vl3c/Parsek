@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Text;
 using Xunit;
 
 namespace Parsek.Tests
@@ -65,7 +64,7 @@ namespace Parsek.Tests
 
         private static string MethodBody(string signature)
         {
-            string source = StripComments(ReadParsekSource("TimeJumpManager.cs"));
+            string source = SourceScanText.StripCSharpComments(ReadParsekSource("TimeJumpManager.cs"));
             int start = source.IndexOf(signature, StringComparison.Ordinal);
             Assert.True(start >= 0, "signature not found: " + signature);
             int open = source.IndexOf('{', start);
@@ -91,18 +90,6 @@ namespace Parsek.Tests
                 root, "Source", "Parsek", relPath.Replace('/', Path.DirectorySeparatorChar));
             Assert.True(File.Exists(path), "Source file not found at " + path);
             return File.ReadAllText(path);
-        }
-
-        private static string StripComments(string source)
-        {
-            var sb = new StringBuilder(source.Length);
-            foreach (string line in source.Split('\n'))
-            {
-                int idx = line.IndexOf("//", StringComparison.Ordinal);
-                sb.Append(idx >= 0 ? line.Substring(0, idx) : line);
-                sb.Append('\n');
-            }
-            return sb.ToString();
         }
     }
 }

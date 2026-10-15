@@ -458,8 +458,9 @@ required  = [
   # Since the 2026-09-24 first-run ruling (#0 plays as an ordinary recording until the
   # anchor 21583.97, so the unit is not published at StartLoopPlayback's 21569) the unit's
   # FIRST evaluation is this jump frame, which names #1 as its opening camera-live member
-  # instead of logging a #0->#1 hand-off.
-  "Chain-loop unit owner=0 first evaluation: camera-live member #1 at loopUT=434\\.5",
+  # instead of logging a #0->#1 hand-off. The hand-off form stays accepted for a run that
+  # dwells past the anchor before the jump (the unit then opens on #0 and hands off here).
+  "Chain-loop unit owner=0 (first evaluation: camera-live member #1|camera-live member #0->#1) at loopUT=434\\.5",
   # its ghost is SPAWN-SEEDED with a body name, which is the reachability premise of the
   # whole lane (section 5B): without this stamp the guard refuses one branch higher.
   "Pending spawn interpolation seed: vessel='Kerbal X' lifecycle=StandardEnter UT=434\\.[0-9] body='Kerbin'",

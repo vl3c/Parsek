@@ -392,8 +392,8 @@ namespace Parsek
                         chains.Remove(spawnedChainKeys[i]);
                 }
 
-                // Step 4b: Bring the celestial bodies to the new UT now, as stock does after
-                // its own SetUniversalTime calls (FlightDriver, MissionSystem). Otherwise body
+                // Step 4b: Bring the celestial bodies to the new UT now, as stock FlightDriver
+                // and MissionSystem do after their SetUniversalTime calls. Otherwise body
                 // rotation and Planetarium.Zup keep the pre-jump value until the next physics
                 // tick, and a ghost map vessel created later in this frame draws its icon
                 // rotated by the main body's spin over the jump. Kept AFTER steps 3 and 4:
