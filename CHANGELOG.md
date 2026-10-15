@@ -27,6 +27,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **The Tracking Station keeps funds and contracts at today's date, like the Space Center.** After
+  a rewind, loading into the Tracking Station no longer applies spending and rewards the timeline
+  has not reached yet, or throws them away for good on a fresh load; they now arrive when the
+  clock reaches them, also while warping there. (TRACKING-STATION-LEDGER-CUTOFF-ALIGN)
 - **Rewards earned right after a Re-Fly starts now belong to that attempt.** A reward earned in
   the first moments of a Re-Fly, before Parsek starts recording it, is kept when you merge the
   attempt and removed when you discard it, like the rest of the attempt's rewards. Before, it

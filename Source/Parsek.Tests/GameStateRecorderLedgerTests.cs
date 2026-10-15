@@ -366,7 +366,7 @@ namespace Parsek.Tests
                 && a.FacilityId == "SpaceCenter/LaunchPad");
         }
 
-        // BUG-F sibling: a cold-load into a non-cutoff scene (TRACKSTATION / EDITOR, where
+        // BUG-F sibling: a cold-load into a non-cutoff scene (EDITOR, where
         // useCurrentUtCutoffForFutureActions is false) with the clock not ready (maxUT=0) must
         // NOT let Reconcile permanently PRUNE the committed career. With the not-ready clock the
         // rows are preserved (preserveFutureTimelineActions forced true) and the full replay
@@ -457,6 +457,51 @@ namespace Parsek.Tests
                 l.Contains("[RecalcEngine]")
                 && l.Contains("Recalculate complete")
                 && l.Contains("actionsTotal=2")
+                && l.Contains("actionsAfterCutoff=1")
+                && l.Contains("cutoffUT=300"));
+        }
+
+        // TRACKING-STATION-LEDGER-CUTOFF-ALIGN: a cold load into the Tracking Station with a
+        // ready clock takes the scene flag from IsCurrentUtCutoffSupportedScene, so a committed
+        // future KSC spending (no recording tag, only the maxUT prune could remove it) survives
+        // the reconcile and is filtered by the cutoff walk, exactly as in the Space Center.
+        // Before the alignment the TS passed false and the row was pruned for good.
+        [Theory]
+        [InlineData(GameScenes.TRACKSTATION)]
+        [InlineData(GameScenes.SPACECENTER)]
+        public void OnKspLoad_ColdLoadReadyClock_TrackingStationKeepsFutureSpendingLikeSpaceCenter(
+            GameScenes scene)
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 25000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 500.0,
+                Type = GameActionType.FacilityUpgrade,
+                FacilityId = "SpaceCenter/LaunchPad",
+                FacilityCost = 7500f
+            });
+
+            LedgerOrchestrator.OnKspLoad(
+                new HashSet<string>(),
+                maxUT: 300.0,
+                useCurrentUtCutoffForFutureActions: ParsekScenario.IsCurrentUtCutoffSupportedScene(scene));
+
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.FacilityUpgrade
+                && a.FacilityId == "SpaceCenter/LaunchPad");
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("OnKspLoad recalc decision")
+                && l.Contains("useCurrentUtCutoff=True")
+                && l.Contains("featureSupportsCutoff=True"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecalcEngine]")
+                && l.Contains("Recalculate complete")
                 && l.Contains("actionsAfterCutoff=1")
                 && l.Contains("cutoffUT=300"));
         }

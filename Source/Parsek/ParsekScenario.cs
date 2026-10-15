@@ -788,9 +788,19 @@ namespace Parsek
             return useCurrentUtCutoffForPostRewindFlightLoad;
         }
 
+        /// <summary>
+        /// Scenes whose loads keep committed future actions out of the patched career until
+        /// the clock reaches them (current-UT cutoff), and whose cold load preserves those
+        /// rows instead of pruning them. The Tracking Station is aligned with FLIGHT and the
+        /// Space Center (owner ruling 2026-10-06); like the Space Center it applies a crossed
+        /// action as its clock moves (<see cref="CareerLedgerClockCursor"/>). The editor
+        /// stays on the plain walk.
+        /// </summary>
         internal static bool IsCurrentUtCutoffSupportedScene(GameScenes scene)
         {
-            return scene == GameScenes.FLIGHT || scene == GameScenes.SPACECENTER;
+            return scene == GameScenes.FLIGHT
+                || scene == GameScenes.SPACECENTER
+                || scene == GameScenes.TRACKSTATION;
         }
 
         /// <summary>

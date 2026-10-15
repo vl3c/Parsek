@@ -1945,7 +1945,7 @@ ResourceScenario state on recalculation; xUnit for the action and the patch; a m
 
 ---
 
-## TRACKING-STATION-LEDGER-CUTOFF-ALIGN: the Tracking Station should use the current-UT ledger cutoff like Flight and the Space Center [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~TRACKING-STATION-LEDGER-CUTOFF-ALIGN: the Tracking Station should use the current-UT ledger cutoff like Flight and the Space Center~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; headless only]
 
 `IsCurrentUtCutoffSupportedScene` accepts FLIGHT and SPACECENTER only (pinned by
 `RewindUtCutoffTests.CurrentUtCutoffSupportedScene_AcceptsFlightAndSpaceCenterOnly`, no reason
@@ -1956,6 +1956,17 @@ cold or in-session.
 Fix: include TRACKSTATION in the supported scenes, update the pinning test, check the TS load and
 recalculation paths for anything that relied on the exclusion; game-actions design 15.5's AS BUILT
 note changes with it.
+
+**FIXED 2026-10-15.** `IsCurrentUtCutoffSupportedScene` accepts TRACKSTATION, so the cold TS load
+preserves future rows and cuts off at the clock (`OnKspLoad`), and the in-session load and the
+deferred seed take the cutoff walk too. The one thing that relied on the exclusion: with no
+cutoff, the TS never needed to apply a committed action its clock reached, so TS warp had no
+cursor. The Space Center's cursor moved into `CareerLedgerClockCursor` (same decisions, same
+`ksc-clock` reasons) and the TS runs its own (`ts-clock` / `ts-clock-backward`), skipped while a
+rewind's UT adjustment is pending. The editor stays on the plain walk. Cells:
+`RewindUtCutoffTests.CurrentUtCutoffSupportedScene_AcceptsFlightSpaceCenterAndTrackingStation`,
+`GameStateRecorderLedgerTests.OnKspLoad_ColdLoadReadyClock_TrackingStationKeepsFutureSpendingLikeSpaceCenter`,
+`CareerLedgerClockCursorTests`.
 
 ---
 

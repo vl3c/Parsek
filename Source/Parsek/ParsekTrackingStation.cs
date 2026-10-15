@@ -88,6 +88,10 @@ namespace Parsek
         /// <summary>Tracks the last known committed recording count for live-update detection.</summary>
         private int lastKnownCommittedCount;
 
+        /// <summary>Applies committed ledger actions the TS clock reaches (TS warp), since the
+        /// scene loads with the current-UT cutoff like the Space Center.</summary>
+        private readonly CareerLedgerClockCursor tsLedgerClock = new CareerLedgerClockCursor("ts");
+
         // Mission loop-unit descriptors for THIS frame (Phase F: TS span-clock parity). Built from
         // the SAME MissionLoopUnitBuilder.Build the flight engine and KSC consume, so a looped
         // Mission renders in the tracking station identically. Empty (LoopUnitSet.Empty) means no
@@ -301,11 +305,17 @@ namespace Parsek
                 nextLifecycleCheckTime = 0f; // force tick this frame
             }
 
-            // Time passes here (TS warp) with no scene change: a Recovered flight's crew
-            // hold that the clock has just reached is released by one recalculation.
-            // Two double comparisons per frame; the recalculation runs once per release.
+            // Time passes here (TS warp) with no scene change. The TS loads with the current-UT
+            // ledger cutoff, so a committed action the clock reaches is applied by one
+            // recalculation, and a Recovered flight's crew hold that the clock has just
+            // reached is released by one. Each costs two comparisons per frame and runs once
+            // per crossing. Skipped while a rewind's UT adjustment is pending: the clock still
+            // reads the pre-rewind value then.
+            double tsNowUT = Planetarium.GetUniversalTime();
+            if (!RecordingStore.RewindUTAdjustmentPending)
+                tsLedgerClock.Advance(tsNowUT);
             LedgerOrchestrator.RecalculateIfKerbalReservationReleaseDue(
-                Planetarium.GetUniversalTime(), "ts-reservation-release");
+                tsNowUT, "ts-reservation-release");
 
             // BUG-B replay scope: note the playhead for every committed recording every frame,
             // as FLIGHT and the Space Center do, so a Tracking Station entered first latches a
