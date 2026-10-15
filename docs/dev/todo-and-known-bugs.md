@@ -1524,7 +1524,7 @@ CHAIN-CLAIM-FROM-SUPERSEDED-RECORDING).
 
 ---
 
-## ~~CHAIN-CLAIM-FROM-SUPERSEDED-RECORDING: a dock or undock that only a superseded flight recorded still claims the other vessel for a ghost chain~~ [FILED 2026-10-07 by code read while fixing CHAIN-WALK-SUPERSEDE-BLIND-HOPS-ONTO-REFLY-TIP. REPRODUCED headless and FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; not flown]
+## ~~CHAIN-CLAIM-FROM-SUPERSEDED-RECORDING: a dock or undock that only a superseded flight recorded still claims the other vessel for a ghost chain~~ [FILED 2026-10-07 by code read while fixing CHAIN-WALK-SUPERSEDE-BLIND-HOPS-ONTO-REFLY-TIP. REPRODUCED headless and FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; LIVE-SEEN 2026-10-15 in regression lanes CI-3 / CI-4 (PASS attempt 1)]
 
 `GhostChainWalker.ScanBranchPointClaims` / `ScanBackgroundEventClaims` read every committed tree's
 branch points and recordings with no supersede check, and every caller passes the unfiltered
@@ -1553,7 +1553,10 @@ intermediate links (spawn suppressed in flight, `TrackingStationSpawnSkipInterme
 in the TS). The fork's own claims still count. Cells in `GhostChainWalkerSupersedeTests` (dock,
 undock, background-event, fork-docks-too, orphan-row and explicit-list cells red before the fix;
 no-row and harmless-row controls green); `RowOnAnotherVesselOfTheSupersededSubtree_NotFollowed`
-now writes only the merged recording's row, to keep isolating the walk's identity guard.
+now writes only the merged recording's row, to keep isolating the walk's identity guard. Live: CI-3
+(`2026-10-15_2140`) and CI-4 (`2026-10-15_2142`) each merge a Re-Fly mid-lane; each logged one
+`Claim skipped: vessel PID=... superseded by rec_...` for the superseded origin's claim and rebuilt
+the chain with the fork as tip, both PASS attempt 1.
 
 ---
 
