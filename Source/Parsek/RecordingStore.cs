@@ -161,12 +161,10 @@ namespace Parsek
         // a previously-spawned endpoint. Static so it survives Recording object recreation.
         internal static uint SceneEntryActiveVesselPid;
 
-        // Launch guid ("N" form, null = unknown) of that scene-entry vessel and the UT the
-        // scene was entered at (NaN = unknown). The #226 bypass keeps its exception only for
-        // the recording's own launch taken back into the recording's past
+        // Launch guid ("N" form, null = unknown) of that scene-entry vessel. The #226 bypass
+        // is withheld when no pid-matching live vessel is the recording's launch
         // (VesselSpawner.ShouldKeepReplayBypassForLaunchIdentity).
         internal static string SceneEntryActiveVesselGuid;
-        internal static double SceneEntryUT = double.NaN;
 
         // PID of the vessel that rolled out fresh from the VAB/SPH this scene
         // (set only for NEW_FROM_FILE / NEW_FROM_CRAFT_NODE startups; 0 otherwise).
@@ -1595,8 +1593,8 @@ namespace Parsek
         /// Pure stale-spawn-stamp test for <see cref="PreserveLiveRuntimeFieldsOnReplace"/>: the
         /// recording's spawn pid names no vessel in <paramref name="liveVesselPids"/>, or it is an
         /// adoption stamp (spawn pid == recorded pid, the craft-baked pid) and the live vessel
-        /// with that pid is a conclusively different launch
-        /// (<see cref="VesselLaunchIdentity.LiveVesselIsRecordedSpawn"/>): a relaunch of the
+        /// with that pid is a conclusively different launch with no link to the recording's
+        /// guid (<see cref="VesselLaunchIdentity.SpawnStampHeldBy"/>): a relaunch of the
         /// same craft does not keep an older launch's stamp alive. A null set means liveness is
         /// unknown (never stale); an unknown guid keeps the pid-only answer.
         /// </summary>
@@ -1615,7 +1613,7 @@ namespace Parsek
             string liveGuid = null;
             if (liveVesselGuidsByPid != null)
                 liveVesselGuidsByPid.TryGetValue(spawnedPid, out liveGuid);
-            if (VesselLaunchIdentity.LiveVesselIsRecordedSpawn(existing, spawnedPid, liveGuid))
+            if (VesselLaunchIdentity.SpawnStampHeldBy(existing, spawnedPid, liveGuid))
                 return false;
             heldByOtherLaunch = true;
             return true;
@@ -4776,7 +4774,6 @@ namespace Parsek
             CurrentUniversalTimeForRewindRetirementOverrideForTesting = null;
             SceneEntryActiveVesselPid = 0;
             SceneEntryActiveVesselGuid = null;
-            SceneEntryUT = double.NaN;
             SceneEntryFreshRolloutVesselPid = 0;
             ClearRewindReplayTargetScope();
             rewindCarriedRewindPoints = null;

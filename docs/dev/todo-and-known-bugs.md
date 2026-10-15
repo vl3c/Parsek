@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~ADOPTION-STAMP-READ-AS-UNIQUE-SPAWN-PID: an adoption stamp (the craft-baked pid) matched a relaunch of the same craft as the older launch's spawned vessel, and the #226 replay bypass also fired outside a revert / rewind~~ [FILED 2026-10-15 from a launch-identity audit, verified by code read, not reproduced. FIXED 2026-10-15, branch `claude/project-thread-1twzdw-adopt-identity`; xUnit only, not flown. product]
+## ~~ADOPTION-STAMP-READ-AS-UNIQUE-SPAWN-PID: an adoption stamp (the craft-baked pid) matched a relaunch of the same craft as the older launch's spawned vessel, and the #226 replay bypass was not checked against launch identity~~ [FILED 2026-10-15 from a launch-identity audit, verified by code read, not reproduced. FIXED 2026-10-15, branch `claude/project-thread-1twzdw-adopt-identity`; xUnit only, not flown. product]
 
 Gap 1. `VesselSpawner.TryAdoptExistingSourceVesselForSpawn` stamps
 `SpawnedVesselPersistentId = VesselPersistentId`, the craft-baked pid every launch of the craft
@@ -33,39 +33,46 @@ claimed site, `BackgroundRecorder.FindMissingBackgroundMembers` (~290), is not t
 spawn-pid probe adds nothing for an adoption stamp, whose pid equals the BackgroundMap key the line
 above already probes.
 
+One shape LOOKS like an adoption stamp of another launch but is not: a resumed Parsek-spawned
+vessel. The spawn re-keys it (fresh guid G', unique pid S, `RegenerateVesselIdentity`); a
+Tracking Station Fly re-pids the recording to S and clears its spawn pid
+(`TryTakeCommittedTreeForSpawnedVesselRestore`), keeping its guid G; the next commit re-installs
+spawn pid S. The recording then reads spawned pid == recorded pid == S with guid G against the
+live G'. Parsek writes a link row for exactly this re-key (a Spawn link at the spawn, a Resume
+link at the resume, `VesselNameStore.Links.cs`, identity edge 4), so the readers honour it.
+
 Gap 2. `VesselSpawner.ShouldAllowExistingSourceDuplicateForReplay` (the #226 replay / revert
 bypass, which skips adoption and the stale-vessel replacement) fired on a bare pid match against
-the scene-entry or active vessel. Its purpose is a revert or rewind re-flight: the live vessel is
-the recording's own launch taken back into the recording's past, so the recording must still spawn
-its end vessel beside it. For a different launch it added nothing (guid-aware adoption refuses it
-anyway), but for the recording's own launch entered AFTER the recording's end it skipped the
-adoption and could spawn a second copy of the vessel being flown (the shape the
-QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE entry traced).
+the scene-entry or active vessel. For a different launch of the craft it adds nothing (guid-aware
+adoption and the stale replacement refuse it anyway). A narrowing that also withheld the bypass
+when the scene was entered after the recording's end was tried and dropped (review 2026-10-15):
+it could adopt a reverted re-flight as the committed recording's end vessel (a quickload after the
+end with the end spawn blocked by a collision), losing the committed vessel, and the duplicate it
+targeted is already prevented by the QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE
+fix. Owner decision pending on whether anything more is wanted here.
 
-Fix. Gap 1: every spawn-pid reader goes through `VesselLaunchIdentity.LiveVesselIsRecordedSpawn`
-(genuine Parsek spawn pid: pid alone; adoption stamp: the launch guids must not conclusively
-differ; unknown guid: pid only, as before): `ParsekFlight.IsCommittedSpawnStampMatch` in both
+Fix. Gap 1: every spawn-pid reader goes through one shared test,
+`VesselLaunchIdentity.SpawnStampHeldBy` (pure core `SpawnStampHeldByCore`, which takes the link
+answer as input): a genuine Parsek spawn pid matches on the pid alone; an adoption-shaped stamp
+needs launch guids that do not conclusively differ OR a link chain from the live guid to the
+recording's guid (`VesselNameStore.GuidContinuesIdentity`, bounded and cycle-safe); an unknown guid
+falls back to pid only, as before. Readers: `ParsekFlight.IsCommittedSpawnStampMatch` in both
 committed-tree matchers (refusals counted, one rate-limited `refused N adoption-stamped recording(s)`
 Info line), `ParsekPlaybackPolicy.IsSpawnClaimHeldByLiveVessel` in the death check (a stamp held by
 another launch reads as gone, then follows the normal recovered / death path, counted in the
 summary), and `RecordingStore.IsSpawnStampStaleForReplace` over a pid -> guid map collected with
-the live pid set (two sources disagreeing on one pid record the guid as unknown). Gap 2: the
-current-flight bypass takes the recording (`ShouldAllowExistingSourceDuplicateForCurrentFlight(Recording)`,
-used by `SpawnVesselOrChainTip` and both `VesselGhoster` chain-tip paths) and, after the pid
-verdict, keeps it only when `ShouldKeepReplayBypassForLaunchIdentity` holds: a pid-matching live
-vessel (scene-entry or active) is the recording's launch, and the scene was entered before the
-recording's end (`RecordingStore.SceneEntryUT`, captured with `SceneEntryActiveVesselGuid` in
-`OnFlightReady`). Otherwise the spawn falls through to adoption, with one rate-limited
-`#226 bypass withheld` Info line naming the reason (`different-launch` /
-`scene-entered-after-recording-end`). Unknown scene-entry UT, unknown guids and recordings with no
-end keep today's bypass. The recording id refusal for the recording being flown is PR #2103's and is
-not duplicated here. Tests: `AdoptionStampLaunchIdentityTests`;
-`VesselNamesLinksTests.ResumeLink_NotRecordedForAnAdoptionStampMatch` pinned the old match of an
-adoption stamp by another launch's guid and now pins its refusal. Residual: the guid cannot tell a
-reverted re-flight from the recorded launch, so a re-flight still in progress when a later FLIGHT
-scene load (a far switch back to it) lands after the recording's end is adopted as the recording's
-end vessel instead of spawning a copy beside it; the Space Center spawn pass already adopts it in
-that case, and a switch away from it before the end does too.
+the live pid set (two sources disagreeing on one pid record the guid as unknown).
+`RecordedVesselGuid` is never re-stamped. Gap 2: the current-flight bypass takes the recording
+(`ShouldAllowExistingSourceDuplicateForCurrentFlight(Recording)`, used by `SpawnVesselOrChainTip`
+and both `VesselGhoster` chain-tip paths) and, after the pid verdict, withholds it only when no
+pid-matching live vessel (scene-entry, via the new `RecordingStore.SceneEntryActiveVesselGuid`
+captured in `OnFlightReady`, or active) is the recording's launch or linked to it
+(`ShouldKeepReplayBypassForLaunchIdentity`, reason `different-launch`, one rate-limited
+`#226 bypass withheld` Info line). That withhold changes no spawn outcome; it keeps the log honest.
+The recording id refusal for the recording being flown is PR #2103's and is not duplicated here.
+Tests: `AdoptionStampLaunchIdentityTests` (including the review's resumed-spawn probe as a
+regression); `VesselNamesLinksTests.ResumeLink_NotRecordedForAnAdoptionStampMatch` pinned the old
+match of an adoption stamp by another launch's unlinked guid and now pins its refusal.
 
 ---
 

@@ -305,12 +305,13 @@ namespace Parsek
         /// recording's spawn pid still hold its spawn claim? A genuine Parsek spawn pid is
         /// KSP-unique, so a pid match is enough; an adoption stamp
         /// (<c>SpawnedVesselPersistentId == VesselPersistentId</c>) names the craft-baked pid, so
-        /// a relaunch of the same craft (a conclusively different launch guid) does not keep a
-        /// stale stamp alive (<see cref="VesselLaunchIdentity.LiveVesselIsRecordedSpawn"/>).
+        /// a relaunch of the same craft (a conclusively different launch guid with no link to
+        /// the recording's) does not keep a stale stamp alive
+        /// (<see cref="VesselLaunchIdentity.SpawnStampHeldBy"/>).
         /// </summary>
         internal static bool IsSpawnClaimHeldByLiveVessel(Recording rec, uint foundPid, string foundGuid)
         {
-            return VesselLaunchIdentity.LiveVesselIsRecordedSpawn(rec, foundPid, foundGuid);
+            return VesselLaunchIdentity.SpawnStampHeldBy(rec, foundPid, foundGuid);
         }
 
         /// <summary>

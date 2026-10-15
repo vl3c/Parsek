@@ -9959,17 +9959,18 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: does the committed recording's spawn stamp name this live vessel? Requires
+        /// Does the committed recording's spawn stamp name this live vessel? Requires
         /// <see cref="Recording.VesselSpawned"/> and
-        /// <see cref="VesselLaunchIdentity.LiveVesselIsRecordedSpawn"/>: a genuine Parsek spawn
-        /// pid matches on the pid alone, an adoption stamp (the craft-baked pid) only when the
-        /// launch guids do not conclusively differ, so a relaunch of the same craft never
+        /// <see cref="VesselLaunchIdentity.SpawnStampHeldBy"/>: a genuine Parsek spawn pid
+        /// matches on the pid alone, an adoption stamp (the craft-baked pid) only when the
+        /// launch guids do not conclusively differ or the live guid is linked to the
+        /// recording's (a resumed spawned vessel), so a relaunch of the same craft never
         /// resumes the older launch's committed tree.
         /// </summary>
         internal static bool IsCommittedSpawnStampMatch(Recording rec, uint livePid, string liveGuid)
         {
             if (rec == null || !rec.VesselSpawned || livePid == 0u) return false;
-            return VesselLaunchIdentity.LiveVesselIsRecordedSpawn(rec, livePid, liveGuid);
+            return VesselLaunchIdentity.SpawnStampHeldBy(rec, livePid, liveGuid);
         }
 
         /// <summary>
@@ -9983,7 +9984,7 @@ namespace Parsek
                 && rec.VesselSpawned
                 && livePid != 0u
                 && rec.SpawnedVesselPersistentId == livePid
-                && !VesselLaunchIdentity.LiveVesselIsRecordedSpawn(rec, livePid, liveGuid);
+                && !VesselLaunchIdentity.SpawnStampHeldBy(rec, livePid, liveGuid);
         }
 
         private static void LogRefusedOtherLaunchSpawnStamps(
@@ -12614,12 +12615,10 @@ namespace Parsek
                 (activeVessel != null && activeVessel.id != Guid.Empty)
                     ? activeVessel.id.ToString("N")
                     : null;
-            RecordingStore.SceneEntryUT = Planetarium.GetUniversalTime();
             if (RecordingStore.SceneEntryActiveVesselPid != 0)
                 ParsekLog.Verbose("Flight",
                     $"Scene entry active vessel pid={RecordingStore.SceneEntryActiveVesselPid} " +
-                    $"guid={RecordingStore.SceneEntryActiveVesselGuid ?? "(none)"} " +
-                    $"ut={RecordingStore.SceneEntryUT.ToString("R", CultureInfo.InvariantCulture)}");
+                    $"guid={RecordingStore.SceneEntryActiveVesselGuid ?? "(none)"}");
 
             MaybeShowPendingTreeMergeDialogOnFlightReady();
 

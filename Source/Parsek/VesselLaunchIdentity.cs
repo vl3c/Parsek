@@ -140,6 +140,62 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure core of the spawn-stamp readers' launch test: the live vessel's guid is the
+        /// recording's launch when the guids do not conclusively differ, OR when the live guid
+        /// is linked to the recording's guid (<paramref name="liveGuidLinkedToRecording"/>, the
+        /// link rows a Parsek spawn or a resume writes). The link matters for a RESUMED spawned
+        /// vessel: the resume re-pids the recording to the spawn pid and a later commit
+        /// re-installs the spawn claim, so the recording reads as an adoption stamp (spawned pid
+        /// == recorded pid) while the vessel carries the spawn's fresh guid.
+        /// </summary>
+        internal static bool LiveGuidIsRecordedLaunch(
+            string recordedGuid, string liveGuid, bool liveGuidLinkedToRecording)
+        {
+            return !GuidsConclusivelyDiffer(recordedGuid, liveGuid) || liveGuidLinkedToRecording;
+        }
+
+        /// <summary>
+        /// Pure core of <see cref="SpawnStampHeldBy"/>: <see cref="LiveVesselIsRecordedSpawn"/>
+        /// with the adoption-stamp branch's guid test widened by
+        /// <paramref name="liveGuidLinkedToRecording"/> (see <see cref="LiveGuidIsRecordedLaunch"/>).
+        /// </summary>
+        internal static bool SpawnStampHeldByCore(
+            Recording rec, uint candidatePid, string candidateGuid, bool liveGuidLinkedToRecording)
+        {
+            if (rec == null || candidatePid == 0) return false;
+            uint spawnedPid = rec.SpawnedVesselPersistentId;
+            if (spawnedPid == 0 || spawnedPid != candidatePid) return false;
+            bool adoptionStamp = rec.VesselPersistentId != 0 && spawnedPid == rec.VesselPersistentId;
+            if (!adoptionStamp) return true;
+            return LiveGuidIsRecordedLaunch(rec.RecordedVesselGuid, candidateGuid, liveGuidLinkedToRecording);
+        }
+
+        /// <summary>
+        /// The ONE spawn-stamp liveness / identity test the committed-tree matchers, the
+        /// spawn-death check and the replace gate share: does the live vessel (pid, launch guid)
+        /// hold the recording's spawn stamp? Reads the vessel-name link rows only when the guids
+        /// conclusively differ on an adoption-shaped stamp, which is the one case they can
+        /// change the answer.
+        /// </summary>
+        internal static bool SpawnStampHeldBy(Recording rec, uint candidatePid, string candidateGuid)
+        {
+            if (SpawnStampHeldByCore(rec, candidatePid, candidateGuid, false)) return true;
+            if (rec == null || candidatePid == 0 || rec.SpawnedVesselPersistentId != candidatePid) return false;
+            return SpawnStampHeldByCore(rec, candidatePid, candidateGuid,
+                VesselNameStore.GuidContinuesIdentity(candidateGuid, rec.RecordedVesselGuid));
+        }
+
+        /// <summary>
+        /// The live-guid launch test with the link rows read: the guids do not conclusively
+        /// differ, or the live guid continues the recording's guid through a link.
+        /// </summary>
+        internal static bool LiveGuidIsRecordedLaunchOrLinked(string recordedGuid, string liveGuid)
+        {
+            if (!GuidsConclusivelyDiffer(recordedGuid, liveGuid)) return true;
+            return VesselNameStore.GuidContinuesIdentity(liveGuid, recordedGuid);
+        }
+
+        /// <summary>
         /// True only when a live vessel is POSITIVELY the recording's launch: pid equal AND both
         /// launch Guids known AND equal. This is the NON-degrading sibling of
         /// <see cref="LiveVesselIsRecordedLaunch"/>: it does not fall back to pid-only on an

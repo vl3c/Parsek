@@ -25,6 +25,8 @@ namespace Parsek.Tests
             GameStateStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
+            VesselNameStore.ResetForTesting();
+            VesselNameStore.NowUtProviderForTesting = () => 1000.0;
             ParsekLog.ResetTestOverrides();
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ParsekLog.VerboseOverrideForTesting = true;
@@ -34,6 +36,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
+            VesselNameStore.ResetForTesting();
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             GameStateStore.ResetForTesting();
@@ -272,7 +275,98 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Gap 2 - #226 bypass narrowing
+        #region Resumed Parsek-spawned vessel (review regression)
+
+        private const string SpawnGuid = "55555555555555555555555555555555";
+
+        // Fails if: a resumed Parsek-spawned vessel reads as an adoption stamp of another
+        // launch. The spawn re-keys the vessel (fresh guid, unique pid 200); the Tracking Station
+        // Fly re-pids the recording to 200 and keeps its guid; the next commit re-installs the
+        // spawn claim, so spawned pid == recorded pid with differing guids. The Resume / Spawn
+        // link rows join the two guids, and all three readers must honour them.
+        [Fact]
+        public void ResumedSpawnedVessel_RecommitThenAliveVesselHoldsItsClaim()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_resume", TreeName = "Probe", RootRecordingId = "rec_tip", ActiveRecordingId = "rec_tip",
+            };
+            var committed = new Recording
+            {
+                RecordingId = "rec_tip", TreeId = "tree_resume", VesselName = "Probe",
+                ExplicitStartUT = 150, ExplicitEndUT = 200, VesselPersistentId = 20, RecordedVesselGuid = LaunchOneGuid,
+                VesselSpawned = true, SpawnedVesselPersistentId = 200, TerminalStateValue = TerminalState.Landed,
+            };
+            tree.Recordings["rec_tip"] = committed;
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            RecordingStore.AddCommittedInternal(committed);
+
+            Assert.True(ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore(
+                200, out RecordingTree liveTree, out string recId, out _, activeVesselGuid: SpawnGuid));
+            Recording resumed = liveTree.Recordings[recId];
+            Assert.Equal(200u, resumed.VesselPersistentId);
+            Assert.Equal(0u, resumed.SpawnedVesselPersistentId);
+            Assert.Equal(LaunchOneGuid, resumed.RecordedVesselGuid);
+
+            var livePids = new HashSet<uint> { 200u };
+            var guids = new Dictionary<uint, string> { { 200u, SpawnGuid } };
+            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+                committed, resumed, out _, out _, livePids, guids);
+            Assert.True(resumed.VesselSpawned);
+            Assert.Equal(200u, resumed.SpawnedVesselPersistentId);
+
+            Assert.True(ParsekPlaybackPolicy.IsSpawnClaimHeldByLiveVessel(resumed, 200u, SpawnGuid));
+            Assert.True(ParsekFlight.IsCommittedSpawnStampMatch(resumed, 200u, SpawnGuid));
+            Assert.False(ParsekFlight.IsOtherLaunchSpawnStamp(resumed, 200u, SpawnGuid));
+            Assert.False(RecordingStore.IsSpawnStampStaleForReplace(resumed, livePids, guids, out _));
+        }
+
+        [Fact]
+        public void ResumedSpawnedVessel_SpawnLinkKeepsSecondFlyAndStamp()
+        {
+            Assert.True(VesselNameStore.AddLink(SpawnGuid, LaunchOneGuid, VesselIdentityLinkKind.Spawn, "test"));
+            var resumed = new Recording
+            {
+                RecordingId = "rec_tip", TreeId = "tree_resume", VesselName = "Probe",
+                ExplicitStartUT = 150, ExplicitEndUT = 300, VesselPersistentId = 200, RecordedVesselGuid = LaunchOneGuid,
+                VesselSpawned = true, SpawnedVesselPersistentId = 200, TerminalStateValue = TerminalState.Landed,
+            };
+
+            Assert.True(ParsekFlight.IsCommittedSpawnStampMatch(resumed, 200u, SpawnGuid));
+            Assert.True(ParsekPlaybackPolicy.IsSpawnClaimHeldByLiveVessel(resumed, 200u, SpawnGuid));
+            Assert.False(RecordingStore.IsSpawnStampStaleForReplace(
+                resumed, new HashSet<uint> { 200u }, new Dictionary<uint, string> { { 200u, SpawnGuid } }, out _));
+            // A relaunch with no link stays refused.
+            Assert.False(ParsekFlight.IsCommittedSpawnStampMatch(resumed, 200u, LaunchTwoGuid));
+        }
+
+        [Fact]
+        public void SpawnStampHeldBy_FollowsALinkChain_AndIgnoresUnrelatedLinks()
+        {
+            const string middle = "33333333333333333333333333333333";
+            var rec = AdoptedLaunchOneRecording();
+            Assert.True(VesselNameStore.AddLink(LaunchTwoGuid, "44444444444444444444444444444444",
+                VesselIdentityLinkKind.Spawn, "unrelated"));
+            Assert.False(VesselLaunchIdentity.SpawnStampHeldBy(rec, BakedPid, LaunchTwoGuid));
+
+            Assert.True(VesselNameStore.AddLink(SpawnGuid, middle, VesselIdentityLinkKind.Resume, "test"));
+            Assert.True(VesselNameStore.AddLink(middle, LaunchOneGuid, VesselIdentityLinkKind.Spawn, "test"));
+            Assert.True(VesselLaunchIdentity.SpawnStampHeldBy(rec, BakedPid, SpawnGuid));
+        }
+
+        [Fact]
+        public void SpawnStampHeldByCore_TakesTheLinkAnswerAsInput()
+        {
+            var rec = AdoptedLaunchOneRecording();
+            Assert.False(VesselLaunchIdentity.SpawnStampHeldByCore(rec, BakedPid, LaunchTwoGuid, false));
+            Assert.True(VesselLaunchIdentity.SpawnStampHeldByCore(rec, BakedPid, LaunchTwoGuid, true));
+            Assert.True(VesselLaunchIdentity.SpawnStampHeldByCore(rec, BakedPid, LaunchOneGuid, false));
+            Assert.False(VesselLaunchIdentity.SpawnStampHeldByCore(rec, 1u, LaunchOneGuid, true));
+        }
+
+        #endregion
+
+        #region Gap 2 - #226 bypass launch check
 
         private static Recording UnspawnedLaunchOneRecording()
         {
@@ -283,51 +377,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldKeepReplayBypass_SameLaunchInRecordingPast_Kept()
+        public void ShouldKeepReplayBypass_SameLaunch_KeptWhateverTheUT()
         {
-            // A revert / rewind re-flight: same launch, scene entered before the end.
+            // A revert / rewind re-flight, and a scene entered after the recording's end: both
+            // keep the bypass (an after-end re-flight must not be adopted as the end vessel).
             Assert.True(VesselSpawner.ShouldKeepReplayBypassForLaunchIdentity(
-                UnspawnedLaunchOneRecording(), BakedPid, LaunchOneGuid, 150.0, BakedPid, LaunchOneGuid,
-                out string reason));
-            Assert.Equal(VesselSpawner.ReplayBypassReasonSameLaunchInPast, reason);
-        }
-
-        [Fact]
-        public void ShouldKeepReplayBypass_SceneEnteredAfterEnd_Withheld()
-        {
-            Assert.False(VesselSpawner.ShouldKeepReplayBypassForLaunchIdentity(
-                UnspawnedLaunchOneRecording(), BakedPid, LaunchOneGuid, 200.0, BakedPid, LaunchOneGuid,
-                out string reason));
-            Assert.Equal(VesselSpawner.ReplayBypassReasonSceneEnteredAfterEnd, reason);
+                UnspawnedLaunchOneRecording(), BakedPid, LaunchOneGuid, BakedPid, LaunchOneGuid,
+                null, out string reason));
+            Assert.Equal(VesselSpawner.ReplayBypassReasonSameLaunch, reason);
         }
 
         [Fact]
         public void ShouldKeepReplayBypass_DifferentLaunch_Withheld()
         {
             Assert.False(VesselSpawner.ShouldKeepReplayBypassForLaunchIdentity(
-                UnspawnedLaunchOneRecording(), BakedPid, LaunchTwoGuid, 150.0, BakedPid, LaunchTwoGuid,
-                out string reason));
+                UnspawnedLaunchOneRecording(), BakedPid, LaunchTwoGuid, BakedPid, LaunchTwoGuid,
+                null, out string reason));
             Assert.Equal(VesselSpawner.ReplayBypassReasonDifferentLaunch, reason);
+        }
+
+        [Fact]
+        public void ShouldKeepReplayBypass_LinkAnswerCountsAsSameLaunch()
+        {
+            Assert.True(VesselSpawner.ShouldKeepReplayBypassForLaunchIdentity(
+                UnspawnedLaunchOneRecording(), BakedPid, LaunchTwoGuid, 0u, null,
+                (recGuid, liveGuid) => true, out string reason));
+            Assert.Equal(VesselSpawner.ReplayBypassReasonSameLaunch, reason);
         }
 
         [Fact]
         public void ShouldKeepReplayBypass_UnknownContext_KeepsTodaysBypass()
         {
-            var rec = UnspawnedLaunchOneRecording();
             string reason;
-            // Unknown scene-entry UT.
             Assert.True(VesselSpawner.ShouldKeepReplayBypassForLaunchIdentity(
-                rec, BakedPid, LaunchOneGuid, double.NaN, 0u, null, out reason));
-            // Unknown live guid.
+                UnspawnedLaunchOneRecording(), BakedPid, null, 0u, null, null, out reason));
             Assert.True(VesselSpawner.ShouldKeepReplayBypassForLaunchIdentity(
-                rec, BakedPid, null, 150.0, 0u, null, out reason));
-            // Recording without an end.
-            var noEnd = new Recording { RecordingId = "no_end", VesselPersistentId = BakedPid };
-            Assert.True(VesselSpawner.ShouldKeepReplayBypassForLaunchIdentity(
-                noEnd, BakedPid, LaunchOneGuid, 5000.0, 0u, null, out reason));
-            // No recording at all.
-            Assert.True(VesselSpawner.ShouldKeepReplayBypassForLaunchIdentity(
-                null, BakedPid, LaunchOneGuid, 5000.0, 0u, null, out reason));
+                null, BakedPid, LaunchOneGuid, 0u, null, null, out reason));
             Assert.Equal(VesselSpawner.ReplayBypassReasonPidOnly, reason);
         }
 
@@ -335,47 +420,19 @@ namespace Parsek.Tests
         public void ShouldKeepReplayBypass_ActiveVesselSameLaunch_KeptWhenSceneEntryIsOtherLaunch()
         {
             Assert.True(VesselSpawner.ShouldKeepReplayBypassForLaunchIdentity(
-                UnspawnedLaunchOneRecording(), BakedPid, LaunchTwoGuid, 150.0, BakedPid, LaunchOneGuid,
-                out string reason));
-            Assert.Equal(VesselSpawner.ReplayBypassReasonSameLaunchInPast, reason);
+                UnspawnedLaunchOneRecording(), BakedPid, LaunchTwoGuid, BakedPid, LaunchOneGuid,
+                null, out string reason));
+            Assert.Equal(VesselSpawner.ReplayBypassReasonSameLaunch, reason);
         }
 
-        // Fails if: entering a flight scene on a recording's own launch AFTER the recording's
-        // end (the vessel IS the recording's end vessel) still bypasses adoption and spawns a
-        // second copy of the vessel being flown.
+        // Fails if: the bypass a revert / rewind re-flight needs is withheld, so the committed
+        // recording adopts the player's re-flight instead of spawning its end vessel.
         [Fact]
-        public void CurrentFlightBypass_SceneEnteredAfterEnd_FallsThroughToAdoption()
+        public void CurrentFlightBypass_SameLaunchReFlight_KeepsBypassAndSkipsAdoption()
         {
             var rec = UnspawnedLaunchOneRecording();
             RecordingStore.SceneEntryActiveVesselPid = BakedPid;
             RecordingStore.SceneEntryActiveVesselGuid = LaunchOneGuid;
-            RecordingStore.SceneEntryUT = 250.0;
-            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == BakedPid);
-            VesselSpawner.SetMaterializedSourceVesselGuidOverrideForTesting(pid => LaunchOneGuid);
-
-            bool bypass = VesselSpawner.ShouldAllowExistingSourceDuplicateForCurrentFlight(rec);
-            bool adopted = VesselSpawner.TryAdoptExistingSourceVesselForSpawn(
-                rec, "Spawner", "unit-test", bypass);
-
-            Assert.False(bypass);
-            Assert.True(adopted);
-            Assert.Equal(BakedPid, rec.SpawnedVesselPersistentId);
-            Assert.Contains(logLines, l =>
-                l.Contains("[Spawner]")
-                && l.Contains("ShouldAllowExistingSourceDuplicateForCurrentFlight=false")
-                && l.Contains("reason=" + VesselSpawner.ReplayBypassReasonSceneEnteredAfterEnd)
-                && l.Contains("#226 bypass withheld"));
-        }
-
-        // Fails if: the narrowing removes the bypass a revert / rewind re-flight needs, so the
-        // committed recording adopts the player's re-flight instead of spawning its end vessel.
-        [Fact]
-        public void CurrentFlightBypass_RevertReFlight_KeepsBypassAndSkipsAdoption()
-        {
-            var rec = UnspawnedLaunchOneRecording();
-            RecordingStore.SceneEntryActiveVesselPid = BakedPid;
-            RecordingStore.SceneEntryActiveVesselGuid = LaunchOneGuid;
-            RecordingStore.SceneEntryUT = 100.0;
             VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == BakedPid);
             VesselSpawner.SetMaterializedSourceVesselGuidOverrideForTesting(pid => LaunchOneGuid);
 
@@ -390,15 +447,14 @@ namespace Parsek.Tests
                 l.Contains("ShouldAllowExistingSourceDuplicateForCurrentFlight=true"));
         }
 
-        // A different launch of the craft: the bypass is withheld, and adoption refuses it on
-        // the guid, so the spawn proceeds exactly as it did under the bypass.
+        // A different launch of the craft: the bypass is withheld (logged), and adoption
+        // refuses it on the guid, so the spawn proceeds exactly as it did under the bypass.
         [Fact]
         public void CurrentFlightBypass_DifferentLaunch_WithheldButAdoptionStillRefuses()
         {
             var rec = UnspawnedLaunchOneRecording();
             RecordingStore.SceneEntryActiveVesselPid = BakedPid;
             RecordingStore.SceneEntryActiveVesselGuid = LaunchTwoGuid;
-            RecordingStore.SceneEntryUT = 100.0;
             VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == BakedPid);
             VesselSpawner.SetMaterializedSourceVesselGuidOverrideForTesting(pid => LaunchTwoGuid);
 
@@ -410,7 +466,9 @@ namespace Parsek.Tests
             Assert.False(adopted);
             Assert.False(rec.VesselSpawned);
             Assert.Contains(logLines, l =>
-                l.Contains("reason=" + VesselSpawner.ReplayBypassReasonDifferentLaunch));
+                l.Contains("[Spawner]")
+                && l.Contains("reason=" + VesselSpawner.ReplayBypassReasonDifferentLaunch)
+                && l.Contains("#226 bypass withheld"));
         }
 
         #endregion

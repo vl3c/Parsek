@@ -42,8 +42,9 @@ _(unreleased - entries accumulate here per commit)_
   recording. Neither happens now. (REFLY-FORK-SELF-SPAWN-AFTER-QUICKSAVE)
 - **A relaunch of the same craft is no longer mistaken for an older flight of it.** Flying a new
   launch of a craft from the Tracking Station no longer resumes an earlier launch's recording on
-  it, and returning to a vessel after its recording ended no longer spawns a second copy of it;
-  the copy still appears after a revert. (ADOPTION-STAMP-READ-AS-UNIQUE-SPAWN-PID)
+  it, and an older launch's vessel no longer counts as alive because the relaunch shares its
+  craft. Vessels Parsek spawned and you flew again are still recognised.
+  (ADOPTION-STAMP-READ-AS-UNIQUE-SPAWN-PID)
 
 ### Dev
 

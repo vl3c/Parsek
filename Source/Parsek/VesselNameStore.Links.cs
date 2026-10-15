@@ -69,6 +69,31 @@ namespace Parsek
             return g != null && links.TryGetValue(g, out link);
         }
 
+        /// <summary>
+        /// True when <paramref name="liveGuid"/> continues <paramref name="targetGuid"/> through
+        /// the link rows (a Parsek spawn, a resumed spawn or an undock re-keys a ship; each link
+        /// points from the fresh guid to the identity it continues). Follows the chain from the
+        /// live guid, bounded and cycle-safe. False for an unknown guid on either side, and for
+        /// equal guids (no link is needed there).
+        /// </summary>
+        internal static bool GuidContinuesIdentity(string liveGuid, string targetGuid)
+        {
+            string current = NormalizeKnownGuid(liveGuid);
+            string target = NormalizeKnownGuid(targetGuid);
+            if (current == null || target == null || links.Count == 0) return false;
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int hop = 0; hop < 32; hop++)
+            {
+                if (!seen.Add(current)) return false;
+                if (!links.TryGetValue(current, out VesselIdentityLink link)) return false;
+                string next = NormalizeKnownGuid(link.ToGuid);
+                if (next == null) return false;
+                if (string.Equals(next, target, StringComparison.OrdinalIgnoreCase)) return true;
+                current = next;
+            }
+            return false;
+        }
+
         /// <summary>The dock-absorb row keyed by <paramref name="rootPartUId"/>, if any.</summary>
         internal static bool TryGetDockAbsorb(uint rootPartUId, out DockAbsorbRow row)
             => dockAbsorbs.TryGetValue(rootPartUId, out row);
