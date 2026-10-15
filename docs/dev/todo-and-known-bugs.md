@@ -299,7 +299,7 @@ HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS). Fix options: provision every profil
 (tier_runner), or have admit refuse an instance whose deployed DLL hash differs from
 stock-minimal's after a provision.
 
-## RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE: RF-1's D4 `hysteresis` token no longer prints, because the launch no longer happens inside the post-load settle [FILED 2026-10-12 from the operator tier. RULED 2026-10-15: move the witness to a rover lane. OPEN, harness; not built]
+## ~~RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE: RF-1's D4 `hysteresis` token no longer prints, because the launch no longer happens inside the post-load settle~~ [FILED 2026-10-12 from the operator tier. RULED 2026-10-15: move the witness to a rover lane. DONE 2026-10-15, flown on the owner's PC]
 
 `RF-1-continuation-stays-open` `2026-10-12_2026` PARSEK-FAIL on its required
 `Environment transition: SurfaceStationary -> SurfaceMobile ... (debounce=3.0s)` alone (the D4
@@ -319,6 +319,16 @@ lane where a rover really drives on the surface for over 3 s (reuse a rover fixt
 flight per the fast-lane checklist), and drop the token and the claim from RF-1 in the same
 change so the registry cell stays claimed. Owner rule 2026-10-15: validate with flights of the rover lane
 and RF-1 on the owner's local PC; the entry closes only on those flights.
+
+Fix (2026-10-15): new automation-only seam verb `DriveVessel wheelThrottle=<f> seconds=<s>`
+(a `Vessel.OnFlyByWire` wheel-throttle hold with the parking brake released and restored;
+OK only when the vessel reached 0.5 m/s) and new nightly lane
+`RVR-21-rover-drive-surface-hysteresis` on `rover-route-recorded` (kill triple,
+StartRecording on rover B, an 8 s drive, StopRecording + DiscardTree), which now claims D4
+`hysteresis` off the same token; RF-1 dropped the token and the claim. Flown on the owner's
+PC (DLL `aa4d824d...`): RVR-21 `2026-10-15_1539` PASS (23.1 m/s, 110 m, the debounced line
+at UT 984.14, recordings 5, now pinned); negative control `_1544` with the token inverted to
+`(immediate, debounce=0\.0s)` red on exactly that token; RF-1 `_1541` PASS without the token.
 
 ## ~~REFLY-UNBOUND-PROVISIONAL-TAGS-AWARDS-TO-ORIGIN: while a re-fly provisional has no recorder, a career award is tagged to the superseded origin and the merge tombstones it~~ [FILED 2026-10-12 from the RF-3 tombstone reading. RULED 2026-10-15: tag to the Re-Fly attempt. FIXED 2026-10-15, PR #2113; RF-3 flown green on the owner's PC 2026-10-15_1546 (guard only, see below). product]
 
@@ -391,10 +401,10 @@ pre-relaunch hold. So the unit no longer treats member #0 as camera-live before 
 in-window evaluation. Six weeks of chain-loop / LiveAt changes separate the two runs (e.g. #1820);
 bisect by flying W1 on older mains, or read the hand-off logger's initial-member rule.
 
-## TIER-2026-10-12-LANE-VARIANCE: four operator-tier reds that were flight variance, not defects [FILED 2026-10-13. OPEN for the two operator calls below, harness]
+## TIER-2026-10-12-LANE-VARIANCE: four operator-tier reds that were flight variance, not defects [FILED 2026-10-13. Both operator calls RULED and DONE 2026-10-15 (GS-10, RF-9), flown on the owner's PC]
 
-- GS-10 2026-10-12_1834 PARSEK-FAIL on the TTL PAIR token (the spec's FLAKE WATCH POINT): of the last pair (expiryUT 125.9) pid 4066981309 hit the ground at ~UT 125.8 ('Debris TTL: vessel destroyed/despawned') and only 513253397 printed 'Debris TTL expired ... expiry=125.9 currentUT=126.0'; the middle pairs were all destroyed before expiry. Margin < 0.2 s. Operator call: keep the pair token, or relax it to at least one expiry. RULED 2026-10-15: keep the pair token (both pieces of the last pair must expire) and fix the margin instead. The six boosters drain together and drop at burnout (~65 s), and the close cut (`mlib.py` `impact_cut_at_last_booster_drop`) zeroes the throttle there, so the whole coast to impact is ~60-63 s against the 60 s TTL. Fix: hold the last pair attached while the core burns on for a set time (a new mission param), then cut the throttle and drop the pair on the same step, so pair and stack leave the burn with the same extra energy, fall together inside the physics bubble, and the coast grows (estimate ~20-30 s for a 10 s hold, inferred, not measured). Burning the core on after an at-burnout drop does not help: the boosters' own fall is unchanged and the stack climbs out of the bubble (GS-7's far profile). Needs `test_kx_rewind_watch` cells and a fresh 2-flight stability reading on the operator tier. Owner rule 2026-10-15: whoever builds this validates it with flights on the owner's local PC (the operator tier there), and the entry is closed only on those flights. Not yet built.
-- RF-9 2026-10-12_2119 PARSEK-FAIL on `Forwarded 19 permanent state event(s)` (read 21): a dropped booster destroyed an R8winglet 1.3 s after separation (`Part event: Destroyed` + `Decoupled 'R8winglet'`), two correctly forwarded seeds more. Re-flown green 2026-10-13_0305 (19). Flight variance on an exact count. Operator call: keep the exact count or accept the collision case. RULED 2026-10-15: neither a fixed count nor a widened number; the check must judge the forwarded events themselves. RF-9 passes when the 19 expected seeds are present and every extra seed is an acceptable one (here the 2026-10-12 collision: the `Destroyed` and `Decoupled` seeds of the R8winglet the dropped booster knocked off), and fails on any other extra or missing seed. Needs the spec (or a verifier) to read the forwarded seed list, not only the `Forwarded N` line. Owner rule 2026-10-15: whoever builds this validates it with flights on the owner's local PC (the operator tier there), and the entry is closed only on those flights. Not yet applied.
+- GS-10 2026-10-12_1834 PARSEK-FAIL on the TTL PAIR token (the spec's FLAKE WATCH POINT): of the last pair (expiryUT 125.9) pid 4066981309 hit the ground at ~UT 125.8 ('Debris TTL: vessel destroyed/despawned') and only 513253397 printed 'Debris TTL expired ... expiry=125.9 currentUT=126.0'; the middle pairs were all destroyed before expiry. Margin < 0.2 s. Operator call: keep the pair token, or relax it to at least one expiry. RULED 2026-10-15: keep the pair token (both pieces of the last pair must expire) and fix the margin instead. The six boosters drain together and drop at burnout (~65 s), and the close cut (`mlib.py` `impact_cut_at_last_booster_drop`) zeroes the throttle there, so the whole coast to impact is ~60-63 s against the 60 s TTL. Fix: hold the last pair attached while the core burns on for a set time (a new mission param), then cut the throttle and drop the pair on the same step, so pair and stack leave the burn with the same extra energy, fall together inside the physics bubble, and the coast grows (estimate ~20-30 s for a 10 s hold, inferred, not measured). Burning the core on after an at-burnout drop does not help: the boosters' own fall is unchanged and the stack climbs out of the bubble (GS-7's far profile). Needs `test_kx_rewind_watch` cells and a fresh 2-flight stability reading on the operator tier. Owner rule 2026-10-15: whoever builds this validates it with flights on the owner's local PC (the operator tier there), and the entry is closed only on those flights. ~~Not yet built.~~ DONE 2026-10-15: kx opt-in `impactLastPairHoldSeconds` (phase LAST-PAIR-HOLD; `stackCutAtLastBoosterDrop` also requires the full hold), GS-10 declares 10 s. Flown on the owner's PC (DLL `0f2bfc6b...`): `2026-10-15_1515` and `_1522` PASS attempt 1, held 10.50 / 10.04 s, last pair dropped at UT 76.1 / 75.2 and both pieces closed `Debris TTL expired` at 136.1 / 135.2 with the parent down at ~161 / ~158.
+- RF-9 2026-10-12_2119 PARSEK-FAIL on `Forwarded 19 permanent state event(s)` (read 21): a dropped booster destroyed an R8winglet 1.3 s after separation (`Part event: Destroyed` + `Decoupled 'R8winglet'`), two correctly forwarded seeds more. Re-flown green 2026-10-13_0305 (19). Flight variance on an exact count. Operator call: keep the exact count or accept the collision case. RULED 2026-10-15: neither a fixed count nor a widened number; the check must judge the forwarded events themselves. RF-9 passes when the 19 expected seeds are present and every extra seed is an acceptable one (here the 2026-10-12 collision: the `Destroyed` and `Decoupled` seeds of the R8winglet the dropped booster knocked off), and fails on any other extra or missing seed. Needs the spec (or a verifier) to read the forwarded seed list, not only the `Forwarded N` line. Owner rule 2026-10-15: whoever builds this validates it with flights on the owner's local PC (the operator tier there), and the entry is closed only on those flights. ~~Not yet applied.~~ DONE 2026-10-15: `ForwardPermanentStateEvents` appends the sorted seed list (`Type:part#pid`) to its Info line, and the new hlib logContracts facet `forwardedSeeds` replaces RF-9's two count tokens (19 expected focus seeds plus the probe's one; acceptable extra: a complete R8winglet `Decoupled` + `Destroyed` pair on one pid). Flown on the owner's PC (DLL `290502ec...`): `2026-10-15_1530` PASS with 19, `_1534` PASS with 23 (two winglets knocked off, both complete pairs).
 - GUI-7 `2026-10-12_1927` INVALID on `UiAction ERROR pointer-not-applied want=133,94
   after=84,337`; the retry `_1929_a2` PASSED.
 - V7M `2026-10-12_2340` INVALID on `EnterWatchMode REJECTED no-watchable-ghost`; the retry
@@ -2037,7 +2047,8 @@ bump removed; `InSessionHandoffWiringGateTests` pins the order.
 The OQ-1 Esc-menu Discard is proven for the rows only (see
 ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE). Decompile
 note: the Discard Re-fly load is ONE OnLoad, and it reads persistent.sfs, not the rewind-point
-quicksave (see DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT).
+quicksave (see DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT). Both follow-ups fixed
+2026-10-15.
 
 ---
 
@@ -2431,7 +2442,7 @@ carry) stays as the regression guard should a future route reach the editor load
 
 ---
 
-## DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT: Discard Re-fly loads the rewind point's quicksave, but the scene it then opens reloads persistent.sfs [FILED 2026-10-06 from the in-session carry work (PR #2038), verified by decompile; player effect not traced. OPEN, product; to trace]
+## ~~DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT: Discard Re-fly loads the rewind point's quicksave, but the scene it then opens reloads persistent.sfs~~ [FILED 2026-10-06 from the in-session carry work (PR #2038), verified by decompile. TRACED and FIXED 2026-10-15, branch `claude/refly-quickload-edge-cases-eixmlf`]
 
 `RevertInterceptor.DiscardReFlyHandler` loads the origin rewind point's quicksave into
 `HighLogic.CurrentGame` and calls `HighLogic.LoadScene(SPACECENTER)` (Launch) or
@@ -2451,6 +2462,38 @@ player sees at the Space Center / in the editor). Candidate: write the quicksave
 persistent.sfs before the scene load, as stock `QuickSaveLoad.onQuickloadPipelineFinished` does
 for a non-flight quickload (`GamePersistence.SaveGame(Game, "persistent", ...)` then `LoadScene`).
 Live proof: lane QL-5.
+
+**Traced 2026-10-15 (decompiled KSP 1.12.5).** `FlightDriver.PostInit` writes `persistent` at EVERY
+flight-scene start (`GamePersistence.SaveGame(PostInitState, "persistent", ...)` when
+`ClearToSave`), and an F9 in flight is a flight-scene start (`QuickSaveLoad` ->
+`FlightDriver.StartAndFocusVessel`); `QuickSaveLoad.doSave` also writes it on every F5 when
+`AutoSaveOnQuickSave` is set, and a switch to an unloaded vessel reloads the flight scene. So after
+an F5 / F9 inside a Re-Fly, Discard Re-fly landed at the Space Center at the quicksave's moment,
+with the clock past the rewind point and the discarded attempt's vessel left in the world as a
+real vessel. Without such a write the file held the Re-Fly start's PostInit save, which is the
+rewind point's quicksave before Parsek's post-load strip (the strip runs on `onFlightReady`, which
+PostInit fires after its save), so the ordinary discard landed right.
+
+**Fixed 2026-10-15.** `RevertInterceptor.DiscardReFlyHandler` writes the loaded rewind-point game
+to persistent.sfs after the load and before the scene request
+(`WriteRewindPointGameAsPersistent`, `GamePersistence.SaveGame(game, "persistent", ...)`, stock's
+own non-flight quickload order), so the scene start reloads the rewind point. A failed or refused
+write (the scenario's autosave disabled) logs a Warn and dispatches as before. The write keeps
+the PARSEK node persistent.sfs already held (the last live save, read back and spliced over the
+rewind point game's stored node by `SpliceLiveParsekScenarioNode`), because `SaveGame(Game, ...)`
+copies stored scenario nodes verbatim: the rewind point's own node lacks every tree committed
+after it, and a crash before the next live save would cold-load it and reap those trees'
+sidecars. No live node to carry means no write (Warn, the old landing). So the Discard Re-fly
+OnLoad reads the same PARSEK node it read before the fix, with the rewind point's world. End line:
+`End reason=discardReFly ... dispatched=true persistentWritten=true`. Tests:
+`ReFlyRevertDialogTests.DiscardReFly_WritesTheRewindPointGameToPersistent_AfterTheLoad_BeforeTheScene`
+(both targets, load -> persistent -> scene order), `DiscardReFly_PersistentWriteFails_StillDispatches`,
+`DiscardReFly_StubbedLoad_SkipsThePersistentWrite`, and the wiring gate
+`LoadReconcileWiringGateTests.DiscardReFlyWritesPersistentAndRestoresTheDetachedTreeBeforeTheScene`.
+The Discard Re-fly intent now carries the clock of the rewind-point quicksave the discard loaded,
+and its consumed line says whether the scene landed there
+(`rpSaveUT=.. loadedUT=.. landedAtRewindPoint=true|false|unknown`, 1 s tolerance; `LoadReconcilePolicyTests.LandedAtRewindPointToken_Pure`). Live proof: lane QL-5c
+(F5 / F9 inside the session, then the Esc discard), PASS `2026-10-15_1600`.
 
 ---
 
@@ -2499,7 +2542,7 @@ neither fork may survive in the resumed tree.
 
 ---
 
-## ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE: Discard Re-fly from the Esc menu after an F9 during a Re-Fly may drop the flight's tree [FILED 2026-10-06 from the in-session carry review, PR #2038; pre-existing, verified by code read, not reproduced. OPEN, product]
+## ~~ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE: Discard Re-fly from the Esc menu after an F9 during a Re-Fly may drop the flight's tree~~ [FILED 2026-10-06 from the in-session carry review, PR #2038; pre-existing, verified by code read. REPRODUCED headless and FIXED 2026-10-15, branch `claude/refly-quickload-edge-cases-eixmlf`]
 
 An F9 during any Re-Fly session restores the quicksave's active tree, and
 `ParsekScenario.TryRestoreActiveTreeNode` detaches any committed copy of that tree (a session that
@@ -2519,6 +2562,19 @@ Fix: to trace first (the suppression's consumer and what the Discard Re-fly load
 tree); candidate: put a detached committed tree back sanitized on the Esc path as the merge-dialog
 Discard does. Red test: the resumed-session fixture through `DiscardReFlyHandler` with the
 suppression armed, then the Discard Re-fly load; the committed tree must hold the origin.
+
+**Fixed 2026-10-15.** Re-checked on main after #2103 / #2106 / #2107: still held. The new cell
+`InSessionStagedListsCarryTests.DiscardOfResumedMergedSession_EscMenu_OriginBackInTheTimeline`
+(the resumed-session fixture, no committed copy of the tree, through `DiscardReFlyHandler`) was
+red: no committed tree after the discard. `MergeDialog.PruneActiveReFlyAttemptOwnedTopology` now
+hands back the tree it pruned, and the handler, once the rewind-point load succeeded and before
+it arms the scene-exit drop, calls `MergeDialog.RestoreDetachedTreeAfterEscDiscard`: when no
+committed tree carries that id, the pruned tree goes back committed through the merge-dialog
+Discard's `RestoreSanitizedPendingTreeIfDetached` (a pending instance leaves the pending slot). A
+failed scene dispatch takes it back out of the committed store, since the player stays in flight
+on it. The ordinary session (committed original still in memory) restores nothing
+(`DiscardOfFreshSession_EscMenu_CommittedOriginalPresent_RestoresNothing`). End line carries
+`restoredDetachedTree=`. Live proof: lane QL-5c, PASS `2026-10-15_1600`.
 
 ---
 
@@ -2889,7 +2945,7 @@ watermark reds the leaf second-rewind cell, a bare-pid positive rule reds the tr
 
 ---
 
-## CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS: one recording that ends two claimed vessels holds back only one of them [FILED 2026-10-06 from the PR #2029 re-review, by code read and a headless walker cell; not reproduced in game. OPEN, product]
+## ~~CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS: one recording that ends two claimed vessels holds back only one of them~~ [FILED 2026-10-06 from the PR #2029 re-review, by code read and a headless walker cell; not reproduced in game. FIXED 2026-10-15, branch `wip-chain-tip-several-claims`; no live flight]
 
 Shape: a tug docks to depot 600, carries it to station 777 and docks there; the final
 recording (777, the station dominant) ends both lineages. `GhostChainWalker.ComputeAllGhostChains`
@@ -2920,6 +2976,29 @@ adopted. That needs the chain to keep every claimed pid (not only its key) for t
 ghosting, and the replacement to remove all of them, spawn the tip once and restore all of them
 on a failed spawn. Red tests: a flight `FilterAndGhostChains` cell over this fixture (both pids
 ghosted), and the `TwoClaims_*` cells flipped to "both removed, tip spawned".
+
+FIXED: the walker keeps every claimed vessel on the chain (`GhostChain.ClaimedVessels`: the key,
+plus each folded chain's key with its launch guid and first claim UT, filled by
+`MergeCrossTreeLinks`). Flight: `ParsekFlight.FilterAndGhostChains` ghosts every pid
+`SelectChainPidsToGhost` returns (the key, then each folded claim whose live vessel is not
+conclusively another launch), the flight CommNet relay covers each held-back vessel until its own
+first claim, and `VesselGhoster.ReleaseChainClaims` drops all of them from the ghosted set when the
+tip settles (spawn, adoption, walkback, KSC retirement), so the spawned tip under a folded pid does
+not read as still ghosted. Outside flight: `ChainTipStaleVessel.ShouldReplaceStaleLiveVessels`
+takes one evidence row per live claimed vessel and answers "replace" only when every one passes
+every check of the single-vessel replacement (launch, `lastUT` before the last claim, not in use;
+the playhead latch and the spawn blocker per tip); one doubt keeps all of them on the plain
+adoption (`tip-ends-several-claimed-vessels` is gone). The tip-identity rule now refuses only when
+the tip's pid is not one of the live claimed vessels (the stale station carrying the tip's pid is
+replaced, not adopted). `TryReplaceStaleLiveVessel` removes every live claimed vessel (snapshot
+first), puts back the ones already removed when a later removal fails, and
+`CompleteReplacement` / `AbortReplacement` restore all of them when the tip spawns no vessel. Still
+counted by live vessel (a pid is one vessel at a time). Tests: `ChainTipStaleVesselTests`
+`TwoClaims_*` (fixture claims, flight selection incl. another-launch skip, ghoster release,
+predicate both-stale / any-doubt / tip-identity, TS / KSC / flight-leaf replacement of both,
+failed spawn and thrown spawn restoring both, in-use and simulated-since-claim keeping both, a
+failed second removal putting the first back). Not flown: no harness lane builds a tug-depot-station
+two-dock chain (CI-3 / CI-4 / RC-5 cover one claimed vessel).
 
 ---
 
@@ -2983,9 +3062,10 @@ the chain's (`ExpectedClaimedGuid`: the chain's `LaunchGuid` when the chain is k
 pid, else the tip's own when it kept the claimed pid, else pid only, as the flight ghosting).
 Every claimed pid ending at the tip is probed (all chains ending there, folded-in links
 included) and the live one is the vessel replaced. It answers "replace" only for the tip of a
-non-terminated chain whose claimed pids exactly one live vessel carries (two live are refused:
-CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS; one station claimed again under its new pid after a
-transport-dominant dock is one live vessel, PR #2029 round-two review), unspawned, with that
+non-terminated chain whose claimed pids exactly one live vessel carries (two live were refused
+here; since CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS every live one is replaced; one station claimed
+again under its new pid after a transport-dominant dock is one live vessel, PR #2029 round-two
+review), unspawned, with that
 live claimed vessel and no
 live vessel already matching the tip's own pid and launch when the claimed pid is another one
 (that vessel is the site's adoption, so removing the claimed one would lose it; PR #2029
@@ -3081,14 +3161,54 @@ The live proof, lane RC-5, is not flown.
 
 ---
 
-## EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED: moving a stored part between a tree vessel and a foreign vessel is not recorded, so a rewind duplicates or deletes it [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED: moving a stored part between a tree vessel and a foreign vessel is not recorded, so a rewind duplicates or deletes it~~ [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `wip-eva-inventory-claim`; live proof RC-6 not flown]
 
 No inventory or EVA-construction GameEvent is subscribed anywhere in `Source/Parsek`; claims come
 only from dock target pids and background part events, and no part-event type covers an
 inventory transfer. Design 12.6 lists EVA construction as a ghosting trigger.
 
-Fix: record the transfer as a claim on the foreign vessel (or a part event), so the chain rule
-applies. Lane RC-6 with `EvaGroundScience action=take` against a foreign container (new fixture).
+Re-verified on `origin/main` 8eb067d (after #2103 / #2106 / #2107) before the fix: no
+`onModuleInventory*` or `OnEVAConstructionModePart*` subscription in `Source/Parsek`.
+
+Fix: done. Design (flight recorder design section 4.12): the claim must not come from the kerbal's
+recording, because a chain's tip supplies the spawn snapshot and a kerbal tip would replace the
+rover by the kerbal. So the foreign vessel joins the tree the way a placed ground part does: on
+`onModuleInventorySlotChanged` (fires after the slot changed, on the changed module; never from
+`OnLoad`) for a module on a vessel the tree does not carry, while the tree records its active EVA
+kerbal, `ParsekFlight.OnModuleInventorySlotChanged` adds an `InventoryTransfer` branch point
+(new additive `BranchPointType` 10, parent = the kerbal, who keeps recording) and a background
+member recording of that vessel with its post-transfer snapshot and one `PartRemoved` / `PartAdded`
+`SegmentEvent` per transfer (both already ghosting triggers). The walker's background-event scan
+claims it and the member's own leaf is the tip; later transfers append to the member and refresh
+its snapshot. Parsek's own route pickup / delivery writes are fenced out (`ParsekInventoryWrites`).
+The structural walks that skip or collect a placement read both types through
+`RecordingTree.IsKerbalSideBranch`. Pure gate and builders: `ForeignInventoryTransfer`; tests
+`ForeignInventoryTransferTests` (including the walker cell: the rover is claimed and its own
+recording is the tip) and `ReFlyThroughEvaTests.SessionSuppressedSubtree_IncludesAForeignVesselTheKerbalMovedCargoWith`.
+
+Live proof still open: lane RC-6 (roadmap) needs a new fixture (a landed foreign rover with a
+stocked container within EVA reach of a recording kerbal). `EvaGroundScience action=take` already
+drives the stock clear-then-store; a put into a foreign container has no verb yet. Sibling gap
+filed as EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED.
+
+---
+
+## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. OPEN, product]
+
+The inventory fix records a stored part moved into or out of a foreign vessel's container, but two
+neighbours of the same defect remain. `EVAConstructionModeEditor` fires
+`OnEVAConstructionModePartAttached(parentVessel, part)` after `AttachPart` and
+`OnEVAConstructionModePartDetached(vessel, part)` after `DetachPart` (decompiled 1.12.5); neither
+is subscribed, and an attach / detach changes no inventory slot of the foreign vessel, so a part
+built onto or taken off a parked rover is lost or duplicated by a rewind exactly as before. And
+`ForeignInventoryTransfer.Evaluate` refuses a transfer with a foreign EVA kerbal
+(`ChangedVesselIsEva`): adopting a kerbal vessel as a plain member would hand crew reservation a
+kerbal it does not own.
+
+Fix: route the two construction events through the same adoption (`InventoryTransfer` member, a
+`PartAdded` / `PartRemoved` event). Open question for the detach: whether the held part is still in
+`vessel.parts` when the event fires (`Part.OnDetachFlight`), which decides whether the snapshot must
+wait a frame. Needs a live reading before it ships.
 
 ---
 

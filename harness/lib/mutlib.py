@@ -869,6 +869,11 @@ class LaneEvaluator:
         self.forbidden: List[Tuple[str, "re.Pattern", bool]] = [
             (str(p), re.compile(str(p)), is_line_local(str(p)))
             for p in (lc.get("forbidden", []) or [])]
+        # forwardedSeeds reads only the seed lines, so it is re-judged (over the whole
+        # mutated text) only when a mutation touches one of them.
+        self.forwarded_seeds = lc.get(hlib.FORWARDED_SEEDS_KEY)
+        self.seed_lines = frozenset(i for i, ln in enumerate(model.lines)
+                                    if hlib.FORWARDED_SEEDS_LINE_MARKER in ln)
 
     def mutated_text(self, deleted: Iterable[int] = (), edits: Optional[Edits] = None) -> str:
         dropset = set(deleted)
@@ -906,6 +911,10 @@ class LaneEvaluator:
                 continue
             if rx.search(whole()) is None:
                 return False, "required not matched: %s" % pat
+        if self.forwarded_seeds and (changed & self.seed_lines):
+            seed_miss = hlib.evaluate_forwarded_seeds(self.forwarded_seeds, whole())
+            if seed_miss:
+                return False, seed_miss[0]
         if changed:
             for pat, rx, local in self.forbidden:
                 if local:
@@ -1040,6 +1049,76 @@ def mutate_recording_count(expectations: Dict, count: Optional[int], text: str) 
                 triage, note = INFO, "inside the declared window"
         out.append(Mutation("recordings.count", "recordings.count %s" % _window_text(spec),
                             "count", "%d -> %d (%s)" % (count, val, name), res, triage, note))
+    return out
+
+
+def mutate_forwarded_seeds(expectations: Dict, text: str) -> List[Mutation]:
+    """Edits to the forwarded-seed lines that satisfy a ``forwardedSeeds`` item on the
+    green baseline, each of which the facet must KILL: delete the line, drop its first
+    expected entry, inject an unknown extra seed, and (when the item declares a group)
+    inject a lone half of that group on a fresh pid. A survivor means the item would
+    pass a run whose seeds are wrong."""
+    items = ((expectations.get("logContracts") or {}).get(hlib.FORWARDED_SEEDS_KEY))
+    if not isinstance(items, list) or not items:
+        return []
+    raw = (text or "").split("\n")
+    lines = hlib.parse_forwarded_seed_lines(text)
+    out: List[Mutation] = []
+    for i, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        target = "forwardedSeeds[%d]" % i
+        for ln in lines:
+            missing, extra = hlib.judge_forwarded_seed_line(item, ln)
+            if missing or extra or ln.problem:
+                continue
+            idx = ln.line_no - 1
+            original = raw[idx]
+
+            def entry_text(entries) -> str:
+                return ", ".join("%s:%s#%d" % e for e in entries)
+
+            def with_entries(entries) -> str:
+                head = original[:original.index("Forwarded ")]
+                return "%sForwarded %d permanent state event(s) as seeds at UT=%s: [%s]" % (
+                    head, len(entries), ln.ut, entry_text(entries))
+
+            first = str((item.get("expected") or [""])[0])
+            typ, _, part = first.partition(":")
+            dropped = list(ln.entries)
+            for k, e in enumerate(dropped):
+                if e[0] == typ and e[1] == part:
+                    del dropped[k]
+                    break
+            variants = [
+                ("seed-delete-line", "delete log line %d" % ln.line_no, None),
+                ("seed-drop-entry", "drop %s from line %d" % (first, ln.line_no),
+                 with_entries(dropped)),
+                ("seed-inject-extra", "add Destroyed:mutationCheckPart#1 to line %d" % ln.line_no,
+                 with_entries(list(ln.entries) + [("Destroyed", "mutationCheckPart", 1)])),
+            ]
+            groups = [g for g in (item.get("acceptableExtraGroups") or []) if isinstance(g, dict)]
+            if groups and len(groups[0].get("types") or []) > 1:
+                g = groups[0]
+                half = (str(g["types"][0]), str(g["part"]), 1)
+                variants.append(("seed-split-group", "add a lone %s:%s#1 to line %d"
+                                 % (half[0], half[1], ln.line_no),
+                                 with_entries(list(ln.entries) + [half])))
+            for kind, detail, replacement in variants:
+                mutated = list(raw)
+                if replacement is None:
+                    del mutated[idx]
+                else:
+                    mutated[idx] = replacement
+                res = KILLED if not _expectations_pass(expectations, None, "\n".join(mutated)) \
+                    else SURVIVED
+                triage, note = "", ""
+                if res == SURVIVED:
+                    if kind == "seed-delete-line":
+                        triage, note = INFO, "another seed line also satisfies the item"
+                    else:
+                        triage, note = TRIAGE, "the item accepted a wrong seed list"
+                out.append(Mutation("logContracts", target, kind, detail, res, triage, note))
     return out
 
 
@@ -1215,6 +1294,8 @@ def spec_gating_surfaces(spec: Dict) -> List[str]:
         out.append("saveParse")
     if (exp.get("logContracts", {}) or {}).get("forbidden"):
         out.append("logContracts.forbidden")
+    if (exp.get("logContracts", {}) or {}).get(hlib.FORWARDED_SEEDS_KEY):
+        out.append("logContracts.forwardedSeeds")
     driver = spec.get("driver") or {}
     if driver.get("kind") == "autopilot" and driver.get("mission"):
         out.append("mission")
@@ -1272,6 +1353,7 @@ def check_lane(spec: Dict, inputs: ArchiveInputs) -> LaneReport:
         lane.patterns.append(facts)
     lane.mutations.extend(mutate_recording_count(expectations, inputs.recording_count,
                                                  inputs.log_text))
+    lane.mutations.extend(mutate_forwarded_seeds(expectations, inputs.log_text))
     lane.mutations.extend(mutate_unity_exceptions(expectations, model))
     lane.mutations.extend(mutate_anomaly_sweep(expectations, model))
     if saveparse.armed_structure_blocks(expectations):

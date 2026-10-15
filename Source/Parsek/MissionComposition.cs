@@ -776,6 +776,7 @@ namespace Parsek
                 case BranchPointType.Terminal: return "End";
                 case BranchPointType.VesselSwitchContinuation: return "Switch";
                 case BranchPointType.GroundPartPlaced: return "Placed";
+                case BranchPointType.InventoryTransfer: return "Cargo";
                 default: return t.ToString();
             }
         }

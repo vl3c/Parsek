@@ -203,6 +203,7 @@ namespace Parsek
                 return summary;
             }
 
+            summary.Tree = tree;
             summary.AttemptIds = CollectReFlyAttemptOwnedRecordingIds(tree, marker);
             summary.RemovedCommitted = RemoveCommittedAttemptRecordings(summary.AttemptIds);
             summary.PurgedEvents = GameStateStore.PurgeEventsForRecordings(
@@ -240,6 +241,8 @@ namespace Parsek
         /// </summary>
         internal struct AttemptDiscardSummary
         {
+            /// <summary>The in-memory tree the prune worked on, or null when none was found.</summary>
+            internal RecordingTree Tree;
             internal HashSet<string> AttemptIds;
             internal int RemovedCommitted;
             internal int PurgedEvents;
@@ -248,6 +251,49 @@ namespace Parsek
             internal int TransientCleared;
             internal int LedgerTagsCleared;
             internal StagedRowsPruneResult StagedRows;
+        }
+
+        /// <summary>
+        /// The Esc-menu Discard Re-fly's half of the detached-tree repair the other discards get
+        /// from <see cref="DiscardReFlyAttemptRecordingsAndRewindPoints"/>. An F9 during a Re-Fly
+        /// detaches every committed copy of the session's tree
+        /// (<c>ParsekScenario.TryRestoreActiveTreeNode</c>), so the pruned tree is then the only
+        /// instance left, and the scene exit <see cref="RevertInterceptor.DiscardReFlyHandler"/>
+        /// arms drops it without a commit. When no committed tree carries the pruned tree's id,
+        /// this puts it back committed, sanitized (todo
+        /// ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE). A tree still committed (the
+        /// ordinary session, whose committed original the reconciliation bundle restored) is
+        /// left alone. A pending tree it restores leaves the pending slot.
+        /// </summary>
+        /// <returns>True when the tree was put back in the committed store.</returns>
+        internal static bool RestoreDetachedTreeAfterEscDiscard(
+            ReFlySessionMarker marker, AttemptDiscardSummary summary, string callSite)
+        {
+            RecordingTree tree = summary.Tree;
+            if (tree == null)
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    $"RestoreDetachedTreeAfterEscDiscard callSite={callSite ?? "<none>"}: no pruned tree - nothing to restore");
+                return false;
+            }
+            if (CommittedTreeExists(tree.Id))
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    $"RestoreDetachedTreeAfterEscDiscard callSite={callSite ?? "<none>"}: tree={tree.Id ?? "<none>"} " +
+                    "still committed - nothing to restore");
+                return false;
+            }
+
+            bool wasPending = object.ReferenceEquals(tree, RecordingStore.PendingTree);
+            bool restored = RestoreSanitizedPendingTreeIfDetached(
+                tree, marker, summary.AttemptIds ?? new HashSet<string>(System.StringComparer.Ordinal));
+            if (restored && wasPending)
+                RecordingStore.PopPendingTree();
+            ParsekLog.Info("MergeDialog",
+                $"RestoreDetachedTreeAfterEscDiscard callSite={callSite ?? "<none>"}: tree={tree.Id ?? "<none>"} " +
+                $"detached restored={(restored ? "true" : "false")} wasPending={(wasPending ? "true" : "false")} " +
+                $"sess={marker?.SessionId ?? "<none>"}");
+            return restored;
         }
 
         /// <summary>Counts of <see cref="PruneStagedRowsNamingAttempt"/>.</summary>

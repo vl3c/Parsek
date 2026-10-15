@@ -461,6 +461,39 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DiscardIntent_ConsumeLine_SaysWhetherTheLoadLandedOnTheRewindPoint()
+        {
+            DiscardReFlyLoadIntent.Arm(RevertTarget.Launch, "sess-1", 1234.5);
+            Assert.True(DiscardReFlyLoadIntent.TryConsume(GameScenes.SPACECENTER, "test", out _, 1234.5));
+            Assert.Contains(logLines, l => l.Contains("DiscardReFly load intent consumed at test:")
+                && l.Contains("rpSaveUT=1234.50 loadedUT=1234.50 landedAtRewindPoint=true"));
+
+            // A landing at the session's last persistent write (an F9 later in the attempt).
+            DiscardReFlyLoadIntent.Arm(RevertTarget.Launch, "sess-2", 1234.5);
+            Assert.True(DiscardReFlyLoadIntent.TryConsume(GameScenes.SPACECENTER, "test", out _, 1300.0));
+            Assert.Contains(logLines, l => l.Contains("sess=sess-2")
+                && l.Contains("landedAtRewindPoint=false"));
+
+            // No clock passed: unknown, and the next arm starts clean.
+            DiscardReFlyLoadIntent.Arm(RevertTarget.Launch, "sess-3");
+            Assert.True(DiscardReFlyLoadIntent.TryConsume(GameScenes.SPACECENTER, "test", out _));
+            Assert.Contains(logLines, l => l.Contains("sess=sess-3")
+                && l.Contains("rpSaveUT=NaN loadedUT=NaN landedAtRewindPoint=unknown"));
+        }
+
+        [Theory]
+        [InlineData(100.0, 100.0, "true")]
+        [InlineData(100.0, 100.9, "true")]
+        [InlineData(100.0, 98.5, "false")]
+        [InlineData(100.0, 160.0, "false")]
+        [InlineData(double.NaN, 100.0, "unknown")]
+        [InlineData(100.0, double.NaN, "unknown")]
+        public void LandedAtRewindPointToken_Pure(double rpUT, double loadedUT, string expected)
+        {
+            Assert.Equal(expected, DiscardReFlyLoadIntent.LandedAtRewindPointToken(rpUT, loadedUT));
+        }
+
+        [Fact]
         public void DiscardIntent_PrelaunchTargetsTheEditor()
         {
             Assert.Equal(GameScenes.EDITOR, DiscardReFlyLoadIntent.ExpectedSceneFor(RevertTarget.Prelaunch));

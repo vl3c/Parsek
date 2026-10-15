@@ -486,6 +486,21 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Branch types an EVA kerbal writes beside his own recording while he keeps
+        /// recording: <see cref="BranchPointType.GroundPartPlaced"/> (a part he placed became
+        /// its own vessel) and <see cref="BranchPointType.InventoryTransfer"/> (a foreign
+        /// vessel whose inventory he changed joined the tree). The kerbal's
+        /// <c>ChildBranchPointId</c> never names one, so the kerbal stays a leaf, the child
+        /// is reached by parent id, and a walk that owns the kerbal's products (scoped
+        /// Discard, the Re-Fly session closure) admits the child.
+        /// </summary>
+        internal static bool IsKerbalSideBranch(BranchPointType type)
+        {
+            return type == BranchPointType.GroundPartPlaced
+                || type == BranchPointType.InventoryTransfer;
+        }
+
+        /// <summary>
         /// Branch types whose writer can leave the parent recording running past the split:
         /// the crash coalescer's Breakup and JointBreak (<c>ParsekFlight.WireBreakupIntoTree</c>)
         /// and the post-switch Launch branch. Undock / EVA close their parent into a same-PID
