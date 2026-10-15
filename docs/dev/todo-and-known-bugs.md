@@ -3409,7 +3409,7 @@ filed as EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED.
 
 ---
 
-## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; lane EVA-11 authored, unflown; the foreign EVA kerbal half stays OPEN]
+## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; LIVE-PROVEN by EVA-11 `2026-10-15_2343`; the foreign EVA kerbal half stays OPEN]
 
 The inventory fix records a stored part moved into or out of a foreign vessel's container, but two
 neighbours of the same defect remain. `EVAConstructionModeEditor` fires
@@ -3489,7 +3489,11 @@ conclusively different, never a ghost-map entry) as well as by reference: re-fli
 ghoster's own snapshot capture, or any save) replaces `vessel.protoVessel` with a fresh instance
 while the list keeps the load-time one. Any background-event chain whose tip flies the claimed pid
 took the same detour. Cells in `ClaimedVesselRemovalTests` (`RemoveFlightStateEntries_*`).
-Re-flight owed.
+
+**LIVE-PROVEN 2026-10-15: `2026-10-15_2343` PASS attempt 1, 0 mismatches** (automation DLL sha256
+prefix 90964a279107c47f): `Flight-state entries removed: pid=1871615455 removed=1`, `Vessel ghosted`,
+`Chain tip spawn: pid=1871615455 ... parts=15`, no adoption or stale-vessel replace after the rewind,
+the rover LANDED with 15 parts in the produced save.
 
 ---
 
