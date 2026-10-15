@@ -218,6 +218,40 @@ namespace Parsek.Tests
             int recalc = IndexOrFail(reconcile, "LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(");
             Assert.True(treeTrim < endStates && endStates < events && events < rows && rows < recalc,
                 "load-reconcile gate: trim, end states, events, ledger rows, then the current-timeline recalculation");
+            // The restore's abandoned Re-Fly forks join the plan (pruned set) and leave the tree
+            // after the trim, under either scope and before any category step reads the tree.
+            Assert.Equal(1, Occurrences(reconcile, "PruneAbandonedReFlyForks("));
+            int forks = IndexOrFail(reconcile, "PresentAbandonedReFlyForkIds(");
+            int prune = IndexOrFail(reconcile, "PruneAbandonedReFlyForks(");
+            Assert.True(forks < plan && treeTrim < prune && recTrim < prune && prune < endStates,
+                "load-reconcile gate: the fork set is read before the plan, the forks are pruned after the trim "
+                + "and before the end-state step");
+            Assert.Contains("quicksaveFacts, abandonedForkIds)", flat);
+            int policyReturn = IndexOrFail(reconcile, "if (!anyCategory)");
+            Assert.True(prune < policyReturn,
+                "load-reconcile gate: the fork prune does not depend on the policy cells");
+        }
+
+        [Fact]
+        public void ResumeTrimLeavesQuicksaveHistoryWhole()
+        {
+            // QUICKLOAD-TRIM-CUTS-COMMITTED-HISTORY-OF-A-RESUMED-CLONE: the tree-wide trim is
+            // handed the quicksave's history members (read before the trim) and leaves them
+            // whole; the plan and the kept-whole set read each member as the restore left it, so
+            // an ending restamped after the save is not history to either.
+            string reconcile = PreparedMethodBody(TrimPath, "internal static bool TrimAndReconcileForQuickloadResume(");
+            string flat = Collapse(reconcile);
+            Assert.Equal(1, Occurrences(reconcile, "CollectQuicksaveHistoryKeptWhole("));
+            Assert.Contains("CollectQuicksaveHistoryKeptWhole(tree, activeRec?.RecordingId, resumeUT, quicksaveFacts)", flat);
+            Assert.Contains("TrimRecordingTreePastUT(tree, resumeUT, keepWhole)", flat);
+            Assert.True(IndexOrFail(reconcile, "CollectQuicksaveHistoryKeptWhole(")
+                    < IndexOrFail(reconcile, "TrimRecordingTreePastUT("),
+                "load-reconcile gate: the kept-whole history set is read before the trim cuts the payload");
+
+            string keep = Collapse(PreparedMethodBody(TrimPath, "internal static HashSet<string> CollectQuicksaveHistoryKeptWhole("));
+            Assert.Contains("IsCommittedHistoryAtQuicksave(quicksaveFacts, kvp.Key, cutoffUT, out _, kvp.Value)", keep);
+            string plan = Collapse(PreparedMethodBody(TrimPath, "internal static AbandonedFuturePlan BuildAbandonedFuturePlan("));
+            Assert.Contains("IsCommittedHistoryAtQuicksave(quicksaveFacts, id, cutoffUT, out string historyReason, rec)", plan);
         }
 
         [Fact]
@@ -251,6 +285,12 @@ namespace Parsek.Tests
                 + "&& ShouldKeepPendingTreeAfterHydrationFailure(tree, staleEpochHydrationFailures))", Collapse(body));
             Assert.Contains("if (committedCopyAction == CommittedCopyRestoreAction.ResumeFromQuicksave) "
                 + "ClearCommittedTreeRestoreAttemptAfterDetach(tree);", Collapse(body));
+            // The abandoned Re-Fly forks are noted exactly where the row rule's resume note is,
+            // so the forks the resume prunes and the rows step B hands to the save agree.
+            Assert.Equal(1, Occurrences(body, "NoteAbandonedReFlyForks("));
+            Assert.Contains("if (committedCopyDetached && resumeDetachedCopyIds != null) { "
+                + "NoteQuickloadResumeDetach(tree, resumeDetachedCopyIds); "
+                + "NoteAbandonedReFlyForks(tree, lastRestoredQuicksaveTreeFacts); }", Collapse(body));
 
             // Both OnLoad call sites pass the prologue's load kind and whether the load lands in
             // FLIGHT (the defaults model an F9 in flight, for tests only).

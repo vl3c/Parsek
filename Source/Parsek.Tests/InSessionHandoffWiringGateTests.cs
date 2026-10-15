@@ -193,6 +193,33 @@ namespace Parsek.Tests
             Assert.Contains("PruneStagedRowsNamingAttempt(scenario, result.AttemptIds, reason);", Collapse(discard));
         }
 
+        /// <summary>
+        /// RETRY-OF-A-RESUMED-MERGED-REFLY-LEAVES-A-ONE-SIDED-ROW: Retry repairs the rows and a
+        /// detached tree after it ends the session and before the re-invoke captures the
+        /// reconciliation bundle, which would otherwise carry the rows across the load and leave
+        /// the detached tree behind.
+        /// </summary>
+        [Fact]
+        public void RetryRepairsTheSessionBeforeTheReinvokeCapturesTheBundle()
+        {
+            string retry = PreparedMethodBody("RevertInterceptor.cs",
+                "internal static void RetryHandler(");
+            Assert.Equal(1, Occurrences(retry, "MergeDialog.RepairSessionBeforeRetry("));
+            int clear = IndexOrFail(retry, "scenario.ClearActiveReFlySessionMarker(");
+            int repair = IndexOrFail(retry, "MergeDialog.RepairSessionBeforeRetry(");
+            int invoke = IndexOrFail(retry, "RewindInvoker.StartInvoke(");
+            Assert.True(clear < repair && repair < invoke);
+
+            string helper = PreparedMethodBody(DiscardPath,
+                "internal static RetryRepairResult RepairSessionBeforeRetry(");
+            Assert.Equal(1, Occurrences(helper, "PruneStagedRowsNamingAttempt("));
+            int collect = IndexOrFail(helper, "CollectReFlyAttemptOwnedRecordingIds(");
+            int rows = IndexOrFail(helper, "PruneStagedRowsNamingAttempt(");
+            int restore = IndexOrFail(helper, "RestoreSanitizedPendingTreeIfDetached(");
+            Assert.True(collect < rows && rows < restore);
+            Assert.Contains("RestoreSanitizedPendingTreeIfDetached( RecordingTree.DeepClone(tree)", Collapse(helper));
+        }
+
         // ---- helpers ----
 
         private static IEnumerable<(string rel, string prepared)> ParsekSources()
