@@ -24,6 +24,14 @@ namespace Parsek
         private static int timeJumpLaunchAutoRecordSuppressUntilFrame = -1;
         internal static Action<string, double> RecalculateAfterTimeJumpOverrideForTesting;
 
+        /// <summary>
+        /// Unity frame on which a jump last set the game clock (int.MinValue before any jump).
+        /// SetUniversalTime only moves the clock: body rotation and Planetarium.Zup catch up on
+        /// the next Planetarium.FixedUpdate, so that frame mixes pre- and post-jump frames.
+        /// Read by the map render probe to skip its icon-off-orbit check there.
+        /// </summary>
+        internal static int LastClockSetFrame { get; private set; } = int.MinValue;
+
         internal static bool IsTimeJumpLaunchAutoRecordInProgress
             => isTimeJumpLaunchAutoRecordInProgress;
 
@@ -41,6 +49,8 @@ namespace Parsek
 
         private static void ArmTimeJumpLaunchAutoRecordSuppression(string jumpKind)
         {
+            // Both jump paths call this right after SetUniversalTime.
+            LastClockSetFrame = Time.frameCount;
             timeJumpLaunchAutoRecordSuppressUntilFrame =
                 Time.frameCount + TimeJumpLaunchAutoRecordSuppressFrames;
 
