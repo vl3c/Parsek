@@ -2433,10 +2433,13 @@ PostInit fires after its save), so the ordinary discard landed right.
 to persistent.sfs after the load and before the scene request
 (`WriteRewindPointGameAsPersistent`, `GamePersistence.SaveGame(game, "persistent", ...)`, stock's
 own non-flight quickload order), so the scene start reloads the rewind point. A failed or refused
-write (the scenario's autosave disabled) logs a Warn and dispatches as before. The Discard Re-fly
-OnLoad therefore reads the rewind point's own PARSEK node: memory still supplies everything the
-in-session handoff carries, and the node's categories (crew replacements, kerbal slots, milestone
-state, markers) are the rewind point's, consistent with the roster in the same file. End line:
+write (the scenario's autosave disabled) logs a Warn and dispatches as before. The write keeps
+the PARSEK node persistent.sfs already held (the last live save, read back and spliced over the
+rewind point game's stored node by `SpliceLiveParsekScenarioNode`), because `SaveGame(Game, ...)`
+copies stored scenario nodes verbatim: the rewind point's own node lacks every tree committed
+after it, and a crash before the next live save would cold-load it and reap those trees'
+sidecars. No live node to carry means no write (Warn, the old landing). So the Discard Re-fly
+OnLoad reads the same PARSEK node it read before the fix, with the rewind point's world. End line:
 `End reason=discardReFly ... dispatched=true persistentWritten=true`. Tests:
 `ReFlyRevertDialogTests.DiscardReFly_WritesTheRewindPointGameToPersistent_AfterTheLoad_BeforeTheScene`
 (both targets, load -> persistent -> scene order), `DiscardReFly_PersistentWriteFails_StillDispatches`,

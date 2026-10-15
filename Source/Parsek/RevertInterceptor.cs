@@ -794,6 +794,23 @@ namespace Parsek
                         "- the scene will reload the session's last persistent.sfs");
                     return false;
                 }
+                // GamePersistence.SaveGame(Game, ...) copies each scenario's stored node verbatim
+                // (no live OnSave), so the loaded game still carries the rewind point's PARSEK
+                // node, which lacks every tree committed after the rewind point. A crash before
+                // the next live save would cold-load that node and the orphan sweep would delete
+                // those trees' sidecars. Carry the last live-saved PARSEK node (the one already in
+                // persistent.sfs) instead: the same Parsek state this load read before the write.
+                ConfigNode liveParsekNode = ParsekScenario.TryLoadCarryForwardSourceParsekNode(out string persistentPath);
+                ConfigNode targetParsekNode = FindParsekScenarioProtoNode(game);
+                string spliceRefusal = SpliceLiveParsekScenarioNode(targetParsekNode, liveParsekNode);
+                if (spliceRefusal != null)
+                {
+                    ParsekLog.Warn(RewindSaveTag,
+                        $"DiscardReFly: kept the session's persistent.sfs ({spliceRefusal}, " +
+                        $"path='{persistentPath ?? "<none>"}') rp={rpId} sess={sessionId} " +
+                        "- the scene will reload the session's last persistent.sfs");
+                    return false;
+                }
                 string result = GamePersistence.SaveGame(
                     game, "persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);
                 if (string.IsNullOrEmpty(result))
@@ -815,6 +832,39 @@ namespace Parsek
                     $"{ex.GetType().Name}: {ex.Message} - the scene will reload the session's last persistent.sfs");
                 return false;
             }
+        }
+
+        /// <summary>The stored ParsekScenario node of <paramref name="game"/>, or null.</summary>
+        private static ConfigNode FindParsekScenarioProtoNode(Game game)
+        {
+            List<ProtoScenarioModule> protos = game?.scenarios;
+            if (protos == null)
+                return null;
+            for (int i = 0; i < protos.Count; i++)
+            {
+                ProtoScenarioModule proto = protos[i];
+                if (proto != null && string.Equals(proto.moduleName, nameof(ParsekScenario), StringComparison.Ordinal))
+                    return proto.GetData();
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Pure: replaces the contents of the rewind-point game's PARSEK node
+        /// (<paramref name="target"/>) with the last live-saved one (<paramref name="live"/>).
+        /// Returns null on success, else why it refused (and leaves the target untouched).
+        /// </summary>
+        internal static string SpliceLiveParsekScenarioNode(ConfigNode target, ConfigNode live)
+        {
+            if (live == null)
+                return "no live Parsek node in persistent.sfs";
+            if (target == null)
+                return "no Parsek node in the rewind point game";
+            if (!string.Equals(live.GetValue("name"), nameof(ParsekScenario), StringComparison.Ordinal))
+                return "persistent.sfs node is not ParsekScenario";
+            target.ClearData();
+            live.CopyTo(target);
+            return null;
         }
 
         /// <summary>The clock of the game the discard loaded into <see cref="HighLogic.CurrentGame"/>,
