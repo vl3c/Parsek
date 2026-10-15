@@ -158,7 +158,7 @@ HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS). Fix options: provision every profil
 (tier_runner), or have admit refuse an instance whose deployed DLL hash differs from
 stock-minimal's after a provision.
 
-## RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE: RF-1's D4 `hysteresis` token no longer prints, because the launch no longer happens inside the post-load settle [FILED 2026-10-12 from the operator tier. OPEN, harness, operator call]
+## RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE: RF-1's D4 `hysteresis` token no longer prints, because the launch no longer happens inside the post-load settle [FILED 2026-10-12 from the operator tier. RULED 2026-10-15: move the witness to a rover lane. OPEN, harness; not built]
 
 `RF-1-continuation-stays-open` `2026-10-12_2026` PARSEK-FAIL on its required
 `Environment transition: SurfaceStationary -> SurfaceMobile ... (debounce=3.0s)` alone (the D4
@@ -171,7 +171,14 @@ lit stack sat more than 3 s on the pad. `EnvironmentDetector.cs` is unchanged si
 2026-09-11. Not a Parsek defect: the claim's witness was a race. Needs a lane that genuinely
 moves on the surface for over 3 s (a rover, or a held launch), or the claim re-opened.
 
-## REFLY-UNBOUND-PROVISIONAL-TAGS-AWARDS-TO-ORIGIN: while a re-fly provisional has no recorder, a career award is tagged to the superseded origin and the merge tombstones it [FILED 2026-10-12 from the RF-3 tombstone reading. OPEN, product question]
+Owner ruling 2026-10-15 (option A of three; B held RF-1's lit launch on the pad and still leaned
+on pad vibration, C un-claimed D4 `hysteresis` and dropped coverage to 252 of 253): move the D4
+`hysteresis` claim and its `SurfaceStationary -> SurfaceMobile ... (debounce=3.0s)` token to a
+lane where a rover really drives on the surface for over 3 s (reuse a rover fixture's existing
+flight per the fast-lane checklist), and drop the token and the claim from RF-1 in the same
+change so the registry cell stays claimed.
+
+## REFLY-UNBOUND-PROVISIONAL-TAGS-AWARDS-TO-ORIGIN: while a re-fly provisional has no recorder, a career award is tagged to the superseded origin and the merge tombstones it [FILED 2026-10-12 from the RF-3 tombstone reading. RULED 2026-10-15: tag to the Re-Fly attempt. OPEN, product, ruled; not built]
 
 `ParsekFlight.GetActiveRecordingIdForTagging` (ParsekFlight.cs ~246) returns
 `activeTree.ActiveRecordingId` while the provisional is unbound
@@ -181,6 +188,15 @@ On 2026-10-01 (`logs/2026-10-01_1100_RF-3-refly-discard-then-commit`) this retir
 spuriously re-paid record bands (`Tombstoned 5 career actions (... Milestone=5 ...)`), which
 was harmless; for a genuine award it would cost the player earnings. Decide whether unbound
 re-fly awards should tag to the provisional instead.
+
+Owner ruling 2026-10-15 (option A of three; B kept today's tagging, C tagged to no recording and
+would keep a discarded attempt's earnings): an award earned while the provisional is unbound tags
+to the Re-Fly attempt's provisional, so it survives the merge and is dropped only with a discarded
+attempt, like every award the attempt earns once its recorder binds. Fix: make
+`GetActiveRecordingIdForTagging` answer the session's provisional id while the marker's
+provisional is unbound. Required test: the RF-3 shape, where the unbound stretch re-earns record
+bands the superseded origin already earned, must not pay them twice after the merge (that
+double-pay risk is inferred from the RF-3 log, not traced).
 
 ## W1-CAMERA-LIVE-HANDOFF-NO-LONGER-PRINTS: W1's `camera-live member #0->#1` hand-off token is missing on every run since its last green (2026-08-28) [FILED 2026-10-13 from the operator tier, reproduced three times. OPEN, render, untriaged]
 
@@ -199,8 +215,8 @@ bisect by flying W1 on older mains, or read the hand-off logger's initial-member
 
 ## TIER-2026-10-12-LANE-VARIANCE: four operator-tier reds that were flight variance, not defects [FILED 2026-10-13. OPEN for the two operator calls below, harness]
 
-- GS-10 2026-10-12_1834 PARSEK-FAIL on the TTL PAIR token (the spec's FLAKE WATCH POINT): of the last pair (expiryUT 125.9) pid 4066981309 hit the ground at ~UT 125.8 ('Debris TTL: vessel destroyed/despawned') and only 513253397 printed 'Debris TTL expired ... expiry=125.9 currentUT=126.0'; the middle pairs were all destroyed before expiry. Margin < 0.2 s. Operator call: keep the pair token, or relax it to at least one expiry.
-- RF-9 2026-10-12_2119 PARSEK-FAIL on `Forwarded 19 permanent state event(s)` (read 21): a dropped booster destroyed an R8winglet 1.3 s after separation (`Part event: Destroyed` + `Decoupled 'R8winglet'`), two correctly forwarded seeds more. Re-flown green 2026-10-13_0305 (19). Flight variance on an exact count. Operator call: keep the exact count or accept the collision case.
+- GS-10 2026-10-12_1834 PARSEK-FAIL on the TTL PAIR token (the spec's FLAKE WATCH POINT): of the last pair (expiryUT 125.9) pid 4066981309 hit the ground at ~UT 125.8 ('Debris TTL: vessel destroyed/despawned') and only 513253397 printed 'Debris TTL expired ... expiry=125.9 currentUT=126.0'; the middle pairs were all destroyed before expiry. Margin < 0.2 s. Operator call: keep the pair token, or relax it to at least one expiry. RULED 2026-10-15: keep the pair token (both pieces of the last pair must expire) and fix the margin instead. The six boosters drain together and drop at burnout (~65 s), and the close cut (`mlib.py` `impact_cut_at_last_booster_drop`) zeroes the throttle there, so the whole coast to impact is ~60-63 s against the 60 s TTL. Fix: hold the last pair attached while the core burns on for a set time (a new mission param), then cut the throttle and drop the pair on the same step, so pair and stack leave the burn with the same extra energy, fall together inside the physics bubble, and the coast grows (estimate ~20-30 s for a 10 s hold, inferred, not measured). Burning the core on after an at-burnout drop does not help: the boosters' own fall is unchanged and the stack climbs out of the bubble (GS-7's far profile). Needs `test_kx_rewind_watch` cells and a fresh 2-flight stability reading on the operator tier. Not yet built.
+- RF-9 2026-10-12_2119 PARSEK-FAIL on `Forwarded 19 permanent state event(s)` (read 21): a dropped booster destroyed an R8winglet 1.3 s after separation (`Part event: Destroyed` + `Decoupled 'R8winglet'`), two correctly forwarded seeds more. Re-flown green 2026-10-13_0305 (19). Flight variance on an exact count. Operator call: keep the exact count or accept the collision case. RULED 2026-10-15: neither a fixed count nor a widened number; the check must judge the forwarded events themselves. RF-9 passes when the 19 expected seeds are present and every extra seed is an acceptable one (here the 2026-10-12 collision: the `Destroyed` and `Decoupled` seeds of the R8winglet the dropped booster knocked off), and fails on any other extra or missing seed. Needs the spec (or a verifier) to read the forwarded seed list, not only the `Forwarded N` line. Not yet applied.
 - GUI-7 `2026-10-12_1927` INVALID on `UiAction ERROR pointer-not-applied want=133,94
   after=84,337`; the retry `_1929_a2` PASSED.
 - V7M `2026-10-12_2340` INVALID on `EnterWatchMode REJECTED no-watchable-ghost`; the retry
@@ -6393,7 +6409,7 @@ divergence layout, which needs a career whose timeline ends later than now, so a
 photographing them needs a rewound career first.
 
 ---
-## GUI-STATE-GALLERY-2026-09-21: ~312 of ~480 enumerated GUI states are unphotographed, most of them unreachable by flying, so the mirror shows a product that never fails [FILED 2026-09-21 off the state-coverage audit. DESIGN LANDED (`docs/dev/design-gui-state-gallery.md`), nothing implemented. OPEN; blocked on seven owner yes/no answers in that doc's section 16]
+## GUI-STATE-GALLERY-2026-09-21: ~312 of ~480 enumerated GUI states are unphotographed, most of them unreachable by flying, so the mirror shows a product that never fails [FILED 2026-09-21 off the state-coverage audit. DESIGN LANDED (`docs/dev/design-gui-state-gallery.md`), P1, P1b and the mirror half of P2 built. OPEN; all seven owner questions answered YES 2026-09-21 (design section 16), remainder is P2's `GalleryRun` verb and lanes, then P3-P7]
 
 **PART LANDED 2026-09-22 (the MIRROR half of phase P2, owner rulings 1, 5 and
 7).** Three things the loop needed, all in `harness/tools/gui_mirror.py`, all
