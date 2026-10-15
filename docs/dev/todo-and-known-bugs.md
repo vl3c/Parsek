@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## REFLY-FORK-SELF-SPAWN-AFTER-QUICKSAVE: during a Re-Fly, a save turns the session's own fork into an "ended" recording and Parsek spawns a real copy of it; the copy's breakup debris is then attributed to the Re-Fly recording [FILED 2026-10-13 from CI-3, reproduced twice. Defects 1-2 FIXED on branch `claude/project-thread-1twzdw`; item 3 (the unpack joint break) OPEN, Parsek, high]
+## REFLY-FORK-SELF-SPAWN-AFTER-QUICKSAVE: during a Re-Fly, a save turns the session's own fork into an "ended" recording and Parsek spawns a real copy of it; the copy's breakup debris is then attributed to the Re-Fly recording [FILED 2026-10-13 from CI-3, reproduced twice. Defects 1-2 FIXED on branch `claude/project-thread-1twzdw` (PR #2100); item 3 (the unpack joint break) OPEN, Parsek, high]
 
 `CI-3-chain-rederive-readback` reds PARSEK-FAIL on analyzer `INV4-PARTEVENT-PID` on two runs
 (`2026-10-12_1810`, `2026-10-13_0304`). The lane rewinds a slot (Re-Fly), `SaveGame quicksave`,
