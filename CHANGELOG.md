@@ -27,6 +27,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Staging that moves the controls to the dropped stage records both vessels correctly.** When
+  the part you control from leaves on the separating stage, the game switches you to that stage;
+  your launch recording now keeps following the vessel it started on, the stage gets its own
+  recording, and the two stay separate vessels for names and spawns. (VN8 todo)
 - **Recovery and rewind no longer depend on a vessel's name.** A vessel renamed after it was
   recorded is still marked Recovered with its funds; rewinds, spawns and the watch camera find it
   by its launch, and another launch with the same name is no longer mistaken for it. A recording

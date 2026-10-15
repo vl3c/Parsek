@@ -172,7 +172,26 @@ namespace Parsek
             if (currentUT - windowStartUT < coalesceWindow)
                 return null;
 
-            // Window expired -- emit the branch point.
+            return Emit();
+        }
+
+        /// <summary>
+        /// Emits the pending branch point now, before the coalescing window expires.
+        /// Used when the recording the split belongs to is about to stop being the
+        /// active recording (focus leaves its vessel), because a branch point emitted
+        /// after that has no parent to attach to. Returns null when nothing is pending.
+        /// </summary>
+        public BranchPoint EmitNow()
+        {
+            if (!HasPendingBreakup)
+                return null;
+
+            return Emit();
+        }
+
+        private BranchPoint Emit()
+        {
+            // Emit the branch point.
             // BreakupDuration = actual span (last split - first split),
             // not the idle window time after the last split.
             // Child recording IDs will be filled in by the caller (ParsekFlight)

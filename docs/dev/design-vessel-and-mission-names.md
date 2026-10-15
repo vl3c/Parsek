@@ -499,7 +499,7 @@ Left to unit tests, the accepted final remainder (`VesselNamesStockTests`, `Vess
 - A rewind stripping a renamed owner's re-keyed copy (the owner strip's guid set over link guids). It needs a rewind save holding a re-keyed copy of the owner (a resumed spawn or an undocked ship captured after its re-key), and a strip that takes the guid path rather than the pid strip a post-resume commit's adoption stamp re-arms (VN-12 measured exactly that re-arm).
 - The Tracking Station half of the in-place ghost rename and the TS atmospheric focus target. The TS hosts no Parsek window and `RenameVessel` refuses a ghost, so no rename can happen there while a ghost proto is in view; FLIGHT (VN-13) and the TS run the same `RenameGhostProtoInPlace`.
 - `Link added: kind=Resume` itself. Production reaches it only for a spawn that carries no Spawn link (a spawn made before the links shipped and resumed before any OnLoad tail backfilled it, and every tail backfills); for every other genuine spawn the request meets the Spawn link for the same guid pair (VN-12).
-The separate recorder defect VN-8 found (todo VN8-FOCUS-SWITCH-SPLIT-PARENT-LEG-RECORDS-NEW-VESSEL) stays open on its own entry.
+The separate recorder defect VN-8 found (todo VN8-FOCUS-SWITCH-SPLIT-PARENT-LEG-RECORDS-NEW-VESSEL) is fixed in the recorder (2026-10-15): the split's resume stays on the recorded vessel, the new vessel gets its own leg, and focus is handed over through the ordinary switch path, so the launch leg ends on the pod and its spawn no longer adds a Resume link joining the booster to the launch identity. That was the other production path to `Link added: kind=Resume` above.
 
 ---
 

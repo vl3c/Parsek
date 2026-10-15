@@ -8670,16 +8670,32 @@ namespace Parsek
         /// </summary>
         public void ResumeAfterFalseAlarm()
         {
+            ResumeAfterFalseAlarm(keepRecordedVessel: false);
+        }
+
+        /// <summary>
+        /// <paramref name="keepRecordedVessel"/> resumes on the vessel this recorder was
+        /// recording (<see cref="RecordingVesselId"/>) instead of the active vessel. A split
+        /// can move focus to the vessel that came off (stock switches focus when the control
+        /// part leaves on it) before the deferred split check runs; resuming on the active
+        /// vessel would then record the new vessel into this vessel's recording.
+        /// </summary>
+        public void ResumeAfterFalseAlarm(bool keepRecordedVessel)
+        {
             if (IsRecording)
             {
                 ParsekLog.Warn("Recorder", "ResumeAfterFalseAlarm called while already recording — ignoring");
                 return;
             }
 
-            Vessel v = FlightGlobals.ActiveVessel;
+            Vessel v = keepRecordedVessel
+                ? FindVesselByPid(RecordingVesselId)
+                : FlightGlobals.ActiveVessel;
             if (v == null)
             {
-                ParsekLog.Warn("Recorder", "ResumeAfterFalseAlarm: no active vessel — cannot resume");
+                ParsekLog.Warn("Recorder", keepRecordedVessel
+                    ? $"ResumeAfterFalseAlarm: recorded vessel pid={RecordingVesselId} not found - cannot resume"
+                    : "ResumeAfterFalseAlarm: no active vessel — cannot resume");
                 return;
             }
 
@@ -8758,7 +8774,8 @@ namespace Parsek
 
             RestoreTrackSectionAfterFalseAlarm(resumeUT, resumeOrbitSegment);
 
-            ParsekLog.Info("Recorder", $"Recording resumed after false alarm ({Recording.Count} points preserved)");
+            ParsekLog.Info("Recorder", $"Recording resumed after false alarm ({Recording.Count} points preserved" +
+                (keepRecordedVessel ? $", kept recorded vessel pid={RecordingVesselId})" : ")"));
         }
 
         /// <summary>
