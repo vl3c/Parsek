@@ -2019,8 +2019,8 @@ resumed from the save back to the save: when the active-tree restore's committed
 supersede row naming one of that tree's recordings on either side, a retirement retiring one, or a
 tombstone whose retiring recording is one or whose retired action is tagged to one follows the save
 (the save's copy kept, a memory-only one dropped, a save-only one put back), since a Re-Fly merged
-into that flight after the save is part of the future the quickload retires (its recording is
-QUICKLOAD-KEEPS-POST-SAVE-REFLY-FORKS-WHOSE-ROWS-FOLLOW-THE-SAVE). Exception (OQ-1): a row the
+into that flight after the save is part of the future the quickload retires (its recording goes at
+the resume too, QUICKLOAD-KEEPS-POST-SAVE-REFLY-FORKS-WHOSE-ROWS-FOLLOW-THE-SAVE). Exception (OQ-1): a row the
 loaded marker's resumed attempt wrote (writer side in the set the discard prune removes) keeps
 memory's copy; the attempt is identified by its session stamp (`MergeDialog.IsCreatedByReFlySession`,
 `CreatingSessionId`), not `ProvisionalForRpId`, which every provisional carries next to its session
@@ -2512,7 +2512,7 @@ the point.
 
 ---
 
-## QUICKLOAD-KEEPS-POST-SAVE-REFLY-FORKS-WHOSE-ROWS-FOLLOW-THE-SAVE: a quickload into a flight re-flown since the save keeps the re-flown recording while its rows follow the save [FILED 2026-10-07 from the in-session carry review, PR #2038; pre-existing on main, traced by code read, the second case reproduced by the reviewer's probe. OPEN, product]
+## ~~QUICKLOAD-KEEPS-POST-SAVE-REFLY-FORKS-WHOSE-ROWS-FOLLOW-THE-SAVE: a quickload into a flight re-flown since the save keeps the re-flown recording while its rows follow the save~~ [FILED 2026-10-07 from the in-session carry review, PR #2038; pre-existing on main, traced by code read, the second case reproduced by the reviewer's probe. REPRODUCED headless and FIXED 2026-10-15, branch `qlr-forks`]
 
 An F9 into a save of a flight that was committed, then re-flown and merged after the save, resumes
 the save's tree through the committed-copy restore (`ResumeFromQuicksave`):
@@ -2539,6 +2539,26 @@ with their sidecars and tagged events, so recordings and rows agree. Red test: t
 `InSessionStagedListsCarryTests` reviewer sequence (tree-wide stub) and the production-stamped S2
 theory (`ActiveRecOnly`) driven on through `FlightRecorder.PrepareQuickloadResumeStateIfNeeded`;
 neither fork may survive in the resumed tree.
+
+**Fixed 2026-10-15.** Both shapes held on main. The new cell
+`InSessionStagedListsCarryTests.Quickload_SaveBeforeReFlyMergeOfTheResumedFlight_ResumePrep_PrunesTheForkStub`
+(the reviewer sequence, production-stamped, tree-wide) and the S2 theory
+`Quickload_SaveDuringMergedSession_RealRestore_AttemptRowsKept_LaterSessionRowsFollowTheSave`
+(both rewind-point cases, now driven through the recorder's resume) were red: the fork stayed in
+the resumed tree. Where `TryRestoreActiveTreeNode` notes the committed-copy resume for step B, it
+now also notes the abandoned Re-Fly forks on the quicksave facts
+(`ParsekScenario.CollectAbandonedReFlyForkIds`): a member the quicksave does not hold, carrying a
+session stamp, outside the resumed attempt (the same set the row rule keeps, through the shared
+`ResolveResumedReFlyAttemptIds`) and not a split half of a quicksave member, plus what such forks
+shed through branch points whose parents all go. `TrimAndReconcileForQuickloadResume` puts them in
+the plan's pruned set (their tagged events and ledger rows retire) and removes them after the trim,
+under either scope. Sidecars stay, as for every recording the resume prunes: a later save may still
+name them, and the cold-load orphan pass quarantines what none does. Owner ruling D2 holds: a member
+the quicksave holds (an earlier session's fork included) and a restore that is not a resume
+(`LoadOutsideFlight_DetachWithoutResume_RowsStayFromMemory`) prune nothing
+(`CollectAbandonedReFlyForkIds_Pure`; wiring pinned in `LoadReconcileWiringGateTests`). Logs:
+`Quickload resume abandoned Re-Fly forks noted:` and `Quickload abandoned Re-Fly forks pruned:`.
+Not yet flown: no harness lane re-flies a flight after its quicksave and then F9s into it.
 
 ---
 

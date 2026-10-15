@@ -206,6 +206,9 @@ namespace Parsek
             internal bool TreeCommittedInQuicksave;
             internal readonly Dictionary<string, QuicksaveMemberFacts> Members =
                 new Dictionary<string, QuicksaveMemberFacts>(StringComparer.Ordinal);
+            // Not read from the save: the Re-Fly forks a committed-copy resume spliced in that the
+            // resume prunes (NoteAbandonedReFlyForks, decided where the row rule decides its rows).
+            internal readonly HashSet<string> AbandonedReFlyForkIds = new HashSet<string>(StringComparer.Ordinal);
 
             /// <summary>True when any member is in a committed tree node of the save.</summary>
             internal bool AnyMemberCommittedInQuicksave
@@ -386,6 +389,157 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Whether <paramref name="rec"/> carries a Re-Fly session stamp:
+        /// <c>RewindInvoker.BuildProvisionalRecording</c> stamps both, every copy site copies both,
+        /// and a merge clears neither.
+        /// </summary>
+        internal static bool IsReFlyStampedRecording(Recording rec)
+        {
+            return rec != null
+                && (!string.IsNullOrEmpty(rec.CreatingSessionId) || !string.IsNullOrEmpty(rec.ProvisionalForRpId));
+        }
+
+        /// <summary>
+        /// Pure: the Re-Fly forks a committed-copy resume (<see cref="CommittedCopyRestoreAction.ResumeFromQuicksave"/>)
+        /// brought into <paramref name="tree"/> that belong to the future the quickload retires.
+        /// The resumed-tree row rule hands the rows naming the tree back to the save, so a fork
+        /// merged after the save loses its supersede row and tombstones; left in the tree it would
+        /// play next to its origin. A fork is a member the quicksave does not hold
+        /// (<see cref="QuicksaveTreeFacts.Members"/>: spliced from the committed copy) that carries
+        /// a session stamp (<see cref="IsReFlyStampedRecording"/>), is not in
+        /// <paramref name="attemptIds"/> (the resumed attempt, whose rows the row rule keeps, owner
+        /// ruling OQ-1), and is not a split half of a quicksave member
+        /// (<see cref="ResolveQuicksaveBaselineId"/>: a TIP or optimizer half inherits its origin's
+        /// stamp and continues committed history). Then every recording born of a fork through a
+        /// branch point whose parents are all forks and that the quicksave does not hold either
+        /// (debris, a staged child), transitively. A member the quicksave holds, an earlier
+        /// session's fork included, is never in the set (owner ruling D2); neither is the tree's
+        /// active or root recording.
+        /// </summary>
+        internal static HashSet<string> CollectAbandonedReFlyForkIds(
+            RecordingTree tree, QuicksaveTreeFacts facts, HashSet<string> attemptIds)
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            if (tree?.Recordings == null || facts == null)
+                return ids;
+
+            Func<string, bool> eligible = id =>
+                !string.IsNullOrEmpty(id)
+                && !facts.Members.ContainsKey(id)
+                && (attemptIds == null || !attemptIds.Contains(id))
+                && !string.Equals(id, tree.ActiveRecordingId, StringComparison.Ordinal)
+                && !string.Equals(id, tree.RootRecordingId, StringComparison.Ordinal)
+                && tree.Recordings.TryGetValue(id, out Recording r) && r != null;
+
+            foreach (KeyValuePair<string, Recording> kvp in tree.Recordings)
+            {
+                if (eligible(kvp.Key)
+                    && IsReFlyStampedRecording(kvp.Value)
+                    && ResolveQuicksaveBaselineId(tree, kvp.Key, facts) == null)
+                {
+                    ids.Add(kvp.Key);
+                }
+            }
+
+            if (ids.Count == 0 || tree.BranchPoints == null)
+                return ids;
+
+            bool added = true;
+            while (added)
+            {
+                added = false;
+                for (int i = 0; i < tree.BranchPoints.Count; i++)
+                {
+                    BranchPoint bp = tree.BranchPoints[i];
+                    if (bp?.ParentRecordingIds == null || bp.ParentRecordingIds.Count == 0
+                        || bp.ChildRecordingIds == null
+                        || !bp.ParentRecordingIds.TrueForAll(ids.Contains))
+                    {
+                        continue;
+                    }
+                    for (int j = 0; j < bp.ChildRecordingIds.Count; j++)
+                    {
+                        string childId = bp.ChildRecordingIds[j];
+                        if (!ids.Contains(childId) && eligible(childId))
+                        {
+                            ids.Add(childId);
+                            added = true;
+                        }
+                    }
+                }
+            }
+            return ids;
+        }
+
+        /// <summary>
+        /// Called by <see cref="TryRestoreActiveTreeNode"/> where it notes a committed-copy resume
+        /// for the row rule: records on <paramref name="facts"/> the Re-Fly forks
+        /// (<see cref="CollectAbandonedReFlyForkIds"/>) the resume prunes, against the same loaded
+        /// marker and attempt set the row rule uses (<see cref="ResolveResumedReFlyAttemptIds(RecordingTree, string, ReFlySessionMarker, out string)"/>).
+        /// </summary>
+        private static void NoteAbandonedReFlyForks(RecordingTree tree, QuicksaveTreeFacts facts)
+        {
+            if (tree == null || facts == null)
+                return;
+            HashSet<string> attemptIds = ResolveResumedReFlyAttemptIds(
+                tree, tree.Id, Instance?.ActiveReFlySessionMarker, out string attemptToken);
+            HashSet<string> forkIds = CollectAbandonedReFlyForkIds(tree, facts, attemptIds);
+            facts.AbandonedReFlyForkIds.Clear();
+            facts.AbandonedReFlyForkIds.UnionWith(forkIds);
+
+            var sorted = new List<string>(forkIds);
+            sorted.Sort(StringComparer.Ordinal);
+            ParsekLog.Info("Scenario",
+                $"Quickload resume abandoned Re-Fly forks noted: tree={tree.Id} " +
+                $"forks={sorted.Count.ToString(CultureInfo.InvariantCulture)} attempt={attemptToken}" +
+                (sorted.Count > 0 && sorted.Count < 20 ? $" ids=[{string.Join(",", sorted.ToArray())}]" : "") +
+                " - the resume prunes them with their tagged events and ledger rows (their rows follow the save)");
+        }
+
+        /// <summary>
+        /// Removes <paramref name="forkIds"/> (the restore's <see cref="NoteAbandonedReFlyForks"/>
+        /// set) from <paramref name="tree"/>, and every branch point the removal emptied. Sidecar
+        /// files stay, as for every recording the resume trim prunes: a later save can still name
+        /// them, and the cold-load orphan pass quarantines what none does. Returns the count.
+        /// </summary>
+        private static int PruneAbandonedReFlyForks(RecordingTree tree, HashSet<string> forkIds)
+        {
+            if (tree?.Recordings == null || forkIds == null || forkIds.Count == 0)
+                return 0;
+
+            var touchedBranchPointIds = new HashSet<string>(StringComparer.Ordinal);
+            if (tree.BranchPoints != null)
+            {
+                for (int i = 0; i < tree.BranchPoints.Count; i++)
+                {
+                    BranchPoint bp = tree.BranchPoints[i];
+                    if (bp == null || string.IsNullOrEmpty(bp.Id))
+                        continue;
+                    if ((bp.ParentRecordingIds != null && bp.ParentRecordingIds.Exists(forkIds.Contains))
+                        || (bp.ChildRecordingIds != null && bp.ChildRecordingIds.Exists(forkIds.Contains)))
+                    {
+                        touchedBranchPointIds.Add(bp.Id);
+                    }
+                }
+            }
+
+            int removed = PruneFutureOnlyRecordings(tree, forkIds);
+            int removedBranchPoints = removed > 0 ? RemoveEmptyBranchPoints(tree, touchedBranchPointIds) : 0;
+            if (removed > 0)
+                tree.RebuildBackgroundMap();
+
+            var sorted = new List<string>(forkIds);
+            sorted.Sort(StringComparer.Ordinal);
+            ParsekLog.Info("Scenario",
+                $"Quickload abandoned Re-Fly forks pruned: tree='{tree.TreeName}' " +
+                $"pruned={removed.ToString(CultureInfo.InvariantCulture)}/{forkIds.Count.ToString(CultureInfo.InvariantCulture)} " +
+                $"prunedBranchPoints={removedBranchPoints.ToString(CultureInfo.InvariantCulture)}" +
+                (sorted.Count < 20 ? $" ids=[{string.Join(",", sorted.ToArray())}]" : "") +
+                " sidecars=kept");
+            return removed;
+        }
+
+        /// <summary>
         /// Pure: the plan for one resume. Two kinds of committed history are owned by nothing
         /// below: a recording still committed in memory (<paramref name="isStillCommitted"/>,
         /// production <see cref="IsStillCommittedForResumeReconcile"/>; recorded in
@@ -398,7 +552,9 @@ namespace Parsek
         /// otherwise read as abandoned; that save shape is not known to be writable today
         /// (<see cref="PlanActiveTreeSidecarSaves"/> skips such an active-tree node once the clone
         /// has recorded), so this half is defensive. The pruned set is the trim's own future-only collector,
-        /// so it is exactly what <see cref="TrimRecordingTreePastUT"/> removes.
+        /// so it is exactly what <see cref="TrimRecordingTreePastUT"/> removes, plus, under either
+        /// scope, the abandoned Re-Fly forks <paramref name="abandonedForkIds"/> the resume prunes
+        /// (<see cref="CollectAbandonedReFlyForkIds"/>).
         /// </summary>
         internal static AbandonedFuturePlan BuildAbandonedFuturePlan(
             RecordingTree tree,
@@ -406,7 +562,8 @@ namespace Parsek
             double cutoffUT,
             QuickloadTrimScope scope,
             Func<string, bool> isStillCommitted,
-            QuicksaveTreeFacts quicksaveFacts)
+            QuicksaveTreeFacts quicksaveFacts,
+            HashSet<string> abandonedForkIds = null)
         {
             var plan = new AbandonedFuturePlan { CutoffUT = cutoffUT, Scope = scope };
             if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0
@@ -426,6 +583,14 @@ namespace Parsek
             {
                 candidates.AddRange(tree.Recordings.Keys);
                 futureOnlyIds = CollectFutureOnlyRecordingIds(tree, cutoffUT);
+            }
+            if (abandonedForkIds != null)
+            {
+                foreach (string forkId in abandonedForkIds)
+                {
+                    if (!candidates.Contains(forkId))
+                        candidates.Add(forkId);
+                }
             }
             candidates.Sort(StringComparer.Ordinal);
 
@@ -453,8 +618,11 @@ namespace Parsek
 
                 plan.TrimmedIds.Add(id);
                 plan.PreTrimEndUT[id] = rec.EndUT;
-                if (futureOnlyIds != null && futureOnlyIds.Contains(id))
+                if ((futureOnlyIds != null && futureOnlyIds.Contains(id))
+                    || (abandonedForkIds != null && abandonedForkIds.Contains(id)))
+                {
                     plan.PrunedIds.Add(id);
+                }
             }
 
             return plan;
@@ -563,16 +731,21 @@ namespace Parsek
             bool reconcileEvents = ShouldReconcileAtResume(loadKind, LoadStateCategory.AbandonedFutureEvents);
             bool reconcileLedgerRows = ShouldReconcileAtResume(loadKind, LoadStateCategory.AbandonedFutureLedgerRows);
             bool anyCategory = reconcileEndStates || reconcileEvents || reconcileLedgerRows;
+            HashSet<string> abandonedForkIds = PresentAbandonedReFlyForkIds(tree, quicksaveFacts);
 
             AbandonedFuturePlan plan = anyCategory
                 ? BuildAbandonedFuturePlan(
                     tree, activeRec?.RecordingId, resumeUT, scope, IsStillCommittedForResumeReconcile,
-                    quicksaveFacts)
+                    quicksaveFacts, abandonedForkIds)
                 : null;
 
             bool treeTrimmed = scope == QuickloadTrimScope.ActiveRecOnly
                 ? TrimRecordingPastUT(activeRec, resumeUT)
                 : TrimRecordingTreePastUT(tree, resumeUT);
+            // The forks go under either scope and whatever the policy: their rows already followed
+            // the save, and the trim alone keeps a stub (tree-wide) or the whole fork (ActiveRecOnly).
+            if (PruneAbandonedReFlyForks(tree, abandonedForkIds) > 0)
+                treeTrimmed = true;
 
             string treeName = tree?.TreeName ?? "<null>";
             string kindText = loadKind.HasValue ? loadKind.Value.ToString() : "none";
@@ -649,6 +822,20 @@ namespace Parsek
                 $" quicksaveFacts={(quicksaveFacts != null ? "present" : "none")}" +
                 $" mergeStatesReset={mergeStatesReset.ToString(CultureInfo.InvariantCulture)}");
             return treeTrimmed;
+        }
+
+        /// <summary>The restore's abandoned Re-Fly forks still in <paramref name="tree"/> (empty when none).</summary>
+        private static HashSet<string> PresentAbandonedReFlyForkIds(RecordingTree tree, QuicksaveTreeFacts facts)
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            if (tree?.Recordings == null || facts == null)
+                return ids;
+            foreach (string id in facts.AbandonedReFlyForkIds)
+            {
+                if (tree.Recordings.ContainsKey(id))
+                    ids.Add(id);
+            }
+            return ids;
         }
 
         private static string FormatQuicksaveHistory(AbandonedFuturePlan plan)
@@ -1000,7 +1187,11 @@ namespace Parsek
             return removed;
         }
 
-        private static int RemoveEmptyBranchPoints(RecordingTree tree)
+        /// <summary>
+        /// Removes every branch point with no parent or no child (only those in
+        /// <paramref name="onlyIds"/> when given) and clears the links to them.
+        /// </summary>
+        private static int RemoveEmptyBranchPoints(RecordingTree tree, HashSet<string> onlyIds = null)
         {
             if (tree == null || tree.BranchPoints == null || tree.BranchPoints.Count == 0)
                 return 0;
@@ -1010,6 +1201,8 @@ namespace Parsek
             for (int i = tree.BranchPoints.Count - 1; i >= 0; i--)
             {
                 BranchPoint bp = tree.BranchPoints[i];
+                if (onlyIds != null && (bp == null || !onlyIds.Contains(bp.Id)))
+                    continue;
                 int parentCount = bp.ParentRecordingIds != null ? bp.ParentRecordingIds.Count : 0;
                 int childCount = bp.ChildRecordingIds != null ? bp.ChildRecordingIds.Count : 0;
                 if (parentCount > 0 && childCount > 0)
