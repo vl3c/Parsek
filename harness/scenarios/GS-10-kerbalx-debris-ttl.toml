@@ -76,8 +76,25 @@ id = "GS-10-kerbalx-debris-ttl"
 #   logs, `expiry=\2` -> `expiry=9\2` FAIL on exactly that token). The claim is
 #   three flights of three (1941 / 1947 / 1959), each with three timer closes.
 # =====================================================================================
+# =====================================================================================
+# 3. THE LAST-PAIR HOLD (owner ruling 2026-10-15). `2026-10-12_1834` PARSEK-FAIL on the
+#    pair token: the last pair (expiryUT 125.9) lost one booster to the ground at ~UT
+#    125.8, so only one `Debris TTL expired` printed. The six boosters drop at burnout
+#    (~61-66 s) and the close cut zeroed the throttle there, so the whole coast to
+#    impact was ~60-63 s against the 60 s TTL: a sub-second margin. Ruling: keep the
+#    strict pair token and fix the margin. `impactLastPairHoldSeconds = 10` keeps the
+#    LAST pair attached while the core burns on for 10 s, then BOOSTER-CUT zeroes the
+#    throttle and drops it; pair and stack leave the burn with the same extra energy
+#    and fall together inside the physics bubble. The first two pairs still drop at
+#    burnout and are left behind (they may close by bubble exit or impact; no token
+#    needs them). `stackCutAtLastBoosterDrop` also requires the full hold. The coast
+#    gain (estimated ~20-30 s) is INFERRED; the status block below predates the hold,
+#    and the hold's own 2-flight stability reading on the operator tier is what closes
+#    the todo entry. Read a red pair token on this profile against the new drop UT
+#    first (`Debris expiry set` for the last pair vs the pair's destroyed line).
+# =====================================================================================
 tier = "operator"
-description = "Debris TTL on a flight: GS-7's Kerbal X crash lane with round 1's close cut (throttle held at zero from the last booster drop), so the dropped boosters outlive their 60 s debris TTL beside the falling stack and the background recorder ends them by the timer; committed through the Space Center hop, Rewound-to-Launch and watched from the probe-cored GS1 Auto-Chute Booster."
+description = "Debris TTL on a flight: GS-7's Kerbal X crash lane with round 1's close cut (throttle held at zero from the last booster drop, the last pair held on through a 10 s core burn first), so the dropped boosters outlive their 60 s debris TTL beside the falling stack and the background recorder ends them by the timer; committed through the Space Center hop, Rewound-to-Launch and watched from the probe-cored GS1 Auto-Chute Booster."
 instanceProfile = "stock-minimal"
 tags = ["GS10", "rewind-to-launch", "watch-mode", "ghost-render", "debris-ttl"]
 
@@ -110,6 +127,10 @@ watcherCraftName = "GS1 Auto-Chute Booster"
 impactProfile    = true
 # THE LANE: diverge at the last booster drop (see header fact 3).
 impactCutAtLastBoosterDrop = true
+# THE MARGIN (header section 3, owner ruling 2026-10-15): the last pair rides the
+# core burn for 10 s before the cut drops it, so the pair and the stack fall
+# together with the same extra energy and the pair outlives its TTL by a margin.
+impactLastPairHoldSeconds = 10.0
 flightMaxSeconds  = 600.0
 impactCoastFrames = 900
 impactSettleFrames = 16

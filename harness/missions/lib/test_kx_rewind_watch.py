@@ -1229,7 +1229,7 @@ class MapClosedBeforeTheWatchTests(unittest.TestCase):
     def test_map_exit_sits_between_the_open_and_the_watch(self):
         """The phase order IS the rule. MUTATION: move MAP-EXIT after WATCH and the
         map closes only once the watch camera has already driven under it."""
-        self.assertEqual(38, len(mlib.KXRW_PHASES))
+        self.assertEqual(39, len(mlib.KXRW_PHASES))
         self.assertEqual(len(set(mlib.KXRW_PHASES)), len(mlib.KXRW_PHASES))
         i = mlib.KXRW_PHASES.index
         self.assertEqual(i(mlib.KXRW_MAP_VIEW) + 1, i(mlib.KXRW_MAP_EXIT))
@@ -1712,10 +1712,11 @@ class HappyPathTests(unittest.TestCase):
             | set(mlib.KXRW_IMPACT_PHASES) \
             | {mlib.KXRW_IMPACT_AUTORECORD_OFF, mlib.KXRW_IMPACT_COAST} \
             | {mlib.KXRW_PROMOTE_SWITCH, mlib.KXRW_PROMOTE_WAIT,
-               mlib.KXRW_PROMOTE_DISARM}             | set(mlib.KXRW_LOOP_PHASES)
+               mlib.KXRW_PROMOTE_DISARM}             | set(mlib.KXRW_LOOP_PHASES) \
+            | {mlib.KXRW_LAST_PAIR_HOLD}
         self.assertEqual(set(mlib.KXRW_PHASES) - opt_in, set(st.phases_reached))
         self.assertEqual(set(), opt_in & set(st.phases_reached))
-        self.assertEqual(38, len(mlib.KXRW_PHASES))
+        self.assertEqual(39, len(mlib.KXRW_PHASES))
 
         rows = mlib.evaluate_kxrw_assertions([], mlib.kxrw_params_from_dict(pdict),
                                              st)
@@ -2715,7 +2716,7 @@ class ImpactProfileTests(unittest.TestCase):
         KXRW_POST_REWIND_PHASES is still the contiguous TAIL of KXRW_PHASES - the
         property the carve-out's own cell asserts. MUTATION: append them after
         DONE (or interleave them past REWIND) and that slice stops matching."""
-        self.assertEqual(38, len(mlib.KXRW_PHASES))
+        self.assertEqual(39, len(mlib.KXRW_PHASES))
         self.assertEqual(len(set(mlib.KXRW_PHASES)), len(mlib.KXRW_PHASES))
         i = mlib.KXRW_PHASES.index
         self.assertEqual(
@@ -3138,7 +3139,7 @@ class CoastExitProfileTests(unittest.TestCase):
         is still the contiguous TAIL of KXRW_PHASES - the property the carve-out's
         own cell asserts. MUTATION: append it after DONE and that slice stops
         matching."""
-        self.assertEqual(38, len(mlib.KXRW_PHASES))
+        self.assertEqual(39, len(mlib.KXRW_PHASES))
         i = mlib.KXRW_PHASES.index
         self.assertEqual(i(mlib.KXRW_COAST) + 1, i(mlib.KXRW_COAST_EXIT))
         self.assertEqual(i(mlib.KXRW_COAST_EXIT) + 1, i(mlib.KXRW_PART_SWEEP))
@@ -3801,6 +3802,107 @@ class CloseCutAndPromotionTests(unittest.TestCase):
         self.assertTrue(st.done)
         self.assertEqual([], acts)
         self.assertIn("requires impactProfile", st.flake_reason)
+
+    # ---- the last-pair hold (GS-10) -------------------------------------------
+
+    HOLD = dict(CLOSE, boosterStageCount=2, impactLastPairHoldSeconds=10.0)
+
+    def _to_hold(self, **over):
+        """Fresh two-pair machine -> the frame the FIRST pair drops, which is
+        where the hold starts (every pair but the last is away)."""
+        pd = dict(self.HOLD)
+        pd.update(over)
+        st = rolled_out(machine(**pd))
+        st, _ = mlib.kxrw_decide(st, snap(ut=0.0, altitude=0.0, throttle=0.0,
+                                          available_thrust=0.0))
+        st, _ = fly(st, ut=1.0, altitude=100.0)
+        st, _ = fly(st, ut=40.0, altitude=9000.0, available_thrust=FLAMED)
+        for ut, alt in ((40.5, 9100.0), (41.0, 9200.0)):
+            st, _ = fly(st, ut=ut, altitude=alt, throttle=0.0,
+                        available_thrust=FLAMED)
+        self.assertEqual(mlib.KXRW_BOOSTER_STAGE, st.phase)
+        return fly(st, ut=41.5, altitude=9300.0, throttle=0.0,
+                   available_thrust=FLAMED)
+
+    def test_the_hold_throttles_up_with_the_last_pair_attached(self):
+        """MUTATION: drop the last pair here (no hold) and the pair's coast is the
+        ~60 s one that missed its TTL by 0.1 s on 2026-10-12_1834."""
+        st, acts = self._to_hold()
+        self.assertEqual(mlib.KXRW_LAST_PAIR_HOLD, st.phase)
+        self.assertEqual(1, st.booster_drops_done)
+        self.assertEqual([mlib.ACTION_ACTIVATE_STAGE, mlib.ACTION_SET_THROTTLE],
+                         kinds(acts))
+        self.assertEqual(41.5, st.last_pair_hold_start_ut)
+        self.assertFalse(st.impact_cut_commanded)
+
+    def test_the_hold_cuts_after_its_span_then_drops_the_last_pair(self):
+        st, _ = self._to_hold()
+        st, acts = fly(st, ut=51.0, altitude=11000.0)
+        self.assertEqual(mlib.KXRW_LAST_PAIR_HOLD, st.phase)
+        self.assertNotIn(mlib.ACTION_CUT_THROTTLE, kinds(acts))
+        st, acts = fly(st, ut=51.5, altitude=11100.0)
+        self.assertEqual(mlib.KXRW_BOOSTER_CUT, st.phase)
+        self.assertEqual([mlib.ACTION_CUT_THROTTLE], kinds(acts))
+        self.assertEqual(51.5, st.last_pair_hold_end_ut)
+        # The drop still waits on an OBSERVED zero throttle.
+        st, acts = fly(st, ut=52.0, altitude=11150.0, throttle=0.0)
+        st, acts = fly(st, ut=52.5, altitude=11200.0, throttle=0.0)
+        self.assertEqual(mlib.KXRW_BOOSTER_STAGE, st.phase)
+        st, acts = fly(st, ut=53.0, altitude=11250.0, throttle=0.0)
+        self.assertEqual(mlib.KXRW_TREE_STATE, st.phase)
+        self.assertEqual(2, st.booster_drops_done)
+        self.assertEqual([mlib.ACTION_ACTIVATE_STAGE, mlib.ACTION_AP_DISENGAGE,
+                          mlib.ACTION_PARSEK_SEAM_COMMAND], kinds(acts))
+        self.assertTrue(st.impact_cut_commanded)
+        self.assertTrue(st.impact_cut_throttle_observed)
+        pp = mlib.kxrw_params_from_dict(params(**self.HOLD))
+        row = mlib.evaluate_kxrw_assertions([], pp, st)[0]
+        self.assertEqual("stackCutAtLastBoosterDrop", row.name)
+        self.assertTrue(row.met)
+        self.assertEqual(10.0, row.detail["lastPairHeldSeconds"])
+
+    def test_a_one_pair_craft_holds_from_ascent(self):
+        """With one pair the last drop is the first, so the burnout arm in ASCENT
+        enters the hold directly with the throttle still up."""
+        st = rolled_out(machine(**dict(self.HOLD, boosterStageCount=1)))
+        st, _ = mlib.kxrw_decide(st, snap(ut=0.0, altitude=0.0, throttle=0.0,
+                                          available_thrust=0.0))
+        st, _ = fly(st, ut=1.0, altitude=100.0)
+        st, acts = fly(st, ut=40.0, altitude=9000.0, available_thrust=FLAMED)
+        self.assertEqual(mlib.KXRW_LAST_PAIR_HOLD, st.phase)
+        self.assertNotIn(mlib.ACTION_CUT_THROTTLE, kinds(acts))
+        self.assertEqual(0, st.booster_drops_done)
+        st, acts = fly(st, ut=50.0, altitude=10000.0, available_thrust=FLAMED)
+        self.assertEqual(mlib.KXRW_BOOSTER_CUT, st.phase)
+        self.assertEqual([mlib.ACTION_CUT_THROTTLE], kinds(acts))
+
+    def test_an_unfinished_hold_fails_the_cut_row(self):
+        st, _ = self._to_hold()
+        st = dataclasses.replace(st, impact_cut_commanded=True,
+                                 impact_cut_throttle_observed=True,
+                                 last_pair_hold_end_ut=45.0)
+        pp = mlib.kxrw_params_from_dict(params(**self.HOLD))
+        self.assertFalse(mlib.evaluate_kxrw_assertions([], pp, st)[0].met)
+        # The same state with no hold declared is the old close cut, and passes.
+        pc = mlib.kxrw_params_from_dict(params(**dict(
+            self.HOLD, impactLastPairHoldSeconds=0.0)))
+        self.assertTrue(mlib.evaluate_kxrw_assertions([], pc, st)[0].met)
+
+    def test_the_hold_without_the_close_cut_is_refused(self):
+        conflict = mlib.kxrw_close_cut_conflict
+        pf = mlib.kxrw_params_from_dict
+        self.assertEqual("", conflict(pf(params(**self.HOLD))))
+        self.assertIn("requires impactCutAtLastBoosterDrop", conflict(pf(params(
+            impactProfile=True, impactLastPairHoldSeconds=10.0))))
+        self.assertIn(">= 0", conflict(pf(params(
+            **dict(self.HOLD, impactLastPairHoldSeconds=-1.0)))))
+        self.assertEqual(0.0, mlib.KxrwParams().impact_last_pair_hold_seconds)
+
+    def test_the_schema_declares_the_hold(self):
+        with open(SCHEMA_PATH, "rb") as fh:
+            schema = tomllib.load(fh)
+        decl = schema["params"]["impactLastPairHoldSeconds"]
+        self.assertEqual(("float", False), (decl["type"], decl["required"]))
 
     # ---- the promotion switch ------------------------------------------------
 
