@@ -296,6 +296,69 @@ namespace Parsek
             return restored;
         }
 
+        /// <summary>Counts of <see cref="RepairSessionBeforeRetry"/>.</summary>
+        internal struct RetryRepairResult
+        {
+            internal int AttemptIds;
+            internal StagedRowsPruneResult StagedRows;
+            internal bool RestoredCommittedTree;
+        }
+
+        /// <summary>
+        /// Retry's share of the discard repairs, run by <see cref="RevertInterceptor.RetryHandler"/>
+        /// after it ends the session and before the re-invoke captures the reconciliation bundle.
+        /// A Retry cancels the attempt as a discard does, so the rows a resumed attempt's first
+        /// merge wrote (owner ruling OQ-1) go, selected by the session stamp
+        /// (<see cref="PruneStagedRowsNamingAttempt"/>; todo
+        /// RETRY-OF-A-RESUMED-MERGED-REFLY-LEAVES-A-ONE-SIDED-ROW). And an F9 during the session
+        /// detached the committed copy of its tree (<c>ParsekScenario.TryRestoreActiveTreeNode</c>),
+        /// while the bundle carries committed trees only and the rewind point's quicksave holds the
+        /// tree as it stood at the split, so with no committed tree under the session's tree id the
+        /// history after the split would leave the flight. Then a sanitized COPY of the session's
+        /// tree goes back committed: the ordinary session's shape (the committed original beside
+        /// the live tree), so the scene exit still stashes the live tree and the Re-Fly start's
+        /// restore still pops it, as on every Retry, and a refused re-invoke leaves that shape too.
+        /// </summary>
+        internal static RetryRepairResult RepairSessionBeforeRetry(
+            ParsekScenario scenario, ReFlySessionMarker marker, string callSite)
+        {
+            var result = new RetryRepairResult();
+            if (marker == null)
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    $"RepairSessionBeforeRetry callSite={callSite ?? "<none>"}: null marker - nothing to repair");
+                return result;
+            }
+
+            RecordingTree tree = RewindInvoker.FindTreeForReFlyFork(marker.TreeId);
+            HashSet<string> attemptIds = CollectReFlyAttemptOwnedRecordingIds(tree, marker);
+            result.AttemptIds = attemptIds.Count;
+            result.StagedRows = PruneStagedRowsNamingAttempt(scenario, attemptIds, callSite);
+
+            string treeState;
+            if (tree == null)
+            {
+                treeState = "no-tree";
+            }
+            else if (CommittedTreeExists(tree.Id))
+            {
+                treeState = "still-committed";
+            }
+            else
+            {
+                result.RestoredCommittedTree = RestoreSanitizedPendingTreeIfDetached(
+                    RecordingTree.DeepClone(tree), marker, attemptIds);
+                treeState = result.RestoredCommittedTree ? "detached-restored-copy" : "detached-not-restored";
+            }
+
+            ParsekLog.Info("MergeDialog",
+                $"RepairSessionBeforeRetry callSite={callSite ?? "<none>"} sess={marker.SessionId ?? "<none>"} " +
+                $"tree={marker.TreeId ?? "<none>"} treeState={treeState} attemptIds={result.AttemptIds} " +
+                $"stagedRowsPruned={result.StagedRows.Total} " +
+                $"restoredCommittedTree={(result.RestoredCommittedTree ? "true" : "false")}");
+            return result;
+        }
+
         /// <summary>Counts of <see cref="PruneStagedRowsNamingAttempt"/>.</summary>
         internal struct StagedRowsPruneResult
         {

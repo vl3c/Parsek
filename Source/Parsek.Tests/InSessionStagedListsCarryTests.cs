@@ -1418,6 +1418,195 @@ namespace Parsek.Tests
                 && l.Contains("supersedes=1 tombstones=1 retirements=1 attemptIds=1"));
         }
 
+        // =====================================================================
+        // RETRY-OF-A-RESUMED-MERGED-REFLY-LEAVES-A-ONE-SIDED-ROW: Retry of a resumed session
+        // =====================================================================
+
+        private const string LateId = "rec_late";
+        private const string RetriedForkId = "rec_a_second";
+
+        /// <summary>
+        /// The Retry of a resumed session, then its reload, headlessly: <c>RetryHandler</c> with
+        /// the invoke seam standing in for <c>RewindInvoker.StartInvoke</c>'s bundle capture; the
+        /// Re-Fly start's OnLoad of the rewind point's quicksave (tree T as it stood at the split,
+        /// A just separated) through the real active-tree restore, which pops the live tree the
+        /// scene exit stashed (already pending in the fixture); <c>ConsumePostLoad</c>'s bundle
+        /// restore; the marker write of the retried session S2 (its provisional A'' attached to the
+        /// restored tree); and the sweep. Returns the scenario the load installed.
+        /// </summary>
+        private ParsekScenario RetryThenReFlyStartLoad(ParsekScenario memory, ReFlySessionMarker marker)
+        {
+            ReconciliationBundle? bundle = null;
+            RevertInterceptor.RewindInvokeStartForTesting = (rp, slot) =>
+            {
+                Assert.Equal("rp_t", rp.RewindPointId);
+                bundle = ReconciliationBundle.Capture();
+            };
+
+            RevertInterceptor.RetryHandler(marker, RevertTarget.Launch);
+            Assert.True(bundle.HasValue, "Retry re-invokes the Re-Fly");
+
+            ConfigNode rpSave = SaveNode(s => s.RewindPoints.Add(Rp("rp_t")));
+            var atSplit = Flown(OriginId, 222u, 2, MergeState.Immutable, 50.0, 51.0);
+            WriteSidecars(atSplit, 2);
+            var rpTree = BuildTree(TreeId, new[] { "rp_t" }, atSplit);
+            rpTree.ActiveRecordingId = OriginId;
+            rpTree.RebuildBackgroundMap();
+            var treeNode = rpSave.AddNode("RECORDING_TREE");
+            rpTree.Save(treeNode);
+            treeNode.AddValue("isActive", "True");
+
+            var loaded = Load(memory, rpSave, EarlyLoadKind.ReFlyStart,
+                treeRestore: () => Assert.True(
+                    ParsekScenario.TryRestoreActiveTreeNode(rpSave, EarlyLoadKind.ReFlyStart, true)));
+            ReconciliationBundle.Restore(bundle.Value);
+
+            RecordingTree restored = RecordingStore.PendingTree;
+            Assert.NotNull(restored);
+            Assert.Equal(TreeId, restored.Id);
+            var retried = Provisional(Rec(RetriedForkId, 52.0, MergeState.NotCommitted), SessionS2, "rp_t", OriginId);
+            RecordingStore.AddProvisional(retried);
+            Assert.True(RewindInvoker.EnsureForkAttachedToTree(restored, retried, "test-marker-write"));
+            loaded.ActiveReFlySessionMarker = Marker(SessionS2, RetriedForkId, OriginId, "rp_t");
+            LoadTimeSweep.Run();
+            Assert.Equal(SessionS2, loaded.ActiveReFlySessionMarker?.SessionId);
+            EffectiveState.ResetCachesForTesting();
+            return loaded;
+        }
+
+        /// <summary>
+        /// The resumed session S is retried and the retried session S2 discarded. S's attempt is
+        /// gone (Retry cancels it), so the rows its first merge wrote must go with it: A comes back
+        /// into the timeline and its crew death counts again. Before the fix the supersede row
+        /// A->A' and the tombstone survived the Retry with A' gone, hiding A and keeping the death
+        /// retired.
+        /// </summary>
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void RetryOfResumedMergedSession_ThenDiscard_OriginVisibleAndItsDeathCounts(bool mergeDialog)
+        {
+            UseTempSaveRoot();
+            var resumed = BuildResumedMergedSession();
+
+            var loaded = RetryThenReFlyStartLoad(resumed.Scenario, resumed.Marker);
+
+            Assert.Equal(new[] { "rel_x" }, loaded.RecordingSupersedes.Select(r => r.RelationId));
+            Assert.Equal(new[] { "tomb_x" }, loaded.LedgerTombstones.Select(t => t.TombstoneId));
+            Assert.Empty(loaded.RecordingRewindRetirements);
+
+            if (mergeDialog)
+            {
+                MergeDialog.MergeDiscard(RecordingStore.PendingTree);
+            }
+            else
+            {
+                WireDiscardSeams();
+                RevertInterceptor.DiscardReFlyHandler(loaded.ActiveReFlySessionMarker, RevertTarget.Launch, EditorFacility.VAB);
+            }
+            EffectiveState.ResetCachesForTesting();
+
+            Assert.Null(loaded.ActiveReFlySessionMarker);
+            var committed = Assert.Single(RecordingStore.CommittedTrees, t => t.Id == TreeId);
+            Assert.True(committed.Recordings.ContainsKey(OriginId));
+            Assert.False(committed.Recordings.ContainsKey(ForkId));
+            Assert.False(committed.Recordings.ContainsKey(RetriedForkId));
+            Assert.True(ErsHas(OriginId), "the origin is back in the timeline");
+            Assert.True(ElsHas(DeathActionId), "the origin's crew death counts again");
+            Assert.False(ElsHas("act_x_penalty"), "another tree's tombstone stays");
+            Assert.Contains(logLines, l => l.Contains("[INFO][MergeDialog]")
+                && l.Contains("PruneStagedRowsNamingAttempt callSite=RetryHandler")
+                && l.Contains("supersedes=1 tombstones=1 retirements=1"));
+        }
+
+        /// <summary>
+        /// An F9 during a Re-Fly detaches the committed copy of the session's tree, so the live tree
+        /// is the only instance of the flight's history. Retry reloads the rewind point's quicksave,
+        /// whose copy of the tree stops at the split; without a committed copy to splice from and
+        /// to carry across the load in the reconciliation bundle, everything recorded after the
+        /// split (here the late member) left the flight. The Retry now puts the tree back committed,
+        /// sanitized of S's attempt, before the bundle capture, as the ordinary session has it.
+        /// </summary>
+        [Fact]
+        public void RetryOfResumedSession_TreeHistoryAfterTheSplit_SurvivesTheReload()
+        {
+            UseTempSaveRoot();
+            var resumed = BuildResumedMergedSession();
+            resumed.Tree.AddOrReplaceRecording(Rec(LateId, 70.0, MergeState.Immutable));
+
+            RetryThenReFlyStartLoad(resumed.Scenario, resumed.Marker);
+
+            var committed = Assert.Single(RecordingStore.CommittedTrees, t => t.Id == TreeId);
+            Assert.NotSame(resumed.Tree, committed);
+            Assert.True(committed.Recordings.ContainsKey(OriginId));
+            Assert.True(committed.Recordings.ContainsKey(LateId), "the history after the split stays committed");
+            Assert.False(committed.Recordings.ContainsKey(ForkId), "S's attempt is not committed history");
+            Assert.True(ErsHas(LateId));
+            Assert.True(RecordingStore.PendingTree.Recordings.ContainsKey(LateId),
+                "the retried flight's tree is spliced from the committed copy");
+            Assert.False(RecordingStore.PendingTree.Recordings.ContainsKey(ForkId));
+            Assert.Contains(logLines, l => l.Contains("[INFO][MergeDialog]")
+                && l.Contains("RestoreSanitizedPendingTreeIfDetached: restored committed tree")
+                && l.Contains("tree=" + TreeId));
+        }
+
+        /// <summary>
+        /// Owner ruling D2 on the Retry path: an attempt on the same rewind point that merged before
+        /// the resumed session started (S0) is committed history, identified apart from S's by its
+        /// session stamp, so its fork, row and tombstone survive the Retry.
+        /// </summary>
+        [Fact]
+        public void RetryOfResumedSession_EarlierSameRpAttemptMergedBeforeTheSave_Survives()
+        {
+            UseTempSaveRoot();
+            var resumed = BuildResumedMergedSession(withEarlierSameRpAttempt: true);
+
+            var loaded = RetryThenReFlyStartLoad(resumed.Scenario, resumed.Marker);
+
+            Assert.Equal(new[] { "rel_x", "rel_d" }, loaded.RecordingSupersedes.Select(r => r.RelationId));
+            Assert.Equal(new[] { "tomb_x", "tomb_d" }, loaded.LedgerTombstones.Select(t => t.TombstoneId));
+            Assert.False(ElsHas(EarlierDeathActionId), "the earlier attempt's retired death stays retired");
+            var committed = Assert.Single(RecordingStore.CommittedTrees, t => t.Id == TreeId);
+            Assert.True(committed.Recordings.ContainsKey(EarlierForkId), "the earlier attempt's fork stays committed");
+            Assert.True(ErsHas(EarlierForkId));
+            Assert.False(ErsHas(EarlierChildId), "the earlier attempt still supersedes its origin");
+            Assert.Contains(logLines, l => l.Contains("PruneStagedRowsNamingAttempt callSite=RetryHandler")
+                && l.Contains("supersedes=1 tombstones=1 retirements=1 attemptIds=1"));
+        }
+
+        /// <summary>
+        /// The ordinary Retry (no quickload): the committed original is still in memory and no row
+        /// names the attempt, so the Retry restores nothing and prunes nothing.
+        /// </summary>
+        [Fact]
+        public void RetryOfFreshSession_CommittedOriginalPresent_RestoresNothingAndPrunesNothing()
+        {
+            InstallCommittedTree("tree_x", null,
+                Rec("rec_x_origin", 20.0, MergeState.Immutable, "tree_x"),
+                Rec("rec_x_fork", 25.0, MergeState.Immutable, "tree_x"));
+            InstallCommittedTree(TreeId, new[] { "rp_t" }, Rec(OriginId, 50.0, MergeState.Immutable));
+            var provisional = Provisional(Rec("rec_provisional", 55.0, MergeState.NotCommitted), SessionS, "rp_t", OriginId);
+            RecordingStore.AddProvisional(provisional);
+            var marker = Marker(SessionS, "rec_provisional", OriginId, "rp_t");
+            var scenario = Memory(s =>
+            {
+                s.RewindPoints.Add(Rp("rp_t"));
+                s.RecordingSupersedes.Add(Rel("rel_x", "rec_x_origin", "rec_x_fork"));
+                s.ActiveReFlySessionMarker = marker;
+            });
+            var before = RecordingStore.CommittedTrees.Single(t => t.Id == TreeId);
+            bool invoked = false;
+            RevertInterceptor.RewindInvokeStartForTesting = (rp, slot) => invoked = true;
+
+            RevertInterceptor.RetryHandler(marker, RevertTarget.Launch);
+
+            Assert.True(invoked);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Same(before, Assert.Single(RecordingStore.CommittedTrees, t => t.Id == TreeId));
+            Assert.Equal(new[] { "rel_x" }, scenario.RecordingSupersedes.Select(r => r.RelationId));
+            Assert.DoesNotContain(logLines, l => l.Contains("RestoreSanitizedPendingTreeIfDetached: restored committed tree"));
+        }
+
         [Theory]
         [InlineData(SessionS, SessionS, "rp_t", true)]
         [InlineData(SessionS, "sess_other", "rp_t", false)]

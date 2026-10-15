@@ -2598,7 +2598,7 @@ and no branch point in the restored tree; the point must be gone after the load.
 
 ---
 
-## RETRY-OF-A-RESUMED-MERGED-REFLY-LEAVES-A-ONE-SIDED-ROW: Retry on a Re-Fly session a quickload resumed after its merge keeps the first merge's rows [FILED 2026-10-06 from the in-session carry (owner ruling OQ-1), PR #2038; verified by code read, not reproduced. OPEN, product; narrow]
+## ~~RETRY-OF-A-RESUMED-MERGED-REFLY-LEAVES-A-ONE-SIDED-ROW: Retry on a Re-Fly session a quickload resumed after its merge keeps the first merge's rows~~ [FILED 2026-10-06 from the in-session carry (owner ruling OQ-1), PR #2038; verified by code read, not reproduced. REPRODUCED headless and FIXED 2026-10-15, branch `qlr-retry`]
 
 OQ-1's discard prune (`MergeDialog.PruneStagedRowsNamingAttempt`) runs from the two Re-Fly
 discard helpers. `RevertInterceptor.RetryHandler` does not prune the attempt (the sweep reaps the
@@ -2611,6 +2611,48 @@ retired.
 Fix: prune the rows naming the retried attempt's provisional in `RetryHandler` too (or in the
 sweep, for a supersede row whose new side is a reaped zombie). Red test: the
 `InSessionStagedListsCarryTests` resumed-session fixture, Retry, then Discard; A must be visible.
+
+**Fixed 2026-10-15.** Reproduced on main: Retry's `RewindInvoker.StartInvoke` captures memory's
+rows into the reconciliation bundle and restores them after the rewind-point load, so A->A' and
+the tombstone retiring A's death survive while A' is gone with the popped live tree (the sweep
+keeps one-sided rows). The new cell
+`InSessionStagedListsCarryTests.RetryOfResumedMergedSession_ThenDiscard_OriginVisibleAndItsDeathCounts`
+(the resumed-session fixture, Retry through `RetryHandler` with the invoke seam taking the bundle,
+the Re-Fly start load through the real `TryRestoreActiveTreeNode` of a rewind-point quicksave, the
+bundle restore, S2's marker write and the sweep, then the merge-dialog or the Esc-menu Discard)
+was red with `rel_a` still listed. The fix is in `RetryHandler`, not the sweep, because the sweep
+cannot tell a resumed attempt's rows from a crash leftover and keeps one-sided rows by design:
+after it clears the marker and before the re-invoke, `MergeDialog.RepairSessionBeforeRetry`
+prunes the rows naming the attempt through `PruneStagedRowsNamingAttempt` (the attempt identified
+by its session stamp, so an earlier same-rewind-point attempt merged before the save keeps its
+rows, D2: `RetryOfResumedSession_EarlierSameRpAttemptMergedBeforeTheSave_Survives`). The same
+helper fixes RETRY-AFTER-A-QUICKLOAD-DURING-REFLY-DROPS-THE-TREES-LATER-HISTORY below. An
+ordinary Retry restores and prunes nothing
+(`RetryOfFreshSession_CommittedOriginalPresent_RestoresNothingAndPrunesNothing`);
+`InSessionHandoffWiringGateTests.RetryRepairsTheSessionBeforeTheReinvokeCapturesTheBundle` pins
+the order. Log `[MergeDialog] RepairSessionBeforeRetry callSite=RetryHandler ... treeState=...
+stagedRowsPruned=N restoredCommittedTree=<bool>`. Live proof: none yet. VN-9 flies Retry without
+a quickload (`treeState=still-committed`); a QL-5c variant answering `choice=retry` would prove
+this path.
+
+---
+
+## ~~RETRY-AFTER-A-QUICKLOAD-DURING-REFLY-DROPS-THE-TREES-LATER-HISTORY: Retry after an F9 during a Re-Fly leaves only the rewind point's copy of the flight's tree~~ [FOUND 2026-10-15 while tracing RETRY-OF-A-RESUMED-MERGED-REFLY-LEAVES-A-ONE-SIDED-ROW; REPRODUCED headless and FIXED the same day, branch `qlr-retry`]
+
+The sibling of ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE: an F9 during any Re-Fly
+session (merged since or not) detaches the committed copy of the session's tree, so the live tree
+is the only instance of the flight. Retry's bundle carries committed trees only, and the Re-Fly
+start's `TryRestoreActiveTreeNode` pops the live tree the scene exit stashed and keeps the rewind
+point's quicksave copy, which stops at the split, with no committed copy to splice the rest from.
+Player effect: everything the flight recorded after the split (later stages, debris, the other
+slots' flights) leaves the timeline, and the next commit writes the truncated tree. Red cell:
+`InSessionStagedListsCarryTests.RetryOfResumedSession_TreeHistoryAfterTheSplit_SurvivesTheReload`
+(no committed tree after the reload). Fix: when no committed tree carries the session's tree id,
+`MergeDialog.RepairSessionBeforeRetry` puts a sanitized deep copy of the session's tree back
+committed (through the discards' `RestoreSanitizedPendingTreeIfDetached`) before the bundle
+capture, the ordinary session's shape (committed original beside the live tree), so the splice
+and the bundle restore run as on every Retry. A copy, not the live tree, so the scene exit's
+stash and the restore's pop are unchanged and a refused re-invoke leaves the ordinary shape.
 
 ---
 
