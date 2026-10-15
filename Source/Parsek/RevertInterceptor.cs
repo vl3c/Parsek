@@ -52,7 +52,7 @@ namespace Parsek
     ///
     /// <list type="bullet">
     ///   <item><description><see cref="RetryHandler"/> — clears the marker, generates a fresh <see cref="Guid"/> session id, and re-invokes <see cref="RewindInvoker.StartInvoke"/> with the same RP + slot captured from the marker. The old provisional becomes a zombie that the load-time sweep (Phase 13) cleans up. Retry is RP-anchored and returns the player to FLIGHT regardless of which revert button was clicked.</description></item>
-    ///   <item><description><see cref="DiscardReFlyHandler"/> — removes the current session's provisional recording from <see cref="RecordingStore.CommittedRecordings"/>, promotes the origin RP to persistent so the post-load <see cref="LoadTimeSweep"/> does not reap it, clears marker + journal, bumps the supersede state version, then stages the RP quicksave through the save-root copy path and calls <see cref="GamePersistence.LoadGame"/> + <see cref="HighLogic.LoadScene"/> to transition to <see cref="GameScenes.SPACECENTER"/> (Launch) or <see cref="GameScenes.EDITOR"/> with the clicked facility (Prelaunch). Does NOT call <see cref="TreeDiscardPurge.PurgeTree"/>; the tree's other RPs, supersede relations, and tombstones are preserved.</description></item>
+    ///   <item><description><see cref="DiscardReFlyHandler"/> — removes the current session's provisional recording from <see cref="RecordingStore.CommittedRecordings"/>, promotes the origin RP to persistent so the post-load <see cref="LoadTimeSweep"/> does not reap it, clears marker + journal, bumps the supersede state version, then stages the RP quicksave through the save-root copy path and calls <see cref="GamePersistence.LoadGame"/>, writes that game to persistent.sfs (the scene start reloads it), puts a tree an F9 detached back committed, and calls <see cref="HighLogic.LoadScene"/> to transition to <see cref="GameScenes.SPACECENTER"/> (Launch) or <see cref="GameScenes.EDITOR"/> with the clicked facility (Prelaunch). Does NOT call <see cref="TreeDiscardPurge.PurgeTree"/>; the tree's other RPs, supersede relations, and tombstones are preserved.</description></item>
     ///   <item><description><see cref="CancelHandler"/> — pure logging; no state changes.</description></item>
     /// </list>
     /// </para>
@@ -122,6 +122,14 @@ namespace Parsek
         internal static Func<RewindPoint, bool> DiscardReFlyQuicksaveExistsForTesting;
 
         /// <summary>
+        /// Test seam: when non-null, replaces the persistent.sfs write of the loaded rewind-point
+        /// game (<see cref="WriteRewindPointGameAsPersistent"/>) and returns whether it succeeded.
+        /// With it null and <see cref="DiscardReFlyLoadGameForTesting"/> set there is no loaded
+        /// game, so the write is skipped.
+        /// </summary>
+        internal static Func<bool> DiscardReFlyWritePersistentForTesting;
+
+        /// <summary>
         /// Clears all Phase 12 test seams, and the Discard Re-fly load intent a stubbed
         /// LoadGame / LoadScene run arms with no load to consume it (the in-game
         /// ReFlyRevertDialog tests reach the handler through these seams).
@@ -136,6 +144,7 @@ namespace Parsek
             DiscardReFlyDispatchSceneResultForTesting = null;
             ScreenMessagePostForTesting = null;
             DiscardReFlyQuicksaveExistsForTesting = null;
+            DiscardReFlyWritePersistentForTesting = null;
         }
 
         /// <summary>
@@ -421,8 +430,9 @@ namespace Parsek
             // the same Pending/Committed/live-active fallback chain
             // FindTreeForReFlyFork uses, so this works regardless of which
             // attach shape the marker write hit.
-            MergeDialog.PruneActiveReFlyAttemptOwnedTopology(
-                marker, "RevertInterceptor:DiscardReFly");
+            MergeDialog.AttemptDiscardSummary pruneSummary =
+                MergeDialog.PruneActiveReFlyAttemptOwnedTopology(
+                    marker, "RevertInterceptor:DiscardReFly");
 
             // Step 4: promote the origin RP to persistent BEFORE clearing
             // the marker — LoadTimeSweep's RP-discard pass in the fresh
@@ -540,8 +550,26 @@ namespace Parsek
                 return;
             }
 
+            // Step 9b: the scene this discard opens (SpaceCenterMain.Start / EditorDriver.Start)
+            // reloads persistent.sfs, not HighLogic.CurrentGame, and every flight start
+            // (FlightDriver.PostInit, an F9 included) rewrote that file during the session. Write
+            // the rewind point's game there first, as stock's non-flight quickload does
+            // (QuickSaveLoad.onQuickloadPipelineFinished), so the player lands at the rewind point
+            // and not at the session's last persistent write (todo
+            // DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT). A failed write falls back
+            // to the old landing rather than strand the player in an ended session.
+            bool persistentWritten = WriteRewindPointGameAsPersistent(
+                loadGameHook != null, rpId, sessionId);
+
+            // Step 9c: an F9 during the session detached the committed copy of its tree, so the
+            // pruned tree may be the only instance left; put it back committed before the scene
+            // exit below drops the live reference (todo
+            // ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE).
+            bool restoredDetachedTree = MergeDialog.RestoreDetachedTreeAfterEscDiscard(
+                marker, pruneSummary, "DiscardReFlyHandler");
+
             // The next OnLoad is this discard's own load; its early classification reads this.
-            DiscardReFlyLoadIntent.Arm(target, sessionId);
+            DiscardReFlyLoadIntent.Arm(target, sessionId, originRp.UT);
 
             string facilityText = target == RevertTarget.Prelaunch
                 ? $" facility={facility}"
@@ -560,6 +588,16 @@ namespace Parsek
             bool dispatched = DispatchScene(target, facility);
             if (!dispatched)
                 DiscardReFlyLoadIntent.Clear("DiscardReFly:scene-dispatch-failed");
+            if (!dispatched && restoredDetachedTree && pruneSummary.Tree != null)
+            {
+                // The player stays in flight on the live tree; the scene exit that will commit
+                // it later must not find a second, committed instance under the same id.
+                bool removed = RecordingStore.RemoveCommittedTreeById(
+                    pruneSummary.Tree.Id, "DiscardReFly:scene-dispatch-failed");
+                ParsekLog.Warn(SessionTag,
+                    $"DiscardReFly: scene dispatch failed; took the restored tree back out of the " +
+                    $"committed store tree={pruneSummary.Tree.Id ?? "<none>"} removed={removed}");
+            }
             if (!dispatched && suppressionArmed)
             {
                 if (RecordingStore.TryConsumeNextTreeSceneExitCommitSuppression(
@@ -585,7 +623,9 @@ namespace Parsek
             // success and failure paths.
             ParsekLog.Info(SessionTag,
                 $"End reason=discardReFly sess={sessionId} target={target}{facilityText} " +
-                $"dispatched={(dispatched ? "true" : "false")}");
+                $"dispatched={(dispatched ? "true" : "false")} " +
+                $"persistentWritten={(persistentWritten ? "true" : "false")} " +
+                $"restoredDetachedTree={(restoredDetachedTree ? "true" : "false")}");
         }
 
         /// <summary>
@@ -712,6 +752,64 @@ namespace Parsek
                 ParsekLog.Error(RewindSaveTag,
                     $"DiscardReFly: LoadGame threw rp={rpId} sess={sessionId}: {ex.GetType().Name}: {ex.Message}");
                 TryDeleteTemp(tempPath);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Writes the rewind-point game the discard just loaded into
+        /// <see cref="HighLogic.CurrentGame"/> to persistent.sfs, so the scene start that reloads
+        /// that file lands on the rewind point. Returns false (and logs) when the write did not
+        /// happen; the caller dispatches the scene anyway.
+        /// </summary>
+        private static bool WriteRewindPointGameAsPersistent(
+            bool loadWasStubbed, string rpId, string sessionId)
+        {
+            var seam = DiscardReFlyWritePersistentForTesting;
+            if (seam != null)
+            {
+                bool ok = seam();
+                ParsekLog.Info(RewindSaveTag,
+                    $"DiscardReFly: rewind point game written to persistent.sfs rp={rpId} sess={sessionId} " +
+                    $"ok={(ok ? "true" : "false")} (test seam)");
+                return ok;
+            }
+            if (loadWasStubbed)
+            {
+                ParsekLog.Verbose(RewindSaveTag,
+                    $"DiscardReFly: load was stubbed, no game to write to persistent.sfs rp={rpId} sess={sessionId}");
+                return false;
+            }
+
+            try
+            {
+                Game game = HighLogic.CurrentGame;
+                if (game == null)
+                {
+                    ParsekLog.Warn(RewindSaveTag,
+                        $"DiscardReFly: no current game to write to persistent.sfs rp={rpId} sess={sessionId} " +
+                        "- the scene will reload the session's last persistent.sfs");
+                    return false;
+                }
+                string result = GamePersistence.SaveGame(
+                    game, "persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);
+                if (string.IsNullOrEmpty(result))
+                {
+                    ParsekLog.Warn(RewindSaveTag,
+                        $"DiscardReFly: writing the rewind point game to persistent.sfs returned empty " +
+                        $"rp={rpId} sess={sessionId} - the scene will reload the session's last persistent.sfs");
+                    return false;
+                }
+                ParsekLog.Info(RewindSaveTag,
+                    $"DiscardReFly: rewind point game written to persistent.sfs rp={rpId} sess={sessionId} " +
+                    $"saveFolder='{HighLogic.SaveFolder ?? "<none>"}'");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(RewindSaveTag,
+                    $"DiscardReFly: writing the rewind point game to persistent.sfs threw rp={rpId} sess={sessionId}: " +
+                    $"{ex.GetType().Name}: {ex.Message} - the scene will reload the session's last persistent.sfs");
                 return false;
             }
         }

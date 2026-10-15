@@ -301,6 +301,79 @@ namespace Parsek.Tests
                 && l.Contains("dispatched=true"));
         }
 
+        /// <summary>
+        /// DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT: the Space Center / editor start
+        /// reloads persistent.sfs, so the loaded rewind-point game is written there after the
+        /// load and before the scene request (stock's non-flight quickload order), for both
+        /// targets.
+        /// </summary>
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void DiscardReFly_WritesTheRewindPointGameToPersistent_AfterTheLoad_BeforeTheScene(bool launch)
+        {
+            RevertTarget target = launch ? RevertTarget.Launch : RevertTarget.Prelaunch;
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            AddProvisional(marker.SessionId);
+            InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            var order = new List<string>();
+            RevertInterceptor.DiscardReFlyLoadGameForTesting = (r, name) => order.Add("load");
+            RevertInterceptor.DiscardReFlyWritePersistentForTesting = () => { order.Add("persistent"); return true; };
+            RevertInterceptor.DiscardReFlyLoadSceneForTesting = (scene, facility) => order.Add("scene");
+            RevertInterceptor.ScreenMessagePostForTesting = _ => { };
+
+            RevertInterceptor.DiscardReFlyHandler(marker, target, EditorFacility.SPH);
+
+            Assert.Equal(new[] { "load", "persistent", "scene" }, order);
+            Assert.Contains(logLines, l => l.Contains("[RewindSave]")
+                && l.Contains("DiscardReFly: rewind point game written to persistent.sfs")
+                && l.Contains("rp=" + rp.RewindPointId));
+            Assert.Contains(logLines, l => l.Contains("End reason=discardReFly")
+                && l.Contains("dispatched=true persistentWritten=true"));
+        }
+
+        /// <summary>A failed persistent write still dispatches the scene (the old landing).</summary>
+        [Fact]
+        public void DiscardReFly_PersistentWriteFails_StillDispatches()
+        {
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            AddProvisional(marker.SessionId);
+            InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            var caps = WireDiscardSeams();
+            RevertInterceptor.DiscardReFlyWritePersistentForTesting = () => false;
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            Assert.Equal(1, caps.SceneCalls);
+            Assert.Contains(logLines, l => l.Contains("End reason=discardReFly")
+                && l.Contains("dispatched=true persistentWritten=false"));
+        }
+
+        /// <summary>
+        /// Without the seam, a stubbed load leaves no game to write: the handler skips the write
+        /// instead of reaching into KSP.
+        /// </summary>
+        [Fact]
+        public void DiscardReFly_StubbedLoad_SkipsThePersistentWrite()
+        {
+            var marker = MakeMarker();
+            var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
+            AddProvisional(marker.SessionId);
+            InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            WireDiscardSeams();
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            Assert.Contains(logLines, l => l.Contains("load was stubbed, no game to write to persistent.sfs"));
+            Assert.Contains(logLines, l => l.Contains("End reason=discardReFly")
+                && l.Contains("persistentWritten=false"));
+        }
+
         private const string OtherCommittedRecId = "rec_other_committed_p12";
 
         /// <summary>

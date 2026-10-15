@@ -2002,7 +2002,8 @@ bump removed; `InSessionHandoffWiringGateTests` pins the order.
 The OQ-1 Esc-menu Discard is proven for the rows only (see
 ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE). Decompile
 note: the Discard Re-fly load is ONE OnLoad, and it reads persistent.sfs, not the rewind-point
-quicksave (see DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT).
+quicksave (see DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT). Both follow-ups fixed
+2026-10-15.
 
 ---
 
@@ -2396,7 +2397,7 @@ carry) stays as the regression guard should a future route reach the editor load
 
 ---
 
-## DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT: Discard Re-fly loads the rewind point's quicksave, but the scene it then opens reloads persistent.sfs [FILED 2026-10-06 from the in-session carry work (PR #2038), verified by decompile; player effect not traced. OPEN, product; to trace]
+## ~~DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT: Discard Re-fly loads the rewind point's quicksave, but the scene it then opens reloads persistent.sfs~~ [FILED 2026-10-06 from the in-session carry work (PR #2038), verified by decompile. TRACED and FIXED 2026-10-15, branch `claude/refly-quickload-edge-cases-eixmlf`]
 
 `RevertInterceptor.DiscardReFlyHandler` loads the origin rewind point's quicksave into
 `HighLogic.CurrentGame` and calls `HighLogic.LoadScene(SPACECENTER)` (Launch) or
@@ -2416,6 +2417,35 @@ player sees at the Space Center / in the editor). Candidate: write the quicksave
 persistent.sfs before the scene load, as stock `QuickSaveLoad.onQuickloadPipelineFinished` does
 for a non-flight quickload (`GamePersistence.SaveGame(Game, "persistent", ...)` then `LoadScene`).
 Live proof: lane QL-5.
+
+**Traced 2026-10-15 (decompiled KSP 1.12.5).** `FlightDriver.PostInit` writes `persistent` at EVERY
+flight-scene start (`GamePersistence.SaveGame(PostInitState, "persistent", ...)` when
+`ClearToSave`), and an F9 in flight is a flight-scene start (`QuickSaveLoad` ->
+`FlightDriver.StartAndFocusVessel`); `QuickSaveLoad.doSave` also writes it on every F5 when
+`AutoSaveOnQuickSave` is set, and a switch to an unloaded vessel reloads the flight scene. So after
+an F5 / F9 inside a Re-Fly, Discard Re-fly landed at the Space Center at the quicksave's moment,
+with the clock past the rewind point and the discarded attempt's vessel left in the world as a
+real vessel. Without such a write the file held the Re-Fly start's PostInit save, which is the
+rewind point's quicksave before Parsek's post-load strip (the strip runs on `onFlightReady`, which
+PostInit fires after its save), so the ordinary discard landed right.
+
+**Fixed 2026-10-15.** `RevertInterceptor.DiscardReFlyHandler` writes the loaded rewind-point game
+to persistent.sfs after the load and before the scene request
+(`WriteRewindPointGameAsPersistent`, `GamePersistence.SaveGame(game, "persistent", ...)`, stock's
+own non-flight quickload order), so the scene start reloads the rewind point. A failed or refused
+write (the scenario's autosave disabled) logs a Warn and dispatches as before. The Discard Re-fly
+OnLoad therefore reads the rewind point's own PARSEK node: memory still supplies everything the
+in-session handoff carries, and the node's categories (crew replacements, kerbal slots, milestone
+state, markers) are the rewind point's, consistent with the roster in the same file. End line:
+`End reason=discardReFly ... dispatched=true persistentWritten=true`. Tests:
+`ReFlyRevertDialogTests.DiscardReFly_WritesTheRewindPointGameToPersistent_AfterTheLoad_BeforeTheScene`
+(both targets, load -> persistent -> scene order), `DiscardReFly_PersistentWriteFails_StillDispatches`,
+`DiscardReFly_StubbedLoad_SkipsThePersistentWrite`, and the wiring gate
+`LoadReconcileWiringGateTests.DiscardReFlyWritesPersistentAndRestoresTheDetachedTreeBeforeTheScene`.
+The Discard Re-fly intent now carries the rewind point's UT, and its consumed line says whether
+the scene landed there (`rpUT=.. loadedUT=.. landedAtRewindPoint=true|false|unknown`, 1 s
+tolerance; `LoadReconcilePolicyTests.LandedAtRewindPointToken_Pure`). Live proof: lane QL-5c
+(F5 / F9 inside the session, then the Esc discard), never flown yet.
 
 ---
 
@@ -2464,7 +2494,7 @@ neither fork may survive in the resumed tree.
 
 ---
 
-## ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE: Discard Re-fly from the Esc menu after an F9 during a Re-Fly may drop the flight's tree [FILED 2026-10-06 from the in-session carry review, PR #2038; pre-existing, verified by code read, not reproduced. OPEN, product]
+## ~~ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE: Discard Re-fly from the Esc menu after an F9 during a Re-Fly may drop the flight's tree~~ [FILED 2026-10-06 from the in-session carry review, PR #2038; pre-existing, verified by code read. REPRODUCED headless and FIXED 2026-10-15, branch `claude/refly-quickload-edge-cases-eixmlf`]
 
 An F9 during any Re-Fly session restores the quicksave's active tree, and
 `ParsekScenario.TryRestoreActiveTreeNode` detaches any committed copy of that tree (a session that
@@ -2484,6 +2514,19 @@ Fix: to trace first (the suppression's consumer and what the Discard Re-fly load
 tree); candidate: put a detached committed tree back sanitized on the Esc path as the merge-dialog
 Discard does. Red test: the resumed-session fixture through `DiscardReFlyHandler` with the
 suppression armed, then the Discard Re-fly load; the committed tree must hold the origin.
+
+**Fixed 2026-10-15.** Re-checked on main after #2103 / #2106 / #2107: still held. The new cell
+`InSessionStagedListsCarryTests.DiscardOfResumedMergedSession_EscMenu_OriginBackInTheTimeline`
+(the resumed-session fixture, no committed copy of the tree, through `DiscardReFlyHandler`) was
+red: no committed tree after the discard. `MergeDialog.PruneActiveReFlyAttemptOwnedTopology` now
+hands back the tree it pruned, and the handler, once the rewind-point load succeeded and before
+it arms the scene-exit drop, calls `MergeDialog.RestoreDetachedTreeAfterEscDiscard`: when no
+committed tree carries that id, the pruned tree goes back committed through the merge-dialog
+Discard's `RestoreSanitizedPendingTreeIfDetached` (a pending instance leaves the pending slot). A
+failed scene dispatch takes it back out of the committed store, since the player stays in flight
+on it. The ordinary session (committed original still in memory) restores nothing
+(`DiscardOfFreshSession_EscMenu_CommittedOriginalPresent_RestoresNothing`). End line carries
+`restoredDetachedTree=`. Live proof: lane QL-5c, never flown yet.
 
 ---
 

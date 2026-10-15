@@ -27,6 +27,12 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Discard Re-fly takes you back to the rewind point.** After a quicksave or quickload during a
+  Re-Fly, Discard Re-fly could land you at the Space Center later than the separation, with the
+  discarded attempt's vessel still flying. It now always returns to the moment you rewound to.
+- **Discard Re-fly after a quickload keeps the original flight.** Discarding a Re-Fly from the Esc
+  menu after an F9 inside it could drop the whole flight it belonged to from the timeline. The
+  original flight now stays, as it does when you discard from the merge dialog.
 - **Docking a fleet of identical ships no longer mixes up their histories.** When your ship docks
   to another and takes it over, Parsek now remembers which launch of that ship it was. A later
   launch of the same design no longer has its vessel hidden or spawned at the wrong time because

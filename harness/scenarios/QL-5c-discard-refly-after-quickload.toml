@@ -1,0 +1,139 @@
+schema = 1
+id = "QL-5c-discard-refly-after-quickload"
+# =====================================================================================
+# QL-5c: AN F5 / F9 INSIDE A RE-FLY, THEN ESC, THEN DISCARD RE-FLY: THE PLAYER LANDS AT THE
+# REWIND POINT AND THE ORIGINAL FLIGHT STAYS IN THE TIMELINE. QL-5 plus a quicksave and a
+# quickload inside the session; the live proof of two 2026-10-15 fixes:
+#   - ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE: the F9 detaches the committed copy
+#     of the session's tree (TryRestoreActiveTreeNode), so the resumed tree is the only
+#     instance; the Esc discard used to prune it and let the scene exit drop it, and the whole
+#     flight (the crashed booster's Unfinished Flight included) left the timeline. Now
+#     MergeDialog.RestoreDetachedTreeAfterEscDiscard puts it back committed, sanitized.
+#   - DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT: the Space Center start reloads
+#     persistent.sfs, and the F9's flight start (FlightDriver.PostInit) rewrote that file at
+#     the quicksave's moment, 30 s into the attempt; the discard used to land there, with the
+#     attempt's vessel still flying. Now the handler writes the rewind point's game to
+#     persistent.sfs before the scene request.
+#
+# In gameplay terms: the player re-flies the crashed booster of the B9 split, flies on for
+# half a minute, presses F5, then F9, changes their mind, and discards the Re-Fly from the
+# Esc menu. They must be back at the separation's moment at the Space Center with the booster
+# still listed under STASH.
+#
+# THE ROUTE: QL-5's host and verbs, with S4.4's mid-session save / reload between the
+# InvokeRewind and the ReFlyRevert. `RecordingState awaitRecorderLive=refly` waits for the
+# Re-Fly recorder; the TimeJump of 30 s moves the clock away from the rewind point so a landing
+# at the quicksave's moment is distinguishable; `SaveGame name=quicksave` is the F5;
+# `LoadGame name=quicksave allowLiveRecorder=refly` is the F9 (RF-3/A1 opt-in: admitted only
+# while a Re-Fly marker is live). The seam's LoadGame of a FLIGHT save runs
+# FlightDriver.StartAndFocusVessel, so PostInit rewrites persistent.sfs as a real F9 does.
+#
+# THE GATES (each names the defect):
+#   - `TryRestoreActiveTreeNode: removed committed tree`: the premise; the F9 detached the
+#     committed copy. Missing means the lane did not reach the defect's state.
+#   - `RestoreDetachedTreeAfterEscDiscard callSite=DiscardReFlyHandler: ... restored=true`
+#     and `restoredDetachedTree=true` on the End line: the tree went back committed.
+#   - `persistentWritten=true` and the RewindSave line: the rewind point's game went to
+#     persistent.sfs.
+#   - `landedAtRewindPoint=true` on the intent-consumed line: the Space Center's loaded
+#     clock is the rewind point's (within 1 s), not the quicksave's.
+#   - the completion line's `rpKept=true slotListed=true marker=none`: before the tree fix the
+#     booster's recording left the timeline, so no STASH member resolved to its slot.
+#
+# PRE-REGISTERED RED READINGS:
+#   - `reflyrevert rejected reason=reflyrevert-dialog-not-shown` or
+#     `reflyrevert-revert-unavailable`: after the F9 the Esc menu's Revert Flight is not
+#     routed to Parsek's dialog (ReFlyRevertButtonGate not re-applied on the reloaded flight);
+#     a product finding, not this lane's fix.
+#   - `landedAtRewindPoint=false`: the persistent write did not take (its Warn says why).
+#   - `restoredDetachedTree=false` with the premise token present: the restore was skipped.
+#
+# STATUS: AUTHORED 2026-10-15, branch `claude/refly-quickload-edge-cases-eixmlf`; never flown.
+# Every token is quoted from its emitting source line: RevertInterceptor.DiscardReFlyHandler /
+# WriteRewindPointGameAsPersistent, MergeDialog.RestoreDetachedTreeAfterEscDiscard,
+# DiscardReFlyLoadIntent.TryConsume, RecordingStore.RemoveCommittedTreeById, and QL-5's.
+# =====================================================================================
+tier = "nightly"
+description = "QL-5c: re-fly the crashed booster of the B9 split, fly 30 s, quicksave and quickload inside the session, then Esc, Revert Flight, Revert to Launch and Discard Re-Fly. The tree the quickload detached goes back committed, the rewind point's game is written to persistent.sfs, the Space Center lands at the rewind point's clock, and the booster is still listed under STASH."
+instanceProfile = "stock-minimal"
+tags = ["QL-5c", "QL-5", "TA-1", "timeline-ops", "rewind", "refly", "discard-refly", "quickload",
+        "revert-dialog", "D9", "scene-ksc", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "rewind-b9"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },        expect = "OK", budget = 240 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },    expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },         expect = "OK" },
+  # rp_b9_root sits 60 s after the template's UT; S4.1's gate step.
+  { cmd = "TimeJump",       args = { deltaSeconds = "61.0" },                           expect = "OK", budget = 120 },
+  { cmd = "InvokeRewind",   args = { rp = "rp_b9_root", slot = "1" },                   expect = "OK", budget = 300 },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                     expect = "OK" },
+  # Fly on inside the attempt, so the quicksave's clock is not the rewind point's.
+  { cmd = "TimeJump",       args = { deltaSeconds = "30.0" },                           expect = "OK", budget = 120 },
+  # F5, then F9 (S4.4's pair).
+  { cmd = "SaveGame",       args = { name = "quicksave" },                              expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave", allowLiveRecorder = "refly" }, expect = "OK", budget = 300 },
+  # THE CHECK: Esc > Revert Flight > Revert to Launch > Discard Re-Fly.
+  { cmd = "ReFlyRevert",    args = { choice = "discard", target = "launch" },           expect = "OK", budget = 300 },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" },                           expect = "OK" },
+  { cmd = "RecordingState",                                                             expect = "OK" },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rewind-to-separation", "revert-during-refly-dialog", "unfinished-flights-stash"]
+D14 = ["scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1 }
+
+[expectations.logContracts]
+required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
+             "loadgame start save=\\S+ name=quicksave .*allowLiveRecorder=refly recorderLive=true",
+             "TryRestoreActiveTreeNode: removed committed tree '[^']*' \\(id=\\S+",
+             "reflyrevert start choice=discard target=launch sess=\\S+ rp=rp_b9_root slot=b9-booster-a",
+             "Prefix: blocking stock RevertToLaunch sess=\\S+ target=Launch",
+             "reflyrevert pressed dialog button='Discard Re-Fly' choice=discard",
+             "DiscardReFly: rewind point game written to persistent.sfs rp=rp_b9_root",
+             "RestoreDetachedTreeAfterEscDiscard callSite=DiscardReFlyHandler: tree=\\S+ detached restored=true",
+             "End reason=discardReFly sess=\\S+ target=Launch facility=-- dispatched=true persistentWritten=true restoredDetachedTree=true",
+             "DiscardReFly load intent consumed at ParsekScenario.OnLoad: target=Launch sess=\\S+ scene=SPACECENTER rpUT=\\S+ loadedUT=\\S+ landedAtRewindPoint=true",
+             "Load classified: early=DiscardReFly refined=DiscardReFly scene=SPACECENTER [^\\r\\n]*discardReFly=Launch handoff=present",
+             "reflyrevert complete choice=discard target=launch scene=SPACECENTER sess=\\S+ rp=rp_b9_root rpKept=true slot=b9-booster-a slotListed=true unfinishedFlights=[1-9][0-9]* marker=none"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "In-session load found no staged-list handoff",
+             "DiscardReFly load intent dropped as stale",
+             "landedAtRewindPoint=false",
+             "writing the rewind point game to persistent.sfs",
+             "Reaped rp=rp_b9_root",
+             "Purged rp=rp_b9_root",
+             "Deleted rewind quicksave rp=rp_b9_root"]
+
+[expectations.rewind]
+gating        = false
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+rewindPoints  = { min = 1 }
+
+[runtime]
+# run.py waits max(step_budget, 600) + 60 per DEFERRED verb and the step budget (or the
+# verb's dispatch budget + margin) for the rest:
+#   LoadGame 660, SetSetting 60 x2, TimeJump 660, InvokeRewind 660, RecordingState 60,
+#   TimeJump 660, SaveGame 120, LoadGame 660, ReFlyRevert 660, ListHandles 60,
+#   RecordingState 60, FlushAndQuit 60 -> 4440; +120 margin = 4560.
+budgetSeconds = 4560
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -3701,7 +3701,10 @@ namespace Parsek
                 bool classifyRewinding = RewindContext.IsRewinding;
                 bool classifyReFlyInvoke = RewindInvokeContext.Pending;
                 bool classifyDiscardReFly = DiscardReFlyLoadIntent.TryConsume(
-                    HighLogic.LoadedScene, "ParsekScenario.OnLoad", out RevertTarget discardReFlyIntentTarget);
+                    HighLogic.LoadedScene, "ParsekScenario.OnLoad", out RevertTarget discardReFlyIntentTarget,
+                    HighLogic.CurrentGame?.flightState != null
+                        ? HighLogic.CurrentGame.flightState.universalTime
+                        : double.NaN);
                 string classifyDiscardReFlyTarget = classifyDiscardReFly
                     ? discardReFlyIntentTarget.ToString()
                     : null;
