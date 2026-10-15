@@ -2558,6 +2558,17 @@ the quicksave holds (an earlier session's fork included) and a restore that is n
 (`LoadOutsideFlight_DetachWithoutResume_RowsStayFromMemory`) prune nothing
 (`CollectAbandonedReFlyForkIds_Pure`; wiring pinned in `LoadReconcileWiringGateTests`). Logs:
 `Quickload resume abandoned Re-Fly forks noted:` and `Quickload abandoned Re-Fly forks pruned:`.
+Review follow-up (same day): with a production marker (`PreSessionBranchPointIds` set, as
+`RewindInvoker.AtomicMarkerWrite` always writes it) the attempt set's branch-point walk
+(`MergeDialog.CollectReFlyAttemptOwnedRecordingIds`) adopted every child of a split the splice
+brought in from a later session, so S2's debris stayed as S's (and when S2 re-flew a rewind point S
+created, S2's fork and its row stayed too). On a resume the walk now passes only through branch
+points the loaded save held (`QuicksaveTreeFacts.BranchPointIds`, carried on the resume note for
+step B) or whose parent is already the attempt's, and on every caller never adopts a child stamped
+by another session (`IsStampedByOtherReFlySession`); discards and the Retry repair keep their
+single-pass walk otherwise. Red then green: the S2 theory and the Retry fixture now use a production
+marker, plus `Quickload_SaveDuringMergedSession_LaterSessionReFliesARewindPointTheSessionCreated_ForkAndItsDebrisGo`
+and `CollectReFlyAttemptOwnedRecordingIds_BranchPointWalk_LiveAndResume`.
 Not yet flown: lane `QL-7-quickload-prunes-post-save-refly-fork` (authored 2026-10-15, never
 flown) is the tree-wide case (RF-1's flight saved to a named slot in flight, re-flown and merged
 at the Space Center, then that save loaded); the `ActiveRecOnly` case has no lane.

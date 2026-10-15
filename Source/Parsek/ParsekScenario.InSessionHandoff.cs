@@ -38,6 +38,8 @@ namespace Parsek
         {
             internal string TreeId;
             internal HashSet<string> RecordingIds;
+            // The branch points the loaded save's copy of the tree held (QuicksaveTreeFacts).
+            internal HashSet<string> QuicksaveBranchPointIds;
         }
 
         // Set by TryRestoreActiveTreeNode (cleared at its start), taken by step B of the same OnLoad.
@@ -81,7 +83,19 @@ namespace Parsek
                         ids.Add(id);
                 }
             }
-            lastQuickloadResumeDetach = new QuickloadResumeDetach { TreeId = resumed?.Id, RecordingIds = ids };
+            QuicksaveTreeFacts facts = lastRestoredQuicksaveTreeFacts != null
+                && resumed != null
+                && string.Equals(lastRestoredQuicksaveTreeFacts.TreeId, resumed.Id, StringComparison.Ordinal)
+                    ? lastRestoredQuicksaveTreeFacts
+                    : null;
+            lastQuickloadResumeDetach = new QuickloadResumeDetach
+            {
+                TreeId = resumed?.Id,
+                RecordingIds = ids,
+                QuicksaveBranchPointIds = facts != null
+                    ? new HashSet<string>(facts.BranchPointIds, StringComparer.Ordinal)
+                    : new HashSet<string>(StringComparer.Ordinal),
+            };
             ParsekLog.Verbose(InSessionStagedStateHandoff.Tag,
                 $"Quickload resume detach noted: tree={resumed?.Id ?? "<none>"} "
                 + $"recordings={ids.Count.ToString(CultureInfo.InvariantCulture)} "
@@ -436,17 +450,23 @@ namespace Parsek
                 && string.Equals(RecordingStore.PendingTree.Id, detach.TreeId, StringComparison.Ordinal)
                     ? RecordingStore.PendingTree
                     : null;
-            return ResolveResumedReFlyAttemptIds(resumed, detach.TreeId, ActiveReFlySessionMarker, out token);
+            return ResolveResumedReFlyAttemptIds(
+                resumed, detach.TreeId, ActiveReFlySessionMarker, detach.QuicksaveBranchPointIds, out token);
         }
 
         /// <summary>
         /// The resumed-attempt set for <paramref name="resumed"/> under <paramref name="marker"/>.
         /// Shared by the resumed-tree row rule and the restore's abandoned-fork note
         /// (<see cref="NoteAbandonedReFlyForks"/>), so the rows and the recordings a resume keeps
-        /// for the attempt are the same set.
+        /// for the attempt are the same set. The splice brought in branch points later sessions
+        /// authored, none of them in the marker's pre-session list, so the attempt adopts children
+        /// only through branch points the save held (<paramref name="quicksaveBranchPointIds"/>)
+        /// or whose parent is already the attempt's
+        /// (<see cref="MergeDialog.CollectReFlyAttemptOwnedRecordingIds"/>).
         /// </summary>
         internal static HashSet<string> ResolveResumedReFlyAttemptIds(
-            RecordingTree resumed, string resumedTreeId, ReFlySessionMarker marker, out string token)
+            RecordingTree resumed, string resumedTreeId, ReFlySessionMarker marker,
+            HashSet<string> quicksaveBranchPointIds, out string token)
         {
             ICollection<string> resumedIds = resumed?.Recordings?.Keys;
             if (!InSessionStagedStateHandoff.LoadedMarkerResumesAttempt(marker, resumedTreeId, resumedIds, out string reason))
@@ -456,7 +476,8 @@ namespace Parsek
                     : "none(" + reason + " sess=" + (marker.SessionId ?? "<no-id>") + ")";
                 return new HashSet<string>(StringComparer.Ordinal);
             }
-            HashSet<string> ids = MergeDialog.CollectReFlyAttemptOwnedRecordingIds(resumed, marker)
+            HashSet<string> ids = MergeDialog.CollectReFlyAttemptOwnedRecordingIds(
+                    resumed, marker, quicksaveBranchPointIds ?? new HashSet<string>(StringComparer.Ordinal))
                 ?? new HashSet<string>(StringComparer.Ordinal);
             token = "sess=" + (marker.SessionId ?? "<no-id>") + " ids="
                 + ids.Count.ToString(CultureInfo.InvariantCulture) + " (" + reason + ")";

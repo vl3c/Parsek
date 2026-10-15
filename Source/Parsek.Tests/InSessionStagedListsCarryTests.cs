@@ -231,6 +231,18 @@ namespace Parsek.Tests
             };
         }
 
+        /// <summary>
+        /// <see cref="Marker"/> as <c>RewindInvoker.AtomicMarkerWrite</c> writes it: the branch points the
+        /// tree held when the session started (<c>SnapshotTreeBranchPointIds</c>), never null.
+        /// </summary>
+        private static ReFlySessionMarker ProductionMarker(string sessionId, string activeId, string originId,
+            string rpId, params string[] preSessionBranchPointIds)
+        {
+            var marker = Marker(sessionId, activeId, originId, rpId);
+            marker.PreSessionBranchPointIds = new List<string>(preSessionBranchPointIds);
+            return marker;
+        }
+
         private static ParsekScenario NewScenario()
         {
             return new ParsekScenario
@@ -997,7 +1009,7 @@ namespace Parsek.Tests
             ConfigNode saved = SaveNode(s =>
             {
                 s.RewindPoints.Add(Rp("rp_t"));
-                s.ActiveReFlySessionMarker = Marker(SessionS, ForkId, OriginId, "rp_t");
+                s.ActiveReFlySessionMarker = ProductionMarker(SessionS, ForkId, OriginId, "rp_t", BpFor("rp_t"));
             });
             AddSavedActiveTree(saved,
                 Provisional(Flown(ForkId, 223u, 1, MergeState.NotCommitted, 120.0, 190.0), SessionS, "rp_t", OriginId),
@@ -1006,6 +1018,7 @@ namespace Parsek.Tests
             var loaded = Load(memory, saved, EarlyLoadKind.InSession, treeRestore: RealActiveTreeRestore(saved));
 
             Assert.Equal(SessionS, loaded.ActiveReFlySessionMarker?.SessionId);
+            Assert.Equal(new[] { BpFor("rp_t") }, loaded.ActiveReFlySessionMarker.PreSessionBranchPointIds);
             Assert.True(RecordingStore.PendingTree.Recordings.ContainsKey(SecondForkId),
                 "premise: the restore splices S2's fork into the resumed tree");
             Assert.Equal(new[] { "rel_a" }, loaded.RecordingSupersedes.Select(r => r.RelationId));
@@ -1033,6 +1046,71 @@ namespace Parsek.Tests
                 && l.Contains("forks=2") && l.Contains("attempt=sess=" + SessionS + " ids=1"));
             Assert.Contains(logLines, l => l.Contains("Quickload abandoned Re-Fly forks pruned:")
                 && l.Contains("pruned=2"));
+        }
+
+        /// <summary>
+        /// S2 re-flies a rewind point session S itself created. The named save was taken during S
+        /// (production marker: the branch points the tree held at S's start), after S's re-flown A'
+        /// shed the stage X on the split bp_s S authored. After the save S merged, then S2 re-flew
+        /// X from bp_s's rewind point (X', stamped S2, a child of bp_s) and X' shed debris D on a
+        /// split S2 authored. The load resumes S: S's attempt is A' and X (bp_s is a split the save
+        /// holds), never X' (another session's stamp) or D (a split the save does not hold, under a
+        /// parent outside the attempt). So S2's row X->X' follows the save and the resume prunes X'
+        /// and D, while S's row and A' and X stay.
+        /// </summary>
+        [Fact]
+        public void Quickload_SaveDuringMergedSession_LaterSessionReFliesARewindPointTheSessionCreated_ForkAndItsDebrisGo()
+        {
+            UseTempSaveRoot();
+            const string StageId = "rec_x_stage";
+            const string StageForkId = "rec_x_prime";
+            const string StageForkDebrisId = "rec_x_prime_debris";
+            RecordingTree committed = InstallCommittedFlownTree(
+                Flown(StageId, 227u, 2, MergeState.Immutable, 150.0, 170.0, 240.0),
+                Provisional(Flown(StageForkId, 228u, 2, MergeState.Immutable, 150.0, 175.0, 260.0),
+                    SessionS2, "rp_s", StageId),
+                Flown(StageForkDebrisId, 229u, 2, MergeState.Immutable, 180.0, 185.0, 230.0));
+            Provisional(committed.Recordings[ForkId], SessionS, "rp_t", OriginId);
+            LinkSplit(committed, "bp_s", ForkId, StageId, StageForkId);
+            LinkSplit(committed, "bp_s2_debris", StageForkId, StageForkDebrisId);
+            AddDeathAction();
+            AddTaggedRow("act_x_prime_190", StageForkId, 190.0);
+            var memory = Memory(s =>
+            {
+                s.RewindPoints.Add(Rp("rp_t"));
+                s.RecordingSupersedes.Add(Rel("rel_a", OriginId, ForkId));
+                s.RecordingSupersedes.Add(Rel("rel_x", StageId, StageForkId));
+                s.LedgerTombstones.Add(Tomb("tomb_a", DeathActionId, ForkId));
+            });
+            ConfigNode saved = SaveNode(s =>
+            {
+                s.RewindPoints.Add(Rp("rp_t"));
+                s.ActiveReFlySessionMarker = ProductionMarker(SessionS, ForkId, OriginId, "rp_t", BpFor("rp_t"));
+            });
+            AddSavedActiveTreeShaped(saved, t => LinkSplit(t, "bp_s", ForkId, StageId),
+                Provisional(Flown(ForkId, 223u, 1, MergeState.NotCommitted, 120.0, 190.0), SessionS, "rp_t", OriginId),
+                Flown(StageId, 227u, 1, MergeState.NotCommitted, 150.0, 170.0, 190.0));
+
+            var loaded = Load(memory, saved, EarlyLoadKind.InSession, treeRestore: RealActiveTreeRestore(saved));
+
+            Assert.Equal(new[] { "rel_a" }, loaded.RecordingSupersedes.Select(r => r.RelationId));
+            Assert.Equal(new[] { "tomb_a" }, loaded.LedgerTombstones.Select(t => t.TombstoneId));
+            Assert.Contains(logLines, l => l.Contains("In-session resumed-tree rows: tree=" + TreeId)
+                && l.Contains("attempt=sess=" + SessionS + " ids=2 (marker-resumes-attempt)"));
+
+            RecordingTree resumed = RecordingStore.PendingTree;
+            Assert.True(resumed.Recordings.ContainsKey(StageForkId), "premise: the splice brings X' in");
+            RunResumePrep(resumed, NamedSaveUT, LoadKind.QuickloadFlight);
+
+            Assert.False(resumed.Recordings.ContainsKey(StageForkId),
+                "S2's fork of a slot S created: its row followed the save, so X' may not play next to X");
+            Assert.False(resumed.Recordings.ContainsKey(StageForkDebrisId),
+                "S2's debris is not S's attempt and goes with X'");
+            Assert.True(resumed.Recordings.ContainsKey(StageId), "S's own stage stays");
+            Assert.True(resumed.Recordings.ContainsKey(ForkId), "S's own attempt stays (owner ruling OQ-1)");
+            Assert.Equal(new[] { StageId }, resumed.BranchPoints.Single(b => b.Id == "bp_s").ChildRecordingIds);
+            Assert.DoesNotContain(resumed.BranchPoints, b => b.Id == "bp_s2_debris");
+            Assert.DoesNotContain(Ledger.Actions, a => a.RecordingId == StageForkId);
         }
 
         /// <summary>
@@ -1373,7 +1451,8 @@ namespace Parsek.Tests
                 Type = GameActionType.ReputationPenalty,
                 RecordingId = "rec_x_origin",
             });
-            var marker = Marker(SessionS, ForkId, OriginId, "rp_t");
+            // As AtomicMarkerWrite writes it: the branch points T held when S started.
+            var marker = ProductionMarker(SessionS, ForkId, OriginId, "rp_t", BpFor("rp_t"));
             var scenario = Memory(s =>
             {
                 s.RewindPoints.Add(Rp("rp_t"));
@@ -1801,6 +1880,41 @@ namespace Parsek.Tests
             rec.CreatingSessionId = recSession;
             rec.ProvisionalForRpId = recRp;
             Assert.Equal(expected, MergeDialog.IsCreatedByReFlySession(rec, marker));
+        }
+
+        /// <summary>
+        /// The attempt's branch-point walk with a production marker (pre-session list set). Live
+        /// (discards, the Retry repair): every split outside the pre-session list is the session's,
+        /// as before, except that a child stamped by another session is never adopted. Resume (the
+        /// branch points the loaded save held): a split the save did not hold counts only under a
+        /// parent already in the attempt, so a later session's splits brought in by the splice
+        /// (bp_late, and bp_d under the other session's fork) adopt nothing.
+        /// </summary>
+        [Fact]
+        public void CollectReFlyAttemptOwnedRecordingIds_BranchPointWalk_LiveAndResume()
+        {
+            var fork = Provisional(Rec("a_prime", 100.0, MergeState.NotCommitted), SessionS, "rp_t", "a");
+            var otherFork = Provisional(Rec("x2", 100.0, MergeState.Immutable), SessionS2, "rp_s", "x");
+            var tree = BuildTree(TreeId, null, Rec("core", 100.0, MergeState.Immutable), Rec("a", 100.0, MergeState.Immutable),
+                fork, Rec("p", 100.0, MergeState.Immutable), Rec("x", 100.0, MergeState.Immutable), otherFork,
+                Rec("d", 100.0, MergeState.Immutable), Rec("y", 100.0, MergeState.Immutable),
+                Rec("z", 100.0, MergeState.Immutable));
+            LinkSplit(tree, "bp_x", "x", "y");
+            LinkSplit(tree, "bp_pre", "core", "p");
+            LinkSplit(tree, "bp_s", "a_prime", "x", "x2");
+            LinkSplit(tree, "bp_d", "x2", "d");
+            LinkSplit(tree, "bp_late", "core", "z");
+            var marker = ProductionMarker(SessionS, "a_prime", "a", "rp_t", "bp_pre");
+
+            var live = MergeDialog.CollectReFlyAttemptOwnedRecordingIds(tree, marker);
+            Assert.Equal(new[] { "a_prime", "d", "x", "y", "z" }, live.OrderBy(x => x, StringComparer.Ordinal));
+
+            var resume = MergeDialog.CollectReFlyAttemptOwnedRecordingIds(
+                tree, marker, new HashSet<string> { "bp_pre", "bp_s" });
+            Assert.Equal(new[] { "a_prime", "x", "y" }, resume.OrderBy(x => x, StringComparer.Ordinal));
+            Assert.Contains(logLines, l => l.Contains("AddSessionBranchPointDescendantAttemptIds:")
+                && l.Contains("mode=resume") && l.Contains("skippedOtherSession=1")
+                && l.Contains("skippedBranchPointsNotHeld=2"));
         }
 
         [Fact]

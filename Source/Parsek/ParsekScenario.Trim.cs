@@ -230,6 +230,8 @@ namespace Parsek
             // Not read from the save: the Re-Fly forks a committed-copy resume spliced in that the
             // resume prunes (NoteAbandonedReFlyForks, decided where the row rule decides its rows).
             internal readonly HashSet<string> AbandonedReFlyForkIds = new HashSet<string>(StringComparer.Ordinal);
+            // The ids of the branch points the quicksave's active tree holds.
+            internal readonly HashSet<string> BranchPointIds = new HashSet<string>(StringComparer.Ordinal);
 
             /// <summary>True when any member is in a committed tree node of the save.</summary>
             internal bool AnyMemberCommittedInQuicksave
@@ -325,6 +327,7 @@ namespace Parsek
                 TreeCommittedInQuicksave = committedTreeIdsInQuicksave != null
                     && committedTreeIdsInQuicksave.Contains(loadedTree.Id),
             };
+            facts.BranchPointIds.UnionWith(branchUTs.Keys);
             if (loadedTree.Recordings == null)
                 return facts;
 
@@ -566,14 +569,14 @@ namespace Parsek
         /// Called by <see cref="TryRestoreActiveTreeNode"/> where it notes a committed-copy resume
         /// for the row rule: records on <paramref name="facts"/> the Re-Fly forks
         /// (<see cref="CollectAbandonedReFlyForkIds"/>) the resume prunes, against the same loaded
-        /// marker and attempt set the row rule uses (<see cref="ResolveResumedReFlyAttemptIds(RecordingTree, string, ReFlySessionMarker, out string)"/>).
+        /// marker and attempt set the row rule uses (<see cref="ResolveResumedReFlyAttemptIds(RecordingTree, string, ReFlySessionMarker, HashSet{string}, out string)"/>).
         /// </summary>
         private static void NoteAbandonedReFlyForks(RecordingTree tree, QuicksaveTreeFacts facts)
         {
             if (tree == null || facts == null)
                 return;
             HashSet<string> attemptIds = ResolveResumedReFlyAttemptIds(
-                tree, tree.Id, Instance?.ActiveReFlySessionMarker, out string attemptToken);
+                tree, tree.Id, Instance?.ActiveReFlySessionMarker, facts.BranchPointIds, out string attemptToken);
             HashSet<string> forkIds = CollectAbandonedReFlyForkIds(tree, facts, attemptIds);
             facts.AbandonedReFlyForkIds.Clear();
             facts.AbandonedReFlyForkIds.UnionWith(forkIds);
