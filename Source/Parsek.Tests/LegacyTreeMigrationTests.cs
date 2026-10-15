@@ -113,6 +113,9 @@ namespace Parsek.Tests
         [InlineData(GameActionType.VesselRecovered,      false)]
         // RouteHeld: records that a route's run was held; moves no pool.
         [InlineData(GameActionType.RouteHeld,            false)]
+        // ResourceScanUnlocked (RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED): flips stock scan
+        // state; moves no pool.
+        [InlineData(GameActionType.ResourceScanUnlocked, false)]
         public void IsResourceImpactingAction_Theory(GameActionType type, bool expected)
         {
             Assert.Equal(expected, LedgerOrchestrator.IsResourceImpactingAction(type));

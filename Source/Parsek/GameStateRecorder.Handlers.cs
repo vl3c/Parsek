@@ -1453,6 +1453,60 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: the <see cref="GameStateEventType.ResourceScanCompleted"/> event for one
+        /// newly unlocked body (<paramref name="biomeName"/> null or empty: an orbital
+        /// survey) or biome (a surface scanner). Detail is <c>biome=&lt;name&gt;</c> for a
+        /// biome unlock and empty otherwise. Internal static for direct unit testing.
+        /// </summary>
+        internal static GameStateEvent BuildResourceScanEvent(double ut, string bodyName, string biomeName)
+        {
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.ResourceScanCompleted,
+                key = bodyName ?? "",
+                detail = string.IsNullOrEmpty(biomeName) ? "" : "biome=" + biomeName
+            };
+        }
+
+        /// <summary>
+        /// Called from the Harmony postfixes on <c>ResourceMap.UnlockPlanet</c> /
+        /// <c>UnlockBiome</c> when the call turned a locked body or biome into an unlocked
+        /// one (RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED). Emits
+        /// <see cref="GameStateEventType.ResourceScanCompleted"/>, tagged to the live
+        /// recording like any other flight event, and forwards an ownerless one straight to
+        /// the ledger. Suppressed while the state patcher re-applies committed scans.
+        /// Internal static for testability.
+        /// </summary>
+        internal static void OnResourceScanUnlocked(double ut, string bodyName, string biomeName)
+        {
+            if (IsReplayingActions)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "OnResourceScanUnlocked: suppressed during action replay");
+                return;
+            }
+            if (string.IsNullOrEmpty(bodyName))
+            {
+                ParsekLog.Warn("GameStateRecorder",
+                    "OnResourceScanUnlocked: no body name - skipped");
+                return;
+            }
+
+            var evt = BuildResourceScanEvent(ut, bodyName, biomeName);
+            Emit(ref evt, "ResourceScanCompleted");
+
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: ResourceScanCompleted body='{bodyName}' " +
+                $"biome='{(string.IsNullOrEmpty(biomeName) ? "<whole body>" : biomeName)}' " +
+                $"ut={ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"recordingId='{evt.recordingId ?? ""}'");
+
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
+                LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>
         /// Pure: builds the semicolon-separated detail string for a StrategyActivated
         /// event. Format:
         /// <c>title=&lt;t&gt;;dept=&lt;d&gt;;factor=&lt;f&gt;;source=&lt;src&gt;;target=&lt;tgt&gt;;setupFunds=&lt;sf&gt;;setupSci=&lt;ss&gt;;setupRep=&lt;sr&gt;</c>.

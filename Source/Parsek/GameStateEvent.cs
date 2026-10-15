@@ -35,7 +35,15 @@ namespace Parsek
         /// loading a save with this row WARNs and drops it, which costs the XP re-assert on
         /// that build and nothing else.
         /// </summary>
-        ExperienceGained = 22
+        ExperienceGained = 22,
+
+        /// <summary>
+        /// A resource scan unlocked a body (orbital survey) or one biome (surface scanner) in
+        /// stock's <c>ResourceMap</c>. <c>key</c> is the body name; <c>detail</c> carries
+        /// <c>biome=&lt;name&gt;</c> for a biome unlock and is empty for a whole-body survey.
+        /// Explicitly numbered and append-only, like <see cref="ExperienceGained"/>.
+        /// </summary>
+        ResourceScanCompleted = 23
     }
 
     public struct GameStateEvent
@@ -326,6 +334,8 @@ namespace Parsek
                 case GameStateEventType.StrategyActivated:
                 case GameStateEventType.StrategyDeactivated:
                     return "Strategy";
+                case GameStateEventType.ResourceScanCompleted:
+                    return "Scan";
                 default:
                     return "Event";
             }
@@ -417,6 +427,13 @@ namespace Parsek
                 {
                     string title = ExtractDetailField(detail, "title");
                     return title != null ? $"\"{title}\" deactivated" : $"\"{key}\" deactivated";
+                }
+                case GameStateEventType.ResourceScanCompleted:
+                {
+                    string biome = ExtractDetailField(detail, "biome");
+                    return string.IsNullOrEmpty(biome)
+                        ? $"Resource scan: {key}"
+                        : $"Resource scan: {key} ({biome})";
                 }
                 default:
                     return key;

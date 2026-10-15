@@ -1485,6 +1485,10 @@ namespace Parsek
                 // delivered twice collapses to one, two owning trees keep both.
                 case GameActionType.VesselRecovered:
                     return a.RecordingId ?? "";
+                // ResourceScanUnlocked: per (body, biome). The default "" would collapse
+                // two bodies or two biomes unlocked at the same UT into one row.
+                case GameActionType.ResourceScanUnlocked:
+                    return (a.ScanBodyName ?? "") + "|" + (a.ScanBiomeName ?? "");
                 default: return "";
             }
         }

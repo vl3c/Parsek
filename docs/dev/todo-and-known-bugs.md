@@ -1943,14 +1943,21 @@ empty manifest rather than refusing the route.
 
 ---
 
-## RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED: orbital survey results are not recorded or ledgered, so a rewind does not re-apply a committed future scan [FILED 2026-10-06 from the coverage-extension research and the owner ruling, branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED: orbital survey results are not recorded or ledgered, so a rewind does not re-apply a committed future scan~~ [FILED 2026-10-06 from the coverage-extension research and the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `claude/harvest-cap-scan-ledger-oo5vxg` (xUnit); the mining-lane step not flown]
 
 Nothing in `Source/Parsek` references `ResourceScenario` or the scanner modules. Owner ruling
 2026-10-06: treat a scan like other committed career progress - recorded, ledgered, and re-applied
 when the clock reaches it after a rewind.
 
-Fix: capture the scan-completed event as a game-state event / ledger action and patch the
-ResourceScenario state on recalculation; xUnit for the action and the patch; a mining-lane step.
+Fix: Harmony prefix / postfix pairs on `ResourceMap.UnlockPlanet` / `UnlockBiome`
+(`Patches/ResourceScanCapturePatch.cs`; decompiled callers: `ModuleOrbitalSurveyor.CompleteSurvey`,
+`ModuleBiomeScanner.RunAnalysis`, the Making History editor) emit a `ResourceScanCompleted` event
+(23) on each locked-to-unlocked transition, suppressed during replay; it converts to a
+non-economic `ResourceScanUnlocked` action (37, `scanBody` / `scanBiome`, dedup key body|biome).
+`KspStatePatcher.PatchResourceScans` unlocks every effective row at or before the part-purchase
+cutoff (clamped to the live clock), add-only; a superseded flight's row is tombstoned and never
+strict-blocks. xUnit: `ResourceScanLedgerTests`. Open: the mining-lane step (needs the MINE-1
+fixture forge; no committed fixture carries a scanner).
 
 ---
 
