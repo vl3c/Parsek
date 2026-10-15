@@ -1,0 +1,207 @@
+schema = 1
+id = "QL-5d-retry-refly-after-quickload"
+# =====================================================================================
+# QL-5d: AN F5 / F9 INSIDE A RE-FLY, THEN ESC, THEN RETRY FROM REWIND POINT: THE RETRIED
+# RE-FLY STARTS WITH THE FLIGHT'S TREE STILL COMMITTED. QL-5c's flight with the attempt
+# ended by Retry instead of Discard; the live proof of two 2026-10-15 fixes (PR
+# #2117), both in MergeDialog.RepairSessionBeforeRetry, which
+# RevertInterceptor.RetryHandler now calls after it clears the marker and before the
+# re-invoke captures the reconciliation bundle:
+#   - RETRY-AFTER-A-QUICKLOAD-DURING-REFLY-DROPS-THE-TREES-LATER-HISTORY: the F9 detaches the
+#     committed copy of the session's tree (TryRestoreActiveTreeNode), the bundle carries
+#     committed trees only, so the retried Re-Fly started with the flight held by nothing but
+#     the rewind point's copy of the tree. Now a sanitized deep copy of the session's tree goes
+#     back committed first (`treeState=detached-restored-copy restoredCommittedTree=true`), the
+#     ordinary session's shape.
+#   - RETRY-OF-A-RESUMED-MERGED-REFLY-LEAVES-A-ONE-SIDED-ROW: the same call prunes the rows a
+#     resumed attempt's first merge wrote. This lane's session never merges, so the prune reads
+#     `stagedRowsPruned=0` here (a merged-then-resumed session needs a merge before the F5, which
+#     no B9 verb chain gives without a second flight; the headless cells
+#     `InSessionStagedListsCarryTests.RetryOfResumedMergedSession_*` hold that half).
+#
+# In gameplay terms: the player re-flies the crashed booster of the B9 split, flies on for a
+# minute, presses F5, then F9, changes their mind, and picks Retry from Rewind Point in the
+# Esc menu's revert dialog. The retried Re-Fly must start on the same flight: the booster's
+# tree (root ascent plus both stages after the split) still in the timeline. They then leave
+# through Discard Re-Fly and the booster is still listed under STASH.
+#
+# THE ROUTE: QL-5c's host and verbs, with `ReFlyRevert choice=retry` (VN-9's verb, its first
+# flight) in place of the discard, then VN-9's exit (`ReFlyRevert choice=discard`).
+#   - THE FLY-ON IS 70 s, NOT QL-5c's 30. RetryHandler refuses a retry while the rewind point
+#     is in the future of the live clock (`RewindInvoker.IsRewindPointInFutureNow`, checked
+#     before the session is torn down), and this host's injected rewind-point quicksave sits
+#     at the template's UT (21.16, measured by QL-5c) while rp_b9_root's UT is 81.16. 30 s
+#     would leave the clock at ~51 and the retry refused (`RetryHandler: rp=... is in the
+#     future`, forbidden below). TimeJump is an epoch shift (frozen relative positions), so
+#     the longer jump costs no wall time and moves nothing. `deltaSeconds` rather than an
+#     absolute `ut`: it also clears 81.16 if the invoke ever lands at the rewind point's UT.
+#   - `RecordingState awaitRecorderLive=refly` after the retry waits for the retried session's
+#     recorder, as VN-9 does.
+#   - `ListHandles kind=committed` in the retried session is THE READOUT of the tree's later
+#     history: the template carries no recordings and the injector writes only the B9 tree
+#     (3 recordings), so before the fix the committed list was empty after the retry
+#     (`count=0`) and after it the bundle restored the copy (`count>=3`).
+#
+# THE GATES (each names the defect):
+#   - The premise, ORDERED between the F9 and the retry:
+#     `TryRestoreActiveTreeNode: removed committed tree` after `loadgame start ... name=quicksave`.
+#     (Every Re-Fly start logs the same detach, then the bundle restore puts the copy back, so an
+#     unordered token would be satisfied by the first InvokeRewind alone.)
+#   - `RestoreSanitizedPendingTreeIfDetached: restored committed tree ... recordings=N` and
+#     `RepairSessionBeforeRetry callSite=RetryHandler ... treeState=detached-restored-copy
+#     attemptIds=N stagedRowsPruned=0 restoredCommittedTree=true`, between
+#     `End reason=retry` and the retried StartInvoke: the fix ran, in RetryHandler's order.
+#   - The retried bundle captured a tree (`Captured: recs=N trees=N`, N >= 1 after the retry's
+#     StartInvoke): before the fix it read `trees=0` on this host.
+#   - The retried Re-Fly started (StartInvoke, `Invocation complete`, `Load classified:
+#     early=ReFlyStart`, the completion line with a new live marker) and its recorder is live.
+#   - `listhandles kind=committed count=(>=3)` in the retried session: the later history stayed.
+#   - The exit: the retried session is ordinary (`RestoreDetachedTreeAfterEscDiscard ... still
+#     committed - nothing to restore`, `restoredDetachedTree=false`; before the fix the exit
+#     discard had to restore the tree itself, `restoredDetachedTree=true`, forbidden here), and
+#     the completion line's `rpKept=true slotListed=true marker=none` (QL-5c's).
+#
+# PRE-REGISTERED RED READINGS:
+#   - `RetryHandler: rp=rp_b9_root ut=81.16 is in the future of nowUT=...`: the invoke landed
+#     later than 21.16 + the jump fell short; re-measure the clock and raise the jump.
+#   - `reflyrevert rejected reason=reflyrevert-dialog-not-shown` / `reflyrevert-revert-unavailable`
+#     after the F9: QL-5c's reading (the Esc revert not routed after a reloaded flight).
+#   - `treeState=still-committed`: the F9 did not detach (premise miss, cf. the ordered premise).
+#   - `treeState=detached-not-restored` or the `has no recordings after Re-Fly attempt pruning`
+#     Warn: the sanitized copy was refused; a product finding.
+#   - `attemptIds=0`: the attempt's provisional was not found in the live tree, so the copy may
+#     carry it; read the restored line's `prunedAttemptRecordings`.
+#   - `recordings=` on the restored line other than 3 (B9's root, upper and booster): predicted
+#     exactly 3; pinned `>= 3` so a debris child the attempt shed and the prune missed reads as a
+#     finding in the reading, not a hidden pass.
+#   - `stagedRowsPruned=` nonzero: this session wrote no rows (rows are written at merge only).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse a flight - not applicable: QL-5c's flight
+# is not a prefix of this one (both branch at the ReFlyRevert answer, and QL-5c's discard gates
+# the detached state this lane's retry repairs first), and VN-9 flies a different host;
+# (2) no idle waits - the only game-time moves are TimeJump epoch shifts; (3) no dwell keys;
+# (4)/(5) no burns, no coasts; (6) `[retry] policy = "once"` as QL-5c (the revert dialog is
+# UI-driven); (7) windows: `rewindPoints min 1` (report-only), re-pin after the first flight;
+# (8) tier nightly by QL-5c's measured wall (~3 min) plus one Re-Fly reload; (9) run
+# flight_efficiency.py on the first green flight.
+#
+# STATUS: LIVE-PROVEN 2026-10-15, `2026-10-15_2216` PASS attempt 1 on its first flight (PR #2117).
+# No RunTests step, so no batch pin. Every token is quoted from its emitting source line: RevertInterceptor.RetryHandler /
+# DiscardReFlyHandler, MergeDialog.RepairSessionBeforeRetry /
+# RestoreSanitizedPendingTreeIfDetached / RestoreDetachedTreeAfterEscDiscard,
+# RewindInvoker.StartInvoke, ReconciliationBundle.Capture, LoadReconcilePolicy
+# .FormatClassificationLine, RecordingStore.RemoveCommittedTreeById, TestCommandReFlyRevert
+# .FormatCompleteLine, ParsekTestCommandAddon.ListHandlesImpl / LoadGameImpl, and QL-5c's.
+# =====================================================================================
+tier = "nightly"
+description = "QL-5d: re-fly the crashed booster of the B9 split, fly 70 s, quicksave and quickload inside the session, then Esc, Revert Flight, Revert to Launch and Retry from Rewind Point. RetryHandler puts a sanitized copy of the tree the quickload detached back committed before the re-invoke, so the retried Re-Fly starts with the flight's whole tree in the timeline; Discard Re-Fly then exits with the booster still listed under STASH."
+instanceProfile = "stock-minimal"
+tags = ["QL-5d", "QL-5c", "QL-5", "TA-1", "timeline-ops", "rewind", "refly", "refly-retry",
+        "discard-refly", "quickload", "revert-dialog", "D9", "scene-ksc", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "rewind-b9"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },        expect = "OK", budget = 240 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },    expect = "OK" },
+  # LOAD-BEARING: the "still committed - nothing to restore" exit line is Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },         expect = "OK" },
+  # rp_b9_root sits 60 s after the template's UT; S4.1's gate step.
+  { cmd = "TimeJump",       args = { deltaSeconds = "61.0" },                           expect = "OK", budget = 120 },
+  { cmd = "InvokeRewind",   args = { rp = "rp_b9_root", slot = "1" },                   expect = "OK", budget = 300 },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                     expect = "OK" },
+  # Fly on past the rewind point's UT (81.16) so the Retry's future-RP gate admits it.
+  { cmd = "TimeJump",       args = { deltaSeconds = "70.0" },                           expect = "OK", budget = 120 },
+  # F5, then F9 (S4.4's / QL-5c's pair).
+  { cmd = "SaveGame",       args = { name = "quicksave" },                              expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave", allowLiveRecorder = "refly" }, expect = "OK", budget = 300 },
+  # THE CHECK: Esc > Revert Flight > Revert to Launch > Retry from Rewind Point.
+  { cmd = "ReFlyRevert",    args = { choice = "retry", target = "launch" },             expect = "OK", budget = 300 },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                     expect = "OK", budget = 120 },
+  # THE READOUT: the committed recordings in the retried session (the B9 tree's 3).
+  { cmd = "ListHandles",    args = { kind = "committed" },                              expect = "OK" },
+  # Exit (VN-9's): Discard Re-Fly from the retried session.
+  { cmd = "ReFlyRevert",    args = { choice = "discard", target = "launch" },           expect = "OK", budget = 300 },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" },                           expect = "OK" },
+  { cmd = "RecordingState",                                                             expect = "OK" },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rewind-to-separation", "revert-during-refly-dialog", "unfinished-flights-stash"]
+D14 = ["scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1 }
+
+[expectations.logContracts]
+required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
+             "loadgame start save=\\S+ name=quicksave .*allowLiveRecorder=refly recorderLive=true",
+             # The premise, ordered: the F9 detached the committed copy, before the retry.
+             "loadgame start save=\\S+ name=quicksave [^\\r\\n]*[\\s\\S]*TryRestoreActiveTreeNode: removed committed tree '[^']*' \\(id=\\S+, [1-9][0-9]* recording\\(s\\)\\)[\\s\\S]*reflyrevert start choice=retry",
+             "reflyrevert start choice=retry target=launch sess=\\S+ rp=rp_b9_root slot=b9-booster-a",
+             "Prefix: blocking stock RevertToLaunch sess=\\S+ target=Launch",
+             "reflyrevert pressed dialog button='Retry from Rewind Point' choice=retry",
+             "End reason=retry sess=\\S+ rp=rp_b9_root slot=1 target=Launch",
+             # THE FIX (MergeDialog.RepairSessionBeforeRetry), in RetryHandler's order.
+             "End reason=retry sess=\\S+ rp=rp_b9_root[\\s\\S]*RestoreSanitizedPendingTreeIfDetached: restored committed tree tree=\\S+ recordings=(?:[3-9]|[1-9][0-9]+) prunedAttemptRecordings=[1-9][0-9]* [\\s\\S]*RepairSessionBeforeRetry callSite=RetryHandler sess=\\S+ tree=\\S+ treeState=detached-restored-copy attemptIds=[1-9][0-9]* stagedRowsPruned=0 restoredCommittedTree=true[\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_b9_root slot=1\\.",
+             # The retried bundle carried the restored tree (trees=0 before the fix on this host).
+             "End reason=retry sess=\\S+ rp=rp_b9_root[\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_b9_root slot=1\\.[\\s\\S]*Captured: recs=[1-9][0-9]* trees=[1-9][0-9]* ",
+             "End reason=retry sess=\\S+ rp=rp_b9_root[\\s\\S]*Load classified: early=ReFlyStart refined=ReFlyStart scene=FLIGHT [^\\r\\n]*reFlyInvoke=true",
+             "End reason=retry sess=\\S+ rp=rp_b9_root[\\s\\S]*Invocation complete: sess=\\S+ rp=rp_b9_root slot=1 activePid=[0-9]+",
+             "reflyrevert complete choice=retry target=launch scene=FLIGHT sess=\\S+ rp=rp_b9_root rpKept=true slot=b9-booster-a slotListed=(?:true|false) unfinishedFlights=[0-9]+ marker=sess_[0-9a-f]{32} ",
+             # THE READOUT: the tree's later history is still committed in the retried session.
+             "reflyrevert complete choice=retry[\\s\\S]*listhandles kind=committed count=(?:[3-9]|[1-9][0-9]+) truncated=false",
+             # The exit: the retried session has the ordinary shape.
+             "reflyrevert pressed dialog button='Discard Re-Fly' choice=discard",
+             "DiscardReFly: rewind point game written to persistent.sfs rp=rp_b9_root",
+             "RestoreDetachedTreeAfterEscDiscard callSite=DiscardReFlyHandler: tree=\\S+ still committed - nothing to restore",
+             "End reason=discardReFly sess=\\S+ target=Launch facility=-- dispatched=true persistentWritten=true restoredDetachedTree=false",
+             "DiscardReFly load intent consumed at ParsekScenario.OnLoad: target=Launch sess=\\S+ scene=SPACECENTER rpSaveUT=\\S+ loadedUT=\\S+ landedAtRewindPoint=true",
+             "Load classified: early=DiscardReFly refined=DiscardReFly scene=SPACECENTER [^\\r\\n]*discardReFly=Launch handoff=present",
+             "reflyrevert complete choice=discard target=launch scene=SPACECENTER sess=\\S+ rp=rp_b9_root rpKept=true slot=b9-booster-a slotListed=true unfinishedFlights=[1-9][0-9]* marker=none"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "reflyrevert rejected",
+             "reflyrevert error",
+             "RetryHandler: (?:cannot resolve|rp=\\S+ ut=\\S+ is in the future)",
+             "RepairSessionBeforeRetry callSite=RetryHandler(?::| [^\\r\\n]*treeState=(?:no-tree|still-committed|detached-not-restored))",
+             "has no recordings after Re-Fly attempt pruning",
+             # Before the fix the exit discard found the tree detached and restored it itself.
+             "RestoreDetachedTreeAfterEscDiscard callSite=DiscardReFlyHandler: tree=\\S+ detached restored=",
+             "restoredDetachedTree=true",
+             "In-session load found no staged-list handoff",
+             "DiscardReFly load intent dropped as stale",
+             "landedAtRewindPoint=false",
+             "writing the rewind point game to persistent.sfs",
+             "Reaped rp=rp_b9_root",
+             "Purged rp=rp_b9_root",
+             "Deleted rewind quicksave rp=rp_b9_root"]
+
+[expectations.rewind]
+gating        = false
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+rewindPoints  = { min = 1 }
+
+[runtime]
+# run.py waits max(step_budget, 600) + 60 per DEFERRED verb and the step budget (or the
+# verb's dispatch budget + margin) for the rest:
+#   LoadGame 660, SetSetting 60 x2, TimeJump 660, InvokeRewind 660, RecordingState 60,
+#   TimeJump 660, SaveGame 120, LoadGame 660, ReFlyRevert 660, RecordingState 120,
+#   ListHandles 60, ReFlyRevert 660, ListHandles 60, RecordingState 60, FlushAndQuit 60
+#   -> 5280; +120 margin = 5400. Expected wall about 4 minutes (QL-5c ~3 plus one reload).
+budgetSeconds = 5400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

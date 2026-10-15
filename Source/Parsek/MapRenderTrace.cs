@@ -160,6 +160,16 @@ namespace Parsek
         internal const int FloatingOriginSuppressionFrameWindow = 1;
 
         /// <summary>
+        /// Time-jump settle window (frames) for the <c>icon-off-orbit</c> check. A jump sets the
+        /// clock mid-frame, but body rotation and <c>Planetarium.Zup</c> only catch up on the next
+        /// <c>Planetarium.FixedUpdate</c>, so icons placed before the jump, icons created after it,
+        /// and the probe's own orbit read can sit in different body frames until then (an offset of
+        /// the inverse-rotation body's spin over the jump). Skip the jump frame plus this many
+        /// frames of slack; a real off-orbit icon persists and is reported on the frame after.
+        /// </summary>
+        internal const int TimeJumpSettleFrameWindow = 1;
+
+        /// <summary>
         /// Window (frames) within which a <c>line.active</c> toggle out and
         /// back counts as a blink. A renderer that legitimately turns its line
         /// off and leaves it off for many frames is not a blink; a 1-frame
@@ -866,6 +876,34 @@ namespace Parsek
             if (ovr != null)
                 return ovr();
             return ReFlySettleStabilityTracker.LastFloatingOriginShiftFrame;
+        }
+
+        /// <summary>
+        /// The frame of the last time-jump clock set; production reads
+        /// <see cref="TimeJumpManager.LastClockSetFrame"/>, xUnit overrides via
+        /// <see cref="TimeJumpFrameOverrideForTesting"/>.
+        /// </summary>
+        internal static System.Func<int> TimeJumpFrameOverrideForTesting;
+
+        internal static int LastTimeJumpFrame()
+        {
+            var ovr = TimeJumpFrameOverrideForTesting;
+            if (ovr != null)
+                return ovr();
+            return TimeJumpManager.LastClockSetFrame;
+        }
+
+        /// <summary>
+        /// Pure: is <paramref name="currentFrame"/> inside the settle window of the time jump that
+        /// set the clock on <paramref name="lastTimeJumpFrame"/>
+        /// (see <see cref="TimeJumpSettleFrameWindow"/>)? int.MinValue means no jump yet.
+        /// </summary>
+        internal static bool IsTimeJumpSettleFrame(int currentFrame, int lastTimeJumpFrame)
+        {
+            if (lastTimeJumpFrame == int.MinValue)
+                return false;
+            return currentFrame >= lastTimeJumpFrame
+                && currentFrame - lastTimeJumpFrame <= TimeJumpSettleFrameWindow;
         }
 
         /// <summary>

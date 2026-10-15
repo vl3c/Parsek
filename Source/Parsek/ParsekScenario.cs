@@ -6348,7 +6348,12 @@ namespace Parsek
                     : PendingTreeState.Limbo;
                 RecordingStore.StashPendingTree(tree, stashState);
                 if (committedCopyDetached && resumeDetachedCopyIds != null)
+                {
                     NoteQuickloadResumeDetach(tree, resumeDetachedCopyIds);
+                    // The rows naming this tree follow the save (step B), so the Re-Fly forks the
+                    // splice brought in from after the save go at the resume.
+                    NoteAbandonedReFlyForks(tree, lastRestoredQuicksaveTreeFacts);
+                }
 
                 // Read resume hints for the restore coroutine (rewind save filename only).
                 pendingActiveTreeResumeRewindSave = treeNodes[t].GetValue("resumeRewindSave");

@@ -39,6 +39,18 @@ _(unreleased - entries accumulate here per commit)_
   a rewind, loading into the Tracking Station no longer applies spending and rewards the timeline
   has not reached yet, or throws them away for good on a fresh load; they now arrive when the
   clock reaches them, also while warping there. (TRACKING-STATION-LEDGER-CUTOFF-ALIGN)
+- **Quickloading before a later Re-Fly no longer shows both versions of the flight.** Loading a
+  save made before you re-flew and merged part of that flight could keep the re-flown piece
+  next to the original. The quickload now drops the re-flown piece, as the save had it.
+  (QUICKLOAD-KEEPS-POST-SAVE-REFLY-FORKS-WHOSE-ROWS-FOLLOW-THE-SAVE)
+- **Retry after a quickload inside a Re-Fly keeps the whole flight.** Choosing Retry after an F9
+  during a Re-Fly could drop everything the flight recorded after the separation, and after a
+  merged attempt could leave the original hidden and its crew loss uncounted.
+  (RETRY-OF-A-RESUMED-MERGED-REFLY-LEAVES-A-ONE-SIDED-ROW)
+- **Quickloads keep finished history and undo later endings.** A quickload could cut short a
+  committed recording that was still playing at the save's moment, and kept a vessel's later
+  recovery (and its payout) although the quickload put that vessel back in the world.
+  (QUICKLOAD-ENDED-MEMBER-RESTAMPED-AFTER-THE-SAVE-KEEPS-ITS-FUTURE)
 - **Rewards earned right after a Re-Fly starts now belong to that attempt.** A reward earned in
   the first moments of a Re-Fly, before Parsek starts recording it, is kept when you merge the
   attempt and removed when you discard it, like the rest of the attempt's rewards. Before, it
