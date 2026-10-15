@@ -94,9 +94,15 @@ namespace Parsek
                 return false;
             }
 
+            // Take the ProtoVessel out of the flight state too. In FLIGHT that list is the
+            // scene's load-time copy and Die() leaves it alone, so the despawned vessel would
+            // still read as present to the chain-tip source adoption (ProtoVesselExists),
+            // which then adopts a dead vessel instead of spawning the tip.
+            var flightState = HighLogic.CurrentGame != null ? HighLogic.CurrentGame.flightState : null;
             return GhostResolvedVessel(
                 vesselPid, vesselName, snapshot,
-                new LiveClaimedVesselRemovalTarget(vessel, vessel.protoVessel, null));
+                new LiveClaimedVesselRemovalTarget(
+                    vessel, vessel.protoVessel, flightState != null ? flightState.protoVessels : null));
         }
 
         private bool GhostResolvedVessel(

@@ -3471,7 +3471,19 @@ members and their adoption holders from its match set (`ForeignInventoryTransfer
 / `ExcludeForeignAdoptions`). Cells in `ForeignAdoptionRewindStripTests` (the EVA-11 shape through
 `PreProcessRewindSave`, controls without the member ids and with a tree-born member, the
 no-whitelist OnLoad fallback, an earlier tree that spawned the same pid both ways). EVA-11's
-`WarpToUT` is now `ut=45` (member EndUT 34.96 + 10 s). Re-flight owed.
+`WarpToUT` is now `ut=45` (member EndUT 34.96 + 10 s).
+
+**Re-flight 2026-10-15_2326 PARSEK-FAIL on one token, the rewind fix proven.** `leave spawned
+pid=1871615455`, `foreignAdoptedPids=1`, `OnLoad strip: 2 recording(s) ... left out`, `Vessel
+ghosted: pid=1871615455`, and the produced save holds the rover LANDED with 15 parts. But the tip
+never logged `Chain tip spawn: ... parts=`: `SpawnAtChainTip` adopted the despawned rover (`source
+vessel pid=1871615455 already exists - adopting instead of spawning duplicate`), spawn-death fired,
+and `ChainTipStaleVessel` replaced it from the tip snapshot. Cause: `VesselGhoster.GhostLiveVessel`
+removed the claimed vessel with no flight-state list, and in FLIGHT `Vessel.Die()` (decompiled
+1.12.5) leaves the scene's load-time `flightState.protoVessels` entry in place, so
+`VesselSpawner.ProtoVesselExists` still found it. Fix: the ghoster passes
+`HighLogic.CurrentGame.flightState.protoVessels`, as `ChainTipStaleVessel`'s removal already does;
+any background-event chain whose tip flies the claimed pid took the same detour. Re-flight owed.
 
 ---
 
