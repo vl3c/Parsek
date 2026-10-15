@@ -85,8 +85,8 @@ id = "QL-5d-retry-refly-after-quickload"
 # (8) tier nightly by QL-5c's measured wall (~3 min) plus one Re-Fly reload; (9) run
 # flight_efficiency.py on the first green flight.
 #
-# STATUS: AUTHORED 2026-10-15 on branch `qlr-lanes`, NEVER FLOWN. No RunTests step, so no batch
-# pin. Every token is quoted from its emitting source line: RevertInterceptor.RetryHandler /
+# STATUS: LIVE-PROVEN 2026-10-15, `2026-10-15_2216` PASS attempt 1 on its first flight (PR #2117).
+# No RunTests step, so no batch pin. Every token is quoted from its emitting source line: RevertInterceptor.RetryHandler /
 # DiscardReFlyHandler, MergeDialog.RepairSessionBeforeRetry /
 # RestoreSanitizedPendingTreeIfDetached / RestoreDetachedTreeAfterEscDiscard,
 # RewindInvoker.StartInvoke, ReconciliationBundle.Capture, LoadReconcilePolicy

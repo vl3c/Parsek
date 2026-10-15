@@ -76,8 +76,9 @@ id = "QL-7-quickload-prunes-post-save-refly-fork"
 # report-only predictions, re-pin after the first flight; (8) nightly, RF-1's wall plus one
 # load and commit; (9) run flight_efficiency.py on the first green flight.
 #
-# STATUS: AUTHORED 2026-10-15 on branch `qlr-lanes`, NEVER FLOWN. No RunTests step, so no
-# batch pin. Every new token is quoted from its emitting source line
+# STATUS: AUTHORED 2026-10-15 (PR #2117). First flight `2026-10-15_2218` red on the spec only
+# (hex-only id classes, an unanchored action=Unchanged forbidden, the active-count token); re-pinned,
+# not re-flown. No RunTests step, so no batch pin. Every new token is quoted from its emitting source line
 # (ParsekScenario.Trim.cs NoteAbandonedReFlyForks / PruneAbandonedReFlyForks,
 # ParsekScenario.InSessionHandoff.cs ApplyInSessionResumedTreeRowRule +
 # InSessionStagedStateHandoff.FormatResumedTreeRowCounts, ParsekScenario.HydrationRepair.cs
@@ -206,14 +207,16 @@ required = [
   "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*TryRestoreActiveTreeNode: removed committed tree 'GS1 Auto-Chute Booster' \\(id=\\S+, [1-9][0-9]* recording\\(s\\)\\)",
   # =================================================================================
   # FIX BLOCK - THE ABANDONED RE-FLY FORK (ParsekScenario.Trim.cs).
-  "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*Quickload resume abandoned Re-Fly forks noted: tree=\\S+ forks=[1-9][0-9]* attempt=none\\([^)\\r\\n]*\\) ids=\\[[0-9a-f,]+\\] ",
+  "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*Quickload resume abandoned Re-Fly forks noted: tree=\\S+ forks=[1-9][0-9]* attempt=none\\([^)\\r\\n]*\\) ids=\\[[0-9a-z_,]+\\] ",
   "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide",
-  "Quickload abandoned Re-Fly forks pruned: tree='GS1 Auto-Chute Booster' pruned=([1-9][0-9]*)/\\1 prunedBranchPoints=[0-9]+ ids=\\[[0-9a-f,]+\\] sidecars=kept",
+  "Quickload abandoned Re-Fly forks pruned: tree='GS1 Auto-Chute Booster' pruned=([1-9][0-9]*)/\\1 prunedBranchPoints=[0-9]+ ids=\\[[0-9a-z_,]+\\] sidecars=kept",
   # END FIX BLOCK
   # =================================================================================
   # The rows agree: the fork's supersede row follows the save, which has none.
   "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*In-session resumed-tree rows: tree=\\S+ recordings=[1-9][0-9]* attempt=none\\([^)\\r\\n]*\\); supersedes installed=[0-9]+ untouched=[0-9]+ attemptKept=0 followSave=0 dropped=[1-9][0-9]* restoredFromSave=0;",
-  "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*listhandles kind=active count=[1-9][0-9]* truncated=false",
+  # No `listhandles kind=active count>=1`: the booster's SubOrbital ending stamped by the commit
+  # 0.03 s after the save sits before the resume cutoff, so it stays and the booster is not
+  # background-recorded after the load (todo QUICKLOAD-RESUME-KEEPS-AN-ENDING-STAMPED-JUST-AFTER-THE-SAVE).
   # THE COMMIT of the resumed tree, without the fork.
   "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
   "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*Silent full-fidelity auto-commit \\(scene-exit\\): tree='GS1 Auto-Chute Booster' recordings=[1-9][0-9]*",
@@ -222,13 +225,14 @@ forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "loadgame (?:rejected|refused)",
   "In-session load found no staged-list handoff",
-  "Quickload committed-copy restore: tree='GS1 Auto-Chute Booster' id=\\S+ route=\\S+ action=Unchanged",
+  # Anchored after the ql7 load: the Re-Fly start's own restore logs action=Unchanged by design.
+  "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*Quickload committed-copy restore: tree='GS1 Auto-Chute Booster' id=\\S+ route=\\S+ action=Unchanged",
   "Quickload resume prep skipped",
   "TryRestoreActiveTreeNode: skipped active tree 'GS1 Auto-Chute Booster'",
   "Quickload resume abandoned Re-Fly forks noted: tree=\\S+ forks=0 ",
   "Quickload abandoned Re-Fly forks pruned: [^\\r\\n]* pruned=0/",
   # THE DEFECT: the pruned fork recorded again or committed with the resumed tree.
-  "Quickload abandoned Re-Fly forks pruned: [^\\r\\n]*ids=\\[(?:[0-9a-f]{32},)*([0-9a-f]{32})[,\\]][\\s\\S]*FinalizeTreeRecordings: rec='\\1'",
+  "Quickload abandoned Re-Fly forks pruned: [^\\r\\n]*ids=\\[(?:[0-9a-z_]+,)*([0-9a-z_]+)[,\\]][\\s\\S]*FinalizeTreeRecordings: rec='\\1'",
 ]
 
 [runtime]

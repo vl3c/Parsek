@@ -2512,7 +2512,7 @@ the point.
 
 ---
 
-## ~~QUICKLOAD-KEEPS-POST-SAVE-REFLY-FORKS-WHOSE-ROWS-FOLLOW-THE-SAVE: a quickload into a flight re-flown since the save keeps the re-flown recording while its rows follow the save~~ [FILED 2026-10-07 from the in-session carry review, PR #2038; pre-existing on main, traced by code read, the second case reproduced by the reviewer's probe. REPRODUCED headless and FIXED 2026-10-15, branch `qlr-forks`]
+## ~~QUICKLOAD-KEEPS-POST-SAVE-REFLY-FORKS-WHOSE-ROWS-FOLLOW-THE-SAVE: a quickload into a flight re-flown since the save keeps the re-flown recording while its rows follow the save~~ [FILED 2026-10-07 from the in-session carry review, PR #2038; pre-existing on main, traced by code read, the second case reproduced by the reviewer's probe. REPRODUCED headless and FIXED 2026-10-15, PR #2117]
 
 An F9 into a save of a flight that was committed, then re-flown and merged after the save, resumes
 the save's tree through the committed-copy restore (`ResumeFromQuicksave`):
@@ -2631,7 +2631,7 @@ and no branch point in the restored tree; the point must be gone after the load.
 
 ---
 
-## ~~RETRY-OF-A-RESUMED-MERGED-REFLY-LEAVES-A-ONE-SIDED-ROW: Retry on a Re-Fly session a quickload resumed after its merge keeps the first merge's rows~~ [FILED 2026-10-06 from the in-session carry (owner ruling OQ-1), PR #2038; verified by code read, not reproduced. REPRODUCED headless and FIXED 2026-10-15, branch `qlr-retry`]
+## ~~RETRY-OF-A-RESUMED-MERGED-REFLY-LEAVES-A-ONE-SIDED-ROW: Retry on a Re-Fly session a quickload resumed after its merge keeps the first merge's rows~~ [FILED 2026-10-06 from the in-session carry (owner ruling OQ-1), PR #2038; verified by code read, not reproduced. REPRODUCED headless and FIXED 2026-10-15, PR #2117]
 
 OQ-1's discard prune (`MergeDialog.PruneStagedRowsNamingAttempt`) runs from the two Re-Fly
 discard helpers. `RevertInterceptor.RetryHandler` does not prune the attempt (the sweep reaps the
@@ -2672,7 +2672,7 @@ it reads `stagedRowsPruned=0` and the row half stays proven headless only.
 
 ---
 
-## ~~RETRY-AFTER-A-QUICKLOAD-DURING-REFLY-DROPS-THE-TREES-LATER-HISTORY: Retry after an F9 during a Re-Fly leaves only the rewind point's copy of the flight's tree~~ [FOUND 2026-10-15 while tracing RETRY-OF-A-RESUMED-MERGED-REFLY-LEAVES-A-ONE-SIDED-ROW; REPRODUCED headless and FIXED the same day, branch `qlr-retry`]
+## ~~RETRY-AFTER-A-QUICKLOAD-DURING-REFLY-DROPS-THE-TREES-LATER-HISTORY: Retry after an F9 during a Re-Fly leaves only the rewind point's copy of the flight's tree~~ [FOUND 2026-10-15 while tracing RETRY-OF-A-RESUMED-MERGED-REFLY-LEAVES-A-ONE-SIDED-ROW; REPRODUCED headless and FIXED the same day, PR #2117]
 
 The sibling of ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE: an F9 during any Re-Fly
 session (merged since or not) detaches the committed copy of the session's tree, so the live tree
@@ -2713,7 +2713,7 @@ no explicit end, trimmed at 200, `EndUT` stays 150.
 
 ---
 
-## ~~QUICKLOAD-TRIM-CUTS-COMMITTED-HISTORY-OF-A-RESUMED-CLONE: the quickload resume trim cuts and prunes committed history when the resumed tree was committed before the quicksave~~ [FILED 2026-10-06 from the PR-C review; the trim behaviour verified by code read, the save shape not known to be reachable. REPRODUCED headless and FIXED 2026-10-15, branch `qlr-trim`; the save shape traced to one narrow route, not flown]
+## ~~QUICKLOAD-TRIM-CUTS-COMMITTED-HISTORY-OF-A-RESUMED-CLONE: the quickload resume trim cuts and prunes committed history when the resumed tree was committed before the quicksave~~ [FILED 2026-10-06 from the PR-C review; the trim behaviour verified by code read, the save shape not known to be reachable. REPRODUCED headless and FIXED 2026-10-15, PR #2117; the save shape traced to one narrow route, not flown]
 
 If a tree committed BEFORE the quicksave were the quicksave's active tree (a copy-on-write restore
 clone: `ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore` deep-clones the committed tree
@@ -2770,7 +2770,7 @@ never hold history past the cutoff.
 
 ---
 
-## ~~QUICKLOAD-ENDED-MEMBER-RESTAMPED-AFTER-THE-SAVE-KEEPS-ITS-FUTURE: a member that had already ended at the quicksave keeps a later restamp of its ending~~ [FILED 2026-10-06 off the PR-C committed-history discriminator, verified by code read. REPRODUCED headless and FIXED 2026-10-15, branch `qlr-trim`; the route traced, not flown]
+## ~~QUICKLOAD-ENDED-MEMBER-RESTAMPED-AFTER-THE-SAVE-KEEPS-ITS-FUTURE: a member that had already ended at the quicksave keeps a later restamp of its ending~~ [FILED 2026-10-06 off the PR-C committed-history discriminator, verified by code read. REPRODUCED headless and FIXED 2026-10-15, PR #2117; the route traced, not flown]
 
 The abandoned-future reconcile leaves alone every member whose quicksaved copy already carries a
 terminal (the conservative half of the committed-history discriminator, so no committed history
@@ -2811,6 +2811,27 @@ untouched ended member stays history. One Info line per restamped member, and
 `restampedAfterQuicksave=` on the reconcile line. Not restored: the vessel snapshot the recovery
 stamp dropped. Cell: `QuickloadResumeTests.IsEndRestampedAfterQuicksave_Table`. Live proof would
 need a QL-4b variant whose booster lands near the KSC before the F5, with `DECLUTTER_KSC = True`.
+
+---
+
+## QUICKLOAD-RESUME-KEEPS-AN-ENDING-STAMPED-JUST-AFTER-THE-SAVE: an ending stamped between the save's clock and the resume cutoff survives the quickload [FILED 2026-10-15 from QL-7's first flight `2026-10-15_2218`, PR #2117. OPEN, product; narrow, pre-existing]
+
+The abandoned-future reconcile clears an end state only when the recording's pre-trim end is after
+the resume cutoff (`ParsekScenario.ShouldClearFutureEndState`: `preTrimEndUT > cutoffUT`), and the
+cutoff is the flight's clock when `FlightRecorder.PrepareQuickloadResumeStateIfNeeded` runs, a few
+frames after the load. An ending stamped after the save's own clock but before that cutoff is kept.
+Measured on QL-7: the in-flight save at 124.32, the Space Center exit 0.03 s later committing the
+airborne booster SubOrbital at about 124.38, the load's `loadedUT=124.32`, cutoff 124.60:
+`endStatesCleared=0`, so the booster kept its SubOrbital terminal, the background map dropped it
+(`RebuildBackgroundMap: entries=1` -> `entries=0`) and it was not recorded in the resumed flight.
+Reaching it in play needs a save and an ending within a fraction of a second of game time.
+
+Fix: to decide - compare against the load's clock (`loadedUT`, already passed to the reconcile and
+checked against the cutoff by its 1 s Warn) instead of the cutoff, or the earlier of the two. Red
+test: `QuickloadAbandonedFutureLedgerTests`, a member stamped SubOrbital at 124.38 with the save at
+124.32 and the resume cutoff at 124.60; after the resume the terminal is cleared and the member is
+back in the background map. QL-7 no longer requires `listhandles kind=active count>=1` because of
+this; restore that token with the fix.
 
 ---
 
