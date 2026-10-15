@@ -42,6 +42,11 @@ _(unreleased - entries accumulate here per commit)_
   of a parked rover's container, or putting one in, now makes that rover part of the flight: after
   a rewind it waits as a ghost and comes back with its new contents, so the part is no longer
   duplicated or lost. (EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED)
+- **Supply routes keep their cargo hold and recovery credit across scene changes and loads.** A
+  multi-stop route that already loaded at one depot keeps the rest of its cargo reserved after a
+  scene change, so another route can no longer take it before the next stop. A recovery credit
+  owed by a route whose source recording went missing is now paid after the save loads, at the
+  right time, instead of during the load. (ROUTE-ESCROW-LOST-ON-SCENE-SWITCH)
 - **Docking a fleet of identical ships no longer mixes up their histories.** When your ship docks
   to another and takes it over, Parsek now remembers which launch of that ship it was. A later
   launch of the same design no longer has its vessel hidden or spawned at the wrong time because

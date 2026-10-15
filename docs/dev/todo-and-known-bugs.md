@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~ADOPTION-STAMP-READ-AS-UNIQUE-SPAWN-PID: an adoption stamp (the craft-baked pid) matched a relaunch of the same craft as the older launch's spawned vessel, and the #226 replay bypass was not checked against launch identity~~ [FILED 2026-10-15 from a launch-identity audit, verified by code read, not reproduced. FIXED 2026-10-15, branch `claude/project-thread-1twzdw-adopt-identity`; xUnit only, not flown. product]
+## ~~ADOPTION-STAMP-READ-AS-UNIQUE-SPAWN-PID: an adoption stamp (the craft-baked pid) matched a relaunch of the same craft as the older launch's spawned vessel, and the #226 replay bypass was not checked against launch identity~~ [FILED 2026-10-15 from a launch-identity audit, verified by code read, not reproduced. FIXED 2026-10-15, branch `claude/project-thread-1twzdw-adopt-identity` (PR #2107); LIVE-PROVEN 2026-10-15 on the owner's PC before merge: QL-4c, QL-4b, VN-6, CI-6, CI-7 and H64 all PASS. product]
 
 Gap 1. `VesselSpawner.TryAdoptExistingSourceVesselForSpawn` stamps
 `SpawnedVesselPersistentId = VesselPersistentId`, the craft-baked pid every launch of the craft
@@ -100,7 +100,7 @@ Tests: `AdoptionStampLaunchIdentityTests` (including the review's resumed-spawn 
 regression, and the upgraded-save backfill / relaunch / no-snapshot cells); `VesselNamesLinksTests.ResumeLink_NotRecordedForAnAdoptionStampMatch` pinned the old
 match of an adoption stamp by another launch's unlinked guid and now pins its refusal.
 
-## ~~DOCK-CHAIN-ABSORBED-PARTNER-PID-ONLY: a dock claim whose claimer absorbed the partner carries no launch guid, so a relaunch of the same craft pools into its ghost chain~~ [FILED 2026-10-15 from the launch-identity audit (gap 3), verified by code read. FIXED 2026-10-15, branch `claude/project-thread-1twzdw-dock-chain-guid`; xUnit only, not flown. Parsek]
+## ~~DOCK-CHAIN-ABSORBED-PARTNER-PID-ONLY: a dock claim whose claimer absorbed the partner carries no launch guid, so a relaunch of the same craft pools into its ghost chain~~ [FILED 2026-10-15 from the launch-identity audit (gap 3), verified by code read. FIXED 2026-10-15, branch `claude/project-thread-1twzdw-dock-chain-guid` (PR #2106); LIVE-PROVEN 2026-10-15 on the owner's PC before merge: BDOCK-1, CI-4, CI-9 and H50 all PASS. Parsek]
 
 `GhostChainWalker.ScanBranchPointClaims` took a dock claim's launch guid from the claiming tree
 (`ResolveLaunchGuidForPid(tree, targetPid)`). When the claimer's vessel survives the couple
@@ -299,7 +299,7 @@ HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS). Fix options: provision every profil
 (tier_runner), or have admit refuse an instance whose deployed DLL hash differs from
 stock-minimal's after a provision.
 
-## RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE: RF-1's D4 `hysteresis` token no longer prints, because the launch no longer happens inside the post-load settle [FILED 2026-10-12 from the operator tier. RULED 2026-10-15: move the witness to a rover lane. OPEN, harness; not built]
+## ~~RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE: RF-1's D4 `hysteresis` token no longer prints, because the launch no longer happens inside the post-load settle~~ [FILED 2026-10-12 from the operator tier. RULED 2026-10-15: move the witness to a rover lane. DONE 2026-10-15, flown on the owner's PC]
 
 `RF-1-continuation-stays-open` `2026-10-12_2026` PARSEK-FAIL on its required
 `Environment transition: SurfaceStationary -> SurfaceMobile ... (debounce=3.0s)` alone (the D4
@@ -319,6 +319,16 @@ lane where a rover really drives on the surface for over 3 s (reuse a rover fixt
 flight per the fast-lane checklist), and drop the token and the claim from RF-1 in the same
 change so the registry cell stays claimed. Owner rule 2026-10-15: validate with flights of the rover lane
 and RF-1 on the owner's local PC; the entry closes only on those flights.
+
+Fix (2026-10-15): new automation-only seam verb `DriveVessel wheelThrottle=<f> seconds=<s>`
+(a `Vessel.OnFlyByWire` wheel-throttle hold with the parking brake released and restored;
+OK only when the vessel reached 0.5 m/s) and new nightly lane
+`RVR-21-rover-drive-surface-hysteresis` on `rover-route-recorded` (kill triple,
+StartRecording on rover B, an 8 s drive, StopRecording + DiscardTree), which now claims D4
+`hysteresis` off the same token; RF-1 dropped the token and the claim. Flown on the owner's
+PC (DLL `aa4d824d...`): RVR-21 `2026-10-15_1539` PASS (23.1 m/s, 110 m, the debounced line
+at UT 984.14, recordings 5, now pinned); negative control `_1544` with the token inverted to
+`(immediate, debounce=0\.0s)` red on exactly that token; RF-1 `_1541` PASS without the token.
 
 ## REFLY-UNBOUND-PROVISIONAL-TAGS-AWARDS-TO-ORIGIN: while a re-fly provisional has no recorder, a career award is tagged to the superseded origin and the merge tombstones it [FILED 2026-10-12 from the RF-3 tombstone reading. RULED 2026-10-15: tag to the Re-Fly attempt. OPEN, product, ruled; not built]
 
@@ -356,10 +366,10 @@ pre-relaunch hold. So the unit no longer treats member #0 as camera-live before 
 in-window evaluation. Six weeks of chain-loop / LiveAt changes separate the two runs (e.g. #1820);
 bisect by flying W1 on older mains, or read the hand-off logger's initial-member rule.
 
-## TIER-2026-10-12-LANE-VARIANCE: four operator-tier reds that were flight variance, not defects [FILED 2026-10-13. OPEN for the two operator calls below, harness]
+## TIER-2026-10-12-LANE-VARIANCE: four operator-tier reds that were flight variance, not defects [FILED 2026-10-13. Both operator calls RULED and DONE 2026-10-15 (GS-10, RF-9), flown on the owner's PC]
 
-- GS-10 2026-10-12_1834 PARSEK-FAIL on the TTL PAIR token (the spec's FLAKE WATCH POINT): of the last pair (expiryUT 125.9) pid 4066981309 hit the ground at ~UT 125.8 ('Debris TTL: vessel destroyed/despawned') and only 513253397 printed 'Debris TTL expired ... expiry=125.9 currentUT=126.0'; the middle pairs were all destroyed before expiry. Margin < 0.2 s. Operator call: keep the pair token, or relax it to at least one expiry. RULED 2026-10-15: keep the pair token (both pieces of the last pair must expire) and fix the margin instead. The six boosters drain together and drop at burnout (~65 s), and the close cut (`mlib.py` `impact_cut_at_last_booster_drop`) zeroes the throttle there, so the whole coast to impact is ~60-63 s against the 60 s TTL. Fix: hold the last pair attached while the core burns on for a set time (a new mission param), then cut the throttle and drop the pair on the same step, so pair and stack leave the burn with the same extra energy, fall together inside the physics bubble, and the coast grows (estimate ~20-30 s for a 10 s hold, inferred, not measured). Burning the core on after an at-burnout drop does not help: the boosters' own fall is unchanged and the stack climbs out of the bubble (GS-7's far profile). Needs `test_kx_rewind_watch` cells and a fresh 2-flight stability reading on the operator tier. Owner rule 2026-10-15: whoever builds this validates it with flights on the owner's local PC (the operator tier there), and the entry is closed only on those flights. Not yet built.
-- RF-9 2026-10-12_2119 PARSEK-FAIL on `Forwarded 19 permanent state event(s)` (read 21): a dropped booster destroyed an R8winglet 1.3 s after separation (`Part event: Destroyed` + `Decoupled 'R8winglet'`), two correctly forwarded seeds more. Re-flown green 2026-10-13_0305 (19). Flight variance on an exact count. Operator call: keep the exact count or accept the collision case. RULED 2026-10-15: neither a fixed count nor a widened number; the check must judge the forwarded events themselves. RF-9 passes when the 19 expected seeds are present and every extra seed is an acceptable one (here the 2026-10-12 collision: the `Destroyed` and `Decoupled` seeds of the R8winglet the dropped booster knocked off), and fails on any other extra or missing seed. Needs the spec (or a verifier) to read the forwarded seed list, not only the `Forwarded N` line. Owner rule 2026-10-15: whoever builds this validates it with flights on the owner's local PC (the operator tier there), and the entry is closed only on those flights. Not yet applied.
+- GS-10 2026-10-12_1834 PARSEK-FAIL on the TTL PAIR token (the spec's FLAKE WATCH POINT): of the last pair (expiryUT 125.9) pid 4066981309 hit the ground at ~UT 125.8 ('Debris TTL: vessel destroyed/despawned') and only 513253397 printed 'Debris TTL expired ... expiry=125.9 currentUT=126.0'; the middle pairs were all destroyed before expiry. Margin < 0.2 s. Operator call: keep the pair token, or relax it to at least one expiry. RULED 2026-10-15: keep the pair token (both pieces of the last pair must expire) and fix the margin instead. The six boosters drain together and drop at burnout (~65 s), and the close cut (`mlib.py` `impact_cut_at_last_booster_drop`) zeroes the throttle there, so the whole coast to impact is ~60-63 s against the 60 s TTL. Fix: hold the last pair attached while the core burns on for a set time (a new mission param), then cut the throttle and drop the pair on the same step, so pair and stack leave the burn with the same extra energy, fall together inside the physics bubble, and the coast grows (estimate ~20-30 s for a 10 s hold, inferred, not measured). Burning the core on after an at-burnout drop does not help: the boosters' own fall is unchanged and the stack climbs out of the bubble (GS-7's far profile). Needs `test_kx_rewind_watch` cells and a fresh 2-flight stability reading on the operator tier. Owner rule 2026-10-15: whoever builds this validates it with flights on the owner's local PC (the operator tier there), and the entry is closed only on those flights. ~~Not yet built.~~ DONE 2026-10-15: kx opt-in `impactLastPairHoldSeconds` (phase LAST-PAIR-HOLD; `stackCutAtLastBoosterDrop` also requires the full hold), GS-10 declares 10 s. Flown on the owner's PC (DLL `0f2bfc6b...`): `2026-10-15_1515` and `_1522` PASS attempt 1, held 10.50 / 10.04 s, last pair dropped at UT 76.1 / 75.2 and both pieces closed `Debris TTL expired` at 136.1 / 135.2 with the parent down at ~161 / ~158.
+- RF-9 2026-10-12_2119 PARSEK-FAIL on `Forwarded 19 permanent state event(s)` (read 21): a dropped booster destroyed an R8winglet 1.3 s after separation (`Part event: Destroyed` + `Decoupled 'R8winglet'`), two correctly forwarded seeds more. Re-flown green 2026-10-13_0305 (19). Flight variance on an exact count. Operator call: keep the exact count or accept the collision case. RULED 2026-10-15: neither a fixed count nor a widened number; the check must judge the forwarded events themselves. RF-9 passes when the 19 expected seeds are present and every extra seed is an acceptable one (here the 2026-10-12 collision: the `Destroyed` and `Decoupled` seeds of the R8winglet the dropped booster knocked off), and fails on any other extra or missing seed. Needs the spec (or a verifier) to read the forwarded seed list, not only the `Forwarded N` line. Owner rule 2026-10-15: whoever builds this validates it with flights on the owner's local PC (the operator tier there), and the entry is closed only on those flights. ~~Not yet applied.~~ DONE 2026-10-15: `ForwardPermanentStateEvents` appends the sorted seed list (`Type:part#pid`) to its Info line, and the new hlib logContracts facet `forwardedSeeds` replaces RF-9's two count tokens (19 expected focus seeds plus the probe's one; acceptable extra: a complete R8winglet `Decoupled` + `Destroyed` pair on one pid). Flown on the owner's PC (DLL `290502ec...`): `2026-10-15_1530` PASS with 19, `_1534` PASS with 23 (two winglets knocked off, both complete pairs).
 - GUI-7 `2026-10-12_1927` INVALID on `UiAction ERROR pointer-not-applied want=133,94
   after=84,337`; the retry `_1929_a2` PASSED.
 - V7M `2026-10-12_2340` INVALID on `EnterWatchMode REJECTED no-watchable-ghost`; the retry
@@ -3660,7 +3670,7 @@ rebind, and returns false with the hold reason; red with the call deleted or sho
 
 ---
 
-## ROUTE-RECOVERY-CREDIT-WRITTEN-DURING-ONLOAD: the pending recovery credit flush writes a ledger row and live funds while a save is loading [FILED 2026-10-06 from the integration-coverage code read, path verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product; UT-0 outcome to confirm]
+## ~~ROUTE-RECOVERY-CREDIT-WRITTEN-DURING-ONLOAD: the pending recovery credit flush writes a ledger row and live funds while a save is loading~~ [FILED 2026-10-06 from the integration-coverage code read, path verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `claude/logistics-escrow-recovery-credit-s0sb0u` (xUnit only)]
 
 `RouteStore.FlushPendingRecoveryCreditOnSourceProblem` (`RouteStore.cs:1885-1911`) reads
 `Planetarium.GetUniversalTime()` directly and never consults `ParsekScenario.IsOnLoadInProgress`;
@@ -3670,12 +3680,20 @@ with a pending credit and a source is missing, where the clock can read 0. A UT-
 every strict-after-cutoff rewind retire. This contradicts the no-ledger-writes-during-load
 contract (`ParsekScenario.cs:310-321`).
 
-Fix: defer the flush until after load (the route-marker UT resolver already knows the in-load
-state), or emit no row and keep the credit pending. Needs a UT / in-load seam to test headless.
+Reproduced headless on main: an `OnLoad` revalidation flipping a route to MissingSourceRecording
+did not keep the owed credit (headless the env build throws, so it was cleared; in game it is
+written at the load-time clock).
+
+Fix: only a LIVE revalidation pass (`liveEmitUT > 0` and `IsOnLoadInProgress` false, pure gate
+`RouteStore.ShouldFlushSourceProblemCreditNow`) pays the credit, at `liveEmitUT`. A silent pass
+(OnLoad, a bookkeeping supersede bump) keeps it pending, and the orchestrator tick pre-pass
+`RouteOrchestrator.FlushDeferredSourceProblemCredits` pays it at the first live tick for any
+route in a source-problem state. Tests: `RouteRecoveryCreditTests.OnLoadSourceProblemFlip_*`,
+`SilentNonLoadSourceProblemFlip_*`, `LiveSourceProblemFlip_*`, `DeferredCreditSweep_*`.
 
 ---
 
-## ROUTE-ESCROW-LOST-ON-SCENE-SWITCH: a multi-stop cycle's depot reservation is dropped by a scene change between its windows [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~ROUTE-ESCROW-LOST-ON-SCENE-SWITCH: a multi-stop cycle's depot reservation is dropped by a scene change between its windows~~ [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `claude/logistics-escrow-recovery-credit-s0sb0u` (xUnit only; live proof is lane IR-10)]
 
 `ClearAllEscrow` runs on every scene switch (`ParsekScenario.cs:8365`); the only re-establish
 site (`RouteOrchestrator.cs:1531`) sits behind the no-due-window early return in
@@ -3683,8 +3701,16 @@ site (`RouteOrchestrator.cs:1531`) sits behind the no-due-window early return in
 and window B picks up short after its dispatch was already paid. H60 proves escrow within one
 scene only.
 
-Fix: rebuild escrow for in-flight multi-stop cycles on scene entry (or persist it). Headless
-red test with `RouteCargoEscrowTests` / `RouteEscrowFireTests`, then lane IR-10.
+Reproduced headless on main: fire window A, `ClearAllEscrow`, tick in the A-B gap, and depot B's
+200 Ore hold reads 0.
+
+Fix: a `RouteOrchestrator.Tick` pre-pass, `ReEstablishInFlightCycleEscrow`, runs before any route
+is processed. For every ghost-driving route with an in-flight multi-stop cycle (pure
+`TryGetInFlightMultiStopCycle`: a stop cursor ahead of `LastObservedLoopCycleIndex` and an
+un-fired pickup window), no escrow held, and the cycle's dispatch row in the ledger, it
+re-reserves the un-fired windows. It needs no due window or loop unit, so tick order cannot let a
+competitor drain the depot first. Tests: `RouteEscrowFireTests.GapTickAfterClear_*`,
+`PrePass_SkipsPausedRoute_*`, `TryGetInFlightMultiStopCycle_Cases`. Live proof is still lane IR-10.
 
 ---
 
