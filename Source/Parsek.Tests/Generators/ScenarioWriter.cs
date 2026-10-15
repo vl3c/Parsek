@@ -259,6 +259,32 @@ namespace Parsek.Tests.Generators
         }
 
         /// <summary>
+        /// The branch point the live recorder writes when its vessel docks
+        /// (<c>ParsekFlight.HandleTreeDockMerge</c>): parents = the recorder's own recording
+        /// (plus the partner's when the partner is in the same tree), child = the merged
+        /// vessel. <paramref name="targetVesselPid"/> / <paramref name="targetVesselGuid"/> are
+        /// the couple-event partner stamp (<c>targetVesselPid</c> / <c>targetVesselGuid</c>);
+        /// leave the guid null to author an older save that predates the guid stamp.
+        /// </summary>
+        public static BranchPoint DockBranch(
+            string branchPointId, IEnumerable<string> parentRecordingIds,
+            string mergedRecordingId, double dockUT,
+            uint targetVesselPid = 0, string targetVesselGuid = null)
+        {
+            return new BranchPoint
+            {
+                Id = branchPointId,
+                UT = dockUT,
+                Type = BranchPointType.Dock,
+                MergeCause = "DOCK",
+                ParentRecordingIds = new List<string>(parentRecordingIds),
+                ChildRecordingIds = new List<string> { mergedRecordingId },
+                TargetVesselPersistentId = targetVesselPid,
+                TargetVesselGuid = targetVesselPid != 0 ? targetVesselGuid : null
+            };
+        }
+
+        /// <summary>
         /// A vessel separation (staging / decoupling) split: parent = the pre-split
         /// recording, children = the separated vessels. Pass
         /// <paramref name="type"/> <see cref="BranchPointType.Undock"/> for an undock.

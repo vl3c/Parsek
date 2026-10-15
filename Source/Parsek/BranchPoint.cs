@@ -63,6 +63,14 @@ namespace Parsek
         // tells it apart from a docking-port couple.
         public string MergeCause;
         public uint TargetVesselPersistentId;  // Pre-existing vessel if applicable (0 if not)
+        // Launch guid (the live Vessel.id, "N" form) of the vessel TargetVesselPersistentId
+        // names, captured at couple time. The pid is craft-baked and freed when the partner is
+        // absorbed, so a relaunch of the same craft can reuse it; this guid tells the two
+        // launches apart even when no recording in the claiming tree carries the partner's
+        // pid. Null when unknown (older saves, a couple whose partner vessel could not be
+        // read): consumers then fall back to the pid-only resolution. Optional key
+        // "targetVesselGuid"; absence reads as null, so no schema generation bump.
+        public string TargetVesselGuid;
 
         // TERMINAL metadata (for Terminal type)
         public string TerminalCause;           // "RECOVERED", "DESTROYED", "RECYCLED", "DESPAWNED"

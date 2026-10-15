@@ -267,22 +267,6 @@ namespace Parsek
         /// Scans a tree's BranchPoints for claiming events (Dock, Board, Undock, EVA, JointBreak)
         /// with a non-zero TargetVesselPersistentId.
         /// </summary>
-        // Launch-unique Guid of the vessel with the given pid within this tree (one launch per pid
-        // per tree). Lets a chain claim carry the launch it pertains to, so two launches of the same
-        // craft (same baked pid, different trees) do not pool into one chain. Null when not found.
-        private static string ResolveLaunchGuidForPid(RecordingTree tree, uint pid)
-        {
-            if (tree?.Recordings == null || pid == 0)
-                return null;
-            foreach (var rec in tree.Recordings.Values)
-            {
-                if (rec != null && rec.VesselPersistentId == pid
-                    && !string.IsNullOrEmpty(rec.RecordedVesselGuid))
-                    return rec.RecordedVesselGuid;
-            }
-            return null;
-        }
-
         private static void ScanBranchPointClaims(
             RecordingTree tree, Dictionary<uint, List<ChainLink>> claimsByPid,
             ref int skippedSessionSuppressed)
@@ -345,14 +329,19 @@ namespace Parsek
                     branchPointId = bp.Id,
                     ut = bp.UT,
                     interactionType = interactionType,
-                    recordedVesselGuid = ResolveLaunchGuidForPid(tree, pid)
+                    // The launch the claim pertains to, so two launches of the same craft
+                    // (same baked pid, different trees) do not pool into one chain: the
+                    // branch point's stamped partner guid first (the only source when the
+                    // claimer absorbed the partner), else the pid's guid in the claiming tree.
+                    recordedVesselGuid = MissionCrossTreeDock.ResolveClaimLaunchGuid(
+                        tree, pid, bp.TargetVesselGuid)
                 };
 
                 // Diagnosability for pid-only chains (design-dock-event-graph.md Q3):
-                // a claim whose pid resolves no launch guid in the claiming tree can
-                // never be guid-dropped downstream (#976 gate needs a guid on at least
-                // one side), so a craft-baked pid collision would pool into this chain
-                // silently. Leave evidence once per claim.
+                // a claim with no stamped partner guid whose pid resolves no launch guid in
+                // the claiming tree can never be guid-dropped downstream (#976 gate needs a
+                // guid on at least one side), so a craft-baked pid collision would pool into
+                // this chain silently. Leave evidence once per claim.
                 if (link.recordedVesselGuid == null)
                     ParsekLog.VerboseOnChange(Tag,
                         identity: string.Format(ic, "claim-noguid|{0}|{1}|{2}", pid, tree.Id, bp.Id),
@@ -574,6 +563,29 @@ namespace Parsek
                     GhostChain linkedChain;
                     if (!chains.TryGetValue(tipVesselPid, out linkedChain))
                         break;
+
+                    // The pid is craft-baked: the linked chain may claim a DIFFERENT launch of
+                    // the same craft that reused the tip vessel's pid (an absorbed partner frees
+                    // its pid while its parts still fly). Merge only when the linked chain's
+                    // launch and the tip recording's launch do not conclusively differ; an
+                    // unknown guid on either side keeps the pid-only merge.
+                    string tipGuid = FindRecording(
+                        current.TipRecordingId, current.TipTreeId, committedTrees)?.RecordedVesselGuid;
+                    if (VesselLaunchIdentity.GuidsConclusivelyDiffer(linkedChain.LaunchGuid, tipGuid))
+                    {
+                        ParsekLog.VerboseOnChange(Tag,
+                            identity: string.Format(ic,
+                                "cross-tree-refused|{0}|{1}", originPid, tipVesselPid),
+                            stateKey: string.Format(ic, "{0}|{1}|{2}",
+                                current.TipRecordingId, tipGuid, linkedChain.LaunchGuid),
+                            message: string.Format(ic,
+                                "Cross-tree link refused: vessel={0} tip={1} (pid={2} launch={3}) " +
+                                "is a different launch than the chain claiming pid={2} (launch={4}); " +
+                                "not merging, chains stay separate",
+                                originPid, current.TipRecordingId, tipVesselPid,
+                                tipGuid, linkedChain.LaunchGuid));
+                        break;
+                    }
 
                     if (chainVisited.Contains(tipVesselPid))
                     {

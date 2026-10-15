@@ -116,6 +116,7 @@ namespace Parsek
                 CoalesceWindow = source.CoalesceWindow,
                 MergeCause = source.MergeCause,
                 TargetVesselPersistentId = source.TargetVesselPersistentId,
+                TargetVesselGuid = source.TargetVesselGuid,
                 TerminalCause = source.TerminalCause,
                 RewindPointId = source.RewindPointId
             };
@@ -734,6 +735,8 @@ namespace Parsek
                 bpNode.AddValue("mergeCause", bp.MergeCause);
             if (bp.TargetVesselPersistentId != 0)
                 bpNode.AddValue("targetVesselPid", bp.TargetVesselPersistentId.ToString(ic));
+            if (!string.IsNullOrEmpty(bp.TargetVesselGuid))
+                bpNode.AddValue("targetVesselGuid", bp.TargetVesselGuid);
 
             // TERMINAL metadata
             if (bp.TerminalCause != null)
@@ -753,6 +756,7 @@ namespace Parsek
                 (bp.CoalesceWindow != 0 ? $" coalesceWindow={bp.CoalesceWindow.ToString("F3", ic)}" : "") +
                 (bp.MergeCause != null ? $" mergeCause={bp.MergeCause}" : "") +
                 (bp.TargetVesselPersistentId != 0 ? $" targetVesselPid={bp.TargetVesselPersistentId}" : "") +
+                (!string.IsNullOrEmpty(bp.TargetVesselGuid) ? $" targetVesselGuid={bp.TargetVesselGuid}" : "") +
                 (bp.TerminalCause != null ? $" terminalCause={bp.TerminalCause}" : ""));
         }
 
@@ -829,6 +833,9 @@ namespace Parsek
                 if (uint.TryParse(targetVesselPidStr, NumberStyles.Integer, ic, out targetVesselPid))
                     bp.TargetVesselPersistentId = targetVesselPid;
             }
+            // Optional (dock partner launch guid); absent or empty -> null.
+            string targetVesselGuid = bpNode.GetValue("targetVesselGuid");
+            bp.TargetVesselGuid = string.IsNullOrEmpty(targetVesselGuid) ? null : targetVesselGuid;
 
             // TERMINAL metadata
             bp.TerminalCause = bpNode.GetValue("terminalCause");
@@ -847,6 +854,7 @@ namespace Parsek
                 (bp.CoalesceWindow != 0 ? $" coalesceWindow={bp.CoalesceWindow.ToString("F3", ic)}" : "") +
                 (bp.MergeCause != null ? $" mergeCause={bp.MergeCause}" : "") +
                 (bp.TargetVesselPersistentId != 0 ? $" targetVesselPid={bp.TargetVesselPersistentId}" : "") +
+                (!string.IsNullOrEmpty(bp.TargetVesselGuid) ? $" targetVesselGuid={bp.TargetVesselGuid}" : "") +
                 (bp.TerminalCause != null ? $" terminalCause={bp.TerminalCause}" : ""));
 
             return bp;

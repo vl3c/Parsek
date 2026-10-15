@@ -873,6 +873,10 @@ namespace Parsek
         // TransferKind, TransferTargetVesselPid - keep the gated
         // pendingDockRouteTargetPid.
         private uint pendingDockPartnerPid;
+        // Launch guid (Vessel.id) of the vessel pendingDockPartnerPid names, read from the
+        // live couple event. Feeds BranchPoint.TargetVesselGuid only; set and cleared with
+        // pendingDockPartnerPid. Null when the partner stamp is 0 or its vessel had no id.
+        private string pendingDockPartnerGuid;
         // Connection producer that made the pending couple, classified from the live
         // onPartCouple parts (DockingPort / Grapple / Unknown). Stamped on the merge
         // branch data and the route connection window so admission can gate by
@@ -5549,7 +5553,8 @@ namespace Parsek
                 BranchPointType branchType, uint mergedVesselPid, string mergedVesselName,
                 uint targetVesselPersistentId = 0,
                 RouteConnectionKind transferKind = RouteConnectionKind.None,
-                uint branchPartnerPid = 0)
+                uint branchPartnerPid = 0,
+                string branchPartnerGuid = null)
         {
             string childId = Guid.NewGuid().ToString("N");
             string bpId = Guid.NewGuid().ToString("N");
@@ -5570,7 +5575,10 @@ namespace Parsek
                 ParentRecordingIds = new List<string>(parentRecordingIds),
                 ChildRecordingIds = new List<string> { childId },
                 MergeCause = GetMergeCauseForBranchType(branchType),
-                TargetVesselPersistentId = branchTargetPid
+                TargetVesselPersistentId = branchTargetPid,
+                // The guid names the same vessel as the pid, so it never outlives a zero pid.
+                TargetVesselGuid = branchTargetPid != 0 && !string.IsNullOrEmpty(branchPartnerGuid)
+                    ? branchPartnerGuid : null
             };
 
             var mergedChild = new Recording
@@ -5627,6 +5635,29 @@ namespace Parsek
                 || partnerPidFromEvent == selfVesselPid)
                 return 0u;
             return partnerPidFromEvent;
+        }
+
+        /// <summary>
+        /// The launch guid to stamp beside the branch-point partner pid: the live
+        /// <c>Vessel.id</c> of whichever couple-event side carries
+        /// <paramref name="partnerStampPid"/>, read while both vessels still exist. The pid
+        /// alone is craft-baked and freed when the partner is absorbed, so a relaunch of the
+        /// same craft can reuse it; the guid keeps the chain walker and the cross-tree dock
+        /// links from pooling the two launches when no recording in the claiming tree
+        /// carries the partner's pid. Null when the stamp is 0 or neither side matches /
+        /// has an id (the consumers then keep the pid-only resolution). Pure.
+        /// </summary>
+        internal static string ResolveDockPartnerGuidFromEvent(
+            uint partnerStampPid, uint fromVesselPid, string fromVesselGuid,
+            uint toVesselPid, string toVesselGuid)
+        {
+            if (partnerStampPid == 0u)
+                return null;
+            if (fromVesselPid == partnerStampPid && !string.IsNullOrEmpty(fromVesselGuid))
+                return fromVesselGuid;
+            if (toVesselPid == partnerStampPid && !string.IsNullOrEmpty(toVesselGuid))
+                return toVesselGuid;
+            return null;
         }
 
         /// <summary>
@@ -6744,7 +6775,8 @@ namespace Parsek
             FlightRecorder stoppedRecorder,
             uint routeTargetVesselPid = 0,
             RouteConnectionKind transferKind = RouteConnectionKind.None,
-            uint branchPartnerPid = 0)
+            uint branchPartnerPid = 0,
+            string branchPartnerGuid = null)
         {
             // 1. Build parent recording ID list
             var parentIds = new List<string>();
@@ -6794,7 +6826,8 @@ namespace Parsek
                 mergedVesselPid, mergedVesselName,
                 routeTargetVesselPid,
                 routeTargetVesselPid != 0 ? transferKind : RouteConnectionKind.None,
-                branchPartnerPid);
+                branchPartnerPid,
+                branchPartnerGuid);
 
             // 6. Take snapshot of merged vessel
             ConfigNode mergedSnapshot = (mergedVessel != null)
@@ -11752,6 +11785,10 @@ namespace Parsek
                         coupleInvolvesEva, coupleTransferKind, pathLabel: "");
                     uint partnerStampPid = ResolveBranchPartnerStampPid(
                         partnerPidFromEvent, recorder.RecordingVesselId, coupleInvolvesEva);
+                    string partnerStampGuid = ResolveDockPartnerGuidFromEvent(
+                        partnerStampPid,
+                        fromPid, AnchorDetector.TryReadLiveVesselGuid(data.from?.vessel),
+                        toPid, AnchorDetector.TryReadLiveVesselGuid(data.to?.vessel));
 
                     ParsekLog.Verbose("Flight",
                         $"OnPartCouple route-partner resolve: selfPid={recorder.RecordingVesselId} " +
@@ -11759,7 +11796,8 @@ namespace Parsek
                         $"partnerPidFromEvent={partnerPidFromEvent} " +
                         $"partnerSnapshotCaptured={partnerSnapshotCaptured} partnerKnown={partnerKnown} " +
                         $"partnerEligible={partnerEligible} routeTargetPid={routeTargetPid} " +
-                        $"partnerPidStamped={partnerStampPid}");
+                        $"partnerPidStamped={partnerStampPid} " +
+                        $"partnerGuidStamped={partnerStampGuid ?? "(none)"}");
 
                     CapturePendingDockRouteEndpointProof(data, routeTargetPid);
 
@@ -11772,6 +11810,7 @@ namespace Parsek
                     pendingDockAbsorbedPid = absorbedPid;
                     pendingDockRouteTargetPid = routeTargetPid;
                     pendingDockPartnerPid = partnerStampPid;
+                    pendingDockPartnerGuid = partnerStampGuid;
                     pendingDockTransferKind = coupleTransferKind;
                     dockConfirmFrames = 0;
 
@@ -11869,6 +11908,10 @@ namespace Parsek
                         coupleInvolvesEva, coupleTransferKind, pathLabel: " (retroactive)");
                     uint partnerStampPidR = ResolveBranchPartnerStampPid(
                         partnerPidFromEventR, recorder.RecordingVesselId, coupleInvolvesEva);
+                    string partnerStampGuidR = ResolveDockPartnerGuidFromEvent(
+                        partnerStampPidR,
+                        fromPidR, AnchorDetector.TryReadLiveVesselGuid(data.from?.vessel),
+                        toPidR, AnchorDetector.TryReadLiveVesselGuid(data.to?.vessel));
 
                     ParsekLog.Verbose("Flight",
                         $"OnPartCouple route-partner resolve (retroactive): " +
@@ -11876,7 +11919,8 @@ namespace Parsek
                         $"absorbedPid={absorbedPid} partnerPidFromEvent={partnerPidFromEventR} " +
                         $"partnerSnapshotCaptured={partnerSnapshotCapturedR} partnerKnown={partnerKnownR} " +
                         $"partnerEligible={partnerEligibleR} routeTargetPid={routeTargetPid} " +
-                        $"partnerPidStamped={partnerStampPidR}");
+                        $"partnerPidStamped={partnerStampPidR} " +
+                        $"partnerGuidStamped={partnerStampGuidR ?? "(none)"}");
 
                     CapturePendingDockRouteEndpointProof(data, routeTargetPid);
 
@@ -11885,6 +11929,7 @@ namespace Parsek
                     pendingDockAbsorbedPid = absorbedPid;
                     pendingDockRouteTargetPid = routeTargetPid;
                     pendingDockPartnerPid = partnerStampPidR;
+                    pendingDockPartnerGuid = partnerStampGuidR;
                     pendingDockTransferKind = coupleTransferKind;
                     dockConfirmFrames = 0;
 
@@ -12862,6 +12907,7 @@ namespace Parsek
                     pendingDockAbsorbedPid = 0;
                     pendingDockRouteTargetPid = 0;
                     pendingDockPartnerPid = 0;
+                    pendingDockPartnerGuid = null;
                     pendingDockTransferKind = RouteConnectionKind.None;
                     pendingDockPartnerSnapshot = null;
                     pendingDockPartnerSnapshotPid = 0u;
@@ -13000,6 +13046,7 @@ namespace Parsek
             pendingDockAbsorbedPid = 0;
             pendingDockRouteTargetPid = 0;
             pendingDockPartnerPid = 0;
+            pendingDockPartnerGuid = null;
             pendingDockTransferKind = RouteConnectionKind.None;
             pendingDockPartnerSnapshot = null;
             pendingDockPartnerSnapshotPid = 0u;
@@ -13043,6 +13090,7 @@ namespace Parsek
             // partner stamp rides alongside and feeds ONLY the branch point.
             uint routeTargetPid = pendingDockRouteTargetPid;
             uint branchPartnerPid = pendingDockPartnerPid;
+            string branchPartnerGuid = pendingDockPartnerGuid;
 
             CreateMergeBranch(
                 BranchPointType.Dock,
@@ -13053,7 +13101,8 @@ namespace Parsek
                 stoppedRecorder,
                 routeTargetPid,
                 pendingDockTransferKind,
-                branchPartnerPid);
+                branchPartnerPid,
+                branchPartnerGuid);
 
             // Clean up
             if (pendingDockAbsorbedPid != 0)
@@ -13064,6 +13113,7 @@ namespace Parsek
             pendingDockAbsorbedPid = 0;
             pendingDockRouteTargetPid = 0;
             pendingDockPartnerPid = 0;
+            pendingDockPartnerGuid = null;
             pendingDockTransferKind = RouteConnectionKind.None;
             pendingDockPartnerSnapshot = null;
             pendingDockPartnerSnapshotPid = 0u;
