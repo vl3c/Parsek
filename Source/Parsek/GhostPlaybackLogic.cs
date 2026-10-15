@@ -8414,6 +8414,28 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Spawner-side decision over <see cref="IsLiveFlownRecording"/>: refuse the
+        /// end-of-recording spawn of the recording being flown, naming which id matched.
+        /// </summary>
+        internal static bool ShouldRefuseLiveFlownSpawn(
+            string recordingId,
+            string activeReFlyRecordingId,
+            string liveRecorderRecordingId,
+            out string reason)
+        {
+            reason = null;
+            if (!IsLiveFlownRecording(recordingId, activeReFlyRecordingId, liveRecorderRecordingId))
+                return false;
+            bool reFly = string.Equals(recordingId, activeReFlyRecordingId, StringComparison.Ordinal);
+            bool recorder = string.Equals(recordingId, liveRecorderRecordingId, StringComparison.Ordinal);
+            reason = "recording is being flown (" +
+                (reFly && recorder ? "re-fly session + live recorder"
+                    : reFly ? "re-fly session" : "live recorder") +
+                ") - its vessel is the live vessel, not spawning a duplicate";
+            return true;
+        }
+
+        /// <summary>
         /// The flight scene's final terminal-spawn answer for one committed recording:
         /// <see cref="ShouldSpawnAtRecordingEnd"/>'s verdict
         /// (<paramref name="spawnEligible"/>) minus every scene-level hold. Pure so the

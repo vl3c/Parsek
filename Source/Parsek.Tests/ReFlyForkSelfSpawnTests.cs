@@ -156,6 +156,49 @@ namespace Parsek.Tests
             Assert.False(GhostPlaybackLogic.ComposeFlightFinalNeedsSpawn(true, false, false, false, false, true));
         }
 
+        // ---- spawner-side backstop ----
+
+        [Fact]
+        public void ShouldRefuseLiveFlownSpawn_ReFlySessionRecording_RefusesNamingTheSession()
+        {
+            string reason;
+            Assert.True(GhostPlaybackLogic.ShouldRefuseLiveFlownSpawn(
+                ForkId, activeReFlyRecordingId: ForkId, liveRecorderRecordingId: null, out reason));
+            Assert.Contains("re-fly session", reason);
+            Assert.DoesNotContain("live recorder", reason);
+        }
+
+        [Fact]
+        public void ShouldRefuseLiveFlownSpawn_LiveRecorderRecording_RefusesNamingTheRecorder()
+        {
+            string reason;
+            Assert.True(GhostPlaybackLogic.ShouldRefuseLiveFlownSpawn(
+                ForkId, activeReFlyRecordingId: null, liveRecorderRecordingId: ForkId, out reason));
+            Assert.Contains("(live recorder)", reason);
+        }
+
+        [Fact]
+        public void ShouldRefuseLiveFlownSpawn_BothMatch_NamesBoth()
+        {
+            string reason;
+            Assert.True(GhostPlaybackLogic.ShouldRefuseLiveFlownSpawn(
+                ForkId, ForkId, ForkId, out reason));
+            Assert.Contains("re-fly session + live recorder", reason);
+        }
+
+        [Fact]
+        public void ShouldRefuseLiveFlownSpawn_SameLaunchOtherRecording_Allows()
+        {
+            // A committed recording of the same launch (a revert re-flies the launch guid)
+            // is a different recording id and keeps its terminal spawn (#226).
+            string reason;
+            Assert.False(GhostPlaybackLogic.ShouldRefuseLiveFlownSpawn(
+                "rec_committed_same_launch", ForkId, ForkId, out reason));
+            Assert.Null(reason);
+            Assert.False(GhostPlaybackLogic.ShouldRefuseLiveFlownSpawn(
+                null, null, null, out reason));
+        }
+
         // ---- (2) deferred joint-break scan: foreign decouple origins ----
 
         const uint Recorded = 1000u;
