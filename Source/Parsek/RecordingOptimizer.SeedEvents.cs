@@ -58,6 +58,7 @@ namespace Parsek
             if (firstHalf == null || firstHalf.Count == 0) return;
 
             int forwarded = 0;
+            var forwardedSeeds = new List<PartEvent>();
             for (int i = 0; i < firstHalf.Count; i++)
             {
                 if (!IsPermanentVisualStateEvent(firstHalf[i].eventType)) continue;
@@ -65,12 +66,59 @@ namespace Parsek
                 var seed = firstHalf[i];
                 seed.ut = splitUT;
                 secondHalf.Insert(forwarded, seed);
+                forwardedSeeds.Add(seed);
                 forwarded++;
             }
 
             if (forwarded > 0)
                 ParsekLog.Info("Optimizer",
-                    $"Forwarded {forwarded} permanent state event(s) as seeds at UT={splitUT:F1}");
+                    "Forwarded " + forwarded.ToString(CultureInfo.InvariantCulture)
+                    + " permanent state event(s) as seeds at UT="
+                    + splitUT.ToString("F1", CultureInfo.InvariantCulture)
+                    + ": " + FormatForwardedSeedList(forwardedSeeds));
+        }
+
+        /// <summary>
+        /// The forwarded seed list as one bracketed, comma-separated run with one
+        /// <c>Type:partName#pid</c> entry per seed, sorted by type name, then part name,
+        /// then pid (all ordinal), so one seed set always prints the same text whatever
+        /// order the first half recorded it in. The harness facet
+        /// <c>logContracts.forwardedSeeds</c> (<c>hlib.parse_forwarded_seed_lines</c>)
+        /// parses this exact shape to judge the seeds themselves rather than only their
+        /// count, so the separators and the entry grammar must stay stable. A null part
+        /// name prints as <c>?</c>.
+        /// </summary>
+        internal static string FormatForwardedSeedList(List<PartEvent> seeds)
+        {
+            if (seeds == null || seeds.Count == 0) return "[]";
+
+            var entries = new List<KeyValuePair<string, PartEvent>>(seeds.Count);
+            for (int i = 0; i < seeds.Count; i++)
+                entries.Add(new KeyValuePair<string, PartEvent>(
+                    seeds[i].eventType.ToString(), seeds[i]));
+
+            entries.Sort((a, b) =>
+            {
+                int byType = string.CompareOrdinal(a.Key, b.Key);
+                if (byType != 0) return byType;
+                int byName = string.CompareOrdinal(a.Value.partName ?? "?", b.Value.partName ?? "?");
+                if (byName != 0) return byName;
+                return a.Value.partPersistentId.CompareTo(b.Value.partPersistentId);
+            });
+
+            var sb = new System.Text.StringBuilder();
+            sb.Append('[');
+            for (int i = 0; i < entries.Count; i++)
+            {
+                if (i > 0) sb.Append(", ");
+                sb.Append(entries[i].Key);
+                sb.Append(':');
+                sb.Append(entries[i].Value.partName ?? "?");
+                sb.Append('#');
+                sb.Append(entries[i].Value.partPersistentId.ToString(CultureInfo.InvariantCulture));
+            }
+            sb.Append(']');
+            return sb.ToString();
         }
 
         internal static List<PartEvent> BuildTransientStateSeeds(List<PartEvent> partEvents, double splitUT)

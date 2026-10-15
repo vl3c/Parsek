@@ -177,6 +177,15 @@ id = "RF-9-atmosphere-exit-split-stays-open"
 # CLAIM-GAP WAVE (2026-09-10 / -11): reading `2026-09-10_1743`, armed re-flight
 # `2026-09-10_2050` (PASS), and the seed-event-split negative control `2026-09-11_0151`
 # (valid). GROUP 6 and [dimensionsCovered] carry the record.
+#
+# OWNER RULING 2026-10-15 (todo TIER-2026-10-12-LANE-VARIANCE). `2026-10-12_2119` read
+# `Forwarded 21` where the pin said 19: a dropped booster knocked an R8winglet off the
+# stack 1.3 s after separating, and its `Destroyed` + `Decoupled` seeds (one pid) were
+# correctly forwarded. The ruling: neither a fixed count nor a widened number - the
+# check judges the forwarded seeds themselves. The two `Forwarded N` count tokens are
+# replaced by the `forwardedSeeds` facet in GROUP 6: the 19 expected seeds must be
+# present, the only tolerated extra is that winglet collision (both halves, one pid),
+# and any other extra or missing seed reds.
 # =====================================================================================
 tier = "operator"
 description = "The sealing defect's shape flown live: the Kerbal X's probe-cored core is discarded INSIDE the atmosphere (authoring a RewindPoint), the crewed top stack then coasts OUT through 70 km and the scene exits while it is still climbing - so the committed focus recording spans an Atmospheric -> ExoBallistic boundary, the optimizer splits it, and the promoted slot must stay open across that split and be re-flyable."
@@ -311,12 +320,16 @@ recordedSpanWindowSeconds = { min = 60.0, max = 650.0 }
 #    auto-commit.
 #  - D5 `controlled-decoupled-child` <- `ProcessBreakupEvent: controlled child created`
 #    (1) + the two-pid `Controllable split children` (1).
-#  - D4 `seed-event-split` <- GROUP 6's four seed tokens, `Inserted 12 ...` +
-#    `Forwarded 19 ...` on the promoted focus split and `Inserted 1 ...` +
-#    `Forwarded 1 ...` on the probe split (1 each in `_2050`). They are NEW tokens, so
-#    they needed their own negative control: `2026-09-11_0151` (`Inserted 12` ->
-#    `Inserted 13`), PARSEK-FAIL(expectation) on exactly that entry, drift gate
-#    original 1 / inverted 0 in its own KSP.log.
+#  - D4 `seed-event-split` <- GROUP 6: the two `Inserted N transient ...` tokens (8 on
+#    the promoted focus split, 1 on the probe split) plus the two `forwardedSeeds`
+#    items, which judge each split's forwarded permanent seed list entry by entry (19
+#    named seeds on the focus split, the one Mainsail shroud seed on the probe split).
+#    The items replaced the `Forwarded 19 ...` / `Forwarded 1 ...` count tokens on
+#    2026-10-15 (owner ruling, header). The claim's negative control is
+#    `2026-09-11_0151` (`Inserted 12` -> `Inserted 13`), PARSEK-FAIL(expectation) on
+#    exactly that entry, drift gate original 1 / inverted 0 in its own KSP.log; the
+#    items are proved to red offline (harness/lib/test_forwarded_seeds.py, and the
+#    mutation lane's `seed-*` edits) and owe their first live read.
 # NOT `rp-disk-reaper`: this lane asserts the reaper DECLINED, which is the opposite of
 # exercising it.
 D1  = ["auto-record-launch", "commit-scene-exit", "auto-merge"]
@@ -403,6 +416,9 @@ count = { min = 11, max = 11 }
 #   ids. The control `2026-09-11_0151` read the same counts a fifth time: 12 / 19 at
 #   UT=172.4 before `c7010515...` ('Kerbal X', slot 0), 1 / 1 at UT=172.5 before
 #   `73a90ae8...` ('Kerbal X Probe', slot 1).
+#   SINCE 2026-10-15 the two `Forwarded N` counts are NOT pinned: the `forwardedSeeds`
+#   items after this list judge the forwarded seeds themselves (owner ruling, header).
+#   The `Inserted` counts stay literal tokens here.
 required  = ["Recording started",
              "Controllable split children: \\[[0-9]+,[0-9]+\\]",
              "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
@@ -427,18 +443,67 @@ required  = ["Recording started",
              # the focus recording now carries no DeployableExtended at all and the split
              # seeds only the 8 engine sentinels: `Built 8 ... engineSentinels=8
              # visualStates=0` on `2026-09-27_1952` and `2026-09-29_1523` (it read
-             # `engineSentinels=8 visualStates=4` on `2026-09-15_1546`). Forwarded 19 is
+             # `engineSentinels=8 visualStates=4` on `2026-09-15_1546`). Forwarded 19 was
              # unchanged. An intended product change, not a defect.
              "Inserted 8 transient state seed event\\(s\\) at split UT=[0-9.]+ \\(skippedExistingBoundary=0\\)",
-             "Forwarded 19 permanent state event\\(s\\) as seeds at UT=[0-9.]+",
-             "Inserted 1 transient state seed event\\(s\\) at split UT=[0-9.]+ \\(skippedExistingBoundary=0\\)",
-             "Forwarded 1 permanent state event\\(s\\) as seeds at UT=[0-9.]+"]
+             "Inserted 1 transient state seed event\\(s\\) at split UT=[0-9.]+ \\(skippedExistingBoundary=0\\)"]
 # THE FOUR FORBIDDEN PATTERNS. The middle two are the DEFECT; see the header for why
 # the second is pinned on a fragment rather than on the whole sentence.
 forbidden = ["\\[Parsek\\]\\[ERROR\\]",
              "reason=sealedTipClosed",
              "not re-deriving MergeState",
              "Reaped rp="]
+
+# GROUP 6, THE PERMANENT HALF (owner ruling 2026-10-15, header): the forwarded seeds
+# themselves, judged by `hlib.evaluate_forwarded_seeds` against the seed list
+# `RecordingOptimizer.ForwardPermanentStateEvents` prints after its count
+# (`Forwarded N permanent state event(s) as seeds at UT=<f>: [Type:part#pid, ...]`).
+# An item passes when ONE such line carries exactly its `expected` entries (pid
+# ignored) and every other entry on that line belongs to a pid whose seeds are exactly
+# one acceptable group. A DLL older than the seed list prints the count only, which
+# can never satisfy an item.
+#
+# ITEM 0 - the promoted focus split ('Kerbal X', slot 0). The 19, DERIVED from the
+# focus recorder's own Verbose lines on the green `2026-10-13_0305` (and identically
+# on `2026-10-12_2119`, whose 21 is these 19 plus the winglet pair); the 2026-10-15
+# re-flight is the first to print the list and confirms it:
+#   8 x ShroudJettisoned - the recorder's start-of-recording seeds for parts whose
+#     shroud is already off on the pad (`Seed event: ShroudJettisoned`): HeatShield2,
+#     the core's Mainsail, the six radial liquidEngine2.
+#   3 x Decoupled launchClamp1 - the clamps releasing at launch.
+#   6 x Decoupled radialDecoupler1-2 - the three booster pairs.
+#   1 x Decoupled Decoupler.2 - the core discard (the RewindPoint's split).
+#   1 x ShroudJettisoned liquidEngine2-2.v2 - the top stack's LV-T45, whose shroud
+#     drops with that same decouple.
+# The ONE acceptable extra: an R8winglet knocked off by a dropped booster
+# (`2026-10-12_2119`, pid 2908259249, 1.3 s after separating), which records a
+# `Destroyed` AND a `Decoupled` for that part; both halves on one pid, or it reds.
+#
+# ITEM 1 - the probe split ('Kerbal X Probe', slot 1): its one permanent event is the
+# background recorder's seed for the Mainsail it carries away (`Seed event:
+# ShroudJettisoned pid=235925713 part='liquidEngineMainsail.v2'` at the probe's
+# creation on `2026-10-13_0305`). The focus line also lists that entry, but its 18
+# others are unacceptable extras for this item, so only the probe line can satisfy it.
+#
+# Written as [[...]] tables AFTER `forbidden`: a TOML inline table cannot break a line
+# between its keys, and an array-of-tables header ends the logContracts table, so
+# every plain logContracts key has to come before it.
+[[expectations.logContracts.forwardedSeeds]]
+expected = ["ShroudJettisoned:HeatShield2",
+            "ShroudJettisoned:liquidEngineMainsail.v2",
+            "ShroudJettisoned:liquidEngine2", "ShroudJettisoned:liquidEngine2",
+            "ShroudJettisoned:liquidEngine2", "ShroudJettisoned:liquidEngine2",
+            "ShroudJettisoned:liquidEngine2", "ShroudJettisoned:liquidEngine2",
+            "Decoupled:launchClamp1", "Decoupled:launchClamp1", "Decoupled:launchClamp1",
+            "Decoupled:radialDecoupler1-2", "Decoupled:radialDecoupler1-2",
+            "Decoupled:radialDecoupler1-2", "Decoupled:radialDecoupler1-2",
+            "Decoupled:radialDecoupler1-2", "Decoupled:radialDecoupler1-2",
+            "Decoupled:Decoupler.2",
+            "ShroudJettisoned:liquidEngine2-2.v2"]
+acceptableExtraGroups = [ { part = "R8winglet", types = ["Decoupled", "Destroyed"] } ]
+
+[[expectations.logContracts.forwardedSeeds]]
+expected = ["ShroudJettisoned:liquidEngineMainsail.v2"]
 
 # REPORT-ONLY (no `gating` key). DERIVED windows.
 #
