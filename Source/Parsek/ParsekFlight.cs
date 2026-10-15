@@ -1356,6 +1356,7 @@ namespace Parsek
             GameEvents.onGroundSciencePartRemoved.Add(OnGroundSciencePartRemoved);
             GameEvents.onNewVesselCreated.Add(OnNewVesselCreatedForGroundPart);
             GameEvents.onDeployGroundPart.Add(OnDeployGroundPart);
+            GameEvents.onModuleInventorySlotChanged.Add(OnModuleInventorySlotChanged);
             GameEvents.onVesselChange.Add(OnVesselSwitchComplete);
             GameEvents.onVesselWasModified.Add(OnVesselWasModified);
             GameEvents.onTimeWarpRateChanged.Add(OnTimeWarpRateChanged);
@@ -2392,6 +2393,7 @@ namespace Parsek
             GameEvents.onGroundSciencePartRemoved.Remove(OnGroundSciencePartRemoved);
             GameEvents.onNewVesselCreated.Remove(OnNewVesselCreatedForGroundPart);
             GameEvents.onDeployGroundPart.Remove(OnDeployGroundPart);
+            GameEvents.onModuleInventorySlotChanged.Remove(OnModuleInventorySlotChanged);
             GameEvents.onVesselChange.Remove(OnVesselSwitchComplete);
             GameEvents.onVesselWasModified.Remove(OnVesselWasModified);
             GameEvents.onTimeWarpRateChanged.Remove(OnTimeWarpRateChanged);

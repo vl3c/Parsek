@@ -3113,14 +3113,54 @@ The live proof, lane RC-5, is not flown.
 
 ---
 
-## EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED: moving a stored part between a tree vessel and a foreign vessel is not recorded, so a rewind duplicates or deletes it [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED: moving a stored part between a tree vessel and a foreign vessel is not recorded, so a rewind duplicates or deletes it~~ [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `wip-eva-inventory-claim`; live proof RC-6 not flown]
 
 No inventory or EVA-construction GameEvent is subscribed anywhere in `Source/Parsek`; claims come
 only from dock target pids and background part events, and no part-event type covers an
 inventory transfer. Design 12.6 lists EVA construction as a ghosting trigger.
 
-Fix: record the transfer as a claim on the foreign vessel (or a part event), so the chain rule
-applies. Lane RC-6 with `EvaGroundScience action=take` against a foreign container (new fixture).
+Re-verified on `origin/main` 8eb067d (after #2103 / #2106 / #2107) before the fix: no
+`onModuleInventory*` or `OnEVAConstructionModePart*` subscription in `Source/Parsek`.
+
+Fix: done. Design (flight recorder design section 4.12): the claim must not come from the kerbal's
+recording, because a chain's tip supplies the spawn snapshot and a kerbal tip would replace the
+rover by the kerbal. So the foreign vessel joins the tree the way a placed ground part does: on
+`onModuleInventorySlotChanged` (fires after the slot changed, on the changed module; never from
+`OnLoad`) for a module on a vessel the tree does not carry, while the tree records its active EVA
+kerbal, `ParsekFlight.OnModuleInventorySlotChanged` adds an `InventoryTransfer` branch point
+(new additive `BranchPointType` 10, parent = the kerbal, who keeps recording) and a background
+member recording of that vessel with its post-transfer snapshot and one `PartRemoved` / `PartAdded`
+`SegmentEvent` per transfer (both already ghosting triggers). The walker's background-event scan
+claims it and the member's own leaf is the tip; later transfers append to the member and refresh
+its snapshot. Parsek's own route pickup / delivery writes are fenced out (`ParsekInventoryWrites`).
+The structural walks that skip or collect a placement read both types through
+`RecordingTree.IsKerbalSideBranch`. Pure gate and builders: `ForeignInventoryTransfer`; tests
+`ForeignInventoryTransferTests` (including the walker cell: the rover is claimed and its own
+recording is the tip) and `ReFlyThroughEvaTests.SessionSuppressedSubtree_IncludesAForeignVesselTheKerbalMovedCargoWith`.
+
+Live proof still open: lane RC-6 (roadmap) needs a new fixture (a landed foreign rover with a
+stocked container within EVA reach of a recording kerbal). `EvaGroundScience action=take` already
+drives the stock clear-then-store; a put into a foreign container has no verb yet. Sibling gap
+filed as EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED.
+
+---
+
+## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. OPEN, product]
+
+The inventory fix records a stored part moved into or out of a foreign vessel's container, but two
+neighbours of the same defect remain. `EVAConstructionModeEditor` fires
+`OnEVAConstructionModePartAttached(parentVessel, part)` after `AttachPart` and
+`OnEVAConstructionModePartDetached(vessel, part)` after `DetachPart` (decompiled 1.12.5); neither
+is subscribed, and an attach / detach changes no inventory slot of the foreign vessel, so a part
+built onto or taken off a parked rover is lost or duplicated by a rewind exactly as before. And
+`ForeignInventoryTransfer.Evaluate` refuses a transfer with a foreign EVA kerbal
+(`ChangedVesselIsEva`): adopting a kerbal vessel as a plain member would hand crew reservation a
+kerbal it does not own.
+
+Fix: route the two construction events through the same adoption (`InventoryTransfer` member, a
+`PartAdded` / `PartRemoved` event). Open question for the detach: whether the held part is still in
+`vessel.parts` when the event fires (`Part.OnDetachFlight`), which decides whether the snapshot must
+wait a frame. Needs a live reading before it ships.
 
 ---
 

@@ -38,6 +38,10 @@ _(unreleased - entries accumulate here per commit)_
   station, and the recorded station with the depot attached appears once when the flight ends.
   Before, the old station stayed as it was and the depot was lost.
   (CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS)
+- **Cargo a kerbal moves to or from another vessel survives a rewind.** Taking a stored part out
+  of a parked rover's container, or putting one in, now makes that rover part of the flight: after
+  a rewind it waits as a ghost and comes back with its new contents, so the part is no longer
+  duplicated or lost. (EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED)
 - **Docking a fleet of identical ships no longer mixes up their histories.** When your ship docks
   to another and takes it over, Parsek now remembers which launch of that ship it was. A later
   launch of the same design no longer has its vessel hidden or spawned at the wrong time because

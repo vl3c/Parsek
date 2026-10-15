@@ -365,10 +365,15 @@ namespace Parsek.Logistics
                     // ClearPartAtSlot would over-debit a partial stacked pickup.
                     int stackAmount = module.GetStackAmountAtSlot(matchSlot);
                     bool removed;
-                    if (stackAmount > 1)
-                        removed = module.UpdateStackAmountAtSlot(matchSlot, stackAmount - 1);
-                    else
-                        removed = module.ClearPartAtSlot(matchSlot);
+                    // Parsek's own write: the foreign-transfer recorder must not read the
+                    // slot event it fires as a kerbal's transfer.
+                    using (ParsekInventoryWrites.Begin())
+                    {
+                        if (stackAmount > 1)
+                            removed = module.UpdateStackAmountAtSlot(matchSlot, stackAmount - 1);
+                        else
+                            removed = module.ClearPartAtSlot(matchSlot);
+                    }
                     ParsekLog.Info(Tag,
                         $"Inventory remove (loaded): source={vessel?.vesselName ?? "<none>"} " +
                         $"pid={(vessel != null ? vessel.persistentId : 0u).ToString(IC)} " +

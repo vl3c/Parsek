@@ -554,6 +554,27 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SessionSuppressedSubtree_IncludesAForeignVesselTheKerbalMovedCargoWith()
+        {
+            // Same tree, but the kerbal's side branch is a foreign inventory transfer
+            // (design section 4.12) instead of a placement: the cargo partner is the kerbal's
+            // product too, so a Re-Fly of the vessel suppresses its claim for the session.
+            RecordingTree tree = Install(ReFlyThroughEvaVariant.ReboardWithPlacedPart);
+            BranchPoint side = tree.BranchPoints.Single(
+                b => b.Id == ReFlyThroughEvaFixture.PlaceBranchPointId);
+            side.Type = BranchPointType.InventoryTransfer;
+            var marker = Marker(ReFlyThroughEvaFixture.UpperId, ReFlyThroughEvaFixture.UpperAfterBoardId);
+            InstallScenario(ReFlyThroughEvaFixture.BuildRewindPoint(), marker);
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(marker);
+            Assert.Contains(ReFlyThroughEvaFixture.KerbalId, closure);
+            Assert.Contains(ReFlyThroughEvaFixture.PlacedPartId, closure);
+            Assert.Contains(logLines, l => l.Contains("[ReFlySession]")
+                && l.Contains("admitted kerbal side-branch child=" + ReFlyThroughEvaFixture.PlacedPartId)
+                && l.Contains("type=InventoryTransfer"));
+        }
+
+        [Fact]
         public void SupersedeClosure_RootedAtTheWalkedTip_SeedsTheStretchBackward()
         {
             // Merge time: the marker's SupersedeTargetId is the walked tip, so the closure

@@ -875,7 +875,7 @@ namespace Parsek
                 // Only a branch at or after the rewind point is downstream of it.
                 if (!isChildLink && bp.UT < rewindUT)
                     continue;
-                if (bp.Type == BranchPointType.GroundPartPlaced)
+                if (RecordingTree.IsKerbalSideBranch(bp.Type))
                     continue;
                 if (!IsNonBlockingDownstreamBranch(bp, chainTip, tree)
                     || (rec != null && HasResolvedRewindPointForBranch(rec, bp.Id)))

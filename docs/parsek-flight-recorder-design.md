@@ -415,8 +415,8 @@ Types:
 - **CREW_LOST** — Crew member died (destroyed or MIA). Relevant for crew tracking.
 - **CREW_TRANSFER** — Crew moved between parts within the same vessel (not via EVA — EVA is a SPLIT/MERGE in the DAG). Records kerbal name, from-part, to-part.
 - **PART_DESTROYED** — Part destroyed without splitting the vessel. Ghost stops rendering this part mesh after this UT. Records part name, part ID, whether it was a controller.
-- **PART_REMOVED** — Part removed via construction without splitting the vessel.
-- **PART_ADDED** — Part added via construction without creating a new vessel. Ghost starts rendering this part mesh after this UT.
+- **PART_REMOVED** — Part removed via construction without splitting the vessel. Also a stored part taken out of a foreign vessel's inventory (Section 4.12).
+- **PART_ADDED** — Part added via construction without creating a new vessel. Ghost starts rendering this part mesh after this UT. Also a stored part put into a foreign vessel's inventory (Section 4.12).
 - **TIME_JUMP** — Discontinuity from a relative-state time jump (see Section 14.5). Stores pre-jump and post-jump state vectors (position, velocity, UT) so playback can handle the gap as a visual cut.
 
 ### 4.9 Merge Events
@@ -558,6 +558,61 @@ came from does not reach the member either: the supersede closure
 branch (different pid) at the EVA branch point, so the kerbal and every part it placed keep their
 recordings, and `EffectiveState.EnqueueDebrisChildren` admits debris only. Todo
 REFLY-CLOSURE-OMITS-PLACED-GROUND-PARTS closed as moot on that evidence.
+
+### 4.12 Inventory Transfers with a Foreign Vessel
+
+Todo EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED (2026-10-15). A kerbal on EVA can move a
+stored part (KSP 1.12 cargo) into or out of an inventory container on a vessel that is not part of
+his flight's tree: a rover parked by an earlier mission, a base. That changes the other vessel's
+physical state, so by Section 12.6 the flight claims it: after a rewind it must be a ghost until the
+flight ends and then come back in its post-transfer form. Without a record of the transfer the
+rewound game kept the container's old contents while the kerbal also spawned with the part
+(duplicated), or the part he put away vanished (deleted).
+
+**What stock does (decompiled KSP 1.12.5).** `ModuleInventoryPart.StoreCargoPartAtSlot`,
+`ClearPartAtSlot`, `UpdateStackAmountAtSlot` and `RemoveNPartsFromInventory` fire
+`onModuleInventorySlotChanged(module, slot)` after the slot changed, on the module whose slot
+changed. A drag from a container into the kerbal's inventory clears the container's slot first and
+then fills the kerbal's (two events, one per module). `OnLoad` fires only
+`onModuleInventoryChanged`, never the slot event, so loading a vessel records nothing.
+
+**What counts as a transfer.** `ForeignInventoryTransfer.Evaluate`: the tree is recording, the
+active vessel is the EVA kerbal whose recording is the tree's active recording, the changed module
+sits on another real vessel (not a ghost map vessel, not an EVA kerbal) and the change is not one of
+Parsek's own supply-route writes (`ParsekInventoryWrites`, set around the pickup and delivery
+writers). A vessel no recording of the tree carries is adopted; a vessel adopted by an earlier
+transfer gets one more event; any other tree vessel (the kerbal's own lander) is left to its own
+recording, whose end snapshot already carries the change.
+
+**Tree shape.** A new `BranchPointType.InventoryTransfer = 10` (purely additive: no schema
+generation bump), the same shape as `GroundPartPlaced`: `ParentRecordingIds = [the kerbal's
+recording]`, `ChildRecordingIds = [the foreign vessel's recording]`, and the kerbal's
+`ChildBranchPointId` is not set, so he keeps recording and stays a leaf. Every walk that treats a
+placement as the kerbal's product reads both types through one predicate,
+`RecordingTree.IsKerbalSideBranch`: the spawn decision's #114 safety net, the Re-Fly downstream
+check, the session-suppressed and supersede closure, and (generically, by parent id) the
+switch-segment subtree behind scoped Discard. The branch point is non-claiming and names no target
+vessel; it reads "Cargo" in the Missions composition.
+
+**What is recorded.** The member is an ordinary background-recorded recording of the foreign
+vessel: its pid, its `Vessel.id` as `RecordedVesselGuid`, `ExplicitStartUT` = the transfer UT,
+`Generation` = parent + 1, not debris, no parent anchor. Its snapshot is taken at the transfer
+(after the change) and refreshed at every later transfer, so the end snapshot is the post-transfer
+vessel; it joins the `BackgroundMap`. Each transfer is one `SegmentEvent` on the member,
+`PartRemoved` or `PartAdded` (fewer or more parts in the slot than the last reading of it, else the
+vessel's saved `ProtoPartSnapshot`; with neither, an emptied slot reads as a removal), with details
+`inventory part=<name> slot=<n> qty=<after> container=<part pid>`. Nothing is written on the
+kerbal's recording: his own snapshot carries his side of the move.
+
+**The claim.** Both segment event types are ghosting triggers, so the chain walker's
+background-event scan claims the member's pid (the member is not in the root lineage: the kerbal
+does not point at it). The chain's tip is the member's own leaf, so the spawn snapshot is the
+foreign vessel's own post-transfer form, never the kerbal's; the kerbal stays the tip of nothing and
+spawns as himself.
+
+**Not covered.** A part attached to or detached from a foreign vessel in EVA construction mode
+(`OnEVAConstructionModePartAttached` / `Detached`), and a transfer with a foreign EVA kerbal, are
+not recorded yet (todo EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED).
 
 ---
 
@@ -1208,7 +1263,7 @@ function IsIntermediateChainLink(chains, recording):
 - Part destruction on vessel (collision, explosion, overheat)
 - Crew transfer to/from vessel (kerbal = vessel; boarding = merge, EVA = split)
 - Claw/AGU grab (structural MERGE)
-- EVA construction: part added to or removed from vessel
+- EVA construction: part added to or removed from vessel (a stored part moved into or out of a foreign vessel's inventory is recorded, Section 4.12; a part attached or detached in construction mode is not yet)
 
 *Orbital / positional:*
 - Engine burns (changes orbit)

@@ -1380,6 +1380,7 @@ namespace Parsek
                 case BranchPointType.Board: return StructureStepKind.Dock;
                 case BranchPointType.EVA: return StructureStepKind.Eva;
                 case BranchPointType.GroundPartPlaced: return StructureStepKind.Eva;
+                case BranchPointType.InventoryTransfer: return StructureStepKind.Eva;
                 default: return StructureStepKind.Separation; // JointBreak / Breakup
             }
         }
