@@ -1554,8 +1554,7 @@ namespace Parsek.Tests
                 && l.Contains("supersedes=1 tombstones=1 retirements=1 attemptIds=1"));
         }
 
-        // ==============================================================        }
-
+        // =====================================================================
         // RETRY-OF-A-RESUMED-MERGED-REFLY-LEAVES-A-ONE-SIDED-ROW: Retry of a resumed session
         // =====================================================================
 
@@ -1742,7 +1741,8 @@ namespace Parsek.Tests
             Assert.Same(before, Assert.Single(RecordingStore.CommittedTrees, t => t.Id == TreeId));
             Assert.Equal(new[] { "rel_x" }, scenario.RecordingSupersedes.Select(r => r.RelationId));
             Assert.DoesNotContain(logLines, l => l.Contains("RestoreSanitizedPendingTreeIfDetached: restored committed tree"));
-=======
+        }
+
         /// <summary>
         /// The pure abandoned-fork collector: a stamped member the quicksave lacks goes with its
         /// unstamped descendants (transitively, through branch points whose parents all go); a
