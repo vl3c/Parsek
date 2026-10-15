@@ -12863,6 +12863,51 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: every vessel pid an active chain holds back on a flight load, the chain key
+        /// first, then each claim folded into it (a tug that docks to a depot and carries it to
+        /// a station ends both: the walker folds the station's chain into the depot's, and
+        /// ghosting the key alone leaves the stale station live for the tip to adopt). A folded
+        /// claim whose live vessel is conclusively another launch of the same craft (a
+        /// craft-baked pid) is left out; the key keeps its pid-only ghosting.
+        /// <paramref name="liveGuidOf"/> answers the live vessel's launch guid for a pid (null
+        /// when unknown or not live).
+        /// </summary>
+        internal static List<uint> SelectChainPidsToGhost(
+            uint chainKey, GhostChain chain, Func<uint, string> liveGuidOf)
+        {
+            var pids = new List<uint>();
+            if (chainKey != 0)
+                pids.Add(chainKey);
+            if (chain == null || chain.ClaimedVessels == null)
+                return pids;
+            List<ChainClaimedVessel> held = chain.HeldBackVessels();
+            for (int i = 0; i < held.Count; i++)
+            {
+                ChainClaimedVessel claim = held[i];
+                if (claim.Pid == 0 || pids.Contains(claim.Pid))
+                    continue;
+                string liveGuid = liveGuidOf != null ? liveGuidOf(claim.Pid) : null;
+                if (VesselLaunchIdentity.GuidsConclusivelyDiffer(liveGuid, claim.LaunchGuid))
+                {
+                    ParsekLog.Verbose("Ghoster",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Folded chain claim not held back: pid={0} chain={1} liveLaunch={2} claimLaunch={3} " +
+                            "(another launch of the same craft)",
+                            claim.Pid, chainKey, liveGuid, claim.LaunchGuid ?? "(none)"));
+                    continue;
+                }
+                pids.Add(claim.Pid);
+            }
+            return pids;
+        }
+
+        private static string LiveVesselGuidOrNull(uint pid)
+        {
+            Vessel vessel = FlightRecorder.FindVesselByPid(pid);
+            return vessel != null && vessel.id != Guid.Empty ? vessel.id.ToString("N") : null;
+        }
+
+        /// <summary>
         /// Filters chains to only future-UT non-terminated chains, creates ghost map vessels
         /// for orbital tips, and ghosts real vessels in the scene.
         /// Returns the number of vessels successfully ghosted.
@@ -12909,21 +12954,35 @@ namespace Parsek
                         GhostMapPresence.CreateGhostVessel(chain, tipRecording);
                 }
 
-                // Only attempt ghosting if the vessel actually exists in the scene.
-                // Tree recordings may reference vessels that were never spawned (e.g.,
-                // synthetic test data or vessels in a different SOI/scene).
-                Vessel chainVessel = FlightRecorder.FindVesselByPid(pid);
-                if (chainVessel == null)
+                // Every vessel the chain holds back (its key and the claims folded into it),
+                // and only those that exist in the scene. Tree recordings may reference vessels
+                // that were never spawned (e.g., synthetic test data or vessels in a different
+                // SOI/scene).
+                List<uint> claimPids = SelectChainPidsToGhost(pid, chain, LiveVesselGuidOrNull);
+                for (int c = 0; c < claimPids.Count; c++)
                 {
-                    ParsekLog.Verbose("Ghoster", string.Format(CultureInfo.InvariantCulture,
-                        "Chain vessel pid={0} not loaded in scene — nothing to ghost", pid));
-                }
-                else if (vesselGhoster.GhostVessel(pid))
-                    ghostedCount++;
-                else
-                {
-                    ParsekLog.Warn("Ghoster", string.Format(CultureInfo.InvariantCulture,
-                        "Failed to ghost vessel pid={0} for chain — vessel may remain real", pid));
+                    uint claimPid = claimPids[c];
+                    if (vesselGhoster.IsGhosted(claimPid))
+                    {
+                        ParsekLog.Verbose("Ghoster", string.Format(CultureInfo.InvariantCulture,
+                            "Chain vessel pid={0} already ghosted (chain={1})", claimPid, pid));
+                        continue;
+                    }
+                    Vessel chainVessel = FlightRecorder.FindVesselByPid(claimPid);
+                    if (chainVessel == null)
+                    {
+                        ParsekLog.Verbose("Ghoster", string.Format(CultureInfo.InvariantCulture,
+                            "Chain vessel pid={0} not loaded in scene - nothing to ghost (chain={1})",
+                            claimPid, pid));
+                    }
+                    else if (vesselGhoster.GhostVessel(claimPid))
+                        ghostedCount++;
+                    else
+                    {
+                        ParsekLog.Warn("Ghoster", string.Format(CultureInfo.InvariantCulture,
+                            "Failed to ghost vessel pid={0} for chain={1} - vessel may remain real",
+                            claimPid, pid));
+                    }
                 }
             }
             return ghostedCount;
@@ -19939,36 +19998,42 @@ namespace Parsek
                     });
                 }
 
-                // Chain-ghosted real vessels: before the first claim the despawned vessel sits
+                // Chain-ghosted real vessels: before its first claim a despawned vessel sits
                 // on rails, so it relays from its despawn snapshot. From the claim on, the
                 // committed recordings that carry it relay instead, and between two of them
                 // (a recording ended, the next claim or recording of the vessel not started)
-                // the ended one's continuation hold keeps the vessel at its end state.
+                // the ended one's continuation hold keeps the vessel at its end state. A chain
+                // holds back every vessel its tip ends, each until its own first claim.
                 if (activeGhostChains != null && vesselGhoster != null)
                 {
                     foreach (var kv in activeGhostChains)
                     {
                         GhostChain chain = kv.Value;
                         if (chain == null) continue;
-                        var info = vesselGhoster.GetGhostedInfo(chain.OriginalVesselPid);
-                        if (info == null || info.snapshot == null) continue;
-                        bool preClaim = currentUT < chain.GhostStartUT;
-                        ghostCommNetCandidates.Add(new GhostCommNetCandidate
+                        List<ChainClaimedVessel> held = chain.HeldBackVessels();
+                        for (int h = 0; h < held.Count; h++)
                         {
-                            Key = GhostCommNetMath.ChainKey(chain.OriginalVesselPid),
-                            RecordingIndex = -1,
-                            ChainSnapshot = info.snapshot,
-                            VesselName = info.vesselName,
-                            VesselPid = chain.OriginalVesselPid,
-                            LaunchGuid = chain.LaunchGuid,
-                            Eligibility = new GhostCommNetEligibility
+                            ChainClaimedVessel claim = held[h];
+                            var info = vesselGhoster.GetGhostedInfo(claim.Pid);
+                            if (info == null || info.snapshot == null) continue;
+                            bool preClaim = currentUT < claim.FirstClaimUT;
+                            ghostCommNetCandidates.Add(new GhostCommNetCandidate
                             {
-                                Eligible = preClaim,
-                                Reason = preClaim ? "chain-pre-claim" : "chain-claimed",
-                            },
-                            WindowStartUT = double.NegativeInfinity,
-                            EndUT = chain.GhostStartUT,
-                        });
+                                Key = GhostCommNetMath.ChainKey(claim.Pid),
+                                RecordingIndex = -1,
+                                ChainSnapshot = info.snapshot,
+                                VesselName = info.vesselName,
+                                VesselPid = claim.Pid,
+                                LaunchGuid = claim.LaunchGuid,
+                                Eligibility = new GhostCommNetEligibility
+                                {
+                                    Eligible = preClaim,
+                                    Reason = preClaim ? "chain-pre-claim" : "chain-claimed",
+                                },
+                                WindowStartUT = double.NegativeInfinity,
+                                EndUT = claim.FirstClaimUT,
+                            });
+                        }
                     }
                 }
 

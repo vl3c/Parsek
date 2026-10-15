@@ -23,6 +23,20 @@ namespace Parsek
         }
     }
 
+    /// <summary>
+    /// One vessel a chain holds back: the chain's own key, or the key of a chain folded into
+    /// it because its tip carries that pid (<c>GhostChainWalker.MergeCrossTreeLinks</c>).
+    /// </summary>
+    internal struct ChainClaimedVessel
+    {
+        public uint Pid;
+        // The launch guid of the claim on that pid (the folded chain's LaunchGuid); null = unknown.
+        public string LaunchGuid;
+        // UT of the first claim on that pid (the folded chain's GhostStartUT): before it the
+        // held-back vessel sits on rails in its pre-claim form.
+        public double FirstClaimUT;
+    }
+
     internal class GhostChain
     {
         public uint OriginalVesselPid;
@@ -35,6 +49,10 @@ namespace Parsek
         public string TipRecordingId;
         public string TipTreeId;
         public bool IsTerminated;
+        // Every vessel this chain holds back, the key first: a tip that ends several claimed
+        // vessels (a tug carries a depot to a station) holds back all of them until the tip,
+        // which then spawns once as their recorded merged form.
+        public List<ChainClaimedVessel> ClaimedVessels;
 
         // Runtime state: cached trajectory index for O(1) amortized lookup (not serialized)
         public int CachedTrajectoryIndex;
@@ -59,6 +77,65 @@ namespace Parsek
         public GhostChain()
         {
             Links = new List<ChainLink>();
+            ClaimedVessels = new List<ChainClaimedVessel>();
+        }
+
+        /// <summary>True when <paramref name="pid"/> is one of the vessels this chain holds back.</summary>
+        public bool ClaimsPid(uint pid)
+        {
+            if (pid == 0)
+                return false;
+            if (pid == OriginalVesselPid)
+                return true;
+            for (int i = 0; i < ClaimedVessels.Count; i++)
+            {
+                if (ClaimedVessels[i].Pid == pid)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Adds a held-back vessel unless the chain already claims that pid. Returns true when added.
+        /// </summary>
+        public bool AddClaimedVessel(uint pid, string launchGuid, double firstClaimUT)
+        {
+            if (pid == 0)
+                return false;
+            for (int i = 0; i < ClaimedVessels.Count; i++)
+            {
+                if (ClaimedVessels[i].Pid == pid)
+                    return false;
+            }
+            ClaimedVessels.Add(new ChainClaimedVessel
+            {
+                Pid = pid,
+                LaunchGuid = launchGuid,
+                FirstClaimUT = firstClaimUT
+            });
+            return true;
+        }
+
+        /// <summary>
+        /// The vessels this chain holds back, the key first. A chain built without a claim
+        /// list (hand-built in tests) holds back its key alone.
+        /// </summary>
+        public List<ChainClaimedVessel> HeldBackVessels()
+        {
+            var held = new List<ChainClaimedVessel>();
+            if (OriginalVesselPid != 0)
+                held.Add(new ChainClaimedVessel
+                {
+                    Pid = OriginalVesselPid,
+                    LaunchGuid = LaunchGuid,
+                    FirstClaimUT = GhostStartUT
+                });
+            for (int i = 0; i < ClaimedVessels.Count; i++)
+            {
+                if (ClaimedVessels[i].Pid != 0 && ClaimedVessels[i].Pid != OriginalVesselPid)
+                    held.Add(ClaimedVessels[i]);
+            }
+            return held;
         }
 
         public override string ToString()

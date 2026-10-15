@@ -38,6 +38,8 @@ namespace Parsek.Tests
         // Other live vessels by pid (guid, lastUT), e.g. the stale depot of the two-claim shape.
         private readonly Dictionary<uint, KeyValuePair<string, double>> otherLive =
             new Dictionary<uint, KeyValuePair<string, double>>();
+        private readonly Dictionary<uint, KeyValuePair<string, double>> removedOther =
+            new Dictionary<uint, KeyValuePair<string, double>>();
         private const uint DepotPid = 600u;
         private const string DepotGuid = "6a7e11002b3c4d5e8f90a1b2c3d4e5f6";
 
@@ -97,7 +99,12 @@ namespace Parsek.Tests
                 if (pid == StationPid)
                     stationLive = false;
                 else
+                {
+                    KeyValuePair<string, double> other;
+                    if (otherLive.TryGetValue(pid, out other))
+                        removedOther[pid] = other;
                     otherLive.Remove(pid);
+                }
                 var snapshot = new ConfigNode("VESSEL");
                 snapshot.AddValue("persistentId", pid.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 return snapshot;
@@ -107,7 +114,11 @@ namespace Parsek.Tests
                 Assert.Equal(pid.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     snapshot.GetValue("persistentId"));
                 restored.Add(pid);
-                stationLive = true;
+                KeyValuePair<string, double> other;
+                if (pid == StationPid)
+                    stationLive = true;
+                else if (removedOther.TryGetValue(pid, out other))
+                    otherLive[pid] = other;
                 return pid;
             };
         }
@@ -957,16 +968,149 @@ namespace Parsek.Tests
                 ChainTipStaleVessel.ResolveClaimedPidsForTip(chains, tip.RecordingId, RecordingStore.CommittedTrees));
         }
 
+        private static StaleVesselEvidence StaleOf(
+            uint pid, string guid, double lastUT = PreClaimLastUT, bool inUse = false)
+        {
+            StaleVesselEvidence evidence = Stale(lastUT: lastUT, inUse: inUse);
+            evidence.ClaimedPid = pid;
+            evidence.LiveGuid = guid;
+            return evidence;
+        }
+
         [Fact]
-        public void TwoClaims_Predicate_RefusesAndSaysWhy()
+        public void TwoClaims_Fixture_TheChainHoldsBackTheDepotAndTheStation()
         {
             Recording tip = CommitTwoClaimTree();
-            StaleVesselEvidence evidence = Stale();
-            evidence.LiveClaimedVesselCount = 2;
+            GhostChain chain = ChainTipStaleVessel.FindChainForTip(Chains(), tip.RecordingId);
 
-            Assert.False(ChainTipStaleVessel.ShouldReplaceStaleLiveVessel(
-                tip, Chains(), evidence, out string reason));
-            Assert.Equal(ChainTipStaleVessel.ReasonSeveralClaimedVessels, reason);
+            Assert.NotNull(chain);
+            Assert.True(chain.ClaimsPid(DepotPid));
+            Assert.True(chain.ClaimsPid(StationPid));
+            Assert.Equal(new List<uint> { DepotPid, StationPid },
+                chain.ClaimedVessels.ConvertAll(c => c.Pid));
+            // Each held-back vessel keeps its own first claim (the flight CommNet relay reads
+            // it): the depot is claimed at 1200, the station at the second dock.
+            List<ChainClaimedVessel> held = chain.HeldBackVessels();
+            Assert.Equal(new List<uint> { DepotPid, StationPid }, held.ConvertAll(c => c.Pid));
+            Assert.Equal(new List<double> { 1200.0, DockUT }, held.ConvertAll(c => c.FirstClaimUT));
+            Assert.Equal(StationGuid, held[1].LaunchGuid);
+        }
+
+        [Fact]
+        public void TwoClaims_FlightGhosting_HoldsBackTheDepotAndTheStation()
+        {
+            // Flight load after a rewind before the docks: the one chain (keyed 600) must ghost
+            // both claimed vessels, or the stale station stays live and the tip adopts it.
+            CommitTwoClaimTree();
+            var chains = Chains();
+            GhostChain chain = GhostChainWalker.FindChainForVessel(chains, DepotPid);
+
+            List<uint> pids = ParsekFlight.SelectChainPidsToGhost(DepotPid, chain, LiveGuidOf);
+
+            Assert.Equal(new List<uint> { DepotPid, StationPid }, pids);
+        }
+
+        [Fact]
+        public void TwoClaims_FlightGhosting_FoldedClaimOfAnotherLaunch_IsNotHeldBack()
+        {
+            // A live vessel on the folded pid that is conclusively another launch of the same
+            // craft (craft-baked pid) is not the claimed station.
+            CommitTwoClaimTree();
+            GhostChain chain = GhostChainWalker.FindChainForVessel(Chains(), DepotPid);
+
+            List<uint> pids = ParsekFlight.SelectChainPidsToGhost(
+                DepotPid, chain, pid => pid == StationPid ? "ffffffffffffffffffffffffffffffff" : LiveGuidOf(pid));
+
+            Assert.Equal(new List<uint> { DepotPid }, pids);
+            Assert.Contains(logLines, l => l.Contains("[Ghoster]")
+                && l.Contains("not held back") && l.Contains("pid=777"));
+        }
+
+        [Fact]
+        public void DockUndock_FlightGhosting_HoldsBackOnlyTheClaimedStation()
+        {
+            CommitDockUndockTree();
+            GhostChain chain = GhostChainWalker.FindChainForVessel(Chains(), StationPid);
+
+            Assert.Equal(new List<uint> { StationPid },
+                ParsekFlight.SelectChainPidsToGhost(StationPid, chain, LiveGuidOf));
+            // A hand-built chain with no claim list still ghosts its key.
+            Assert.Equal(new List<uint> { 42u },
+                ParsekFlight.SelectChainPidsToGhost(42u, new GhostChain { OriginalVesselPid = 42u }, LiveGuidOf));
+        }
+
+        [Fact]
+        public void TwoClaims_ChainTipSettled_ReleasesEveryHeldBackVessel()
+        {
+            // The tip spawn (or adoption, or KSC retirement) settles the chain: every vessel it
+            // held back leaves the ghosted set, so the spawned tip (pid 777) does not read as
+            // still ghosted by the chain.
+            CommitTwoClaimTree();
+            GhostChain chain = GhostChainWalker.FindChainForVessel(Chains(), DepotPid);
+            var ghoster = new VesselGhoster();
+            ghoster.AddGhostedForTesting(DepotPid, "Depot", new ConfigNode("VESSEL"));
+            ghoster.AddGhostedForTesting(StationPid, "Station", new ConfigNode("VESSEL"));
+            ghoster.AddGhostedForTesting(4242u, "Unrelated", new ConfigNode("VESSEL"));
+
+            ghoster.ReleaseChainClaims(chain);
+
+            Assert.False(ghoster.IsGhosted(DepotPid));
+            Assert.False(ghoster.IsGhosted(StationPid));
+            Assert.True(ghoster.IsGhosted(4242u));
+        }
+
+        [Fact]
+        public void TwoClaims_Predicate_BothStale_Replaces()
+        {
+            Recording tip = CommitTwoClaimTree();
+            var live = new List<StaleVesselEvidence>
+            {
+                StaleOf(DepotPid, DepotGuid),
+                StaleOf(StationPid, StationGuid)
+            };
+
+            Assert.True(ChainTipStaleVessel.ShouldReplaceStaleLiveVessels(
+                tip, Chains(), live, out string reason));
+            Assert.Equal(ChainTipStaleVessel.ReasonReplace, reason);
+        }
+
+        [Fact]
+        public void TwoClaims_Predicate_AnyDoubtOnOneVessel_KeepsBoth()
+        {
+            Recording tip = CommitTwoClaimTree();
+            var chains = Chains();
+            string reason;
+
+            Assert.False(ChainTipStaleVessel.ShouldReplaceStaleLiveVessels(tip, chains,
+                new List<StaleVesselEvidence> { StaleOf(DepotPid, DepotGuid), StaleOf(StationPid, StationGuid, inUse: true) },
+                out reason));
+            Assert.Equal(ChainTipStaleVessel.ReasonInUse, reason);
+
+            Assert.False(ChainTipStaleVessel.ShouldReplaceStaleLiveVessels(tip, chains,
+                new List<StaleVesselEvidence> { StaleOf(DepotPid, DepotGuid, lastUT: 1650.0), StaleOf(StationPid, StationGuid) },
+                out reason));
+            Assert.Equal(ChainTipStaleVessel.ReasonSimulatedSinceClaim, reason);
+
+            Assert.False(ChainTipStaleVessel.ShouldReplaceStaleLiveVessels(tip, chains,
+                new List<StaleVesselEvidence> { StaleOf(DepotPid, DepotGuid), StaleOf(StationPid, "ffffffffffffffffffffffffffffffff") },
+                out reason));
+            Assert.Equal(ChainTipStaleVessel.ReasonDifferentLaunch, reason);
+        }
+
+        [Fact]
+        public void TwoClaims_Predicate_TheStaleStationIsTheTipIdentity_DoesNotBlockTheDepot()
+        {
+            // The live station matches the tip's own pid and launch, but it is one of the stale
+            // claimed vessels being replaced, not a separate vessel the site would adopt.
+            Recording tip = CommitTwoClaimTree();
+            StaleVesselEvidence depot = StaleOf(DepotPid, DepotGuid);
+            depot.TipIdentityLive = true;
+            StaleVesselEvidence station = StaleOf(StationPid, StationGuid);
+            station.TipIdentityLive = true;
+
+            Assert.True(ChainTipStaleVessel.ShouldReplaceStaleLiveVessels(
+                tip, Chains(), new List<StaleVesselEvidence> { depot, station }, out string reason));
+            Assert.Equal(ChainTipStaleVessel.ReasonReplace, reason);
         }
 
         [Fact]
@@ -982,7 +1126,7 @@ namespace Parsek.Tests
                 tip, "SPACECENTER", 2);
 
             Assert.NotNull(replacement);
-            Assert.Equal(DepotPid, replacement.RemovedPid);
+            Assert.Equal(new List<uint> { DepotPid }, replacement.RemovedPids);
         }
 
         [Fact]
@@ -996,7 +1140,7 @@ namespace Parsek.Tests
                 tip, "SPACECENTER", 2);
 
             Assert.NotNull(replacement);
-            Assert.Equal(StationPid, replacement.RemovedPid);
+            Assert.Equal(new List<uint> { StationPid }, replacement.RemovedPids);
         }
 
         [Fact]
@@ -1014,51 +1158,156 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TwoClaims_TrackingStationHandoff_RemovesNothingAndAdoptsAsBefore()
+        public void TwoClaims_TrackingStationHandoff_RemovesBothAndSpawnsTheTipOnce()
         {
             Recording tip = CommitTwoClaimTree();
             LatchRewoundBefore(tip);
-            bool spawnCalled = false;
+            int spawnCalls = 0;
+            bool? spawnedWithPreservedIdentity = null;
             GhostMapPresence.TrackingStationSpawnOverrideForTesting = (rec, index, preserveIdentity) =>
-                spawnCalled = true;
+            {
+                spawnCalls++;
+                spawnedWithPreservedIdentity = preserveIdentity;
+                SpawnTipAs(rec, StationPid);
+            };
+
+            bool handled = GhostMapPresence.TryRunTrackingStationSpawnHandoffForIndex(
+                new List<Recording> { tip }, 0, tip.EndUT + 10);
+
+            Assert.True(handled);
+            Assert.Equal(new List<uint> { DepotPid, StationPid }, removed);
+            Assert.Empty(restored);
+            Assert.Equal(1, spawnCalls);
+            Assert.True(spawnedWithPreservedIdentity);
+            Assert.False(otherLive.ContainsKey(DepotPid));
+            Assert.Equal(StationPid, tip.SpawnedVesselPersistentId);
+            Assert.DoesNotContain(logLines, l => l.Contains("skipped duplicate spawn"));
+            Assert.Contains(logLines, l => l.Contains("Replacing stale pre-claim vessel (TRACKSTATION)")
+                && l.Contains("live pid=600,777"));
+            Assert.Contains(logLines, l => l.Contains("Chain-tip replacement complete (TRACKSTATION)")
+                && l.Contains("removed pid=600,777"));
+        }
+
+        [Fact]
+        public void TwoClaims_TrackingStationHandoff_TipSpawnsNothing_RestoresBoth()
+        {
+            Recording tip = CommitTwoClaimTree();
+            LatchRewoundBefore(tip);
+            GhostMapPresence.TrackingStationSpawnOverrideForTesting = (rec, index, preserveIdentity) =>
+                rec.SpawnAttempts++;
 
             GhostMapPresence.TryRunTrackingStationSpawnHandoffForIndex(
                 new List<Recording> { tip }, 0, tip.EndUT + 10);
 
-            Assert.Empty(removed);
-            Assert.False(spawnCalled);
+            Assert.Equal(new List<uint> { DepotPid, StationPid }, removed);
+            Assert.Equal(new HashSet<uint> { DepotPid, StationPid }, new HashSet<uint>(restored));
+            Assert.Equal(2, restored.Count);
+            Assert.True(stationLive);
             Assert.True(otherLive.ContainsKey(DepotPid));
-            Assert.Equal(StationPid, tip.SpawnedVesselPersistentId);
-            Assert.Contains(logLines, l => l.Contains("[ChainTip]")
-                && l.Contains("reason=" + ChainTipStaleVessel.ReasonSeveralClaimedVessels));
+            Assert.False(tip.VesselSpawned);
+            Assert.Contains(logLines, l => l.Contains("[WARN][ChainTip]")
+                && l.Contains("restored the removed vessel pid=600"));
+            Assert.Contains(logLines, l => l.Contains("[WARN][ChainTip]")
+                && l.Contains("restored the removed vessel pid=777"));
         }
 
         [Fact]
-        public void TwoClaims_SpaceCenterAndFlightEntry_RemoveNothing()
+        public void TwoClaims_SpaceCenterEndSpawn_SpawnThrows_RestoresBoth()
+        {
+            Recording tip = CommitTwoClaimTree();
+            LatchRewoundBefore(tip);
+            ParsekKSC.KscEndSpawnBodyOverrideForTesting = (rec, index, replacement) =>
+                throw new InvalidOperationException("spawn blew up");
+
+            ParsekKSC.RunKscEndSpawn(tip, 2);
+
+            Assert.Equal(new List<uint> { DepotPid, StationPid }, removed);
+            Assert.Equal(2, restored.Count);
+            Assert.True(stationLive);
+            Assert.True(otherLive.ContainsKey(DepotPid));
+        }
+
+        [Fact]
+        public void TwoClaims_SpaceCenterAndFlightEntry_RemoveBoth()
         {
             Recording tip = CommitTwoClaimTree();
             LatchRewoundBefore(tip);
 
-            Assert.Null(ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(tip, "SPACECENTER", 2));
-            Assert.Null(ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(tip, "FLIGHT", 2));
-            Assert.Empty(removed);
-            Assert.True(otherLive.ContainsKey(DepotPid));
+            StaleVesselReplacement replacement = ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(
+                tip, "SPACECENTER", 2);
+
+            Assert.NotNull(replacement);
+            Assert.Equal(new List<uint> { DepotPid, StationPid }, replacement.RemovedPids);
+            Assert.Equal(new List<uint> { DepotPid, StationPid }, removed);
+            // The site's adoption check that follows finds nothing to adopt.
+            Assert.False(VesselSpawner.TryAdoptExistingSourceVesselForSpawn(tip, "KSCSpawn", "test"));
         }
 
         [Fact]
-        public void TwoClaims_FlightLeafSpawn_AdoptsTheStationAndLeavesTheDepot()
+        public void TwoClaims_FlightLeafSpawn_RemovesBothAndSpawnsTheTip()
         {
             Recording tip = CommitTwoClaimTree();
             LatchRewoundBefore(tip);
+            bool? spawnedWithPreservedIdentity = null;
             ParsekFlight.LeafSpawnOverrideForTesting = (rec, index, preserveIdentity, allowDuplicate) =>
-                VesselSpawner.TryAdoptExistingSourceVesselForSpawn(rec, "Spawner", "test");
+            {
+                spawnedWithPreservedIdentity = preserveIdentity;
+                if (!VesselSpawner.TryAdoptExistingSourceVesselForSpawn(rec, "Spawner", "test"))
+                    SpawnTipAs(rec, StationPid);
+            };
 
             InvokeFlightLeafSpawn(tip, 0);
 
-            Assert.Empty(removed);
+            Assert.Equal(new List<uint> { DepotPid, StationPid }, removed);
             Assert.Empty(restored);
-            Assert.True(otherLive.ContainsKey(DepotPid));
+            Assert.True(spawnedWithPreservedIdentity);
+            Assert.False(otherLive.ContainsKey(DepotPid));
+            Assert.False(stationLive);
             Assert.Equal(StationPid, tip.SpawnedVesselPersistentId);
+        }
+
+        [Fact]
+        public void TwoClaims_OneVesselInUse_RemovesNothingAndSaysWhich()
+        {
+            Recording tip = CommitTwoClaimTree();
+            LatchRewoundBefore(tip);
+            ChainTipStaleVessel.LiveVesselInUseOverrideForTesting = pid => pid == DepotPid;
+
+            Assert.Null(ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(tip, "SPACECENTER", 2));
+            Assert.Empty(removed);
+            Assert.Contains(logLines, l => l.Contains("Stale chain-tip vessel kept (SPACECENTER)")
+                && l.Contains("live claimed pid=600")
+                && l.Contains("reason=" + ChainTipStaleVessel.ReasonInUse));
+        }
+
+        [Fact]
+        public void TwoClaims_StationSimulatedSinceTheLastClaim_RemovesNothing()
+        {
+            Recording tip = CommitTwoClaimTree();
+            LatchRewoundBefore(tip);
+            stationLastUT = 1650.0;
+
+            Assert.Null(ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(tip, "SPACECENTER", 2));
+            Assert.Empty(removed);
+            Assert.True(otherLive.ContainsKey(DepotPid));
+        }
+
+        [Fact]
+        public void TwoClaims_SecondRemovalFails_PutsTheFirstBack()
+        {
+            Recording tip = CommitTwoClaimTree();
+            LatchRewoundBefore(tip);
+            var baseRemove = ChainTipStaleVessel.RemoveOverrideForTesting;
+            ChainTipStaleVessel.RemoveOverrideForTesting = (pid, scene) =>
+                pid == StationPid ? null : baseRemove(pid, scene);
+
+            Assert.Null(ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn(tip, "SPACECENTER", 2));
+            Assert.Equal(new List<uint> { DepotPid }, removed);
+            Assert.Equal(new List<uint> { DepotPid }, restored);
+            Assert.True(otherLive.ContainsKey(DepotPid));
+            Assert.True(stationLive);
+            Assert.Contains(logLines, l => l.Contains("Stale chain-tip vessel removal failed (SPACECENTER)")
+                && l.Contains("pid=777"));
         }
 
         [Fact]
@@ -1205,7 +1454,7 @@ namespace Parsek.Tests
                 tip, "SPACECENTER", 2);
 
             Assert.NotNull(replacement);
-            Assert.Equal(StationPid, replacement.RemovedPid);
+            Assert.Equal(new List<uint> { StationPid }, replacement.RemovedPids);
             Assert.Equal(new List<uint> { StationPid }, removed);
         }
 
@@ -1222,7 +1471,7 @@ namespace Parsek.Tests
                 tip, "SPACECENTER", 2);
 
             Assert.NotNull(replacement);
-            Assert.Equal(StationPid, replacement.RemovedPid);
+            Assert.Equal(new List<uint> { StationPid }, replacement.RemovedPids);
             Assert.Equal(new List<uint> { StationPid }, removed);
         }
 
@@ -1323,7 +1572,7 @@ namespace Parsek.Tests
                 tip, "SPACECENTER", 2);
 
             Assert.NotNull(replacement);
-            Assert.Equal(StationPid, replacement.RemovedPid);
+            Assert.Equal(new List<uint> { StationPid }, replacement.RemovedPids);
             Assert.Equal(new List<uint> { StationPid }, removed);
         }
 

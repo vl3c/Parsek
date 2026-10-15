@@ -33,6 +33,11 @@ _(unreleased - entries accumulate here per commit)_
 - **Discard Re-fly after a quickload keeps the original flight.** Discarding a Re-Fly from the Esc
   menu after an F9 inside it could drop the whole flight it belonged to from the timeline. The
   original flight now stays, as it does when you discard from the merge dialog.
+- **Rewinding past a delivery no longer loses the delivered vessel.** When a tug docks to a depot
+  and carries it to a station, a rewind to before the docks now holds back both the depot and the
+  station, and the recorded station with the depot attached appears once when the flight ends.
+  Before, the old station stayed as it was and the depot was lost.
+  (CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS)
 - **Docking a fleet of identical ships no longer mixes up their histories.** When your ship docks
   to another and takes it over, Parsek now remembers which launch of that ship it was. A later
   launch of the same design no longer has its vessel hidden or spawned at the wrong time because

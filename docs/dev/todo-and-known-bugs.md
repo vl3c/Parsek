@@ -2897,7 +2897,7 @@ watermark reds the leaf second-rewind cell, a bare-pid positive rule reds the tr
 
 ---
 
-## CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS: one recording that ends two claimed vessels holds back only one of them [FILED 2026-10-06 from the PR #2029 re-review, by code read and a headless walker cell; not reproduced in game. OPEN, product]
+## ~~CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS: one recording that ends two claimed vessels holds back only one of them~~ [FILED 2026-10-06 from the PR #2029 re-review, by code read and a headless walker cell; not reproduced in game. FIXED 2026-10-15, branch `wip-chain-tip-several-claims`; no live flight]
 
 Shape: a tug docks to depot 600, carries it to station 777 and docks there; the final
 recording (777, the station dominant) ends both lineages. `GhostChainWalker.ComputeAllGhostChains`
@@ -2928,6 +2928,29 @@ adopted. That needs the chain to keep every claimed pid (not only its key) for t
 ghosting, and the replacement to remove all of them, spawn the tip once and restore all of them
 on a failed spawn. Red tests: a flight `FilterAndGhostChains` cell over this fixture (both pids
 ghosted), and the `TwoClaims_*` cells flipped to "both removed, tip spawned".
+
+FIXED: the walker keeps every claimed vessel on the chain (`GhostChain.ClaimedVessels`: the key,
+plus each folded chain's key with its launch guid and first claim UT, filled by
+`MergeCrossTreeLinks`). Flight: `ParsekFlight.FilterAndGhostChains` ghosts every pid
+`SelectChainPidsToGhost` returns (the key, then each folded claim whose live vessel is not
+conclusively another launch), the flight CommNet relay covers each held-back vessel until its own
+first claim, and `VesselGhoster.ReleaseChainClaims` drops all of them from the ghosted set when the
+tip settles (spawn, adoption, walkback, KSC retirement), so the spawned tip under a folded pid does
+not read as still ghosted. Outside flight: `ChainTipStaleVessel.ShouldReplaceStaleLiveVessels`
+takes one evidence row per live claimed vessel and answers "replace" only when every one passes
+every check of the single-vessel replacement (launch, `lastUT` before the last claim, not in use;
+the playhead latch and the spawn blocker per tip); one doubt keeps all of them on the plain
+adoption (`tip-ends-several-claimed-vessels` is gone). The tip-identity rule now refuses only when
+the tip's pid is not one of the live claimed vessels (the stale station carrying the tip's pid is
+replaced, not adopted). `TryReplaceStaleLiveVessel` removes every live claimed vessel (snapshot
+first), puts back the ones already removed when a later removal fails, and
+`CompleteReplacement` / `AbortReplacement` restore all of them when the tip spawns no vessel. Still
+counted by live vessel (a pid is one vessel at a time). Tests: `ChainTipStaleVesselTests`
+`TwoClaims_*` (fixture claims, flight selection incl. another-launch skip, ghoster release,
+predicate both-stale / any-doubt / tip-identity, TS / KSC / flight-leaf replacement of both,
+failed spawn and thrown spawn restoring both, in-use and simulated-since-claim keeping both, a
+failed second removal putting the first back). Not flown: no harness lane builds a tug-depot-station
+two-dock chain (CI-3 / CI-4 / RC-5 cover one claimed vessel).
 
 ---
 
@@ -2991,9 +3014,10 @@ the chain's (`ExpectedClaimedGuid`: the chain's `LaunchGuid` when the chain is k
 pid, else the tip's own when it kept the claimed pid, else pid only, as the flight ghosting).
 Every claimed pid ending at the tip is probed (all chains ending there, folded-in links
 included) and the live one is the vessel replaced. It answers "replace" only for the tip of a
-non-terminated chain whose claimed pids exactly one live vessel carries (two live are refused:
-CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS; one station claimed again under its new pid after a
-transport-dominant dock is one live vessel, PR #2029 round-two review), unspawned, with that
+non-terminated chain whose claimed pids exactly one live vessel carries (two live were refused
+here; since CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS every live one is replaced; one station claimed
+again under its new pid after a transport-dominant dock is one live vessel, PR #2029 round-two
+review), unspawned, with that
 live claimed vessel and no
 live vessel already matching the tip's own pid and launch when the claimed pid is another one
 (that vessel is the site's adoption, so removing the claimed one would lose it; PR #2029
