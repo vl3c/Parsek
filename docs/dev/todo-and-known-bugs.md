@@ -3456,6 +3456,23 @@ and after commit, Rewind-to-Launch and a FLIGHT reload the rover ghosted and its
 with `parts=15` (the new `parts=` field on VesselGhoster's `Chain tip spawn:` line). Its first
 flight is a reading run; its `WarpToUT ut=240` is a guess to tighten off the measured member EndUT.
 
+**Reading run 2026-10-15_2302 PARSEK-FAIL: the rewind deleted the adopted rover. FIXED same day.**
+The construction recording worked (one join with the attach, two appends, no split, `Chain built:
+vessel=1871615455 links=1 tip=<member>`), but the in-flight commit adoption-stamps the member with
+the rover's own pid, so the Rewind-to-Launch strip scope read it as a vessel the replaying member
+re-spawns (`Rewind strip scope: strip spawned pid=1871615455 of 'rover fuel 0' ... via
+holder-replays`) and the OnLoad strip matched the member's source (`Stripping orphaned spawned
+vessel 'rover fuel 0' ... same-launch recording match`): no real rover for the chain to ghost, and
+the tip spawned out of nowhere. The same holds for an inventory-transfer member (RC-6). Fix: a
+holder whose spawn pid is an InventoryTransfer member of its own tree is left out of the strip
+scope (`leave spawned pid=...`, summary `foreignAdoptedPids=`) and its spawn state resets; a member
+never counts as re-producing another tree's same-pid spawn; the OnLoad launch-identity strip drops
+members and their adoption holders from its match set (`ForeignInventoryTransfer.FindAdoptedForeignVesselMember`
+/ `ExcludeForeignAdoptions`). Cells in `ForeignAdoptionRewindStripTests` (the EVA-11 shape through
+`PreProcessRewindSave`, controls without the member ids and with a tree-born member, the
+no-whitelist OnLoad fallback, an earlier tree that spawned the same pid both ways). EVA-11's
+`WarpToUT` is now `ut=45` (member EndUT 34.96 + 10 s). Re-flight owed.
+
 ---
 
 ## ~~TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT: trimming a boring tail moves the spawn earlier but keeps the commit-time snapshot's resources~~ [FILED 2026-10-06 from the coverage-extension research, mechanism verified; branch `ccr-77f23eb2-dbqh6i`. RULED 2026-10-06: keep resource-changing tails. PARTIAL 2026-10-06, branch `release-cheap-fixes` (PR #2027): fixed for recordings the optimizer does not split. RULED 2026-10-07: the converter part events are the witness (option 3). FIXED 2026-10-07, branch `release-rulings`. The sources still unwitnessed are TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES]

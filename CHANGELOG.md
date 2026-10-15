@@ -33,8 +33,8 @@ _(unreleased - entries accumulate here per commit)_
   kept from spawning. (CHAIN-CLAIM-FROM-SUPERSEDED-RECORDING)
 - **Parts you build onto or take off another vessel on EVA are remembered.** Attaching a part to a
   parked rover or base in EVA construction, or detaching one from it, now becomes part of your
-  flight: after a rewind that vessel is replayed and comes back with or without the part, instead
-  of the part being lost or doubled. (EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED)
+  flight: after a rewind that vessel is kept, replayed and comes back with or without the part,
+  instead of the part being lost or doubled. (EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED)
 - **The Tracking Station keeps funds and contracts at today's date, like the Space Center.** After
   a rewind, loading into the Tracking Station no longer applies spending and rewards the timeline
   has not reached yet, or throws them away for good on a fresh load; they now arrive when the

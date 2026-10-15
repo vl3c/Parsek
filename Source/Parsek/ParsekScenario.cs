@@ -5015,9 +5015,20 @@ namespace Parsek
                 var flightState = HighLogic.CurrentGame?.flightState;
                 if (flightState != null)
                 {
+                    // A foreign vessel a tree adopted by inventory transfer existed before
+                    // that tree: its member and adoption holders never mark it as future.
                     var allCommitted = RecordingStore.CollectAllCommittedRecordings();
+                    var stripCandidates = ForeignInventoryTransfer.ExcludeForeignAdoptions(
+                        allCommitted,
+                        ForeignInventoryTransfer.CollectTransferMemberRecordingIds(
+                            RecordingStore.CommittedTrees),
+                        out int foreignAdoptionsExcluded);
+                    if (foreignAdoptionsExcluded > 0)
+                        ParsekLog.Info("Rewind",
+                            $"OnLoad strip: {foreignAdoptionsExcluded} recording(s) of foreign vessels adopted " +
+                            "by inventory transfer left out of the launch-identity match");
                     StripOrphanedSpawnedVessels(
-                        flightState.protoVessels, allCommitted,
+                        flightState.protoVessels, stripCandidates,
                         matchSource: true, skipPrelaunch: false,
                         requireWhitelist: false,
                         preExistingWhitelist: RewindContext.RewindQuicksaveVesselPids);

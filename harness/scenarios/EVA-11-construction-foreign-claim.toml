@@ -54,9 +54,9 @@ id = "EVA-11-construction-foreign-claim"
 # verbs' own settle frames; (4) / (5) no coast and nothing to lead; (6) every construction
 # verb fails fast on its own refusal, and retry is `once`; (7) the recording count is pinned
 # 2..2 and every vessel part count is exact; (8) tier nightly until the reading run measures
-# its p50; (9) flight_efficiency.py after the first green flight. NOT APPLIED: the WarpToUT
-# target 240 is a guess (the fixture starts at UT 25.4; the commit is estimated at UT
-# 60-150), to be tightened to the measured member EndUT plus a margin after the reading run.
+# its p50; (9) flight_efficiency.py after the first green flight. The WarpToUT target 45 is
+# the member EndUT the reading run measured (2026-10-15_2302: 34.96, chain tip spawnUT 35.0)
+# plus a 10 s margin.
 tier = "nightly"
 description = "EVA construction on a foreign vessel is claimed and replayed: on eva-construct-pad Bill Kerman (Engineer) steps out of the pad Kerbal X to a crewless rover 153 m away, a recording on him attaches a Z-200 battery to the rover's free docking-port node and detaches two OX-STAT panels into his inventory through stock's own construction input, the rover joins his tree as a member carrying all three changes, and after commit, Rewind-to-Launch and a flight reload the chain walker ghosts the 16-part rover and spawns its chain tip with 15 parts."
 instanceProfile = "stock-minimal"
@@ -114,8 +114,8 @@ steps = [
   { cmd = "ListHandles", args = { kind = "chains" },    label = "ch", expect = "OK" },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva11-reloaded-chains-${ch.count}-a-${c1.rec0}-${c1.rec0spawned}-b-${c1.rec1}-${c1.rec1spawned}-end" }, expect = "OK" },
-  # 1x FLIGHT time past the member's EndUT (the commit, estimated UT 60-150; see header).
-  { cmd = "WarpToUT",   args = { ut = "240", maxRate = "1" },                expect = "OK", budget = 400 },
+  # 1x FLIGHT time past the member's EndUT (measured 34.96; see header).
+  { cmd = "WarpToUT",   args = { ut = "45", maxRate = "1" },                 expect = "OK", budget = 200 },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c2", expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva11-spawned-a-${c2.rec0}-${c2.rec0spawned}-${c2.rec0spawnedPid}-b-${c2.rec1}-${c2.rec1spawned}-${c2.rec1spawnedPid}-end" }, expect = "OK" },
   { cmd = "SaveGame",                                                        expect = "OK", budget = 120 },
