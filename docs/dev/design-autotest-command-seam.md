@@ -3579,7 +3579,14 @@ LaunchFromEditor 180 s (the FLIGHT bootstrap of a new vessel). GoToEditor comple
 the scene is EDITOR with a started `EditorLogic`, no side panel sliding and (with `craft=`)
 the craft on the stage by the name in its header, three frames after the last phase began;
 the load is issued ONCE, after the editor is up. LaunchFromEditor completes on FLIGHT with a
-loaded game AND the launched vessel active. MAINMENU is the fast failure of both.
+loaded game, the launched vessel active AND the new scene's ParsekFlight past
+`onFlightReady` (`TestCommandLoadGame.IsFlightReadyForThisLoad` against the instance live
+when Launch was pressed). Stock's `FlightDriver.PostInit` debits the career rollout
+(`OnVesselRollout` -> `Funding.AddFunds(-cost, VesselRollout)`) and then fires
+`onFlightReady`, ~15 frames after the vessel is active, so a step issued on the completion
+always sees a paid-for launch whose flight-ready reset has run; a wait of one frame or more
+prints `launchfromeditor flight-ready wait: waited frames=N seconds=S ...` before the
+complete line (HC-2-ROLLOUT-CHARGE-NOT-RECORDED). MAINMENU is the fast failure of both.
 
 **Payloads.** GoToEditor `scene facility craft parts ship`; LaunchFromEditor `scene vessel
 pid site situation`. Log lines `goeditor start|loading|complete ...` and `launchfromeditor

@@ -644,7 +644,7 @@ the ledger: recordingId=<id>`.
 
 ---
 
-## HC-2-ROLLOUT-CHARGE-NOT-RECORDED: HC-2's LaunchFromEditor rollout shows no funds charge and no VesselRollout ledger row [FILED 2026-10-12 from the nightly tier, run `2026-10-12_0641`. OPEN, not investigated]
+## ~~HC-2-ROLLOUT-CHARGE-NOT-RECORDED: HC-2's LaunchFromEditor rollout shows no funds charge and no VesselRollout ledger row~~ [FILED 2026-10-12 from the nightly tier, run `2026-10-12_0641`. FIXED 2026-10-15 in the seam (branch `claude/project-thread-wkx3cr`), NOT YET RE-FLOWN. harness, not a product defect]
 
 `HC-2-hard-career-earn-spend` `2026-10-12_0641` PARSEK-FAIL (expectations): its three required
 tokens `Game state: FundsChanged -300 (VesselRollout)`, `VesselRollout spending recorded: cost=300,`
@@ -658,6 +658,26 @@ rewards, 500,000 -> 517,760...), `FreshRollout: captured scene-entry vessel pid=
 and no rollout adoption`. So either stock charged nothing on this launch path or the
 `FundsChanged(VesselRollout)` event was not captured. Next: compare with HC-2's last green run
 (the duration ledger has n=2) and with the harness `LaunchFromEditor` path changes since it.
+
+**Cause (2026-10-15, read off the archived `2026-10-12_0641` KSP.log and ZF-1's green
+`2026-10-12_0943`).** Not a money bug: the same race FAST-POLL-SETTLES-STILL-RACE fixed in
+ZF-1. `launchfromeditor complete` answered at 43.505 as soon as the vessel was active; the four
+`hc2-rollout-settle` marks (sized for the old 0.25 s seam poll) ran 43.604-43.687 at the 25 ms
+poll, RunTests started at 43.704 and its batch reloaded the flight before stock's
+`FlightDriver.PostInit` ran (the dying scene's onFlightReady printed at 43.956), so the debit
+never happened. In ZF-1's green run the same PostInit debited `-300 (VesselRollout)` at 01.928,
+Parsek recorded `VesselRollout spending recorded: cost=300`, and onFlightReady followed at 01.954.
+
+**Fix.** `LaunchFromEditor` now completes only once the launched scene's ParsekFlight observed
+onFlightReady (`TestCommandEditorRoute.DecideLaunchCompletion` takes the flight-ready input; the
+applier tracks the ParsekFlight instance live at the Launch press, as RevertToLaunch does), and
+logs `launchfromeditor flight-ready wait: waited frames=N ...`. HC-2's four marks are gone and it
+pins the debit before the completion. A fixed-UT `WarpToUT` (ZF-1's fix) did not fit HC-2, whose
+launch UT moves with the hop. Every LaunchFromEditor lane now completes ~0.3-0.5 s later, checked
+by reading each spec's steps after the launch: ZF-1's `WarpToUT ut=14` still lies past the new
+completion (UT ~11.3 on `_0943`), CI-6/7/10/11 already waited on `ListHandles kind=chains`, SE-1
+time-jumps, and RR-1's StartRecording now starts after onFlightReady (the player's order; its
+`ListHandles` wait answers at once). None is re-flown.
 
 ## REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START: S4.2 and S4.4 need the re-fly recorder live (or not yet) while the provisional is still empty, a window of a few frames [FILED 2026-10-07 from the F9 verification flights, branch `ql-lanes`, measured. S4.4 FIXED 2026-10-08 by a named-condition seam wait (branch `s44-refly-wait`), LIVE-PROVEN 2026-10-08: three flights `2026-10-08_1806`, `_1812`, `_1814`, each PASS attempt 1 with the wait answering `points=0 ... reFlyMarker=true`, the bare reload refused `recording-active` and the empty-provisional conclusion. OPEN for S4.2, harness]
 
