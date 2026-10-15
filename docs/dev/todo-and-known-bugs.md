@@ -681,7 +681,7 @@ the ledger: recordingId=<id>`.
 
 ---
 
-## ~~HC-2-ROLLOUT-CHARGE-NOT-RECORDED: HC-2's LaunchFromEditor rollout shows no funds charge and no VesselRollout ledger row~~ [FILED 2026-10-12 from the nightly tier, run `2026-10-12_0641`. FIXED 2026-10-15 in the seam (branch `claude/project-thread-wkx3cr`), NOT YET RE-FLOWN. harness, not a product defect]
+## ~~HC-2-ROLLOUT-CHARGE-NOT-RECORDED: HC-2's LaunchFromEditor rollout shows no funds charge and no VesselRollout ledger row~~ [FILED 2026-10-12 from the nightly tier, run `2026-10-12_0641`. FIXED 2026-10-15 in the seam (PR #2099), RE-FLOWN 2026-10-15 on main `5102e3d92`: `2026-10-15_1238` charges the rollout before `launchfromeditor complete` but reads red on RECOVERY-PAYOUT-MARK-LOST-ON-OPTIMIZER-SPLIT. harness, not a product defect]
 
 `HC-2-hard-career-earn-spend` `2026-10-12_0641` PARSEK-FAIL (expectations): its three required
 tokens `Game state: FundsChanged -300 (VesselRollout)`, `VesselRollout spending recorded: cost=300,`
@@ -714,7 +714,34 @@ launch UT moves with the hop. Every LaunchFromEditor lane now completes ~0.3-0.5
 by reading each spec's steps after the launch: ZF-1's `WarpToUT ut=14` still lies past the new
 completion (UT ~11.3 on `_0943`), CI-6/7/10/11 already waited on `ListHandles kind=chains`, SE-1
 time-jumps, and RR-1's StartRecording now starts after onFlightReady (the player's order; its
-`ListHandles` wait answers at once). None is re-flown.
+`ListHandles` wait answers at once). Re-flown 2026-10-15 on main `5102e3d92`: ZF-1, SE-1, RR-1,
+CI-6, CI-7, CI-10 and CI-11 PASS, each logging the wait (frames=13, 0.25-0.33 s); HC-2 is red on
+the next entry.
+
+---
+
+## ~~RECOVERY-PAYOUT-MARK-LOST-ON-OPTIMIZER-SPLIT: an in-flight recovery whose recording the commit optimizer splits books an in-flight funds change as a second recovery payout~~ [FILED 2026-10-15 from HC-2's re-flight `2026-10-15_1238`, measured. FIXED 2026-10-15, branch `claude/project-thread-wkx3cr-2`; xUnit, not yet re-flown]
+
+`HC-2-hard-career-earn-spend` `2026-10-15_1238` PARSEK-FAIL (expectations): LedgerGroundTruth
+reads `reportOnly=1` (`facet=Funds kind=UpliftClampedExpected expected=523458 recon=524418
+delta=960`) and the forbidden `GUARDED (UPLIFT|DRAWDOWN) clamped` matches 21 times from before
+the LaunchFromEditor. The hop's in-flight Recover stamped recording `e2fe17be` Recovered and put it
+in `InFlightRecoveryRequest.awaitingStockPayout` (stock pays at the Space Center after the commit,
+and the #444 path writes that payout). The commit optimizer then split the recording at UT 341.3
+and `SplitAtSection` moved the Recovered terminal to the second half `1b179d5b`.
+`LedgerOrchestrator.AddVesselRecoveryCostActions` looked the mark up by `1b179d5b`, missed, and
+fell to the last-two-points heuristic, which booked the `Kerbin/Science` reward (960, UT 345.5)
+as recovery funds on top of the real payout. Timing-dependent: in `2026-10-12_0641` the split did
+not straddle the award.
+
+Fix: `InFlightRecoveryRequest.MoveAwaitingStockPayout` moves the mark with the terminal, called by
+`RunOptimizationSplitPass` (original -> second half) and `RunOptimizationMergePass` (absorbed ->
+target, which `MergeInto` stamps with the absorbed terminal); log `[Recovery] In-flight recovery:
+payout mark moved from '<a>' to '<b>' with the Recovered terminal (context=optimization-split)`.
+`RecoveryPayoutMarkAcrossOptimizerTests` (split, merge, the cost actions after a split, and a
+control proving the fixture reaches the heuristic); deleting either call reds three cells. The
+Re-Fly split (`RecordingTreeSplitter`) runs at a rewind load, after any pending payout, and is
+untouched. Needs an HC-2 re-flight.
 
 ## REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START: S4.2 and S4.4 need the re-fly recorder live (or not yet) while the provisional is still empty, a window of a few frames [FILED 2026-10-07 from the F9 verification flights, branch `ql-lanes`, measured. S4.4 FIXED 2026-10-08 by a named-condition seam wait (branch `s44-refly-wait`), LIVE-PROVEN 2026-10-08: three flights `2026-10-08_1806`, `_1812`, `_1814`, each PASS attempt 1 with the wait answering `points=0 ... reFlyMarker=true`, the bare reload refused `recording-active` and the empty-provisional conclusion. OPEN for S4.2, harness]
 

@@ -281,6 +281,35 @@ namespace Parsek
             return awaitingStockPayout.Remove(recordingId);
         }
 
+        /// <summary>
+        /// The commit-time optimizer moved <paramref name="fromId"/>'s Recovered terminal onto
+        /// <paramref name="toId"/> (a split's second half, or a merge's surviving target), so
+        /// the pending-payout mark moves with it. The pairing in
+        /// <c>LedgerOrchestrator.AddVesselRecoveryCostActions</c> looks the mark up by the id
+        /// that now holds the terminal; left on the old id it misses, and the last-two-points
+        /// heuristic books whatever in-flight funds change ends the recording (a milestone
+        /// reward) as a second recovery payout. Returns true when a mark moved.
+        /// </summary>
+        internal static bool MoveAwaitingStockPayout(string fromId, string toId, string context)
+        {
+            if (string.IsNullOrEmpty(fromId) || string.IsNullOrEmpty(toId)
+                || string.Equals(fromId, toId, StringComparison.Ordinal))
+                return false;
+            if (!awaitingStockPayout.Remove(fromId))
+                return false;
+            awaitingStockPayout.Add(toId);
+            ParsekLog.Info(Tag,
+                $"In-flight recovery: payout mark moved from '{fromId}' to '{toId}' " +
+                $"with the Recovered terminal (context={context ?? "<none>"})");
+            return true;
+        }
+
+        internal static bool IsAwaitingStockPayoutForTesting(string recordingId) =>
+            !string.IsNullOrEmpty(recordingId) && awaitingStockPayout.Contains(recordingId);
+
+        internal static void MarkAwaitingStockPayoutForTesting(string recordingId) =>
+            awaitingStockPayout.Add(recordingId);
+
         internal static void ResetForTesting()
         {
             armed = null;
