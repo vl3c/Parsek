@@ -70,6 +70,7 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.LoopUnitResolverForTesting = null;
             RouteOrchestrator.DeliveryApplierForTesting = null;
             RouteOrchestrator.RecoveryCreditFunderForTesting = null;
+            ParsekScenario.SetOnLoadInProgressForTesting(false);
             RouteStore.ResetForTesting();
             Ledger.ResetForTesting();
             RecordingStore.ClearCommittedTreesInternal();
@@ -1143,6 +1144,126 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(1460.0, credit.UT);
             Assert.Single(liveCredits);
             Assert.Equal("cycle-1", route.PendingRecoveryCreditCycleId);
+        }
+
+        // ==================================================================
+        // ROUTE-RECOVERY-CREDIT-WRITTEN-DURING-ONLOAD: a source-problem flip on a
+        // SILENT revalidation (the OnLoad pass) keeps the owed credit pending; the
+        // next route tick pays it at the live UT. Only a live pass pays at the flip.
+        // ==================================================================
+
+        // A route whose only source recording is not in ERS (MissingSourceRecording
+        // on the next revalidation), owing cycle-0's credit.
+        private static Route BuildOwingRouteWithMissingSource()
+        {
+            InstallSourceTree();
+            SeedRecoveryRow(Recovered);
+            SeedDispatchRow("cycle-0", 1150.0);
+            var route = BuildLoopRoute();
+            route.SourceRefs = new List<RouteSourceRef>
+            {
+                new RouteSourceRef { RecordingId = "rec-gone", TreeId = TreeId, RouteProofHash = "deadbeef" },
+            };
+            route.PendingRecoveryCreditCycleId = "cycle-0";
+            route.PendingRecoveryCreditDispatchUT = 1150.0;
+            RouteStore.AddRoute(route);
+            return route;
+        }
+
+        // catches: the OnLoad revalidation writing a RouteRecoveryCredited row (at the
+        // load-time clock, which can read 0) and crediting live funds from load context,
+        // or dropping the owed credit instead of carrying it to the next live tick.
+        [Fact]
+        public void OnLoadSourceProblemFlip_KeepsCreditPending_NextTickPaysItOnce()
+        {
+            var route = BuildOwingRouteWithMissingSource();
+            RouteStore.SourceProblemCreditEnvFactoryForTesting = () => new EligibleEnv { IsCareer = true };
+
+            ParsekScenario.SetOnLoadInProgressForTesting(true);
+            RouteStore.RevalidateSources("OnLoad");
+            ParsekScenario.SetOnLoadInProgressForTesting(false);
+
+            Assert.Equal(RouteStatus.MissingSourceRecording, route.Status);
+            Assert.Empty(Credits());
+            Assert.Empty(liveCredits);
+            Assert.Equal("cycle-0", route.PendingRecoveryCreditCycleId);
+            Assert.Contains(logLines, l => l.Contains("[Route]")
+                && l.Contains("kept pending across silent source-problem transition"));
+
+            var env = new EligibleEnv { IsCareer = true };
+            RouteOrchestrator.Tick(1450.0, env);
+
+            var credit = Assert.Single(Credits());
+            Assert.Equal("cycle-0", credit.RouteCycleId);
+            Assert.Equal(1450.0, credit.UT);
+            Assert.Single(liveCredits);
+            Assert.Null(route.PendingRecoveryCreditCycleId);
+
+            RouteOrchestrator.Tick(1460.0, env);
+            Assert.Single(Credits());
+            Assert.Single(liveCredits);
+        }
+
+        // catches: a silent pass OUTSIDE OnLoad (a bookkeeping supersede bump, liveEmitUT
+        // -1) still writing the credit row, against the silent-pass contract.
+        [Fact]
+        public void SilentNonLoadSourceProblemFlip_KeepsCreditPending()
+        {
+            var route = BuildOwingRouteWithMissingSource();
+            RouteStore.SourceProblemCreditEnvFactoryForTesting = () => new EligibleEnv { IsCareer = true };
+
+            RouteStore.RevalidateSources("SupersedeStateVersion-bump");
+
+            Assert.Equal(RouteStatus.MissingSourceRecording, route.Status);
+            Assert.Empty(Credits());
+            Assert.Equal("cycle-0", route.PendingRecoveryCreditCycleId);
+        }
+
+        // catches: the LIVE flip losing its at-transition flush, or stamping the row at
+        // a UT other than the pass's live UT.
+        [Fact]
+        public void LiveSourceProblemFlip_PaysCreditAtLiveUT()
+        {
+            var route = BuildOwingRouteWithMissingSource();
+            RouteStore.SourceProblemCreditEnvFactoryForTesting = () => new EligibleEnv { IsCareer = true };
+
+            RouteStore.RevalidateSources("live-test", 1400.0);
+
+            Assert.Equal(RouteStatus.MissingSourceRecording, route.Status);
+            var credit = Assert.Single(Credits());
+            Assert.Equal(1400.0, credit.UT);
+            Assert.Single(liveCredits);
+            Assert.Null(route.PendingRecoveryCreditCycleId);
+        }
+
+        // catches: the tick sweep paying a pending credit on a route that is NOT in a
+        // source-problem stop state (those pay at their own crossing / pause flush).
+        [Fact]
+        public void DeferredCreditSweep_IgnoresRoutesOutsideSourceProblemStates()
+        {
+            InstallSourceTree();
+            SeedRecoveryRow(Recovered);
+            SeedDispatchRow("cycle-0", 1150.0);
+            var route = BuildLoopRoute(status: RouteStatus.Paused);
+            route.PendingRecoveryCreditCycleId = "cycle-0";
+
+            int emitted = RouteOrchestrator.FlushDeferredSourceProblemCredits(
+                new List<Route> { route }, 1450.0, new EligibleEnv { IsCareer = true });
+
+            Assert.Equal(0, emitted);
+            Assert.Empty(Credits());
+            Assert.Equal("cycle-0", route.PendingRecoveryCreditCycleId);
+        }
+
+        [Theory]
+        [InlineData(1400.0, false, true)]
+        [InlineData(1400.0, true, false)]
+        [InlineData(-1.0, false, false)]
+        [InlineData(0.0, false, false)]
+        public void ShouldFlushSourceProblemCreditNow_OnlyLivePassOutsideLoad(
+            double liveEmitUT, bool onLoad, bool expected)
+        {
+            Assert.Equal(expected, RouteStore.ShouldFlushSourceProblemCreditNow(liveEmitUT, onLoad));
         }
     }
 }
