@@ -910,5 +910,110 @@ namespace Parsek.Tests.Logistics
             Assert.Contains(logLines, l => l.Contains("[Route]")
                 && l.Contains("DropRouteEscrow") && l.Contains("droppedResourceEntries=1"));
         }
+
+        // ==================================================================
+        // (12) ROUTE-ESCROW-LOST-ON-SCENE-SWITCH: a scene switch in a cycle's
+        //      dispatch-to-window gap must not leave the source unreserved for the
+        //      gap ticks. The tick pre-pass re-establishes the hold even when no
+        //      window is due and before any route (a competitor) is processed.
+        // ==================================================================
+
+        // catches: the hold staying LOST on gap ticks with no due window (the only
+        // re-establish used to sit behind the no-due-window early return), so a
+        // competing route could drain depot B before window B fires.
+        [Fact]
+        public void GapTickAfterClear_NoDueWindow_ReestablishesUnfiredReservation()
+        {
+            var route = Build2SourceRoute();
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            var seam = InstallPickupSeam();
+            var env = new EligibleEnv();
+
+            RouteOrchestrator.Tick(1150.0, env);
+            RouteStore.ClearAllEscrow("test-scene-switch");
+            Assert.Equal(0, RouteStore.EscrowRouteCountForTesting);
+
+            // Gap tick: dock A fired, dock B (1300) not reached - no window due.
+            RouteOrchestrator.Tick(1200.0, env);
+
+            Assert.Equal(200.0, RouteStore.GetReservedForTesting(route.Id, 200u, "Ore"));
+            Assert.Equal(0.0, RouteStore.GetReservedForTesting(route.Id, 100u, "Ore"));
+            Assert.Equal(200.0, RouteStore.OtherRoutesReservedFor("route-competitor", 200u, "Ore"));
+            Assert.Contains(logLines, l => l.Contains("[Route]")
+                && l.Contains("ReEstablishInFlightCycleEscrow") && l.Contains("escrow re-established"));
+
+            // Window B then fires against exactly that hold (no double), and the cycle
+            // completes with the escrow empty.
+            double reservedAtBDebit = -1.0;
+            seam.OnDebit = pid =>
+            {
+                if (pid == 200u)
+                    reservedAtBDebit = RouteStore.GetReservedForTesting(route.Id, 200u, "Ore");
+            };
+            RouteOrchestrator.Tick(1350.0, env);
+            Assert.Equal(200.0, reservedAtBDebit);
+            RouteOrchestrator.Tick(1380.0, env);
+            Assert.Equal(0, RouteStore.EscrowRouteCountForTesting);
+            Assert.Equal(1, route.CompletedCycles);
+        }
+
+        // catches: the re-establish depending on the route's own processing (loop unit
+        // resolution, tick order), which a competing route ticking first would beat.
+        [Fact]
+        public void GapTickAfterClear_ReestablishesEvenWhenRouteProcessingSkips()
+        {
+            var route = Build2SourceRoute();
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallPickupSeam();
+            var env = new EligibleEnv();
+
+            RouteOrchestrator.Tick(1150.0, env);
+            RouteStore.ClearAllEscrow("test-scene-switch");
+
+            RouteOrchestrator.LoopUnitResolverForTesting = (r, ut) => null;
+            RouteOrchestrator.Tick(1200.0, env);
+
+            Assert.Equal(200.0, RouteStore.GetReservedForTesting(route.Id, 200u, "Ore"));
+        }
+
+        // catches: the pre-pass reserving for a route that does not drive cycles
+        // (paused mid-cycle), or for a route whose "in-flight" cursors have no dispatch
+        // row behind them.
+        [Fact]
+        public void PrePass_SkipsPausedRoute_AndRouteWithoutDispatchRow()
+        {
+            var paused = Build2SourceRoute(id: "route-paused", stop0LastFired: 0);
+            paused.Status = RouteStatus.Paused;
+            var undispatched = Build2SourceRoute(id: "route-nodispatch", stop0LastFired: 0);
+
+            int n = RouteOrchestrator.ReEstablishInFlightCycleEscrow(
+                new List<Route> { paused, undispatched }, 1200.0, new EligibleEnv());
+
+            Assert.Equal(0, n);
+            Assert.Equal(0, RouteStore.EscrowRouteCountForTesting);
+        }
+
+        [Fact]
+        public void TryGetInFlightMultiStopCycle_Cases()
+        {
+            // Fresh route: nothing fired.
+            Assert.False(RouteOrchestrator.TryGetInFlightMultiStopCycle(Build2SourceRoute(), out _));
+
+            // Window A of cycle 0 fired, marker still -1: in flight at 0.
+            Assert.True(RouteOrchestrator.TryGetInFlightMultiStopCycle(
+                Build2SourceRoute(stop0LastFired: 0), out long idx));
+            Assert.Equal(0L, idx);
+
+            // Cycle 0 complete (marker snapped): not in flight.
+            Assert.False(RouteOrchestrator.TryGetInFlightMultiStopCycle(
+                Build2SourceRoute(lastObservedLoopCycleIndex: 0,
+                    stop0LastFired: 0, stop1LastFired: 0, stop2LastFired: 0), out _));
+
+            // Both pickups fired, only the delivery window left: nothing to reserve.
+            Assert.False(RouteOrchestrator.TryGetInFlightMultiStopCycle(
+                Build2SourceRoute(stop0LastFired: 0, stop1LastFired: 0), out _));
+        }
     }
 }

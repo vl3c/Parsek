@@ -32,6 +32,11 @@ _(unreleased - entries accumulate here per commit)_
   attempt and removed when you discard it, like the rest of the attempt's rewards. Before, it
   could survive a discard or be lost at the merge.
   (REFLY-UNBOUND-PROVISIONAL-TAGS-AWARDS-TO-ORIGIN)
+- **Supply routes keep their cargo hold and recovery credit across scene changes and loads.** A
+  multi-stop route that already loaded at one depot keeps the rest of its cargo reserved after a
+  scene change, so another route can no longer take it before the next stop. A recovery credit
+  owed by a route whose source recording went missing is now paid after the save loads, at the
+  right time, instead of during the load. (ROUTE-ESCROW-LOST-ON-SCENE-SWITCH)
 - **Docking a fleet of identical ships no longer mixes up their histories.** When your ship docks
   to another and takes it over, Parsek now remembers which launch of that ship it was. A later
   launch of the same design no longer has its vessel hidden or spawned at the wrong time because

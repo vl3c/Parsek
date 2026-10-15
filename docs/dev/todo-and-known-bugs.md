@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~ADOPTION-STAMP-READ-AS-UNIQUE-SPAWN-PID: an adoption stamp (the craft-baked pid) matched a relaunch of the same craft as the older launch's spawned vessel, and the #226 replay bypass was not checked against launch identity~~ [FILED 2026-10-15 from a launch-identity audit, verified by code read, not reproduced. FIXED 2026-10-15, branch `claude/project-thread-1twzdw-adopt-identity`; xUnit only, not flown. product]
+## ~~ADOPTION-STAMP-READ-AS-UNIQUE-SPAWN-PID: an adoption stamp (the craft-baked pid) matched a relaunch of the same craft as the older launch's spawned vessel, and the #226 replay bypass was not checked against launch identity~~ [FILED 2026-10-15 from a launch-identity audit, verified by code read, not reproduced. FIXED 2026-10-15, branch `claude/project-thread-1twzdw-adopt-identity` (PR #2107); LIVE-PROVEN 2026-10-15 on the owner's PC before merge: QL-4c, QL-4b, VN-6, CI-6, CI-7 and H64 all PASS. product]
 
 Gap 1. `VesselSpawner.TryAdoptExistingSourceVesselForSpawn` stamps
 `SpawnedVesselPersistentId = VesselPersistentId`, the craft-baked pid every launch of the craft
@@ -100,7 +100,7 @@ Tests: `AdoptionStampLaunchIdentityTests` (including the review's resumed-spawn 
 regression, and the upgraded-save backfill / relaunch / no-snapshot cells); `VesselNamesLinksTests.ResumeLink_NotRecordedForAnAdoptionStampMatch` pinned the old
 match of an adoption stamp by another launch's unlinked guid and now pins its refusal.
 
-## ~~DOCK-CHAIN-ABSORBED-PARTNER-PID-ONLY: a dock claim whose claimer absorbed the partner carries no launch guid, so a relaunch of the same craft pools into its ghost chain~~ [FILED 2026-10-15 from the launch-identity audit (gap 3), verified by code read. FIXED 2026-10-15, branch `claude/project-thread-1twzdw-dock-chain-guid`; xUnit only, not flown. Parsek]
+## ~~DOCK-CHAIN-ABSORBED-PARTNER-PID-ONLY: a dock claim whose claimer absorbed the partner carries no launch guid, so a relaunch of the same craft pools into its ghost chain~~ [FILED 2026-10-15 from the launch-identity audit (gap 3), verified by code read. FIXED 2026-10-15, branch `claude/project-thread-1twzdw-dock-chain-guid` (PR #2106); LIVE-PROVEN 2026-10-15 on the owner's PC before merge: BDOCK-1, CI-4, CI-9 and H50 all PASS. Parsek]
 
 `GhostChainWalker.ScanBranchPointClaims` took a dock claim's launch guid from the claiming tree
 (`ResolveLaunchGuidForPid(tree, targetPid)`). When the claimer's vessel survives the couple
@@ -320,7 +320,7 @@ flight per the fast-lane checklist), and drop the token and the claim from RF-1 
 change so the registry cell stays claimed. Owner rule 2026-10-15: validate with flights of the rover lane
 and RF-1 on the owner's local PC; the entry closes only on those flights.
 
-## REFLY-UNBOUND-PROVISIONAL-TAGS-AWARDS-TO-ORIGIN: while a re-fly provisional has no recorder, a career award is tagged to the superseded origin and the merge tombstones it [FILED 2026-10-12 from the RF-3 tombstone reading. RULED 2026-10-15: tag to the Re-Fly attempt. BUILT 2026-10-15; closes on the RF-3 flight]
+## ~~REFLY-UNBOUND-PROVISIONAL-TAGS-AWARDS-TO-ORIGIN: while a re-fly provisional has no recorder, a career award is tagged to the superseded origin and the merge tombstones it~~ [FILED 2026-10-12 from the RF-3 tombstone reading. RULED 2026-10-15: tag to the Re-Fly attempt. FIXED 2026-10-15, PR #2113; RF-3 flown green on the owner's PC 2026-10-15_1546 (guard only, see below). product]
 
 `ParsekFlight.GetActiveRecordingIdForTagging` (ParsekFlight.cs ~246) returns
 `activeTree.ActiveRecordingId` while the provisional is unbound
@@ -369,6 +369,12 @@ the award stays. Tests: `ReFlyUnboundAwardTaggingTests`, including the RF-3 shap
 post-rewind band is tombstoned, the attempt's re-earned band is kept, paid once), the retired
 provisional (the award is kept through the no-supersede conclusion) and the discard (nothing
 reaches the ledger).
+
+Flight 2026-10-15_1546 (`RF-3-refly-discard-then-commit`, the PR's DLL, verified by marker and by
+the branch-only `retiredProvisionalRows=` token): PASS, expectations and gating saveParse 0
+mismatches, tombstones 0, `reFlyWindowsExtended=1` on both merges. No award fired in either unbound
+window (the run's only capture was a `CrewStatusChanged`), so neither new outcome line printed: the
+flight proves no regression, and the substitution itself is proven by the xUnit cases only.
 
 ## W1-CAMERA-LIVE-HANDOFF-NO-LONGER-PRINTS: W1's `camera-live member #0->#1` hand-off token is missing on every run since its last green (2026-08-28) [FILED 2026-10-13 from the operator tier, reproduced three times. OPEN, render, untriaged]
 
@@ -3579,7 +3585,7 @@ rebind, and returns false with the hold reason; red with the call deleted or sho
 
 ---
 
-## ROUTE-RECOVERY-CREDIT-WRITTEN-DURING-ONLOAD: the pending recovery credit flush writes a ledger row and live funds while a save is loading [FILED 2026-10-06 from the integration-coverage code read, path verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product; UT-0 outcome to confirm]
+## ~~ROUTE-RECOVERY-CREDIT-WRITTEN-DURING-ONLOAD: the pending recovery credit flush writes a ledger row and live funds while a save is loading~~ [FILED 2026-10-06 from the integration-coverage code read, path verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `claude/logistics-escrow-recovery-credit-s0sb0u` (xUnit only)]
 
 `RouteStore.FlushPendingRecoveryCreditOnSourceProblem` (`RouteStore.cs:1885-1911`) reads
 `Planetarium.GetUniversalTime()` directly and never consults `ParsekScenario.IsOnLoadInProgress`;
@@ -3589,12 +3595,20 @@ with a pending credit and a source is missing, where the clock can read 0. A UT-
 every strict-after-cutoff rewind retire. This contradicts the no-ledger-writes-during-load
 contract (`ParsekScenario.cs:310-321`).
 
-Fix: defer the flush until after load (the route-marker UT resolver already knows the in-load
-state), or emit no row and keep the credit pending. Needs a UT / in-load seam to test headless.
+Reproduced headless on main: an `OnLoad` revalidation flipping a route to MissingSourceRecording
+did not keep the owed credit (headless the env build throws, so it was cleared; in game it is
+written at the load-time clock).
+
+Fix: only a LIVE revalidation pass (`liveEmitUT > 0` and `IsOnLoadInProgress` false, pure gate
+`RouteStore.ShouldFlushSourceProblemCreditNow`) pays the credit, at `liveEmitUT`. A silent pass
+(OnLoad, a bookkeeping supersede bump) keeps it pending, and the orchestrator tick pre-pass
+`RouteOrchestrator.FlushDeferredSourceProblemCredits` pays it at the first live tick for any
+route in a source-problem state. Tests: `RouteRecoveryCreditTests.OnLoadSourceProblemFlip_*`,
+`SilentNonLoadSourceProblemFlip_*`, `LiveSourceProblemFlip_*`, `DeferredCreditSweep_*`.
 
 ---
 
-## ROUTE-ESCROW-LOST-ON-SCENE-SWITCH: a multi-stop cycle's depot reservation is dropped by a scene change between its windows [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~ROUTE-ESCROW-LOST-ON-SCENE-SWITCH: a multi-stop cycle's depot reservation is dropped by a scene change between its windows~~ [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `claude/logistics-escrow-recovery-credit-s0sb0u` (xUnit only; live proof is lane IR-10)]
 
 `ClearAllEscrow` runs on every scene switch (`ParsekScenario.cs:8365`); the only re-establish
 site (`RouteOrchestrator.cs:1531`) sits behind the no-due-window early return in
@@ -3602,8 +3616,16 @@ site (`RouteOrchestrator.cs:1531`) sits behind the no-due-window early return in
 and window B picks up short after its dispatch was already paid. H60 proves escrow within one
 scene only.
 
-Fix: rebuild escrow for in-flight multi-stop cycles on scene entry (or persist it). Headless
-red test with `RouteCargoEscrowTests` / `RouteEscrowFireTests`, then lane IR-10.
+Reproduced headless on main: fire window A, `ClearAllEscrow`, tick in the A-B gap, and depot B's
+200 Ore hold reads 0.
+
+Fix: a `RouteOrchestrator.Tick` pre-pass, `ReEstablishInFlightCycleEscrow`, runs before any route
+is processed. For every ghost-driving route with an in-flight multi-stop cycle (pure
+`TryGetInFlightMultiStopCycle`: a stop cursor ahead of `LastObservedLoopCycleIndex` and an
+un-fired pickup window), no escrow held, and the cycle's dispatch row in the ledger, it
+re-reserves the un-fired windows. It needs no due window or loop unit, so tick order cannot let a
+competitor drain the depot first. Tests: `RouteEscrowFireTests.GapTickAfterClear_*`,
+`PrePass_SkipsPausedRoute_*`, `TryGetInFlightMultiStopCycle_Cases`. Live proof is still lane IR-10.
 
 ---
 
