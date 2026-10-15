@@ -3482,8 +3482,14 @@ and `ChainTipStaleVessel` replaced it from the tip snapshot. Cause: `VesselGhost
 removed the claimed vessel with no flight-state list, and in FLIGHT `Vessel.Die()` (decompiled
 1.12.5) leaves the scene's load-time `flightState.protoVessels` entry in place, so
 `VesselSpawner.ProtoVesselExists` still found it. Fix: the ghoster passes
-`HighLogic.CurrentGame.flightState.protoVessels`, as `ChainTipStaleVessel`'s removal already does;
-any background-event chain whose tip flies the claimed pid took the same detour. Re-flight owed.
+`HighLogic.CurrentGame.flightState.protoVessels`, as `ChainTipStaleVessel`'s removal already does,
+and `LiveClaimedVesselRemovalTarget.RemoveFlightStateEntries` removes by pid (vessel id not
+conclusively different, never a ghost-map entry) as well as by reference: re-flight
+2026-10-15_2335 showed the reference alone misses, because a loaded vessel's `BackupVessel()` (the
+ghoster's own snapshot capture, or any save) replaces `vessel.protoVessel` with a fresh instance
+while the list keeps the load-time one. Any background-event chain whose tip flies the claimed pid
+took the same detour. Cells in `ClaimedVesselRemovalTests` (`RemoveFlightStateEntries_*`).
+Re-flight owed.
 
 ---
 

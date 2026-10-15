@@ -210,10 +210,48 @@ namespace Parsek
 
         public void Destroy()
         {
+            uint pid = PersistentId;
+            Guid vesselId = vessel != null ? vessel.id : (proto != null ? proto.vesselID : Guid.Empty);
             if (vessel != null)
                 vessel.Die();
-            if (proto != null && protoVessels != null)
-                protoVessels.Remove(proto);
+            int removed = RemoveFlightStateEntries(protoVessels, proto, pid, vesselId);
+            if (protoVessels != null)
+                ParsekLog.Verbose("ClaimRemoval",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Flight-state entries removed: pid={0} removed={1}", pid, removed));
+        }
+
+        /// <summary>
+        /// Removes the claimed vessel's entries from the flight state <paramref name="protoVessels"/>:
+        /// <paramref name="proto"/> by reference, and every other entry with the same
+        /// <paramref name="pid"/> whose vessel id does not conclusively differ. The reference
+        /// alone is not enough in FLIGHT: a loaded vessel's <c>BackupVessel()</c> (any save, or
+        /// the ghoster's own snapshot capture) replaces <c>vessel.protoVessel</c> with a fresh
+        /// instance, while the list keeps the scene's load-time one, and <c>Vessel.Die()</c> does
+        /// not touch the list. A ghost-map ProtoVessel is never removed here. Returns the count.
+        /// </summary>
+        internal static int RemoveFlightStateEntries(
+            IList<ProtoVessel> protoVessels, ProtoVessel proto, uint pid, Guid vesselId)
+        {
+            if (protoVessels == null)
+                return 0;
+            int removed = 0;
+            for (int i = protoVessels.Count - 1; i >= 0; i--)
+            {
+                ProtoVessel pv = protoVessels[i];
+                if (pv == null)
+                    continue;
+                bool match = ReferenceEquals(pv, proto)
+                    || (pid != 0
+                        && pv.persistentId == pid
+                        && !GhostMapPresence.IsGhostMapVessel(pv.persistentId)
+                        && (vesselId == Guid.Empty || pv.vesselID == Guid.Empty || pv.vesselID == vesselId));
+                if (!match)
+                    continue;
+                protoVessels.RemoveAt(i);
+                removed++;
+            }
+            return removed;
         }
 
         public int ReattachCrew()
