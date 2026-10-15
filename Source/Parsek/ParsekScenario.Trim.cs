@@ -44,7 +44,15 @@ namespace Parsek
             return mutated;
         }
 
-        internal static bool TrimRecordingTreePastUT(RecordingTree tree, double cutoffUT)
+        /// <summary>
+        /// Cuts every recording of <paramref name="tree"/> back to <paramref name="cutoffUT"/> and
+        /// prunes the recordings that start at or after it, except the ids in
+        /// <paramref name="keepWhole"/>: committed history the quicksave already shows
+        /// (<see cref="CollectQuicksaveHistoryKeptWhole"/>), which no load may cut or prune
+        /// (owner ruling D2). Returns true when anything changed.
+        /// </summary>
+        internal static bool TrimRecordingTreePastUT(
+            RecordingTree tree, double cutoffUT, HashSet<string> keepWhole = null)
         {
             if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0
                 || double.IsNaN(cutoffUT) || double.IsInfinity(cutoffUT))
@@ -54,18 +62,26 @@ namespace Parsek
 
             bool mutated = false;
             int trimmedCount = 0;
+            int keptWholeCount = 0;
             HashSet<string> futureOnlyIds = CollectFutureOnlyRecordingIds(tree, cutoffUT);
+            if (futureOnlyIds != null && keepWhole != null)
+                futureOnlyIds.RemoveWhere(keepWhole.Contains);
             int recordingCountBeforeTrim = tree.Recordings.Count;
-            foreach (Recording rec in tree.Recordings.Values)
+            foreach (KeyValuePair<string, Recording> kvp in tree.Recordings)
             {
-                if (TrimRecordingPastUT(rec, cutoffUT))
+                if (keepWhole != null && keepWhole.Contains(kvp.Key))
+                {
+                    keptWholeCount++;
+                    continue;
+                }
+                if (TrimRecordingPastUT(kvp.Value, cutoffUT))
                 {
                     mutated = true;
                     trimmedCount++;
                 }
             }
 
-            if (mutated || (futureOnlyIds != null && futureOnlyIds.Count > 0))
+            if (mutated || keptWholeCount > 0 || (futureOnlyIds != null && futureOnlyIds.Count > 0))
             {
                 int prunedRecordings = PruneFutureOnlyRecordings(tree, futureOnlyIds);
                 int prunedBranchPoints = RemoveEmptyBranchPoints(tree);
@@ -77,6 +93,7 @@ namespace Parsek
                     $"Quickload tree trim: tree='{tree.TreeName}' cutoffUT={cutoffUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                     $"trimmedRecordings={trimmedCount}/{recordingCountBeforeTrim} " +
                     $"prunedFutureRecordings={prunedRecordings} prunedBranchPoints={prunedBranchPoints} " +
+                    $"keptWholeHistory={keptWholeCount} " +
                     $"backgroundEntries={tree.BackgroundMap.Count}");
             }
 
@@ -141,8 +158,8 @@ namespace Parsek
         // tagged events and ledger rows after the
         // resume UT. Nothing outside that set is touched, and neither is committed
         // history: a recording still committed in memory, or one the quicksave
-        // itself already shows as history (the trim may still cut or prune such a
-        // member; the reconcile leaves its end states, events and rows alone).
+        // itself already shows as history (the trim leaves the latter whole, and
+        // the reconcile leaves its end states, events and rows alone).
         // ------------------------------------------------------------------
 
         internal const string AbandonedFutureReason = "quickload-abandoned-future";
@@ -169,6 +186,9 @@ namespace Parsek
             // Recording id -> the IsCommittedHistoryAtQuicksave reason that left it out.
             internal readonly List<KeyValuePair<string, string>> SkippedQuicksaveHistory =
                 new List<KeyValuePair<string, string>>();
+            // Members that ended before the quicksave and were restamped after it
+            // (IsEndRestampedAfterQuicksave): owned by the plan like any other.
+            internal readonly List<string> RestampedAfterQuicksaveIds = new List<string>();
             internal readonly HashSet<string> EndStateClearedIds = new HashSet<string>(StringComparer.Ordinal);
             internal readonly HashSet<string> MergeStateResetIds = new HashSet<string>(StringComparer.Ordinal);
         }
@@ -186,6 +206,7 @@ namespace Parsek
         internal struct QuicksaveMemberFacts
         {
             internal bool HasTerminal;
+            internal TerminalState? Terminal;
             internal double ExplicitStartUT;
             internal double ExplicitEndUT;
             internal double StartBranchUT;
@@ -312,6 +333,7 @@ namespace Parsek
                 facts.Members[kvp.Key] = new QuicksaveMemberFacts
                 {
                     HasTerminal = rec.TerminalStateValue.HasValue,
+                    Terminal = rec.TerminalStateValue,
                     ExplicitStartUT = rec.ExplicitStartUT,
                     ExplicitEndUT = rec.ExplicitEndUT,
                     StartBranchUT = LookupBranchUT(branchUTs, rec.ParentBranchPointId),
@@ -343,10 +365,15 @@ namespace Parsek
         /// definition, and a stale Destroyed from a NullSolver fallback can sit on it
         /// (<c>IncompleteBallisticSceneExitFinalizer.ClearStaleDestroyedTerminalForResume</c>).
         /// A member absent from the quicksave (spliced in, or created after the save), or no facts
-        /// at all (the resumed tree did not come from a save node), answers false.
+        /// at all (the resumed tree did not come from a save node), answers false. The terminal
+        /// fact is not trusted alone: when <paramref name="current"/> (the member as the restore
+        /// left it) shows the ending restamped after the save (<see cref="IsEndRestampedAfterQuicksave"/>),
+        /// the restamp is the abandoned future and the member answers false with
+        /// <see cref="RestampedAfterQuicksaveReason"/>.
         /// </summary>
         internal static bool IsCommittedHistoryAtQuicksave(
-            QuicksaveTreeFacts facts, string recordingId, double cutoffUT, out string reason)
+            QuicksaveTreeFacts facts, string recordingId, double cutoffUT, out string reason,
+            Recording current = null)
         {
             reason = null;
             if (facts == null || string.IsNullOrEmpty(recordingId)
@@ -364,6 +391,11 @@ namespace Parsek
                 return false;
             if (member.HasTerminal)
             {
+                if (IsEndRestampedAfterQuicksave(member, current, cutoffUT))
+                {
+                    reason = RestampedAfterQuicksaveReason;
+                    return false;
+                }
                 reason = "terminal-in-quicksave";
                 return true;
             }
@@ -385,6 +417,65 @@ namespace Parsek
             return false;
         }
 
+        internal const string RestampedAfterQuicksaveReason = "restamped-after-quicksave";
+
+        /// <summary>
+        /// Pure: a member the quicksave holds as already ended (a terminal, an explicit end at or
+        /// before the cutoff) whose restored copy carries a DIFFERENT terminal and an explicit end
+        /// after the cutoff. Only an event after the save writes that: the recovery or termination
+        /// stamp (<c>ParsekScenario.ApplyTerminalEventStamp</c>, Recovered / Destroyed over a
+        /// situation terminal, <see cref="CanOverwriteTerminalState"/>) sets both, and the same-id
+        /// refresh brings the committed copy's stamp onto the restored member. Commit bookkeeping
+        /// is not a restamp: a split first half or a trimmed tail ends at or before the old end,
+        /// and finalization fills a missing explicit end without touching an existing terminal.
+        /// </summary>
+        internal static bool IsEndRestampedAfterQuicksave(
+            QuicksaveMemberFacts member, Recording current, double cutoffUT)
+        {
+            // No captured terminal value: nothing to compare, so the terminal fact stands
+            // (the conservative side: committed history is never retired).
+            if (current == null || !member.HasTerminal || !member.Terminal.HasValue
+                || double.IsNaN(cutoffUT) || double.IsInfinity(cutoffUT))
+            {
+                return false;
+            }
+            if (member.ExplicitEndUT > cutoffUT)
+                return false;
+            if (!(current.ExplicitEndUT > cutoffUT))
+                return false;
+            return !Nullable.Equals(member.Terminal, current.TerminalStateValue);
+        }
+
+        /// <summary>
+        /// Pure: the members the quickload-resume trim must leave whole, the committed history
+        /// the quicksave already shows (<see cref="IsCommittedHistoryAtQuicksave"/> over
+        /// <paramref name="quicksaveFacts"/>, each member read as the restore left it). The
+        /// active recording is never one: the recorder appends to it from the cutoff on, so it
+        /// is always cut there. Null when there are no facts (nothing is kept whole).
+        /// </summary>
+        internal static HashSet<string> CollectQuicksaveHistoryKeptWhole(
+            RecordingTree tree, string activeRecordingId, double cutoffUT, QuicksaveTreeFacts quicksaveFacts)
+        {
+            if (quicksaveFacts == null || tree?.Recordings == null
+                || double.IsNaN(cutoffUT) || double.IsInfinity(cutoffUT))
+            {
+                return null;
+            }
+
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, Recording> kvp in tree.Recordings)
+            {
+                if (kvp.Value == null
+                    || string.Equals(kvp.Key, activeRecordingId, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                if (IsCommittedHistoryAtQuicksave(quicksaveFacts, kvp.Key, cutoffUT, out _, kvp.Value))
+                    ids.Add(kvp.Key);
+            }
+            return ids;
+        }
+
         /// <summary>
         /// Pure: the plan for one resume. Two kinds of committed history are owned by nothing
         /// below: a recording still committed in memory (<paramref name="isStillCommitted"/>,
@@ -395,10 +486,11 @@ namespace Parsek
         /// <see cref="AbandonedFuturePlan.SkippedQuicksaveHistory"/>). The second matters because
         /// the restore detaches the in-memory committed copy of the tree before the plan is
         /// taken, so a tree committed BEFORE the quicksave (a copy-on-write restore clone) would
-        /// otherwise read as abandoned; that save shape is not known to be writable today
-        /// (<see cref="PlanActiveTreeSidecarSaves"/> skips such an active-tree node once the clone
-        /// has recorded), so this half is defensive. The pruned set is the trim's own future-only collector,
-        /// so it is exactly what <see cref="TrimRecordingTreePastUT"/> removes.
+        /// otherwise read as abandoned. <see cref="PlanActiveTreeSidecarSaves"/> keeps that save
+        /// shape out of every save while any clone member it guards is dirty, so it needs an
+        /// out-of-band sidecar write first; the trim leaves those members whole too
+        /// (<see cref="CollectQuicksaveHistoryKeptWhole"/>). The pruned set is the trim's own
+        /// future-only collector, so it is exactly what <see cref="TrimRecordingTreePastUT"/> removes.
         /// </summary>
         internal static AbandonedFuturePlan BuildAbandonedFuturePlan(
             RecordingTree tree,
@@ -445,11 +537,13 @@ namespace Parsek
                     continue;
                 }
 
-                if (IsCommittedHistoryAtQuicksave(quicksaveFacts, id, cutoffUT, out string historyReason))
+                if (IsCommittedHistoryAtQuicksave(quicksaveFacts, id, cutoffUT, out string historyReason, rec))
                 {
                     plan.SkippedQuicksaveHistory.Add(new KeyValuePair<string, string>(id, historyReason));
                     continue;
                 }
+                if (historyReason == RestampedAfterQuicksaveReason)
+                    plan.RestampedAfterQuicksaveIds.Add(id);
 
                 plan.TrimmedIds.Add(id);
                 plan.PreTrimEndUT[id] = rec.EndUT;
@@ -570,9 +664,12 @@ namespace Parsek
                     quicksaveFacts)
                 : null;
 
+            HashSet<string> keepWhole = scope == QuickloadTrimScope.ActiveRecOnly
+                ? null
+                : CollectQuicksaveHistoryKeptWhole(tree, activeRec?.RecordingId, resumeUT, quicksaveFacts);
             bool treeTrimmed = scope == QuickloadTrimScope.ActiveRecOnly
                 ? TrimRecordingPastUT(activeRec, resumeUT)
-                : TrimRecordingTreePastUT(tree, resumeUT);
+                : TrimRecordingTreePastUT(tree, resumeUT, keepWhole);
 
             string treeName = tree?.TreeName ?? "<null>";
             string kindText = loadKind.HasValue ? loadKind.Value.ToString() : "none";
@@ -586,6 +683,8 @@ namespace Parsek
                     $"ledgerRows={FormatResumeDecision(loadKind, LoadStateCategory.AbandonedFutureLedgerRows)}");
                 return treeTrimmed;
             }
+
+            LogRestampedAfterQuicksave(tree, plan, quicksaveFacts);
 
             if (plan.TrimmedIds.Count == 0)
             {
@@ -646,9 +745,40 @@ namespace Parsek
                     : "") +
                 $" skippedQuicksaveHistory={plan.SkippedQuicksaveHistory.Count}" +
                 FormatQuicksaveHistory(plan) +
+                $" restampedAfterQuicksave={plan.RestampedAfterQuicksaveIds.Count.ToString(CultureInfo.InvariantCulture)}" +
                 $" quicksaveFacts={(quicksaveFacts != null ? "present" : "none")}" +
                 $" mergeStatesReset={mergeStatesReset.ToString(CultureInfo.InvariantCulture)}");
             return treeTrimmed;
+        }
+
+        private static void LogRestampedAfterQuicksave(
+            RecordingTree tree, AbandonedFuturePlan plan, QuicksaveTreeFacts quicksaveFacts)
+        {
+            int count = plan.RestampedAfterQuicksaveIds.Count;
+            if (count == 0)
+                return;
+            if (count >= 20)
+            {
+                ParsekLog.Info("Scenario",
+                    $"Quickload abandoned-future: {count.ToString(CultureInfo.InvariantCulture)} member(s) of " +
+                    $"tree='{tree?.TreeName ?? "<null>"}' ended before the quicksave and were restamped after the " +
+                    "quicksave; their restamped endings are the abandoned future");
+                return;
+            }
+            for (int i = 0; i < count; i++)
+            {
+                string id = plan.RestampedAfterQuicksaveIds[i];
+                Recording rec = null;
+                tree?.Recordings?.TryGetValue(id, out rec);
+                QuicksaveMemberFacts member = quicksaveFacts.Members[id];
+                ParsekLog.Info("Scenario",
+                    $"Quickload abandoned-future: rec={id} ended before the quicksave and was restamped after the " +
+                    $"quicksave: quicksaveTerminal={(member.Terminal.HasValue ? member.Terminal.Value.ToString() : "none")} " +
+                    $"quicksaveExplicitEndUT={member.ExplicitEndUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"terminal={(rec?.TerminalStateValue.HasValue == true ? rec.TerminalStateValue.Value.ToString() : "none")} " +
+                    $"explicitEndUT={(rec != null ? rec.ExplicitEndUT : double.NaN).ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"cutoffUT={plan.CutoffUT.ToString("R", CultureInfo.InvariantCulture)} - reconciled as abandoned future");
+            }
         }
 
         private static string FormatQuicksaveHistory(AbandonedFuturePlan plan)

@@ -3311,6 +3311,85 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsEndRestampedAfterQuicksave_Table()
+        {
+            // QUICKLOAD-ENDED-MEMBER-RESTAMPED-AFTER-THE-SAVE-KEEPS-ITS-FUTURE: only a changed
+            // terminal with an explicit end moved past the cutoff is a restamp.
+            const double cutoff = 200.0;
+            var landed150 = Facts(terminal: true, start: 120.0, end: 150.0);
+            landed150.Terminal = TerminalState.Landed;
+            var landedNaN = Facts(terminal: true, start: 120.0);
+            landedNaN.Terminal = TerminalState.Landed;
+            var landed400 = Facts(terminal: true, start: 120.0, end: 400.0);
+            landed400.Terminal = TerminalState.Landed;
+
+            Assert.True(ParsekScenario.IsEndRestampedAfterQuicksave(
+                landed150, Rec(TerminalState.Recovered, 300.0), cutoff));
+            Assert.True(ParsekScenario.IsEndRestampedAfterQuicksave(
+                landedNaN, Rec(TerminalState.Destroyed, 300.0), cutoff));
+            // Same terminal: commit bookkeeping (finalization filling a missing end).
+            Assert.False(ParsekScenario.IsEndRestampedAfterQuicksave(
+                landedNaN, Rec(TerminalState.Landed, 300.0), cutoff));
+            // Changed terminal, end not past the cutoff: a split first half.
+            Assert.False(ParsekScenario.IsEndRestampedAfterQuicksave(
+                landed150, Rec(null, 140.0), cutoff));
+            // The quicksave already ended past the cutoff: committed history.
+            Assert.False(ParsekScenario.IsEndRestampedAfterQuicksave(
+                landed400, Rec(TerminalState.Recovered, 450.0), cutoff));
+            Assert.False(ParsekScenario.IsEndRestampedAfterQuicksave(
+                Facts(end: 150.0), Rec(TerminalState.Recovered, 300.0), cutoff));
+            Assert.False(ParsekScenario.IsEndRestampedAfterQuicksave(landed150, null, cutoff));
+            // A terminal flag with no captured value: the terminal fact stands.
+            Assert.False(ParsekScenario.IsEndRestampedAfterQuicksave(
+                Facts(terminal: true, end: 150.0), Rec(TerminalState.Recovered, 300.0), cutoff));
+            Assert.False(ParsekScenario.IsEndRestampedAfterQuicksave(
+                landed150, Rec(TerminalState.Recovered, 300.0), double.NaN));
+
+            var facts = new ParsekScenario.QuicksaveTreeFacts { TreeId = "t", ActiveRecordingId = "active" };
+            facts.Members["d"] = landed150;
+            var committedFacts = landed150;
+            committedFacts.CommittedInQuicksave = true;
+            facts.Members["committed"] = committedFacts;
+            string reason;
+            Assert.False(ParsekScenario.IsCommittedHistoryAtQuicksave(
+                facts, "d", cutoff, out reason, Rec(TerminalState.Recovered, 300.0)));
+            Assert.Equal(ParsekScenario.RestampedAfterQuicksaveReason, reason);
+            Assert.True(ParsekScenario.IsCommittedHistoryAtQuicksave(
+                facts, "d", cutoff, out reason, Rec(TerminalState.Landed, 150.0)));
+            Assert.Equal("terminal-in-quicksave", reason);
+            Assert.True(ParsekScenario.IsCommittedHistoryAtQuicksave(facts, "d", cutoff, out reason));
+            Assert.Equal("terminal-in-quicksave", reason);
+            // A committed tree node in the save wins over any restamp.
+            Assert.True(ParsekScenario.IsCommittedHistoryAtQuicksave(
+                facts, "committed", cutoff, out reason, Rec(TerminalState.Recovered, 300.0)));
+            Assert.Equal("committed-in-quicksave", reason);
+        }
+
+        private static Recording Rec(TerminalState? terminal, double explicitEndUT)
+        {
+            return new Recording { TerminalStateValue = terminal, ExplicitEndUT = explicitEndUT };
+        }
+
+        [Fact]
+        public void CollectQuicksaveHistoryKeptWhole_HistoryMembersOnly_NeverTheActiveRecording()
+        {
+            var tree = MakeTree("keep_tree", "Keep Tree", 3);
+            string rootId = "root_keep_tree";
+            string historyId = "child_keep_tree_1";
+            string liveId = "child_keep_tree_2";
+            tree.ActiveRecordingId = rootId;
+            var facts = new ParsekScenario.QuicksaveTreeFacts { TreeId = tree.Id, ActiveRecordingId = rootId };
+            facts.Members[rootId] = Facts(committed: true);
+            facts.Members[historyId] = Facts(end: 400.0);
+            facts.Members[liveId] = Facts(start: 120.0, end: 150.0);
+
+            HashSet<string> keep = ParsekScenario.CollectQuicksaveHistoryKeptWhole(tree, rootId, 150.0, facts);
+            Assert.Equal(new[] { historyId }, keep.ToArray());
+            Assert.Null(ParsekScenario.CollectQuicksaveHistoryKeptWhole(tree, rootId, 150.0, null));
+            Assert.Null(ParsekScenario.CollectQuicksaveHistoryKeptWhole(tree, rootId, double.NaN, facts));
+        }
+
+        [Fact]
         public void CaptureQuicksaveTreeFacts_ReadsTheNodeMetadataAndOnlyCommittedTreeNodes()
         {
             var tree = MakeTree("facts_tree", "Facts Tree", 3);

@@ -221,6 +221,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResumeTrimLeavesQuicksaveHistoryWhole()
+        {
+            // QUICKLOAD-TRIM-CUTS-COMMITTED-HISTORY-OF-A-RESUMED-CLONE: the tree-wide trim is
+            // handed the quicksave's history members (read before the trim) and leaves them
+            // whole; the plan and the kept-whole set read each member as the restore left it, so
+            // an ending restamped after the save is not history to either.
+            string reconcile = PreparedMethodBody(TrimPath, "internal static bool TrimAndReconcileForQuickloadResume(");
+            string flat = Collapse(reconcile);
+            Assert.Equal(1, Occurrences(reconcile, "CollectQuicksaveHistoryKeptWhole("));
+            Assert.Contains("CollectQuicksaveHistoryKeptWhole(tree, activeRec?.RecordingId, resumeUT, quicksaveFacts)", flat);
+            Assert.Contains("TrimRecordingTreePastUT(tree, resumeUT, keepWhole)", flat);
+            Assert.True(IndexOrFail(reconcile, "CollectQuicksaveHistoryKeptWhole(")
+                    < IndexOrFail(reconcile, "TrimRecordingTreePastUT("),
+                "load-reconcile gate: the kept-whole history set is read before the trim cuts the payload");
+
+            string keep = Collapse(PreparedMethodBody(TrimPath, "internal static HashSet<string> CollectQuicksaveHistoryKeptWhole("));
+            Assert.Contains("IsCommittedHistoryAtQuicksave(quicksaveFacts, kvp.Key, cutoffUT, out _, kvp.Value)", keep);
+            string plan = Collapse(PreparedMethodBody(TrimPath, "internal static AbandonedFuturePlan BuildAbandonedFuturePlan("));
+            Assert.Contains("IsCommittedHistoryAtQuicksave(quicksaveFacts, id, cutoffUT, out string historyReason, rec)", plan);
+        }
+
+        [Fact]
         public void RestoreCapturesTheQuicksaveFactsBeforeAnythingChangesTheLoadedTree()
         {
             // The committed-history discriminator must read the quicksave as written: before the
