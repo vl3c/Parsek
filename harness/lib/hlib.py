@@ -885,7 +885,7 @@ ANOMALY_REASONS_RAISED_UNGATED: Tuple[Tuple[str, str], ...] = (
     # landed above it in the same file. Nothing about the seam instrument changed;
     # the new number was re-derived from the scan, not shifted by arithmetic.
     ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:726"),
-    ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2361"),
+    ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2376"),
 )
 
 # RETIRED tokens: gated once, raised by nothing, REMOVED from ANOMALY_TOKENS

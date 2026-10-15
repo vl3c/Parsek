@@ -386,7 +386,7 @@ mismatches, tombstones 0, `reFlyWindowsExtended=1` on both merges. No award fire
 window (the run's only capture was a `CrewStatusChanged`), so neither new outcome line printed: the
 flight proves no regression, and the substitution itself is proven by the xUnit cases only.
 
-## W1-CAMERA-LIVE-HANDOFF-NO-LONGER-PRINTS: W1's `camera-live member #0->#1` hand-off token is missing on every run since its last green (2026-08-28) [FILED 2026-10-13 from the operator tier, reproduced three times. OPEN, render, untriaged]
+## ~~W1-CAMERA-LIVE-HANDOFF-NO-LONGER-PRINTS: W1's `camera-live member #0->#1` hand-off token is missing on every run since its last green (2026-08-28)~~ [FILED 2026-10-13 from the operator tier, reproduced three times. TRIAGED 2026-10-15: a stale harness token, not a Parsek defect. FIXED 2026-10-15, PR #2111. LIVE-PROVEN 2026-10-15 on the owner's PC: `2026-10-15_2148` and `_2213` PASS attempt 1, each printing `first evaluation: camera-live member #1 at loopUT=434.59 cycle=0`]
 
 `W1-watch-distance-cutoff` reds PARSEK-FAIL on its required `Chain-loop unit owner=0 camera-live
 member #0->#1 at loopUT=434\.5` alone on `2026-10-12_2346`, `2026-10-13_0331` and `_0335`. The
@@ -400,6 +400,16 @@ StartLoopPlayback and the jump and still printed no hand-off; the unit logged no
 pre-relaunch hold. So the unit no longer treats member #0 as camera-live before its first
 in-window evaluation. Six weeks of chain-loop / LiveAt changes separate the two runs (e.g. #1820);
 bisect by flying W1 on older mains, or read the hand-off logger's initial-member rule.
+
+Cause (read 2026-10-15 from `2026-09-10_1939` green vs `2026-10-13_0335` red): since PR 94cd8057
+(2026-09-25, owner ruling 2026-09-24) a looped mission's first run plays as an ordinary recording
+until the unit's anchor, so `LoopUnitSet.LiveAt` does not publish W1's unit at StartLoopPlayback's
+UT 21569 (anchor 21583.97). The red logs show `[MissionLoopFirstRun] Loop units live at UT=21984.00
+... live=1` on the jump frame: the unit's FIRST evaluation is the jump, it already selects #1, and
+the engine stored a first selection silently, so no hand-off could print. Ghost #1's spawn and the
+1069 km refusal are unchanged. Fix: the engine and Space Center log a unit's first evaluation
+(`... first evaluation: camera-live member #1 at loopUT=434.59 cycle=0`), and W1 requires that line,
+still accepting the old hand-off for a run that dwells past the anchor before its jump.
 
 ## TIER-2026-10-12-LANE-VARIANCE: four operator-tier reds that were flight variance, not defects [FILED 2026-10-13. Both operator calls RULED and DONE 2026-10-15 (GS-10, RF-9), flown on the owner's PC]
 
@@ -958,7 +968,7 @@ Data point 2026-10-12 (operator tier): S4.4 2026-10-12_2128 PARSEK-FAIL on `outc
 
 ---
 
-## V16M-ICON-OFF-ORBIT-AT-TIMEJUMP-LANDING: V16M's ghost map icon sits ~1.3 deg off its orbit on the frame a TimeJump lands [FILED 2026-10-07 from the PR #2051 flights, measured twice. OPEN, render, not yet triaged]
+## ~~V16M-ICON-OFF-ORBIT-AT-TIMEJUMP-LANDING: V16M's ghost map icon sits ~1.3 deg off its orbit on the frame a TimeJump lands~~ [FILED 2026-10-07 from the PR #2051 flights, measured twice. TRIAGED 2026-10-15: a probe false positive on the jump's own frame, which the faster harness cadence exposed; nothing the player sees. FIXED 2026-10-15, PR #2111. LIVE-PROVEN 2026-10-15 on the owner's PC: `2026-10-15_2211` PASS attempt 1, 0 icon-off-orbit raises, the skip line printed once per pass on the jump frame (angle 1.30)]
 
 `V16M-laythe-player-loop` reads PARSEK-FAIL on the unallowed Tier-C anomaly `icon-off-orbit`
 (`[MapRenderTrace] phase=Anomaly surface=ProtoIcon ... reason=icon-off-orbit
@@ -974,6 +984,25 @@ the window by flying V16M on an older main.
 
 
 Data point 2026-10-12 (operator tier): 2026-10-12_2140 read the same 4 icon-off-orbit hits at the TimeJump landing frames (UT 29874214.000 / 30933832.000, angle 1.30-1.31 deg), a third reading after 2026-10-08_0101 / _0236.
+
+Cause (read 2026-10-15 from `2026-10-12_2140` red vs `2026-09-10_2032` clean): the four hits are
+exactly the overlap instances created ON a jump-landing frame (cycles 1 and 0, twice). The green run
+polled ~0.25 s between jumps, so all 20 instances were created before jump 2; since the fast seam
+polls (#2017) the jumps land ~0.07 s apart and the last two creations spill onto jump 3's frame.
+`Planetarium.SetUniversalTime` only sets the clock: body rotation and `Planetarium.Zup` move at the
+next `Planetarium.FixedUpdate` -> `UpdateCBs`, while stock `Orbit` state vectors use `ZupAtT(UT)`
+(fresh). The offset is a pure longitude rotation (iconR == orbitEffR) of 1.36 deg = Laythe's spin
+over the 199.92 s jump. A first fix ran stock's `Planetarium.fetch.UpdateCBs()` after the clock
+set (as FlightDriver and MissionSystem do); flown 2026-10-15 (`2026-10-15_2150`, `_2152`) it made
+V16M worse, 34-36 hits, now on the instances already on screen: their icons were driven in the
+pre-jump FixedUpdate, and the probe read their orbits through the refreshed frame (same 1.36 deg,
+effUT = the pre-jump UT). So the jump frame mixes body frames whichever way it goes, for one frame
+the player cannot see (the whole map snaps there). Fix: no product change; `TimeJumpManager` stamps
+`LastClockSetFrame` in both paths, and `MapRenderProbe` skips icon-off-orbit on that frame and one
+more (`MapRenderTrace.TimeJumpSettleFrameWindow`), as it already does for a floating-origin shift.
+MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP's V16T raise (129.15 deg = Laythe's 140.34 deg
+spin over its 1,027,290 s jump at the icon's ~16 deg latitude) is the same frame: `2026-10-15_2215`
+logged its one skip as `angle=129.15` on the jump frame, and raised nothing.
 
 ---
 
@@ -13062,6 +13091,15 @@ non-nested-SOI TS lane that raises, or a self-overlapping one that raises.
 run is not a licence to pre-tolerate a token that has raised on six of this
 family's nine runs to date, and pre-tolerating it would destroy the very signal
 the next discriminating lane needs to read.
+
+Mechanism 2026-10-15 (PR #2111, see V16M-ICON-OFF-ORBIT-AT-TIMEJUMP-LANDING): a time jump sets the
+clock mid-frame while body rotation and `Planetarium.Zup` catch up on the next physics tick, so on
+the jump frame an icon and the probe's orbit read can sit in body frames one jump's spin apart.
+V16T's 129.15 deg is Laythe's 140.34 deg spin over its 1,027,290 s jump at the icon's ~16 deg
+latitude. The probe now skips icon-off-orbit on the jump frame and one more; `2026-10-15_2215`
+(V16T, PASS attempt 1, 0 raises) logged exactly one skip, `angle=129.15` on the jump frame. An
+offset that outlives the settle window still raises. The lanes that tolerate this token keep their
+allowance; it is now unused there.
 
 ---
 

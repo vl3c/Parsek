@@ -1210,6 +1210,11 @@ namespace Parsek
 
             if (!lastUnitSelection.TryGetValue(unit.OwnerIndex, out var prev))
             {
+                ParsekLog.VerboseRateLimited(
+                    "KSCGhost", unitKey + "-first",
+                    GhostPlaybackEngine.FormatUnitFirstEvaluation(
+                        "Mission-loop", unit.OwnerIndex, liveMemberIdx, spanLoopUT, cycle),
+                    5.0);
                 lastUnitSelection[unit.OwnerIndex] = (cycle, liveMemberIdx);
                 return;
             }
