@@ -3,8 +3,8 @@ id = "QL-5d-retry-refly-after-quickload"
 # =====================================================================================
 # QL-5d: AN F5 / F9 INSIDE A RE-FLY, THEN ESC, THEN RETRY FROM REWIND POINT: THE RETRIED
 # RE-FLY STARTS WITH THE FLIGHT'S TREE STILL COMMITTED. QL-5c's flight with the attempt
-# ended by Retry instead of Discard; the live proof of two 2026-10-15 fixes (branch
-# `qlr-retry`), both in MergeDialog.RepairSessionBeforeRetry, which
+# ended by Retry instead of Discard; the live proof of two 2026-10-15 fixes (PR
+# #2117), both in MergeDialog.RepairSessionBeforeRetry, which
 # RevertInterceptor.RetryHandler now calls after it clears the marker and before the
 # re-invoke captures the reconciliation bundle:
 #   - RETRY-AFTER-A-QUICKLOAD-DURING-REFLY-DROPS-THE-TREES-LATER-HISTORY: the F9 detaches the

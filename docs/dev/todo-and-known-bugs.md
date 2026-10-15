@@ -2569,8 +2569,8 @@ by another session (`IsStampedByOtherReFlySession`); discards and the Retry repa
 single-pass walk otherwise. Red then green: the S2 theory and the Retry fixture now use a production
 marker, plus `Quickload_SaveDuringMergedSession_LaterSessionReFliesARewindPointTheSessionCreated_ForkAndItsDebrisGo`
 and `CollectReFlyAttemptOwnedRecordingIds_BranchPointWalk_LiveAndResume`.
-Not yet flown: lane `QL-7-quickload-prunes-post-save-refly-fork` (authored 2026-10-15, never
-flown) is the tree-wide case (RF-1's flight saved to a named slot in flight, re-flown and merged
+Live proof: lane `QL-7-quickload-prunes-post-save-refly-fork`, `2026-10-15_2229` PASS (forks=1,
+pruned=1/1, rows dropped=1, commit recordings=2), is the tree-wide case (RF-1's flight saved to a named slot in flight, re-flown and merged
 at the Space Center, then that save loaded); the `ActiveRecOnly` case has no lane.
 
 ---
@@ -2664,9 +2664,9 @@ ordinary Retry restores and prunes nothing
 (`RetryOfFreshSession_CommittedOriginalPresent_RestoresNothingAndPrunesNothing`);
 `InSessionHandoffWiringGateTests.RetryRepairsTheSessionBeforeTheReinvokeCapturesTheBundle` pins
 the order. Log `[MergeDialog] RepairSessionBeforeRetry callSite=RetryHandler ... treeState=...
-stagedRowsPruned=N restoredCommittedTree=<bool>`. Live proof: none yet. VN-9 flies Retry without
-a quickload (`treeState=still-committed`); lane `QL-5d-retry-refly-after-quickload` (authored
-2026-10-15, never flown) is QL-5c answering `choice=retry` and gates
+stagedRowsPruned=N restoredCommittedTree=<bool>`. Live proof: the call site only. VN-9 flies Retry without
+a quickload (`treeState=still-committed`); lane `QL-5d-retry-refly-after-quickload` (`2026-10-15_2216`
+PASS) is QL-5c answering `choice=retry` and gates
 `treeState=detached-restored-copy ... restoredCommittedTree=true`; its session never merges, so
 it reads `stagedRowsPruned=0` and the row half stays proven headless only.
 
@@ -2688,7 +2688,7 @@ committed (through the discards' `RestoreSanitizedPendingTreeIfDetached`) before
 capture, the ordinary session's shape (committed original beside the live tree), so the splice
 and the bundle restore run as on every Retry. A copy, not the live tree, so the scene exit's
 stash and the restore's pop are unchanged and a refused re-invoke leaves the ordinary shape.
-Live proof: lane `QL-5d-retry-refly-after-quickload` (authored 2026-10-15, never flown). On its
+Live proof: lane `QL-5d-retry-refly-after-quickload`, `2026-10-15_2216` PASS. On its
 B9 host the rewind point's quicksave holds the whole tree, so the lane reads the fix through the
 committed list (`listhandles kind=committed count>=3`, `Captured: ... trees>=1` after the retry,
 both 0 before the fix) and the ordinary exit (`restoredDetachedTree=false`).

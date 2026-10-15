@@ -4,7 +4,7 @@ id = "QL-7-quickload-prunes-post-save-refly-fork"
 # QL-7: LOADING AN IN-FLIGHT SAVE OF A FLIGHT THAT WAS RE-FLOWN AND MERGED AFTER THE SAVE
 # DROPS THE RE-FLY'S RECORDING ALONG WITH ITS ROWS. The live proof of todo
 # QUICKLOAD-KEEPS-POST-SAVE-REFLY-FORKS-WHOSE-ROWS-FOLLOW-THE-SAVE, tree-wide case (fix
-# 2026-10-15, branch `qlr-forks`).
+# 2026-10-15, PR #2117).
 #
 # In gameplay terms: the player flies GS-1's two-stage hop, saves the game to a named slot
 # while still in flight (the booster under canopy), goes back to the Space Center, re-flies
@@ -76,9 +76,9 @@ id = "QL-7-quickload-prunes-post-save-refly-fork"
 # report-only predictions, re-pin after the first flight; (8) nightly, RF-1's wall plus one
 # load and commit; (9) run flight_efficiency.py on the first green flight.
 #
-# STATUS: AUTHORED 2026-10-15 (PR #2117). First flight `2026-10-15_2218` red on the spec only
-# (hex-only id classes, an unanchored action=Unchanged forbidden, the active-count token); re-pinned,
-# not re-flown. No RunTests step, so no batch pin. Every new token is quoted from its emitting source line
+# STATUS: LIVE-PROVEN 2026-10-15, `2026-10-15_2229` PASS attempt 1 on its second flight (PR #2117).
+# First flight `2026-10-15_2218` red on the spec only (hex-only id classes, an unanchored
+# action=Unchanged forbidden, the active-count token), re-pinned. No RunTests step, so no batch pin. Every new token is quoted from its emitting source line
 # (ParsekScenario.Trim.cs NoteAbandonedReFlyForks / PruneAbandonedReFlyForks,
 # ParsekScenario.InSessionHandoff.cs ApplyInSessionResumedTreeRowRule +
 # InSessionStagedStateHandoff.FormatResumedTreeRowCounts, ParsekScenario.HydrationRepair.cs
