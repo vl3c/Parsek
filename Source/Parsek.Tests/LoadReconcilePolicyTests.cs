@@ -466,7 +466,7 @@ namespace Parsek.Tests
             DiscardReFlyLoadIntent.Arm(RevertTarget.Launch, "sess-1", 1234.5);
             Assert.True(DiscardReFlyLoadIntent.TryConsume(GameScenes.SPACECENTER, "test", out _, 1234.5));
             Assert.Contains(logLines, l => l.Contains("DiscardReFly load intent consumed at test:")
-                && l.Contains("rpUT=1234.50 loadedUT=1234.50 landedAtRewindPoint=true"));
+                && l.Contains("rpSaveUT=1234.50 loadedUT=1234.50 landedAtRewindPoint=true"));
 
             // A landing at the session's last persistent write (an F9 later in the attempt).
             DiscardReFlyLoadIntent.Arm(RevertTarget.Launch, "sess-2", 1234.5);
@@ -478,7 +478,7 @@ namespace Parsek.Tests
             DiscardReFlyLoadIntent.Arm(RevertTarget.Launch, "sess-3");
             Assert.True(DiscardReFlyLoadIntent.TryConsume(GameScenes.SPACECENTER, "test", out _));
             Assert.Contains(logLines, l => l.Contains("sess=sess-3")
-                && l.Contains("rpUT=NaN loadedUT=NaN landedAtRewindPoint=unknown"));
+                && l.Contains("rpSaveUT=NaN loadedUT=NaN landedAtRewindPoint=unknown"));
         }
 
         [Theory]

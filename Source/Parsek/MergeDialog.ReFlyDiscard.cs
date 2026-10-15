@@ -291,7 +291,7 @@ namespace Parsek
                 RecordingStore.PopPendingTree();
             ParsekLog.Info("MergeDialog",
                 $"RestoreDetachedTreeAfterEscDiscard callSite={callSite ?? "<none>"}: tree={tree.Id ?? "<none>"} " +
-                $"detached restored={restored} wasPending={wasPending} " +
+                $"detached restored={(restored ? "true" : "false")} wasPending={(wasPending ? "true" : "false")} " +
                 $"sess={marker?.SessionId ?? "<none>"}");
             return restored;
         }

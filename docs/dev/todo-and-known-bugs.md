@@ -2442,9 +2442,9 @@ state, markers) are the rewind point's, consistent with the roster in the same f
 (both targets, load -> persistent -> scene order), `DiscardReFly_PersistentWriteFails_StillDispatches`,
 `DiscardReFly_StubbedLoad_SkipsThePersistentWrite`, and the wiring gate
 `LoadReconcileWiringGateTests.DiscardReFlyWritesPersistentAndRestoresTheDetachedTreeBeforeTheScene`.
-The Discard Re-fly intent now carries the rewind point's UT, and its consumed line says whether
-the scene landed there (`rpUT=.. loadedUT=.. landedAtRewindPoint=true|false|unknown`, 1 s
-tolerance; `LoadReconcilePolicyTests.LandedAtRewindPointToken_Pure`). Live proof: lane QL-5c
+The Discard Re-fly intent now carries the clock of the rewind-point quicksave the discard loaded,
+and its consumed line says whether the scene landed there
+(`rpSaveUT=.. loadedUT=.. landedAtRewindPoint=true|false|unknown`, 1 s tolerance; `LoadReconcilePolicyTests.LandedAtRewindPointToken_Pure`). Live proof: lane QL-5c
 (F5 / F9 inside the session, then the Esc discard), never flown yet.
 
 ---

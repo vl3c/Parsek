@@ -36,7 +36,9 @@ id = "QL-5c-discard-refly-after-quickload"
 #   - `persistentWritten=true` and the RewindSave line: the rewind point's game went to
 #     persistent.sfs.
 #   - `landedAtRewindPoint=true` on the intent-consumed line: the Space Center's loaded
-#     clock is the rewind point's (within 1 s), not the quicksave's.
+#     clock is the rewind-point quicksave's (`rpSaveUT`, within 1 s), not the in-session
+#     quicksave's. (On this host the injected rewind-point quicksave sits at the template's UT,
+#     ~21.2, while rp_b9_root's UT is 81.16; the comparison is against the file's own clock.)
 #   - the completion line's `rpKept=true slotListed=true marker=none`: before the tree fix the
 #     booster's recording left the timeline, so no STASH member resolved to its slot.
 #
@@ -106,7 +108,7 @@ required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation comple
              "DiscardReFly: rewind point game written to persistent.sfs rp=rp_b9_root",
              "RestoreDetachedTreeAfterEscDiscard callSite=DiscardReFlyHandler: tree=\\S+ detached restored=true",
              "End reason=discardReFly sess=\\S+ target=Launch facility=-- dispatched=true persistentWritten=true restoredDetachedTree=true",
-             "DiscardReFly load intent consumed at ParsekScenario.OnLoad: target=Launch sess=\\S+ scene=SPACECENTER rpUT=\\S+ loadedUT=\\S+ landedAtRewindPoint=true",
+             "DiscardReFly load intent consumed at ParsekScenario.OnLoad: target=Launch sess=\\S+ scene=SPACECENTER rpSaveUT=\\S+ loadedUT=\\S+ landedAtRewindPoint=true",
              "Load classified: early=DiscardReFly refined=DiscardReFly scene=SPACECENTER [^\\r\\n]*discardReFly=Launch handoff=present",
              "reflyrevert complete choice=discard target=launch scene=SPACECENTER sess=\\S+ rp=rp_b9_root rpKept=true slot=b9-booster-a slotListed=true unfinishedFlights=[1-9][0-9]* marker=none"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]",

@@ -569,7 +569,10 @@ namespace Parsek
                 marker, pruneSummary, "DiscardReFlyHandler");
 
             // The next OnLoad is this discard's own load; its early classification reads this.
-            DiscardReFlyLoadIntent.Arm(target, sessionId, originRp.UT);
+            // Its consumed line compares the scene's loaded clock with the clock of the rewind-point
+            // quicksave just loaded (what the persistent write above put on disk).
+            DiscardReFlyLoadIntent.Arm(target, sessionId,
+                loadGameHook != null ? double.NaN : ReadLoadedGameUT());
 
             string facilityText = target == RevertTarget.Prelaunch
                 ? $" facility={facility}"
@@ -812,6 +815,14 @@ namespace Parsek
                     $"{ex.GetType().Name}: {ex.Message} - the scene will reload the session's last persistent.sfs");
                 return false;
             }
+        }
+
+        /// <summary>The clock of the game the discard loaded into <see cref="HighLogic.CurrentGame"/>,
+        /// NaN when there is none.</summary>
+        private static double ReadLoadedGameUT()
+        {
+            Game game = HighLogic.CurrentGame;
+            return game?.flightState != null ? game.flightState.universalTime : double.NaN;
         }
 
         private static bool DispatchScene(RevertTarget target, EditorFacility facility)

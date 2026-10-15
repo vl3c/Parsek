@@ -18,9 +18,9 @@ namespace Parsek
         private static string armedSessionId;
         private static double armedRewindPointUT = double.NaN;
 
-        /// <summary>How far (seconds) the loaded clock may sit from the rewind point's UT and
-        /// still read as landed on it: a quicksave rounds nothing, so this only absorbs the
-        /// physics tick the rewind-point save was taken in.</summary>
+        /// <summary>How far (seconds) the loaded clock may sit from the clock of the rewind-point
+        /// quicksave the discard loaded and still read as landed on it. Both read the same saved
+        /// FLIGHTSTATE, so this only absorbs float formatting.</summary>
         internal const double LandedAtRewindPointToleranceSeconds = 1.0;
 
         internal static bool IsArmed => armed;
@@ -78,13 +78,14 @@ namespace Parsek
             ParsekLog.Info(LoadReconcilePolicy.LogTag,
                 $"DiscardReFly load intent consumed at {site ?? "<no-site>"}: target={target} "
                 + $"sess={sessionId ?? "<no-id>"} scene={loadedScene} "
-                + $"rpUT={FormatUT(rewindPointUT)} loadedUT={FormatUT(loadedUT)} "
+                + $"rpSaveUT={FormatUT(rewindPointUT)} loadedUT={FormatUT(loadedUT)} "
                 + $"landedAtRewindPoint={LandedAtRewindPointToken(rewindPointUT, loadedUT)}");
             return true;
         }
 
         /// <summary>
-        /// Pure: <c>true</c> when the loaded clock is the rewind point's (within
+        /// Pure: <c>true</c> when the loaded clock is the clock of the rewind-point quicksave the
+        /// discard loaded (within
         /// <see cref="LandedAtRewindPointToleranceSeconds"/>), <c>false</c> when it is not,
         /// <c>unknown</c> when either side is missing. The Discard Re-fly writes the rewind
         /// point's game to persistent.sfs so the scene start lands there
