@@ -1,0 +1,166 @@
+schema = 1
+id = "RVR-21-rover-drive-surface-hysteresis"
+tier = "nightly"
+# =====================================================================================
+# AUTHORED 2026-10-15, NEVER FLOWN. THE D4 `hysteresis` HOST: a rover that really drives
+# on the surface for longer than the 3.0 s SurfaceStationary <-> SurfaceMobile debounce
+# while a recording is live.
+#
+# WHY THIS LANE EXISTS (owner ruling 2026-10-15, todo
+# RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE, option A). RF-1 used to claim D4 `hysteresis`
+# off EnvironmentDetector's debounced `Environment transition: SurfaceStationary ->
+# SurfaceMobile at UT=... (debounce=3.0s)`, which only printed because its lit launch sat
+# more than 3 s on the pad inside a post-load race. Once LoadGame waited for flight-ready
+# the launch left the pad at once (`SurfaceStationary -> Atmospheric ... (debounce=0.5s)`)
+# and the token stopped printing (RF-1 `2026-10-12_2026` PARSEK-FAIL on that token
+# alone). The claim and the token moved here in the same change; RF-1 keeps
+# `surface-graze-suppression`.
+#
+# THE SUBJECT. `EnvironmentHysteresis.Update` (EnvironmentDetector.cs) confirms a
+# Stationary -> Mobile change only after the raw classification has read SurfaceMobile
+# (LANDED / SPLASHED / PRELAUNCH and srfSpeed > 0.1 m/s) continuously for
+# `SurfaceSpeedDebounceSeconds = 3.0`, then logs the INFO line this lane requires; the
+# immediate branch prints `(immediate, debounce=0.0s)` and cannot match. FlightRecorder
+# feeds it every physics frame for the ACTIVE recording (UpdateEnvironmentTracking), so
+# the line needs a live recording AND a vessel moving on the surface for over 3 s.
+#
+# THE DRIVE is the `DriveVessel` seam verb (added for this lane): a Vessel.OnFlyByWire
+# callback holds `wheelThrottle` for `seconds` of GAME time, with the Brakes group released
+# for the drive and restored after. Stock's own wheel motors move the rover, and the verb
+# answers OK only when the sampled maximum srfSpeed reached 0.5 m/s, so a rover that never
+# moved reads ERROR `drivevessel-did-not-move`, never a quiet green. 8 s is the 3.0 s
+# debounce plus the motors' spin-up plus margin (a unit cell keeps the span at least twice
+# the debounce).
+#
+# THE HOST, measured off the committed bytes of `rover-route-recorded`: the active vessel
+# is `B` (persistentId 313889796), type Rover, LANDED at lat 0.00535 lon -74.72464, 17
+# parts with FOUR roverWheel1 parts (ModuleWheelMotor motorEnabled=True, not inverted), a
+# probeStackSmall with 1000 ElectricCharge, and `Brakes = True` in ACTIONGROUPS - so the
+# start line reads `wheelMotors=4 brakesWereOn=true`. Read offline in the body-fixed
+# frame (computed, not yet observed), the craft's `rot` puts transform.forward straight
+# down and transform.up (an SPH-built rover's drive axis) within 8 degrees of
+# north-south, while rover `A`, the only vessel within a kilometre, sits 16.9 m to the
+# west: the drive runs across that line either way the motors turn. `rover fuel 0` is
+# 565 m south on the runway.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1. Reuse a flight - CONSIDERED, NOT APPLIED. Every lane on a rover fixture either ends in
+#      an isolated RunTests whose pinned `flushandquit: save suppressed (batch baseline
+#      already restored)` a state-mutating drive would clear (RVR-1, RVR-3, H56, H57, H69,
+#      RVR-6), or creates a supply route whose ORIGIN is this rover `B` (RVR-2, RVR-4,
+#      RVR-16..RVR-19, H58, H59, V27M, the GUI census lanes), where driving `B` would move
+#      a route endpoint those lanes assert on. The relay-c lanes drive nothing either and
+#      pin route state. A new lane of eleven seam steps costs less than re-reading any of
+#      those hosts.
+#   2. No idle waits: the drive is the only wait, and it is the claim's own subject.
+#   3. Dwell: 8 game seconds, the minimum that clears the 3.0 s debounce with margin.
+#   4-5. No burns, no coasts.
+#   6. Fail fast: DriveVessel ends ERROR at the span's end when the rover never moved,
+#      instead of riding a 60 s budget. `[retry] once` covers the fixture's boot race (the
+#      promotion-stub resume the kill triple stops), which is not deterministic.
+#   7. Tight windows: `recordings.count` is the authored {5, 6} until the first flight
+#      pins it (5 is RVR-1's measured count on these bytes after the same prologue; the
+#      drive's own tree is discarded).
+#   8-9. Tier and efficiency: nightly by expected cost (one LoadGame and an 8 s drive);
+#      re-check with `tools/flight_efficiency.py` after the first green flight.
+#
+# WHAT THE FIRST FLIGHT MUST CONFIRM: DriveVessel OK with `drivevessel end:
+# outcome=moved` (max srfSpeed and path printed), the debounced Stationary -> Mobile line
+# exactly once or more, no ERROR line, and the recordings count; then pin the count, and
+# fly one negative control with the token inverted to `(immediate, debounce=0\.0s)` before
+# the D4 claim is treated as live-proven.
+# =====================================================================================
+description = "AUTHORED 2026-10-15, NEVER FLOWN. The D4 hysteresis host: on rover-route-recorded, after the kill triple, StartRecording on the LANDED rover B, then DriveVessel holds its wheel motors for 8 game seconds (brakes released and restored), so EnvironmentDetector's debounced SurfaceStationary -> SurfaceMobile transition (debounce=3.0s) prints for the live recording; StopRecording and DiscardTree leave the fixture's committed corpus untouched. Took the D4 hysteresis claim over from RF-1 (owner ruling 2026-10-15, RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE)."
+instanceProfile = "stock-minimal"
+tags = ["environment", "hysteresis", "rover", "surface", "recorded-fixture", "reading-run"]
+
+[fixture]
+# `rover-route-recorded`, the RVR harvest (header of RVR-1-rover-route-proof.toml). The
+# builder points FLIGHTSTATE/activeVessel at the LANDED transport rover `B`, which is the
+# vessel this lane drives. `injectedRecordings = "none"` for RVR-1's reason: the template
+# carries the payload, and the count stays attributable.
+saveTemplate       = "fixtures/saves/rover-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# THE KILL TRIPLE (RVR-1's prologue, for RVR-1's reason): the committed-tree restore resumes
+# a promotion-stub recording about 1 s into the scene, before any step can run.
+# StopRecording is idempotent-OK and DiscardTree answers OK with nothing discarded when no
+# plain tree is live; the SetSetting stops a later auto-record. Then the lane's own
+# recording starts on the parked rover, so the recorder's environment hysteresis is
+# initialized SurfaceStationary before the wheels turn.
+#
+# verboseLogging=true is diagnostic, not load-bearing: every required line is INFO. It
+# puts the recorder's `Hysteresis initialized: initial=SurfaceStationary` and TrackSection
+# lines into a first reading.
+#
+# StopRecording + DiscardTree after the drive is S0.5's teardown: the drive's tree is not
+# committed, so the produced save's committed corpus is the fixture's own.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging",     value = "true" },       expect = "OK" },
+  { cmd = "StartRecording",                                                               expect = "OK", budget = 180 },
+  { cmd = "DriveVessel",    args = { wheelThrottle = "1", seconds = "8" },                expect = "OK" },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
+]
+
+[dimensionsCovered]
+# D4 `hysteresis`, MOVED HERE FROM RF-1 by the owner ruling of 2026-10-15
+# (RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE) in the same change that dropped it there, so the
+# registry cell stays claimed. Witness: the required `Environment transition:
+# SurfaceStationary -> SurfaceMobile at UT=... (debounce=3.0s)` below, the debounced
+# branch of EnvironmentHysteresis.Update, printed for the recording this lane starts while
+# DriveVessel holds the rover moving for 8 game seconds. NEVER FLOWN: the claim is owed a
+# reading run, and a negative control with the token inverted to
+# `(immediate, debounce=0\.0s)` (RF-1's `2026-09-11_0142` shape), before it counts as
+# live-proven.
+# D14: boot facts of this host (RVR-1's set).
+D4  = ["hysteresis"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (the H7 lesson): a bare key after an `[expectations.<sub>]`
+# header is scoped to that sub-table and never read. No tracer is armed.
+allowedAnomalies = []
+
+[expectations.recordings]
+# AUTHORED WINDOW, pin after the first flight. 5 is RVR-1's measured count on these bytes
+# after the same kill triple; the drive's own tree is discarded, so 5 is the expectation
+# and 6 only admits a first reading that kept a stub.
+count = { min = 5, max = 6 }
+
+[expectations.logContracts]
+# THREE REQUIRED LINES.
+#   1. `drivevessel start: ...` - the drive started on the fixture's rover with its four
+#      wheel motors and its parking brake on (both read off the committed bytes; see the
+#      header).
+#   2. `drivevessel end: outcome=moved ...` - the verb's own OK line: the rover reached at
+#      least 0.5 m/s. Numbers are regexed; the first flight reads them.
+#   3. THE CLAIM TOKEN, RF-1's pattern verbatim (UT regexed, debounce literal): the
+#      recorder confirmed SurfaceStationary -> SurfaceMobile after the 3.0 s debounce.
+required  = [
+  "drivevessel start: vessel=B pid=313889796 situation=LANDED wheelThrottle=1\\.00 seconds=8\\.0 wheelMotors=4 brakesWereOn=true",
+  "drivevessel end: outcome=moved vessel=B pid=313889796 gameSeconds=[0-9.]+ startSrfSpeed=[0-9.]+ endSrfSpeed=[0-9.]+ maxSrfSpeed=[0-9.]+ pathMeters=[0-9.]+ displacementMeters=[0-9.]+ situation=LANDED",
+  "Environment transition: SurfaceStationary -> SurfaceMobile at UT=[0-9.]+ \\(debounce=3\\.0s\\)",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): run.py gives the deferred LoadGame
+# `required_step_wait(max(300, SEAM_FALLBACK_DEFERRAL_SECONDS=600))` = 660 s; StartRecording
+# may wait out its 180 s scene-wait; DriveVessel is bounded by its 60 s default budget; the
+# rest are single-frame verbs. 900 clears the worst case.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

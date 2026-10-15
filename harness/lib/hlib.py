@@ -693,6 +693,14 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     ready. OK `scene= activePid= activeName= situation=`.
     "PartAction",
     "RevertToLaunch",
+    # ADDITIVE (50 -> 51 implemented, reserved unchanged at 4), the D4 `hysteresis` host.
+    #   DriveVessel wheelThrottle=<-1..1, not 0> seconds=<game s, (0, 30]>, FLIGHT, TWO-PHASE,
+    #     default 60 s: drives the active LANDED / SPLASHED vessel on its own wheel motors (a
+    #     Vessel.OnFlyByWire wheelThrottle, Brakes released for the drive and restored after)
+    #     until the game clock covered the span. OK only when the vessel really moved (max
+    #     srfSpeed >= 0.5 m/s): `moved=true gameSeconds= maxSrfSpeed= pathMeters=
+    #     displacementMeters= situation=`; otherwise ERROR drivevessel-did-not-move.
+    "DriveVessel",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1303,6 +1311,8 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     "PartAction": TAIL_ROLE_WORLD_MUTATING,
     # RevertToLaunch reloads the flight from stock's post-init state.
     "RevertToLaunch": TAIL_ROLE_WORLD_MUTATING,
+    # DriveVessel moves a live vessel across the surface (and toggles its Brakes group).
+    "DriveVessel": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1502,6 +1512,10 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # "stock ran the control", and the claims a lane pins are Parsek's response to it.
     "PartAction": POST_MISSION_ROLE_RECORDING,
     "RevertToLaunch": POST_MISSION_ROLE_RECORDING,
+    # DriveVessel is `recording` for SpinVessel's reason: it sets up the subject a recording
+    # claim is about (a vessel moving on the surface), and the recorder's own lines re-derive
+    # what it did.
+    "DriveVessel": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -3564,6 +3578,73 @@ def validate_revert_to_launch_step(index: int, step_args: Dict) -> List[str]:
         return []
     return ["driver.steps[%d].args: %s takes no args, so %s would be silently ignored"
             % (index, REVERTTOLAUNCH_VERB, ", ".join(sorted(str(k) for k in step_args)))]
+
+
+# DriveVessel: mirrored from TestCommands/TestCommandDriveVessel.cs
+# (DriveVesselSourceSyncTests). Both args REQUIRED: `wheelThrottle=` a finite value in
+# [-1, 1] other than 0, `seconds=` a finite span of game seconds in (0, 30].
+DRIVEVESSEL_VERB = "DriveVessel"
+DRIVEVESSEL_THROTTLE_KEY = "wheelThrottle"
+DRIVEVESSEL_SECONDS_KEY = "seconds"
+DRIVEVESSEL_MAX_SECONDS = 30.0
+DRIVEVESSEL_REASONS: Tuple[str, ...] = (
+    "drivevessel-throttle-arg-missing", "drivevessel-throttle-arg-invalid",
+    "drivevessel-seconds-arg-missing", "drivevessel-seconds-arg-invalid",
+    "drivevessel-no-active-vessel", "drivevessel-vessel-packed",
+    "drivevessel-not-on-surface", "drivevessel-no-wheel-motor",
+)
+DRIVEVESSEL_ERROR_REASONS: Tuple[str, ...] = (
+    "drivevessel-vessel-lost", "drivevessel-did-not-move", "drivevessel-timeout",
+)
+
+
+def _finite_float_or_none(raw) -> Optional[float]:
+    try:
+        value = float(str(raw))
+    except ValueError:
+        return None
+    return value if math.isfinite(value) else None
+
+
+def validate_drive_vessel_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``DriveVessel`` step: ``wheelThrottle=`` and
+    ``seconds=`` REQUIRED and in range (the C# validators' bounds), and no other key (the
+    verb reads none, so it would be sent and silently ignored)."""
+    errors: List[str] = []
+    raw = step_args.get(DRIVEVESSEL_THROTTLE_KEY)
+    if raw is None or str(raw) == "":
+        errors.append(
+            "driver.steps[%d].args.%s: %s REQUIRES it; the seam answers REJECTED "
+            "drivevessel-throttle-arg-missing"
+            % (index, DRIVEVESSEL_THROTTLE_KEY, DRIVEVESSEL_VERB))
+    else:
+        value = _finite_float_or_none(raw)
+        if value is None or value == 0.0 or not -1.0 <= value <= 1.0:
+            errors.append(
+                "driver.steps[%d].args.%s: %r is not a finite value in [-1, 1] other than 0; "
+                "the seam answers REJECTED drivevessel-throttle-arg-invalid"
+                % (index, DRIVEVESSEL_THROTTLE_KEY, raw))
+    raw = step_args.get(DRIVEVESSEL_SECONDS_KEY)
+    if raw is None or str(raw) == "":
+        errors.append(
+            "driver.steps[%d].args.%s: %s REQUIRES it; the seam answers REJECTED "
+            "drivevessel-seconds-arg-missing"
+            % (index, DRIVEVESSEL_SECONDS_KEY, DRIVEVESSEL_VERB))
+    else:
+        value = _finite_float_or_none(raw)
+        if value is None or not 0.0 < value <= DRIVEVESSEL_MAX_SECONDS:
+            errors.append(
+                "driver.steps[%d].args.%s: %r is not a game-second span in (0, %g]; the "
+                "seam answers REJECTED drivevessel-seconds-arg-invalid"
+                % (index, DRIVEVESSEL_SECONDS_KEY, raw, DRIVEVESSEL_MAX_SECONDS))
+    extra = sorted(str(k) for k in step_args
+                   if k not in (DRIVEVESSEL_THROTTLE_KEY, DRIVEVESSEL_SECONDS_KEY))
+    if extra:
+        errors.append("driver.steps[%d].args: %s reads only %s and %s, so %s would be "
+                      "silently ignored"
+                      % (index, DRIVEVESSEL_VERB, DRIVEVESSEL_THROTTLE_KEY,
+                         DRIVEVESSEL_SECONDS_KEY, ", ".join(extra)))
+    return errors
 
 
 def validate_real_spawn_recover_step(index: int, cmd: str, step_args: Dict) -> List[str]:
@@ -6673,6 +6754,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_part_action_step(i, step_args))
         elif cmd == REVERTTOLAUNCH_VERB:
             errors.extend(validate_revert_to_launch_step(i, step_args))
+        elif cmd == DRIVEVESSEL_VERB:
+            errors.extend(validate_drive_vessel_step(i, step_args))
         # LoadGame focusPid= (any verb: the validator flags it on a verb that ignores it).
         if LOADGAME_FOCUS_PID_KEY in step_args:
             errors.extend(validate_loadgame_focus_step(i, cmd, step_args))
@@ -10759,6 +10842,17 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # (RevertToLaunchSourceSyncTests).
     "reverttolaunch-refly-session": "driver-gate",
     "reverttolaunch-unavailable": "driver-gate",
+    # DriveVessel: a missing / out-of-range arg is the SPEC's fault; no active vessel, a packed
+    # vessel, a vessel off the surface and one with no wheel motor are live states the drive
+    # would not act in (DriveVesselSourceSyncTests).
+    "drivevessel-throttle-arg-missing": "driver-arg",
+    "drivevessel-throttle-arg-invalid": "driver-arg",
+    "drivevessel-seconds-arg-missing": "driver-arg",
+    "drivevessel-seconds-arg-invalid": "driver-arg",
+    "drivevessel-no-active-vessel": "driver-gate",
+    "drivevessel-vessel-packed": "driver-gate",
+    "drivevessel-not-on-surface": "driver-gate",
+    "drivevessel-no-wheel-motor": "driver-gate",
     # SimulateStockSwitchClick, arg half: site / selector spellings and target resolution.
     # target-not-found / -name-ambiguous / -is-ghost are arg-class because each one means
     # the SPEC named the wrong thing, the same call `unknown-target` gets for KscAction.
@@ -11399,7 +11493,10 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "physics-warp-not-in-flight",
     "allow-live-recorder-arg-invalid", "await-recorder-live-arg-invalid",
     "cadence-arg-invalid", "cadence-arg-missing",
-    "category-arg-empty", "dialog-arg-invalid", "edit-commit-arg-invalid",
+    "category-arg-empty", "dialog-arg-invalid",
+    "drivevessel-seconds-arg-invalid", "drivevessel-seconds-arg-missing",
+    "drivevessel-throttle-arg-invalid", "drivevessel-throttle-arg-missing",
+    "edit-commit-arg-invalid",
     "edit-field-arg-missing", "edit-key-arg-missing", "expand-key-arg-missing",
     "factor-arg-invalid", "find-ctrl-arg-invalid", "find-index-arg-invalid",
     "find-text-arg-missing", "focus-pid-arg-invalid", "focus-pid-scene-conflict",
