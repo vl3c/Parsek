@@ -482,6 +482,37 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Retags every event tagged <paramref name="oldRecordingId"/> to
+        /// <paramref name="newRecordingId"/> (empty untags). Used when a retired Re-Fly
+        /// provisional's events are filed as untagged rows. Returns the number retagged.
+        /// </summary>
+        internal static int RetagEventsForRecording(string oldRecordingId, string newRecordingId)
+        {
+            if (string.IsNullOrEmpty(oldRecordingId))
+                return 0;
+            string target = newRecordingId ?? "";
+            if (string.Equals(oldRecordingId, target, StringComparison.Ordinal))
+                return 0;
+
+            int retagged = 0;
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (!string.Equals(e.recordingId ?? "", oldRecordingId, StringComparison.Ordinal))
+                    continue;
+                e.recordingId = target;
+                events[i] = e;
+                retagged++;
+            }
+
+            ParsekLog.Verbose("GameStateStore",
+                $"RetagEventsForRecording: '{oldRecordingId}' -> '{target}' " +
+                $"retagged={retagged.ToString(CultureInfo.InvariantCulture)} " +
+                $"total={events.Count.ToString(CultureInfo.InvariantCulture)}");
+            return retagged;
+        }
+
+        /// <summary>
         /// Removes an event by matching ut, eventType, and key.
         /// Returns true if the event was found and removed.
         /// </summary>

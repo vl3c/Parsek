@@ -27,6 +27,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Rewards earned right after a Re-Fly starts now belong to that attempt.** A reward earned in
+  the first moments of a Re-Fly, before Parsek starts recording it, is kept when you merge the
+  attempt and removed when you discard it, like the rest of the attempt's rewards. Before, it
+  could survive a discard or be lost at the merge.
+  (REFLY-UNBOUND-PROVISIONAL-TAGS-AWARDS-TO-ORIGIN)
 - **Discard Re-fly takes you back to the rewind point.** After a quicksave or quickload during a
   Re-Fly, Discard Re-fly could land you at the Space Center later than the separation, with the
   discarded attempt's vessel still flying. It now always returns to the moment you rewound to.
