@@ -7,24 +7,29 @@ id = "VN-8-control-part-leaves-staging"
 # flight: result `2026-10-12_1418` PASS attempt 1 (automation DLL sha256 prefix
 # 67e2036bd368d2a0, wall 95 s). saveParse stays REPORT-ONLY until an operator arms it.
 #
-# THE MEASUREMENT (result `2026-10-12_1418`): committed legs `recordingNames {VN8 Alpha: 1,
-# VN8 Alpha Probe: 1}`, live vessels `vesselNames {VN8 Alpha Ship: 1, VN8 Alpha Probe: 1}`.
-# The launch leg KEPT the player's "VN8 Alpha", the booster leg kept stock's split name
-# "VN8 Alpha Probe", the live pod carries stock's automatic "VN8 Alpha Ship" and nothing
-# wrote or captured over it (`Live write rule: stock automatic name kept on pid=2200110033
-# ... 'VN8 Alpha' -> 'VN8 Alpha Ship' ... leg closed, coverage kept, no write`). Why the
-# launch leg was CLOSED when the automatic rename landed, and the defect it exposes (todo
-# VN8-FOCUS-SWITCH-SPLIT-PARENT-LEG-RECORDS-NEW-VESSEL): stock's WaitAndSwitchFocus moved
-# focus to the booster (`Vessel switch detected: 'VN8 Alpha Ship' -> 'VN8 Alpha Probe'`)
-# BEFORE Parsek's deferred joint-break check, the recorder had stopped at the split
-# ("chain boundary"), and `Recording resumed after false alarm` reopened the launch
-# recording `2db42e20` on the NEW active vessel, the booster. So the launch leg's post-split
-# points are the booster's, its `spawnedPid` is the booster's pid, and the commit's resume
-# added `Link added: kind=Resume guid=<booster guid> -> <pod guid>`, persisted in
-# VESSEL_NAMES: the booster now shares the launch identity (against ruling 4's "the split
-# child is a new identity"), so a later rename of either would rename both. The names the
-# lane pins are right; the identity graph under them is not. Pins stay as authored: they
-# assert the names, not the recorder's choice of vessel.
+# THE MEASUREMENT, RE-FLOWN 2026-10-15 on the fix for todo
+# VN8-FOCUS-SWITCH-SPLIT-PARENT-LEG-RECORDS-NEW-VESSEL (PR #2101): result
+# `2026-10-15_1236` PASS attempt 1 (automation DLL sha256 prefix 3f95a36ddd96a66f, wall 82 s).
+# Committed legs `recordingNames {VN8 Alpha Ship: 1, VN8 Alpha Probe: 1}`, live vessels
+# `vesselNames {VN8 Alpha Ship: 1, VN8 Alpha Probe: 1}`. Stock's WaitAndSwitchFocus still
+# focuses the booster before Parsek's deferred joint-break check; the split now resumes on the
+# recorded pod (`DeferredJointBreakCheck: focus moved off the recorded vessel ...
+# activeIsSplitChild=True`), emits the pending split early (`Coalescer emitted split branch
+# point early`) so the booster gets its own child leg, and hands focus over
+# (`DeferredJointBreakCheck: handing focus over after split`). The launch leg records the pod
+# (vesselPersistentId = spawnedPid = the pod's pid, 47 points after the split), the booster
+# leg is its own (vesselPersistentId = spawnedPid = the booster's pid), the rewind point's
+# slots are pod + booster, and no `Link added` line appears. The launch leg is still OPEN when
+# stock's one-frame automatic rename of the pod lands, so (design 7.4 step 3, the PREDICTIONS
+# below) it takes the automatic "VN8 Alpha Ship" and `recordingNames "VN8 Alpha"` reads 0:
+# the product's documented behaviour, not a defect. Nothing wrote or captured over the
+# automatic name.
+# The FIRST flight (result `2026-10-12_1418`, DLL 67e2036bd368d2a0) read the launch leg as
+# "VN8 Alpha" only because of the defect: the recorder had resumed the launch recording on the
+# BOOSTER, so the pod's leg was closed when the rename landed, its `spawnedPid` was the
+# booster's, and the commit's resume added `Link added: kind=Resume guid=<booster> -> <pod>`,
+# joining the booster to the launch identity. The forbidden `Link added: kind=Resume` below
+# guards that.
 #
 # THE RACE (decompiled ModuleDecouple.OnDecouple / WaitAndSwitchFocus, KSP 1.12.5). At a
 # decouple stock caches the part that owns the vessel's control point
@@ -119,7 +124,7 @@ count = { min = 2, max = 6 }
 [expectations.recordings.structure]
 gating         = false
 committedTrees = { min = 1, max = 1 }
-recordingNames = { "VN8 Alpha" = { min = 1 }, "VN8 Alpha Probe" = { min = 1 }, "GS1 Auto-Chute Booster" = { max = 0 } }
+recordingNames = { "VN8 Alpha" = { max = 0 }, "VN8 Alpha Ship" = { min = 1, max = 1 }, "VN8 Alpha Probe" = { min = 1 }, "GS1 Auto-Chute Booster" = { max = 0 } }
 vesselNames    = { "VN8 Alpha" = { max = 0 }, "VN8 Alpha Probe" = { min = 1, max = 1 }, "GS1 Auto-Chute Booster" = { max = 0 } }
 
 [expectations.logContracts]
@@ -134,6 +139,9 @@ required = [
   "partaction applied button=controlfrom pid=[0-9]+ part='probeCoreOcto2.v2' partId=[0-9]+ event=MakeReference newPid=0 newName='' vessels=[0-9]+->[0-9]+ activePid=[0-9]+ activeName='VN8 Alpha'",
   "partaction applied button=decouple pid=[0-9]+ part='Decoupler.1' partId=[0-9]+ event=Decouple newPid=[1-9][0-9]* newName='VN8 Alpha Probe' vessels=[0-9]+->[0-9]+ activePid=[0-9]+ activeName='VN8 Alpha'",
   "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
+  # The focus switch lands before the deferred split check; the split resumes on the pod and
+  # hands focus over (todo VN8-FOCUS-SWITCH-SPLIT-PARENT-LEG-RECORDS-NEW-VESSEL, fixed).
+  "DeferredJointBreakCheck: handing focus over after split \\(recordedPid=[0-9]+, activePid=[0-9]+\\)",
   "committree committed=true",
 ]
 forbidden = [
@@ -147,6 +155,9 @@ forbidden = [
   "Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ '[^'\\r\\n]*' -> 'VN8 Alpha' ",
   # The automatic rename is never captured as a player decision (ruling 4).
   "Stock rename captured: source=\\w+ pid=[0-9]+ guid=[0-9a-f]+ 'VN8 Alpha' -> ",
+  # The split child is a new identity (ruling 4): no Resume link joins the booster to the
+  # launch identity (the defect the first flight read).
+  "Link added: kind=Resume ",
 ]
 
 [runtime]
