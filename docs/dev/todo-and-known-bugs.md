@@ -2458,7 +2458,7 @@ OnLoad reads the same PARSEK node it read before the fix, with the rewind point'
 The Discard Re-fly intent now carries the clock of the rewind-point quicksave the discard loaded,
 and its consumed line says whether the scene landed there
 (`rpSaveUT=.. loadedUT=.. landedAtRewindPoint=true|false|unknown`, 1 s tolerance; `LoadReconcilePolicyTests.LandedAtRewindPointToken_Pure`). Live proof: lane QL-5c
-(F5 / F9 inside the session, then the Esc discard), never flown yet.
+(F5 / F9 inside the session, then the Esc discard), PASS `2026-10-15_1600`.
 
 ---
 
@@ -2539,7 +2539,7 @@ Discard's `RestoreSanitizedPendingTreeIfDetached` (a pending instance leaves the
 failed scene dispatch takes it back out of the committed store, since the player stays in flight
 on it. The ordinary session (committed original still in memory) restores nothing
 (`DiscardOfFreshSession_EscMenu_CommittedOriginalPresent_RestoresNothing`). End line carries
-`restoredDetachedTree=`. Live proof: lane QL-5c, never flown yet.
+`restoredDetachedTree=`. Live proof: lane QL-5c, PASS `2026-10-15_1600`.
 
 ---
 

@@ -50,7 +50,9 @@ id = "QL-5c-discard-refly-after-quickload"
 #   - `landedAtRewindPoint=false`: the persistent write did not take (its Warn says why).
 #   - `restoredDetachedTree=false` with the premise token present: the restore was skipped.
 #
-# STATUS: AUTHORED 2026-10-15, branch `claude/refly-quickload-edge-cases-eixmlf`; never flown.
+# STATUS: LIVE-PROVEN 2026-10-15, `2026-10-15_1600` PASS attempt 1 (PR #2112, automation DLL
+# d9580fbbc708cd47). First flight `2026-10-15_1538` red on two spec checks only (bool casing,
+# and the landing compared against the RP's UT instead of its quicksave's clock).
 # Every token is quoted from its emitting source line: RevertInterceptor.DiscardReFlyHandler /
 # WriteRewindPointGameAsPersistent, MergeDialog.RestoreDetachedTreeAfterEscDiscard,
 # DiscardReFlyLoadIntent.TryConsume, RecordingStore.RemoveCommittedTreeById, and QL-5's.
