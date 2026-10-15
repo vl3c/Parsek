@@ -48,6 +48,11 @@ _(unreleased - entries accumulate here per commit)_
   mid Re-Fly could make Parsek treat the flight as finished and place a real duplicate of the
   vessel next to you, and pieces breaking off that duplicate were counted as part of your Re-Fly
   recording. Neither happens now. (REFLY-FORK-SELF-SPAWN-AFTER-QUICKSAVE)
+- **A relaunch of the same craft is no longer mistaken for an older flight of it.** Flying a new
+  launch of a craft from the Tracking Station no longer resumes an earlier launch's recording on
+  it, and an older launch's vessel no longer counts as alive because the relaunch shares its
+  craft. Vessels Parsek spawned and you flew again are still recognised, in older saves too.
+  (ADOPTION-STAMP-READ-AS-UNIQUE-SPAWN-PID)
 
 ### Dev
 

@@ -569,7 +569,9 @@ namespace Parsek.Tests
             Assert.Equal("rec_tip", recId);
             Assert.Equal(0, VesselNameStore.LinkCount);
 
-            // With a live guid the adoption-stamp branch matches too, and still writes no link.
+            // A live guid of ANOTHER launch: an adoption stamp is the craft-baked pid, so it no
+            // longer matches at all (todo ADOPTION-STAMP-READ-AS-UNIQUE-SPAWN-PID), and no link
+            // is written.
             VesselNameStore.ResetForTesting();
             RecordingStore.ResetForTesting();
             tree.Recordings["rec_tip"].SpawnedVesselPersistentId = 20;
@@ -577,10 +579,16 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedTreeForTesting(tree);
             foreach (Recording rec in tree.Recordings.Values)
                 RecordingStore.AddCommittedInternal(rec);
-            Assert.True(ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore(
+            Assert.False(ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore(
                 20, out _, out _, out _, activeVesselGuid: G5));
             Assert.Equal(0, VesselNameStore.LinkCount);
             Assert.False(VesselNameStore.TryGetLink(G5, out _));
+
+            // The stamped launch's own guid matches through the adoption-stamp branch and
+            // still writes no link.
+            Assert.True(ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore(
+                20, out _, out _, out _, activeVesselGuid: G1));
+            Assert.Equal(0, VesselNameStore.LinkCount);
         }
 
         // ---------------------------------------------------------------- spawn backfill (6.2)

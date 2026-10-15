@@ -9919,8 +9919,10 @@ namespace Parsek
         // liveGuid is the focused live vessel's Vessel.id ("N" form, null = unknown). #976-class:
         // the VesselPersistentId branch matches the craft-baked pid, which a relaunch of the same
         // craft reuses, so it additionally requires the same launch (guid). The SpawnedVesselPersistentId
-        // branch matches a KSP-unique spawn pid that cannot collide with a baked pid, so it stays
-        // pid-only. A null/unknown guid falls back to today's pid-only behavior.
+        // branch goes through VesselLaunchIdentity.LiveVesselIsRecordedSpawn: a genuine Parsek
+        // spawn pid is KSP-unique and matches on the pid alone, but an adoption stamp
+        // (spawned pid == recorded pid) is the craft-baked pid again and needs the same launch.
+        // A null/unknown guid falls back to today's pid-only behavior.
         internal static bool TryFindCommittedTreeMatchingVessel(uint pid, string liveGuid)
             => TryFindCommittedTreeMatchingVessel(pid, liveGuid, out _);
 
@@ -9934,8 +9936,10 @@ namespace Parsek
         /// <see cref="VesselLaunchIdentity.LiveVesselIsRecordedLaunch"/> so a
         /// relaunch of the same craft does not collide on the baked pid), plus
         /// the <see cref="Recording.VesselSpawned"/> +
-        /// <see cref="Recording.SpawnedVesselPersistentId"/> match for a
-        /// Parsek-spawned vessel (KSP-unique spawn pid, pid-only). The first
+        /// <see cref="Recording.SpawnedVesselPersistentId"/> match through
+        /// <see cref="VesselLaunchIdentity.LiveVesselIsRecordedSpawn"/> (a
+        /// genuine Parsek spawn pid is KSP-unique; an adoption stamp is the
+        /// craft-baked pid and also needs the same launch guid). The first
         /// matching tree wins.
         ///
         /// <para>The out-param overload lets the Map Switch-To Prefix compare
@@ -9950,6 +9954,7 @@ namespace Parsek
             if (pid == 0u) return false;
             var trees = RecordingStore.CommittedTrees;
             if (trees == null) return false;
+            int refusedOtherLaunchStamps = 0;
             for (int i = 0; i < trees.Count; i++)
             {
                 var tree = trees[i];
@@ -9961,6 +9966,8 @@ namespace Parsek
                         && VesselLaunchIdentity.LiveVesselIsRecordedLaunch(rec, pid, liveGuid))
                     {
                         matchedTree = tree;
+                        LogRefusedOtherLaunchSpawnStamps(
+                            "TryFindCommittedTreeMatchingVessel", pid, liveGuid, refusedOtherLaunchStamps);
                         return true;
                     }
                     // Bug 5: also match recordings whose Parsek-spawned vessel
@@ -9968,16 +9975,63 @@ namespace Parsek
                     // the spawn-at-end pipeline at the new live PID minted on
                     // spawn; VesselPersistentId still carries the original
                     // recording PID.
-                    if (rec.VesselSpawned
-                        && rec.SpawnedVesselPersistentId != 0
-                        && rec.SpawnedVesselPersistentId == pid)
+                    if (IsCommittedSpawnStampMatch(rec, pid, liveGuid))
                     {
                         matchedTree = tree;
+                        LogRefusedOtherLaunchSpawnStamps(
+                            "TryFindCommittedTreeMatchingVessel", pid, liveGuid, refusedOtherLaunchStamps);
                         return true;
                     }
+                    if (IsOtherLaunchSpawnStamp(rec, pid, liveGuid))
+                        refusedOtherLaunchStamps++;
                 }
             }
+            LogRefusedOtherLaunchSpawnStamps(
+                "TryFindCommittedTreeMatchingVessel", pid, liveGuid, refusedOtherLaunchStamps);
             return false;
+        }
+
+        /// <summary>
+        /// Does the committed recording's spawn stamp name this live vessel? Requires
+        /// <see cref="Recording.VesselSpawned"/> and
+        /// <see cref="VesselLaunchIdentity.SpawnStampHeldBy"/>: a genuine Parsek spawn pid
+        /// matches on the pid alone, an adoption stamp (the craft-baked pid) only when the
+        /// launch guids do not conclusively differ or the live guid is linked to the
+        /// recording's (a resumed spawned vessel), so a relaunch of the same craft never
+        /// resumes the older launch's committed tree.
+        /// </summary>
+        internal static bool IsCommittedSpawnStampMatch(Recording rec, uint livePid, string liveGuid)
+        {
+            if (rec == null || !rec.VesselSpawned || livePid == 0u) return false;
+            return VesselLaunchIdentity.SpawnStampHeldBy(rec, livePid, liveGuid);
+        }
+
+        /// <summary>
+        /// Pure: the refusal half of <see cref="IsCommittedSpawnStampMatch"/>, counted for the
+        /// summary line: the spawn pid equals the live pid but the stamp is an adoption stamp of
+        /// a conclusively different launch.
+        /// </summary>
+        internal static bool IsOtherLaunchSpawnStamp(Recording rec, uint livePid, string liveGuid)
+        {
+            return rec != null
+                && rec.VesselSpawned
+                && livePid != 0u
+                && rec.SpawnedVesselPersistentId == livePid
+                && !VesselLaunchIdentity.SpawnStampHeldBy(rec, livePid, liveGuid);
+        }
+
+        private static void LogRefusedOtherLaunchSpawnStamps(
+            string site, uint pid, string liveGuid, int refused)
+        {
+            if (refused <= 0) return;
+            // Re-reached by the Update retry of the committed-tree restore: rate-limited,
+            // with the live identity and the count in the key so a change prints at once.
+            ParsekLog.InfoRateLimited("Flight",
+                site + "|other-launch-stamp|" + pid.ToString(CultureInfo.InvariantCulture)
+                    + "|" + (liveGuid ?? "(none)") + "|" + refused.ToString(CultureInfo.InvariantCulture),
+                $"{site}: refused {refused.ToString(CultureInfo.InvariantCulture)} adoption-stamped " +
+                $"recording(s) with spawn pid={pid.ToString(CultureInfo.InvariantCulture)} " +
+                $"liveGuid={liveGuid ?? "(none)"}: another launch of the craft reuses the baked pid");
         }
 
         /// <summary>
@@ -12602,9 +12656,14 @@ namespace Parsek
             // on per-recording transient flags that could be lost on Recording recreation.
             RecordingStore.SceneEntryActiveVesselPid =
                 (activeVessel != null) ? activeVessel.persistentId : 0;
+            RecordingStore.SceneEntryActiveVesselGuid =
+                (activeVessel != null && activeVessel.id != Guid.Empty)
+                    ? activeVessel.id.ToString("N")
+                    : null;
             if (RecordingStore.SceneEntryActiveVesselPid != 0)
                 ParsekLog.Verbose("Flight",
-                    $"Scene entry active vessel pid={RecordingStore.SceneEntryActiveVesselPid}");
+                    $"Scene entry active vessel pid={RecordingStore.SceneEntryActiveVesselPid} " +
+                    $"guid={RecordingStore.SceneEntryActiveVesselGuid ?? "(none)"}");
 
             MaybeShowPendingTreeMergeDialogOnFlightReady();
 
@@ -15785,6 +15844,7 @@ namespace Parsek
             if (committedTrees == null || activeVesselPid == 0)
                 return false;
 
+            int refusedOtherLaunchStamps = 0;
             for (int t = committedTrees.Count - 1; t >= 0; t--)
             {
                 RecordingTree candidate = committedTrees[t];
@@ -15797,14 +15857,15 @@ namespace Parsek
                     if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
                         continue;
 
-                    bool spawnedMatch = rec.VesselSpawned
-                        && rec.SpawnedVesselPersistentId != 0
-                        && rec.SpawnedVesselPersistentId == activeVesselPid;
+                    // A genuine Parsek spawn pid is KSP-unique, but an adoption stamp is the
+                    // craft-baked pid, so the spawn match goes through the launch-identity gate.
+                    bool spawnedMatch = IsCommittedSpawnStampMatch(rec, activeVesselPid, activeVesselGuid);
+                    if (!spawnedMatch && IsOtherLaunchSpawnStamp(rec, activeVesselPid, activeVesselGuid))
+                        refusedOtherLaunchStamps++;
                     // #976-class: the direct VesselPersistentId match is the craft-baked pid, which
                     // a relaunch of the same craft reuses (notably on RESUME/quickload where the
                     // editor-only fresh-rollout guard above is inactive). Require the same launch
-                    // (guid); a null/unknown guid falls back to today's pid-only behavior. The
-                    // spawnedMatch branch uses a KSP-unique spawn pid and stays pid-only.
+                    // (guid); a null/unknown guid falls back to today's pid-only behavior.
                     bool directMatch = !rec.VesselSpawned
                         && rec.SpawnedVesselPersistentId == 0
                         && rec.VesselPersistentId != 0
@@ -15827,10 +15888,16 @@ namespace Parsek
                 {
                     tree = candidate;
                     recordingId = bestMatch.RecordingId;
+                    LogRefusedOtherLaunchSpawnStamps(
+                        "TryFindCommittedTreeForSpawnedVessel", activeVesselPid, activeVesselGuid,
+                        refusedOtherLaunchStamps);
                     return true;
                 }
             }
 
+            LogRefusedOtherLaunchSpawnStamps(
+                "TryFindCommittedTreeForSpawnedVessel", activeVesselPid, activeVesselGuid,
+                refusedOtherLaunchStamps);
             return false;
         }
 
@@ -18763,8 +18830,7 @@ namespace Parsek
             // replay/revert path remains an explicit duplicate-spawn exception for the
             // scene-entry/current active vessel only.
             bool allowExistingSourceDuplicate =
-                VesselSpawner.ShouldAllowExistingSourceDuplicateForCurrentFlight(
-                    rec.VesselPersistentId);
+                VesselSpawner.ShouldAllowExistingSourceDuplicateForCurrentFlight(rec);
 
             GhostChain chain = FindChainTipForRecording(activeGhostChains, rec);
             if (chain != null && vesselGhoster != null)

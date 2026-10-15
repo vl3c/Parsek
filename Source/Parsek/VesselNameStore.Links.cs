@@ -69,6 +69,31 @@ namespace Parsek
             return g != null && links.TryGetValue(g, out link);
         }
 
+        /// <summary>
+        /// True when <paramref name="liveGuid"/> continues <paramref name="targetGuid"/> through
+        /// the link rows (a Parsek spawn, a resumed spawn or an undock re-keys a ship; each link
+        /// points from the fresh guid to the identity it continues). Follows the chain from the
+        /// live guid, bounded and cycle-safe. False for an unknown guid on either side, and for
+        /// equal guids (no link is needed there).
+        /// </summary>
+        internal static bool GuidContinuesIdentity(string liveGuid, string targetGuid)
+        {
+            string current = NormalizeKnownGuid(liveGuid);
+            string target = NormalizeKnownGuid(targetGuid);
+            if (current == null || target == null || links.Count == 0) return false;
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int hop = 0; hop < 32; hop++)
+            {
+                if (!seen.Add(current)) return false;
+                if (!links.TryGetValue(current, out VesselIdentityLink link)) return false;
+                string next = NormalizeKnownGuid(link.ToGuid);
+                if (next == null) return false;
+                if (string.Equals(next, target, StringComparison.OrdinalIgnoreCase)) return true;
+                current = next;
+            }
+            return false;
+        }
+
         /// <summary>The dock-absorb row keyed by <paramref name="rootPartUId"/>, if any.</summary>
         internal static bool TryGetDockAbsorb(uint rootPartUId, out DockAbsorbRow row)
             => dockAbsorbs.TryGetValue(rootPartUId, out row);
@@ -216,6 +241,7 @@ namespace Parsek
             internal int AdoptionStampSkipped;
             internal int Added;
             internal int AlreadyLinked;
+            internal int ResumeAdded;
         }
 
         /// <summary>
@@ -224,11 +250,26 @@ namespace Parsek
         /// (<see cref="VesselLaunchIdentity.IsGenuineSpawnPidMatch"/>: the spawn pid is KSP-unique)
         /// gets a Spawn link from its guid to the recording's guid. The adoption-stamp branch
         /// (spawn pid equals the recorded pid: an in-flight commit adopted the live vessel, or a
-        /// relaunch of the same craft) never links. Ghost map vessels are skipped. Idempotent;
-        /// one summary line. Pure over its inputs and the store.
+        /// relaunch of the same craft) gets no Spawn link.
+        ///
+        /// <para>One adoption-shaped stamp does get a Resume link: a RESUMED Parsek-spawned
+        /// vessel from a save written before resumes recorded their link. The resume re-pids the
+        /// recording to the spawn pid and a re-commit re-installs the claim, so the recording
+        /// reads spawn pid == recorded pid == the vessel's pid, with the original launch's guid.
+        /// The durable evidence that the vessel is that recording's continuation is the
+        /// recording's END SNAPSHOT: the commit re-snapshots the live vessel (scene-exit
+        /// snapshot, Commit Flight re-snapshot, the stable-terminal refresh), so its VESSEL
+        /// <c>pid</c> is the live guid. A relaunch of the same craft fails it (its recording's
+        /// snapshot names the recorded launch), and an unknown snapshot guid writes nothing.
+        /// <paramref name="snapshotGuidReader"/> is asked only for those candidates (default:
+        /// <see cref="VesselLaunchIdentity.ReadRecordingSnapshotGuid"/>).</para>
+        ///
+        /// Ghost map vessels are skipped. Idempotent; one summary line. Pure over its inputs and
+        /// the store, except that the default snapshot reader may hydrate a sidecar.
         /// </summary>
         internal static BackfillResult BackfillSpawnLinks(
-            IEnumerable<Recording> recordings, IList<LiveVesselEntry> vessels, string reason)
+            IEnumerable<Recording> recordings, IList<LiveVesselEntry> vessels, string reason,
+            Func<Recording, string> snapshotGuidReader = null)
         {
             var r = new BackfillResult();
             if (recordings == null || vessels == null) return r;
@@ -250,6 +291,8 @@ namespace Parsek
                 {
                     if (!VesselLaunchIdentity.IsGenuineSpawnPidMatch(rec, v.Pid))
                     {
+                        if (TryBackfillResumeLink(rec, g, reason, snapshotGuidReader, ref r))
+                            continue;
                         r.AdoptionStampSkipped++;
                         continue;
                     }
@@ -268,10 +311,38 @@ namespace Parsek
                 " adoptionStampSkipped=" + r.AdoptionStampSkipped.ToString(CultureInfo.InvariantCulture) +
                 " added=" + r.Added.ToString(CultureInfo.InvariantCulture) +
                 " alreadyLinked=" + r.AlreadyLinked.ToString(CultureInfo.InvariantCulture) +
+                " resumeAdded=" + r.ResumeAdded.ToString(CultureInfo.InvariantCulture) +
                 " links=" + links.Count.ToString(CultureInfo.InvariantCulture);
-            if (r.Added > 0) ParsekLog.Info(Tag, line);
+            if (r.Added > 0 || r.ResumeAdded > 0) ParsekLog.Info(Tag, line);
             else ParsekLog.Verbose(Tag, line);
             return r;
+        }
+
+        /// <summary>
+        /// The resumed-spawn branch of <see cref="BackfillSpawnLinks"/> for one adoption-shaped
+        /// stamp matched by pid: true when the recording's end snapshot names the live vessel and
+        /// it wrote a Resume link from <paramref name="liveGuid"/> to the recording's guid, or
+        /// found the live guid already linked; false (nothing written, the caller counts a
+        /// skipped adoption stamp) otherwise.
+        /// </summary>
+        private static bool TryBackfillResumeLink(
+            Recording rec, string liveGuid, string reason,
+            Func<Recording, string> snapshotGuidReader, ref BackfillResult r)
+        {
+            string to = NormalizeKnownGuid(rec.RecordedVesselGuid);
+            if (to == null || string.Equals(to, liveGuid, StringComparison.OrdinalIgnoreCase))
+                return false;
+            string snapshotGuid = NormalizeKnownGuid(
+                (snapshotGuidReader ?? VesselLaunchIdentity.ReadRecordingSnapshotGuid)(rec));
+            if (snapshotGuid == null
+                || !string.Equals(snapshotGuid, liveGuid, StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (links.ContainsKey(liveGuid)) { r.AlreadyLinked++; return true; }
+            if (!AddLink(liveGuid, to, VesselIdentityLinkKind.Resume, "backfill-resume:" +
+                    (reason ?? "<none>") + " rec=" + rec.RecordingId + " evidence=end-snapshot-guid"))
+                return false;
+            r.ResumeAdded++;
+            return true;
         }
 
         /// <summary>

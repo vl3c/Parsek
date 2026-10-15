@@ -216,8 +216,7 @@ namespace Parsek
             ConfigNode vesselSnapshot = tipRecording?.VesselSnapshot;
             string vesselName = tipRecording?.VesselName;
             allowExistingSourceDuplicate = allowExistingSourceDuplicate
-                || VesselSpawner.ShouldAllowExistingSourceDuplicateForCurrentFlight(
-                    tipRecording != null ? tipRecording.VesselPersistentId : 0u);
+                || VesselSpawner.ShouldAllowExistingSourceDuplicateForCurrentFlight(tipRecording);
 
             uint adoptedPid = TryAdoptExistingSourceForChainTip(
                 chain,
@@ -400,8 +399,7 @@ namespace Parsek
                 return 0;
             }
             allowExistingSourceDuplicate = allowExistingSourceDuplicate
-                || VesselSpawner.ShouldAllowExistingSourceDuplicateForCurrentFlight(
-                    tipRecording.VesselPersistentId);
+                || VesselSpawner.ShouldAllowExistingSourceDuplicateForCurrentFlight(tipRecording);
 
             uint adoptedPid = TryAdoptExistingSourceForChainTip(
                 chain,

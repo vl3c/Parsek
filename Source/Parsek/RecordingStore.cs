@@ -161,6 +161,11 @@ namespace Parsek
         // a previously-spawned endpoint. Static so it survives Recording object recreation.
         internal static uint SceneEntryActiveVesselPid;
 
+        // Launch guid ("N" form, null = unknown) of that scene-entry vessel. The #226 bypass
+        // is withheld when no pid-matching live vessel is the recording's launch
+        // (VesselSpawner.ShouldKeepReplayBypassForLaunchIdentity).
+        internal static string SceneEntryActiveVesselGuid;
+
         // PID of the vessel that rolled out fresh from the VAB/SPH this scene
         // (set only for NEW_FROM_FILE / NEW_FROM_CRAFT_NODE startups; 0 otherwise).
         // Read by CrewReservationManager.SwapReservedCrewInFlight to suppress Pass-2
@@ -1384,7 +1389,8 @@ namespace Parsek
             // is the same for every recording in the tree). null when no
             // populated vessel set is available, in which case the guard stays
             // inert and preserves spawn state as before (drop only on evidence).
-            ICollection<uint> liveVesselPids = CollectLiveVesselPidsForReplaceGate();
+            Dictionary<uint, string> liveVesselGuidsByPid;
+            ICollection<uint> liveVesselPids = CollectLiveVesselPidsForReplaceGate(out liveVesselGuidsByPid);
             foreach (var rec in tree.Recordings.Values)
             {
                 rec.FilesDirty = true;
@@ -1398,7 +1404,7 @@ namespace Parsek
                         int otherPreserved;
                         PreserveLiveRuntimeFieldsOnReplace(
                             existing, rec, out savePreserved, out otherPreserved,
-                            liveVesselPids);
+                            liveVesselPids, liveVesselGuidsByPid);
                         if (savePreserved) preservedRewindSaves++;
                         preservedRuntimeFields += otherPreserved;
                         committedRecordings[existingIndex] = rec;
@@ -1504,20 +1510,27 @@ namespace Parsek
         /// empty set during a transition window must not reset every spawned
         /// recording).</para>
         /// </summary>
-        private static HashSet<uint> CollectLiveVesselPidsForReplaceGate()
+        private static HashSet<uint> CollectLiveVesselPidsForReplaceGate(
+            out Dictionary<uint, string> guidsByPid)
         {
             HashSet<uint> pids = null;
+            guidsByPid = null;
             try
             {
                 var vessels = FlightGlobals.Vessels;
                 if (vessels != null)
                 {
                     pids = new HashSet<uint>();
+                    guidsByPid = new Dictionary<uint, string>();
                     for (int i = 0; i < vessels.Count; i++)
                     {
                         var v = vessels[i];
                         if (v != null && v.persistentId != 0u)
+                        {
                             pids.Add(v.persistentId);
+                            AddLiveVesselGuidForReplaceGate(guidsByPid, v.persistentId,
+                                v.id != Guid.Empty ? v.id.ToString("N") : null);
+                        }
                     }
                 }
 
@@ -1525,11 +1538,16 @@ namespace Parsek
                 if (protoVessels != null)
                 {
                     if (pids == null) pids = new HashSet<uint>();
+                    if (guidsByPid == null) guidsByPid = new Dictionary<uint, string>();
                     for (int i = 0; i < protoVessels.Count; i++)
                     {
                         var pv = protoVessels[i];
                         if (pv != null && pv.persistentId != 0u)
+                        {
                             pids.Add(pv.persistentId);
+                            AddLiveVesselGuidForReplaceGate(guidsByPid, pv.persistentId,
+                                VesselLaunchIdentity.ReadLaunchGuid(pv));
+                        }
                     }
                 }
             }
@@ -1538,10 +1556,69 @@ namespace Parsek
                 ParsekLog.Warn("RecordingStore",
                     $"CollectLiveVesselPidsForReplaceGate: failed to collect live PIDs " +
                     $"({ex.GetType().Name}); spawn-stamp guard inert for this commit");
+                guidsByPid = null;
                 return null;
             }
 
-            return (pids != null && pids.Count > 0) ? pids : null;
+            if (pids == null || pids.Count == 0)
+            {
+                guidsByPid = null;
+                return null;
+            }
+            return pids;
+        }
+
+        /// <summary>
+        /// Records one live vessel's launch guid for the replace gate. Two sources disagreeing on
+        /// one pid (the loaded vessel and a stale proto mirror) record the guid as unknown, which
+        /// keeps the gate on its pid-only behavior for that pid.
+        /// </summary>
+        internal static void AddLiveVesselGuidForReplaceGate(
+            Dictionary<uint, string> guidsByPid, uint pid, string guid)
+        {
+            if (guidsByPid == null || pid == 0u) return;
+            string normalized = VesselLaunchIdentity.NormalizeGuid(guid);
+            string prior;
+            if (!guidsByPid.TryGetValue(pid, out prior))
+            {
+                guidsByPid[pid] = normalized;
+                return;
+            }
+            if (prior == null) return;
+            if (normalized == null || !string.Equals(prior, normalized, StringComparison.OrdinalIgnoreCase))
+                guidsByPid[pid] = null;
+        }
+
+        /// <summary>
+        /// Pure stale-spawn-stamp test for <see cref="PreserveLiveRuntimeFieldsOnReplace"/>: the
+        /// recording's spawn pid names no vessel in <paramref name="liveVesselPids"/>, or it is an
+        /// adoption stamp (spawn pid == recorded pid, the craft-baked pid) and the live vessel
+        /// with that pid is a conclusively different launch with no link to the recording's
+        /// guid and the recording's end snapshot names another launch
+        /// (<see cref="VesselLaunchIdentity.SpawnClaimStillHeld"/>): a relaunch of the same
+        /// craft does not keep an older launch's stamp alive. A null set means liveness is
+        /// unknown (never stale); an unknown live or snapshot guid keeps the stamp.
+        /// </summary>
+        internal static bool IsSpawnStampStaleForReplace(
+            Recording existing,
+            ICollection<uint> liveVesselPids,
+            IDictionary<uint, string> liveVesselGuidsByPid,
+            out bool heldByOtherLaunch,
+            Func<Recording, string> snapshotGuidReader = null)
+        {
+            heldByOtherLaunch = false;
+            if (existing == null || liveVesselPids == null || existing.SpawnedVesselPersistentId == 0u)
+                return false;
+            uint spawnedPid = existing.SpawnedVesselPersistentId;
+            if (!liveVesselPids.Contains(spawnedPid))
+                return true;
+            string liveGuid = null;
+            if (liveVesselGuidsByPid != null)
+                liveVesselGuidsByPid.TryGetValue(spawnedPid, out liveGuid);
+            if (VesselLaunchIdentity.SpawnClaimStillHeld(existing, spawnedPid, liveGuid, snapshotGuidReader))
+                return false;
+            heldByOtherLaunch = true;
+            return true;
         }
 
         /// <summary>True for a terminal after which the recorded vessel no longer exists.</summary>
@@ -1595,7 +1672,8 @@ namespace Parsek
         internal static void PreserveLiveRuntimeFieldsOnReplace(
             Recording existing, Recording incoming,
             out bool savePreserved, out int otherPreserved,
-            ICollection<uint> liveVesselPids = null)
+            ICollection<uint> liveVesselPids = null,
+            IDictionary<uint, string> liveVesselGuidsByPid = null)
         {
             savePreserved = false;
             otherPreserved = 0;
@@ -1658,10 +1736,11 @@ namespace Parsek
             // replacement keeps its default spawn state (VesselSpawned=false,
             // SpawnedVesselPersistentId=0) so the pid-keyed committed-tree
             // matcher cannot mistake a recycled craft pid for this recording.
-            bool existingSpawnPidIsStale =
-                liveVesselPids != null
-                && existing.SpawnedVesselPersistentId != 0u
-                && !liveVesselPids.Contains(existing.SpawnedVesselPersistentId);
+            // An adoption stamp held by another launch of the craft (same baked pid, a
+            // conclusively different launch guid) is stale too.
+            bool stampHeldByOtherLaunch;
+            bool existingSpawnPidIsStale = IsSpawnStampStaleForReplace(
+                existing, liveVesselPids, liveVesselGuidsByPid, out stampHeldByOtherLaunch);
             // A replacement whose own terminal leaves no vessel (Recovered, Destroyed,
             // Disassembled) is never represented by a live spawned vessel, so it never
             // inherits a spawn claim. An in-flight Recover of a resumed spawned vessel
@@ -1688,7 +1767,10 @@ namespace Parsek
                         $"PreserveLiveRuntimeFieldsOnReplace: dropped stale spawn stamp " +
                         $"pid={existing.SpawnedVesselPersistentId} for recording " +
                         $"\"{incoming.VesselName}\" id={incoming.RecordingId ?? "<none>"} " +
-                        $"(vessel no longer live): not re-installed on replacement " +
+                        (stampHeldByOtherLaunch
+                            ? "(adoption stamp now held by another launch of the craft): "
+                            : "(vessel no longer live): ") +
+                        $"not re-installed on replacement " +
                         $"(incoming VesselSpawned={incoming.VesselSpawned} " +
                         $"spawnedPid={incoming.SpawnedVesselPersistentId})");
             }
@@ -4693,6 +4775,7 @@ namespace Parsek
             WriteReadableSidecarMirrorsOverrideForTesting = null;
             CurrentUniversalTimeForRewindRetirementOverrideForTesting = null;
             SceneEntryActiveVesselPid = 0;
+            SceneEntryActiveVesselGuid = null;
             SceneEntryFreshRolloutVesselPid = 0;
             ClearRewindReplayTargetScope();
             rewindCarriedRewindPoints = null;
