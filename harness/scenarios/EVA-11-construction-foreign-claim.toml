@@ -1,0 +1,210 @@
+schema = 1
+id = "EVA-11-construction-foreign-claim"
+# NIGHTLY (seam lane on a derived fixture), NEVER FLOWN. Live proof of the fix for todo
+# EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED, and the fixture lane roadmap RC-6 asked for.
+#
+# WHAT IT PROVES. A recorded EVA engineer who changes a vessel that is NOT in his tree with
+# stock EVA construction (attaches a part from his inventory to it, detaches parts of it
+# into his inventory) pulls that vessel into his tree as a member recording (an
+# InventoryTransfer branch point, `Foreign inventory transfer: vessel joined the tree`, the
+# attach as its PartAdded event) and appends every later change to it (`event appended to
+# cargo partner`, PartRemoved). After commit and a Rewind-to-Launch to before the changes,
+# the chain walker claims the rover by that member (its pre-construction self is in the
+# rewind save), ghosts the real one, and spawns the chain tip in its POST-construction
+# shape: 16 parts + 1 attached - 2 detached = 15 (`Chain tip spawn: ... parts=15`).
+# Before the fix the rover stayed foreign: no member, no claim, the rewind kept the
+# 16-part rover and nothing replayed the construction.
+#
+# HOST: `eva-construct-pad`, derived by harness/tools/build_eva_construct_pad.py from
+# `eva3-pad-3crew` (the Kerbal X on the pad, Bill Kerman an Engineer aboard, VESSEL index 0
+# and active) plus a crewless clone of `rover-route-recorded`'s `rover fuel 0` (16 parts,
+# six OX-STAT panels, a Clamp-O-Tron last with its top node free), LANDED ~153 m from the
+# pad: outside the KSC exclusion zone (50 m), inside the physics bubble. Zero recordings,
+# so the produced save holds exactly this lane's two (Bill's root and the rover member).
+# Its persistentId 1871615455 is DERIVED by the builder; harness/lib/test_eva_construct_pad.py
+# reds if this spec names any other.
+#
+# THE SEAM. EvaGroundScience `attach` / `detach` (design-autotest-command-seam.md,
+# EvaGroundScience): the stock construction panel is opened through
+# EVAConstructionModeController, the part is picked from or stowed into Bill's inventory by
+# a real slot click, and stock's own AttachInput / DetachInput run with only their mouse /
+# pointer / hover reads answered by a runtime-only Harmony transpiler for one armed frame.
+# Attach poses the held part node-to-node at the requested target node and lets stock's
+# CheckAttach decide (`attach check ... verdict=Ready`); stock's own OnEVAConstructionMode*
+# events reach Parsek exactly as a player's click does.
+#
+# THE INVENTORY PATCH: Bill carries only the Z-200 battery (slot 0); the jetpack and chute
+# go so both detached panels have empty slots to land in.
+#
+# ACT 3 IS A FLIGHT RELOAD. The rewind lands at the Space Center, where no chain walker runs;
+# a Space Center SaveGame + LoadGame lands in FLIGHT on VESSEL index 0, the pad Kerbal X
+# (LF-2's road), 153 m from the rover, so the walker, the ghoster and the tip spawn all run
+# in the flight scene. 1x FLIGHT time then crosses the member's EndUT.
+#
+# THE MARKS read the committed store by position (rec0 / rec1, sorted by id), so each mark
+# carries both rows and the regexes find the member by its recording id. They resolve only
+# when the commit holds two recordings: an INVALID driver-unresolved-handle at an eva11-*
+# mark after `eva11-commit-count-1` means the rover never joined the tree, a PRODUCT
+# finding to read from the `Foreign construction change not recorded` line, not a harness
+# fault.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"): (1) no committed host
+# flight is a prefix of this one (no fixture parks an Engineer next to a foreign vessel);
+# (2) the one time wait is an explicit-UT WarpToUT at maxRate=1; (3) no dwells beyond the
+# verbs' own settle frames; (4) / (5) no coast and nothing to lead; (6) every construction
+# verb fails fast on its own refusal, and retry is `once`; (7) the recording count is pinned
+# 2..2 and every vessel part count is exact; (8) tier nightly until the reading run measures
+# its p50; (9) flight_efficiency.py after the first green flight. NOT APPLIED: the WarpToUT
+# target 240 is a guess (the fixture starts at UT 25.4; the commit is estimated at UT
+# 60-150), to be tightened to the measured member EndUT plus a margin after the reading run.
+tier = "nightly"
+description = "EVA construction on a foreign vessel is claimed and replayed: on eva-construct-pad Bill Kerman (Engineer) steps out of the pad Kerbal X to a crewless rover 153 m away, a recording on him attaches a Z-200 battery to the rover's free docking-port node and detaches two OX-STAT panels into his inventory through stock's own construction input, the rover joins his tree as a member carrying all three changes, and after commit, Rewind-to-Launch and a flight reload the chain walker ghosts the 16-part rover and spawns its chain tip with 15 parts."
+instanceProfile = "stock-minimal"
+tags = ["eva", "construction", "inventory", "foreign-vessel", "ghost-chain", "rewind-to-launch", "EVA-11"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva-construct-pad"
+injectedRecordings = "none"
+craft              = []
+
+[[fixture.crewInventory]]
+kerbal    = "Bill Kerman"
+inventory = "batteryBankMini"
+
+[driver]
+kind = "seam"
+steps = [
+  # ACT 0: boot hygiene. Nothing is recorded in the fixture; stop and discard anything the
+  # boot started so the recording below is a fresh, non-promotion start on the kerbal.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva11-boot" },                    expect = "OK" },
+  # ACT 1: Bill out (unrecorded) and over to the rover: 4 m from its root toward the pad,
+  # which puts every rover part inside stock's 7 m construction range.
+  { cmd = "EvaExit",    args = { kerbal = "Bill Kerman", release = "true" },  expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "1871615455", distance = "4" }, expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  # ACT 2: construction on the foreign rover: one attach, two detaches.
+  { cmd = "EvaGroundScience", args = { action = "attach", part = "batteryBankMini", target = "dockingPort2", node = "top" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "detach", target = "solarPanels5" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "detach", target = "solarPanels5" }, expect = "OK", budget = 120 },
+  { cmd = "ListHandles", args = { kind = "active" }, label = "a0", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva11-built-bg-${a0.bg}" },       expect = "OK" },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "CommitTree",                                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva11-commit-count-${c0.count}" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva11-committed-a-${c0.rec0}-${c0.rec0pid}-b-${c0.rec1}-${c0.rec1pid}-end" }, expect = "OK" },
+  # ACT 3: Rewind-to-Launch (15 s before the recording started, before every change), then
+  # a Space Center save reloaded into FLIGHT on the pad Kerbal X.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "eva11-rewound" },                   expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "eva11-rewound" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "chains" },    label = "ch", expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva11-reloaded-chains-${ch.count}-a-${c1.rec0}-${c1.rec0spawned}-b-${c1.rec1}-${c1.rec1spawned}-end" }, expect = "OK" },
+  # 1x FLIGHT time past the member's EndUT (the commit, estimated UT 60-150; see header).
+  { cmd = "WarpToUT",   args = { ut = "240", maxRate = "1" },                expect = "OK", budget = 400 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva11-spawned-a-${c2.rec0}-${c2.rec0spawned}-${c2.rec0spawnedPid}-b-${c2.rec1}-${c2.rec1spawned}-${c2.rec1spawnedPid}-end" }, expect = "OK" },
+  { cmd = "SaveGame",                                                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+D18 = ["background-event-claims"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  # ACT 1
+  "evaexit complete kerbal=Bill Kerman ",
+  "evagroundscience step complete kerbal=Bill Kerman anchor=rover fuel 0 ",
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "Captured rewind save at UT ([0-9.]+): vessel \"Bill Kerman\" in [A-Z_]+ \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT \\1 \\(save: \\2\\)",
+  # ACT 2, the attach: the seam's own witnesses, in order.
+  "evagroundscience attach start kerbal=Bill Kerman part=batteryBankMini slot=0 inventory=0:batteryBankMini target=dockingPort2 targetPid=[0-9]+ node=top vessel='rover fuel 0' vesselPid=1871615455 vesselParts=16 ",
+  "evagroundscience construction injection installed id=com\\.parsek\\.testseam\\.evaconstruction method=AttachInput sites=GetMouseButtonUp:1,IsPointerOverGameObject:1 postfix=true",
+  "evagroundscience attach slot clicked inventoriesSeen=[1-9][0-9]* slot=0 ",
+  "evagroundscience attach held part=batteryBankMini heldPid=[0-9]+ freeNodes=[^\\r\\n]* heldNode=bottom ",
+  "evagroundscience attach check n=[0-9]+ verdict=Ready possible=true potentialParent=dockingPort2 potentialParentPid=[0-9]+ callerNode=bottom otherNode=top want=dockingPort2/top heldNode=bottom attachDistance=[0-9.]+ range=7\\.00 blockers=<none>",
+  "evagroundscience attach press armed n=1 ",
+  "evagroundscience attach attached part=batteryBankMini partPid=[0-9]+ target=dockingPort2 node=top vesselPid=1871615455 vesselParts=17 presses=[1-3] ",
+  "evagroundscience attach complete part=batteryBankMini partPid=[0-9]+ vesselPid=1871615455 vesselParts=17 ",
+  # The rover joins Bill's tree, its attach as the member's first event, tied to Bill's
+  # recording (parentRec) and to the part the seam attached.
+  "startrecording recordingId=([0-9a-f]+) already=false[\\s\\S]*Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=[0-9a-f]+ parentRec=\\1 bp=[0-9a-f]+ ut=[0-9.]+ event=PartAdded details='construction part=batteryBankMini action=attach pid=([0-9]+)' snapshot=True[\\s\\S]*evagroundscience attach attached part=batteryBankMini partPid=\\2 ",
+  # ACT 2, the two detaches: each appended to the SAME member, tied by the panel's pid.
+  "evagroundscience construction injection installed id=com\\.parsek\\.testseam\\.evaconstruction method=DetachInput sites=HoveredPart:1,GetMouseButtonUp:1,IsCursorOverAnyPAWOrCargoPane:1,Hover:1,IsPointerOverGameObject:1 postfix=false",
+  "evagroundscience detach start kerbal=Bill Kerman target=solarPanels5 partPid=([0-9]+) vessel='rover fuel 0' vesselPid=1871615455 vesselParts=17 [\\s\\S]*Foreign inventory transfer: event appended to cargo partner rec=[0-9a-f]+ vesselPid=1871615455 ut=[0-9.]+ event=PartRemoved details='construction part=solarPanels5 action=detach pid=\\1' snapshotRefreshed=True ",
+  "evagroundscience detach start kerbal=Bill Kerman target=solarPanels5 partPid=([0-9]+) vessel='rover fuel 0' vesselPid=1871615455 vesselParts=17 [\\s\\S]*evagroundscience detach detached part=solarPanels5 partPid=\\1 vesselPid=1871615455 vesselParts=16 ",
+  "evagroundscience detach start kerbal=Bill Kerman target=solarPanels5 partPid=([0-9]+) vessel='rover fuel 0' vesselPid=1871615455 vesselParts=16 [\\s\\S]*Foreign inventory transfer: event appended to cargo partner rec=[0-9a-f]+ vesselPid=1871615455 ut=[0-9.]+ event=PartRemoved details='construction part=solarPanels5 action=detach pid=\\1' snapshotRefreshed=True ",
+  "evagroundscience detach start kerbal=Bill Kerman target=solarPanels5 partPid=([0-9]+) vessel='rover fuel 0' vesselPid=1871615455 vesselParts=16 [\\s\\S]*evagroundscience detach detached part=solarPanels5 partPid=\\1 vesselPid=1871615455 vesselParts=15 ",
+  "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*event appended to cargo partner rec=\\1 vesselPid=1871615455 [^\\r\\n]*event=PartRemoved[\\s\\S]*event appended to cargo partner rec=\\1 vesselPid=1871615455 [^\\r\\n]*event=PartRemoved",
+  "evagroundscience detach stowed part=solarPanels5 slot=[0-9]+ ",
+  "evagroundscience detach complete part=solarPanels5 partPid=[0-9]+ vesselPid=1871615455 vesselParts=15 ",
+  # Commit, then the walker's first chain on the member.
+  "MISSIONMARK label=eva11-commit-count-2 ",
+  "committree committed=true",
+  "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*Chain built: vessel=1871615455 links=1 tip=\\1 ",
+  # ACT 3: the rewind, the reloaded chain, the ghost and the tip spawn in its built shape.
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=1",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*invokerewindtolaunch complete [\\s\\S]*listhandles chain index=[0-9]+ pid=1871615455 links=1 trees=1 treeIds=[0-9a-f]{32} tip=\\1",
+  "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva11-reloaded-chains-[1-9][^\\r\\n]*-\\1-false-",
+  "invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Vessel ghosted: pid=1871615455 name=rover fuel 0[\\s\\S]*\\[Ghoster\\] Chain tip spawn: pid=1871615455 vessel=rover fuel 0 preserveIdentity=true [^\\r\\n]*parts=15",
+  "invokerewindtolaunch complete [\\s\\S]*Chain tip spawn complete: #[0-9]+ \"rover fuel 0\" pid=1871615455",
+  "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva11-spawned-[^\\r\\n]*-\\1-true-1871615455-",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "evagroundscience failed",
+  "evagroundscience refused",
+  "evagroundscience construction injection refused",
+  "evagroundscience attach pose threw",
+  "evagroundscience (attach|detach) panel left open",
+  "Foreign construction change not recorded",
+  "Foreign inventory transfer: no background recorder",
+  "lost its member recording",
+  # One join only: every change after the first appends to the same member.
+  "vessel joined the tree vesselPid=1871615455 [\\s\\S]*vessel joined the tree vesselPid=1871615455 ",
+  # A detach is a part change on the rover, never a split of it.
+  "Background vessel split detected: parentPid=1871615455 ",
+  "invokerewindtolaunch refused",
+  "Stripping orphaned spawned vessel 'rover fuel 0'",
+  "Chain tip spawn blocked by collision: #[0-9]+ \"rover fuel 0\"",
+  "Chain tip spawn failed: #[0-9]+ \"rover fuel 0\"",
+  "SpawnAtChainTip: spawn path returned pid=0",
+  "Spawn RETIRED",
+  "Spawn ABANDONED",
+  "Spawn FAILED",
+  # One tip spawn only.
+  "Chain tip spawn: pid=1871615455 [\\s\\S]*Chain tip spawn: pid=1871615455 ",
+]
+
+[runtime]
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -3215,14 +3215,15 @@ The structural walks that skip or collect a placement read both types through
 `ForeignInventoryTransferTests` (including the walker cell: the rover is claimed and its own
 recording is the tip) and `ReFlyThroughEvaTests.SessionSuppressedSubtree_IncludesAForeignVesselTheKerbalMovedCargoWith`.
 
-Live proof still open: lane RC-6 (roadmap) needs a new fixture (a landed foreign rover with a
-stocked container within EVA reach of a recording kerbal). `EvaGroundScience action=take` already
+Live proof still open: lane RC-6 (roadmap). Its fixture exists since 2026-10-15: `eva-construct-pad`
+(EVA-11's host), whose foreign rover's first ConformalStorageUnit holds an evaChute within EVA reach
+of a kerbal stepped to it. `EvaGroundScience action=take` already
 drives the stock clear-then-store; a put into a foreign container has no verb yet. Sibling gap
 filed as EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED.
 
 ---
 
-## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`, not flown; the foreign EVA kerbal half stays OPEN]
+## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; lane EVA-11 authored, unflown; the foreign EVA kerbal half stays OPEN]
 
 The inventory fix records a stored part moved into or out of a foreign vessel's container, but two
 neighbours of the same defect remain. `EVAConstructionModeEditor` fires
@@ -3256,6 +3257,18 @@ its spawn form, and that a second detach from the adopted rover (whose `Decoupli
 foreign EVA kerbal (`ChangedVesselIsEva`, crew reservation would gain a kerbal it does not own),
 and a part detached from a foreign vessel then dropped on the ground (a new vessel no recording
 carries).
+
+**Lane EVA-11 authored 2026-10-15, never flown** (branch `wip-eva-construction-lane`):
+`harness/scenarios/EVA-11-construction-foreign-claim.toml` on the derived fixture `eva-construct-pad`
+(`harness/tools/build_eva_construct_pad.py`) is that reading. Bill Kerman (Engineer) steps 4 m from a
+crewless `rover fuel 0` 153 m from the pad, a recording on him attaches a Z-200 to the rover's free
+Clamp-O-Tron top node and detaches two OX-STAT panels into his inventory, through the new seam actions
+`EvaGroundScience action=attach` / `detach` (stock's own `AttachInput` / `DetachInput` with only
+their mouse / pointer / hover reads answered for one armed frame; design-autotest-command-seam.md).
+It gates one join (PartAdded) and two appends (PartRemoved) on one member, no split of the rover,
+and after commit, Rewind-to-Launch and a FLIGHT reload the rover ghosted and its chain tip spawned
+with `parts=15` (the new `parts=` field on VesselGhoster's `Chain tip spawn:` line). Its first
+flight is a reading run; its `WarpToUT ut=240` is a guess to tighten off the measured member EndUT.
 
 ---
 

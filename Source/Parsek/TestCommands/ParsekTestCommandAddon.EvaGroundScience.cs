@@ -185,6 +185,8 @@ namespace Parsek.TestCommands
         private int groundSciStepLastMoveFrame;
         private int groundSciStepRecovers;
         private string groundSciStepGroundSource;
+        // Step only: On_ladderLetGo attempts for a kerbal who starts the step on a ladder.
+        private int groundSciStepLadderAttempts;
 
         private void EvaGroundScienceImpl(ParsedCommand cmd)
         {
@@ -217,6 +219,8 @@ namespace Parsek.TestCommands
                 }
                 if (string.IsNullOrEmpty(part)) part = "-";
             }
+            // A detach names the part it takes off with target=; the applier sets the part.
+            if (action == EvaGroundScienceAction.Detach && string.IsNullOrEmpty(part)) part = "-";
             if (string.IsNullOrEmpty(part))
             {
                 ParsekLog.Warn(Tag, "evagroundscience refused reason=missing-part");
@@ -274,10 +278,16 @@ namespace Parsek.TestCommands
             groundSciStepLastMoveFrame = -1;
             groundSciStepRecovers = 0;
             groundSciStepGroundSource = null;
+            groundSciStepLadderAttempts = 0;
             EvaJumpKeyPressInjection.Remove();
             EvaJumpKeyPressInjection.AnsweredCount = 0;
+            ResetConstructionState();
 
-            if (action == EvaGroundScienceAction.Place)
+            if (action == EvaGroundScienceAction.Attach)
+                StartConstructionAttach(cmd, active, inv, part);
+            else if (action == EvaGroundScienceAction.Detach)
+                StartConstructionDetach(cmd, active, inv);
+            else if (action == EvaGroundScienceAction.Place)
                 StartGroundPlace(active, inv, part);
             else if (action == EvaGroundScienceAction.Take)
                 StartGroundTake(active, inv, part);
@@ -345,6 +355,15 @@ namespace Parsek.TestCommands
                 + $"terrain={terrain.ToString("F2", CultureInfo.InvariantCulture)} situation={kerbal.situation} "
                 + $"bearing={(hasBearing ? bearingDegrees.ToString("F1", CultureInfo.InvariantCulture) : "own")}");
             KerbalEVA startEva = kerbal.FindPartModuleImplementing<KerbalEVA>();
+            if (startEva != null && startEva.OnALadder)
+            {
+                // A kerbal on a ladder is held to it; the completion poll lets go first
+                // (stock's own On_ladderLetGo, from a state that registers it), then moves.
+                ParsekLog.Info(Tag, $"evagroundscience step deferred kerbal={kerbal.vesselName} reason=on-ladder "
+                    + $"fsm={FsmStateName(startEva)}");
+                SetExecResult(PendingVerdict, null, null);
+                return;
+            }
             if (startEva != null && startEva.isRagdoll)
             {
                 // A ragdolled kerbal is several jointed bodies; moving one of them tears him
@@ -551,6 +570,11 @@ namespace Parsek.TestCommands
             double offTarget = StepOffTarget(kerbal);
             bool landed = kerbal.Landed;
             KerbalEVA eva = kerbal.FindPartModuleImplementing<KerbalEVA>();
+            if (eva != null && eva.OnALadder)
+            {
+                StepLadderLetGo(kerbal, eva, elapsed);
+                return;
+            }
             bool ragdoll = eva != null && eva.isRagdoll;
             if (eva != null && eva.fsm != null)
             {
@@ -611,6 +635,37 @@ namespace Parsek.TestCommands
             FinishGroundScience("OK", TestCommandEvaGroundScience.BuildCompletePayload(
                 EvaGroundScienceAction.Step, groundSciPart, 0u, groundSciStepAnchor.persistentId,
                 -1, 0, double.IsNaN(horizontal) ? 0 : horizontal), null, elapsed);
+        }
+
+        /// <summary>
+        /// A step that starts with the kerbal on a ladder (EvaExit release=false from a tall
+        /// craft, where a let-go from the hatch is a long fall): fire stock's On_ladderLetGo
+        /// once he is in a state that registers it (the EvaExit release decision, reused),
+        /// and let the next poll make the move while he has barely started to fall.
+        /// </summary>
+        private void StepLadderLetGo(Vessel kerbal, KerbalEVA eva, double elapsed)
+        {
+            bool receptive = IsLadderLetGoReceptiveState(eva, out string stateName);
+            TestCommandEvaExit.LadderReleaseAction action = TestCommandEvaExit.DecideLadderRelease(
+                true, receptive, groundSciStepLadderAttempts, TestCommandEvaExit.LadderReleaseMaxFires);
+            if (action == TestCommandEvaExit.LadderReleaseAction.WaitForReceptiveState)
+            {
+                ParsekLog.VerboseRateLimited(Tag, "evagroundscience-step-ladder-wait",
+                    $"evagroundscience step ladder wait kerbal={kerbal.vesselName} fsm={stateName}");
+                return;
+            }
+            if (action == TestCommandEvaExit.LadderReleaseAction.ExhaustedStillOnLadder)
+            {
+                FinishGroundScience("ERROR", null, "step-on-ladder", elapsed,
+                    $"attempts={groundSciStepLadderAttempts.ToString(CultureInfo.InvariantCulture)} fsm={stateName}");
+                return;
+            }
+            if (action != TestCommandEvaExit.LadderReleaseAction.Fire) return;
+            groundSciStepLadderAttempts++;
+            eva.fsm.RunEvent(eva.On_ladderLetGo);
+            ParsekLog.Info(Tag, $"evagroundscience step ladder let-go kerbal={kerbal.vesselName} "
+                + $"attempt={groundSciStepLadderAttempts.ToString(CultureInfo.InvariantCulture)} "
+                + $"fsm={stateName}->{FsmStateName(eva)} stillOnLadder={Bool(eva.OnALadder)}");
         }
 
         private void StartGroundTake(Vessel active, ModuleInventoryPart inv, string part)
@@ -876,7 +931,10 @@ namespace Parsek.TestCommands
 
         private void TryCompleteEvaGroundScience(double now)
         {
-            if (groundSciAction == EvaGroundScienceAction.Place)
+            if (groundSciAction == EvaGroundScienceAction.Attach
+                || groundSciAction == EvaGroundScienceAction.Detach)
+                TryCompleteConstruction(now);
+            else if (groundSciAction == EvaGroundScienceAction.Place)
                 TryCompleteGroundPlace(now);
             else if (groundSciAction == EvaGroundScienceAction.Take)
                 TryCompleteGroundTake(now);

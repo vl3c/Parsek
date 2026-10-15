@@ -363,8 +363,9 @@ namespace Parsek
 
             ParsekLog.Info(Tag,
                 string.Format(ic,
-                    "Chain tip spawn: pid={0} vessel={1} preserveIdentity=true — real vessel created",
-                    spawnedPid, vesselName ?? "(unknown)"));
+                    "Chain tip spawn: pid={0} vessel={1} preserveIdentity=true — real vessel created parts={2}",
+                    spawnedPid, vesselName ?? "(unknown)",
+                    vesselSnapshot != null ? vesselSnapshot.GetNodes("PART").Length : -1));
 
             // Destroy ghost GO if it exists, and remove tracking entry
             ReleaseChainClaims(chain);

@@ -4,7 +4,7 @@ using System.Globalization;
 
 namespace Parsek.TestCommands
 {
-    /// <summary>The three stock player actions <c>EvaGroundScience</c> drives.</summary>
+    /// <summary>The stock player actions <c>EvaGroundScience</c> drives.</summary>
     internal enum EvaGroundScienceAction
     {
         /// <summary>Place a ground-deployable part from the EVA kerbal's inventory.</summary>
@@ -26,6 +26,15 @@ namespace Parsek.TestCommands
         /// during a live recording leaves a jump in the kerbal's trajectory, which the
         /// ghost replays as a fast slide; nothing reads it as a defect.</summary>
         Step,
+
+        /// <summary>EVA construction: take a part out of the kerbal's own inventory and attach
+        /// it to a named node of a nearby vessel's part, through stock's construction mode
+        /// (see <c>TestCommandEvaConstruction</c>).</summary>
+        Attach,
+
+        /// <summary>EVA construction: take a named part off a nearby vessel and store it in an
+        /// empty slot of the kerbal's own inventory, through stock's construction mode.</summary>
+        Detach,
     }
 
     /// <summary>One stored part a take could come from: a container slot on a loaded
@@ -112,6 +121,8 @@ namespace Parsek.TestCommands
         internal const string PickupToken = "pickup";
         internal const string TakeToken = "take";
         internal const string StepToken = "step";
+        internal const string AttachToken = "attach";
+        internal const string DetachToken = "detach";
 
         /// <summary>Step only: the anchor vessel's persistentId.</summary>
         internal const string AnchorArg = "anchor";
@@ -358,6 +369,16 @@ namespace Parsek.TestCommands
                 action = EvaGroundScienceAction.Step;
                 return true;
             }
+            if (raw == AttachToken)
+            {
+                action = EvaGroundScienceAction.Attach;
+                return true;
+            }
+            if (raw == DetachToken)
+            {
+                action = EvaGroundScienceAction.Detach;
+                return true;
+            }
             return false;
         }
 
@@ -484,6 +505,8 @@ namespace Parsek.TestCommands
                 case EvaGroundScienceAction.Pickup: return PickupToken;
                 case EvaGroundScienceAction.Take: return TakeToken;
                 case EvaGroundScienceAction.Step: return StepToken;
+                case EvaGroundScienceAction.Attach: return AttachToken;
+                case EvaGroundScienceAction.Detach: return DetachToken;
                 default: return PlaceToken;
             }
         }
