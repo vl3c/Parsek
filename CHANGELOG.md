@@ -27,6 +27,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Ghost icons on the map no longer land beside their orbit after a time jump.** A ghost that
+  appeared on the same frame a time jump landed was drawn rotated around the planet by however far
+  the planet turned during the jump, for that one frame. Parsek now brings the planets up to the
+  new time before the frame goes on, as the game does after its own clock changes.
+  (V16M-ICON-OFF-ORBIT-AT-TIMEJUMP-LANDING)
 - **Docking a fleet of identical ships no longer mixes up their histories.** When your ship docks
   to another and takes it over, Parsek now remembers which launch of that ship it was. A later
   launch of the same design no longer has its vessel hidden or spawned at the wrong time because

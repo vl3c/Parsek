@@ -392,6 +392,15 @@ namespace Parsek
                         chains.Remove(spawnedChainKeys[i]);
                 }
 
+                // Step 4b: Bring the celestial bodies to the new UT now, as stock does after
+                // its own SetUniversalTime calls (FlightDriver, MissionSystem). Otherwise body
+                // rotation and Planetarium.Zup keep the pre-jump value until the next physics
+                // tick, and a ghost map vessel created later in this frame draws its icon
+                // rotated by the main body's spin over the jump. Kept AFTER steps 3 and 4:
+                // the epoch shift and the tip spawns convert their pre-jump state vectors with
+                // the pre-jump frame by design.
+                RefreshCelestialBodiesAfterJump(targetUT);
+
                 // Step 5: Game actions recalculation. After UT has changed, replay the
                 // committed ledger through the target UT and patch KSP state so
                 // funds/science/reputation/contracts/facilities match the new time.
@@ -408,6 +417,27 @@ namespace Parsek
             {
                 isTimeJumpLaunchAutoRecordInProgress = false;
             }
+        }
+
+        /// <summary>
+        /// Runs stock's <c>Planetarium.UpdateCBs</c> so body positions, rotations and
+        /// <c>Planetarium.Zup</c> match the jumped clock within the jump's own frame.
+        /// </summary>
+        private static void RefreshCelestialBodiesAfterJump(double targetUT)
+        {
+            if (Planetarium.fetch == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "Celestial bodies not refreshed after jump: no Planetarium (UT={0:F1})",
+                        targetUT));
+                return;
+            }
+            Planetarium.fetch.UpdateCBs();
+            ParsekLog.Verbose(Tag,
+                string.Format(ic,
+                    "Celestial bodies refreshed after jump: UT={0:F1} inverseRotAngle={1:F3}",
+                    targetUT, Planetarium.InverseRotAngle));
         }
 
         /// <summary>
@@ -542,6 +572,9 @@ namespace Parsek
 
                 // Take vessels off rails
                 TakeVesselsOffRails(onRailsVessels);
+
+                // Bodies to the new UT within this frame (see ExecuteJump step 4b).
+                RefreshCelestialBodiesAfterJump(targetUT);
 
                 // Mirror normal time-warp exit after the clock has advanced naturally,
                 // preserving the jump target as the ledger cutoff.

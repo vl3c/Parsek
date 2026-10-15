@@ -341,7 +341,7 @@ bands the superseded origin already earned, must not pay them twice after the me
 double-pay risk is inferred from the RF-3 log, not traced). Owner rule 2026-10-15: validate the fix with
 an RF-3 flight on the owner's local PC; the entry closes only on that flight.
 
-## W1-CAMERA-LIVE-HANDOFF-NO-LONGER-PRINTS: W1's `camera-live member #0->#1` hand-off token is missing on every run since its last green (2026-08-28) [FILED 2026-10-13 from the operator tier, reproduced three times. OPEN, render, untriaged]
+## ~~W1-CAMERA-LIVE-HANDOFF-NO-LONGER-PRINTS: W1's `camera-live member #0->#1` hand-off token is missing on every run since its last green (2026-08-28)~~ [FILED 2026-10-13 from the operator tier, reproduced three times. TRIAGED 2026-10-15: a stale harness token, not a Parsek defect. FIXED 2026-10-15 on branch `claude/triage-w1-v16m-reds-vx093m`; closes on a green W1 flight]
 
 `W1-watch-distance-cutoff` reds PARSEK-FAIL on its required `Chain-loop unit owner=0 camera-live
 member #0->#1 at loopUT=434\.5` alone on `2026-10-12_2346`, `2026-10-13_0331` and `_0335`. The
@@ -355,6 +355,15 @@ StartLoopPlayback and the jump and still printed no hand-off; the unit logged no
 pre-relaunch hold. So the unit no longer treats member #0 as camera-live before its first
 in-window evaluation. Six weeks of chain-loop / LiveAt changes separate the two runs (e.g. #1820);
 bisect by flying W1 on older mains, or read the hand-off logger's initial-member rule.
+
+Cause (read 2026-10-15 from `2026-09-10_1939` green vs `2026-10-13_0335` red): since PR 94cd8057
+(2026-09-25, owner ruling 2026-09-24) a looped mission's first run plays as an ordinary recording
+until the unit's anchor, so `LoopUnitSet.LiveAt` does not publish W1's unit at StartLoopPlayback's
+UT 21569 (anchor 21583.97). The red logs show `[MissionLoopFirstRun] Loop units live at UT=21984.00
+... live=1` on the jump frame: the unit's FIRST evaluation is the jump, it already selects #1, and
+the engine stored a first selection silently, so no hand-off could print. Ghost #1's spawn and the
+1069 km refusal are unchanged. Fix: the engine and Space Center log a unit's first evaluation
+(`... first evaluation: camera-live member #1 at loopUT=434.59 cycle=0`), and W1 requires that line.
 
 ## TIER-2026-10-12-LANE-VARIANCE: four operator-tier reds that were flight variance, not defects [FILED 2026-10-13. OPEN for the two operator calls below, harness]
 
@@ -913,7 +922,7 @@ Data point 2026-10-12 (operator tier): S4.4 2026-10-12_2128 PARSEK-FAIL on `outc
 
 ---
 
-## V16M-ICON-OFF-ORBIT-AT-TIMEJUMP-LANDING: V16M's ghost map icon sits ~1.3 deg off its orbit on the frame a TimeJump lands [FILED 2026-10-07 from the PR #2051 flights, measured twice. OPEN, render, not yet triaged]
+## ~~V16M-ICON-OFF-ORBIT-AT-TIMEJUMP-LANDING: V16M's ghost map icon sits ~1.3 deg off its orbit on the frame a TimeJump lands~~ [FILED 2026-10-07 from the PR #2051 flights, measured twice. TRIAGED 2026-10-15: a real one-frame Parsek defect the faster harness cadence exposed. FIXED 2026-10-15 on branch `claude/triage-w1-v16m-reds-vx093m`; closes on a green V16M flight]
 
 `V16M-laythe-player-loop` reads PARSEK-FAIL on the unallowed Tier-C anomaly `icon-off-orbit`
 (`[MapRenderTrace] phase=Anomaly surface=ProtoIcon ... reason=icon-off-orbit
@@ -929,6 +938,20 @@ the window by flying V16M on an older main.
 
 
 Data point 2026-10-12 (operator tier): 2026-10-12_2140 read the same 4 icon-off-orbit hits at the TimeJump landing frames (UT 29874214.000 / 30933832.000, angle 1.30-1.31 deg), a third reading after 2026-10-08_0101 / _0236.
+
+Cause (read 2026-10-15 from `2026-10-12_2140` red vs `2026-09-10_2032` clean): the four hits are
+exactly the overlap instances created ON a jump-landing frame (cycles 1 and 0, twice). The green run
+polled ~0.25 s between jumps, so all 20 instances were created before jump 2; since the fast seam
+polls (#2017) the jumps land ~0.07 s apart and the last two creations spill onto jump 3's frame.
+`Planetarium.SetUniversalTime` only sets the clock: body rotation and `Planetarium.Zup` move at the
+next `Planetarium.FixedUpdate` -> `UpdateCBs`, while stock `Orbit` state vectors use `ZupAtT(UT)`
+(fresh). The offset is a pure longitude rotation (iconR == orbitEffR) of 1.36 deg = Laythe's spin
+over the 199.92 s jump. Fix: both TimeJumpManager paths call stock's `Planetarium.fetch.UpdateCBs()`
+after the clock set (as FlightDriver and MissionSystem do), after the epoch shift and the tip spawns,
+which convert pre-jump state vectors through the pre-jump frame on purpose. The same mechanism
+fits MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: V16T's 1,027,290 s jump spins Laythe 140.34
+deg, and at the icon's ~16 deg latitude (orbit inclination 16.4) that is a 129 deg vector angle
+against the measured 129.15 (the same formula gives V16M's 1.30); inferred, not flown.
 
 ---
 
