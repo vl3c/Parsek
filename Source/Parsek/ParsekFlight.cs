@@ -3723,6 +3723,7 @@ namespace Parsek
                 && recorder != null && recorder.IsRecording && !recorder.IsBackgrounded
                 && recorder.RecordingVesselId != newVessel.persistentId)
             {
+                EmitPendingSplitBeforeFocusLeaves("OnVesselSwitchComplete(active)");
                 recorder.TransitionToBackground();
                 FlushRecorderToTreeRecording(recorder, activeTree);
                 CopyRewindSaveToRoot(activeTree, recorder,
@@ -3752,6 +3753,7 @@ namespace Parsek
             else if (activeTree != null
                 && recorder != null && recorder.IsBackgrounded && recorder.TransitionToBackgroundPending)
             {
+                EmitPendingSplitBeforeFocusLeaves("OnVesselSwitchComplete(bg)");
                 FlushRecorderToTreeRecording(recorder, activeTree);
                 CopyRewindSaveToRoot(activeTree, recorder,
                     logTag: "OnVesselSwitch(bg)");
@@ -7217,7 +7219,7 @@ namespace Parsek
         /// that didn't produce a trackable vessel, deduplication skip). Re-enables the
         /// stopped recorder and restores it as the active recorder.
         /// </summary>
-        void ResumeSplitRecorder(FlightRecorder splitRec, string reason)
+        void ResumeSplitRecorder(FlightRecorder splitRec, string reason, bool keepRecordedVessel = false)
         {
             RecorderStateLog.RecState("ResumeSplitRecorder:entry", CaptureRecorderState());
             if (splitRec == null)
@@ -7234,7 +7236,7 @@ namespace Parsek
                 return;
             }
 
-            splitRec.ResumeAfterFalseAlarm();
+            splitRec.ResumeAfterFalseAlarm(keepRecordedVessel);
 
             if (splitRec.IsRecording)
             {
@@ -7771,11 +7773,31 @@ namespace Parsek
                             "split-child-proximity");
                     }
 
+                    // Stock may already have moved focus to a vessel that came off (the
+                    // control part left on it: ModuleDecouple.WaitAndSwitchFocus runs before
+                    // this deferred check). The recording still belongs to the vessel it was
+                    // recording, so resume on that vessel, not on the active one.
+                    Vessel activeAfterSplit = FlightGlobals.ActiveVessel;
+                    uint activePidAfterSplit = activeAfterSplit != null ? activeAfterSplit.persistentId : 0u;
+                    bool focusLeftRecordedVessel = ShouldResumeSplitOnRecordedVessel(
+                        recordedPid,
+                        recordedVesselAlive: FlightRecorder.FindVesselByPid(recordedPid) != null,
+                        activePidAfterSplit);
+                    if (focusLeftRecordedVessel)
+                    {
+                        ParsekLog.Info("Flight",
+                            $"DeferredJointBreakCheck: focus moved off the recorded vessel during the split " +
+                            $"(recordedPid={recordedPid}, activePid={activePidAfterSplit}, " +
+                            $"activeIsSplitChild={newVesselPids.Contains(activePidAfterSplit)}) - " +
+                            $"resuming on the recorded vessel");
+                    }
+
                     // Resume the recorder — the coalescer's Tick will emit the BREAKUP
                     // branch point after the coalescing window expires. The recorder needs
                     // to keep running to capture continued trajectory data.
                     ResumeSplitRecorder(pendingSplitRecorder,
-                        $"joint break fed to coalescer (classification={classification})");
+                        $"joint break fed to coalescer (classification={classification})",
+                        keepRecordedVessel: focusLeftRecordedVessel);
 
                     // Bug #263 fallback: ensure a Decoupled event exists for every new
                     // vessel's root part. When a symmetry group of radial decouplers fires,
@@ -7797,6 +7819,25 @@ namespace Parsek
                                 $"Decoupled event(s) for new vessel roots at " +
                                 $"UT={branchUT.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}");
                         }
+                    }
+
+                    // The recorder resumed on a vessel that is no longer the active one: run
+                    // the ordinary vessel-switch hand-off now (the stock switch already fired
+                    // while the recorder was stopped, so nothing else would). It emits the
+                    // pending split first, while this recording is still the active one, so
+                    // the new vessel gets its own child recording; then the recorded vessel
+                    // goes to the background recorder and the active vessel is handled as a
+                    // switch to a tracked background member.
+                    if (focusLeftRecordedVessel
+                        && recorder != null && recorder.IsRecording
+                        && recorder.RecordingVesselId == recordedPid
+                        && FlightGlobals.ActiveVessel != null
+                        && FlightGlobals.ActiveVessel.persistentId != recordedPid)
+                    {
+                        ParsekLog.Info("Flight",
+                            $"DeferredJointBreakCheck: handing focus over after split " +
+                            $"(recordedPid={recordedPid}, activePid={FlightGlobals.ActiveVessel.persistentId})");
+                        OnVesselSwitchComplete(FlightGlobals.ActiveVessel);
                     }
                 }
             }
@@ -7897,6 +7938,35 @@ namespace Parsek
                 $"Coalescer emitted split branch point: ut={breakupBp.UT:F2}, " +
                 $"type={breakupBp.Type}, cause={breakupBp.BreakupCause ?? breakupBp.SplitCause ?? "?"}, " +
                 $"debris={breakupBp.DebrisCount}, duration={breakupBp.BreakupDuration:F3}s");
+
+            ProcessBreakupEvent(breakupBp);
+        }
+
+        /// <summary>
+        /// Emits a split the crash coalescer is still holding, before the active recording
+        /// stops being active (its vessel goes to the background recorder on a focus
+        /// change). <see cref="ProcessBreakupEvent"/> attaches the branch point to
+        /// <c>activeTree.ActiveRecordingId</c>, which a focus change clears, so a split
+        /// emitted after the hand-off would be dropped and the new vessel would get no
+        /// child recording. Emitting it early only shortens the coalescing window.
+        /// </summary>
+        void EmitPendingSplitBeforeFocusLeaves(string reason)
+        {
+            if (crashCoalescer == null || !crashCoalescer.HasPendingBreakup)
+                return;
+            if (activeTree == null || string.IsNullOrEmpty(activeTree.ActiveRecordingId))
+                return;
+
+            double windowStartUT = crashCoalescer.WindowStartUT;
+            var breakupBp = crashCoalescer.EmitNow();
+            if (breakupBp == null)
+                return;
+
+            ParsekLog.Info("Coalescer",
+                $"Coalescer emitted split branch point early (focus leaving the active recording, {reason}): " +
+                $"ut={breakupBp.UT.ToString("F2", CultureInfo.InvariantCulture)}, type={breakupBp.Type}, " +
+                $"cause={breakupBp.BreakupCause ?? breakupBp.SplitCause ?? "?"}, debris={breakupBp.DebrisCount}, " +
+                $"windowAgeSeconds={(Planetarium.GetUniversalTime() - windowStartUT).ToString("F2", CultureInfo.InvariantCulture)}");
 
             ProcessBreakupEvent(breakupBp);
         }
@@ -8339,15 +8409,25 @@ namespace Parsek
             // SnapshotVessel's Points.Count==0 guard would skip the snapshot. Use
             // TryBackupSnapshot directly — the distance calculation is not needed for
             // a mid-flight snapshot refresh.
+            //
+            // The surviving parent is the vessel the active recorder records. It is not
+            // always the active vessel: a split can move focus to the vessel that came off
+            // before the hand-off to the background recorder (EmitPendingSplitBeforeFocusLeaves).
             Vessel activeVessel = FlightGlobals.ActiveVessel;
-            if (activeVessel != null && activeVessel.persistentId == activeRec.VesselPersistentId)
+            uint parentVesselPid = ResolveBreakupParentVesselPid(
+                recorder != null ? recorder.RecordingVesselId : 0u,
+                activeVessel != null ? activeVessel.persistentId : 0u);
+            Vessel parentVessel = activeVessel != null && activeVessel.persistentId == parentVesselPid
+                ? activeVessel
+                : FlightRecorder.FindVesselByPid(parentVesselPid);
+            if (parentVessel != null && parentVessel.persistentId == activeRec.VesselPersistentId)
             {
-                var snap = VesselSpawner.TryBackupSnapshot(activeVessel);
+                var snap = VesselSpawner.TryBackupSnapshot(parentVessel);
                 if (snap != null)
                     activeRec.VesselSnapshot = snap;
                 ParsekLog.Info("Coalescer",
                     $"ProcessBreakupEvent: refreshed VesselSnapshot post-breakup " +
-                    $"(parts={activeVessel.parts?.Count ?? 0}, snapshot={snap != null})");
+                    $"(parts={parentVessel.parts?.Count ?? 0}, snapshot={snap != null})");
             }
 
             // Bug #298: snapshot active recorder's engine/RCS state for child recordings.
@@ -8390,9 +8470,8 @@ namespace Parsek
             // the breakup in breakup-continuous design), so it participates in the
             // multi-controllable classifier alongside the children.
             var breakupControllablePairs = new List<(Vessel vessel, Recording rec)>();
-            Vessel activeVesselForBreakup = FlightGlobals.ActiveVessel;
-            if (activeVesselForBreakup != null)
-                breakupControllablePairs.Add((activeVesselForBreakup, activeRec));
+            if (parentVessel != null)
+                breakupControllablePairs.Add((parentVessel, activeRec));
 
             if (controlledChildren != null && controlledChildren.Count > 0)
             {
@@ -13133,6 +13212,7 @@ namespace Parsek
                 || !recorder.IsBackgrounded)
                 return;
 
+            EmitPendingSplitBeforeFocusLeaves("HandleTreeBackgroundFlush");
             FlushRecorderToTreeRecording(recorder, activeTree);
 
             // Add old vessel to BackgroundMap
@@ -15249,6 +15329,36 @@ namespace Parsek
             if (pendingSplitRecorder != null || pendingSplitInProgress) return false;
             if (recorder != null && recorder.ChainToVesselPending) return false;
             return true;
+        }
+
+        /// <summary>
+        /// Pure decision for <see cref="DeferredJointBreakCheck"/>: true when a split
+        /// recorder must resume on the vessel it was recording rather than on the active
+        /// vessel, because focus moved off the recorded vessel (which still exists) while
+        /// the recorder was stopped at the split. Resuming on the active vessel would record
+        /// a different vessel into this recording (todo
+        /// VN8-FOCUS-SWITCH-SPLIT-PARENT-LEG-RECORDS-NEW-VESSEL).
+        /// </summary>
+        internal static bool ShouldResumeSplitOnRecordedVessel(
+            uint recordedVesselPid,
+            bool recordedVesselAlive,
+            uint activeVesselPid)
+        {
+            return recordedVesselPid != 0u
+                && recordedVesselAlive
+                && activeVesselPid != 0u
+                && activeVesselPid != recordedVesselPid;
+        }
+
+        /// <summary>
+        /// Pure: the pid of the vessel that survives a split as the parent recording's
+        /// vessel. That is the vessel the active recorder records, which is not the active
+        /// vessel when focus moved to a split child; the active vessel only stands in when
+        /// no recorder is bound.
+        /// </summary>
+        internal static uint ResolveBreakupParentVesselPid(uint recorderVesselPid, uint activeVesselPid)
+        {
+            return recorderVesselPid != 0u ? recorderVesselPid : activeVesselPid;
         }
 
         /// <summary>
