@@ -1594,15 +1594,17 @@ namespace Parsek
         /// recording's spawn pid names no vessel in <paramref name="liveVesselPids"/>, or it is an
         /// adoption stamp (spawn pid == recorded pid, the craft-baked pid) and the live vessel
         /// with that pid is a conclusively different launch with no link to the recording's
-        /// guid (<see cref="VesselLaunchIdentity.SpawnStampHeldBy"/>): a relaunch of the
-        /// same craft does not keep an older launch's stamp alive. A null set means liveness is
-        /// unknown (never stale); an unknown guid keeps the pid-only answer.
+        /// guid and the recording's end snapshot names another launch
+        /// (<see cref="VesselLaunchIdentity.SpawnClaimStillHeld"/>): a relaunch of the same
+        /// craft does not keep an older launch's stamp alive. A null set means liveness is
+        /// unknown (never stale); an unknown live or snapshot guid keeps the stamp.
         /// </summary>
         internal static bool IsSpawnStampStaleForReplace(
             Recording existing,
             ICollection<uint> liveVesselPids,
             IDictionary<uint, string> liveVesselGuidsByPid,
-            out bool heldByOtherLaunch)
+            out bool heldByOtherLaunch,
+            Func<Recording, string> snapshotGuidReader = null)
         {
             heldByOtherLaunch = false;
             if (existing == null || liveVesselPids == null || existing.SpawnedVesselPersistentId == 0u)
@@ -1613,7 +1615,7 @@ namespace Parsek
             string liveGuid = null;
             if (liveVesselGuidsByPid != null)
                 liveVesselGuidsByPid.TryGetValue(spawnedPid, out liveGuid);
-            if (VesselLaunchIdentity.SpawnStampHeldBy(existing, spawnedPid, liveGuid))
+            if (VesselLaunchIdentity.SpawnClaimStillHeld(existing, spawnedPid, liveGuid, snapshotGuidReader))
                 return false;
             heldByOtherLaunch = true;
             return true;

@@ -306,12 +306,15 @@ namespace Parsek
         /// KSP-unique, so a pid match is enough; an adoption stamp
         /// (<c>SpawnedVesselPersistentId == VesselPersistentId</c>) names the craft-baked pid, so
         /// a relaunch of the same craft (a conclusively different launch guid with no link to
-        /// the recording's) does not keep a stale stamp alive
-        /// (<see cref="VesselLaunchIdentity.SpawnStampHeldBy"/>).
+        /// the recording's, and an end snapshot that names another launch) does not keep a stale
+        /// stamp alive (<see cref="VesselLaunchIdentity.SpawnClaimStillHeld"/>). With no snapshot
+        /// guid to read, the claim is kept: a live vessel is never declared gone on a guess.
         /// </summary>
-        internal static bool IsSpawnClaimHeldByLiveVessel(Recording rec, uint foundPid, string foundGuid)
+        internal static bool IsSpawnClaimHeldByLiveVessel(
+            Recording rec, uint foundPid, string foundGuid,
+            Func<Recording, string> snapshotGuidReader = null)
         {
-            return VesselLaunchIdentity.SpawnStampHeldBy(rec, foundPid, foundGuid);
+            return VesselLaunchIdentity.SpawnClaimStillHeld(rec, foundPid, foundGuid, snapshotGuidReader);
         }
 
         /// <summary>

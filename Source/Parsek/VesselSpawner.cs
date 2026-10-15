@@ -214,8 +214,14 @@ namespace Parsek
         /// The #226 replay/revert bypass for the recording about to spawn at its end: the pid
         /// verdict of <see cref="ShouldAllowExistingSourceDuplicateForReplay(uint,uint,uint,uint)"/>,
         /// then <see cref="ShouldKeepReplayBypassForLaunchIdentity"/> withholds it when no
-        /// pid-matching live vessel is the recording's launch. That withhold changes no outcome
-        /// (guid-aware adoption refuses a different launch anyway); it keeps the log honest.
+        /// pid-matching live vessel is the recording's launch. Adoption reads the same either
+        /// way (it is guid-aware and refuses a different launch). What the withhold does change:
+        /// the flight leaf spawn's no-chain branch now runs
+        /// <see cref="ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn"/>, which the bypass
+        /// skips, so a live vessel on one of the tip's chain-claimed pids may be replaced under
+        /// that path's own gates (a tip the playhead stood before, one live claimed vessel whose
+        /// guid is not a different launch from the claim, not simulated since the claim, a tip
+        /// that can spawn, and a vessel not in use: the active vessel is refused).
         /// </summary>
         internal static bool ShouldAllowExistingSourceDuplicateForCurrentFlight(Recording rec)
         {

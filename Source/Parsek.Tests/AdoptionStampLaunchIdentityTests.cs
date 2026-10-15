@@ -43,11 +43,23 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
         }
 
-        /// <summary>L1's committed recording, its end vessel adopted (stamp = baked pid).</summary>
+        /// <summary>A recording end snapshot as <c>ProtoVessel.Save</c> writes it: the launch
+        /// guid in <c>pid</c>, the uint in <c>persistentId</c>.</summary>
+        private static ConfigNode SnapshotOf(string guid, uint pid)
+        {
+            var node = new ConfigNode("VESSEL");
+            node.AddValue("pid", guid);
+            node.AddValue("persistentId", pid.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            return node;
+        }
+
+        /// <summary>L1's committed recording, its end vessel adopted (stamp = baked pid), its
+        /// end snapshot captured from L1.</summary>
         private static Recording AdoptedLaunchOneRecording(string id = "rec_l1")
         {
             return new Recording
             {
+                VesselSnapshot = SnapshotOf(LaunchOneGuid, BakedPid),
                 RecordingId = id,
                 TreeId = "tree_l1",
                 VesselName = "Kerbal X",
@@ -362,6 +374,129 @@ namespace Parsek.Tests
             Assert.True(VesselLaunchIdentity.SpawnStampHeldByCore(rec, BakedPid, LaunchTwoGuid, true));
             Assert.True(VesselLaunchIdentity.SpawnStampHeldByCore(rec, BakedPid, LaunchOneGuid, false));
             Assert.False(VesselLaunchIdentity.SpawnStampHeldByCore(rec, 1u, LaunchOneGuid, true));
+        }
+
+        #endregion
+
+        #region Upgraded save: resumed Parsek-spawned vessel with no link rows
+
+        // A save from before resumes recorded their link (0.10.5 and earlier) can hold a resumed,
+        // re-committed Parsek-spawned vessel with NO link: recording pid 200, spawn pid 200,
+        // guid L1; live vessel pid 200 with the spawn's fresh guid. The commit re-snapshotted
+        // the live vessel, so the recording's end snapshot carries the live guid.
+        private static Recording UpgradedSaveResumedRecording(string snapshotGuid)
+        {
+            return new Recording
+            {
+                RecordingId = "rec_tip", TreeId = "tree_resume", VesselName = "Probe",
+                ExplicitStartUT = 150, ExplicitEndUT = 300, VesselPersistentId = 200,
+                RecordedVesselGuid = LaunchOneGuid, VesselSpawned = true,
+                SpawnedVesselPersistentId = 200, TerminalStateValue = TerminalState.Landed,
+                VesselSnapshot = snapshotGuid != null ? SnapshotOf(snapshotGuid, 200) : null,
+            };
+        }
+
+        private static LiveVesselEntry LiveEntry(string guid, uint pid, string name)
+        {
+            return new LiveVesselEntry { Guid = guid, Pid = pid, Name = name };
+        }
+
+        // Fails if: the load-time backfill skips the upgraded-save resumed spawn, so the
+        // Tracking Station Fly refuses it and the death check / replace gate read it as another
+        // launch's stamp.
+        [Fact]
+        public void Backfill_UpgradedSaveResumedSpawn_WritesResumeLinkFromTheEndSnapshot()
+        {
+            var resumed = UpgradedSaveResumedRecording(SpawnGuid);
+            var recs = new List<Recording> { resumed };
+            var vessels = new List<LiveVesselEntry> { LiveEntry(SpawnGuid, 200u, "Probe") };
+
+            Assert.False(ParsekFlight.IsCommittedSpawnStampMatch(resumed, 200u, SpawnGuid));
+
+            VesselNameStore.BackfillResult r = VesselNameStore.BackfillSpawnLinks(recs, vessels, "test");
+            Assert.Equal(1, r.ResumeAdded);
+            Assert.Equal(0, r.Added);
+            Assert.Equal(0, r.AdoptionStampSkipped);
+            Assert.True(VesselNameStore.TryGetLink(SpawnGuid, out VesselIdentityLink link));
+            Assert.Equal(LaunchOneGuid, link.ToGuid);
+            Assert.Equal(VesselIdentityLinkKind.Resume, link.Kind);
+            Assert.Contains(logLines, l => l.Contains("[INFO][VesselNames]")
+                && l.Contains("Spawn link backfill (test):") && l.Contains("resumeAdded=1"));
+
+            Assert.True(ParsekFlight.IsCommittedSpawnStampMatch(resumed, 200u, SpawnGuid));
+            Assert.True(ParsekPlaybackPolicy.IsSpawnClaimHeldByLiveVessel(resumed, 200u, SpawnGuid));
+            Assert.False(RecordingStore.IsSpawnStampStaleForReplace(
+                resumed, new HashSet<uint> { 200u }, new Dictionary<uint, string> { { 200u, SpawnGuid } }, out _));
+
+            VesselNameStore.BackfillResult again = VesselNameStore.BackfillSpawnLinks(recs, vessels, "test");
+            Assert.Equal(0, again.ResumeAdded);
+            Assert.Equal(1, again.AlreadyLinked);
+            Assert.Equal(1, VesselNameStore.LinkCount);
+        }
+
+        // Fails if: the backfill links a fresh relaunch of the same craft to the older launch.
+        // The relaunch reuses the baked pid; the older recording's end snapshot names its own
+        // launch, so there is no evidence and no link, and the Tracking Station Fly still refuses.
+        [Fact]
+        public void Backfill_RelaunchOfTheSameCraft_NoLinkAndTheMatcherStillRefuses()
+        {
+            var adopted = AdoptedLaunchOneRecording();
+            Commit(TreeOf(adopted));
+            var vessels = new List<LiveVesselEntry> { LiveEntry(LaunchTwoGuid, BakedPid, "Kerbal X") };
+
+            VesselNameStore.BackfillResult r = VesselNameStore.BackfillSpawnLinks(
+                new List<Recording> { adopted }, vessels, "test");
+            Assert.Equal(0, r.ResumeAdded);
+            Assert.Equal(1, r.AdoptionStampSkipped);
+            Assert.Equal(0, VesselNameStore.LinkCount);
+
+            Assert.False(ParsekFlight.IsCommittedSpawnStampMatch(adopted, BakedPid, LaunchTwoGuid));
+            Assert.False(ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore(
+                BakedPid, out _, out _, out _, activeVesselGuid: LaunchTwoGuid));
+            Assert.False(ParsekPlaybackPolicy.IsSpawnClaimHeldByLiveVessel(adopted, BakedPid, LaunchTwoGuid));
+        }
+
+        // Fails if: the backfill writes a link with no snapshot evidence, or the destructive
+        // readers drop a claim with none.
+        [Fact]
+        public void UpgradedSaveResumedSpawn_NoSnapshotGuid_NoLinkButTheClaimIsKept()
+        {
+            var resumed = UpgradedSaveResumedRecording(null);
+            VesselNameStore.BackfillResult r = VesselNameStore.BackfillSpawnLinks(
+                new List<Recording> { resumed },
+                new List<LiveVesselEntry> { LiveEntry(SpawnGuid, 200u, "Probe") },
+                "test", _ => null);
+            Assert.Equal(0, r.ResumeAdded);
+            Assert.Equal(1, r.AdoptionStampSkipped);
+            Assert.Equal(0, VesselNameStore.LinkCount);
+
+            // The matcher only declines a restore, so it stays strict; the death check and the
+            // replace gate need positive evidence before declaring the vessel gone.
+            Assert.False(ParsekFlight.IsCommittedSpawnStampMatch(resumed, 200u, SpawnGuid));
+            Assert.True(ParsekPlaybackPolicy.IsSpawnClaimHeldByLiveVessel(resumed, 200u, SpawnGuid, _ => null));
+            Assert.False(RecordingStore.IsSpawnStampStaleForReplace(
+                resumed, new HashSet<uint> { 200u }, new Dictionary<uint, string> { { 200u, SpawnGuid } },
+                out bool otherLaunch, _ => null));
+            Assert.False(otherLaunch);
+        }
+
+        [Fact]
+        public void SpawnClaimStillHeldCore_TruthTable()
+        {
+            var rec = AdoptedLaunchOneRecording();
+            // Same launch, or unknown live guid: held whatever the snapshot says.
+            Assert.True(VesselLaunchIdentity.SpawnClaimStillHeldCore(rec, BakedPid, LaunchOneGuid, false, LaunchTwoGuid));
+            Assert.True(VesselLaunchIdentity.SpawnClaimStillHeldCore(rec, BakedPid, null, false, LaunchOneGuid));
+            // Other launch: dropped only when the snapshot names a launch that is not the live one.
+            Assert.False(VesselLaunchIdentity.SpawnClaimStillHeldCore(rec, BakedPid, LaunchTwoGuid, false, LaunchOneGuid));
+            Assert.True(VesselLaunchIdentity.SpawnClaimStillHeldCore(rec, BakedPid, LaunchTwoGuid, false, null));
+            Assert.True(VesselLaunchIdentity.SpawnClaimStillHeldCore(rec, BakedPid, LaunchTwoGuid, false, LaunchTwoGuid));
+            Assert.True(VesselLaunchIdentity.SpawnClaimStillHeldCore(rec, BakedPid, LaunchTwoGuid, true, LaunchOneGuid));
+            // Not the stamp's pid: never held.
+            Assert.False(VesselLaunchIdentity.SpawnClaimStillHeldCore(rec, 1u, LaunchOneGuid, true, null));
+            // Genuine spawn pid: held whatever the guids.
+            rec.SpawnedVesselPersistentId = 999u;
+            Assert.True(VesselLaunchIdentity.SpawnClaimStillHeldCore(rec, 999u, LaunchTwoGuid, false, LaunchOneGuid));
         }
 
         #endregion

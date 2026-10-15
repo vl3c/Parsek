@@ -39,12 +39,13 @@ Tracking Station Fly re-pids the recording to S and clears its spawn pid
 (`TryTakeCommittedTreeForSpawnedVesselRestore`), keeping its guid G; the next commit re-installs
 spawn pid S. The recording then reads spawned pid == recorded pid == S with guid G against the
 live G'. Parsek writes a link row for exactly this re-key (a Spawn link at the spawn, a Resume
-link at the resume, `VesselNameStore.Links.cs`, identity edge 4), so the readers honour it.
+link at the resume, `VesselNameStore.Links.cs`, identity edge 4), so the readers honour it. Saves
+from 0.10.5 and earlier predate the link rows and can hold this shape with NO link (review
+2026-10-15, second round).
 
 Gap 2. `VesselSpawner.ShouldAllowExistingSourceDuplicateForReplay` (the #226 replay / revert
 bypass, which skips adoption and the stale-vessel replacement) fired on a bare pid match against
-the scene-entry or active vessel. For a different launch of the craft it adds nothing (guid-aware
-adoption and the stale replacement refuse it anyway). A narrowing that also withheld the bypass
+the scene-entry or active vessel, including a different launch of the craft. A narrowing that also withheld the bypass
 when the scene was entered after the recording's end was tried and dropped (review 2026-10-15):
 it could adopt a reverted re-flight as the committed recording's end vessel (a quickload after the
 end with the end spawn blocked by a collision), losing the committed vessel, and the duplicate it
@@ -68,10 +69,35 @@ and both `VesselGhoster` chain-tip paths) and, after the pid verdict, withholds 
 pid-matching live vessel (scene-entry, via the new `RecordingStore.SceneEntryActiveVesselGuid`
 captured in `OnFlightReady`, or active) is the recording's launch or linked to it
 (`ShouldKeepReplayBypassForLaunchIdentity`, reason `different-launch`, one rate-limited
-`#226 bypass withheld` Info line). That withhold changes no spawn outcome; it keeps the log honest.
+`#226 bypass withheld` Info line). Adoption reads the same either way (it is guid-aware). What
+the withhold changes: the flight leaf spawn's no-chain branch now runs
+`ChainTipStaleVessel.TryReplaceStaleSourceBeforeSpawn`, which the bypass skipped, so a live vessel
+on one of the tip's chain-claimed pids can be replaced, under that path's own gates only (a tip the
+playhead stood before this session, exactly one live claimed vessel whose guid is not a different
+launch from the claim's, not simulated since the claim, a tip that can spawn, and a vessel not in
+use: the active vessel is refused).
+Upgraded saves (no link rows). The load-time spawn-link backfill
+(`VesselNameStore.BackfillSpawnLinks`, every OnLoad tail) now also writes a Resume link for the
+resumed-spawn shape, from durable evidence: the recording's END SNAPSHOT. The commit re-snapshots
+the live vessel (the scene-exit snapshot, the Commit Flight re-snapshot, the #289 stable-terminal
+refresh), so the snapshot's VESSEL `pid` is the live guid G' while `RecordedVesselGuid` is G; an
+adoption-shaped stamp whose snapshot guid equals the live vessel's guid is linked live -> G
+(reason `backfill-resume:<load> rec=<id> evidence=end-snapshot-guid`, counted as `resumeAdded=`
+on the backfill summary). A relaunch of the same craft fails it (the older recording's snapshot
+names its own launch), so the Tracking Station Fly still refuses it; an unknown snapshot guid
+writes nothing. The two DESTRUCTIVE readers (death check, replace gate) go through
+`VesselLaunchIdentity.SpawnClaimStillHeld` (pure core `SpawnClaimStillHeldCore`): after the guid and
+link tests refuse, they drop the claim only when the end snapshot (hydrated from the sidecar when
+dropped) names a launch that is not the live one; with no snapshot guid the claim is kept.
+Trade-off: a relaunch whose older recording has no readable snapshot keeps the stale stamp in
+those two readers (the pre-fix behaviour) rather than risk declaring a live resumed vessel gone
+and respawning a duplicate; the committed-tree matchers stay strict (refusing only declines a
+restore). Residual: a save already damaged by the pre-fix matcher (R1 resumed onto L2, then
+re-committed with L2's snapshot) reads as a resume and gets linked, consistent with the history
+that save already records.
 The recording id refusal for the recording being flown is PR #2103's and is not duplicated here.
 Tests: `AdoptionStampLaunchIdentityTests` (including the review's resumed-spawn probe as a
-regression); `VesselNamesLinksTests.ResumeLink_NotRecordedForAnAdoptionStampMatch` pinned the old
+regression, and the upgraded-save backfill / relaunch / no-snapshot cells); `VesselNamesLinksTests.ResumeLink_NotRecordedForAnAdoptionStampMatch` pinned the old
 match of an adoption stamp by another launch's unlinked guid and now pins its refusal.
 
 ---
