@@ -199,19 +199,46 @@ namespace Parsek
                 branch, sourcePid, otherPid, activeVesselPid);
         }
 
+        /// <summary>
+        /// Pid-only form of the current-flight #226 bypass, for callers with no recording in
+        /// hand. Spawn sites pass the recording instead
+        /// (<see cref="ShouldAllowExistingSourceDuplicateForCurrentFlight(Recording)"/>), which
+        /// also applies the launch-identity narrowing.
+        /// </summary>
         internal static bool ShouldAllowExistingSourceDuplicateForCurrentFlight(uint sourcePid)
         {
+            return ShouldAllowExistingSourceDuplicateForCurrentFlightCore(null, sourcePid);
+        }
+
+        /// <summary>
+        /// The #226 replay/revert bypass for the recording about to spawn at its end: the pid
+        /// verdict of <see cref="ShouldAllowExistingSourceDuplicateForReplay(uint,uint,uint,uint)"/>,
+        /// then <see cref="ShouldKeepReplayBypassForLaunchIdentity"/> keeps it only when the
+        /// matching live vessel is the recording's own launch AND the scene was entered before
+        /// the recording's end (a revert or rewind re-flight). Otherwise the spawn falls through
+        /// to the ordinary guid-aware adoption.
+        /// </summary>
+        internal static bool ShouldAllowExistingSourceDuplicateForCurrentFlight(Recording rec)
+        {
+            return ShouldAllowExistingSourceDuplicateForCurrentFlightCore(
+                rec, rec != null ? rec.VesselPersistentId : 0u);
+        }
+
+        private static bool ShouldAllowExistingSourceDuplicateForCurrentFlightCore(
+            Recording rec, uint sourcePid)
+        {
             uint activeVesselPid = 0;
+            string activeVesselGuid = null;
             try
             {
-                activeVesselPid = FlightGlobals.ActiveVessel != null
-                    ? FlightGlobals.ActiveVessel.persistentId
-                    : 0u;
+                ReadActiveVesselIdentity(out activeVesselPid, out activeVesselGuid);
             }
             catch (Exception ex)
             {
                 if (!IsHeadlessKspAccessFailure(ex))
                     throw;
+                activeVesselPid = 0;
+                activeVesselGuid = null;
             }
 
             bool allow = ShouldAllowExistingSourceDuplicateForReplay(
@@ -219,6 +246,37 @@ namespace Parsek
                 RecordingStore.SceneEntryActiveVesselPid,
                 activeVesselPid,
                 RecordingStore.RewindReplayTargetSourcePid);
+            if (allow && rec != null)
+            {
+                string reason;
+                allow = ShouldKeepReplayBypassForLaunchIdentity(
+                    rec,
+                    RecordingStore.SceneEntryActiveVesselPid,
+                    RecordingStore.SceneEntryActiveVesselGuid,
+                    RecordingStore.SceneEntryUT,
+                    activeVesselPid,
+                    activeVesselGuid,
+                    out reason);
+                if (!allow)
+                {
+                    // Re-reached by the 1 s retry of a blocked chain tip: rate-limited per
+                    // recording, with the deciding reason and pids in the key so a changed
+                    // verdict prints at once.
+                    ParsekLog.InfoRateLimited("Spawner",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "existing-source-dup-narrowed|{0}|{1}|{2}|{3}",
+                            rec.RecordingId ?? "(none)", reason,
+                            RecordingStore.SceneEntryActiveVesselPid, activeVesselPid),
+                        $"ShouldAllowExistingSourceDuplicateForCurrentFlight=false " +
+                        $"rec={rec.RecordingId ?? "(none)"} sourcePid={sourcePid.ToString(CultureInfo.InvariantCulture)} " +
+                        $"reason={reason} recGuid={VesselLaunchIdentity.NormalizeGuid(rec.RecordedVesselGuid) ?? "(none)"} " +
+                        $"sceneEntryGuid={VesselLaunchIdentity.NormalizeGuid(RecordingStore.SceneEntryActiveVesselGuid) ?? "(none)"} " +
+                        $"activeGuid={VesselLaunchIdentity.NormalizeGuid(activeVesselGuid) ?? "(none)"} " +
+                        $"sceneEntryUT={RecordingStore.SceneEntryUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"recEndUT={rec.EndUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                        "- #226 bypass withheld, spawn goes through guid-aware adoption");
+                }
+            }
             if (allow)
             {
                 ParsekLog.VerboseRateLimited("Spawner",
@@ -229,6 +287,80 @@ namespace Parsek
                     $"activeVesselPid={activeVesselPid.ToString(CultureInfo.InvariantCulture)}");
             }
             return allow;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void ReadActiveVesselIdentity(out uint pid, out string guid)
+        {
+            Vessel active = FlightGlobals.ActiveVessel;
+            pid = active != null ? active.persistentId : 0u;
+            guid = active != null && active.id != Guid.Empty
+                ? active.id.ToString("N", CultureInfo.InvariantCulture)
+                : null;
+        }
+
+        internal const string ReplayBypassReasonPidOnly = "no-recording-context";
+        internal const string ReplayBypassReasonDifferentLaunch = "different-launch";
+        internal const string ReplayBypassReasonSceneEnteredAfterEnd = "scene-entered-after-recording-end";
+        internal const string ReplayBypassReasonSameLaunchInPast = "same-launch-in-recording-past";
+
+        /// <summary>
+        /// Pure launch-identity narrowing of the #226 bypass, applied after its pid verdict
+        /// allowed it. The bypass exists for a revert or rewind re-flight: the live vessel IS the
+        /// recording's launch (same pid and guid) but was taken back into the recording's past,
+        /// so the committed recording must still spawn its end vessel beside it instead of
+        /// adopting the player's re-flight. Kept only when:
+        /// <list type="bullet">
+        ///   <item>a pid-matching live vessel (the scene-entry one, or the active one) is the
+        ///         recording's launch: its guid does not conclusively differ. A different
+        ///         launch of the craft gains nothing from the bypass (guid-aware adoption
+        ///         already refuses it), so the spawn takes the ordinary path.</item>
+        ///   <item>the scene was entered before the recording's end (<paramref name="sceneEntryUT"/>
+        ///         below <c>rec.EndUT</c>). A scene entered at or after the end loaded the
+        ///         recording's own launch past its end: that vessel is the recording's end
+        ///         vessel and is adopted, not duplicated. An unknown scene-entry UT (NaN) or a
+        ///         recording without an end keeps the bypass, as before.</item>
+        /// </list>
+        /// <paramref name="reason"/> names the deciding check.
+        /// </summary>
+        internal static bool ShouldKeepReplayBypassForLaunchIdentity(
+            Recording rec,
+            uint sceneEntryActiveVesselPid,
+            string sceneEntryActiveVesselGuid,
+            double sceneEntryUT,
+            uint activeVesselPid,
+            string activeVesselGuid,
+            out string reason)
+        {
+            if (rec == null || rec.VesselPersistentId == 0)
+            {
+                reason = ReplayBypassReasonPidOnly;
+                return true;
+            }
+
+            uint sourcePid = rec.VesselPersistentId;
+            bool sceneEntrySameLaunch = sourcePid == sceneEntryActiveVesselPid
+                && !VesselLaunchIdentity.GuidsConclusivelyDiffer(rec.RecordedVesselGuid, sceneEntryActiveVesselGuid);
+            bool activeSameLaunch = sourcePid == activeVesselPid
+                && !VesselLaunchIdentity.GuidsConclusivelyDiffer(rec.RecordedVesselGuid, activeVesselGuid);
+            if (!sceneEntrySameLaunch && !activeSameLaunch)
+            {
+                reason = ReplayBypassReasonDifferentLaunch;
+                return false;
+            }
+
+            double endUT = rec.EndUT;
+            if (!double.IsNaN(sceneEntryUT) && !double.IsInfinity(sceneEntryUT)
+                && !double.IsNaN(endUT) && !double.IsInfinity(endUT) && endUT > 0.0
+                && sceneEntryUT >= endUT)
+            {
+                reason = ReplayBypassReasonSceneEnteredAfterEnd;
+                return false;
+            }
+
+            reason = ReplayBypassReasonSameLaunchInPast;
+            return true;
         }
 
         // Pid-only existence check. Retained for callers that have no recording context (e.g. the

@@ -187,6 +187,7 @@ namespace Parsek
             int abandoned = 0;
             int recovered = 0;
             int skippedTimelineInactive = 0;
+            int staleStampOtherLaunch = 0;
 
             for (int i = 0; i < committed.Count; i++)
             {
@@ -201,9 +202,25 @@ namespace Parsek
                         rec.VesselSpawned, rec.SpawnedVesselPersistentId, rec.SpawnAbandoned))
                     continue;
 
-                // Vessel still alive — no action needed
-                if (FlightRecorder.FindVesselByPid(rec.SpawnedVesselPersistentId) != null)
-                    continue;
+                // Vessel still alive - no action needed. An adoption stamp names the
+                // craft-baked pid, which a relaunch of the same craft reuses, so a vessel found
+                // by that pid holds the claim only when it is the stamped launch.
+                Vessel spawnedVessel = FlightRecorder.FindVesselByPid(rec.SpawnedVesselPersistentId);
+                if (spawnedVessel != null)
+                {
+                    string spawnedVesselGuid = spawnedVessel.id != Guid.Empty
+                        ? spawnedVessel.id.ToString("N")
+                        : null;
+                    if (IsSpawnClaimHeldByLiveVessel(rec, spawnedVessel.persistentId, spawnedVesselGuid))
+                        continue;
+                    staleStampOtherLaunch++;
+                    ParsekLog.InfoRateLimited("Policy",
+                        "spawn-claim-other-launch|" + (rec.RecordingId ?? "(none)") + "|" + (spawnedVesselGuid ?? "(none)"),
+                        $"Spawn claim of #{i} \"{rec.VesselName}\" pid={rec.SpawnedVesselPersistentId} " +
+                        $"is an adoption stamp held by another launch of the craft " +
+                        $"(recGuid={VesselLaunchIdentity.NormalizeGuid(rec.RecordedVesselGuid) ?? "(none)"} " +
+                        $"liveGuid={spawnedVesselGuid}) - treating the stamped vessel as gone");
+                }
 
                 // A recovered vessel is gone because the player recovered it, not because it
                 // died: clear the claim without counting a death, ahead of the terminal-orbit
@@ -277,10 +294,23 @@ namespace Parsek
             if (detected > 0 || recovered > 0)
                 ParsekLog.Info("Policy",
                     $"RunSpawnDeathChecks: {detected} death(s) detected, {abandoned} abandoned, " +
-                    $"{recovered} recovered");
+                    $"{recovered} recovered, {staleStampOtherLaunch} adoption stamp(s) held by another launch");
             if (skippedTimelineInactive > 0)
                 ParsekLog.VerboseRateLimited("Policy", "spawn-death-skip-timeline-inactive",
                     $"RunSpawnDeathChecks: skipped {skippedTimelineInactive} timeline-inactive recording(s)");
+        }
+
+        /// <summary>
+        /// Pure liveness half of <see cref="RunSpawnDeathChecks"/>: does the vessel found by the
+        /// recording's spawn pid still hold its spawn claim? A genuine Parsek spawn pid is
+        /// KSP-unique, so a pid match is enough; an adoption stamp
+        /// (<c>SpawnedVesselPersistentId == VesselPersistentId</c>) names the craft-baked pid, so
+        /// a relaunch of the same craft (a conclusively different launch guid) does not keep a
+        /// stale stamp alive (<see cref="VesselLaunchIdentity.LiveVesselIsRecordedSpawn"/>).
+        /// </summary>
+        internal static bool IsSpawnClaimHeldByLiveVessel(Recording rec, uint foundPid, string foundGuid)
+        {
+            return VesselLaunchIdentity.LiveVesselIsRecordedSpawn(rec, foundPid, foundGuid);
         }
 
         /// <summary>
