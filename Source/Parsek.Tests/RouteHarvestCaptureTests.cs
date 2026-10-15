@@ -407,5 +407,168 @@ namespace Parsek.Tests
             Assert.Equal(window.WindowId, clone.WindowId);
             Assert.True(clone.ClosedAtRecordingStop);
         }
+
+        // ---------- Plausibility bound (HARVEST-ROUTE-PLAUSIBILITY-CAP) ----------
+
+        private static HarvestConverterRate Drill(double efficiency, double abundance, double multiplier)
+        {
+            return new HarvestConverterRate
+            {
+                Kind = HarvestConverterKind.Drill,
+                ResourceName = "Ore",
+                Efficiency = efficiency,
+                Abundance = abundance,
+                Multiplier = multiplier
+            };
+        }
+
+        private static HarvestConverterRate Recipe(double multiplier, params (string name, double ratio)[] outputs)
+        {
+            var list = new List<KeyValuePair<string, double>>();
+            foreach (var (name, ratio) in outputs)
+                list.Add(new KeyValuePair<string, double>(name, ratio));
+            return new HarvestConverterRate
+            {
+                Kind = HarvestConverterKind.Recipe,
+                Outputs = list,
+                Multiplier = multiplier
+            };
+        }
+
+        // catches: a running AND an idle drill counted differently - the bound
+        // sums every converter, so a drill switched on inside the window is covered.
+        [Fact]
+        public void ComputePlausibleRates_SumsDrillsAndRecipeOutputs()
+        {
+            Dictionary<string, double> rates = RouteHarvestCapture.ComputePlausibleRates(
+                new List<HarvestConverterRate>
+                {
+                    Drill(1.5, 0.1, 0.25),
+                    Drill(1.5, 0.1, 0.25),
+                    Recipe(0.5, ("LiquidFuel", 0.9), ("ElectricCharge", 2.0)),
+                    new HarvestConverterRate { Kind = HarvestConverterKind.NoResourceOutput, Multiplier = 1.0 }
+                });
+
+            Assert.NotNull(rates);
+            Assert.Equal(0.075, rates["Ore"], 9);
+            Assert.Equal(0.45, rates["LiquidFuel"], 9);
+            Assert.Equal(1.0, rates["ElectricCharge"], 9);
+            Assert.Equal(3, rates.Count);
+        }
+
+        // catches: an asteroid drill (unmodeled) silently bounding Ore at 0 -
+        // one unmodeled converter must leave the whole window unbounded.
+        [Fact]
+        public void ComputePlausibleRates_UnmodeledConverter_Unbounded()
+        {
+            Assert.Null(RouteHarvestCapture.ComputePlausibleRates(new List<HarvestConverterRate>
+            {
+                Drill(1.5, 0.1, 1.0),
+                new HarvestConverterRate { Kind = HarvestConverterKind.Unmodeled, Multiplier = 1.0 }
+            }));
+        }
+
+        [Fact]
+        public void ComputePlausibleRates_UnusableFigure_Unbounded()
+        {
+            Assert.Null(RouteHarvestCapture.ComputePlausibleRates(
+                new List<HarvestConverterRate> { Drill(double.NaN, 0.1, 1.0) }));
+            Assert.Null(RouteHarvestCapture.ComputePlausibleRates(
+                new List<HarvestConverterRate> { Drill(1.5, 0.1, -1.0) }));
+            Assert.Null(RouteHarvestCapture.ComputePlausibleRates(
+                new List<HarvestConverterRate> { Recipe(1.0, ("Ore", double.PositiveInfinity)) }));
+        }
+
+        [Fact]
+        public void ComputePlausibleRates_NoResourceProducer_EmptyButBounded()
+        {
+            Dictionary<string, double> rates = RouteHarvestCapture.ComputePlausibleRates(
+                new List<HarvestConverterRate>
+                {
+                    new HarvestConverterRate { Kind = HarvestConverterKind.NoResourceOutput, Multiplier = 1.0 }
+                });
+            Assert.NotNull(rates);
+            Assert.Empty(rates);
+        }
+
+        [Fact]
+        public void MergePlausibleRates_TakesLargerPerResource_NullWins()
+        {
+            var open = new Dictionary<string, double> { ["Ore"] = 0.01, ["LiquidFuel"] = 0.5 };
+            var close = new Dictionary<string, double> { ["Ore"] = 0.05 };
+
+            Dictionary<string, double> merged = RouteHarvestCapture.MergePlausibleRates(open, close);
+            Assert.Equal(0.05, merged["Ore"], 9);
+            Assert.Equal(0.5, merged["LiquidFuel"], 9);
+            Assert.Null(RouteHarvestCapture.MergePlausibleRates(open, null));
+            Assert.Null(RouteHarvestCapture.MergePlausibleRates(null, close));
+        }
+
+        [Fact]
+        public void ComputePlausibleLimit_RateTimesSecondsTimesMargin()
+        {
+            var rates = new Dictionary<string, double> { ["Ore"] = 0.2 };
+            Assert.Equal(0.2 * 100.0 * RouteHarvestCapture.PlausibilityMargin,
+                RouteHarvestCapture.ComputePlausibleLimit(rates, "Ore", 100.0), 9);
+            // No producer in a bounded set, zero or negative duration: nothing plausible.
+            Assert.Equal(0.0, RouteHarvestCapture.ComputePlausibleLimit(rates, "LiquidFuel", 100.0));
+            Assert.Equal(0.0, RouteHarvestCapture.ComputePlausibleLimit(rates, "Ore", 0.0));
+            Assert.Equal(0.0, RouteHarvestCapture.ComputePlausibleLimit(rates, "Ore", -5.0));
+            Assert.True(double.IsPositiveInfinity(
+                RouteHarvestCapture.ComputePlausibleLimit(null, "Ore", 100.0)));
+        }
+
+        // catches (the ruling's scenario): a stock catch-up burst landing inside
+        // a short window credited in full - 500 Ore in 100 s from a drill that
+        // makes 0.2 Ore/s is capped at 0.2 x 100 x margin.
+        [Fact]
+        public void ComputeWindowPlausibleHarvest_CatchUpBurst_Capped()
+        {
+            ResourceTransferability.DefinitionLookupOverrideForTesting = _ => true;
+            RouteHarvestWindow window = OpenTestWindow(ut: 1000.0,
+                startManifest: Res(("Ore", 0.0)), atRecordingStart: true);
+            window.PlausibleRates = new Dictionary<string, double> { ["Ore"] = 0.2 };
+            RouteHarvestCapture.CloseWindow(window, 1100.0, Res(("Ore", 500.0)), atRecordingStop: false);
+
+            Assert.Equal(500.0, RouteHarvestCapture.ComputeWindowHarvestedManifest(window)["Ore"], 6);
+            Assert.Equal(0.2 * 100.0 * RouteHarvestCapture.PlausibilityMargin,
+                RouteHarvestCapture.ComputeWindowPlausibleHarvest(window)["Ore"], 6);
+        }
+
+        [Fact]
+        public void ComputeWindowPlausibleHarvest_WithinRate_Unchanged()
+        {
+            ResourceTransferability.DefinitionLookupOverrideForTesting = _ => true;
+            RouteHarvestWindow window = OpenTestWindow(ut: 1000.0, startManifest: Res(("Ore", 0.0)));
+            window.PlausibleRates = new Dictionary<string, double> { ["Ore"] = 0.2 };
+            RouteHarvestCapture.CloseWindow(window, 1100.0, Res(("Ore", 20.0)), atRecordingStop: false);
+
+            Assert.Equal(20.0, RouteHarvestCapture.ComputeWindowPlausibleHarvest(window)["Ore"], 6);
+        }
+
+        // catches: a window recorded before the bound existed (no rates) being
+        // capped to 0 - an unbounded window credits its witnessed harvest.
+        [Fact]
+        public void ComputeWindowPlausibleHarvest_NoRates_Uncapped()
+        {
+            ResourceTransferability.DefinitionLookupOverrideForTesting = _ => true;
+            RouteHarvestWindow window = OpenTestWindow(ut: 1000.0, startManifest: Res(("Ore", 0.0)));
+            RouteHarvestCapture.CloseWindow(window, 1001.0, Res(("Ore", 500.0)), atRecordingStop: false);
+
+            Assert.Null(window.PlausibleRates);
+            Assert.Equal(500.0, RouteHarvestCapture.ComputeWindowPlausibleHarvest(window)["Ore"], 6);
+        }
+
+        [Fact]
+        public void HarvestWindow_DeepClone_CopiesPlausibleRates()
+        {
+            RouteHarvestWindow window = OpenTestWindow();
+            window.PlausibleRates = new Dictionary<string, double> { ["Ore"] = 0.2 };
+
+            RouteHarvestWindow clone = window.DeepClone();
+            window.PlausibleRates["Ore"] = 9.0;
+
+            Assert.Equal(0.2, clone.PlausibleRates["Ore"], 9);
+        }
     }
 }

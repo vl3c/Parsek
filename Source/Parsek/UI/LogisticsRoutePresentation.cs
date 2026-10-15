@@ -523,6 +523,31 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The from/to hover's plausibility-cap sentence
+        /// (HARVEST-ROUTE-PLAUSIBILITY-CAP): "Harvest per run capped at 75.0 Ore,
+        /// what the drills could make in the recorded time." Several resources join
+        /// with commas and a final "and", in the order given. Empty when nothing was capped.
+        /// </summary>
+        internal static string FormatHarvestCapNote(IReadOnlyList<HarvestCapEntry> caps)
+        {
+            if (caps == null || caps.Count == 0)
+                return string.Empty;
+            var parts = new List<string>(caps.Count);
+            for (int i = 0; i < caps.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(caps[i].Resource))
+                    parts.Add(caps[i].Cap.ToString("F1", IC) + " " + caps[i].Resource);
+            }
+            if (parts.Count == 0)
+                return string.Empty;
+            string amounts = parts.Count == 1
+                ? parts[0]
+                : string.Join(", ", parts.GetRange(0, parts.Count - 1).ToArray()) + " and " + parts[parts.Count - 1];
+            return "Harvest per run capped at " + amounts
+                + ", what the drills could make in the recorded time.";
+        }
+
+        /// <summary>
         /// The arrow between a route's two ends: U+2192, the glyph the fallback route names
         /// draw ("Route: KSC [U+2192] Duna", <c>RouteCreationFormatters</c>), so such a
         /// name and the line under it read alike in the same font.

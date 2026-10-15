@@ -366,6 +366,40 @@ namespace Parsek.Tests.Logistics
                 l.Contains("origin=harvest"));
         }
 
+        [Fact]
+        public void BuildRoute_HarvestOrigin_CarriesAnalysisHarvestCaps()
+        {
+            Recording source = MakeNoOriginSource();
+            RouteAnalysisResult analysis = new RouteAnalysisResult
+            {
+                Status = RouteAnalysisStatus.Eligible,
+                SourceRecording = source,
+                ConnectionWindow = source.RouteConnectionWindows[0],
+                ResourceDeliveryManifest = new Dictionary<string, double> { { "Ore", 75.0 } },
+                IsHarvestOrigin = true,
+                HarvestedManifest = new Dictionary<string, double> { { "Ore", 120.0 } },
+                PlausibleHarvestedManifest = new Dictionary<string, double> { { "Ore", 75.0 } },
+                HarvestCaps = new List<HarvestCapEntry>
+                {
+                    new HarvestCapEntry { Resource = "Ore", Recorded = 100.0, Cap = 75.0 }
+                },
+                FirstHarvestWindow = new RouteHarvestWindow
+                {
+                    WindowId = "hw", StartUT = 5050.0, EndUT = 5090.0,
+                    BodyName = "Minmus", SituationAtOpen = 1
+                }
+            };
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Equal(75.0, outcome.Route.Stops[0].DeliveryManifest["Ore"]);
+            Assert.Single(outcome.Route.HarvestCaps);
+            Assert.Equal(100.0, outcome.Route.HarvestCaps[0].Recorded, 6);
+            Assert.Equal(75.0, outcome.Route.HarvestCaps[0].Cap, 6);
+        }
+
         // catches (M2, plan D7 backstop): an IsHarvestOrigin analysis WITHOUT
         // a first harvest window cannot resolve a display endpoint and must
         // fall to the defensive endpoint-missing reject, never NRE.
@@ -662,6 +696,59 @@ namespace Parsek.Tests.Logistics
             Assert.Single(outcome.Route.InventoryCostManifest);
             Assert.Contains(logLines, l =>
                 l.Contains("costManifestReducedByHarvest=[LiquidFuel:50->removed]"));
+        }
+
+        // catches (HARVEST-ROUTE-PLAUSIBILITY-CAP): the D8 reduction crediting a
+        // catch-up burst off the depot debit every cycle. Witnessed harvest 60
+        // would cancel the whole 50 LiquidFuel debit; only 20 was plausible, so
+        // the debit is 30 and the route reports the credit 50 -> 20.
+        [Fact]
+        public void BuildRoute_DockedOriginWithHarvest_ReducesByPlausibleHarvest()
+        {
+            Recording source = MakeNonKscSource(originPid: 4242);
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+            analysis.HarvestedManifest = new Dictionary<string, double> { { "LiquidFuel", 60.0 } };
+            analysis.PlausibleHarvestedManifest = new Dictionary<string, double> { { "LiquidFuel", 20.0 } };
+            analysis.HarvestCaps = new List<HarvestCapEntry>
+            {
+                new HarvestCapEntry { Resource = "LiquidFuel", Recorded = 60.0, Cap = 20.0 }
+            };
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Equal(30.0, outcome.Route.CostManifest["LiquidFuel"], 6);
+            Assert.Equal(50.0, outcome.Route.Stops[0].DeliveryManifest["LiquidFuel"], 6);
+            Assert.Single(outcome.Route.HarvestCaps);
+            Assert.Equal(50.0, outcome.Route.HarvestCaps[0].Recorded, 6);
+            Assert.Equal(20.0, outcome.Route.HarvestCaps[0].Cap, 6);
+        }
+
+        [Fact]
+        public void SelectRouteHarvestCaps_PerOriginKind()
+        {
+            var analysis = new RouteAnalysisResult
+            {
+                ResourceDeliveryManifest = new Dictionary<string, double> { { "Ore", 50.0 } },
+                HarvestCaps = new List<HarvestCapEntry>
+                {
+                    new HarvestCapEntry { Resource = "Ore", Recorded = 200.0, Cap = 80.0 }
+                }
+            };
+
+            // Harvest origin: the analysis' delivery caps as given.
+            List<HarvestCapEntry> harvest = RouteBuilder.SelectRouteHarvestCaps(analysis, true, false, false);
+            Assert.Equal(80.0, harvest[0].Cap, 6);
+            // KSC and pickup origins credit no harvest.
+            Assert.Null(RouteBuilder.SelectRouteHarvestCaps(analysis, false, false, true));
+            Assert.Null(RouteBuilder.SelectRouteHarvestCaps(analysis, false, true, false));
+            // Docked origin: a cap above the 50 delivered changes no credit.
+            Assert.Null(RouteBuilder.SelectRouteHarvestCaps(analysis, false, false, false));
+            analysis.HarvestCaps[0] = new HarvestCapEntry { Resource = "Ore", Recorded = 200.0, Cap = 10.0 };
+            List<HarvestCapEntry> docked = RouteBuilder.SelectRouteHarvestCaps(analysis, false, false, false);
+            Assert.Equal(50.0, docked[0].Recorded, 6);
+            Assert.Equal(10.0, docked[0].Cap, 6);
         }
 
         // catches (M2 review follow-up NIT 6): a fully-harvested delivery

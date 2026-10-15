@@ -16,6 +16,54 @@ namespace Parsek
     }
 
     /// <summary>
+    /// What the plausibility bound knows about one converter module, read off
+    /// the live part by the recorder
+    /// (<see cref="RouteHarvestCapture.ComputePlausibleRates"/>).
+    /// </summary>
+    internal enum HarvestConverterKind
+    {
+        /// <summary>A converter the bound does not model: the window is unbounded.</summary>
+        Unmodeled = 0,
+        /// <summary>A surface or ocean drill: rate = abundance x efficiency x multiplier.</summary>
+        Drill = 1,
+        /// <summary>A recipe converter (ISRU, fuel cell): rate = output ratio x multiplier.</summary>
+        Recipe = 2,
+        /// <summary>A converter that produces no resource (the science lab).</summary>
+        NoResourceOutput = 3,
+    }
+
+    /// <summary>One converter's inputs to the plausibility bound.</summary>
+    internal struct HarvestConverterRate
+    {
+        public HarvestConverterKind Kind;
+        /// <summary>Drill: the harvested resource name.</summary>
+        public string ResourceName;
+        /// <summary>Drill: the module's Efficiency field.</summary>
+        public double Efficiency;
+        /// <summary>Drill: the resource abundance at the vessel's location (0..1).</summary>
+        public double Abundance;
+        /// <summary>Recipe: output resource name to units/s at full efficiency.</summary>
+        public List<KeyValuePair<string, double>> Outputs;
+        /// <summary>
+        /// The module's efficiency multiplier without its heat throttle (which
+        /// only ever lowers the rate): EfficiencyBonus x crew bonus.
+        /// </summary>
+        public double Multiplier;
+    }
+
+    /// <summary>
+    /// One resource whose recorded harvest exceeded what the drills could
+    /// produce (HARVEST-ROUTE-PLAUSIBILITY-CAP): <see cref="Recorded"/> is the
+    /// witnessed gain, <see cref="Cap"/> the plausible amount credited instead.
+    /// </summary>
+    internal struct HarvestCapEntry
+    {
+        public string Resource;
+        public double Recorded;
+        public double Cap;
+    }
+
+    /// <summary>
     /// Pure / static harvest-window lifecycle (M2 / plan D4), sibling of
     /// <see cref="RouteProofCapture"/>. A window opens when the recorded
     /// transport's converter set (any <c>BaseConverter</c>-derived module)
@@ -217,6 +265,140 @@ namespace Parsek
             }
 
             return harvested;
+        }
+
+        /// <summary>
+        /// Margin over drill rate x duration (owner ruling 2026-10-06, "with a
+        /// margin"): covers what the bound does not model - efficiency modifiers
+        /// other mods add, a rover moving onto richer ground inside one window,
+        /// crew changes between the samples. A catch-up burst is hours of
+        /// production landing in seconds, so it stays far outside the margin.
+        /// </summary>
+        internal const double PlausibilityMargin = 1.5;
+
+        /// <summary>
+        /// Per-resource plausible production rate (units/s) of a converter set,
+        /// summed over EVERY converter whether running or not (any of them can
+        /// be switched on inside the window). Null when any converter is
+        /// <see cref="HarvestConverterKind.Unmodeled"/> or carries an unusable
+        /// figure (NaN, negative, infinite): the bound then does not apply and
+        /// the window's harvest is credited uncapped, which is today's behavior.
+        /// An empty dictionary is a real answer: nothing here produces a
+        /// routable resource. Pure.
+        /// </summary>
+        internal static Dictionary<string, double> ComputePlausibleRates(
+            IList<HarvestConverterRate> converters)
+        {
+            var rates = new Dictionary<string, double>(System.StringComparer.Ordinal);
+            if (converters == null)
+                return rates;
+
+            for (int i = 0; i < converters.Count; i++)
+            {
+                HarvestConverterRate c = converters[i];
+                if (!IsUsableFactor(c.Multiplier))
+                    return null;
+                switch (c.Kind)
+                {
+                    case HarvestConverterKind.NoResourceOutput:
+                        break;
+                    case HarvestConverterKind.Drill:
+                        if (string.IsNullOrEmpty(c.ResourceName)
+                            || !IsUsableFactor(c.Efficiency) || !IsUsableFactor(c.Abundance))
+                            return null;
+                        AddRate(rates, c.ResourceName, c.Abundance * c.Efficiency * c.Multiplier);
+                        break;
+                    case HarvestConverterKind.Recipe:
+                        if (c.Outputs == null)
+                            break;
+                        for (int o = 0; o < c.Outputs.Count; o++)
+                        {
+                            KeyValuePair<string, double> output = c.Outputs[o];
+                            if (string.IsNullOrEmpty(output.Key) || !IsUsableFactor(output.Value))
+                                return null;
+                            AddRate(rates, output.Key, output.Value * c.Multiplier);
+                        }
+                        break;
+                    default:
+                        return null;
+                }
+            }
+            return rates;
+        }
+
+        /// <summary>
+        /// Combines two rate samples of one window (open and close) by taking the
+        /// larger rate per resource, so a crew bonus that rose inside the window
+        /// still counts. Null (unbounded) when either sample is null. Pure.
+        /// </summary>
+        internal static Dictionary<string, double> MergePlausibleRates(
+            Dictionary<string, double> a, Dictionary<string, double> b)
+        {
+            if (a == null || b == null)
+                return null;
+            var merged = new Dictionary<string, double>(a, System.StringComparer.Ordinal);
+            foreach (KeyValuePair<string, double> kvp in b)
+            {
+                if (!merged.TryGetValue(kvp.Key, out double existing) || kvp.Value > existing)
+                    merged[kvp.Key] = kvp.Value;
+            }
+            return merged;
+        }
+
+        /// <summary>
+        /// The most <paramref name="resource"/> the converter set could plausibly
+        /// produce over <paramref name="seconds"/>: rate x seconds x
+        /// <see cref="PlausibilityMargin"/>. A resource with no rate entry in a
+        /// bounded set has no producer, so its limit is 0. Returns
+        /// <see cref="double.PositiveInfinity"/> when <paramref name="rates"/> is
+        /// null (unbounded). Pure.
+        /// </summary>
+        internal static double ComputePlausibleLimit(
+            Dictionary<string, double> rates, string resource, double seconds)
+        {
+            if (rates == null)
+                return double.PositiveInfinity;
+            if (double.IsNaN(seconds) || seconds <= 0.0)
+                return 0.0;
+            if (resource == null || !rates.TryGetValue(resource, out double rate))
+                return 0.0;
+            return rate * seconds * PlausibilityMargin;
+        }
+
+        /// <summary>
+        /// The window's harvested manifest
+        /// (<see cref="ComputeWindowHarvestedManifest"/>) with each resource
+        /// limited to <see cref="ComputePlausibleLimit"/> over the window's own
+        /// duration. A window without <see cref="RouteHarvestWindow.PlausibleRates"/>
+        /// returns the uncapped manifest. Pure.
+        /// </summary>
+        internal static Dictionary<string, double> ComputeWindowPlausibleHarvest(
+            RouteHarvestWindow window)
+        {
+            Dictionary<string, double> harvested = ComputeWindowHarvestedManifest(window);
+            if (window == null || window.PlausibleRates == null || harvested.Count == 0)
+                return harvested;
+
+            double seconds = window.EndUT - window.StartUT;
+            var names = new List<string>(harvested.Keys);
+            for (int i = 0; i < names.Count; i++)
+            {
+                double limit = ComputePlausibleLimit(window.PlausibleRates, names[i], seconds);
+                if (harvested[names[i]] > limit)
+                    harvested[names[i]] = limit;
+            }
+            return harvested;
+        }
+
+        private static bool IsUsableFactor(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value) && value >= 0.0;
+        }
+
+        private static void AddRate(Dictionary<string, double> rates, string name, double rate)
+        {
+            rates.TryGetValue(name, out double existing);
+            rates[name] = existing + rate;
         }
     }
 }

@@ -1922,15 +1922,24 @@ be needed). No `LoadReconcilePolicy` cell covers the saved active tree itself.
 
 ---
 
-## HARVEST-ROUTE-PLAUSIBILITY-CAP: cap a harvest-origin route's recorded harvest at what its drills could produce [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~HARVEST-ROUTE-PLAUSIBILITY-CAP: cap a harvest-origin route's recorded harvest at what its drills could produce~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `claude/harvest-cap-scan-ledger-oo5vxg` (xUnit); lane MINE-5 not flown]
 
 A harvest-origin route replays whatever ore its recorded run gained, including a stock
 catch-up burst recorded inside an open harvest window (see TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND).
 Owner ruling 2026-10-06: bound the recorded harvest by drill rate x duration (with a margin) at
 route creation, and say so in the route's explanation text when the cap applies.
 
-Fix: a pure plausibility bound in the harvest-window capture / route analysis
-(`RouteHarvestCapture`), xUnit cells, then lane MINE-5.
+Fix: each harvest window stores `PlausibleRates` (units/s of the transport's whole converter set,
+sampled at open and at an in-flight close; stock surface / ocean drills, recipe converters and the
+lab are modelled, anything else leaves the window unbounded). The plausible harvest is
+`min(delta, rate x duration x 1.5)` per window and `min(delta, rate x gap x 1.5)` per D5 bridge
+(`RouteHarvestCapture.ComputeWindowPlausibleHarvest`, `RouteHarvestAnalysis.ComputeHarvestedTotals`).
+The gain / flow / harvest-origin gates still read the witnessed totals; a harvest-origin route's
+deliveries are clamped to the plausible totals and the D8 debit reduction subtracts them. Capped
+resources persist as `Route.HarvestCaps` and the from/to hover names them. Design: logistics
+19.4 M2 "Plausibility cap". Still open: lane MINE-5 (a live drill) to measure a real window's
+rates against stock's own production; a delivery that clamps to nothing leaves its stop with an
+empty manifest rather than refusing the route.
 
 ---
 

@@ -44,6 +44,17 @@ namespace Parsek.Logistics
         public string RejectDetail;
         /// <summary>Witnessed harvested totals per routable resource within the checked span.</summary>
         public Dictionary<string, double> HarvestedManifest;
+        /// <summary>
+        /// <see cref="HarvestedManifest"/> with every window and bridge limited to
+        /// what the converters could plausibly produce over its duration
+        /// (HARVEST-ROUTE-PLAUSIBILITY-CAP). The route's per-run CREDIT reads this;
+        /// the gain and flow checks keep reading the witnessed totals, because a
+        /// catch-up burst is real cargo that did arrive - it just must not be
+        /// promised again every cycle.
+        /// </summary>
+        public Dictionary<string, double> PlausibleHarvestedManifest;
+        /// <summary>The resources whose witnessed harvest exceeded the plausible amount (ordinal order).</summary>
+        public List<HarvestCapEntry> HarvestCaps;
         /// <summary>The gain-anchor lineage leg (diagnostics + logging).</summary>
         public Recording AnchorLeg;
         /// <summary>
@@ -194,14 +205,128 @@ namespace Parsek.Logistics
 
             Dictionary<string, double> harvested = ComputeHarvestedTotals(
                 lineage, anchorIdx, arrivalIdx, anchorLeg.StartUT, dockUT,
-                out RouteHarvestWindow firstWindow);
+                out RouteHarvestWindow firstWindow,
+                out Dictionary<string, double> plausible);
 
             Dictionary<string, double> gains =
                 ComputeFullRunGains(anchorLeg.RouteRunManifest, window);
 
-            return EvaluateGainVerdict(
+            HarvestGainCheckResult result = EvaluateGainVerdict(
                 source, logMode, lineage, anchorLeg, harvested, gains, firstWindow,
                 loadedManifest);
+            result.PlausibleHarvestedManifest = plausible;
+            result.HarvestCaps = ComputeHarvestCaps(harvested, plausible);
+            if (result.HarvestCaps.Count > 0)
+                Diag(logMode, "harvest-plausibility-cap",
+                    $"RouteAnalysis harvest: plausibility cap applies source={source.RecordingId ?? "<none>"} " +
+                    FormatCapsForLog(result.HarvestCaps));
+            return result;
+        }
+
+        /// <summary>
+        /// <c>caps=N Ore:recorded=..,cap=..</c> (InvariantCulture, R format) for the
+        /// plausibility-cap log lines.
+        /// </summary>
+        internal static string FormatCapsForLog(List<HarvestCapEntry> caps)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append("caps=").Append((caps?.Count ?? 0).ToString(IC));
+            if (caps == null)
+                return sb.ToString();
+            for (int i = 0; i < caps.Count; i++)
+            {
+                sb.Append(' ').Append(caps[i].Resource)
+                    .Append(":recorded=").Append(caps[i].Recorded.ToString("R", IC))
+                    .Append(",cap=").Append(caps[i].Cap.ToString("R", IC));
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Limits a harvest-origin route's deliveries to the plausible harvest
+        /// (HARVEST-ROUTE-PLAUSIBILITY-CAP), IN PLACE: the stops draw on one budget
+        /// per resource in list order, and a resource whose share drops to
+        /// <see cref="GainEpsilon"/> or less leaves that stop's manifest. Returns
+        /// one entry per resource that was lowered (Recorded = the summed recorded
+        /// delivery, Cap = the summed delivery after the clamp), ordinal order;
+        /// empty when <paramref name="plausible"/> is null or nothing was lowered.
+        /// </summary>
+        internal static List<HarvestCapEntry> ClampDeliveriesToPlausibleHarvest(
+            IList<Dictionary<string, double>> deliveries,
+            Dictionary<string, double> plausible)
+        {
+            var caps = new List<HarvestCapEntry>();
+            if (deliveries == null || plausible == null)
+                return caps;
+
+            var budget = new Dictionary<string, double>(plausible, StringComparer.Ordinal);
+            var recorded = new Dictionary<string, double>(StringComparer.Ordinal);
+            var credited = new Dictionary<string, double>(StringComparer.Ordinal);
+            for (int d = 0; d < deliveries.Count; d++)
+            {
+                Dictionary<string, double> delivery = deliveries[d];
+                if (delivery == null)
+                    continue;
+                var names = new List<string>(delivery.Keys);
+                names.Sort(StringComparer.Ordinal);
+                for (int i = 0; i < names.Count; i++)
+                {
+                    string name = names[i];
+                    double amount = delivery[name];
+                    if (amount <= 0.0)
+                        continue;
+                    budget.TryGetValue(name, out double left);
+                    double take = Math.Min(amount, Math.Max(0.0, left));
+                    if (amount - take <= GainEpsilon)
+                        take = amount; // within rounding of the budget: untouched
+                    budget[name] = left - take;
+                    AddTo(recorded, name, amount);
+                    AddTo(credited, name, take);
+                    if (take <= GainEpsilon)
+                        delivery.Remove(name);
+                    else if (take < amount)
+                        delivery[name] = take;
+                }
+            }
+
+            var resources = new List<string>(recorded.Keys);
+            resources.Sort(StringComparer.Ordinal);
+            for (int i = 0; i < resources.Count; i++)
+            {
+                credited.TryGetValue(resources[i], out double cap);
+                if (recorded[resources[i]] - cap > GainEpsilon)
+                    caps.Add(new HarvestCapEntry
+                    {
+                        Resource = resources[i],
+                        Recorded = recorded[resources[i]],
+                        Cap = cap
+                    });
+            }
+            return caps;
+        }
+
+        /// <summary>
+        /// The resources whose witnessed harvest exceeds the plausible harvest by
+        /// more than <see cref="GainEpsilon"/>, in ordinal order. Empty (never
+        /// null) when nothing was capped. Pure.
+        /// </summary>
+        internal static List<HarvestCapEntry> ComputeHarvestCaps(
+            Dictionary<string, double> harvested,
+            Dictionary<string, double> plausible)
+        {
+            var caps = new List<HarvestCapEntry>();
+            if (harvested == null || plausible == null)
+                return caps;
+            var names = new List<string>(harvested.Keys);
+            names.Sort(StringComparer.Ordinal);
+            for (int i = 0; i < names.Count; i++)
+            {
+                double recorded = harvested[names[i]];
+                plausible.TryGetValue(names[i], out double cap);
+                if (recorded - cap > GainEpsilon)
+                    caps.Add(new HarvestCapEntry { Resource = names[i], Recorded = recorded, Cap = cap });
+            }
+            return caps;
         }
 
         /// <summary>
@@ -733,7 +858,31 @@ namespace Parsek.Logistics
             double dockUT,
             out RouteHarvestWindow firstWindow)
         {
+            return ComputeHarvestedTotals(lineage, anchorIdx, arrivalIdx, anchorStartUT, dockUT,
+                out firstWindow, out _);
+        }
+
+        /// <summary>
+        /// <see cref="ComputeHarvestedTotals(List{LineageLeg}, int, int, double, double, out RouteHarvestWindow)"/>
+        /// plus the PLAUSIBLE totals over the same windows and bridges
+        /// (HARVEST-ROUTE-PLAUSIBILITY-CAP): each window is limited to its
+        /// converters' rate x its own duration
+        /// (<see cref="RouteHarvestCapture.ComputeWindowPlausibleHarvest"/>), and
+        /// each bridged boundary delta to the boundary window's rate x the UT gap
+        /// between the two legs (a catch-up burst across a zero-length seam
+        /// limits to 0). A window or boundary without rate data stays uncapped.
+        /// </summary>
+        internal static Dictionary<string, double> ComputeHarvestedTotals(
+            List<LineageLeg> lineage,
+            int anchorIdx,
+            int arrivalIdx,
+            double anchorStartUT,
+            double dockUT,
+            out RouteHarvestWindow firstWindow,
+            out Dictionary<string, double> plausible)
+        {
             var harvested = new Dictionary<string, double>(StringComparer.Ordinal);
+            plausible = new Dictionary<string, double>(StringComparer.Ordinal);
             firstWindow = null;
 
             // Window deltas. Windows live on lineage legs; the span filter is
@@ -766,6 +915,10 @@ namespace Parsek.Logistics
                         RouteHarvestCapture.ComputeWindowHarvestedManifest(hw);
                     foreach (KeyValuePair<string, double> kvp in windowHarvest)
                         AddTo(harvested, kvp.Key, kvp.Value);
+                    Dictionary<string, double> windowPlausible =
+                        RouteHarvestCapture.ComputeWindowPlausibleHarvest(hw);
+                    foreach (KeyValuePair<string, double> kvp in windowPlausible)
+                        AddTo(plausible, kvp.Key, kvp.Value);
                 }
             }
 
@@ -803,13 +956,20 @@ namespace Parsek.Logistics
                 // harvested).
                 if (mN1.StartTransportResources == null)
                     continue;
+                Dictionary<string, double> boundaryRates = BoundaryPlausibleRates(legN, legN1);
+                double gapSeconds = legN1.StartUT - legN.EndUT;
                 foreach (KeyValuePair<string, ResourceAmount> kvp in mN1.StartTransportResources)
                 {
                     if (!ResourceTransferability.IsRoutableResource(kvp.Key, out _))
                         continue;
                     double delta = kvp.Value.amount - GetAmount(mN.EndTransportResources, kvp.Key);
                     if (delta > 0.0)
+                    {
                         AddTo(harvested, kvp.Key, delta);
+                        double limit = RouteHarvestCapture.ComputePlausibleLimit(
+                            boundaryRates, kvp.Key, gapSeconds);
+                        AddTo(plausible, kvp.Key, Math.Min(delta, limit));
+                    }
                 }
             }
 
@@ -826,6 +986,34 @@ namespace Parsek.Logistics
 
             RouteHarvestWindow first = FirstWindowByStartUT(legN1?.RouteHarvestWindows);
             return first != null && first.OpenedAtRecordingStart;
+        }
+
+        // The rate bound of the window(s) that made the D5 bridge legal: the
+        // larger rate per resource of leg N's last window (closed at the stop)
+        // and leg N+1's first window (opened at the start). Null (unbounded)
+        // when a qualifying window carries no rates.
+        private static Dictionary<string, double> BoundaryPlausibleRates(Recording legN, Recording legN1)
+        {
+            Dictionary<string, double> rates = null;
+            bool any = false;
+            RouteHarvestWindow last = LastWindowByStartUT(legN?.RouteHarvestWindows);
+            if (last != null && last.ClosedAtRecordingStop)
+            {
+                if (last.PlausibleRates == null)
+                    return null;
+                rates = last.PlausibleRates;
+                any = true;
+            }
+            RouteHarvestWindow first = FirstWindowByStartUT(legN1?.RouteHarvestWindows);
+            if (first != null && first.OpenedAtRecordingStart)
+            {
+                if (first.PlausibleRates == null)
+                    return null;
+                rates = any ? RouteHarvestCapture.MergePlausibleRates(rates, first.PlausibleRates)
+                    : first.PlausibleRates;
+                any = true;
+            }
+            return any ? rates : null;
         }
 
         private static RouteHarvestWindow FirstWindowByStartUT(List<RouteHarvestWindow> windows)

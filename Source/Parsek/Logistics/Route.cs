@@ -83,6 +83,15 @@ namespace Parsek.Logistics
         /// </summary>
         public bool IsHarvestOrigin;
 
+        /// <summary>
+        /// The resources whose per-run harvest credit the plausibility bound
+        /// lowered at creation (HARVEST-ROUTE-PLAUSIBILITY-CAP): on a harvest-origin
+        /// route the delivery, on a docked-origin route the harvest that reduces
+        /// the origin debit. Read only by the route's from/to hover. Null or empty
+        /// when nothing was capped; sparse in the codec.
+        /// </summary>
+        public List<HarvestCapEntry> HarvestCaps;
+
         // --- Resource transfer ---
 
         /// <summary>Per-resource quantities used or delivered across the whole route.</summary>
