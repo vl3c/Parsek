@@ -27,6 +27,14 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Docking a fleet of identical ships no longer mixes up their histories.** When your ship docks
+  to another and takes it over, Parsek now remembers which launch of that ship it was. A later
+  launch of the same design no longer has its vessel hidden or spawned at the wrong time because
+  of the earlier dock. (DOCK-CHAIN-ABSORBED-PARTNER-PID-ONLY)
+- **Recovering a vessel in flight no longer pays you twice.** When the recording of a vessel you
+  recovered from flight got split in two at commit, a reward earned late in the flight (such as a
+  science milestone) could be counted again as recovery money. Recovery now pays only the real
+  recovery value.
 - **Staging that moves the controls to the dropped stage records both vessels correctly.** When
   the part you control from leaves on the separating stage, the game switches you to that stage;
   your launch recording now keeps following the vessel it started on, the stage gets its own

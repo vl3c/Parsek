@@ -100,7 +100,34 @@ Tests: `AdoptionStampLaunchIdentityTests` (including the review's resumed-spawn 
 regression, and the upgraded-save backfill / relaunch / no-snapshot cells); `VesselNamesLinksTests.ResumeLink_NotRecordedForAnAdoptionStampMatch` pinned the old
 match of an adoption stamp by another launch's unlinked guid and now pins its refusal.
 
----
+## ~~DOCK-CHAIN-ABSORBED-PARTNER-PID-ONLY: a dock claim whose claimer absorbed the partner carries no launch guid, so a relaunch of the same craft pools into its ghost chain~~ [FILED 2026-10-15 from the launch-identity audit (gap 3), verified by code read. FIXED 2026-10-15, branch `claude/project-thread-1twzdw-dock-chain-guid`; xUnit only, not flown. Parsek]
+
+`GhostChainWalker.ScanBranchPointClaims` took a dock claim's launch guid from the claiming tree
+(`ResolveLaunchGuidForPid(tree, targetPid)`). When the claimer's vessel survives the couple
+(`isTarget`, `mergedPid` = the claimer's pid), the merged child carries the claimer's pid, the
+partner is not a parent unless it is in the same tree's `BackgroundMap`, and so no recording in the
+claiming tree carries the partner's pid: the guid was null. The #976 latest-launch filter never
+drops a null-guid link, and `MergeCrossTreeLinks` merged chains on a bare tip pid and moved the
+chain tip (and spawn UT) to the merged chain's tip. Absorption frees the partner's craft-baked pid
+while its parts still fly, so a relaunch (hub / tanker fleet) reuses it: a stale launch's claim
+pooled into the new launch's chain, and the new launch's real continuation could be suppressed as
+an intermediate link (or the tip moved to the wrong launch). `MissionCrossTreeDock.FindLinks`,
+`FindSameTreeDockClaims` and `DockEventGraph`'s cross-tree step had the same pid-only fallback.
+`design-dock-event-graph.md` called it a "marginal enlargement of an existing exposure".
+
+Fix: the dock branch point stamps the partner's launch guid beside its pid
+(`BranchPoint.TargetVesselGuid`, optional key `targetVesselGuid`, absent -> null, no generation
+bump), read from the live couple-event side that carries the stamped pid
+(`ParsekFlight.ResolveDockPartnerGuidFromEvent`, both OnPartCouple paths, logged as
+`partnerGuidStamped=`). `MissionCrossTreeDock.ResolveClaimLaunchGuid` prefers the stamp over the
+tree pid lookup and is shared by the walker, `FindLinks` and the graph; `FindSameTreeDockClaims`
+prefers it too. `MergeCrossTreeLinks` refuses a merge when the linked chain's launch guid and the
+tip recording's guid are both known and conclusively differ (Verbose `Cross-tree link refused`,
+once per change). Unknown guids keep the pid-only behavior. Tests: `DockPartnerLaunchGuidTests`.
+Residual: a stamp is the live `Vessel.id`, like every recording's guid, so a dock into a resumed
+Parsek-spawned vessel (whose resumed recording keeps the pre-spawn guid, a `Resume` identity link)
+reads as a different launch on both the absorbed and the surviving path; the identity links are
+not consulted by `VesselLaunchIdentity`. Older saves stay pid-only until re-recorded.
 
 ## REFLY-FORK-SELF-SPAWN-AFTER-QUICKSAVE: during a Re-Fly, a save turns the session's own fork into an "ended" recording and Parsek spawns a real copy of it; the copy's breakup debris is then attributed to the Re-Fly recording [FILED 2026-10-13 from CI-3, reproduced twice. FIXED on branch `claude/project-thread-1twzdw` (PR #2100), confirmed green `2026-10-15_0656`; item 3 was defect 1, Parsek, high]
 
@@ -776,7 +803,7 @@ the ledger: recordingId=<id>`.
 
 ---
 
-## ~~HC-2-ROLLOUT-CHARGE-NOT-RECORDED: HC-2's LaunchFromEditor rollout shows no funds charge and no VesselRollout ledger row~~ [FILED 2026-10-12 from the nightly tier, run `2026-10-12_0641`. FIXED 2026-10-15 in the seam (branch `claude/project-thread-wkx3cr`), NOT YET RE-FLOWN. harness, not a product defect]
+## ~~HC-2-ROLLOUT-CHARGE-NOT-RECORDED: HC-2's LaunchFromEditor rollout shows no funds charge and no VesselRollout ledger row~~ [FILED 2026-10-12 from the nightly tier, run `2026-10-12_0641`. FIXED 2026-10-15 in the seam (PR #2099), RE-FLOWN 2026-10-15 on main `5102e3d92`: `2026-10-15_1238` charges the rollout before `launchfromeditor complete` but reads red on RECOVERY-PAYOUT-MARK-LOST-ON-OPTIMIZER-SPLIT; after that fix `2026-10-15_1318` PASS attempt 1. harness, not a product defect]
 
 `HC-2-hard-career-earn-spend` `2026-10-12_0641` PARSEK-FAIL (expectations): its three required
 tokens `Game state: FundsChanged -300 (VesselRollout)`, `VesselRollout spending recorded: cost=300,`
@@ -809,7 +836,37 @@ launch UT moves with the hop. Every LaunchFromEditor lane now completes ~0.3-0.5
 by reading each spec's steps after the launch: ZF-1's `WarpToUT ut=14` still lies past the new
 completion (UT ~11.3 on `_0943`), CI-6/7/10/11 already waited on `ListHandles kind=chains`, SE-1
 time-jumps, and RR-1's StartRecording now starts after onFlightReady (the player's order; its
-`ListHandles` wait answers at once). None is re-flown.
+`ListHandles` wait answers at once). Re-flown 2026-10-15 on main `5102e3d92`: ZF-1, SE-1, RR-1,
+CI-6, CI-7, CI-10 and CI-11 PASS, each logging the wait (frames=13, 0.25-0.33 s); HC-2 is red on
+the next entry.
+
+---
+
+## ~~RECOVERY-PAYOUT-MARK-LOST-ON-OPTIMIZER-SPLIT: an in-flight recovery whose recording the commit optimizer splits books an in-flight funds change as a second recovery payout~~ [FILED 2026-10-15 from HC-2's re-flight `2026-10-15_1238`, measured. FIXED 2026-10-15 (PR #2105), LIVE-PROVEN 2026-10-15: `2026-10-15_1318` PASS attempt 1 on main `5bd46486e`]
+
+`HC-2-hard-career-earn-spend` `2026-10-15_1238` PARSEK-FAIL (expectations): LedgerGroundTruth
+reads `reportOnly=1` (`facet=Funds kind=UpliftClampedExpected expected=523458 recon=524418
+delta=960`) and the forbidden `GUARDED (UPLIFT|DRAWDOWN) clamped` matches 21 times from before
+the LaunchFromEditor. The hop's in-flight Recover stamped recording `e2fe17be` Recovered and put it
+in `InFlightRecoveryRequest.awaitingStockPayout` (stock pays at the Space Center after the commit,
+and the #444 path writes that payout). The commit optimizer then split the recording at UT 341.3
+and `SplitAtSection` moved the Recovered terminal to the second half `1b179d5b`.
+`LedgerOrchestrator.AddVesselRecoveryCostActions` looked the mark up by `1b179d5b`, missed, and
+fell to the last-two-points heuristic, which booked the `Kerbin/Science` reward (960, UT 345.5)
+as recovery funds on top of the real payout. Timing-dependent: in `2026-10-12_0641` the split did
+not straddle the award.
+
+Fix: `InFlightRecoveryRequest.MoveAwaitingStockPayout` moves the mark with the terminal, called by
+`RunOptimizationSplitPass` (original -> second half) and `RunOptimizationMergePass` (absorbed ->
+target, which `MergeInto` stamps with the absorbed terminal); log `[Recovery] In-flight recovery:
+payout mark moved from '<a>' to '<b>' with the Recovered terminal (context=optimization-split)`.
+`RecoveryPayoutMarkAcrossOptimizerTests` (split, merge, the cost actions after a split, and a
+control proving the fixture reaches the heuristic); deleting either call reds three cells. The
+Re-Fly split (`RecordingTreeSplitter`) runs at a rewind load, after any pending payout, and is
+untouched. Re-flown `2026-10-15_1318` (automation DLL sha256 `f9a486f7...0749`): the split at UT
+342.1 again fell before the Kerbin/Science award (UT 346.0), the log shows `payout mark moved from
+'a3db1366...' to 'b136d160...' ... (context=optimization-split)`, LedgerGroundTruth `hardFailures=0
+reportOnly=0 facetsCompared=11`, zero `GUARDED ... clamped`.
 
 ## REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START: S4.2 and S4.4 need the re-fly recorder live (or not yet) while the provisional is still empty, a window of a few frames [FILED 2026-10-07 from the F9 verification flights, branch `ql-lanes`, measured. S4.4 FIXED 2026-10-08 by a named-condition seam wait (branch `s44-refly-wait`), LIVE-PROVEN 2026-10-08: three flights `2026-10-08_1806`, `_1812`, `_1814`, each PASS attempt 1 with the wait answering `points=0 ... reFlyMarker=true`, the bare reload refused `recording-active` and the empty-provisional conclusion. OPEN for S4.2, harness]
 

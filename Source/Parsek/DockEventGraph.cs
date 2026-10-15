@@ -92,6 +92,7 @@ namespace Parsek
         public string MergedChildRecordingId;    // ChildRecordingIds[0]; null when absent
         public string MergedChildVesselName;     // display name of the merged stack
         public uint PartnerPid;                  // bp.TargetVesselPersistentId (0 on Undock)
+        public string PartnerStampedGuid;        // bp.TargetVesselGuid (null on Undock / unknown)
         public DockPartnerResolution Partner;
 
         /// <summary>
@@ -429,6 +430,7 @@ namespace Parsek
                 Kind = bp.Type,
                 MergeCause = bp.Type == BranchPointType.Undock ? null : bp.MergeCause,
                 PartnerPid = bp.Type == BranchPointType.Undock ? 0u : bp.TargetVesselPersistentId,
+                PartnerStampedGuid = bp.Type == BranchPointType.Undock ? null : bp.TargetVesselGuid,
             };
             if (bp.ParentRecordingIds != null)
             {
@@ -488,16 +490,17 @@ namespace Parsek
             }
 
             // (c) cross-tree: FindLinks' claim rule, evaluated from the OWNING tree's side.
-            // The expected launch guid comes from the owning tree (where the partner's pid may
-            // survive on the merged child / departing offshoot); earliest-starting match across
+            // The expected launch guid is the branch point's stamped partner guid when present,
+            // else it comes from the owning tree (where the partner's pid may survive on the
+            // merged child / departing offshoot); earliest-starting match across
             // all other trees wins, exactly like FindLinks' earliest-start preference.
             // ONE DELIBERATE DIVERGENCE: FindLinks additionally requires the claiming branch
             // point's merged child to resolve in its own tree, because a partner-journey row
             // needs that recording's name. The graph does not - a malformed branch point still
             // gets a NODE (topology is what the graph is for), and TryDescribePartner declines
             // the partner-side direction on its own when the merged child has no name.
-            string expectedGuid = MissionCrossTreeDock.ResolveLaunchGuidForPid(
-                owningTree, node.PartnerPid);
+            string expectedGuid = MissionCrossTreeDock.ResolveClaimLaunchGuid(
+                owningTree, node.PartnerPid, node.PartnerStampedGuid);
             Recording bestCross = null;
             RecordingTree bestCrossTree = null;
             bool rejectedByGuid = false;

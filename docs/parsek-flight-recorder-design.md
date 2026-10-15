@@ -247,6 +247,7 @@ BranchPoint
   CoalesceWindow:           double — threshold used (default 0.5s)
   MergeCause:               DOCK | BOARD | CONSTRUCT | CLAW
   TargetVesselPersistentId: uint — pre-existing vessel's PID (links to game state; used by chain walker)
+  TargetVesselGuid:         string - that vessel's launch guid (Vessel.id) at couple time; optional, null when unknown
   TerminalCause:            RECOVERED | DESTROYED | RECYCLED | DESPAWNED
 ```
 

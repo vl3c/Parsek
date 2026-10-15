@@ -83,6 +83,9 @@ namespace Parsek
                 target.FilesDirty = true;
                 string chainId = target.ChainId;
                 RetagLedgerActionsAfterOptimizationMerge(target, absorbed);
+                // MergeInto stamped the absorbed terminal onto the target.
+                InFlightRecoveryRequest.MoveAwaitingStockPayout(
+                    absorbed.RecordingId, target.RecordingId, "optimization-merge");
                 UpdateTreeStateAfterOptimizationMerge(target, absorbed);
 
                 // Remove absorbed recording from committed list
@@ -162,6 +165,9 @@ namespace Parsek
                 CopySplitIdentityFields(original, second);
 
                 RetagLedgerActionsAfterOptimizationSplit(original, second);
+                // SplitAtSection moved the terminal state onto the second half.
+                InFlightRecoveryRequest.MoveAwaitingStockPayout(
+                    original.RecordingId, second.RecordingId, "optimization-split");
 
                 // Derive SegmentBodyName from trajectory points
                 if (original.Points != null && original.Points.Count > 0)
