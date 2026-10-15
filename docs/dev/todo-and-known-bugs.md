@@ -1930,7 +1930,8 @@ Owner ruling 2026-10-06: bound the recorded harvest by drill rate x duration (wi
 route creation, and say so in the route's explanation text when the cap applies.
 
 Fix: each harvest window stores `PlausibleRates` (units/s of the transport's whole converter set,
-sampled at open and at an in-flight close; stock surface / ocean drills, recipe converters and the
+sampled at open, on a part-count change inside the window (an EVA-built drill) and at an in-flight
+close; stock surface / ocean drills, recipe converters and the
 lab are modelled, anything else leaves the window unbounded). The plausible harvest is
 `min(delta, rate x duration x 1.5)` per window and `min(delta, rate x gap x 1.5)` per D5 bridge
 (`RouteHarvestCapture.ComputeWindowPlausibleHarvest`, `RouteHarvestAnalysis.ComputeHarvestedTotals`).

@@ -7744,7 +7744,21 @@ namespace Parsek
 
             int partCount = v.parts != null ? v.parts.Count : 0;
             if (partCount != cachedConverterPartCount)
+            {
                 RebuildHarvestConverterCache(v, "part-count");
+                // A drill built on EVA inside an open window: fold its rate in now, or a
+                // window that closes at the recording stop (which keeps the open sample)
+                // would cap the new drill's output to zero.
+                if (openHarvestWindow != null)
+                {
+                    openHarvestWindow.PlausibleRates = RouteHarvestCapture.MergePlausibleRates(
+                        openHarvestWindow.PlausibleRates, BuildPlausibleHarvestRates(v));
+                    ParsekLog.Verbose("Recorder",
+                        $"Harvest window rates resampled on part-count change: " +
+                        $"window={openHarvestWindow.WindowId} " +
+                        $"plausibleRates={FormatPlausibleRates(openHarvestWindow.PlausibleRates)}");
+                }
+            }
 
             bool anyActive = IsAnyCachedConverterActive();
             HarvestActivityTransition transition = RouteHarvestCapture.EvaluateTransition(
