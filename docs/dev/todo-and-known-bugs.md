@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## REFLY-FORK-SELF-SPAWN-AFTER-QUICKSAVE: during a Re-Fly, a save turns the session's own fork into an "ended" recording and Parsek spawns a real copy of it; the copy's breakup debris is then attributed to the Re-Fly recording [FILED 2026-10-13 from CI-3, reproduced twice. Defects 1-2 FIXED on branch `claude/project-thread-1twzdw` (PR #2100); item 3 (the unpack joint break) OPEN, Parsek, high]
+## REFLY-FORK-SELF-SPAWN-AFTER-QUICKSAVE: during a Re-Fly, a save turns the session's own fork into an "ended" recording and Parsek spawns a real copy of it; the copy's breakup debris is then attributed to the Re-Fly recording [FILED 2026-10-13 from CI-3, reproduced twice. FIXED on branch `claude/project-thread-1twzdw` (PR #2100), confirmed green `2026-10-15_0656`; item 3 was defect 1, Parsek, high]
 
 `CI-3-chain-rederive-readback` reds PARSEK-FAIL on analyzer `INV4-PARTEVENT-PID` on two runs
 (`2026-10-12_1810`, `2026-10-13_0304`). The lane rewinds a slot (Re-Fly), `SaveGame quicksave`,
@@ -61,7 +61,18 @@ through the pure `ComposeFlightFinalNeedsSpawn`; the summary reason is `live-flo
 foreign ones included), and the deferred scan drops a candidate whose origin chain never reaches
 the recorded pid (`SegmentBoundaryLogic.IsForeignDecoupleOrigin`; a candidate with no recorded
 origin stays in), logging one `skipped N new vessel(s) that came off another vessel` line. Tests:
-`ReFlyForkSelfSpawnTests`. Still open: item 3, and a CI-3 re-flight to confirm green.
+`ReFlyForkSelfSpawnTests`.
+
+Item 3 resolved (2026-10-15): the unpack joint break was the self-spawned copy, not the
+rewind-point state. `breakForce=0.0` is stock `PartJoint.DestroyJoint` (fired by `Part.decouple`
+/ `Part.Die`), never a physical break: the ORBITING copy lands on the live vessel (MechJeb logs
+`Now tracking Kerbal X Probe vs. Kerbal X Probe`; non-EVA spawn collision skips the active
+vessel) and the two explode on the first unpack. Every red and green run with breaks
+(09-22, 10-12_1810, 10-13_0304) self-spawned #21 just before that unpack, and the Re-Fly vessel
+never unpacks between the rewind load and the SaveGame. Re-flight `2026-10-15_0656` on the PR
+DLL: PASS attempt 1, 0 `Vessel spawn for #`, both fork completions `needsSpawn=False`, 0 joint
+breaks / explosions, `INV4-PARTEVENT-PID` 0. Not done: a spawn-chokepoint guard refusing an
+end-of-recording spawn of the active vessel's own launch (`VesselLaunchIdentity`), as hardening.
 
 ## BDOCK2-RENDEZVOUS-PHASING-BURN-DEORBITS-THE-INTERCEPTOR: MechJeb's rendezvous plan from BDOCK-2's 95 x 84 km interceptor orbit drops periapsis into the atmosphere and the craft crashes [FILED 2026-10-13 from the operator tier, reproduced twice. FIXED on branch `bdock2-rendezvous` (PR #2093), confirmed green `2026-10-14_2113`, harness mission]
 
