@@ -1,7 +1,7 @@
 schema = 1
-id = "QL-6-quickload-prunes-post-save-refly-fork"
+id = "QL-7-quickload-prunes-post-save-refly-fork"
 # =====================================================================================
-# QL-6: LOADING AN IN-FLIGHT SAVE OF A FLIGHT THAT WAS RE-FLOWN AND MERGED AFTER THE SAVE
+# QL-7: LOADING AN IN-FLIGHT SAVE OF A FLIGHT THAT WAS RE-FLOWN AND MERGED AFTER THE SAVE
 # DROPS THE RE-FLY'S RECORDING ALONG WITH ITS ROWS. The live proof of todo
 # QUICKLOAD-KEEPS-POST-SAVE-REFLY-FORKS-WHOSE-ROWS-FOLLOW-THE-SAVE, tree-wide case (fix
 # 2026-10-15, branch `qlr-forks`).
@@ -29,7 +29,7 @@ id = "QL-6-quickload-prunes-post-save-refly-fork"
 # THE ROUTE (existing verbs, committed fixture, no new seam):
 #   - RF-1's flight on `gs1-two-stage-pad` (mission `gs1_auto_chute_booster`,
 #     `siblingAirborneAtExit = true`): the staging authors the RewindPoint during the flight.
-#   - `SaveGame name=ql6-in-flight` right after the mission phase, in FLIGHT, recorder live:
+#   - `SaveGame name=ql7-in-flight` right after the mission phase, in FLIGHT, recorder live:
 #     the save holds the tree as `RECORDING_TREE isActive=True`, after the split. A NAMED slot,
 #     not `quicksave`: every merge-dialog merge overwrites quicksave.sfs with the post-merge
 #     game (QL-3's reason).
@@ -37,7 +37,7 @@ id = "QL-6-quickload-prunes-post-save-refly-fork"
 #     closes SubOrbital and its slot stays open), SaveGame / LoadGame persistent (RF-1's
 #     reload-after-commit order), ListHandles, InvokeRewind slot 1, AnswerMergeDialog merge
 #     (which drives the re-fly's conclusion through a scene exit to the Space Center).
-#   - `LoadGame name=ql6-in-flight` from the Space Center: the in-flight save boots FLIGHT
+#   - `LoadGame name=ql7-in-flight` from the Space Center: the in-flight save boots FLIGHT
 #     (QL-4b's route, refined kind InSessionOther or QuickloadFlight).
 #   - QL-4b's / QL-4c's post-load settle (12 RecordingState, then ListHandles active): no
 #     await verb exists for a resumed non-Re-Fly recorder (`awaitRecorderLive` takes `refly`
@@ -86,9 +86,9 @@ id = "QL-6-quickload-prunes-post-save-refly-fork"
 # ListHandlesImpl); the rest are RF-1's, QL-4b's and QL-4c's.
 # =====================================================================================
 tier = "nightly"
-description = "QL-6: fly GS-1's hop with the booster under canopy, save to a named slot in flight, commit at the Space Center, re-fly the booster's Unfinished Flight and merge, then load the in-flight save. The flight resumes from the save, the merged Re-Fly's recording is pruned with its supersede row, and the resumed tree commits without it."
+description = "QL-7: fly GS-1's hop with the booster under canopy, save to a named slot in flight, commit at the Space Center, re-fly the booster's Unfinished Flight and merge, then load the in-flight save. The flight resumes from the save, the merged Re-Fly's recording is pruned with its supersede row, and the resumed tree commits without it."
 instanceProfile = "stock-minimal"
-tags = ["QL-6", "TA-1", "quickload", "timeline-ops", "rewind", "refly", "merge", "GS1",
+tags = ["QL-7", "TA-1", "quickload", "timeline-ops", "rewind", "refly", "merge", "GS1",
         "staging", "scene-exit", "auto-merge", "runtime-handles", "D9", "scene-ksc", "reading-run"]
 
 [fixture]
@@ -109,7 +109,7 @@ steps = [
   # RF-1's mission: the pod lands, the booster is still airborne at the exit of the phase.
   { phase = "mission",                                                                   expect = "MISSION-OK", budget = 900 },
   # THE SAVE: in flight, the tree active, after the split (the RewindPoint predates it).
-  { cmd = "SaveGame",          args = { name = "ql6-in-flight" },                        expect = "OK", budget = 120 },
+  { cmd = "SaveGame",          args = { name = "ql7-in-flight" },                        expect = "OK", budget = 120 },
   # RF-1's commit, reload and Re-Fly, verbatim.
   { cmd = "ExitToSpaceCenter",                                                           expect = "OK", budget = 120 },
   { cmd = "SaveGame",          args = { name = "persistent" },                           expect = "OK" },
@@ -121,7 +121,7 @@ steps = [
   { cmd = "AnswerMergeDialog", args = { choice = "merge" },                              expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                              expect = "OK" },
   # THE LOAD: the in-flight save, from the Space Center (QL-4b's FLIGHT route).
-  { cmd = "LoadGame",          args = { save = "${runSave}", name = "ql6-in-flight" },   expect = "OK", budget = 300 },
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "ql7-in-flight" },   expect = "OK", budget = 300 },
   # QL-4b's / QL-4c's settle (see the header).
   { cmd = "RecordingState",                                                              expect = "OK" },
   { cmd = "RecordingState",                                                              expect = "OK" },
@@ -191,7 +191,7 @@ required = [
   "Controllable split children: \\[[0-9]+,[0-9]+\\]",
   "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
   # GROUP 2 - THE IN-FLIGHT SAVE, BEFORE THE COMMIT (the premise of the committed-copy rule).
-  "savegame name=ql6-in-flight folder=.+ saved=true[\\s\\S]*exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+  "savegame name=ql7-in-flight folder=.+ saved=true[\\s\\S]*exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
   "Silent full-fidelity auto-commit \\(scene-exit\\): tree='GS1 Auto-Chute Booster' recordings=[1-9][0-9]*",
   "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=stableLeafUnconcluded to CommittedProvisional",
   # GROUP 3 - THE RE-FLY MERGES AFTER THE SAVE (RF-1's and QL-3's).
@@ -200,23 +200,23 @@ required = [
   "Invocation complete",
   "Added [1-9][0-9]* supersede relations for subtree rooted at",
   # GROUP 4 - THE LOAD RESUMES THE SAVE'S TREE.
-  "Added [1-9][0-9]* supersede relations for subtree rooted at[\\s\\S]*loadgame start save=\\S+ name=ql6-in-flight scene=\\S+ requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false",
-  "loadgame start save=\\S+ name=ql6-in-flight [\\s\\S]*Load classified: early=InSession refined=(?:QuickloadFlight|InSessionOther) scene=FLIGHT initialLoadDone=true rewinding=false reFlyInvoke=false discardReFly=none",
-  "loadgame start save=\\S+ name=ql6-in-flight [\\s\\S]*\\[Scenario\\] Quickload committed-copy restore: tree='GS1 Auto-Chute Booster' id=\\S+ route=\\S+ action=ResumeFromQuicksave reason=committed-after-quicksave loadKind=InSession ",
-  "loadgame start save=\\S+ name=ql6-in-flight [\\s\\S]*TryRestoreActiveTreeNode: removed committed tree 'GS1 Auto-Chute Booster' \\(id=\\S+, [1-9][0-9]* recording\\(s\\)\\)",
+  "Added [1-9][0-9]* supersede relations for subtree rooted at[\\s\\S]*loadgame start save=\\S+ name=ql7-in-flight scene=\\S+ requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false",
+  "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*Load classified: early=InSession refined=(?:QuickloadFlight|InSessionOther) scene=FLIGHT initialLoadDone=true rewinding=false reFlyInvoke=false discardReFly=none",
+  "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*\\[Scenario\\] Quickload committed-copy restore: tree='GS1 Auto-Chute Booster' id=\\S+ route=\\S+ action=ResumeFromQuicksave reason=committed-after-quicksave loadKind=InSession ",
+  "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*TryRestoreActiveTreeNode: removed committed tree 'GS1 Auto-Chute Booster' \\(id=\\S+, [1-9][0-9]* recording\\(s\\)\\)",
   # =================================================================================
   # FIX BLOCK - THE ABANDONED RE-FLY FORK (ParsekScenario.Trim.cs).
-  "loadgame start save=\\S+ name=ql6-in-flight [\\s\\S]*Quickload resume abandoned Re-Fly forks noted: tree=\\S+ forks=[1-9][0-9]* attempt=none\\([^)\\r\\n]*\\) ids=\\[[0-9a-f,]+\\] ",
+  "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*Quickload resume abandoned Re-Fly forks noted: tree=\\S+ forks=[1-9][0-9]* attempt=none\\([^)\\r\\n]*\\) ids=\\[[0-9a-f,]+\\] ",
   "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide",
   "Quickload abandoned Re-Fly forks pruned: tree='GS1 Auto-Chute Booster' pruned=([1-9][0-9]*)/\\1 prunedBranchPoints=[0-9]+ ids=\\[[0-9a-f,]+\\] sidecars=kept",
   # END FIX BLOCK
   # =================================================================================
   # The rows agree: the fork's supersede row follows the save, which has none.
-  "loadgame start save=\\S+ name=ql6-in-flight [\\s\\S]*In-session resumed-tree rows: tree=\\S+ recordings=[1-9][0-9]* attempt=none\\([^)\\r\\n]*\\); supersedes installed=[0-9]+ untouched=[0-9]+ attemptKept=0 followSave=0 dropped=[1-9][0-9]* restoredFromSave=0;",
-  "loadgame start save=\\S+ name=ql6-in-flight [\\s\\S]*listhandles kind=active count=[1-9][0-9]* truncated=false",
+  "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*In-session resumed-tree rows: tree=\\S+ recordings=[1-9][0-9]* attempt=none\\([^)\\r\\n]*\\); supersedes installed=[0-9]+ untouched=[0-9]+ attemptKept=0 followSave=0 dropped=[1-9][0-9]* restoredFromSave=0;",
+  "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*listhandles kind=active count=[1-9][0-9]* truncated=false",
   # THE COMMIT of the resumed tree, without the fork.
-  "loadgame start save=\\S+ name=ql6-in-flight [\\s\\S]*exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
-  "loadgame start save=\\S+ name=ql6-in-flight [\\s\\S]*Silent full-fidelity auto-commit \\(scene-exit\\): tree='GS1 Auto-Chute Booster' recordings=[1-9][0-9]*",
+  "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+  "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*Silent full-fidelity auto-commit \\(scene-exit\\): tree='GS1 Auto-Chute Booster' recordings=[1-9][0-9]*",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

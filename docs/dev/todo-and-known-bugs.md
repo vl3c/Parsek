@@ -2558,7 +2558,7 @@ the quicksave holds (an earlier session's fork included) and a restore that is n
 (`LoadOutsideFlight_DetachWithoutResume_RowsStayFromMemory`) prune nothing
 (`CollectAbandonedReFlyForkIds_Pure`; wiring pinned in `LoadReconcileWiringGateTests`). Logs:
 `Quickload resume abandoned Re-Fly forks noted:` and `Quickload abandoned Re-Fly forks pruned:`.
-Not yet flown: lane `QL-6-quickload-prunes-post-save-refly-fork` (authored 2026-10-15, never
+Not yet flown: lane `QL-7-quickload-prunes-post-save-refly-fork` (authored 2026-10-15, never
 flown) is the tree-wide case (RF-1's flight saved to a named slot in flight, re-flown and merged
 at the Space Center, then that save loaded); the `ActiveRecOnly` case has no lane.
 
