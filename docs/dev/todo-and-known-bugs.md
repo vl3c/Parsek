@@ -16,6 +16,35 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~DOCK-CHAIN-ABSORBED-PARTNER-PID-ONLY: a dock claim whose claimer absorbed the partner carries no launch guid, so a relaunch of the same craft pools into its ghost chain~~ [FILED 2026-10-15 from the launch-identity audit (gap 3), verified by code read. FIXED 2026-10-15, branch `claude/project-thread-1twzdw-dock-chain-guid`; xUnit only, not flown. Parsek]
+
+`GhostChainWalker.ScanBranchPointClaims` took a dock claim's launch guid from the claiming tree
+(`ResolveLaunchGuidForPid(tree, targetPid)`). When the claimer's vessel survives the couple
+(`isTarget`, `mergedPid` = the claimer's pid), the merged child carries the claimer's pid, the
+partner is not a parent unless it is in the same tree's `BackgroundMap`, and so no recording in the
+claiming tree carries the partner's pid: the guid was null. The #976 latest-launch filter never
+drops a null-guid link, and `MergeCrossTreeLinks` merged chains on a bare tip pid and moved the
+chain tip (and spawn UT) to the merged chain's tip. Absorption frees the partner's craft-baked pid
+while its parts still fly, so a relaunch (hub / tanker fleet) reuses it: a stale launch's claim
+pooled into the new launch's chain, and the new launch's real continuation could be suppressed as
+an intermediate link (or the tip moved to the wrong launch). `MissionCrossTreeDock.FindLinks`,
+`FindSameTreeDockClaims` and `DockEventGraph`'s cross-tree step had the same pid-only fallback.
+`design-dock-event-graph.md` called it a "marginal enlargement of an existing exposure".
+
+Fix: the dock branch point stamps the partner's launch guid beside its pid
+(`BranchPoint.TargetVesselGuid`, optional key `targetVesselGuid`, absent -> null, no generation
+bump), read from the live couple-event side that carries the stamped pid
+(`ParsekFlight.ResolveDockPartnerGuidFromEvent`, both OnPartCouple paths, logged as
+`partnerGuidStamped=`). `MissionCrossTreeDock.ResolveClaimLaunchGuid` prefers the stamp over the
+tree pid lookup and is shared by the walker, `FindLinks` and the graph; `FindSameTreeDockClaims`
+prefers it too. `MergeCrossTreeLinks` refuses a merge when the linked chain's launch guid and the
+tip recording's guid are both known and conclusively differ (Verbose `Cross-tree link refused`,
+once per change). Unknown guids keep the pid-only behavior. Tests: `DockPartnerLaunchGuidTests`.
+Residual: a stamp is the live `Vessel.id`, like every recording's guid, so a dock into a resumed
+Parsek-spawned vessel (whose resumed recording keeps the pre-spawn guid, a `Resume` identity link)
+reads as a different launch on both the absorbed and the surviving path; the identity links are
+not consulted by `VesselLaunchIdentity`. Older saves stay pid-only until re-recorded.
+
 ## REFLY-FORK-SELF-SPAWN-AFTER-QUICKSAVE: during a Re-Fly, a save turns the session's own fork into an "ended" recording and Parsek spawns a real copy of it; the copy's breakup debris is then attributed to the Re-Fly recording [FILED 2026-10-13 from CI-3, reproduced twice. FIXED on branch `claude/project-thread-1twzdw` (PR #2100), confirmed green `2026-10-15_0656`; item 3 was defect 1, Parsek, high]
 
 `CI-3-chain-rederive-readback` reds PARSEK-FAIL on analyzer `INV4-PARTEVENT-PID` on two runs

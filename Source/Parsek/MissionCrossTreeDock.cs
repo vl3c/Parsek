@@ -94,8 +94,8 @@ namespace Parsek
                         continue;
 
                     // The claim must land on a vessel recorded in MY tree (pid + guid gate).
-                    string foreignLaunchGuid = ResolveLaunchGuidForPid(
-                        foreignTree, bp.TargetVesselPersistentId);
+                    string foreignLaunchGuid = ResolveClaimLaunchGuid(
+                        foreignTree, bp.TargetVesselPersistentId, bp.TargetVesselGuid);
                     Recording claimed = FindClaimedRecording(
                         myTree, bp.TargetVesselPersistentId, foreignLaunchGuid, out bool rejectedByGuid);
                     if (rejectedByGuid)
@@ -153,10 +153,12 @@ namespace Parsek
         /// and must START before the dock UT (post-dock continuations carry the surviving pid
         /// when the partner won the pid contest; claiming them would name the stack as its own
         /// partner). Two-parent merges are skipped: the co-parent is already the partner.
-        /// The guid gate compares against the merged child's launch guid when the merged child
-        /// carries the target pid (the partner survived as the merged vessel, so its Vessel
-        /// object - and launch guid - continued into the merged recording); otherwise the
-        /// expected guid is unknown and the pid-only fallback applies (walker parity).
+        /// The guid gate compares against the branch point's stamped partner guid
+        /// (<see cref="BranchPoint.TargetVesselGuid"/>) when present, else against the merged
+        /// child's launch guid when the merged child carries the target pid (the partner
+        /// survived as the merged vessel, so its Vessel object - and launch guid - continued
+        /// into the merged recording); otherwise the expected guid is unknown and the pid-only
+        /// fallback applies (walker parity).
         /// Ordered by (DockUT, BranchPointId). Pure.
         /// </summary>
         internal static List<SameTreeDockClaim> FindSameTreeDockClaims(RecordingTree tree)
@@ -185,11 +187,13 @@ namespace Parsek
                     || mergedChild == null)
                     continue;
 
-                // Expected launch guid: only derivable when the partner survived as the
+                // Expected launch guid: the branch point's stamped partner guid when the
+                // recorder captured one; else derivable only when the partner survived as the
                 // merged vessel (merged child carries the target pid). Null = unknown =
-                // pid-only fallback, exactly like FindLinks when the partner was absorbed.
-                string expectedGuid =
-                    mergedChild.VesselPersistentId == bp.TargetVesselPersistentId
+                // pid-only fallback (an older save whose partner was absorbed).
+                string expectedGuid = !string.IsNullOrEmpty(bp.TargetVesselGuid)
+                    ? bp.TargetVesselGuid
+                    : mergedChild.VesselPersistentId == bp.TargetVesselPersistentId
                         ? mergedChild.RecordedVesselGuid
                         : null;
 
@@ -672,6 +676,8 @@ namespace Parsek
         // with that pid at all (null -> pid-only fallback, walker semantics).
         // internal (not private): DockEventGraph's cross-tree resolution REUSES this exact
         // guid lookup so the graph and FindLinks can never drift apart (design 6.3 step 2c).
+        // Claim sites go through ResolveClaimLaunchGuid, which prefers the branch point's own
+        // stamped partner guid over this pid lookup.
         internal static string ResolveLaunchGuidForPid(RecordingTree tree, uint pid)
         {
             if (tree?.Recordings == null || pid == 0)
@@ -683,6 +689,28 @@ namespace Parsek
                     return rec.RecordedVesselGuid;
             }
             return null;
+        }
+
+        /// <summary>
+        /// The launch guid a dock / board claim pertains to: the branch point's own stamped
+        /// partner guid (<see cref="BranchPoint.TargetVesselGuid"/>, the live
+        /// <c>Vessel.id</c> read at couple time) when present, else the pid lookup in the
+        /// claiming tree (<see cref="ResolveLaunchGuidForPid"/>). The stamp matters when the
+        /// claimer absorbed the partner: then no recording in the claiming tree carries the
+        /// partner's pid, the lookup returns null, and the claim would be pid-only, so a
+        /// relaunch of the same craft (which reuses the freed pid) could pool with it. Null
+        /// only when both are unknown (pid-only fallback, unchanged). Shared by
+        /// <see cref="FindLinks"/>, <c>DockEventGraph</c> and <c>GhostChainWalker</c> so the
+        /// three claim readers cannot drift apart. Pure.
+        /// </summary>
+        internal static string ResolveClaimLaunchGuid(
+            RecordingTree claimingTree, uint targetPid, string stampedTargetGuid)
+        {
+            if (targetPid == 0)
+                return null;
+            if (!string.IsNullOrEmpty(stampedTargetGuid))
+                return stampedTargetGuid;
+            return ResolveLaunchGuidForPid(claimingTree, targetPid);
         }
 
         // Env-split chain successor: same ChainId, next ChainIndex, same ChainBranch (the

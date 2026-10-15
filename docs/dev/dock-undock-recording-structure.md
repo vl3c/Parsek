@@ -95,6 +95,8 @@ If only one of the two pre-dock vessels was Parsek-tracked (the cross-tree case 
 
 The branch point's `targetVesselPid` (`BranchPoint.TargetVesselPersistentId`) carries the couple-event partner identity UNCONDITIONALLY for Dock merges (EVA grabs excepted): since the stamp decoupling (`docs/dev/design-dock-event-graph.md` section 6.1) it is stamped independently of route eligibility via `ResolveBranchPartnerStampPid` -> `pendingDockPartnerPid` -> `BuildMergeBranchData`'s `branchPartnerPid` parameter, so a route-ineligible dock (partner with neither a pre-couple snapshot nor a known recording) still names who it docked with — derivable retroactively once the partner's tree commits. The route surfaces (`TransferTargetVesselPid` / `TransferKind` below, the route window, the phantom-spawn supersede) keep reading the route-eligibility-GATED pid. Board merges are not stamped in v1 (design Q1).
 
+Beside the pid, `targetVesselGuid` (`BranchPoint.TargetVesselGuid`, optional, absent on older saves) carries the partner's live `Vessel.id`, read from whichever couple-event side holds the stamped pid (`ParsekFlight.ResolveDockPartnerGuidFromEvent` -> `pendingDockPartnerGuid` -> `branchPartnerGuid`). The pid is craft-baked and freed when the partner is absorbed, so a relaunch of the same craft can reuse it; the chain walker and the cross-tree dock links read the claim's launch from this guid first (`MissionCrossTreeDock.ResolveClaimLaunchGuid`).
+
 ### 3.2 What the merged child looks like
 
 A new `Recording` is created via `BuildMergeBranchData` (in `ParsekFlight.cs`). It carries:

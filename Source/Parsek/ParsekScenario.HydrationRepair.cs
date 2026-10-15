@@ -1104,6 +1104,7 @@ namespace Parsek
                 CoalesceWindow = source.CoalesceWindow,
                 MergeCause = source.MergeCause,
                 TargetVesselPersistentId = source.TargetVesselPersistentId,
+                TargetVesselGuid = source.TargetVesselGuid,
                 TerminalCause = source.TerminalCause,
                 RewindPointId = source.RewindPointId,
             };
