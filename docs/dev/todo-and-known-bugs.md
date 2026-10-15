@@ -158,7 +158,7 @@ HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS). Fix options: provision every profil
 (tier_runner), or have admit refuse an instance whose deployed DLL hash differs from
 stock-minimal's after a provision.
 
-## RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE: RF-1's D4 `hysteresis` token no longer prints, because the launch no longer happens inside the post-load settle [FILED 2026-10-12 from the operator tier. OPEN, harness, operator call]
+## RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE: RF-1's D4 `hysteresis` token no longer prints, because the launch no longer happens inside the post-load settle [FILED 2026-10-12 from the operator tier. RULED 2026-10-15: move the witness to a rover lane. OPEN, harness; not built]
 
 `RF-1-continuation-stays-open` `2026-10-12_2026` PARSEK-FAIL on its required
 `Environment transition: SurfaceStationary -> SurfaceMobile ... (debounce=3.0s)` alone (the D4
@@ -170,6 +170,13 @@ at ~26.56, before the flight-ready wait existed, apparently inside the post-load
 lit stack sat more than 3 s on the pad. `EnvironmentDetector.cs` is unchanged since
 2026-09-11. Not a Parsek defect: the claim's witness was a race. Needs a lane that genuinely
 moves on the surface for over 3 s (a rover, or a held launch), or the claim re-opened.
+
+Owner ruling 2026-10-15 (option A of three; B held RF-1's lit launch on the pad and still leaned
+on pad vibration, C un-claimed D4 `hysteresis` and dropped coverage to 252 of 253): move the D4
+`hysteresis` claim and its `SurfaceStationary -> SurfaceMobile ... (debounce=3.0s)` token to a
+lane where a rover really drives on the surface for over 3 s (reuse a rover fixture's existing
+flight per the fast-lane checklist), and drop the token and the claim from RF-1 in the same
+change so the registry cell stays claimed.
 
 ## REFLY-UNBOUND-PROVISIONAL-TAGS-AWARDS-TO-ORIGIN: while a re-fly provisional has no recorder, a career award is tagged to the superseded origin and the merge tombstones it [FILED 2026-10-12 from the RF-3 tombstone reading. RULED 2026-10-15: tag to the Re-Fly attempt. OPEN, product, ruled; not built]
 
