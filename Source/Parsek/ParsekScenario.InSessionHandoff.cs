@@ -431,14 +431,25 @@ namespace Parsek
         /// </summary>
         private HashSet<string> ResolveResumedReFlyAttemptIds(QuickloadResumeDetach detach, out string token)
         {
-            var marker = ActiveReFlySessionMarker;
             RecordingTree resumed = RecordingStore.HasPendingTree
                 && RecordingStore.PendingTree != null
                 && string.Equals(RecordingStore.PendingTree.Id, detach.TreeId, StringComparison.Ordinal)
                     ? RecordingStore.PendingTree
                     : null;
+            return ResolveResumedReFlyAttemptIds(resumed, detach.TreeId, ActiveReFlySessionMarker, out token);
+        }
+
+        /// <summary>
+        /// The resumed-attempt set for <paramref name="resumed"/> under <paramref name="marker"/>.
+        /// Shared by the resumed-tree row rule and the restore's abandoned-fork note
+        /// (<see cref="NoteAbandonedReFlyForks"/>), so the rows and the recordings a resume keeps
+        /// for the attempt are the same set.
+        /// </summary>
+        internal static HashSet<string> ResolveResumedReFlyAttemptIds(
+            RecordingTree resumed, string resumedTreeId, ReFlySessionMarker marker, out string token)
+        {
             ICollection<string> resumedIds = resumed?.Recordings?.Keys;
-            if (!InSessionStagedStateHandoff.LoadedMarkerResumesAttempt(marker, detach.TreeId, resumedIds, out string reason))
+            if (!InSessionStagedStateHandoff.LoadedMarkerResumesAttempt(marker, resumedTreeId, resumedIds, out string reason))
             {
                 token = marker == null
                     ? "none(" + reason + ")"
