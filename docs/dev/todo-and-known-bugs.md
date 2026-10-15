@@ -3550,7 +3550,7 @@ rebind, and returns false with the hold reason; red with the call deleted or sho
 
 ---
 
-## ROUTE-RECOVERY-CREDIT-WRITTEN-DURING-ONLOAD: the pending recovery credit flush writes a ledger row and live funds while a save is loading [FILED 2026-10-06 from the integration-coverage code read, path verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product; UT-0 outcome to confirm]
+## ~~ROUTE-RECOVERY-CREDIT-WRITTEN-DURING-ONLOAD: the pending recovery credit flush writes a ledger row and live funds while a save is loading~~ [FILED 2026-10-06 from the integration-coverage code read, path verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `claude/logistics-escrow-recovery-credit-s0sb0u` (xUnit only)]
 
 `RouteStore.FlushPendingRecoveryCreditOnSourceProblem` (`RouteStore.cs:1885-1911`) reads
 `Planetarium.GetUniversalTime()` directly and never consults `ParsekScenario.IsOnLoadInProgress`;
@@ -3560,12 +3560,20 @@ with a pending credit and a source is missing, where the clock can read 0. A UT-
 every strict-after-cutoff rewind retire. This contradicts the no-ledger-writes-during-load
 contract (`ParsekScenario.cs:310-321`).
 
-Fix: defer the flush until after load (the route-marker UT resolver already knows the in-load
-state), or emit no row and keep the credit pending. Needs a UT / in-load seam to test headless.
+Reproduced headless on main: an `OnLoad` revalidation flipping a route to MissingSourceRecording
+did not keep the owed credit (headless the env build throws, so it was cleared; in game it is
+written at the load-time clock).
+
+Fix: only a LIVE revalidation pass (`liveEmitUT > 0` and `IsOnLoadInProgress` false, pure gate
+`RouteStore.ShouldFlushSourceProblemCreditNow`) pays the credit, at `liveEmitUT`. A silent pass
+(OnLoad, a bookkeeping supersede bump) keeps it pending, and the orchestrator tick pre-pass
+`RouteOrchestrator.FlushDeferredSourceProblemCredits` pays it at the first live tick for any
+route in a source-problem state. Tests: `RouteRecoveryCreditTests.OnLoadSourceProblemFlip_*`,
+`SilentNonLoadSourceProblemFlip_*`, `LiveSourceProblemFlip_*`, `DeferredCreditSweep_*`.
 
 ---
 
-## ROUTE-ESCROW-LOST-ON-SCENE-SWITCH: a multi-stop cycle's depot reservation is dropped by a scene change between its windows [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~ROUTE-ESCROW-LOST-ON-SCENE-SWITCH: a multi-stop cycle's depot reservation is dropped by a scene change between its windows~~ [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `claude/logistics-escrow-recovery-credit-s0sb0u` (xUnit only; live proof is lane IR-10)]
 
 `ClearAllEscrow` runs on every scene switch (`ParsekScenario.cs:8365`); the only re-establish
 site (`RouteOrchestrator.cs:1531`) sits behind the no-due-window early return in
@@ -3573,8 +3581,16 @@ site (`RouteOrchestrator.cs:1531`) sits behind the no-due-window early return in
 and window B picks up short after its dispatch was already paid. H60 proves escrow within one
 scene only.
 
-Fix: rebuild escrow for in-flight multi-stop cycles on scene entry (or persist it). Headless
-red test with `RouteCargoEscrowTests` / `RouteEscrowFireTests`, then lane IR-10.
+Reproduced headless on main: fire window A, `ClearAllEscrow`, tick in the A-B gap, and depot B's
+200 Ore hold reads 0.
+
+Fix: a `RouteOrchestrator.Tick` pre-pass, `ReEstablishInFlightCycleEscrow`, runs before any route
+is processed. For every ghost-driving route with an in-flight multi-stop cycle (pure
+`TryGetInFlightMultiStopCycle`: a stop cursor ahead of `LastObservedLoopCycleIndex` and an
+un-fired pickup window), no escrow held, and the cycle's dispatch row in the ledger, it
+re-reserves the un-fired windows. It needs no due window or loop unit, so tick order cannot let a
+competitor drain the depot first. Tests: `RouteEscrowFireTests.GapTickAfterClear_*`,
+`PrePass_SkipsPausedRoute_*`, `TryGetInFlightMultiStopCycle_Cases`. Live proof is still lane IR-10.
 
 ---
 

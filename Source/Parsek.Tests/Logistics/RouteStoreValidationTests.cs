@@ -265,10 +265,12 @@ namespace Parsek.Tests.Logistics
         // logistics-recovery-credit section 5.4: a route that flips INTO
         // MissingSourceRecording stops crossing, so its last dispatched cycle's
         // deferred recovery credit must be flushed (or its stale marker cleared) at
-        // the transition, never stranded forever. In the xUnit harness the live
-        // env / Planetarium cannot resolve, so the defensive flush no-ops on the
-        // Career gate and CLEARS the marker; that is the observable proof the flush
-        // call is wired into the into-missing edge.
+        // the transition, never stranded forever. A LIVE pass (liveEmitUT > 0) pays it
+        // at the flip; a silent pass keeps it pending for the next tick
+        // (RouteRecoveryCreditTests covers that side). In the xUnit harness the live
+        // env reports non-Career, so the flush no-ops on the Career gate and CLEARS the
+        // marker; that is the observable proof the flush call is wired into the
+        // into-missing edge.
         // catches: a pending recovery-credit marker stranded on a route deleted
         // while MissingSourceRecording.
         [Fact]
@@ -286,7 +288,7 @@ namespace Parsek.Tests.Logistics
             armed.PendingRecoveryCreditDispatchUT = 1234.0;
             logLines.Clear();
 
-            int transitioned = RouteStore.RevalidateSources("test");
+            int transitioned = RouteStore.RevalidateSources("test", 2000.0);
 
             Assert.Equal(1, transitioned);
             Assert.True(RouteStore.TryGetRoute("route-pending-missing", out Route route));
@@ -321,7 +323,7 @@ namespace Parsek.Tests.Logistics
             armed.PendingRecoveryCreditDispatchUT = 555.0;
             logLines.Clear();
 
-            int transitioned = RouteStore.RevalidateSources("test");
+            int transitioned = RouteStore.RevalidateSources("test", 2000.0);
 
             Assert.Equal(1, transitioned);
             Assert.True(RouteStore.TryGetRoute("route-pending-changed", out Route route));
