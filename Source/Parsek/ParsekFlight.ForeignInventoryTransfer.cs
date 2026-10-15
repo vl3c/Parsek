@@ -95,6 +95,78 @@ namespace Parsek
             AdoptForeignCargoPartner(activeRec, changed, transfer);
         }
 
+        /// <summary>
+        /// Stock fires <c>OnEVAConstructionModePartAttached(parentVessel, part)</c> from
+        /// <c>EVAConstructionModeEditor.AttachInput</c> right after <c>AttachPart</c>, and
+        /// again from <c>RestoreLastAttachedPart</c> when a detach is undone (decompiled KSP
+        /// 1.12.5). The part is already in the vessel's part list, so the snapshot taken here
+        /// carries it.
+        /// </summary>
+        void OnEvaConstructionPartAttached(Vessel vessel, Part part)
+        {
+            RecordForeignConstructionChange(vessel, part, attached: true);
+        }
+
+        /// <summary>
+        /// Stock fires <c>OnEVAConstructionModePartDetached(vessel, part)</c> from
+        /// <c>EVAConstructionModeEditor.DetachInput</c> after <c>DetachPart</c>, with the
+        /// vessel captured before the detach. <c>DetachPart</c> -> <c>Part.OnDetachFlight</c>
+        /// -> <c>Decoupling</c> -> <c>disconnect</c> has already removed the held part from
+        /// <c>vessel.parts</c> (decompiled KSP 1.12.5), so the snapshot taken here is the
+        /// vessel without it and needs no frame wait.
+        /// </summary>
+        void OnEvaConstructionPartDetached(Vessel vessel, Part part)
+        {
+            RecordForeignConstructionChange(vessel, part, attached: false);
+        }
+
+        void RecordForeignConstructionChange(Vessel changed, Part part, bool attached)
+        {
+            Vessel active = FlightGlobals.ActiveVessel;
+            uint changedPid = changed != null ? changed.persistentId : 0u;
+            uint activePid = active != null ? active.persistentId : 0u;
+            uint partPid = part != null ? part.persistentId : 0u;
+            string partName = part != null && part.partInfo != null ? part.partInfo.name : null;
+
+            Recording activeRec = null;
+            if (activeTree != null && !string.IsNullOrEmpty(activeTree.ActiveRecordingId))
+                activeTree.Recordings.TryGetValue(activeTree.ActiveRecordingId, out activeRec);
+
+            ForeignInventoryMembership membership =
+                ForeignInventoryTransfer.ResolveMembership(activeTree, changedPid);
+            // Parsek never attaches or detaches a part, so no write fence applies here.
+            ForeignInventoryTransferVerdict verdict = ForeignInventoryTransfer.Evaluate(
+                hasActiveTree: activeTree != null,
+                recorderIsRecording: recorder != null && recorder.IsRecording,
+                parsekWriteInProgress: false,
+                activeVesselIsEva: active != null && active.isEVA,
+                activeVesselPid: activePid,
+                activeRecordingVesselPid: activeRec != null ? activeRec.VesselPersistentId : 0u,
+                changedVesselPid: changedPid,
+                changedVesselIsEva: changed != null && changed.isEVA,
+                changedVesselIsGhost: changedPid != 0 && GhostMapPresence.IsGhostMapVessel(changedPid),
+                membership: membership);
+
+            if (verdict != ForeignInventoryTransferVerdict.Adopt
+                && verdict != ForeignInventoryTransferVerdict.AppendToMember)
+            {
+                ParsekLog.Verbose("Flight", ForeignInventoryTransfer.FormatConstructionSkipLog(
+                    verdict, attached, changedPid, activePid, partName, partPid));
+                return;
+            }
+
+            SegmentEvent change = ForeignInventoryTransfer.BuildConstructionSegmentEvent(
+                Planetarium.GetUniversalTime(), attached, partName, partPid);
+
+            if (verdict == ForeignInventoryTransferVerdict.AppendToMember)
+            {
+                AppendForeignTransfer(changed, change);
+                return;
+            }
+
+            AdoptForeignCargoPartner(activeRec, changed, change);
+        }
+
         void AdoptForeignCargoPartner(Recording kerbalRec, Vessel v, SegmentEvent transfer)
         {
             var (bp, member) = ForeignInventoryTransfer.BuildMemberBranchData(

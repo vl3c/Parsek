@@ -3204,7 +3204,7 @@ filed as EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED.
 
 ---
 
-## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. OPEN, product]
+## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`, not flown; the foreign EVA kerbal half stays OPEN]
 
 The inventory fix records a stored part moved into or out of a foreign vessel's container, but two
 neighbours of the same defect remain. `EVAConstructionModeEditor` fires
@@ -3220,6 +3220,24 @@ Fix: route the two construction events through the same adoption (`InventoryTran
 `PartAdded` / `PartRemoved` event). Open question for the detach: whether the held part is still in
 `vessel.parts` when the event fires (`Part.OnDetachFlight`), which decides whether the snapshot must
 wait a frame. Needs a live reading before it ships.
+
+**Construction half FIXED 2026-10-15.** `ParsekFlight.OnEvaConstructionPartAttached` /
+`OnEvaConstructionPartDetached` run `ForeignInventoryTransfer.Evaluate` and adopt or append exactly
+as the inventory handler does, with a `PartAdded` / `PartRemoved` event built by
+`ForeignInventoryTransfer.BuildConstructionSegmentEvent` (details `construction part=<name>
+action=attach|detach pid=<pid>`). The open question is answered from the decompile (KSP 1.12.5):
+`DetachPart` -> `Part.OnDetachFlight` -> `Decoupling` -> `disconnect` removes the held part from
+`vessel.parts` before stock fires the detached event, so the snapshot is taken at the event with no
+frame wait; the attach event fires after `AttachPart` added it. Cells in
+`ForeignInventoryTransferTests` (`BuildConstructionSegmentEvent_*`, `FormatConstructionSkipLog_*`,
+`ConstructionAttach_ClaimsTheForeignVessel_AndItsOwnRecordingIsTheTip`). Live reading still owed
+(V flies it): attach a part to a parked rover from a recording kerbal, detach one, rewind; check the
+`Foreign inventory transfer: vessel joined the tree ... construction` line, the rover's ghost and
+its spawn form, and that a second detach from the adopted rover (whose `Decoupling` also fires
+`onPartJointBreak` on a background member) leaves no stray split. Still OPEN: a transfer with a
+foreign EVA kerbal (`ChangedVesselIsEva`, crew reservation would gain a kerbal it does not own),
+and a part detached from a foreign vessel then dropped on the ground (a new vessel no recording
+carries).
 
 ---
 

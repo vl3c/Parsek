@@ -53,6 +53,7 @@ namespace Parsek
     internal static class ForeignInventoryTransfer
     {
         internal const string DetailsPrefix = "inventory";
+        internal const string ConstructionDetailsPrefix = "construction";
 
         /// <summary>
         /// Is this <c>onModuleInventorySlotChanged</c> a transfer the tree must record? Stock
@@ -163,6 +164,44 @@ namespace Parsek
                     quantityAfter,
                     containerPartPid)
             };
+        }
+
+        /// <summary>
+        /// One EVA construction change on a foreign vessel (todo
+        /// EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED): a part the kerbal attached to it is a
+        /// <see cref="SegmentEventType.PartAdded"/>, a part he detached from it a
+        /// <see cref="SegmentEventType.PartRemoved"/>. Same claim and adoption as an inventory
+        /// transfer; only the details differ.
+        /// </summary>
+        internal static SegmentEvent BuildConstructionSegmentEvent(
+            double ut, bool attached, string partName, uint partPid)
+        {
+            return new SegmentEvent
+            {
+                ut = ut,
+                type = attached ? SegmentEventType.PartAdded : SegmentEventType.PartRemoved,
+                details = string.Format(CultureInfo.InvariantCulture,
+                    "{0} part={1} action={2} pid={3}",
+                    ConstructionDetailsPrefix,
+                    string.IsNullOrEmpty(partName) ? "unknown" : partName,
+                    attached ? "attach" : "detach",
+                    partPid)
+            };
+        }
+
+        internal static string FormatConstructionSkipLog(
+            ForeignInventoryTransferVerdict verdict, bool attached, uint changedVesselPid,
+            uint activeVesselPid, string partName, uint partPid)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Foreign construction change not recorded: reason={0} action={1} changedVesselPid={2} " +
+                "activePid={3} part='{4}' partPid={5}",
+                verdict,
+                attached ? "attach" : "detach",
+                changedVesselPid,
+                activeVesselPid,
+                string.IsNullOrEmpty(partName) ? "(none)" : partName,
+                partPid);
         }
 
         /// <summary>
