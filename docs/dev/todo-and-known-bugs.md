@@ -320,7 +320,7 @@ flight per the fast-lane checklist), and drop the token and the claim from RF-1 
 change so the registry cell stays claimed. Owner rule 2026-10-15: validate with flights of the rover lane
 and RF-1 on the owner's local PC; the entry closes only on those flights.
 
-## REFLY-UNBOUND-PROVISIONAL-TAGS-AWARDS-TO-ORIGIN: while a re-fly provisional has no recorder, a career award is tagged to the superseded origin and the merge tombstones it [FILED 2026-10-12 from the RF-3 tombstone reading. RULED 2026-10-15: tag to the Re-Fly attempt. OPEN, product, ruled; not built]
+## REFLY-UNBOUND-PROVISIONAL-TAGS-AWARDS-TO-ORIGIN: while a re-fly provisional has no recorder, a career award is tagged to the superseded origin and the merge tombstones it [FILED 2026-10-12 from the RF-3 tombstone reading. RULED 2026-10-15: tag to the Re-Fly attempt. BUILT 2026-10-15; closes on the RF-3 flight]
 
 `ParsekFlight.GetActiveRecordingIdForTagging` (ParsekFlight.cs ~246) returns
 `activeTree.ActiveRecordingId` while the provisional is unbound
@@ -340,6 +340,35 @@ provisional is unbound. Required test: the RF-3 shape, where the unbound stretch
 bands the superseded origin already earned, must not pay them twice after the merge (that
 double-pay risk is inferred from the RF-3 log, not traced). Owner rule 2026-10-15: validate the fix with
 an RF-3 flight on the owner's local PC; the entry closes only on that flight.
+
+Correction from re-reading the logs (2026-10-15): the 10-01 RF-3 run never tagged an award to the
+origin while unbound. Inside both sessions' unbound windows the record re-fires at the rewind UT
+were tagged EMPTY (`tag=''`): the re-fly tree is pending in Limbo, so there is no active tree.
+Empty tags are forwarded straight to the ledger as permanent untagged rows (ELS 32 -> 37), which a
+discard keeps (option C's defect, live). The five tombstoned rows (ut=500.16, tagged the origin)
+were earned between the two sessions, after the discard's reload resumed the ORIGIN through the
+committed-tree restore with a live recorder, and the second attempt's merge retired them
+correctly. The 10-12 run earns nothing in either unbound window, so RF-3 now flies the guard
+rather than the substitution.
+
+Fix: `GameStateRecorder.ResolveCurrentRecordingTag` (every capture tag goes through it) applies
+`ReFlyAwardTagging.Resolve`: in FLIGHT, with a live marker, a tag that is empty or names the
+marker's origin / supersede target becomes the provisional (`Re-Fly award tag:
+outcome=tagged-to-attempt reason=...`, rate-limited Info). A tag naming any other recording is a
+bound recorder and is kept; outside FLIGHT nothing changes. `GetActiveRecordingIdForTagging` is
+left alone because the `startrecording` seam verb reports the real recording through it. The
+tagged event is no longer forwarded directly, and since it predates the provisional's first point
+the commit window of a provisional (`ProvisionalForRpId`, not a chain continuation) opens at its
+rewind point's UT (`LedgerOrchestrator.AdjustStartUtForReFlyProvisional`, tree commit and science
+routing; `reFlyWindowsExtended=` on the commit summary). When the merge concludes with no supersede
+because the scene-exit prune retired an empty provisional (`outcome=retired-empty-provisional`), no
+recording commit converts its events, so the tree commit files the retired provisional's tagged
+events and pending science as untagged rows before its walk and untags the store copies
+(`FileRetiredReFlyProvisionalRows`, `outcome=filed-retired-provisional-rows`): the player merged, so
+the award stays. Tests: `ReFlyUnboundAwardTaggingTests`, including the RF-3 shape (the origin's
+post-rewind band is tombstoned, the attempt's re-earned band is kept, paid once), the retired
+provisional (the award is kept through the no-supersede conclusion) and the discard (nothing
+reaches the ledger).
 
 ## W1-CAMERA-LIVE-HANDOFF-NO-LONGER-PRINTS: W1's `camera-live member #0->#1` hand-off token is missing on every run since its last green (2026-08-28) [FILED 2026-10-13 from the operator tier, reproduced three times. OPEN, render, untriaged]
 

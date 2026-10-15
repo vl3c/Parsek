@@ -189,13 +189,20 @@ namespace Parsek
         /// Primary source is <see cref="ParsekFlight.GetActiveRecordingIdForTagging"/>; the fallback
         /// reads <see cref="RecordingStore.PendingTree"/>.ActiveRecordingId while the pending tree is in
         /// <see cref="PendingTreeState.LimboVesselSwitch"/> — events captured during a vessel-switch stash
-        /// belong to the outgoing recording.
+        /// belong to the outgoing recording. While a Re-Fly session's provisional has no recorder
+        /// bound, an in-flight tag that is empty or names the superseded origin is replaced by the
+        /// provisional (<see cref="ReFlyAwardTagging"/>), so the award belongs to the attempt.
         /// </summary>
         internal static string ResolveCurrentRecordingTag()
         {
             if (TagResolverForTesting != null)
                 return TagResolverForTesting() ?? "";
 
+            return ReFlyAwardTagging.ApplyToLiveTag(ResolveLiveRecordingTag());
+        }
+
+        private static string ResolveLiveRecordingTag()
+        {
             var live = ParsekFlight.GetActiveRecordingIdForTagging();
             if (!string.IsNullOrEmpty(live)) return live;
 
@@ -266,6 +273,7 @@ namespace Parsek
             TagResolverForTesting = null;
             HasLiveRecorderProviderForTesting = null;
             HasActiveUncommittedTreeProviderForTesting = null;
+            ReFlyAwardTagging.ResetForTesting();
             ClearPendingMilestoneEvents("ResetForTesting");
             ClearContractCompletionDedup("ResetForTesting");
             RecoveryPayoutContextStore.ResetForTesting();

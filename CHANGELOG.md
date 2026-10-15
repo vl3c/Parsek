@@ -27,6 +27,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Rewards earned right after a Re-Fly starts now belong to that attempt.** A reward earned in
+  the first moments of a Re-Fly, before Parsek starts recording it, is kept when you merge the
+  attempt and removed when you discard it, like the rest of the attempt's rewards. Before, it
+  could survive a discard or be lost at the merge.
+  (REFLY-UNBOUND-PROVISIONAL-TAGS-AWARDS-TO-ORIGIN)
 - **Docking a fleet of identical ships no longer mixes up their histories.** When your ship docks
   to another and takes it over, Parsek now remembers which launch of that ship it was. A later
   launch of the same design no longer has its vessel hidden or spawned at the wrong time because
