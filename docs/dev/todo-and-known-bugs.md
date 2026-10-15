@@ -690,7 +690,7 @@ the ledger: recordingId=<id>`.
 
 ---
 
-## ~~HC-2-ROLLOUT-CHARGE-NOT-RECORDED: HC-2's LaunchFromEditor rollout shows no funds charge and no VesselRollout ledger row~~ [FILED 2026-10-12 from the nightly tier, run `2026-10-12_0641`. FIXED 2026-10-15 in the seam (PR #2099), RE-FLOWN 2026-10-15 on main `5102e3d92`: `2026-10-15_1238` charges the rollout before `launchfromeditor complete` but reads red on RECOVERY-PAYOUT-MARK-LOST-ON-OPTIMIZER-SPLIT. harness, not a product defect]
+## ~~HC-2-ROLLOUT-CHARGE-NOT-RECORDED: HC-2's LaunchFromEditor rollout shows no funds charge and no VesselRollout ledger row~~ [FILED 2026-10-12 from the nightly tier, run `2026-10-12_0641`. FIXED 2026-10-15 in the seam (PR #2099), RE-FLOWN 2026-10-15 on main `5102e3d92`: `2026-10-15_1238` charges the rollout before `launchfromeditor complete` but reads red on RECOVERY-PAYOUT-MARK-LOST-ON-OPTIMIZER-SPLIT; after that fix `2026-10-15_1318` PASS attempt 1. harness, not a product defect]
 
 `HC-2-hard-career-earn-spend` `2026-10-12_0641` PARSEK-FAIL (expectations): its three required
 tokens `Game state: FundsChanged -300 (VesselRollout)`, `VesselRollout spending recorded: cost=300,`
@@ -729,7 +729,7 @@ the next entry.
 
 ---
 
-## ~~RECOVERY-PAYOUT-MARK-LOST-ON-OPTIMIZER-SPLIT: an in-flight recovery whose recording the commit optimizer splits books an in-flight funds change as a second recovery payout~~ [FILED 2026-10-15 from HC-2's re-flight `2026-10-15_1238`, measured. FIXED 2026-10-15, branch `claude/project-thread-wkx3cr-2`; xUnit, not yet re-flown]
+## ~~RECOVERY-PAYOUT-MARK-LOST-ON-OPTIMIZER-SPLIT: an in-flight recovery whose recording the commit optimizer splits books an in-flight funds change as a second recovery payout~~ [FILED 2026-10-15 from HC-2's re-flight `2026-10-15_1238`, measured. FIXED 2026-10-15 (PR #2105), LIVE-PROVEN 2026-10-15: `2026-10-15_1318` PASS attempt 1 on main `5bd46486e`]
 
 `HC-2-hard-career-earn-spend` `2026-10-15_1238` PARSEK-FAIL (expectations): LedgerGroundTruth
 reads `reportOnly=1` (`facet=Funds kind=UpliftClampedExpected expected=523458 recon=524418
@@ -750,7 +750,10 @@ payout mark moved from '<a>' to '<b>' with the Recovered terminal (context=optim
 `RecoveryPayoutMarkAcrossOptimizerTests` (split, merge, the cost actions after a split, and a
 control proving the fixture reaches the heuristic); deleting either call reds three cells. The
 Re-Fly split (`RecordingTreeSplitter`) runs at a rewind load, after any pending payout, and is
-untouched. Needs an HC-2 re-flight.
+untouched. Re-flown `2026-10-15_1318` (automation DLL sha256 `f9a486f7...0749`): the split at UT
+342.1 again fell before the Kerbin/Science award (UT 346.0), the log shows `payout mark moved from
+'a3db1366...' to 'b136d160...' ... (context=optimization-split)`, LedgerGroundTruth `hardFailures=0
+reportOnly=0 facetsCompared=11`, zero `GUARDED ... clamped`.
 
 ## REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START: S4.2 and S4.4 need the re-fly recorder live (or not yet) while the provisional is still empty, a window of a few frames [FILED 2026-10-07 from the F9 verification flights, branch `ql-lanes`, measured. S4.4 FIXED 2026-10-08 by a named-condition seam wait (branch `s44-refly-wait`), LIVE-PROVEN 2026-10-08: three flights `2026-10-08_1806`, `_1812`, `_1814`, each PASS attempt 1 with the wait answering `points=0 ... reFlyMarker=true`, the bare reload refused `recording-active` and the empty-provisional conclusion. OPEN for S4.2, harness]
 
