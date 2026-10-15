@@ -2558,7 +2558,9 @@ the quicksave holds (an earlier session's fork included) and a restore that is n
 (`LoadOutsideFlight_DetachWithoutResume_RowsStayFromMemory`) prune nothing
 (`CollectAbandonedReFlyForkIds_Pure`; wiring pinned in `LoadReconcileWiringGateTests`). Logs:
 `Quickload resume abandoned Re-Fly forks noted:` and `Quickload abandoned Re-Fly forks pruned:`.
-Not yet flown: no harness lane re-flies a flight after its quicksave and then F9s into it.
+Not yet flown: lane `QL-6-quickload-prunes-post-save-refly-fork` (authored 2026-10-15, never
+flown) is the tree-wide case (RF-1's flight saved to a named slot in flight, re-flown and merged
+at the Space Center, then that save loaded); the `ActiveRecOnly` case has no lane.
 
 ---
 
@@ -2652,8 +2654,10 @@ ordinary Retry restores and prunes nothing
 `InSessionHandoffWiringGateTests.RetryRepairsTheSessionBeforeTheReinvokeCapturesTheBundle` pins
 the order. Log `[MergeDialog] RepairSessionBeforeRetry callSite=RetryHandler ... treeState=...
 stagedRowsPruned=N restoredCommittedTree=<bool>`. Live proof: none yet. VN-9 flies Retry without
-a quickload (`treeState=still-committed`); a QL-5c variant answering `choice=retry` would prove
-this path.
+a quickload (`treeState=still-committed`); lane `QL-5d-retry-refly-after-quickload` (authored
+2026-10-15, never flown) is QL-5c answering `choice=retry` and gates
+`treeState=detached-restored-copy ... restoredCommittedTree=true`; its session never merges, so
+it reads `stagedRowsPruned=0` and the row half stays proven headless only.
 
 ---
 
@@ -2673,6 +2677,10 @@ committed (through the discards' `RestoreSanitizedPendingTreeIfDetached`) before
 capture, the ordinary session's shape (committed original beside the live tree), so the splice
 and the bundle restore run as on every Retry. A copy, not the live tree, so the scene exit's
 stash and the restore's pop are unchanged and a refused re-invoke leaves the ordinary shape.
+Live proof: lane `QL-5d-retry-refly-after-quickload` (authored 2026-10-15, never flown). On its
+B9 host the rewind point's quicksave holds the whole tree, so the lane reads the fix through the
+committed list (`listhandles kind=committed count>=3`, `Captured: ... trees>=1` after the retry,
+both 0 before the fix) and the ordinary exit (`restoredDetachedTree=false`).
 
 ---
 

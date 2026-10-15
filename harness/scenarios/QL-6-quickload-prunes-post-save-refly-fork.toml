@@ -1,0 +1,247 @@
+schema = 1
+id = "QL-6-quickload-prunes-post-save-refly-fork"
+# =====================================================================================
+# QL-6: LOADING AN IN-FLIGHT SAVE OF A FLIGHT THAT WAS RE-FLOWN AND MERGED AFTER THE SAVE
+# DROPS THE RE-FLY'S RECORDING ALONG WITH ITS ROWS. The live proof of todo
+# QUICKLOAD-KEEPS-POST-SAVE-REFLY-FORKS-WHOSE-ROWS-FOLLOW-THE-SAVE, tree-wide case (fix
+# 2026-10-15, branch `qlr-forks`).
+#
+# In gameplay terms: the player flies GS-1's two-stage hop, saves the game to a named slot
+# while still in flight (the booster under canopy), goes back to the Space Center, re-flies
+# the booster's Unfinished Flight and merges it, then loads the in-flight save from the Load
+# menu. The flight resumes from the save, so the Re-Fly never happened: its replacement of
+# the booster's flight (the supersede row) follows the save and is gone, and its recording
+# must go too. Before the fix the resume spliced the merged Re-Fly's recording back into the
+# resumed tree and kept it (it starts at the separation, before the save's moment), so the
+# re-flown booster played beside the original with no row hiding either.
+#
+# THE MECHANISM UNDER TEST (ParsekScenario.TryRestoreActiveTreeNode -> NoteAbandonedReFlyForks;
+# ParsekScenario.TrimAndReconcileForQuickloadResume -> PruneAbandonedReFlyForks,
+# ParsekScenario.Trim.cs). The load is an in-session load into FLIGHT of a save whose active
+# tree is committed in memory but not in the save, so the committed-copy rule resumes from
+# the save (`action=ResumeFromQuicksave reason=committed-after-quicksave`, QL-4b's route
+# from the Space Center). The splice copies the merged fork into the resumed tree; the
+# restore notes it as an abandoned Re-Fly fork (a member the save does not hold, with a
+# session stamp, outside any resumed attempt: the save has no Re-Fly marker), and the resume
+# trim (scope TreeWide) prunes it. Step B's row rule drops the fork's supersede row
+# (`dropped=N`, the save has none).
+#
+# THE ROUTE (existing verbs, committed fixture, no new seam):
+#   - RF-1's flight on `gs1-two-stage-pad` (mission `gs1_auto_chute_booster`,
+#     `siblingAirborneAtExit = true`): the staging authors the RewindPoint during the flight.
+#   - `SaveGame name=ql6-in-flight` right after the mission phase, in FLIGHT, recorder live:
+#     the save holds the tree as `RECORDING_TREE isActive=True`, after the split. A NAMED slot,
+#     not `quicksave`: every merge-dialog merge overwrites quicksave.sfs with the post-merge
+#     game (QL-3's reason).
+#   - RF-1's commit and Re-Fly verbatim: ExitToSpaceCenter (scene-exit auto-merge; the booster
+#     closes SubOrbital and its slot stays open), SaveGame / LoadGame persistent (RF-1's
+#     reload-after-commit order), ListHandles, InvokeRewind slot 1, AnswerMergeDialog merge
+#     (which drives the re-fly's conclusion through a scene exit to the Space Center).
+#   - `LoadGame name=ql6-in-flight` from the Space Center: the in-flight save boots FLIGHT
+#     (QL-4b's route, refined kind InSessionOther or QuickloadFlight).
+#   - QL-4b's / QL-4c's post-load settle (12 RecordingState, then ListHandles active): no
+#     await verb exists for a resumed non-Re-Fly recorder (`awaitRecorderLive` takes `refly`
+#     only), and these 12 one-frame steps are the measured settle that proved the restore had
+#     run in QL-4c's reading. Then ExitToSpaceCenter commits the resumed tree.
+#
+# THE GATES:
+#   - The premise: the in-flight save precedes the commit; the Re-Fly merged (supersede row
+#     added); the load resumed from the save and detached the committed copy.
+#   - THE FIX: `Quickload resume abandoned Re-Fly forks noted: ... forks=N` and
+#     `Quickload abandoned Re-Fly forks pruned: ... pruned=N/N`, N >= 1.
+#   - The rows agree: `In-session resumed-tree rows: ... supersedes ... dropped=N`.
+#   - The fork does not survive: forbidden, its id (captured from the pruned line) on any
+#     later `FinalizeTreeRecordings: rec='<id>'` (the commit of the resumed tree).
+#
+# PRE-REGISTERED RED READINGS:
+#   - `action=Unchanged reason=tree-committed-in-quicksave` / `member-committed-in-quicksave`:
+#     the save was taken after the commit (premise miss; the SaveGame must stay before the exit).
+#   - `forks=0` on the noted line with the supersede row `dropped=1`: the fork was not
+#     recognised (no session stamp, or counted as a split half of a save member); a finding.
+#   - No `Quickload resume prep:` line: the recorder never resumed on the restored tree before
+#     the exit; raise the settle (premise miss, not the fix).
+#   - `loadgame rejected` after the merge: a recorder was live at the Space Center; add a
+#     StopRecording in FLIGHT before the load.
+#   - Report-only saveParse: predicted after the final commit 2 recordings (pod Landed, booster
+#     SubOrbital), no Destroyed (RF-1 measured the fork as the tree's only Destroyed member),
+#     supersedeRows 0, tombstones 0. Re-pin and consider arming after the first flight.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse a flight - RF-1's flight is a prefix
+# only up to the mission phase, and this lane inserts the in-flight SaveGame inside RF-1's
+# prefix, so it cannot ride RF-1 without changing RF-1's save history (its reload and merge
+# would then see a named slot it never reads, harmless, but the post-merge load and second
+# commit would replace RF-1's armed final-save windows); kept separate; (2) the only wait is
+# the 12-step settle above (about 0.4 s); (3)-(5) no dwells, burns or coasts beyond RF-1's
+# mission; (6) `[retry] policy = "once"` as RF-1 / QL-4b; (7) structure / rewind windows are
+# report-only predictions, re-pin after the first flight; (8) nightly, RF-1's wall plus one
+# load and commit; (9) run flight_efficiency.py on the first green flight.
+#
+# STATUS: AUTHORED 2026-10-15 on branch `qlr-lanes`, NEVER FLOWN. No RunTests step, so no
+# batch pin. Every new token is quoted from its emitting source line
+# (ParsekScenario.Trim.cs NoteAbandonedReFlyForks / PruneAbandonedReFlyForks,
+# ParsekScenario.InSessionHandoff.cs ApplyInSessionResumedTreeRowRule +
+# InSessionStagedStateHandoff.FormatResumedTreeRowCounts, ParsekScenario.HydrationRepair.cs
+# ResolveCommittedCopyRestore, RecordingStore.RemoveCommittedTreeById, FlightRecorder's resume
+# prep line, SupersedeCommit.AppendRelations, ParsekTestCommandAddon.LoadGameImpl /
+# ListHandlesImpl); the rest are RF-1's, QL-4b's and QL-4c's.
+# =====================================================================================
+tier = "nightly"
+description = "QL-6: fly GS-1's hop with the booster under canopy, save to a named slot in flight, commit at the Space Center, re-fly the booster's Unfinished Flight and merge, then load the in-flight save. The flight resumes from the save, the merged Re-Fly's recording is pruned with its supersede row, and the resumed tree commits without it."
+instanceProfile = "stock-minimal"
+tags = ["QL-6", "TA-1", "quickload", "timeline-ops", "rewind", "refly", "merge", "GS1",
+        "staging", "scene-exit", "auto-merge", "runtime-handles", "D9", "scene-ksc", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "gs1_auto_chute_booster"
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },            expect = "OK" },
+  # LOAD-BEARING: FinalizeTreeRecordings' per-recording line is Verbose.
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  # RF-1's mission: the pod lands, the booster is still airborne at the exit of the phase.
+  { phase = "mission",                                                                   expect = "MISSION-OK", budget = 900 },
+  # THE SAVE: in flight, the tree active, after the split (the RewindPoint predates it).
+  { cmd = "SaveGame",          args = { name = "ql6-in-flight" },                        expect = "OK", budget = 120 },
+  # RF-1's commit, reload and Re-Fly, verbatim.
+  { cmd = "ExitToSpaceCenter",                                                           expect = "OK", budget = 120 },
+  { cmd = "SaveGame",          args = { name = "persistent" },                           expect = "OK" },
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" },  expect = "OK" },
+  { cmd = "StopRecording",                                                               expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles",      expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "1" },             expect = "OK", budget = 300 },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                              expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  # THE LOAD: the in-flight save, from the Space Center (QL-4b's FLIGHT route).
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "ql6-in-flight" },   expect = "OK", budget = 300 },
+  # QL-4b's / QL-4c's settle (see the header).
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "active" },                               expect = "OK" },
+  # THE COMMIT of the resumed tree (scene-exit auto-merge).
+  { cmd = "ExitToSpaceCenter",                                                           expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                expect = "OK" },
+]
+
+[driver.missionParams]
+# RF-1's values VERBATIM (GS-1's plus siblingAirborneAtExit).
+throttle = 1.0
+stagingApoapsisMeters = 700
+stagingMaxAltMeters = 1500
+apoapsisWindowMeters = { min = 600, max = 1600 }
+stageSettleFrames = 2
+chuteArmMaxRateMps = 30
+chuteFullDeployAltMeters = 600
+landedSituations = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds = 90
+coastTimeoutSeconds = 120
+stageTimeoutSeconds = 60
+descentTimeoutSeconds = 300
+siblingVesselName = "GS1 Auto-Chute Booster Probe"
+siblingAirborneAtExit = true
+siblingDownTimeoutSeconds = 240
+
+[dimensionsCovered]
+# Values already covered elsewhere; no new claim until the lane flies green.
+D9  = ["rewind-to-separation", "supersede-relation"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# RF-1's window (pod and booster legs, touchdown debris, the re-fly's provisional).
+count = { min = 2, max = 8 }
+
+# REPORT-ONLY until a reading run (see the header's predictions).
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 2, max = 2 }
+terminalStates = { Landed = { min = 1 }, SubOrbital = { min = 1 }, Destroyed = { max = 0 } }
+
+[expectations.rewind]
+gating        = false
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.logContracts]
+required = [
+  # GROUP 1 - THE FLIGHT AND THE SPLIT (RF-1's, measured).
+  "Recording started",
+  "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+  "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
+  # GROUP 2 - THE IN-FLIGHT SAVE, BEFORE THE COMMIT (the premise of the committed-copy rule).
+  "savegame name=ql6-in-flight folder=.+ saved=true[\\s\\S]*exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='GS1 Auto-Chute Booster' recordings=[1-9][0-9]*",
+  "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=stableLeafUnconcluded to CommittedProvisional",
+  # GROUP 3 - THE RE-FLY MERGES AFTER THE SAVE (RF-1's and QL-3's).
+  "listhandles kind=rewindpoints count=1 truncated=false",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
+  "Invocation complete",
+  "Added [1-9][0-9]* supersede relations for subtree rooted at",
+  # GROUP 4 - THE LOAD RESUMES THE SAVE'S TREE.
+  "Added [1-9][0-9]* supersede relations for subtree rooted at[\\s\\S]*loadgame start save=\\S+ name=ql6-in-flight scene=\\S+ requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false",
+  "loadgame start save=\\S+ name=ql6-in-flight [\\s\\S]*Load classified: early=InSession refined=(?:QuickloadFlight|InSessionOther) scene=FLIGHT initialLoadDone=true rewinding=false reFlyInvoke=false discardReFly=none",
+  "loadgame start save=\\S+ name=ql6-in-flight [\\s\\S]*\\[Scenario\\] Quickload committed-copy restore: tree='GS1 Auto-Chute Booster' id=\\S+ route=\\S+ action=ResumeFromQuicksave reason=committed-after-quicksave loadKind=InSession ",
+  "loadgame start save=\\S+ name=ql6-in-flight [\\s\\S]*TryRestoreActiveTreeNode: removed committed tree 'GS1 Auto-Chute Booster' \\(id=\\S+, [1-9][0-9]* recording\\(s\\)\\)",
+  # =================================================================================
+  # FIX BLOCK - THE ABANDONED RE-FLY FORK (ParsekScenario.Trim.cs).
+  "loadgame start save=\\S+ name=ql6-in-flight [\\s\\S]*Quickload resume abandoned Re-Fly forks noted: tree=\\S+ forks=[1-9][0-9]* attempt=none\\([^)\\r\\n]*\\) ids=\\[[0-9a-f,]+\\] ",
+  "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide",
+  "Quickload abandoned Re-Fly forks pruned: tree='GS1 Auto-Chute Booster' pruned=([1-9][0-9]*)/\\1 prunedBranchPoints=[0-9]+ ids=\\[[0-9a-f,]+\\] sidecars=kept",
+  # END FIX BLOCK
+  # =================================================================================
+  # The rows agree: the fork's supersede row follows the save, which has none.
+  "loadgame start save=\\S+ name=ql6-in-flight [\\s\\S]*In-session resumed-tree rows: tree=\\S+ recordings=[1-9][0-9]* attempt=none\\([^)\\r\\n]*\\); supersedes installed=[0-9]+ untouched=[0-9]+ attemptKept=0 followSave=0 dropped=[1-9][0-9]* restoredFromSave=0;",
+  "loadgame start save=\\S+ name=ql6-in-flight [\\s\\S]*listhandles kind=active count=[1-9][0-9]* truncated=false",
+  # THE COMMIT of the resumed tree, without the fork.
+  "loadgame start save=\\S+ name=ql6-in-flight [\\s\\S]*exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+  "loadgame start save=\\S+ name=ql6-in-flight [\\s\\S]*Silent full-fidelity auto-commit \\(scene-exit\\): tree='GS1 Auto-Chute Booster' recordings=[1-9][0-9]*",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "loadgame (?:rejected|refused)",
+  "In-session load found no staged-list handoff",
+  "Quickload committed-copy restore: tree='GS1 Auto-Chute Booster' id=\\S+ route=\\S+ action=Unchanged",
+  "Quickload resume prep skipped",
+  "TryRestoreActiveTreeNode: skipped active tree 'GS1 Auto-Chute Booster'",
+  "Quickload resume abandoned Re-Fly forks noted: tree=\\S+ forks=0 ",
+  "Quickload abandoned Re-Fly forks pruned: [^\\r\\n]* pruned=0/",
+  # THE DEFECT: the pruned fork recorded again or committed with the resumed tree.
+  "Quickload abandoned Re-Fly forks pruned: [^\\r\\n]*ids=\\[(?:[0-9a-f]{32},)*([0-9a-f]{32})[,\\]][\\s\\S]*FinalizeTreeRecordings: rec='\\1'",
+]
+
+[runtime]
+# run.py waits max(step_budget, 600) + 60 per DEFERRED verb and the step budget (or the
+# verb's dispatch budget + margin) for the rest. Conservatively: LoadGame 660 x3, SetSetting
+# 60 x4, mission 900, SaveGame 120 x2, ExitToSpaceCenter 660 x2, StopRecording 60,
+# ListHandles 60 x2, InvokeRewind 660, AnswerMergeDialog 660, RecordingState 60 x13,
+# FlushAndQuit 60 -> 7020; +120 margin = 7140. Expected wall about 8 minutes (RF-1's flight
+# plus one reload, one Re-Fly and one commit).
+budgetSeconds = 7140
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
