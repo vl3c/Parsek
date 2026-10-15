@@ -18630,6 +18630,17 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The recording the live recorder writes right now (a split in progress keeps it live
+        /// while pendingSplitRecorder holds the recorder), or null.
+        /// </summary>
+        private string ResolveLiveRecorderRecordingId()
+        {
+            return ResolveLiveResumedRecordingId(
+                (recorder != null && recorder.IsRecording) || pendingSplitRecorder != null,
+                activeTree?.ActiveRecordingId);
+        }
+
+        /// <summary>
         /// True when <paramref name="rec"/> is the tip of an active ghost chain in this scene, so
         /// its end-of-recording spawn goes through the chain path (VesselGhoster), which owns the
         /// chain cleanup. The policy's warp-time KSC retirement shortcut skips such a tip.
@@ -18739,6 +18750,26 @@ namespace Parsek
 
         private void SpawnVesselOrChainTip(Recording rec, int index)
         {
+            // Spawner-side backstop for ComputePlaybackFlags' live-flown hold: every flight
+            // end-of-recording spawn (completion, warp-deferred flush, held-ghost retry, chain
+            // tip) passes here, and the recording being flown is the live vessel, so its
+            // terminal spawn would be a duplicate (todo REFLY-FORK-SELF-SPAWN-AFTER-QUICKSAVE).
+            // Keyed on recording id, not launch guid: a revert re-flies the same launch guid
+            // while a committed recording of that launch legitimately spawns (#226).
+            string liveFlownReason;
+            if (GhostPlaybackLogic.ShouldRefuseLiveFlownSpawn(
+                    rec?.RecordingId,
+                    SessionSuppressionState.ActiveMarker?.ActiveReFlyRecordingId,
+                    ResolveLiveRecorderRecordingId(),
+                    out liveFlownReason))
+            {
+                ParsekLog.InfoRateLimited("Spawner",
+                    "live-flown-spawn-refused|" + (rec?.RecordingId ?? "(none)"),
+                    $"Spawn refused for #{index} ({rec?.VesselName ?? "(unknown)"}) " +
+                    $"rec={rec?.RecordingId ?? "(none)"}: {liveFlownReason}");
+                return;
+            }
+
             // Defense-in-depth: the spawn gate re-hydrates the vessel snapshot
             // from the sidecar, but a deferred (warp-queued) spawn can execute
             // frames later, after an intervening OnSave nulled the in-memory copy
@@ -19335,9 +19366,7 @@ namespace Parsek
             // recording and the live recorder's recording (a split in progress keeps the
             // recording live while pendingSplitRecorder holds the recorder).
             string activeReFlyRecordingId = activeReFlyMarker?.ActiveReFlyRecordingId;
-            string liveRecorderRecordingId = ResolveLiveResumedRecordingId(
-                (recorder != null && recorder.IsRecording) || pendingSplitRecorder != null,
-                activeTree?.ActiveRecordingId);
+            string liveRecorderRecordingId = ResolveLiveRecorderRecordingId();
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
