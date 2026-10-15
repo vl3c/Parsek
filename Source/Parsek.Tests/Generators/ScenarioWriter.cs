@@ -137,9 +137,10 @@ namespace Parsek.Tests.Generators
         /// catching it.</para>
         /// <para>Optional <paramref name="branchPoints"/> are added as given; each child
         /// named in a branch point gets that point as its <c>ParentBranchPointId</c>, and
-        /// each parent gets it as its <c>ChildBranchPointId</c> EXCEPT for a
-        /// <see cref="BranchPointType.GroundPartPlaced"/> point, whose parent (the placing
-        /// kerbal) keeps recording, exactly as the live recorder leaves it.</para>
+        /// each parent gets it as its <c>ChildBranchPointId</c> EXCEPT for a kerbal side
+        /// branch (<see cref="RecordingTree.IsKerbalSideBranch"/>: a ground-part placement or
+        /// a foreign inventory transfer), whose parent (the kerbal) keeps recording, exactly
+        /// as the live recorder leaves it.</para>
         /// </summary>
         public static RecordingTree MaterializeTree(
             IEnumerable<RecordingBuilder> builders, string activeRecordingId = null,
@@ -186,7 +187,7 @@ namespace Parsek.Tests.Generators
                         if (tree.Recordings.TryGetValue(childId, out Recording child))
                             child.ParentBranchPointId = bp.Id;
                     }
-                    if (bp.Type == BranchPointType.GroundPartPlaced) continue;
+                    if (RecordingTree.IsKerbalSideBranch(bp.Type)) continue;
                     foreach (string parentId in bp.ParentRecordingIds)
                     {
                         if (tree.Recordings.TryGetValue(parentId, out Recording parent))
@@ -211,6 +212,26 @@ namespace Parsek.Tests.Generators
                 Id = branchPointId,
                 UT = placementUT,
                 Type = BranchPointType.GroundPartPlaced,
+                ParentRecordingIds = new List<string> { kerbalRecordingId },
+                ChildRecordingIds = new List<string> { memberRecordingId }
+            };
+        }
+
+        /// <summary>
+        /// The branch point the live recorder writes when an EVA kerbal moves a stored part
+        /// into or out of a FOREIGN vessel's inventory (docs/parsek-flight-recorder-design.md
+        /// section 4.12): parent = the kerbal's recording, child = the foreign vessel's
+        /// member recording. Like a placement, the kerbal keeps recording, so
+        /// <see cref="MaterializeTree"/> leaves his <c>ChildBranchPointId</c> unset.
+        /// </summary>
+        public static BranchPoint InventoryTransferBranch(
+            string branchPointId, string kerbalRecordingId, string memberRecordingId, double transferUT)
+        {
+            return new BranchPoint
+            {
+                Id = branchPointId,
+                UT = transferUT,
+                Type = BranchPointType.InventoryTransfer,
                 ParentRecordingIds = new List<string> { kerbalRecordingId },
                 ChildRecordingIds = new List<string> { memberRecordingId }
             };

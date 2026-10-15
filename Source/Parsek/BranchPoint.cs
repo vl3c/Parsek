@@ -32,7 +32,17 @@ namespace Parsek
         // alone); child = the placed part's recording. No split / merge / breakup /
         // terminal metadata. Purely additive: no schema generation bump. See
         // docs/parsek-flight-recorder-design.md section 4.11.
-        GroundPartPlaced = 9
+        GroundPartPlaced = 9,
+
+        // An EVA kerbal moved a stored part into or out of an inventory container on a
+        // FOREIGN vessel (one that is not a member of the kerbal's tree), so that vessel
+        // joins the tree as a background member with its own recording. Parent = the
+        // kerbal's recording, which does NOT end here (same shape as GroundPartPlaced);
+        // child = the foreign vessel's recording, which carries the transfer as a
+        // PartAdded / PartRemoved SegmentEvent and so claims the vessel for the ghost
+        // chain (design section 12.6). Purely additive: no schema generation bump. See
+        // docs/parsek-flight-recorder-design.md section 4.12.
+        InventoryTransfer = 10
     }
 
     public class BranchPoint

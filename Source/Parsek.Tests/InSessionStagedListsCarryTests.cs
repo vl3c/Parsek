@@ -1100,8 +1100,8 @@ namespace Parsek.Tests
         /// <summary>
         /// The Discard Re-fly load lands on ONE OnLoad: the Space Center's (Launch) or the
         /// editor's (Prelaunch) scene start reloads persistent.sfs (decompiled
-        /// SpaceCenterMain.Start / EditorDriver.Start), not the rewind-point quicksave the handler
-        /// loaded. Whatever that node carries, the handoff the old instance captured after the
+        /// SpaceCenterMain.Start / EditorDriver.Start), which the handler writes from the
+        /// rewind-point game it loaded. Whatever that node carries, the handoff the old instance captured after the
         /// handler mutated memory supplies the marker, the journal, the rows and the committed
         /// tree's rewind points.
         /// </summary>
@@ -1298,6 +1298,61 @@ namespace Parsek.Tests
 
             Assert.Null(resumed.Scenario.ActiveReFlySessionMarker);
             AssertFirstMergeRowsNamingTheAttemptAreGone(resumed.Scenario, origin, tombstoneVersionBefore);
+        }
+
+        /// <summary>
+        /// ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE: an F9 during a Re-Fly detaches
+        /// every committed copy of the session's tree (TryRestoreActiveTreeNode), so the resumed
+        /// tree is the only instance left. The Esc-menu Discard Re-fly must put it back committed,
+        /// sanitized, as the merge-dialog Discard does; the scene exit it arms drops the live
+        /// reference without a commit, so without the restore the whole flight, origin included,
+        /// leaves the timeline.
+        /// </summary>
+        [Fact]
+        public void DiscardOfResumedMergedSession_EscMenu_OriginBackInTheTimeline()
+        {
+            var resumed = BuildResumedMergedSession();
+            Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == TreeId);
+            WireDiscardSeams();
+
+            RevertInterceptor.DiscardReFlyHandler(resumed.Marker, RevertTarget.Launch, EditorFacility.VAB);
+
+            var committed = Assert.Single(RecordingStore.CommittedTrees, t => t.Id == TreeId);
+            Assert.True(committed.Recordings.ContainsKey(OriginId), "the origin is committed again");
+            Assert.False(committed.Recordings.ContainsKey(ForkId), "the discarded attempt is not");
+            Assert.Equal(OriginId, committed.ActiveRecordingId);
+            Assert.False(RecordingStore.HasPendingTree, "the restored tree does not also stay pending");
+            Assert.True(ErsHas(OriginId), "the sanitized tree is committed again with its origin visible");
+            Assert.False(ErsHas(ForkId));
+            Assert.Contains(logLines, l => l.Contains("[INFO][MergeDialog]")
+                && l.Contains("RestoreSanitizedPendingTreeIfDetached: restored committed tree")
+                && l.Contains("tree=" + TreeId));
+        }
+
+        /// <summary>
+        /// The ordinary Esc discard (no quickload): the committed original is still in memory,
+        /// so nothing is restored and the live clone is left to the scene exit's drop.
+        /// </summary>
+        [Fact]
+        public void DiscardOfFreshSession_EscMenu_CommittedOriginalPresent_RestoresNothing()
+        {
+            InstallCommittedTree(TreeId, new[] { "rp_t" }, Rec(OriginId, 50.0, MergeState.CommittedProvisional));
+            var provisional = Rec("rec_provisional", 55.0, MergeState.NotCommitted);
+            provisional.CreatingSessionId = SessionS;
+            RecordingStore.AddProvisional(provisional);
+            var marker = Marker(SessionS, "rec_provisional", OriginId, "rp_t");
+            Memory(s =>
+            {
+                s.RewindPoints.Add(Rp("rp_t"));
+                s.ActiveReFlySessionMarker = marker;
+            });
+            var before = RecordingStore.CommittedTrees.Single(t => t.Id == TreeId);
+            WireDiscardSeams();
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch, EditorFacility.VAB);
+
+            Assert.Same(before, Assert.Single(RecordingStore.CommittedTrees, t => t.Id == TreeId));
+            Assert.DoesNotContain(logLines, l => l.Contains("RestoreSanitizedPendingTreeIfDetached: restored committed tree"));
         }
 
         [Fact]

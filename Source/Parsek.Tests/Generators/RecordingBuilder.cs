@@ -805,6 +805,26 @@ namespace Parsek.Tests.Generators
         }
 
         /// <summary>
+        /// Shapes this recording as a foreign vessel that joined an EVA kerbal's tree when the
+        /// kerbal moved a stored part into or out of one of its containers (design:
+        /// docs/parsek-flight-recorder-design.md section 4.12): one transfer SegmentEvent at
+        /// <paramref name="transferUT"/>, built by the production helper so the details
+        /// string is the one the recorder writes. Wire the tree with
+        /// <see cref="ScenarioWriter.InventoryTransferBranch"/>.
+        /// </summary>
+        public RecordingBuilder AsForeignCargoPartner(
+            double transferUT, SegmentEventType direction, string partName,
+            int slot = 0, uint containerPartPid = 100000u)
+        {
+            int quantityAfter = direction == SegmentEventType.PartRemoved ? 0 : 1;
+            SegmentEvent e = ForeignInventoryTransfer.BuildTransferSegmentEvent(
+                transferUT, direction, partName, slot, quantityAfter, containerPartPid);
+            AddSegmentEvent(e.type, e.ut, e.details);
+            isDebris = false;
+            return this;
+        }
+
+        /// <summary>
         /// Marks this recording as debris (vessel has no controller parts).
         /// </summary>
         public RecordingBuilder AsDebris()

@@ -2443,9 +2443,10 @@ namespace Parsek
                         currentRec, recById, queue, result,
                         ref debrisAdded, ref debrisAnchorOnlySkips);
 
-                    // Ground parts an EVA kerbal in the closure placed hang off a
-                    // GroundPartPlaced point the (still recording) kerbal does NOT
-                    // reference through ChildBranchPointId, so they are found by parent
+                    // Ground parts an EVA kerbal in the closure placed, and foreign
+                    // vessels whose inventory he changed, hang off a kerbal side branch
+                    // (GroundPartPlaced / InventoryTransfer) the still recording kerbal does
+                    // NOT reference through ChildBranchPointId, so they are found by parent
                     // id (RecordingStore.EnqueueParentedBranchChildren's pattern).
                     EnqueueGroundPartPlacedChildrenForClosure(
                         currentRec, recById, queue, result, ref placedPartsAdded);
@@ -3240,7 +3241,7 @@ namespace Parsek
             for (int b = 0; b < tree.BranchPoints.Count; b++)
             {
                 BranchPoint bp = tree.BranchPoints[b];
-                if (bp == null || bp.Type != BranchPointType.GroundPartPlaced) continue;
+                if (bp == null || !RecordingTree.IsKerbalSideBranch(bp.Type)) continue;
                 if (bp.ParentRecordingIds == null || !bp.ParentRecordingIds.Contains(rec.RecordingId))
                     continue;
                 if (bp.ChildRecordingIds == null) continue;
@@ -3255,8 +3256,8 @@ namespace Parsek
                     queue.Enqueue(childId);
                     placedPartsAdded++;
                     ParsekLog.Verbose("ReFlySession",
-                        $"SessionSuppressedSubtree: admitted placed ground part child={childId} " +
-                        $"placedBy={rec.RecordingId} bp={bp.Id}");
+                        $"SessionSuppressedSubtree: admitted kerbal side-branch child={childId} " +
+                        $"type={bp.Type} by={rec.RecordingId} bp={bp.Id}");
                 }
             }
         }

@@ -2012,7 +2012,8 @@ bump removed; `InSessionHandoffWiringGateTests` pins the order.
 The OQ-1 Esc-menu Discard is proven for the rows only (see
 ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE). Decompile
 note: the Discard Re-fly load is ONE OnLoad, and it reads persistent.sfs, not the rewind-point
-quicksave (see DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT).
+quicksave (see DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT). Both follow-ups fixed
+2026-10-15.
 
 ---
 
@@ -2406,7 +2407,7 @@ carry) stays as the regression guard should a future route reach the editor load
 
 ---
 
-## DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT: Discard Re-fly loads the rewind point's quicksave, but the scene it then opens reloads persistent.sfs [FILED 2026-10-06 from the in-session carry work (PR #2038), verified by decompile; player effect not traced. OPEN, product; to trace]
+## ~~DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT: Discard Re-fly loads the rewind point's quicksave, but the scene it then opens reloads persistent.sfs~~ [FILED 2026-10-06 from the in-session carry work (PR #2038), verified by decompile. TRACED and FIXED 2026-10-15, branch `claude/refly-quickload-edge-cases-eixmlf`]
 
 `RevertInterceptor.DiscardReFlyHandler` loads the origin rewind point's quicksave into
 `HighLogic.CurrentGame` and calls `HighLogic.LoadScene(SPACECENTER)` (Launch) or
@@ -2426,6 +2427,38 @@ player sees at the Space Center / in the editor). Candidate: write the quicksave
 persistent.sfs before the scene load, as stock `QuickSaveLoad.onQuickloadPipelineFinished` does
 for a non-flight quickload (`GamePersistence.SaveGame(Game, "persistent", ...)` then `LoadScene`).
 Live proof: lane QL-5.
+
+**Traced 2026-10-15 (decompiled KSP 1.12.5).** `FlightDriver.PostInit` writes `persistent` at EVERY
+flight-scene start (`GamePersistence.SaveGame(PostInitState, "persistent", ...)` when
+`ClearToSave`), and an F9 in flight is a flight-scene start (`QuickSaveLoad` ->
+`FlightDriver.StartAndFocusVessel`); `QuickSaveLoad.doSave` also writes it on every F5 when
+`AutoSaveOnQuickSave` is set, and a switch to an unloaded vessel reloads the flight scene. So after
+an F5 / F9 inside a Re-Fly, Discard Re-fly landed at the Space Center at the quicksave's moment,
+with the clock past the rewind point and the discarded attempt's vessel left in the world as a
+real vessel. Without such a write the file held the Re-Fly start's PostInit save, which is the
+rewind point's quicksave before Parsek's post-load strip (the strip runs on `onFlightReady`, which
+PostInit fires after its save), so the ordinary discard landed right.
+
+**Fixed 2026-10-15.** `RevertInterceptor.DiscardReFlyHandler` writes the loaded rewind-point game
+to persistent.sfs after the load and before the scene request
+(`WriteRewindPointGameAsPersistent`, `GamePersistence.SaveGame(game, "persistent", ...)`, stock's
+own non-flight quickload order), so the scene start reloads the rewind point. A failed or refused
+write (the scenario's autosave disabled) logs a Warn and dispatches as before. The write keeps
+the PARSEK node persistent.sfs already held (the last live save, read back and spliced over the
+rewind point game's stored node by `SpliceLiveParsekScenarioNode`), because `SaveGame(Game, ...)`
+copies stored scenario nodes verbatim: the rewind point's own node lacks every tree committed
+after it, and a crash before the next live save would cold-load it and reap those trees'
+sidecars. No live node to carry means no write (Warn, the old landing). So the Discard Re-fly
+OnLoad reads the same PARSEK node it read before the fix, with the rewind point's world. End line:
+`End reason=discardReFly ... dispatched=true persistentWritten=true`. Tests:
+`ReFlyRevertDialogTests.DiscardReFly_WritesTheRewindPointGameToPersistent_AfterTheLoad_BeforeTheScene`
+(both targets, load -> persistent -> scene order), `DiscardReFly_PersistentWriteFails_StillDispatches`,
+`DiscardReFly_StubbedLoad_SkipsThePersistentWrite`, and the wiring gate
+`LoadReconcileWiringGateTests.DiscardReFlyWritesPersistentAndRestoresTheDetachedTreeBeforeTheScene`.
+The Discard Re-fly intent now carries the clock of the rewind-point quicksave the discard loaded,
+and its consumed line says whether the scene landed there
+(`rpSaveUT=.. loadedUT=.. landedAtRewindPoint=true|false|unknown`, 1 s tolerance; `LoadReconcilePolicyTests.LandedAtRewindPointToken_Pure`). Live proof: lane QL-5c
+(F5 / F9 inside the session, then the Esc discard), PASS `2026-10-15_1600`.
 
 ---
 
@@ -2474,7 +2507,7 @@ neither fork may survive in the resumed tree.
 
 ---
 
-## ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE: Discard Re-fly from the Esc menu after an F9 during a Re-Fly may drop the flight's tree [FILED 2026-10-06 from the in-session carry review, PR #2038; pre-existing, verified by code read, not reproduced. OPEN, product]
+## ~~ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE: Discard Re-fly from the Esc menu after an F9 during a Re-Fly may drop the flight's tree~~ [FILED 2026-10-06 from the in-session carry review, PR #2038; pre-existing, verified by code read. REPRODUCED headless and FIXED 2026-10-15, branch `claude/refly-quickload-edge-cases-eixmlf`]
 
 An F9 during any Re-Fly session restores the quicksave's active tree, and
 `ParsekScenario.TryRestoreActiveTreeNode` detaches any committed copy of that tree (a session that
@@ -2494,6 +2527,19 @@ Fix: to trace first (the suppression's consumer and what the Discard Re-fly load
 tree); candidate: put a detached committed tree back sanitized on the Esc path as the merge-dialog
 Discard does. Red test: the resumed-session fixture through `DiscardReFlyHandler` with the
 suppression armed, then the Discard Re-fly load; the committed tree must hold the origin.
+
+**Fixed 2026-10-15.** Re-checked on main after #2103 / #2106 / #2107: still held. The new cell
+`InSessionStagedListsCarryTests.DiscardOfResumedMergedSession_EscMenu_OriginBackInTheTimeline`
+(the resumed-session fixture, no committed copy of the tree, through `DiscardReFlyHandler`) was
+red: no committed tree after the discard. `MergeDialog.PruneActiveReFlyAttemptOwnedTopology` now
+hands back the tree it pruned, and the handler, once the rewind-point load succeeded and before
+it arms the scene-exit drop, calls `MergeDialog.RestoreDetachedTreeAfterEscDiscard`: when no
+committed tree carries that id, the pruned tree goes back committed through the merge-dialog
+Discard's `RestoreSanitizedPendingTreeIfDetached` (a pending instance leaves the pending slot). A
+failed scene dispatch takes it back out of the committed store, since the player stays in flight
+on it. The ordinary session (committed original still in memory) restores nothing
+(`DiscardOfFreshSession_EscMenu_CommittedOriginalPresent_RestoresNothing`). End line carries
+`restoredDetachedTree=`. Live proof: lane QL-5c, PASS `2026-10-15_1600`.
 
 ---
 
@@ -2864,7 +2910,7 @@ watermark reds the leaf second-rewind cell, a bare-pid positive rule reds the tr
 
 ---
 
-## CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS: one recording that ends two claimed vessels holds back only one of them [FILED 2026-10-06 from the PR #2029 re-review, by code read and a headless walker cell; not reproduced in game. OPEN, product]
+## ~~CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS: one recording that ends two claimed vessels holds back only one of them~~ [FILED 2026-10-06 from the PR #2029 re-review, by code read and a headless walker cell; not reproduced in game. FIXED 2026-10-15, branch `wip-chain-tip-several-claims`; no live flight]
 
 Shape: a tug docks to depot 600, carries it to station 777 and docks there; the final
 recording (777, the station dominant) ends both lineages. `GhostChainWalker.ComputeAllGhostChains`
@@ -2895,6 +2941,29 @@ adopted. That needs the chain to keep every claimed pid (not only its key) for t
 ghosting, and the replacement to remove all of them, spawn the tip once and restore all of them
 on a failed spawn. Red tests: a flight `FilterAndGhostChains` cell over this fixture (both pids
 ghosted), and the `TwoClaims_*` cells flipped to "both removed, tip spawned".
+
+FIXED: the walker keeps every claimed vessel on the chain (`GhostChain.ClaimedVessels`: the key,
+plus each folded chain's key with its launch guid and first claim UT, filled by
+`MergeCrossTreeLinks`). Flight: `ParsekFlight.FilterAndGhostChains` ghosts every pid
+`SelectChainPidsToGhost` returns (the key, then each folded claim whose live vessel is not
+conclusively another launch), the flight CommNet relay covers each held-back vessel until its own
+first claim, and `VesselGhoster.ReleaseChainClaims` drops all of them from the ghosted set when the
+tip settles (spawn, adoption, walkback, KSC retirement), so the spawned tip under a folded pid does
+not read as still ghosted. Outside flight: `ChainTipStaleVessel.ShouldReplaceStaleLiveVessels`
+takes one evidence row per live claimed vessel and answers "replace" only when every one passes
+every check of the single-vessel replacement (launch, `lastUT` before the last claim, not in use;
+the playhead latch and the spawn blocker per tip); one doubt keeps all of them on the plain
+adoption (`tip-ends-several-claimed-vessels` is gone). The tip-identity rule now refuses only when
+the tip's pid is not one of the live claimed vessels (the stale station carrying the tip's pid is
+replaced, not adopted). `TryReplaceStaleLiveVessel` removes every live claimed vessel (snapshot
+first), puts back the ones already removed when a later removal fails, and
+`CompleteReplacement` / `AbortReplacement` restore all of them when the tip spawns no vessel. Still
+counted by live vessel (a pid is one vessel at a time). Tests: `ChainTipStaleVesselTests`
+`TwoClaims_*` (fixture claims, flight selection incl. another-launch skip, ghoster release,
+predicate both-stale / any-doubt / tip-identity, TS / KSC / flight-leaf replacement of both,
+failed spawn and thrown spawn restoring both, in-use and simulated-since-claim keeping both, a
+failed second removal putting the first back). Not flown: no harness lane builds a tug-depot-station
+two-dock chain (CI-3 / CI-4 / RC-5 cover one claimed vessel).
 
 ---
 
@@ -2958,9 +3027,10 @@ the chain's (`ExpectedClaimedGuid`: the chain's `LaunchGuid` when the chain is k
 pid, else the tip's own when it kept the claimed pid, else pid only, as the flight ghosting).
 Every claimed pid ending at the tip is probed (all chains ending there, folded-in links
 included) and the live one is the vessel replaced. It answers "replace" only for the tip of a
-non-terminated chain whose claimed pids exactly one live vessel carries (two live are refused:
-CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS; one station claimed again under its new pid after a
-transport-dominant dock is one live vessel, PR #2029 round-two review), unspawned, with that
+non-terminated chain whose claimed pids exactly one live vessel carries (two live were refused
+here; since CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS every live one is replaced; one station claimed
+again under its new pid after a transport-dominant dock is one live vessel, PR #2029 round-two
+review), unspawned, with that
 live claimed vessel and no
 live vessel already matching the tip's own pid and launch when the claimed pid is another one
 (that vessel is the site's adoption, so removing the claimed one would lose it; PR #2029
@@ -3056,14 +3126,54 @@ The live proof, lane RC-5, is not flown.
 
 ---
 
-## EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED: moving a stored part between a tree vessel and a foreign vessel is not recorded, so a rewind duplicates or deletes it [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED: moving a stored part between a tree vessel and a foreign vessel is not recorded, so a rewind duplicates or deletes it~~ [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `wip-eva-inventory-claim`; live proof RC-6 not flown]
 
 No inventory or EVA-construction GameEvent is subscribed anywhere in `Source/Parsek`; claims come
 only from dock target pids and background part events, and no part-event type covers an
 inventory transfer. Design 12.6 lists EVA construction as a ghosting trigger.
 
-Fix: record the transfer as a claim on the foreign vessel (or a part event), so the chain rule
-applies. Lane RC-6 with `EvaGroundScience action=take` against a foreign container (new fixture).
+Re-verified on `origin/main` 8eb067d (after #2103 / #2106 / #2107) before the fix: no
+`onModuleInventory*` or `OnEVAConstructionModePart*` subscription in `Source/Parsek`.
+
+Fix: done. Design (flight recorder design section 4.12): the claim must not come from the kerbal's
+recording, because a chain's tip supplies the spawn snapshot and a kerbal tip would replace the
+rover by the kerbal. So the foreign vessel joins the tree the way a placed ground part does: on
+`onModuleInventorySlotChanged` (fires after the slot changed, on the changed module; never from
+`OnLoad`) for a module on a vessel the tree does not carry, while the tree records its active EVA
+kerbal, `ParsekFlight.OnModuleInventorySlotChanged` adds an `InventoryTransfer` branch point
+(new additive `BranchPointType` 10, parent = the kerbal, who keeps recording) and a background
+member recording of that vessel with its post-transfer snapshot and one `PartRemoved` / `PartAdded`
+`SegmentEvent` per transfer (both already ghosting triggers). The walker's background-event scan
+claims it and the member's own leaf is the tip; later transfers append to the member and refresh
+its snapshot. Parsek's own route pickup / delivery writes are fenced out (`ParsekInventoryWrites`).
+The structural walks that skip or collect a placement read both types through
+`RecordingTree.IsKerbalSideBranch`. Pure gate and builders: `ForeignInventoryTransfer`; tests
+`ForeignInventoryTransferTests` (including the walker cell: the rover is claimed and its own
+recording is the tip) and `ReFlyThroughEvaTests.SessionSuppressedSubtree_IncludesAForeignVesselTheKerbalMovedCargoWith`.
+
+Live proof still open: lane RC-6 (roadmap) needs a new fixture (a landed foreign rover with a
+stocked container within EVA reach of a recording kerbal). `EvaGroundScience action=take` already
+drives the stock clear-then-store; a put into a foreign container has no verb yet. Sibling gap
+filed as EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED.
+
+---
+
+## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. OPEN, product]
+
+The inventory fix records a stored part moved into or out of a foreign vessel's container, but two
+neighbours of the same defect remain. `EVAConstructionModeEditor` fires
+`OnEVAConstructionModePartAttached(parentVessel, part)` after `AttachPart` and
+`OnEVAConstructionModePartDetached(vessel, part)` after `DetachPart` (decompiled 1.12.5); neither
+is subscribed, and an attach / detach changes no inventory slot of the foreign vessel, so a part
+built onto or taken off a parked rover is lost or duplicated by a rewind exactly as before. And
+`ForeignInventoryTransfer.Evaluate` refuses a transfer with a foreign EVA kerbal
+(`ChangedVesselIsEva`): adopting a kerbal vessel as a plain member would hand crew reservation a
+kerbal it does not own.
+
+Fix: route the two construction events through the same adoption (`InventoryTransfer` member, a
+`PartAdded` / `PartRemoved` event). Open question for the detach: whether the held part is still in
+`vessel.parts` when the event fires (`Part.OnDetachFlight`), which decides whether the snapshot must
+wait a frame. Needs a live reading before it ships.
 
 ---
 

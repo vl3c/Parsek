@@ -155,6 +155,7 @@ namespace Parsek
                     GhostStartUT = links[0].ut
                 };
                 chain.Links.AddRange(links);
+                chain.AddClaimedVessel(pid, launchGuid, links[0].ut);
 
                 chains[pid] = chain;
             }
@@ -603,6 +604,14 @@ namespace Parsek
                     for (int i = 0; i < linkedChain.Links.Count; i++)
                         chain.Links.Add(linkedChain.Links[i]);
 
+                    // The folded chain's vessels are still claimed: the merged tip ends them
+                    // too, so the chain holds every one of them back, not only its own key.
+                    for (int i = 0; i < linkedChain.ClaimedVessels.Count; i++)
+                        chain.AddClaimedVessel(
+                            linkedChain.ClaimedVessels[i].Pid,
+                            linkedChain.ClaimedVessels[i].LaunchGuid,
+                            linkedChain.ClaimedVessels[i].FirstClaimUT);
+
                     // Re-sort after merge
                     chain.Links.Sort(CompareChainLinks);
 
@@ -618,8 +627,8 @@ namespace Parsek
                             "cross-tree-link|{0}|{1}", originPid, tipVesselPid),
                         stateKey: chain.TipRecordingId ?? "null",
                         message: string.Format(ic,
-                            "Cross-tree link: vessel={0} → merged with chain for vessel={1}, new tip={2}",
-                            originPid, tipVesselPid, chain.TipRecordingId));
+                            "Cross-tree link: vessel={0} -> merged with chain for vessel={1}, new tip={2} claimedVessels={3}",
+                            originPid, tipVesselPid, chain.TipRecordingId, chain.ClaimedVessels.Count));
 
                     current = linkedChain;
                 }

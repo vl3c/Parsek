@@ -107,6 +107,9 @@ namespace Parsek
                 case BranchPointType.VesselSwitchContinuation:
                 // The placing kerbal's vessel is unchanged; the placed part is a new vessel.
                 case BranchPointType.GroundPartPlaced:
+                // The foreign vessel is claimed by its own member recording's transfer
+                // SegmentEvent (background-event scan); the branch point names no target.
+                case BranchPointType.InventoryTransfer:
                     return false;
 
                 default:

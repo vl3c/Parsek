@@ -415,8 +415,8 @@ Types:
 - **CREW_LOST** — Crew member died (destroyed or MIA). Relevant for crew tracking.
 - **CREW_TRANSFER** — Crew moved between parts within the same vessel (not via EVA — EVA is a SPLIT/MERGE in the DAG). Records kerbal name, from-part, to-part.
 - **PART_DESTROYED** — Part destroyed without splitting the vessel. Ghost stops rendering this part mesh after this UT. Records part name, part ID, whether it was a controller.
-- **PART_REMOVED** — Part removed via construction without splitting the vessel.
-- **PART_ADDED** — Part added via construction without creating a new vessel. Ghost starts rendering this part mesh after this UT.
+- **PART_REMOVED** — Part removed via construction without splitting the vessel. Also a stored part taken out of a foreign vessel's inventory (Section 4.12).
+- **PART_ADDED** — Part added via construction without creating a new vessel. Ghost starts rendering this part mesh after this UT. Also a stored part put into a foreign vessel's inventory (Section 4.12).
 - **TIME_JUMP** — Discontinuity from a relative-state time jump (see Section 14.5). Stores pre-jump and post-jump state vectors (position, velocity, UT) so playback can handle the gap as a visual cut.
 
 ### 4.9 Merge Events
@@ -558,6 +558,61 @@ came from does not reach the member either: the supersede closure
 branch (different pid) at the EVA branch point, so the kerbal and every part it placed keep their
 recordings, and `EffectiveState.EnqueueDebrisChildren` admits debris only. Todo
 REFLY-CLOSURE-OMITS-PLACED-GROUND-PARTS closed as moot on that evidence.
+
+### 4.12 Inventory Transfers with a Foreign Vessel
+
+Todo EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED (2026-10-15). A kerbal on EVA can move a
+stored part (KSP 1.12 cargo) into or out of an inventory container on a vessel that is not part of
+his flight's tree: a rover parked by an earlier mission, a base. That changes the other vessel's
+physical state, so by Section 12.6 the flight claims it: after a rewind it must be a ghost until the
+flight ends and then come back in its post-transfer form. Without a record of the transfer the
+rewound game kept the container's old contents while the kerbal also spawned with the part
+(duplicated), or the part he put away vanished (deleted).
+
+**What stock does (decompiled KSP 1.12.5).** `ModuleInventoryPart.StoreCargoPartAtSlot`,
+`ClearPartAtSlot`, `UpdateStackAmountAtSlot` and `RemoveNPartsFromInventory` fire
+`onModuleInventorySlotChanged(module, slot)` after the slot changed, on the module whose slot
+changed. A drag from a container into the kerbal's inventory clears the container's slot first and
+then fills the kerbal's (two events, one per module). `OnLoad` fires only
+`onModuleInventoryChanged`, never the slot event, so loading a vessel records nothing.
+
+**What counts as a transfer.** `ForeignInventoryTransfer.Evaluate`: the tree is recording, the
+active vessel is the EVA kerbal whose recording is the tree's active recording, the changed module
+sits on another real vessel (not a ghost map vessel, not an EVA kerbal) and the change is not one of
+Parsek's own supply-route writes (`ParsekInventoryWrites`, set around the pickup and delivery
+writers). A vessel no recording of the tree carries is adopted; a vessel adopted by an earlier
+transfer gets one more event; any other tree vessel (the kerbal's own lander) is left to its own
+recording, whose end snapshot already carries the change.
+
+**Tree shape.** A new `BranchPointType.InventoryTransfer = 10` (purely additive: no schema
+generation bump), the same shape as `GroundPartPlaced`: `ParentRecordingIds = [the kerbal's
+recording]`, `ChildRecordingIds = [the foreign vessel's recording]`, and the kerbal's
+`ChildBranchPointId` is not set, so he keeps recording and stays a leaf. Every walk that treats a
+placement as the kerbal's product reads both types through one predicate,
+`RecordingTree.IsKerbalSideBranch`: the spawn decision's #114 safety net, the Re-Fly downstream
+check, the session-suppressed and supersede closure, and (generically, by parent id) the
+switch-segment subtree behind scoped Discard. The branch point is non-claiming and names no target
+vessel; it reads "Cargo" in the Missions composition.
+
+**What is recorded.** The member is an ordinary background-recorded recording of the foreign
+vessel: its pid, its `Vessel.id` as `RecordedVesselGuid`, `ExplicitStartUT` = the transfer UT,
+`Generation` = parent + 1, not debris, no parent anchor. Its snapshot is taken at the transfer
+(after the change) and refreshed at every later transfer, so the end snapshot is the post-transfer
+vessel; it joins the `BackgroundMap`. Each transfer is one `SegmentEvent` on the member,
+`PartRemoved` or `PartAdded` (fewer or more parts in the slot than the last reading of it, else the
+vessel's saved `ProtoPartSnapshot`; with neither, an emptied slot reads as a removal), with details
+`inventory part=<name> slot=<n> qty=<after> container=<part pid>`. Nothing is written on the
+kerbal's recording: his own snapshot carries his side of the move.
+
+**The claim.** Both segment event types are ghosting triggers, so the chain walker's
+background-event scan claims the member's pid (the member is not in the root lineage: the kerbal
+does not point at it). The chain's tip is the member's own leaf, so the spawn snapshot is the
+foreign vessel's own post-transfer form, never the kerbal's; the kerbal stays the tip of nothing and
+spawns as himself.
+
+**Not covered.** A part attached to or detached from a foreign vessel in EVA construction mode
+(`OnEVAConstructionModePartAttached` / `Detached`), and a transfer with a foreign EVA kerbal, are
+not recorded yet (todo EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED).
 
 ---
 
@@ -1167,6 +1222,8 @@ function ComputeAllGhostChains(committedTrees, rewindUT):
     if tipVesselPID in claims and tipVesselPID != chain.originalVesselPid:
       // Merge into the existing chain for tipVesselPID
       extend that chain with this chain's links
+      // The merged chain keeps the absorbed chain's claimed vessels: its tip ends them too,
+      // so all of them are held back until the tip (a tug carrying a depot to a station)
     // Also check: does any BranchPoint in another tree have
     // TargetVesselPersistentId == tipVesselPID?
     // If yes, this chain extends through that tree.
@@ -1186,9 +1243,9 @@ function IsIntermediateChainLink(chains, recording):
   return false
 ```
 
-**Output:** A map of `{vesselPID -> GhostChain}` where each GhostChain contains: the original vessel PID, the ghost start UT, the ordered list of chain links, the tip Recording (which provides the spawn snapshot), the spawn UT, and whether the chain terminates (no spawn). This map is recomputed on every rewind and save load from the committed trees — it is never persisted.
+**Output:** A map of `{vesselPID -> GhostChain}` where each GhostChain contains: the original vessel PID, every claimed vessel it holds back (its own key first, then the key, launch guid and first claim UT of each chain folded into it by the cross-tree link), the ghost start UT, the ordered list of chain links, the tip Recording (which provides the spawn snapshot), the spawn UT, and whether the chain terminates (no spawn). This map is recomputed on every rewind and save load from the committed trees; it is never persisted.
 
-**Outside the flight chain path.** Only the flight scene ghosts a claimed vessel (on flight load, while the chain's spawn UT is ahead). The Space Center and the Tracking Station do not, and a flight load past the spawn UT no longer ghosts the chain, so after a rewind or a load to before the claim the claimed vessel stays live there in its pre-claim form, under its claimed pid (the tip's own pid when the claimed vessel dominated the dock, a new one on undock when it did not, Section 12.8). When the tip's spawn UT then passes (the Tracking Station hand-off, the Space Center end spawn, or the flight leaf spawn), the live vessel carrying one of the claimed pids that end at the tip is replaced, not adopted or left beside the tip: it is removed with `Vessel.Die()` after its crew are taken off and set Available (no recovery, no funds, no ledger row) and the tip spawns from its snapshot with its identity preserved (Section 13.3). The replacement needs two independent pieces of evidence: this session saw the playhead strictly before the tip's start (a rewind or a load), and the live vessel was last simulated in physics (`lastUT`) before the chain's last claim, which no vessel that went through every claim was. A vessel the player is flying or recording is never replaced, nor is the claimed vessel when a live vessel already matches the tip's own identity on another pid (the site adopts that one). Claimed vessels are counted by live vessel, not by pid: a station claimed again under the new pid it took in a dock it did not dominate is still one vessel, its original pid the live one. A tip whose claimed pids two live vessels carry (a tug carrying a depot to a station, both live) is left to the plain adoption for now; flight holds back only one of them too (todo CHAIN-TIP-ENDS-SEVERAL-CLAIMED-VESSELS). A replacement never loses the vessel: it is removed only when the tip can spawn now (not abandoned, out of attempts, held by the terminal-orbit safety, without a snapshot, or retiring in the KSC exclusion zone, where 13.1 adopts the live counterpart), and if the spawn still yields no vessel the removed one is respawned from a snapshot taken just before its removal. Any doubt keeps the plain adoption. Despawning the claimed vessel at the rewind outside flight, as this section and 20.3 describe, is not built (todo CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT).
+**Outside the flight chain path.** Only the flight scene ghosts a claimed vessel (on flight load, while the chain's spawn UT is ahead). The Space Center and the Tracking Station do not, and a flight load past the spawn UT no longer ghosts the chain, so after a rewind or a load to before the claim the claimed vessel stays live there in its pre-claim form, under its claimed pid (the tip's own pid when the claimed vessel dominated the dock, a new one on undock when it did not, Section 12.8). When the tip's spawn UT then passes (the Tracking Station hand-off, the Space Center end spawn, or the flight leaf spawn), every live vessel carrying one of the claimed pids that end at the tip is replaced, not adopted or left beside the tip: each is removed with `Vessel.Die()` after its crew are taken off and set Available (no recovery, no funds, no ledger row) and the tip spawns once from its snapshot with its identity preserved (Section 13.3). A tip that ends several claimed vessels (a tug docks to a depot, then carries it to a station: the walker folds the station's chain into the depot's) replaces all of them and spawns as their recorded merged form, and flight likewise holds back every claimed vessel of a chain, its key and each folded claim, not only the key. The replacement needs two independent pieces of evidence, for every live claimed vessel: this session saw the playhead strictly before the tip's start (a rewind or a load), and the live vessel was last simulated in physics (`lastUT`) before the chain's last claim, which no vessel that went through every claim was. A vessel the player is flying or recording is never replaced, nor are the claimed vessels when a live vessel already matches the tip's own identity on a pid that is not one of them (the site adopts that one); a stale claimed vessel carrying the tip's own pid is replaced like the others. One live claimed vessel in doubt keeps all of them on the plain adoption. Claimed vessels are counted by live vessel, not by pid: a station claimed again under the new pid it took in a dock it did not dominate is still one vessel, its original pid the live one. A replacement never loses a vessel: they are removed only when the tip can spawn now (not abandoned, out of attempts, held by the terminal-orbit safety, without a snapshot, or retiring in the KSC exclusion zone, where 13.1 adopts the live counterpart), a removal that fails puts back the ones already removed, and if the spawn still yields no vessel every removed one is respawned from the snapshot taken just before its removal. Any doubt keeps the plain adoption. Despawning the claimed vessel at the rewind outside flight, as this section and 20.3 describe, is not built (todo CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT).
 
 **Supply-route cargo in the tip snapshot.** The tip snapshot is captured when its mission is committed, so it carries every supply-route crossing that touched the claimed vessel up to the tip's end: deliveries into it, pickups from it, and debits of it as a route origin. A rewind (or a Re-Fly restore, or an in-session load back in time) to before the claim retires and refunds the route rows after its cutoff, the reverted save restores the origin, and while the claimed vessel is held back the replayed crossings into it are blocked; spawned verbatim, the tip would hold cargo nobody paid for (owner ruling 2026-10-07: subtract it from the snapshot). Each retire (even one that removed no row) hands its removed rows to `ChainTipRouteCargo.CaptureRetiredRouteCargo`, and an in-session load whose route reconcile finds nothing after its cutoff (an F9 at the Space Center) calls it with none, which keeps the cargo rows a committed, non-terminated tip carries (the row's route endpoint, read from the pre-rewind route store, or the vessel its writer resolved, is one of the tip's claimed pids or its own pid with a launch guid not conclusively different, and the row is no later than the tip's end), in `RetiredRouteCargoStore` (an additive `RETIRED_ROUTE_CARGO` child of the ledger file). Each row is tied to the one snapshot that carries it: its tag names the tree, the recording holding the snapshot, that recording's optimizer chain, the capture UT and a fingerprint of the snapshot's resource content, so a later tip of the same tree (a switch continuation flown on from the already adjusted station, a Re-Fly fork) gets none of it, while an optimizer split that moves the snapshot to its later half is followed through the chain. A row is also kept only when it is no later than the snapshot's watermark, the lowest retire or load-back cutoff seen since one first saw that snapshot: a row above it was created in a timeline that branched after the capture. Every site that makes a spawn copy of a recording's snapshot (the shared `VesselSpawner.BuildValidatedRespawnSnapshot(Recording, ...)`, `VesselGhoster`'s chain tip copy, the Space Center end spawn) passes the copy to `ChainTipRouteCargo.ApplyToSpawnCopy`: the rows tagged with that snapshot are undone latest first (a delivery removed, a pickup or origin debit added back), from the claimed vessel's own parts first (`GhostChainWalker.ResolveClaimedPartIds` at each claim), every tank clamped at zero and at capacity. A crossing the current timeline performed again (a cargo row back in the effective ledger, for example into the pre-claim vessel standing live at the Space Center) is paid again and left in; a replay is matched to a stashed crossing by route, stop, row type and nearest UT inside the snapshot's window, never by cycle id, which every rewind rebuilds from the kept rows. The committed snapshot is never changed. Stored-part inventory is not adjusted.
 
@@ -1206,7 +1263,7 @@ function IsIntermediateChainLink(chains, recording):
 - Part destruction on vessel (collision, explosion, overheat)
 - Crew transfer to/from vessel (kerbal = vessel; boarding = merge, EVA = split)
 - Claw/AGU grab (structural MERGE)
-- EVA construction: part added to or removed from vessel
+- EVA construction: part added to or removed from vessel (a stored part moved into or out of a foreign vessel's inventory is recorded, Section 4.12; a part attached or detached in construction mode is not yet)
 
 *Orbital / positional:*
 - Engine burns (changes orbit)

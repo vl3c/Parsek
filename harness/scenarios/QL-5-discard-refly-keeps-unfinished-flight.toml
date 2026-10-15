@@ -34,9 +34,10 @@ id = "QL-5-discard-refly-keeps-unfinished-flight"
 #      (`End reason=discardReFly ... dispatched=true`).
 #   2. The scene request destroys the scenario instance; OnDestroy captures its lists, rewind
 #      points and (cleared) marker (`Staged-list handoff captured reason=OnDestroy`).
-#   3. The Space Center's OnLoad is ONE load and it reads persistent.sfs, not the rewind
-#      point's quicksave (decompiled `SpaceCenterMain.Start`; todo
-#      DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT). It consumes the intent and
+#   3. The Space Center's OnLoad is ONE load and it reads persistent.sfs (decompiled
+#      `SpaceCenterMain.Start`), which the handler wrote from the rewind point's game before the
+#      scene request (todo DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT, fixed
+#      2026-10-15). It consumes the intent and
 #      classifies `early=DiscardReFly refined=DiscardReFly ... discardReFly=Launch
 #      handoff=present`; step A installs memory's lists and memory's (null) marker over the
 #      loaded one (`marker source=memory(none; loaded=<sess>)`), and step B partitions the
@@ -75,9 +76,8 @@ id = "QL-5-discard-refly-keeps-unfinished-flight"
 #   (`discard-not-dispatched` ...) classify by the coarse verdict mismatch; the log-token
 #   readings above are PARSEK-FAIL(expectations).
 #
-# KNOWN ISSUES THIS LANE DOES NOT GATE (not fixed here): DISCARD-REFLY-LANDS-ON-PERSISTENT-
-# NOT-THE-REWIND-POINT (the Space Center reloads persistent.sfs, which here holds the
-# Re-Fly's own start; the lane reads no clock or vessel position after the load) and
+# NOT GATED HERE: the two 2026-10-15 fixes DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-
+# POINT (this lane reads no clock or vessel position after the load) and
 # ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE (needs an F9 inside the session,
 # which this lane does not make).
 #
