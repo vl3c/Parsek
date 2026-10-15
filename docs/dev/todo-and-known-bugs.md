@@ -1524,7 +1524,7 @@ CHAIN-CLAIM-FROM-SUPERSEDED-RECORDING).
 
 ---
 
-## CHAIN-CLAIM-FROM-SUPERSEDED-RECORDING: a dock or undock that only a superseded flight recorded still claims the other vessel for a ghost chain [FILED 2026-10-07 by code read while fixing CHAIN-WALK-SUPERSEDE-BLIND-HOPS-ONTO-REFLY-TIP. OPEN, product, to check; consequences not traced]
+## ~~CHAIN-CLAIM-FROM-SUPERSEDED-RECORDING: a dock or undock that only a superseded flight recorded still claims the other vessel for a ghost chain~~ [FILED 2026-10-07 by code read while fixing CHAIN-WALK-SUPERSEDE-BLIND-HOPS-ONTO-REFLY-TIP. REPRODUCED headless and FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; not flown]
 
 `GhostChainWalker.ScanBranchPointClaims` / `ScanBackgroundEventClaims` read every committed tree's
 branch points and recordings with no supersede check, and every caller passes the unfiltered
@@ -1536,6 +1536,24 @@ carry the station), and flight ghosts the station until that recording's end, th
 no longer plays. Not traced: what the station's spawn then does, and the Tracking Station path.
 Check first with a headless cell (the shape is `GhostChainWalkerSupersedeTests.BuildVisitorReFlyTree`);
 the likely fix is to skip a claim whose claiming recording a supersede row names.
+
+**FIXED 2026-10-15.** `ScanBranchPointClaims` and `ScanBackgroundEventClaims` drop a claim whose
+claiming recording a supersede row hides from playback (`BuildSupersededClaimantMap` over the rows
+`ComputeAllGhostChains` already takes: the live scenario's, or the explicit-rows overload), so
+every caller is covered (flight `EvaluateAndApplyGhostChains`, the Tracking Station ghost-action
+cache, Materialize and spawn handoffs, GhostCommNet, `ChainTipStaleVessel`, route hold and route
+cargo). The row predicate is shared with playback's hide set through
+`EffectiveState.IsHidingSupersedeRow` (both ids set and different), so a claim is dropped exactly
+when its claimant no longer plays; each drop logs `Claim skipped: vessel PID=... rec=...
+superseded by ...` plus a `Skipped N claim(s) from superseded recording(s)` summary. Consequences
+traced by code read: in flight the stale chain despawned the live station (`ClaimedVesselRemoval`)
+until the superseded merged recording's end, and that tip never spawns (superseded recordings do
+not play), so nothing gave the station back; station recordings ending earlier read as
+intermediate links (spawn suppressed in flight, `TrackingStationSpawnSkipIntermediateGhostChainLink`
+in the TS). The fork's own claims still count. Cells in `GhostChainWalkerSupersedeTests` (dock,
+undock, background-event, fork-docks-too, orphan-row and explicit-list cells red before the fix;
+no-row and harmless-row controls green); `RowOnAnotherVesselOfTheSupersededSubtree_NotFollowed`
+now writes only the merged recording's row, to keep isolating the walk's identity guard.
 
 ---
 

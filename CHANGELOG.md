@@ -27,6 +27,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A station your replaced flight docked with stays put after a Re-Fly.** When a Re-Fly replaces a
+  flight that docked with or undocked from a station, the station is no longer held for the old
+  flight: before, it could vanish in flight and not come back, and its own recordings could be
+  kept from spawning. (CHAIN-CLAIM-FROM-SUPERSEDED-RECORDING)
 - **Parts you build onto or take off another vessel on EVA are remembered.** Attaching a part to a
   parked rover or base in EVA construction, or detaching one from it, now becomes part of your
   flight: after a rewind that vessel is replayed and comes back with or without the part, instead

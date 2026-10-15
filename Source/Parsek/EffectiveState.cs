@@ -634,18 +634,29 @@ namespace Parsek
             for (int i = 0; i < supersedes.Count; i++)
             {
                 var rel = supersedes[i];
-                if (rel == null || string.IsNullOrEmpty(rel.OldRecordingId))
-                    continue;
-                if (string.IsNullOrEmpty(rel.NewRecordingId))
+                if (!IsHidingSupersedeRow(rel))
                     continue;
                 if (!liveIds.Contains(rel.OldRecordingId))
-                    continue;
-                if (string.Equals(rel.OldRecordingId, rel.NewRecordingId, StringComparison.Ordinal))
                     continue;
                 result.Add(rel.OldRecordingId);
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Whether a supersede row hides its old recording from playback: both ids set and
+        /// different. The new recording need not exist (a one-sided orphan row still hides
+        /// the old one). The one row predicate behind
+        /// <see cref="ComputeSupersededRecordingIdsByRelation"/>; a consumer that must agree
+        /// with playback on which recordings no longer play reads it too.
+        /// </summary>
+        internal static bool IsHidingSupersedeRow(RecordingSupersedeRelation rel)
+        {
+            return rel != null
+                && !string.IsNullOrEmpty(rel.OldRecordingId)
+                && !string.IsNullOrEmpty(rel.NewRecordingId)
+                && !string.Equals(rel.OldRecordingId, rel.NewRecordingId, StringComparison.Ordinal);
         }
 
         internal static HashSet<string> ComputeRewindRetiredRecordingIds(
