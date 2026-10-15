@@ -835,6 +835,12 @@ namespace Parsek
         // Exact split-time seed points captured from onPartDeCoupleNewVesselComplete.
         // Used to avoid seeding breakup children from the later deferred-check frame.
         private Dictionary<uint, TrajectoryPoint> decoupleCreatedTrajectoryPoints;
+        // Every onPartDeCoupleNewVesselComplete seen while the listener is subscribed, new
+        // vessel pid -> the vessel it came off (foreign origins included). The deferred
+        // joint-break scan drops a candidate whose origin chain never reaches the recorded
+        // vessel (SegmentBoundaryLogic.IsForeignDecoupleOrigin). Cleared by the deferred
+        // check and whenever the listener is torn down.
+        private readonly Dictionary<uint, uint> decoupleOriginByNewPid = new Dictionary<uint, uint>();
 
         // Docking-port undock handoff (onPartUndock -> onVesselsUndocking, same frame).
         // onPartUndock fires FIRST inside Part.Undock(), while the combined vessel is still
@@ -2296,6 +2302,7 @@ namespace Parsek
                 decoupleControllerStatus = null;
                 decoupleCreatedTrajectoryPoints = null;
             }
+            decoupleOriginByNewPid.Clear();
             pendingDeferredSplitCheckTrigger = DeferredSplitCheckTrigger.None;
             pendingSplitTriggerUT = double.NaN;
 
@@ -7591,6 +7598,7 @@ namespace Parsek
                 // For decouple-only fallback, the synchronously-captured decoupleCreatedVessels list
                 // is the authoritative source of new vessels. Scanning all live vessels here would
                 // misclassify unrelated or stale debris as part of the current split.
+                int foreignOriginSkipped = 0;
                 if (pendingDeferredSplitCheckTrigger == DeferredSplitCheckTrigger.JointBreak
                     && FlightGlobals.Vessels != null)
                 {
@@ -7612,6 +7620,16 @@ namespace Parsek
                         if (newVesselPids.Contains(v.persistentId))
                             continue;
 
+                        // Skip a fragment that came off ANOTHER vessel in this window (e.g. a
+                        // spawned copy breaking on its first unpacked frame): it is not a
+                        // child of the recording.
+                        if (SegmentBoundaryLogic.IsForeignDecoupleOrigin(
+                                v.persistentId, recordedPid, decoupleOriginByNewPid))
+                        {
+                            foreignOriginSkipped++;
+                            continue;
+                        }
+
                         if (!ShouldIncludeVesselInDeferredBreakupScan(v, out string rejectReason))
                         {
                             ParsekLog.Verbose("Flight",
@@ -7629,6 +7647,13 @@ namespace Parsek
                             anyNewVesselHasController = true;
                         }
                     }
+                }
+                if (foreignOriginSkipped > 0)
+                {
+                    ParsekLog.Info("Flight",
+                        $"DeferredJointBreakCheck: skipped {foreignOriginSkipped} new vessel(s) " +
+                        $"that came off another vessel (decouple origin chain never reaches " +
+                        $"recordedPid={recordedPid})");
                 }
 
                 string splitCheckSource =
@@ -7811,6 +7836,7 @@ namespace Parsek
                 decoupleCreatedVessels?.Clear();
                 decoupleControllerStatus?.Clear();
                 decoupleCreatedTrajectoryPoints?.Clear();
+                decoupleOriginByNewPid.Clear();
             }
         }
 
@@ -13338,6 +13364,8 @@ namespace Parsek
                 ?? pendingSplitRecorder?.RecordingVesselId
                 ?? 0;
             uint originalVesselPid = originalVessel?.persistentId ?? 0;
+            if (originalVesselPid != 0u)
+                decoupleOriginByNewPid[newVessel.persistentId] = originalVesselPid;
             if (!ShouldCaptureDecoupleCreatedVessel(recordedVesselPid, originalVesselPid))
             {
                 ParsekLog.VerboseRateLimited("Flight",
@@ -13762,6 +13790,7 @@ namespace Parsek
                 decoupleControllerStatus = null;
                 decoupleCreatedTrajectoryPoints = null;
             }
+            decoupleOriginByNewPid.Clear();
             pendingDeferredSplitCheckTrigger = DeferredSplitCheckTrigger.None;
             pendingSplitTriggerUT = double.NaN;
             recorder?.StopRecording();
@@ -19124,6 +19153,14 @@ namespace Parsek
             spawnSuppressedByReason.Clear();
             int spawnSuppressedCount = 0;
             int liveAnchorSuppressedCount = 0;
+            // The recording the player is flying right now never spawns its terminal
+            // vessel (todo REFLY-FORK-SELF-SPAWN-AFTER-QUICKSAVE): the Re-Fly session's
+            // recording and the live recorder's recording (a split in progress keeps the
+            // recording live while pendingSplitRecorder holds the recorder).
+            string activeReFlyRecordingId = activeReFlyMarker?.ActiveReFlyRecordingId;
+            string liveRecorderRecordingId = ResolveLiveResumedRecordingId(
+                (recorder != null && recorder.IsRecording) || pendingSplitRecorder != null,
+                activeTree?.ActiveRecordingId);
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
@@ -19229,11 +19266,16 @@ namespace Parsek
                     ? GhostPlaybackLogic.ShouldSuppressSpawnForChain(activeGhostChains, rec)
                     : (suppressed: false, reason: "");
 
-                bool finalNeedsSpawn = spawnResult.needsSpawn
-                    && !chainSuppressed.suppressed
-                    && !supersededByRelation
-                    && !rewindRetired
-                    && !spawnHistoricalNeverReplayed;
+                bool liveFlownRecording = GhostPlaybackLogic.IsLiveFlownRecording(
+                    rec.RecordingId, activeReFlyRecordingId, liveRecorderRecordingId);
+
+                bool finalNeedsSpawn = GhostPlaybackLogic.ComposeFlightFinalNeedsSpawn(
+                    spawnResult.needsSpawn,
+                    chainSuppressed.suppressed,
+                    supersededByRelation,
+                    rewindRetired,
+                    spawnHistoricalNeverReplayed,
+                    liveFlownRecording);
                 string anchorReFlyUnstableAnchorId;
                 string anchorReFlyUnstableReason;
                 bool anchorReFlyUnstable = ResolveReFlySettleStability(
@@ -19249,7 +19291,9 @@ namespace Parsek
                     // A loop member keeps its spawn-gate reason first (its render is not
                     // history-gated); the history gate names itself only when it is the
                     // gate that actually held a loop member's first-run spawn.
-                    string reason = historicalNeverReplayed
+                    string reason = liveFlownRecording
+                        ? GhostPlaybackLogic.LiveFlownRecordingSpawnReason
+                        : historicalNeverReplayed
                         ? "historical-never-replayed"
                         : !spawnResult.needsSpawn ? spawnResult.reason
                         : chainSuppressed.suppressed ? chainSuppressed.reason

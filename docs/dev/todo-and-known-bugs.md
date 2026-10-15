@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## REFLY-FORK-SELF-SPAWN-AFTER-QUICKSAVE: during a Re-Fly, a save turns the session's own fork into an "ended" recording and Parsek spawns a real copy of it; the copy's breakup debris is then attributed to the Re-Fly recording [FILED 2026-10-13 from CI-3, reproduced twice. OPEN, Parsek, high]
+## REFLY-FORK-SELF-SPAWN-AFTER-QUICKSAVE: during a Re-Fly, a save turns the session's own fork into an "ended" recording and Parsek spawns a real copy of it; the copy's breakup debris is then attributed to the Re-Fly recording [FILED 2026-10-13 from CI-3, reproduced twice. Defects 1-2 FIXED on branch `claude/project-thread-1twzdw`; item 3 (the unpack joint break) OPEN, Parsek, high]
 
 `CI-3-chain-rederive-readback` reds PARSEK-FAIL on analyzer `INV4-PARTEVENT-PID` on two runs
 (`2026-10-12_1810`, `2026-10-13_0304`). The lane rewinds a slot (Re-Fly), `SaveGame quicksave`,
@@ -52,6 +52,16 @@ session's provisional / the live recorder's recording (pure test over `ShouldSpa
 neither the recorded pid nor one of its fragments (pure helper test: a foreign origin gives 0 new
 vessels and no fallback event); (3) separately, an in-game repro of the rewind-point vessel's
 joint break on unpack. Diagnosed read-only; nothing changed.
+
+Fix (2026-10-15, defects 1-2): `ComputePlaybackFlags` holds the terminal spawn of the recording
+being flown (`GhostPlaybackLogic.IsLiveFlownRecording`: the marker's `ActiveReFlyRecordingId` or
+the active tree's `ActiveRecordingId` while the recorder or a pending split holds it), composed
+through the pure `ComposeFlightFinalNeedsSpawn`; the summary reason is `live-flown recording`.
+`OnDecoupleNewVesselDuringSplitCheck` now records every decouple origin (new pid -> original pid,
+foreign ones included), and the deferred scan drops a candidate whose origin chain never reaches
+the recorded pid (`SegmentBoundaryLogic.IsForeignDecoupleOrigin`; a candidate with no recorded
+origin stays in), logging one `skipped N new vessel(s) that came off another vessel` line. Tests:
+`ReFlyForkSelfSpawnTests`. Still open: item 3, and a CI-3 re-flight to confirm green.
 
 ## BDOCK2-RENDEZVOUS-PHASING-BURN-DEORBITS-THE-INTERCEPTOR: MechJeb's rendezvous plan from BDOCK-2's 95 x 84 km interceptor orbit drops periapsis into the atmosphere and the craft crashes [FILED 2026-10-13 from the operator tier, reproduced twice. FIXED on branch `bdock2-rendezvous` (PR #2093), confirmed green `2026-10-14_2113`, harness mission]
 

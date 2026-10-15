@@ -367,6 +367,44 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True when the deferred joint-break scan's candidate <paramref name="candidatePid"/>
+        /// provably came off ANOTHER vessel: <c>onPartDeCoupleNewVesselComplete</c> named its
+        /// origin, and walking that origin through <paramref name="decoupleOriginByNewPid"/>
+        /// (each fragment's own origin) never reaches <paramref name="recordedPid"/>. Such a
+        /// fragment broke off a different vessel in the same window (a spawned copy breaking
+        /// on its first unpacked frame, todo REFLY-FORK-SELF-SPAWN-AFTER-QUICKSAVE), so it is
+        /// not a child of the recording and must not feed the coalescer or the fallback
+        /// Decoupled event. A candidate with no recorded origin stays in the scan (a joint
+        /// break that never reached the decouple callback is what the scan exists for).
+        /// Pure; cycle-safe.
+        /// </summary>
+        internal static bool IsForeignDecoupleOrigin(
+            uint candidatePid,
+            uint recordedPid,
+            IReadOnlyDictionary<uint, uint> decoupleOriginByNewPid)
+        {
+            if (decoupleOriginByNewPid == null || recordedPid == 0u)
+                return false;
+            uint origin;
+            if (!decoupleOriginByNewPid.TryGetValue(candidatePid, out origin))
+                return false;
+            var visited = new HashSet<uint> { candidatePid };
+            while (true)
+            {
+                if (origin == recordedPid)
+                    return false;
+                if (origin == 0u)
+                    return false;
+                if (!visited.Add(origin))
+                    return true;
+                uint next;
+                if (!decoupleOriginByNewPid.TryGetValue(origin, out next))
+                    return true;
+                origin = next;
+            }
+        }
+
+        /// <summary>
         /// Checks whether a part provides command authority (has ModuleCommand).
         /// ModuleCommand is the KSP module for command pods and probe cores.
         /// </summary>
