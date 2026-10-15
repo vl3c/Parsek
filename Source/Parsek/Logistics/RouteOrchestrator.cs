@@ -464,6 +464,14 @@ namespace Parsek.Logistics
                     () => $"Tick order: [{DescribeTickOrder(snapshot)}]");
             }
 
+            // Tick pre-pass, before ANY route runs (so tick order cannot let a
+            // competing route act on the stale state first): rebuild the cargo
+            // escrow of in-flight multi-stop cycles that a scene switch or reload
+            // dropped, and pay recovery credits a silent (load-time) source-problem
+            // revalidation left pending.
+            ReEstablishInFlightCycleEscrow(snapshot, currentUT, env);
+            FlushDeferredSourceProblemCredits(snapshot, currentUT, env);
+
             int tickedRoutes = 0;
             int dispatched = 0;
             int transitioned = 0;
@@ -1985,6 +1993,11 @@ namespace Parsek.Logistics
         /// is still <c>&lt; cycleIndex</c> (a window already debited+released this cycle
         /// has its hold consumed and must NOT be re-reserved, else double).
         ///
+        /// <para>Called from the tick pre-pass
+        /// (<see cref="ReEstablishInFlightCycleEscrow"/>), which covers the gap ticks
+        /// with no due window, and again from the dispatchAlready branch as a
+        /// backstop.</para>
+        ///
         /// <para><b>IDEMPOTENT:</b> runs ONLY when the route currently holds NO escrow
         /// (<see cref="RouteStore.HasEscrow"/> is false - i.e. a clear/reload dropped
         /// it). A normal in-session resume (no clear happened) still holds its
@@ -2007,6 +2020,153 @@ namespace Parsek.Logistics
             ReserveCycleEscrow(route, currentUT, env, cycleId,
                 includeStop: stop => stop != null && stop.LastFiredCycleIndex < cycleIndex,
                 contextTag: "resume-reestablish");
+        }
+
+        /// <summary>
+        /// Pure: the loop-cycle index of the route's IN-FLIGHT multi-stop cycle, i.e.
+        /// one whose dispatch fired and at least one window fired, but whose last dock
+        /// has not been reached. A fired window snaps its stop's
+        /// <see cref="RouteStop.LastFiredCycleIndex"/> to the cycle, while
+        /// <see cref="Route.LastObservedLoopCycleIndex"/> snaps only at cycle complete
+        /// (or a blocked / modulo skip, which snaps every stop too), so the cycle is in
+        /// flight exactly when the highest stop cursor is ahead of the route marker.
+        /// Also requires an un-fired stop of that cycle with a pickup manifest (the only
+        /// windows that hold escrow). Single-stop routes return false (no gap).
+        /// </summary>
+        internal static bool TryGetInFlightMultiStopCycle(Route route, out long cycleIndex)
+        {
+            cycleIndex = -1;
+            if (route == null || route.Stops == null || route.Stops.Count < 2)
+                return false;
+
+            long maxFired = long.MinValue;
+            for (int i = 0; i < route.Stops.Count; i++)
+            {
+                RouteStop s = route.Stops[i];
+                if (s != null && s.LastFiredCycleIndex > maxFired)
+                    maxFired = s.LastFiredCycleIndex;
+            }
+            if (maxFired < 0 || maxFired <= route.LastObservedLoopCycleIndex)
+                return false;
+
+            for (int i = 0; i < route.Stops.Count; i++)
+            {
+                RouteStop s = route.Stops[i];
+                if (s != null && s.LastFiredCycleIndex < maxFired
+                    && s.PickupManifest != null && s.PickupManifest.Count > 0)
+                {
+                    cycleIndex = maxFired;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Tick pre-pass (ROUTE-ESCROW-LOST-ON-SCENE-SWITCH): re-establish the cargo
+        /// escrow of every ghost-driving route with an in-flight multi-stop cycle whose
+        /// reservation was dropped (a scene-switch <c>ClearAllEscrow</c>, or a reload:
+        /// escrow is RAM-only). Runs before any route is processed and does not need
+        /// the route's loop unit or a due window, so the hold is back before a
+        /// competing route can gate on the source in the dispatch-to-window gap.
+        /// Cheap checks first; the ledger read (the cycle's dispatch row, which proves
+        /// the cycle is open under <c>cycle-{C+S}</c>) runs only for a route that is in
+        /// flight AND holds no escrow. Idempotent through
+        /// <see cref="ReEstablishEscrowForUnfiredWindows"/>'s HasEscrow guard.
+        /// Returns the number of routes whose escrow was re-established.
+        /// </summary>
+        internal static int ReEstablishInFlightCycleEscrow(
+            IList<Route> routes, double currentUT, IRouteRuntimeEnvironment env)
+        {
+            if (routes == null || routes.Count == 0)
+                return 0;
+
+            int reestablished = 0;
+            for (int i = 0; i < routes.Count; i++)
+            {
+                Route route = routes[i];
+                if (route == null || string.IsNullOrEmpty(route.Id))
+                    continue;
+                if (!RouteStatusPolicy.GhostDriving(route.Status))
+                    continue;
+                if (!TryGetInFlightMultiStopCycle(route, out long cycleIndex))
+                    continue;
+                if (RouteStore.HasEscrow(route.Id))
+                    continue;
+
+                try
+                {
+                    string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles).ToString(IC);
+                    // 0 = the cycle-stable dispatch carrier stop index ProcessMultiStopCrossings writes.
+                    if (!IsDispatchAlreadyInLedger(route.Id, cycleId, 0))
+                    {
+                        ParsekLog.VerboseRateLimited(Tag, "escrow-prepass-nodispatch-" + route.Id,
+                            $"ReEstablishInFlightCycleEscrow: route {ShortIdForLog(route)} cycle={cycleId} " +
+                            $"cycleIdx={cycleIndex.ToString(IC)} looks in flight but has no dispatch row - skipped",
+                            5.0);
+                        continue;
+                    }
+
+                    ReEstablishEscrowForUnfiredWindows(route, currentUT, env, cycleId, cycleIndex);
+                    if (RouteStore.HasEscrow(route.Id))
+                    {
+                        reestablished++;
+                        ParsekLog.Info(Tag,
+                            $"ReEstablishInFlightCycleEscrow: route {ShortIdForLog(route)} cycle={cycleId} " +
+                            $"cycleIdx={cycleIndex.ToString(IC)} escrow re-established for un-fired windows " +
+                            $"at ut={currentUT.ToString("R", IC)}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(Tag,
+                        $"ReEstablishInFlightCycleEscrow: route {ShortIdForLog(route)} threw " +
+                        $"{ex.GetType().Name}: {ex.Message}");
+                }
+            }
+            return reestablished;
+        }
+
+        /// <summary>
+        /// Tick pre-pass (ROUTE-RECOVERY-CREDIT-WRITTEN-DURING-ONLOAD): pay the recovery
+        /// credit a silent source-problem revalidation (the OnLoad pass, a bookkeeping
+        /// supersede bump) kept pending instead of writing a ledger row from load
+        /// context. Only routes in a source-problem stop state are swept: any other
+        /// status pays its pending credit at its own next crossing or pause flush.
+        /// Returns the number of credit rows emitted.
+        /// </summary>
+        internal static int FlushDeferredSourceProblemCredits(
+            IList<Route> routes, double currentUT, IRouteRuntimeEnvironment env)
+        {
+            if (routes == null || routes.Count == 0)
+                return 0;
+
+            int emitted = 0;
+            for (int i = 0; i < routes.Count; i++)
+            {
+                Route route = routes[i];
+                if (route == null || string.IsNullOrEmpty(route.PendingRecoveryCreditCycleId))
+                    continue;
+                if (!RouteStore.IsSourceProblemStatus(route.Status))
+                    continue;
+
+                try
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"FlushDeferredSourceProblemCredits: route {ShortIdForLog(route)} status={route.Status} " +
+                        $"paying deferred recovery credit cycle={route.PendingRecoveryCreditCycleId} " +
+                        $"at ut={currentUT.ToString("R", IC)}");
+                    if (EmitPendingRecoveryCredit(route, currentUT, env))
+                        emitted++;
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(Tag,
+                        $"FlushDeferredSourceProblemCredits: route {ShortIdForLog(route)} threw " +
+                        $"{ex.GetType().Name}: {ex.Message}");
+                }
+            }
+            return emitted;
         }
 
         /// <summary>
