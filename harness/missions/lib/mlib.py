@@ -24909,6 +24909,12 @@ KXRW_PRELAUNCH = "PRELAUNCH"
 KXRW_ASCENT = "ASCENT"
 KXRW_BOOSTER_CUT = "BOOSTER-CUT"
 KXRW_BOOSTER_STAGE = "BOOSTER-STAGE"
+# GS-10. THE LAST-PAIR HOLD (opt-in; `impactLastPairHoldSeconds` on the close cut).
+# The last booster pair stays attached while the core burns on for the declared
+# game-time span, then BOOSTER-CUT zeroes the throttle and drops the pair. With the
+# key absent (0) the phase is UNREACHABLE and the close cut drops the last pair at
+# burnout exactly as it always did.
+KXRW_LAST_PAIR_HOLD = "LAST-PAIR-HOLD"
 KXRW_CORE_CUT = "CORE-CUT"
 KXRW_CORE_DISCARD = "CORE-DISCARD"
 KXRW_COAST = "COAST"
@@ -24986,6 +24992,7 @@ KXRW_DONE = "DONE"
 
 KXRW_PHASES: Tuple[str, ...] = (
     KXRW_ROLLOUT, KXRW_PRELAUNCH, KXRW_ASCENT, KXRW_BOOSTER_CUT, KXRW_BOOSTER_STAGE,
+    KXRW_LAST_PAIR_HOLD,
     KXRW_CORE_CUT, KXRW_CORE_DISCARD, KXRW_COAST, KXRW_COAST_EXIT,
     KXRW_PART_SWEEP,
     KXRW_TREE_STATE, KXRW_COMMIT,
@@ -25013,8 +25020,8 @@ KXRW_PHASES: Tuple[str, ...] = (
 # blocks at the top of `kxrw_decide` name that phase explicitly instead of the set
 # doing it for them.
 KXRW_FLIGHT_PHASES: Tuple[str, ...] = (
-    KXRW_ASCENT, KXRW_BOOSTER_CUT, KXRW_BOOSTER_STAGE, KXRW_CORE_CUT,
-    KXRW_CORE_DISCARD, KXRW_COAST, KXRW_COAST_EXIT, KXRW_PART_SWEEP,
+    KXRW_ASCENT, KXRW_BOOSTER_CUT, KXRW_BOOSTER_STAGE, KXRW_LAST_PAIR_HOLD,
+    KXRW_CORE_CUT, KXRW_CORE_DISCARD, KXRW_COAST, KXRW_COAST_EXIT, KXRW_PART_SWEEP,
     KXRW_IMPACT_AUTORECORD_OFF,
     KXRW_PROMOTE_SWITCH, KXRW_PROMOTE_WAIT, KXRW_PROMOTE_DISARM,
     KXRW_IMPACT_COAST)
@@ -25931,11 +25938,30 @@ def kxrw_close_cut_conflict(params: "KxrwParams") -> str:
                 "(declared %d): with no booster drop there is nothing to cut at, "
                 "and ASCENT would fall through to the ordinary core gate"
                 % int(params.booster_stage_count))
+    hold = float(getattr(params, "impact_last_pair_hold_seconds", 0.0) or 0.0)
+    if hold != hold or hold < 0.0:
+        return ("impactLastPairHoldSeconds must be a finite number >= 0 (declared %r)"
+                % hold)
+    if hold > 0.0 and not close:
+        return ("impactLastPairHoldSeconds requires impactCutAtLastBoosterDrop = "
+                "true: the hold delays the CLOSE CUT's last drop, and the far "
+                "profile throttles back up at that drop anyway")
     if promote and not close:
         return ("promoteDebrisVesselName requires impactCutAtLastBoosterDrop = true: "
                 "after the switch every control command lands on the booster, so "
                 "the parent must already be an unpowered falling stack")
     return ""
+
+
+def kxrw_last_pair_hold_applies(params: "KxrwParams") -> bool:
+    """True when the close cut holds its LAST booster pair attached for
+    ``impactLastPairHoldSeconds`` of core burn before dropping it (GS-10). The
+    conflict predicate refuses a hold without the close cut, so this is the one
+    place the machine asks."""
+    hold = float(getattr(params, "impact_last_pair_hold_seconds", 0.0) or 0.0)
+    return (bool(getattr(params, "impact_profile", False))
+            and bool(getattr(params, "impact_cut_at_last_booster_drop", False))
+            and hold == hold and hold > 0.0)
 
 
 def kxrw_coast_exit_gate_met(altitude: float, situation: str,
@@ -26129,6 +26155,12 @@ class KxrwParams:
     # THE CLOSE CUT (D5 `staging-debris-ttl`; see `kxrw_close_cut_conflict`).
     # FALSE keeps the flown far-crash profile byte-identical.
     impact_cut_at_last_booster_drop: bool = False
+    # THE LAST-PAIR HOLD (GS-10, owner ruling 2026-10-15). Game seconds the core
+    # burns on with the LAST booster pair still attached before BOOSTER-CUT drops
+    # it. 0 = off (the pair drops at burnout). Pair and stack leave the burn with
+    # the same extra energy and fall together inside the physics bubble, so the
+    # pair's coast outgrows its 60 s debris TTL by a margin instead of by ~1 s.
+    impact_last_pair_hold_seconds: float = 0.0
     # THE DEBRIS-PROMOTION SWITCH (D5 `staging-debris-promotion`). "" = off. The
     # VESSEL name the dropped boosters read (`Kerbal X Debris` on the committed
     # craft, measured on every GS-7 close-crash archive).
@@ -26304,6 +26336,8 @@ def kxrw_params_from_dict(params: Dict) -> KxrwParams:
         sc_committed_frames=int(params.get("scCommittedFrames", 40)),
         impact_cut_at_last_booster_drop=bool(
             params.get("impactCutAtLastBoosterDrop", False)),
+        impact_last_pair_hold_seconds=float(
+            params.get("impactLastPairHoldSeconds", 0.0)),
         promote_debris_vessel_name=str(
             params.get("promoteDebrisVesselName", "") or ""),
         promote_switch_delay_frames=int(params.get("promoteSwitchDelayFrames", 6)),
@@ -26517,6 +26551,10 @@ class KxrwState:
     impact_cut_commanded: bool = False
     impact_cut_throttle_observed: bool = False
     impact_cut_ut: float = float("nan")
+    # THE LAST-PAIR HOLD's two stamps: the UT the throttle went back up with the
+    # last pair attached, and the UT the hold ended (the cut). NaN = never entered.
+    last_pair_hold_start_ut: float = float("nan")
+    last_pair_hold_end_ut: float = float("nan")
     # THE PROMOTION SWITCH.
     promote_switch_commanded: bool = False
     promote_switch_observed: bool = False
@@ -27175,6 +27213,17 @@ def kxrw_decide(state: KxrwState,
     if state.phase == KXRW_ASCENT:
         if state.booster_drops_done < p.booster_stage_count:
             armed = _kxrw_booster_drop_due(state, snapshot)
+            if armed and kxrw_last_pair_hold_applies(p) \
+                    and state.booster_drops_done == p.booster_stage_count - 1:
+                # A ONE-PAIR craft reaches its last drop from here, not from
+                # BOOSTER-STAGE: hold with the throttle still up, exactly as the
+                # multi-pair branch below the drop does.
+                st = replace(state, booster_drop_armed_by=armed,
+                             last_pair_hold_start_ut=(
+                                 snapshot.ut if _is_finite(snapshot.ut)
+                                 else float("nan")))
+                st, steer = _kxrw_pitch_actions(st, snapshot)
+                return _kxrw_enter(st, KXRW_LAST_PAIR_HOLD, snapshot.ut), steer
             if armed:
                 # CUT AND RETURN. The settle wait is the ONLY thing standing
                 # between the cut and a decoupler, and firing one while the
@@ -27238,6 +27287,15 @@ def kxrw_decide(state: KxrwState,
         st = replace(state, booster_drops_done=drops,
                      booster_cut_throttle_observed=False)
         actions: List[Action] = [Action(ACTION_ACTIVATE_STAGE)]
+        if drops == p.booster_stage_count - 1 and kxrw_last_pair_hold_applies(p):
+            # THE LAST-PAIR HOLD: every pair but the last is away. Throttle back up
+            # with the last pair still attached and let the core burn for the
+            # declared span; LAST-PAIR-HOLD then cuts and hands the drop to
+            # BOOSTER-CUT, whose observed-zero gate stays the only way to a click.
+            st = replace(st, last_pair_hold_start_ut=(
+                snapshot.ut if _is_finite(snapshot.ut) else float("nan")))
+            actions.append(Action(ACTION_SET_THROTTLE, p.launch_throttle))
+            return _kxrw_enter(st, KXRW_LAST_PAIR_HOLD, snapshot.ut), actions
         if drops < p.booster_stage_count:
             # Straight back into the cut for the next pair. The six boosters share
             # fuel lines into the core and therefore drain TOGETHER, so no second
@@ -27271,6 +27329,25 @@ def kxrw_decide(state: KxrwState,
             return _kxrw_enter(st, KXRW_TREE_STATE, snapshot.ut), actions
         actions.append(Action(ACTION_SET_THROTTLE, p.launch_throttle))
         return _kxrw_enter(st, KXRW_ASCENT, snapshot.ut), actions
+
+    # ---- LAST-PAIR-HOLD: the core burns on with the last pair attached -------
+    if state.phase == KXRW_LAST_PAIR_HOLD:
+        # Game time, not frames: the hold is sized in seconds of burn. A start
+        # stamp that could not be read is taken from the first finite frame here,
+        # so an unreadable click frame delays the cut rather than skipping the
+        # hold; `flightMaxSeconds` bounds a clock that never reads at all.
+        st = state
+        if not _is_finite(st.last_pair_hold_start_ut) and _is_finite(snapshot.ut):
+            st = replace(st, last_pair_hold_start_ut=snapshot.ut)
+        if (_is_finite(snapshot.ut) and _is_finite(st.last_pair_hold_start_ut)
+                and snapshot.ut - st.last_pair_hold_start_ut
+                >= p.impact_last_pair_hold_seconds):
+            st = replace(st, last_pair_hold_end_ut=snapshot.ut,
+                         booster_cut_throttle_observed=False)
+            return (_kxrw_enter(st, KXRW_BOOSTER_CUT, snapshot.ut),
+                    [Action(ACTION_CUT_THROTTLE, 0.0)])
+        st, steer = _kxrw_pitch_actions(st, snapshot)
+        return st, steer
 
     # ---- CORE-CUT: the one hard ordering rule ------------------------------
     if state.phase == KXRW_CORE_CUT:
@@ -28700,18 +28777,31 @@ def evaluate_kxrw_assertions(frames, params: KxrwParams,
         # that profile, and what makes the stack fall is the last drop's zero
         # throttle never being raised. Met on BOOSTER-CUT's own OBSERVED zero for
         # that drop, not on the cut having been emitted.
+        # WITH THE LAST-PAIR HOLD declared, the row also requires the hold to have
+        # run its full span: a drop at burnout is the 1 s-margin profile the hold
+        # exists to replace, so it must not read green.
         cut_ut = getattr(state, "impact_cut_ut", float("nan"))
+        hold_start = getattr(state, "last_pair_hold_start_ut", float("nan"))
+        hold_end = getattr(state, "last_pair_hold_end_ut", float("nan"))
+        held = (hold_end - hold_start if _is_finite(hold_start)
+                and _is_finite(hold_end) else float("nan"))
+        hold_ok = (not kxrw_last_pair_hold_applies(params)
+                   or (_is_finite(held)
+                       and held >= params.impact_last_pair_hold_seconds))
         core = AssertionOutcome(
             "stackCutAtLastBoosterDrop",
             bool(getattr(state, "impact_cut_commanded", False)
-                 and getattr(state, "impact_cut_throttle_observed", False)),
+                 and getattr(state, "impact_cut_throttle_observed", False)
+                 and hold_ok),
             cut_ut if _is_finite(cut_ut) else None,
             {"throttleZeroEpsilon": params.throttle_zero_epsilon,
              "cutCommanded": bool(getattr(state, "impact_cut_commanded", False)),
              "throttleObservedZero": bool(
                  getattr(state, "impact_cut_throttle_observed", False)),
              "coreDiscardCommanded": bool(
-                 getattr(state, "core_discard_commanded", False))})
+                 getattr(state, "core_discard_commanded", False)),
+             "lastPairHoldSeconds": params.impact_last_pair_hold_seconds,
+             "lastPairHeldSeconds": held if _is_finite(held) else None})
 
     drops = int(getattr(state, "booster_drops_done", 0))
     boosters = AssertionOutcome(

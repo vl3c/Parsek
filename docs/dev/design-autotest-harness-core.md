@@ -344,6 +344,15 @@ required  = ["BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=Gam
 # The level token is UPPERCASE in ParsekLog.Write ("[Parsek][ERROR][...]") and the
 # forbidden patterns are case-sensitive re.search, so match ERROR (not Error).
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+# forwardedSeeds (optional) judges the optimizer's forwarded permanent seeds entry by
+# entry rather than by count: each item is satisfied by ONE `Forwarded N permanent
+# state event(s) as seeds at UT=<f>: [Type:part#pid, ...]` line carrying exactly its
+# `expected` entries (pid ignored), every other entry on that line belonging to a pid
+# whose seeds are exactly one `acceptableExtraGroups` group. Written as
+# [[expectations.logContracts.forwardedSeeds]] tables AFTER every plain key here, e.g.
+#   expected = ["Decoupled:launchClamp1", ...]
+#   acceptableExtraGroups = [ { part = "R8winglet", types = ["Decoupled", "Destroyed"] } ]
+# RF-9 carries it (hlib.evaluate_forwarded_seeds).
 # allowedAnomalies belongs in the [expectations] table ABOVE, not here. See the note
 # there; a bare key at this point in the file binds to logContracts and is never read.
 # [expectations.perRecording] terminalState / endUT / predictedTail / mergeState -> reserved

@@ -339,7 +339,13 @@ class RoverRouteSpecFixtureSyncTests(unittest.TestCase):
              # answers `dialog-target-unavailable`, which GUI-25 declares). Its second
              # subject, the test runner photographed mid-batch, needs no fixture property
              # at all. Same pairing obligation as every other consumer.
-             "GUI-26-census-createroute-and-running-batch.toml")
+             "GUI-26-census-createroute-and-running-batch.toml",
+             # RVR-21 (2026-10-15) boots these bytes for a LIVE property of the active
+             # vessel, H69's footing: `B` is a LANDED rover with four powered wheel
+             # motors, so `DriveVessel` can move it on the surface for the D4
+             # `hysteresis` token. It reads none of the recorded corpus; the corpus's
+             # only role is the `recordings.count` window and the kill triple.
+             "RVR-21-rover-drive-surface-hysteresis.toml")
 
     FIXTURE_PATH = "fixtures/saves/rover-route-recorded"
     FIXTURE_LITERAL = '"%s"' % FIXTURE_PATH

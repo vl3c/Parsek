@@ -559,6 +559,12 @@ the updates below record how each verb arrived.
 > name='..' saveActiveVesselIdx=`. All four refusals are arg-class; the first two deterministic.
 > Mirrored by `LoadGameFocusPidSourceSyncTests`; lane `VN-6-ts-rename-then-decouple`.
 
+> Update (DriveVessel, 2026-10-15): one ADDITIVE verb, taking the table to **51 implemented / 4 reserved**,
+> for the D4 `hysteresis` claim (owner ruling 2026-10-15, RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE):
+> `DriveVessel wheelThrottle= seconds=` holds the active rover's wheel throttle for a span of game
+> time, so a recording sees a vessel really move on the surface. Full contract below
+> (`#### DriveVessel`); lane `RVR-21-rover-drive-surface-hysteresis`.
+
 > Update (RenameVessel, 2026-10-11): one ADDITIVE verb, `RenameVessel name= [pid=]`, taking
 > the table to **48 implemented / 4 reserved**. A player's accept in the stock rename dialog for
 > one live vessel, so Parsek's vessel-name capture runs as in play (vessel names, design
@@ -4340,6 +4346,38 @@ reasons are gate-class. World-mutating tail role, `recording` post-mission role.
 `TestCommandRevertToLaunch`, applier `ParsekTestCommandAddon.RevertToLaunch.cs`, mirrored by
 `RevertToLaunchSourceSyncTests`. Lane: `VN-5-stock-revert-cancels-rename`.
 
+#### DriveVessel (additive; D4 `hysteresis`, a rover that moves on the surface)
+
+**Why.** EnvironmentDetector's debounced `SurfaceStationary -> SurfaceMobile` transition needs a
+vessel LANDED or SPLASHED above 0.1 m/s for more than 3.0 s while a recording is live. No other
+verb moves a vessel along the ground: a lit launch leaves the pad at once (the immediate
+Atmospheric branch), and `SpinVessel` only rotates.
+
+**Grammar.** `cmd=DriveVessel wheelThrottle=<f> seconds=<s>`, issued in FLIGHT. `wheelThrottle`
+is a finite invariant-culture float in [-1, 1] and not 0 (`drivevessel-throttle-arg-missing` /
+`-invalid`); `seconds` is GAME seconds in (0, 30] (`drivevessel-seconds-arg-missing` /
+`-invalid`). All four arg refusals are deterministic.
+
+**Behavior.** Refuses with no active vessel (`drivevessel-no-active-vessel`), a packed or unloaded
+one (`drivevessel-vessel-packed`), one not LANDED / SPLASHED (`drivevessel-not-on-surface`) and one
+with no `ModuleWheelMotor` (`drivevessel-no-wheel-motor`); these are gate-class. Otherwise it
+releases the Brakes action group when it is on, subscribes a `Vessel.OnFlyByWire` callback that
+sets `FlightCtrlState.wheelThrottle` every physics frame (stock's `FlightInputHandler` feeds the
+vessel's input chain, and `ModuleWheelMotor` reads `wheelThrottle + wheelThrottleTrim`; the motors
+still need ElectricCharge), and logs `drivevessel start: vessel= pid= situation= wheelThrottle=
+seconds= wheelMotors= brakesWereOn= startUT= srfSpeed=`. The callback samples the maximum
+srfSpeed and integrates the path (`srfSpeed * fixedDeltaTime`).
+
+**Phases.** TWO-PHASE, `RequiresFlight`, default 60 s budget, world-mutating tail role,
+`recording` post-mission role. The completion runs once `seconds` of game time have passed:
+OK when the maximum srfSpeed reached 0.5 m/s (`drivevessel end: outcome=moved ...`, payload
+`moved gameSeconds maxSrfSpeed pathMeters displacementMeters situation`), else ERROR
+`drivevessel-did-not-move`; a vessel that went DEAD, unloaded or packed is ERROR
+`drivevessel-vessel-lost`, and a span the wall budget cannot cover is ERROR `drivevessel-timeout`.
+`ClearTwoPhase` always removes the callback and restores the Brakes, so no exit path leaves the
+throttle held. Pure half `TestCommandDriveVessel`, applier `ParsekTestCommandAddon.DriveVessel.cs`,
+mirrored by `DriveVesselSourceSyncTests`. Lane: `RVR-21-rover-drive-surface-hysteresis`.
+
 ### Addon lifecycle
 
 `ParsekTestCommandAddon` mirrors `TestRunnerShortcut`: `[KSPAddon(KSPAddon.Startup.Instantly, true)]`
@@ -4464,6 +4502,7 @@ wall-clock. Some verbs need a different bound and override the default:
 | `TrackingStationRecover` | 120 s | TWO-PHASE, the `Recover` size: the Tracking Station load, a few frames of select / confirm / summary dismissal, and the Space Center load back; NOT a `DEFERRED_SEAM_VERB` |
 | `KscMarkerRecover` | 60 s | TWO-PHASE, the default size named: no scene load, the 180-frame marker wait, stock's one-frame recovery and a summary dismissal; NOT a `DEFERRED_SEAM_VERB` |
 | `RevertToLaunch` | 180 s | TWO-PHASE, the `LaunchFromEditor` size: stock's flight reload from the post-init state plus LoadGame's flight-ready wait; no save is parsed off disk, so NOT a `DEFERRED_SEAM_VERB` |
+| `DriveVessel` | (default) 60 s | TWO-PHASE, at most 30 game seconds of drive; the completion ends ERROR `drivevessel-timeout` rather than letting the pump convert it |
 | `ReFlyRevert` | 300 s | TWO-PHASE, the `InvokeRewind` / `InvokeRewindToLaunch` size: the resume settle (up to 30 s) and the stock menus, then Discard's quicksave `LoadGame` plus the Space Center / editor load or Retry's flight reload; a `DEFERRED_SEAM_VERB` |
 | `AnswerMergeDialog` | 60 s | MEASURED 2026-10-06 over 859 collected runs (2026-09-10 to 2026-10-05): OK n=65, p50 3.3 s, p99 6.6 s, max 7.2 s. 4x the OK max is 29 s; the floor is twice `TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds` (30 s), which the re-fly fallback spends before the driven exit (unit-guarded). Was 120 s; all 6 non-OK outcomes (4 `no-refly-dialog` TIMEOUT, 2 `answer-timeout` ERROR) waited the full 120 s and none was a slow success |
 | `EvaGroundScience` | 60 s | MEASURED 2026-10-06 over the same corpus: OK n=412, p50 0.9 s, p99 5.5 s, max 5.5 s (step 3.3, take 0.5, place 3.6, pickup 5.5). Each action is its own command, so the budget bounds one action. 4x the OK max is only 22 s, but the place ladder counts frames (about 1,000 worst case), so 60 s keeps it inside the budget down to about 17 fps. Was 120 s (the EvaExit size); all 37 timeouts (27 `step-timeout`, 5 `placement-timeout`, 3 `place-gate-timeout`, 2 `pickup-timeout`) waited the full 120 s, 4,440 s in all |

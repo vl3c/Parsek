@@ -142,7 +142,7 @@ values = ["absolute", "surface-body-fixed", "orbital-checkpoint",
 # distinction is mechanical rather than interpretive.
 # WHY IT IS A NEW VALUE RATHER THAN A RE-CLAIM: RF-1's required `Split summary` token
 # pins the step-7 counters LITERALLY AT ZERO around its step-5 claim
-# (RF-1-continuation-stays-open.toml:406), so before this value NO committed lane gated a
+# (RF-1-continuation-stays-open.toml:399), so before this value NO committed lane gated a
 # NONZERO step-7 count - the only reading in which the persistence predicate actually ran.
 # WITNESS / DECLARER: LT-2-long-tail-spacecenter, whose in-game cell
 # `EccentricGrazing_StaysOneSegment_InGame` (InGameTests/PersistenceSplitOptimizerTest.cs:166)

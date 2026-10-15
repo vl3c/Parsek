@@ -1070,6 +1070,13 @@ namespace Parsek.TestCommands
                 TryCompleteRevertToLaunch(now);
                 return;
             }
+            // DriveVessel, in the .DriveVessel.cs partial: the drive ends once the game clock
+            // covered the requested span, OK only when the vessel really moved.
+            if (completionVerb == TestCommandDriveVessel.Verb)
+            {
+                TryCompleteDriveVessel(now);
+                return;
+            }
 
             bool done = false;
             string verdict = null;
@@ -1269,6 +1276,9 @@ namespace Parsek.TestCommands
             RemoveRecoverListeners();
             RemoveTsRecoverListeners();
             RemoveKscRecoverListeners();
+            // A DriveVessel callback must never outlive its command either: a stale one
+            // would keep a vessel's wheels driven.
+            RemoveDriveVesselCallback();
             // A multi-category RunTests that ends by TIMEOUT or by a completion
             // exception must not leave its token queue armed for the next RunTests to
             // inherit; the sequence is over the moment the two-phase state is.
@@ -1634,6 +1644,8 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.PartAction(ParsedCommand cmd) => PartActionImpl(cmd);
         // RevertToLaunch: body + two-phase completion in ParsekTestCommandAddon.RevertToLaunch.cs.
         void ITestCommandExecutor.RevertToLaunch(ParsedCommand cmd) => RevertToLaunchImpl(cmd);
+        // DriveVessel: body + two-phase completion in ParsekTestCommandAddon.DriveVessel.cs.
+        void ITestCommandExecutor.DriveVessel(ParsedCommand cmd) => DriveVesselImpl(cmd);
 
         private void InvokeExecutor(ParsedCommand cmd)
         {
@@ -1704,6 +1716,7 @@ namespace Parsek.TestCommands
                 case "RenameVessel": exec.RenameVessel(cmd); break;
                 case "PartAction": exec.PartAction(cmd); break;
                 case "RevertToLaunch": exec.RevertToLaunch(cmd); break;
+                case "DriveVessel": exec.DriveVessel(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");
