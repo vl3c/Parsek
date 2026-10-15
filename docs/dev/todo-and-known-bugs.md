@@ -71,8 +71,15 @@ vessel) and the two explode on the first unpack. Every red and green run with br
 (09-22, 10-12_1810, 10-13_0304) self-spawned #21 just before that unpack, and the Re-Fly vessel
 never unpacks between the rewind load and the SaveGame. Re-flight `2026-10-15_0656` on the PR
 DLL: PASS attempt 1, 0 `Vessel spawn for #`, both fork completions `needsSpawn=False`, 0 joint
-breaks / explosions, `INV4-PARTEVENT-PID` 0. Not done: a spawn-chokepoint guard refusing an
-end-of-recording spawn of the active vessel's own launch (`VesselLaunchIdentity`), as hardening.
+breaks / explosions, `INV4-PARTEVENT-PID` 0.
+
+Backstop (2026-10-15, follow-up PR): `ParsekFlight.SpawnVesselOrChainTip`, which every flight
+end-of-recording spawn passes (completion, warp-deferred flush, held-ghost retry, chain tip), refuses
+the recording being flown (`GhostPlaybackLogic.ShouldRefuseLiveFlownSpawn`, same ids as the hold;
+`Spawn refused for #N ... recording is being flown` line). Keyed on recording id, not launch guid: a
+launch-guid guard (refuse when the active vessel is the recording's own launch) was rejected because
+a stock revert re-flies the same launch guid while a committed recording of that launch must still
+spawn its end vessel (the #226 replay/revert duplicate-source exception).
 
 ## BDOCK2-RENDEZVOUS-PHASING-BURN-DEORBITS-THE-INTERCEPTOR: MechJeb's rendezvous plan from BDOCK-2's 95 x 84 km interceptor orbit drops periapsis into the atmosphere and the craft crashes [FILED 2026-10-13 from the operator tier, reproduced twice. FIXED on branch `bdock2-rendezvous` (PR #2093), confirmed green `2026-10-14_2113`, harness mission]
 
