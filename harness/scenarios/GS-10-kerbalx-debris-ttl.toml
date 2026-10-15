@@ -87,11 +87,16 @@ id = "GS-10-kerbalx-debris-ttl"
 #    throttle and drops it; pair and stack leave the burn with the same extra energy
 #    and fall together inside the physics bubble. The first two pairs still drop at
 #    burnout and are left behind (they may close by bubble exit or impact; no token
-#    needs them). `stackCutAtLastBoosterDrop` also requires the full hold. The coast
-#    gain (estimated ~20-30 s) is INFERRED; the status block below predates the hold,
-#    and the hold's own 2-flight stability reading on the operator tier is what closes
-#    the todo entry. Read a red pair token on this profile against the new drop UT
-#    first (`Debris expiry set` for the last pair vs the pair's destroyed line).
+#    needs them). `stackCutAtLastBoosterDrop` also requires the full hold. The
+#    status block below predates the hold. THE HOLD'S STABILITY READING, 2 of 2, on the
+#    owner's PC (DLL sha256 0f2bfc6b...): `2026-10-15_1515` and `_1522` PASS attempt 1
+#    (390 s / 379 s), held 10.50 / 10.04 s, the last pair dropped at UT 76.1 / 75.2 and
+#    both pieces closed `Debris TTL expired` at expiry (136.1 / 135.2) while the parent
+#    reached the ground at ~161 / ~158, so the pair now outlives its TTL by the margin
+#    the ruling asked for. The first two pairs closed `vessel destroyed/despawned`. The
+#    parent's impact split varies (`JointBreak, cause=DECOUPLE` on `_1515`, `Breakup,
+#    cause=CRASH` on `_1522`); no token pins it, keep it that way. Read a red pair token
+#    on this profile against the last pair's drop UT first.
 # =====================================================================================
 tier = "operator"
 description = "Debris TTL on a flight: GS-7's Kerbal X crash lane with round 1's close cut (throttle held at zero from the last booster drop, the last pair held on through a 10 s core burn first), so the dropped boosters outlive their 60 s debris TTL beside the falling stack and the background recorder ends them by the timer; committed through the Space Center hop, Rewound-to-Launch and watched from the probe-cored GS1 Auto-Chute Booster."

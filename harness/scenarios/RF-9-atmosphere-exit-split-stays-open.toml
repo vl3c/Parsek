@@ -185,7 +185,11 @@ id = "RF-9-atmosphere-exit-split-stays-open"
 # check judges the forwarded seeds themselves. The two `Forwarded N` count tokens are
 # replaced by the `forwardedSeeds` facet in GROUP 6: the 19 expected seeds must be
 # present, the only tolerated extra is that winglet collision (both halves, one pid),
-# and any other extra or missing seed reds.
+# and any other extra or missing seed reds. FLOWN 2026-10-15 on the owner's PC (DLL
+# sha256 290502ec...): `_1530` PASS with exactly the 19, and `_1534` PASS with 23 (two
+# winglets knocked off this time, pids 443742677 and 2908259249, each a complete
+# `Decoupled` + `Destroyed` pair), the probe split printing its one Mainsail shroud seed
+# on both.
 # =====================================================================================
 tier = "operator"
 description = "The sealing defect's shape flown live: the Kerbal X's probe-cored core is discarded INSIDE the atmosphere (authoring a RewindPoint), the crewed top stack then coasts OUT through 70 km and the scene exits while it is still climbing - so the committed focus recording spans an Atmospheric -> ExoBallistic boundary, the optimizer splits it, and the promoted slot must stay open across that split and be re-flyable."
@@ -465,8 +469,8 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]",
 #
 # ITEM 0 - the promoted focus split ('Kerbal X', slot 0). The 19, DERIVED from the
 # focus recorder's own Verbose lines on the green `2026-10-13_0305` (and identically
-# on `2026-10-12_2119`, whose 21 is these 19 plus the winglet pair); the 2026-10-15
-# re-flight is the first to print the list and confirms it:
+# on `2026-10-12_2119`, whose 21 is these 19 plus the winglet pair); confirmed verbatim
+# by the first flights to print the list, `2026-10-15_1530` / `_1534`:
 #   8 x ShroudJettisoned - the recorder's start-of-recording seeds for parts whose
 #     shroud is already off on the pad (`Seed event: ShroudJettisoned`): HeatShield2,
 #     the core's Mainsail, the six radial liquidEngine2.

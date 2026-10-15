@@ -2,7 +2,7 @@ schema = 1
 id = "RVR-21-rover-drive-surface-hysteresis"
 tier = "nightly"
 # =====================================================================================
-# AUTHORED 2026-10-15, NEVER FLOWN. THE D4 `hysteresis` HOST: a rover that really drives
+# AUTHORED AND LIVE-PROVEN 2026-10-15. THE D4 `hysteresis` HOST: a rover that really drives
 # on the surface for longer than the 3.0 s SurfaceStationary <-> SurfaceMobile debounce
 # while a recording is live.
 #
@@ -58,19 +58,20 @@ tier = "nightly"
 #   6. Fail fast: DriveVessel ends ERROR at the span's end when the rover never moved,
 #      instead of riding a 60 s budget. `[retry] once` covers the fixture's boot race (the
 #      promotion-stub resume the kill triple stops), which is not deterministic.
-#   7. Tight windows: `recordings.count` is the authored {5, 6} until the first flight
-#      pins it (5 is RVR-1's measured count on these bytes after the same prologue; the
-#      drive's own tree is discarded).
+#   7. Tight windows: `recordings.count` is pinned at the measured 5 (the drive's own tree
+#      is discarded).
 #   8-9. Tier and efficiency: nightly by expected cost (one LoadGame and an 8 s drive);
 #      re-check with `tools/flight_efficiency.py` after the first green flight.
 #
-# WHAT THE FIRST FLIGHT MUST CONFIRM: DriveVessel OK with `drivevessel end:
-# outcome=moved` (max srfSpeed and path printed), the debounced Stationary -> Mobile line
-# exactly once or more, no ERROR line, and the recordings count; then pin the count, and
-# fly one negative control with the token inverted to `(immediate, debounce=0\.0s)` before
-# the D4 claim is treated as live-proven.
+# FLOWN 2026-10-15 on the owner's PC (automation DLL sha256 aa4d824d...): `_1539` PASS
+# attempt 1, 53 s: `drivevessel start: ... wheelMotors=4 brakesWereOn=true ... srfSpeed=0.10`,
+# `Environment transition: SurfaceStationary -> SurfaceMobile at UT=984.14
+# (debounce=3.0s)` (the log's only transition line), `drivevessel end: outcome=moved ...
+# gameSeconds=8.02 maxSrfSpeed=23.12 pathMeters=109.6 displacementMeters=110.1
+# situation=LANDED`, recordings 5. NEGATIVE CONTROL `_1544` with the token inverted to
+# `(immediate, debounce=0\.0s)`: PARSEK-FAIL(expectation) on exactly that one token.
 # =====================================================================================
-description = "AUTHORED 2026-10-15, NEVER FLOWN. The D4 hysteresis host: on rover-route-recorded, after the kill triple, StartRecording on the LANDED rover B, then DriveVessel holds its wheel motors for 8 game seconds (brakes released and restored), so EnvironmentDetector's debounced SurfaceStationary -> SurfaceMobile transition (debounce=3.0s) prints for the live recording; StopRecording and DiscardTree leave the fixture's committed corpus untouched. Took the D4 hysteresis claim over from RF-1 (owner ruling 2026-10-15, RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE)."
+description = "LIVE-PROVEN 2026-10-15 (`_1539` PASS, 53 s; negative control `_1544` red on exactly the inverted token). The D4 hysteresis host: on rover-route-recorded, after the kill triple, StartRecording on the LANDED rover B, then DriveVessel holds its wheel motors for 8 game seconds (brakes released and restored), so EnvironmentDetector's debounced SurfaceStationary -> SurfaceMobile transition (debounce=3.0s) prints for the live recording; StopRecording and DiscardTree leave the fixture's committed corpus untouched. Took the D4 hysteresis claim over from RF-1 (owner ruling 2026-10-15, RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE)."
 instanceProfile = "stock-minimal"
 tags = ["environment", "hysteresis", "rover", "surface", "recorded-fixture", "reading-run"]
 
@@ -117,10 +118,9 @@ steps = [
 # registry cell stays claimed. Witness: the required `Environment transition:
 # SurfaceStationary -> SurfaceMobile at UT=... (debounce=3.0s)` below, the debounced
 # branch of EnvironmentHysteresis.Update, printed for the recording this lane starts while
-# DriveVessel holds the rover moving for 8 game seconds. NEVER FLOWN: the claim is owed a
-# reading run, and a negative control with the token inverted to
-# `(immediate, debounce=0\.0s)` (RF-1's `2026-09-11_0142` shape), before it counts as
-# live-proven.
+# DriveVessel holds the rover moving for 8 game seconds. Live-proven `2026-10-15_1539`,
+# negative control `_1544` (token inverted to `(immediate, debounce=0\.0s)`, red on exactly
+# that token).
 # D14: boot facts of this host (RVR-1's set).
 D4  = ["hysteresis"]
 D14 = ["sandbox", "scene-flight"]
@@ -131,10 +131,9 @@ D14 = ["sandbox", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# AUTHORED WINDOW, pin after the first flight. 5 is RVR-1's measured count on these bytes
-# after the same kill triple; the drive's own tree is discarded, so 5 is the expectation
-# and 6 only admits a first reading that kept a stub.
-count = { min = 5, max = 6 }
+# PINNED at the measured 5 (`2026-10-15_1539`): the fixture's committed corpus; the
+# drive's own tree is discarded.
+count = { min = 5, max = 5 }
 
 [expectations.logContracts]
 # THREE REQUIRED LINES.
