@@ -1152,8 +1152,23 @@ namespace Parsek
                     double angleIconVsOrbitEff = orbitRelEff.sqrMagnitude > 1.0
                         ? UnityAngleDeg(bodyRelPos, orbitRelEff)
                         : double.NaN;
-                    if (MapRenderTrace.IsIconOffOrbit(
-                            angleIconVsOrbitEff, MapRenderTrace.IconOffOrbitMinAngleDeg)
+                    // A time jump's settle frames mix pre- and post-jump body frames (the clock moves
+                    // mid-frame, body rotation and Zup on the next Planetarium tick), so an angle
+                    // there measures the jump, not the icon (MapRenderTrace.TimeJumpSettleFrameWindow).
+                    bool offOrbitAngle = MapRenderTrace.IsIconOffOrbit(
+                        angleIconVsOrbitEff, MapRenderTrace.IconOffOrbitMinAngleDeg);
+                    bool timeJumpSettling = offOrbitAngle
+                        && MapRenderTrace.IsTimeJumpSettleFrame(frame, MapRenderTrace.LastTimeJumpFrame());
+                    if (timeJumpSettling)
+                    {
+                        ParsekLog.VerboseRateLimited("MapRenderTrace", "icon-off-orbit-timejump-settle",
+                            string.Format(ic,
+                                "icon-off-orbit check skipped on time-jump settle frame={0} jumpFrame={1} pid={2} angle={3}",
+                                frame, MapRenderTrace.LastTimeJumpFrame(), pid,
+                                MapRenderTrace.FormatDouble(angleIconVsOrbitEff, "F2")),
+                            1.0);
+                    }
+                    if (offOrbitAngle && !timeJumpSettling
                         && PassesOffOrbitRateLimit(pid, realtime))
                     {
                         Vector3d orbitRelLive = OrbitRelativePositionYup(offOrbit, currentUT);

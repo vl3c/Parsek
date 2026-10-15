@@ -923,7 +923,7 @@ Data point 2026-10-12 (operator tier): S4.4 2026-10-12_2128 PARSEK-FAIL on `outc
 
 ---
 
-## ~~V16M-ICON-OFF-ORBIT-AT-TIMEJUMP-LANDING: V16M's ghost map icon sits ~1.3 deg off its orbit on the frame a TimeJump lands~~ [FILED 2026-10-07 from the PR #2051 flights, measured twice. TRIAGED 2026-10-15: a real one-frame Parsek defect the faster harness cadence exposed. FIXED 2026-10-15 on branch `claude/triage-w1-v16m-reds-vx093m`; closes on a green V16M flight]
+## ~~V16M-ICON-OFF-ORBIT-AT-TIMEJUMP-LANDING: V16M's ghost map icon sits ~1.3 deg off its orbit on the frame a TimeJump lands~~ [FILED 2026-10-07 from the PR #2051 flights, measured twice. TRIAGED 2026-10-15: a probe false positive on the jump's own frame, which the faster harness cadence exposed; nothing the player sees. FIXED 2026-10-15 on branch `claude/triage-w1-v16m-reds-vx093m`; closes on a green V16M flight]
 
 `V16M-laythe-player-loop` reads PARSEK-FAIL on the unallowed Tier-C anomaly `icon-off-orbit`
 (`[MapRenderTrace] phase=Anomaly surface=ProtoIcon ... reason=icon-off-orbit
@@ -947,12 +947,16 @@ polls (#2017) the jumps land ~0.07 s apart and the last two creations spill onto
 `Planetarium.SetUniversalTime` only sets the clock: body rotation and `Planetarium.Zup` move at the
 next `Planetarium.FixedUpdate` -> `UpdateCBs`, while stock `Orbit` state vectors use `ZupAtT(UT)`
 (fresh). The offset is a pure longitude rotation (iconR == orbitEffR) of 1.36 deg = Laythe's spin
-over the 199.92 s jump. Fix: both TimeJumpManager paths call stock's `Planetarium.fetch.UpdateCBs()`
-after the clock set (as FlightDriver and MissionSystem do), after the epoch shift and the tip spawns,
-which convert pre-jump state vectors through the pre-jump frame on purpose. The same mechanism
-fits MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: V16T's 1,027,290 s jump spins Laythe 140.34
-deg, and at the icon's ~16 deg latitude (orbit inclination 16.4) that is a 129 deg vector angle
-against the measured 129.15 (the same formula gives V16M's 1.30); inferred, not flown.
+over the 199.92 s jump. A first fix ran stock's `Planetarium.fetch.UpdateCBs()` after the clock
+set (as FlightDriver and MissionSystem do); flown 2026-10-15 (`2026-10-15_2150`, `_2152`) it made
+V16M worse, 34-36 hits, now on the instances already on screen: their icons were driven in the
+pre-jump FixedUpdate, and the probe read their orbits through the refreshed frame (same 1.36 deg,
+effUT = the pre-jump UT). So the jump frame mixes body frames whichever way it goes, for one frame
+the player cannot see (the whole map snaps there). Fix: no product change; `TimeJumpManager` stamps
+`LastClockSetFrame` in both paths, and `MapRenderProbe` skips icon-off-orbit on that frame and one
+more (`MapRenderTrace.TimeJumpSettleFrameWindow`), as it already does for a floating-origin shift.
+MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP's V16T raise (129.15 deg = Laythe's 140.34 deg
+spin over its 1,027,290 s jump at the icon's ~16 deg latitude) fits the same frame; inferred.
 
 ---
 
