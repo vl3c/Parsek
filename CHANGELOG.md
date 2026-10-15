@@ -39,6 +39,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Harness: a launch from the editor finishes only once stock has charged for it.** The test
+  step waited only for the vessel to appear, so a test that followed at once could reload the
+  flight before the rollout cost was taken, and a Hard career lane saw no charge. It is not a
+  Parsek money bug. (HC-2-ROLLOUT-CHARGE-NOT-RECORDED)
 - **Harness warps end sooner.** The test harness's time warp now stays at its lowest warp rate
   until a few seconds before its target instead of spending the last ~12 s at 1x, and slows
   down without stock's gradual ramp. Two lanes now warp at 50x instead of 10x.

@@ -38,6 +38,13 @@ namespace Parsek.TestCommands
 
         private GoToEditorPending goToEditorPending;
         private string launchFromEditorSite;
+        // The launch completion's flight-ready wait (HC-2-ROLLOUT-CHARGE-NOT-RECORDED): the
+        // ParsekFlight instance live when Launch was pressed (0 = none, the editor's case),
+        // the wall time the launched vessel was first active and loaded (< 0 = not yet),
+        // and the frames waited for onFlightReady since.
+        private int launchFromEditorPrevFlightInstanceId;
+        private double launchFromEditorVesselReadyAt = -1.0;
+        private int launchFromEditorFlightReadyWaitFrames;
 
         // ----- GoToEditor (two-phase) -----
 
@@ -337,6 +344,10 @@ namespace Parsek.TestCommands
                     g.Editor.ship.shipName, g.Parts, g.Site, crew, g.SceneName));
 
             launchFromEditorSite = g.Site;
+            ParsekFlight prevFlight = ParsekFlight.Instance;
+            launchFromEditorPrevFlightInstanceId = prevFlight != null ? prevFlight.GetInstanceID() : 0;
+            launchFromEditorVesselReadyAt = -1.0;
+            launchFromEditorFlightReadyWaitFrames = 0;
             // The Launch button's handler (launchBtn.onClick -> launchVessel()), or the
             // launch-site picker's launchVessel(siteName) when the spec chose a site.
             if (siteArg != null) g.Editor.launchVessel(siteArg);
@@ -418,14 +429,33 @@ namespace Parsek.TestCommands
             bool gameLoaded = HighLogic.CurrentGame != null;
             Vessel active = scene == TestCommandScene.Flight ? ReadActiveVesselForEditorRoute() : null;
             bool activeReady = active != null && active.loaded;
+            ParsekFlight flight = scene == TestCommandScene.Flight ? ParsekFlight.Instance : null;
+            bool flightReady = TestCommandLoadGame.IsFlightReadyForThisLoad(
+                flight != null ? flight.GetInstanceID() : 0, launchFromEditorPrevFlightInstanceId,
+                flight != null && flight.FlightReadyObserved);
+            if (activeReady && launchFromEditorVesselReadyAt < 0.0)
+            {
+                launchFromEditorVesselReadyAt = now;
+                ParsekLog.Verbose(Tag, "launchfromeditor launched vessel loaded vessel=" + (active.vesselName ?? "-")
+                    + " flightReady=" + Bool(flightReady) + " elapsed="
+                    + elapsed.ToString("F2", CultureInfo.InvariantCulture) + "s");
+            }
             LoadCompletionDecision decision = TestCommandEditorRoute.DecideLaunchCompletion(
-                elapsed, scene, gameLoaded, activeReady, budget);
+                elapsed, scene, gameLoaded, activeReady, flightReady, budget);
             if (decision == LoadCompletionDecision.StillWaiting)
+            {
+                if (activeReady && !flightReady) launchFromEditorFlightReadyWaitFrames++;
                 return;
+            }
 
             string id = completionId; long seq = completionSeq; string verb = completionVerb;
             string site = launchFromEditorSite;
+            int waitedFrames = launchFromEditorFlightReadyWaitFrames;
+            double waitedSeconds = launchFromEditorVesselReadyAt >= 0.0 ? now - launchFromEditorVesselReadyAt : 0.0;
             launchFromEditorSite = null;
+            launchFromEditorPrevFlightInstanceId = 0;
+            launchFromEditorVesselReadyAt = -1.0;
+            launchFromEditorFlightReadyWaitFrames = 0;
             ClearTwoPhase();
             string el = elapsed.ToString("F1", CultureInfo.InvariantCulture);
 
@@ -434,6 +464,9 @@ namespace Parsek.TestCommands
                 case LoadCompletionDecision.CompleteOk:
                 {
                     string situation = active.situation.ToString();
+                    if (waitedFrames > 0)
+                        ParsekLog.Info(Tag, TestCommandEditorRoute.FormatLaunchFlightReadyWaitLine(
+                            waitedFrames, waitedSeconds, active.vesselName));
                     ParsekLog.Info(Tag, TestCommandEditorRoute.FormatLaunchCompleteLine(
                             active.vesselName, active.persistentId, site, situation, elapsed));
                     EmitExecutedTerminal(id, seq, verb, "OK",
@@ -449,6 +482,7 @@ namespace Parsek.TestCommands
                 default:
                     TestCommandDiagnostics.Timeout(id, verb, elapsed, TestCommandEditorRoute.LaunchNotSettledReason);
                     ParsekLog.Error(Tag, $"launchfromeditor timeout scene={HighLogic.LoadedScene} activeVessel={Bool(active != null)} " +
+                        $"flightReady={Bool(flightReady)} " +
                         $"elapsed={el}s - the launch never reached FLIGHT (a stock pre-flight dialog the gate could not foresee, " +
                         "or a foreign LoadScene prefix)");
                     EmitExecutedTerminal(id, seq, verb, "ERROR", null,

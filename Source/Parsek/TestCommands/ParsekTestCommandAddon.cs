@@ -1260,6 +1260,9 @@ namespace Parsek.TestCommands
             // clears the two-phase state through here).
             launchFromEditorLockWait = false;
             launchFromEditorSiteArg = null;
+            launchFromEditorPrevFlightInstanceId = 0;
+            launchFromEditorVesselReadyAt = -1.0;
+            launchFromEditorFlightReadyWaitFrames = 0;
             // The EvaGroundScience key press must never outlive its command.
             EvaJumpKeyPressInjection.Remove();
             // Recover's two stock-event listeners must never outlive its command either.

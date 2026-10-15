@@ -419,27 +419,49 @@ namespace Parsek.Tests
         public void Completion_FlightWithoutActiveVessel_KeepsWaiting()
         {
             Assert.Equal(LoadCompletionDecision.StillWaiting, TestCommandEditorRoute.DecideLaunchCompletion(
-                5, TestCommandScene.Flight, true, false, 180));
+                5, TestCommandScene.Flight, true, false, true, 180));
             Assert.Equal(LoadCompletionDecision.CompleteOk, TestCommandEditorRoute.DecideLaunchCompletion(
-                5, TestCommandScene.Flight, true, true, 180));
+                5, TestCommandScene.Flight, true, true, true, 180));
+        }
+
+        [Fact]
+        public void Completion_ActiveVesselBeforeFlightReady_KeepsWaiting()
+        {
+            // HC-2-ROLLOUT-CHARGE-NOT-RECORDED: the launched vessel is active ~15 frames
+            // before stock's PostInit debits the rollout and fires onFlightReady; answering
+            // OK there let the next step reload the flight before the charge.
+            Assert.Equal(LoadCompletionDecision.StillWaiting, TestCommandEditorRoute.DecideLaunchCompletion(
+                5, TestCommandScene.Flight, true, true, false, 180));
+            Assert.Equal(LoadCompletionDecision.LoadTimeout, TestCommandEditorRoute.DecideLaunchCompletion(
+                180, TestCommandScene.Flight, true, true, false, 180));
+        }
+
+        [Fact]
+        public void Completion_FlightReady_IsTheNewSceneOnly()
+        {
+            // The editor has no ParsekFlight (previous id 0); the launched scene's instance
+            // counts once it observed onFlightReady, and only then.
+            Assert.False(TestCommandLoadGame.IsFlightReadyForThisLoad(0, 0, false));
+            Assert.False(TestCommandLoadGame.IsFlightReadyForThisLoad(4242, 0, false));
+            Assert.True(TestCommandLoadGame.IsFlightReadyForThisLoad(4242, 0, true));
         }
 
         [Fact]
         public void Completion_StillInEditor_WaitsThenTimesOut()
         {
             Assert.Equal(LoadCompletionDecision.StillWaiting, TestCommandEditorRoute.DecideLaunchCompletion(
-                10, TestCommandScene.Editor, true, false, 180));
+                10, TestCommandScene.Editor, true, false, false, 180));
             Assert.Equal(LoadCompletionDecision.LoadTimeout, TestCommandEditorRoute.DecideLaunchCompletion(
-                180, TestCommandScene.Editor, true, false, 180));
+                180, TestCommandScene.Editor, true, false, false, 180));
             Assert.Equal(LoadCompletionDecision.LoadTimeout, TestCommandEditorRoute.DecideLaunchCompletion(
-                181, TestCommandScene.Flight, true, false, 180));
+                181, TestCommandScene.Flight, true, false, false, 180));
         }
 
         [Fact]
         public void Completion_MainMenu_IsTheFastFailure()
         {
             Assert.Equal(LoadCompletionDecision.LoadFailedMenu, TestCommandEditorRoute.DecideLaunchCompletion(
-                1, TestCommandScene.MainMenu, true, false, 180));
+                1, TestCommandScene.MainMenu, true, false, false, 180));
         }
 
         // ---- payloads, log lines, budgets ----
@@ -455,6 +477,9 @@ namespace Parsek.Tests
                 string launch = TestCommandEditorRoute.FormatLaunchCompleteLine(
                     "Kerbal X", 123456u, "Runway", "PRELAUNCH", 40.04);
                 Assert.Equal("launchfromeditor complete scene=FLIGHT vessel=Kerbal X pid=123456 site=Runway situation=PRELAUNCH elapsed=40.0s", launch);
+                Assert.Equal("launchfromeditor flight-ready wait: waited frames=15 seconds=0.25 after the launched vessel "
+                    + "loaded (onFlightReady observed: stock PostInit ran, rollout charged) vessel=Settings Probe",
+                    TestCommandEditorRoute.FormatLaunchFlightReadyWaitLine(15, 0.25, "Settings Probe"));
             }
             Assert.Equal("goeditor start facility=VAB craft=- scene=SPACECENTER craftPath=-",
                 TestCommandEditorRoute.FormatGoStartLine(EditorRouteFacility.VAB, null, "SPACECENTER", null));

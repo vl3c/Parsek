@@ -52,6 +52,17 @@ tier = "nightly"
 # negative control over `_1533`: 10 of 10 seeds red (x1 science stamp, x1 milestone, a science
 # clamp, the x1 funds total, a scaled recovery, an uncharged rollout, a hard divergence, a
 # vacuous batch, no rewind, a third recording), the green log green.
+#
+# THE ROLLOUT WAIT (2026-10-15, todo HC-2-ROLLOUT-CHARGE-NOT-RECORDED). Nightly `2026-10-12_0641`
+# red on the three rollout tokens with every step OK: the four `hc2-rollout-settle` marks, ~1 s
+# at the old 0.25 s seam poll, took 0.08 s at PR #2017's 25 ms poll (marks 43.604-43.687, RunTests
+# 43.704, launch complete 43.505), so the batch reloaded the flight before stock's PostInit debit
+# (onFlightReady of the launched scene would have fired at 43.956). ZF-1 lost the same race and got
+# a fixed-UT WarpToUT (FAST-POLL-SETTLES-STILL-RACE); this lane's launch UT moves with the hop, so
+# the wait moved into the seam instead: LaunchFromEditor now completes only once the launched
+# scene's ParsekFlight observed onFlightReady (ZF-1 green `2026-10-12_0943`: the -300 debit at
+# 01.928, onFlightReady at 01.954, the same PostInit), and the marks are gone. Pinned by the
+# order token below. Spec changed, not re-flown.
 description = "Parsek under KSP's Hard career preset with money and science changing hands: L3's hop on career-science-pad-hard earns x0.6 milestones and x0.6 science plus an unscaled recovery, auto-commits, a VAB launch spends, LedgerGroundTruth closes against KSP's own save with no guard clamp, then a Rewind-to-Launch."
 instanceProfile = "stock-minimal"
 tags = ["settings-axis", "hard-preset", "multipliers", "ledger", "ingame-batch", "ground-truth", "science",
@@ -75,14 +86,9 @@ steps = [
   { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Settings Probe" },    expect = "OK", budget = 120 },
   { cmd = "LaunchFromEditor",                                                       expect = "OK", budget = 180 },
-  # Settle: stock charges the rollout in FlightDriver.PostInit 15 frames after FLIGHT starts
-  # (OnVesselRollout -> Funding.AddFunds(-cost, VesselRollout)); a RunTests batch issued on
-  # the launch completion reloads the flight from its baseline first and the charge never
-  # happens (ZF-1 `2026-10-03_1521`: funds unchanged across the launch). Four marks ~1 s.
-  { cmd = "MissionMark",    args = { label = "hc2-rollout-settle" },             expect = "OK" },
-  { cmd = "MissionMark",    args = { label = "hc2-rollout-settle" },             expect = "OK" },
-  { cmd = "MissionMark",    args = { label = "hc2-rollout-settle" },             expect = "OK" },
-  { cmd = "MissionMark",    args = { label = "hc2-rollout-settle" },             expect = "OK" },
+  # No settle step: LaunchFromEditor answers only after the launched flight's onFlightReady,
+  # which stock fires in FlightDriver.PostInit right after the rollout debit (header, THE
+  # ROLLOUT WAIT), so the batch's baseline already holds the charged funds.
   { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },              expect = "OK", budget = 540 },
   { cmd = "MissionMark",    args = { label = "hc2-groundtruth-done" },              expect = "OK" },
   { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                       expect = "OK", budget = 300 },
@@ -152,6 +158,8 @@ required = [
   "PatchScience: balance unchanged \\(current=107\\.0, target=107\\.0\\)",
   "PatchReputation: no change needed \\(current=2\\.00, target=2\\.00\\)",
   "launchfromeditor complete scene=FLIGHT vessel=Settings Probe pid=1100000001 site=LaunchPad situation=PRELAUNCH",
+  # The seam's flight-ready wait: stock's rollout debit lands BEFORE the launch answers.
+  "(?s)Game state: FundsChanged -300 \\(VesselRollout\\).*launchfromeditor complete scene=FLIGHT vessel=Settings Probe ",
   "Game state: FundsChanged -300 \\(VesselRollout\\)",
   "VesselRollout spending recorded: cost=300,",
   "PatchFunds: no change needed \\(current=523458\\.0, target=523458\\.0\\)",

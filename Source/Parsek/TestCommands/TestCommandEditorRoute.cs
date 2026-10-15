@@ -437,18 +437,27 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>
-        /// Decide the launch completion. OK needs FLIGHT, a loaded game AND the launched
-        /// vessel active: FLIGHT settles a frame or two before <c>FlightGlobals</c> has an
-        /// active vessel, and a terminal that raced it would hand the next step a flight
-        /// with nothing in it. MAINMENU is the fast failure; the budget the catch-all.
+        /// Decide the launch completion. OK needs FLIGHT, a loaded game, the launched
+        /// vessel active AND <c>onFlightReady</c> observed by the new flight scene's
+        /// ParsekFlight (<see cref="TestCommandLoadGame.IsFlightReadyForThisLoad"/>).
+        /// FLIGHT settles a frame or two before <c>FlightGlobals</c> has an active vessel,
+        /// and a terminal that raced it would hand the next step a flight with nothing in
+        /// it. The flight-ready half is stock's <c>FlightDriver.PostInit</c>, which on a
+        /// launch from the editor fires <c>OnVesselRollout</c> (the career rollout debit,
+        /// <c>Funding.AddFunds(-cost, VesselRollout)</c>) and then <c>onFlightReady</c>,
+        /// ~15 frames after the vessel loads: a next step issued before it (a RunTests
+        /// batch that reloads the flight, a StartRecording) acts on a launch that has not
+        /// been paid for and whose flight-ready reset has not run
+        /// (HC-2-ROLLOUT-CHARGE-NOT-RECORDED). MAINMENU is the fast failure; the budget
+        /// the catch-all.
         /// </summary>
         internal static LoadCompletionDecision DecideLaunchCompletion(
             double elapsedSeconds, TestCommandScene scene, bool gameLoaded, bool activeVesselReady,
-            double budgetSeconds)
+            bool flightReadyForThisLaunch, double budgetSeconds)
         {
             LoadCompletionDecision d = TestCommandLoadGame.DecideLoadCompletion(
                 elapsedSeconds, scene, gameLoaded, budgetSeconds, TestCommandScene.Flight);
-            if (d == LoadCompletionDecision.CompleteOk && !activeVesselReady)
+            if (d == LoadCompletionDecision.CompleteOk && (!activeVesselReady || !flightReadyForThisLaunch))
                 return elapsedSeconds >= budgetSeconds
                     ? LoadCompletionDecision.LoadTimeout
                     : LoadCompletionDecision.StillWaiting;
@@ -492,6 +501,16 @@ namespace Parsek.TestCommands
                + " site=" + Token(site)
                + " crew=" + crew.ToString(CultureInfo.InvariantCulture)
                + " scene=" + Token(scene);
+
+        /// <summary>
+        /// The flight-ready wait line, printed before the complete line when the launched
+        /// vessel was active before stock's <c>onFlightReady</c> (frames counted from then).
+        /// </summary>
+        internal static string FormatLaunchFlightReadyWaitLine(int frames, double seconds, string vessel)
+            => "launchfromeditor flight-ready wait: waited frames=" + frames.ToString(CultureInfo.InvariantCulture)
+               + " seconds=" + seconds.ToString("F2", CultureInfo.InvariantCulture)
+               + " after the launched vessel loaded (onFlightReady observed: stock PostInit ran,"
+               + " rollout charged) vessel=" + Token(vessel);
 
         internal static string FormatLaunchCompleteLine(
             string vessel, uint pid, string site, string situation, double elapsedSeconds)
