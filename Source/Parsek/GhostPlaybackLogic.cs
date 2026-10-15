@@ -8389,6 +8389,52 @@ namespace Parsek
             return (true, "");
         }
 
+        internal const string LiveFlownRecordingSpawnReason =
+            "live-flown recording (re-fly session / live recorder)";
+
+        /// <summary>
+        /// True when <paramref name="recordingId"/> names the recording the player is
+        /// flying right now: the active Re-Fly session's recording
+        /// (<c>ReFlySessionMarker.ActiveReFlyRecordingId</c>) or the recording the live
+        /// recorder writes. That recording's vessel IS the live vessel, so its terminal
+        /// spawn must never fire. A save during a Re-Fly flushes the live points into the
+        /// session's committed provisional, which then reads as ended, and the hidden
+        /// past-end completion would otherwise spawn a real duplicate of the vessel being
+        /// flown (todo REFLY-FORK-SELF-SPAWN-AFTER-QUICKSAVE). Null / empty ids never match.
+        /// </summary>
+        internal static bool IsLiveFlownRecording(
+            string recordingId,
+            string activeReFlyRecordingId,
+            string liveRecorderRecordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return false;
+            return string.Equals(recordingId, activeReFlyRecordingId, StringComparison.Ordinal)
+                || string.Equals(recordingId, liveRecorderRecordingId, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The flight scene's final terminal-spawn answer for one committed recording:
+        /// <see cref="ShouldSpawnAtRecordingEnd"/>'s verdict
+        /// (<paramref name="spawnEligible"/>) minus every scene-level hold. Pure so the
+        /// composition, the live-flown hold included, is pinned by unit tests.
+        /// </summary>
+        internal static bool ComposeFlightFinalNeedsSpawn(
+            bool spawnEligible,
+            bool chainSuppressed,
+            bool supersededByRelation,
+            bool rewindRetired,
+            bool spawnHistoricalNeverReplayed,
+            bool liveFlownRecording)
+        {
+            return spawnEligible
+                && !chainSuppressed
+                && !supersededByRelation
+                && !rewindRetired
+                && !spawnHistoricalNeverReplayed
+                && !liveFlownRecording;
+        }
+
         /// <summary>
         /// Structural "this recording is where its vessel ends its WHOLE flight" test: the
         /// segment-shape gates of <see cref="ShouldSpawnAtRecordingEnd"/> without its

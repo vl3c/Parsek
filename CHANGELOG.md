@@ -36,6 +36,10 @@ _(unreleased - entries accumulate here per commit)_
   by its launch, and another launch with the same name is no longer mistaken for it. A recording
   that splits off or carries on in the background now takes the name of its own vessel, never the
   name of the vessel you are flying (GC-7).
+- **Saving during a Re-Fly no longer spawns a copy of the vessel you are flying.** A quicksave
+  mid Re-Fly could make Parsek treat the flight as finished and place a real duplicate of the
+  vessel next to you, and pieces breaking off that duplicate were counted as part of your Re-Fly
+  recording. Neither happens now. (REFLY-FORK-SELF-SPAWN-AFTER-QUICKSAVE)
 
 ### Dev
 
