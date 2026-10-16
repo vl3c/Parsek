@@ -869,12 +869,14 @@ staging variance.
 - `D7 = ["dock-undock", "rcs"]` - the docking-port couple/undock part events and the
   RCS approach.
 - `D8 = ["route"]` - the route ledger module engaged by the completed window.
-- `D10 = ["candidate-detection", "ksc-origin", "dock-producer", "delivery", "pickup",
-  "mixed-direction", "resource-cargo"]` - the route candidate; the Interceptor's KSC
+- `D10 = ["candidate-detection", "ksc-origin", "dock-producer", "pickup",
+  "resource-cargo"]` - the route candidate; the Interceptor's KSC
   launch origin (`ksc-origin`, NOT `docked-depot-origin` - the transport launches
   from the pad, not from a docked depot); the docked-vessel producer (`dock-producer`,
-  the registry's dock-KIND value); and the two-direction resource transfer (LF one
-  way = delivery, MP the other = pickup / mixed-direction resource cargo).
+  the registry's dock-KIND value); and the MP pickup resource cargo. `delivery` and
+  `mixed-direction` were withdrawn 2026-10-16 (BDOCK-FIXTURE-TRANSFER-INVERTED): the
+  Station docks with LF, oxidizer and MP full, so the LF delivery leg has no room and
+  moves nothing.
 - `D14 = ["kerbin", "warp-rails", "scene-flight", "sandbox"]` - the body, the
   phasing-orbit rails warp, the flight scene, the sandbox mode.
 

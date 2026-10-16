@@ -635,6 +635,65 @@ def pick_ready_port_index(state_names) -> "Optional[int]":
     return 0
 
 
+# Side labels for `pick_dock_transfer_parts` (BDOCK-FIXTURE-TRANSFER-INVERTED).
+DOCK_SIDE_STATION = "station"
+DOCK_SIDE_TRANSPORT = "transport"
+DOCK_TRANSFER_EPS = 1e-6
+
+
+def classify_dock_side(in_station, in_transport) -> "Optional[str]":
+    """The side of the docked pair a live part belongs to, from whether it was among
+    the TARGET vessel's parts (station) or the ACTIVE vessel's parts (transport) read
+    at DOCK entry, before the two merged. A part in both or in neither is unknown
+    (None) and is never picked. Pure."""
+    if in_station and not in_transport:
+        return DOCK_SIDE_STATION
+    if in_transport and not in_station:
+        return DOCK_SIDE_TRANSPORT
+    return None
+
+
+def pick_dock_transfer_parts(rows, direction) -> "Optional[Tuple[int, int]]":
+    """(station_index, transport_index) into ``rows`` for one ResourceTransfer, or
+    None when either side has no usable part. Each row is (side, amount, capacity)
+    for one live part of the merged vessel and one resource; side comes from
+    `classify_dock_side`. The SOURCE side is the transport for
+    TRANSFER_DIR_DELIVER and the station for TRANSFER_DIR_PICKUP. The source part is
+    the first one holding the resource; the destination is the first one with room,
+    else the first that can hold it at all (a full destination then moves nothing,
+    which the recorded window delta shows rather than a reversed transfer). Pure.
+
+    BDOCK-FIXTURE-TRANSFER-INVERTED: the runner used to tell the sides apart by
+    which half held the controlling part after the dock, and `bdock-recorded`
+    recorded both requests reversed (LF station -> transport, MP transport ->
+    station). Membership read before the merge does not depend on which part
+    controls the merged vessel."""
+    deliver = direction == TRANSFER_DIR_DELIVER
+    source_side = DOCK_SIDE_TRANSPORT if deliver else DOCK_SIDE_STATION
+    dest_side = DOCK_SIDE_STATION if deliver else DOCK_SIDE_TRANSPORT
+    source = None
+    dest_room = None
+    dest_any = None
+    for i, row in enumerate(rows or []):
+        side, amount, capacity = row
+        try:
+            amount = float(amount)
+            capacity = float(capacity)
+        except (TypeError, ValueError):
+            continue
+        if side == source_side and source is None and amount > DOCK_TRANSFER_EPS:
+            source = i
+        elif side == dest_side and capacity > DOCK_TRANSFER_EPS:
+            if dest_any is None:
+                dest_any = i
+            if dest_room is None and capacity - amount > DOCK_TRANSFER_EPS:
+                dest_room = i
+    dest = dest_room if dest_room is not None else dest_any
+    if source is None or dest is None:
+        return None
+    return (dest, source) if deliver else (source, dest)
+
+
 def normalize_docking_state(name) -> str:
     """Normalize a kRPC DockingPortState.name (lower_snake, e.g. 'docked',
     'pre_attached') to the PascalCase spelling the machine gates on ('Docked'),

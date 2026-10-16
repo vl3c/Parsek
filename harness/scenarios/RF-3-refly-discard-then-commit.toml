@@ -78,6 +78,14 @@ steps = [
   # --- ACT 1: rewind, then DISCARD ---------------------------------------------------
   { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles",  expect = "OK" },
   { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "1" },         expect = "OK", budget = 300 },
+  # THE FLIGHT-READY WAIT (REFLY-LANES-JUMP-BEFORE-FLIGHT-READY, CI-2's race). InvokeRewind
+  # answers OK at `Invocation complete`, before the re-fly scene's OnFlightReady builds the
+  # ghost chains and binds the re-fly recorder, so a time step sent straight after it can
+  # fly the attempt with no recorder. kind=chains defers (`ghost-chains-pending`) until
+  # OnFlightReady ran; the await defers (`refly-recorder-not-live`) until a recorder is
+  # live under the re-fly marker.
+  { cmd = "ListHandles",       args = { kind = "chains" },                           expect = "OK" },
+  { cmd = "RecordingState",    args = { awaitRecorderLive = "refly" },               expect = "OK" },
   # THE ATTEMPT IS FLOWN BEFORE IT IS DISCARDED. An attempt that recorded nothing is
   # retired by the leaf prune, so `Removed Re-Fly attempt rec=` would have nothing to
   # name and S4.3's token could read absent for a reason that is not a defect. CI-2
@@ -93,6 +101,9 @@ steps = [
   # Re-ENUMERATED rather than re-used: this is the on-disk survival assertion.
   { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles2", expect = "OK" },
   { cmd = "InvokeRewind",      args = { rp = "${handles2.rp0}", slot = "1" },        expect = "OK", budget = 300 },
+  # The flight-ready wait again (see the first rewind above).
+  { cmd = "ListHandles",       args = { kind = "chains" },                           expect = "OK" },
+  { cmd = "RecordingState",    args = { awaitRecorderLive = "refly" },               expect = "OK" },
   { cmd = "TimeJump",          args = { ut = "500" },                                expect = "OK", budget = 120 },
   { cmd = "AnswerMergeDialog", args = { choice = "merge" },                          expect = "OK", budget = 120 },
   # --- ACT 3: a DIFFERENT point's open slot, merged -----------------------------------
@@ -106,6 +117,9 @@ steps = [
   # the clock is moved past it first (the CL-LANES-INJECTED-RP-IN-THE-FUTURE fix).
   { cmd = "TimeJump",          args = { ut = "700" },                                expect = "OK", budget = 120 },
   { cmd = "InvokeRewind",      args = { rp = "${handles3.rp0}", slot = "1" },        expect = "OK", budget = 300 },
+  # The flight-ready wait again (see the first rewind above).
+  { cmd = "ListHandles",       args = { kind = "chains" },                           expect = "OK" },
+  { cmd = "RecordingState",    args = { awaitRecorderLive = "refly" },               expect = "OK" },
   # rp1's UT is 693.29 and `TimeJump` is FORWARD-ONLY from the rewound clock; 800
   # clears it by the same ~107 s margin the first two acts use.
   { cmd = "TimeJump",          args = { ut = "800" },                                expect = "OK", budget = 120 },
@@ -159,6 +173,8 @@ required = [
   "ReapOrphanedRPs: reaped=1 remaining=2",
   "listhandles kind=rewindpoints count=2 truncated=false",
   "ReapOrphanedRPs: reaped=1 remaining=1",
+  # The flight-ready wait returned on a live re-fly recorder (REFLY-LANES-JUMP-BEFORE-FLIGHT-READY).
+  "recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -170,6 +186,8 @@ forbidden = [
   "ReapOrphanedRPs: reaped=[0-9]+ remaining=0",
   "subscriber threw",
   "reason=sealedTipClosed",
+  # The flight-ready wait read the chains before OnFlightReady evaluated them.
+  "listhandles kind=chains .* evaluated=false",
 ]
 
 # REPORT-ONLY. RE-PINNED FROM READING RUN 1 (2026-09-09): three points in, one discard
@@ -206,8 +224,10 @@ tombstones    = { max = 0 }
 # Budget arithmetic: LoadGame x3 1980 + SetSetting x5 600 + StopRecording x3 360 +
 # ListHandles x3 360 + InvokeRewind x3 1980 + TimeJump x3 (deferred) 1980 +
 # AnswerMergeDialog x3 540 + RecordingState 120 + FlushAndQuit 120 = 8040, plus act
-# 3's pre-rewind TimeJump (deferred) 660 = 8700. 9000 clears it by 300.
-budgetSeconds = 9000
+# 3's pre-rewind TimeJump (deferred) 660 = 8700, plus the three flight-ready waits
+# (ListHandles kind=chains + awaited RecordingState, 120 each) 720 = 9420. 9800 clears it
+# by 380.
+budgetSeconds = 9800
 
 [retry]
 policy = "once"

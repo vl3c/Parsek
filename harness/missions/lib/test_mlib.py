@@ -12492,5 +12492,61 @@ class FlameoutCorrectedAvailableThrustTests(unittest.TestCase):
             self.assertEqual(actions, [])
 
 
+class DockTransferSideTests(unittest.TestCase):
+    """BDOCK-FIXTURE-TRANSFER-INVERTED: the transfer sides come from the part lists
+    read before the merge, and the direction names the source side."""
+
+    S = mlib.DOCK_SIDE_STATION
+    T = mlib.DOCK_SIDE_TRANSPORT
+
+    def test_classify_dock_side(self):
+        self.assertEqual(mlib.classify_dock_side(True, False), self.S)
+        self.assertEqual(mlib.classify_dock_side(False, True), self.T)
+        self.assertIsNone(mlib.classify_dock_side(True, True))
+        self.assertIsNone(mlib.classify_dock_side(False, False))
+
+    # bdock-recorded at the dock: station LF 720/720, transport LF 704.23/720. The
+    # station rows come FIRST in the merged part list, the order that hid the bug.
+    BDOCK_LF = [(S, 720.0, 720.0), (T, 704.23, 720.0)]
+
+    def test_deliver_takes_from_the_transport_into_the_station(self):
+        self.assertEqual(
+            mlib.pick_dock_transfer_parts(self.BDOCK_LF, mlib.TRANSFER_DIR_DELIVER),
+            (0, 1))
+
+    def test_pickup_takes_from_the_station_into_the_transport(self):
+        self.assertEqual(
+            mlib.pick_dock_transfer_parts(self.BDOCK_LF, mlib.TRANSFER_DIR_PICKUP),
+            (0, 1))
+
+    def test_row_order_does_not_flip_the_sides(self):
+        rows = list(reversed(self.BDOCK_LF))
+        for direction in (mlib.TRANSFER_DIR_DELIVER, mlib.TRANSFER_DIR_PICKUP):
+            with self.subTest(direction=direction):
+                self.assertEqual(mlib.pick_dock_transfer_parts(rows, direction), (1, 0))
+
+    def test_destination_prefers_a_part_with_room(self):
+        rows = [(self.S, 720.0, 720.0), (self.S, 10.0, 360.0), (self.T, 704.23, 720.0)]
+        self.assertEqual(
+            mlib.pick_dock_transfer_parts(rows, mlib.TRANSFER_DIR_DELIVER), (1, 2))
+
+    def test_a_full_destination_is_still_picked_never_the_other_side(self):
+        rows = [(self.S, 720.0, 720.0), (self.T, 704.23, 720.0), (self.T, 0.0, 360.0)]
+        self.assertEqual(
+            mlib.pick_dock_transfer_parts(rows, mlib.TRANSFER_DIR_DELIVER), (0, 1))
+
+    def test_an_empty_source_or_missing_side_resolves_nothing(self):
+        self.assertIsNone(mlib.pick_dock_transfer_parts(
+            [(self.S, 720.0, 720.0), (self.T, 0.0, 720.0)], mlib.TRANSFER_DIR_DELIVER))
+        self.assertIsNone(mlib.pick_dock_transfer_parts(
+            [(self.T, 704.23, 720.0)], mlib.TRANSFER_DIR_DELIVER))
+        self.assertIsNone(mlib.pick_dock_transfer_parts([], mlib.TRANSFER_DIR_PICKUP))
+
+    def test_unknown_side_parts_are_never_picked(self):
+        rows = [(None, 720.0, 720.0), (self.T, 704.23, 720.0)]
+        self.assertIsNone(
+            mlib.pick_dock_transfer_parts(rows, mlib.TRANSFER_DIR_DELIVER))
+
+
 if __name__ == "__main__":
     unittest.main()

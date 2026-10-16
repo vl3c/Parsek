@@ -5586,7 +5586,8 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
     `inventoryUnitsSkipped=[1-9]` forbidden as its anti-vacuity half. THE OTHER FIVE
     LANES CLAIM NOTHING, and after the flights the reason is NON-INFLATION rather
     than CLAIM-IS-NOT-GATE: `hold-reasons` is H38's, `dispatch-cadence` is H34's,
-    and `pickup` / `delivery` / `resource-cargo` / `mixed-direction` are BDOCK-1's.
+    and `pickup` / `resource-cargo` are BDOCK-1's (its `delivery` / `mixed-direction`
+    claims were withdrawn 2026-10-16, BDOCK-FIXTURE-TRANSFER-INVERTED: no lane holds them).
     RVR-12's pre-flight note that `inventory-cargo` was "arguably" its own is
     CORRECTED in place by the census: that row names a route whose cargo IS
     inventory, and RVR-12 refuses for want of it and moves nothing.
@@ -6397,7 +6398,7 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 | TA-8 | ~~Chain tip outside FLIGHT does not adopt a live pre-claim vessel~~ DONE 2026-10-06 (branch `fix-chain-tip-outside-flight`): `ChainTipStaleVesselTests` (predicate, TS hand-off, KSC / flight entry) | CHAIN-TIP-ADOPTS-STALE-VESSEL-OUTSIDE-FLIGHT |
 | TA-9 | ~~Chain walk follows the claimed vessel when the transport is dominant~~ DONE 2026-10-06 (branch `fix-chain-walk-claimed-identity`): the tip walk follows the claimed vessel's part set (`GhostChainWalker.ResolveClaimedPartIds` / `SelectWalkChild`), red cells in `GhostChainWalkerTests`; lane RC-5 not flown | CHAIN-WALK-FOLLOWS-DOMINANT-DOCK-PARTNER |
 | TA-10 | ~~Tail trim keeps a resource-changing tail (ruled 2026-10-06)~~ DONE 2026-10-07 (branch `release-rulings`): an unsplit recording keeps its tail through its harvest windows (PR #2027, `RecordingOptimizerTests.RunOptimizationPass_UnsplitDrillRecording_*`); a flown-then-landed one, whose windows the split voids, keeps it through the converter part events (owner ruling 2026-10-07: a converter still running at the end keeps the tail), red cells `RunOptimizationPass_FlownThenLandedDrillRecording_KeepsConverterTail_OnEveryPass` (the flipped `_DocumentsDefect` cell) and `RunOptimizationPass_ConverterSwitchedOnBeforeLanding_SeededAcrossSplit_KeepsTail` | TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT |
-| TA-11 | `bdock-recorded` endpoint LF delta is positive (offline over the fixture) | BDOCK-FIXTURE-TRANSFER-INVERTED |
+| TA-11 | ~~`bdock-recorded` endpoint LF delta is positive (offline over the fixture)~~ RE-SCOPED AND DONE 2026-10-16 (branch `claude/project-thread-ul9vwp`, owner ruling: keep the fixture): the Station docked full, so no delivery could move anything; the runner now picks the tanks from both ships' part lists read before the merge, BDOCK-1 gates the MP pickup direction and withdraws its D10 `delivery` / `mixed-direction` claims, and `test_bdock_recorded_window.py` pins the fixture as the LF pickup it holds | BDOCK-FIXTURE-TRANSFER-INVERTED |
 | TA-12 | Harvest-origin route capped at drill rate x duration (ruled) | HARVEST-ROUTE-PLAUSIBILITY-CAP |
 | TA-13 | Resource-scan unlock recorded, ledgered and re-applied after a rewind (ruled) | RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED |
 | TA-14 | ~~Tracking Station uses the current-UT ledger cutoff (ruled)~~ DONE 2026-10-15 (branch `claude/ruled-correctness-fixes-yjvz1e`): the TS takes the cutoff on every load and applies a crossed action during TS warp (`CareerLedgerClockCursor`); cells in `RewindUtCutoffTests`, `GameStateRecorderLedgerTests`, `CareerLedgerClockCursorTests` | TRACKING-STATION-LEDGER-CUTOFF-ALIGN |
@@ -6507,7 +6508,9 @@ Owner decisions (interview 2026-10-06):
 - Wall time: about 38-40% of mission wall time is idle at 1x (HARNESS-FLIGHT-WALL-TIME); B13
   alone needs about 2,800 s.
 - Post-flight crash and recovery dialogs (HARNESS-POST-FLIGHT-DIALOG-STALLS); re-fly lanes must
-  wait for `OnFlightReady` (REFLY-LANES-JUMP-BEFORE-FLIGHT-READY).
+  wait for `OnFlightReady` and the re-fly recorder before a time step (`ListHandles
+  kind=chains` + `RecordingState awaitRecorderLive=refly`, gated by
+  `test_refly_flight_ready_wait.py`).
 - The ledger oracle refuses rewind lanes until TC-4.
 
 ## Trust and fail-open risks still outstanding

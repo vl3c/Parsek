@@ -183,6 +183,14 @@ steps = [
   # already flew and whose merge wrote real supersede rows, so it is measured rather than
   # assumed.
   { cmd = "InvokeRewind", args = { rp = "${handles.rp0}", slot = "0" },         expect = "OK", budget = 300 },
+  # THE FLIGHT-READY WAIT (REFLY-LANES-JUMP-BEFORE-FLIGHT-READY, CI-2's race). InvokeRewind
+  # answers OK at `Invocation complete`, before the re-fly scene's OnFlightReady builds the
+  # ghost chains and binds the re-fly recorder, so a time step sent straight after it can
+  # fly the attempt with no recorder. kind=chains defers (`ghost-chains-pending`) until
+  # OnFlightReady ran; the await defers (`refly-recorder-not-live`) until a recorder is
+  # live under the re-fly marker.
+  { cmd = "ListHandles",  args = { kind = "chains" },                           expect = "OK" },
+  { cmd = "RecordingState",args = { awaitRecorderLive = "refly" },              expect = "OK" },
   # THE STEP THIS LANE EXISTS FOR. See the header for why 600 and what a clamp does.
   { cmd = "WarpToUT",     args = { ut = "600" },                                expect = "OK", budget = 540 },
   # R7a's, RF-6's and RF-12's own budget for the same 39-cell category.
@@ -279,6 +287,8 @@ required = [
   "KerbalRecoveryOnSupersede: tombstoned [1-9][0-9]* death action\\(s\\); 2 kerbal\\(s\\) verified non-Dead post-merge",
   "runtests start category=Rewind",
   "BATCH_COMPLETE v1 total=39 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=Rewind scene=FLIGHT",
+  # The flight-ready wait returned on a live re-fly recorder (REFLY-LANES-JUMP-BEFORE-FLIGHT-READY).
+  "recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true",
 ]
 forbidden = [
   # THE STANDING ERROR GUARD, NARROWED BY ONE MEASURED EXCEPTION AND BY NOTHING ELSE.
@@ -340,6 +350,8 @@ forbidden = [
   # `outcome=unbound-refly-provisional` - RF-12 measured that it is raised at the
   #   rewind's own SAVE, before any driven step can fly the attempt, so no seam lane can
   #   keep it clear.
+  # The flight-ready wait read the chains before OnFlightReady evaluated them.
+  "listhandles kind=chains .* evaluated=false",
 ]
 
 # ARMED 2026-09-27 off `2026-09-27_1231` (PASS attempt 1: rewindPoints 1, supersedeRows 2,
@@ -360,8 +372,9 @@ tombstones    = { min = 8 }
 #   LoadGame 660 + SetSetting x2 240 + StopRecording 120 + ListHandles 120
 #   + InvokeRewind 660 + WarpToUT 660 + RunTests 660 + FlushAndQuit 120 = 3240.
 #   WarpToUT's 540 s step budget still resolves to max(540,600)+60 = 660, so the total is
-#   unchanged by the retarget. 3500 clears it by 260.
-budgetSeconds = 3500
+#   unchanged by the retarget. Plus the flight-ready wait (ListHandles kind=chains +
+#   awaited RecordingState) 240 = 3480. 3800 clears it by 320.
+budgetSeconds = 3800
 
 [retry]
 policy = "once"
