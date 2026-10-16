@@ -2035,7 +2035,11 @@ namespace Parsek
         /// </summary>
         internal static void RecalculateAndPatchForTimeJump(double utCutoff)
         {
-            RecalculateAndPatchForCurrentTimelineUT(utCutoff, "time-jump");
+            // A forward jump (Warp to, the Missions / Recordings fast-forward, the Tracking
+            // Station FF) moves the clock past committed-future rows the same way the clock
+            // cursor does, so the reached rows get the same guard basis; a backward jump
+            // reaches none of them.
+            RunAsClockAdvance(() => RecalculateAndPatchForCurrentTimelineUT(utCutoff, "time-jump"));
         }
 
         internal static void RecalculateAndPatchForCurrentTimelineIfFutureActions(
@@ -2158,11 +2162,16 @@ namespace Parsek
         /// </summary>
         internal static void RecalculateAndPatchForClockAdvance(double currentUT, string reason)
         {
+            RunAsClockAdvance(() => RecalculateAndPatchForLiveTimelineEvent(currentUT, reason));
+        }
+
+        private static void RunAsClockAdvance(Action recalc)
+        {
             bool previous = clockAdvanceRecalcInProgress;
             clockAdvanceRecalcInProgress = true;
             try
             {
-                RecalculateAndPatchForLiveTimelineEvent(currentUT, reason);
+                recalc();
             }
             finally
             {
@@ -3550,13 +3559,6 @@ namespace Parsek
             // live in-tier best value because that finer-grained partial progress is not
             // persisted in the ledger.
             kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
-            // A hire the clock just reached was never made in stock (the load put the
-            // kerbal back among the applicants); make it now, uncharged, since the row's
-            // cost reaches the funds patch below.
-            var crossing = KspStatePatcher.ActiveClockCrossingGuardBasis;
-            if (crossing != null && crossing.CrossedHireKerbals.Count > 0)
-                KerbalsModule.PromoteReachedCommittedHires(
-                    HighLogic.CurrentGame?.CrewRoster, crossing.CrossedHireKerbals);
             // #559: tech-tree patching is gated on a supplied cutoff, NOT on being a rewind.
             // Live unlocks that happened after the latest captured baseline are not replayed
             // by any ledger action, so a cutoff-less (techPatchCutoff == null) patch would
@@ -3641,6 +3643,26 @@ namespace Parsek
                 walkUtCutoff: utCutoff,
                 committedTechUnlockIds: committedTechUnlockIds,
                 committedTechUnlockLiveUt: committedTechUnlockLiveUt);
+
+            // A hire the clock just reached was never made in stock (the load put the
+            // kerbal back among the applicants); make it now, uncharged - but only when the
+            // funds patch applied the reached rows' cost, so a clamped or skipped funds patch
+            // leaves the hire and its charge both unmade, as before.
+            var crossing = KspStatePatcher.ActiveClockCrossingGuardBasis;
+            if (crossing != null && crossing.CrossedHireKerbals.Count > 0)
+            {
+                if (crossing.FundsApplied)
+                {
+                    KerbalsModule.PromoteReachedCommittedHires(
+                        HighLogic.CurrentGame?.CrewRoster, crossing.CrossedHireKerbals);
+                }
+                else
+                {
+                    ParsekLog.Warn(Tag,
+                        $"Clock-crossing hire(s) not made: the funds patch did not apply the reached rows " +
+                        $"(clamped or skipped); kerbals=[{string.Join(", ", crossing.CrossedHireKerbals.ToArray())}]");
+                }
+            }
 
             // LedgerTrace Tier-A: emit ONE structural snapshot per recalc, here (after
             // PatchAll), never inside a Patch* (that would emit 7x). Built from data

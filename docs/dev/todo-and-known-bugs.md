@@ -37,12 +37,16 @@ and final save (seed funds 536558 / science 111.6; expected end 332020 / 106.6; 
    probes the pools without the rows from that set it now reaches
    (`RecalculationEngine.ProbeModulesAtCutoff`, logged as `Clock-crossing guard basis:`), and the
    funds / science / reputation guards compare live against the running value minus those rows'
-   effect (`KspStatePatcher.ResolveClockCrossingGuardRunning`). Any other divergence still clamps,
+   effect (`KspStatePatcher.ResolveClockCrossingGuardRunning`). A forward time jump (Warp to, the
+   Missions / Recordings fast-forward, the Tracking Station FF, all through
+   `RecalculateAndPatchForTimeJump`) takes the same basis. Any other divergence still clamps,
    and a row recorded live after the patch is never in the set.
 3. Nothing made the reached hire: Verhat stayed an Applicant, so a second hire went through and
    charged 62113 again. Fix: `KerbalsModule.PromoteReachedCommittedHires` sets a crossed
    KerbalHire row's kerbal from Applicant to Crew the way stock `HireApplicant` does, minus its
    `OnCrewmemberHired` (decompiled: fire, then `type = Crew`), whose Funding listener charges.
+   It runs after the pool patches and only when the funds patch applied the rows unclamped, so a
+   clamped or skipped funds patch leaves both the hire and its charge unmade.
 4. `PatchContracts` restored the survey Active as a second instance beside the quicksave's Offered
    one: ContractsApp threw `An item with the same key has already been added`, and the Offered copy
    was accepted again, paying the 7575 advance twice. Fix: the restore removes an Offered instance
@@ -59,7 +63,9 @@ the next scene's in-session load clears the committed-future snapshot (a load ca
 pools) and walks at the new clock, so the same guard clamp should refuse the rows. To confirm, fly
 QL-1's shape with a flight between the load and the crossing. A fix would keep the snapshot across
 an ordinary scene change (refined load kind `InSessionOther`, where the live pools carry over) and
-use the same basis in that load's recalc.
+use the same basis in that load's recalc. A smaller case of the same shape: a non-cursor recalc
+at cutoff = now (a live KSC event) that runs in the frame the clock first passes a row recaptures
+the snapshot without it, so the cursor finds nothing crossed and the guard clamps.
 
 ## ~~ADOPTION-STAMP-READ-AS-UNIQUE-SPAWN-PID: an adoption stamp (the craft-baked pid) matched a relaunch of the same craft as the older launch's spawned vessel, and the #226 replay bypass was not checked against launch identity~~ [FILED 2026-10-15 from a launch-identity audit, verified by code read, not reproduced. FIXED 2026-10-15, branch `claude/project-thread-1twzdw-adopt-identity` (PR #2107); LIVE-PROVEN 2026-10-15 on the owner's PC before merge: QL-4c, QL-4b, VN-6, CI-6, CI-7 and H64 all PASS. product]
 

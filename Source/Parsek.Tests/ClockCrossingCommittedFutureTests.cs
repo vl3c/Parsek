@@ -207,6 +207,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ForwardTimeJump_PastSnapshotRows_UsesTheBasisToo()
+        {
+            AddAll(FundsSeed(536558f), Spend(1000.0, 150000f, "ts-upgrade"));
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(409.9, "post-rewind-load");
+            logLines.Clear();
+
+            LedgerOrchestrator.RecalculateAndPatchForTimeJump(1100.0);
+
+            Assert.Contains(logLines, l => l.Contains("Clock-crossing guard basis: crossed=1")
+                && l.Contains("basisFunds=536558"));
+        }
+
+        [Fact]
+        public void CrossedHire_NotMade_WhenTheFundsPatchDidNotApply()
+        {
+            // Headless there is no Funding singleton, so the funds patch skips: the hire must
+            // not be made without its charge.
+            AddAll(FundsSeed(536558f), Hire(1000.2, "Verhat Kerman", 62113f));
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(409.9, "post-rewind-load");
+            logLines.Clear();
+
+            LedgerOrchestrator.RecalculateAndPatchForClockAdvance(1300.0, "ksc-clock");
+
+            Assert.Contains(logLines, l => l.Contains("Clock-crossing hire(s) not made")
+                && l.Contains("Verhat Kerman"));
+            Assert.DoesNotContain(logLines, l => l.Contains("PromoteReachedCommittedHires:"));
+        }
+
+        [Fact]
         public void ClockAdvance_RowRecordedAfterThePatch_IsNotACrossedRow()
         {
             // A KSC action made live at the Space Center: stock already charged it, so the

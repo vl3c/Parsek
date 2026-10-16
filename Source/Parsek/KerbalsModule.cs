@@ -2867,27 +2867,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Apply derived kerbal state to the KSP roster. Creates stand-ins,
-        /// removes unused displaced stand-ins, and populates the crewReplacements
-        /// dict for SwapReservedCrewInFlight.
-        ///
-        /// Reserved kerbals are left at their natural rosterStatus (typically
-        /// Available). The VAB/SPH crew assignment dialog lists them greyed and refuses
-        /// every seat placement (StockUiCrewDialogDecoration). KerbalDismissalPatch
-        /// prevents dismissal.
-        ///
-        /// Crew death respawn (owner ruling S8): a recorded death holds its kerbal until
-        /// death UT + the respawn timer stamped at the death when stock respawn was on
-        /// then (stock: Dead -> Missing -> Available at that instant), and forever when it
-        /// was off or no policy was stamped. No rosterStatus is written either way: after
-        /// the respawn the hold is released and the kerbal is whatever stock left him
-        /// (Available after stock's own respawn, or Available all along when a rewind put
-        /// the death in the future). While a hold is in force the crew dialog refuses him.
-        ///
-        /// Must be called AFTER PostWalk().
-        /// Wraps all mutations in SuppressCrewEvents.
-        /// </summary>
-        /// <summary>
         /// Makes the hires a clock advance reached (committed-future KerbalHire rows past the
         /// previous patch's cutoff, <see cref="LedgerOrchestrator.RecalculateAndPatchForClockAdvance"/>):
         /// a load back in time put each kerbal back among the applicants, and nothing else
@@ -2977,6 +2956,27 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Apply derived kerbal state to the KSP roster. Creates stand-ins,
+        /// removes unused displaced stand-ins, and populates the crewReplacements
+        /// dict for SwapReservedCrewInFlight.
+        ///
+        /// Reserved kerbals are left at their natural rosterStatus (typically
+        /// Available). The VAB/SPH crew assignment dialog lists them greyed and refuses
+        /// every seat placement (StockUiCrewDialogDecoration). KerbalDismissalPatch
+        /// prevents dismissal.
+        ///
+        /// Crew death respawn (owner ruling S8): a recorded death holds its kerbal until
+        /// death UT + the respawn timer stamped at the death when stock respawn was on
+        /// then (stock: Dead -> Missing -> Available at that instant), and forever when it
+        /// was off or no policy was stamped. No rosterStatus is written either way: after
+        /// the respawn the hold is released and the kerbal is whatever stock left him
+        /// (Available after stock's own respawn, or Available all along when a rewind put
+        /// the death in the future). While a hold is in force the crew dialog refuses him.
+        ///
+        /// Must be called AFTER PostWalk().
+        /// Wraps all mutations in SuppressCrewEvents.
+        /// </summary>
         internal void ApplyToRoster(KerbalRoster roster)
         {
             if (roster == null)

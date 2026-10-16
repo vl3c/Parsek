@@ -2139,6 +2139,8 @@ namespace Parsek
                     "Funds", runningFunds, runningFunds, clockBasis.FundsRunning, currentFunds);
             FundsPatchDecision decision = ResolveFundsPatch(
                 currentFunds, targetFunds, runningFunds, authoritativeReduction);
+            if (clockBasis != null)
+                clockBasis.FundsApplied = !decision.Clamped;
             if (decision.Clamped)
             {
                 bool fundsDown = decision.Direction == ClampDirection.Down;
@@ -4505,12 +4507,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure clamp decision (1-out overload preserved for the existing call sites /
-        /// DrawdownGuardTests). Delegates to the 2-out <see cref="ApplyDrawdownGuard(double,
-        /// double, double, double, bool, string, out bool, out ClampDirection)"/> overload
-        /// and discards the direction.
-        /// </summary>
-        /// <summary>
         /// The running pools a clock-advance walk would produce without the committed-future
         /// rows the clock just reached (<see cref="LedgerOrchestrator.RecalculateAndPatchForClockAdvance"/>).
         /// NaN for a pool the probe could not read.
@@ -4523,6 +4519,9 @@ namespace Parsek
             internal int CrossedRows;
             /// <summary>Kerbals named by the reached committed-future KerbalHire rows.</summary>
             internal readonly List<string> CrossedHireKerbals = new List<string>();
+            /// <summary>Set by the funds patch: it ran and did not clamp, so the reached rows'
+            /// funds effect reached the live pool.</summary>
+            internal bool FundsApplied;
         }
 
         /// <summary>
@@ -4563,6 +4562,12 @@ namespace Parsek
             return adjusted;
         }
 
+        /// <summary>
+        /// Pure clamp decision (1-out overload preserved for the existing call sites /
+        /// DrawdownGuardTests). Delegates to the 2-out <see cref="ApplyDrawdownGuard(double,
+        /// double, double, double, bool, string, out bool, out ClampDirection)"/> overload
+        /// and discards the direction.
+        /// </summary>
         internal static double ApplyDrawdownGuard(
             double patchTarget, double runningBalance, double currentLive, double epsilon,
             bool authoritativeReduction, string resource, out bool clamped)
