@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~QL1-KSC-CLOCK-CROSSING: after a quicksave is loaded at the Space Center behind KSC purchases, the purchases are refunded, and the hire and the contract can be bought twice~~ [FILED 2026-10-16 from QL-1's first flight (`2026-10-16_1122` / `_1124_a2`, INVALID driver-verdict-mismatch both attempts), branch `claude/project-thread-k6flcd` (PR #2121). FIXED 2026-10-16 on the same branch; xUnit, re-flight pending. product]
+## ~~QL1-KSC-CLOCK-CROSSING: after a quicksave is loaded at the Space Center behind KSC purchases, the purchases are refunded, and the hire and the contract can be bought twice~~ [FILED 2026-10-16 from QL-1's first flight (`2026-10-16_1122` / `_1124_a2`, INVALID driver-verdict-mismatch both attempts), branch `claude/project-thread-k6flcd` (PR #2121). FIXED 2026-10-16 on the same branch; LIVE-PROVEN by QL-1 `2026-10-16_1424` (PASS attempt 1). product]
 
 QL-1 researches basicRocketry, upgrades the Tracking Station, hires Verhat Kerman and accepts the
 survey 90e4faaf at UT 1000, then loads a quicksave from UT 409.9 at the Space Center. The four
@@ -65,7 +65,7 @@ and final save (seed funds 536558 / science 111.6; expected end 332020 / 106.6; 
    repeats the same walk once every one has loaded (`OnLoad: in-session ledger re-patch after the
    currency modules loaded`), so science reads 106.6 after the load and the crossing applies.
 
-Cells: `ClockCrossingCommittedFutureTests`. Live proof is QL-1's re-flight, which requires the
+Cells: `ClockCrossingCommittedFutureTests`. Live proof: QL-1 `2026-10-16_1424` PASS, which requires the
 crossing line, the re-patch line with `PatchScience: 111.6 -> 106.6`, both pools' `clock-crossing
 applies the reached rows`, the hire line and the contract replacement, and forbids a guard clamp
 after the load.
