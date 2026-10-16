@@ -16,6 +16,31 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~CLAIMED-VESSEL-VANISHES-BEFORE-ITS-CLAIM: after a rewind, a vessel a committed future claims disappears until the claiming recording starts~~ [FILED 2026-10-16 from the coverage audit (`roadmap/coverage-matrix-2026-10-16.md` section 5), confirmed in EVA-11's `2026-10-15_2343` log (the rover is despawned at the rewind load and nothing draws it for about 15 s of game time, until its member recording's ghost spawns). FIXED 2026-10-16, branch `claude/project-thread-wr5u4k`; xUnit, flight pending. product]
+
+`VesselGhoster.GhostVessel` despawns every vessel an active chain holds back but never built the
+ghost design 13.10 step 5 describes (`ghostGO = null`, "deferred to 6b-4"), so a claimed vessel
+was invisible from the rewind to its first claim. Fix: `ParsekFlight.UpdateClaimedVesselHoldGhosts`
+builds a ghost from the despawn snapshot for each held claim while `UT < FirstClaimUT`, posed
+body-fixed (landed / splashed / prelaunch) or on the snapshot orbit, hidden beyond the ghost visual
+range, yielding to any ERS recording of the same launch inside its window, released at the claim,
+on chain loss and on teardown. Pure decisions and pose read in `ClaimedVesselHoldGhost`
+(`ClaimedVesselHoldGhostTests`). Log lines `[ClaimedHoldGhost] Claimed vessel hold ghost shown:` /
+`released:`. `info.ghostGO` stays null on purpose: the dead `PositionChainGhosts` path would place
+it from the claim recording, which the playback engine already draws.
+
+## ~~CONSTRUCTION-GHOST-NEVER-CHANGES-SHAPE: a cargo partner's ghost keeps one shape through every EVA construction change~~ [FILED 2026-10-16 from the coverage audit (`roadmap/coverage-matrix-2026-10-16.md` section 5), confirmed in EVA-11's `2026-10-15_2343` log (the member ghost is built from the 17-part adoption snapshot, no part events are written for the two detaches, and only the tip spawn shows 15 parts). FIXED 2026-10-16, branch `claude/project-thread-wr5u4k`; xUnit, flight pending. product]
+
+Foreign construction wrote only `SegmentEvents` (PART_ADDED / PART_REMOVED), which playback never
+reads, and an append refreshed only the member's `VesselSnapshot`. Fix: on an append,
+`ConstructionGhostShape.Apply` hides a detached part from the detach UT (`InventoryPartRemoved`)
+and, for an attach, appends the part to the member's ghost snapshot from the fresh snapshot (parent,
+attN and srfN remapped by pid) and shows it from the attach UT (`InventoryPartPlaced`, so it
+starts hidden); a part re-attached at another pose gets a stand-in node with a derived pid and
+`parsekGhostOf`. Adoption needs no event: its ghost snapshot is post-change and the pre-claim
+shape is the hold ghost above. Inventory events are ghosting triggers, so the optimizer will not
+split such a member. Log line `Construction ghost shape:`. Tests: `ConstructionGhostShapeTests`.
+
 ## ~~CROSS-TREE-CREW-TRANSFER-STRANDS-RESERVATION: a kerbal taken off a vessel by a later mission's docking stays reserved to the first mission forever~~ [FILED 2026-10-16 from the coverage audit (`roadmap/coverage-matrix-2026-10-16.md` section 5), verified by code read and a red xUnit test. FIXED 2026-10-16, branch `claude/project-thread-wr5u4k`; xUnit only so far. product]
 
 A recording that ends with a kerbal Aboard (a station left in orbit) holds that kerbal open-ended.

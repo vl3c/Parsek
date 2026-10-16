@@ -16,6 +16,15 @@ id = "EVA-11-construction-foreign-claim"
 # Before the fix the rover stayed foreign: no member, no claim, the rewind kept the
 # 16-part rover and nothing replayed the construction.
 #
+# THE GHOST THROUGH THE REWIND (todos CLAIMED-VESSEL-VANISHES-BEFORE-ITS-CLAIM and
+# CONSTRUCTION-GHOST-NEVER-CHANGES-SHAPE, added 2026-10-16). From the reloaded flight to the
+# member's start the despawned rover is drawn from its 16-part despawn snapshot (`Claimed
+# vessel hold ghost shown: ... parts=16`, released at the claim); from the claim the member's
+# own ghost carries the attach (its 17-part adoption snapshot), and each detach was recorded
+# as an InventoryPartRemoved on the panel's ghost part (`Construction ghost shape: ...
+# action=Removed`) that playback applies (`apply family=InventoryPartRemoved ...
+# reason=applied`), so the ghost loses the panels when Bill took them, not at the tip spawn.
+#
 # HOST: `eva-construct-pad`, derived by harness/tools/build_eva_construct_pad.py from
 # `eva3-pad-3crew` (the Kerbal X on the pad, Bill Kerman an Engineer aboard, VESSEL index 0
 # and active) plus a crewless clone of `rover-route-recorded`'s `rover fuel 0` (16 parts,
@@ -160,6 +169,10 @@ required = [
   "evagroundscience detach start kerbal=Bill Kerman target=solarPanels5 partPid=([0-9]+) vessel='rover fuel 0' vesselPid=1871615455 vesselParts=16 [\\s\\S]*Foreign inventory transfer: event appended to cargo partner rec=[0-9a-f]+ vesselPid=1871615455 ut=[0-9.]+ event=PartRemoved details='construction part=solarPanels5 action=detach pid=\\1' snapshotRefreshed=True ",
   "evagroundscience detach start kerbal=Bill Kerman target=solarPanels5 partPid=([0-9]+) vessel='rover fuel 0' vesselPid=1871615455 vesselParts=16 [\\s\\S]*evagroundscience detach detached part=solarPanels5 partPid=\\1 vesselPid=1871615455 vesselParts=15 ",
   "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*event appended to cargo partner rec=\\1 vesselPid=1871615455 [^\\r\\n]*event=PartRemoved[\\s\\S]*event appended to cargo partner rec=\\1 vesselPid=1871615455 [^\\r\\n]*event=PartRemoved",
+  # Each detach also hides the panel on the member's ghost from the detach UT; the ghost
+  # snapshot is the 17-part one the attach adopted.
+  "evagroundscience detach start kerbal=Bill Kerman target=solarPanels5 partPid=([0-9]+) vessel='rover fuel 0' vesselPid=1871615455 vesselParts=17 [\\s\\S]*Construction ghost shape: rec=[0-9a-f]+ vesselPid=1871615455 change=detach part='solarPanels5' livePid=\\1 ghostPid=\\1 action=Removed event=InventoryPartRemoved ut=[0-9.]+ ghostParts=17",
+  "evagroundscience detach start kerbal=Bill Kerman target=solarPanels5 partPid=([0-9]+) vessel='rover fuel 0' vesselPid=1871615455 vesselParts=16 [\\s\\S]*Construction ghost shape: rec=[0-9a-f]+ vesselPid=1871615455 change=detach part='solarPanels5' livePid=\\1 ghostPid=\\1 action=Removed event=InventoryPartRemoved ut=[0-9.]+ ghostParts=17",
   "evagroundscience detach stowed part=solarPanels5 slot=[0-9]+ ",
   "evagroundscience detach complete part=solarPanels5 partPid=[0-9]+ vesselPid=1871615455 vesselParts=15 ",
   # Commit, then the walker's first chain on the member.
@@ -173,6 +186,12 @@ required = [
   "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva11-reloaded-chains-[1-9][^\\r\\n]*-\\1-false-",
   "invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Vessel ghosted: pid=1871615455 name=rover fuel 0[\\s\\S]*\\[Ghoster\\] Chain tip spawn: pid=1871615455 vessel=rover fuel 0 preserveIdentity=true [^\\r\\n]*parts=15",
   "invokerewindtolaunch complete [\\s\\S]*Chain tip spawn complete: #[0-9]+ \"rover fuel 0\" pid=1871615455",
+  # The despawned rover stays drawn, in its pre-construction shape, until the member's claim.
+  "invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Vessel ghosted: pid=1871615455 [\\s\\S]*\\[ClaimedHoldGhost\\] Claimed vessel hold ghost shown: pid=1871615455 name='rover fuel 0' chain=1871615455 source=snapshot-surface body=Kerbin parts=16 firstClaimUT=[0-9.]+ UT=[0-9.]+",
+  "Claimed vessel hold ghost shown: pid=1871615455 [\\s\\S]*Claimed vessel hold ghost released: pid=1871615455 name='rover fuel 0' reason=(claimed|covered-by-recording) [\\s\\S]*Chain tip spawn: pid=1871615455 ",
+  # Playback applies the first detach's event to the member's ghost (the tally line names
+  # the first applied pid of its batch).
+  "evagroundscience detach start kerbal=Bill Kerman target=solarPanels5 partPid=([0-9]+) vessel='rover fuel 0' vesselPid=1871615455 vesselParts=17 [\\s\\S]*invokerewindtolaunch complete [\\s\\S]*\\[GhostPartEvents\\] apply family=InventoryPartRemoved surface=inventory rec=[0-9]+ pid=\\1 applied=[1-9][0-9]* skipped=0 reason=applied",
   "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva11-spawned-[^\\r\\n]*-\\1-true-1871615455-",
 ]
 forbidden = [
@@ -183,6 +202,10 @@ forbidden = [
   "evagroundscience attach pose threw",
   "evagroundscience (attach|detach) panel left open",
   "Foreign construction change not recorded",
+  "Construction ghost shape: [^\\r\\n]*event=none",
+  "Claimed vessel hold ghost not drawn",
+  "Claimed vessel hold ghost orbit unreadable",
+  "apply family=InventoryPart(Placed|Removed) surface=inventory [^\\r\\n]*skipped=[1-9]",
   "Foreign inventory transfer: no background recorder",
   "lost its member recording",
   # One join only: every change after the first appends to the same member.
