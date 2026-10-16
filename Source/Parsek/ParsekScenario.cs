@@ -740,14 +740,37 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: the clock the in-session load's ledger walk cuts off at. The loaded save's
+        /// own <c>flightState.universalTime</c> when usable (finite, positive): inside OnLoad
+        /// Planetarium can still read the clock from BEFORE the load (the same rule
+        /// <see cref="KerbalsModule.ResolveWalkClockUT(double?,bool,double,bool,double,double)"/>
+        /// applies to reservations). Else the Planetarium value when it is ready, else NaN.
+        /// </summary>
+        internal static double ResolveInSessionLoadLedgerClockUT(
+            double loadedSaveUT, bool planetariumReady, double planetariumUT)
+        {
+            if (!double.IsNaN(loadedSaveUT) && !double.IsInfinity(loadedSaveUT) && loadedSaveUT > 0.0)
+                return loadedSaveUT;
+            if (planetariumReady && !double.IsNaN(planetariumUT) && !double.IsInfinity(planetariumUT))
+                return planetariumUT;
+            return double.NaN;
+        }
+
+        /// <summary>
         /// The in-session OnLoad's ledger recalculation: reads the live load state, decides
         /// between the current-UT cutoff and the plain walk
         /// (<see cref="ShouldUseCurrentUtCutoffForPostRewindFlightLoad"/>), logs the decision
         /// and runs it. Returns true when the cutoff walk ran.
         /// </summary>
+        /// <param name="planetariumUT">The Planetarium reading, logged beside the clock the
+        /// walk used so a stale reading stays visible; NaN when not read.</param>
         internal static bool RecalculateLedgerForInSessionLoad(
-            bool isRevert, GameScenes loadedScene, bool planetariumReady, double loadedUT)
+            bool isRevert, GameScenes loadedScene, bool planetariumReady, double loadedUT,
+            double planetariumUT = double.NaN)
         {
+            // The load replaced the live pools with the save's: rows that were ahead of the
+            // clock at an earlier patch say nothing about what this save charged.
+            LedgerOrchestrator.InvalidateCommittedFutureSnapshot("in-session-load");
             bool loadedSceneSupportsCurrentUtCutoff =
                 IsCurrentUtCutoffSupportedScene(loadedScene);
             bool hasPendingTree = RecordingStore.HasPendingTree;
@@ -768,6 +791,7 @@ namespace Parsek
             ParsekLog.Info("Scenario",
                 $"OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff={useCurrentUtCutoffForPostRewindFlightLoad} " +
                 $"loadedUT={loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"planetariumUT={planetariumUT.ToString("R", CultureInfo.InvariantCulture)} " +
                 $"isRevert={isRevert} loadedScene={loadedScene} " +
                 $"loadedSceneSupportsCurrentUtCutoff={loadedSceneSupportsCurrentUtCutoff} " +
                 $"planetariumReady={planetariumReady} hasPendingTree={hasPendingTree} " +
@@ -4450,8 +4474,16 @@ namespace Parsek
                     }
 
                     loadPhase = "ledger-recalculate";
+                    // The ledger walks at the LOADED save's clock: inside a Space Center OnLoad
+                    // Planetarium still reads the clock from before the load (QL-1 measured
+                    // 1000.10 against the quicksave's 409.9), which would walk the committed
+                    // rows the load moved back in front of the clock as if already reached.
+                    double ledgerClockUT = ResolveInSessionLoadLedgerClockUT(
+                        loadedSaveUTForRoutes, planetariumReady, loadedUT);
                     RecalculateLedgerForInSessionLoad(
-                        isRevert, HighLogic.LoadedScene, planetariumReady, loadedUT);
+                        isRevert, HighLogic.LoadedScene, !double.IsNaN(ledgerClockUT),
+                        double.IsNaN(ledgerClockUT) ? loadedUT : ledgerClockUT,
+                        planetariumReady ? loadedUT : double.NaN);
                     if (KerbalLoadRepairDiagnostics.IsActive)
                         KerbalLoadRepairDiagnostics.EmitAndReset();
                     ParsekLog.Info("Scenario", $"{(isRevert ? "Revert" : "Scene change")} — preserving {recordings.Count} session recordings");

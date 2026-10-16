@@ -2137,6 +2137,157 @@ namespace Parsek
             RecalculateAndPatch();
         }
 
+        // Committed-future rows at the last applied patch (ActionIds of rows past that
+        // patch's cutoff). A clock-advance recalc that reaches some of them authorizes
+        // exactly their effect past the drawdown guard; see
+        // ComputeClockCrossingGuardBasis.
+        private static readonly HashSet<string> committedFutureActionIdsAtLastPatch =
+            new HashSet<string>(StringComparer.Ordinal);
+        private static bool committedFutureSnapshotValid;
+        private static bool clockAdvanceRecalcInProgress;
+
+        /// <summary>
+        /// The clock cursor's recalculation (<see cref="CareerLedgerClockCursor"/>, the Space
+        /// Center and Tracking Station warp). Same walk as
+        /// <see cref="RecalculateAndPatchForLiveTimelineEvent"/>, plus one thing: the
+        /// committed-future rows the clock just reached (rows past the previous applied
+        /// patch's cutoff, so stock never charged them) are what moves the running pools
+        /// away from live, which the drawdown guard would otherwise refuse as a missing
+        /// channel. The guard is keyed on the pools WITHOUT those rows instead, so their
+        /// effect applies once and any other divergence still clamps.
+        /// </summary>
+        internal static void RecalculateAndPatchForClockAdvance(double currentUT, string reason)
+        {
+            bool previous = clockAdvanceRecalcInProgress;
+            clockAdvanceRecalcInProgress = true;
+            try
+            {
+                RecalculateAndPatchForLiveTimelineEvent(currentUT, reason);
+            }
+            finally
+            {
+                clockAdvanceRecalcInProgress = previous;
+            }
+        }
+
+        /// <summary>
+        /// Forgets the committed-future snapshot. A load replaces the live pools with the
+        /// save's, so rows that were ahead of the clock at a patch before the load prove
+        /// nothing about what the loaded save charged.
+        /// </summary>
+        internal static void InvalidateCommittedFutureSnapshot(string reason)
+        {
+            if (committedFutureSnapshotValid || committedFutureActionIdsAtLastPatch.Count > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Committed-future snapshot cleared: reason={reason ?? "unspecified"} " +
+                    $"rows={committedFutureActionIdsAtLastPatch.Count.ToString(CultureInfo.InvariantCulture)}");
+            }
+            committedFutureActionIdsAtLastPatch.Clear();
+            committedFutureSnapshotValid = false;
+        }
+
+        /// <summary>
+        /// Records which rows were still ahead of the clock when this patch was applied:
+        /// every non-seed row past <paramref name="utCutoff"/>, none on a full walk.
+        /// </summary>
+        internal static void CaptureCommittedFutureSnapshot(List<GameAction> actions, double? utCutoff)
+        {
+            committedFutureActionIdsAtLastPatch.Clear();
+            committedFutureSnapshotValid = true;
+            if (!utCutoff.HasValue || actions == null)
+                return;
+            double cutoff = utCutoff.Value;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (a == null || string.IsNullOrEmpty(a.ActionId)) continue;
+                if (RecalculationEngine.IsSeedType(a.Type)) continue;
+                if (a.UT > cutoff)
+                    committedFutureActionIdsAtLastPatch.Add(a.ActionId);
+            }
+        }
+
+        /// <summary>
+        /// Pure split: the rows of <paramref name="actions"/> that were committed future at
+        /// the last applied patch (<paramref name="futureAtLastPatch"/>) and are now within
+        /// <paramref name="cutoff"/>, and every other row. Seeds always stay.
+        /// </summary>
+        internal static List<GameAction> SplitCrossedCommittedFutureRows(
+            List<GameAction> actions, ICollection<string> futureAtLastPatch, double cutoff,
+            out List<GameAction> crossed)
+        {
+            crossed = new List<GameAction>();
+            var rest = new List<GameAction>(actions != null ? actions.Count : 0);
+            if (actions == null)
+                return rest;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (a == null) continue;
+                if (futureAtLastPatch != null
+                    && !RecalculationEngine.IsSeedType(a.Type)
+                    && a.UT <= cutoff
+                    && !string.IsNullOrEmpty(a.ActionId)
+                    && futureAtLastPatch.Contains(a.ActionId))
+                {
+                    crossed.Add(a);
+                    continue;
+                }
+                rest.Add(a);
+            }
+            return rest;
+        }
+
+        /// <summary>
+        /// For a clock-advance recalc: the running pools the walk would produce WITHOUT the
+        /// committed-future rows this advance reached, which is what live must match when
+        /// the career is consistent. Null when no such row was reached (the guard then runs
+        /// unchanged).
+        /// </summary>
+        private static KspStatePatcher.ClockCrossingGuardBasis ComputeClockCrossingGuardBasis(
+            List<GameAction> actions, double? utCutoff)
+        {
+            if (!committedFutureSnapshotValid || committedFutureActionIdsAtLastPatch.Count == 0)
+                return null;
+            double cutoff = utCutoff ?? double.MaxValue;
+            List<GameAction> crossed;
+            List<GameAction> rest = SplitCrossedCommittedFutureRows(
+                actions, committedFutureActionIdsAtLastPatch, cutoff, out crossed);
+            if (crossed.Count == 0)
+                return null;
+
+            var probe = RecalculationEngine.ProbeModulesAtCutoff(rest, cutoff);
+            var funds = probe?.Find<FundsModule>();
+            var science = probe?.Find<ScienceModule>();
+            var rep = probe?.Find<ReputationModule>();
+            var basis = new KspStatePatcher.ClockCrossingGuardBasis
+            {
+                FundsRunning = funds != null ? funds.GetRunningBalance() : double.NaN,
+                ScienceRunning = science != null ? science.GetRunningScience() : double.NaN,
+                ReputationRunning = rep != null ? rep.GetRunningRep() : double.NaN,
+                CrossedRows = crossed.Count
+            };
+            for (int i = 0; i < crossed.Count; i++)
+            {
+                if (crossed[i].Type == GameActionType.KerbalHire
+                    && !string.IsNullOrEmpty(crossed[i].KerbalName))
+                    basis.CrossedHireKerbals.Add(crossed[i].KerbalName);
+            }
+
+            var labels = new List<string>(Math.Min(crossed.Count, 10));
+            for (int i = 0; i < crossed.Count && i < 10; i++)
+                labels.Add(crossed[i].Type + "@" + crossed[i].UT.ToString("R", CultureInfo.InvariantCulture));
+            ParsekLog.Info(Tag,
+                $"Clock-crossing guard basis: crossed={crossed.Count.ToString(CultureInfo.InvariantCulture)} " +
+                $"committed-future row(s) [{string.Join(", ", labels.ToArray())}] " +
+                $"cutoff={(utCutoff.HasValue ? utCutoff.Value.ToString("R", CultureInfo.InvariantCulture) : "null")} " +
+                $"basisFunds={basis.FundsRunning.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"basisScience={basis.ScienceRunning.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"basisRep={basis.ReputationRunning.ToString("R", CultureInfo.InvariantCulture)}");
+            return basis;
+        }
+
         /// <summary>
         /// Post-supersede tombstone refresh. The broad tombstone scope can remove
         /// career effects from the full ELS after the normal commit-time recalc has
@@ -3273,14 +3424,28 @@ namespace Parsek
                     $"tombstone={tombstonePath}, " +
                     $"rewindResAdjust={RewindContext.RewindResourceAdjustmentInProgress})");
 
-                ApplyRecalculatedStateToKsp(
-                    actions,
-                    utCutoff,
-                    authoritativeRepeatableRecordState,
-                    techPatchCutoff,
-                    excludeTombstonedTechFromBaseline,
-                    suppressSuspiciousDrawdownWarnings,
-                    authoritativeReduction);
+                KspStatePatcher.ClockCrossingGuardBasis clockCrossingBasis =
+                    clockAdvanceRecalcInProgress
+                        ? ComputeClockCrossingGuardBasis(actions, utCutoff)
+                        : null;
+                var previousBasis = KspStatePatcher.ActiveClockCrossingGuardBasis;
+                KspStatePatcher.ActiveClockCrossingGuardBasis = clockCrossingBasis;
+                try
+                {
+                    ApplyRecalculatedStateToKsp(
+                        actions,
+                        utCutoff,
+                        authoritativeRepeatableRecordState,
+                        techPatchCutoff,
+                        excludeTombstonedTechFromBaseline,
+                        suppressSuspiciousDrawdownWarnings,
+                        authoritativeReduction);
+                }
+                finally
+                {
+                    KspStatePatcher.ActiveClockCrossingGuardBasis = previousBasis;
+                }
+                CaptureCommittedFutureSnapshot(actions, utCutoff);
             }
 
             // #391 / cutoff-cache follow-up: rebuild committedScienceSubjects from
@@ -3385,6 +3550,13 @@ namespace Parsek
             // live in-tier best value because that finer-grained partial progress is not
             // persisted in the ledger.
             kerbalsModule.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
+            // A hire the clock just reached was never made in stock (the load put the
+            // kerbal back among the applicants); make it now, uncharged, since the row's
+            // cost reaches the funds patch below.
+            var crossing = KspStatePatcher.ActiveClockCrossingGuardBasis;
+            if (crossing != null && crossing.CrossedHireKerbals.Count > 0)
+                KerbalsModule.PromoteReachedCommittedHires(
+                    HighLogic.CurrentGame?.CrewRoster, crossing.CrossedHireKerbals);
             // #559: tech-tree patching is gated on a supplied cutoff, NOT on being a rewind.
             // Live unlocks that happened after the latest captured baseline are not replayed
             // by any ledger action, so a cutoff-less (techPatchCutoff == null) patch would
@@ -3993,6 +4165,7 @@ namespace Parsek
             bool useCurrentUtCutoffForFutureActions = false)
         {
             Initialize();
+            InvalidateCommittedFutureSnapshot("ksp-load");
 
             // Reset the per-load MigrateOldSaveEvents flag — only this load's
             // MigrateOldSaveEvents synthetics should gate the null-tag coverage rule.
@@ -8180,6 +8353,9 @@ namespace Parsek
             KerbalsModule.LoadedSaveUTProviderForTesting = null;
             lastTriggeredReservationReleaseUT = double.NaN;
             postWalkCountAfterReservationReleaseTrigger = -1;
+            committedFutureActionIdsAtLastPatch.Clear();
+            committedFutureSnapshotValid = false;
+            clockAdvanceRecalcInProgress = false;
             ParsekLog.Verbose(Tag, "ResetForTesting: all state cleared");
         }
 

@@ -112,6 +112,10 @@ required = [
   "kscaction accept-contract not applied: target=90e4faaf-2029-4c6b-8bc1-40226bb0fc27 stateBefore=Offered stateAfter=Offered fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0",
   "kscaction refused action=accept-contract reason=blocked-committed target=90e4faaf-2029-4c6b-8bc1-40226bb0fc27",
   "\\A(?:[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false){4}",
+  # ---- the clock reaches the rows: each applies once, past the drawdown guard ----
+  "Clock-crossing guard basis: crossed=[1-4] committed-future row",
+  "Committed hire applied: 'Verhat Kerman' Applicant -> Crew",
+  "PatchContracts: replaced 1 Offered copy\\(ies\\) of contractId='90e4faaf-2029-4c6b-8bc1-40226bb0fc27'",
   # ---- after the clock crosses the rows: each action is already done ----
   "kscaction refused action=accept-contract reason=blocked-committed [\\s\\S]*kscaction refused action=research-node reason=node-already-unlocked target=basicRocketry",
   "kscaction refused action=accept-contract reason=blocked-committed [\\s\\S]*kscaction refused action=hire-kerbal reason=kerbal-not-applicant target=Verhat Kerman",
@@ -119,10 +123,14 @@ required = [
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
-  # No backstop let a repeat through after the load.
-  "Allowing tech research: 'basicRocketry'",
-  "Allowing facility upgrade: 'SpaceCenter/TrackingStation'",
-  "allowing accept for guid=90e4faaf-2029-4c6b-8bc1-40226bb0fc27",
+  # After the load (the first actions legitimately pass these backstops at UT 1000): no
+  # backstop let a repeat through, no crossed row was clamped as a missing channel, and
+  # stock never listed the survey twice.
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*Allowing tech research: 'basicRocketry'",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*Allowing facility upgrade: 'SpaceCenter/TrackingStation'",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*allowing accept for guid=90e4faaf-2029-4c6b-8bc1-40226bb0fc27",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*GUARDED (UPLIFT|DRAWDOWN) clamped",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*An item with the same key has already been added",
 ]
 
 # The ledger oracle: seed (the staged fixture) plus each declared action ONCE, diffed HARD
@@ -150,8 +158,8 @@ rec3CarveOut = false
 [[expectations.ledger.manifest]]
   ut         = 0.0
   kind       = "kerbal-hire"
-  # READING-RUN VALUE PENDING: the recruit cost depends on the hired count, and this
-  # career holds more crew than fresh-career (62113 at 4). Re-pin from the reading run.
+  # The recruit cost depends on the hired count; this career's is 62113, measured by the
+  # first flight (2026-10-16_1124_a2 charged 62113 for the hire).
   funds      = -62113.0
   provenance = "seam-declared"
 

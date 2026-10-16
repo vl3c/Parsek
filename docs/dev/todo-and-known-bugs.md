@@ -16,6 +16,51 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~QL1-KSC-CLOCK-CROSSING: after a quicksave is loaded at the Space Center behind KSC purchases, the purchases are refunded, and the hire and the contract can be bought twice~~ [FILED 2026-10-16 from QL-1's first flight (`2026-10-16_1122` / `_1124_a2`, INVALID driver-verdict-mismatch both attempts), branch `claude/project-thread-k6flcd` (PR #2121). FIXED 2026-10-16 on the same branch; xUnit, re-flight pending. product]
+
+QL-1 researches basicRocketry, upgrades the Tracking Station, hires Verhat Kerman and accepts the
+survey 90e4faaf at UT 1000, then loads a quicksave from UT 409.9 at the Space Center. The four
+blocks before the clock reaches the rows worked. Four defects after that, measured in the a2 log
+and final save (seed funds 536558 / science 111.6; expected end 332020 / 106.6; measured
+482020 / 111.6):
+
+1. The in-session load walked the ledger at Planetarium's clock, which inside a Space Center
+   OnLoad still read the time before the load: `useCurrentUtCutoff=False loadedUT=1000.10
+   hasFutureLedgerActions=False`. Fix: `ParsekScenario.ResolveInSessionLoadLedgerClockUT` walks at
+   the loaded save's `flightState.universalTime` (the rule `KerbalsModule.ResolveWalkClockUT`
+   already applies in OnLoad), else Planetarium; the decision line now logs `planetariumUT=` too.
+2. When the clock reached the rows, every walk computed funds 332020 / science 106.6 and the
+   drawdown guard clamped both to live (`GUARDED DRAWDOWN clamped ... (no time-travel context)`),
+   so the upgrade and the research were never charged. Fix: each applied patch records which rows
+   were still ahead of its cutoff (`LedgerOrchestrator.CaptureCommittedFutureSnapshot`, by
+   ActionId; a load clears it). The clock cursor's recalc (`RecalculateAndPatchForClockAdvance`)
+   probes the pools without the rows from that set it now reaches
+   (`RecalculationEngine.ProbeModulesAtCutoff`, logged as `Clock-crossing guard basis:`), and the
+   funds / science / reputation guards compare live against the running value minus those rows'
+   effect (`KspStatePatcher.ResolveClockCrossingGuardRunning`). Any other divergence still clamps,
+   and a row recorded live after the patch is never in the set.
+3. Nothing made the reached hire: Verhat stayed an Applicant, so a second hire went through and
+   charged 62113 again. Fix: `KerbalsModule.PromoteReachedCommittedHires` sets a crossed
+   KerbalHire row's kerbal from Applicant to Crew the way stock `HireApplicant` does, minus its
+   `OnCrewmemberHired` (decompiled: fire, then `type = Crew`), whose Funding listener charges.
+4. `PatchContracts` restored the survey Active as a second instance beside the quicksave's Offered
+   one: ContractsApp threw `An item with the same key has already been added`, and the Offered copy
+   was accepted again, paying the 7575 advance twice. Fix: the restore removes an Offered instance
+   with the same guid before adding the Active one (`IsOfferedCopyOfRestoredContract`).
+
+Cells: `ClockCrossingCommittedFutureTests`. Live proof is QL-1's re-flight, which now requires the
+basis line, the hire line and the contract replacement, and forbids a guard clamp after the load.
+
+## QL-KSC-ROWS-CROSSED-ACROSS-A-SCENE-CHANGE: committed KSC rows reached while away from the Space Center may still be clamped [FILED 2026-10-16 from the QL1-KSC-CLOCK-CROSSING fix, reasoned from code, not measured. OPEN, product, medium]
+
+The crossing fix covers the Space Center and Tracking Station clock cursor only. A player who loads
+the earlier quicksave, launches, and flies past the rows' UT reaches them in a scene with no cursor;
+the next scene's in-session load clears the committed-future snapshot (a load can replace the live
+pools) and walks at the new clock, so the same guard clamp should refuse the rows. To confirm, fly
+QL-1's shape with a flight between the load and the crossing. A fix would keep the snapshot across
+an ordinary scene change (refined load kind `InSessionOther`, where the live pools carry over) and
+use the same basis in that load's recalc.
+
 ## ~~ADOPTION-STAMP-READ-AS-UNIQUE-SPAWN-PID: an adoption stamp (the craft-baked pid) matched a relaunch of the same craft as the older launch's spawned vessel, and the #226 replay bypass was not checked against launch identity~~ [FILED 2026-10-15 from a launch-identity audit, verified by code read, not reproduced. FIXED 2026-10-15, branch `claude/project-thread-1twzdw-adopt-identity` (PR #2107); LIVE-PROVEN 2026-10-15 on the owner's PC before merge: QL-4c, QL-4b, VN-6, CI-6, CI-7 and H64 all PASS. product]
 
 Gap 1. `VesselSpawner.TryAdoptExistingSourceVesselForSpawn` stamps

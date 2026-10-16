@@ -243,6 +243,11 @@ namespace Parsek
             // The already-computed basis, NOT a second derivation - see the overload's note.
             double runningScience = ComputePendingAdjustedRunningScience(
                 preStrategyRunning, currentScience);
+            var clockBasis = ActiveClockCrossingGuardBasis;
+            if (clockBasis != null)
+                runningScience = ApplyActiveClockCrossingBasis(
+                    "Science", runningScience, science.GetRunningScience(),
+                    clockBasis.ScienceRunning, currentScience);
             SciencePoolPatchDecision decision = ResolveSciencePoolPatch(
                 currentScience, targetScience, runningScience, authoritativeReduction);
             if (decision.Clamped)
@@ -2128,6 +2133,10 @@ namespace Parsek
             // GetRunningBalance() intact, so it never trips this; a missing-earning leak
             // lowers the running balance itself, so it does.
             double runningFunds = funds.GetRunningBalance();
+            var clockBasis = ActiveClockCrossingGuardBasis;
+            if (clockBasis != null)
+                runningFunds = ApplyActiveClockCrossingBasis(
+                    "Funds", runningFunds, runningFunds, clockBasis.FundsRunning, currentFunds);
             FundsPatchDecision decision = ResolveFundsPatch(
                 currentFunds, targetFunds, runningFunds, authoritativeReduction);
             if (decision.Clamped)
@@ -2227,8 +2236,19 @@ namespace Parsek
         internal static ReputationPatchDecision ResolveReputationPatch(
             float currentRep, float targetRep, bool authoritativeReduction)
         {
+            return ResolveReputationPatch(currentRep, targetRep, authoritativeReduction, targetRep);
+        }
+
+        /// <summary>
+        /// <see cref="ResolveReputationPatch(float,float,bool)"/> with the guard keyed on
+        /// <paramref name="guardRunningRep"/> instead of the target (a clock-advance patch
+        /// takes the reached committed-future rows' effect out of it).
+        /// </summary>
+        internal static ReputationPatchDecision ResolveReputationPatch(
+            float currentRep, float targetRep, bool authoritativeReduction, double guardRunningRep)
+        {
             double effTargetRaw = ApplyDrawdownGuard(
-                targetRep, targetRep, currentRep, 0.01,
+                targetRep, guardRunningRep, currentRep, 0.01,
                 authoritativeReduction, "reputation", out bool clamped, out ClampDirection direction);
             float effTarget = (float)effTargetRaw;
             bool shouldWrite = Math.Abs(effTarget - currentRep) >= 0.01f;
@@ -2275,14 +2295,19 @@ namespace Parsek
             // plain target-vs-live check, and "downward" is by magnitude (< live - eps) so
             // negative rep is handled. Express the clamp against the SetReputation
             // semantics: "do not set below live".
+            double guardRunningRep = targetRep;
+            var clockBasis = ActiveClockCrossingGuardBasis;
+            if (clockBasis != null)
+                guardRunningRep = ApplyActiveClockCrossingBasis(
+                    "Reputation", targetRep, targetRep, clockBasis.ReputationRunning, currentRep);
             ReputationPatchDecision decision = ResolveReputationPatch(
-                currentRep, targetRep, authoritativeReduction);
+                currentRep, targetRep, authoritativeReduction, guardRunningRep);
             if (decision.Clamped)
             {
                 bool repDown = decision.Direction == ClampDirection.Down;
                 ref bool repLatch = ref DrawdownGuardSessionToastLatch("Reputation", decision.Direction);
                 EmitDrawdownGuardClamp(
-                    "Reputation", targetRep, currentRep,
+                    "Reputation", guardRunningRep, currentRep,
                     wouldBeTarget: targetRep, clampedTo: decision.EffectiveTargetRaw,
                     toastText: repDown ? "Held your reputation at the current value" : "Kept your earned reputation",
                     sessionToastLatch: ref repLatch,
@@ -3734,6 +3759,19 @@ namespace Parsek
                     // Finished bucket (see #404: append-only game history).
                     if (contract.ContractState == Contract.State.Active)
                     {
+                        // A load back in time puts an accepted contract back on offer: the
+                        // live list then holds the quicksave's Offered instance with the same
+                        // guid. Replace it, or stock lists the contract twice (ContractsApp
+                        // throws on the duplicate key) and the Offered copy can be accepted
+                        // again, paying the advance a second time.
+                        int replacedOffered = RemoveOfferedCopiesOfContract(
+                            currentContracts, contract.ContractGuid, ref unregisterFailures);
+                        if (replacedOffered > 0)
+                        {
+                            ParsekLog.Info(Tag,
+                                $"PatchContracts: replaced {replacedOffered.ToString(IC)} Offered copy(ies) of " +
+                                $"contractId='{contractId}' with the ledger's Active contract");
+                        }
                         currentContracts.Add(contract);
 
                         // Re-register so parameters subscribe to GameEvents
@@ -4306,6 +4344,30 @@ namespace Parsek
             return removed;
         }
 
+        /// <summary>
+        /// Pure: true for a live entry that is the Offered instance of the contract being
+        /// restored Active (same guid, still Offered).
+        /// </summary>
+        internal static bool IsOfferedCopyOfRestoredContract(ContractFilterEntry entry, Guid restoredId)
+        {
+            return entry.Id == restoredId && entry.State == Contract.State.Offered;
+        }
+
+        private static int RemoveOfferedCopiesOfContract(
+            List<Contract> contracts, Guid restoredId, ref int unregisterFailures)
+        {
+            if (contracts == null)
+                return 0;
+            var keys = new HashSet<ContractRemovalKey>();
+            var entries = BuildContractFilterEntries(contracts);
+            for (int i = 0; i < entries.Count; i++)
+            {
+                if (IsOfferedCopyOfRestoredContract(entries[i], restoredId))
+                    keys.Add(ToRemovalKey(entries[i]));
+            }
+            return RemoveContractsByKey(contracts, keys, unregisterBeforeRemove: true, ref unregisterFailures);
+        }
+
         private static bool IsTerminalContractState(Contract.State state)
         {
             switch (state)
@@ -4448,6 +4510,59 @@ namespace Parsek
         /// double, double, double, bool, string, out bool, out ClampDirection)"/> overload
         /// and discards the direction.
         /// </summary>
+        /// <summary>
+        /// The running pools a clock-advance walk would produce without the committed-future
+        /// rows the clock just reached (<see cref="LedgerOrchestrator.RecalculateAndPatchForClockAdvance"/>).
+        /// NaN for a pool the probe could not read.
+        /// </summary>
+        internal sealed class ClockCrossingGuardBasis
+        {
+            internal double FundsRunning = double.NaN;
+            internal double ScienceRunning = double.NaN;
+            internal double ReputationRunning = double.NaN;
+            internal int CrossedRows;
+            /// <summary>Kerbals named by the reached committed-future KerbalHire rows.</summary>
+            internal readonly List<string> CrossedHireKerbals = new List<string>();
+        }
+
+        /// <summary>
+        /// Set by the orchestrator around one clock-advance patch (try/finally), null
+        /// otherwise. Read by the pool patches to re-key the drawdown guard.
+        /// </summary>
+        internal static ClockCrossingGuardBasis ActiveClockCrossingGuardBasis;
+
+        /// <summary>
+        /// Pure: the guard's running value with the crossed rows' effect taken out. The
+        /// reached committed-future rows move the raw running pool from
+        /// <paramref name="basisRunning"/> to <paramref name="rawRunningNow"/>; live has not
+        /// moved for them yet, so the guard compares live against
+        /// <paramref name="guardRunning"/> minus that move. A non-finite basis leaves the
+        /// guard unchanged.
+        /// </summary>
+        internal static double ResolveClockCrossingGuardRunning(
+            double guardRunning, double rawRunningNow, double basisRunning)
+        {
+            if (double.IsNaN(basisRunning) || double.IsInfinity(basisRunning)
+                || double.IsNaN(rawRunningNow) || double.IsInfinity(rawRunningNow))
+                return guardRunning;
+            return guardRunning - (rawRunningNow - basisRunning);
+        }
+
+        private static double ApplyActiveClockCrossingBasis(
+            string resource, double guardRunning, double rawRunningNow, double basisRunning,
+            double currentLive)
+        {
+            double adjusted = ResolveClockCrossingGuardRunning(guardRunning, rawRunningNow, basisRunning);
+            if (adjusted != guardRunning)
+            {
+                ParsekLog.Info(Tag,
+                    $"Patch{resource}: clock-crossing guard basis running={guardRunning.ToString("R", IC)} " +
+                    $"crossedEffect={(rawRunningNow - basisRunning).ToString("R", IC)} " +
+                    $"guardRunning={adjusted.ToString("R", IC)} live={currentLive.ToString("R", IC)}");
+            }
+            return adjusted;
+        }
+
         internal static double ApplyDrawdownGuard(
             double patchTarget, double runningBalance, double currentLive, double epsilon,
             bool authoritativeReduction, string resource, out bool clamped)
@@ -4801,6 +4916,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             SuppressUnityCallsForTesting = false;
+            ActiveClockCrossingGuardBasis = null;
             PartPurchaseLiveUtProviderForTesting = null;
             ResourceScanLiveUtProviderForTesting = null;
             AllowNegativeCurrencyProviderForTesting = null;
