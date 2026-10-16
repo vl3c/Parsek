@@ -35,6 +35,16 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A vessel that undocks in orbit comes back on its real orbit after a rewind.** Parsek rebuilt
+  the orbit from the recording's last point, which after a reload could tilt the vessel's path into
+  a 14 km periapsis. It now uses the orbit the game reported when the recording ended, so the
+  vessel is no longer refused as unsafe or spawned on a falling orbit. (REFLY-TAIL-SEED-FRAME)
+
+- **A station claimed by a later docking comes back after a second rewind.** When a Re-Fly kept
+  the station in the world and the docking flight then took it over, the station's recording still
+  read "already spawned" and it never reappeared at the end. It now spawns at its recorded end time
+  again. (REFLY-KEPT-TIP-STAMP-GHOSTED-BY-CHAIN)
+
 - **Loading an earlier quicksave at the Space Center keeps later KSC purchases on schedule.** A
   research, upgrade, hire or contract accepted after the quicksave now applies once when the clock
   reaches it: it is charged then, the kerbal joins the crew, and the contract is listed once, so

@@ -16,6 +16,61 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REFLY-KEPT-TIP-STAMP-GHOSTED-BY-CHAIN: a chain tip whose stamp a Re-Fly kept is never re-spawned once the chain ghosts that vessel~~ [FILED 2026-10-16 from RC-1's first flight (`2026-10-16_2251`, PARSEK-FAIL), branch `claude/project-thread-81f9wc` (PR #2125). FIXED on the same branch, re-flight pending. product]
+
+RC-1 cycle 2 rewinds `bdock-recorded` to rp_f4ed (the Interceptor separation). The Station tip
+`37d0dc07...` is stamped `spawnedPid=3620499050` (the fixture's own adoption stamp; cycle 1's tip
+spawn writes the same pid back). The Station is not one of rp_f4ed's slots, so the strip leaves it
+alone and `RewindInvoker.ReconcilePostStripSpawnState` keeps the stamp (a same-launch survivor,
+pinned by `SpawnStateReconciliationTests.ReconcilePostStrip_SurvivorOfTheSameLaunch_DoesNotReset`).
+On flight ready `FilterAndGhostChains` ghosts that very vessel for the docking chain (`Claimed
+vessel removed (ghost-chain)`), nothing clears the stamp (`RunSpawnDeathChecks` is skipped during a
+Re-Fly), and `ShouldSpawnAtRecordingEnd` refuses the tip as `already spawned`, so it never comes
+back. Cycle 1 escaped because rp_72eb's strip removed the Station.
+
+Fix: `VesselGhoster.ReleaseTipSpawnClaimOnGhostedVessel`, called from `FilterAndGhostChains` right
+after `GhostVessel` succeeds: when the chain's tip is stamped with exactly the pid just ghosted, its
+spawn state is reset the way the strip reconcile resets it (`Chain tip spawn claim released:` Info
+line). Only the tip and only an exact pid match; earlier recordings that adopted the same vessel
+keep their stamp. Tests: `ChainTipSpawnClaimReleaseTests`.
+
+---
+
+## REFLY-TAIL-SEED-FRAME: a terminal orbit rebuilt from the recording's last point carries a wrong flight-path angle in any later session [FILED 2026-10-16 from RC-1's first flight (`2026-10-16_2251`), branch `claude/project-thread-81f9wc` (PR #2125). PARTLY FIXED on the same branch (seed priority); the frame fix is OPEN. product]
+
+After the rewind to rp_72eb both undock tips spawned from `source=trajectory-tail` seeds with
+ecc 0.134 (periapsis 14 km) where the recordings' end snapshots and live-captured terminal orbits
+read ecc 0.0106: the Interceptor `4af6cfd7...` was refused `CannotSpawnSafely
+periapsis-below-safe-altitude`, the Station took the bad orbit through the chain-tip path. Cause:
+`FlightRecorder.SampleCurrentVelocity` stores the Unity WORLD velocity, whose polar rotation
+against inertial space (`Planetarium.InverseRotAngle`, 5.44 deg in that recording session) is not
+recorded, while `OrbitSeedResolver.TryDeriveTailOrbitSeed` pairs it with a position rebuilt from
+body-fixed lat/lon/alt against today's rotation (spawn) or an assumed zero (map presence, which
+reproduces the logged `tailEcc=0.095229` exactly). Speed and radius stay right, so only ECC goes
+wrong. The seed won because the only freshness test was against stored OrbitSegments, and both
+tips have none.
+
+Fix so far: the tail seed is declined (`terminal-orbit-newer-than-tail`) when a terminal orbit on
+the same body has an epoch at or after the tail UT, so the live-captured `vessel.orbit` elements
+win (test `TailSeedTerminalOrbitPriorityTests`). Still open: record the velocity body-fixed (or the
+rotation angle per section) so the tail seed is right where it still wins (a schema shape change:
+generation bump and fixture re-harvest), and the same-class readers `GhostMapPresence.cs` gap glide
+and the `VesselSpawner` spawn-validation repair.
+
+---
+
+## CHAIN-TIP-SPAWN-SKIPS-ORBIT-SAFETY-GATE: a chain tip spawns on its terminal orbit without the periapsis safety check [FILED 2026-10-16 from RC-1's first flight, code read. OPEN, product, medium]
+
+`VesselGhoster` resolves the tip's terminal orbit (`TryResolveRecordedTerminalOrbitSpawnState`) and
+passes it straight to `SpawnAtPosition`; only the ordinary spawn path calls
+`TryPassTerminalOrbitSpawnSafety` (`VesselSpawner.cs` ~1691). In RC-1 cycle 1 the Station tip
+spawned on the 14 km-periapsis orbit the Interceptor was refused for (REFLY-TAIL-SEED-FRAME).
+
+Fix: run the same safety decision on the chain-tip path, with the chain's blocked / retry state
+as the outcome, and a red test over a sub-atmospheric terminal orbit.
+
+---
+
 ## ~~QL1-KSC-CLOCK-CROSSING: after a quicksave is loaded at the Space Center behind KSC purchases, the purchases are refunded, and the hire and the contract can be bought twice~~ [FILED 2026-10-16 from QL-1's first flight (`2026-10-16_1122` / `_1124_a2`, INVALID driver-verdict-mismatch both attempts), branch `claude/project-thread-k6flcd` (PR #2121). FIXED 2026-10-16 on the same branch; LIVE-PROVEN by QL-1 `2026-10-16_1424` (PASS attempt 1). product]
 
 QL-1 researches basicRocketry, upgrades the Tracking Station, hires Verhat Kerman and accepts the
