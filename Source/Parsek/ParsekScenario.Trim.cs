@@ -892,9 +892,11 @@ namespace Parsek
             int rowsAfterCutoff = 0;
             int rowsKerbalAssignment = 0;
             int rowsPrunedRecording = 0;
+            int rowsStrategyConversion = 0;
             int ledgerRowsRetired = reconcileLedgerRows
                 ? RetireAbandonedFutureLedgerRows(
-                    plan, out rowsAfterCutoff, out rowsKerbalAssignment, out rowsPrunedRecording)
+                    plan, out rowsAfterCutoff, out rowsKerbalAssignment, out rowsPrunedRecording,
+                    out rowsStrategyConversion)
                 : 0;
 
             if (endStatesCleared > 0)
@@ -915,6 +917,7 @@ namespace Parsek
                 $"endStatesCleared={endStatesCleared} eventsPurged={eventsPurged} " +
                 $"ledgerRowsRetired={ledgerRowsRetired} (afterCutoff={rowsAfterCutoff} " +
                 $"kerbalAssignment={rowsKerbalAssignment} prunedRecording={rowsPrunedRecording}) " +
+                $"strategyConversionRetired={rowsStrategyConversion.ToString(CultureInfo.InvariantCulture)} " +
                 $"skippedCommitted={plan.SkippedCommittedIds.Count}" +
                 (plan.SkippedCommittedIds.Count > 0 && plan.SkippedCommittedIds.Count < 20
                     ? $" skippedCommittedIds=[{string.Join(",", plan.SkippedCommittedIds.ToArray())}]"
@@ -1239,24 +1242,33 @@ namespace Parsek
         }
 
         private static int RetireAbandonedFutureLedgerRows(
-            AbandonedFuturePlan plan, out int afterCutoff, out int kerbalAssignment, out int prunedRecording)
+            AbandonedFuturePlan plan, out int afterCutoff, out int kerbalAssignment, out int prunedRecording,
+            out int strategyConversion)
         {
             int after = 0;
             int kerbal = 0;
             int pruned = 0;
+            int conversion = 0;
             int removed = Ledger.RetireAbandonedFutureActions(action =>
             {
+                bool retire;
                 switch (ClassifyAbandonedFutureRow(action, plan))
                 {
-                    case AbandonedFutureRowReason.AfterCutoff: after++; return true;
-                    case AbandonedFutureRowReason.KerbalAssignment: kerbal++; return true;
-                    case AbandonedFutureRowReason.PrunedRecording: pruned++; return true;
-                    default: return false;
+                    case AbandonedFutureRowReason.AfterCutoff: after++; retire = true; break;
+                    case AbandonedFutureRowReason.KerbalAssignment: kerbal++; retire = true; break;
+                    case AbandonedFutureRowReason.PrunedRecording: pruned++; retire = true; break;
+                    default: retire = false; break;
                 }
+                // A subset count across the reasons: the strategy's share of a retired award
+                // (STRATEGY-CONVERSION-ROWS-OUTLIVE-THEIR-AWARD), so a log reader can see it go.
+                if (retire && LedgerOrchestrator.IsStrategyConversionRow(action))
+                    conversion++;
+                return retire;
             }, AbandonedFutureReason);
             afterCutoff = after;
             kerbalAssignment = kerbal;
             prunedRecording = pruned;
+            strategyConversion = conversion;
             return removed;
         }
 

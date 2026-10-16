@@ -171,6 +171,8 @@ namespace Parsek.Tests
                 l.Contains("[LedgerOrchestrator]")
                 && l.Contains("OnStrategyCurrencyConversion:")
                 && l.Contains("recordingId=rec_live"));
+            Assert.Equal(2, logLines.Count(l =>
+                l.Contains("Strategy conversion recorded:") && l.Contains("recordingId=rec_live")));
         }
 
         [Fact]
@@ -202,6 +204,9 @@ namespace Parsek.Tests
 
             Assert.DoesNotContain(GameStateStore.Events, e => e.key == "guid-abandoned");
             Assert.Empty(ConversionRows());
+            Assert.Contains(logLines, l =>
+                l.Contains("Quickload abandoned-future reconcile:")
+                && l.Contains("strategyConversionRetired=2 "));
         }
 
         [Fact]
@@ -216,6 +221,9 @@ namespace Parsek.Tests
 
             Assert.Contains(GameStateStore.Events, e => e.key == "guid-kept");
             Assert.Equal(2, ConversionRows().Count);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Quickload abandoned-future reconcile:")
+                && !l.Contains("strategyConversionRetired=0 "));
         }
 
         // ============================================================

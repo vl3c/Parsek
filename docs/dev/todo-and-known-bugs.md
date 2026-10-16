@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~STRATEGY-CONVERSION-ROWS-OUTLIVE-THEIR-AWARD: the share of a flight's reward a strategy converts is written untagged, so an F9, a Re-Fly merge or a revert takes the reward back and keeps the converted share~~ [FILED 2026-10-16 from the pre-release coverage audit (`roadmap/coverage-matrix-2026-10-16.md`, code read), confirmed by red-first xUnit. FIXED 2026-10-16, branch `claude/project-thread-kk4qzv`; xUnit only, live lane pending. product]
+## ~~STRATEGY-CONVERSION-ROWS-OUTLIVE-THEIR-AWARD: the share of a flight's reward a strategy converts is written untagged, so an F9, a Re-Fly merge or a revert takes the reward back and keeps the converted share~~ [FILED 2026-10-16 from the pre-release coverage audit (`roadmap/coverage-matrix-2026-10-16.md`, code read), confirmed by red-first xUnit. FIXED 2026-10-16, PR #2123; xUnit only, live lane pending. product]
 
 The query-family strategy door (`LedgerOrchestrator.OnStrategyCurrencyConversion`: Leadership
 Initiative, Appreciation Campaign, Patents Licensing and the other `CurrencyConverter` /
@@ -40,13 +40,19 @@ them untagged with the awards it keeps (`ClearStrategyConversionTagsForDiscard`,
 `PreserveIrreversibleLiveGameplayOnDiscard`), and the dedup key of a `FundsEarning` /
 `FundsEarningSource.Strategy` row now carries source and amount, so a tagged yield cannot swallow
 the same recording's recovery payout at the same UT at commit. The optimizer split already moves
-tagged rows by UT (`Ledger.RetagActionsForSplitSecondHalf`).
+tagged rows by UT (`Ledger.RetagActionsForSplitSecondHalf`). Two log fields make it readable
+live: the conversion's `Strategy conversion recorded:` Info line ends with `recordingId=`, and the
+quickload reconcile summary carries `strategyConversionRetired=N`. Live lane:
+`QL-2c-quickload-strategy-share-not-kept` (QL-2b's in-flight F9 with Leadership Initiative active
+on the new fixture `career-gs1-leadership-pad`), authored, flight pending.
 
 Residuals, not fixed here: (1) a Discard Re-fly purges the attempt's award events but keeps its
 ledger rows untagged (`MergeDialog.DiscardReFlyAttemptRecordingsAndRewindPoints` ->
 `Ledger.ClearRecordingTagForRecordings`), so the attempt's converted share still survives that
 discard; it did before this fix too. (2) Rows written before this fix stay untagged; nothing on
-disk links them to their award.
+disk links them to their award. (3) Reverting a flight resumed through the committed-copy
+quickload restore leaves its conversion rows, since they are tagged to a committed recording the
+revert prune skips; that flight's award rows behave the same way.
 
 ## ~~QL1-KSC-CLOCK-CROSSING: after a quicksave is loaded at the Space Center behind KSC purchases, the purchases are refunded, and the hire and the contract can be bought twice~~ [FILED 2026-10-16 from QL-1's first flight (`2026-10-16_1122` / `_1124_a2`, INVALID driver-verdict-mismatch both attempts), branch `claude/project-thread-k6flcd` (PR #2121). FIXED 2026-10-16 on the same branch; LIVE-PROVEN by QL-1 `2026-10-16_1424` (PASS attempt 1). product]
 

@@ -5217,7 +5217,8 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     $"Strategy conversion recorded: type={action.Type}, " +
                     $"currency={leg.Currency}, delta={leg.Delta.ToString("R", CultureInfo.InvariantCulture)}, " +
-                    $"UT={ut.ToString("F1", CultureInfo.InvariantCulture)}, reason={reason ?? "(none)"}");
+                    $"UT={ut.ToString("F1", CultureInfo.InvariantCulture)}, reason={reason ?? "(none)"}, " +
+                    $"recordingId={(string.IsNullOrEmpty(recordingId) ? "(none)" : recordingId)}");
 
                 ReconcileKscAction(GameStateStore.Events, Ledger.Actions, action, ut);
             }
