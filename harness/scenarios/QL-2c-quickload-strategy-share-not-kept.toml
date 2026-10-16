@@ -54,7 +54,14 @@ id = "QL-2c-quickload-strategy-share-not-kept"
 #     recalc ran before stock applied the uplift (L3's ordering defect); file it, it is not
 #     this lane's bug but it is a ledger value off.
 #
-# STATUS: AUTHORED 2026-10-16 (branch `claude/project-thread-kk4qzv`, PR #2123), NOT FLOWN.
+# STATUS: LIVE-PROVEN 2026-10-16 on its first flight, `2026-10-16_2239` PASS attempt 1
+# (automation DLL sha256 prefix a6a08fde52d0448d). Measured: the ascent's four Progression
+# shares (FundsEarning 360 / 60 / 360 / 360, ReputationEarning 0.075, UT 27.9-33.4) and the
+# SurfaceEVA share (FundsEarning 120.00007629394531 at UT 149.8) all tagged to the pod
+# recording; the reconcile retired the SurfaceEVA share (`strategyConversionRetired=1`) and
+# kept the ascent ones; the only post-F9 patch was `PatchFunds: no change needed
+# (current=516340.0, target=516340.0)`; zero GUARDED lines.
+# AUTHORED 2026-10-16 (branch `claude/project-thread-kk4qzv`, PR #2123).
 # Every new token is quoted from its emitting source line (LedgerOrchestrator
 # .OnStrategyCurrencyConversion, ParsekScenario.Trim.cs's reconcile summary).
 # =====================================================================================

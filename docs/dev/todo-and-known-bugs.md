@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~STRATEGY-CONVERSION-ROWS-OUTLIVE-THEIR-AWARD: the share of a flight's reward a strategy converts is written untagged, so an F9, a Re-Fly merge or a revert takes the reward back and keeps the converted share~~ [FILED 2026-10-16 from the pre-release coverage audit (`roadmap/coverage-matrix-2026-10-16.md`, code read), confirmed by red-first xUnit. FIXED 2026-10-16, PR #2123; xUnit only, live lane pending. product]
+## ~~STRATEGY-CONVERSION-ROWS-OUTLIVE-THEIR-AWARD: the share of a flight's reward a strategy converts is written untagged, so an F9, a Re-Fly merge or a revert takes the reward back and keeps the converted share~~ [FILED 2026-10-16 from the pre-release coverage audit (`roadmap/coverage-matrix-2026-10-16.md`, code read), confirmed by red-first xUnit. FIXED 2026-10-16, PR #2123; LIVE-PROVEN 2026-10-16 by QL-2c `2026-10-16_2239`. product]
 
 The query-family strategy door (`LedgerOrchestrator.OnStrategyCurrencyConversion`: Leadership
 Initiative, Appreciation Campaign, Patents Licensing and the other `CurrencyConverter` /
@@ -44,7 +44,9 @@ tagged rows by UT (`Ledger.RetagActionsForSplitSecondHalf`). Two log fields make
 live: the conversion's `Strategy conversion recorded:` Info line ends with `recordingId=`, and the
 quickload reconcile summary carries `strategyConversionRetired=N`. Live lane:
 `QL-2c-quickload-strategy-share-not-kept` (QL-2b's in-flight F9 with Leadership Initiative active
-on the new fixture `career-gs1-leadership-pad`), authored, flight pending.
+on the new fixture `career-gs1-leadership-pad`), green on its first flight `2026-10-16_2239`: the
+SurfaceEVA share after the F5 was tagged and retired (`strategyConversionRetired=1`), the four
+ascent shares before it were kept, and funds after the F9 equalled the quicksave's.
 
 Residuals, not fixed here: (1) a Discard Re-fly purges the attempt's award events but keeps its
 ledger rows untagged (`MergeDialog.DiscardReFlyAttemptRecordingsAndRewindPoints` ->
