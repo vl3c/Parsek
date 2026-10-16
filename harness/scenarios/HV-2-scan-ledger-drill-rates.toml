@@ -29,7 +29,15 @@ tier = "nightly"
 #     stock mining window unbounded; the reader now models it.
 #
 # THE HOST is `fresh-career` (AH-1's): career, no active vessel (LoadGame takes the Space
-# Center route), no resource scan anywhere, a clock past UT 1 once the scene is up.
+# Center route), no resource scan anywhere. It loads at UT ~0.1, so a rails WarpToUT to UT 30
+# runs before the batch: each scan cell recalcs with the clock cut off half a second before its
+# scan and skips at UT <= 1.
+#
+# FIRST FLIGHT `2026-10-16_0600` (b3d94ab, no warp step): PARSEK-FAIL on the lane setup only.
+# Both scan cells skipped at UT 0.14 / 0.18; the rate cell passed and measured
+# `spaceObjectDrills=4` (each stock drill carries a ModuleAsteroidDrill AND a ModuleCometDrill),
+# `isruModules=8`, Ore 0.0965/s at Minmus lat 10 lon -105 (abundance 0.0536). Fixed: the warp
+# step, and the drill pin reads 4.
 #
 # THE PIN IS INTERIM: `total=3` is attribute-exact (three SPACECENTER declarations); the split
 # is predicted 3 / 0 and regexed until the reading run measures it (INTERIM_PIN_IDS).
@@ -47,6 +55,8 @@ kind = "seam"
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # Rails warp at the Space Center (the only ladder outside FLIGHT): the scan cells need UT > 1.
+  { cmd = "WarpToUT",   args = { ut = "30", maxRate = "10" }, expect = "OK", budget = 120 },
   { cmd = "RunTests",   args = { category = "HarvestCapScanLedger" }, expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit", expect = "OK" },
 ]
@@ -75,7 +85,7 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[HarvestCapScanLedger\\] scan ledger live check passed: kind=body body=Minmus biome='' rows=1 events=1 lockedBeforeUT=1 reapplied=1",
   "\\[Parsek\\]\\[INFO\\]\\[HarvestCapScanLedger\\] scan ledger live check teardown: kind=biome rowsRemoved=1 eventsRemoved=1 locked=1",
   "\\[Parsek\\]\\[INFO\\]\\[HarvestCapScanLedger\\] scan ledger live check teardown: kind=body rowsRemoved=1 eventsRemoved=1 locked=1",
-  "\\[Parsek\\]\\[INFO\\]\\[HarvestCapScanLedger\\] drill rate live check passed: body=Minmus .* drillParts=2 drillModules=2 spaceObjectDrills=2 isruParts=2 isruModules=[1-9][0-9]* missing=\\[\\] rates=\\[.*LiquidFuel:.*Ore:",
+  "\\[Parsek\\]\\[INFO\\]\\[HarvestCapScanLedger\\] drill rate live check passed: body=Minmus .* drillParts=2 drillModules=2 spaceObjectDrills=4 isruParts=2 isruModules=[1-9][0-9]* missing=\\[\\] rates=\\[.*LiquidFuel:.*Ore:",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -84,7 +94,7 @@ forbidden = [
 ]
 
 [runtime]
-# AH-1's shape and budget: one deferred LoadGame and one deferred RunTests.
+# AH-1's shape and budget: one deferred LoadGame, a short warp and one deferred RunTests.
 budgetSeconds = 720
 
 [retry]
