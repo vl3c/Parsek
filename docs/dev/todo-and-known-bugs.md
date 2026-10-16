@@ -1984,7 +1984,7 @@ with a red test once confirmed.
 
 - [ ] STRATEGY-CONVERSION-ROWS-SURVIVE-F9-AND-REFLY (suspected defect): conversion legs are written untagged (`LedgerOrchestrator.cs:5260-5439`) while the award they divert is flight-tagged, and F9 / a Re-Fly merge retire only tagged rows (`ParsekScenario.Trim.cs:1210-1235`, `TombstoneEligibility.cs:56-117`), so the leg would outlive its award. Roadmap XS-1.
 - [ ] Strategies across any timeline operation: no lane activates a strategy and then rewinds, re-flies, F9s or reverts; Bail-Out Grant, Aggressive Negotiations and Recovery Transponder never ran in game. Roadmap XS-1, GP-1.
-- [ ] Resource amounts: nothing checks origin-out == destination-in for routes, fuel moved while docked, or a spawned vessel's tanks. Roadmap TC-1 / TC-2, RC-1.
+- [ ] Resource amounts: nothing checks origin-out == destination-in for routes, fuel moved while docked, or a spawned vessel's tanks. Roadmap TC-1 / TC-2, RC-1. Progress 2026-10-16: the `ReadVesselResources` verb and `resourceq.py` landed, and RC-1 reads both spawned tanks after a docked transfer and two rewinds; routes are still unchecked.
 - [ ] Career x repeated rewinds, and LedgerGroundTruth after a rewind, Re-Fly or F9: never run. Roadmap TC-4, GP-1.
 - [ ] Stale lanes: H38 / H39 / H40 / HV-1 not green since the 10-07 and 10-15 logistics changes; H58 and EVA-5 re-pinned, never re-flown. Roadmap XS-2.
 - [ ] EVA-CONSTRUCTION-GHOST-SHAPE-NEVER-CHANGES (suspected defect): playback never reads `SegmentEventType.PartAdded / PartRemoved` (only `GhostingTriggerClassifier` and `ForeignInventoryTransfer` name them), though the flight-recorder design says the ghost renders the part from that UT. Roadmap XS-3.
@@ -3095,8 +3095,14 @@ ISRU aboard. The two questions it raised are ruled (2026-10-06): cap harvest-ori
   `reflyrevert-option-unavailable` during a separation Re-Fly.
 - `RunInvariantReport`: reserved, not implemented (`TestCommandVerbs.cs:343-361`); as a per-step
   read it lifts the one-`RunTests`-per-lane limit for invariant checks.
-- `ReadVesselResources pid=|name= [expect=...]`: per-vessel resource totals and a part-uid digest
-  in FLIGHT, KSC and TS.
+- ~~`ReadVesselResources pid=|name= [expect=...]`: per-vessel resource totals and a part-uid digest
+  in FLIGHT, KSC and TS.~~ DONE 2026-10-16 (branch `claude/project-thread-81f9wc`):
+  `ReadVesselResources pid=|rec= [resources=] [expect=] [tolerance=] [expectSnapshot=]` in
+  FLIGHT, KSC and TS; `rec=` reads the vessel a committed recording spawned, sums the targets
+  against `expect=` (conservation across vessels), compares each with its recording's end
+  snapshot, and counts part uids also held by another live vessel. A mismatch is an OK answer
+  with `match=false` (gated by `forbidden`). hlib mirror `ReadVesselResourcesSourceSyncTests`;
+  consumer lane `RC-1-docked-transfer-rewind-tanks`.
 - ~~Scene-agnostic `WarpToUT` (FLIGHT only today, `ParsekTestCommandAddon.WarpToUT.cs:50`).~~
   DONE 2026-10-07 (branch `scene-wait`): `RequiresWarpScene` (FLIGHT, Space Center, Tracking
   Station), the post-load physics hold a bounded defer; todo
@@ -3118,6 +3124,13 @@ live vessels; V2 a chain-tip vessel equals its snapshot plus the route rows addr
 the spawn; V3 dock-window conservation with a declared direction; V4 per-vessel windows); an
 in-game `ResourceConservation` category for V1 / V2; analyzer INV13 crew conservation and INV14
 vessel identity, baselined over every fixture first, then gated.
+
+Progress 2026-10-16 (branch `claude/project-thread-81f9wc`): `harness/lib/resourceq.py` exists
+(snapshot sidecar decode, `ROUTE_CONNECTION_WINDOWS` reader, per-window conservation, cells in
+`test_resourceq.py` over `bdock-recorded`), and V1 / V2 / V3 have a LIVE form through the
+`ReadVesselResources` verb (`uidCollisions`, `expectSnapshot`, a summed `expect=`), first used by
+RC-1. Still open: the `[expectations.world.vessels]` saveParse block, the in-game category, V2's
+route-row term, V4, and INV13 / INV14.
 
 ---
 

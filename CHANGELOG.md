@@ -123,6 +123,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Automated tests can read what is really in a vessel's tanks.** A new test command reads the
+  fuel in named vessels and checks that it adds up, so a test can prove fuel moved between docked
+  vessels is neither lost nor duplicated. A new test flight uses it to check both vessels' tanks
+  after a docked fuel transfer, an undock and two rewinds. (HARNESS-VERBS-FOR-TIMELINE-OPS)
 - **Harness: a launch from the editor finishes only once stock has charged for it.** The test
   step waited only for the vessel to appear, so a test that followed at once could reload the
   flight before the rollout cost was taken, and a Hard career lane saw no charge. It is not a

@@ -701,6 +701,18 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     srfSpeed >= 0.5 m/s): `moved=true gameSeconds= maxSrfSpeed= pathMeters=
     #     displacementMeters= situation=`; otherwise ERROR drivevessel-did-not-move.
     "DriveVessel",
+    # ADDITIVE (51 -> 52 implemented, reserved unchanged at 4), roadmap TC-1.
+    #   ReadVesselResources (pid=<p>[,<p>...] | rec=<id>[,<id>...]) [resources=<R>[,<R>...]]
+    #     [expect=<R>:<amount>[;...]] [tolerance=<abs>] [expectSnapshot=true|false], FLIGHT,
+    #     Space Center or Tracking Station, SINGLE-PHASE, default 60 s, read-only: what is
+    #     actually in the tanks of live vessels (live PartResources when loaded, proto part
+    #     snapshots when not). `expect=` compares the SUM over the named vessels (the
+    #     conservation check); `expectSnapshot=` each rec= vessel with its recording's end
+    #     snapshot. OK `vessels= pids= names= loaded= parts= uidDigest= uidCollisions=
+    #     missing= resources=`, `<R>= <R>Max=` per reported resource, `match= mismatches=
+    #     snapshotMatch= snapshotMismatches=`. A rec= vessel that is not live is counted in
+    #     `missing=` on an OK answer, a Parsek outcome a spec reds on, never a refusal.
+    "ReadVesselResources",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1249,6 +1261,9 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # but because an enumeration taken on a run that is already terminally INVALID
     # observes nothing anyone will act on.
     "ListHandles": TAIL_ROLE_INERT,
+    # ReadVesselResources is `inert` for ListHandles' reason: it reads tanks and answers,
+    # changing nothing in the game, the save or the career.
+    "ReadVesselResources": TAIL_ROLE_INERT,
     # The GUI-census pair, and the two rows DISAGREE - which is the point of having
     # both.
     #   CaptureScreenshot is `inert` for ExportRenderManifest's reason exactly: it
@@ -1457,6 +1472,9 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # RewindPoints / committed recordings / background members exist), never a claim
     # about a kerbal's physical in-world state, which is the whole content of `outcome`.
     "ListHandles": POST_MISSION_ROLE_RECORDING,
+    # ReadVesselResources is `recording`: its OK is "the tanks were read", and what a spec
+    # gates on (match=, missing=, uidCollisions=) is pinned through its log lines.
+    "ReadVesselResources": POST_MISSION_ROLE_RECORDING,
     # The GUI-census pair. Both `recording`, and neither is near the line: the
     # `outcome` set is exactly the verbs whose verdict is a claim about a KERBAL's
     # physical in-world state that no other verifier re-derives. CaptureScreenshot's OK
@@ -3604,6 +3622,125 @@ def _finite_float_or_none(raw) -> Optional[float]:
     except ValueError:
         return None
     return value if math.isfinite(value) else None
+
+
+# ReadVesselResources: mirrored from TestCommands/TestCommandReadVesselResources.cs
+# (ReadVesselResourcesSourceSyncTests). Exactly one selector, `pid=` (nonzero decimal uints)
+# or `rec=` (recording ids), each a comma list of 1..8 entries; `resources=` a comma list of
+# payload-key-safe names; `expect=` `R:amount;R:amount`; `tolerance=` a decimal >= 0;
+# `expectSnapshot=` true|false, with rec= only. Not closed-value rows (`pid` is Recover's
+# arg name too).
+READVESSELRESOURCES_VERB = "ReadVesselResources"
+READVESSELRESOURCES_PID_KEY = "pid"
+READVESSELRESOURCES_REC_KEY = "rec"
+READVESSELRESOURCES_RESOURCES_KEY = "resources"
+READVESSELRESOURCES_EXPECT_KEY = "expect"
+READVESSELRESOURCES_TOLERANCE_KEY = "tolerance"
+READVESSELRESOURCES_EXPECT_SNAPSHOT_KEY = "expectSnapshot"
+READVESSELRESOURCES_MAX_TARGETS = 8
+READVESSELRESOURCES_KEYS: Tuple[str, ...] = (
+    READVESSELRESOURCES_PID_KEY, READVESSELRESOURCES_REC_KEY,
+    READVESSELRESOURCES_RESOURCES_KEY, READVESSELRESOURCES_EXPECT_KEY,
+    READVESSELRESOURCES_TOLERANCE_KEY, READVESSELRESOURCES_EXPECT_SNAPSHOT_KEY,
+)
+READVESSELRESOURCES_REASONS: Tuple[str, ...] = (
+    "readvesselresources-target-arg-missing", "readvesselresources-target-arg-conflict",
+    "readvesselresources-pid-arg-invalid", "readvesselresources-rec-arg-invalid",
+    "readvesselresources-too-many-targets", "readvesselresources-resources-arg-invalid",
+    "readvesselresources-expect-arg-invalid", "readvesselresources-tolerance-arg-invalid",
+    "readvesselresources-expect-snapshot-arg-invalid",
+    "readvesselresources-expect-snapshot-needs-rec",
+    "readvesselresources-unknown-recording", "readvesselresources-vessel-not-found",
+    "readvesselresources-target-is-ghost",
+)
+_RESOURCE_NAME_RE = re.compile(r"[A-Za-z0-9_]+")
+_INVARIANT_DECIMAL_RE = re.compile(r"[0-9]*\.?[0-9]+|[0-9]+\.")
+
+
+def validate_read_vessel_resources_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``ReadVesselResources`` step, the C# parse order: one
+    selector of 1..8 entries, then ``resources=``, ``expect=``, ``tolerance=`` and
+    ``expectSnapshot=``. A value holding a ``${step.field}`` handle is checked by the R10
+    static tier and resolved at run time, so it is skipped here."""
+    errors: List[str] = []
+    v = READVESSELRESOURCES_VERB
+
+    def literal(key):
+        raw = step_args.get(key)
+        if raw is None or str(raw) == "":
+            return None
+        return None if "${" in str(raw) else str(raw)
+
+    raw_pid = step_args.get(READVESSELRESOURCES_PID_KEY)
+    raw_rec = step_args.get(READVESSELRESOURCES_REC_KEY)
+    has_pid = raw_pid is not None and str(raw_pid) != ""
+    has_rec = raw_rec is not None and str(raw_rec) != ""
+    if not has_pid and not has_rec:
+        errors.append("driver.steps[%d].args: %s REQUIRES pid= or rec=; the seam answers "
+                      "REJECTED readvesselresources-target-arg-missing" % (index, v))
+    elif has_pid and has_rec:
+        errors.append("driver.steps[%d].args: %s takes pid= OR rec=, not both; the seam "
+                      "answers REJECTED readvesselresources-target-arg-conflict" % (index, v))
+    else:
+        key = READVESSELRESOURCES_PID_KEY if has_pid else READVESSELRESOURCES_REC_KEY
+        raw = literal(key)
+        if raw is not None:
+            items = raw.split(",")
+            if has_pid and not all(re.fullmatch(r"[0-9]+", i) and 0 < int(i) <= RECOVER_PID_MAX
+                                   for i in items):
+                errors.append("driver.steps[%d].args.pid: %r is not a comma list of positive "
+                              "decimal persistentIds; the seam answers REJECTED "
+                              "readvesselresources-pid-arg-invalid" % (index, raw))
+            elif has_rec and not all(re.fullmatch(r"[0-9a-f]{32}", i) for i in items):
+                errors.append("driver.steps[%d].args.rec: %r is not a comma list of recording "
+                              "ids (32 lowercase hex); the seam answers REJECTED "
+                              "readvesselresources-rec-arg-invalid" % (index, raw))
+            elif len(items) > READVESSELRESOURCES_MAX_TARGETS:
+                errors.append("driver.steps[%d].args.%s: %d entries, the seam reads at most %d; "
+                              "it answers REJECTED readvesselresources-too-many-targets"
+                              % (index, key, len(items), READVESSELRESOURCES_MAX_TARGETS))
+    raw = literal(READVESSELRESOURCES_RESOURCES_KEY)
+    if raw is not None:
+        items = raw.split(",")
+        if not all(_RESOURCE_NAME_RE.fullmatch(i) for i in items) or len(set(items)) != len(items):
+            errors.append("driver.steps[%d].args.resources: %r is not a comma list of distinct "
+                          "resource names; the seam answers REJECTED "
+                          "readvesselresources-resources-arg-invalid" % (index, raw))
+    raw = literal(READVESSELRESOURCES_EXPECT_KEY)
+    if raw is not None:
+        names = []
+        ok = True
+        for item in raw.split(";"):
+            name, sep, amount = item.partition(":")
+            if not sep or not _RESOURCE_NAME_RE.fullmatch(name) or name in names \
+                    or not _INVARIANT_DECIMAL_RE.fullmatch(amount):
+                ok = False
+                break
+            names.append(name)
+        if not ok:
+            errors.append("driver.steps[%d].args.expect: %r is not R:amount[;R:amount] with "
+                          "distinct names and invariant decimals >= 0; the seam answers REJECTED "
+                          "readvesselresources-expect-arg-invalid" % (index, raw))
+    raw = literal(READVESSELRESOURCES_TOLERANCE_KEY)
+    if raw is not None and not _INVARIANT_DECIMAL_RE.fullmatch(raw):
+        errors.append("driver.steps[%d].args.tolerance: %r is not an invariant decimal >= 0; "
+                      "the seam answers REJECTED readvesselresources-tolerance-arg-invalid"
+                      % (index, raw))
+    raw = literal(READVESSELRESOURCES_EXPECT_SNAPSHOT_KEY)
+    if raw is not None:
+        if raw not in ("true", "false"):
+            errors.append("driver.steps[%d].args.expectSnapshot: %r is not true or false; the "
+                          "seam answers REJECTED readvesselresources-expect-snapshot-arg-invalid"
+                          % (index, raw))
+        elif raw == "true" and not has_rec:
+            errors.append("driver.steps[%d].args.expectSnapshot: needs rec= (a pid names no "
+                          "recording); the seam answers REJECTED "
+                          "readvesselresources-expect-snapshot-needs-rec" % index)
+    extra = sorted(str(k) for k in step_args if k not in READVESSELRESOURCES_KEYS)
+    if extra:
+        errors.append("driver.steps[%d].args: %s reads only %s, so %s would be silently ignored"
+                      % (index, v, ", ".join(READVESSELRESOURCES_KEYS), ", ".join(extra)))
+    return errors
 
 
 def validate_drive_vessel_step(index: int, step_args: Dict) -> List[str]:
@@ -6756,6 +6893,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_revert_to_launch_step(i, step_args))
         elif cmd == DRIVEVESSEL_VERB:
             errors.extend(validate_drive_vessel_step(i, step_args))
+        elif cmd == READVESSELRESOURCES_VERB:
+            errors.extend(validate_read_vessel_resources_step(i, step_args))
         # LoadGame focusPid= (any verb: the validator flags it on a verb that ignores it).
         if LOADGAME_FOCUS_PID_KEY in step_args:
             errors.extend(validate_loadgame_focus_step(i, cmd, step_args))
@@ -10853,6 +10992,23 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "drivevessel-vessel-packed": "driver-gate",
     "drivevessel-not-on-surface": "driver-gate",
     "drivevessel-no-wheel-motor": "driver-gate",
+    # ReadVesselResources: every refusal is the SPEC's fault (a malformed arg, a recording
+    # id the store does not hold, a pid naming no live vessel or a ghost). A rec= vessel
+    # that is not live is NOT a refusal: it is `missing=` on an OK answer, so a spawn that
+    # did not happen reds as a Parsek outcome (ReadVesselResourcesSourceSyncTests).
+    "readvesselresources-target-arg-missing": "driver-arg",
+    "readvesselresources-target-arg-conflict": "driver-arg",
+    "readvesselresources-pid-arg-invalid": "driver-arg",
+    "readvesselresources-rec-arg-invalid": "driver-arg",
+    "readvesselresources-too-many-targets": "driver-arg",
+    "readvesselresources-resources-arg-invalid": "driver-arg",
+    "readvesselresources-expect-arg-invalid": "driver-arg",
+    "readvesselresources-tolerance-arg-invalid": "driver-arg",
+    "readvesselresources-expect-snapshot-arg-invalid": "driver-arg",
+    "readvesselresources-expect-snapshot-needs-rec": "driver-arg",
+    "readvesselresources-unknown-recording": "driver-arg",
+    "readvesselresources-vessel-not-found": "driver-arg",
+    "readvesselresources-target-is-ghost": "driver-arg",
     # SimulateStockSwitchClick, arg half: site / selector spellings and target resolution.
     # target-not-found / -name-ambiguous / -is-ghost are arg-class because each one means
     # the SPEC named the wrong thing, the same call `unknown-target` gets for KscAction.
@@ -11510,7 +11666,15 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "partaction-button-arg-missing", "partaction-part-arg-missing",
     "partaction-pid-arg-invalid", "picker-arg-conflict", "picker-arg-missing",
     "pid-arg-invalid", "pointer-arg-conflict", "pointer-arg-invalid",
-    "pointer-arg-missing", "popup-arg-missing", "realspawn-rec-arg-missing",
+    "pointer-arg-missing", "popup-arg-missing",
+    "readvesselresources-expect-arg-invalid",
+    "readvesselresources-expect-snapshot-arg-invalid",
+    "readvesselresources-expect-snapshot-needs-rec",
+    "readvesselresources-pid-arg-invalid", "readvesselresources-rec-arg-invalid",
+    "readvesselresources-resources-arg-invalid",
+    "readvesselresources-target-arg-conflict", "readvesselresources-target-arg-missing",
+    "readvesselresources-tolerance-arg-invalid", "readvesselresources-too-many-targets",
+    "realspawn-rec-arg-missing",
     "recover-pid-arg-invalid", "recover-pid-arg-missing", "rect-arg-invalid",
     "rect-arg-missing", "reflyrevert-choice-arg-invalid",
     "reflyrevert-choice-arg-missing", "reflyrevert-target-arg-invalid",
