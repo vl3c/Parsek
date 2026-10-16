@@ -3111,6 +3111,21 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The line a loop unit's FIRST evaluation logs (flight engine and Space Center share it).
+        /// Later changes log a hand-off or a cycle wrap against the stored selection; the first one
+        /// has nothing to compare against, so it names the opening camera-live member (-1 = none
+        /// in window). Pure.
+        /// </summary>
+        internal static string FormatUnitFirstEvaluation(
+            string unitLabel, int ownerIndex, int liveMemberIdx, double spanLoopUT, long cycle)
+        {
+            return unitLabel + " unit owner=" + ownerIndex.ToString(CultureInfo.InvariantCulture)
+                + " first evaluation: camera-live member #" + liveMemberIdx.ToString(CultureInfo.InvariantCulture)
+                + " at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture)
+                + " cycle=" + cycle.ToString(CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
         /// Logs the unit's cycle wrap and camera-handoff once per transition (rate-limited per unit
         /// owner) and fires the watch retarget. Called by every member of the unit; only the first
         /// member to run this frame sees a CHANGE versus the last recorded state and acts. Computes
@@ -3204,6 +3219,13 @@ namespace Parsek
 
             if (!lastUnitSelection.TryGetValue(unit.OwnerIndex, out var prev))
             {
+                // First evaluation of this unit (playback start, a reset, or the frame the unit
+                // goes live at its anchor after the first run played as an ordinary recording):
+                // there is no prior member to hand off from, so name the opening selection.
+                ParsekLog.VerboseRateLimited(
+                    "Engine", unitKey + "-first",
+                    FormatUnitFirstEvaluation("Chain-loop", unit.OwnerIndex, liveMemberIdx, spanLoopUT, cycle),
+                    5.0);
                 lastUnitSelection[unit.OwnerIndex] = (cycle, liveMemberIdx, watchedIsRendering);
                 return;
             }

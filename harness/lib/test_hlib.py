@@ -4972,7 +4972,8 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # cells spawn vessels, wipe RouteStore and write live resource state), so the
         # ordinary path's executable ceiling is zero. Authored 2026-09-02, never flown,
         # INTERIM.
-        "H60-route-escrow-contention": ("RouteEscrowContention", 2),
+        # 2 -> 3 on 2026-10-16: the IR-10 scene-switch rebuild cell.
+        "H60-route-escrow-contention": ("RouteEscrowContention", 3),
         # THE FOURTH RECORDED `Logistics` HOST, and the first THREE-TREE,
         # NINE-RECORDING, TWO-WINDOW forest any isolated batch has booted. Its
         # fixture `rover-relay-recorded` is the operator's 2026-09-02 two-hop
@@ -14455,7 +14456,7 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         self.assertEqual(
             [("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:544"),
              ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:726"),
-             ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2361")],
+             ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2376")],
             list(hlib.ANOMALY_REASONS_RAISED_UNGATED),
             "the report-only instrument list changed - that is a calibration "
             "decision (defect signal vs instrument), not a bookkeeping edit")

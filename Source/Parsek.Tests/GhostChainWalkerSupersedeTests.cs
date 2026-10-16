@@ -14,6 +14,10 @@ namespace Parsek.Tests
     /// before TIP) read as an intermediate link, which suppressed its spawn. The same held for an
     /// unsplit superseded child picked at a branch point. These cells build the claimed station's
     /// dock / undock tree, the Re-Fly shape and the supersede rows, then run the walker.
+    /// CHAIN-CLAIM-FROM-SUPERSEDED-RECORDING: the claim scan read every branch point and
+    /// background recording with no supersede check, so a dock or undock only the superseded
+    /// flight made still claimed the station; the claim-scan cells pin that such a claim is
+    /// dropped and every other claim counts.
     /// </summary>
     [Collection("Sequential")]
     public class GhostChainWalkerSupersedeTests : IDisposable
@@ -397,14 +401,16 @@ namespace Parsek.Tests
         // catches: a walk that follows every supersede row. The fork replaces the re-flown visitor
         // only; the merged recording's row names it too, but the fork holds none of the station's
         // parts, so the station's walk must not land on the visitor's fork (which would make the
-        // visitor the station's chain tip). Whichever vessel kept its pid in the dock.
+        // visitor the station's chain tip). Whichever vessel kept its pid in the dock. Only the
+        // merged recording's row is written here: the Re-Fly's row on the claiming TIP would drop
+        // the claim before any walk (ClaimBySupersededTip_* below), so this isolates the walk's
+        // identity guard from the claim scan's supersede skip.
         [Theory]
         [InlineData(true)]
         [InlineData(false)]
         public void RowOnAnotherVesselOfTheSupersededSubtree_NotFollowed(bool stationDominant)
         {
             BuildVisitorReFlyTree(stationDominant);
-            Supersede("X-tip", "FX");
             Supersede("M2", "FX");
 
             var chains = Walk();
@@ -416,6 +422,337 @@ namespace Parsek.Tests
                 && l.Contains("child=M2 superseded by FX")
                 && l.Contains("does not continue the walked vessel ("
                     + GhostChainWalker.SupersedeBasisClaimedParts + ")"));
+        }
+
+        // ------------------------------------------------------------ claim scan
+
+        private const string StationTreeId = "tree-station-own";
+
+        /// <summary>
+        /// The station's own launch tree: one recording of the station (pid 100) ending
+        /// Orbiting at 1200, the shape a chain claiming the station suppresses as an
+        /// intermediate link while the chain's spawn UT is later than its end.
+        /// </summary>
+        private Recording AddStationOwnTree()
+        {
+            var tree = new RecordingTree { Id = StationTreeId, TreeName = "Station", RootRecordingId = "S0" };
+            Recording s0 = Rec("S0", StationPid, 500, 1200, treeId: StationTreeId,
+                terminal: TerminalState.Orbiting);
+            s0.VesselSnapshot = Snapshot(11, 12);
+            tree.AddOrReplaceRecording(s0);
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            RecordingStore.AddRecordingWithTreeForTesting(s0);
+            return s0;
+        }
+
+        private void AssertNoStationChain(Dictionary<uint, GhostChain> chains, Recording stationOwn)
+        {
+            Assert.False(chains.ContainsKey(StationPid));
+            Assert.Null(GhostChainWalker.FindChainForVessel(chains, StationPid));
+            if (stationOwn != null)
+            {
+                Assert.Null(GhostChainWalker.FindIntermediateLinkChain(chains, stationOwn));
+                Assert.False(GhostPlaybackLogic.ShouldSuppressSpawnForChain(chains, stationOwn).suppressed);
+            }
+        }
+
+        // catches: the defect (CHAIN-CLAIM-FROM-SUPERSEDED-RECORDING). The re-flown visitor's old
+        // TIP docked with the station; the Re-Fly wrote a row from TIP and from the merged
+        // recording to the fork, which did not dock. The dock branch point's claimant is TIP,
+        // which no longer plays, so the station is not claimed: no chain ghosts it until the
+        // merged recording's end, and the station's own recording is not held back as an
+        // intermediate link of that chain.
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void ClaimBySupersededTip_DockToStation_NoChain(bool stationDominant)
+        {
+            BuildVisitorReFlyTree(stationDominant);
+            Recording stationOwn = AddStationOwnTree();
+            Supersede("X-tip", "FX");
+            Supersede("M2", "FX");
+
+            var chains = Walk();
+
+            AssertNoStationChain(chains, stationOwn);
+            Assert.Contains(logLines, l => l.Contains("[ChainWalker]")
+                && l.Contains("Claim skipped: vessel PID=" + StationPid)
+                && l.Contains("rec=X-tip") && l.Contains("superseded by FX")
+                && l.Contains("bp=bp-dock2"));
+            Assert.Contains(logLines, l => l.Contains("[ChainWalker]")
+                && l.Contains("Skipped 1 claim(s) from superseded recording(s)"));
+        }
+
+        // catches: the mirror. With no supersede row the visitor's dock claims the station as
+        // before: the chain's tip is the merged recording, and the station's own earlier
+        // recording reads as an intermediate link of it.
+        [Fact]
+        public void ClaimByTip_NoSupersedeRow_ChainUnchanged()
+        {
+            BuildVisitorReFlyTree(stationDominant: true);
+            Recording stationOwn = AddStationOwnTree();
+
+            var chains = Walk();
+
+            Assert.True(chains.ContainsKey(StationPid));
+            Assert.Single(chains[StationPid].Links);
+            Assert.Equal("X-tip", chains[StationPid].Links[0].recordingId);
+            Assert.Equal("M2", chains[StationPid].TipRecordingId);
+            Assert.Equal(2000.0, chains[StationPid].SpawnUT);
+            Assert.NotNull(GhostChainWalker.FindIntermediateLinkChain(chains, stationOwn));
+            Assert.DoesNotContain(logLines, l => l.Contains("[ChainWalker]") && l.Contains("Claim skipped"));
+        }
+
+        // catches: a skip keyed on the supersede graph rather than on the claimant. The fork
+        // that replaced the old TIP docked with the station itself; its claim is the fork's
+        // own and counts, while the old TIP's claim is dropped, so the chain holds one link
+        // (the fork's) and ends on the fork's merged recording.
+        [Fact]
+        public void ForkDocksTheStationToo_ForkClaimCounts_SupersededClaimDropped()
+        {
+            RecordingTree tree = BuildVisitorReFlyTree(stationDominant: true);
+            Recording fork = tree.Recordings["FX"];
+            fork.ChildBranchPointId = "bp-dock3";
+            fork.TerminalStateValue = null;
+            Recording merged3 = Rec("M3", StationPid, 1400, 2500, treeId: "tree-refly-visitor",
+                parentBp: "bp-dock3", terminal: TerminalState.Orbiting);
+            merged3.VesselSnapshot = Snapshot(1, 2, 3, 11, 12);
+            tree.AddOrReplaceRecording(merged3);
+            RecordingStore.AddRecordingWithTreeForTesting(merged3);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-dock3", Type = BranchPointType.Dock, UT = 1400,
+                TargetVesselPersistentId = StationPid,
+                ParentRecordingIds = new List<string> { "FX" },
+                ChildRecordingIds = new List<string> { "M3" },
+            });
+            Supersede("X-tip", "FX");
+            Supersede("M2", "FX");
+
+            var chains = Walk();
+
+            Assert.True(chains.ContainsKey(StationPid));
+            GhostChain chain = chains[StationPid];
+            Assert.Single(chain.Links);
+            Assert.Equal("FX", chain.Links[0].recordingId);
+            Assert.Equal("bp-dock3", chain.Links[0].branchPointId);
+            Assert.Equal("M3", chain.TipRecordingId);
+            Assert.Equal(2500.0, chain.SpawnUT);
+            Assert.Contains(logLines, l => l.Contains("[ChainWalker]")
+                && l.Contains("Claim skipped") && l.Contains("rec=X-tip"));
+            Assert.DoesNotContain(logLines, l => l.Contains("[ChainWalker]")
+                && l.Contains("Claim skipped") && l.Contains("rec=FX"));
+        }
+
+        /// <summary>
+        /// The undock shape: the re-flown visitor's old TIP (docked to the station, the visitor
+        /// dominant, pid 60) undocks from the station at 1300; the undock branch point names the
+        /// station and its claimant is the child X2 (the visitor flying on to 2000). The Re-Fly
+        /// writes a row from TIP and from X2 to the fork FX, which never docked.
+        /// </summary>
+        private RecordingTree BuildVisitorUndockReFlyTree()
+        {
+            const string visitorTree = "tree-refly-undock";
+            const uint xPid = 60;
+            var tree = new RecordingTree { Id = visitorTree, TreeName = "Undock Re-Fly", RootRecordingId = "X" };
+
+            Recording head = Rec("X", xPid, 1000, 1100, treeId: visitorTree);
+            head.ChainId = "chain-x";
+            head.ChainIndex = 0;
+            Recording tip = Rec("X-tip", xPid, 1100, 1300, treeId: visitorTree, childBp: "bp-undock2");
+            tip.ChainId = "chain-x";
+            tip.ChainIndex = 1;
+            tip.VesselSnapshot = Snapshot(1, 2, 3, 11, 12);
+            Recording after = Rec("X2", xPid, 1300, 2000, treeId: visitorTree, parentBp: "bp-undock2",
+                terminal: TerminalState.Orbiting);
+            after.VesselSnapshot = Snapshot(1, 2, 3);
+            Recording fork = Rec("FX", xPid, 1100, 1500, treeId: visitorTree, terminal: TerminalState.Orbiting);
+            fork.VesselSnapshot = Snapshot(1, 2, 3);
+
+            tree.AddOrReplaceRecording(head);
+            tree.AddOrReplaceRecording(tip);
+            tree.AddOrReplaceRecording(after);
+            tree.AddOrReplaceRecording(fork);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-undock2", Type = BranchPointType.Undock, UT = 1300,
+                TargetVesselPersistentId = StationPid,
+                ParentRecordingIds = new List<string> { "X-tip" },
+                ChildRecordingIds = new List<string> { "X2" },
+            });
+
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            foreach (Recording rec in tree.Recordings.Values)
+                RecordingStore.AddRecordingWithTreeForTesting(rec);
+            return tree;
+        }
+
+        // catches: the undock form of the defect. The undock claimant (the old TIP's child) is
+        // superseded, so the station is not claimed.
+        [Fact]
+        public void ClaimBySupersededChild_UndockFromStation_NoChain()
+        {
+            BuildVisitorUndockReFlyTree();
+            Recording stationOwn = AddStationOwnTree();
+            Supersede("X-tip", "FX");
+            Supersede("X2", "FX");
+
+            var chains = Walk();
+
+            AssertNoStationChain(chains, stationOwn);
+            Assert.Contains(logLines, l => l.Contains("[ChainWalker]")
+                && l.Contains("Claim skipped: vessel PID=" + StationPid)
+                && l.Contains("rec=X2") && l.Contains("superseded by FX")
+                && l.Contains("bp=bp-undock2"));
+        }
+
+        // catches: the undock mirror. With no row the undock claims the station as before.
+        [Fact]
+        public void ClaimByChild_UndockNoSupersedeRow_ChainUnchanged()
+        {
+            BuildVisitorUndockReFlyTree();
+
+            var chains = Walk();
+
+            Assert.True(chains.ContainsKey(StationPid));
+            Assert.Equal("X2", chains[StationPid].Links[0].recordingId);
+            Assert.Equal("SPLIT", chains[StationPid].Links[0].interactionType);
+            Assert.Equal("X2", chains[StationPid].TipRecordingId);
+            Assert.Equal(2000.0, chains[StationPid].SpawnUT);
+        }
+
+        /// <summary>
+        /// A tree whose root lineage is the visitor (pid 60) and which holds a background
+        /// recording of the station (pid 100) with a part-destroyed event at 1250, the shape
+        /// the background-event claim scan reads.
+        /// </summary>
+        private void BuildBackgroundClaimTree()
+        {
+            const string bgTree = "tree-bg-claim";
+            var tree = new RecordingTree { Id = bgTree, TreeName = "BG claim", RootRecordingId = "R" };
+            Recording root = Rec("R", 60, 1000, 2000, treeId: bgTree, terminal: TerminalState.Orbiting);
+            Recording bg = Rec("BG-S", StationPid, 1200, 1800, treeId: bgTree, terminal: TerminalState.Orbiting);
+            bg.PartEvents = new List<PartEvent>
+            {
+                new PartEvent
+                {
+                    ut = 1250, partPersistentId = 11,
+                    eventType = PartEventType.Destroyed, partName = "solarPanel",
+                },
+            };
+            Recording fork = Rec("FB", StationPid, 1200, 1500, treeId: bgTree, terminal: TerminalState.Orbiting);
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(bg);
+            tree.AddOrReplaceRecording(fork);
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            foreach (Recording rec in tree.Recordings.Values)
+                RecordingStore.AddRecordingWithTreeForTesting(rec);
+        }
+
+        // catches: the background-event scan keeping a superseded recording's claim.
+        [Fact]
+        public void BackgroundEventClaim_BySupersededRecording_Skipped()
+        {
+            BuildBackgroundClaimTree();
+            Supersede("BG-S", "FB");
+
+            var chains = Walk();
+
+            AssertNoStationChain(chains, null);
+            Assert.Contains(logLines, l => l.Contains("[ChainWalker]")
+                && l.Contains("Claim skipped: vessel PID=" + StationPid)
+                && l.Contains("rec=BG-S") && l.Contains("superseded by FB")
+                && l.Contains("BACKGROUND_EVENT"));
+        }
+
+        // catches: the background-event mirror. With no row the claim counts as before.
+        [Fact]
+        public void BackgroundEventClaim_NoSupersedeRow_Counts()
+        {
+            BuildBackgroundClaimTree();
+
+            var chains = Walk();
+
+            Assert.True(chains.ContainsKey(StationPid));
+            Assert.Equal("BG-S", chains[StationPid].Links[0].recordingId);
+            Assert.Equal("BACKGROUND_EVENT", chains[StationPid].Links[0].interactionType);
+        }
+
+        // catches: a skip wider than playback's hide. Playback hides a recording only for a row
+        // with a non-empty new id that differs from the old one
+        // (EffectiveState.ComputeSupersededRecordingIdsByRelation); a row with no new id, a
+        // row naming the claimant as its own replacement, and a row on a recording of another
+        // tree leave the claimant playing, so its claim counts.
+        [Theory]
+        [InlineData("")]
+        [InlineData("X-tip")]
+        [InlineData("other-tree")]
+        public void RowsPlaybackDoesNotHide_ClaimCounts(string kind)
+        {
+            BuildVisitorReFlyTree(stationDominant: true);
+            if (kind == "other-tree")
+            {
+                var other = new RecordingTree { Id = OtherTreeId, TreeName = "Other", RootRecordingId = "Y" };
+                Recording y = Rec("Y", 4242, 1000, 1500, treeId: OtherTreeId, terminal: TerminalState.Orbiting);
+                Recording y2 = Rec("Y2", 4242, 1100, 1400, treeId: OtherTreeId, terminal: TerminalState.Orbiting);
+                other.AddOrReplaceRecording(y);
+                other.AddOrReplaceRecording(y2);
+                RecordingStore.AddCommittedTreeForTesting(other);
+                RecordingStore.AddRecordingWithTreeForTesting(y);
+                RecordingStore.AddRecordingWithTreeForTesting(y2);
+                Supersede("Y", "Y2");
+            }
+            else
+            {
+                scenario.RecordingSupersedes.Add(new RecordingSupersedeRelation
+                {
+                    RelationId = "rsr_odd", OldRecordingId = "X-tip", NewRecordingId = kind, UT = 2100,
+                });
+                scenario.BumpSupersedeStateVersion();
+            }
+
+            var chains = Walk();
+
+            Assert.True(chains.ContainsKey(StationPid));
+            Assert.Equal("X-tip", chains[StationPid].Links[0].recordingId);
+            Assert.DoesNotContain(logLines, l => l.Contains("[ChainWalker]") && l.Contains("Claim skipped"));
+        }
+
+        // catches: a skip that needs the replacement recording present. A row whose new
+        // recording is gone (a one-sided orphan) still hides the claimant in playback, so its
+        // claim is dropped the same way: a recording that does not play claims nothing.
+        [Fact]
+        public void ClaimBySupersededTip_OrphanRowToMissingRecording_Skipped()
+        {
+            BuildVisitorReFlyTree(stationDominant: true);
+            Supersede("X-tip", "rec-missing");
+
+            var chains = Walk();
+
+            AssertNoStationChain(chains, null);
+            Assert.Contains(logLines, l => l.Contains("[ChainWalker]")
+                && l.Contains("Claim skipped") && l.Contains("rec=X-tip")
+                && l.Contains("superseded by rec-missing"));
+        }
+
+        // catches: the explicit-rows overload's claim scan reading the scenario's rows instead
+        // of the list it is given.
+        [Fact]
+        public void ExplicitSupersedeList_DrivesTheClaimSkip()
+        {
+            BuildVisitorReFlyTree(stationDominant: true);
+            var rows = new List<RecordingSupersedeRelation>
+            {
+                new RecordingSupersedeRelation { RelationId = "rsr_a", OldRecordingId = "X-tip", NewRecordingId = "FX" },
+                new RecordingSupersedeRelation { RelationId = "rsr_b", OldRecordingId = "M2", NewRecordingId = "FX" },
+            };
+
+            var withRows = GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, 900, rows);
+            var withoutRows = GhostChainWalker.ComputeAllGhostChains(
+                RecordingStore.CommittedTrees, 900, new List<RecordingSupersedeRelation>());
+
+            Assert.False(withRows.ContainsKey(StationPid));
+            Assert.True(withoutRows.ContainsKey(StationPid));
         }
 
         // catches: the identity rule's two arms directly.

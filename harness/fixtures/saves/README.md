@@ -640,6 +640,26 @@ FLIGHT on the rover, inside ghost range of the pad. The clone's launch Guid, ves
 drift-gated by `harness/tools/build_pad_runway_pair.py` (`--check`) and
 `harness/lib/test_pad_runway_pair.py`. Host of `EX-1-ghost-extension-past-endut`.
 
+## eva-construct-pad (GAME Mode = SANDBOX, 2 VESSELS + 1 asteroid, 0 recordings, derived from eva3-pad-3crew)
+
+`eva3-pad-3crew`'s save (the Kerbal X PRELAUNCH on the pad with Jebediah, Bill and Bob aboard; Bill
+Kerman is an Engineer, the only trait stock lets open the EVA construction panel) plus a crewless
+clone of `rover-route-recorded`'s `rover fuel 0` (16 parts: six OX-STAT panels, two
+ConformalStorageUnits, the first holding an evaChute, and a Clamp-O-Tron as the LAST part with its
+top node free), moved to lat -0.103559624817681, lon -74.544550495871917 (~153 m from the pad:
+outside the KSC exclusion zone, inside the physics bubble), `sit = LANDED`, alt 69.2 (the
+terrain plus 1.4 m; ground positioning settles it), `landedAt` empty. The clone's launch Guid,
+vessel `persistentId` and every nested `persistentId` are re-derived deterministically from the
+seed `eva-construct-pad/v1` (vessel persistentId 1871615455, which EVA-11 names as its step
+anchor and in its log contract), and `lct` / `lastUT` are re-stamped to the base UT. The vessel
+list reads [Kerbal X, asteroid, rover] with `activeVessel = 0`, so the fixture boots focused on
+the Kerbal X AND a save written at the Space Center (`activeVessel = 0`) reloads FLIGHT on it.
+`loadmeta` `vesselCount` is 2. Built and drift-gated by
+`harness/tools/build_eva_construct_pad.py` (`--check`) and `harness/lib/test_eva_construct_pad.py`
+(which also reds when the EVA-11 spec names any other rover pid); re-run the builder after a
+re-forge of either source fixture. Host of `EVA-11-construction-foreign-claim` and the intended
+host of roadmap RC-6 (an EVA take from the rover's container).
+
 ## gloops-airshow-hard (GAME Mode = SANDBOX, 1 VESSEL + 1 asteroid, derived from gloops-airshow)
 
 `gloops-airshow`'s `persistent.sfs` and `persistent.loadmeta` byte for byte, except four

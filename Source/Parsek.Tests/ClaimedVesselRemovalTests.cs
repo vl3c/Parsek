@@ -94,6 +94,56 @@ namespace Parsek.Tests
             Assert.False(GameStateRecorder.SuppressCrewEvents);
         }
 
+        private static ProtoVessel Entry(uint pid, Guid id)
+        {
+            var pv = (ProtoVessel)FormatterServices.GetUninitializedObject(typeof(ProtoVessel));
+            pv.persistentId = pid;
+            pv.vesselID = id;
+            return pv;
+        }
+
+        [Fact]
+        public void RemoveFlightStateEntries_ReplacedProtoInstance_RemovesTheLoadTimeEntryByPid()
+        {
+            // FLIGHT: BackupVessel swapped vessel.protoVessel for a fresh instance, so the
+            // list's load-time entry is a different object with the same pid and vessel id.
+            Guid rover = Guid.NewGuid();
+            ProtoVessel loadTime = Entry(1871615455u, rover);
+            ProtoVessel fresh = Entry(1871615455u, rover);
+            ProtoVessel other = Entry(2200000002u, Guid.NewGuid());
+            var flightState = new List<ProtoVessel> { other, loadTime };
+
+            Assert.Equal(1, LiveClaimedVesselRemovalTarget.RemoveFlightStateEntries(
+                flightState, fresh, 1871615455u, rover));
+            Assert.DoesNotContain(loadTime, flightState);
+            Assert.Contains(other, flightState);
+        }
+
+        [Fact]
+        public void RemoveFlightStateEntries_SamePidDifferentVesselId_IsKept()
+        {
+            // A craft-baked pid shared with another launch is not this vessel.
+            ProtoVessel stranger = Entry(1871615455u, Guid.NewGuid());
+            var flightState = new List<ProtoVessel> { stranger };
+
+            Assert.Equal(0, LiveClaimedVesselRemovalTarget.RemoveFlightStateEntries(
+                flightState, Entry(1871615455u, Guid.NewGuid()), 1871615455u, Guid.NewGuid()));
+            Assert.Contains(stranger, flightState);
+        }
+
+        [Fact]
+        public void RemoveFlightStateEntries_ReferenceMatch_RemovedEvenWithoutPid()
+        {
+            ProtoVessel station = Entry(0u, Guid.Empty);
+            var flightState = new List<ProtoVessel> { station };
+
+            Assert.Equal(1, LiveClaimedVesselRemovalTarget.RemoveFlightStateEntries(
+                flightState, station, 0u, Guid.Empty));
+            Assert.Empty(flightState);
+            Assert.Equal(0, LiveClaimedVesselRemovalTarget.RemoveFlightStateEntries(
+                null, station, 0u, Guid.Empty));
+        }
+
         [Fact]
         public void LiveTarget_ReattachCrew_PutsTheKerbalsBackOnTheirParts()
         {

@@ -35,6 +35,30 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A station your replaced flight docked with stays put after a Re-Fly.** When a Re-Fly replaces a
+  flight that docked with or undocked from a station, the station is no longer held for the old
+  flight: before, it could vanish in flight and not come back, and its own recordings could be
+  kept from spawning. (CHAIN-CLAIM-FROM-SUPERSEDED-RECORDING)
+- **Parts you build onto or take off another vessel on EVA are remembered.** Attaching a part to a
+  parked rover or base in EVA construction, or detaching one from it, now becomes part of your
+  flight: after a rewind that vessel is kept, replayed and comes back with or without the part,
+  instead of the part being lost or doubled. (EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED)
+- **The Tracking Station keeps funds and contracts at today's date, like the Space Center.** After
+  a rewind, loading into the Tracking Station no longer applies spending and rewards the timeline
+  has not reached yet, or throws them away for good on a fresh load; they now arrive when the
+  clock reaches them, also while warping there. (TRACKING-STATION-LEDGER-CUTOFF-ALIGN)
+- **Quickloading before a later Re-Fly no longer shows both versions of the flight.** Loading a
+  save made before you re-flew and merged part of that flight could keep the re-flown piece
+  next to the original. The quickload now drops the re-flown piece, as the save had it.
+  (QUICKLOAD-KEEPS-POST-SAVE-REFLY-FORKS-WHOSE-ROWS-FOLLOW-THE-SAVE)
+- **Retry after a quickload inside a Re-Fly keeps the whole flight.** Choosing Retry after an F9
+  during a Re-Fly could drop everything the flight recorded after the separation, and after a
+  merged attempt could leave the original hidden and its crew loss uncounted.
+  (RETRY-OF-A-RESUMED-MERGED-REFLY-LEAVES-A-ONE-SIDED-ROW)
+- **Quickloads keep finished history and undo later endings.** A quickload could cut short a
+  committed recording that was still playing at the save's moment, and kept a vessel's later
+  recovery (and its payout) although the quickload put that vessel back in the world.
+  (QUICKLOAD-ENDED-MEMBER-RESTAMPED-AFTER-THE-SAVE-KEEPS-ITS-FUTURE)
 - **Rewards earned right after a Re-Fly starts now belong to that attempt.** A reward earned in
   the first moments of a Re-Fly, before Parsek starts recording it, is kept when you merge the
   attempt and removed when you discard it, like the rest of the attempt's rewards. Before, it

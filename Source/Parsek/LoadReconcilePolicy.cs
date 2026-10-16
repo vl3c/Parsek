@@ -648,8 +648,8 @@ namespace Parsek
                         + "ParsekScenario.TrimAndReconcileForQuickloadResume purges the trimmed set's tagged events "
                         + "after the resume UT (GameStateStore.PurgeEventsForRecordingAfterUT; every event of a pruned "
                         + "recording), never an untagged event or one of committed history (a recording still committed, "
-                        + "or one the quicksave already shows as history: IsCommittedHistoryAtQuicksave, even when the "
-                        + "trim prunes it)");
+                        + "or one the quicksave already shows as history: IsCommittedHistoryAtQuicksave, which the "
+                        + "trim leaves whole)");
             }
             throw UnknownKind(kind);
         }
@@ -683,7 +683,7 @@ namespace Parsek
                         + "of a pruned recording and the KerbalAssignment row of a recording whose end state it cleared "
                         + "(owner ruling OQ-2; untagged KSC rows, route rows, seeds and committed history stay: a "
                         + "recording still committed, or one the quicksave already shows as history, "
-                        + "IsCommittedHistoryAtQuicksave, even when the trim prunes it)");
+                        + "IsCommittedHistoryAtQuicksave, which the trim leaves whole)");
             }
             throw UnknownKind(kind);
         }
@@ -715,7 +715,8 @@ namespace Parsek
                         + "of every trimmed recording that ended after the resume UT and gives every surviving trimmed "
                         + "recording back the merge state its quicksave baseline held (ResolveQuicksaveBaselineId, "
                         + "ShouldResetMergeStateForResume; not committed history: a recording "
-                        + "still committed, or one the quicksave already shows as history, IsCommittedHistoryAtQuicksave)");
+                        + "still committed, or one the quicksave already shows as history, IsCommittedHistoryAtQuicksave; "
+                        + "an ending restamped after the save is not, IsEndRestampedAfterQuicksave)");
             }
             throw UnknownKind(kind);
         }
@@ -727,10 +728,9 @@ namespace Parsek
                 case LoadKind.Cold:
                     return Today(LoadReconcileAction.Keep,
                         "scene rule: LedgerOrchestrator.OnKspLoad -> Ledger.Reconcile never drops an untagged earning "
-                        + "by UT (contract completions aside); outside FLIGHT / SPACECENTER with a ready clock (UT > 0) "
-                        + "it drops untagged spendings, contract lifecycle rows and other untagged rows past the clock; "
-                        + "FLIGHT / SPACECENTER, or a clock not yet ready, keep them all (the Tracking Station half is "
-                        + "TRACKING-STATION-LEDGER-CUTOFF-ALIGN)");
+                        + "by UT (contract completions aside); outside FLIGHT / SPACECENTER / TRACKSTATION with a ready "
+                        + "clock (UT > 0) it drops untagged spendings, contract lifecycle rows and other untagged rows past "
+                        + "the clock; FLIGHT / SPACECENTER / TRACKSTATION, or a clock not yet ready, keep them all");
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.Keep,
                         "ParsekScenario.HandleRewindOnLoad retires route rows only; the recalculation walks to the cutoff");

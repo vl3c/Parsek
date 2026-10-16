@@ -788,9 +788,19 @@ namespace Parsek
             return useCurrentUtCutoffForPostRewindFlightLoad;
         }
 
+        /// <summary>
+        /// Scenes whose loads keep committed future actions out of the patched career until
+        /// the clock reaches them (current-UT cutoff), and whose cold load preserves those
+        /// rows instead of pruning them. The Tracking Station is aligned with FLIGHT and the
+        /// Space Center (owner ruling 2026-10-06); like the Space Center it applies a crossed
+        /// action as its clock moves (<see cref="CareerLedgerClockCursor"/>). The editor
+        /// stays on the plain walk.
+        /// </summary>
         internal static bool IsCurrentUtCutoffSupportedScene(GameScenes scene)
         {
-            return scene == GameScenes.FLIGHT || scene == GameScenes.SPACECENTER;
+            return scene == GameScenes.FLIGHT
+                || scene == GameScenes.SPACECENTER
+                || scene == GameScenes.TRACKSTATION;
         }
 
         /// <summary>
@@ -5005,9 +5015,20 @@ namespace Parsek
                 var flightState = HighLogic.CurrentGame?.flightState;
                 if (flightState != null)
                 {
+                    // A foreign vessel a tree adopted by inventory transfer existed before
+                    // that tree: its member and adoption holders never mark it as future.
                     var allCommitted = RecordingStore.CollectAllCommittedRecordings();
+                    var stripCandidates = ForeignInventoryTransfer.ExcludeForeignAdoptions(
+                        allCommitted,
+                        ForeignInventoryTransfer.CollectTransferMemberRecordingIds(
+                            RecordingStore.CommittedTrees),
+                        out int foreignAdoptionsExcluded);
+                    if (foreignAdoptionsExcluded > 0)
+                        ParsekLog.Info("Rewind",
+                            $"OnLoad strip: {foreignAdoptionsExcluded} recording(s) of foreign vessels adopted " +
+                            "by inventory transfer left out of the launch-identity match");
                     StripOrphanedSpawnedVessels(
-                        flightState.protoVessels, allCommitted,
+                        flightState.protoVessels, stripCandidates,
                         matchSource: true, skipPrelaunch: false,
                         requireWhitelist: false,
                         preExistingWhitelist: RewindContext.RewindQuicksaveVesselPids);
@@ -6338,7 +6359,12 @@ namespace Parsek
                     : PendingTreeState.Limbo;
                 RecordingStore.StashPendingTree(tree, stashState);
                 if (committedCopyDetached && resumeDetachedCopyIds != null)
+                {
                     NoteQuickloadResumeDetach(tree, resumeDetachedCopyIds);
+                    // The rows naming this tree follow the save (step B), so the Re-Fly forks the
+                    // splice brought in from after the save go at the resume.
+                    NoteAbandonedReFlyForks(tree, lastRestoredQuicksaveTreeFacts);
+                }
 
                 // Read resume hints for the restore coroutine (rewind save filename only).
                 pendingActiveTreeResumeRewindSave = treeNodes[t].GetValue("resumeRewindSave");

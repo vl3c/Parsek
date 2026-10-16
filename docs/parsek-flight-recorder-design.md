@@ -610,9 +610,34 @@ does not point at it). The chain's tip is the member's own leaf, so the spawn sn
 foreign vessel's own post-transfer form, never the kerbal's; the kerbal stays the tip of nothing and
 spawns as himself.
 
-**Not covered.** A part attached to or detached from a foreign vessel in EVA construction mode
-(`OnEVAConstructionModePartAttached` / `Detached`), and a transfer with a foreign EVA kerbal, are
-not recorded yet (todo EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED).
+**The rewind.** The in-flight commit adoption-stamps the member with the foreign vessel's own pid,
+and the chain tip spawns with that same pid, but the vessel existed before the tree: a rewind of the
+tree must leave it in the rewind save for the chain to claim and ghost. So a holder whose spawn pid
+is the pid of an InventoryTransfer member of its own tree
+(`ForeignInventoryTransfer.FindAdoptedForeignVesselMember`) neither strips nor keeps its pid in the
+rewind strip scope (`Rewind strip scope: leave spawned pid=...`, counted as `foreignAdoptedPids=`)
+and its spawn state resets, so the tip spawns again at the member's end; a member never counts as
+re-producing another tree's spawned vessel of the same pid; and the OnLoad launch-identity strip
+leaves the members and their adoption holders out of its match set
+(`ForeignInventoryTransfer.ExcludeForeignAdoptions`). A pid another holder genuinely re-produces is
+still stripped. Live finding: EVA-11's reading run 2026-10-15_2302.
+
+**EVA construction on a foreign vessel (todo EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED,
+2026-10-15).** A part the kerbal attaches to or detaches from a foreign vessel in construction mode
+changes no inventory slot of that vessel, so it goes through the same gate and the same adoption
+from its own two stock events. `EVAConstructionModeEditor.AttachInput` fires
+`OnEVAConstructionModePartAttached(parentVessel, part)` right after `AttachPart` (and
+`RestoreLastAttachedPart` fires it again when a detach is undone); `DetachInput` fires
+`OnEVAConstructionModePartDetached(vessel, part)` after `DetachPart`, with the vessel captured
+before the detach (decompiled KSP 1.12.5). `DetachPart` -> `Part.OnDetachFlight` -> `Decoupling` ->
+`disconnect` has already removed the held part from `vessel.parts` when the event fires, so the
+member snapshot taken there is the vessel without the part and needs no frame wait. An attach is a
+`PartAdded`, a detach a `PartRemoved`, with details `construction part=<name> action=attach|detach
+pid=<part pid>`; skips log `Foreign construction change not recorded: reason=...`.
+
+**Not covered.** A transfer with a foreign EVA kerbal: adopting a kerbal vessel as a plain member
+would hand crew reservation a kerbal it does not own (`ChangedVesselIsEva`). A part detached from a
+foreign vessel and then dropped on the ground becomes a new vessel that no recording carries.
 
 ---
 
@@ -1263,7 +1288,7 @@ function IsIntermediateChainLink(chains, recording):
 - Part destruction on vessel (collision, explosion, overheat)
 - Crew transfer to/from vessel (kerbal = vessel; boarding = merge, EVA = split)
 - Claw/AGU grab (structural MERGE)
-- EVA construction: part added to or removed from vessel (a stored part moved into or out of a foreign vessel's inventory is recorded, Section 4.12; a part attached or detached in construction mode is not yet)
+- EVA construction: part added to or removed from vessel (a stored part moved into or out of a foreign vessel's inventory, and a part attached to or detached from a foreign vessel in construction mode, are recorded on that vessel's adopted member, Section 4.12)
 
 *Orbital / positional:*
 - Engine burns (changes orbit)

@@ -54,7 +54,10 @@ namespace Parsek.InGameTests
     /// cell 2. It cannot share cell 1's timeline: cell 1 consumes the hold by debiting
     /// it, cell 2 needs the hold released un-debited, and one route A cannot do
     /// both.</item>
-    /// </list></para>
+    /// </list>
+    /// Cell 3 is the live proof of ROUTE-ESCROW-LOST-ON-SCENE-SWITCH: escrow is RAM-only
+    /// and a scene switch clears it, so the hold must be rebuilt on the next tick even
+    /// when no window of A is due there, before competitor B gates.</para>
     ///
     /// <para><b>Determinism, and what is emulated.</b> The route TOPOLOGY and the loop
     /// CLOCK are synthetic (the builder shapes are ported from
@@ -422,11 +425,185 @@ namespace Parsek.InGameTests
         }
 
         // ==================================================================
+        // Cell 3: a scene switch mid-cycle drops the hold; the next tick rebuilds it
+        // ==================================================================
+
+        // The gap tick: after A's dock 0 (1500) and before A's dock 1 (2000), with no
+        // window of A due, and after B's dock phase within B's cycle 6 (loopUT 1060).
+        private const double GapTickUT = 1660.0;
+
+        [InGameTest(Category = "RouteEscrowContention", Scene = GameScenes.FLIGHT,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = IsolatedOnlyBatchSkipReason,
+            Description = "ROUTE-ESCROW-LOST-ON-SCENE-SWITCH live proof (roadmap IR-10): the same two STORED " +
+                "routes on one physical source. Tick 1 - multi-stop route A dispatches, reserves its summed " +
+                "manifest and fires only its first window. Then the PRODUCTION scene-switch handler " +
+                "(ParsekScenario.OnGameSceneSwitchClearEscrow, the onGameSceneSwitchRequested subscriber) " +
+                "clears every reservation, as a FLIGHT->FLIGHT switch does. On the next tick, where no window " +
+                "of A is due, the tick pre-pass ReEstablishInFlightCycleEscrow must rebuild A's un-fired " +
+                "window hold BEFORE competitor B gates, so B stays BLOCKED with short-cause=escrow instead of " +
+                "draining the cargo A already dispatched for. Tick 2 - A's second window then debits its FULL " +
+                "amount. Before the fix B picked up its 8 LF in the gap and A's second window came up short. " +
+                "Auto-spawns the shared source; skips with a named reason when it cannot be provided or falls " +
+                "outside the [12,18) LiquidFuel band")]
+        public IEnumerator Escrow_SceneSwitchClearMidCycle_HoldRebuiltBeforeCompetitorCrosses()
+        {
+            IEnumerator unpackWait = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
+            while (unpackWait.MoveNext())
+                yield return unpackWait.Current;
+
+            var fixture = new UnloadedFuelVesselFixture.EnsureResult();
+            try
+            {
+                IEnumerator ensure = EnsureSharedSource(fixture);
+                while (ensure.MoveNext())
+                    yield return ensure.Current;
+
+                Vessel source = fixture.Vessel;
+                double storedBefore = ProbeSourceStored(source);
+                var arrange = new ContentionArrangement("scene-switch-rebuilds-hold", source);
+
+                try
+                {
+                    arrange.Arm();
+
+                    // ---- TICK 1: identical to cells 1 and 2 - A reserves and holds. ----
+                    arrange.RunTick(Tick1UT);
+
+                    InGameAssert.ApproxEqual(WindowAmountA1, ReservedAgainstB(arrange), ResourceTolerance,
+                        "After tick 1 route A must hold its un-fired window's portion against route B");
+                    arrange.AssertLogged(
+                        "ReserveCycleEscrow: route " + arrange.ShortA + " cycle=cycle-0 context=dispatch "
+                        + "reservedSources=1",
+                        "the dispatch-time reserve line naming ONE summed source");
+                    double storedAfterTick1 = ProbeSourceStored(source);
+                    InGameAssert.ApproxEqual(storedBefore - WindowAmountA0, storedAfterTick1, ResourceTolerance,
+                        $"Only route A's FIRST window ({WindowAmountA0.ToString("R", IC)} LF) may have been " +
+                        $"debited on tick 1 (before={storedBefore.ToString("R", IC)} " +
+                        $"after={storedAfterTick1.ToString("R", IC)})");
+
+                    // ---- SCENE SWITCH: the production handler drops every hold. ----
+                    arrange.ClearLog();
+                    InvokeProductionSceneSwitchEscrowClear();
+                    arrange.AssertLogged(
+                        "ClearAllEscrow reason=scene-switch FLIGHT->FLIGHT clearedRoutes=1",
+                        "the scene-switch handler's clear line");
+                    InGameAssert.IsFalse(RouteStore.HasEscrow(arrange.RouteAId),
+                        "The scene-switch clear must have dropped route A's escrow");
+                    InGameAssert.ApproxEqual(0.0, ReservedAgainstB(arrange), ResourceTolerance,
+                        "Right after the clear nothing is reserved against route B");
+
+                    // ---- GAP TICK: no window of A is due. The pre-pass must rebuild
+                    //      A's hold before B's crossing gates on the source. ----
+                    int beforeGapLedger = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+                    arrange.ClearLog();
+                    arrange.RunTick(GapTickUT);
+
+                    arrange.AssertLogged(
+                        "ReEstablishInFlightCycleEscrow: route " + arrange.ShortA + " cycle=cycle-0 "
+                        + "cycleIdx=0 escrow re-established",
+                        "the tick pre-pass line rebuilding route A's in-flight hold");
+                    arrange.AssertLogged(
+                        "ReserveCycleEscrow: route " + arrange.ShortA + " cycle=cycle-0 "
+                        + "context=resume-reestablish reservedSources=1",
+                        "the re-reserve line for A's un-fired window on the shared source");
+                    InGameAssert.ApproxEqual(WindowAmountA1, ReservedAgainstB(arrange), ResourceTolerance,
+                        "After the gap tick route A must again hold exactly its un-fired window's portion " +
+                        $"({WindowAmountA1.ToString("R", IC)} LF), not the summed manifest");
+                    arrange.AssertLogged(
+                        "LoopRoute: route " + arrange.ShortB + " cycle=cycle-1 BLOCKED "
+                        + "kind=OriginLacksCargo reason=source-reserved:"
+                        + source.persistentId.ToString(IC),
+                        "route B's gap-tick BLOCKED line carrying the rebuilt escrow hold token");
+                    arrange.AssertLogged(
+                        "PickupSourcesHaveCargo: route " + arrange.ShortB + " short-cause=escrow "
+                        + "pid=" + source.persistentId.ToString(IC),
+                        "the escrow-cause classification line for route B in the gap");
+                    InGameAssert.ApproxEqual(storedAfterTick1, ProbeSourceStored(source), ResourceTolerance,
+                        "No cargo may leave the source in the gap: route B must not drain what route A " +
+                        "dispatched for");
+                    CountNewPickupRows(beforeGapLedger, arrange.RouteBId,
+                        out int gapDispatchedB, out int gapPickedUpB);
+                    InGameAssert.AreEqual(0, gapPickedUpB,
+                        "Route B must write no pickup row in the gap (dispatched=" +
+                        gapDispatchedB.ToString(IC) + ")");
+                    InGameAssert.IsTrue(RouteStore.TryGetRoute(arrange.RouteBId, out Route bAfterGap),
+                        "Route B disappeared from the store during the gap tick");
+                    InGameAssert.AreEqual(0, bAfterGap.CompletedCycles,
+                        "Route B must not complete a cycle while route A's rebuilt hold stands");
+                    InGameAssert.AreEqual(2, bAfterGap.SkippedCycles,
+                        "Route B's gap-tick blocked crossing must have bumped SkippedCycles to 2");
+
+                    // ---- TICK 2: A's second window takes its FULL amount. ----
+                    arrange.ClearLog();
+                    arrange.RunTick(Tick2UT);
+
+                    double storedAfterTick2 = ProbeSourceStored(source);
+                    InGameAssert.ApproxEqual(storedBefore - ReservedTotalA, storedAfterTick2, ResourceTolerance,
+                        "After tick 2 route A must have physically debited BOTH windows in full " +
+                        $"({ReservedTotalA.ToString("R", IC)} LF total; " +
+                        $"after={storedAfterTick2.ToString("R", IC)})");
+                    arrange.AssertLogged(
+                        "ReleaseWindowEscrow: route " + arrange.ShortA + " cycle=cycle-0 pid="
+                        + source.persistentId.ToString(IC),
+                        "the window-1 release line against the rebuilt reservation");
+                    InGameAssert.ApproxEqual(0.0, ReservedAgainstB(arrange), ResourceTolerance,
+                        "After route A's last pickup window fires, its reservation must net to zero");
+                    InGameAssert.IsTrue(RouteStore.TryGetRoute(arrange.RouteBId, out Route bAfterTick2),
+                        "Route B disappeared from the store during tick 2");
+                    InGameAssert.AreEqual(0, bAfterTick2.CompletedCycles,
+                        "Route B must still not have completed a cycle - the cargo went to route A");
+
+                    ParsekLog.Info("TestRunner",
+                        "EscrowContention: cell=scene-switch-rebuilds-hold reserved=1 clearedBySceneSwitch=1 "
+                        + "reestablishedInGap=1 blockedInGap=1 fullSecondWindow=1"
+                        + " routeA=" + arrange.ShortA + " routeB=" + arrange.ShortB
+                        + " sourcePid=" + source.persistentId.ToString(IC)
+                        + " stored=" + storedBefore.ToString("R", IC)
+                        + " heldAcrossSwitch=" + WindowAmountA1.ToString("R", IC)
+                        + " rawAfterDebit=" + storedAfterTick2.ToString("R", IC));
+                }
+                finally
+                {
+                    arrange.Teardown();
+                }
+            }
+            finally
+            {
+                UnloadedFuelVesselFixture.Cleanup(fixture);
+            }
+            yield break;
+        }
+
+        /// <summary>
+        /// Runs the production <c>onGameSceneSwitchRequested</c> escrow handler on the
+        /// live scenario with a FLIGHT -&gt; FLIGHT action, without raising the stock
+        /// event itself (that would run every other subscriber's scene-exit work). The
+        /// handler is private by the KSP EventData contract, so it is reached by name.
+        /// </summary>
+        private static void InvokeProductionSceneSwitchEscrowClear()
+        {
+            ParsekScenario scenario = ParsekScenario.Instance;
+            if (scenario == null)
+                InGameAssert.Skip("PRECONDITION: no live ParsekScenario instance to run the scene-switch handler on");
+            System.Reflection.MethodInfo handler = typeof(ParsekScenario).GetMethod(
+                "OnGameSceneSwitchClearEscrow",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            InGameAssert.IsNotNull(handler,
+                "ParsekScenario.OnGameSceneSwitchClearEscrow (the scene-switch escrow handler) was not found");
+            handler.Invoke(scenario, new object[]
+            {
+                new GameEvents.FromToAction<GameScenes, GameScenes>(GameScenes.FLIGHT, GameScenes.FLIGHT)
+            });
+        }
+
+        // ==================================================================
         // Shared arrangement (store, trees, seams, log capture, teardown)
         // ==================================================================
 
         /// <summary>
-        /// Owns everything the two cells share: the two stored routes, their backing
+        /// Owns everything the cells share: the two stored routes, their backing
         /// committed trees, the route-scoped loop-unit resolver seam, the log capture
         /// and the log test overrides - plus the exact-restore teardown. Constructed
         /// AFTER the source vessel is provisioned (the last yielding step), so the

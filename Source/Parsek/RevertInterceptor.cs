@@ -230,7 +230,9 @@ namespace Parsek
         /// <see cref="RewindInvoker.StartInvoke"/> sees a clean slate (its
         /// own precondition rejects a nested session). The old provisional
         /// recording is left in the committed list as a zombie — Phase 13
-        /// load-time sweep purges zombies at next load.
+        /// load-time sweep purges zombies at next load. The rows naming the
+        /// attempt and a tree an F9 detached are repaired first
+        /// (<see cref="MergeDialog.RepairSessionBeforeRetry"/>).
         ///
         /// <para>
         /// Retry's semantics are RP-anchored and do not depend on
@@ -304,6 +306,11 @@ namespace Parsek
             if (!ReferenceEquals(null, scenario))
             {
                 scenario.ClearActiveReFlySessionMarker("marker-cleared");
+                // Before StartInvoke captures the reconciliation bundle: drop the rows a
+                // resumed attempt's first merge wrote, and put back a committed copy of the
+                // session's tree when an F9 detached it (the bundle carries committed trees
+                // only). The supersede bump below covers the row removal.
+                MergeDialog.RepairSessionBeforeRetry(scenario, marker, "RetryHandler");
                 // Live variant (route-timeline events): Retry is a player click
                 // in flight; ERS visibility shifts here must stamp route markers.
                 scenario.BumpSupersedeStateVersionLive();

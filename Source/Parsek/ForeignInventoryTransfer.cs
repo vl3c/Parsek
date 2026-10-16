@@ -53,6 +53,7 @@ namespace Parsek
     internal static class ForeignInventoryTransfer
     {
         internal const string DetailsPrefix = "inventory";
+        internal const string ConstructionDetailsPrefix = "construction";
 
         /// <summary>
         /// Is this <c>onModuleInventorySlotChanged</c> a transfer the tree must record? Stock
@@ -166,6 +167,44 @@ namespace Parsek
         }
 
         /// <summary>
+        /// One EVA construction change on a foreign vessel (todo
+        /// EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED): a part the kerbal attached to it is a
+        /// <see cref="SegmentEventType.PartAdded"/>, a part he detached from it a
+        /// <see cref="SegmentEventType.PartRemoved"/>. Same claim and adoption as an inventory
+        /// transfer; only the details differ.
+        /// </summary>
+        internal static SegmentEvent BuildConstructionSegmentEvent(
+            double ut, bool attached, string partName, uint partPid)
+        {
+            return new SegmentEvent
+            {
+                ut = ut,
+                type = attached ? SegmentEventType.PartAdded : SegmentEventType.PartRemoved,
+                details = string.Format(CultureInfo.InvariantCulture,
+                    "{0} part={1} action={2} pid={3}",
+                    ConstructionDetailsPrefix,
+                    string.IsNullOrEmpty(partName) ? "unknown" : partName,
+                    attached ? "attach" : "detach",
+                    partPid)
+            };
+        }
+
+        internal static string FormatConstructionSkipLog(
+            ForeignInventoryTransferVerdict verdict, bool attached, uint changedVesselPid,
+            uint activeVesselPid, string partName, uint partPid)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Foreign construction change not recorded: reason={0} action={1} changedVesselPid={2} " +
+                "activePid={3} part='{4}' partPid={5}",
+                verdict,
+                attached ? "attach" : "detach",
+                changedVesselPid,
+                activeVesselPid,
+                string.IsNullOrEmpty(partName) ? "(none)" : partName,
+                partPid);
+        }
+
+        /// <summary>
         /// How <paramref name="vesselPid"/> relates to <paramref name="tree"/>: an earlier
         /// cargo partner (its BackgroundMap recording is an InventoryTransfer child), another
         /// tree vessel (any other BackgroundMap entry, the active recording, or any recording
@@ -209,6 +248,88 @@ namespace Parsek
                 return bp.Type == BranchPointType.InventoryTransfer;
             }
             return false;
+        }
+
+        /// <summary>
+        /// Ids of every InventoryTransfer member recording in <paramref name="trees"/>. A
+        /// member's vessel existed before its tree did, so a rewind of that tree finds the
+        /// real vessel in the rewind save, where its chain claims and ghosts it.
+        /// </summary>
+        internal static HashSet<string> CollectTransferMemberRecordingIds(
+            IEnumerable<RecordingTree> trees)
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            if (trees == null) return ids;
+            foreach (RecordingTree tree in trees)
+            {
+                if (tree?.Recordings == null) continue;
+                foreach (Recording rec in tree.Recordings.Values)
+                {
+                    if (rec != null && !string.IsNullOrEmpty(rec.RecordingId)
+                        && IsTransferMember(tree, rec))
+                        ids.Add(rec.RecordingId);
+                }
+            }
+            return ids;
+        }
+
+        /// <summary>
+        /// The InventoryTransfer member of <paramref name="holder"/>'s own tree whose vessel is
+        /// the one <paramref name="holder"/> spawned or adopted (its
+        /// <c>SpawnedVesselPersistentId</c>), or null. Such a spawn names a foreign vessel the
+        /// tree adopted, never a vessel the tree created: the member itself (adoption stamp at
+        /// commit) or its chain tip (a preserve-identity spawn) both carry the foreign pid.
+        /// </summary>
+        internal static Recording FindAdoptedForeignVesselMember(
+            Recording holder,
+            IReadOnlyList<Recording> recordings,
+            ICollection<string> transferMemberIds)
+        {
+            if (holder == null || holder.SpawnedVesselPersistentId == 0
+                || recordings == null || transferMemberIds == null || transferMemberIds.Count == 0)
+                return null;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                Recording member = recordings[i];
+                if (member == null || string.IsNullOrEmpty(member.RecordingId)
+                    || !transferMemberIds.Contains(member.RecordingId))
+                    continue;
+                if (member.VesselPersistentId == holder.SpawnedVesselPersistentId
+                    && string.Equals(member.TreeId, holder.TreeId, StringComparison.Ordinal))
+                    return member;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// <paramref name="recordings"/> without the InventoryTransfer members and the holders
+        /// whose spawn is a vessel their tree adopted (<see cref="FindAdoptedForeignVesselMember"/>):
+        /// the candidate set for the rewind's launch-identity strip, where a match on one of
+        /// those would delete a vessel that existed before its tree.
+        /// </summary>
+        internal static List<Recording> ExcludeForeignAdoptions(
+            IReadOnlyList<Recording> recordings,
+            ICollection<string> transferMemberIds,
+            out int excluded)
+        {
+            excluded = 0;
+            var kept = new List<Recording>();
+            if (recordings == null) return kept;
+            bool any = transferMemberIds != null && transferMemberIds.Count > 0;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                Recording rec = recordings[i];
+                if (any && rec != null
+                    && ((!string.IsNullOrEmpty(rec.RecordingId)
+                            && transferMemberIds.Contains(rec.RecordingId))
+                        || FindAdoptedForeignVesselMember(rec, recordings, transferMemberIds) != null))
+                {
+                    excluded++;
+                    continue;
+                }
+                kept.Add(rec);
+            }
+            return kept;
         }
 
         /// <summary>
