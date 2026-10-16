@@ -3686,7 +3686,8 @@ branch `bdock-delivery-claims`): BDOCK-1's STARTING save `bdock-station-pad` now
 Station's orbital tank (Rockomax16.BW) LiquidFuel 600/720, so the 40 LF delivery has room;
 BDOCK-1 requires LF leaving the transport and landing on the endpoint and re-claims D10
 `delivery` and `mixed-direction` (bdock-recorded is untouched). H55 also claims both, earned
-by its green `cell=delivery` / `cell=mixed` census. The BDOCK-1 delivery is not yet flown. Flown 2026-10-16 `2026-10-16_1138` PASS attempt 1 (automation
+by its green `cell=delivery` / `cell=mixed` census. Flown green 2026-10-16: BDOCK-1
+`2026-10-16_1400` moved the 40 LF (transport -40.0, endpoint +40.0); H55 re-flown green. Flown 2026-10-16 `2026-10-16_1138` PASS attempt 1 (automation
 DLL 556695cb): MP +6.2 transport / -6.2 endpoint (clamped by the Interceptor's room), LF 0;
 both legs logged `partition cross-check ... agrees=False`, confirming the old partition was reversed.
 
