@@ -16,6 +16,22 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~CROSS-TREE-CREW-TRANSFER-STRANDS-RESERVATION: a kerbal taken off a vessel by a later mission's docking stays reserved to the first mission forever~~ [FILED 2026-10-16 from the coverage audit (`roadmap/coverage-matrix-2026-10-16.md` section 5), verified by code read and a red xUnit test. FIXED 2026-10-16, branch `claude/project-thread-wr5u4k`; xUnit only so far. product]
+
+A recording that ends with a kerbal Aboard (a station left in orbit) holds that kerbal open-ended.
+Only a recovery in the same tree, a split handoff or a KSC retirement closed such a hold, so a
+rescue mission in another tree that docked to the station, took the kerbal and was recovered left
+the first hold at +inf (reservations merge by max end), and the kerbal could never fly again.
+
+Fix: `KerbalsModule` collects every committed tree's Dock / Board branch point with a target
+vessel pid (`CollectDockClaims`). An open-ended Aboard / Unknown hold on recording R ends at the
+earliest such dock whose target is R's vessel (pid match, launch guids not conclusively
+different, hold end at or before the dock UT) AND whose merged child carries the kerbal
+(`ResolveDockClaimHandoffUT`, pure `DockClaimHandsOffHold`). The rescue tree's own rows then
+hold the kerbal until its recovery. A dock that does not take the kerbal, a dock to another
+launch of the same craft, and a dock to an unrelated vessel keep the hold. Log line:
+`Reservation bounded by cross-tree dock handoff:`. Tests: `CrossTreeDockCrewHandoffTests`.
+
 ## ~~QL1-KSC-CLOCK-CROSSING: after a quicksave is loaded at the Space Center behind KSC purchases, the purchases are refunded, and the hire and the contract can be bought twice~~ [FILED 2026-10-16 from QL-1's first flight (`2026-10-16_1122` / `_1124_a2`, INVALID driver-verdict-mismatch both attempts), branch `claude/project-thread-k6flcd` (PR #2121). FIXED 2026-10-16 on the same branch; LIVE-PROVEN by QL-1 `2026-10-16_1424` (PASS attempt 1). product]
 
 QL-1 researches basicRocketry, upgrades the Tracking Station, hires Verhat Kerman and accepts the

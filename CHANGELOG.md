@@ -35,6 +35,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A kerbal rescued by a docking from another mission is freed when the rescue lands.** A kerbal
+  left aboard a station and taken off it by a later mission that docks there stayed booked to the
+  station forever. The docking now hands the kerbal to the rescue mission, so they can fly again
+  once it is recovered. (CROSS-TREE-CREW-TRANSFER-STRANDS-RESERVATION)
 - **Loading an earlier quicksave at the Space Center keeps later KSC purchases on schedule.** A
   research, upgrade, hire or contract accepted after the quicksave now applies once when the clock
   reaches it: it is charged then, the kerbal joins the crew, and the contract is listed once, so
