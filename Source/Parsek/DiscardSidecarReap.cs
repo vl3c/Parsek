@@ -173,10 +173,20 @@ namespace Parsek
         /// Short caller name for the log line (e.g. the discard reason). Makes the reap
         /// greppable per discard path.
         /// </param>
+        /// <param name="treeId">
+        /// The discarded tree's id, captured with the recordings. When at least one
+        /// sidecar set was fully removed, the tree is noted as discarded this session
+        /// (<see cref="RecordingStore.NoteTreeDiscardedThisSession"/>), so a later load of
+        /// a save that still holds it as the active tree starts a fresh recording instead
+        /// of resuming into the deleted ids.
+        /// </param>
+        /// <param name="treeName">The discarded tree's name, for the note's log line.</param>
         internal static ReapOutcome ReapDiscardedTreeSidecars(
             IEnumerable<Recording> capturedRecordings,
             string skipReason,
-            string context)
+            string context,
+            string treeId = null,
+            string treeName = null)
         {
             var outcome = new ReapOutcome();
             string tag = string.IsNullOrEmpty(context) ? "<none>" : context;
@@ -268,6 +278,8 @@ namespace Parsek
                 $"knownAfterDiscard={outcome.KnownAfterDiscard} " +
                 $"reaped={outcome.Reaped} failed={outcome.Failed} " +
                 $"preservedKnown={outcome.PreservedKnown} invalidId={outcome.InvalidId}");
+            if (outcome.Reaped > 0)
+                RecordingStore.NoteTreeDiscardedThisSession(treeId, treeName, outcome.Reaped);
             return outcome;
         }
     }

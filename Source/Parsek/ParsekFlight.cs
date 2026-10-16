@@ -3060,11 +3060,15 @@ namespace Parsek
             // status quo, never an unguarded delete.
             List<Recording> reapCapturedRecordings = null;
             string reapSkipReason = null;
+            string reapTreeId = null;
+            string reapTreeName = null;
             if (reapSidecars)
             {
                 try
                 {
                     reapCapturedRecordings = DiscardSidecarReap.CaptureTreeRecordings(activeTree);
+                    reapTreeId = activeTree?.Id;
+                    reapTreeName = activeTree?.TreeName;
                     var reapScenario = ParsekScenario.Instance;
                     reapSkipReason = DiscardSidecarReap.SkipReason(
                         reFlyMarkerActive: !object.ReferenceEquals(null, reapScenario)
@@ -3162,7 +3166,8 @@ namespace Parsek
                 try
                 {
                     DiscardSidecarReap.ReapDiscardedTreeSidecars(
-                        reapCapturedRecordings, reapSkipReason, reason);
+                        reapCapturedRecordings, reapSkipReason, reason,
+                        reapTreeId, reapTreeName);
                 }
                 catch (System.Exception ex)
                 {

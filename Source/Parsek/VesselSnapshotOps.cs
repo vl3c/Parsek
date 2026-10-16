@@ -139,6 +139,56 @@ namespace Parsek
             return manifest;
         }
 
+        /// <summary>
+        /// One-token summary of the parts stored in a vessel snapshot's inventories, for a
+        /// spawn log line: <c>storedParts=0</c>, or <c>storedParts=3 [evaChute x1, solarPanels5 x2]</c>
+        /// (the total quantity, then each part name with its summed quantity, ordinal order).
+        /// A spawn that lost or duplicated a stored part reads differently here. Logs nothing.
+        /// </summary>
+        internal static string FormatStoredPartsForLog(ConfigNode vesselSnapshot)
+        {
+            var counts = new SortedDictionary<string, int>(StringComparer.Ordinal);
+            int total = 0;
+            ConfigNode[] parts = vesselSnapshot != null ? vesselSnapshot.GetNodes("PART") : new ConfigNode[0];
+            for (int i = 0; i < parts.Length; i++)
+            {
+                ConfigNode[] modules = parts[i].GetNodes("MODULE");
+                for (int j = 0; j < modules.Length; j++)
+                {
+                    if (modules[j].GetValue("name") != "ModuleInventoryPart") continue;
+                    ConfigNode stored = modules[j].GetNode("STOREDPARTS");
+                    if (stored == null) continue;
+                    ConfigNode[] items = stored.GetNodes("STOREDPART");
+                    for (int k = 0; k < items.Length; k++)
+                    {
+                        string partName = items[k].GetValue("partName");
+                        if (string.IsNullOrEmpty(partName)) continue;
+                        int quantity = 1;
+                        string qtyStr = items[k].GetValue("quantity");
+                        if (qtyStr != null
+                            && int.TryParse(qtyStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed))
+                            quantity = parsed;
+                        counts.TryGetValue(partName, out int prior);
+                        counts[partName] = prior + quantity;
+                        total += quantity;
+                    }
+                }
+            }
+            if (counts.Count == 0)
+                return "storedParts=0";
+            var sb = new StringBuilder();
+            sb.Append("storedParts=").Append(total.ToString(CultureInfo.InvariantCulture)).Append(" [");
+            bool first = true;
+            foreach (KeyValuePair<string, int> kv in counts)
+            {
+                if (!first) sb.Append(", ");
+                first = false;
+                sb.Append(kv.Key).Append(" x").Append(kv.Value.ToString(CultureInfo.InvariantCulture));
+            }
+            sb.Append(']');
+            return sb.ToString();
+        }
+
         internal static List<InventoryPayloadItem> ExtractInventoryPayloadItems(
             ConfigNode vesselSnapshot,
             ICollection<uint> partPersistentIds = null)

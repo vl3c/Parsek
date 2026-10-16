@@ -2534,6 +2534,8 @@ namespace Parsek.TestCommands
             var discardedRecordings = flight.ActiveTreeForDisplay?.Recordings != null
                 ? new List<Recording>(flight.ActiveTreeForDisplay.Recordings.Values)
                 : new List<Recording>();
+            string discardedTreeId = flight.ActiveTreeForDisplay?.Id;
+            string discardedTreeName = flight.ActiveTreeForDisplay?.TreeName;
             var scenario = ParsekScenario.Instance;
             string reapSkipReason = TestCommandRecordingVerbs.DiscardReapSkipReason(
                 reFlyMarkerActive: scenario?.ActiveReFlySessionMarker != null,
@@ -2572,11 +2574,13 @@ namespace Parsek.TestCommands
                     discardedRecordings, knownIdsAfterDiscard);
                 int reaped = 0;
                 int reapFailed = 0;
+                int fullyRemoved = 0;
                 foreach (var rec in reapList)
                 {
                     try
                     {
-                        RecordingStore.DeleteRecordingFiles(rec);
+                        if (RecordingStore.DeleteRecordingFiles(rec))
+                            fullyRemoved++;
                         reaped++;
                     }
                     catch (Exception ex)
@@ -2588,6 +2592,11 @@ namespace Parsek.TestCommands
                 }
                 ParsekLog.Info(Tag,
                     $"discardtree sidecar-reap: treeRecordings={discardedRecordings.Count} knownAfterDiscard={knownIdsAfterDiscard.Count} reaped={reaped} failed={reapFailed}");
+                // Same note as the gameplay discard paths: an F9 into a quicksave that
+                // still holds this tree must start a fresh recording, not resume into
+                // the deleted ids.
+                if (fullyRemoved > 0)
+                    RecordingStore.NoteTreeDiscardedThisSession(discardedTreeId, discardedTreeName, fullyRemoved);
             }
 
             ParsekLog.Info(Tag, "discardtree discarded=true");

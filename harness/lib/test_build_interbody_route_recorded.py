@@ -219,6 +219,11 @@ class InterbodyRouteSpecFixtureSyncTests(unittest.TestCase):
             "KSC-only capture lane (wave 6): photographs the Missions and Logistics "
             "windows' driveable state, never opens the map, so "
             "RouteTrajectoryLineRenderer never runs",
+        # IR-5 (2026-10-16) sends the Mun route one cycle in FLIGHT and reads the
+        # delivery writer's lines; it never opens the map.
+        "IR-5-mun-route-dispatch-delivery.toml":
+            "FLIGHT delivery lane: send-once and a 1x wait in the flight view, never "
+            "opens the map, so RouteTrajectoryLineRenderer never runs",
     }
 
     # The two verbs that reach a scene where `RouteTrajectoryLineRenderer` draws.

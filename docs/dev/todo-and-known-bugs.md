@@ -1929,7 +1929,7 @@ stage-to-fixture promotion tool.
 
 ---
 
-## ~~QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN: F9 back into a Discarded flight must record again~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-quickload-into-discarded` (xUnit only; live proof is lane QL-6, not flown)]
+## ~~QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN: F9 back into a Discarded flight must record again~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-quickload-into-discarded`; the in-flight discards followed 2026-10-16, branch `claude/lanes-rc6-ql6-ir5-nh7w10` (xUnit only; live proof is lane QL-6, authored, not flown)]
 
 Discard deletes the recording files (`RecordingStore.DiscardPendingTree` -> `DeleteRecordingFiles`).
 Owner ruling 2026-10-06: an F9 back into that flight starts a fresh recording from the loaded
@@ -1965,6 +1965,17 @@ discard's own save refresh did not rewrite), which would otherwise come back as 
 merge or auto-commit. A missing or damaged sidecar not from this session's discard, a hydrated
 member, or any other failure reason keeps today's handling. Red cells:
 `QuickloadIntoDiscardedFlightTests`.
+
+Follow-up 2026-10-16 (branch `claude/lanes-rc6-ql6-ir5-nh7w10`, found while authoring lane QL-6):
+the note was written only by `DiscardPendingTree`, the merge dialog's Discard. The in-flight
+discards that tear the live tree down through `ParsekFlight.AutoDiscardActiveTreeCore` (the
+pre-switch dialog's Discard, the scene-exit no-op and idle-on-pad discards) delete the sidecars in
+`DiscardSidecarReap.ReapDiscardedTreeSidecars` and never noted the tree, so an F9 into a quicksave
+taken during such a flight still resumed into the deleted ids. The reap now takes the tree id the
+core captured before the teardown and notes the tree when it removed at least one sidecar set; the
+`DiscardTree` verb's own reap does the same. Cells: `QuickloadIntoDiscardedFlightTests`
+(`InFlightDiscard*`), `DiscardSidecarReapTests` (`Reap_NotesTheTree*`, two source gates). Live
+proof: lane QL-6 (`QL-6-discard-then-quickload-records-again`), authored, not yet flown.
 
 Residue (owner decision): the proof is in memory, so after a KSP restart a load of that quicksave
 still resumes into the discarded ids (a durable discard tombstone outside the loaded save would
@@ -3401,11 +3412,14 @@ The structural walks that skip or collect a placement read both types through
 `ForeignInventoryTransferTests` (including the walker cell: the rover is claimed and its own
 recording is the tip) and `ReFlyThroughEvaTests.SessionSuppressedSubtree_IncludesAForeignVesselTheKerbalMovedCargoWith`.
 
-Live proof still open: lane RC-6 (roadmap). Its fixture exists since 2026-10-15: `eva-construct-pad`
-(EVA-11's host), whose foreign rover's first ConformalStorageUnit holds an evaChute within EVA reach
-of a kerbal stepped to it. `EvaGroundScience action=take` already
-drives the stock clear-then-store; a put into a foreign container has no verb yet. Sibling gap
-filed as EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED.
+Live proof still open: lane RC-6, AUTHORED 2026-10-16 as
+`RC-6-eva-cargo-from-foreign-container-rewind` (branch `claude/lanes-rc6-ql6-ir5-nh7w10`), not yet
+flown. On `eva-construct-pad` (EVA-11's host) Bill Kerman takes the evaChute out of the foreign
+rover's first ConformalStorageUnit with `EvaGroundScience action=take`, the flight commits, then
+Rewind-to-Launch; the lane gates the rover's chain tip spawn without the chute and Bill's spawn with
+it through the new `storedParts=` suffix on the two VesselSpawner spawn lines
+(`VesselSnapshotOps.FormatStoredPartsForLog`). A put into a foreign container has no verb yet.
+Sibling gap filed as EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED.
 
 ---
 
@@ -3709,8 +3723,12 @@ carries a Paused KSC -> Mun route (transit 85,354 s) and an Active KSC -> Duna r
 (transit 8.53 Ms) but they are only rendered (B32, V26M, V26T) or photographed (GUI-3, GUI-25).
 No fixture has a route at Minmus, Ike or a Jool moon, and there is no career inter-body route.
 
-Fix: lane IR-5 first (activate the Mun route, send once, jump about a day, read the station's
-cargo); then harvest a Minmus depot route and a Duna or Ike station route, and a career twin of
+Fix: lane IR-5 first, AUTHORED 2026-10-16 as `IR-5-mun-route-dispatch-delivery` (branch
+`claude/lanes-rc6-ql6-ir5-nh7w10`), not yet flown. Reading before the flight: send-once does not
+rebase the loop clock, so the first tick after it owes a long-past dock crossing and fires cycle-0
+at once (no day-long jump is needed); the Mun station has less room than the manifest, so the lane
+lowers its two tanks with the new `[[fixture.liveState]] partResources` form (the per-vessel form
+refuses a multi-tank vessel by design). Then harvest a Minmus depot route and a Duna or Ike station route, and a career twin of
 the inter-body fixture, for IC-1 / IC-3.
 
 ---

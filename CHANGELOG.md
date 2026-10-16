@@ -27,6 +27,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A quickload into a flight you discarded mid-flight records it again.** Discarding from the
+  dialog that comes up when you switch vessels (or the scene-exit discards) did not mark the flight
+  as discarded, so a quickload made earlier in it resumed into the deleted recording. It now starts
+  a new recording, as the merge dialog's Discard already did. (QL-6)
+
 - **A station your replaced flight docked with stays put after a Re-Fly.** When a Re-Fly replaces a
   flight that docked with or undocked from a station, the station is no longer held for the old
   flight: before, it could vanish in flight and not come back, and its own recordings could be

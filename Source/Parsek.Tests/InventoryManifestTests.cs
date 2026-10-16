@@ -355,6 +355,44 @@ namespace Parsek.Tests
             Assert.Equal(-1, delta["evaRepairKit"].slotsTaken);
         }
 
+        #region FormatStoredPartsForLog
+
+        [Fact]
+        public void FormatStoredPartsForLog_SumsQuantitiesPerNameAcrossContainers_OrdinalOrder()
+        {
+            var vessel = MakeVessel(
+                MakePart(MakeInventoryModule(3, MakeStoredPart("evaScienceKit"), MakeStoredPart("evaChute", 1))),
+                MakePart(MakeInventoryModule(9, MakeStoredPart("solarPanels5", 2), MakeStoredPart("evaChute"))));
+
+            Assert.Equal("storedParts=5 [evaChute x2, evaScienceKit x1, solarPanels5 x2]",
+                VesselSnapshotOps.FormatStoredPartsForLog(vessel));
+        }
+
+        [Fact]
+        public void FormatStoredPartsForLog_NoStoredParts_ReadsZero()
+        {
+            Assert.Equal("storedParts=0", VesselSnapshotOps.FormatStoredPartsForLog(null));
+            Assert.Equal("storedParts=0", VesselSnapshotOps.FormatStoredPartsForLog(MakeVessel()));
+            Assert.Equal("storedParts=0", VesselSnapshotOps.FormatStoredPartsForLog(
+                MakeVessel(MakePart(MakeInventoryModule(3), new ConfigNode("MODULE")))));
+            // A STOREDPART with no part name is not counted.
+            Assert.Equal("storedParts=0", VesselSnapshotOps.FormatStoredPartsForLog(
+                MakeVessel(MakePart(MakeInventoryModule(3, MakeStoredPart(null))))));
+        }
+
+        [Fact]
+        public void FormatStoredPartsForLog_OnlyInventoryModulesCount_AndItLogsNothing()
+        {
+            var other = new ConfigNode("MODULE");
+            other.AddValue("name", "ModuleCargoPart");
+            other.AddNode("STOREDPARTS").AddNode(MakeStoredPart("evaChute"));
+            logLines.Clear();
+            Assert.Equal("storedParts=0", VesselSnapshotOps.FormatStoredPartsForLog(MakeVessel(MakePart(other))));
+            Assert.Empty(logLines);
+        }
+
+        #endregion
+
         #endregion
     }
 }

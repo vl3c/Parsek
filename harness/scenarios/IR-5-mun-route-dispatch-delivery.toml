@@ -1,0 +1,117 @@
+schema = 1
+id = "IR-5-mun-route-dispatch-delivery"
+# =====================================================================================
+# IR-5: the first live dispatch and delivery of a supply route that leaves Kerbin. Every
+# driven dispatch before this lane delivered between Kerbin rovers; this one sends the
+# `interbody-route-recorded` harvest's KSC -> Mun route (8f644e71, one DockingPort stop at
+# the Mun-orbit station "Depot", pid 4277041026, manifest LiquidFuel 281.96 / Oxidizer
+# 344.62) one cycle and reads the delivery off the station's own tanks.
+#
+# THE ROUTE AS HARVESTED: Paused, completedCycles 0, nextDispatchUT 6738239.52 (its
+# recorded dock), lastObserved -1, KSC origin (SANDBOX, so cost=0 and no origin debit).
+# `RouteCommand send-once` arms PauseAfterCurrentCycle + SendOnceArmed and moves it to
+# Active without rebasing the loop clock, so the first 1 Hz tick after it already owes a
+# dock crossing from long ago and fires cycle-0 whole (dispatch, debit and delivery in
+# one tick, the single-stop path: no `LoopRoute(multi)` line and no `ArmedPause:`
+# line), then pauses `delivered-then-paused`. So the wait is a short 1x WarpToUT, not a
+# transit-length jump (a long TimeJump would also epoch-shift a 45-recording corpus).
+#
+# THE STATION PATCH (`partResources`, added on this lane's branch). As harvested the
+# Depot holds LiquidFuel 939.02/1080 and Oxidizer 1147.69/1320 over two tanks
+# (Rockomax16.BW 720/720 + 880/880, Rockomax8BW 219.02/360 + 267.69/440): less room than
+# the manifest, so the all-or-nothing destination gate would block the cycle
+# `DestinationFull`. The patch leaves each tank alone with room for the whole delivery
+# (Rockomax16.BW 300 / 366, Rockomax8BW 0 / 0), so the gate passes whichever own-part
+# scope it reads. Both block tokens are FORBIDDEN, so a regression reds by name.
+#
+# THE OTHER ROUTE. KSC -> Duna (71a983a1) is Active with pauseAfterCurrentCycle. V26T and
+# B32 read it unfired over the same boot, for a reason not yet measured, so this lane
+# pins none of its lines and the route windows below allow it to fire too.
+#
+# The cargo read-back is the delivery writer's own after-read of the station's tanks
+# (`tankBefore` / `tankAfter`), unloaded path: the station is in Mun orbit, far outside
+# the physics bubble of the active vessel (the Kerbin-orbit "Depot", vessel 0).
+# =====================================================================================
+tier = "nightly"
+description = "IR-5: send the interbody-route-recorded KSC to Mun supply route one cycle and read the delivery on the Mun station: the route dispatches, writes its LiquidFuel and Oxidizer into the station's tanks on the unloaded path, completes the cycle and pauses."
+instanceProfile = "stock-minimal"
+tags = ["seam-verbs", "logistics", "route-delivery", "inter-body", "recorded-fixture", "IR-5"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/interbody-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[[fixture.liveState]]
+pid = 4277041026
+partResources = [
+  { part = "Rockomax16.BW", resources = { LiquidFuel = 300, Oxidizer = 366 } },
+  { part = "Rockomax8BW",   resources = { LiquidFuel = 0,   Oxidizer = 0 } },
+]
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "8f644e71b1164df3bb735330127d2ee7" }, expect = "OK", budget = 120 },
+  # Save clock 87625311.31; B32 measured the load landing within 8 s of it.
+  { cmd = "WarpToUT",   args = { ut = "87625340", maxRate = "1" },         expect = "OK", budget = 120 },
+  { cmd = "SaveGame",                                                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's 45, as B32 and V26T window them.
+count = { min = 43, max = 60 }
+
+[expectations.logContracts]
+required = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "TrySendOneCycleNow: route=8f644e71 prevStatus=Paused [^\\r\\n]*PauseAfterCurrentCycle=true",
+  "routecommand complete action=send-once route=8f644e71b1164df3bb735330127d2ee7 name='Route: KSC .{1,3} Mun' match=id statusBefore=Paused status=Active",
+  "DispatchDebit: route 8f644e71 cycle=cycle-0 ut=[0-9.E+]+ cost=0 careerKsc=0",
+  "Delivery endpoint resolved: route=8f644e71 cycle=cycle-0 dest=Depot pid=4277041026 path=unloaded parts=[^\\r\\n]* plannedResources=2 plannedInventory=0",
+  "Delivery write: route=8f644e71b1164df3bb735330127d2ee7 dest=Depot pid=4277041026 resource=LiquidFuel requested=281\\.95[0-9]* written=281\\.95[0-9]* tankBefore=[0-9.]+ tankAfter=[0-9.]+ capacity=[0-9.]+ path=unloaded ",
+  "Delivery write: route=8f644e71b1164df3bb735330127d2ee7 dest=Depot pid=4277041026 resource=Oxidizer requested=344\\.61[0-9]* written=344\\.61[0-9]* tankBefore=[0-9.]+ tankAfter=[0-9.]+ capacity=[0-9.]+ path=unloaded ",
+  "Delivery: route 8f644e71 cycle=cycle-0 resources=2 inventoryUnits=0/0 inventoryUnitsSkipped=0 partial=0",
+  "Route 8f644e71 Active.{1,3}Paused reason=delivered-then-paused",
+  "LoopRoute: route 8f644e71 cycle=cycle-0 FIRED full cycle \\(dispatch\\+debit\\+delivered\\)",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  "route 8f644e71 [^\\r\\n]*BLOCKED kind=",
+  "DestinationHasCapacity: route 8f644e71 destination FULL",
+  "Origin debit: route=8f644e71",
+]
+
+[expectations.routes]
+# Report-only (no `gating` key) until a reading run matches every window.
+count           = { min = 2, max = 2 }
+dormant         = { min = 0, max = 0 }
+stops           = { min = 2, max = 2 }
+sourceRefs      = { min = 8, max = 8 }
+completedCycles = { min = 1, max = 2 }
+skippedCycles   = { min = 0, max = 0 }
+statuses        = { Paused = { min = 1, max = 2 }, Active = { min = 0, max = 1 } }
+
+[runtime]
+# Budget arithmetic (M-A5 S8): LoadGame and WarpToUT are deferred, 660 s each at worst;
+# the route verb, SaveGame and the fast verbs add their own budgets. 1800 clears it.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

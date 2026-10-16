@@ -1417,6 +1417,10 @@ class CommittedSpecUsageTests(unittest.TestCase):
     # `build_rover_route_recorded.REQUIRED_VESSELS`.
     LIVE_STATE_FIXTURE_PIDS = {
         FIXTURE_NAME: (PID_A, PID_B, PID_C),
+        # IR-5 lowers the Mun station's two LF/Ox tanks with `partResources`.
+        "interbody-route-recorded": (
+            4277041026,   # `Depot`, the Mun station
+        ),
         "rover-route-recorded": (
             2123618197,   # `rover fuel 0`, the window's transferTargetPid
             2875537755,   # `A`, the rover that physically docked
@@ -1533,6 +1537,262 @@ class CommittedSpecUsageTests(unittest.TestCase):
                 "%s declares [fixture.career] against %s, which carries no single "
                 "Funding SCENARIO - the staged run would abort INVALID(staging)"
                 % (name, template))
+
+
+
+def _synthetic_part(name, resources):
+    """One FLIGHTSTATE-depth PART block; ``resources`` is [(name, amount, max)]."""
+    out = ["\t\t\tPART", "\t\t\t{", "\t\t\t\tname = %s" % name]
+    for res, amount, max_amount in resources:
+        out += ["\t\t\t\tRESOURCE", "\t\t\t\t{",
+                "\t\t\t\t\tname = %s" % res,
+                "\t\t\t\t\tamount = %s" % amount,
+                "\t\t\t\t\tmaxAmount = %s" % max_amount,
+                "\t\t\t\t}"]
+    return out + ["\t\t\t}"]
+
+
+# A two-tank vessel (each tank LF + Ox, the IR-5 Depot's shape), plus a part
+# name two PARTs share and a part carrying two LiquidFuel nodes, so every
+# per-part refusal has bytes to refuse. A second vessel carries the same tank
+# name so a write that escaped its vessel would show up in the diff.
+_PART_SYNTHETIC = "\n".join(
+    ["GAME", "{", "\tFLIGHTSTATE", "\t{", "\t\tactiveVessel = 0",
+     "\t\tVESSEL", "\t\t{", "\t\t\tname = Depot", "\t\t\tpersistentId = 333"]
+    + _synthetic_part("Rockomax16.BW", [("LiquidFuel", 720, 720),
+                                        ("Oxidizer", 880, 880)])
+    + _synthetic_part("ladder1", [])
+    + _synthetic_part("ladder1", [])
+    + _synthetic_part("Rockomax8BW", [("LiquidFuel", "219.02045691312301", 360),
+                                      ("Oxidizer", "267.69166126107962", 440)])
+    + _synthetic_part("dualTank", [("LiquidFuel", 1, 10), ("LiquidFuel", 2, 10)])
+    + ["\t\t}", "\t\tVESSEL", "\t\t{", "\t\t\tname = Other",
+       "\t\t\tpersistentId = 444"]
+    + _synthetic_part("Rockomax16.BW", [("LiquidFuel", 5, 720)])
+    + ["\t\t}", "\t}", "}", ""])
+
+_IR5_PART_RESOURCES = [
+    {"part": "Rockomax16.BW", "resources": {"LiquidFuel": 300, "Oxidizer": 366}},
+    {"part": "Rockomax8BW", "resources": {"LiquidFuel": 0, "Oxidizer": 0}},
+]
+
+
+class SyntheticPartResourceTests(unittest.TestCase):
+    """`partResources`: the per-tank form for a vessel `resources` refuses."""
+
+    def _apply(self, entry, text=_PART_SYNTHETIC):
+        return savepatch.apply_live_state(text, [entry])
+
+    def _refusal(self, entry, text=_PART_SYNTHETIC):
+        with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
+            self._apply(entry, text)
+        return str(ctx.exception)
+
+    def test_the_two_tanks_get_exactly_the_declared_amounts(self):
+        after, notes = self._apply({"pid": 333,
+                                    "partResources": _IR5_PART_RESOURCES})
+        diff = _diff_lines(_PART_SYNTHETIC, after)
+        self.assertEqual([
+            "\t\t\t\t\tamount = 300", "\t\t\t\t\tamount = 366",
+            "\t\t\t\t\tamount = 0", "\t\t\t\t\tamount = 0",
+        ], [now for _i, _was, now in diff], diff)
+        self.assertEqual([
+            "\t\t\t\t\tamount = 720", "\t\t\t\t\tamount = 880",
+            "\t\t\t\t\tamount = 219.02045691312301",
+            "\t\t\t\t\tamount = 267.69166126107962",
+        ], [was for _i, was, _now in diff])
+        self.assertEqual([
+            "pid=333 name=Depot resources=[Rockomax16.BW/LiquidFuel 720->300,"
+            "Rockomax16.BW/Oxidizer 880->366,"
+            "Rockomax8BW/LiquidFuel 219.02045691312301->0,"
+            "Rockomax8BW/Oxidizer 267.69166126107962->0] inventory=keep"], notes)
+        self.assertIn("\t\t\t\t\tamount = 5", after,
+                      "the other vessel's same-named tank must not move")
+
+    def test_per_vessel_and_per_part_compose_on_disjoint_resources(self):
+        text = _PART_SYNTHETIC.replace(
+            "\t\t\t\tname = ladder1\n\t\t\t}\n\t\t\tPART\n\t\t\t{\n"
+            "\t\t\t\tname = ladder1\n",
+            "\t\t\t\tname = ladder1\n\t\t\t}\n\t\t\tPART\n\t\t\t{\n"
+            "\t\t\t\tname = ladder1\n\t\t\t\tRESOURCE\n\t\t\t\t{\n"
+            "\t\t\t\t\tname = ElectricCharge\n\t\t\t\t\tamount = 10\n"
+            "\t\t\t\t\tmaxAmount = 50\n\t\t\t\t}\n", 1)
+        self.assertNotEqual(_PART_SYNTHETIC, text)
+        _after, notes = self._apply(
+            {"pid": 333, "resources": {"ElectricCharge": 40},
+             "partResources": [{"part": "Rockomax8BW",
+                                "resources": {"LiquidFuel": 100}}]}, text)
+        self.assertEqual(["pid=333 name=Depot resources=[ElectricCharge 10->40,"
+                          "Rockomax8BW/LiquidFuel 219.02045691312301->100] "
+                          "inventory=keep"], notes)
+
+    def test_a_part_the_vessel_does_not_carry_is_refused(self):
+        msg = self._refusal({"pid": 333, "partResources": [
+            {"part": "Rockomax32.BW", "resources": {"LiquidFuel": 1}}]})
+        self.assertIn("vessel 'Depot' carries 0 PART node(s) named "
+                      "'Rockomax32.BW'", msg)
+
+    def test_a_part_name_two_parts_share_is_refused(self):
+        msg = self._refusal({"pid": 333, "partResources": [
+            {"part": "ladder1", "resources": {"LiquidFuel": 1}}]})
+        self.assertIn("vessel 'Depot' carries 2 PART node(s) named 'ladder1'", msg)
+
+    def test_a_resource_the_part_does_not_carry_is_refused(self):
+        msg = self._refusal({"pid": 333, "partResources": [
+            {"part": "Rockomax8BW", "resources": {"MonoPropellant": 1}}]})
+        self.assertIn("vessel 'Depot' part 'Rockomax8BW' carries 0 MonoPropellant "
+                      "RESOURCE node(s)", msg)
+
+    def test_two_resource_nodes_in_one_part_are_refused(self):
+        msg = self._refusal({"pid": 333, "partResources": [
+            {"part": "dualTank", "resources": {"LiquidFuel": 3}}]})
+        self.assertIn("vessel 'Depot' part 'dualTank' carries 2 LiquidFuel "
+                      "RESOURCE node(s)", msg)
+
+    def test_above_max_is_refused_with_the_part_named(self):
+        msg = self._refusal({"pid": 333, "partResources": [
+            {"part": "Rockomax8BW", "resources": {"LiquidFuel": 361}}]})
+        self.assertIn("vessel 'Depot' part 'Rockomax8BW''s LiquidFuel = 361 "
+                      "exceeds maxAmount 360", msg)
+
+    def test_negative_is_refused_with_the_part_named(self):
+        msg = self._refusal({"pid": 333, "partResources": [
+            {"part": "Rockomax8BW", "resources": {"Oxidizer": -1}}]})
+        self.assertIn("vessel 'Depot' part 'Rockomax8BW''s Oxidizer = -1 is "
+                      "negative", msg)
+
+    def test_a_resource_in_both_forms_is_refused(self):
+        msg = self._refusal({"pid": 333, "resources": {"LiquidFuel": 1},
+                             "partResources": [{"part": "Rockomax8BW",
+                                                "resources": {"LiquidFuel": 1}}]})
+        self.assertIn("LiquidFuel in both `resources` and `partResources`", msg)
+
+    def test_the_same_part_twice_is_refused(self):
+        msg = self._refusal({"pid": 333, "partResources": [
+            {"part": "Rockomax8BW", "resources": {"LiquidFuel": 1}},
+            {"part": "Rockomax8BW", "resources": {"Oxidizer": 1}}]})
+        self.assertIn("names part 'Rockomax8BW' twice", msg)
+
+    def test_remove_with_part_resources_is_refused(self):
+        msg = self._refusal({"pid": 444, "remove": True, "partResources": [
+            {"part": "Rockomax16.BW", "resources": {"LiquidFuel": 1}}]})
+        self.assertIn("`partResources` together with `remove = true`", msg)
+
+    def test_the_per_vessel_form_still_refuses_this_vessel(self):
+        # The refactor shares the node writer; the per-vessel count refusal and
+        # its wording are unchanged.
+        msg = self._refusal({"pid": 333, "resources": {"Oxidizer": 1}})
+        self.assertIn("liveState: vessel 'Depot' carries 2 Oxidizer RESOURCE "
+                      "node(s), expected exactly 1 - the patch would have to "
+                      "decide how to split 1 across them", msg)
+
+
+class ValidatePartResourcesTests(unittest.TestCase):
+    def _errs(self, entry):
+        return savepatch.validate_live_state({"liveState": [entry]})
+
+    def test_the_ir5_shape_is_accepted(self):
+        self.assertEqual([], self._errs({"pid": 4277041026,
+                                         "partResources": _IR5_PART_RESOURCES}))
+        self.assertIn("partResources", savepatch.ENTRY_KEYS)
+
+    def test_composed_with_disjoint_resources_and_inventory_is_accepted(self):
+        self.assertEqual([], self._errs({
+            "pid": 5, "resources": {"ElectricCharge": 1}, "inventory": "clear",
+            "partResources": [{"part": "t", "resources": {"LiquidFuel": 4.5}}]}))
+
+    def test_rejected_shapes(self):
+        ok = {"part": "t", "resources": {"LiquidFuel": 1}}
+        cases = {
+            "not-a-list": {"part": "t", "resources": {"LiquidFuel": 1}},
+            "empty": [],
+            "item-not-table": ["t"],
+            "unknown-item-key": [dict(ok, slots=1)],
+            "missing-part": [{"resources": {"LiquidFuel": 1}}],
+            "blank-part": [{"part": " ", "resources": {"LiquidFuel": 1}}],
+            "int-part": [{"part": 3, "resources": {"LiquidFuel": 1}}],
+            "missing-resources": [{"part": "t"}],
+            "resources-not-table": [{"part": "t", "resources": 1}],
+            "resources-empty": [{"part": "t", "resources": {}}],
+            "amount-string": [{"part": "t", "resources": {"LiquidFuel": "1"}}],
+            "amount-bool": [{"part": "t", "resources": {"LiquidFuel": True}}],
+            "amount-negative": [{"part": "t", "resources": {"LiquidFuel": -1}}],
+            "dup-part": [ok, {"part": "t", "resources": {"Oxidizer": 1}}],
+        }
+        for name, items in cases.items():
+            self.assertNotEqual([], self._errs({"pid": 5, "partResources": items}),
+                                "%s must be rejected" % name)
+
+    def test_a_resource_in_both_forms_is_rejected(self):
+        errs = self._errs({"pid": 5, "resources": {"LiquidFuel": 1},
+                           "partResources": [{"part": "t",
+                                              "resources": {"LiquidFuel": 1}}]})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("partResources[0].resources.LiquidFuel: also declared", errs[0])
+
+    def test_remove_with_part_resources_is_rejected(self):
+        errs = self._errs({"pid": 5, "remove": True, "partResources": [
+            {"part": "t", "resources": {"LiquidFuel": 1}}]})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("cannot be combined", errs[0])
+
+    def test_part_resources_alone_patches_something(self):
+        errs = self._errs({"pid": 5})
+        self.assertIn("partResources", errs[0])
+        self.assertEqual([], self._errs({"pid": 5, "partResources": [
+            {"part": "t", "resources": {"LiquidFuel": 0}}]}))
+
+    def test_the_per_vessel_messages_are_unchanged(self):
+        self.assertEqual(
+            ["fixture.liveState[0].resources.LiquidFuel: -1 must be >= 0"],
+            self._errs({"pid": 5, "resources": {"LiquidFuel": -1}}))
+        self.assertEqual(
+            ["fixture.liveState[0].resources: declared but empty; omit the key "
+             "instead"], self._errs({"pid": 5, "resources": {}}))
+
+
+class CommittedInterbodyPartResourceTests(unittest.TestCase):
+    """The IR-5 declaration against the committed `interbody-route-recorded`
+    bytes: both Depot tanks read the patched values and nothing else moves."""
+
+    SFS = os.path.join(HARNESS_ROOT, "fixtures", "saves",
+                       "interbody-route-recorded", "persistent.sfs")
+    DEPOT_PID = 4277041026
+
+    def test_the_ir5_patch_moves_exactly_the_four_amount_lines(self):
+        with open(self.SFS, "rb") as fh:
+            before = fh.read().decode("utf-8")
+        after, notes = savepatch.apply_live_state(
+            before, [{"pid": self.DEPOT_PID,
+                      "partResources": _IR5_PART_RESOURCES}],
+            save_name="interbody-route-recorded")
+        diff = _diff_lines(before, after)
+        self.assertEqual(4, len(diff), diff)
+        for _i, was, now in diff:
+            self.assertTrue(was.strip().startswith("amount = "), was)
+            self.assertTrue(now.strip().startswith("amount = "), now)
+        self.assertEqual(before.count("\r\n"), after.count("\r\n"))
+        self.assertEqual(1, len(notes))
+        self.assertIn("name=Depot resources=[Rockomax16.BW/LiquidFuel 720->300,"
+                      "Rockomax16.BW/Oxidizer 880->366,Rockomax8BW/LiquidFuel ",
+                      notes[0])
+
+        lines = _lines(after)
+        depot = [span for _n, vpid, span in savepatch.flightstate_vessels(lines)
+                 if vpid == str(self.DEPOT_PID)]
+        self.assertEqual(1, len(depot))
+        read = {}
+        for part in savepatch.child_nodes(lines, depot[0], "PART"):
+            name = savepatch.get_value(lines, part, "name")
+            if name not in ("Rockomax16.BW", "Rockomax8BW"):
+                continue
+            for res in savepatch.child_nodes(lines, part, "RESOURCE"):
+                read[(name, savepatch.get_value(lines, res, "name"))] = \
+                    savepatch.get_value(lines, res, "amount")
+        self.assertEqual({("Rockomax16.BW", "LiquidFuel"): "300",
+                          ("Rockomax16.BW", "Oxidizer"): "366",
+                          ("Rockomax8BW", "LiquidFuel"): "0",
+                          ("Rockomax8BW", "Oxidizer"): "0"}, read)
 
 
 if __name__ == "__main__":

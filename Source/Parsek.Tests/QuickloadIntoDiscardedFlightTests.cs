@@ -68,6 +68,7 @@ namespace Parsek.Tests
             RewindContext.ResetForTesting();
             RevertDetector.ResetForTesting();
             TreeDiscardPurge.ResetTestOverrides();
+            DiscardSidecarReap.ResetForTesting();
             GameStateRecorder.PendingScienceSubjects.Clear();
         }
 
@@ -104,6 +105,66 @@ namespace Parsek.Tests
                 && l.Contains("activeRecId=root_ql_disc")
                 && l.Contains("poppedLimbo=none")
                 && l.Contains("a fresh recording starts for the active vessel at flight ready"));
+        }
+
+        // An in-flight discard (the pre-switch dialog's Discard, the scene-exit no-op and
+        // idle-on-pad discards, the DiscardTree verb) never stashes a pending tree: the
+        // shared discard core tears the live tree down and its sidecar reap deletes the
+        // files. That reap must note the tree too, or an F9 into a quicksave taken during
+        // the flight resumes into the deleted ids (lane QL-6).
+        [Theory]
+        [InlineData("pre-switch-dialog discard")]
+        [InlineData("scene-exit idle-on-pad auto-discard dest=SPACECENTER")]
+        public void InFlightDiscardThenF9_TheDiscardedTreeIsNotRestored_AFreshRecordingIsArmed(string reason)
+        {
+            RecordingTree tree = MakeTree("ql_inflight");
+            ConfigNode quicksave = F5(tree);
+            var outcome = DiscardSidecarReap.ReapDiscardedTreeSidecars(
+                DiscardSidecarReap.CaptureTreeRecordings(tree), skipReason: null, context: reason,
+                treeId: tree.Id, treeName: tree.TreeName);
+            Assert.Equal(2, outcome.Reaped);
+            foreach (Recording rec in tree.Recordings.Values)
+                Assert.False(File.Exists(TrajectoryPath(rec.RecordingId)));
+            Assert.True(RecordingStore.WasTreeDiscardedThisSession("ql_inflight"));
+
+            logLines.Clear();
+            bool restored = ParsekScenario.TryRestoreActiveTreeNode(
+                quicksave, EarlyLoadKind.InSession, loadedSceneIsFlight: true);
+
+            Assert.False(restored);
+            Assert.False(RecordingStore.HasPendingTree);
+            Assert.True(ParsekScenario.IsFreshRecordingAfterDiscardArmed);
+            Assert.Equal("ql_inflight", ParsekScenario.FreshRecordingAfterDiscardTreeIdForTesting);
+            Assert.DoesNotContain(logLines, l => l.Contains("TryRestoreActiveTreeNode: stashed active tree 'ql_inflight'"));
+            Assert.Contains(logLines, l =>
+                l.Contains("TryRestoreActiveTreeNode: saved active tree 'ql_inflight' id=ql_inflight was discarded this session")
+                && l.Contains("action=StartFreshRecording reason=discarded-this-session"));
+        }
+
+        [Fact]
+        public void InFlightDiscardThatReapedNothing_NotesNothing_TheQuicksaveRestoresAsBefore()
+        {
+            // Every member is committed history (a committed-restore clone): the reap keeps
+            // every file, so the tree is not noted and nothing changes for the load.
+            RecordingTree tree = MakeTree("ql_inflight_kept");
+            F5(tree);
+            foreach (Recording rec in tree.Recordings.Values)
+                RecordingStore.AddCommittedInternal(Recording.DeepClone(rec));
+            var outcome = DiscardSidecarReap.ReapDiscardedTreeSidecars(
+                DiscardSidecarReap.CaptureTreeRecordings(tree), skipReason: null,
+                context: "pre-switch-dialog discard", treeId: tree.Id, treeName: tree.TreeName);
+            Assert.Equal(0, outcome.Reaped);
+            Assert.False(RecordingStore.WasTreeDiscardedThisSession("ql_inflight_kept"));
+
+            // A skipped reap (Re-Fly marker, merge journal, restore in progress) deletes
+            // nothing and notes nothing either.
+            RecordingTree skipped = MakeTree("ql_inflight_skipped");
+            F5(skipped);
+            DiscardSidecarReap.ReapDiscardedTreeSidecars(
+                DiscardSidecarReap.CaptureTreeRecordings(skipped), skipReason: "refly-marker-active",
+                context: "pre-switch-dialog discard", treeId: skipped.Id, treeName: skipped.TreeName);
+            Assert.False(RecordingStore.WasTreeDiscardedThisSession("ql_inflight_skipped"));
+            Assert.True(File.Exists(TrajectoryPath("root_ql_inflight_skipped")));
         }
 
         [Fact]

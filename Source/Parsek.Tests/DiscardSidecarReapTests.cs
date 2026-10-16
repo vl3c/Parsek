@@ -648,6 +648,70 @@ namespace Parsek.Tests
                 body);
         }
 
+        // Fails if: the core stops handing the reap the tree id it captured before the
+        // teardown. Without it the reap cannot note the tree as discarded, and an F9 into a
+        // quicksave taken during the discarded flight resumes into the deleted ids (todo
+        // QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN, lane QL-6).
+        [Fact]
+        public void AutoDiscardActiveTreeCore_PassesTheCapturedTreeIdToTheReap()
+        {
+            string body = ReadAutoDiscardCoreBody();
+            int capture = body.IndexOf("reapTreeId = activeTree?.Id;", StringComparison.Ordinal);
+            int nulling = body.IndexOf("activeTree = null;", StringComparison.Ordinal);
+            Assert.True(capture > 0, "tree id capture not found in AutoDiscardActiveTreeCore");
+            Assert.True(capture < nulling, "the tree id must be captured before the teardown");
+            Assert.Matches(new Regex(
+                @"DiscardSidecarReap\.ReapDiscardedTreeSidecars\(\s*reapCapturedRecordings,\s*reapSkipReason,\s*reason,\s*reapTreeId,\s*reapTreeName\)",
+                RegexOptions.Multiline),
+                body);
+        }
+
+        // Fails if: the DiscardTree verb's own reap (the core is told not to reap for it)
+        // stops noting the tree it deleted files for.
+        [Fact]
+        public void DiscardTreeVerb_NotesTheTreeItReaped()
+        {
+            string source = ReadProjectSource("TestCommands", "ParsekTestCommandAddon.cs");
+            int start = source.IndexOf("private void DiscardTreeImpl(", StringComparison.Ordinal);
+            Assert.True(start > 0, "DiscardTreeImpl not found");
+            int end = source.IndexOf("\n        private ", start + 1, StringComparison.Ordinal);
+            string body = source.Substring(start, (end > start ? end : source.Length) - start);
+            int reapLine = body.IndexOf("discardtree sidecar-reap: treeRecordings=", StringComparison.Ordinal);
+            int note = body.IndexOf("RecordingStore.NoteTreeDiscardedThisSession(discardedTreeId", StringComparison.Ordinal);
+            Assert.True(reapLine > 0, "the verb's reap summary line not found");
+            Assert.True(note > reapLine, "the verb must note the tree after its reap");
+        }
+
+        [Fact]
+        public void Reap_NotesTheTreeOnlyWhenItRemovedASidecarSet()
+        {
+            string dir = CreateRecordingsDir("note");
+            StageSidecars(dir, "rec-note-a");
+            DiscardSidecarReap.DeleteRecordingFilesForTesting = StagedDirDeleter(dir);
+
+            DiscardSidecarReap.ReapDiscardedTreeSidecars(
+                new List<Recording> { Rec("rec-note-a") }, skipReason: null,
+                context: "pre-switch-dialog discard", treeId: "tree-note", treeName: "Note Tree");
+            Assert.True(RecordingStore.WasTreeDiscardedThisSession("tree-note"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]")
+                && l.Contains("Noted tree 'Note Tree' id=tree-note as discarded this session (removedSidecarSets=1"));
+
+            // A failed delete removes nothing, so nothing is noted.
+            DiscardSidecarReap.DeleteRecordingFilesForTesting = rec => false;
+            DiscardSidecarReap.ReapDiscardedTreeSidecars(
+                new List<Recording> { Rec("rec-note-b") }, skipReason: null,
+                context: "pre-switch-dialog discard", treeId: "tree-note-failed", treeName: "Failed");
+            Assert.False(RecordingStore.WasTreeDiscardedThisSession("tree-note-failed"));
+
+            // No tree id (a caller that captured none): reaps as before, notes nothing.
+            DiscardSidecarReap.DeleteRecordingFilesForTesting = rec => true;
+            var outcome = DiscardSidecarReap.ReapDiscardedTreeSidecars(
+                new List<Recording> { Rec("rec-note-c") }, skipReason: null, context: "no-id");
+            Assert.Equal(1, outcome.Reaped);
+            Assert.DoesNotContain(logLines, l => l.Contains("Noted tree '<unnamed>'"));
+        }
+
         // Fails if: the reap escapes the discard. A throw out of the core would abort a
         // scene transition or a map click (both callers run inside Harmony prefixes).
         [Fact]

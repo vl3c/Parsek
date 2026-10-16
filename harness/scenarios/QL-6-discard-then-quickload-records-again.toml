@@ -1,0 +1,107 @@
+schema = 1
+id = "QL-6-discard-then-quickload-records-again"
+# =====================================================================================
+# QL-6 (todo QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN, owner ruling 2026-10-06): F5
+# during a recorded flight, Discard that flight, then F9 back into the quicksave. The
+# quicksave still names the discarded tree as its active tree, but the discard deleted
+# every sidecar, so the load must NOT resume the recorder into the deleted ids; it must
+# start a FRESH tree for the loaded vessel ("as if it had never been discarded").
+#
+# WHICH DISCARD. The TA-15 fix (2026-10-07) noted only `DiscardPendingTree` (the merge
+# dialog's Discard). The in-flight discards that tear the LIVE tree down through
+# `ParsekFlight.AutoDiscardActiveTreeCore` (the pre-switch dialog's Discard, the
+# scene-exit no-op and idle-on-pad discards) and the `DiscardTree` verb never noted the
+# tree, so an F9 after one of them still resumed into the deleted ids. This lane's
+# branch makes both reaps note the tree; the `DiscardTree` verb is the seam stand-in for
+# the in-flight discard (the merge dialog's Discard is not seam-drivable, and it also
+# rewrites quicksave.sfs, which would take away the very save this lane loads).
+#
+# FLOW (gloops-airshow, the pad pod, save clock UT 21.16):
+#   record to UT 40, F5 (`SaveGame name=quicksave`), stop + DiscardTree (the verb's reap
+#   deletes the one sidecar set and notes the tree), F9 (`LoadGame name=quicksave`, an
+#   in-session load into FLIGHT), fly on to UT 60, then read the recorder and commit.
+#
+# WHAT GATES IT. The tree id the discard noted is captured once and threaded through
+# the decline line, the flight-ready start line and the recorder read, which must name a
+# DIFFERENT tree (a negative lookahead on the backreference). The recordings count does
+# not discriminate (the pre-fix resume also commits one recording), so the logs do.
+# Every `Noted tree` line is Verbose, hence `verboseLogging=true` before the discard.
+# =====================================================================================
+tier = "nightly"
+description = "QL-6: F5 during a recorded flight of the pad pod, Discard the flight in flight, then F9 back into the quicksave. The quicksave's tree is not restored into the deleted recordings; a fresh tree records the loaded flight and commits."
+instanceProfile = "stock-minimal"
+tags = ["QL-6", "TA-15", "timeline-ops", "quickload", "discard", "live-recording", "D1"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },  expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging",     value = "true" },   expect = "OK" },
+  { cmd = "StartRecording",                                                           expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "40", maxRate = "1" },                      expect = "OK", budget = 120 },
+  # F5 with the recorder live: the quicksave holds the tree as its active tree and the
+  # OnSave writes its sidecars.
+  { cmd = "SaveGame",       args = { name = "quicksave" },                            expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "DiscardTree",                                                              expect = "OK" },
+  # F9.
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave" },       expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",       args = { ut = "60", maxRate = "1" },                      expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "CommitTree",                                                               expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+[dimensionsCovered]
+D1  = ["discard-rollback"]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fresh tree's one recording, committed. The discarded tree's sidecars are gone.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "discardtree sidecar-reap: treeRecordings=1 knownAfterDiscard=0 reaped=1 failed=0\\b",
+  "discardtree discarded=true",
+  "loadgame start save=\\S+ name=quicksave ",
+  # The discard noted the tree, the F9 declined it, flight ready started a fresh tree.
+  "Noted tree '[^']*' id=([0-9a-f]+) as discarded this session \\(removedSidecarSets=1, new=true\\)[\\s\\S]*TryRestoreActiveTreeNode: saved active tree '[^']*' id=\\1 was discarded this session \\(members=1, every trajectory sidecar deleted\\) - not restoring it; action=StartFreshRecording reason=discarded-this-session [^\\r\\n]*poppedLimbo=none - a fresh recording starts for the active vessel at flight ready",
+  "Noted tree '[^']*' id=([0-9a-f]+) as discarded[\\s\\S]*Fresh recording after discarded restore started: the flight records again as a new tree \\(discarded tree '[^']*' id=\\1 ",
+  # The recorder is live after the F9, on a tree that is not the discarded one.
+  "Noted tree '[^']*' id=([0-9a-f]+) as discarded[\\s\\S]*Fresh recording after discarded restore started[\\s\\S]*recordingstate recording=true tree=(?!\\1\\b)[0-9a-f]+ ",
+  "committree committed=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "RestoreActiveTreeFromPending: resumed recording tree",
+  "sidecar hydration failure",
+  "was discarded this session but is restored as before",
+  "Fresh recording after discarded restore skipped",
+  "Fresh recording after discarded restore: StartRecording left no recorder running",
+]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): every deferred verb waits max(step budget, 600) + 60 =
+# 660 s at worst. The two LoadGames and the two WarpToUTs are deferred (2640); the
+# StartRecording scene wait (180), CommitTree (120), SaveGame (120) and the fast verbs
+# add their own. 3300 clears it.
+budgetSeconds = 3300
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

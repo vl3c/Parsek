@@ -2777,8 +2777,10 @@ namespace Parsek
             => suppressNextActiveTreeRestore;
 
         /// <summary>
-        /// Records that <see cref="DiscardPendingTree"/> deleted the sidecars of
-        /// <paramref name="treeId"/>'s recordings in this process. A later load of a save that
+        /// Records that a discard deleted the sidecars of <paramref name="treeId"/>'s
+        /// recordings in this process: <see cref="DiscardPendingTree"/>, the in-flight
+        /// discard core's reap (<see cref="DiscardSidecarReap.ReapDiscardedTreeSidecars"/>)
+        /// or the <c>DiscardTree</c> test-command verb's own reap. A later load of a save that
         /// still holds the tree as its active tree reads this to tell a deliberate discard
         /// from a damaged or incomplete save folder.
         /// </summary>
@@ -2794,7 +2796,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// True when <see cref="DiscardPendingTree"/> deleted sidecars of this tree id in this
+        /// True when a discard deleted sidecars of this tree id in this
         /// process (see <see cref="NoteTreeDiscardedThisSession"/>).
         /// </summary>
         internal static bool WasTreeDiscardedThisSession(string treeId)
