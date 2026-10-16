@@ -254,19 +254,24 @@ steps = [
 ]
 
 [dimensionsCovered]
-# NO D10 CLAIMS BEFORE THE FIRST FLIGHT, and that is stated rather than left implicit.
+# D10 `delivery` and `mixed-direction`, EARNED 2026-10-16 off the green census this lane
+# has read on every flight since run 2 (`2026-09-01_2229`; re-flown green `2026-09-02_1911`
+# and `2026-10-12_0608`, PASS attempt 1, `total=6 passed=6 failed=0 skipped=0`). Both are
+# gated by the cell tokens below, not by this claim (the CLAIM-IS-NOT-GATE rule,
+# autotest-roadmap.md, "Trust and fail-open risks", item 5):
+#   * `delivery`: `DockCapture PASS: cell=delivery ... deliveryResources=[1-9]...
+#     deliveryInventory=[1-9]...` - a real Part.Couple / cargo-move / Part.Undock window
+#     whose captured manifest is a delivery into the partner.
+#   * `mixed-direction`: `DockCapture PASS: cell=mixed ... deliveryInventory=[1-9]...
+#     pickupResources=[1-9]...` - one window that delivers an item and picks up fuel.
+# Since the BDOCK-1 withdrawal (BDOCK-FIXTURE-TRANSFER-INVERTED) this lane is the one
+# that covers them.
 #
-# The CLAIM-IS-NOT-GATE rule (autotest-roadmap.md, "Trust and fail-open risks", item 5)
-# is exactly the discipline the RVR wave applied to its own three lanes: "NO D10 claim
-# yet ... earned in the commit that measures the lane green". This lane is authored and
-# has never flown, so it claims NOTHING - not `delivery`, not `pickup`, not
-# `mixed-direction`, not `multi-stop`, not `round-trip-pair`, not the surface flavor of
-# `docked-depot-origin`. Every one of those is EARNED in the commit that reads a green
-# census off a real run, off the cell tokens pinned below.
-#
-# D14 is also NOT claimed here: the boot facts ride H38's / H41's rows on this same
-# host, and re-claiming a covered row inflates the count without gating a new behaviour
-# (the H34 rule).
+# NOTHING ELSE IS CLAIMED. `pickup` is BDOCK-1's, `multi-stop` and `round-trip-pair` are
+# H38's, and re-claiming a covered row inflates the count without gating a new behaviour
+# (the H34 rule). D14 is not claimed either: the boot facts ride H38's / H41's rows on
+# this same host.
+D10 = ["delivery", "mixed-direction"]
 
 [expectations]
 # PLACEMENT IS LOAD-BEARING (the H7 lesson): run.py reads

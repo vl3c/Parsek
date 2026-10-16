@@ -3746,10 +3746,14 @@ comment mentions). Done: the runner reads both ships' part lists at DOCK entry, 
 merge, and picks the tanks from them (`mlib.pick_dock_transfer_parts`, destination with room
 first; the controlling-part partition stays as a logged cross-check and fallback). BDOCK-1
 requires the MP pickup on the transport side and the matching loss on the endpoint side, and
-forbids the reversed LF gain; its D10 `delivery` and `mixed-direction` claims are withdrawn
-(no lane covers them now; a delivery needs a Station that has burned fuel, a new BDOCK-1
-phase). `harness/lib/test_bdock_recorded_window.py` pins the fixture's window as an LF pickup
-with no MP and a full Station. Flown 2026-10-16 `2026-10-16_1138` PASS attempt 1 (automation
+forbids the reversed LF gain. `harness/lib/test_bdock_recorded_window.py` pins the fixture's
+window as an LF pickup with no MP and a full Station. Follow-up (owner question 2026-10-16,
+branch `bdock-delivery-claims`): BDOCK-1's STARTING save `bdock-station-pad` now gives the
+Station's orbital tank (Rockomax16.BW) LiquidFuel 600/720, so the 40 LF delivery has room;
+BDOCK-1 requires LF leaving the transport and landing on the endpoint and re-claims D10
+`delivery` and `mixed-direction` (bdock-recorded is untouched). H55 also claims both, earned
+by its green `cell=delivery` / `cell=mixed` census. Flown green 2026-10-16: BDOCK-1
+`2026-10-16_1400` moved the 40 LF (transport -40.0, endpoint +40.0); H55 re-flown green. Flown 2026-10-16 `2026-10-16_1138` PASS attempt 1 (automation
 DLL 556695cb): MP +6.2 transport / -6.2 endpoint (clamped by the Interceptor's room), LF 0;
 both legs logged `partition cross-check ... agrees=False`, confirming the old partition was reversed.
 
