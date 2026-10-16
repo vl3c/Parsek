@@ -2642,7 +2642,7 @@ GAME
 				RESOURCE
 				{
 					name = LiquidFuel
-					amount = 720
+					amount = 600
 					maxAmount = 720
 					flowState = True
 					isTweakable = True

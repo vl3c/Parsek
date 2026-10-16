@@ -172,14 +172,16 @@ matchTimeoutSeconds         = 600
 dockSpeedMetersPerSec       = 0.5
 # Two small fixed transfers, opposite directions + resources (NIT 16): LiquidFuel
 # transport->station (delivery), MonoPropellant station->transport (pickup).
-# MEASURED 2026-10-16 off the committed bdock-recorded window (BDOCK-FIXTURE-TRANSFER-
-# INVERTED): the Station docks with LF 720/720, oxidizer 880/880 and MP 230/230, so the
-# LF delivery has no room and moves nothing (kRPC completes a transfer whose destination
-# is full, as the reversed MP leg did on every earlier flight); only the MP pickup moves
-# cargo, into the Interceptor's 22.4 units of room. Before the side fix both requests ran
-# reversed: the runner told the sides apart by the merged vessel's controlling part, and
-# the fixture holds a 15.77 LF pickup and no MP. The sides now come from the two ships'
-# part lists read at DOCK entry (`mlib.pick_dock_transfer_parts`).
+# THE STATION STARTS 120 LF SHORT (BDOCK-FIXTURE-TRANSFER-INVERTED, owner question
+# 2026-10-16): `bdock-station-pad`'s Station orbital tank (Rockomax16.BW, the one that
+# reaches the dock) holds LiquidFuel 600/720, not 720/720. Measured off the committed
+# bdock-recorded window, a full Station docks with LF 720/720, oxidizer 880/880 and MP
+# 230/230, so a 40 LF delivery has no room and kRPC completes it having moved nothing; the
+# 120 units of room make the delivery real. Only this lane's STARTING save changed: the
+# harvested bdock-recorded fixture (a 15.77 LF pickup, kept by owner ruling) and the
+# lanes on it are untouched. The MP pickup moves into the Interceptor's room (22.4 in the
+# fixture). The sides come from the two ships' part lists read at DOCK entry
+# (`mlib.pick_dock_transfer_parts`).
 transferAmountLf            = 40
 transferAmountMp            = 15
 # Give-up budgets (GAME time). rendezvous is large (phasing legs advance game time
@@ -212,12 +214,13 @@ D4  = ["atmospheric", "exo-propulsive"]
 D5  = ["cross-tree-foreign-dock", "undock-split", "bg-recording"]
 D7  = ["dock-undock", "rcs"]
 D8  = ["route"]
-# `delivery` and `mixed-direction` WITHDRAWN 2026-10-16 (BDOCK-FIXTURE-TRANSFER-INVERTED):
-# the Station reaches the dock with LF, oxidizer and monoprop all full, so no delivery
-# into it can move anything, and every flight before the side fix recorded the two
-# requests reversed (an LF pickup, no MP). `pickup` is now gated by the direction tokens
-# below.
-D10 = ["candidate-detection", "ksc-origin", "dock-producer", "pickup", "resource-cargo"]
+# `delivery` and `mixed-direction` were WITHDRAWN 2026-10-16 (BDOCK-FIXTURE-TRANSFER-
+# INVERTED: the Station docked full, and every flight before the side fix recorded the
+# two requests reversed) and are RE-CLAIMED in the change that starts the Station 120 LF
+# short: `delivery` is gated by the LF direction tokens below (LF leaves the transport
+# and lands on the endpoint), `pickup` by the MP tokens, and `mixed-direction` by both
+# together in the one dock window.
+D10 = ["candidate-detection", "ksc-origin", "dock-producer", "delivery", "pickup", "mixed-direction", "resource-cargo"]
 D14 = ["kerbin", "warp-rails", "scene-flight", "sandbox"]
 
 [expectations]
@@ -321,6 +324,11 @@ required = [
   # the fixture), so a thirstier approach clamps it.
   "Route window delta: .* transportDelta=\\[[^\\]]*MonoPropellant=\\+[0-9]*[1-9]",
   "Route window delta: .* endpointDelta=\\[[^\\]]*MonoPropellant=-[0-9]*[1-9]",
+  # THE DELIVERY (the Station starts 120 LF short, see transferAmountLf): the 40 LF leaves
+  # the Interceptor (transport) and lands on the Station (endpoint). Against a full Station
+  # (the committed bdock-recorded window) both lines read LiquidFuel=+0.0 and red.
+  "Route window delta: .* transportDelta=\\[[^\\]]*LiquidFuel=-[0-9]*[1-9]",
+  "Route window delta: .* endpointDelta=\\[[^\\]]*LiquidFuel=\\+[0-9]*[1-9]",
   # D2 proximity-cadence-bg WITNESS, REQUIRED 2026-09-10 off the reading `_1815` (15
   # lines: 12 on staging debris at 18-19 m, 2 at probe separations, 1 on the undock
   # background child): the BG recorder stepping a background vessel into its 5 Hz
