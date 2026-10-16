@@ -1983,26 +1983,49 @@ be needed). No `LoadReconcilePolicy` cell covers the saved active tree itself.
 
 ---
 
-## HARVEST-ROUTE-PLAUSIBILITY-CAP: cap a harvest-origin route's recorded harvest at what its drills could produce [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~HARVEST-ROUTE-PLAUSIBILITY-CAP: cap a harvest-origin route's recorded harvest at what its drills could produce~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `claude/harvest-cap-scan-ledger-oo5vxg` (xUnit; in-game lane HV-2 LIVE-PROVEN 2026-10-16, run `2026-10-16_0607`)]
 
 A harvest-origin route replays whatever ore its recorded run gained, including a stock
 catch-up burst recorded inside an open harvest window (see TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND).
 Owner ruling 2026-10-06: bound the recorded harvest by drill rate x duration (with a margin) at
 route creation, and say so in the route's explanation text when the cap applies.
 
-Fix: a pure plausibility bound in the harvest-window capture / route analysis
-(`RouteHarvestCapture`), xUnit cells, then lane MINE-5.
+Fix: each harvest window stores `PlausibleRates` (units/s of the transport's whole converter set,
+sampled at open, on a part-count change inside the window (an EVA-built drill) and at an in-flight
+close; stock surface / ocean drills, recipe converters and the
+lab are modelled, and so is the `ModuleAsteroidDrill` / `ModuleCometDrill` both stock drills also
+carry - no output on a vessel with no asteroid or comet part, unmodelled with one; anything else
+leaves the window unbounded). The plausible harvest is
+`min(delta, rate x duration x 1.5)` per window and `min(delta, rate x gap x 1.5)` per D5 bridge
+(`RouteHarvestCapture.ComputeWindowPlausibleHarvest`, `RouteHarvestAnalysis.ComputeHarvestedTotals`).
+The gain / flow / harvest-origin gates still read the witnessed totals; a harvest-origin route's
+deliveries are clamped to the plausible totals and the D8 debit reduction subtracts them. Capped
+resources persist as `Route.HarvestCaps` and the from/to hover names them. Design: logistics
+19.4 M2 "Plausibility cap". In-game: `HarvestCapScanLedgerInGameTests.StockDrillAndIsruRatesAreModeled`
+(lane HV-2) reads every stock drill / ISRU prefab through `FlightRecorder.ReadHarvestConverterRate`;
+writing it found the asteroid drill left every stock mining window unbounded. Still open: lane
+MINE-5 (a live drill) to measure a real window's rates against stock's own production; a delivery that clamps to nothing leaves its stop with an
+empty manifest rather than refusing the route.
 
 ---
 
-## RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED: orbital survey results are not recorded or ledgered, so a rewind does not re-apply a committed future scan [FILED 2026-10-06 from the coverage-extension research and the owner ruling, branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED: orbital survey results are not recorded or ledgered, so a rewind does not re-apply a committed future scan~~ [FILED 2026-10-06 from the coverage-extension research and the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `claude/harvest-cap-scan-ledger-oo5vxg` (xUnit; in-game lane HV-2 LIVE-PROVEN 2026-10-16, run `2026-10-16_0607`)]
 
 Nothing in `Source/Parsek` references `ResourceScenario` or the scanner modules. Owner ruling
 2026-10-06: treat a scan like other committed career progress - recorded, ledgered, and re-applied
 when the clock reaches it after a rewind.
 
-Fix: capture the scan-completed event as a game-state event / ledger action and patch the
-ResourceScenario state on recalculation; xUnit for the action and the patch; a mining-lane step.
+Fix: Harmony prefix / postfix pairs on `ResourceMap.UnlockPlanet` / `UnlockBiome`
+(`Patches/ResourceScanCapturePatch.cs`; decompiled callers: `ModuleOrbitalSurveyor.CompleteSurvey`,
+`ModuleBiomeScanner.RunAnalysis`, the Making History editor) emit a `ResourceScanCompleted` event
+(23) on each locked-to-unlocked transition, suppressed during replay; it converts to a
+non-economic `ResourceScanUnlocked` action (37, `scanBody` / `scanBiome`, dedup key body|biome).
+`KspStatePatcher.PatchResourceScans` unlocks every effective row at or before the part-purchase
+cutoff (clamped to the live clock), add-only; a superseded flight's row is tombstoned and never
+strict-blocks. xUnit: `ResourceScanLedgerTests`. In-game: the two scan cells of
+`HarvestCapScanLedgerInGameTests` (lane HV-2) drive stock's own unlock, a rewind-style relock and
+the re-apply at the Space Center. Open: a scan by a real scanner part in a mining lane (needs the
+MINE-1 fixture forge; no committed fixture carries a scanner).
 
 ---
 
@@ -4031,7 +4054,7 @@ route in a source-problem state. Tests: `RouteRecoveryCreditTests.OnLoadSourcePr
 
 ---
 
-## ~~ROUTE-ESCROW-LOST-ON-SCENE-SWITCH: a multi-stop cycle's depot reservation is dropped by a scene change between its windows~~ [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `claude/logistics-escrow-recovery-credit-s0sb0u` (xUnit only; live proof is lane IR-10)]
+## ~~ROUTE-ESCROW-LOST-ON-SCENE-SWITCH: a multi-stop cycle's depot reservation is dropped by a scene change between its windows~~ [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `claude/logistics-escrow-recovery-credit-s0sb0u` (PR #2110); LIVE-PROVEN 2026-10-16 by H60's IR-10 cell]
 
 `ClearAllEscrow` runs on every scene switch (`ParsekScenario.cs:8365`); the only re-establish
 site (`RouteOrchestrator.cs:1531`) sits behind the no-due-window early return in
@@ -4048,7 +4071,10 @@ is processed. For every ghost-driving route with an in-flight multi-stop cycle (
 un-fired pickup window), no escrow held, and the cycle's dispatch row in the ledger, it
 re-reserves the un-fired windows. It needs no due window or loop unit, so tick order cannot let a
 competitor drain the depot first. Tests: `RouteEscrowFireTests.GapTickAfterClear_*`,
-`PrePass_SkipsPausedRoute_*`, `TryGetInFlightMultiStopCycle_Cases`. Live proof is still lane IR-10.
+`PrePass_SkipsPausedRoute_*`, `TryGetInFlightMultiStopCycle_Cases`. Live proof (roadmap IR-10): H60's
+`scene-switch-rebuilds-hold` cell runs the production scene-switch handler between the holder's
+windows; run `2026-10-16_0542` PASS attempt 1 read the clear, the pre-pass rebuild and the
+competitor's `source-reserved` block all at ut=1660, then the holder's full second pickup.
 
 ---
 

@@ -393,6 +393,97 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(120.0, result.HarvestedManifest["Ore"], 6);
         }
 
+        // catches (HARVEST-ROUTE-PLAUSIBILITY-CAP): a catch-up burst bridged
+        // across a zero-length chain seam credited per run. The seam has no
+        // elapsed time, so its plausible share is 0; the windows (150 s and
+        // 150 s at 1 Ore/s, limit 225 each) are not capped. The witnessed total
+        // still covers the gain.
+        [Fact]
+        public void CheckTransportGains_BoundaryBurst_PlausibleShareIsRateTimesGap()
+        {
+            RecordingTree tree = BuildChainKscTree(
+                out Recording leg1, out Recording leg2, out Recording merge,
+                leg1EndOre: 50.0, leg2StartOre: 80.0);
+            var rates = new Dictionary<string, double> { ["Ore"] = 1.0 };
+            RouteHarvestWindow w1 = HarvestWindow(150.0, 300.0, Ore(0.0), Ore(50.0), closedAtStop: true);
+            w1.PlausibleRates = rates;
+            RouteHarvestWindow w2 = HarvestWindow(300.0, 450.0, Ore(80.0), Ore(120.0), openedAtStart: true);
+            w2.PlausibleRates = rates;
+            leg1.RouteHarvestWindows = new List<RouteHarvestWindow> { w1 };
+            leg2.RouteHarvestWindows = new List<RouteHarvestWindow> { w2 };
+
+            HarvestGainCheckResult result = RouteHarvestAnalysis.CheckTransportGains(
+                tree, merge, ColonyWindow(120.0, 20.0), RouteAnalysisLogMode.Diagnostic);
+
+            Assert.Equal(HarvestGainOutcome.Covered, result.Outcome);
+            Assert.Equal(120.0, result.HarvestedManifest["Ore"], 6);
+            Assert.Equal(90.0, result.PlausibleHarvestedManifest["Ore"], 6);
+            Assert.Single(result.HarvestCaps);
+            Assert.Equal(120.0, result.HarvestCaps[0].Recorded, 6);
+            Assert.Equal(90.0, result.HarvestCaps[0].Cap, 6);
+            Assert.Contains(logLines, l => l.Contains("[Route]")
+                && l.Contains("plausibility cap applies") && l.Contains("Ore:recorded=120"));
+        }
+
+        // A boundary window without rates leaves the bridge uncapped.
+        [Fact]
+        public void CheckTransportGains_BoundaryWindowWithoutRates_BridgeUncapped()
+        {
+            RecordingTree tree = BuildChainKscTree(
+                out Recording leg1, out Recording leg2, out Recording merge,
+                leg1EndOre: 50.0, leg2StartOre: 80.0);
+            RouteHarvestWindow w1 = HarvestWindow(150.0, 300.0, Ore(0.0), Ore(50.0), closedAtStop: true);
+            RouteHarvestWindow w2 = HarvestWindow(300.0, 450.0, Ore(80.0), Ore(120.0), openedAtStart: true);
+            w2.PlausibleRates = new Dictionary<string, double> { ["Ore"] = 1.0 };
+            leg1.RouteHarvestWindows = new List<RouteHarvestWindow> { w1 };
+            leg2.RouteHarvestWindows = new List<RouteHarvestWindow> { w2 };
+
+            HarvestGainCheckResult result = RouteHarvestAnalysis.CheckTransportGains(
+                tree, merge, ColonyWindow(120.0, 20.0), RouteAnalysisLogMode.Diagnostic);
+
+            Assert.Equal(120.0, result.PlausibleHarvestedManifest["Ore"], 6);
+            Assert.Empty(result.HarvestCaps);
+        }
+
+        [Fact]
+        public void ClampDeliveriesToPlausibleHarvest_SharesBudgetInStopOrder()
+        {
+            var first = new Dictionary<string, double> { ["Ore"] = 60.0, ["LiquidFuel"] = 10.0 };
+            var second = new Dictionary<string, double> { ["Ore"] = 40.0 };
+            var plausible = new Dictionary<string, double> { ["Ore"] = 75.0, ["LiquidFuel"] = 10.0 };
+
+            List<HarvestCapEntry> caps = RouteHarvestAnalysis.ClampDeliveriesToPlausibleHarvest(
+                new List<Dictionary<string, double>> { first, second }, plausible);
+
+            Assert.Equal(60.0, first["Ore"], 6);
+            Assert.Equal(10.0, first["LiquidFuel"], 6);
+            Assert.Equal(15.0, second["Ore"], 6);
+            Assert.Single(caps);
+            Assert.Equal(100.0, caps[0].Recorded, 6);
+            Assert.Equal(75.0, caps[0].Cap, 6);
+        }
+
+        // A stop whose share drops to nothing loses the resource rather than
+        // carrying a zero delivery; a null plausible manifest changes nothing.
+        [Fact]
+        public void ClampDeliveriesToPlausibleHarvest_ExhaustedBudget_RemovesResource()
+        {
+            var first = new Dictionary<string, double> { ["Ore"] = 50.0 };
+            var second = new Dictionary<string, double> { ["Ore"] = 40.0 };
+
+            RouteHarvestAnalysis.ClampDeliveriesToPlausibleHarvest(
+                new List<Dictionary<string, double>> { first, second },
+                new Dictionary<string, double> { ["Ore"] = 50.0 });
+
+            Assert.Equal(50.0, first["Ore"], 6);
+            Assert.False(second.ContainsKey("Ore"));
+
+            var untouched = new Dictionary<string, double> { ["Ore"] = 50.0 };
+            Assert.Empty(RouteHarvestAnalysis.ClampDeliveriesToPlausibleHarvest(
+                new List<Dictionary<string, double>> { untouched }, null));
+            Assert.Equal(50.0, untouched["Ore"], 6);
+        }
+
         // catches: a boundary delta bridged WITHOUT a window open at the
         // boundary - an unexplained between-leg gain must stay unaccounted.
         [Fact]

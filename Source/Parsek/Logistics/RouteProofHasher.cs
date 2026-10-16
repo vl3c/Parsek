@@ -224,8 +224,10 @@ namespace Parsek.Logistics
             // quantities and span markers only.
             // INTENTIONAL EXCLUSION (the M1 / D5 precedent above): the
             // open-time location fields (BodyName/Latitude/Longitude/Altitude/
-            // SituationAtOpen) and the ActiveConverters strings are
-            // diagnostic / endpoint-resolution metadata, deliberately NOT
+            // SituationAtOpen), the ActiveConverters strings and the
+            // PlausibleRates bound (fixed at capture, read only for the
+            // per-run credit) are diagnostic / endpoint-resolution / credit
+            // metadata, deliberately NOT
             // hashed - the hash pins the witnessed transfer. Including them
             // would make harmless resolution-metadata edits flip routes to
             // SourceChanged. Pinned by Hash_IgnoresHarvestLocationAndConverterIds.

@@ -4445,6 +4445,14 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # third flight, result 2026-10-12_0458 (PASS attempt 1), measured the prediction,
     # `passed=3 failed=0 skipped=0`, and the spec pinned the line whole (the two flights
     # before it were red on spec defects outside the batch).
+    #
+    # HV-2-scan-ledger-drill-rates ENTERED on 2026-10-16 (the new HarvestCapScanLedger
+    # category, 3 SPACECENTER cells on fresh-career, `total=3` literal with the split
+    # regexed, predicted passed=3 skipped=0). Like CN-1 it is not an H-series id, so this
+    # class's own cells never read it; CommittedBatchTallySourceSyncTests gates its `total=`.
+    # It LEFT the same day: its second flight, run 2026-10-16_0607 (PASS attempt 1), measured
+    # the prediction, `passed=3 failed=0 skipped=0`, and the spec pinned the line whole (the
+    # first flight was red on the lane setup: the host's UT ~0.1 skipped both scan cells).
     INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -4964,7 +4972,8 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # cells spawn vessels, wipe RouteStore and write live resource state), so the
         # ordinary path's executable ceiling is zero. Authored 2026-09-02, never flown,
         # INTERIM.
-        "H60-route-escrow-contention": ("RouteEscrowContention", 2),
+        # 2 -> 3 on 2026-10-16: the IR-10 scene-switch rebuild cell.
+        "H60-route-escrow-contention": ("RouteEscrowContention", 3),
         # THE FOURTH RECORDED `Logistics` HOST, and the first THREE-TREE,
         # NINE-RECORDING, TWO-WINDOW forest any isolated batch has booted. Its
         # fixture `rover-relay-recorded` is the operator's 2026-09-02 two-hop

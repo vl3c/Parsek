@@ -45,6 +45,7 @@ namespace Parsek
             (new[] { "Revert", "HighLogic_LoadScene", "FloatingOrigin" }, "revert, rewind and scene changes"),
             (new[] { "FlightResultsDialogLog" }, "diagnostic logging"),
             (new[] { "VesselRenameAccept", "PartVesselNamingAccept" }, "vessel names"),
+            (new[] { "ResourceScan" }, "resource scan recording"),
         };
 
         /// <summary>

@@ -421,6 +421,12 @@ namespace Parsek
         public double Longitude;
         public double Altitude;
         public int SituationAtOpen = -1; // (int)Vessel.Situations; -1 = unknown
+        // Plausibility bound (HARVEST-ROUTE-PLAUSIBILITY-CAP): the most each
+        // routable resource could gain per second from the transport's whole
+        // converter set (units/s). Null = unbounded (a converter the bound
+        // does not model, or a window recorded before the bound existed): the
+        // window's harvest is then credited uncapped. Hash-excluded.
+        public Dictionary<string, double> PlausibleRates;
 
         internal bool IsOpen => double.IsNaN(EndUT);
 
@@ -440,7 +446,10 @@ namespace Parsek
                 Latitude = Latitude,
                 Longitude = Longitude,
                 Altitude = Altitude,
-                SituationAtOpen = SituationAtOpen
+                SituationAtOpen = SituationAtOpen,
+                PlausibleRates = PlausibleRates != null
+                    ? new Dictionary<string, double>(PlausibleRates)
+                    : null
             };
         }
     }

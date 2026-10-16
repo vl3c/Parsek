@@ -269,6 +269,22 @@ namespace Parsek
             }
             if (window.SituationAtOpen >= 0)
                 node.AddValue("situationAtOpen", window.SituationAtOpen.ToString(ic));
+
+            // Plausibility bound: the node's presence means "bounded" (even
+            // with no values - no converter produces a routable resource);
+            // absent reads back null = unbounded.
+            if (window.PlausibleRates != null)
+            {
+                ConfigNode ratesNode = node.AddNode("PLAUSIBLE_RATES");
+                var names = new List<string>(window.PlausibleRates.Keys);
+                names.Sort(StringComparer.Ordinal);
+                for (int i = 0; i < names.Count; i++)
+                {
+                    if (string.IsNullOrEmpty(names[i]))
+                        continue;
+                    ratesNode.AddValue(names[i], window.PlausibleRates[names[i]].ToString("R", ic));
+                }
+            }
         }
 
         private static RouteHarvestWindow DeserializeHarvestWindow(ConfigNode node)
@@ -322,6 +338,21 @@ namespace Parsek
                 && int.TryParse(situationStr, NumberStyles.Integer, ic, out int situation))
             {
                 window.SituationAtOpen = situation;
+            }
+
+            ConfigNode ratesRead = node.GetNode("PLAUSIBLE_RATES");
+            if (ratesRead != null)
+            {
+                window.PlausibleRates = new Dictionary<string, double>(StringComparer.Ordinal);
+                for (int i = 0; i < ratesRead.values.Count; i++)
+                {
+                    ConfigNode.Value v = ratesRead.values[i];
+                    if (v == null || string.IsNullOrEmpty(v.name))
+                        continue;
+                    if (double.TryParse(v.value, inv, ic, out double rate)
+                        && !double.IsNaN(rate) && rate >= 0.0)
+                        window.PlausibleRates[v.name] = rate;
+                }
             }
 
             return window;

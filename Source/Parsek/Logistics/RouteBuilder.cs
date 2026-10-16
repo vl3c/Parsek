@@ -478,6 +478,7 @@ namespace Parsek.Logistics
                 Origin = origin,
                 IsKscOrigin = isKscOrigin,
                 IsHarvestOrigin = isHarvestOrigin,
+                HarvestCaps = SelectRouteHarvestCaps(analysis, isHarvestOrigin, isPickupOrigin, isKscOrigin),
                 Stops = stops,
                 TransitDuration = transitDuration,
                 DispatchInterval = dispatchInterval,
@@ -900,13 +901,56 @@ namespace Parsek.Logistics
 
                 // D8: non-KSC docked origin only - KSC CostManifest semantics
                 // stay unchanged (the funds basis is OQ1's job, Phase 6).
+                // The reduction credits the PLAUSIBLE harvest
+                // (HARVEST-ROUTE-PLAUSIBILITY-CAP): a catch-up burst in the
+                // recorded run must not come off the origin debit every cycle.
                 if (!isKscOrigin && analysis.HarvestedManifest != null
                     && analysis.HarvestedManifest.Count > 0)
                 {
                     ReduceCostManifestByHarvested(
-                        costManifest, analysis.HarvestedManifest, ic);
+                        costManifest,
+                        analysis.PlausibleHarvestedManifest ?? analysis.HarvestedManifest,
+                        ic);
                 }
             }
+        }
+
+        /// <summary>
+        /// The plausibility caps the built route reports
+        /// (HARVEST-ROUTE-PLAUSIBILITY-CAP). A harvest-origin route reports the
+        /// delivery caps the analysis applied. A docked-origin route whose debit the
+        /// D8 reduction lowered reports each capped resource whose cap changed that
+        /// reduction (the credit is min(delivered, harvest), so a cap above the
+        /// delivery changes nothing), with Recorded / Cap as the credit before and
+        /// after. Every other route reports null: harvest credits nothing there.
+        /// </summary>
+        internal static List<HarvestCapEntry> SelectRouteHarvestCaps(
+            RouteAnalysisResult analysis,
+            bool isHarvestOrigin,
+            bool isPickupOrigin,
+            bool isKscOrigin)
+        {
+            if (analysis?.HarvestCaps == null || analysis.HarvestCaps.Count == 0)
+                return null;
+            if (isHarvestOrigin)
+                return new List<HarvestCapEntry>(analysis.HarvestCaps);
+            if (isPickupOrigin || isKscOrigin || analysis.ResourceDeliveryManifest == null)
+                return null;
+
+            var caps = new List<HarvestCapEntry>();
+            for (int i = 0; i < analysis.HarvestCaps.Count; i++)
+            {
+                HarvestCapEntry cap = analysis.HarvestCaps[i];
+                if (cap.Resource == null
+                    || !analysis.ResourceDeliveryManifest.TryGetValue(cap.Resource, out double delivered)
+                    || delivered <= 0.0)
+                    continue;
+                double before = Math.Min(delivered, cap.Recorded);
+                double after = Math.Min(delivered, cap.Cap);
+                if (before - after > RouteHarvestAnalysis.GainEpsilon)
+                    caps.Add(new HarvestCapEntry { Resource = cap.Resource, Recorded = before, Cap = after });
+            }
+            return caps.Count > 0 ? caps : null;
         }
 
         /// <summary>
