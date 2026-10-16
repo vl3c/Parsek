@@ -402,6 +402,91 @@ namespace Parsek.Tests
             Assert.Null(GhostChainWalker.FindIntermediateLinkChain(chains, member));
         }
 
+        // ---- EVA construction on a foreign vessel (EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED) ----
+
+        private const uint BuiltPartPid = 7777u;
+        private const string BuiltPart = "solarPanels5";
+
+        [Fact]
+        public void BuildConstructionSegmentEvent_AttachAddsDetachRemoves_WithInvariantDetails()
+        {
+            CultureInfo saved = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                SegmentEvent attach = ForeignInventoryTransfer.BuildConstructionSegmentEvent(
+                    1200.5, attached: true, partName: BuiltPart, partPid: BuiltPartPid);
+                Assert.Equal(1200.5, attach.ut);
+                Assert.Equal(SegmentEventType.PartAdded, attach.type);
+                Assert.Equal("construction part=solarPanels5 action=attach pid=7777", attach.details);
+                Assert.True(GhostingTriggerClassifier.IsGhostingSegmentEvent(attach.type));
+
+                SegmentEvent detach = ForeignInventoryTransfer.BuildConstructionSegmentEvent(
+                    1201.0, attached: false, partName: null, partPid: 0u);
+                Assert.Equal(SegmentEventType.PartRemoved, detach.type);
+                Assert.Equal("construction part=unknown action=detach pid=0", detach.details);
+                Assert.True(GhostingTriggerClassifier.IsGhostingSegmentEvent(detach.type));
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
+
+        [Fact]
+        public void FormatConstructionSkipLog_NamesTheReasonAndTheAction()
+        {
+            string line = ForeignInventoryTransfer.FormatConstructionSkipLog(
+                ForeignInventoryTransferVerdict.ChangedVesselIsTreeMember, attached: false,
+                changedVesselPid: LanderPid, activeVesselPid: KerbalPid,
+                partName: BuiltPart, partPid: BuiltPartPid);
+            Assert.Equal(
+                "Foreign construction change not recorded: reason=ChangedVesselIsTreeMember action=detach " +
+                "changedVesselPid=50 activePid=60 part='solarPanels5' partPid=7777",
+                line);
+        }
+
+        // A part the recorded kerbal attached to a parked rover in EVA construction adopts the
+        // rover exactly as an inventory transfer does: the rover joins the tree under an
+        // InventoryTransfer branch point, the chain walker claims it through the member's own
+        // PartAdded event, and the member is the tip (it spawns in its built form).
+        [Fact]
+        public void ConstructionAttach_ClaimsTheForeignVessel_AndItsOwnRecordingIsTheTip()
+        {
+            var (tree, _, kerbal) = BuildEvaTree();
+            var (bp, member) = ForeignInventoryTransfer.BuildMemberBranchData(
+                kerbal.RecordingId, tree.Id, 1100.0, RoverPid, "Rover", kerbal.Generation);
+            member.VesselSnapshot = new ConfigNode("VESSEL");
+            member.Points = new List<TrajectoryPoint>();
+            ForeignInventoryTransfer.AttachMember(tree, kerbal, bp, member,
+                ForeignInventoryTransfer.BuildConstructionSegmentEvent(
+                    1100.0, attached: true, partName: BuiltPart, partPid: BuiltPartPid));
+            member.ExplicitEndUT = 1300;
+            member.TerminalStateValue = TerminalState.Landed;
+
+            Assert.Contains(logLines, l => l.Contains("[Flight]")
+                && l.Contains("Foreign inventory transfer: vessel joined the tree")
+                && l.Contains("event=PartAdded")
+                && l.Contains("construction part=solarPanels5 action=attach"));
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree }, 900.0, supersedes: null);
+            Assert.True(chains.ContainsKey(RoverPid));
+            Assert.Equal(member.RecordingId, chains[RoverPid].TipRecordingId);
+            Assert.Equal(1100.0, chains[RoverPid].GhostStartUT);
+            Assert.False(chains.ContainsKey(KerbalPid));
+
+            // A later detach from the same rover appends to its member and keeps UT order.
+            ForeignInventoryTransfer.AppendTransferEvent(member,
+                ForeignInventoryTransfer.BuildConstructionSegmentEvent(
+                    1150.0, attached: false, partName: BuiltPart, partPid: BuiltPartPid));
+            Assert.Equal(
+                new[] { SegmentEventType.PartAdded, SegmentEventType.PartRemoved },
+                member.SegmentEvents.Select(e => e.type).ToArray());
+            Assert.Equal(ForeignInventoryMembership.TransferMember,
+                ForeignInventoryTransfer.ResolveMembership(tree, RoverPid));
+        }
+
         // ---- the enum member's consumers ----
 
         [Fact]

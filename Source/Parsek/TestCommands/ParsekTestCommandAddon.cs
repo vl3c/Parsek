@@ -1272,6 +1272,8 @@ namespace Parsek.TestCommands
             launchFromEditorFlightReadyWaitFrames = 0;
             // The EvaGroundScience key press must never outlive its command.
             EvaJumpKeyPressInjection.Remove();
+            // So must the EvaGroundScience construction press and pose.
+            EvaConstructionInputInjection.Remove();
             // Recover's two stock-event listeners must never outlive its command either.
             RemoveRecoverListeners();
             RemoveTsRecoverListeners();

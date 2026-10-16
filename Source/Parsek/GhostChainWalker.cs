@@ -28,8 +28,8 @@ namespace Parsek
         /// <summary>
         /// Scans all committed trees and builds ghost chains for every pre-existing
         /// vessel claimed by a ghosting-trigger interaction, reading the live scenario's
-        /// supersede rows (<see cref="ParsekScenario.RecordingSupersedes"/>) for the walk.
-        /// Returns dict of vessel PID -> GhostChain.
+        /// supersede rows (<see cref="ParsekScenario.RecordingSupersedes"/>) for the claim
+        /// scan and the walk. Returns dict of vessel PID -> GhostChain.
         /// </summary>
         internal static Dictionary<uint, GhostChain> ComputeAllGhostChains(
             List<RecordingTree> committedTrees, double rewindUT)
@@ -37,8 +37,9 @@ namespace Parsek
 
         /// <summary>
         /// Explicit-rows overload. <paramref name="supersedes"/> are the Re-Fly supersede
-        /// rows the tip walk follows (<see cref="WalkToLeaf"/>); null or empty walks the
-        /// trees as they are.
+        /// rows: a claim made by a recording a row hides from playback is dropped
+        /// (<see cref="BuildSupersededClaimantMap"/>), and the tip walk follows the rows
+        /// (<see cref="WalkToLeaf"/>). Null or empty reads the trees as they are.
         /// </summary>
         internal static Dictionary<uint, GhostChain> ComputeAllGhostChains(
             List<RecordingTree> committedTrees, double rewindUT,
@@ -61,6 +62,8 @@ namespace Parsek
             // Step 2: Scan BranchPoints for claiming events
             int skippedTerminated = 0;
             int skippedSessionSuppressed = 0;
+            int skippedSuperseded = 0;
+            Dictionary<string, string> supersededClaimants = BuildSupersededClaimantMap(supersedes);
             for (int t = 0; t < committedTrees.Count; t++)
             {
                 var tree = committedTrees[t];
@@ -73,8 +76,10 @@ namespace Parsek
                     continue;
                 }
 
-                ScanBranchPointClaims(tree, claimsByPid, ref skippedSessionSuppressed);
-                ScanBackgroundEventClaims(tree, claimsByPid, ref skippedSessionSuppressed);
+                ScanBranchPointClaims(tree, claimsByPid, supersededClaimants,
+                    ref skippedSessionSuppressed, ref skippedSuperseded);
+                ScanBackgroundEventClaims(tree, claimsByPid, supersededClaimants,
+                    ref skippedSessionSuppressed, ref skippedSuperseded);
             }
 
             if (skippedTerminated > 0)
@@ -98,6 +103,16 @@ namespace Parsek
                     message: string.Format(ic,
                         "Skipped {0} claim(s) from session-suppressed recording(s)",
                         skippedSessionSuppressed));
+            }
+
+            // A claim by a recording a Re-Fly superseded: that recording no longer plays.
+            if (skippedSuperseded > 0)
+            {
+                ParsekLog.VerboseOnChange(Tag,
+                    identity: "skipped-superseded",
+                    stateKey: skippedSuperseded.ToString(ic),
+                    message: string.Format(ic,
+                        "Skipped {0} claim(s) from superseded recording(s)", skippedSuperseded));
             }
 
             if (claimsByPid.Count == 0)
@@ -265,12 +280,62 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Old recording id -> new recording id for every supersede row that hides its old
+        /// recording from playback (<see cref="EffectiveState.IsHidingSupersedeRow"/>; the
+        /// first such row per old id, named in the skip line). A claim whose
+        /// claiming recording is a key here is dropped: that recording no longer plays, so
+        /// its dock or undock no longer happens and the other vessel is not held back for
+        /// it. Rows are keyed by recording id, so a row on a recording of another tree, or
+        /// one with no new id, never matches a claimant it does not hide.
+        /// </summary>
+        private static Dictionary<string, string> BuildSupersededClaimantMap(
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            var map = new Dictionary<string, string>(System.StringComparer.Ordinal);
+            if (supersedes == null)
+                return map;
+            for (int i = 0; i < supersedes.Count; i++)
+            {
+                RecordingSupersedeRelation rel = supersedes[i];
+                if (EffectiveState.IsHidingSupersedeRow(rel) && !map.ContainsKey(rel.OldRecordingId))
+                    map[rel.OldRecordingId] = rel.NewRecordingId;
+            }
+            return map;
+        }
+
+        /// <summary>
+        /// True when <paramref name="claimingRecordingId"/> is superseded (a key of
+        /// <paramref name="supersededClaimants"/>); logs the dropped claim once per change.
+        /// </summary>
+        private static bool SkipSupersededClaim(
+            Dictionary<string, string> supersededClaimants, string claimingRecordingId,
+            uint pid, string treeId, string via, string identitySuffix)
+        {
+            string newId;
+            if (supersededClaimants == null || supersededClaimants.Count == 0
+                || claimingRecordingId == null
+                || !supersededClaimants.TryGetValue(claimingRecordingId, out newId))
+                return false;
+
+            var ic = CultureInfo.InvariantCulture;
+            ParsekLog.VerboseOnChange(Tag,
+                identity: string.Format(ic, "claim-superseded|{0}|{1}|{2}", pid, treeId, identitySuffix),
+                stateKey: string.Format(ic, "{0}|{1}", claimingRecordingId, newId),
+                message: string.Format(ic,
+                    "Claim skipped: vessel PID={0} tree={1} via {2} rec={3} superseded by {4} - " +
+                    "the claiming recording no longer plays",
+                    pid, treeId, via, claimingRecordingId, newId));
+            return true;
+        }
+
+        /// <summary>
         /// Scans a tree's BranchPoints for claiming events (Dock, Board, Undock, EVA, JointBreak)
         /// with a non-zero TargetVesselPersistentId.
         /// </summary>
         private static void ScanBranchPointClaims(
             RecordingTree tree, Dictionary<uint, List<ChainLink>> claimsByPid,
-            ref int skippedSessionSuppressed)
+            Dictionary<string, string> supersededClaimants,
+            ref int skippedSessionSuppressed, ref int skippedSuperseded)
         {
             var ic = CultureInfo.InvariantCulture;
 
@@ -323,6 +388,14 @@ namespace Parsek
                 }
 
                 uint pid = bp.TargetVesselPersistentId;
+
+                if (SkipSupersededClaim(supersededClaimants, claimingRecordingId, pid, tree.Id,
+                        string.Format(ic, "{0} bp={1}", interactionType, bp.Id), bp.Id))
+                {
+                    skippedSuperseded++;
+                    continue;
+                }
+
                 var link = new ChainLink
                 {
                     recordingId = claimingRecordingId,
@@ -375,7 +448,8 @@ namespace Parsek
         /// </summary>
         private static void ScanBackgroundEventClaims(
             RecordingTree tree, Dictionary<uint, List<ChainLink>> claimsByPid,
-            ref int skippedSessionSuppressed)
+            Dictionary<string, string> supersededClaimants,
+            ref int skippedSessionSuppressed, ref int skippedSuperseded)
         {
             var ic = CultureInfo.InvariantCulture;
 
@@ -401,6 +475,13 @@ namespace Parsek
                 if (SessionSuppressionState.IsSuppressed(rec.RecordingId))
                 {
                     skippedSessionSuppressed++;
+                    continue;
+                }
+
+                if (SkipSupersededClaim(supersededClaimants, rec.RecordingId, rec.VesselPersistentId,
+                        tree.Id, "BACKGROUND_EVENT", "bg|" + rec.RecordingId))
+                {
+                    skippedSuperseded++;
                     continue;
                 }
 

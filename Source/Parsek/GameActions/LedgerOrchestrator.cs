@@ -4028,7 +4028,7 @@ namespace Parsek
             // maxUT (= Planetarium.GetUniversalTime() at the load call site) reads as 0.
             // Reconcile's maxUT pruning removes every row with UT > maxUT unless
             // preserveFutureTimelineActions is set, so at maxUT=0 a non-cutoff scene
-            // (TRACKSTATION / EDITOR cold-load, where useCurrentUtCutoffForFutureActions is
+            // (EDITOR cold-load, where useCurrentUtCutoffForFutureActions is
             // false) would PERMANENTLY delete the entire committed career. Preserve all rows
             // whenever the clock is not ready; the recalc below then full-replays them and the
             // deferred-seed pass re-evaluates once the clock is valid. When the clock IS ready

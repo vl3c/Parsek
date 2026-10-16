@@ -73,9 +73,7 @@ namespace Parsek
             double lastAppliedUT,
             double epsilon)
         {
-            return currentUT < lastAppliedUT - epsilon
-                ? "ksc-clock-backward"
-                : "ksc-clock";
+            return CareerLedgerClockCursor.FormatReason("ksc", currentUT, lastAppliedUT, epsilon);
         }
 
         internal static bool IsKscLedgerNextActionCacheValid(

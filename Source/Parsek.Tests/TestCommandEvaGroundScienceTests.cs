@@ -222,7 +222,7 @@ namespace Parsek.Tests
         {
             foreach (EvaGroundScienceAction action in new[]
                 { EvaGroundScienceAction.Place, EvaGroundScienceAction.Pickup, EvaGroundScienceAction.Take,
-                  EvaGroundScienceAction.Step })
+                  EvaGroundScienceAction.Step, EvaGroundScienceAction.Attach, EvaGroundScienceAction.Detach })
             {
                 string token = TestCommandEvaGroundScience.ActionToken(action);
                 Assert.True(TestCommandEvaGroundScience.TryParseAction(token, out var parsed));

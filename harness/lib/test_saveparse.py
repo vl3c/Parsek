@@ -832,6 +832,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         "mun-park-kerbalx": True,
         "eva2-lko-crewed": True,
         "eva3-pad-3crew": True,
+        # `eva3-pad-3crew` plus a crewless rover clone parked 153 m off the pad, the
+        # vessel list reordered to [Kerbal X, asteroid, rover] (harness/tools/
+        # build_eva_construct_pad.py, the EVA-11 host). Inherits the base's node.
+        "eva-construct-pad": True,
         "fresh-career": False,
         "fresh-sandbox": False,
         "fresh-science": False,

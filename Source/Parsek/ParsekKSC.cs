@@ -108,10 +108,7 @@ namespace Parsek
         private HashSet<string> kscSpawnAttempted = new HashSet<string>();
         private HashSet<string> loggedPlaybackDisabledPastEndSpawnAttempts = new HashSet<string>();
         private bool pauseMenuOpen;
-        private double lastKscLedgerCutoffUT = double.NaN;
-        private int cachedKscLedgerNextActionVersion = int.MinValue;
-        private double cachedKscLedgerNextActionAfterUT = double.NaN;
-        private double cachedKscLedgerNextActionUT = double.PositiveInfinity;
+        private readonly CareerLedgerClockCursor kscLedgerClock = new CareerLedgerClockCursor("ksc");
         internal static Action<GhostPlaybackState> PauseGhostAudioAction = GhostPlaybackLogic.PauseAllAudio;
         internal static Action<GhostPlaybackState> UnpauseGhostAudioAction = GhostPlaybackLogic.UnpauseAllAudio;
         internal static Func<int> PauseExplosionOneShotAudioAction = GhostPlaybackLogic.PauseExplosionOneShotAudio;
@@ -124,7 +121,6 @@ namespace Parsek
         // Distance culling: skip part events and deactivate ghosts beyond this range from camera.
         // 25km matches Kerbal Konstructs' default activation range for statics.
         private const float GhostCullDistanceSq = DistanceThresholds.KscGhosts.CullDistanceSq;
-        private const double KscLedgerAdvanceEpsilonSeconds = 0.05;
         // KSC playback is a Kerbin-surface scene; do not read GhostPlaybackState.atmosphereFactor
         // here because flight's per-frame atmosphere refresh does not run in KSC.
         private const float KscExplosionAtmosphereFactor = 1f;
@@ -309,7 +305,7 @@ namespace Parsek
             // state by committed recording index. See TODO(phase 6+) above.
             var committed = RecordingStore.CommittedRecordings;
             double currentUT = Planetarium.GetUniversalTime();
-            AdvanceCareerLedgerForKscUT(currentUT);
+            kscLedgerClock.Advance(currentUT);
             // Time passes here (KSC warp) with no scene change: a Recovered flight's crew
             // hold that the clock has just reached is released by one recalculation.
             // Two double comparisons per frame; the recalculation runs once per release.
@@ -526,56 +522,6 @@ namespace Parsek
                         warpRate, suppressGhosts, suppressVisualFx);
                 }
             }
-        }
-
-        private void AdvanceCareerLedgerForKscUT(double currentUT)
-        {
-            if (double.IsNaN(currentUT) || double.IsInfinity(currentUT))
-                return;
-
-            if (ShouldSeedCareerLedgerForKscUT(currentUT, lastKscLedgerCutoffUT))
-            {
-                lastKscLedgerCutoffUT = currentUT;
-                return;
-            }
-
-            double nextActionUT = GetNextKscLedgerActionUTAfter(lastKscLedgerCutoffUT);
-
-            if (!ShouldAdvanceCareerLedgerForKscUT(
-                    currentUT,
-                    lastKscLedgerCutoffUT,
-                    nextActionUT,
-                    KscLedgerAdvanceEpsilonSeconds))
-                return;
-
-            string reason = GetCareerLedgerAdvanceReasonForKscUT(
-                currentUT,
-                lastKscLedgerCutoffUT,
-                KscLedgerAdvanceEpsilonSeconds);
-            LedgerOrchestrator.RecalculateAndPatchForLiveTimelineEvent(currentUT, reason);
-
-            // Advance the KSC cursor even if a pending/live tree makes the internal
-            // patch defer; tree resolution runs its own recalc, while retrying here
-            // every frame would spam full ledger walks.
-            lastKscLedgerCutoffUT = currentUT;
-        }
-
-        private double GetNextKscLedgerActionUTAfter(double afterUT)
-        {
-            int ledgerVersion = Ledger.StateVersion;
-            if (!IsKscLedgerNextActionCacheValid(
-                    cachedKscLedgerNextActionVersion,
-                    cachedKscLedgerNextActionAfterUT,
-                    ledgerVersion,
-                    afterUT))
-            {
-                cachedKscLedgerNextActionVersion = ledgerVersion;
-                cachedKscLedgerNextActionAfterUT = afterUT;
-                if (!LedgerOrchestrator.TryGetNextActionUTAfter(afterUT, out cachedKscLedgerNextActionUT))
-                    cachedKscLedgerNextActionUT = double.PositiveInfinity;
-            }
-
-            return cachedKscLedgerNextActionUT;
         }
 
         private void RebuildAutoLoopLaunchScheduleCache(IReadOnlyList<Recording> recordings)

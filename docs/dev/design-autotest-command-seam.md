@@ -3616,6 +3616,8 @@ GameEvent itself.
 
 **Grammar.** `cmd=EvaGroundScience action=<place|pickup|take> part=<name> [faceAway=true]`, or
 `cmd=EvaGroundScience action=step anchor=<vessel pid> distance=<metres> [bearing=<degrees>]` (no `part`).
+`cmd=EvaGroundScience action=attach part=<name> target=<part name> node=<attach node id> [heldNode=<attach node id>]`, or
+`cmd=EvaGroundScience action=detach target=<part name>` (no `part`).
 `part` is the cfg part name (underscores become the runtime dots).
 
 **Place** (decompiled KSP 1.12.5). The inventory PAW slot icon calls
@@ -3736,6 +3738,67 @@ offTarget=<m> moves=<n>` (a timeout carries the same `offTarget=` / `moves=`). P
 `TryParseStepArgs` / `TryParseStepBearing` / `OffsetLatLonAlongBearing` /
 `StepHorizontalOffset` / `ShouldReapplyStep` / `DecideStepCompletion`.
 
+**Step from a ladder** (added 2026-10-15 for EVA-11). A step that starts on a kerbal still on
+a ladder defers (`evagroundscience step deferred kerbal=<name> reason=on-ladder fsm=<state>`) and
+fires stock's `On_ladderLetGo` FSM event when `TestCommandEvaExit.DecideLadderRelease` and
+`IsLadderLetGoReceptiveState` allow it, logged `evagroundscience step ladder let-go kerbal=<name>
+attempt=<n> fsm=<a>-><b> stillOnLadder=<bool>`; a kerbal still on the ladder after the attempts
+fails `step-on-ladder`.
+
+**Attach / Detach** (added 2026-10-15 for EVA-11, the live proof of
+EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED). Stock EVA construction fires
+`OnEVAConstructionModePartAttached` / `Detached` only from `EVAConstructionModeEditor.AttachInput`
+/ `DetachInput`, which read the mouse (decompiled KSP 1.12.5), so the verb runs stock's own input
+methods and answers only their input reads. Preconditions: an EVA kerbal with
+`RepairSkill >= 0` (an Engineer, stock's `CanOpenConstructionPanel`), the construction controller,
+an `EventSystem`, and every stock member the verb reads by reflection
+(`TestCommandEvaConstruction` pins the names; `stock-member-missing` names the absent ones).
+(1) `EVAConstructionModeController.OpenConstructionPanel()`, logged `evagroundscience
+construction panel open mode= held= softLock=`. (2) ATTACH: a real
+`UIPartActionInventorySlot.OnPointerClick` (left button) on the kerbal's slot holding `part`, which
+stock's `SlotClicked` -> `CreatePartFromThisSlot` turns into the held part (`attach slot clicked
+inventoriesSeen= slot= volumeCapacityReached= massCapacityReached= held=`, then `attach held
+part= heldPid= freeNodes= heldNode= requested=`; the held node defaults to the target node's
+opposite, `ChooseHeldNode`). A runtime-only postfix on `UpdatePartPlacementPosition` poses the
+held part each frame: rotated so its node faces against the target node, translated so the two
+node points meet, then stock's own `CheckAttach` (surface attach off for the call) decides, and
+the stock `cargoColliders` veto is counted. Each check logs `evagroundscience attach check n=
+verdict=<Ready|NoHeldPart|NotPossible|...> possible= potentialParent= potentialParentPid= callerNode=
+otherNode= want=<target>/<node> heldNode= attachDistance= range= blockers=` (Info on a verdict
+change, else rate-limited Verbose). After `ReadyChecksBeforePress` (5) consecutive Ready checks the
+verb arms ONE frame (`attach press armed n= frame= consecutiveReady= lastCheck=`), in which
+`AttachInput` reads `Input.GetMouseButtonUp(0)` true and `EventSystem.IsPointerOverGameObject()`
+false; stock then runs its own weight check, `AttachPart` and the attached event. Up to 3
+presses 15 frames apart. `attach attached part= partPid= target= node= vesselPid= vesselParts=
+presses= lastCheck=`, then the weld (stock's welding animation, at least 30 frames, capped at 900:
+`attach weld settled frames= capped= welding=`). DETACH: the nearest loaded part named `target`
+within `GameSettings.EVA_CONSTRUCTION_RANGE` (7 m) that stock would let him edit
+(`ChooseDetachTarget`; `detach start ... partPid= vessel= vesselPid= vesselParts= distance= range=
+kerbalSlot= inventory=`), with a free kerbal slot; one armed frame answers `Mouse.HoveredPart` with
+that part, `GetMouseButtonUp(0)` true, and `IsCursorOverAnyPAWOrCargoPane`, the panel's `Hover`
+and `IsPointerOverGameObject()` false (`detach press armed n= frame= target= partPid= distance=`);
+stock's `DetachPart` holds the part and fires the detached event (`detach detached part= partPid=
+vesselPid= vesselParts= presses=`), and a slot click on the kerbal's empty slot stows it
+(`detach stowed part= slot= inventory=`). Both close the panel only with nothing held (stock
+re-attaches or drops a held part on close; `panel left open held=` otherwise), settle 30 frames and
+log `evagroundscience <attach|detach> complete part= partPid= vesselPid= vesselParts= presses= slot=
+weldCapped= inventory=`; payload `action part partPid vesselPid slot presses distance vesselParts`.
+THE INJECTION is never a `[HarmonyPatch]` class: `EvaConstructionInputInjection` (Harmony id
+`com.parsek.testseam.evaconstruction`) installs a transpiler on the one input method for the
+verb's lifetime and removes it on completion and in `ClearTwoPhase`. Before patching it pre-scans
+the stock IL and requires every input site exactly once (`AttachInput`:
+`GetMouseButtonUp:1,IsPointerOverGameObject:1`; `DetachInput`: `HoveredPart:1,GetMouseButtonUp:1,
+IsCursorOverAnyPAWOrCargoPane:1,Hover:1,IsPointerOverGameObject:1`), refusing
+`injection-site-count` otherwise, so a KSP build whose input reads moved fails loudly instead of
+clicking somewhere else; each site becomes a call to a shim that returns stock's own answer on
+every frame but the armed one. Logged `evagroundscience construction injection installed id=
+method=<AttachInput|DetachInput> sites=<counts> postfix=<bool>` / `... removed id= answered
+mouseUp= pointer= pane= hover= hoveredPart=`. Pure half `TestCommandEvaConstruction`
+(`TryValidateAttachArgs` / `TryValidateDetachArgs`, `ChooseHeldNode`, `DecideCheck`,
+`DecidePress`, `ChooseDetachTarget`, `IsWeldSettled`, `DecideCompletion`, `CountSites`,
+`FormatAttachCheckLine`); the stock-IL site counts are pinned headless in
+`TestCommandEvaConstructionTests`.
+
 **Phases.** TWO-PHASE on a 30 s budget (measured 2026-10-06, see the budget table), NOT a `DEFERRED_SEAM_VERB`;
 `RequiresFlight` plus the EVA family's `not-eva` defer. hlib tail role world-mutating,
 post-mission role `outcome`.
@@ -3744,7 +3807,16 @@ post-mission role `outcome`.
 `part-not-in-inventory`, `not-deployable`, `no-ground-part`, `no-retrieve-event`,
 `out-of-range`, `inventory-full`, and for a take `not-stored-nearby`, `over-capacity`,
 `no-stored-snapshot`, `take-store-refused`, and for a step `step-anchor-invalid`,
-`step-distance-invalid`, `step-bearing-invalid`, `step-anchor-not-loaded`, `step-body-mismatch`; ERROR `place-gate-timeout`, `inventory-window-timeout`,
+`step-distance-invalid`, `step-bearing-invalid`, `step-anchor-not-loaded`, `step-body-mismatch`, and for an
+attach / detach `no-construction-controller`, `not-engineer`, `stock-member-missing`,
+`injection-site-count`, `no-event-system`, `panel-refused`, `attach-target-not-found`,
+`attach-node-not-found`, `attach-node-taken`, `attach-target-missing`, `attach-node-missing`,
+`detach-target-missing`, `detach-target-not-found`, `detach-target-not-detachable`; ERROR
+`step-on-ladder`, `panel-closed`, `already-holding`, `construction-slot-missing`,
+`construction-pick-failed`, `held-node-unavailable`, `held-part-lost`, `attach-not-taken`,
+`detach-not-taken`, `detach-held-other`, `detach-target-lost`, `stow-slot-missing`, `stow-failed`,
+`attach-timeout` / `detach-timeout`, `attach-threw` / `detach-threw`, `attach-settle-timeout` /
+`detach-settle-timeout`, `place-gate-timeout`, `inventory-window-timeout`,
 `placement-mode-refused`, `key-injection-unavailable`, `placement-not-accepted`,
 `placement-timeout`, `preview-timeout`, `placed-vessel-timeout`, `pickup-threw`,
 `pickup-timeout`, `take-threw`, `take-timeout`, `step-threw`, `step-timeout`, `kerbal-lost`, each with an

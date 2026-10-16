@@ -1553,7 +1553,7 @@ CHAIN-CLAIM-FROM-SUPERSEDED-RECORDING).
 
 ---
 
-## CHAIN-CLAIM-FROM-SUPERSEDED-RECORDING: a dock or undock that only a superseded flight recorded still claims the other vessel for a ghost chain [FILED 2026-10-07 by code read while fixing CHAIN-WALK-SUPERSEDE-BLIND-HOPS-ONTO-REFLY-TIP. OPEN, product, to check; consequences not traced]
+## ~~CHAIN-CLAIM-FROM-SUPERSEDED-RECORDING: a dock or undock that only a superseded flight recorded still claims the other vessel for a ghost chain~~ [FILED 2026-10-07 by code read while fixing CHAIN-WALK-SUPERSEDE-BLIND-HOPS-ONTO-REFLY-TIP. REPRODUCED headless and FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; LIVE-SEEN 2026-10-15 in regression lanes CI-3 / CI-4 (PASS attempt 1)]
 
 `GhostChainWalker.ScanBranchPointClaims` / `ScanBackgroundEventClaims` read every committed tree's
 branch points and recordings with no supersede check, and every caller passes the unfiltered
@@ -1565,6 +1565,27 @@ carry the station), and flight ghosts the station until that recording's end, th
 no longer plays. Not traced: what the station's spawn then does, and the Tracking Station path.
 Check first with a headless cell (the shape is `GhostChainWalkerSupersedeTests.BuildVisitorReFlyTree`);
 the likely fix is to skip a claim whose claiming recording a supersede row names.
+
+**FIXED 2026-10-15.** `ScanBranchPointClaims` and `ScanBackgroundEventClaims` drop a claim whose
+claiming recording a supersede row hides from playback (`BuildSupersededClaimantMap` over the rows
+`ComputeAllGhostChains` already takes: the live scenario's, or the explicit-rows overload), so
+every caller is covered (flight `EvaluateAndApplyGhostChains`, the Tracking Station ghost-action
+cache, Materialize and spawn handoffs, GhostCommNet, `ChainTipStaleVessel`, route hold and route
+cargo). The row predicate is shared with playback's hide set through
+`EffectiveState.IsHidingSupersedeRow` (both ids set and different), so a claim is dropped exactly
+when its claimant no longer plays; each drop logs `Claim skipped: vessel PID=... rec=...
+superseded by ...` plus a `Skipped N claim(s) from superseded recording(s)` summary. Consequences
+traced by code read: in flight the stale chain despawned the live station (`ClaimedVesselRemoval`)
+until the superseded merged recording's end, and that tip never spawns (superseded recordings do
+not play), so nothing gave the station back; station recordings ending earlier read as
+intermediate links (spawn suppressed in flight, `TrackingStationSpawnSkipIntermediateGhostChainLink`
+in the TS). The fork's own claims still count. Cells in `GhostChainWalkerSupersedeTests` (dock,
+undock, background-event, fork-docks-too, orphan-row and explicit-list cells red before the fix;
+no-row and harmless-row controls green); `RowOnAnotherVesselOfTheSupersededSubtree_NotFollowed`
+now writes only the merged recording's row, to keep isolating the walk's identity guard. Live: CI-3
+(`2026-10-15_2140`) and CI-4 (`2026-10-15_2142`) each merge a Re-Fly mid-lane; each logged one
+`Claim skipped: vessel PID=... superseded by rec_...` for the superseded origin's claim and rebuilt
+the chain with the fork as tip, both PASS attempt 1.
 
 ---
 
@@ -1974,7 +1995,7 @@ ResourceScenario state on recalculation; xUnit for the action and the patch; a m
 
 ---
 
-## TRACKING-STATION-LEDGER-CUTOFF-ALIGN: the Tracking Station should use the current-UT ledger cutoff like Flight and the Space Center [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~TRACKING-STATION-LEDGER-CUTOFF-ALIGN: the Tracking Station should use the current-UT ledger cutoff like Flight and the Space Center~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; headless only]
 
 `IsCurrentUtCutoffSupportedScene` accepts FLIGHT and SPACECENTER only (pinned by
 `RewindUtCutoffTests.CurrentUtCutoffSupportedScene_AcceptsFlightAndSpaceCenterOnly`, no reason
@@ -1985,6 +2006,17 @@ cold or in-session.
 Fix: include TRACKSTATION in the supported scenes, update the pinning test, check the TS load and
 recalculation paths for anything that relied on the exclusion; game-actions design 15.5's AS BUILT
 note changes with it.
+
+**FIXED 2026-10-15.** `IsCurrentUtCutoffSupportedScene` accepts TRACKSTATION, so the cold TS load
+preserves future rows and cuts off at the clock (`OnKspLoad`), and the in-session load and the
+deferred seed take the cutoff walk too. The one thing that relied on the exclusion: with no
+cutoff, the TS never needed to apply a committed action its clock reached, so TS warp had no
+cursor. The Space Center's cursor moved into `CareerLedgerClockCursor` (same decisions, same
+`ksc-clock` reasons) and the TS runs its own (`ts-clock` / `ts-clock-backward`), skipped while a
+rewind's UT adjustment is pending. The editor stays on the plain walk. Cells:
+`RewindUtCutoffTests.CurrentUtCutoffSupportedScene_AcceptsFlightSpaceCenterAndTrackingStation`,
+`GameStateRecorderLedgerTests.OnKspLoad_ColdLoadReadyClock_TrackingStationKeepsFutureSpendingLikeSpaceCenter`,
+`CareerLedgerClockCursorTests`.
 
 ---
 
@@ -3369,14 +3401,15 @@ The structural walks that skip or collect a placement read both types through
 `ForeignInventoryTransferTests` (including the walker cell: the rover is claimed and its own
 recording is the tip) and `ReFlyThroughEvaTests.SessionSuppressedSubtree_IncludesAForeignVesselTheKerbalMovedCargoWith`.
 
-Live proof still open: lane RC-6 (roadmap) needs a new fixture (a landed foreign rover with a
-stocked container within EVA reach of a recording kerbal). `EvaGroundScience action=take` already
+Live proof still open: lane RC-6 (roadmap). Its fixture exists since 2026-10-15: `eva-construct-pad`
+(EVA-11's host), whose foreign rover's first ConformalStorageUnit holds an evaChute within EVA reach
+of a kerbal stepped to it. `EvaGroundScience action=take` already
 drives the stock clear-then-store; a put into a foreign container has no verb yet. Sibling gap
 filed as EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED.
 
 ---
 
-## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. OPEN, product]
+## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; LIVE-PROVEN by EVA-11 `2026-10-15_2343`; the foreign EVA kerbal half stays OPEN]
 
 The inventory fix records a stored part moved into or out of a foreign vessel's container, but two
 neighbours of the same defect remain. `EVAConstructionModeEditor` fires
@@ -3392,6 +3425,75 @@ Fix: route the two construction events through the same adoption (`InventoryTran
 `PartAdded` / `PartRemoved` event). Open question for the detach: whether the held part is still in
 `vessel.parts` when the event fires (`Part.OnDetachFlight`), which decides whether the snapshot must
 wait a frame. Needs a live reading before it ships.
+
+**Construction half FIXED 2026-10-15.** `ParsekFlight.OnEvaConstructionPartAttached` /
+`OnEvaConstructionPartDetached` run `ForeignInventoryTransfer.Evaluate` and adopt or append exactly
+as the inventory handler does, with a `PartAdded` / `PartRemoved` event built by
+`ForeignInventoryTransfer.BuildConstructionSegmentEvent` (details `construction part=<name>
+action=attach|detach pid=<pid>`). The open question is answered from the decompile (KSP 1.12.5):
+`DetachPart` -> `Part.OnDetachFlight` -> `Decoupling` -> `disconnect` removes the held part from
+`vessel.parts` before stock fires the detached event, so the snapshot is taken at the event with no
+frame wait; the attach event fires after `AttachPart` added it. Cells in
+`ForeignInventoryTransferTests` (`BuildConstructionSegmentEvent_*`, `FormatConstructionSkipLog_*`,
+`ConstructionAttach_ClaimsTheForeignVessel_AndItsOwnRecordingIsTheTip`). Live reading still owed
+(V flies it): attach a part to a parked rover from a recording kerbal, detach one, rewind; check the
+`Foreign inventory transfer: vessel joined the tree ... construction` line, the rover's ghost and
+its spawn form, and that a second detach from the adopted rover (whose `Decoupling` also fires
+`onPartJointBreak` on a background member) leaves no stray split. Still OPEN: a transfer with a
+foreign EVA kerbal (`ChangedVesselIsEva`, crew reservation would gain a kerbal it does not own),
+and a part detached from a foreign vessel then dropped on the ground (a new vessel no recording
+carries).
+
+**Lane EVA-11 authored 2026-10-15, never flown** (branch `wip-eva-construction-lane`):
+`harness/scenarios/EVA-11-construction-foreign-claim.toml` on the derived fixture `eva-construct-pad`
+(`harness/tools/build_eva_construct_pad.py`) is that reading. Bill Kerman (Engineer) steps 4 m from a
+crewless `rover fuel 0` 153 m from the pad, a recording on him attaches a Z-200 to the rover's free
+Clamp-O-Tron top node and detaches two OX-STAT panels into his inventory, through the new seam actions
+`EvaGroundScience action=attach` / `detach` (stock's own `AttachInput` / `DetachInput` with only
+their mouse / pointer / hover reads answered for one armed frame; design-autotest-command-seam.md).
+It gates one join (PartAdded) and two appends (PartRemoved) on one member, no split of the rover,
+and after commit, Rewind-to-Launch and a FLIGHT reload the rover ghosted and its chain tip spawned
+with `parts=15` (the new `parts=` field on VesselGhoster's `Chain tip spawn:` line). Its first
+flight is a reading run; its `WarpToUT ut=240` is a guess to tighten off the measured member EndUT.
+
+**Reading run 2026-10-15_2302 PARSEK-FAIL: the rewind deleted the adopted rover. FIXED same day.**
+The construction recording worked (one join with the attach, two appends, no split, `Chain built:
+vessel=1871615455 links=1 tip=<member>`), but the in-flight commit adoption-stamps the member with
+the rover's own pid, so the Rewind-to-Launch strip scope read it as a vessel the replaying member
+re-spawns (`Rewind strip scope: strip spawned pid=1871615455 of 'rover fuel 0' ... via
+holder-replays`) and the OnLoad strip matched the member's source (`Stripping orphaned spawned
+vessel 'rover fuel 0' ... same-launch recording match`): no real rover for the chain to ghost, and
+the tip spawned out of nowhere. The same holds for an inventory-transfer member (RC-6). Fix: a
+holder whose spawn pid is an InventoryTransfer member of its own tree is left out of the strip
+scope (`leave spawned pid=...`, summary `foreignAdoptedPids=`) and its spawn state resets; a member
+never counts as re-producing another tree's same-pid spawn; the OnLoad launch-identity strip drops
+members and their adoption holders from its match set (`ForeignInventoryTransfer.FindAdoptedForeignVesselMember`
+/ `ExcludeForeignAdoptions`). Cells in `ForeignAdoptionRewindStripTests` (the EVA-11 shape through
+`PreProcessRewindSave`, controls without the member ids and with a tree-born member, the
+no-whitelist OnLoad fallback, an earlier tree that spawned the same pid both ways). EVA-11's
+`WarpToUT` is now `ut=45` (member EndUT 34.96 + 10 s).
+
+**Re-flight 2026-10-15_2326 PARSEK-FAIL on one token, the rewind fix proven.** `leave spawned
+pid=1871615455`, `foreignAdoptedPids=1`, `OnLoad strip: 2 recording(s) ... left out`, `Vessel
+ghosted: pid=1871615455`, and the produced save holds the rover LANDED with 15 parts. But the tip
+never logged `Chain tip spawn: ... parts=`: `SpawnAtChainTip` adopted the despawned rover (`source
+vessel pid=1871615455 already exists - adopting instead of spawning duplicate`), spawn-death fired,
+and `ChainTipStaleVessel` replaced it from the tip snapshot. Cause: `VesselGhoster.GhostLiveVessel`
+removed the claimed vessel with no flight-state list, and in FLIGHT `Vessel.Die()` (decompiled
+1.12.5) leaves the scene's load-time `flightState.protoVessels` entry in place, so
+`VesselSpawner.ProtoVesselExists` still found it. Fix: the ghoster passes
+`HighLogic.CurrentGame.flightState.protoVessels`, as `ChainTipStaleVessel`'s removal already does,
+and `LiveClaimedVesselRemovalTarget.RemoveFlightStateEntries` removes by pid (vessel id not
+conclusively different, never a ghost-map entry) as well as by reference: re-flight
+2026-10-15_2335 showed the reference alone misses, because a loaded vessel's `BackupVessel()` (the
+ghoster's own snapshot capture, or any save) replaces `vessel.protoVessel` with a fresh instance
+while the list keeps the load-time one. Any background-event chain whose tip flies the claimed pid
+took the same detour. Cells in `ClaimedVesselRemovalTests` (`RemoveFlightStateEntries_*`).
+
+**LIVE-PROVEN 2026-10-15: `2026-10-15_2343` PASS attempt 1, 0 mismatches** (automation DLL sha256
+prefix 90964a279107c47f): `Flight-state entries removed: pid=1871615455 removed=1`, `Vessel ghosted`,
+`Chain tip spawn: pid=1871615455 ... parts=15`, no adoption or stale-vessel replace after the rewind,
+the rover LANDED with 15 parts in the produced save.
 
 ---
 

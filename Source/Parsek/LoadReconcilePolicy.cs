@@ -728,10 +728,9 @@ namespace Parsek
                 case LoadKind.Cold:
                     return Today(LoadReconcileAction.Keep,
                         "scene rule: LedgerOrchestrator.OnKspLoad -> Ledger.Reconcile never drops an untagged earning "
-                        + "by UT (contract completions aside); outside FLIGHT / SPACECENTER with a ready clock (UT > 0) "
-                        + "it drops untagged spendings, contract lifecycle rows and other untagged rows past the clock; "
-                        + "FLIGHT / SPACECENTER, or a clock not yet ready, keep them all (the Tracking Station half is "
-                        + "TRACKING-STATION-LEDGER-CUTOFF-ALIGN)");
+                        + "by UT (contract completions aside); outside FLIGHT / SPACECENTER / TRACKSTATION with a ready "
+                        + "clock (UT > 0) it drops untagged spendings, contract lifecycle rows and other untagged rows past "
+                        + "the clock; FLIGHT / SPACECENTER / TRACKSTATION, or a clock not yet ready, keep them all");
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.Keep,
                         "ParsekScenario.HandleRewindOnLoad retires route rows only; the recalculation walks to the cutoff");
