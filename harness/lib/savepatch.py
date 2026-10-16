@@ -124,16 +124,41 @@ class LiveStatePatchError(Exception):
 # log token in this family spells a KSP `persistentId`.
 LIVE_STATE_KEY = "liveState"
 
-ENTRY_KEYS = ("pid", "resources", "inventory", "remove", "fill")
+ENTRY_KEYS = ("pid", "resources", "partResources", "inventory", "remove", "fill")
+
+# `partResources` - the PER-PART form of `resources`, for a vessel that carries a
+# resource in more than one tank (where `resources` refuses, see `_set_resource`):
+#
+#     [[fixture.liveState]]
+#     pid = 4277041026
+#     partResources = [
+#       { part = "Rockomax16.BW", resources = { LiquidFuel = 300, Oxidizer = 366 } },
+#       { part = "Rockomax8BW",   resources = { LiquidFuel = 0,   Oxidizer = 0 } },
+#     ]
+#
+# `part` is the PART node's `name =` value exactly as the save writes it (the
+# runtime dot form), and it must match EXACTLY ONE PART on the vessel: a name two
+# PARTs share is the same "which one did you mean" ambiguity the per-vessel form
+# refuses, one level down. Inside that part each resource must match exactly one
+# RESOURCE node, with the same maxAmount / negative refusals. The distribution is
+# therefore the SPEC's, stated per tank, never the applier's. Refused as
+# ambiguous: the same part named twice in one entry, and a resource name that
+# appears both in the entry's `resources` and in any of its `partResources`
+# items. Exclusive with `remove = true`, like the other patch keys. Each write
+# adds a `<part>/<Resource> <before>-><after>` item to the note's `resources=[]`
+# list, after the per-vessel items, so the harness log names the part that moved.
+PART_RESOURCES_KEY = "partResources"
+PART_RESOURCES_ITEM_KEYS = ("part", "resources")
 
 # `remove = true` DELETES the vessel's whole FLIGHTSTATE `VESSEL` node, which is
 # the only way to author "the endpoint this route names is no longer in the save"
-# without a second harvest. It is exclusive with `resources` / `inventory` (both
-# would patch a node that is about to be deleted). `activeVessel` is an INDEX into
-# the FLIGHTSTATE vessel list in file order, so the removal keeps the focus on the
-# SAME craft: removing a LATER vessel leaves the index alone, removing an EARLIER
-# one decrements it (the note says `activeVessel=<old>-><new>`), and removing the
-# FOCUSED vessel itself is REFUSED, since no index names "the craft that is gone".
+# without a second harvest. It is exclusive with every patch key (`resources`,
+# `partResources`, `inventory`, `fill`: each would patch a node about to be
+# deleted). `activeVessel` is an INDEX into the FLIGHTSTATE vessel list in file
+# order, so the removal keeps the focus on the SAME craft: removing a LATER
+# vessel leaves the index alone, removing an EARLIER one decrements it (the
+# note says `activeVessel=<old>-><new>`), and removing the FOCUSED vessel itself
+# is REFUSED, since no index names "the craft that is gone".
 #
 # WHY AN EARLIER REMOVAL IS ALLOWED (2026-09-28, the EVA-9 / EVA-10 ground-science
 # cluster lanes). Removing the index-0 asteroid of a recorded fixture is how a lane
@@ -384,25 +409,10 @@ def validate_live_state(fixture: Any) -> List[str]:
                     % (where, pid, "fixture." + LIVE_STATE_KEY, seen_pids[pid]))
             seen_pids[pid] = i
         if "resources" in entry:
-            res = entry["resources"]
-            if not isinstance(res, dict):
-                errs.append("%s.resources: must be a table of "
-                            "{ <ResourceName> = <amount> }" % where)
-            elif not res:
-                errs.append("%s.resources: declared but empty; omit the key "
-                            "instead" % where)
-            else:
-                for name, amount in res.items():
-                    if not isinstance(name, str) or not name:
-                        errs.append("%s.resources: %r is not a resource name"
-                                    % (where, name))
-                        continue
-                    if not _is_number(amount):
-                        errs.append("%s.resources.%s: %r must be a number"
-                                    % (where, name, amount))
-                    elif amount < 0:
-                        errs.append("%s.resources.%s: %r must be >= 0"
-                                    % (where, name, amount))
+            errs.extend(_validate_resource_table(entry["resources"],
+                                                 "%s.resources" % where))
+        if PART_RESOURCES_KEY in entry:
+            errs.extend(_validate_part_resources(entry, where))
         if "inventory" in entry:
             mode = entry["inventory"]
             if not isinstance(mode, str):
@@ -425,18 +435,90 @@ def validate_live_state(fixture: Any) -> List[str]:
                 # vessel" while removing none.
                 errs.append("%s.%s: false patches nothing; omit the key instead"
                             % (where, REMOVE_KEY))
-            elif (("resources" in entry) or ("inventory" in entry)
-                    or (FILL_KEY in entry)):
+            elif (("resources" in entry) or (PART_RESOURCES_KEY in entry)
+                    or ("inventory" in entry) or (FILL_KEY in entry)):
                 errs.append(
-                    "%s: `%s = true` cannot be combined with `resources` / "
+                    "%s: `%s = true` cannot be combined with `resources` / `%s` / "
                     "`inventory` / `%s` - those would patch a VESSEL node this "
                     "entry then deletes, so the declaration reads as two "
-                    "different intentions" % (where, REMOVE_KEY, FILL_KEY))
-        if (("resources" not in entry) and ("inventory" not in entry)
-                and (FILL_KEY not in entry) and (REMOVE_KEY not in entry)):
+                    "different intentions"
+                    % (where, REMOVE_KEY, PART_RESOURCES_KEY, FILL_KEY))
+        if (("resources" not in entry) and (PART_RESOURCES_KEY not in entry)
+                and ("inventory" not in entry) and (FILL_KEY not in entry)
+                and (REMOVE_KEY not in entry)):
             errs.append(
-                "%s: declares none of `resources`, `inventory`, `%s` or `%s`, so "
-                "it patches nothing" % (where, FILL_KEY, REMOVE_KEY))
+                "%s: declares none of `resources`, `%s`, `inventory`, `%s` or "
+                "`%s`, so it patches nothing"
+                % (where, PART_RESOURCES_KEY, FILL_KEY, REMOVE_KEY))
+    return errs
+
+
+def _validate_resource_table(res: Any, prefix: str) -> List[str]:
+    """Shape checks for one `{ <ResourceName> = <amount> }` table, shared by the
+    per-vessel `resources` key and each `partResources` item so both forms
+    accept and refuse exactly the same amounts."""
+    errs: List[str] = []
+    if not isinstance(res, dict):
+        return ["%s: must be a table of { <ResourceName> = <amount> }" % prefix]
+    if not res:
+        return ["%s: declared but empty; omit the key instead" % prefix]
+    for name, amount in res.items():
+        if not isinstance(name, str) or not name:
+            errs.append("%s: %r is not a resource name" % (prefix, name))
+            continue
+        if not _is_number(amount):
+            errs.append("%s.%s: %r must be a number" % (prefix, name, amount))
+        elif amount < 0:
+            errs.append("%s.%s: %r must be >= 0" % (prefix, name, amount))
+    return errs
+
+
+def _validate_part_resources(entry: Dict, where: str) -> List[str]:
+    """Shape checks for one entry's `partResources` array, plus the two
+    ambiguity refusals that need the whole entry (a part named twice, a resource
+    named both per-vessel and per-part). Whether the part and its resources exist
+    on the vessel is the applier's assertion against the bytes."""
+    prefix = "%s.%s" % (where, PART_RESOURCES_KEY)
+    items = entry[PART_RESOURCES_KEY]
+    if not isinstance(items, list):
+        return ["%s: must be an array of { part = \"<partName>\", resources = "
+                "{ <ResourceName> = <amount> } } tables" % prefix]
+    if not items:
+        return ["%s: declared but empty; omit the key instead" % prefix]
+    errs: List[str] = []
+    vessel_level = entry.get("resources")
+    vessel_names = set(vessel_level) if isinstance(vessel_level, dict) else set()
+    seen_parts: Dict[str, int] = {}
+    for j, item in enumerate(items):
+        item_where = "%s[%d]" % (prefix, j)
+        if not isinstance(item, dict):
+            errs.append("%s: must be a table" % item_where)
+            continue
+        unknown = sorted(k for k in item if k not in PART_RESOURCES_ITEM_KEYS)
+        if unknown:
+            errs.append("%s: unknown key(s) %s (accepted: %s)"
+                        % (item_where, unknown, list(PART_RESOURCES_ITEM_KEYS)))
+        part = item.get("part")
+        if not isinstance(part, str) or not part.strip():
+            errs.append("%s.part: %r must be a non-empty PART name"
+                        % (item_where, part))
+        elif part in seen_parts:
+            errs.append("%s.part: %r is already declared by %s[%d]; one item per "
+                        "part" % (item_where, part, prefix, seen_parts[part]))
+        else:
+            seen_parts[part] = j
+        if "resources" not in item:
+            errs.append("%s.resources: missing; each item names the part's "
+                        "resources" % item_where)
+            continue
+        res = item["resources"]
+        errs.extend(_validate_resource_table(res, "%s.resources" % item_where))
+        if isinstance(res, dict):
+            for name in sorted(n for n in res if n in vessel_names):
+                errs.append(
+                    "%s.resources.%s: also declared in %s.resources - the "
+                    "per-vessel and per-part forms would both write it, so the "
+                    "declaration is ambiguous" % (item_where, name, where))
     return errs
 
 
@@ -1370,47 +1452,116 @@ def _set_resource(lines: List[str], vessel: Tuple[int, int], vessel_name: str,
     that reads the SUMMED stored amount would behave differently under each. A
     lane whose declared number can be read two ways is a lane whose tokens are
     not derivable, so the applier refuses and names the count; a fixture that
-    needs the multi-tank form gets an explicit distribution rule at that point,
-    authored against the gate that will read it."""
+    needs the multi-tank form declares it per tank through `partResources`
+    (`_set_part_resources`)."""
     nodes = _resource_nodes(lines, vessel, resource)
     if len(nodes) != 1:
         raise LiveStatePatchError(
             "liveState: vessel %r carries %d %s RESOURCE node(s), expected "
             "exactly 1 - the patch would have to decide how to split %s across "
             "them" % (vessel_name, len(nodes), resource, format_amount(amount)))
-    node = nodes[0]
+    note = _set_resource_node(lines, nodes[0], "vessel %r" % vessel_name,
+                              resource, amount)
+    return lines, note
+
+
+def _set_resource_node(lines: List[str], node: Tuple[int, int], owner: str,
+                       resource: str, amount: float) -> str:
+    """Rewrite one resolved RESOURCE node's `amount`. Returns the
+    `<Resource> <before>-><after>` note. ``owner`` is the error-message subject
+    (`vessel 'X'` or `vessel 'X' part 'Y'`), so both forms refuse in one voice."""
     raw_max = get_value(lines, node, "maxAmount")
     if raw_max is None:
         raise LiveStatePatchError(
-            "liveState: vessel %r's %s RESOURCE has no maxAmount to clamp "
-            "against" % (vessel_name, resource))
+            "liveState: %s's %s RESOURCE has no maxAmount to clamp "
+            "against" % (owner, resource))
     try:
         max_amount = float(raw_max)
     except (TypeError, ValueError):
         raise LiveStatePatchError(
-            "liveState: vessel %r's %s RESOURCE has an unparseable maxAmount %r"
-            % (vessel_name, resource, raw_max))
+            "liveState: %s's %s RESOURCE has an unparseable maxAmount %r"
+            % (owner, resource, raw_max))
     # Mirror of the validator's `>= 0` shape check, kept HERE as well because
     # the applier is also reachable without `validate_spec` in front of it (the
     # builder, a direct caller) and a negative `amount =` is a save KSP never
     # writes; both ends of the range are refused by the same function.
     if float(amount) < 0:
         raise LiveStatePatchError(
-            "liveState: vessel %r's %s = %s is negative - a spec error, not a "
-            "clamp" % (vessel_name, resource, format_amount(amount)))
+            "liveState: %s's %s = %s is negative - a spec error, not a "
+            "clamp" % (owner, resource, format_amount(amount)))
     if float(amount) > max_amount:
         raise LiveStatePatchError(
-            "liveState: vessel %r's %s = %s exceeds maxAmount %s - a spec error, "
+            "liveState: %s's %s = %s exceeds maxAmount %s - a spec error, "
             "not a clamp: silently capping it would make every token the lane "
             "derives from that number wrong while the run stayed green"
-            % (vessel_name, resource, format_amount(amount), raw_max))
+            % (owner, resource, format_amount(amount), raw_max))
     before = get_value(lines, node, "amount")
     text = format_amount(amount)
     if not set_value(lines, node, "amount", text):
         raise LiveStatePatchError(
-            "liveState: vessel %r's %s RESOURCE has no amount to rewrite"
-            % (vessel_name, resource))
-    return lines, "%s %s->%s" % (resource, before, text)
+            "liveState: %s's %s RESOURCE has no amount to rewrite"
+            % (owner, resource))
+    return "%s %s->%s" % (resource, before, text)
+
+
+def _check_part_resources_entry(entry: Dict, pid: str) -> None:
+    """The applier-side copy of the validator's `partResources` ambiguity
+    refusals, because the applier is reachable without `validate_spec` in front
+    of it and each of these would otherwise resolve silently (one write winning,
+    or a write discarded by the removal)."""
+    items = entry.get(PART_RESOURCES_KEY)
+    if not items:
+        return
+    if entry.get(REMOVE_KEY):
+        raise LiveStatePatchError(
+            "liveState: pid %s declares `%s` together with `%s = true` - the "
+            "parts would be patched on a VESSEL node the entry deletes"
+            % (pid, PART_RESOURCES_KEY, REMOVE_KEY))
+    vessel_names = set(entry.get("resources") or {})
+    seen_parts = set()
+    for item in items:
+        part = str(item.get("part"))
+        if part in seen_parts:
+            raise LiveStatePatchError(
+                "liveState: pid %s names part %r twice in `%s`; one item per part"
+                % (pid, part, PART_RESOURCES_KEY))
+        seen_parts.add(part)
+        both = sorted(n for n in (item.get("resources") or {}) if n in vessel_names)
+        if both:
+            raise LiveStatePatchError(
+                "liveState: pid %s declares %s in both `resources` and `%s` "
+                "(part %r) - ambiguous, the two forms would both write it"
+                % (pid, ",".join(both), PART_RESOURCES_KEY, part))
+
+
+def _set_part_resources(lines: List[str], vessel: Tuple[int, int],
+                        vessel_name: str, part_name: str,
+                        resources: Dict) -> Tuple[List[str], List[str]]:
+    """Apply one `partResources` item. Returns (lines, notes), one
+    `<part>/<Resource> <before>-><after>` note per resource, sorted by resource
+    name so the harness log is deterministic regardless of TOML table order."""
+    parts = [p for p in child_nodes(lines, vessel, "PART")
+             if get_value(lines, p, "name") == part_name]
+    if len(parts) != 1:
+        raise LiveStatePatchError(
+            "liveState: vessel %r carries %d PART node(s) named %r, expected "
+            "exactly 1 - partResources addresses one part by its `name =`"
+            % (vessel_name, len(parts), part_name))
+    part = parts[0]
+    owner = "vessel %r part %r" % (vessel_name, part_name)
+    notes: List[str] = []
+    for resource in sorted(resources):
+        amount = resources[resource]
+        nodes = [r for r in child_nodes(lines, part, "RESOURCE")
+                 if get_value(lines, r, "name") == resource]
+        if len(nodes) != 1:
+            raise LiveStatePatchError(
+                "liveState: %s carries %d %s RESOURCE node(s), expected exactly "
+                "1 - the patch would have to decide where %s goes"
+                % (owner, len(nodes), resource, format_amount(amount)))
+        note = _set_resource_node(lines, nodes[0], owner, resource, amount)
+        notes.append("%s/%s" % (part_name, note))
+    return lines, notes
 
 
 def _active_vessel_index(lines: List[str]) -> int:
@@ -1614,10 +1765,11 @@ def apply_live_state(text: str, entries: Sequence[Dict],
                 "liveState: expected exactly one FLIGHTSTATE vessel with "
                 "persistentId %s, found %d" % (pid, len(matches)))
         vessel_name, span = matches[0]
+        _check_part_resources_entry(entry, pid)
 
         if entry.get(REMOVE_KEY):
             # Whole-node deletion, so nothing below applies: the validator
-            # already refuses `remove` alongside `resources` / `inventory`, and
+            # already refuses `remove` alongside every patch key, and
             # the next entry re-resolves its own span from the shortened text.
             lines, removed_name = _remove_vessel(lines, pid)
             notes.append("pid=%s name=%s removed=1" % (pid, removed_name))
@@ -1634,6 +1786,14 @@ def apply_live_state(text: str, entries: Sequence[Dict],
             span = [s for n, vpid, s in flightstate_vessels(lines) if vpid == pid][0]
             lines, note = _set_resource(lines, span, vessel_name, resource, amount)
             resource_notes.append(note)
+        # Per-part writes after the per-vessel ones, in declaration order; the
+        # two never name the same resource (`_check_part_resources_entry`).
+        for item in entry.get(PART_RESOURCES_KEY) or []:
+            span = [s for n, vpid, s in flightstate_vessels(lines) if vpid == pid][0]
+            lines, part_notes = _set_part_resources(
+                lines, span, vessel_name, str(item.get("part")),
+                item.get("resources") or {})
+            resource_notes.extend(part_notes)
 
         # The fill's TEMPLATE is resolved HERE, before the inventory mode - a
         # `clear` would otherwise delete the very stored part the fill names.

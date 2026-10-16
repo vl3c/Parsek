@@ -2007,6 +2007,14 @@ inventory = "clear"                  # and empty both containers
   underivable). An amount above `maxAmount` is a SPEC ERROR and aborts; it is never
   clamped, because a silent cap makes every derived token wrong while the run stays
   green.
+* `partResources` - the per-tank form for a vessel carrying a resource in more than
+  one tank: an array of `{ part = "<PART name>", resources = { <Resource> = <amount> } }`.
+  `part` is the PART node's `name =` exactly as the save writes it (dot form) and must
+  match exactly ONE part on the vessel; each resource must match exactly one RESOURCE
+  node in that part, under the same `maxAmount` / negative refusals. The same part
+  twice in one entry, or a resource named both here and in `resources`, is refused as
+  ambiguous. Each write adds `<part>/<Resource> <before>-><after>` to the note's
+  `resources=[...]` list. Exclusive with `remove = true`.
 * `inventory` - `keep` (the default; omit the key), `clear` (empty every
   `ModuleInventoryPart` and drop its `inventory` CSV key, the shape KSP itself
   writes), or `restore-dock-endpoint:<windowIndex>` (restore from that route
@@ -2017,8 +2025,8 @@ inventory = "clear"                  # and empty both containers
   vessel. See the section below; it is a separate key, composable with `inventory`.
 * `remove = true` - DELETE the vessel's whole `VESSEL` node, the only way to author
   "the endpoint this route names is no longer in the save" without a second harvest.
-  Exclusive with `resources` / `inventory` (both would patch a node this entry then
-  deletes). `activeVessel` is a positional INDEX into the FLIGHTSTATE vessel list, so
+  Exclusive with `resources` / `partResources` / `inventory` / `fill` (each would
+  patch a node this entry then deletes). `activeVessel` is a positional INDEX into the FLIGHTSTATE vessel list, so
   the patch keeps the focus on the same craft: removing a vessel BEFORE the focused one
   decrements `activeVessel` (the patch note reads `activeVessel=<old>-><new>`),
   removing one AFTER it leaves the index alone, and removing the focused vessel ITSELF

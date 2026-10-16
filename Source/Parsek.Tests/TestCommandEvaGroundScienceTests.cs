@@ -262,6 +262,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DecideTakeCapacity_AddsTheIncomingPartToWhatTheKerbalCarries()
+        {
+            // A stock kerbal (40 L, 0.065 t) carrying a full jetpack (17 L, 0.045 t) takes
+            // a chute (10 L, 0.004 t): it fits, the case stock's HasCapacity refuses.
+            Assert.Null(TestCommandEvaGroundScience.DecideTakeCapacity(10f, 17f, 40f, 0.004f, 0.045f, 0.065f, false));
+            // An empty kerbal takes a 35 L Central Station (0.05 t).
+            Assert.Null(TestCommandEvaGroundScience.DecideTakeCapacity(35f, 0f, 40f, 0.05f, 0f, 0.065f, false));
+            // Exactly at the volume limit still fits (stock refuses only above).
+            Assert.Null(TestCommandEvaGroundScience.DecideTakeCapacity(23f, 17f, 40f, 0.015f, 0.045f, 0.065f, false));
+        }
+
+        [Fact]
+        public void DecideTakeCapacity_NamesTheLimitItBreaks()
+        {
+            Assert.Equal("volume", TestCommandEvaGroundScience.DecideTakeCapacity(35f, 17f, 40f, 0.05f, 0.0f, 0.065f, false));
+            Assert.Equal("mass", TestCommandEvaGroundScience.DecideTakeCapacity(10f, 17f, 40f, 0.05f, 0.045f, 0.065f, false));
+            Assert.Equal("not-cargo", TestCommandEvaGroundScience.DecideTakeCapacity(-1f, 0f, 40f, 0.01f, 0f, 0.065f, false));
+            // Volume is checked first, as stock's drop does.
+            Assert.Equal("volume", TestCommandEvaGroundScience.DecideTakeCapacity(35f, 17f, 40f, 0.05f, 0.045f, 0.065f, false));
+        }
+
+        [Fact]
+        public void DecideTakeCapacity_NoLimitOrTheCheatSkipsTheCheck()
+        {
+            Assert.Null(TestCommandEvaGroundScience.DecideTakeCapacity(500f, 400f, 0f, 9f, 9f, 0f, false));
+            Assert.Null(TestCommandEvaGroundScience.DecideTakeCapacity(-1f, 0f, 0f, 0.01f, 0f, 0.065f, false));
+            Assert.Null(TestCommandEvaGroundScience.DecideTakeCapacity(35f, 17f, 40f, 0.05f, 0.045f, 0.065f, true));
+        }
+
+        [Fact]
         public void ChooseTakeSource_TellsNotStoredFromOutOfReach()
         {
             var cands = new List<GroundTakeCandidate>

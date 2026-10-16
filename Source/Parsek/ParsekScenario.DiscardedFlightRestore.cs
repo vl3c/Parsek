@@ -68,7 +68,8 @@ namespace Parsek
         /// the synthetic-fixture marker, which nothing drops, so the restore used to resume the
         /// recorder into the discarded ids. A missing file alone does not prove a discard (a
         /// copied save folder or deleted files look the same), so the tree id must also be one
-        /// <see cref="RecordingStore.DiscardPendingTree"/> deleted sidecars for in this process.
+        /// a discard deleted sidecars for in this process
+        /// (<see cref="RecordingStore.WasTreeDiscardedThisSession"/>).
         /// Anything else - a committed copy in memory, a member that hydrated, a member that
         /// failed for another reason (stale epoch, schema, snapshot, corrupt file) - restores
         /// as before, and so does a tree a same-id pending tree still holds (the restore salvages

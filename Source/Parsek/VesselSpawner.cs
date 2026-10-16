@@ -991,7 +991,8 @@ namespace Parsek
                         $"Rescue marker pid-scoped for {rescuedNames.Count} kerbal(s) " +
                         $"(vesselPid={respawnedVesselPid}; #615 P1 fourth pass)");
 
-                ParsekLog.Info("Spawner", $"Vessel respawned (sit={spawnNode.GetValue("sit")}, pid={pv.vesselRef.persistentId})");
+                ParsekLog.Info("Spawner", $"Vessel respawned (sit={spawnNode.GetValue("sit")}, pid={pv.vesselRef.persistentId}) " +
+                    VesselSnapshotOps.FormatStoredPartsForLog(spawnNode));
                 return pv.vesselRef.persistentId;
             }
             catch (System.Exception ex)
@@ -1498,7 +1499,7 @@ namespace Parsek
                         $"(vesselPid={spawnedAtPositionVesselPid}; #615 P1 fourth pass)");
 
                 ParsekLog.Info("Spawner", $"SpawnAtPosition: vessel spawned (sit={sit}, pid={pv.vesselRef.persistentId}, " +
-                    $"body={body.name}, alt={alt:F0}m)");
+                    $"body={body.name}, alt={alt:F0}m) " + VesselSnapshotOps.FormatStoredPartsForLog(spawnNode));
                 return pv.vesselRef.persistentId;
             }
             catch (Exception ex)
