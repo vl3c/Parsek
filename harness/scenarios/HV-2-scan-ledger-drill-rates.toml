@@ -1,0 +1,94 @@
+schema = 1
+id = "HV-2-scan-ledger-drill-rates"
+tier = "nightly"
+# THE LIVE CHECK FOR THE TWO MINING RULINGS OF 2026-10-15 (todo RESOURCE-SCAN-UNLOCKS-NOT-
+# LEDGERED and HARVEST-ROUTE-PLAUSIBILITY-CAP, PR #2116). NEVER FLOWN.
+#
+# WHY IN-GAME CELLS AND NOT A MINING LANE. A full mining lane needs a drill + ISRU + scanner
+# craft no committed fixture carries (an operator VAB save), a dock after the drill run, two
+# new seam verbs and a forced catch-up burst before the cap even fires. Both features turn on
+# two seams the xUnit fakes stand in for, and both are reachable at the Space Center:
+#   * SCANS. `ResourceScanUnlockPlanetPatch` / `ResourceScanUnlockBiomePatch` capture stock's
+#     own `ResourceMap.UnlockBiome` / `UnlockPlanet` (the calls `ModuleBiomeScanner` and
+#     `ModuleOrbitalSurveyor` make), and `KspStatePatcher.PatchResourceScans` writes stock's
+#     scan state back. Each scan cell unlocks a locked Minmus biome (or Minmus as a whole)
+#     through the stock call, requires one ownerless `ResourceScanUnlocked` ledger row and one
+#     `ResourceScanCompleted` event, relocks it the way a rewind's load does (the entry leaves
+#     `ResourceScenario.gameSettings`, then `ResetCache`), requires a recalc cut off half a
+#     second before the scan to leave it locked, then a recalc at the live clock to unlock it
+#     again with no second row or event. Its finally removes the row and the event and
+#     relocks.
+#   * DRILL RATES. The cap is as good as the recorder's reading of the stock converters. The
+#     rate cell runs `FlightRecorder.ReadHarvestConverterRate` over the real stock drill
+#     (MiniDrill, RadialDrill) and ISRU (MiniISRU, ISRU) prefabs at the richest Minmus ore
+#     sample on a coarse grid and requires every converter modeled: surface drills as drills
+#     with the abundance ResourceMap gives, the drills' own ModuleAsteroidDrill as no output
+#     (no asteroid aboard; the cell also requires it unmodeled WITH one aboard), every ISRU
+#     recipe with positive LiquidFuel / Oxidizer / MonoPropellant outputs, and the combined set
+#     bounded. Writing this cell found that the asteroid drill on both stock drills left every
+#     stock mining window unbounded; the reader now models it.
+#
+# THE HOST is `fresh-career` (AH-1's): career, no active vessel (LoadGame takes the Space
+# Center route), no resource scan anywhere, a clock past UT 1 once the scene is up.
+#
+# THE PIN IS INTERIM: `total=3` is attribute-exact (three SPACECENTER declarations); the split
+# is predicted 3 / 0 and regexed until the reading run measures it (INTERIM_PIN_IDS).
+description = "On a career host at the Space Center: a stock biome scan and a stock whole-body scan of Minmus each land one ledger row, stay locked before their UT after a relock and are re-applied at the live clock; the recorder models every stock drill and ISRU prefab's converters with bounded rates."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "logistics", "ledger", "career", "HV-2"]
+
+[fixture]
+saveTemplate = "fixtures/saves/fresh-career"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "HarvestCapScanLedger" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["ksp-state-patcher"]
+D10 = ["harvest-provenance"]
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required = [
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=HarvestCapScanLedger scene=SPACECENTER",
+  # The stock calls reached the capture pair and the ownerless KSC door, once per scan cell.
+  "\\[Parsek\\]\\[INFO\\]\\[GameStateRecorder\\] Game state: ResourceScanCompleted body='Minmus' biome='[^<'][^']*' ut=[0-9.E+-]+ recordingId=''",
+  "\\[Parsek\\]\\[INFO\\]\\[GameStateRecorder\\] Game state: ResourceScanCompleted body='Minmus' biome='<whole body>' ut=[0-9.E+-]+ recordingId=''",
+  "\\A(?:[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[LedgerOrchestrator\\] KSC spending recorded: type=ResourceScanUnlocked, UT=[0-9.]+, key=Minmus){2}",
+  # The re-apply at the live clock, once per scan cell.
+  "\\A(?:[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[KspStatePatcher\\] PatchResourceScans: unlocked=1, alreadyUnlocked=0, unknownBody=0, cutoff=[0-9.E+-]+, unlockedIds=\\[){2}",
+  "\\[Parsek\\]\\[INFO\\]\\[HarvestCapScanLedger\\] scan ledger live check passed: kind=biome body=Minmus biome='[^']+' rows=1 events=1 lockedBeforeUT=1 reapplied=1",
+  "\\[Parsek\\]\\[INFO\\]\\[HarvestCapScanLedger\\] scan ledger live check passed: kind=body body=Minmus biome='' rows=1 events=1 lockedBeforeUT=1 reapplied=1",
+  "\\[Parsek\\]\\[INFO\\]\\[HarvestCapScanLedger\\] scan ledger live check teardown: kind=biome rowsRemoved=1 eventsRemoved=1 locked=1",
+  "\\[Parsek\\]\\[INFO\\]\\[HarvestCapScanLedger\\] scan ledger live check teardown: kind=body rowsRemoved=1 eventsRemoved=1 locked=1",
+  "\\[Parsek\\]\\[INFO\\]\\[HarvestCapScanLedger\\] drill rate live check passed: body=Minmus .* drillParts=2 drillModules=2 spaceObjectDrills=2 isruParts=2 isruModules=[1-9][0-9]* missing=\\[\\] rates=\\[.*LiquidFuel:.*Ore:",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "\\[ResourceScanCapture\\] .*threw",
+  "\\[HarvestCapScanLedger\\] scan ledger live check teardown threw",
+]
+
+[runtime]
+# AH-1's shape and budget: one deferred LoadGame and one deferred RunTests.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -7914,9 +7914,10 @@ namespace Parsek
         /// only: a surface / ocean <c>ModuleResourceHarvester</c> (abundance at the
         /// vessel's location, as the drill itself asks <c>ResourceMap</c>), a
         /// <c>ModuleResourceConverter</c> (its recipe outputs, already in units), the
-        /// science lab (no resource). Any other converter - atmospheric or
-        /// exospheric harvesters, asteroid and comet drills, modded subclasses -
-        /// makes the window unbounded (null), as does any exception.
+        /// science lab (no resource), an asteroid / comet drill on a vessel with no
+        /// asteroid or comet part (no resource). Any other converter - atmospheric or
+        /// exospheric harvesters, an asteroid / comet drill with a space object aboard,
+        /// modded subclasses - makes the window unbounded (null), as does any exception.
         /// </summary>
         private Dictionary<string, double> BuildPlausibleHarvestRates(Vessel v)
         {
@@ -7924,56 +7925,16 @@ namespace Parsek
                 return null;
             try
             {
+                bool carriesSpaceObject = VesselCarriesSpaceObject(v);
                 var inputs = new List<HarvestConverterRate>(cachedConverters.Count);
                 for (int i = 0; i < cachedConverters.Count; i++)
                 {
                     BaseConverter c = cachedConverters[i];
                     if (c == null)
                         continue; // Unity-null: destroyed/staged-away module
-                    var input = new HarvestConverterRate
-                    {
-                        Kind = HarvestConverterKind.Unmodeled,
-                        Multiplier = (double)c.EfficiencyBonus * c.GetCrewEfficiencyBonus()
-                    };
-                    System.Type type = c.GetType();
-                    if (type == typeof(ModuleResourceHarvester))
-                    {
-                        var drill = (ModuleResourceHarvester)c;
-                        if ((drill.HarvesterType == 0 || drill.HarvesterType == 1)
-                            && ResourceMap.Instance != null && v.mainBody != null)
-                        {
-                            input.Kind = HarvestConverterKind.Drill;
-                            input.ResourceName = drill.ResourceName;
-                            input.Efficiency = drill.Efficiency;
-                            input.Abundance = ResourceMap.Instance.GetAbundance(new AbundanceRequest
-                            {
-                                Altitude = v.altitude,
-                                BodyId = v.mainBody.flightGlobalsIndex,
-                                CheckForLock = false,
-                                Latitude = v.latitude,
-                                Longitude = v.longitude,
-                                ResourceType = (HarvestTypes)drill.HarvesterType,
-                                ResourceName = drill.ResourceName
-                            });
-                        }
-                    }
-                    else if (type == typeof(ModuleResourceConverter))
-                    {
-                        ConversionRecipe recipe = ((ModuleResourceConverter)c).Recipe;
-                        input.Kind = HarvestConverterKind.Recipe;
-                        input.Outputs = new List<KeyValuePair<string, double>>();
-                        if (recipe != null && recipe.Outputs != null)
-                        {
-                            for (int o = 0; o < recipe.Outputs.Count; o++)
-                                input.Outputs.Add(new KeyValuePair<string, double>(
-                                    recipe.Outputs[o].ResourceName, recipe.Outputs[o].Ratio));
-                        }
-                    }
-                    else if (type == typeof(ModuleScienceConverter))
-                    {
-                        input.Kind = HarvestConverterKind.NoResourceOutput;
-                    }
-                    inputs.Add(input);
+                    inputs.Add(ReadHarvestConverterRate(
+                        c, c.GetCrewEfficiencyBonus(), v.mainBody, v.latitude, v.longitude, v.altitude,
+                        carriesSpaceObject));
                 }
                 return RouteHarvestCapture.ComputePlausibleRates(inputs);
             }
@@ -7985,7 +7946,102 @@ namespace Parsek
             }
         }
 
-        private static string FormatPlausibleRates(Dictionary<string, double> rates)
+        /// <summary>
+        /// One converter's plausibility-bound inputs (HARVEST-ROUTE-PLAUSIBILITY-CAP).
+        /// Exact stock types only: a surface / ocean <c>ModuleResourceHarvester</c> reads the
+        /// abundance at the given location the way the drill asks <c>ResourceMap</c>, a
+        /// <c>ModuleResourceConverter</c> its recipe outputs (already in units), the science
+        /// lab produces no resource; any other type, or a drill with no body or no
+        /// <c>ResourceMap</c>, is <see cref="HarvestConverterKind.Unmodeled"/>.
+        /// <paramref name="crewBonus"/> is passed in because stock's
+        /// <c>GetCrewEfficiencyBonus</c> reads the part's vessel, which a part prefab (the
+        /// in-game check of this reader) does not have.
+        ///
+        /// <para>Both stock surface drills also carry a <c>ModuleAsteroidDrill</c>, which mines
+        /// only an asteroid part on its own vessel (decompiled: it looks for a
+        /// <c>ModuleAsteroid</c> among <c>vessel.parts</c>); <c>ModuleCometDrill</c> is the
+        /// comet twin. On a vessel with no asteroid or comet part
+        /// (<paramref name="hostCarriesSpaceObject"/> false) they produce nothing and read as
+        /// <see cref="HarvestConverterKind.NoResourceOutput"/>, so a stock drill keeps its
+        /// bound; with one they stay unmodeled and the window uncapped.</para>
+        /// </summary>
+        internal static HarvestConverterRate ReadHarvestConverterRate(
+            BaseConverter c, double crewBonus, CelestialBody body,
+            double latitude, double longitude, double altitude, bool hostCarriesSpaceObject)
+        {
+            var input = new HarvestConverterRate
+            {
+                Kind = HarvestConverterKind.Unmodeled,
+                Multiplier = (double)c.EfficiencyBonus * crewBonus
+            };
+            System.Type type = c.GetType();
+            if (type == typeof(ModuleResourceHarvester))
+            {
+                var drill = (ModuleResourceHarvester)c;
+                if ((drill.HarvesterType == 0 || drill.HarvesterType == 1)
+                    && ResourceMap.Instance != null && body != null)
+                {
+                    input.Kind = HarvestConverterKind.Drill;
+                    input.ResourceName = drill.ResourceName;
+                    input.Efficiency = drill.Efficiency;
+                    input.Abundance = ResourceMap.Instance.GetAbundance(new AbundanceRequest
+                    {
+                        Altitude = altitude,
+                        BodyId = body.flightGlobalsIndex,
+                        CheckForLock = false,
+                        Latitude = latitude,
+                        Longitude = longitude,
+                        ResourceType = (HarvestTypes)drill.HarvesterType,
+                        ResourceName = drill.ResourceName
+                    });
+                }
+            }
+            else if (type == typeof(ModuleResourceConverter))
+            {
+                ConversionRecipe recipe = ((ModuleResourceConverter)c).Recipe;
+                input.Kind = HarvestConverterKind.Recipe;
+                input.Outputs = new List<KeyValuePair<string, double>>();
+                if (recipe != null && recipe.Outputs != null)
+                {
+                    for (int o = 0; o < recipe.Outputs.Count; o++)
+                        input.Outputs.Add(new KeyValuePair<string, double>(
+                            recipe.Outputs[o].ResourceName, recipe.Outputs[o].Ratio));
+                }
+            }
+            else if (type == typeof(ModuleScienceConverter))
+            {
+                input.Kind = HarvestConverterKind.NoResourceOutput;
+            }
+            else if ((type == typeof(ModuleAsteroidDrill) || type == typeof(ModuleCometDrill))
+                && !hostCarriesSpaceObject)
+            {
+                input.Kind = HarvestConverterKind.NoResourceOutput;
+            }
+            return input;
+        }
+
+        /// <summary>
+        /// True when any part of <paramref name="v"/> is an asteroid or a comet, the only
+        /// thing a stock asteroid / comet drill can mine (see
+        /// <see cref="ReadHarvestConverterRate"/>).
+        /// </summary>
+        private static bool VesselCarriesSpaceObject(Vessel v)
+        {
+            if (v == null || v.parts == null)
+                return false;
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null)
+                    continue;
+                if (p.FindModuleImplementing<ModuleAsteroid>() != null
+                    || p.FindModuleImplementing<ModuleComet>() != null)
+                    return true;
+            }
+            return false;
+        }
+
+        internal static string FormatPlausibleRates(Dictionary<string, double> rates)
         {
             if (rates == null)
                 return "unbounded";
