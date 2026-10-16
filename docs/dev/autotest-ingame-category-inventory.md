@@ -1,4 +1,4 @@
-# In-game test category inventory (all 127 categories)
+# In-game test category inventory (all 128 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -126,6 +126,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `GhostVisuals` | 4 | 4 | 3 | 3 | 0 | 0 | H15 | A |
 | `GuiMock` | 4 | 0 | 4 | 0 | 0 | 4 | NOT DRIVEN (P1 of the GUI state gallery, 2026-09-22). Four SPACECENTER cells (five until the 2026-09-27 removal of the Career State window took its apply cell) proving the one thing no headless cell can reach: that a mocked view model, installed into a real window, is actually DRAWN, that the cache suppression holds across a live `onVesselChange` and a live ledger-invalidate dispatch, that a `SaveGame` attempt is refused while a scope is live, and that every declared suppression site is inert with no scope. Its OWN category for the standing reason - a cell added to an existing category moves a `BATCH_COMPLETE` tally committed specs pin - and it RE-OPENS the driven axis at 113 of 114, deliberately: P1 ships no lane (the gallery lanes and the `GalleryRun` batch verb are P2), so there is nothing to claim the row with yet and claiming it from an unrelated census lane would be a tally nobody measured. NEVER FLOWN - every pin in the file is a prediction, and each failure message prints what it measured so the first flight corrects a pin rather than guessing at one. The self-skip column is 5: every cell degrades to `InGameAssert.Skip` naming the missing context (no live `ParsekUI`, a window hidden by the current complexity mode, a state absent from the catalogue) rather than failing on a host it cannot use. Bucket **C** until P2's lane drives it | C |
 | `GuiTree` | 1 | 1 | 1 | 1 | 0 | 1 | GUI-1-census-ksc (one ordinary `RunTests category="GuiTree"` step added 2026-09-11, and LIVE-PROVEN the same day: reading run `2026-09-11_0548`, PASS attempt 1, 96 s wall, every verifier PASS or REPORT, `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=GuiTree scene=SPACECENTER` matched verbatim and now pinned WHOLE off that run. THREE EXECUTIONS READ THE IDENTICAL LINE - runs `2026-09-10_2255` and attempt 2 `_2256` first, inside a lane that read INVALID on one unrelated seam step, then `_0548` under a verdict - with the run-time self-skip NOT firing on any of them (`repaintPasses=5`, so its probe window saw a Repaint pass well inside the 240-frame budget). The lane is the KSC GUI census, so the batch runs at SPACECENTER, where the attributes derive total=1 = 0 scene-skipped + 0 batch-skipped + 1 executable - measured exactly. It draws its own probe window, so no host fixture is at stake and the census lane was the cheapest carrier rather than a considered host choice; the flights confirm that reading, since the probe drew on the one host that was tried. PROMOTED to bucket **A** by the reading run, on the promotion rule below - the tally is pinned WHOLE *and* the lane drives the category at its own boot; GUI-1 is an ordinary single-category lane, so it joins A1's path rather than A3's. The self-skip column stays 1: the cell can still give up if no Repaint arrives, and the skip is what it falls back to) | A |
+| `HarvestCapScanLedger` | 3 | 0 | 3 | 0 | 0 | 3 | HV-2-scan-ledger-drill-rates (authored 2026-10-16, branch `claude/harvest-cap-scan-ledger-oo5vxg`, LIVE-PROVEN the same day: run `2026-10-16_0607` PASS attempt 1, `total=3 passed=3 failed=0 skipped=0` pinned whole) on `fresh-career` at the Space Center. Three SPACECENTER cells for the two mining rulings of 2026-10-15: a stock `ResourceMap.UnlockBiome` and a stock `UnlockPlanet` on Minmus each land one ownerless `ResourceScanUnlocked` ledger row and one event, stay locked under a recalc cut off before their UT after a rewind-style relock, and are re-applied by `PatchResourceScans` at the live clock with no second row (RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED); and `FlightRecorder.ReadHarvestConverterRate` models every stock drill and ISRU prefab converter with a bounded rate, the drills' own `ModuleAsteroidDrill` reading as no output with no asteroid aboard (HARVEST-ROUTE-PLAUSIBILITY-CAP). Each self-skips without Minmus, `ResourceMap` or a locked target and reverts the row, the event and the scan state. Its OWN category for the standing reason (a cell in `LedgerGroundTruth` would move HC-1's pinned tally) | A |
 | `IdentityLoss` | 3 | 3 | 0 | 0 | 0 | 3 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 3 - the whole category at FLIGHT with zero skips) | A |
 | `IncompleteBallistic` | 11 | 11 | 0 | 0 | 0 | 0 | H9 | A |
 | `KSP` | 6 | 6 | 4 | 4 | 0 | 0 | H13 | A |
@@ -221,8 +222,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **127 categories / 668 declarations**. Buckets **A 93 categories
-(370 declarations)**, **B 33 categories (294 declarations)**, **C 1 category (4
+Totals, re-derived: **128 categories / 671 declarations**. Buckets **A 94 categories
+(373 declarations)**, **B 33 categories (294 declarations)**, **C 1 category (4
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes).
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
@@ -235,7 +236,9 @@ interim pin until the reading run measures the split), A 89 -> 91 categories, 35
 declarations. Both flew the same day (CN-2 `2026-09-26_2030`, CN-3 `2026-09-26_2053`, PASS
 attempt 1, 3 of 3 each) and the pins are now WHOLE. The 2026-09-27 auto-hire live check's
 `AutoHireReservation` (AH-1, one SPACECENTER cell) landed WITH its never-flown lane straight into
-**A** on the same standing, A 91 -> 92 categories, 365 -> 366 declarations (after H72's B -> A move below). All re-derived
+**A** on the same standing, A 91 -> 92 categories, 365 -> 366 declarations (after H72's B -> A move below). The
+2026-10-16 mining live check's `HarvestCapScanLedger` (HV-2, three SPACECENTER cells) landed WITH its never-flown lane
+into **A** on the same standing, A 93 -> 94 categories, 370 -> 373 declarations. All re-derived
 mechanically by counting the table's
 rows per Bucket cell and summing their Decls column, which is also how the bucket
 section headers below are derived. The 2026-09-08 reading was A 86 / 349 and B 27 / 275;
@@ -336,10 +339,12 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **122 of 127 categories**, covering **659 of 668
+Driven by a committed spec: **123 of 128 categories**, covering **662 of 671
 declarations** (re-derived mechanically the same way: count the table rows whose
-Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 668 declarations in
-127 categories over `Source/Parsek`. The 2026-10-16 IR-10 cell took
+Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 671 declarations in
+128 categories over `Source/Parsek`. The 2026-10-16 mining live check opened a 128th row,
+`HarvestCapScanLedger` (three SPACECENTER cells, bucket **A**), driven by HV-2-scan-ledger-drill-rates
+(authored 2026-10-16, LIVE-PROVEN the same day). The 2026-10-16 IR-10 cell took
 `RouteEscrowContention` from 2 to 3 declarations, still driven by H60. The 2026-10-11 vessel names Phase 2a opened a 127th row,
 `VesselNames` (three FLIGHT cells, bucket **B**), driven by VN-1-stock-rename-staging-f9 (authored
 2026-10-11, LIVE-PROVEN 2026-10-12). The 2026-10-03 startup notices opened a 126th
@@ -747,7 +752,7 @@ categories in 297 s and `LT-2` took 6 more in 46 s. The one-step rule stands, an
 question is still "is what it executes worth a boot", but a boot now buys a whole
 bucket rather than one row.
 
-### Bucket A - wired now (92 categories, 366 declarations)
+### Bucket A - wired now (94 categories, 373 declarations)
 
 Three sub-classes, admitted on DIFFERENT grounds. Conflating them is how a spec would
 end up pinned against the wrong derivation.

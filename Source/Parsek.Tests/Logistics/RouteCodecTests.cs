@@ -512,6 +512,43 @@ namespace Parsek.Tests.Logistics
         // pre-M2 route) must write NOTHING (byte-stable saves), true must
         // round-trip, absent must read back false.
         [Fact]
+        public void RoundTrip_HarvestCaps_SparseNodes()
+        {
+            var leanStop = new RouteStop
+            {
+                Endpoint = BuildMunStopEndpoint(),
+                ConnectionKind = RouteConnectionKind.DockingPort,
+                DeliveryManifest = new Dictionary<string, double> { { "Ore", 75.0 } },
+                SegmentIndexBefore = 0,
+                DeliveryOffsetSeconds = 0.0
+            };
+            Route plain = new RouteFixtureBuilder().WithId("plain").WithOrigin(BuildKscOrigin())
+                .WithStop(leanStop).Build();
+            var plainNode = new ConfigNode("ROUTE");
+            plain.SerializeInto(plainNode);
+            Assert.False(plainNode.HasNode(RouteCodec.HarvestCapNode));
+            Assert.Null(Route.DeserializeFrom(plainNode).HarvestCaps);
+
+            Route capped = new RouteFixtureBuilder().WithId("capped").WithOrigin(BuildKscOrigin())
+                .WithStop(leanStop).Build();
+            capped.HarvestCaps = new List<HarvestCapEntry>
+            {
+                new HarvestCapEntry { Resource = "Ore", Recorded = 100.0, Cap = 75.25 },
+                new HarvestCapEntry { Resource = "LiquidFuel", Recorded = 9.5, Cap = 0.0 }
+            };
+            var node = new ConfigNode("ROUTE");
+            capped.SerializeInto(node);
+            Route back = Route.DeserializeFrom(node);
+
+            Assert.Equal(2, back.HarvestCaps.Count);
+            Assert.Equal("Ore", back.HarvestCaps[0].Resource);
+            Assert.Equal(100.0, back.HarvestCaps[0].Recorded);
+            Assert.Equal(75.25, back.HarvestCaps[0].Cap);
+            Assert.Equal("LiquidFuel", back.HarvestCaps[1].Resource);
+            Assert.Equal(0.0, back.HarvestCaps[1].Cap);
+        }
+
+        [Fact]
         public void RoundTrip_IsHarvestOrigin_SparseKey()
         {
             var leanStop = new RouteStop

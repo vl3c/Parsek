@@ -442,6 +442,9 @@ namespace Parsek
                 case GameActionType.ReputationEarning:    return TimelineEntryType.ReputationEarning;
                 case GameActionType.ReputationPenalty:     return TimelineEntryType.ReputationPenalty;
                 case GameActionType.MilestoneAchievement: return TimelineEntryType.MilestoneAchievement;
+                // A resource scan is career progress like a milestone; it reuses that
+                // bucket rather than adding an entry type.
+                case GameActionType.ResourceScanUnlocked: return TimelineEntryType.MilestoneAchievement;
                 case GameActionType.ContractAccept:       return TimelineEntryType.ContractAccept;
                 case GameActionType.ContractComplete:     return TimelineEntryType.ContractComplete;
                 case GameActionType.ContractFail:         return TimelineEntryType.ContractFail;

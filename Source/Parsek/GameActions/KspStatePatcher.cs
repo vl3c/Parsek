@@ -97,6 +97,8 @@ namespace Parsek
                 // so at most one of the two tech passes does anything.
                 PatchCommittedTechUnlocks(committedTechUnlockIds, committedTechUnlockLiveUt);
                 PatchPurchasedParts(partPurchaseActions, walkUtCutoff, techUtCutoff);
+                // Add-only, capped like the part purchases; the same action list.
+                PatchResourceScans(partPurchaseActions, walkUtCutoff, techUtCutoff);
                 PatchFunds(funds, suppressSuspiciousDrawdownWarnings, authoritativeReduction);
                 PatchReputation(reputation, authoritativeReduction);
                 PatchFacilities(facilities);
@@ -1879,6 +1881,209 @@ namespace Parsek
                     $"floored available={flooredAvailable.ToString("F1", IC)})");
             }
             return target;
+        }
+
+        // ---------------- resource scans (RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED) ----------------
+
+        /// <summary>A stub for tests: the live clock the scan patch reads. Null reads the real one.</summary>
+        internal static Func<double> ResourceScanLiveUtProviderForTesting;
+
+        /// <summary>One committed scan unlock: a whole body (<see cref="Biome"/> null) or one biome.</summary>
+        internal struct ResourceScanUnlock
+        {
+            public string Body;
+            public string Biome;
+        }
+
+        /// <summary>
+        /// The scans the committed timeline has made by <paramref name="cutoff"/>: every
+        /// <see cref="GameActionType.ResourceScanUnlocked"/> row with a body name at or before
+        /// it, de-duplicated by (body, biome) and sorted, so the apply order and its log are
+        /// deterministic. Pure.
+        /// </summary>
+        internal static List<ResourceScanUnlock> BuildResourceScanUnlocksForPatch(
+            IReadOnlyList<GameAction> actions, double cutoff)
+        {
+            var keys = new SortedSet<string>(StringComparer.Ordinal);
+            var result = new List<ResourceScanUnlock>();
+            if (actions == null) return result;
+            var byKey = new Dictionary<string, ResourceScanUnlock>(StringComparer.Ordinal);
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (a == null || a.Type != GameActionType.ResourceScanUnlocked) continue;
+                if (string.IsNullOrEmpty(a.ScanBodyName)) continue;
+                if (a.UT > cutoff) continue;
+                string biome = string.IsNullOrEmpty(a.ScanBiomeName) ? null : a.ScanBiomeName;
+                string key = a.ScanBodyName + "|" + (biome ?? "");
+                if (keys.Add(key))
+                    byKey[key] = new ResourceScanUnlock { Body = a.ScanBodyName, Biome = biome };
+            }
+            foreach (string key in keys)
+                result.Add(byKey[key]);
+            return result;
+        }
+
+        /// <summary>
+        /// The scans one <see cref="PatchResourceScans"/> pass applies: the committed rows at or
+        /// before the part-purchase cutoff (<see cref="ResolvePartPurchasePatchCutoff"/>: the
+        /// supplied cutoff clamped to the live clock when it is ready). The patch is add-only
+        /// (stock has no re-lock), so the same clamp keeps a future scan from ever reaching
+        /// stock early; a rewind needs no re-lock because its quicksave predates every later
+        /// scan. Null when there is no usable cutoff. Pure.
+        /// </summary>
+        internal static List<ResourceScanUnlock> PlanResourceScanUnlocksForPatch(
+            IReadOnlyList<GameAction> actions, double? walkCutoff, double? techPatchCutoff,
+            double liveUT, out double? cutoff)
+        {
+            cutoff = ResolvePartPurchasePatchCutoff(walkCutoff, techPatchCutoff, liveUT);
+            return cutoff.HasValue ? BuildResourceScanUnlocksForPatch(actions, cutoff.Value) : null;
+        }
+
+        /// <summary>The per-pass counters and the bounded identity lists the scan patch logs.</summary>
+        internal sealed class ResourceScanPatchResult
+        {
+            public int Unlocked;
+            public int AlreadyUnlocked;
+            public int UnknownBody;
+            public readonly List<string> UnlockedIds = new List<string>();
+            public readonly List<string> UnknownBodies = new List<string>();
+        }
+
+        /// <summary>
+        /// Applies <paramref name="unlocks"/> through the supplied stock seams, add-only: a body
+        /// or biome already unlocked is counted and left alone, a body the install does not have
+        /// is counted and skipped. The live wrapper passes <c>ResourceMap</c>'s own methods;
+        /// tests pass fakes. Pure apart from the seams.
+        /// </summary>
+        internal static ResourceScanPatchResult ApplyResourceScanUnlocks(
+            IReadOnlyList<ResourceScanUnlock> unlocks,
+            Func<string, int> planetIdForName,
+            Func<int, bool> isPlanetScanned,
+            Func<int, string, bool> isBiomeUnlocked,
+            Action<int> unlockPlanet,
+            Action<int, string> unlockBiome)
+        {
+            var result = new ResourceScanPatchResult();
+            if (unlocks == null) return result;
+            for (int i = 0; i < unlocks.Count; i++)
+            {
+                var u = unlocks[i];
+                int planetId = planetIdForName(u.Body);
+                if (planetId < 0)
+                {
+                    result.UnknownBody++;
+                    result.UnknownBodies.Add(u.Body);
+                    continue;
+                }
+
+                string id = u.Biome == null ? u.Body : u.Body + "/" + u.Biome;
+                if (u.Biome == null)
+                {
+                    if (isPlanetScanned(planetId)) { result.AlreadyUnlocked++; continue; }
+                    unlockPlanet(planetId);
+                }
+                else
+                {
+                    if (isBiomeUnlocked(planetId, u.Biome)) { result.AlreadyUnlocked++; continue; }
+                    unlockBiome(planetId, u.Biome);
+                }
+                result.Unlocked++;
+                result.UnlockedIds.Add(id);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// The state half of the scan ledger (RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED): unlocks in
+        /// stock's <c>ResourceMap</c> every body and biome the committed timeline scanned at or
+        /// before the cutoff, so a committed future scan returns when the clock reaches it after
+        /// a rewind. Add-only; runs inside <see cref="PatchAll"/>'s replay suppression, so the
+        /// unlock is not captured again. Skips (the next recalc applies it) when the scan
+        /// scenario is not loaded in this scene.
+        /// </summary>
+        internal static void PatchResourceScans(
+            IReadOnlyList<GameAction> actions, double? walkCutoff, double? techPatchCutoff)
+        {
+            if (actions == null)
+            {
+                VerboseStablePatchState("patch-skip|scans|actions", "actions-null",
+                    "PatchResourceScans: no action list supplied - skipping");
+                return;
+            }
+
+            var liveProvider = ResourceScanLiveUtProviderForTesting;
+            double liveUT = liveProvider != null ? liveProvider() : CommittedFutureIndexCache.CurrentUT();
+            double? cutoff;
+            var unlocks = PlanResourceScanUnlocksForPatch(actions, walkCutoff, techPatchCutoff, liveUT, out cutoff);
+            if (unlocks == null)
+            {
+                VerboseStablePatchState("patch-skip|scans|cutoff", "cutoff-unknown",
+                    "PatchResourceScans: no finite cutoff and the clock is not ready - skipping");
+                return;
+            }
+
+            if (unlocks.Count == 0)
+            {
+                VerboseStablePatchState("patch-noop|scans", "no-rows",
+                    "PatchResourceScans: no committed resource scan at or before the cutoff");
+                return;
+            }
+
+            if (SuppressUnityCallsForTesting)
+            {
+                VerboseStablePatchState("patch-skip|scans|test", "suppressed",
+                    "PatchResourceScans: Unity calls suppressed for testing - skipping");
+                return;
+            }
+
+            if (!IsResourceScanStateLoaded())
+            {
+                VerboseStablePatchState("patch-skip|scans|scenario", "scenario-null",
+                    "PatchResourceScans: ResourceMap or ResourceScenario not loaded in this scene - " +
+                    "skipping (the next recalc with them loaded applies it)");
+                return;
+            }
+
+            var result = ApplyLiveResourceScanUnlocks(unlocks);
+            string cutoffLabel = cutoff.Value.ToString("R", IC);
+            if (result.Unlocked == 0)
+            {
+                VerboseStablePatchState("patch-noop|scans",
+                    unlocks.Count.ToString(IC) + "|" + result.UnknownBody.ToString(IC),
+                    $"PatchResourceScans: all {result.AlreadyUnlocked.ToString(IC)} committed scan(s) already " +
+                    $"unlocked (unknownBody={result.UnknownBody.ToString(IC)}, cutoff={cutoffLabel})");
+            }
+            else
+            {
+                ParsekLog.Info(Tag,
+                    $"PatchResourceScans: unlocked={result.Unlocked.ToString(IC)}, " +
+                    $"alreadyUnlocked={result.AlreadyUnlocked.ToString(IC)}, " +
+                    $"unknownBody={result.UnknownBody.ToString(IC)}, cutoff={cutoffLabel}, " +
+                    $"unlockedIds=[{ComposeBoundedIdentitySample(result.UnlockedIds, IdentitySampleCap)}]");
+            }
+            if (result.UnknownBody > 0)
+                ParsekLog.Verbose(Tag,
+                    $"PatchResourceScans: {result.UnknownBody.ToString(IC)} committed scan(s) name a body " +
+                    $"this install does not have: [{ComposeBoundedIdentitySample(result.UnknownBodies, IdentitySampleCap)}]");
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static bool IsResourceScanStateLoaded()
+        {
+            return ResourceMap.Instance != null && ResourceScenario.Instance != null;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static ResourceScanPatchResult ApplyLiveResourceScanUnlocks(IReadOnlyList<ResourceScanUnlock> unlocks)
+        {
+            var map = ResourceMap.Instance;
+            return ApplyResourceScanUnlocks(unlocks,
+                Patches.ResourceScanBodies.PlanetIdForName,
+                map.IsPlanetScanned,
+                map.IsBiomeUnlocked,
+                map.UnlockPlanet,
+                map.UnlockBiome);
         }
 
         /// <summary>
@@ -4597,6 +4802,7 @@ namespace Parsek
         {
             SuppressUnityCallsForTesting = false;
             PartPurchaseLiveUtProviderForTesting = null;
+            ResourceScanLiveUtProviderForTesting = null;
             AllowNegativeCurrencyProviderForTesting = null;
             protoTechNodesReflectionWarnEmitted = false;
             scienceSubjectsReflectionWarnEmitted = false;

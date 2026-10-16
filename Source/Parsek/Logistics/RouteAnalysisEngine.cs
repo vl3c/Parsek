@@ -193,6 +193,17 @@ namespace Parsek.Logistics
         public Dictionary<string, double> HarvestedManifest;
 
         /// <summary>
+        /// <see cref="HarvestedManifest"/> limited to what the converters could
+        /// plausibly produce (HARVEST-ROUTE-PLAUSIBILITY-CAP), set beside it on an
+        /// Eligible result. <c>RouteBuilder</c> credits harvest per run from this:
+        /// a harvest-origin route's delivery and the D8 debit reduction.
+        /// </summary>
+        public Dictionary<string, double> PlausibleHarvestedManifest;
+
+        /// <summary>Resources whose witnessed harvest the plausibility bound lowered; null when the gain check did not engage.</summary>
+        public List<HarvestCapEntry> HarvestCaps;
+
+        /// <summary>
         /// True when the run started undocked (no KSC launch, no start-docked
         /// proof) but EVERY delivered resource is fully covered by witnessed
         /// harvest (plan D6 refined gate): the run is Eligible as a
@@ -1032,6 +1043,27 @@ namespace Parsek.Logistics
                     $"resources={anchor.Resources?.Count ?? 0}");
             }
 
+            // HARVEST-ROUTE-PLAUSIBILITY-CAP (owner ruling 2026-10-06): a harvest-
+            // origin route delivers its harvest every run, so each delivery is
+            // limited to what the drills could plausibly produce in the recorded
+            // time. The stops share one budget in stop order; the dictionaries are
+            // this analysis' own (BuildResourceDeliveryManifest), so the clamp is in
+            // place and the anchor scalar sees it through the shared reference.
+            List<HarvestCapEntry> harvestCaps = harvestEngaged ? gainCheck.HarvestCaps : null;
+            if (isHarvestOrigin)
+            {
+                var deliveries = new List<Dictionary<string, double>>(built.Count - stopStartIndex);
+                for (int i = stopStartIndex; i < built.Count; i++)
+                    deliveries.Add(built[i].Resources);
+                harvestCaps = RouteHarvestAnalysis.ClampDeliveriesToPlausibleHarvest(
+                    deliveries, gainCheck.PlausibleHarvestedManifest);
+                if (harvestCaps.Count > 0)
+                    Diag(logMode,
+                        $"RouteAnalysis: harvest-origin delivery capped to plausible harvest " +
+                        $"originRec={originRec?.RecordingId ?? "<none>"} " +
+                        $"{RouteHarvestAnalysis.FormatCapsForLog(harvestCaps)}");
+            }
+
             // --- Eligible: build the per-stop collection + the anchor scalars --
             // Backing-mission render geometry keys on UndockUT; warn on a
             // non-finite anchor UndockUT (RouteBuilder independently rejects it).
@@ -1092,6 +1124,8 @@ namespace Parsek.Logistics
                     : null,
                 InventoryLoadManifest = anchorHasInventoryLoad ? anchor.LoadInventory : null,
                 HarvestedManifest = harvestEngaged ? gainCheck.HarvestedManifest : null,
+                PlausibleHarvestedManifest = harvestEngaged ? gainCheck.PlausibleHarvestedManifest : null,
+                HarvestCaps = harvestCaps,
                 IsHarvestOrigin = isHarvestOrigin,
                 FirstHarvestWindow = harvestEngaged ? gainCheck.FirstHarvestWindow : null,
                 Stops = stops,

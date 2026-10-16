@@ -689,6 +689,14 @@ namespace Parsek
                         action.UT,
                         action.FacilityId);
 
+                // A resource scan's ledger row and its ResourceScanCompleted event share
+                // the UT and the body-name key.
+                case GameActionType.ResourceScanUnlocked:
+                    return EncodeLegacyDuplicateKey(
+                        GameStateEventType.ResourceScanCompleted,
+                        action.UT,
+                        action.ScanBodyName);
+
                 default:
                     return null;
             }

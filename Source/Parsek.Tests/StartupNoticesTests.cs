@@ -54,6 +54,8 @@ namespace Parsek.Tests
         [InlineData("FlightResultsDialogLogPatches.DisplayPatch", "diagnostic logging")]
         [InlineData("VesselRenameAcceptCapturePatch", "vessel names")]
         [InlineData("PartVesselNamingAcceptCapturePatch", "vessel names")]
+        [InlineData("ResourceScanUnlockPlanetPatch", "resource scan recording")]
+        [InlineData("ResourceScanUnlockBiomePatch", "resource scan recording")]
         [InlineData("DisplayPatch", null)]
         [InlineData("SomethingNew", null)]
         [InlineData("", null)]

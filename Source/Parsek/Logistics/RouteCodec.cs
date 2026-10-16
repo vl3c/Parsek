@@ -59,6 +59,8 @@ namespace Parsek.Logistics
         internal const string InventoryPickupManifestNode = "INVENTORY_PICKUP_MANIFEST";
         internal const string CostManifestNode = "COST_MANIFEST";
         internal const string InventoryCostManifestNode = "INVENTORY_COST_MANIFEST";
+        // One per plausibility-capped resource (HARVEST-ROUTE-PLAUSIBILITY-CAP); omitted when none.
+        internal const string HarvestCapNode = "HARVEST_CAP";
         internal const string InventoryItemNode = "ITEM";
         internal const string StoredPartNode = "STOREDPART";
         internal const string StoredResourcesNode = "STORED_RESOURCES";
@@ -95,6 +97,20 @@ namespace Parsek.Logistics
             // dispatchPriority sparse convention.
             if (route.IsHarvestOrigin)
                 node.AddValue("isHarvestOrigin", route.IsHarvestOrigin.ToString());
+            // Sparse plausibility caps: absent when nothing was capped.
+            if (route.HarvestCaps != null)
+            {
+                for (int i = 0; i < route.HarvestCaps.Count; i++)
+                {
+                    HarvestCapEntry cap = route.HarvestCaps[i];
+                    if (string.IsNullOrEmpty(cap.Resource))
+                        continue;
+                    ConfigNode capNode = node.AddNode(HarvestCapNode);
+                    capNode.AddValue("resource", cap.Resource);
+                    capNode.AddValue("recorded", cap.Recorded.ToString("R", ic));
+                    capNode.AddValue("cap", cap.Cap.ToString("R", ic));
+                }
+            }
             node.AddValue("kscDispatchFundsCost", route.KscDispatchFundsCost.ToString("R", ic));
 
             // --- Scheduling scalars ---
@@ -313,6 +329,25 @@ namespace Parsek.Logistics
             TryParseBool(node.GetValue("isKscOrigin"), out route.IsKscOrigin);
             // Sparse harvest-origin flag (M2): absent reads back false.
             TryParseBool(node.GetValue("isHarvestOrigin"), out route.IsHarvestOrigin);
+            ConfigNode[] capNodes = node.GetNodes(HarvestCapNode);
+            if (capNodes != null && capNodes.Length > 0)
+            {
+                route.HarvestCaps = new List<HarvestCapEntry>(capNodes.Length);
+                for (int i = 0; i < capNodes.Length; i++)
+                {
+                    string resource = capNodes[i].GetValue("resource");
+                    if (string.IsNullOrEmpty(resource))
+                        continue;
+                    TryParseDouble(capNodes[i].GetValue("recorded"), inv, ic, out double recorded);
+                    TryParseDouble(capNodes[i].GetValue("cap"), inv, ic, out double capAmount);
+                    route.HarvestCaps.Add(new HarvestCapEntry
+                    {
+                        Resource = resource,
+                        Recorded = recorded,
+                        Cap = capAmount
+                    });
+                }
+            }
             TryParseDouble(node.GetValue("kscDispatchFundsCost"), inv, ic, out route.KscDispatchFundsCost);
 
             TryParseDouble(node.GetValue("transitDuration"), inv, ic, out route.TransitDuration);

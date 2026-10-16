@@ -24,6 +24,14 @@ _(unreleased - entries accumulate here per commit)_
   merge dialog, the Supply Route prompt and the Logistics labels use the new name, not the launch
   name. Logistics now numbers vessels like the Missions tab: one vessel is numbered once ("X",
   "X [2]"), so two pieces of one flight no longer read "X [1], X [2]". (GC-7)
+- **Mining routes deliver only what their drills could really produce.** A supply route made from
+  a mining flight no longer repeats a burst of ore the game added at once after time passed off
+  screen. Each run's harvest is capped at the drills' rate times the recorded drilling time, and
+  the route's from/to hover says when the cap applies. (HARVEST-ROUTE-PLAUSIBILITY-CAP)
+- **Resource scans are part of your committed career.** An orbital survey or a surface scan is now
+  recorded with the flight that made it. After a rewind to before the scan, the scanned body or
+  biome unlocks again when the clock reaches the moment it was scanned, like other committed
+  progress. (RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED)
 
 ### Fixed
 

@@ -2171,6 +2171,11 @@ namespace Parsek
                 case GameActionType.StrategyScienceDebit:
                 // StrategyScienceCredit: the same argument in the OUTPUT direction.
                 case GameActionType.StrategyScienceCredit:
+                // ResourceScanUnlocked: a RECORD of a scan stock already applied; the
+                // patcher re-applies only effective rows, the merge retires this one through
+                // IsSupersedeTombstoneEligible, and the rewind quicksave predates the scan,
+                // so a strict block would protect nothing.
+                case GameActionType.ResourceScanUnlocked:
                     return false;
             }
 

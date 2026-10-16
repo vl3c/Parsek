@@ -121,6 +121,12 @@ namespace Parsek
                 case GameActionType.VesselRecovered:
                     return "Vessel recovered: " + (action.RecoveredVesselName ?? "unknown");
 
+                case GameActionType.ResourceScanUnlocked:
+                    return string.IsNullOrEmpty(action.ScanBiomeName)
+                        ? "Resource scan: " + (action.ScanBodyName ?? "unknown")
+                        : "Resource scan: " + (action.ScanBodyName ?? "unknown") +
+                          " (" + action.ScanBiomeName + ")";
+
                 case GameActionType.KerbalExperience:
                     return GetKerbalExperienceDescription(action);
 
@@ -445,6 +451,7 @@ namespace Parsek
                 case GameActionType.FundsEarning:
                 case GameActionType.ReputationEarning:
                 case GameActionType.MilestoneAchievement:
+                case GameActionType.ResourceScanUnlocked:
                 case GameActionType.ContractComplete:
                 case GameActionType.KerbalRescue:
                     return new Color(0.5f, 1f, 0.5f);

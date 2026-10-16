@@ -1274,6 +1274,54 @@ namespace Parsek.Tests
             Assert.Equal("Minmus", result.FirstHarvestWindow.BodyName);
         }
 
+        // catches (HARVEST-ROUTE-PLAUSIBILITY-CAP): a harvest-origin route
+        // promising a catch-up burst every run. The window gained 120 Ore in
+        // 250 s from drills that make 0.2 Ore/s, so the plausible harvest is
+        // 0.2 x 250 x 1.5 = 75 and the 100 Ore delivery is capped to 75; the
+        // gain check still sees the witnessed 120 (the run stays Eligible).
+        [Fact]
+        public void AnalyzeTree_DrillRun_HarvestOrigin_DeliveryCappedToPlausibleHarvest()
+        {
+            RecordingTree tree = BuildDrillRunTree(
+                out Recording root, out _,
+                rootStartOre: 0.0, dockOre: 120.0, undockOre: 20.0,
+                kscOrigin: false);
+            RouteHarvestWindow window = OreHarvestWindow(150.0, 400.0, 0.0, 120.0);
+            window.PlausibleRates = new Dictionary<string, double> { ["Ore"] = 0.2 };
+            root.RouteHarvestWindows = new List<RouteHarvestWindow> { window };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.True(result.IsEligible, $"got {result.Status}");
+            Assert.True(result.IsHarvestOrigin);
+            Assert.Equal(120.0, result.HarvestedManifest["Ore"], 6);
+            Assert.Equal(75.0, result.PlausibleHarvestedManifest["Ore"], 6);
+            Assert.Equal(75.0, result.ResourceDeliveryManifest["Ore"], 6);
+            Assert.Equal(75.0, result.Stops[0].ResourceDeliveryManifest["Ore"], 6);
+            Assert.Single(result.HarvestCaps);
+            Assert.Equal("Ore", result.HarvestCaps[0].Resource);
+            Assert.Equal(100.0, result.HarvestCaps[0].Recorded, 6);
+            Assert.Equal(75.0, result.HarvestCaps[0].Cap, 6);
+        }
+
+        [Fact]
+        public void AnalyzeTree_DrillRun_HarvestOrigin_WithinRate_NoCap()
+        {
+            RecordingTree tree = BuildDrillRunTree(
+                out Recording root, out _,
+                rootStartOre: 0.0, dockOre: 120.0, undockOre: 20.0,
+                kscOrigin: false);
+            RouteHarvestWindow window = OreHarvestWindow(150.0, 400.0, 0.0, 120.0);
+            window.PlausibleRates = new Dictionary<string, double> { ["Ore"] = 1.0 };
+            root.RouteHarvestWindows = new List<RouteHarvestWindow> { window };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.True(result.IsHarvestOrigin);
+            Assert.Equal(100.0, result.ResourceDeliveryManifest["Ore"], 6);
+            Assert.Empty(result.HarvestCaps);
+        }
+
         // catches: the refined gate admitting an undocked start whose
         // delivery EXCEEDS the witnessed harvest (start cargo of unknown
         // provenance) - it must keep rejecting UndockedStartOrigin.

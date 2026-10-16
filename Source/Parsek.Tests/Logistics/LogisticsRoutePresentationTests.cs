@@ -536,5 +536,27 @@ namespace Parsek.Tests.Logistics
             Assert.Equal("Pausing...", LogisticsRoutePresentation.PausingButtonLabel);
             Assert.True(LogisticsRoutePresentation.DeliveringButtonLabel.Length <= 13);
         }
+
+        // HARVEST-ROUTE-PLAUSIBILITY-CAP: the from/to hover's cap sentence.
+        [Fact]
+        public void FormatHarvestCapNote_NamesEachCappedResource()
+        {
+            Assert.Equal(string.Empty, LogisticsRoutePresentation.FormatHarvestCapNote(null));
+            Assert.Equal(string.Empty,
+                LogisticsRoutePresentation.FormatHarvestCapNote(new List<HarvestCapEntry>()));
+            Assert.Equal(
+                "Harvest per run capped at 75.0 Ore, what the drills could make in the recorded time.",
+                LogisticsRoutePresentation.FormatHarvestCapNote(new List<HarvestCapEntry>
+                {
+                    new HarvestCapEntry { Resource = "Ore", Recorded = 100.0, Cap = 75.0 }
+                }));
+            Assert.Equal(
+                "Harvest per run capped at 75.0 Ore and 12.5 LiquidFuel, what the drills could make in the recorded time.",
+                LogisticsRoutePresentation.FormatHarvestCapNote(new List<HarvestCapEntry>
+                {
+                    new HarvestCapEntry { Resource = "Ore", Recorded = 100.0, Cap = 75.0 },
+                    new HarvestCapEntry { Resource = "LiquidFuel", Recorded = 20.0, Cap = 12.5 }
+                }));
+        }
     }
 }

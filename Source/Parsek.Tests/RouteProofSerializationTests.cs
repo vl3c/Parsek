@@ -464,6 +464,46 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RouteHarvestWindows_PlausibleRates_RoundTrip()
+        {
+            // FAILS IF: the plausibility bound is lost on save (a capped window
+            // would read back unbounded), or an EMPTY bounded set (no producer)
+            // reads back as unbounded, or a window without rates gains an empty set.
+            var rec = new Recording
+            {
+                RecordingId = "harvest-rates",
+                RouteHarvestWindows = new List<RouteHarvestWindow>
+                {
+                    new RouteHarvestWindow
+                    {
+                        WindowId = "a", StartUT = 1.0, EndUT = 2.0,
+                        PlausibleRates = new Dictionary<string, double>
+                        {
+                            ["Ore"] = 0.0375, ["LiquidFuel"] = 0.45
+                        }
+                    },
+                    new RouteHarvestWindow
+                    {
+                        WindowId = "b", StartUT = 3.0, EndUT = 4.0,
+                        PlausibleRates = new Dictionary<string, double>()
+                    },
+                    new RouteHarvestWindow { WindowId = "c", StartUT = 5.0, EndUT = 6.0 }
+                }
+            };
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingResourceAndState(node, rec);
+            var loaded = new Recording { RecordingId = "harvest-rates" };
+            RecordingTree.LoadRecordingResourceAndState(node, loaded);
+
+            Assert.Equal(0.0375, loaded.RouteHarvestWindows[0].PlausibleRates["Ore"]);
+            Assert.Equal(0.45, loaded.RouteHarvestWindows[0].PlausibleRates["LiquidFuel"]);
+            Assert.NotNull(loaded.RouteHarvestWindows[1].PlausibleRates);
+            Assert.Empty(loaded.RouteHarvestWindows[1].PlausibleRates);
+            Assert.Null(loaded.RouteHarvestWindows[2].PlausibleRates);
+        }
+
+        [Fact]
         public void RouteHarvestWindows_AbsentNode_ReadsBackNull()
         {
             var node = new ConfigNode("RECORDING");

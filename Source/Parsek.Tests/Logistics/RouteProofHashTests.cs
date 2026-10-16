@@ -464,6 +464,7 @@ namespace Parsek.Tests.Logistics
             {
                 "100:ModuleResourceHarvester:Drill-O-Matic"
             };
+            recB.RouteHarvestWindows[0].PlausibleRates = new Dictionary<string, double> { ["Ore"] = 0.2 };
             string hashB = RouteProofHasher.ComputeRouteProofHashFromRecording(recB);
 
             Assert.Equal(hashA, hashB);

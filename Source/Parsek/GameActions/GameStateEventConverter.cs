@@ -289,6 +289,9 @@ namespace Parsek
                 case GameStateEventType.ExperienceGained:
                     return ConvertExperienceGained(evt, recordingId);
 
+                case GameStateEventType.ResourceScanCompleted:
+                    return ConvertResourceScanCompleted(evt, recordingId);
+
                 case GameStateEventType.StrategyActivated:
                     return ConvertStrategyActivated(evt, recordingId);
 
@@ -1124,6 +1127,32 @@ namespace Parsek
                 KerbalName = evt.key,
                 KerbalRole = ExtractDetail(evt.detail, "trait"),
                 KerbalCareerEntries = entries
+            };
+        }
+
+        /// <summary>
+        /// ResourceScanCompleted -> ResourceScanUnlocked. <c>evt.key</c> is the body name and
+        /// the <c>biome</c> detail field names the biome of a surface-scanner unlock (absent
+        /// for a whole-body orbital survey). Returns null for a nameless event: a row with no
+        /// body would re-apply nothing. Internal static for testability.
+        /// </summary>
+        internal static GameAction ConvertResourceScanCompleted(GameStateEvent evt, string recordingId)
+        {
+            if (string.IsNullOrEmpty(evt.key))
+            {
+                ParsekLog.Warn(Tag,
+                    "ResourceScanCompleted event has no body name - skipping");
+                return null;
+            }
+
+            string biome = ExtractDetail(evt.detail, "biome");
+            return new GameAction
+            {
+                UT = evt.ut,
+                Type = GameActionType.ResourceScanUnlocked,
+                RecordingId = recordingId,
+                ScanBodyName = evt.key,
+                ScanBiomeName = string.IsNullOrEmpty(biome) ? null : biome
             };
         }
 

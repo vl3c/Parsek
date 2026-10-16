@@ -288,7 +288,20 @@ namespace Parsek
         /// module consumes it, it moves no pool, and supersede never blocks on it.
         /// Retired at rewind with the other route rows by <c>RouteLedgerRetire</c>.
         /// </summary>
-        RouteHeld = 36
+        RouteHeld = 36,
+
+        /// <summary>
+        /// A resource scan unlocked a body (orbital survey, <see cref="GameAction.ScanBiomeName"/>
+        /// null) or one biome of it (surface scanner) in stock's <c>ResourceMap</c>
+        /// (owner ruling 2026-10-06, RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED). Carries
+        /// <see cref="GameAction.ScanBodyName"/> and <see cref="GameAction.ScanBiomeName"/>.
+        /// Moves no pool; the state patcher re-applies every effective row at or before the
+        /// live clock, add-only (stock has no re-lock, and a rewind's quicksave already
+        /// predates a later scan). Retired with its owner by a Re-Fly supersede, never a
+        /// strict-block. Explicitly numbered and append-only; an older build reads it as an
+        /// unknown type (Warn) and loses only the re-apply there.
+        /// </summary>
+        ResourceScanUnlocked = 37
     }
 
     /// <summary>
@@ -830,6 +843,21 @@ namespace Parsek
         /// </summary>
         public uint RecoveredVesselPid;
 
+        // ---- Resource scan fields (ResourceScanUnlocked) ----
+
+        /// <summary>
+        /// Name of the scanned body on a <see cref="GameActionType.ResourceScanUnlocked"/> row
+        /// (<c>CelestialBody.bodyName</c>; resolved to the stock planet id at patch time).
+        /// Null on every other action type.
+        /// </summary>
+        public string ScanBodyName;
+
+        /// <summary>
+        /// Biome unlocked by a surface scan on a <see cref="GameActionType.ResourceScanUnlocked"/>
+        /// row; null for a whole-body orbital survey and on every other action type.
+        /// </summary>
+        public string ScanBiomeName;
+
         /// <summary>Mission start UT.</summary>
         public float StartUT;
 
@@ -1266,6 +1294,9 @@ namespace Parsek
                 case GameActionType.VesselRecovered:
                     SerializeVesselRecovered(node);
                     break;
+                case GameActionType.ResourceScanUnlocked:
+                    SerializeResourceScanUnlocked(node);
+                    break;
                 case GameActionType.FacilityUpgrade:
                     SerializeFacilityUpgrade(node);
                     break;
@@ -1431,6 +1462,9 @@ namespace Parsek
                     break;
                 case GameActionType.VesselRecovered:
                     DeserializeVesselRecovered(node, a);
+                    break;
+                case GameActionType.ResourceScanUnlocked:
+                    DeserializeResourceScanUnlocked(node, a);
                     break;
                 case GameActionType.FacilityUpgrade:
                     DeserializeFacilityUpgrade(node, a);
@@ -1950,6 +1984,19 @@ namespace Parsek
             uint pid;
             if (pidStr != null && uint.TryParse(pidStr, NumberStyles.Integer, IC, out pid))
                 a.RecoveredVesselPid = pid;
+        }
+
+        private void SerializeResourceScanUnlocked(ConfigNode n)
+        {
+            if (ScanBodyName != null) n.AddValue("scanBody", ScanBodyName);
+            if (!string.IsNullOrEmpty(ScanBiomeName)) n.AddValue("scanBiome", ScanBiomeName);
+        }
+
+        private static void DeserializeResourceScanUnlocked(ConfigNode n, GameAction a)
+        {
+            a.ScanBodyName = n.GetValue("scanBody");
+            string biome = n.GetValue("scanBiome");
+            a.ScanBiomeName = string.IsNullOrEmpty(biome) ? null : biome;
         }
 
         private void SerializeFacilityUpgrade(ConfigNode n)

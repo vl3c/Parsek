@@ -7744,7 +7744,21 @@ namespace Parsek
 
             int partCount = v.parts != null ? v.parts.Count : 0;
             if (partCount != cachedConverterPartCount)
+            {
                 RebuildHarvestConverterCache(v, "part-count");
+                // A drill built on EVA inside an open window: fold its rate in now, or a
+                // window that closes at the recording stop (which keeps the open sample)
+                // would cap the new drill's output to zero.
+                if (openHarvestWindow != null)
+                {
+                    openHarvestWindow.PlausibleRates = RouteHarvestCapture.MergePlausibleRates(
+                        openHarvestWindow.PlausibleRates, BuildPlausibleHarvestRates(v));
+                    ParsekLog.Verbose("Recorder",
+                        $"Harvest window rates resampled on part-count change: " +
+                        $"window={openHarvestWindow.WindowId} " +
+                        $"plausibleRates={FormatPlausibleRates(openHarvestWindow.PlausibleRates)}");
+                }
+            }
 
             bool anyActive = IsAnyCachedConverterActive();
             HarvestActivityTransition transition = RouteHarvestCapture.EvaluateTransition(
@@ -7847,6 +7861,7 @@ namespace Parsek
             Dictionary<string, ResourceAmount> startManifest =
                 VesselSpawner.ExtractLiveResourceManifest(v);
             List<string> converterIds = BuildActiveConverterIds();
+            Dictionary<string, double> plausibleRates = BuildPlausibleHarvestRates(v);
 
             openHarvestWindow = RouteHarvestCapture.OpenWindow(
                 ut,
@@ -7858,6 +7873,7 @@ namespace Parsek
                 (int)v.situation,
                 converterIds,
                 atRecordingStart);
+            openHarvestWindow.PlausibleRates = plausibleRates;
             recorderHarvestWindows.Add(openHarvestWindow);
 
             ParsekLog.Info("Recorder",
@@ -7865,7 +7881,7 @@ namespace Parsek
                 $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"converters=[{string.Join(",", converterIds)}] " +
                 $"res={startManifest?.Count ?? 0} atStart={(atRecordingStart ? "1" : "0")} " +
-                $"trigger={trigger}");
+                $"trigger={trigger} plausibleRates={FormatPlausibleRates(plausibleRates)}");
         }
 
         private void CloseHarvestWindow(Vessel v, double ut, string trigger)
@@ -7877,12 +7893,164 @@ namespace Parsek
             Dictionary<string, ResourceAmount> endManifest =
                 VesselSpawner.ExtractLiveResourceManifest(v);
             RouteHarvestCapture.CloseWindow(window, ut, endManifest, atRecordingStop: false);
+            // Second rate sample: a crew bonus that rose inside the window (an
+            // engineer boarded) still counts. The close-at-stop path keeps the open
+            // sample - at a dock stop the live vessel is the merged stack.
+            window.PlausibleRates = RouteHarvestCapture.MergePlausibleRates(
+                window.PlausibleRates, BuildPlausibleHarvestRates(v));
             openHarvestWindow = null;
 
             ParsekLog.Info("Recorder",
                 $"Harvest window closed: window={window.WindowId} " +
                 $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)} " +
-                $"res={endManifest?.Count ?? 0} atStop=0 trigger={trigger}");
+                $"res={endManifest?.Count ?? 0} atStop=0 trigger={trigger} " +
+                $"plausibleRates={FormatPlausibleRates(window.PlausibleRates)}");
+        }
+
+        /// <summary>
+        /// Reads the plausibility-bound inputs off every cached converter
+        /// (HARVEST-ROUTE-PLAUSIBILITY-CAP) and folds them through the pure
+        /// <see cref="RouteHarvestCapture.ComputePlausibleRates"/>. Exact stock types
+        /// only: a surface / ocean <c>ModuleResourceHarvester</c> (abundance at the
+        /// vessel's location, as the drill itself asks <c>ResourceMap</c>), a
+        /// <c>ModuleResourceConverter</c> (its recipe outputs, already in units), the
+        /// science lab (no resource), an asteroid / comet drill on a vessel with no
+        /// asteroid or comet part (no resource). Any other converter - atmospheric or
+        /// exospheric harvesters, an asteroid / comet drill with a space object aboard,
+        /// modded subclasses - makes the window unbounded (null), as does any exception.
+        /// </summary>
+        private Dictionary<string, double> BuildPlausibleHarvestRates(Vessel v)
+        {
+            if (cachedConverters == null || v == null)
+                return null;
+            try
+            {
+                bool carriesSpaceObject = VesselCarriesSpaceObject(v);
+                var inputs = new List<HarvestConverterRate>(cachedConverters.Count);
+                for (int i = 0; i < cachedConverters.Count; i++)
+                {
+                    BaseConverter c = cachedConverters[i];
+                    if (c == null)
+                        continue; // Unity-null: destroyed/staged-away module
+                    inputs.Add(ReadHarvestConverterRate(
+                        c, c.GetCrewEfficiencyBonus(), v.mainBody, v.latitude, v.longitude, v.altitude,
+                        carriesSpaceObject));
+                }
+                return RouteHarvestCapture.ComputePlausibleRates(inputs);
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("Recorder",
+                    $"Harvest plausibility rates unavailable ({ex.GetType().Name}: {ex.Message}); window unbounded");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// One converter's plausibility-bound inputs (HARVEST-ROUTE-PLAUSIBILITY-CAP).
+        /// Exact stock types only: a surface / ocean <c>ModuleResourceHarvester</c> reads the
+        /// abundance at the given location the way the drill asks <c>ResourceMap</c>, a
+        /// <c>ModuleResourceConverter</c> its recipe outputs (already in units), the science
+        /// lab produces no resource; any other type, or a drill with no body or no
+        /// <c>ResourceMap</c>, is <see cref="HarvestConverterKind.Unmodeled"/>.
+        /// <paramref name="crewBonus"/> is passed in because stock's
+        /// <c>GetCrewEfficiencyBonus</c> reads the part's vessel, which a part prefab (the
+        /// in-game check of this reader) does not have.
+        ///
+        /// <para>Both stock surface drills also carry a <c>ModuleAsteroidDrill</c>, which mines
+        /// only an asteroid part on its own vessel (decompiled: it looks for a
+        /// <c>ModuleAsteroid</c> among <c>vessel.parts</c>); <c>ModuleCometDrill</c> is the
+        /// comet twin. On a vessel with no asteroid or comet part
+        /// (<paramref name="hostCarriesSpaceObject"/> false) they produce nothing and read as
+        /// <see cref="HarvestConverterKind.NoResourceOutput"/>, so a stock drill keeps its
+        /// bound; with one they stay unmodeled and the window uncapped.</para>
+        /// </summary>
+        internal static HarvestConverterRate ReadHarvestConverterRate(
+            BaseConverter c, double crewBonus, CelestialBody body,
+            double latitude, double longitude, double altitude, bool hostCarriesSpaceObject)
+        {
+            var input = new HarvestConverterRate
+            {
+                Kind = HarvestConverterKind.Unmodeled,
+                Multiplier = (double)c.EfficiencyBonus * crewBonus
+            };
+            System.Type type = c.GetType();
+            if (type == typeof(ModuleResourceHarvester))
+            {
+                var drill = (ModuleResourceHarvester)c;
+                if ((drill.HarvesterType == 0 || drill.HarvesterType == 1)
+                    && ResourceMap.Instance != null && body != null)
+                {
+                    input.Kind = HarvestConverterKind.Drill;
+                    input.ResourceName = drill.ResourceName;
+                    input.Efficiency = drill.Efficiency;
+                    input.Abundance = ResourceMap.Instance.GetAbundance(new AbundanceRequest
+                    {
+                        Altitude = altitude,
+                        BodyId = body.flightGlobalsIndex,
+                        CheckForLock = false,
+                        Latitude = latitude,
+                        Longitude = longitude,
+                        ResourceType = (HarvestTypes)drill.HarvesterType,
+                        ResourceName = drill.ResourceName
+                    });
+                }
+            }
+            else if (type == typeof(ModuleResourceConverter))
+            {
+                ConversionRecipe recipe = ((ModuleResourceConverter)c).Recipe;
+                input.Kind = HarvestConverterKind.Recipe;
+                input.Outputs = new List<KeyValuePair<string, double>>();
+                if (recipe != null && recipe.Outputs != null)
+                {
+                    for (int o = 0; o < recipe.Outputs.Count; o++)
+                        input.Outputs.Add(new KeyValuePair<string, double>(
+                            recipe.Outputs[o].ResourceName, recipe.Outputs[o].Ratio));
+                }
+            }
+            else if (type == typeof(ModuleScienceConverter))
+            {
+                input.Kind = HarvestConverterKind.NoResourceOutput;
+            }
+            else if ((type == typeof(ModuleAsteroidDrill) || type == typeof(ModuleCometDrill))
+                && !hostCarriesSpaceObject)
+            {
+                input.Kind = HarvestConverterKind.NoResourceOutput;
+            }
+            return input;
+        }
+
+        /// <summary>
+        /// True when any part of <paramref name="v"/> is an asteroid or a comet, the only
+        /// thing a stock asteroid / comet drill can mine (see
+        /// <see cref="ReadHarvestConverterRate"/>).
+        /// </summary>
+        private static bool VesselCarriesSpaceObject(Vessel v)
+        {
+            if (v == null || v.parts == null)
+                return false;
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null)
+                    continue;
+                if (p.FindModuleImplementing<ModuleAsteroid>() != null
+                    || p.FindModuleImplementing<ModuleComet>() != null)
+                    return true;
+            }
+            return false;
+        }
+
+        internal static string FormatPlausibleRates(Dictionary<string, double> rates)
+        {
+            if (rates == null)
+                return "unbounded";
+            var names = new List<string>(rates.Keys);
+            names.Sort(System.StringComparer.Ordinal);
+            var parts = new List<string>(names.Count);
+            for (int i = 0; i < names.Count; i++)
+                parts.Add(names[i] + ":" + rates[names[i]].ToString("R", CultureInfo.InvariantCulture));
+            return "[" + string.Join(",", parts) + "]";
         }
 
         /// <summary>

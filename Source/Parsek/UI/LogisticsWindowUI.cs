@@ -3957,6 +3957,9 @@ namespace Parsek
             leg.FromToText = LogisticsRoutePresentation.FormatFromTo(leg.OriginShort, destShort);
             leg.FromToTooltip = "From " + FormatOrigin(route) + " to " + destText
                 + (string.IsNullOrEmpty(destTooltip) ? string.Empty : " (" + destTooltip + ")") + ".";
+            string harvestCapNote = LogisticsRoutePresentation.FormatHarvestCapNote(route.HarvestCaps);
+            if (harvestCapNote.Length > 0)
+                leg.FromToTooltip += " " + harvestCapNote;
             // What each run carries: the delivery, and on a route that loads cargo (a
             // relay's pickup stop, or a pure pickup run) what it picks up and where.
             string[] stopNames = ResolveStopNames(route, destShort, stopVessels, stopTexts);

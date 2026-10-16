@@ -1054,6 +1054,12 @@ namespace Parsek.Tests
                     action.RecoveredVesselName = "Vessel " + rng.Next(0, 8).ToString(IC);
                     action.RecoveredVesselPid = (uint)rng.Next(1, 1000000);
                     break;
+                // ResourceScanUnlocked: the scanned body (and biome, for a surface scan)
+                // is the row's whole payload.
+                case GameActionType.ResourceScanUnlocked:
+                    action.ScanBodyName = rng.Next(0, 2) == 0 ? "Mun" : "Minmus";
+                    action.ScanBiomeName = rng.Next(0, 2) == 0 ? null : "Highlands";
+                    break;
                 // Added 2026-09-16 with the payload assertion in
                 // Generator_CoversEveryNonSeedActionType: this type had NO arm, so the
                 // corpus fuzzed an all-zero KerbalExperience row - the exact shape the

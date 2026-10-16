@@ -104,6 +104,11 @@ namespace Parsek
                 // must go with it; the default would PRESERVE it and keep refusing the
                 // spawn of a flight that no longer exists.
                 case GameActionType.VesselRecovered:
+                // ResourceScanUnlocked: a scan a superseded flight made. The Re-Fly's
+                // quicksave predates it, so the scan exists again only if the new attempt
+                // makes it; the default would PRESERVE the row and the patcher would
+                // re-apply a scan from a flight the merge deleted.
+                case GameActionType.ResourceScanUnlocked:
                 case GameActionType.FacilityUpgrade:
                 case GameActionType.FacilityDestruction:
                 case GameActionType.FacilityRepair:
