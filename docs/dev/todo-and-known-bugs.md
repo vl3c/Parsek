@@ -52,7 +52,7 @@ ledger rows untagged (`MergeDialog.DiscardReFlyAttemptRecordingsAndRewindPoints`
 discard; it did before this fix too. (2) Rows written before this fix stay untagged; nothing on
 disk links them to their award. (3) Reverting a flight resumed through the committed-copy
 quickload restore leaves its conversion rows, since they are tagged to a committed recording the
-revert prune skips; that flight's award rows behave the same way.
+revert prune skips (before the fix the orphan prune removed them untagged).
 
 ## ~~QL1-KSC-CLOCK-CROSSING: after a quicksave is loaded at the Space Center behind KSC purchases, the purchases are refunded, and the hire and the contract can be bought twice~~ [FILED 2026-10-16 from QL-1's first flight (`2026-10-16_1122` / `_1124_a2`, INVALID driver-verdict-mismatch both attempts), branch `claude/project-thread-k6flcd` (PR #2121). FIXED 2026-10-16 on the same branch; LIVE-PROVEN by QL-1 `2026-10-16_1424` (PASS attempt 1). product]
 
