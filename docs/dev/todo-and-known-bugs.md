@@ -3683,7 +3683,9 @@ requires the MP pickup on the transport side and the matching loss on the endpoi
 forbids the reversed LF gain; its D10 `delivery` and `mixed-direction` claims are withdrawn
 (no lane covers them now; a delivery needs a Station that has burned fuel, a new BDOCK-1
 phase). `harness/lib/test_bdock_recorded_window.py` pins the fixture's window as an LF pickup
-with no MP and a full Station.
+with no MP and a full Station. Flown 2026-10-16 `2026-10-16_1138` PASS attempt 1 (automation
+DLL 556695cb): MP +6.2 transport / -6.2 endpoint (clamped by the Interceptor's room), LF 0;
+both legs logged `partition cross-check ... agrees=False`, confirming the old partition was reversed.
 
 ---
 
@@ -4891,7 +4893,11 @@ under the re-fly marker) before its time step; each lane requires the await's
 `recordingstate recording=true ... reFlyMarker=true` line and forbids `listhandles
 kind=chains ... evaluated=false`. `harness/lib/test_refly_flight_ready_wait.py` reds on any
 committed spec that sends `TimeJump` / `WarpToUT` after an accepted `InvokeRewind` in the
-same scene without one of the two waits.
+same scene without one of the two waits. Re-flown 2026-10-16 on automation DLL sha256 prefix
+556695cb (this branch), all PASS attempt 1 with every armed `rewind` block green: RF-2
+`2026-10-16_1129`, RF-3 `_1130`, RF-6 `_1132`, RF-8 `_1133`, RF-12 `_1134`, RF-12W `_1135`.
+On all nine rewinds the chains read returned 0.5-0.9 s after `Invocation complete` and the
+recorder await 15-40 ms after it, which is the window a time step used to land in.
 
 ## GROUND-SCIENCE-CLUSTER-FIVE-PART-HOST: no committed fixture can host a cluster with three or more experiments inside stock inventory limits [FILED 2026-09-28, branch `deployables-lanes`]
 

@@ -5586,7 +5586,8 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
     `inventoryUnitsSkipped=[1-9]` forbidden as its anti-vacuity half. THE OTHER FIVE
     LANES CLAIM NOTHING, and after the flights the reason is NON-INFLATION rather
     than CLAIM-IS-NOT-GATE: `hold-reasons` is H38's, `dispatch-cadence` is H34's,
-    and `pickup` / `delivery` / `resource-cargo` / `mixed-direction` are BDOCK-1's.
+    and `pickup` / `resource-cargo` are BDOCK-1's (its `delivery` / `mixed-direction`
+    claims were withdrawn 2026-10-16, BDOCK-FIXTURE-TRANSFER-INVERTED: no lane holds them).
     RVR-12's pre-flight note that `inventory-cargo` was "arguably" its own is
     CORRECTED in place by the census: that row names a route whose cargo IS
     inventory, and RVR-12 refuses for want of it and moves nothing.
