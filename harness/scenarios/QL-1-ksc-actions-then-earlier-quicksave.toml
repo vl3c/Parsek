@@ -102,6 +102,10 @@ required = [
   "loadgame start save=\\S+ name=quicksave ",
   # ---- the load kept the rows as committed future and cut the walk at the loaded clock ----
   "OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff=True [^\\r\\n]*hasFutureLedgerActions=True",
+  # R&D loads after Parsek's module, so the load patch is repeated once it has: the 5
+  # science the kept research row spends is held back like the kept funds.
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*OnLoad: in-session ledger re-patch after the currency modules loaded [^\\r\\n]*useCutoff=True",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*PatchScience: 111\\.6 -> 106\\.6",
   # ---- each control refused by its kept row, stock state back to the quicksave, nothing charged ----
   "kscaction research-node not applied: target=basicRocketry stateBefore=Unavailable stateAfter=Unavailable fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0",
   "kscaction refused action=research-node reason=blocked-committed target=basicRocketry",
@@ -115,6 +119,7 @@ required = [
   # ---- the clock reaches the rows: each applies once, past the drawdown guard ----
   "Clock-crossing reached committed-future rows: crossed=[1-9]",
   "PatchFunds: clock-crossing applies the reached rows",
+  "PatchScience: clock-crossing applies the reached rows",
   "Committed hire applied: 'Verhat Kerman' Applicant -> Crew",
   "PatchContracts: replaced 1 Offered copy\\(ies\\) of contractId='90e4faaf-2029-4c6b-8bc1-40226bb0fc27'",
   # ---- after the clock crosses the rows: each action is already done ----

@@ -104,6 +104,27 @@ namespace Parsek.Tests
                 && l.Contains("hasFutureLedgerActions=True"));
         }
 
+        [Fact]
+        public void InSessionLoad_RepatchesWhenACurrencyModuleLoadsAfterParsek()
+        {
+            // QL-1's save order: Funding loads before ParsekScenario, R&D and Reputation
+            // after it, so the OnLoad patch skips science and reputation.
+            var all = CurrencySingletons.All;
+            Assert.True(ParsekScenario.ShouldRepatchAfterInSessionLoad(
+                all, CurrencySingletons.Funding, CurrencySingletons.Funding));
+            // Present but its own OnLoad not yet returned: the save's value lands later.
+            Assert.True(ParsekScenario.ShouldRepatchAfterInSessionLoad(
+                all, all, CurrencySingletons.Funding | CurrencySingletons.Reputation));
+            Assert.False(ParsekScenario.ShouldRepatchAfterInSessionLoad(all, all, all));
+            // Sandbox creates none; a science game only R&D.
+            Assert.False(ParsekScenario.ShouldRepatchAfterInSessionLoad(
+                CurrencySingletons.None, CurrencySingletons.None, CurrencySingletons.None));
+            Assert.False(ParsekScenario.ShouldRepatchAfterInSessionLoad(
+                CurrencySingletons.ResearchAndDevelopment,
+                CurrencySingletons.ResearchAndDevelopment,
+                CurrencySingletons.ResearchAndDevelopment));
+        }
+
         // ================================================================
         // Fix B: the drawdown guard at a clock crossing
         // ================================================================

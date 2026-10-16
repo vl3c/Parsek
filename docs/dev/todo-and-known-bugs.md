@@ -55,10 +55,20 @@ and final save (seed funds 536558 / science 111.6; expected end 332020 / 106.6; 
    one: ContractsApp threw `An item with the same key has already been added`, and the Offered copy
    was accepted again, paying the 7575 advance twice. Fix: the restore removes an Offered instance
    with the same guid before adding the Active one (`IsOfferedCopyOfRestoredContract`).
+5. The second re-flight (`2026-10-16_1226`, funds, hire, contract and facility all right) left
+   the 5 science of the research row uncharged: science stayed 111.6 against 106.6. KSP loads
+   the save's SCENARIO modules in file order, and Funding comes before ParsekScenario while R&D
+   and Reputation come after it, so the in-session load patch skipped both pools (the save's
+   values then landed) and recorded no last-patch value; at the crossing the science guard had
+   nothing to compare and clamped. Fix: when a currency module this game creates was missing or
+   not yet loaded at that patch (`ParsekScenario.ShouldRepatchAfterInSessionLoad`), a coroutine
+   repeats the same walk once every one has loaded (`OnLoad: in-session ledger re-patch after the
+   currency modules loaded`), so science reads 106.6 after the load and the crossing applies.
 
 Cells: `ClockCrossingCommittedFutureTests`. Live proof is QL-1's re-flight, which requires the
-crossing line, `PatchFunds: clock-crossing applies the reached rows`, the hire line and the
-contract replacement, and forbids a guard clamp after the load.
+crossing line, the re-patch line with `PatchScience: 111.6 -> 106.6`, both pools' `clock-crossing
+applies the reached rows`, the hire line and the contract replacement, and forbids a guard clamp
+after the load.
 
 ## QL-KSC-ROWS-CROSSED-ACROSS-A-SCENE-CHANGE: committed KSC rows reached while away from the Space Center may still be clamped [FILED 2026-10-16 from the QL1-KSC-CLOCK-CROSSING fix, reasoned from code, not measured. OPEN, product, medium]
 
