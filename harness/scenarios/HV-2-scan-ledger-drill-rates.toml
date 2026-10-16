@@ -2,7 +2,8 @@ schema = 1
 id = "HV-2-scan-ledger-drill-rates"
 tier = "nightly"
 # THE LIVE CHECK FOR THE TWO MINING RULINGS OF 2026-10-15 (todo RESOURCE-SCAN-UNLOCKS-NOT-
-# LEDGERED and HARVEST-ROUTE-PLAUSIBILITY-CAP, PR #2116). NEVER FLOWN.
+# LEDGERED and HARVEST-ROUTE-PLAUSIBILITY-CAP, PR #2116). LIVE-PROVEN 2026-10-16 (run
+# `2026-10-16_0607`, PASS attempt 1, wall 50 s, automation DLL sha256 prefix 91e87949).
 #
 # WHY IN-GAME CELLS AND NOT A MINING LANE. A full mining lane needs a drill + ISRU + scanner
 # craft no committed fixture carries (an operator VAB save), a dock after the drill run, two
@@ -39,8 +40,10 @@ tier = "nightly"
 # `isruModules=8`, Ore 0.0965/s at Minmus lat 10 lon -105 (abundance 0.0536). Fixed: the warp
 # step, and the drill pin reads 4.
 #
-# THE PIN IS INTERIM: `total=3` is attribute-exact (three SPACECENTER declarations); the split
-# is predicted 3 / 0 and regexed until the reading run measures it (INTERIM_PIN_IDS).
+# THE PIN IS WHOLE: `total=3` is attribute-exact (three SPACECENTER declarations) and run
+# `2026-10-16_0607` measured the predicted split, `passed=3 failed=0 skipped=0`; the id has left
+# INTERIM_PIN_IDS. The same run measured biome `Highlands`, `PatchResourceScans: unlocked=1`
+# at cutoff ~29.93 (biome) and ~29.95 (body), and the rate line exactly as the first flight.
 description = "On a career host at the Space Center: a stock biome scan and a stock whole-body scan of Minmus each land one ledger row, stay locked before their UT after a relock and are re-applied at the live clock; the recorder models every stock drill and ISRU prefab's converters with bounded rates."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "logistics", "ledger", "career", "HV-2"]
@@ -74,7 +77,7 @@ count = { min = 0, max = 0 }
 
 [expectations.logContracts]
 required = [
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=HarvestCapScanLedger scene=SPACECENTER",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=HarvestCapScanLedger scene=SPACECENTER",
   # The stock calls reached the capture pair and the ownerless KSC door, once per scan cell.
   "\\[Parsek\\]\\[INFO\\]\\[GameStateRecorder\\] Game state: ResourceScanCompleted body='Minmus' biome='[^<'][^']*' ut=[0-9.E+-]+ recordingId=''",
   "\\[Parsek\\]\\[INFO\\]\\[GameStateRecorder\\] Game state: ResourceScanCompleted body='Minmus' biome='<whole body>' ut=[0-9.E+-]+ recordingId=''",

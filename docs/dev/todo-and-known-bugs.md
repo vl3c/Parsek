@@ -1922,7 +1922,7 @@ be needed). No `LoadReconcilePolicy` cell covers the saved active tree itself.
 
 ---
 
-## ~~HARVEST-ROUTE-PLAUSIBILITY-CAP: cap a harvest-origin route's recorded harvest at what its drills could produce~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `claude/harvest-cap-scan-ledger-oo5vxg` (xUnit; in-game lane HV-2 authored 2026-10-16, not flown)]
+## ~~HARVEST-ROUTE-PLAUSIBILITY-CAP: cap a harvest-origin route's recorded harvest at what its drills could produce~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `claude/harvest-cap-scan-ledger-oo5vxg` (xUnit; in-game lane HV-2 LIVE-PROVEN 2026-10-16, run `2026-10-16_0607`)]
 
 A harvest-origin route replays whatever ore its recorded run gained, including a stock
 catch-up burst recorded inside an open harvest window (see TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND).
@@ -1948,7 +1948,7 @@ empty manifest rather than refusing the route.
 
 ---
 
-## ~~RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED: orbital survey results are not recorded or ledgered, so a rewind does not re-apply a committed future scan~~ [FILED 2026-10-06 from the coverage-extension research and the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `claude/harvest-cap-scan-ledger-oo5vxg` (xUnit; in-game lane HV-2 authored 2026-10-16, not flown)]
+## ~~RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED: orbital survey results are not recorded or ledgered, so a rewind does not re-apply a committed future scan~~ [FILED 2026-10-06 from the coverage-extension research and the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `claude/harvest-cap-scan-ledger-oo5vxg` (xUnit; in-game lane HV-2 LIVE-PROVEN 2026-10-16, run `2026-10-16_0607`)]
 
 Nothing in `Source/Parsek` references `ResourceScenario` or the scanner modules. Owner ruling
 2026-10-06: treat a scan like other committed career progress - recorded, ledgered, and re-applied
