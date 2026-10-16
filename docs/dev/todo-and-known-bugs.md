@@ -1974,6 +1974,31 @@ pinning test (xUnit or in-game) so it stays fine.
 
 ---
 
+## CROSS-SYSTEM-COVERAGE-GAPS-2026-10-16: strategies, the lab, EVA construction ghosts, docked crew and fuel moves, and resource amounts are not proven across timeline operations [FILED 2026-10-16 from a read-only coverage audit at the owner's request, branch `claude/project-thread-t7o1xa`. OPEN; test program plus suspected defects]
+
+Research: `docs/dev/research/coverage-matrix-2026-10-16.md` (system x rewind / Re-Fly / F9 /
+revert / warp / ghost playback / scene change, with what each lane actually asserts). Common
+thread: lanes assert Parsek's own log lines, and no lane independently reads a tank, a crew roster
+or a ghost's shape. The items below are code reads, not reproductions; each becomes its own entry
+with a red test once confirmed.
+
+- [ ] STRATEGY-CONVERSION-ROWS-SURVIVE-F9-AND-REFLY (suspected defect): conversion legs are written untagged (`LedgerOrchestrator.cs:5260-5439`) while the award they divert is flight-tagged, and F9 / a Re-Fly merge retire only tagged rows (`ParsekScenario.Trim.cs:1210-1235`, `TombstoneEligibility.cs:56-117`), so the leg would outlive its award. Roadmap XS-1.
+- [ ] Strategies across any timeline operation: no lane activates a strategy and then rewinds, re-flies, F9s or reverts; Bail-Out Grant, Aggressive Negotiations and Recovery Transponder never ran in game. Roadmap XS-1, GP-1.
+- [ ] Resource amounts: nothing checks origin-out == destination-in for routes, fuel moved while docked, or a spawned vessel's tanks. Roadmap TC-1 / TC-2, RC-1.
+- [ ] Career x repeated rewinds, and LedgerGroundTruth after a rewind, Re-Fly or F9: never run. Roadmap TC-4, GP-1.
+- [ ] Stale lanes: H38 / H39 / H40 / HV-1 not green since the 10-07 and 10-15 logistics changes; H58 and EVA-5 re-pinned, never re-flown. Roadmap XS-2.
+- [ ] EVA-CONSTRUCTION-GHOST-SHAPE-NEVER-CHANGES (suspected defect): playback never reads `SegmentEventType.PartAdded / PartRemoved` (only `GhostingTriggerClassifier` and `ForeignInventoryTransfer` name them), though the flight-recorder design says the ghost renders the part from that UT. Roadmap XS-3.
+- [ ] CLAIMED-VESSEL-HAS-NO-GHOST-BEFORE-ITS-MEMBER (suspected defect): `VesselGhoster.GhostVessel` despawns the claimed vessel and creates no ghost (`VesselGhoster.cs:155-168`), so it is missing after a rewind until its member recording starts. Roadmap XS-3.
+- [ ] Lab science and the ledger: science reaches the ledger only with a subject (`GameStateEventConverter.cs:326-345`, `GameStateRecorder.cs:1063`, `:1153`); whether stock's lab transmit carries one needs a decompile. Roadmap XS-4, XS-5 (GC-8).
+- [ ] TA-6 outside the physics bubble: see TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND. Roadmap MINE-3.
+- [ ] Contracts x Re-Fly never executes (the in-game cell skips on every host). Roadmap XS-6.
+- [ ] EVA hop across 2-3 vessels and a crew transfer while docked then undock: never flown (no spec passes `EvaBoard targetPid`, no crew-transfer verb); a crew transfer is not recorded by design (`SwitchSegmentNoOpClassifier.cs:146-161`), and a kerbal moved into another tree's vessel keeps the first tree's hold (`KerbalsModule.cs:1318-1335`). Roadmap XS-7.
+
+Fix: the register in `docs/dev/autotest-roadmap.md` ("The cross-system gap program (2026-10-16)"),
+worked in its rank order.
+
+---
+
 ## SCRIPTED-CAMPAIGN-TO-THE-MUN: a scripted Science-mode then Career-mode campaign from a genuine new save to a Mun landing and return [FILED 2026-10-06 at the owner's request, branch `ccr-77f23eb2-dbqh6i`. OPEN; long-run test target]
 
 The owner's target for a long gameplay run that touches every system the way a player does:
@@ -3028,6 +3053,11 @@ open harvest window and be credited as harvested.
 Fix: one jump-policy decision used by both entry points. Red test: in-game on the H38 /
 `logi-cargo-pad` host (its FuelCell is a converter), same delta through both jumps; the pure
 policy pinned in xUnit. Lane MINE-3.
+
+Scope found 2026-10-16 (CROSS-SYSTEM-COVERAGE-GAPS-2026-10-16, code read): the forward-jump reset
+walks loaded vessels only, so an UNLOADED miner, ISRU or lab keeps its old `lastUpdateTime` and
+catches up the whole jump when it next loads. The one policy must cover unloaded vessels too, and
+MINE-3 should fly one.
 
 ---
 
