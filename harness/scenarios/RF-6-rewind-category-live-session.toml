@@ -172,6 +172,14 @@ steps = [
   # THE ORDERING IS THE LANE. Everything before this line exists to make this call
   # possible; everything after it runs with the session it arms.
   { cmd = "InvokeRewind", args = { rp = "${handles.rp0}", slot = "1" },         expect = "OK", budget = 300 },
+  # THE FLIGHT-READY WAIT (REFLY-LANES-JUMP-BEFORE-FLIGHT-READY, CI-2's race). InvokeRewind
+  # answers OK at `Invocation complete`, before the re-fly scene's OnFlightReady builds the
+  # ghost chains and binds the re-fly recorder, so a time step sent straight after it can
+  # fly the attempt with no recorder. kind=chains defers (`ghost-chains-pending`) until
+  # OnFlightReady ran; the await defers (`refly-recorder-not-live`) until a recorder is
+  # live under the re-fly marker.
+  { cmd = "ListHandles",  args = { kind = "chains" },                           expect = "OK" },
+  { cmd = "RecordingState",args = { awaitRecorderLive = "refly" },              expect = "OK" },
   # THE RE-FLY IS FLOWN BEFORE THE BATCH READS IT, and reading run 1 is why. Without
   # this the session the twelve cells find is an UNFLOWN provisional, which merges with
   # ZERO supersede rows BY DESIGN (`refused-unflown-provisional` /
@@ -228,6 +236,8 @@ required = [
   "Invocation complete",
   "runtests start category=Rewind",
   "BATCH_COMPLETE v1 total=39 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=Rewind scene=FLIGHT",
+  # The flight-ready wait returned on a live re-fly recorder (REFLY-LANES-JUMP-BEFORE-FLIGHT-READY).
+  "recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -241,13 +251,16 @@ forbidden = [
   # the cells whose execution this lane exists to prove. Pinned on the prefix every
   # emitter shares. Same character, same class as RF-FORBID-EM-DASH-CANNOT-MATCH.
   "No active re-fly session",
+  # The flight-ready wait read the chains before OnFlightReady evaluated them.
+  "listhandles kind=chains .* evaluated=false",
 ]
 
 [runtime]
 # LoadGame 660 + SetSetting x2 240 + StopRecording 120 + ListHandles 120 +
-# InvokeRewind 660 + RunTests max(540, 600)+60 = 660 + FlushAndQuit 120 = 2580.
-# 2900 clears it by 320.
-budgetSeconds = 2900
+# InvokeRewind 660 + RunTests max(540, 600)+60 = 660 + FlushAndQuit 120 = 2580, plus
+# the TimeJump (deferred, 660; it was missing from this sum) and the flight-ready wait
+# (ListHandles kind=chains + awaited RecordingState, 240) = 3480. 3800 clears it by 320.
+budgetSeconds = 3800
 
 [retry]
 policy = "once"

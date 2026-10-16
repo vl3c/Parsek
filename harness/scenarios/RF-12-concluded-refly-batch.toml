@@ -140,6 +140,14 @@ steps = [
   # FLYING at that instant; slot 0 is chosen because RF-9 already flew this exact rewind
   # and its merge wrote real supersede rows, so the path is measured rather than assumed.
   { cmd = "InvokeRewind", args = { rp = "${handles.rp0}", slot = "0" },         expect = "OK", budget = 300 },
+  # THE FLIGHT-READY WAIT (REFLY-LANES-JUMP-BEFORE-FLIGHT-READY, CI-2's race). InvokeRewind
+  # answers OK at `Invocation complete`, before the re-fly scene's OnFlightReady builds the
+  # ghost chains and binds the re-fly recorder, so a time step sent straight after it can
+  # fly the attempt with no recorder. kind=chains defers (`ghost-chains-pending`) until
+  # OnFlightReady ran; the await defers (`refly-recorder-not-live`) until a recorder is
+  # live under the re-fly marker.
+  { cmd = "ListHandles",  args = { kind = "chains" },                           expect = "OK" },
+  { cmd = "RecordingState",args = { awaitRecorderLive = "refly" },              expect = "OK" },
   # THE RE-FLY IS FLOWN BEFORE THE BATCH READS IT - RF-6's own lesson, and the step that
   # replaced the refuted `CommitTree`. WHAT IT DOES NOT DO, measured rather than assumed:
   # the review panel diffed run 1 (no TimeJump) against the green run (TimeJump) and the
@@ -198,6 +206,8 @@ required = [
   "PASSED: KerbalDualResidenceCarveOutTest\\.KerbalDualResidenceCarveOut",
   "runtests start category=Rewind",
   "BATCH_COMPLETE v1 total=39 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=Rewind scene=FLIGHT",
+  # The flight-ready wait returned on a live re-fly recorder (REFLY-LANES-JUMP-BEFORE-FLIGHT-READY).
+  "recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -215,6 +225,8 @@ forbidden = [
   # driven step can fly the attempt, so no seam lane can keep it clear.
   # The RF family's standing guard: a chain TIP that lost its MergeState reads CLOSED.
   "reason=sealedTipClosed",
+  # The flight-ready wait read the chains before OnFlightReady evaluated them.
+  "listhandles kind=chains .* evaluated=false",
 ]
 
 # ARMED 2026-09-27 off `2026-09-27_1234` (PASS attempt 1: rewindPoints 1, supersedeRows 2,
@@ -232,9 +244,10 @@ tombstones    = { min = 8 }
 # Budget arithmetic (M-A5 S8), deferred verbs at max(step,600)+60 and the rest at
 # max(step, 60+60):
 #   LoadGame 660 + SetSetting x2 240 + StopRecording 120 + ListHandles 120
-#   + InvokeRewind 660 + TimeJump 660 + RunTests 660 + FlushAndQuit 120 = 3240.
-#   3500 clears it by 260.
-budgetSeconds = 3500
+#   + InvokeRewind 660 + TimeJump 660 + RunTests 660 + FlushAndQuit 120 = 3240, plus
+#   the flight-ready wait (ListHandles kind=chains + awaited RecordingState) 240 = 3480.
+#   3800 clears it by 320.
+budgetSeconds = 3800
 
 [retry]
 policy = "once"

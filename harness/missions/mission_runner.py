@@ -596,6 +596,11 @@ class KrpcMissionControl(MissionControl):
         self._station_port = None            # its top docking port
         self._station_tanks: Dict[str, object] = {}   # resource -> station-side tank part
         self._active_transfer = None         # the in-flight ResourceTransfer handle
+        # Part lists of the two ships read at DOCK entry, before they merge
+        # (BDOCK-FIXTURE-TRANSFER-INVERTED): the transfer sides are told apart by
+        # these, not by which half controls the merged vessel.
+        self._dock_station_parts: List[object] = []
+        self._dock_transport_parts: List[object] = []
         # --- B-DOCK-2 handles (bdock_second_dock's background tail).
         self._home_vessel = None             # the docked combination
         self._bg_subject = None              # the stock-clicked background subject
@@ -2168,6 +2173,7 @@ class KrpcMissionControl(MissionControl):
                     "Warn", "Target", "set_target_vessel: no captured station handle"))
         elif kind == mlib.ACTION_SET_TARGET_DOCKING_PORT:
             self._set_target_docking_port_live(sc)
+            self._capture_dock_side_parts(sc, v)
         elif kind == mlib.ACTION_MJ_ENABLE_RENDEZVOUS:
             rv = self._mechjeb.rendezvous_autopilot
             if action.value is not None:
@@ -2986,7 +2992,7 @@ class KrpcMissionControl(MissionControl):
         # same stale-handle wall). Partition the merged part tree at the mated
         # docked-port pair; fall back to live-first-two, then the captured handle.
         station_tank, transport_tank, tank_path = self._resolve_transfer_tanks_live(
-            v, resource)
+            v, resource, direction)
         if station_tank is None or transport_tank is None:
             _stdout_sink(mlib.format_mission_log_line(
                 "Warn", "Transfer",
@@ -3022,23 +3028,93 @@ class KrpcMissionControl(MissionControl):
                 "Warn", "Transfer", "ResourceTransfer.start failed: %s" % (exc,)))
             self._active_transfer = None
 
-    def _resolve_transfer_tanks_live(self, v, resource):
+    def _capture_dock_side_parts(self, sc, v) -> None:
+        """Read the TARGET vessel's parts (station side) and the ACTIVE vessel's parts
+        (transport side) while the two are still separate ships. Called at every
+        port (re)target, which only happens before the dock; once the active vessel
+        reads docked the lists are kept as they are (a merged vessel holds both
+        sides). Every kRPC read guarded; a failed read leaves the previous lists."""
+        try:
+            if self._read_docking_state(v) == mlib.DOCKING_STATE_DOCKED:
+                return
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            tv = sc.target_vessel
+            if tv is None:
+                tp = sc.target_docking_port
+                tv = tp.part.vessel if tp is not None else None
+            if tv is None:
+                return
+            station = list(tv.parts.all)
+            transport = list(v.parts.all)
+        except Exception as exc:  # noqa: BLE001
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Transfer", "dock side capture failed: %s: %s"
+                % (type(exc).__name__, str(exc)[:160])))
+            return
+        self._dock_station_parts = station
+        self._dock_transport_parts = transport
+        _stdout_sink(mlib.format_mission_log_line(
+            "Info", "Transfer", "dock sides captured: station=%d parts transport=%d parts"
+            % (len(station), len(transport))))
+
+    def _resolve_tanks_by_captured_sides(self, v, resource, direction):
+        """(station_tank, transport_tank) from the part lists captured at DOCK entry
+        (`mlib.pick_dock_transfer_parts`), or (None, None)."""
+        if not self._dock_station_parts or not self._dock_transport_parts:
+            return None, None
+        try:
+            parts = list(v.parts.all)
+        except Exception:  # noqa: BLE001
+            return None, None
+        rows = []
+        for part in parts:
+            try:
+                side = mlib.classify_dock_side(
+                    any(part == p for p in self._dock_station_parts),
+                    any(part == p for p in self._dock_transport_parts))
+                res = part.resources
+                rows.append((side, float(res.amount(resource)), float(res.max(resource))))
+            except Exception:  # noqa: BLE001
+                rows.append((None, 0.0, 0.0))
+        picked = mlib.pick_dock_transfer_parts(rows, direction)
+        if picked is None:
+            return None, None
+        return parts[picked[0]], parts[picked[1]]
+
+    def _resolve_transfer_tanks_live(self, v, resource, direction=mlib.TRANSFER_DIR_DELIVER):
         """(station_tank, transport_tank, path) resolved LIVE from the docked active
-        vessel (flight-13). Primary: partition the merged part tree at the mated
+        vessel (flight-13). Primary since BDOCK-FIXTURE-TRANSFER-INVERTED: the part
+        lists of the two ships captured at DOCK entry, before they merged. Next:
+        partition the merged part tree at the mated
         docked-port pair; the TRANSPORT (Interceptor) side holds the active CONTROL
         part (it launched last + is the active/controlling craft), the STATION side
         is the other. Fallback: the first two distinct resource-bearing parts (side
         assignment then arbitrary). Last resort: the captured station tank + a live
         transport tank.
 
-        TODO(flight-14): the station/transport SIDE assignment (which drives the
-        recorded route-window delta SIGNS the offline oracle checks) is validated
-        only by the partition heuristic here -- confirm it in a live run against the
-        recorded deltas; if the oracle reds on flipped signs, key the sides off the
-        captured station VESSEL guid / a per-side marker resource instead. The
-        bounded TRANSFER-stall liveness watchdog covers a mis-resolved-tank stall in
-        the meantime (a stalled transfer fast-flakes, never hangs)."""
-        # Primary: docked-port partition.
+        The controlling-part partition is no longer primary: on every flight that
+        produced bdock-recorded it put the two sides the wrong way round (the window
+        holds both requests reversed), so it runs only as a logged cross-check and as
+        the fallback when the DOCK-entry lists are missing. The bounded TRANSFER-stall
+        liveness watchdog still covers a mis-resolved-tank stall."""
+        station_tank, transport_tank = self._resolve_tanks_by_captured_sides(
+            v, resource, direction)
+        if station_tank is not None and transport_tank is not None:
+            # Cross-check against the controlling-part partition, which recorded
+            # bdock-recorded's transfers reversed: log whether it would agree.
+            p_station, p_transport = self._partition_docked_tanks(v, resource)
+            if p_station is not None and p_transport is not None:
+                try:
+                    agrees = any(p_station == p for p in self._dock_station_parts)
+                except Exception:  # noqa: BLE001
+                    agrees = None
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Info", "Transfer", "partition cross-check %s: agrees=%s"
+                    % (resource, agrees)))
+            return station_tank, transport_tank, "captured-sides"
+        # Next: docked-port partition.
         station_tank, transport_tank = self._partition_docked_tanks(v, resource)
         if station_tank is not None and transport_tank is not None:
             return station_tank, transport_tank, "partition"
