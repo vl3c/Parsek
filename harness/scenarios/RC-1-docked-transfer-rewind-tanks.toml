@@ -33,6 +33,9 @@
 #   2. reload, rewind to the Interceptor separation (the next rp0, UT 693.3) and re-fly its
 #      probe: the walker claims the docking partner and ghosts the real Station; TimeJump
 #      again, read again, merge.
+# THE FLIGHT-READY WAIT (CI-2's, todo CI-2-TIMEJUMP-BEFORE-FLIGHT-READY): after the recorder
+# is live, `ListHandles kind=chains` defers (`ghost-chains-pending`) until the re-fly scene's
+# OnFlightReady built the ghost chains, so the TimeJump never crosses the tip with no chain.
 # A tip whose vessel did not spawn is `missing=1` on an OK answer (a Parsek outcome, never a
 # driver refusal), and every gating token below is on the read's own `complete` line.
 schema = 1
@@ -59,6 +62,7 @@ steps = [
   { cmd = "ListHandles",         args = { kind = "rewindpoints" }, label = "h1",          expect = "OK" },
   { cmd = "InvokeRewind",        args = { rp = "${h1.rp0}", slot = "1" },                 expect = "OK", budget = 300 },
   { cmd = "RecordingState",      args = { awaitRecorderLive = "refly" },                  expect = "OK" },
+  { cmd = "ListHandles",         args = { kind = "chains" }, label = "chains1",           expect = "OK" },
   { cmd = "TimeJump",            args = { ut = "8960" },                                  expect = "OK", budget = 120 },
   { cmd = "ReadVesselResources", args = { rec = "37d0dc074351408ba0374230793abb1c,4af6cfd725d646ccbac9ef2f7749667e", resources = "LiquidFuel,Oxidizer", expect = "LiquidFuel:1424.2279;Oxidizer:1740.7229", tolerance = "0.01", expectSnapshot = "true" }, label = "tanks1", expect = "OK" },
   { cmd = "AnswerMergeDialog",   args = { choice = "merge" },                             expect = "OK", budget = 120 },
@@ -68,6 +72,7 @@ steps = [
   { cmd = "ListHandles",         args = { kind = "rewindpoints" }, label = "h2",          expect = "OK" },
   { cmd = "InvokeRewind",        args = { rp = "${h2.rp0}", slot = "1" },                 expect = "OK", budget = 300 },
   { cmd = "RecordingState",      args = { awaitRecorderLive = "refly" },                  expect = "OK" },
+  { cmd = "ListHandles",         args = { kind = "chains" }, label = "chains2",           expect = "OK" },
   { cmd = "TimeJump",            args = { ut = "8960" },                                  expect = "OK", budget = 120 },
   { cmd = "ReadVesselResources", args = { rec = "37d0dc074351408ba0374230793abb1c,4af6cfd725d646ccbac9ef2f7749667e", resources = "LiquidFuel,Oxidizer", expect = "LiquidFuel:1424.2279;Oxidizer:1740.7229", tolerance = "0.01", expectSnapshot = "true" }, label = "tanks2", expect = "OK" },
   { cmd = "AnswerMergeDialog",   args = { choice = "merge" },                             expect = "OK", budget = 120 },
@@ -88,8 +93,8 @@ count = { min = 22, max = 40 }
 
 [expectations.logContracts]
 # Each read is pinned between its own `exec ... start` line and the next read's, so a clean
-# later read can never satisfy an earlier one. Step ids: tanks0 = 0005, tanks1 = 0010,
-# tanks2 = 0019.
+# later read can never satisfy an earlier one. Step ids: tanks0 = 0005, tanks1 = 0011,
+# tanks2 = 0021.
 required = [
   "listhandles kind=rewindpoints count=3 truncated=false",
   "listhandles kind=rewindpoints count=2 truncated=false",
@@ -97,8 +102,8 @@ required = [
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_f4edbb9721bc43649a6c1727dca67b1e slot=1",
   "Chain tip spawn complete: #[0-9]+ \"Kerbal X\" pid=3620499050",
   "(?s)exec id=0005 cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=2 missing=0 uidCollisions=0 uidDigest=[0-9a-f]{8} match=true snapshotMatch=true",
-  "(?s)exec id=0010 cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=2 missing=0 uidCollisions=0 uidDigest=[0-9a-f]{8} match=true snapshotMatch=true",
-  "(?s)exec id=0019 cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=2 missing=0 uidCollisions=0 uidDigest=[0-9a-f]{8} match=true snapshotMatch=true",
+  "(?s)exec id=0011 cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=2 missing=0 uidCollisions=0 uidDigest=[0-9a-f]{8} match=true snapshotMatch=true",
+  "(?s)exec id=0021 cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=2 missing=0 uidCollisions=0 uidDigest=[0-9a-f]{8} match=true snapshotMatch=true",
   # The per-vessel numbers, so a pair that summed right with fuel on the wrong side still reds.
   "readvesselresources vessel index=0 rec=37d0dc074351408ba0374230793abb1c found=true pid=[0-9]+ name='Kerbal X' loaded=(true|false) parts=28 LiquidFuel=704\\.2279/720\\.0000 Oxidizer=880\\.0000/880\\.0000",
   "readvesselresources vessel index=1 rec=4af6cfd725d646ccbac9ef2f7749667e found=true pid=[0-9]+ name='Kerbal X' loaded=(true|false) parts=28 LiquidFuel=720\\.0000/720\\.0000 Oxidizer=860\\.7229/880\\.0000",
@@ -120,7 +125,7 @@ forbidden = [
 
 [runtime]
 # LoadGame x2 at max(300,600)+60 = 1320, InvokeRewind x2 at 660 = 1320, TimeJump x2 and
-# AnswerMergeDialog x2 at 180 = 720, and 14 default-budget steps at 120 = 1680: 5040, plus
+# AnswerMergeDialog x2 at 180 = 720, and 16 default-budget steps at 120 = 1920: 5280, plus
 # boot and quit margin.
 budgetSeconds = 5700
 
