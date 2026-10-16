@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~REFLY-KEPT-TIP-STAMP-GHOSTED-BY-CHAIN: a chain tip whose stamp a Re-Fly kept is never re-spawned once the chain ghosts that vessel~~ [FILED 2026-10-16 from RC-1's first flight (`2026-10-16_2251`, PARSEK-FAIL), branch `claude/project-thread-81f9wc` (PR #2125). FIXED on the same branch, re-flight pending. product]
+## ~~REFLY-KEPT-TIP-STAMP-GHOSTED-BY-CHAIN: a chain tip whose stamp a Re-Fly kept is never re-spawned once the chain ghosts that vessel~~ [FILED 2026-10-16 from RC-1's first flight (`2026-10-16_2251`, PARSEK-FAIL), branch `claude/project-thread-81f9wc` (PR #2125). FIXED on the same branch; LIVE-PROVEN by RC-1 `2026-10-16_2324` (PASS attempt 1). product]
 
 RC-1 cycle 2 rewinds `bdock-recorded` to rp_f4ed (the Interceptor separation). The Station tip
 `37d0dc07...` is stamped `spawnedPid=3620499050` (the fixture's own adoption stamp; cycle 1's tip
@@ -36,7 +36,7 @@ keep their stamp. Tests: `ChainTipSpawnClaimReleaseTests`.
 
 ---
 
-## REFLY-TAIL-SEED-FRAME: a terminal orbit rebuilt from the recording's last point carries a wrong flight-path angle in any later session [FILED 2026-10-16 from RC-1's first flight (`2026-10-16_2251`), branch `claude/project-thread-81f9wc` (PR #2125). PARTLY FIXED on the same branch (seed priority); the frame fix is OPEN. product]
+## REFLY-TAIL-SEED-FRAME: a terminal orbit rebuilt from the recording's last point carries a wrong flight-path angle in any later session [FILED 2026-10-16 from RC-1's first flight (`2026-10-16_2251`), branch `claude/project-thread-81f9wc` (PR #2125). PARTLY FIXED on the same branch (seed priority, LIVE-PROVEN by RC-1 `2026-10-16_2324`); the frame fix is OPEN. product]
 
 After the rewind to rp_72eb both undock tips spawned from `source=trajectory-tail` seeds with
 ecc 0.134 (periapsis 14 km) where the recordings' end snapshots and live-captured terminal orbits
@@ -56,6 +56,21 @@ win (test `TailSeedTerminalOrbitPriorityTests`). Still open: record the velocity
 rotation angle per section) so the tail seed is right where it still wins (a schema shape change:
 generation bump and fixture re-harvest), and the same-class readers `GhostMapPresence.cs` gap glide
 and the `VesselSpawner` spawn-validation repair.
+
+---
+
+## REFLY-MERGE-GHOST-ONLY-NULLS-A-SPAWNED-LEAF: a Re-Fly merge marks a leaf that already spawned ghost-only and drops its spawn snapshot [FILED 2026-10-16 from RC-1 `2026-10-16_2324` (green), log read only. OPEN, suspected, product, medium]
+
+On RC-1's second merge (re-fly of rp_f4ed, the Interceptor separation) the log reads
+`[MergeDialog] ApplyVesselDecisions: ghost-only for 'Kerbal X' (id=4af6cfd7...), spawn snapshot
+nulled, ghostVisual=True` for the Interceptor leaf, which had just respawned at its end. If that
+null reaches the committed recording, a later rewind past the undock can no longer bring the
+Interceptor back. Not yet checked: whether the decision is the merge's duplicate guard for a live
+vessel (and so correct for this copy), and whether the committed copy keeps its snapshot.
+
+Fix: read which pending copy `ApplyVesselDecisions` mutates and what reaches the committed tree;
+if the snapshot is lost, a third RC-1 cycle (rewind to the undock RP after both merges) is the red
+test.
 
 ---
 
