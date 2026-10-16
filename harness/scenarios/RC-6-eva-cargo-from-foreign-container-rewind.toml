@@ -11,7 +11,8 @@ id = "RC-6-eva-cargo-from-foreign-container-rewind"
 # HOST: `eva-construct-pad`, EVA-11's host (Kerbal X on the pad with Bill Kerman, an
 # Engineer, aboard; a crewless `rover fuel 0`, pid 1871615455, LANDED 153 m away, 16
 # parts). The rover's first ConformalStorageUnit holds an evaChute (about 1.4 m from the
-# rover's root part); the second holds an evaScienceKit and a DeployedCentralStation.
+# rover's root part); the second holds two evaScienceKits (one stacked slot) and a
+# DeployedCentralStation.
 #
 # THE INVENTORY PATCH: Bill carries only an evaJetpack, so the evaChute he takes is the
 # only chute anywhere and his spawn reads `[evaChute x1, evaJetpack x1]`.
@@ -109,9 +110,9 @@ required = [
   "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
   "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*invokerewindtolaunch complete [\\s\\S]*listhandles chain index=[0-9]+ pid=1871615455 links=1 trees=1 treeIds=[0-9a-f]{32} tip=\\1",
   # After the rewind the rover is a ghost, then spawns at its tip with 16 parts and
-  # without the chute: the other storage unit's two parts only.
+  # without the chute: the other storage unit's three parts only.
   "invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Vessel ghosted: pid=1871615455 name=rover fuel 0[\\s\\S]*\\[Ghoster\\] Chain tip spawn: pid=1871615455 vessel=rover fuel 0 preserveIdentity=true [^\\r\\n]*parts=16",
-  "invokerewindtolaunch complete [\\s\\S]*(?:Vessel respawned|SpawnAtPosition: vessel spawned) \\(sit=[A-Z_]+, pid=1871615455[,)][^\\r\\n]* storedParts=2 \\[DeployedCentralStation x1, evaScienceKit x1\\]",
+  "invokerewindtolaunch complete [\\s\\S]*(?:Vessel respawned|SpawnAtPosition: vessel spawned) \\(sit=[A-Z_]+, pid=1871615455[,)][^\\r\\n]* storedParts=3 \\[DeployedCentralStation x1, evaScienceKit x2\\]",
   "invokerewindtolaunch complete [\\s\\S]*Chain tip spawn complete: #[0-9]+ \"rover fuel 0\" pid=1871615455",
   "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=rc6-spawned-[^\\r\\n]*-\\1-true-1871615455-",
   # Bill spawns at his recording's end carrying the chute and his jetpack.
