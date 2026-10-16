@@ -743,7 +743,8 @@ namespace Parsek
                     return Today(LoadReconcileAction.Prune,
                         "ParsekScenario.OnLoad revert branch -> Ledger.PruneOrphanActionsAfterUT at ResolveRevertPruneCutoff, "
                         + "sparing route rows up to the revert save's route state floor (a launch inside a go-back "
-                        + "rewind's lead-time window)");
+                        + "rewind's lead-time window), then LedgerOrchestrator.PruneRevertedFlightStrategyConversionRows "
+                        + "for the reverted flight's tagged strategy conversion rows");
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
                     return Today(LoadReconcileAction.Keep,

@@ -4318,6 +4318,10 @@ namespace Parsek
                                 $"{(pruneInclusive ? "at/after" : "after")} launchUT=" +
                                 $"{pruneCutoffUT.ToString("R", CultureInfo.InvariantCulture)} " +
                                 "(launch-pad/PRELAUNCH currency earned before auto-record)");
+                        // The reverted flight's strategy conversion rows carry its own
+                        // (never-committed) recording tag, so the orphan prune above skips them.
+                        LedgerOrchestrator.PruneRevertedFlightStrategyConversionRows(
+                            pruneCutoffUT, pruneInclusive);
 
                         if (hadPendingTree)
                         {

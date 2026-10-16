@@ -46,6 +46,10 @@ _(unreleased - entries accumulate here per commit)_
   left aboard a station and taken off it by a later mission that docks there stayed booked to the
   station forever. The docking now hands the kerbal to the rescue mission, so they can fly again
   once it is recovered. (CROSS-TREE-CREW-TRANSFER-STRANDS-RESERVATION)
+- **A strategy's share of a reward now goes back with the reward.** With Leadership Initiative,
+  Appreciation Campaign, Patents Licensing or another converting strategy active, an F9 or a
+  Re-Fly merge took a flight's reward back but kept the part the strategy had converted, so funds,
+  science or reputation drifted later. (STRATEGY-CONVERSION-ROWS-OUTLIVE-THEIR-AWARD)
 - **Loading an earlier quicksave at the Space Center keeps later KSC purchases on schedule.** A
   research, upgrade, hire or contract accepted after the quicksave now applies once when the clock
   reaches it: it is charged then, the kerbal joins the crew, and the contract is listed once, so

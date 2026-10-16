@@ -1,0 +1,310 @@
+schema = 1
+id = "QL-2c-quickload-strategy-share-not-kept"
+# =====================================================================================
+# QL-2c: AN F9 TAKES BACK A STRATEGY'S SHARE OF A REWARD TOGETHER WITH THE REWARD.
+# QL-2b's flight, steps and gates verbatim on QL-2b's host with ONE difference: stock's
+# Leadership Initiative is active (fixture `career-gs1-leadership-pad`, derived from
+# `career-gs1-two-stage-pad` by harness/tools/build_career_gs1_leadership_pad.py, drift
+# gated by harness/lib/test_career_gs1_leadership_pad.py). Todo
+# STRATEGY-CONVERSION-ROWS-OUTLIVE-THEIR-AWARD (PR #2123).
+#
+# In gameplay terms: the same GS-1 hop, F5, EVA onto Kerbin's surface and F9 as QL-2b,
+# in a career running Leadership Initiative. The strategy multiplies the SurfaceEVA
+# milestone's reward, so the EVA pays the milestone AND a strategy share on top. The F9
+# goes back to before the EVA, so the career must keep neither.
+#
+# THE MECHANISM UNDER TEST.
+#   1. The EVA after the F5 pays Kerbin/SurfaceEVA through stock's AwardProgress, whose
+#      CurrencyModifierQuery carries Leadership Initiative's Progression multiplier. Parsek
+#      captures the uplift as a strategy conversion (GameStateRecorder.OnCurrencyModified ->
+#      LedgerOrchestrator.OnStrategyCurrencyConversion; L3 measured the Progression uplift
+#      captured as one Strategy funds row) and, since the fix, TAGS the rows to the live
+#      recording (GameStateRecorder.ResolveStrategyConversionRecordingTag), the same
+#      recording the milestone event is tagged to. The Info line now carries the tag:
+#      `Strategy conversion recorded: type=<T>, currency=<C>, delta=<R>, UT=<F1>,
+#      reason=<reason>, recordingId=<id or (none)>`.
+#   2. The F9's resume reconcile retires the milestone row as `afterCutoff` (QL-2b) AND the
+#      conversion rows with it, because they are tagged to a trimmed recording after the
+#      cutoff. The reconcile line now counts them: `strategyConversionRetired=N`, a subset
+#      count across the three reasons, printed after the `(afterCutoff=...)` group.
+#   3. No later recalc pays the share back: the funds patch never rises above the
+#      quicksave's pool after the F9, and no funds guard clamps anywhere (a clamp is the
+#      ledger and KSP disagreeing, which is what an orphaned share produces).
+#   The rows of the strategy's share of rewards earned BEFORE the F5 (the ascent's world
+#   records, FirstLaunch) stay: they are before the cutoff.
+#
+# BEFORE-FIX PREDICTION: PARSEK-FAIL(expectation). The post-F5 conversion line reads
+# `recordingId=(none)` (or has no tag field at all), the reconcile line has no
+# `strategyConversionRetired=` field, the untagged share survives the F9, and the exit
+# commit's patch lifts KSP's funds above the quicksave's (`PatchFunds ... (delta=+N`, the
+# share), which QL-2b's forbidden positive-delta token names.
+#
+# PRE-REGISTERED READINGS (QL-2b's apply first; these are the strategy's own):
+#   - No `Strategy conversion recorded` line at all: Leadership Initiative did not load
+#     active (read StrategySystem in the staged persistent.sfs and `[StrategySystem]` in
+#     KSP.log) or the capture's reason rule dropped Progression; a premise miss.
+#   - The post-F5 conversion line with `recordingId=(none)`: the uplift fired with no live
+#     recorder (the EVA ended the pod's recording before stock's AwardProgress ran?); read
+#     the recorder's EVA branch lines around it before filing anything.
+#   - `strategyConversionRetired=0` with the tagged line present: the rows were tagged to a
+#     recording outside the reconcile's plan (the EVA kerbal's, pruned: then they retire
+#     as `prunedRecording` and the count is still >= 1), or stamped at or before the
+#     cutoff; compare the line's recordingId with the reconcile's trimmed set.
+#   - A `GUARDED UPLIFT clamped resource=Funds` BEFORE the F9: the conversion's deferred
+#     recalc ran before stock applied the uplift (L3's ordering defect); file it, it is not
+#     this lane's bug but it is a ledger value off.
+#
+# STATUS: LIVE-PROVEN 2026-10-16 on its first flight, `2026-10-16_2239` PASS attempt 1
+# (automation DLL sha256 prefix a6a08fde52d0448d). Measured: the ascent's four Progression
+# shares (FundsEarning 360 / 60 / 360 / 360, ReputationEarning 0.075, UT 27.9-33.4) and the
+# SurfaceEVA share (FundsEarning 120.00007629394531 at UT 149.8) all tagged to the pod
+# recording; the reconcile retired the SurfaceEVA share (`strategyConversionRetired=1`) and
+# kept the ascent ones; the only post-F9 patch was `PatchFunds: no change needed
+# (current=516340.0, target=516340.0)`; zero GUARDED lines.
+# AUTHORED 2026-10-16 (branch `claude/project-thread-kk4qzv`, PR #2123).
+# Every new token is quoted from its emitting source line (LedgerOrchestrator
+# .OnStrategyCurrencyConversion, ParsekScenario.Trim.cs's reconcile summary).
+# =====================================================================================
+tier = "nightly"
+description = "QL-2c: QL-2b with Leadership Initiative active, so the post-F5 SurfaceEVA milestone carries a strategy share; the F9 must retire the share with the reward. QL-2b: QL-4's in-flight F9 in a career. GS-1's two-stage hop in career-gs1-two-stage-pad: F5 with the booster under canopy, fly on, Valentina EVAs onto Kerbin's surface (stock pays the SurfaceEVA milestone, booked to the pod's recording at the in-flight commit), then F9 back into the quicksave. The reconcile purges the tagged events and retires the milestone row, no later recalc credits it or patches its funds back, the abandoned EVA branch is pruned, and the booster is recorded again and commits Landed."
+instanceProfile = "stock-minimal"
+tags = ["QL-2c", "strategy", "TA-2", "TA-3", "TA-4", "quickload", "timeline-ops", "career", "GS1",
+        "staging", "controlled-child", "eva", "milestone", "ledger", "in-flight-commit",
+        "scene-exit", "auto-merge", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/career-gs1-leadership-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "gs1_auto_chute_booster_career"
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "true" },    expect = "OK" },
+  # The final commit is the scene-exit auto-merge (no merge modal can stand at the exit).
+  { cmd = "SetSetting",     args = { name = "autoMerge", value = "true" },             expect = "OK" },
+  # LOAD-BEARING: the Credited-milestone walk line, FundsModule's milestone line,
+  # FinalizeTreeRecordings and the background-recorder attach line are Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },        expect = "OK" },
+  # RF-1's mission: the pod lands, the booster is still airborne at the exit of the phase.
+  { phase = "mission",                                                                 expect = "MISSION-OK", budget = 900 },
+  # THE F5. The cutoff UT of the later quickload.
+  { cmd = "SaveGame",       args = { name = "quicksave" },                             expect = "OK", budget = 120 },
+  # The abandoned future: about 30 s, the booster still descending. CA-1's ladder and cap.
+  { cmd = "WarpToUT",       args = { ut = "150", maxRate = "2", ladder = "phys" },     expect = "OK", budget = 300 },
+  # THE REWARD AFTER THE F5: the first EVA on Kerbin's surface (stock pays SurfaceEVA).
+  # At 1x (the warp ends at rate=1), from the landed pod, long after the cutoff.
+  { cmd = "EvaExit",        args = { release = "true" },                               expect = "OK", budget = 120 },
+  # Commit in flight (CA-1's order). No OnSave, so the quicksave's epochs still match.
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  { cmd = "CommitTree",                                                                expect = "OK", budget = 120 },
+  # CommitTree auto-resumes a recorder on the still-active vessel (here the EVA kerbal).
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  # THE F9, in FLIGHT (refined load kind QuickloadFlight). No live recorder, so the
+  # dispatch `recording-active` guard admits it.
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave" },        expect = "OK", budget = 300 },
+  # inert-wait: frames only, no game time. RestoreActiveTreeFromPending runs from
+  # OnFlightReady and may wait for the active vessel; read the background map after it.
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  # The live tree's background map, read through the seam: 1 (the booster). 0 is the
+  # booster's leaked terminal (QL-4's defect), 2 the abandoned EVA kerbal kept.
+  { cmd = "ListHandles",    args = { kind = "active" },                                expect = "OK" },
+  # No settle pad before the warp (dropped 2026-10-08): stock's post-load physics hold is
+  # WarpToUT's own bounded defer since TC-1 (`warp-physics-hold`, PR #2051), as on QL-4.
+  # The replay: the booster lands (CA-1's verb, target and cap).
+  { cmd = "WarpToUT",       args = { ut = "400", maxRate = "2", ladder = "phys" },     expect = "OK", budget = 540 },
+  # THE COMMIT: the scene-exit auto-merge of the resumed tree.
+  { cmd = "ExitToSpaceCenter",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                              expect = "OK" },
+]
+
+[driver.missionParams]
+# QL-4's values VERBATIM (the craft is gs1-two-stage-pad's VESSEL node byte for byte).
+throttle = 1.0
+stagingApoapsisMeters = 700
+stagingMaxAltMeters = 1500
+apoapsisWindowMeters = { min = 600, max = 1600 }
+stageSettleFrames = 2
+chuteArmMaxRateMps = 30
+chuteFullDeployAltMeters = 600
+landedSituations = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds = 90
+coastTimeoutSeconds = 120
+stageTimeoutSeconds = 60
+descentTimeoutSeconds = 300
+siblingVesselName = "GS1 Auto-Chute Booster Probe"
+siblingAirborneAtExit = true
+siblingDownTimeoutSeconds = 240
+
+[dimensionsCovered]
+# D14 values only (each already covered elsewhere). No new claim: no D-value names a
+# back-in-time load yet.
+D14 = ["kerbin", "career", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Predicted 3 (QL-4's flown shape: the pod, the booster split at its touchdown). The
+# ceiling absorbs an optimizer split; an abandoned EVA kerbal kept would read 4 or more,
+# which the forbidden finalize token below names directly.
+count = { min = 2, max = 8 }
+
+# REPORT-ONLY until a reading run. Predicted: one tree committed once (the F9 detached
+# the in-flight commit, the exit re-committed), both stages Landed, the abandoned EVA
+# branch point pruned, no rewind bookkeeping.
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 2, max = 8 }
+terminalStates = { Landed = { min = 2 }, SubOrbital = { max = 0 } }
+branchPoints   = { JointBreak = { min = 1 }, EVA = { max = 0 } }
+
+[expectations.rewind]
+gating        = false
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.logContracts]
+required = [
+  # GROUP 1 - THE FLIGHT, THE SPLIT AND THE F5 (QL-4's tokens).
+  "Recording started",
+  "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
+  "savegame name=quicksave folder=.+ saved=true",
+  "warptout complete",
+
+  # GROUP 2 - THE REWARD AFTER THE F5, BOOKED TO THE FLIGHT AT THE IN-FLIGHT COMMIT.
+  # The EVA (TestCommandEvaExit's completion line).
+  "evaexit complete kerbal=Valentina Kerman evaPid=[0-9]+ released=true",
+  # Stock completes the node (GameStateRecorder.RegisterPendingMilestoneEvent's Info line),
+  # after the F5 and before the F9, and pays the funds into KSP's pool (OnFundsChanged).
+  "savegame name=quicksave folder=.+ saved=true[\\s\\S]*Game state: MilestoneAchieved 'Kerbin/SurfaceEVA' \\(awaiting reward enrichment\\)[\\s\\S]*Game state: FundsChanged \\+[1-9][0-9]* \\(Progression\\)[\\s\\S]*loadgame start save=\\S+ name=quicksave ",
+  # The AwardProgress postfix's enrichment: a funds reward (1600 on EVA-5's sandbox run).
+  "Milestone enriched: 'Kerbin/SurfaceEVA' funds=[1-9][0-9]* rep=",
+  # The in-flight commit (CommitTreeFlight, F1), after the warp (it stops one tick short).
+  "CommitTreeFlight: starting tree commit at UT=(149|1[5-9][0-9]|[2-9][0-9]{2})\\.[0-9]",
+  "committree committed=true",
+  # The commit's recalc credits the milestone to a recording at the EVA's UT
+  # (MilestonesModule.ProcessAction) and FundsModule counts its funds, both before the F9.
+  "Credited milestone 'Kerbin/SurfaceEVA' at UT=(?:149|1[5-9][0-9])\\.[0-9] \\(recording=[0-9a-f]{32}, funds=[1-9][0-9]*, [\\s\\S]*loadgame start save=\\S+ name=quicksave ",
+  "Milestone funds: \\+[1-9][0-9.]*, actionId=\\S+, milestoneId=Kerbin/SurfaceEVA, recordingId=[0-9a-f]{32}, [\\s\\S]*loadgame start save=\\S+ name=quicksave ",
+  # The abandoned future's booster ending: committed while still under canopy.
+  "FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='GS1 Auto-Chute Booster Probe' points=[1-9][0-9]* orbitSegs=0 terminal=SubOrbital",
+
+  # QL-2c: THE STRATEGY'S SHARE OF THE SURFACEEVA REWARD, captured after the F5 and before
+  # the F9 at the EVA's UT, tagged to a recording (LedgerOrchestrator
+  # .OnStrategyCurrencyConversion's Info line; L3 measured the Progression uplift as a
+  # FundsEarning row). The pre-fix build writes the same line untagged.
+  "savegame name=quicksave folder=.+ saved=true[\\s\\S]*Strategy conversion recorded: type=FundsEarning, currency=Funds, delta=[0-9][0-9.E+-]*, UT=(?:149|1[5-9][0-9]|[2-9][0-9]{2})\\.[0-9], reason=Progression, recordingId=[0-9a-f]{32}[\\s\\S]*loadgame start save=\\S+ name=quicksave ",
+
+  # GROUP 3 - THE F9 REACHES THE QUICKLOAD RESUME (QL-4's route).
+  "loadgame start save=\\S+ name=quicksave scene=FLIGHT requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false",
+  "Load classified: early=InSession refined=QuickloadFlight scene=FLIGHT initialLoadDone=true rewinding=false reFlyInvoke=false discardReFly=none",
+  "\\[Scenario\\] Quickload committed-copy restore: tree='GS1 Auto-Chute Booster' id=\\S+ route=in-flight action=ResumeFromQuicksave reason=committed-after-quicksave ",
+  # The committed copy's EVA children reach the loaded tree (spliced) before the detach.
+  "SpliceMissingCommittedRecordings: tree 'GS1 Auto-Chute Booster' \\(id=\\S+\\) loadedBefore=[0-9]+ committed=[0-9]+ after=[0-9]+ splicedRecordings=[0-9]+ refreshedRecordings=[1-9][0-9]* ",
+  "TryRestoreActiveTreeNode: removed committed tree 'GS1 Auto-Chute Booster' \\(id=\\S+, [1-9][0-9]* recording\\(s\\)\\)",
+  "OnLoad: pending-Limbo tree 'GS1 Auto-Chute Booster' deferred to OnFlightReady for quickload-resume",
+  # The resume trim prunes the abandoned EVA branch: its children and its branch point.
+  "Quickload tree trim: tree='GS1 Auto-Chute Booster' cutoffUT=[0-9.]+ trimmedRecordings=[0-9]+/[0-9]+ prunedFutureRecordings=[1-9][0-9]* prunedBranchPoints=[1-9][0-9]* ",
+  "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide",
+  "RestoreActiveTreeFromPending: resumed recording tree 'GS1 Auto-Chute Booster' activeRec='[0-9a-f]{32}'",
+
+  # =================================================================================
+  # THE GATE - THE ABANDONED REWARD IS PURGED AND RETIRED
+  # (ParsekScenario.TrimAndReconcileForQuickloadResume, ParsekScenario.Trim.cs):
+  #   `[Scenario] Quickload abandoned-future reconcile: tree='<n>' kind=<LoadKind>
+  #   scope=<scope> cutoffUT=<R> loadedUT=<R> trimmed=N pruned=N endStatesCleared=N
+  #   eventsPurged=N ledgerRowsRetired=N (afterCutoff=N kerbalAssignment=N
+  #   prunedRecording=N) skippedCommitted=N skippedQuicksaveHistory=N ... quicksaveFacts=..`
+  # (PR #2049 appends ` mergeStatesReset=N`; every field is read through a lookahead and
+  # nothing anchors at the line end.) Pinned: an in-flight F9 (QuickloadFlight, TreeWide),
+  # the EVA branch pruned (pruned >= 1), the booster's ending cleared (endStatesCleared
+  # >= 1), the TAGGED events purged (eventsPurged >= 1: the sandbox QL-4 family read 0,
+  # and QL-2's payout is captured untagged at the Space Center, so this is TA-2's first
+  # live purge), and the milestone row retired AS AFTER-CUTOFF (the sandbox lanes read
+  # afterCutoff=0), nothing skipped as still committed.
+  "\\[Scenario\\] Quickload abandoned-future reconcile: tree='GS1 Auto-Chute Booster' (?=.*\\bkind=QuickloadFlight\\b)(?=.*\\bscope=TreeWide\\b)(?=.*\\bpruned=[1-9][0-9]*\\b)(?=.*\\bendStatesCleared=[1-9][0-9]*\\b)(?=.*\\beventsPurged=[1-9][0-9]*\\b)(?=.*\\bledgerRowsRetired=[1-9][0-9]* \\(afterCutoff=[1-9][0-9]* )(?=.*\\bskippedCommitted=0\\b)",
+  # QL-2c: the strategy's share of the abandoned reward is retired with it.
+  "\\[Scenario\\] Quickload abandoned-future reconcile: tree='GS1 Auto-Chute Booster' (?=.*\\bkind=QuickloadFlight\\b)(?=.*\\) strategyConversionRetired=[1-9][0-9]* )",
+  # GameStateStore.PurgeEventsForRecordingAfterUT (the pod's events after the cutoff) or,
+  # if a split re-tagged them, PurgeEventsForRecordings (a pruned recording's).
+  "PurgeEventsForRecording(?:AfterUT \\(quickload-abandoned-future\\): rec=[0-9a-f]{32} cutoffUT=\\S+ live=(?:[1-9][0-9]*, milestone=[0-9]+|0, milestone=[1-9])|s \\(quickload-abandoned-future\\): live=[1-9])",
+  "RetireAbandonedFutureActions: removed [1-9][0-9]* action\\(s\\) reason=quickload-abandoned-future total=[0-9]+",
+  # The booster's leaked SubOrbital is the ending cleared (QL-4's per-recording line).
+  "Quickload abandoned-future end state cleared: rec=[0-9a-f]{32} previousTerminal=SubOrbital preTrimEndUT=\\S+",
+  # THE CONTROL that makes the forbidden walk tokens below mean something: the ledger IS
+  # walked after the retire (the reconcile's own recalc and the exit commit's), and the
+  # walk still credits the pre-F5 FirstLaunch milestone of the same pod recording.
+  "RetireAbandonedFutureActions: removed [1-9][0-9]* action\\(s\\) reason=quickload-abandoned-future[\\s\\S]*Credited milestone 'FirstLaunch' at UT=[0-9.]+ \\(recording=[0-9a-f]{32}, ",
+  # END GATE
+  # =================================================================================
+
+  # GROUP 4 - THE BOOSTER IS RECORDED AGAIN (QL-4's tokens).
+  "RestoreActiveTreeFromPending: attached BackgroundRecorder for tree 'GS1 Auto-Chute Booster' \\([1-9][0-9]* background entry\\(ies\\)\\)",
+  # Exactly the booster: the abandoned EVA kerbal is not in the resumed tree's map.
+  "listhandles kind=active count=1 truncated=false",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='GS1 Auto-Chute Booster Probe' points=[1-9][0-9]* orbitSegs=0 terminal=Landed maxDist=[0-9]+m snapshot=True leaf=True",
+  "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='GS1 Auto-Chute Booster' recordings=[1-9][0-9]*",
+  "exittospacecenter complete scene=SPACECENTER game-loaded=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # QL-2c: no strategy share is ever written untagged in flight after the F5 (the
+  # pre-fix shape), and no funds guard clamps anywhere in the run (the ledger and KSP
+  # disagreeing; QL-2b forbids it only after the retire).
+  "savegame name=quicksave folder=.+ saved=true[\\s\\S]*Strategy conversion recorded: type=\\w+, currency=\\w+, delta=\\S+, UT=(?:149|1[5-9][0-9])\\.[0-9], reason=Progression, recordingId=\\(none\\)",
+  "GUARDED (?:UPLIFT|DRAWDOWN) clamped resource=Funds",
+  # The F9 must reach the resume (QL-4 / QL-4b's defect shapes).
+  "dropped entire tree 'GS1 Auto-Chute Booster'",
+  "TryRestoreActiveTreeNode: skipped active tree 'GS1 Auto-Chute Booster'",
+  "Quickload resume prep skipped",
+  "Quickload committed-copy restore: tree='GS1 Auto-Chute Booster' id=\\S+ route=\\S+ action=Unchanged",
+  "keeping in-memory pending tree 'GS1 Auto-Chute Booster'",
+  "Quickload abandoned-future reconcile skipped: tree='GS1 Auto-Chute Booster'",
+  # THE BOOSTER LEAK, three ways (QL-4's pre-fix readings).
+  "RestoreActiveTreeFromPending: attached BackgroundRecorder for tree 'GS1 Auto-Chute Booster' \\(0 background entry\\(ies\\)\\)",
+  "listhandles kind=active count=0 truncated=false",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='GS1 Auto-Chute Booster Probe' points=[0-9]+ orbitSegs=0 terminal=SubOrbital",
+  # THE ABANDONED EVA MUST NOT REACH THE REPLAY: no kerbal recording at the final commit.
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='Valentina Kerman'",
+  # THE REWARD MUST NOT BE PAID AGAIN. From the retire on, no walk credits the milestone
+  # or counts its funds (the walk lines between the F9 and the retire still read the old
+  # ledger, so these anchor on the retire line, which precedes the reconcile's recalc).
+  "RetireAbandonedFutureActions: removed [0-9]+ action\\(s\\) reason=quickload-abandoned-future[\\s\\S]*Credited milestone 'Kerbin/SurfaceEVA'",
+  "RetireAbandonedFutureActions: removed [0-9]+ action\\(s\\) reason=quickload-abandoned-future[\\s\\S]*Milestone funds: \\+[0-9.]+, actionId=\\S+, milestoneId=Kerbin/SurfaceEVA,",
+  "RetireAbandonedFutureActions: removed [0-9]+ action\\(s\\) reason=quickload-abandoned-future[\\s\\S]*GUARDED (?:UPLIFT|DRAWDOWN) clamped resource=Funds",
+  # After the F9 nothing books the milestone again, re-marks the stock node, or lifts the
+  # funds pool off the quicksave's (a positive delta is the abandoned reward paid).
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*Game state: MilestoneAchieved 'Kerbin/SurfaceEVA'",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*PatchMilestones: set achieved 'Kerbin/SurfaceEVA'",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*PatchFunds: [0-9.]+ -> [0-9.]+ \\(delta=[0-9]",
+]
+
+[runtime]
+# QL-4's budget: two LoadGame, the ~120 s hop, two phys-ladder warps (~20 s and ~145 s
+# measured on QL-4), the EVA, the exit; the inert steps answer in about a frame each.
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

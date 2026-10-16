@@ -201,6 +201,27 @@ namespace Parsek
             return ReFlyAwardTagging.ApplyToLiveTag(ResolveLiveRecordingTag());
         }
 
+        /// <summary>
+        /// The recording a strategy currency conversion belongs to
+        /// (STRATEGY-CONVERSION-ROWS-OUTLIVE-THEIR-AWARD). The conversion fires inside the
+        /// same stock <c>Add*</c> as the award it diverts from, so it takes the tag
+        /// <see cref="Emit"/> gives that award's event: the live recording tag, else the
+        /// open recovery scope's owner for a progress reward, else none (a Space Center
+        /// transaction, which stays an untagged KSC row). Returns null for none.
+        /// </summary>
+        internal static string ResolveStrategyConversionRecordingTag(string reason, double ut)
+        {
+            string tag = ResolveCurrentRecordingTag();
+            if (!string.IsNullOrEmpty(tag))
+                return tag;
+
+            // A conversion carries no event type of its own; the recovery scope owns only
+            // progress rewards, which it recognizes by the reason key on a currency change.
+            RecoveryEventOwner owner = RecoveryDispatchScope.ResolveOwnerForEvent(
+                GameStateEventType.FundsChanged, reason ?? "", ut);
+            return owner.HasOwner ? owner.RecordingId : null;
+        }
+
         private static string ResolveLiveRecordingTag()
         {
             var live = ParsekFlight.GetActiveRecordingIdForTagging();
