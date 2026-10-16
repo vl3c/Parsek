@@ -3658,7 +3658,7 @@ fresh branch (it would also start the ghost's running loop there).
 
 ---
 
-## BDOCK-FIXTURE-TRANSFER-INVERTED: `bdock-recorded` recorded its fuel transfer backwards [FILED 2026-10-06 from the coverage-extension research, verified from the fixture data; branch `ccr-77f23eb2-dbqh6i`. OPEN, fixture]
+## ~~BDOCK-FIXTURE-TRANSFER-INVERTED: `bdock-recorded` recorded its fuel transfer backwards~~ [FILED 2026-10-06 from the coverage-extension research, verified from the fixture data; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-16 (runner + gate; fixture kept by owner ruling), branch `claude/project-thread-ul9vwp`]
 
 BDOCK-1 asks for 40 LF transport -> station and 15 MP station -> transport
 (`BDOCK-1-...toml:173-178`); the committed window (`persistent.sfs:2108-2296`) shows the
@@ -3670,6 +3670,20 @@ only that the line is present, so every lane on this fixture inherits a pickup-s
 Fix: correct the side partition, re-harvest the fixture, and pin the delta direction in the
 gate. Check first: an offline cell over the committed fixture asserting the endpoint's LF delta
 is positive (red today).
+
+Re-read 2026-10-16: the Station docks FULL (LF 720/720, oxidizer 880/880, MP 230/230 in
+`DOCK_ENDPOINT_RESOURCES`), so the 40 LF delivery could never move anything in either
+direction, and a re-harvest with a correct runner would hold only the 15 MP pickup. Owner
+ruling (2026-10-16): keep the fixture, which is a real 15.77 LF pickup that every lane on it
+already reads as one, rather than re-harvest it and re-pin its 17 lanes (the "33" counted
+comment mentions). Done: the runner reads both ships' part lists at DOCK entry, before they
+merge, and picks the tanks from them (`mlib.pick_dock_transfer_parts`, destination with room
+first; the controlling-part partition stays as a logged cross-check and fallback). BDOCK-1
+requires the MP pickup on the transport side and the matching loss on the endpoint side, and
+forbids the reversed LF gain; its D10 `delivery` and `mixed-direction` claims are withdrawn
+(no lane covers them now; a delivery needs a Station that has burned fuel, a new BDOCK-1
+phase). `harness/lib/test_bdock_recorded_window.py` pins the fixture's window as an LF pickup
+with no MP and a full Station.
 
 ---
 
@@ -4855,7 +4869,7 @@ the schedule of route '<name>'.`), Advanced keeps `Looped by route`.
   right of them and centred): no left inset in its cell, left-aligned like the numbers, width
   unchanged (`TheIndexHeaderSitsOverTheIndexColumnContents`).
 
-## REFLY-LANES-JUMP-BEFORE-FLIGHT-READY: six re-fly lanes jump or warp straight after InvokeRewind, the CI-2 race [FILED 2026-10-05 from CI-2-TIMEJUMP-BEFORE-FLIGHT-READY, branch `ci2-lane-fix`. OPEN, lanes; unflown]
+## ~~REFLY-LANES-JUMP-BEFORE-FLIGHT-READY: six re-fly lanes jump or warp straight after InvokeRewind, the CI-2 race~~ [FILED 2026-10-05 from CI-2-TIMEJUMP-BEFORE-FLIGHT-READY, branch `ci2-lane-fix`. FIXED 2026-10-16, branch `claude/project-thread-ul9vwp`]
 
 A grep of `harness/scenarios` for a time step directly after `InvokeRewind` finds the same
 shape CI-2 had, with no wait for the re-fly scene's `OnFlightReady`:
@@ -4870,6 +4884,14 @@ an armed `saveParse` block whose readings may have been taken on either side of 
 Fix per lane: CI-2's `ListHandles kind=chains` read before the jump (or RF-14's
 `RecordingState` dwell where the recorder bind is the subject), then a re-flight to confirm
 the armed facets.
+
+Done: every one of the nine sites now reads `ListHandles kind=chains` (OnFlightReady ran)
+and then `RecordingState awaitRecorderLive=refly` (S4.4's named wait: a recorder is live
+under the re-fly marker) before its time step; each lane requires the await's
+`recordingstate recording=true ... reFlyMarker=true` line and forbids `listhandles
+kind=chains ... evaluated=false`. `harness/lib/test_refly_flight_ready_wait.py` reds on any
+committed spec that sends `TimeJump` / `WarpToUT` after an accepted `InvokeRewind` in the
+same scene without one of the two waits.
 
 ## GROUND-SCIENCE-CLUSTER-FIVE-PART-HOST: no committed fixture can host a cluster with three or more experiments inside stock inventory limits [FILED 2026-09-28, branch `deployables-lanes`]
 
