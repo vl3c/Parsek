@@ -18,8 +18,9 @@ id = "EVA-11-construction-foreign-claim"
 #
 # THE GHOST THROUGH THE REWIND (todos CLAIMED-VESSEL-VANISHES-BEFORE-ITS-CLAIM and
 # CONSTRUCTION-GHOST-NEVER-CHANGES-SHAPE, added 2026-10-16). From the reloaded flight to the
-# member's start the despawned rover is drawn from its 16-part despawn snapshot (`Claimed
-# vessel hold ghost shown: ... parts=16`, released at the claim); from the claim the member's
+# member's start the despawned rover is drawn from the rewind save's own 16-part copy (the
+# Space Center reloads persistent.sfs, where the rover already has 15; `Claimed vessel hold
+# ghost shown: ... parts=16 ... from=rewind-save`, released at the claim); from the claim the member's
 # own ghost carries the attach (its 17-part adoption snapshot), and each detach was recorded
 # as an InventoryPartRemoved on the panel's ghost part (`Construction ghost shape: ...
 # action=Removed`) that playback applies (`apply family=InventoryPartRemoved ...
@@ -187,7 +188,7 @@ required = [
   "invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Vessel ghosted: pid=1871615455 name=rover fuel 0[\\s\\S]*\\[Ghoster\\] Chain tip spawn: pid=1871615455 vessel=rover fuel 0 preserveIdentity=true [^\\r\\n]*parts=15",
   "invokerewindtolaunch complete [\\s\\S]*Chain tip spawn complete: #[0-9]+ \"rover fuel 0\" pid=1871615455",
   # The despawned rover stays drawn, in its pre-construction shape, until the member's claim.
-  "invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Vessel ghosted: pid=1871615455 [\\s\\S]*\\[ClaimedHoldGhost\\] Claimed vessel hold ghost shown: pid=1871615455 name='rover fuel 0' chain=1871615455 source=snapshot-surface body=Kerbin parts=16 firstClaimUT=[0-9.]+ UT=[0-9.]+",
+  "invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Vessel ghosted: pid=1871615455 [\\s\\S]*\\[ClaimedHoldGhost\\] Claimed vessel hold ghost shown: pid=1871615455 name='rover fuel 0' chain=1871615455 source=snapshot-surface body=Kerbin parts=16 firstClaimUT=[0-9.]+ UT=[0-9.]+ from=rewind-save",
   "Claimed vessel hold ghost shown: pid=1871615455 [\\s\\S]*Claimed vessel hold ghost released: pid=1871615455 name='rover fuel 0' reason=(claimed|covered-by-recording) [\\s\\S]*Chain tip spawn: pid=1871615455 ",
   # Playback applies the first detach's event to the member's ghost (the tally line names
   # the first applied pid of its batch).

@@ -122,15 +122,73 @@ namespace Parsek
             return values;
         }
 
+        // A Rewind-to-Launch opens the Space Center, whose scene start reloads persistent.sfs,
+        // so the world it lands in holds every vessel in its LATEST live form (the scene exit
+        // wrote that file); only the clock and the future vessels are put back. A vessel a
+        // committed future claims was therefore despawned in its post-claim form (EVA-11's
+        // rover without the part the construction took). Its pre-claim form is the rewind
+        // save's own copy, captured here while the save is preprocessed, for the claimed
+        // vessels only (vessel nodes are large). Replaced by every Rewind-to-Launch.
+        private static Dictionary<uint, ConfigNode> rewindSaveVessels;
+
+        internal static int RewindSaveVesselCount => rewindSaveVessels != null ? rewindSaveVessels.Count : 0;
+
+        /// <summary>
+        /// Copies the VESSEL nodes of <paramref name="flightState"/> whose persistentId is in
+        /// <paramref name="claimedPids"/> as the rewind save's pre-claim forms, replacing any
+        /// earlier capture. Returns the number captured.
+        /// </summary>
+        internal static int CaptureRewindSaveVessels(ConfigNode flightState, HashSet<uint> claimedPids)
+        {
+            var captured = new Dictionary<uint, ConfigNode>();
+            if (flightState != null && claimedPids != null && claimedPids.Count > 0)
+            {
+                ConfigNode[] vessels = flightState.GetNodes("VESSEL");
+                for (int i = 0; i < vessels.Length; i++)
+                {
+                    uint pid;
+                    if (!uint.TryParse(vessels[i].GetValue("persistentId"), NumberStyles.Integer,
+                            CultureInfo.InvariantCulture, out pid)
+                        || !claimedPids.Contains(pid) || captured.ContainsKey(pid))
+                        continue;
+                    captured[pid] = vessels[i].CreateCopy();
+                }
+            }
+            rewindSaveVessels = captured;
+            return captured.Count;
+        }
+
+        /// <summary>
+        /// The rewind save's copy of the claimed vessel <paramref name="pid"/>, or null when the
+        /// last Rewind-to-Launch did not capture one or the copy is conclusively another launch
+        /// of the same craft (a craft-baked pid).
+        /// </summary>
+        internal static ConfigNode TryGetRewindSaveVessel(uint pid, string launchGuid)
+        {
+            ConfigNode node;
+            if (pid == 0 || rewindSaveVessels == null || !rewindSaveVessels.TryGetValue(pid, out node))
+                return null;
+            if (VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                    VesselLaunchIdentity.TryReadVesselGuid(node), launchGuid))
+                return null;
+            return node;
+        }
+
+        internal static void ResetRewindSaveVesselsForTesting()
+        {
+            rewindSaveVessels = null;
+        }
+
         internal static string BuildShownMessage(
             uint pid, string vesselName, uint chainPid, bool landed, string bodyName,
-            int partCount, double firstClaimUT, double currentUT)
+            int partCount, double firstClaimUT, double currentUT, bool fromRewindSave = false)
         {
             return string.Format(CultureInfo.InvariantCulture,
                 "Claimed vessel hold ghost shown: pid={0} name='{1}' chain={2} source={3} body={4} " +
-                "parts={5} firstClaimUT={6:F2} UT={7:F2}",
+                "parts={5} firstClaimUT={6:F2} UT={7:F2} from={8}",
                 pid, vesselName ?? "(unnamed)", chainPid, landed ? "snapshot-surface" : "snapshot-orbit",
-                bodyName ?? "(none)", partCount, firstClaimUT, currentUT);
+                bodyName ?? "(none)", partCount, firstClaimUT, currentUT,
+                fromRewindSave ? "rewind-save" : "despawn");
         }
 
         internal static string BuildReleasedMessage(

@@ -5583,7 +5583,7 @@ namespace Parsek
                     RewindContext.SetHistoricalSpawnKeepRecordingIds(null);
                     rewindSaveOwnUT = PreProcessRewindSave(
                         tempPath, ownerStrip, ResolveRewindStripSpawnedPids,
-                        RewindToLaunchLeadTimeSeconds);
+                        RewindToLaunchLeadTimeSeconds, ResolveRewindClaimedVesselPids);
                 }
 
                 Game game = GamePersistence.LoadGame(tempCopyName, HighLogic.SaveFolder, true, false);
@@ -6699,7 +6699,8 @@ namespace Parsek
         /// </summary>
         internal static double PreProcessRewindSave(
             string sfsPath, RewindOwnerStrip ownerStrip,
-            Func<double, HashSet<uint>> resolveVesselPids, double leadTime)
+            Func<double, HashSet<uint>> resolveVesselPids, double leadTime,
+            Func<double, HashSet<uint>> resolveClaimedVesselPids = null)
         {
             if (ownerStrip == null)
                 ownerStrip = new RewindOwnerStrip();
@@ -6819,6 +6820,19 @@ namespace Parsek
             if (!SuppressLogging)
                 ParsekLog.Info("Rewind",
                     $"Captured {survivingPids.Count} surviving vessel PID(s) from quicksave");
+
+            // The landing scene reloads persistent.sfs, so a vessel a committed future claims
+            // lands in its latest (post-claim) form; keep the rewind save's own copy of each
+            // claimed vessel for the ghost that stands in for it until the claim.
+            if (resolveClaimedVesselPids != null)
+            {
+                HashSet<uint> claimedPids = resolveClaimedVesselPids(adjustedUT);
+                int heldCopies = ClaimedVesselHoldGhost.CaptureRewindSaveVessels(flightState, claimedPids);
+                if (!SuppressLogging)
+                    ParsekLog.Info("Rewind",
+                        $"Captured {heldCopies} rewind-save copy(ies) of {claimedPids?.Count ?? 0} " +
+                        "vessel(s) a committed future claims");
+            }
 
             root.Save(sfsPath);
             return saveOwnUT;

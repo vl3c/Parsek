@@ -11,8 +11,19 @@ namespace Parsek.Tests
     /// claim, so before the fix the rover vanished for the gap. It is now drawn from its
     /// despawn snapshot until the claim; these cells pin the decision and the pose read.
     /// </summary>
-    public class ClaimedVesselHoldGhostTests
+    [Collection("Sequential")]
+    public class ClaimedVesselHoldGhostTests : IDisposable
     {
+        public ClaimedVesselHoldGhostTests()
+        {
+            ClaimedVesselHoldGhost.ResetRewindSaveVesselsForTesting();
+        }
+
+        public void Dispose()
+        {
+            ClaimedVesselHoldGhost.ResetRewindSaveVesselsForTesting();
+        }
+
         private const uint RoverPid = 1871615455u;
         private const string RoverGuid = "aaaaaaaabbbbccccddddeeeeeeeeeeee";
 
@@ -154,9 +165,12 @@ namespace Parsek.Tests
                 CultureInfo.CurrentCulture = new CultureInfo("de-DE");
                 Assert.Equal(
                     "Claimed vessel hold ghost shown: pid=1871615455 name='Rover' chain=1871615455 " +
-                    "source=snapshot-surface body=Kerbin parts=16 firstClaimUT=45.50 UT=12.25",
+                    "source=snapshot-surface body=Kerbin parts=16 firstClaimUT=45.50 UT=12.25 from=despawn",
                     ClaimedVesselHoldGhost.BuildShownMessage(
                         RoverPid, "Rover", RoverPid, true, "Kerbin", 16, 45.5, 12.25));
+                Assert.EndsWith(" from=rewind-save",
+                    ClaimedVesselHoldGhost.BuildShownMessage(
+                        RoverPid, "Rover", RoverPid, false, "Kerbin", 16, 45.5, 12.25, fromRewindSave: true));
                 Assert.Equal(
                     "Claimed vessel hold ghost released: pid=1871615455 name='Rover' reason=claimed " +
                     "shownSinceUT=12.25 UT=45.50",
@@ -166,6 +180,68 @@ namespace Parsek.Tests
             {
                 CultureInfo.CurrentCulture = saved;
             }
+        }
+
+        private static ConfigNode FlightState(params (uint pid, string guid, int parts)[] vessels)
+        {
+            var fs = new ConfigNode("FLIGHTSTATE");
+            foreach (var v in vessels)
+            {
+                var node = fs.AddNode("VESSEL");
+                node.AddValue("persistentId", v.pid.ToString(CultureInfo.InvariantCulture));
+                if (v.guid != null) node.AddValue("pid", v.guid);
+                for (int i = 0; i < v.parts; i++) node.AddNode("PART");
+            }
+            return fs;
+        }
+
+        [Fact]
+        public void RewindSaveCopy_CapturesOnlyClaimedVesselsAndIsADetachedCopy()
+        {
+            ConfigNode fs = FlightState((RoverPid, RoverGuid, 16), (42u, null, 3));
+            int n = ClaimedVesselHoldGhost.CaptureRewindSaveVessels(fs, new HashSet<uint> { RoverPid, 7u });
+            Assert.Equal(1, n);
+            Assert.Equal(1, ClaimedVesselHoldGhost.RewindSaveVesselCount);
+
+            // A later edit of the save tree (the preprocess keeps working on it) leaves the copy alone.
+            fs.GetNodes("VESSEL")[0].AddNode("PART");
+            ConfigNode copy = ClaimedVesselHoldGhost.TryGetRewindSaveVessel(RoverPid, RoverGuid);
+            Assert.NotNull(copy);
+            Assert.Equal(16, copy.GetNodes("PART").Length);
+            Assert.Null(ClaimedVesselHoldGhost.TryGetRewindSaveVessel(42u, null));
+            Assert.Null(ClaimedVesselHoldGhost.TryGetRewindSaveVessel(0u, null));
+        }
+
+        [Fact]
+        public void RewindSaveCopy_RefusesAnotherLaunchOfTheSameCraft_AndFallsBackToPidWhenGuidUnknown()
+        {
+            ClaimedVesselHoldGhost.CaptureRewindSaveVessels(
+                FlightState((RoverPid, "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0", 16)), new HashSet<uint> { RoverPid });
+            Assert.Null(ClaimedVesselHoldGhost.TryGetRewindSaveVessel(RoverPid, RoverGuid));
+            Assert.NotNull(ClaimedVesselHoldGhost.TryGetRewindSaveVessel(RoverPid, null));
+            Assert.NotNull(ClaimedVesselHoldGhost.TryGetRewindSaveVessel(RoverPid, "0f1e2d3c4b5a69788796a5b4c3d2e1f0"));
+        }
+
+        [Fact]
+        public void RewindSaveCopy_EveryRewindReplacesTheLastCapture()
+        {
+            ClaimedVesselHoldGhost.CaptureRewindSaveVessels(FlightState((RoverPid, null, 16)), new HashSet<uint> { RoverPid });
+            ClaimedVesselHoldGhost.CaptureRewindSaveVessels(FlightState((RoverPid, null, 16)), null);
+            Assert.Equal(0, ClaimedVesselHoldGhost.RewindSaveVesselCount);
+            Assert.Null(ClaimedVesselHoldGhost.TryGetRewindSaveVessel(RoverPid, null));
+        }
+
+        [Fact]
+        public void CollectHeldBackVesselPids_KeysAndFoldedClaims()
+        {
+            var chain = new GhostChain { OriginalVesselPid = RoverPid, LaunchGuid = RoverGuid, GhostStartUT = 45.0 };
+            chain.ClaimedVessels.Add(new ChainClaimedVessel { Pid = 99u, FirstClaimUT = 50.0 });
+            chain.ClaimedVessels.Add(new ChainClaimedVessel { Pid = 0u, FirstClaimUT = 50.0 });
+            var chains = new Dictionary<uint, GhostChain> { { RoverPid, chain }, { 5u, null } };
+            HashSet<uint> pids = RecordingStore.CollectHeldBackVesselPids(chains);
+            Assert.Equal(new HashSet<uint> { RoverPid, 99u }, pids);
+            Assert.Empty(RecordingStore.CollectHeldBackVesselPids(null));
+            Assert.Null(RecordingStore.ResolveRewindClaimedVesselPids(double.NaN));
         }
     }
 }

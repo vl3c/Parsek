@@ -8,8 +8,9 @@ namespace Parsek
     {
         /// <summary>
         /// The ghost of one held-back vessel before its first claim (design 12.5): built from
-        /// the snapshot <c>VesselGhoster</c> took before the despawn, so it shows the vessel as
-        /// it was, and posed where that snapshot says. Resolved once when shown.
+        /// the last Rewind-to-Launch's own copy of the vessel when it has one (the landing world
+        /// holds the vessel in its post-claim form), else from the snapshot <c>VesselGhoster</c>
+        /// took before the despawn, and posed where that copy says. Resolved once when shown.
         /// </summary>
         private sealed class ClaimedVesselHoldGhostState
         {
@@ -17,6 +18,8 @@ namespace Parsek
             public uint chainPid;
             public string vesselName;
             public ConfigNode snapshot;
+            public ConfigNode visual;
+            public bool fromRewindSave;
             public GameObject ghost;
             public bool buildFailed;
             public CelestialBody body;
@@ -186,8 +189,11 @@ namespace Parsek
                 snapshot = info.snapshot,
                 shownSinceUT = currentUT,
             };
+            ConfigNode rewindCopy = ClaimedVesselHoldGhost.TryGetRewindSaveVessel(claim.Pid, claim.LaunchGuid);
+            s.fromRewindSave = rewindCopy != null;
+            s.visual = rewindCopy ?? info.snapshot;
 
-            if (!ClaimedVesselHoldGhost.TryReadPose(info.snapshot, out s.pose)
+            if (!ClaimedVesselHoldGhost.TryReadPose(s.visual, out s.pose)
                 || FlightGlobals.Bodies == null || s.pose.BodyIndex >= FlightGlobals.Bodies.Count)
             {
                 s.buildFailed = true;
@@ -205,7 +211,7 @@ namespace Parsek
             {
                 try
                 {
-                    s.orbit = new OrbitSnapshot(info.snapshot.GetNode("ORBIT")).Load();
+                    s.orbit = new OrbitSnapshot(s.visual.GetNode("ORBIT")).Load();
                 }
                 catch (Exception ex)
                 {
@@ -226,7 +232,7 @@ namespace Parsek
             {
                 VesselName = s.vesselName,
                 VesselPersistentId = s.pid,
-                GhostVisualSnapshot = info.snapshot,
+                GhostVisualSnapshot = s.visual,
             };
             GhostBuildResult build = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
                 carrier, "Parsek_ClaimedHold_" + s.pid.ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -240,11 +246,11 @@ namespace Parsek
                 return s;
             }
             s.ghost = build.root;
-            ConfigNode[] parts = info.snapshot.GetNodes("PART");
+            ConfigNode[] parts = s.visual.GetNodes("PART");
             ParsekLog.Info(ClaimedVesselHoldGhost.Tag,
                 ClaimedVesselHoldGhost.BuildShownMessage(
                     s.pid, s.vesselName, s.chainPid, s.pose.Landed, s.body.name,
-                    parts != null ? parts.Length : 0, claim.FirstClaimUT, currentUT));
+                    parts != null ? parts.Length : 0, claim.FirstClaimUT, currentUT, s.fromRewindSave));
             return s;
         }
 

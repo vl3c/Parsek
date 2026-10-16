@@ -35,6 +35,7 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             RewindContext.ResetForTesting();
             PlaybackScopeTracker.ResetForTesting();
+            ClaimedVesselHoldGhost.ResetRewindSaveVesselsForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -51,6 +52,7 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             RewindContext.ResetForTesting();
             PlaybackScopeTracker.ResetForTesting();
+            ClaimedVesselHoldGhost.ResetRewindSaveVesselsForTesting();
             if (Directory.Exists(tempDir))
             {
                 try { Directory.Delete(tempDir, true); }
@@ -127,6 +129,31 @@ namespace Parsek.Tests
         }
 
         // ---- The repro: the whole plain-rewind strip chain over the EVA-11 shape ----
+
+        [Fact]
+        public void Eva11Shape_RewindToLaunch_KeepsTheRewindSavesCopyOfTheClaimedRover()
+        {
+            // The landing scene reloads persistent.sfs, where the rover already lost the part the
+            // construction took; the hold ghost draws the rewind save's own 16-part copy instead.
+            BuildEva11Shape();
+            string sfs = WriteRewindQuicksave();
+            double seenUT = double.NaN;
+
+            RecordingStore.PreProcessRewindSave(
+                sfs, RecordingStore.RewindOwnerStrip.FromNames(new HashSet<string> { "Bill Kerman" }),
+                RecordingStore.ResolveRewindStripSpawnedPids,
+                RecordingStore.RewindToLaunchLeadTimeSeconds,
+                ut => { seenUT = ut; return new HashSet<uint> { RoverPid }; });
+
+            Assert.Equal(AdjustedUT, seenUT, 6);
+            Assert.Equal(1, ClaimedVesselHoldGhost.RewindSaveVesselCount);
+            ConfigNode copy = ClaimedVesselHoldGhost.TryGetRewindSaveVessel(RoverPid, null);
+            Assert.NotNull(copy);
+            Assert.Equal("rover fuel 0", copy.GetValue("name"));
+            Assert.Null(ClaimedVesselHoldGhost.TryGetRewindSaveVessel(BillPid, null));
+            Assert.Contains(logLines, l => l.Contains("[Rewind]")
+                && l.Contains("Captured 1 rewind-save copy(ies) of 1 vessel(s) a committed future claims"));
+        }
 
         [Fact]
         public void Eva11Shape_RewindToLaunch_KeepsAdoptedRoverAndResetsItsSpawn()

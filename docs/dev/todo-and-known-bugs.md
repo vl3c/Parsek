@@ -16,18 +16,45 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~CLAIMED-VESSEL-VANISHES-BEFORE-ITS-CLAIM: after a rewind, a vessel a committed future claims disappears until the claiming recording starts~~ [FILED 2026-10-16 from the coverage audit (`roadmap/coverage-matrix-2026-10-16.md` section 5), confirmed in EVA-11's `2026-10-15_2343` log (the rover is despawned at the rewind load and nothing draws it for about 15 s of game time, until its member recording's ghost spawns). FIXED 2026-10-16, branch `claude/project-thread-wr5u4k`; xUnit, flight pending. product]
+## REWIND-TO-LAUNCH-LANDS-IN-THE-LATEST-PERSISTENT-WORLD: a Rewind-to-Launch keeps every surviving vessel in its latest form [FILED 2026-10-16 from EVA-11 `2026-10-16_2256` (the rewind save `parsek_rw_add97f` holds the rover with 16 parts, the rewound game `eva11-rewound` with 15), confirmed by code read. OPEN. product]
+
+`RecordingStore`'s rewind load parses the preprocessed rewind save into `HighLogic.CurrentGame`
+and calls `HighLogic.LoadScene(SPACECENTER)`, but `SpaceCenterMain.Start` reloads persistent.sfs
+(the decompile fact behind DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT), and the
+scene exit's `SafeWritePersistent` wrote that file from the live flight just before. OnLoad then
+puts back only the clock (`ApplyRewindResourceAdjustment`) and removes the future vessels (the
+launch-identity strip and the quicksave pid whitelist), so a vessel present in both keeps its
+latest live form: parts, position, resources, crew. Seen on a vessel a committed future claims,
+which Parsek despawns at once; its stand-in ghost now reads the rewind save's own copy (see
+CLAIMED-VESSEL-VANISHES-BEFORE-ITS-CLAIM), so that case looks right. Not yet traced: whether an
+UNCLAIMED vessel can differ (a change with no committed recording, e.g. a discarded flight), and
+what the stock scenario nodes (contracts, facilities, progress) read on this load. Candidate fix:
+write the rewind game to persistent.sfs before the scene load with the live PARSEK node spliced
+in, as `RevertInterceptor.DiscardReFlyHandler` does; a wide change that every rewind lane would
+need to re-prove.
+
+## ~~CLAIMED-VESSEL-VANISHES-BEFORE-ITS-CLAIM: after a rewind, a vessel a committed future claims disappears until the claiming recording starts~~ [FILED 2026-10-16 from the coverage audit (`roadmap/coverage-matrix-2026-10-16.md` section 5), confirmed in EVA-11's `2026-10-15_2343` log (the rover is despawned at the rewind load and nothing draws it for about 15 s of game time, until its member recording's ghost spawns). FIXED 2026-10-16, branch `claude/project-thread-wr5u4k`; xUnit; EVA-11 `2026-10-16_2256` showed it drawn and released at the claim, in the post-claim shape (the follow-up below), re-flight pending. product]
 
 `VesselGhoster.GhostVessel` despawns every vessel an active chain holds back but never built the
 ghost design 13.10 step 5 describes (`ghostGO = null`, "deferred to 6b-4"), so a claimed vessel
 was invisible from the rewind to its first claim. Fix: `ParsekFlight.UpdateClaimedVesselHoldGhosts`
-builds a ghost from the despawn snapshot for each held claim while `UT < FirstClaimUT`, posed
+builds a ghost for each held claim while `UT < FirstClaimUT`, posed
 body-fixed (landed / splashed / prelaunch) or on the snapshot orbit, hidden beyond the ghost visual
 range, yielding to any ERS recording of the same launch inside its window, released at the claim,
 on chain loss and on teardown. Pure decisions and pose read in `ClaimedVesselHoldGhost`
 (`ClaimedVesselHoldGhostTests`). Log lines `[ClaimedHoldGhost] Claimed vessel hold ghost shown:` /
 `released:`. `info.ghostGO` stays null on purpose: the dead `PositionChainGhosts` path would place
 it from the claim recording, which the playback engine already draws.
+
+Follow-up (EVA-11 `2026-10-16_2256`): the ghost showed the rover with 15 parts, its form AFTER the
+construction, where the rewind save holds 16. A Rewind-to-Launch lands in a world rebuilt from
+persistent.sfs (see REWIND-TO-LAUNCH-LANDS-IN-THE-LATEST-PERSISTENT-WORLD), so the despawn snapshot
+is post-claim. The ghost now draws the rewind save's own copy of the vessel:
+`PreProcessRewindSave` copies the VESSEL node of every vessel a chain over the committed trees
+holds back at the adjusted UT (`ResolveRewindClaimedVesselPids`,
+`ClaimedVesselHoldGhost.CaptureRewindSaveVessels`, replaced by each Rewind-to-Launch), and the
+capture prefers it by pid when the launch guids do not conclusively differ, else falls back to the
+despawn snapshot. The shown line ends `from=rewind-save|despawn`.
 
 ## ~~CONSTRUCTION-GHOST-NEVER-CHANGES-SHAPE: a cargo partner's ghost keeps one shape through every EVA construction change~~ [FILED 2026-10-16 from the coverage audit (`roadmap/coverage-matrix-2026-10-16.md` section 5), confirmed in EVA-11's `2026-10-15_2343` log (the member ghost is built from the 17-part adoption snapshot, no part events are written for the two detaches, and only the tip spawn shows 15 parts). FIXED 2026-10-16, branch `claude/project-thread-wr5u4k`; xUnit, flight pending. product]
 
@@ -49,7 +76,7 @@ rescue mission in another tree that docked to the station, took the kerbal and w
 the first hold at +inf (reservations merge by max end), and the kerbal could never fly again.
 
 Fix: `KerbalsModule` collects every committed tree's Dock / Board branch point with a target
-vessel pid (`CollectDockClaims`). An open-ended Aboard / Unknown hold on recording R ends at the
+vessel pid (`CollectDockClaims`; in practice only a Dock carries one, a Board's target pid is 0). An open-ended Aboard / Unknown hold on recording R ends at the
 earliest such dock whose target is R's vessel (pid match, launch guids not conclusively
 different, hold end at or before the dock UT) AND whose merged child carries the kerbal
 (`ResolveDockClaimHandoffUT`, pure `DockClaimHandsOffHold`). The rescue tree's own rows then
