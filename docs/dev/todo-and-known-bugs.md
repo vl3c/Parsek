@@ -16,6 +16,38 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~STRATEGY-CONVERSION-ROWS-OUTLIVE-THEIR-AWARD: the share of a flight's reward a strategy converts is written untagged, so an F9, a Re-Fly merge or a revert takes the reward back and keeps the converted share~~ [FILED 2026-10-16 from the pre-release coverage audit (`roadmap/coverage-matrix-2026-10-16.md`, code read), confirmed by red-first xUnit. FIXED 2026-10-16, branch `claude/project-thread-kk4qzv`; xUnit only, live lane pending. product]
+
+The query-family strategy door (`LedgerOrchestrator.OnStrategyCurrencyConversion`: Leadership
+Initiative, Appreciation Campaign, Patents Licensing and the other `CurrencyConverter` /
+`CurrencyOperation` strategies) writes its rows straight into the ledger, and wrote them all
+with `RecordingId = null`, while the award they divert from is an event tagged to the flight and
+booked at commit. Every timeline operation that takes the award back keys on that tag: the F9
+reconcile retires only tagged rows after the cutoff (`ParsekScenario.ClassifyAbandonedFutureRow`),
+a Re-Fly merge tombstones only tagged rows (`TombstoneEligibility`), and the revert prune drops
+untagged rows (so the revert alone handled it). After an F9 or a Re-Fly merge the converted share
+stayed and applied when the clock reached it, with no award behind it. Red on main:
+`StrategyConversionTimelineTests.F9_BeforeTheAward_RetiresTheConvertedShareWithTheAward` (2 rows
+kept) and `ReFlyMerge_TombstonesTheConvertedShareOfTheSupersededFlight` (no tombstone).
+
+Fix: the door tags its rows the way `GameStateRecorder.Emit` tags the award's event
+(`GameStateRecorder.ResolveStrategyConversionRecordingTag`: the live recording tag, else the
+recovery-scope owner of a progress reward, else none at the Space Center). Three paths that used
+to rely on the null tag now handle the tagged rows: the stock revert removes the reverted
+flight's conversion rows (`LedgerOrchestrator.PruneRevertedFlightStrategyConversionRows`, rows
+tagged to a never-committed recording after the launch cutoff), a non-rewind discard re-homes
+them untagged with the awards it keeps (`ClearStrategyConversionTagsForDiscard`, called from
+`PreserveIrreversibleLiveGameplayOnDiscard`), and the dedup key of a `FundsEarning` /
+`FundsEarningSource.Strategy` row now carries source and amount, so a tagged yield cannot swallow
+the same recording's recovery payout at the same UT at commit. The optimizer split already moves
+tagged rows by UT (`Ledger.RetagActionsForSplitSecondHalf`).
+
+Residuals, not fixed here: (1) a Discard Re-fly purges the attempt's award events but keeps its
+ledger rows untagged (`MergeDialog.DiscardReFlyAttemptRecordingsAndRewindPoints` ->
+`Ledger.ClearRecordingTagForRecordings`), so the attempt's converted share still survives that
+discard; it did before this fix too. (2) Rows written before this fix stay untagged; nothing on
+disk links them to their award.
+
 ## ~~QL1-KSC-CLOCK-CROSSING: after a quicksave is loaded at the Space Center behind KSC purchases, the purchases are refunded, and the hire and the contract can be bought twice~~ [FILED 2026-10-16 from QL-1's first flight (`2026-10-16_1122` / `_1124_a2`, INVALID driver-verdict-mismatch both attempts), branch `claude/project-thread-k6flcd` (PR #2121). FIXED 2026-10-16 on the same branch; LIVE-PROVEN by QL-1 `2026-10-16_1424` (PASS attempt 1). product]
 
 QL-1 researches basicRocketry, upgrades the Tracking Station, hires Verhat Kerman and accepts the

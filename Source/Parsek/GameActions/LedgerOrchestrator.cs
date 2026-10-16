@@ -1427,6 +1427,15 @@ namespace Parsek
                         when a.RepPenaltySource == ReputationPenaltySource.ContractDecline:
                     return (a.RecordingId ?? "") + ":ContractDecline:" +
                            a.NominalPenalty.ToString("R", CultureInfo.InvariantCulture);
+                // The strategy funds OUTPUT leg (query-family yield, Bail-Out Grant). Since
+                // a conversion in flight is tagged to the flight, the bare RecordingId key
+                // would collide with that recording's own funds earning at the same UT (a
+                // recovery payout under Patents Licensing) and the commit's dedup would drop
+                // the payout. Source plus magnitude keeps the two apart.
+                case GameActionType.FundsEarning
+                        when a.FundsSource == FundsEarningSource.Strategy:
+                    return (a.RecordingId ?? "") + ":Strategy:" +
+                           a.FundsAwarded.ToString("R", CultureInfo.InvariantCulture);
                 case GameActionType.FundsEarning: return a.RecordingId ?? "";
                 // FundsSpending: RecordingId alone collides when multiple KSC part
                 // purchases share a null/empty RecordingId. DedupKey is the part name
@@ -5106,18 +5115,23 @@ namespace Parsek
         /// <c>CurrencyModifierQuery</c> that a <c>CurrencyConverter</c> /
         /// <c>CurrencyOperation</c> effect mutated in place.
         ///
-        /// <para>Writes DIRECT, UNTAGGED rows (<c>RecordingId = null</c>) even when a
-        /// flight recorder is live - the one structural difference from
-        /// <see cref="OnKscSpending"/>'s
-        /// <c>ShouldForwardDirectLedgerEvent</c>-gated siblings. Two reasons, both
-        /// forced by the mechanism: (1) this family leaves NO reason-keyed
-        /// GameStateEvent behind, so there is no stored event for the commit-time
-        /// <c>ConvertEvents</c> path to convert later - deferring would simply lose it;
-        /// (2) the movement is irreversible global economy, not recording-owned
-        /// economy, so a recording DISCARD must not take it back (the exchanger family
-        /// needs <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/> to re-home its
-        /// tagged debit for exactly this reason; an untagged row is already where that
-        /// re-home would put it).</para>
+        /// <para>Writes DIRECT rows at once, even when a flight recorder is live - the one
+        /// structural difference from <see cref="OnKscSpending"/>'s
+        /// <c>ShouldForwardDirectLedgerEvent</c>-gated siblings: this family leaves NO
+        /// reason-keyed GameStateEvent behind, so there is no stored event for the
+        /// commit-time <c>ConvertEvents</c> path to convert later - deferring would
+        /// simply lose it.</para>
+        ///
+        /// <para>The rows carry the recording tag the recorder gives the transaction they
+        /// divert from (<see cref="GameStateRecorder.ResolveStrategyConversionRecordingTag"/>:
+        /// the live recording, else the recovery-scope owner of a progress reward, else
+        /// none at the Space Center). A converted share has no meaning apart from its
+        /// award, so it follows the award through every timeline operation: an F9 retires
+        /// the tagged rows after the quicksave with the award's event, a Re-Fly merge
+        /// tombstones them with the award's row, a revert prunes them with the reverted
+        /// flight, and a non-rewind discard re-homes them untagged exactly as it re-homes
+        /// the award (<see cref="PreserveIrreversibleLiveGameplayOnDiscard"/>)
+        /// (STRATEGY-CONVERSION-ROWS-OUTLIVE-THEIR-AWARD).</para>
         ///
         /// <para>REPUTATION CREDIT legs land as a NOMINAL
         /// <c>ReputationEarning</c> row (<c>ReputationSource.Strategy</c>). The query
@@ -5175,11 +5189,17 @@ namespace Parsek
 
             Initialize();
 
+            // The rows belong to whatever owns the transaction they divert from: the same
+            // tag the recorder gives that transaction's own award event (STRATEGY-CONVERSION-
+            // ROWS-OUTLIVE-THEIR-AWARD). Untagged, they outlived an award an F9, a Re-Fly
+            // merge or a revert took back.
+            string recordingId = GameStateRecorder.ResolveStrategyConversionRecordingTag(reason, ut);
+
             int written = 0, skipped = 0;
             for (int i = 0; i < legs.Count; i++)
             {
                 var leg = legs[i];
-                GameAction action = BuildStrategyConversionAction(ut, leg, reason);
+                GameAction action = BuildStrategyConversionAction(ut, leg, reason, recordingId);
                 if (action == null)
                 {
                     skipped++;
@@ -5206,7 +5226,8 @@ namespace Parsek
                 $"OnStrategyCurrencyConversion: legs={legs.Count.ToString(CultureInfo.InvariantCulture)}, " +
                 $"written={written.ToString(CultureInfo.InvariantCulture)}, " +
                 $"skipped={skipped.ToString(CultureInfo.InvariantCulture)}, " +
-                $"reason={reason ?? "(none)"}");
+                $"reason={reason ?? "(none)"}, " +
+                $"recordingId={(string.IsNullOrEmpty(recordingId) ? "(none)" : recordingId)}");
 
             // THE ROWS ARE ALREADY IN THE LEDGER at this point, and that ordering is the
             // whole safety story: only the recalc moves. This handler runs from INSIDE the
@@ -5246,8 +5267,10 @@ namespace Parsek
         internal static GameAction BuildStrategyConversionAction(
             double ut,
             StrategyConversionLeg leg,
-            string reason)
+            string reason,
+            string recordingId = null)
         {
+            string tag = string.IsNullOrEmpty(recordingId) ? null : recordingId;
             switch (leg.Currency)
             {
                 case StrategyConversionCurrency.Science:
@@ -5257,7 +5280,7 @@ namespace Parsek
                         {
                             UT = ut,
                             Type = GameActionType.StrategyScienceDebit,
-                            RecordingId = null,
+                            RecordingId = tag,
                             Cost = (float)(-leg.Delta),
                             ConversionSource = StrategyConversionSource.Converter
                         };
@@ -5266,7 +5289,7 @@ namespace Parsek
                     {
                         UT = ut,
                         Type = GameActionType.StrategyScienceCredit,
-                        RecordingId = null,
+                        RecordingId = tag,
                         ScienceAwarded = (float)leg.Delta
                     };
 
@@ -5300,8 +5323,8 @@ namespace Parsek
                         // dependence at all.
                         //
                         // FundsSpent carries the POSITIVE magnitude - the sign is in the
-                        // action type - and the row is UNTAGGED like its siblings on this
-                        // path: irreversible global economy, not recording-owned economy.
+                        // action type - and the row carries the award's tag like its
+                        // siblings on this path.
                         ParsekLog.Info(Tag,
                             $"Strategy conversion: funds DEBIT captured nominal=" +
                             $"{leg.Delta.ToString("R", CultureInfo.InvariantCulture)} at " +
@@ -5313,7 +5336,7 @@ namespace Parsek
                         {
                             UT = ut,
                             Type = GameActionType.FundsSpending,
-                            RecordingId = null,
+                            RecordingId = tag,
                             FundsSpent = (float)(-leg.Delta),
                             FundsSpendingSource = FundsSpendingSource.StrategyConverter
                         };
@@ -5345,7 +5368,7 @@ namespace Parsek
                     {
                         UT = ut,
                         Type = GameActionType.FundsEarning,
-                        RecordingId = null,
+                        RecordingId = tag,
                         FundsAwarded = (float)leg.Delta,
                         FundsSource = FundsEarningSource.Strategy
                     };
@@ -5381,8 +5404,8 @@ namespace Parsek
                     // re-check before adding any reputation channel is that no channel
                     // starts recording a POST-modifier amount.
                     //
-                    // UNTAGGED, like its science / funds siblings on this path:
-                    // irreversible global economy, not recording-owned economy.
+                    // Tagged like its science / funds siblings on this path: it follows
+                    // the award it was converted from.
                     if (leg.Delta > 0.0)
                     {
                         ParsekLog.Info(Tag,
@@ -5395,7 +5418,7 @@ namespace Parsek
                         {
                             UT = ut,
                             Type = GameActionType.ReputationEarning,
-                            RecordingId = null,
+                            RecordingId = tag,
                             NominalRep = (float)leg.Delta,
                             RepSource = ReputationSource.Strategy
                         };
@@ -5417,7 +5440,7 @@ namespace Parsek
                     // word and nothing else.
                     //
                     // NominalPenalty carries the POSITIVE magnitude - the sign is in the
-                    // action type - and the row is UNTAGGED like its siblings on this path.
+                    // action type - and the row is tagged like its siblings on this path.
                     //
                     // MEASURED live, model-free, on run
                     // 2026-08-20_2052_L3-strategy-currency-conversion: Fundraising Campaign
@@ -5436,10 +5459,39 @@ namespace Parsek
                     {
                         UT = ut,
                         Type = GameActionType.ReputationPenalty,
-                        RecordingId = null,
+                        RecordingId = tag,
                         NominalPenalty = (float)(-leg.Delta),
                         RepPenaltySource = ReputationPenaltySource.StrategyConverter
                     };
+            }
+        }
+
+        /// <summary>
+        /// Pure: true for every row shape <see cref="BuildStrategyConversionAction"/>
+        /// writes. <c>FundsEarning</c> / <c>FundsEarningSource.Strategy</c> is shared on
+        /// purpose with the exchanger family's funds output (Bail-Out Grant), so that row
+        /// matches too; nothing on disk tells the two apart.
+        /// </summary>
+        internal static bool IsStrategyConversionRow(GameAction action)
+        {
+            if (action == null)
+                return false;
+            switch (action.Type)
+            {
+                case GameActionType.StrategyScienceDebit:
+                    return action.ConversionSource == StrategyConversionSource.Converter;
+                case GameActionType.StrategyScienceCredit:
+                    return true;
+                case GameActionType.FundsSpending:
+                    return action.FundsSpendingSource == FundsSpendingSource.StrategyConverter;
+                case GameActionType.FundsEarning:
+                    return action.FundsSource == FundsEarningSource.Strategy;
+                case GameActionType.ReputationEarning:
+                    return action.RepSource == ReputationSource.Strategy;
+                case GameActionType.ReputationPenalty:
+                    return action.RepPenaltySource == ReputationPenaltySource.StrategyConverter;
+                default:
+                    return false;
             }
         }
 
@@ -5612,11 +5664,18 @@ namespace Parsek
                 rehomed.AddRange(scienceActions);
             }
 
+            // 2b. Strategy conversion rows the discarded flights wrote live, tagged to them.
+            //     They are already ledger rows, and KSP applied them as irreversibly as the
+            //     awards they were converted from, so they stay; only the tag naming a
+            //     recording this discard deletes goes, the same shape as the re-homed awards.
+            int conversionRowsUntagged = ClearStrategyConversionTagsForDiscard(idSet, reason);
+
             if (rehomed.Count == 0)
             {
                 ParsekLog.Verbose(Tag,
                     $"PreserveIrreversibleLiveGameplayOnDiscard ({reason}): nothing to re-home " +
-                    $"for {idSet.Count.ToString(CultureInfo.InvariantCulture)} discarded id(s)");
+                    $"for {idSet.Count.ToString(CultureInfo.InvariantCulture)} discarded id(s) " +
+                    $"(strategyConversionRowsUntagged={conversionRowsUntagged.ToString(CultureInfo.InvariantCulture)})");
                 return;
             }
 
@@ -5659,8 +5718,98 @@ namespace Parsek
                 $"building={buildingEvents.ToString(CultureInfo.InvariantCulture)}, " +
                 $"science={scienceSubjectCount.ToString(CultureInfo.InvariantCulture)}, " +
                 $"deduped={deduped.ToString(CultureInfo.InvariantCulture)}, " +
-                $"subjectsRemoved={subjectsRemoved.ToString(CultureInfo.InvariantCulture)}) " +
+                $"subjectsRemoved={subjectsRemoved.ToString(CultureInfo.InvariantCulture)}, " +
+                $"strategyConversionRowsUntagged={conversionRowsUntagged.ToString(CultureInfo.InvariantCulture)}) " +
                 $"for {idSet.Count.ToString(CultureInfo.InvariantCulture)} discarded id(s)");
+        }
+
+        /// <summary>
+        /// Clears the recording tag on every strategy conversion row
+        /// (<see cref="IsStrategyConversionRow"/>) tagged to a discarded, never-committed
+        /// recording, keeping the row. Committed ids are skipped for the same reason
+        /// <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/> skips their events: their
+        /// rows are committed history. Returns the number untagged.
+        /// </summary>
+        internal static int ClearStrategyConversionTagsForDiscard(
+            ICollection<string> discardedRecordingIds, string reason)
+        {
+            if (discardedRecordingIds == null || discardedRecordingIds.Count == 0)
+                return 0;
+
+            int cleared = 0;
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (a == null || string.IsNullOrEmpty(a.RecordingId))
+                    continue;
+                if (!discardedRecordingIds.Contains(a.RecordingId))
+                    continue;
+                if (!IsStrategyConversionRow(a))
+                    continue;
+                if (RecordingStore.IsCommittedRecordingId(a.RecordingId))
+                    continue;
+                a.RecordingId = null;
+                cleared++;
+            }
+
+            if (cleared > 0)
+            {
+                Ledger.BumpStateVersion();
+                ParsekLog.Info(Tag,
+                    $"ClearStrategyConversionTagsForDiscard ({reason}): untagged " +
+                    $"{cleared.ToString(CultureInfo.InvariantCulture)} strategy conversion row(s) " +
+                    "of discarded recordings - rows kept, like the awards they were converted from");
+            }
+            return cleared;
+        }
+
+        /// <summary>
+        /// Pure: whether a stock revert drops <paramref name="action"/> as part of the
+        /// reverted flight. Untagged rows are <see cref="Ledger.PruneOrphanActionsAfterUT"/>'s;
+        /// this covers the strategy conversion rows the flight wrote live tagged to its own
+        /// never-committed recordings, which the revert discards with their awards.
+        /// Same UT boundary as the orphan prune.
+        /// </summary>
+        internal static bool IsRevertedFlightStrategyConversionRow(
+            GameAction action, double cutoffUT, bool inclusive, Func<string, bool> isCommittedRecordingId)
+        {
+            if (action == null || string.IsNullOrEmpty(action.RecordingId))
+                return false;
+            if (!IsStrategyConversionRow(action))
+                return false;
+            if (isCommittedRecordingId != null && isCommittedRecordingId(action.RecordingId))
+                return false;
+            return inclusive ? action.UT >= cutoffUT : action.UT > cutoffUT;
+        }
+
+        /// <summary>
+        /// Revert-path companion of <see cref="Ledger.PruneOrphanActionsAfterUT"/>: removes the
+        /// strategy conversion rows of the reverted flight
+        /// (<see cref="IsRevertedFlightStrategyConversionRow"/>). Returns the number removed.
+        /// </summary>
+        internal static int PruneRevertedFlightStrategyConversionRows(double cutoffUT, bool inclusive)
+        {
+            int removed = 0;
+            var actions = Ledger.Actions;
+            for (int i = actions.Count - 1; i >= 0; i--)
+            {
+                if (!IsRevertedFlightStrategyConversionRow(
+                        actions[i], cutoffUT, inclusive, RecordingStore.IsCommittedRecordingId))
+                {
+                    continue;
+                }
+                Ledger.RemoveActionAt(i);
+                removed++;
+            }
+            if (removed > 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"Revert: pruned {removed.ToString(CultureInfo.InvariantCulture)} strategy conversion " +
+                    $"row(s) of the reverted flight {(inclusive ? "at/after" : "after")} UT " +
+                    $"{cutoffUT.ToString("R", CultureInfo.InvariantCulture)}");
+            }
+            return removed;
         }
 
         /// <summary>
