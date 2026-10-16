@@ -6351,7 +6351,7 @@ named in a row owns the detail.
 | IR-7 | Route x Rewind-to-Launch of the route's own backing tree | C4 | dormant twin dropped; route resumes on re-commit | C4 |
 | IR-8 | Surface route x ghost-chain rewind with a neighbour craft inside 500 m | a surface base fixture (to harvest) | endpoint not rebound; delivery resumes at the respawned base | A2 |
 | IR-9 | Docked visitor during a delivery | depot or station fixture + docked tanker | visitor tanks unchanged | A5 |
-| IR-10 | Multi-stop route, scene switch between windows, competing route on the same depot | `rover-relay-c-recorded` | no short pickup after a paid dispatch | A3 |
+| IR-10 | Multi-stop route, scene switch between windows, competing route on the same depot | DONE 2026-10-16 as H60's `scene-switch-rebuilds-hold` cell on `logi-cargo-pad` (`rover-relay-c-recorded` cannot open the gap: its pickup is the first window) | no short pickup after a paid dispatch | A3 |
 | IR-11 | Route costs against committed career actions (facility upgrade, contract, strategy) | `rover-route-career` + KSC actions | stock-screen block still explains the reservation; route holds rather than overdrawing | C1 |
 
 ### Phase C - three-feature and campaign lanes
