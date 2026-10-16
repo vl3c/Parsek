@@ -235,5 +235,35 @@ namespace Parsek
             RewindContext.SetHistoricalSpawnKeepRecordingIds(scope.KeptHolderRecordingIds);
             return scope.StripPids;
         }
+
+        /// <summary>
+        /// The plain rewind's claimed-vessel resolver: every vessel a ghost chain over the
+        /// committed trees holds back at the save's adjusted UT (chain keys and folded claims),
+        /// whose rewind-save copy the hold ghost draws until the claim. Null when the UT is
+        /// unknown.
+        /// </summary>
+        internal static HashSet<uint> ResolveRewindClaimedVesselPids(double adjustedUT)
+        {
+            if (double.IsNaN(adjustedUT) || CommittedTrees == null || CommittedTrees.Count == 0)
+                return null;
+            return CollectHeldBackVesselPids(GhostChainWalker.ComputeAllGhostChains(CommittedTrees, adjustedUT));
+        }
+
+        /// <summary>Pure: the pid of every vessel the chains hold back.</summary>
+        internal static HashSet<uint> CollectHeldBackVesselPids(Dictionary<uint, GhostChain> chains)
+        {
+            var pids = new HashSet<uint>();
+            if (chains == null)
+                return pids;
+            foreach (var kv in chains)
+            {
+                if (kv.Value == null) continue;
+                List<ChainClaimedVessel> held = kv.Value.HeldBackVessels();
+                for (int i = 0; i < held.Count; i++)
+                    if (held[i].Pid != 0)
+                        pids.Add(held[i].Pid);
+            }
+            return pids;
+        }
     }
 }
