@@ -735,6 +735,21 @@ the base's; the donor's `Ships/` is not copied. Built and drift-gated by the bui
 build, the vessel against the donor's, the empty progress tree). Host of
 `QL-2b-quickload-booster-career-reward-not-paid`.
 
+## career-gs1-leadership-pad (GAME Mode = CAREER, 1 VESSEL, derived from career-gs1-two-stage-pad)
+
+`career-gs1-two-stage-pad` with stock's Leadership Initiative already active, and nothing else
+different: `harness/tools/build_career_gs1_leadership_pad.py` adds one
+`STRATEGY { name = LeadershipInitiative  date = 0  factor = 0.0500000007 }` to the empty
+`StrategySystem` `STRATEGIES` node and restamps the Title; the loadmeta and `AddOns/` are copied
+byte for byte. Leadership Initiative multiplies Progression (milestone) rewards, so the hosted
+lane's SurfaceEVA milestone carries a strategy share. A save node, not an activation: activating
+it in game costs a 14.5 reputation setup fee and this career's pool is 0, while decompiled
+`Strategy.Load` marks any loaded `STRATEGY` node active and registers its effects (the node is
+the shape `StrategySystem.OnSave` writes). Parsek's ledger holds no activation row for it, which
+`StrategyStatePatcher` reads as Unmanaged and leaves alone. Drift-gated by the builder (`--check`)
+and `harness/lib/test_career_gs1_leadership_pad.py`. Host of
+`QL-2c-quickload-strategy-share-not-kept`.
+
 ## fresh-science (GAME Mode = SCIENCE_SANDBOX)
 
 Science pool only: `ResearchAndDevelopment sci = 100`, no Funding / Reputation /
