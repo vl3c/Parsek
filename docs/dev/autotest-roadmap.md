@@ -6457,6 +6457,36 @@ baselined then gated; TC-6 fixtures; QL-1..QL-4c and GP-1..GP-5 (back-in-time lo
 the largest blind spot), then MINE-0..MINE-3, the RC lanes, the rest; TC-4 so those lanes gate
 on pools; FZ-1 nightly; the campaign lanes.
 
+## The cross-system gap program (2026-10-16)
+
+Registered 2026-10-16 from a read-only coverage audit of `main` at 412d48e. Research and the full
+system x timeline-operation matrix: `docs/dev/research/coverage-matrix-2026-10-16.md`. Todo:
+CROSS-SYSTEM-COVERAGE-GAPS-2026-10-16. The two programs above register most of the machinery; this
+one adds what the audit found they do not cover (strategies across timeline operations, the lab,
+EVA construction ghosts, crew and fuel moved while docked, multi-vessel EVA hops) and ranks the
+whole set by the risk it closes. The common thread: lanes assert Parsek's own log lines, and no
+lane independently reads a tank, a crew roster or a ghost's shape. Rows reuse an existing id where
+one exists; XS ids are new. Every row is NOT STARTED unless its status says otherwise.
+
+| Rank | Id | Work | Closes | Needs |
+|---|---|---|---|---|
+| 1 | XS-1 | Red xUnit test: a contract completed in flight under Appreciation Campaign / Leadership Initiative / Patents Licensing, then F9, then a Re-Fly merge; the untagged conversion leg must go with its retired award. Fix if red, then an F9 lane on the QL-1 host with a strategy active (the ledger oracle is allowed next to `LoadGame`) | Strategy conversion rows surviving F9 and Re-Fly (code read: `LedgerOrchestrator.cs:5260-5439` writes them untagged; `ParsekScenario.Trim.cs:1210-1235` and `TombstoneEligibility.cs:56-117` retire only tagged rows) | - |
+| 2 | TC-1 / TC-2, then RC-1 | `ReadVesselResources` verb and the resource-conservation oracle; then RC-1 (fuel moved while docked, undock, rewind, both spawned tanks read) and conservation gates on the RVR / IR lanes | No lane reads a tank; origin-out == destination-in is checked nowhere | - |
+| 3 | XS-2 | Re-fly the stale lanes, no build: H38, H39, H40, HV-1 (no green since the 10-07 part-scope and 10-15 escrow changes), H58 (re-pinned by prediction), EVA-5 | Logistics in-game cells and the one real route rewind lane | - |
+| 4 | TC-4, then GP-1 | Rewind-aware ledger oracle; then a career with a strategy, a contract and a recovery rewound and re-flown several times, LedgerGroundTruth after each operation | Career x repeated rewinds (flown only on sandbox hosts); the ground truth never runs after a rewind, Re-Fly or F9 | TC-4 |
+| 5 | XS-3 | EVA-11 variant that rewinds and watches the construction ghost through the attach and detaches, then the fix | Ghost never reads `SegmentEventType.PartAdded / PartRemoved` (shape fixed from the first transfer); a claimed foreign vessel has no ghost before its member starts (`VesselGhoster.cs:155-168`) | - |
+| 6 | XS-4, then MINE-1 / MINE-3 / XS-5 | Decompile `ModuleScienceConverter`'s transmit path (does lab science carry a subject the ledger sees); the miner fixture with a lab; MINE-3 including an UNLOADED vessel; XS-5 a lab rewind / spawn lane (GC-8) | Lab science possibly never ledgered; TA-6 holds only inside the physics bubble (`TimeJumpManager.cs:541`, `:822-866`) | TC-5 |
+| 7 | XS-6 | A host where `ContractTombstonesAcrossSupersede` executes (it skips on every host today) | Contracts x Re-Fly | TC-6 |
+| 8 | C2, then IR-1 / IR-2 | Route read-back verb; F9 and stock revert across a dispatch | The 2026-10-07 A1 fix, never flown | TC-1 `Revert` for IR-2 |
+| 9 | XS-7 | One kerbal hops across 2-3 vessels (`EvaBoard targetPid`, unused by any spec), then a rewind; plus a crew-transfer seam verb so a crew transfer while docked, then undock, can be flown | Boarding a different vessel is xUnit only; crew moved while docked is not recorded by design and never flown; cross-tree hold (`KerbalsModule.cs:1318-1335`) | - |
+| 10 | GC-1..GC-4 | Headless traces with red tests | Save switching, recovering a vessel a future docks to, old recordings dropped silently, a contract completed by a spawned vessel | - |
+
+Also unexercised by any lane (matrix section 6): dock / undock x Rewind-to-Launch; Re-Fly while a
+looped ghost plays; F9 with a merge dialog pending; rewind with a spawn deferred or an EVA kerbal
+out; stock revert with ghosts, crew, spawn or warp; CommNet ghosts and ghost FX across a Re-Fly;
+the Missions window across an F9. Four in-game categories run on no lane (ChainTipBlockedGhost,
+DeployedScienceGhost, GhostReapplyFrame, GuiMock).
+
 ## The scripted campaign program: Science, then Career, from a new save to the Mun (2026-10-06)
 
 Registered 2026-10-06 at the owner's request: a long scripted gameplay run that starts a
