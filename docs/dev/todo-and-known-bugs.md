@@ -3411,7 +3411,7 @@ The live proof, lane RC-5, is not flown.
 
 ---
 
-## ~~EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED: moving a stored part between a tree vessel and a foreign vessel is not recorded, so a rewind duplicates or deletes it~~ [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `wip-eva-inventory-claim`; live proof RC-6 not flown]
+## ~~EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED: moving a stored part between a tree vessel and a foreign vessel is not recorded, so a rewind duplicates or deletes it~~ [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `wip-eva-inventory-claim`; LIVE-PROVEN by RC-6 `2026-10-16_0709`]
 
 No inventory or EVA-construction GameEvent is subscribed anywhere in `Source/Parsek`; claims come
 only from dock target pids and background part events, and no part-event type covers an
@@ -3436,7 +3436,7 @@ The structural walks that skip or collect a placement read both types through
 `ForeignInventoryTransferTests` (including the walker cell: the rover is claimed and its own
 recording is the tip) and `ReFlyThroughEvaTests.SessionSuppressedSubtree_IncludesAForeignVesselTheKerbalMovedCargoWith`.
 
-Live proof still open: lane RC-6, AUTHORED 2026-10-16 as
+Live proof: lane RC-6, AUTHORED 2026-10-16 as
 `RC-6-eva-cargo-from-foreign-container-rewind` (branch `claude/lanes-rc6-ql6-ir5-nh7w10`). Its first
 flight `2026-10-16_0650` was INVALID before reaching the product: the seam take was refused
 `over-capacity` by stock's public `ModuleInventoryPart.HasCapacity`, whose mass test adds the
@@ -3444,7 +3444,8 @@ inventory owner's mass instead of the incoming part's (decompiled, KSP 1.12.5), 
 a jetpack refuses any part; the seam now checks room by stock's player-drop arithmetic
 (`TestCommandEvaGroundScience.DecideTakeCapacity`). The same flight showed an EVA end spawn 2.4 m
 from the rover collision-blocked with nothing to walk back along, so the lane now walks Bill 15 m
-off before the recording ends. Re-flight pending. On `eva-construct-pad` (EVA-11's host) Bill Kerman takes the evaChute out of the foreign
+off before the recording ends. LIVE-PROVEN on the re-flight `2026-10-16_0709` (PASS attempt 1): the
+rover spawned at its tip without the chute and Bill with it, the chute moved exactly once. On `eva-construct-pad` (EVA-11's host) Bill Kerman takes the evaChute out of the foreign
 rover's first ConformalStorageUnit with `EvaGroundScience action=take`, the flight commits, then
 Rewind-to-Launch; the lane gates the rover's chain tip spawn without the chute and Bill's spawn with
 it through the new `storedParts=` suffix on the two VesselSpawner spawn lines
