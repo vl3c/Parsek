@@ -33,7 +33,7 @@ write the rewind game to persistent.sfs before the scene load with the live PARS
 in, as `RevertInterceptor.DiscardReFlyHandler` does; a wide change that every rewind lane would
 need to re-prove.
 
-## ~~CLAIMED-VESSEL-VANISHES-BEFORE-ITS-CLAIM: after a rewind, a vessel a committed future claims disappears until the claiming recording starts~~ [FILED 2026-10-16 from the coverage audit (`roadmap/coverage-matrix-2026-10-16.md` section 5), confirmed in EVA-11's `2026-10-15_2343` log (the rover is despawned at the rewind load and nothing draws it for about 15 s of game time, until its member recording's ghost spawns). FIXED 2026-10-16, branch `claude/project-thread-wr5u4k`; xUnit; EVA-11 `2026-10-16_2256` showed it drawn and released at the claim, in the post-claim shape (the follow-up below), re-flight pending. product]
+## ~~CLAIMED-VESSEL-VANISHES-BEFORE-ITS-CLAIM: after a rewind, a vessel a committed future claims disappears until the claiming recording starts~~ [FILED 2026-10-16 from the coverage audit (`roadmap/coverage-matrix-2026-10-16.md` section 5), confirmed in EVA-11's `2026-10-15_2343` log (the rover is despawned at the rewind load and nothing draws it for about 15 s of game time, until its member recording's ghost spawns). FIXED 2026-10-16, branch `claude/project-thread-wr5u4k`; xUnit; EVA-11 `2026-10-16_2256` showed it drawn and released at the claim, in the post-claim shape (the follow-up below); LIVE-PROVEN by EVA-11 `2026-10-16_2322` (PASS attempt 1, `parts=16 ... from=rewind-save`). product]
 
 `VesselGhoster.GhostVessel` despawns every vessel an active chain holds back but never built the
 ghost design 13.10 step 5 describes (`ghostGO = null`, "deferred to 6b-4"), so a claimed vessel
@@ -56,7 +56,7 @@ holds back at the adjusted UT (`ResolveRewindClaimedVesselPids`,
 capture prefers it by pid when the launch guids do not conclusively differ, else falls back to the
 despawn snapshot. The shown line ends `from=rewind-save|despawn`.
 
-## ~~CONSTRUCTION-GHOST-NEVER-CHANGES-SHAPE: a cargo partner's ghost keeps one shape through every EVA construction change~~ [FILED 2026-10-16 from the coverage audit (`roadmap/coverage-matrix-2026-10-16.md` section 5), confirmed in EVA-11's `2026-10-15_2343` log (the member ghost is built from the 17-part adoption snapshot, no part events are written for the two detaches, and only the tip spawn shows 15 parts). FIXED 2026-10-16, branch `claude/project-thread-wr5u4k`; xUnit, flight pending. product]
+## ~~CONSTRUCTION-GHOST-NEVER-CHANGES-SHAPE: a cargo partner's ghost keeps one shape through every EVA construction change~~ [FILED 2026-10-16 from the coverage audit (`roadmap/coverage-matrix-2026-10-16.md` section 5), confirmed in EVA-11's `2026-10-15_2343` log (the member ghost is built from the 17-part adoption snapshot, no part events are written for the two detaches, and only the tip spawn shows 15 parts). FIXED 2026-10-16, branch `claude/project-thread-wr5u4k`; xUnit; LIVE-PROVEN by EVA-11 `2026-10-16_2256` and `2026-10-16_2322` (both detaches written and applied). product]
 
 Foreign construction wrote only `SegmentEvents` (PART_ADDED / PART_REMOVED), which playback never
 reads, and an append refreshed only the member's `VesselSnapshot`. Fix: on an append,
