@@ -1,0 +1,176 @@
+schema = 1
+id = "QL-1-ksc-actions-then-earlier-quicksave"
+# =====================================================================================
+# QL-1 (timeline-operation program, docs/dev/autotest-roadmap.md): career actions at the
+# Space Center AFTER a quicksave, then that quicksave loaded at the Space Center. The
+# first lane that loads a save back in time with KSC purchases in the abandoned stretch.
+#
+# AS RULED (owner ruling D2, research QL-R2, LoadReconcilePolicy's
+# UntaggedLedgerRowsAfterCutoff cell "a quickload keeps untagged KSC rows"): the KSC rows
+# are committed history and stay in the ledger as committed FUTURE, at their own UTs. So
+# the load must NOT refund them by dropping them, and must NOT charge them early either:
+#   - right after the load, stock holds the quicksave's career (the node unresearched, the
+#     Tracking Station at level 0, Verhat an applicant, the survey Offered) and the pools
+#     read the quicksave's values (the current-UT cutoff keeps the four rows out);
+#   - each stock control is blocked by its kept row (KB-3's refusals: a repeat would
+#     charge the action twice when the clock reaches the row);
+#   - when the Space Center clock reaches the rows (`CareerLedgerClockCursor`, never flown
+#     before this lane) each action applies exactly once: the node researched, Verhat
+#     hired, the survey Active, and the end pools equal the seed plus each action ONCE
+#     (the ledger oracle, below).
+#
+# FLOW (career-earned-ksc, vessel-less, save clock UT 409.56):
+#   F5 at the Space Center (`SaveGame name=quicksave`), wait to UT 1000 so the actions sit
+#   about 590 s after the save, research basicRocketry, upgrade the Tracking Station, hire
+#   Verhat Kerman, accept the survey 90e4faaf, then load the quicksave at the Space Center
+#   (`LoadGame name=quicksave scene=spacecenter`, the TC-1 `Quickload` stand-in QL-2
+#   uses). Press the four controls (each refused, the blocked dialog dismissed), wait to
+#   UT 1300 (the clock crosses the rows), press research / hire / accept again (each
+#   refused because it is already done), quit.
+#
+# POOLS. The ledger oracle is valid across this load BECAUSE of the ruling: the
+# abandoned stretch holds only KSC rows, which are kept and re-applied, so the end save
+# is the seed plus each declared action once. A refund-on-load or a double charge reds
+# it. (hlib refuses a ledger block beside InvokeRewind / InvokeRewindToLaunch /
+# AnswerMergeDialog, not beside LoadGame.)
+# =====================================================================================
+tier = "nightly"
+description = "QL-1: career actions at the Space Center after a quicksave (research, facility upgrade, hire, contract accept), then the quicksave loaded at the Space Center. The rows stay as committed future: the four stock controls are blocked with nothing charged, and once the clock reaches the rows each action applies exactly once."
+instanceProfile = "stock-minimal"
+tags = ["QL-1", "timeline-ops", "quickload", "ledger", "career", "action-blocking"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/career-earned-ksc"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # F5 at the Space Center.
+  { cmd = "SaveGame",   args = { name = "quicksave" },                           expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",   args = { ut = "1000", maxRate = "100" },                 expect = "OK", budget = 120 },
+
+  # ---- the abandoned stretch: four KSC actions ----
+  { cmd = "KscAction", args = { action = "research-node", node = "basicRocketry" },                               expect = "OK", budget = 60 },
+  { cmd = "KscAction", args = { action = "upgrade-facility", facility = "SpaceCenter/TrackingStation" },          expect = "OK", budget = 60 },
+  { cmd = "KscAction", args = { action = "hire-kerbal", kerbal = "Verhat Kerman" },                               expect = "OK", budget = 60 },
+  { cmd = "KscAction", args = { action = "accept-contract", contract = "90e4faaf-2029-4c6b-8bc1-40226bb0fc27" },  expect = "OK", budget = 60 },
+
+  # ---- back in time ----
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "quicksave", scene = "spacecenter" }, expect = "OK", budget = 300 },
+
+  # ---- the kept rows block each control; nothing is charged ----
+  { cmd = "KscAction", args = { action = "research-node", node = "basicRocketry" },                               expect = "REJECTED", budget = 60 },
+  { cmd = "UiAction",  args = { op = "dismiss", popup = "actionblocked", press = "OK" },                          expect = "OK" },
+  { cmd = "KscAction", args = { action = "upgrade-facility", facility = "SpaceCenter/TrackingStation" },          expect = "REJECTED", budget = 60 },
+  { cmd = "UiAction",  args = { op = "dismiss", popup = "actionblocked", press = "OK" },                          expect = "OK" },
+  { cmd = "KscAction", args = { action = "hire-kerbal", kerbal = "Verhat Kerman" },                               expect = "REJECTED", budget = 60 },
+  { cmd = "UiAction",  args = { op = "dismiss", popup = "actionblocked", press = "OK" },                          expect = "OK" },
+  { cmd = "KscAction", args = { action = "accept-contract", contract = "90e4faaf-2029-4c6b-8bc1-40226bb0fc27" },  expect = "REJECTED", budget = 60 },
+  { cmd = "UiAction",  args = { op = "dismiss", popup = "actionblocked", press = "OK" },                          expect = "OK" },
+
+  # ---- the clock reaches the rows: each applies once ----
+  { cmd = "WarpToUT",  args = { ut = "1300", maxRate = "100" },                                                   expect = "OK", budget = 120 },
+  { cmd = "KscAction", args = { action = "research-node", node = "basicRocketry" },                               expect = "REJECTED", budget = 60 },
+  { cmd = "KscAction", args = { action = "hire-kerbal", kerbal = "Verhat Kerman" },                               expect = "REJECTED", budget = 60 },
+  { cmd = "KscAction", args = { action = "accept-contract", contract = "90e4faaf-2029-4c6b-8bc1-40226bb0fc27" },  expect = "REJECTED", budget = 60 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["science", "funds", "kerbals", "facilities", "contracts", "recalc-engine", "ksp-state-patcher", "action-blocking"]
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's two committed recordings; nothing in this lane records.
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  # ---- the four actions applied after the F5 ----
+  "kscaction action=research-node target=basicRocketry applied=true",
+  "kscaction action=upgrade-facility target=SpaceCenter/TrackingStation applied=true",
+  "kscaction action=hire-kerbal target=Verhat Kerman applied=true",
+  "kscaction action=accept-contract target=90e4faaf-2029-4c6b-8bc1-40226bb0fc27 applied=true",
+  "loadgame start save=\\S+ name=quicksave ",
+  # ---- the load kept the rows as committed future and cut the walk at the loaded clock ----
+  "OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff=True [^\\r\\n]*hasFutureLedgerActions=True",
+  # ---- each control refused by its kept row, stock state back to the quicksave, nothing charged ----
+  "kscaction research-node not applied: target=basicRocketry stateBefore=Unavailable stateAfter=Unavailable fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0",
+  "kscaction refused action=research-node reason=blocked-committed target=basicRocketry",
+  "kscaction upgrade-facility not applied: target=SpaceCenter/TrackingStation levelBefore=0 levelAfter=0 fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0",
+  "kscaction refused action=upgrade-facility reason=blocked-committed target=SpaceCenter/TrackingStation",
+  "kscaction hire-kerbal not applied: target=Verhat_Kerman typeBefore=Applicant typeAfter=Applicant fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0",
+  "kscaction refused action=hire-kerbal reason=blocked-committed target=Verhat Kerman",
+  "kscaction accept-contract not applied: target=90e4faaf-2029-4c6b-8bc1-40226bb0fc27 stateBefore=Offered stateAfter=Offered fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0",
+  "kscaction refused action=accept-contract reason=blocked-committed target=90e4faaf-2029-4c6b-8bc1-40226bb0fc27",
+  "\\A(?:[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false){4}",
+  # ---- after the clock crosses the rows: each action is already done ----
+  "kscaction refused action=accept-contract reason=blocked-committed [\\s\\S]*kscaction refused action=research-node reason=node-already-unlocked target=basicRocketry",
+  "kscaction refused action=accept-contract reason=blocked-committed [\\s\\S]*kscaction refused action=hire-kerbal reason=kerbal-not-applicant target=Verhat Kerman",
+  "kscaction refused action=accept-contract reason=blocked-committed [\\s\\S]*kscaction refused action=accept-contract reason=contract-not-offered target=90e4faaf-2029-4c6b-8bc1-40226bb0fc27",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # No backstop let a repeat through after the load.
+  "Allowing tech research: 'basicRocketry'",
+  "Allowing facility upgrade: 'SpaceCenter/TrackingStation'",
+  "allowing accept for guid=90e4faaf-2029-4c6b-8bc1-40226bb0fc27",
+]
+
+# The ledger oracle: seed (the staged fixture) plus each declared action ONCE, diffed HARD
+# against the final save. Valid across the back-in-time load only because the ruling keeps
+# the KSC rows and re-applies them when the clock reaches them (header).
+[expectations.ledger]
+seedFrom     = "template"
+tolerances   = "default"
+rec3CarveOut = false
+
+[[expectations.ledger.manifest]]
+  ut         = 0.0
+  kind       = "tech-unlock"
+  # basicRocketry, 5 science (stock tree; L1-research-node-career, KB-3).
+  science    = -5.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  ut         = 0.0
+  kind       = "facility-upgrade"
+  # Tracking Station level 0 -> 1 (L1-upgrade-facility-career, live-proven).
+  funds      = -150000.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  ut         = 0.0
+  kind       = "kerbal-hire"
+  # READING-RUN VALUE PENDING: the recruit cost depends on the hired count, and this
+  # career holds more crew than fresh-career (62113 at 4). Re-pin from the reading run.
+  funds      = -62113.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  ut           = 0.0
+  kind         = "contract-accept"
+  contractGuid = "90e4faaf-2029-4c6b-8bc1-40226bb0fc27"
+  # The survey's advance, the third `values` field of its CONTRACT node in the fixture.
+  funds        = 7574.99992847443
+  provenance   = "seam-declared"
+
+[runtime]
+# Budget arithmetic (M-A5 S8): each deferred verb waits max(step budget, 600) + 60 = 660 s
+# at worst. Two LoadGames and two WarpToUTs are deferred (2640); SaveGame (120), eleven
+# KscActions (660) and the light verbs add theirs. 3600 clears it.
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
