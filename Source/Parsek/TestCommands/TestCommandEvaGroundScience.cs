@@ -572,6 +572,31 @@ namespace Parsek.TestCommands
                 : GroundScienceCompletionDecision.StillWaiting;
         }
 
+        /// <summary>
+        /// Whether a part fits the kerbal's inventory, by the arithmetic of stock's own
+        /// player drop (decompiled <c>ModuleInventoryPart.PartDroppedOnInventory</c>, KSP
+        /// 1.12.5): with a volume limit, refuse a non-cargo part (packed volume below 0) or
+        /// one whose packed volume overflows the occupied volume; with a mass limit, refuse
+        /// when the occupied mass plus the INCOMING part's mass (dry plus resources)
+        /// overflows; the cheat skips both. Stock's public <c>HasCapacity</c> is not used:
+        /// its mass test adds the inventory OWNER's mass instead of the incoming part's, so a
+        /// kerbal already carrying a jetpack fails it for any part. Returns null when the
+        /// part fits, else the limit it breaks: "not-cargo", "volume" or "mass".
+        /// </summary>
+        internal static string DecideTakeCapacity(
+            float packedVolume, float volumeOccupied, float packedVolumeLimit,
+            float partMass, float massOccupied, float massLimit, bool ignoreLimits)
+        {
+            if (ignoreLimits) return null;
+            if (packedVolumeLimit > 0f)
+            {
+                if (packedVolume < 0f) return "not-cargo";
+                if (packedVolume + volumeOccupied > packedVolumeLimit) return "volume";
+            }
+            if (massLimit > 0f && massOccupied + partMass > massLimit) return "mass";
+            return null;
+        }
+
         /// <summary>KSP's runtime part names use dots where the cfg used underscores.</summary>
         internal static string NormalizePartName(string raw)
             => string.IsNullOrEmpty(raw) ? raw : raw.Replace('_', '.');

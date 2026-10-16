@@ -21,8 +21,10 @@
 //            the destination slot (here with the source's own stored ProtoPartSnapshot, so
 //            the part keeps its identity). Gated by stock's own limits: the container must
 //            be within GameSettings.EVA_INVENTORY_RANGE and the kerbal's inventory must
-//            have a free slot and HasCapacity for the part (40 L / 0.065 t on a stock
-//            kerbal), so a take never carries more than a player could.
+//            have a free slot and room for the part (40 L / 0.065 t on a stock kerbal), by
+//            the arithmetic of stock's player drop (DecideTakeCapacity; stock's public
+//            HasCapacity adds the owner's mass, not the part's), so a take never carries
+//            more than a player could.
 //   STEP   - the strides a player walks between a container and the spot a part goes: the
 //            kerbal is set down on the terrain at a requested horizontal distance from an
 //            anchor vessel, along an explicit compass bearing from it (bearing=) or else
@@ -725,10 +727,21 @@ namespace Parsek.TestCommands
                 return;
             }
             AvailablePart info = PartLoader.getPartInfoByName(part);
-            if (info == null || info.partPrefab == null || !inv.HasCapacity(info.partPrefab))
+            string capacityLimit = "no-prefab";
+            if (info != null && info.partPrefab != null)
             {
-                ParsekLog.Warn(Tag, $"evagroundscience refused reason=over-capacity part={part} "
-                    + $"inventory={DescribeInventory(inv)}");
+                ModuleCargoPart cargo = info.partPrefab.FindModuleImplementing<ModuleCargoPart>();
+                capacityLimit = TestCommandEvaGroundScience.DecideTakeCapacity(
+                    cargo != null ? cargo.packedVolume : -1f, inv.volumeCapacity, inv.packedVolumeLimit,
+                    inv.GetPartMass(info.partPrefab), inv.massCapacity, inv.massLimit,
+                    CheatOptions.IgnoreKerbalInventoryLimits && inv.part != null && inv.part.isKerbalEVA());
+            }
+            if (capacityLimit != null)
+            {
+                ParsekLog.Warn(Tag, $"evagroundscience refused reason=over-capacity limit={capacityLimit} part={part} "
+                    + $"inventory={DescribeInventory(inv)} "
+                    + $"volume={inv.volumeCapacity.ToString("F2", CultureInfo.InvariantCulture)}/{inv.packedVolumeLimit.ToString("F2", CultureInfo.InvariantCulture)} "
+                    + $"mass={inv.massCapacity.ToString("F4", CultureInfo.InvariantCulture)}/{inv.massLimit.ToString("F4", CultureInfo.InvariantCulture)}");
                 SetExecResult("REJECTED", null, "over-capacity");
                 return;
             }

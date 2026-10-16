@@ -21,7 +21,15 @@ id = "RC-6-eva-cargo-from-foreign-container-rewind"
 # clear-then-store against the nearest loaded container holding the part (the take
 # reaches GameSettings.EVA_INVENTORY_RANGE); `step anchor=<rover pid> distance=3` puts
 # him within reach of a container 1.4 m off the root. An out-of-range refusal prints the
-# measured distance and reds the lane before anything is recorded.
+# measured distance and reds the lane before anything is recorded. The take's room check
+# is stock's player-drop arithmetic (jetpack 17 L / 0.045 t + chute 10 L / 0.004 t of
+# 40 L / 0.065 t): the first flight `2026-10-16_0650` was refused `over-capacity` by
+# stock's public HasCapacity, which adds the kerbal's own mass instead of the part's.
+#
+# THE WALK AWAY: a second `step ... distance=15` before StopRecording. The first flight
+# showed why: an EVA end spawn 2.4 m from the rover overlaps it (the kerbal's bounds plus
+# 5 m padding) and a trajectory that only stood there leaves walkback nothing to walk
+# back along, so the spawn is held, times out and never lands.
 #
 # THE SPAWN WITNESS (this lane's branch): both spawn lines in VesselSpawner
 # (`Vessel respawned (...)` and `SpawnAtPosition: vessel spawned (...)`) now end with
@@ -31,8 +39,8 @@ id = "RC-6-eva-cargo-from-foreign-container-rewind"
 # ACT 3 is EVA-11's flight reload: the rewind lands at the Space Center, SaveGame +
 # LoadGame lands FLIGHT on Kerbal X (vessel 0), 153 m from the rover, so the chain walker,
 # the ghoster and the tip spawn run in the flight scene, and 1x flight time crosses the
-# member's EndUT. UT 45 is EVA-11's measured member EndUT (34.96) plus margin; this lane
-# does one take instead of an attach and two detaches, so it ends earlier.
+# member's EndUT. UT 50 is EVA-11's measured member EndUT (34.96) plus margin; this lane
+# does one take and two steps (about 4 s each) instead of an attach and two detaches.
 #
 # THE MARKS read the committed store by position (rec0 / rec1), so the regexes find the
 # member by its recording id from the join line and Bill by his spawned pid.
@@ -65,6 +73,8 @@ steps = [
   { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "EvaGroundScience", args = { action = "take", part = "evaChute" }, expect = "OK", budget = 120 },
+  # Walk away before the recording ends, so Bill's end spawn clears the rover.
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "1871615455", distance = "15" }, expect = "OK", budget = 120 },
   { cmd = "StopRecording",                                                   expect = "OK" },
   { cmd = "CommitTree",                                                      expect = "OK", budget = 120 },
   { cmd = "StopRecording",                                                   expect = "OK" },
@@ -79,7 +89,7 @@ steps = [
   { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
   { cmd = "ListHandles", args = { kind = "chains" },    label = "ch", expect = "OK" },
-  { cmd = "WarpToUT",   args = { ut = "45", maxRate = "1" },                 expect = "OK", budget = 200 },
+  { cmd = "WarpToUT",   args = { ut = "50", maxRate = "1" },                 expect = "OK", budget = 200 },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c2", expect = "OK" },
   { cmd = "MissionMark", args = { label = "rc6-spawned-a-${c2.rec0}-${c2.rec0spawned}-${c2.rec0spawnedPid}-b-${c2.rec1}-${c2.rec1spawned}-${c2.rec1spawnedPid}-end" }, expect = "OK" },
   { cmd = "SaveGame",                                                        expect = "OK", budget = 120 },

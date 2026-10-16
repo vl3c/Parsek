@@ -1929,7 +1929,7 @@ stage-to-fixture promotion tool.
 
 ---
 
-## ~~QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN: F9 back into a Discarded flight must record again~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-quickload-into-discarded`; the in-flight discards followed 2026-10-16, branch `claude/lanes-rc6-ql6-ir5-nh7w10` (xUnit only; live proof is lane QL-6, authored, not flown)]
+## ~~QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN: F9 back into a Discarded flight must record again~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-quickload-into-discarded`; the in-flight discards followed 2026-10-16, branch `claude/lanes-rc6-ql6-ir5-nh7w10` (live-proven by lane QL-6, `2026-10-16_0649` PASS attempt 1)]
 
 Discard deletes the recording files (`RecordingStore.DiscardPendingTree` -> `DeleteRecordingFiles`).
 Owner ruling 2026-10-06: an F9 back into that flight starts a fresh recording from the loaded
@@ -1975,7 +1975,8 @@ taken during such a flight still resumed into the deleted ids. The reap now take
 core captured before the teardown and notes the tree when it removed at least one sidecar set; the
 `DiscardTree` verb's own reap does the same. Cells: `QuickloadIntoDiscardedFlightTests`
 (`InFlightDiscard*`), `DiscardSidecarReapTests` (`Reap_NotesTheTree*`, two source gates). Live
-proof: lane QL-6 (`QL-6-discard-then-quickload-records-again`), authored, not yet flown.
+proof: lane QL-6 (`QL-6-discard-then-quickload-records-again`), `2026-10-16_0649` PASS attempt 1:
+the decline line and the fresh start name the noted tree, and the recorder runs on a new tree.
 
 Residue (owner decision): the proof is in memory, so after a KSP restart a load of that quicksave
 still resumes into the discarded ids (a durable discard tombstone outside the loaded save would
@@ -3436,8 +3437,14 @@ The structural walks that skip or collect a placement read both types through
 recording is the tip) and `ReFlyThroughEvaTests.SessionSuppressedSubtree_IncludesAForeignVesselTheKerbalMovedCargoWith`.
 
 Live proof still open: lane RC-6, AUTHORED 2026-10-16 as
-`RC-6-eva-cargo-from-foreign-container-rewind` (branch `claude/lanes-rc6-ql6-ir5-nh7w10`), not yet
-flown. On `eva-construct-pad` (EVA-11's host) Bill Kerman takes the evaChute out of the foreign
+`RC-6-eva-cargo-from-foreign-container-rewind` (branch `claude/lanes-rc6-ql6-ir5-nh7w10`). Its first
+flight `2026-10-16_0650` was INVALID before reaching the product: the seam take was refused
+`over-capacity` by stock's public `ModuleInventoryPart.HasCapacity`, whose mass test adds the
+inventory owner's mass instead of the incoming part's (decompiled, KSP 1.12.5), so a kerbal holding
+a jetpack refuses any part; the seam now checks room by stock's player-drop arithmetic
+(`TestCommandEvaGroundScience.DecideTakeCapacity`). The same flight showed an EVA end spawn 2.4 m
+from the rover collision-blocked with nothing to walk back along, so the lane now walks Bill 15 m
+off before the recording ends. Re-flight pending. On `eva-construct-pad` (EVA-11's host) Bill Kerman takes the evaChute out of the foreign
 rover's first ConformalStorageUnit with `EvaGroundScience action=take`, the flight commits, then
 Rewind-to-Launch; the lane gates the rover's chain tip spawn without the chute and Bill's spawn with
 it through the new `storedParts=` suffix on the two VesselSpawner spawn lines
@@ -3747,7 +3754,9 @@ carries a Paused KSC -> Mun route (transit 85,354 s) and an Active KSC -> Duna r
 No fixture has a route at Minmus, Ike or a Jool moon, and there is no career inter-body route.
 
 Fix: lane IR-5 first, AUTHORED 2026-10-16 as `IR-5-mun-route-dispatch-delivery` (branch
-`claude/lanes-rc6-ql6-ir5-nh7w10`), not yet flown. Reading before the flight: send-once does not
+`claude/lanes-rc6-ql6-ir5-nh7w10`), LIVE-PROVEN `2026-10-16_0652` PASS attempt 1: the Mun station
+took LiquidFuel 281.959 and Oxidizer 344.617 on the unloaded path and the route paused
+`delivered-then-paused`. Reading before the flight: send-once does not
 rebase the loop clock, so the first tick after it owes a long-past dock crossing and fires cycle-0
 at once (no day-long jump is needed); the Mun station has less room than the manifest, so the lane
 lowers its two tanks with the new `[[fixture.liveState]] partResources` form (the per-vessel form
