@@ -35,6 +35,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Loading an earlier quicksave at the Space Center keeps later KSC purchases on schedule.** A
+  research, upgrade, hire or contract accepted after the quicksave now applies once when the clock
+  reaches it: it is charged then, the kerbal joins the crew, and the contract is listed once, so
+  none can be bought twice. (QL1-KSC-CLOCK-CROSSING)
+
 - **A quickload into a flight you discarded mid-flight records it again.** Discarding from the
   dialog that comes up when you switch vessels (or the scene-exit discards) did not mark the flight
   as discarded, so a quickload made earlier in it resumed into the deleted recording. It now starts

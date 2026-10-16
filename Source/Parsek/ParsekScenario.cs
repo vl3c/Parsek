@@ -740,14 +740,37 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: the clock the in-session load's ledger walk cuts off at. The loaded save's
+        /// own <c>flightState.universalTime</c> when usable (finite, positive): inside OnLoad
+        /// Planetarium can still read the clock from BEFORE the load (the same rule
+        /// <see cref="KerbalsModule.ResolveWalkClockUT(double?,bool,double,bool,double,double)"/>
+        /// applies to reservations). Else the Planetarium value when it is ready, else NaN.
+        /// </summary>
+        internal static double ResolveInSessionLoadLedgerClockUT(
+            double loadedSaveUT, bool planetariumReady, double planetariumUT)
+        {
+            if (!double.IsNaN(loadedSaveUT) && !double.IsInfinity(loadedSaveUT) && loadedSaveUT > 0.0)
+                return loadedSaveUT;
+            if (planetariumReady && !double.IsNaN(planetariumUT) && !double.IsInfinity(planetariumUT))
+                return planetariumUT;
+            return double.NaN;
+        }
+
+        /// <summary>
         /// The in-session OnLoad's ledger recalculation: reads the live load state, decides
         /// between the current-UT cutoff and the plain walk
         /// (<see cref="ShouldUseCurrentUtCutoffForPostRewindFlightLoad"/>), logs the decision
         /// and runs it. Returns true when the cutoff walk ran.
         /// </summary>
+        /// <param name="planetariumUT">The Planetarium reading, logged beside the clock the
+        /// walk used so a stale reading stays visible; NaN when not read.</param>
         internal static bool RecalculateLedgerForInSessionLoad(
-            bool isRevert, GameScenes loadedScene, bool planetariumReady, double loadedUT)
+            bool isRevert, GameScenes loadedScene, bool planetariumReady, double loadedUT,
+            double planetariumUT = double.NaN)
         {
+            // The load replaced the live pools with the save's: rows that were ahead of the
+            // clock at an earlier patch say nothing about what this save charged.
+            LedgerOrchestrator.InvalidateCommittedFutureSnapshot("in-session-load");
             bool loadedSceneSupportsCurrentUtCutoff =
                 IsCurrentUtCutoffSupportedScene(loadedScene);
             bool hasPendingTree = RecordingStore.HasPendingTree;
@@ -768,6 +791,7 @@ namespace Parsek
             ParsekLog.Info("Scenario",
                 $"OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff={useCurrentUtCutoffForPostRewindFlightLoad} " +
                 $"loadedUT={loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"planetariumUT={planetariumUT.ToString("R", CultureInfo.InvariantCulture)} " +
                 $"isRevert={isRevert} loadedScene={loadedScene} " +
                 $"loadedSceneSupportsCurrentUtCutoff={loadedSceneSupportsCurrentUtCutoff} " +
                 $"planetariumReady={planetariumReady} hasPendingTree={hasPendingTree} " +
@@ -4450,8 +4474,35 @@ namespace Parsek
                     }
 
                     loadPhase = "ledger-recalculate";
-                    RecalculateLedgerForInSessionLoad(
-                        isRevert, HighLogic.LoadedScene, planetariumReady, loadedUT);
+                    // The ledger walks at the LOADED save's clock: inside a Space Center OnLoad
+                    // Planetarium still reads the clock from before the load (QL-1 measured
+                    // 1000.10 against the quicksave's 409.9), which would walk the committed
+                    // rows the load moved back in front of the clock as if already reached.
+                    double ledgerClockUT = ResolveInSessionLoadLedgerClockUT(
+                        loadedSaveUTForRoutes, planetariumReady, loadedUT);
+                    double inSessionLedgerCutoffUT = double.IsNaN(ledgerClockUT) ? loadedUT : ledgerClockUT;
+                    bool inSessionLedgerUsedCutoff = RecalculateLedgerForInSessionLoad(
+                        isRevert, HighLogic.LoadedScene, !double.IsNaN(ledgerClockUT),
+                        inSessionLedgerCutoffUT,
+                        planetariumReady ? loadedUT : double.NaN);
+                    // KSP loads the save's SCENARIO modules in file order, and R&D and
+                    // Reputation usually come after this one: the patch above skipped
+                    // their pools, and their own OnLoad then installs the save's values.
+                    // Patch again once every currency module has loaded.
+                    CurrencySingletons expectedCurrency = CurrencyScenarioReadiness.ExpectedForCurrentGame();
+                    CurrencySingletons presentCurrency = CurrencyScenarioReadiness.PresentNow();
+                    CurrencySingletons loadedCurrency = CurrencyScenarioReadiness.LoadedNow();
+                    if (ShouldRepatchAfterInSessionLoad(expectedCurrency, presentCurrency, loadedCurrency))
+                    {
+                        ParsekLog.Info("Scenario",
+                            $"OnLoad: in-session ledger patch ran before the currency modules loaded " +
+                            $"(expected={CurrencyScenarioReadiness.Format(expectedCurrency)} " +
+                            $"present={CurrencyScenarioReadiness.Format(presentCurrency)} " +
+                            $"loaded={CurrencyScenarioReadiness.Format(loadedCurrency)}); " +
+                            "scheduling a re-patch once they have");
+                        StartCoroutine(RepatchAfterInSessionLoadWhenCurrenciesLoaded(
+                            inSessionLedgerUsedCutoff, inSessionLedgerCutoffUT));
+                    }
                     if (KerbalLoadRepairDiagnostics.IsActive)
                         KerbalLoadRepairDiagnostics.EmitAndReset();
                     ParsekLog.Info("Scenario", $"{(isRevert ? "Revert" : "Scene change")} — preserving {recordings.Count} session recordings");
@@ -6839,6 +6890,58 @@ namespace Parsek
             {
                 LedgerOrchestrator.RecalculateAndPatch();
             }
+        }
+
+        /// <summary>
+        /// Pure: true when the in-session load's ledger patch ran before every currency
+        /// module this game creates existed and had loaded its save value, so a pool the
+        /// patch skipped (or wrote before the module's own OnLoad overwrote it) needs a
+        /// second patch.
+        /// </summary>
+        internal static bool ShouldRepatchAfterInSessionLoad(
+            CurrencySingletons expected, CurrencySingletons present, CurrencySingletons loaded)
+        {
+            return !CurrencyScenarioReadiness.Covers(expected, present)
+                || !CurrencyScenarioReadiness.Covers(present, loaded);
+        }
+
+        /// <summary>
+        /// Repeats the in-session load's ledger patch once every currency module has loaded,
+        /// with the same walk (the loaded save's cutoff, or the plain walk) the load chose.
+        /// Without it a pool whose module loads after Parsek's keeps the save's value: after
+        /// a quicksave load the science spent by a later committed action stays available.
+        /// The coroutine dies with this module, so a later load never sees a stale one.
+        /// </summary>
+        private IEnumerator RepatchAfterInSessionLoadWhenCurrenciesLoaded(bool useCutoff, double cutoffUT)
+        {
+            // OnLoad runs inside ScenarioRunner.LoadModules; the remaining modules are
+            // constructed and loaded before the next frame.
+            yield return null;
+            Game game = HighLogic.CurrentGame;
+            int maxWait = CurrencySingletonWaitMaxFrames;
+            while (maxWait-- > 0 && !CurrencyScenarioReadiness.AllExpectedPresent())
+                yield return null;
+            int maxLoadWait = 600;
+            while (maxLoadWait-- > 0 && !CurrencyScenarioReadiness.AllPresentLoaded())
+                yield return null;
+
+            if (!ReferenceEquals(game, HighLogic.CurrentGame))
+            {
+                ParsekLog.Info("Scenario",
+                    "OnLoad: in-session ledger re-patch skipped: the game changed while waiting");
+                yield break;
+            }
+
+            var ic = CultureInfo.InvariantCulture;
+            ParsekLog.Info("Scenario",
+                $"OnLoad: in-session ledger re-patch after the currency modules loaded " +
+                $"(present={CurrencyScenarioReadiness.Format(CurrencyScenarioReadiness.PresentNow())} " +
+                $"loaded={CurrencyScenarioReadiness.Format(CurrencyScenarioReadiness.LoadedNow())} " +
+                $"useCutoff={useCutoff} cutoffUT={cutoffUT.ToString("R", ic)})");
+            if (useCutoff)
+                RecalculateAndPatchForPostRewindFlightLoad(cutoffUT);
+            else
+                LedgerOrchestrator.RecalculateAndPatch();
         }
 
         /// <summary>

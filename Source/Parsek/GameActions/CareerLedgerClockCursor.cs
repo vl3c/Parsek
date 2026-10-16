@@ -28,7 +28,8 @@ namespace Parsek
         /// <param name="nextActionUTAfter">Test seam; defaults to the live ledger, cached on
         /// <see cref="Ledger.StateVersion"/>.</param>
         /// <param name="recalculate">Test seam; defaults to
-        /// <see cref="LedgerOrchestrator.RecalculateAndPatchForLiveTimelineEvent"/>.</param>
+        /// <see cref="LedgerOrchestrator.RecalculateAndPatchForClockAdvance"/>, which lets
+        /// the reached committed-future rows past the drawdown guard.</param>
         internal CareerLedgerClockCursor(
             string reasonPrefix,
             Func<double, double> nextActionUTAfter = null,
@@ -36,7 +37,7 @@ namespace Parsek
         {
             this.reasonPrefix = string.IsNullOrEmpty(reasonPrefix) ? "scene" : reasonPrefix;
             this.nextActionUTAfter = nextActionUTAfter;
-            this.recalculate = recalculate ?? LedgerOrchestrator.RecalculateAndPatchForLiveTimelineEvent;
+            this.recalculate = recalculate ?? LedgerOrchestrator.RecalculateAndPatchForClockAdvance;
         }
 
         internal double LastCutoffUT => lastCutoffUT;

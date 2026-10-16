@@ -2867,6 +2867,96 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Makes the hires a clock advance reached (committed-future KerbalHire rows past the
+        /// previous patch's cutoff, <see cref="LedgerOrchestrator.RecalculateAndPatchForClockAdvance"/>):
+        /// a load back in time put each kerbal back among the applicants, and nothing else
+        /// hires him when the clock reaches his row. Promotes an Applicant to Crew the way
+        /// stock <c>KerbalRoster.HireApplicant</c> does minus its <c>OnCrewmemberHired</c>
+        /// (decompiled: fire, then <c>type = Crew</c>), whose Funding listener would charge
+        /// the cost a second time; the row's cost reaches the funds patch. Anyone not an
+        /// Applicant is left alone. Returns the number promoted.
+        /// </summary>
+        internal static int PromoteReachedCommittedHires(
+            IList<string> kerbalNames,
+            Func<string, ProtoCrewMember.KerbalType?> readType,
+            Func<string, bool> promote)
+        {
+            if (kerbalNames == null || kerbalNames.Count == 0 || readType == null || promote == null)
+                return 0;
+            int promoted = 0, notApplicant = 0, missing = 0, failed = 0;
+            for (int i = 0; i < kerbalNames.Count; i++)
+            {
+                string name = kerbalNames[i];
+                if (string.IsNullOrEmpty(name)) continue;
+                ProtoCrewMember.KerbalType? type = readType(name);
+                if (!type.HasValue)
+                {
+                    missing++;
+                    ParsekLog.Warn(Tag,
+                        $"Committed hire reached but '{name}' is not on the roster; nothing to hire");
+                    continue;
+                }
+                if (type.Value != ProtoCrewMember.KerbalType.Applicant)
+                {
+                    notApplicant++;
+                    ParsekLog.Verbose(Tag,
+                        $"Committed hire reached: '{name}' already type={type.Value}; nothing to do");
+                    continue;
+                }
+                if (promote(name))
+                {
+                    promoted++;
+                    ParsekLog.Info(Tag,
+                        $"Committed hire applied: '{name}' Applicant -> Crew as the clock reached its row " +
+                        "(no stock hire event: the ledger row carries the cost)");
+                }
+                else
+                {
+                    failed++;
+                    ParsekLog.Warn(Tag, $"Committed hire reached but promoting '{name}' failed");
+                }
+            }
+            ParsekLog.Info(Tag,
+                $"PromoteReachedCommittedHires: rows={kerbalNames.Count.ToString(CultureInfo.InvariantCulture)} " +
+                $"promoted={promoted.ToString(CultureInfo.InvariantCulture)} " +
+                $"notApplicant={notApplicant.ToString(CultureInfo.InvariantCulture)} " +
+                $"missing={missing.ToString(CultureInfo.InvariantCulture)} " +
+                $"failed={failed.ToString(CultureInfo.InvariantCulture)}");
+            return promoted;
+        }
+
+        /// <summary>Live wrapper over the pure core, on the game's roster.</summary>
+        internal static int PromoteReachedCommittedHires(KerbalRoster roster, IList<string> kerbalNames)
+        {
+            if (roster == null)
+            {
+                ParsekLog.Verbose(Tag, "PromoteReachedCommittedHires: no roster - skipping");
+                return 0;
+            }
+            using (SuppressionGuard.Crew())
+            {
+                return PromoteReachedCommittedHires(
+                    kerbalNames,
+                    name =>
+                    {
+                        ProtoCrewMember pcm = null;
+                        try { pcm = roster[name]; }
+                        catch { pcm = null; }
+                        return pcm != null ? pcm.type : (ProtoCrewMember.KerbalType?)null;
+                    },
+                    name =>
+                    {
+                        ProtoCrewMember pcm = null;
+                        try { pcm = roster[name]; }
+                        catch { pcm = null; }
+                        if (pcm == null) return false;
+                        pcm.type = ProtoCrewMember.KerbalType.Crew;
+                        return pcm.type == ProtoCrewMember.KerbalType.Crew;
+                    });
+            }
+        }
+
+        /// <summary>
         /// Apply derived kerbal state to the KSP roster. Creates stand-ins,
         /// removes unused displaced stand-ins, and populates the crewReplacements
         /// dict for SwapReservedCrewInFlight.
