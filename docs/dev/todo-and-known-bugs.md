@@ -4013,7 +4013,7 @@ route in a source-problem state. Tests: `RouteRecoveryCreditTests.OnLoadSourcePr
 
 ---
 
-## ~~ROUTE-ESCROW-LOST-ON-SCENE-SWITCH: a multi-stop cycle's depot reservation is dropped by a scene change between its windows~~ [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `claude/logistics-escrow-recovery-credit-s0sb0u` (xUnit only; live proof is lane IR-10)]
+## ~~ROUTE-ESCROW-LOST-ON-SCENE-SWITCH: a multi-stop cycle's depot reservation is dropped by a scene change between its windows~~ [FILED 2026-10-06 from the integration-coverage code read, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `claude/logistics-escrow-recovery-credit-s0sb0u` (PR #2110); LIVE-PROVEN 2026-10-16 by H60's IR-10 cell]
 
 `ClearAllEscrow` runs on every scene switch (`ParsekScenario.cs:8365`); the only re-establish
 site (`RouteOrchestrator.cs:1531`) sits behind the no-due-window early return in
@@ -4030,7 +4030,10 @@ is processed. For every ghost-driving route with an in-flight multi-stop cycle (
 un-fired pickup window), no escrow held, and the cycle's dispatch row in the ledger, it
 re-reserves the un-fired windows. It needs no due window or loop unit, so tick order cannot let a
 competitor drain the depot first. Tests: `RouteEscrowFireTests.GapTickAfterClear_*`,
-`PrePass_SkipsPausedRoute_*`, `TryGetInFlightMultiStopCycle_Cases`. Live proof is still lane IR-10.
+`PrePass_SkipsPausedRoute_*`, `TryGetInFlightMultiStopCycle_Cases`. Live proof (roadmap IR-10): H60's
+`scene-switch-rebuilds-hold` cell runs the production scene-switch handler between the holder's
+windows; run `2026-10-16_0542` PASS attempt 1 read the clear, the pre-pass rebuild and the
+competitor's `source-reserved` block all at ut=1660, then the holder's full second pickup.
 
 ---
 
