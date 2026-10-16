@@ -113,7 +113,8 @@ required = [
   "kscaction refused action=accept-contract reason=blocked-committed target=90e4faaf-2029-4c6b-8bc1-40226bb0fc27",
   "\\A(?:[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false){4}",
   # ---- the clock reaches the rows: each applies once, past the drawdown guard ----
-  "Clock-crossing guard basis: crossed=[1-4] committed-future row",
+  "Clock-crossing reached committed-future rows: crossed=[1-9]",
+  "PatchFunds: clock-crossing applies the reached rows",
   "Committed hire applied: 'Verhat Kerman' Applicant -> Crew",
   "PatchContracts: replaced 1 Offered copy\\(ies\\) of contractId='90e4faaf-2029-4c6b-8bc1-40226bb0fc27'",
   # ---- after the clock crosses the rows: each action is already done ----

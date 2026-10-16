@@ -33,14 +33,18 @@ and final save (seed funds 536558 / science 111.6; expected end 332020 / 106.6; 
    drawdown guard clamped both to live (`GUARDED DRAWDOWN clamped ... (no time-travel context)`),
    so the upgrade and the research were never charged. Fix: each applied patch records which rows
    were still ahead of its cutoff (`LedgerOrchestrator.CaptureCommittedFutureSnapshot`, by
-   ActionId; a load clears it). The clock cursor's recalc (`RecalculateAndPatchForClockAdvance`)
-   probes the pools without the rows from that set it now reaches
-   (`RecalculationEngine.ProbeModulesAtCutoff`, logged as `Clock-crossing guard basis:`), and the
-   funds / science / reputation guards compare live against the running value minus those rows'
-   effect (`KspStatePatcher.ResolveClockCrossingGuardRunning`). A forward time jump (Warp to, the
-   Missions / Recordings fast-forward, the Tracking Station FF, all through
-   `RecalculateAndPatchForTimeJump`) takes the same basis. Any other divergence still clamps,
-   and a row recorded live after the patch is never in the set.
+   ActionId), and each pool patch records what the pool read after it and whether it clamped. A
+   clock advance (the cursor's `RecalculateAndPatchForClockAdvance`, and a forward time jump: Warp
+   to, the Missions / Recordings fast-forward, the Tracking Station FF, all through
+   `RecalculateAndPatchForTimeJump`) that reaches rows of that set logs `Clock-crossing reached
+   committed-future rows:`, and each pool then passes the guard only when live still holds what
+   the last patch left and that patch did not clamp (`KspStatePatcher.IsLiveUnchangedSinceLastPatch`):
+   nothing outside the ledger moved it, so the whole change is the reached rows. Anything else keeps
+   the guard, and a load forgets both records. The re-flight (`2026-10-16_1211_a2`) showed why the
+   rule reads live and not the running pool: the load patches funds to the reservation-aware
+   available value (324066.25, holding the four rows and the survey's 7953.75 fail reserve), so at
+   the crossing the patch must RAISE funds to 332020. A first version keyed the guard on the running
+   pool without the reached rows (536558), and the uplift clamp held that raise.
 3. Nothing made the reached hire: Verhat stayed an Applicant, so a second hire went through and
    charged 62113 again. Fix: `KerbalsModule.PromoteReachedCommittedHires` sets a crossed
    KerbalHire row's kerbal from Applicant to Crew the way stock `HireApplicant` does, minus its
@@ -52,8 +56,9 @@ and final save (seed funds 536558 / science 111.6; expected end 332020 / 106.6; 
    was accepted again, paying the 7575 advance twice. Fix: the restore removes an Offered instance
    with the same guid before adding the Active one (`IsOfferedCopyOfRestoredContract`).
 
-Cells: `ClockCrossingCommittedFutureTests`. Live proof is QL-1's re-flight, which now requires the
-basis line, the hire line and the contract replacement, and forbids a guard clamp after the load.
+Cells: `ClockCrossingCommittedFutureTests`. Live proof is QL-1's re-flight, which requires the
+crossing line, `PatchFunds: clock-crossing applies the reached rows`, the hire line and the
+contract replacement, and forbids a guard clamp after the load.
 
 ## QL-KSC-ROWS-CROSSED-ACROSS-A-SCENE-CHANGE: committed KSC rows reached while away from the Space Center may still be clamped [FILED 2026-10-16 from the QL1-KSC-CLOCK-CROSSING fix, reasoned from code, not measured. OPEN, product, medium]
 
@@ -63,7 +68,7 @@ the next scene's in-session load clears the committed-future snapshot (a load ca
 pools) and walks at the new clock, so the same guard clamp should refuse the rows. To confirm, fly
 QL-1's shape with a flight between the load and the crossing. A fix would keep the snapshot across
 an ordinary scene change (refined load kind `InSessionOther`, where the live pools carry over) and
-use the same basis in that load's recalc. A smaller case of the same shape: a non-cursor recalc
+apply the same crossing rule in that load's recalc. A smaller case of the same shape: a non-cursor recalc
 at cutoff = now (a live KSC event) that runs in the frame the clock first passes a row recaptures
 the snapshot without it, so the cursor finds nothing crossed and the guard clamps.
 

@@ -109,61 +109,41 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void GuardRunning_TakesTheCrossedRowsEffectOut()
+        public void LiveUnchangedSinceLastPatch_IsTheOnlyAuthorization()
         {
-            Assert.Equal(536558.0,
-                KspStatePatcher.ResolveClockCrossingGuardRunning(332020.0, 332020.0, 536558.0), 3);
-            // Science: the guard value carries pending adjustments the raw pool does not.
-            Assert.Equal(112.6,
-                KspStatePatcher.ResolveClockCrossingGuardRunning(107.6, 106.6, 111.6), 6);
-            Assert.Equal(332020.0,
-                KspStatePatcher.ResolveClockCrossingGuardRunning(332020.0, 332020.0, double.NaN), 3);
+            // QL-1 re-flight: the load patched funds to the reservation-aware 324066.25 and
+            // nothing moved them before the crossing.
+            Assert.True(KspStatePatcher.IsLiveUnchangedSinceLastPatch(324066.25, 324066.25, false, 0.01));
+            // Stock moved the pool since (a purchase the ledger has not caught up with).
+            Assert.False(KspStatePatcher.IsLiveUnchangedSinceLastPatch(320000.0, 324066.25, false, 0.01));
+            // The last patch held a standing clamp: a crossing must not wash it out.
+            Assert.False(KspStatePatcher.IsLiveUnchangedSinceLastPatch(324066.25, 324066.25, true, 0.01));
+            // Unknown: never patched, or a load since.
+            Assert.False(KspStatePatcher.IsLiveUnchangedSinceLastPatch(324066.25, double.NaN, false, 0.01));
         }
 
         [Fact]
-        public void FundsGuard_WithoutBasis_ClampsTheCrossedSpend_TheQl1Defect()
+        public void FundsGuard_Unauthorized_HoldsTheReservationRelease_TheQl1ReflightDefect()
+        {
+            // Measured at the crossing: running 536558 without the rows, live 324066.25 (the
+            // load's reservation-aware patch), target 332020 (rows applied, fail reserve
+            // released). The plain guard caps the raise to live.
+            var held = KspStatePatcher.ResolveFundsPatch(324066.25, 332020.0, 536558.0, false);
+            Assert.True(held.Clamped);
+
+            var applied = KspStatePatcher.ResolveFundsPatch(324066.25, 332020.0, 332020.0, true);
+            Assert.False(applied.Clamped);
+            Assert.Equal(7953.75, applied.Delta, 3);
+        }
+
+        [Fact]
+        public void FundsGuard_Unauthorized_StillClampsTheFirstFlightsDrawdown()
         {
             var decision = KspStatePatcher.ResolveFundsPatch(
                 currentFunds: 536558.0, targetFunds: 332020.0, runningFunds: 332020.0,
                 authoritativeReduction: false);
             Assert.True(decision.Clamped);
             Assert.Equal(536558.0, decision.EffectiveTarget, 3);
-        }
-
-        [Fact]
-        public void FundsGuard_WithBasis_AppliesTheCrossedSpendOnce()
-        {
-            double guardRunning = KspStatePatcher.ResolveClockCrossingGuardRunning(
-                332020.0, 332020.0, 536558.0);
-            var decision = KspStatePatcher.ResolveFundsPatch(
-                536558.0, 332020.0, guardRunning, authoritativeReduction: false);
-            Assert.False(decision.Clamped);
-            Assert.True(decision.ShouldWrite);
-            Assert.Equal(-204538.0, decision.Delta, 3);
-        }
-
-        [Fact]
-        public void FundsGuard_WithBasis_StillClampsAnUnexplainedDrawdown()
-        {
-            // The pools without the crossed rows sit 6558 below live: a missing earning
-            // channel, which the crossing does not excuse.
-            double guardRunning = KspStatePatcher.ResolveClockCrossingGuardRunning(
-                325462.0, 325462.0, 530000.0);
-            var decision = KspStatePatcher.ResolveFundsPatch(
-                536558.0, 325462.0, guardRunning, authoritativeReduction: false);
-            Assert.True(decision.Clamped);
-        }
-
-        [Fact]
-        public void ReputationGuard_KeyedOnTheBasis_AppliesTheCrossedChange()
-        {
-            var unkeyed = KspStatePatcher.ResolveReputationPatch(2f, 1f, false);
-            Assert.True(unkeyed.Clamped);
-
-            var keyed = KspStatePatcher.ResolveReputationPatch(2f, 1f, false, guardRunningRep: 2.0);
-            Assert.False(keyed.Clamped);
-            Assert.True(keyed.ShouldWrite);
-            Assert.Equal(1f, keyed.EffectiveTarget);
         }
 
         [Fact]
@@ -191,7 +171,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ClockAdvance_PastSnapshotRows_LogsTheBasisWithoutThem()
+        public void ClockAdvance_PastSnapshotRows_LogsTheCrossing()
         {
             AddAll(FundsSeed(536558f), Spend(1000.0, 150000f, "ts-upgrade"), Hire(1000.2, "Verhat Kerman", 62113f));
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(409.9, "post-rewind-load");
@@ -201,13 +181,13 @@ namespace Parsek.Tests
 
             Assert.Equal(324445.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
             Assert.Contains(logLines, l => l.Contains("[LedgerOrchestrator]")
-                && l.Contains("Clock-crossing guard basis: crossed=2 committed-future row(s)")
+                && l.Contains("Clock-crossing reached committed-future rows: crossed=2")
                 && l.Contains("KerbalHire@1000.2")
-                && l.Contains("basisFunds=536558"));
+                && l.Contains("hires=1"));
         }
 
         [Fact]
-        public void ForwardTimeJump_PastSnapshotRows_UsesTheBasisToo()
+        public void ForwardTimeJump_PastSnapshotRows_IsACrossingToo()
         {
             AddAll(FundsSeed(536558f), Spend(1000.0, 150000f, "ts-upgrade"));
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(409.9, "post-rewind-load");
@@ -215,8 +195,7 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.RecalculateAndPatchForTimeJump(1100.0);
 
-            Assert.Contains(logLines, l => l.Contains("Clock-crossing guard basis: crossed=1")
-                && l.Contains("basisFunds=536558"));
+            Assert.Contains(logLines, l => l.Contains("Clock-crossing reached committed-future rows: crossed=1"));
         }
 
         [Fact]
@@ -247,11 +226,11 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.RecalculateAndPatchForClockAdvance(1000.5, "ksc-clock");
 
-            Assert.DoesNotContain(logLines, l => l.Contains("Clock-crossing guard basis"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Clock-crossing reached"));
         }
 
         [Fact]
-        public void LiveEventRecalc_NeverUsesTheBasis()
+        public void LiveEventRecalc_IsNeverACrossing()
         {
             AddAll(FundsSeed(1000f), Spend(1000.0, 100f, "future"));
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(400.0, "post-rewind-load");
@@ -259,11 +238,11 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.RecalculateAndPatchForLiveTimelineEvent(1300.0, "ksc-spending");
 
-            Assert.DoesNotContain(logLines, l => l.Contains("Clock-crossing guard basis"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Clock-crossing reached"));
         }
 
         [Fact]
-        public void ClockAdvance_AfterALoadInvalidatedTheSnapshot_UsesNoBasis()
+        public void ClockAdvance_AfterALoadInvalidatedTheSnapshot_IsNoCrossing()
         {
             AddAll(FundsSeed(1000f), Spend(1000.0, 100f, "future"));
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(400.0, "post-rewind-load");
@@ -272,7 +251,7 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.RecalculateAndPatchForClockAdvance(1300.0, "ksc-clock");
 
-            Assert.DoesNotContain(logLines, l => l.Contains("Clock-crossing guard basis"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Clock-crossing reached"));
         }
 
         // ================================================================

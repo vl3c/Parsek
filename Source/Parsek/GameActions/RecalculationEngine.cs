@@ -247,33 +247,6 @@ namespace Parsek
         internal static T ProbeModuleAtCutoff<T>(List<GameAction> actions, double utCutoff)
             where T : class, IResourceModule
         {
-            ProbedModules probe = ProbeModulesAtCutoff(actions, utCutoff);
-            return probe != null ? probe.Find<T>() : null;
-        }
-
-        /// <summary>
-        /// The clones one <see cref="ProbeModulesAtCutoff"/> walk produced, so a caller that
-        /// needs several modules' state at one cutoff pays for one walk.
-        /// </summary>
-        internal sealed class ProbedModules
-        {
-            internal List<IResourceModule> First;
-            internal IResourceModule Strategy;
-            internal List<IResourceModule> Second;
-            internal IResourceModule Facilities;
-
-            internal T Find<T>() where T : class, IResourceModule
-            {
-                return FindModule<T>(First) ?? (Strategy as T) ?? FindModule<T>(Second) ?? (Facilities as T);
-            }
-        }
-
-        /// <summary>
-        /// The walk behind <see cref="ProbeModuleAtCutoff{T}"/>, returning every probed
-        /// clone. Null when <paramref name="actions"/> is null.
-        /// </summary>
-        internal static ProbedModules ProbeModulesAtCutoff(List<GameAction> actions, double utCutoff)
-        {
             if (actions == null) return null;
             var all = CopyNonNullActions(actions);
             var effective = new List<GameAction>(all.Count);
@@ -300,13 +273,7 @@ namespace Parsek
                     ApplyProjectedAvailability(second, projected, utCutoff);
                     if (facilities != null) ApplyProjectedAvailability(facilities, projected, utCutoff);
 
-                    return new ProbedModules
-                    {
-                        First = first,
-                        Strategy = strategy,
-                        Second = second,
-                        Facilities = facilities
-                    };
+                    return FindModule<T>(first) ?? (strategy as T) ?? FindModule<T>(second) ?? (facilities as T);
                 }
             }
             finally

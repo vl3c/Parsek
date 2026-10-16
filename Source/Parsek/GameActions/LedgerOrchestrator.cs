@@ -2037,7 +2037,7 @@ namespace Parsek
         {
             // A forward jump (Warp to, the Missions / Recordings fast-forward, the Tracking
             // Station FF) moves the clock past committed-future rows the same way the clock
-            // cursor does, so the reached rows get the same guard basis; a backward jump
+            // cursor does, so the reached rows get the same treatment; a backward jump
             // reaches none of them.
             RunAsClockAdvance(() => RecalculateAndPatchForCurrentTimelineUT(utCutoff, "time-jump"));
         }
@@ -2142,9 +2142,8 @@ namespace Parsek
         }
 
         // Committed-future rows at the last applied patch (ActionIds of rows past that
-        // patch's cutoff). A clock-advance recalc that reaches some of them authorizes
-        // exactly their effect past the drawdown guard; see
-        // ComputeClockCrossingGuardBasis.
+        // patch's cutoff). A clock-advance recalc that reaches some of them may pass the
+        // drawdown guard; see ComputeClockCrossing.
         private static readonly HashSet<string> committedFutureActionIdsAtLastPatch =
             new HashSet<string>(StringComparer.Ordinal);
         private static bool committedFutureSnapshotValid;
@@ -2157,8 +2156,9 @@ namespace Parsek
         /// committed-future rows the clock just reached (rows past the previous applied
         /// patch's cutoff, so stock never charged them) are what moves the running pools
         /// away from live, which the drawdown guard would otherwise refuse as a missing
-        /// channel. The guard is keyed on the pools WITHOUT those rows instead, so their
-        /// effect applies once and any other divergence still clamps.
+        /// channel. Such a crossing passes the guard when live still holds what the last
+        /// patch left (nothing outside the ledger moved it), so the rows apply once; any
+        /// other divergence still clamps.
         /// </summary>
         internal static void RecalculateAndPatchForClockAdvance(double currentUT, string reason)
         {
@@ -2194,6 +2194,7 @@ namespace Parsek
             }
             committedFutureActionIdsAtLastPatch.Clear();
             committedFutureSnapshotValid = false;
+            KspStatePatcher.ForgetLastPoolPatches();
         }
 
         /// <summary>
@@ -2249,52 +2250,40 @@ namespace Parsek
         }
 
         /// <summary>
-        /// For a clock-advance recalc: the running pools the walk would produce WITHOUT the
-        /// committed-future rows this advance reached, which is what live must match when
-        /// the career is consistent. Null when no such row was reached (the guard then runs
-        /// unchanged).
+        /// For a clock-advance recalc: the committed-future rows (at the last applied patch)
+        /// this advance reaches, or null when it reaches none (the guard then runs
+        /// unchanged). The pool patches let such a crossing past the drawdown guard only
+        /// when live still holds what the last patch left
+        /// (<see cref="KspStatePatcher.IsLiveUnchangedSinceLastPatch"/>).
         /// </summary>
-        private static KspStatePatcher.ClockCrossingGuardBasis ComputeClockCrossingGuardBasis(
+        private static KspStatePatcher.ClockCrossing ComputeClockCrossing(
             List<GameAction> actions, double? utCutoff)
         {
             if (!committedFutureSnapshotValid || committedFutureActionIdsAtLastPatch.Count == 0)
                 return null;
             double cutoff = utCutoff ?? double.MaxValue;
             List<GameAction> crossed;
-            List<GameAction> rest = SplitCrossedCommittedFutureRows(
+            SplitCrossedCommittedFutureRows(
                 actions, committedFutureActionIdsAtLastPatch, cutoff, out crossed);
             if (crossed.Count == 0)
                 return null;
 
-            var probe = RecalculationEngine.ProbeModulesAtCutoff(rest, cutoff);
-            var funds = probe?.Find<FundsModule>();
-            var science = probe?.Find<ScienceModule>();
-            var rep = probe?.Find<ReputationModule>();
-            var basis = new KspStatePatcher.ClockCrossingGuardBasis
-            {
-                FundsRunning = funds != null ? funds.GetRunningBalance() : double.NaN,
-                ScienceRunning = science != null ? science.GetRunningScience() : double.NaN,
-                ReputationRunning = rep != null ? rep.GetRunningRep() : double.NaN,
-                CrossedRows = crossed.Count
-            };
+            var crossing = new KspStatePatcher.ClockCrossing { CrossedRows = crossed.Count };
+            var labels = new List<string>(Math.Min(crossed.Count, 10));
             for (int i = 0; i < crossed.Count; i++)
             {
                 if (crossed[i].Type == GameActionType.KerbalHire
                     && !string.IsNullOrEmpty(crossed[i].KerbalName))
-                    basis.CrossedHireKerbals.Add(crossed[i].KerbalName);
+                    crossing.CrossedHireKerbals.Add(crossed[i].KerbalName);
+                if (i < 10)
+                    labels.Add(crossed[i].Type + "@" + crossed[i].UT.ToString("R", CultureInfo.InvariantCulture));
             }
-
-            var labels = new List<string>(Math.Min(crossed.Count, 10));
-            for (int i = 0; i < crossed.Count && i < 10; i++)
-                labels.Add(crossed[i].Type + "@" + crossed[i].UT.ToString("R", CultureInfo.InvariantCulture));
             ParsekLog.Info(Tag,
-                $"Clock-crossing guard basis: crossed={crossed.Count.ToString(CultureInfo.InvariantCulture)} " +
-                $"committed-future row(s) [{string.Join(", ", labels.ToArray())}] " +
+                $"Clock-crossing reached committed-future rows: crossed={crossed.Count.ToString(CultureInfo.InvariantCulture)} " +
+                $"[{string.Join(", ", labels.ToArray())}] " +
                 $"cutoff={(utCutoff.HasValue ? utCutoff.Value.ToString("R", CultureInfo.InvariantCulture) : "null")} " +
-                $"basisFunds={basis.FundsRunning.ToString("R", CultureInfo.InvariantCulture)} " +
-                $"basisScience={basis.ScienceRunning.ToString("R", CultureInfo.InvariantCulture)} " +
-                $"basisRep={basis.ReputationRunning.ToString("R", CultureInfo.InvariantCulture)}");
-            return basis;
+                $"hires={crossing.CrossedHireKerbals.Count.ToString(CultureInfo.InvariantCulture)}");
+            return crossing;
         }
 
         /// <summary>
@@ -3433,12 +3422,12 @@ namespace Parsek
                     $"tombstone={tombstonePath}, " +
                     $"rewindResAdjust={RewindContext.RewindResourceAdjustmentInProgress})");
 
-                KspStatePatcher.ClockCrossingGuardBasis clockCrossingBasis =
+                KspStatePatcher.ClockCrossing clockCrossing =
                     clockAdvanceRecalcInProgress
-                        ? ComputeClockCrossingGuardBasis(actions, utCutoff)
+                        ? ComputeClockCrossing(actions, utCutoff)
                         : null;
-                var previousBasis = KspStatePatcher.ActiveClockCrossingGuardBasis;
-                KspStatePatcher.ActiveClockCrossingGuardBasis = clockCrossingBasis;
+                var previousCrossing = KspStatePatcher.ActiveClockCrossing;
+                KspStatePatcher.ActiveClockCrossing = clockCrossing;
                 try
                 {
                     ApplyRecalculatedStateToKsp(
@@ -3452,7 +3441,7 @@ namespace Parsek
                 }
                 finally
                 {
-                    KspStatePatcher.ActiveClockCrossingGuardBasis = previousBasis;
+                    KspStatePatcher.ActiveClockCrossing = previousCrossing;
                 }
                 CaptureCommittedFutureSnapshot(actions, utCutoff);
             }
@@ -3648,7 +3637,7 @@ namespace Parsek
             // kerbal back among the applicants); make it now, uncharged - but only when the
             // funds patch applied the reached rows' cost, so a clamped or skipped funds patch
             // leaves the hire and its charge both unmade, as before.
-            var crossing = KspStatePatcher.ActiveClockCrossingGuardBasis;
+            var crossing = KspStatePatcher.ActiveClockCrossing;
             if (crossing != null && crossing.CrossedHireKerbals.Count > 0)
             {
                 if (crossing.FundsApplied)

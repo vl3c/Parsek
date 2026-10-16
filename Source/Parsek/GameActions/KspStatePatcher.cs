@@ -243,13 +243,11 @@ namespace Parsek
             // The already-computed basis, NOT a second derivation - see the overload's note.
             double runningScience = ComputePendingAdjustedRunningScience(
                 preStrategyRunning, currentScience);
-            var clockBasis = ActiveClockCrossingGuardBasis;
-            if (clockBasis != null)
-                runningScience = ApplyActiveClockCrossingBasis(
-                    "Science", runningScience, science.GetRunningScience(),
-                    clockBasis.ScienceRunning, currentScience);
+            bool clockCrossingApplies = ResolveClockCrossingAuthorization(
+                "Science", currentScience, lastPatchedScience, lastSciencePatchClamped, 0.001);
             SciencePoolPatchDecision decision = ResolveSciencePoolPatch(
-                currentScience, targetScience, runningScience, authoritativeReduction);
+                currentScience, targetScience, runningScience,
+                authoritativeReduction || clockCrossingApplies);
             if (decision.Clamped)
             {
                 bool scienceDown = decision.Direction == ClampDirection.Down;
@@ -265,6 +263,8 @@ namespace Parsek
 
             if (!decision.ShouldWrite)
             {
+                RecordPoolPatch(ref lastPatchedScience, ref lastSciencePatchClamped,
+                    currentScience, decision.Clamped);
                 VerboseStablePatchState("patch-noop|science", decision.EffectiveTarget.ToString("F1", IC),
                     $"PatchScience: balance unchanged (current={currentScience.ToString("F1", IC)}, " +
                     $"target={decision.EffectiveTarget.ToString("F1", IC)})");
@@ -283,6 +283,8 @@ namespace Parsek
                 ResearchAndDevelopment.Instance.AddScience(decision.Delta, TransactionReasons.None);
 
                 float afterScience = ResearchAndDevelopment.Instance.Science;
+                RecordPoolPatch(ref lastPatchedScience, ref lastSciencePatchClamped,
+                    afterScience, decision.Clamped);
                 ParsekLog.Info(Tag,
                     $"PatchScience: {currentScience.ToString("F1", IC)} -> {afterScience.ToString("F1", IC)} " +
                     $"(delta={decision.Delta.ToString("F1", IC)}, target={decision.EffectiveTarget.ToString("F1", IC)})");
@@ -2133,14 +2135,14 @@ namespace Parsek
             // GetRunningBalance() intact, so it never trips this; a missing-earning leak
             // lowers the running balance itself, so it does.
             double runningFunds = funds.GetRunningBalance();
-            var clockBasis = ActiveClockCrossingGuardBasis;
-            if (clockBasis != null)
-                runningFunds = ApplyActiveClockCrossingBasis(
-                    "Funds", runningFunds, runningFunds, clockBasis.FundsRunning, currentFunds);
+            bool clockCrossingApplies = ResolveClockCrossingAuthorization(
+                "Funds", currentFunds, lastPatchedFunds, lastFundsPatchClamped, 0.01);
             FundsPatchDecision decision = ResolveFundsPatch(
-                currentFunds, targetFunds, runningFunds, authoritativeReduction);
-            if (clockBasis != null)
-                clockBasis.FundsApplied = !decision.Clamped;
+                currentFunds, targetFunds, runningFunds,
+                authoritativeReduction || clockCrossingApplies);
+            var crossing = ActiveClockCrossing;
+            if (crossing != null)
+                crossing.FundsApplied = !decision.Clamped;
             if (decision.Clamped)
             {
                 bool fundsDown = decision.Direction == ClampDirection.Down;
@@ -2156,6 +2158,8 @@ namespace Parsek
 
             if (!decision.ShouldWrite)
             {
+                RecordPoolPatch(ref lastPatchedFunds, ref lastFundsPatchClamped,
+                    currentFunds, decision.Clamped);
                 VerboseStablePatchState("patch-noop|funds", decision.EffectiveTarget.ToString("F1", IC),
                     $"PatchFunds: no change needed (current={currentFunds.ToString("F1", IC)}, " +
                     $"target={decision.EffectiveTarget.ToString("F1", IC)})");
@@ -2178,6 +2182,8 @@ namespace Parsek
             Funding.Instance.AddFunds(decision.Delta, TransactionReasons.None);
 
             double afterFunds = Funding.Instance.Funds;
+            RecordPoolPatch(ref lastPatchedFunds, ref lastFundsPatchClamped,
+                afterFunds, decision.Clamped);
             ParsekLog.Info(Tag,
                 $"PatchFunds: {currentFunds.ToString("F1", IC)} -> {afterFunds.ToString("F1", IC)} " +
                 $"(delta={decision.Delta.ToString("F1", IC)}, target={decision.EffectiveTarget.ToString("F1", IC)})");
@@ -2238,19 +2244,8 @@ namespace Parsek
         internal static ReputationPatchDecision ResolveReputationPatch(
             float currentRep, float targetRep, bool authoritativeReduction)
         {
-            return ResolveReputationPatch(currentRep, targetRep, authoritativeReduction, targetRep);
-        }
-
-        /// <summary>
-        /// <see cref="ResolveReputationPatch(float,float,bool)"/> with the guard keyed on
-        /// <paramref name="guardRunningRep"/> instead of the target (a clock-advance patch
-        /// takes the reached committed-future rows' effect out of it).
-        /// </summary>
-        internal static ReputationPatchDecision ResolveReputationPatch(
-            float currentRep, float targetRep, bool authoritativeReduction, double guardRunningRep)
-        {
             double effTargetRaw = ApplyDrawdownGuard(
-                targetRep, guardRunningRep, currentRep, 0.01,
+                targetRep, targetRep, currentRep, 0.01,
                 authoritativeReduction, "reputation", out bool clamped, out ClampDirection direction);
             float effTarget = (float)effTargetRaw;
             bool shouldWrite = Math.Abs(effTarget - currentRep) >= 0.01f;
@@ -2297,19 +2292,16 @@ namespace Parsek
             // plain target-vs-live check, and "downward" is by magnitude (< live - eps) so
             // negative rep is handled. Express the clamp against the SetReputation
             // semantics: "do not set below live".
-            double guardRunningRep = targetRep;
-            var clockBasis = ActiveClockCrossingGuardBasis;
-            if (clockBasis != null)
-                guardRunningRep = ApplyActiveClockCrossingBasis(
-                    "Reputation", targetRep, targetRep, clockBasis.ReputationRunning, currentRep);
+            bool clockCrossingApplies = ResolveClockCrossingAuthorization(
+                "Reputation", currentRep, lastPatchedReputation, lastReputationPatchClamped, 0.01);
             ReputationPatchDecision decision = ResolveReputationPatch(
-                currentRep, targetRep, authoritativeReduction, guardRunningRep);
+                currentRep, targetRep, authoritativeReduction || clockCrossingApplies);
             if (decision.Clamped)
             {
                 bool repDown = decision.Direction == ClampDirection.Down;
                 ref bool repLatch = ref DrawdownGuardSessionToastLatch("Reputation", decision.Direction);
                 EmitDrawdownGuardClamp(
-                    "Reputation", guardRunningRep, currentRep,
+                    "Reputation", targetRep, currentRep,
                     wouldBeTarget: targetRep, clampedTo: decision.EffectiveTargetRaw,
                     toastText: repDown ? "Held your reputation at the current value" : "Kept your earned reputation",
                     sessionToastLatch: ref repLatch,
@@ -2319,6 +2311,8 @@ namespace Parsek
 
             if (!decision.ShouldWrite)
             {
+                RecordPoolPatch(ref lastPatchedReputation, ref lastReputationPatchClamped,
+                    currentRep, decision.Clamped);
                 VerboseStablePatchState("patch-noop|reputation", decision.EffectiveTarget.ToString("F2", IC),
                     $"PatchReputation: no change needed (current={currentRep.ToString("F2", IC)}, " +
                     $"target={decision.EffectiveTarget.ToString("F2", IC)})");
@@ -2328,6 +2322,8 @@ namespace Parsek
             Reputation.Instance.SetReputation(decision.EffectiveTarget, TransactionReasons.None);
 
             float afterRep = Reputation.Instance.reputation;
+            RecordPoolPatch(ref lastPatchedReputation, ref lastReputationPatchClamped,
+                afterRep, decision.Clamped);
             ParsekLog.Info(Tag,
                 $"PatchReputation: {currentRep.ToString("F2", IC)} -> {afterRep.ToString("F2", IC)} " +
                 $"(target={decision.EffectiveTarget.ToString("F2", IC)})");
@@ -4507,15 +4503,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The running pools a clock-advance walk would produce without the committed-future
-        /// rows the clock just reached (<see cref="LedgerOrchestrator.RecalculateAndPatchForClockAdvance"/>).
-        /// NaN for a pool the probe could not read.
+        /// One clock-advance patch that reached committed-future rows
+        /// (<see cref="LedgerOrchestrator.RecalculateAndPatchForClockAdvance"/>).
         /// </summary>
-        internal sealed class ClockCrossingGuardBasis
+        internal sealed class ClockCrossing
         {
-            internal double FundsRunning = double.NaN;
-            internal double ScienceRunning = double.NaN;
-            internal double ReputationRunning = double.NaN;
             internal int CrossedRows;
             /// <summary>Kerbals named by the reached committed-future KerbalHire rows.</summary>
             internal readonly List<string> CrossedHireKerbals = new List<string>();
@@ -4525,41 +4517,71 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Set by the orchestrator around one clock-advance patch (try/finally), null
-        /// otherwise. Read by the pool patches to re-key the drawdown guard.
+        /// Set by the orchestrator around one clock-advance patch that reached committed-future
+        /// rows (try/finally), null otherwise.
         /// </summary>
-        internal static ClockCrossingGuardBasis ActiveClockCrossingGuardBasis;
+        internal static ClockCrossing ActiveClockCrossing;
 
-        /// <summary>
-        /// Pure: the guard's running value with the crossed rows' effect taken out. The
-        /// reached committed-future rows move the raw running pool from
-        /// <paramref name="basisRunning"/> to <paramref name="rawRunningNow"/>; live has not
-        /// moved for them yet, so the guard compares live against
-        /// <paramref name="guardRunning"/> minus that move. A non-finite basis leaves the
-        /// guard unchanged.
-        /// </summary>
-        internal static double ResolveClockCrossingGuardRunning(
-            double guardRunning, double rawRunningNow, double basisRunning)
+        // What each pool read right after the last patch that reached it, and whether that
+        // patch clamped. NaN: unknown (never patched, skipped, or a load since).
+        private static double lastPatchedFunds = double.NaN;
+        private static bool lastFundsPatchClamped;
+        private static double lastPatchedScience = double.NaN;
+        private static bool lastSciencePatchClamped;
+        private static double lastPatchedReputation = double.NaN;
+        private static bool lastReputationPatchClamped;
+
+        private static void RecordPoolPatch(
+            ref double lastPatched, ref bool lastClamped, double liveAfter, bool clamped)
         {
-            if (double.IsNaN(basisRunning) || double.IsInfinity(basisRunning)
-                || double.IsNaN(rawRunningNow) || double.IsInfinity(rawRunningNow))
-                return guardRunning;
-            return guardRunning - (rawRunningNow - basisRunning);
+            lastPatched = liveAfter;
+            lastClamped = clamped;
         }
 
-        private static double ApplyActiveClockCrossingBasis(
-            string resource, double guardRunning, double rawRunningNow, double basisRunning,
-            double currentLive)
+        /// <summary>
+        /// Forgets what the pools read after the last patch. A load replaces the live pools
+        /// with the save's, so the earlier reading no longer describes them.
+        /// </summary>
+        internal static void ForgetLastPoolPatches()
         {
-            double adjusted = ResolveClockCrossingGuardRunning(guardRunning, rawRunningNow, basisRunning);
-            if (adjusted != guardRunning)
-            {
-                ParsekLog.Info(Tag,
-                    $"Patch{resource}: clock-crossing guard basis running={guardRunning.ToString("R", IC)} " +
-                    $"crossedEffect={(rawRunningNow - basisRunning).ToString("R", IC)} " +
-                    $"guardRunning={adjusted.ToString("R", IC)} live={currentLive.ToString("R", IC)}");
-            }
-            return adjusted;
+            lastPatchedFunds = double.NaN;
+            lastFundsPatchClamped = false;
+            lastPatchedScience = double.NaN;
+            lastSciencePatchClamped = false;
+            lastPatchedReputation = double.NaN;
+            lastReputationPatchClamped = false;
+        }
+
+        /// <summary>
+        /// Pure: may a clock-advance patch move a pool to the walk's target past the
+        /// drawdown guard? Only when the live pool still holds exactly what the last patch
+        /// left there, and that patch did not clamp. Then nothing outside the ledger has
+        /// touched the pool since, and the whole change is the reached committed-future rows
+        /// (their costs, and the reservations they release). Anything else - a pool moved
+        /// by stock since, a standing clamp, an unknown last patch - keeps the guard.
+        /// </summary>
+        internal static bool IsLiveUnchangedSinceLastPatch(
+            double currentLive, double lastPatchedLive, bool lastPatchClamped, double epsilon)
+        {
+            if (lastPatchClamped) return false;
+            if (double.IsNaN(lastPatchedLive) || double.IsInfinity(lastPatchedLive)) return false;
+            if (double.IsNaN(currentLive) || double.IsInfinity(currentLive)) return false;
+            return Math.Abs(currentLive - lastPatchedLive) <= epsilon;
+        }
+
+        private static bool ResolveClockCrossingAuthorization(
+            string resource, double currentLive, double lastPatchedLive, bool lastPatchClamped,
+            double epsilon)
+        {
+            if (ActiveClockCrossing == null)
+                return false;
+            bool applies = IsLiveUnchangedSinceLastPatch(
+                currentLive, lastPatchedLive, lastPatchClamped, epsilon);
+            ParsekLog.Info(Tag,
+                $"Patch{resource}: clock-crossing {(applies ? "applies the reached rows" : "keeps the guard")}: " +
+                $"live={currentLive.ToString("R", IC)} lastPatched={lastPatchedLive.ToString("R", IC)} " +
+                $"lastPatchClamped={lastPatchClamped}");
+            return applies;
         }
 
         /// <summary>
@@ -4921,7 +4943,8 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             SuppressUnityCallsForTesting = false;
-            ActiveClockCrossingGuardBasis = null;
+            ActiveClockCrossing = null;
+            ForgetLastPoolPatches();
             PartPurchaseLiveUtProviderForTesting = null;
             ResourceScanLiveUtProviderForTesting = null;
             AllowNegativeCurrencyProviderForTesting = null;
