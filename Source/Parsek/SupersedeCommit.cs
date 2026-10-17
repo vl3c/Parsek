@@ -2176,6 +2176,12 @@ namespace Parsek
                 // IsSupersedeTombstoneEligible, and the rewind quicksave predates the scan,
                 // so a strict block would protect nothing.
                 case GameActionType.ResourceScanUnlocked:
+                // ScienceLabEarning: the lab's subject-less science credit. The merge
+                // retires it through IsSupersedeTombstoneEligible exactly like the
+                // StrategyScienceCredit above, so a strict block would only refuse a merge
+                // over a row the same merge tombstones; without this arm the new type
+                // would strict-block every supersede over a lab that transmitted.
+                case GameActionType.ScienceLabEarning:
                     return false;
             }
 
@@ -2840,6 +2846,8 @@ namespace Parsek
                 // Strategy currency-converter science yield: counted with the science
                 // earnings, the direction it actually moves the pool.
                 case GameActionType.StrategyScienceCredit:
+                // Science lab credit: a science earning without a subject.
+                case GameActionType.ScienceLabEarning:
                     science++;
                     break;
                 case GameActionType.FundsEarning:

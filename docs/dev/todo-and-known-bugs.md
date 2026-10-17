@@ -2097,7 +2097,7 @@ with a red test once confirmed.
 - [ ] Stale lanes: H38 / H39 / H40 / HV-1 not green since the 10-07 and 10-15 logistics changes; H58 and EVA-5 re-pinned, never re-flown. Roadmap XS-2.
 - [ ] EVA-CONSTRUCTION-GHOST-SHAPE-NEVER-CHANGES (suspected defect): playback never reads `SegmentEventType.PartAdded / PartRemoved` (only `GhostingTriggerClassifier` and `ForeignInventoryTransfer` name them), though the flight-recorder design says the ghost renders the part from that UT. Roadmap XS-3.
 - [ ] CLAIMED-VESSEL-HAS-NO-GHOST-BEFORE-ITS-MEMBER (suspected defect): `VesselGhoster.GhostVessel` despawns the claimed vessel and creates no ghost (`VesselGhoster.cs:155-168`), so it is missing after a rewind until its member recording starts. Roadmap XS-3.
-- [ ] Lab science and the ledger: science reaches the ledger only with a subject (`GameStateEventConverter.cs:326-345`, `GameStateRecorder.cs:1063`, `:1153`); whether stock's lab transmit carries one needs a decompile. Roadmap XS-4, XS-5 (GC-8).
+- [x] ~~Lab science and the ledger: science reaches the ledger only with a subject (`GameStateEventConverter.cs:326-345`, `GameStateRecorder.cs:1063`, `:1153`); whether stock's lab transmit carries one needs a decompile. Roadmap XS-4, XS-5 (GC-8).~~ Decompiled 2026-10-17: it carries none; filed and fixed as LAB-SCIENCE-NEVER-LEDGERED (xUnit; lane pending).
 - [x] ~~TA-6 outside the physics bubble: see TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND. Roadmap MINE-3.~~ Fixed 2026-10-17 (xUnit; lane pending).
 - [ ] Contracts x Re-Fly never executes (the in-game cell skips on every host). Roadmap XS-6.
 - [ ] EVA hop across 2-3 vessels and a crew transfer while docked then undock: never flown (no spec passes `EvaBoard targetPid`, no crew-transfer verb); a crew transfer is not recorded by design (`SwitchSegmentNoOpClassifier.cs:146-161`), and a kerbal moved into another tree's vessel keeps the first tree's hold (`KerbalsModule.cs:1318-1335`). Roadmap XS-7.
@@ -3149,6 +3149,34 @@ Fix: to trace - decide which recordings under the Re-Fly scope belong to the aba
 
 ---
 
+## ~~LAB-SCIENCE-NEVER-LEDGERED: science the Mobile Processing Lab transmits or pays out on recovery never reached the ledger~~ [FILED AND FIXED 2026-10-17 from the CROSS-SYSTEM-COVERAGE-GAPS-2026-10-16 lab question, branch `claude/lab-isru-drill-coverage-5oq37h` (xUnit; lane pending)]
+
+Decompiled KSP 1.12.5: `ModuleScienceLab.OnTransmissionComplete` (the lab's own
+`OnTriggeredDataTransmission` handler for its `sciencelab@` data) calls
+`ResearchAndDevelopment.AddScience(storedScience, ScienceTransmission)`, and
+`ModuleScienceLab.RecoverScienceLabs` calls `AddScience(sum, VesselRecovery)`. Triggered data
+never opens an `RnDCommsStream` (`ModuleDataTransmitter`, `if (!data.triggered)`), so no
+`SubmitScienceData` / `OnScienceRecieved` fires and the subject channel never saw lab science; the
+paired `ScienceChanged` is dropped on purpose. Effect: every lab transmission fired the commit
+reconcile's "missing earning channel" WARN, the patcher's drawdown guard held the science in-session
+("Kept your earned science"), and after a rewind (authoritative reduction) the science was gone,
+while the spawned lab's snapshot no longer held it. Design 15.7 of the flight-recorder doc promised
+it as an earning action. (Also seen in the decompile: stock credits the whole `storedScience` but
+subtracts only its floor, a stock quirk the pool-delta capture records as it is.)
+
+Fix: Harmony prefix / postfix pairs on both methods read the R&D pool around the call
+(`Patches/ScienceLabCreditCapturePatch.cs`) and call `GameStateRecorder.OnScienceLabCredited`,
+which emits `ScienceLabCredited` (event 24; key = stock reason, pool before / after,
+`vessel=` detail), tagged and forwarded like the scan event. It converts to
+`ScienceLabEarning` (action 38; `scienceAwarded`, `method`), which `ScienceModule.ProcessLabEarning`
+credits uncapped; it is an earning, resource-impacting, counted on the reconcile's emitted side and
+as committed credit in the pending KSC science credit, tombstone-eligible, and never strict-blocks a
+supersede. Tests: `ScienceLabLedgerTests` (event / conversion, the recorder's untagged and tagged
+paths, round trip, uncapped walk, a rewind cutoff before / after the payout, the reconcile WARN
+before and its absence after) plus the exhaustive per-type tables. Live proof: lane pending.
+
+---
+
 ## ~~TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND: a loaded miner or ISRU produces over a Real Spawn Control warp but not over a fast-forward of the same length~~ [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-17, branch `claude/lab-isru-drill-coverage-5oq37h` (xUnit; lane pending)]
 
 `TimeJumpManager.ExecuteForwardJump` resets converter `lastUpdateTime` on loaded vessels
@@ -3179,7 +3207,7 @@ catches up `now - lastUpdateTime` in `GetMaxDeltaTime` slices until closed, and 
 carry `lastUpdateTime` in the module node. One Info summary per jump (`Converter jump policy (...)`).
 Tests: `ConverterJumpPolicyTests` (pure shift rules, the snapshot rewrite, the per-vessel walk and
 a source gate that both entry points apply it; the gate was shown red with the `ExecuteJump` call
-removed). Live proof: the lane for LAB-ISRU-DRILL coverage below.
+removed). Live proof: lane pending.
 
 ---
 

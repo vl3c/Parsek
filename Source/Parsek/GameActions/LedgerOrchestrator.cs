@@ -942,6 +942,13 @@ namespace Parsek
                             // absent from the emitted side.)
                             deltas.EmittedSciDelta += a.ScienceAwarded;
                             break;
+                        case GameActionType.ScienceLabEarning:
+                            // The lab's subject-less credit: its ScienceChanged
+                            // (ScienceTransmission / VesselRecovery) is on the store side,
+                            // and before this row existed it fired the "missing earning
+                            // channel" WARN on every lab transmission.
+                            deltas.EmittedSciDelta += a.ScienceAwarded;
+                            break;
                     }
                 }
             }
@@ -1384,6 +1391,11 @@ namespace Parsek
                 // Same shape, same two limitations, for the OUTPUT direction.
                 case GameActionType.StrategyScienceCredit:
                     return (a.RecordingId ?? "") + ":" +
+                           a.ScienceAwarded.ToString("R", CultureInfo.InvariantCulture);
+                // Science lab credit: no subject, so the method and the amount are the only
+                // disambiguators between two labs paying out at one UT.
+                case GameActionType.ScienceLabEarning:
+                    return (a.RecordingId ?? "") + ":" + (int)a.Method + ":" +
                            a.ScienceAwarded.ToString("R", CultureInfo.InvariantCulture);
                 // The query-family reputation OUTPUT leg. Same shape and same two honest
                 // limitations as the science rows above: no strategy identity is available
@@ -3278,6 +3290,7 @@ namespace Parsek
                 // tracked to LedgerHasScienceTimelineActions.
                 case GameActionType.StrategyScienceDebit:
                 case GameActionType.StrategyScienceCredit:
+                case GameActionType.ScienceLabEarning:
                     return true;
                 case GameActionType.ContractComplete:
                     return action.ScienceReward != 0f || action.TransformedScienceReward != 0f;
@@ -8231,6 +8244,9 @@ namespace Parsek
                     // multiplier frozen on the row at capture.
                     if (action.Type == GameActionType.ScienceEarning)
                         committedCredit += action.GetScienceAwardedPoolCredit();
+                    // The lab credit is observed under the same subject reason keys.
+                    else if (action.Type == GameActionType.ScienceLabEarning)
+                        committedCredit += action.ScienceAwarded;
                     else if (action.Type == GameActionType.StrategyScienceDebit
                              && action.ConversionSource == StrategyConversionSource.Converter)
                         converterTake += action.Cost;

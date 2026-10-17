@@ -281,6 +281,17 @@ namespace Parsek
                                      "reason-keyed event exists for the query family"
                     };
 
+                case GameActionType.ScienceLabEarning:
+                    // The science lab's subject-less credit, built FROM the very pool delta
+                    // a reconcile leg would pair against (the lab's AddScience under
+                    // ScienceTransmission / VesselRecovery), so the pair is self-consistent
+                    // and an Untransformed leg could never catch anything.
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Transformed,
+                        SkipReason = "science lab credit -- captured from its own pool delta"
+                    };
+
                 case GameActionType.StrategyScienceDebit:
                     // The science INPUT leg of a strategy currency exchange, captured
                     // DIRECTLY from the very ScienceChanged(StrategyInput) event a

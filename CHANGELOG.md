@@ -35,6 +35,9 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Science from the Mobile Processing Lab now counts in your career.** Lab science you transmit
+  or recover is kept by Parsek, so it is no longer lost after a rewind or held back with a "Kept
+  your earned science" notice. (LAB-SCIENCE-NEVER-LEDGERED)
 - **Skipping time no longer gives drills, ISRUs, fuel cells or labs free production.** A
   Real Spawn Control warp now pauses them like fast-forward always did, and a vessel far away is
   paused too: it no longer makes hours of ore or lab data the next time you visit it. (TA-6)

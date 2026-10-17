@@ -1810,9 +1810,9 @@ Ghosts represent vessels that exist in the world pending chain resolution. They 
 
 Passive background processes (science lab processing, ore drilling, ISRU conversion) generate resources on real vessels over time. When a vessel is ghosted, these processes are not running — the ghost is a Unity GameObject, not a KSP Vessel.
 
-**This is not a gap.** All passive earnings were already captured during the original playthrough and exist as committed game actions on the timeline. The game actions system's recalculation walk processes them regardless of ghost status. Science earned by a lab during the recording's time span is an immutable earning action on the timeline. Funds from contract milestones are on the timeline. Everything is on the timeline.
+**This is not a gap.** All passive earnings were already captured during the original playthrough and exist as committed game actions on the timeline. The game actions system's recalculation walk processes them regardless of ghost status. Science a lab transmits (or pays out on recovery) during the recording's time span is an immutable `ScienceLabEarning` action on the timeline; data the lab is still processing travels in the spawned vessel's snapshot. Funds from contract milestones are on the timeline. Everything is on the timeline.
 
-After the chain tip fires and the real vessel spawns, all passive processes resume normally from that point forward. Any new passive earnings are captured when the player eventually commits.
+After the chain tip fires and the real vessel spawns, all passive processes resume normally from that point forward. A Parsek time jump (fast-forward, Real Spawn Control warp) is not production time: both jump kinds shift every converter's `lastUpdateTime` by the jump delta, loaded or not (`ConverterJumpPolicy`). Any new passive earnings are captured when the player eventually commits.
 
 ### 15.8 Ghost Visual Effects and Audio
 

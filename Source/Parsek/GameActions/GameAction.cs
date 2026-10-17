@@ -301,7 +301,21 @@ namespace Parsek
         /// strict-block. Explicitly numbered and append-only; an older build reads it as an
         /// unknown type (Warn) and loses only the re-apply there.
         /// </summary>
-        ResourceScanUnlocked = 37
+        ResourceScanUnlocked = 37,
+
+        /// <summary>
+        /// Science the Mobile Processing Lab credited to the pool with no science subject:
+        /// a lab transmission (<c>ModuleScienceLab.OnTransmissionComplete</c>,
+        /// <see cref="ScienceMethod.Transmitted"/>) or the lab's stored science paid out on
+        /// recovery (<c>ModuleScienceLab.RecoverScienceLabs</c>, <see cref="ScienceMethod.Recovered"/>).
+        /// Stock adds it straight through <c>AddScience</c>, so no <c>OnScienceRecieved</c>
+        /// and no <see cref="ScienceEarning"/> row exist for it (decompiled KSP 1.12.5).
+        /// Carries the pool credit in <see cref="GameAction.ScienceAwarded"/> and is applied
+        /// uncapped (there is no subject to cap against). Retired with its owner by a Re-Fly
+        /// supersede. Explicitly numbered and append-only; an older build reads it as an
+        /// unknown type (Warn) and loses only the credit there.
+        /// </summary>
+        ScienceLabEarning = 38
     }
 
     /// <summary>
@@ -1297,6 +1311,9 @@ namespace Parsek
                 case GameActionType.ResourceScanUnlocked:
                     SerializeResourceScanUnlocked(node);
                     break;
+                case GameActionType.ScienceLabEarning:
+                    SerializeScienceLabEarning(node);
+                    break;
                 case GameActionType.FacilityUpgrade:
                     SerializeFacilityUpgrade(node);
                     break;
@@ -1465,6 +1482,9 @@ namespace Parsek
                     break;
                 case GameActionType.ResourceScanUnlocked:
                     DeserializeResourceScanUnlocked(node, a);
+                    break;
+                case GameActionType.ScienceLabEarning:
+                    DeserializeScienceLabEarning(node, a);
                     break;
                 case GameActionType.FacilityUpgrade:
                     DeserializeFacilityUpgrade(node, a);
@@ -1997,6 +2017,19 @@ namespace Parsek
             a.ScanBodyName = n.GetValue("scanBody");
             string biome = n.GetValue("scanBiome");
             a.ScanBiomeName = string.IsNullOrEmpty(biome) ? null : biome;
+        }
+
+        // ScienceLabEarning: the pool credit and how the lab paid it out; no subject.
+        private void SerializeScienceLabEarning(ConfigNode n)
+        {
+            n.AddValue("scienceAwarded", ScienceAwarded.ToString("R", IC));
+            n.AddValue("method", ((int)Method).ToString(IC));
+        }
+
+        private static void DeserializeScienceLabEarning(ConfigNode n, GameAction a)
+        {
+            TryParseFloat(n, "scienceAwarded", out a.ScienceAwarded);
+            TryParseEnum(n, "method", out a.Method);
         }
 
         private void SerializeFacilityUpgrade(ConfigNode n)
