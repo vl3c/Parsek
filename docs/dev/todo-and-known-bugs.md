@@ -4048,8 +4048,26 @@ a Re-Fly tombstone retired, `onceKey` credits a milestone once. A missing clock 
 INVALID(tooling), a window straddling the clock a hard `timeline-unplaceable` divergence. Cells:
 `test_oracle.RewindAwareTimelineTests`, `test_ledger_timeline.py`, `LedgerGroundTruthParserTests`,
 `ReportWriterTests`. Lane `L8-career-repeated-rewinds` (three Rewind-to-Launch on a career with
-KSC spending, two recovered flights, LedgerGroundTruth after the third rewind) is authored, not yet
-flown. Still open: the route action types.
+KSC spending, two recovered flights, LedgerGroundTruth after the third rewind) is authored; its
+first reading run (`2026-10-17_0632`) was INVALID on driver gaps, now fixed: `InvokeRewindToLaunch`
+runs from the Space Center as well as FLIGHT (`VerbSceneRequirement.RequiresRewindScene`, deferring
+`not-in-rewind-scene` elsewhere), a `KscAction upgrade-facility` that stock did not apply reads
+`upgrade-not-applied` and only a refusal by Parsek's guard reads `blocked-committed`
+(`FacilityUpgradePatch.BlockedUpgradeCount`), and the lane commits each pad flight before
+recovering it. Still open: the route action types.
+
+---
+
+## HIRE-RECALC-BEFORE-STOCK-DEBIT: a KSC hire logs a funds drawdown clamp and a reconciliation warning before stock charges it [FILED 2026-10-17 from the L8 reading run `2026-10-17_0632`. OPEN, product, low]
+
+Hiring at the Space Center runs Parsek's `OnCrewmemberHired` recalc before stock Funding's
+listener debits the hire. The recalc already holds the KerbalHire row, so running funds sit the
+hire cost below live and the patch clamps (`GUARDED DRAWDOWN clamped resource=Funds running=292069
+live=354182`, a gap of exactly 62113), and the KSC reconciliation warns `KerbalHire ... no matching
+FundsChanged`. Stock's debit then lands and the next recalc agrees, so the pools end right; the
+cost is one misleading WRN pair per hire. A fix would defer the hire recalc one frame (or past
+Funding's listener) so it sees the debited pool. L8 tolerates the funds drawdown clamp for this
+reason and still forbids an uplift or a science / reputation drawdown.
 
 ---
 

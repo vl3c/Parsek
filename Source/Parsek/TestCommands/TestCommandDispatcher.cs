@@ -325,6 +325,11 @@ namespace Parsek.TestCommands
         /// FLIGHT, the Space Center or the Tracking Station; else
         /// Defer(not-in-vessel-list-scene). ReadVesselResources only.</summary>
         RequiresVesselListScene,
+
+        /// <summary>Requires a scene whose Parsek window offers the Recordings table's "R"
+        /// (Rewind-to-Launch) button: FLIGHT or the Space Center; else
+        /// Defer(not-in-rewind-scene). InvokeRewindToLaunch only.</summary>
+        RequiresRewindScene,
     }
 
     /// <summary>
@@ -408,6 +413,22 @@ namespace Parsek.TestCommands
             => scene == TestCommandScene.Flight
                || scene == TestCommandScene.SpaceCenter
                || scene == TestCommandScene.TrackingStation;
+
+        /// <summary>
+        /// The wrong-scene DEFER token for a <see cref="VerbSceneRequirement.RequiresRewindScene"/>
+        /// verb (InvokeRewindToLaunch): the run is in a scene with no Recordings table (the main
+        /// menu, the editor, the Tracking Station). A bounded defer, the FLIGHT verbs' shape.
+        /// </summary>
+        internal const string NotInRewindSceneReason = "not-in-rewind-scene";
+
+        /// <summary>
+        /// The scenes whose Parsek window draws the Recordings table with its "R" button:
+        /// FLIGHT (<c>UIMode.Flight</c>) and the Space Center (<c>UIMode.KSC</c>). The button
+        /// draws in both modes with the same <c>RecordingStore.CanRewind</c> gate.
+        /// </summary>
+        internal static bool IsRewindScene(TestCommandScene scene)
+            => scene == TestCommandScene.Flight
+               || scene == TestCommandScene.SpaceCenter;
 
         /// <summary>
         /// FLIGHT verbs that answer <c>REJECTED not-in-flight</c> at once in a settled
@@ -529,12 +550,11 @@ namespace Parsek.TestCommands
                 // instance, stock declined the switch) are executor-side and typed REJECTED.
                 ["EnterMapView"] = VerbSceneRequirement.RequiresFlight,
                 ["ExitMapView"] = VerbSceneRequirement.RequiresFlight,
-                // Rewind-to-Launch. RequiresFlight for the same reason as InvokeRewind (the
-                // OTHER, Re-Fly, mechanism): both reload the world out from under the
-                // current scene, and the "R" button this one reproduces is offered from the
-                // in-flight Recordings table. The rewind-specific guards below mirror
-                // InvokeRewind's triple verbatim.
-                ["InvokeRewindToLaunch"] = VerbSceneRequirement.RequiresFlight,
+                // Rewind-to-Launch. RequiresRewindScene: the "R" button this verb reproduces
+                // is drawn by the Recordings table in FLIGHT and at the Space Center alike
+                // (same CanRewind gate), and the rewind always lands in the Space Center. The
+                // rewind-specific guards below mirror InvokeRewind's triple verbatim.
+                ["InvokeRewindToLaunch"] = VerbSceneRequirement.RequiresRewindScene,
                 // Logistics lane. RequiresGameLoaded, NOT RequiresFlight, and the choice
                 // is load-bearing rather than permissive. Both verbs read and mutate
                 // SAVE-scoped stores (RecordingStore.CommittedTrees,
@@ -710,6 +730,8 @@ namespace Parsek.TestCommands
                 return DispatchResult.Defer(NotInVesselSceneReason);
             if (req == VerbSceneRequirement.RequiresVesselListScene && !IsVesselListScene(state.Scene))
                 return DispatchResult.Defer(NotInVesselListSceneReason);
+            if (req == VerbSceneRequirement.RequiresRewindScene && !IsRewindScene(state.Scene))
+                return DispatchResult.Defer(NotInRewindSceneReason);
 
             // 4. Per-verb extra guards (mirroring how the LoadGame guards live here).
             switch (parsed.Verb)

@@ -616,5 +616,14 @@ namespace Parsek.Tests
                 System.Threading.Thread.CurrentThread.CurrentCulture = saved;
             }
         }
+
+        [Fact]
+        public void UpgradeNotApplied_IsBlockedCommittedOnlyWhenTheGuardRefused()
+        {
+            // A second upgrade of an already-upgraded facility can leave the level unchanged
+            // with the guard ALLOWING it; that is stock's no-op, not a committed-timeline block.
+            Assert.Equal("blocked-committed", TestCommandKscAction.UpgradeNotAppliedReason(true));
+            Assert.Equal("upgrade-not-applied", TestCommandKscAction.UpgradeNotAppliedReason(false));
+        }
     }
 }

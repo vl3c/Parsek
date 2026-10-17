@@ -10866,6 +10866,8 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # repaired nothing, e.g. its CanAfford gate declined).
     "demolish-not-applied": "driver-gate",
     "repair-not-applied": "driver-gate",
+    # upgrade-facility whose level did not move while Parsek's guard allowed it.
+    "upgrade-not-applied": "driver-gate",
     # KscAction activate-strategy / deactivate-strategy (the Administration building's
     # activate and cancel). A name the strategy system does not know and an unparseable
     # commitment are the SPEC's fault; an already-active / not-active strategy, a full slot

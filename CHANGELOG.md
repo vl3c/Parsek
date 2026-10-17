@@ -148,8 +148,8 @@ _(unreleased - entries accumulate here per commit)_
 
 - **Harness: ledger checks can now run on lanes that rewind.** A test can check the career's
   funds, science and reputation after a rewind, the way Parsek shows them: money that later
-  flights will spend is held back. Before, lanes that rewind had no ledger check at all.
-  (HARNESS-LEDGER-ORACLE-ROUTES-AND-REWIND)
+  flights will spend is held back. Before, lanes that rewind had no ledger check at all. The
+  test rewind command also works from the Space Center now. (HARNESS-LEDGER-ORACLE-ROUTES-AND-REWIND)
 - **Automated tests can read what is really in a vessel's tanks.** A new test command reads the
   fuel in named vessels and checks that it adds up, so a test can prove fuel moved between docked
   vessels is neither lost nor duplicated. A new test flight uses it to check both vessels' tanks

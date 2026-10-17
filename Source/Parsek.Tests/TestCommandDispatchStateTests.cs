@@ -127,10 +127,9 @@ namespace Parsek.Tests
         // catches a future "just widen it so the lane can call it from KSC".
         [InlineData("EnterMapView", "RequiresFlight")]
         [InlineData("ExitMapView", "RequiresFlight")]
-        // Rewind-to-Launch: RequiresFlight for the same reason InvokeRewind is - both
-        // reload the world out from under the current scene, and the Recordings-table "R"
-        // button this one reproduces is offered from the in-flight table.
-        [InlineData("InvokeRewindToLaunch", "RequiresFlight")]
+        // Rewind-to-Launch: RequiresRewindScene - the Recordings-table "R" button it
+        // reproduces is drawn in FLIGHT and at the Space Center (UIMode.KSC) alike.
+        [InlineData("InvokeRewindToLaunch", "RequiresRewindScene")]
         // Logistics lane: RequiresGameLoaded and deliberately NOT RequiresFlight. Both
         // verbs read and mutate SAVE-scoped stores only (committed trees, rewind points,
         // the route store) and touch no vessel, camera or scene, and the create lane
