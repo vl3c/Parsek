@@ -875,6 +875,19 @@ this orbit the Thermometer (lab value 5) and PresMat (8) still fit and the Goo (
 Materials Bay (22) are refused for capacity. Research off. Hosts the lab-cap lanes.
 Drift-gated with `lab-pad-seeded`.
 
+## lab-lko-relay (GAME Mode = SCIENCE_SANDBOX, 1 VESSEL ORBITING, derived from lab-lko-science)
+
+Same builder: `lab-lko-science`'s orbiting vessel (about 107 x 92 km, inclination 0.09 deg)
+with `lab-pad-seeded`'s lab (`dataStored = 204`, the sixteen subjects, `storedScience = 12.5`,
+research off), plus ONE save-level edit: `CommNetParams.enableGroundStations = False`. Stock
+(decompiled `CommNetHome.CreateNode`) then removes every home that is not the KSC (the base
+has `AllowOtherLaunchSites = False`), and with `occlusionMultiplierAtm = 1` the KSC sees the
+lab only within about 31 degrees of longitude, so for most of each ~2,150 s synodic pass the
+lab has no path home at all. The LAB-11 injection preset `ghost-commnet-lab` adds the one
+committed relay recording (a Kerbin-synchronous RA-100 relay 50 deg west of the KSC) whose
+ghost bridges it; the windows are derived and pinned by `GhostCommNetLabLaneGeometryTests`.
+Drift-gated with `lab-pad-seeded`.
+
 ## fresh-science (GAME Mode = SCIENCE_SANDBOX)
 
 Science pool only: `ResearchAndDevelopment sci = 100`, no Funding / Reputation /
