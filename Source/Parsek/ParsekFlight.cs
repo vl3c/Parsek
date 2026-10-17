@@ -2335,6 +2335,7 @@ namespace Parsek
             InputLockManager.RemoveControlLock(WatchModeController.WatchModeLockId); // safety net
 
             // Phase 6b: Clean up ghost chain state
+            ClearClaimedVesselHoldGhosts("scene-teardown");
             vesselGhoster?.CleanupAll();
             vesselGhoster = null;
             activeGhostChains = null;
@@ -12776,6 +12777,7 @@ namespace Parsek
             DisarmPostSwitchAutoRecord("flight ready reset");
 
             // Phase 6b: Clean up ghost chain state from previous flight scene
+            ClearClaimedVesselHoldGhosts("flight-ready-reset");
             vesselGhoster?.CleanupAll();
             vesselGhoster = null;
             activeGhostChains = null;
@@ -19796,6 +19798,8 @@ namespace Parsek
 
             // Chain ghost positioning (independent of engine)
             PositionChainGhosts(currentUT);
+            // Held-back vessels before their first claim, drawn from the despawn snapshot.
+            UpdateClaimedVesselHoldGhosts(currentUT);
 
             // Pre-engine: detect spawned vessels that died since last frame (#132)
             policy.RunSpawnDeathChecks();

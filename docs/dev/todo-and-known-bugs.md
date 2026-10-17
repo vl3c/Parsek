@@ -85,6 +85,113 @@ Fix: run the same safety decision on the chain-tip path, with the chain's blocke
 as the outcome, and a red test over a sub-atmospheric terminal orbit.
 
 ---
+## REWIND-TO-LAUNCH-LANDS-IN-THE-LATEST-PERSISTENT-WORLD: a Rewind-to-Launch keeps every surviving vessel in its latest form [FILED 2026-10-16 from EVA-11 `2026-10-16_2256` (the rewind save `parsek_rw_add97f` holds the rover with 16 parts, the rewound game `eva11-rewound` with 15), confirmed by code read. OPEN. product]
+
+`RecordingStore`'s rewind load parses the preprocessed rewind save into `HighLogic.CurrentGame`
+and calls `HighLogic.LoadScene(SPACECENTER)`, but `SpaceCenterMain.Start` reloads persistent.sfs
+(the decompile fact behind DISCARD-REFLY-LANDS-ON-PERSISTENT-NOT-THE-REWIND-POINT), and the
+scene exit's `SafeWritePersistent` wrote that file from the live flight just before. OnLoad then
+puts back only the clock (`ApplyRewindResourceAdjustment`) and removes the future vessels (the
+launch-identity strip and the quicksave pid whitelist), so a vessel present in both keeps its
+latest live form: parts, position, resources, crew. Seen on a vessel a committed future claims,
+which Parsek despawns at once; its stand-in ghost now reads the rewind save's own copy (see
+CLAIMED-VESSEL-VANISHES-BEFORE-ITS-CLAIM), so that case looks right. Not yet traced: whether an
+UNCLAIMED vessel can differ (a change with no committed recording, e.g. a discarded flight), and
+what the stock scenario nodes (contracts, facilities, progress) read on this load. Candidate fix:
+write the rewind game to persistent.sfs before the scene load with the live PARSEK node spliced
+in, as `RevertInterceptor.DiscardReFlyHandler` does; a wide change that every rewind lane would
+need to re-prove.
+
+## ~~CLAIMED-VESSEL-VANISHES-BEFORE-ITS-CLAIM: after a rewind, a vessel a committed future claims disappears until the claiming recording starts~~ [FILED 2026-10-16 from the coverage audit (`roadmap/coverage-matrix-2026-10-16.md` section 5), confirmed in EVA-11's `2026-10-15_2343` log (the rover is despawned at the rewind load and nothing draws it for about 15 s of game time, until its member recording's ghost spawns). FIXED 2026-10-16, branch `claude/project-thread-wr5u4k`; xUnit; EVA-11 `2026-10-16_2256` showed it drawn and released at the claim, in the post-claim shape (the follow-up below); LIVE-PROVEN by EVA-11 `2026-10-16_2322` (PASS attempt 1, `parts=16 ... from=rewind-save`). product]
+
+`VesselGhoster.GhostVessel` despawns every vessel an active chain holds back but never built the
+ghost design 13.10 step 5 describes (`ghostGO = null`, "deferred to 6b-4"), so a claimed vessel
+was invisible from the rewind to its first claim. Fix: `ParsekFlight.UpdateClaimedVesselHoldGhosts`
+builds a ghost for each held claim while `UT < FirstClaimUT`, posed
+body-fixed (landed / splashed / prelaunch) or on the snapshot orbit, hidden beyond the ghost visual
+range, yielding to any ERS recording of the same launch inside its window, released at the claim,
+on chain loss and on teardown. Pure decisions and pose read in `ClaimedVesselHoldGhost`
+(`ClaimedVesselHoldGhostTests`). Log lines `[ClaimedHoldGhost] Claimed vessel hold ghost shown:` /
+`released:`. `info.ghostGO` stays null on purpose: the dead `PositionChainGhosts` path would place
+it from the claim recording, which the playback engine already draws.
+
+Follow-up (EVA-11 `2026-10-16_2256`): the ghost showed the rover with 15 parts, its form AFTER the
+construction, where the rewind save holds 16. A Rewind-to-Launch lands in a world rebuilt from
+persistent.sfs (see REWIND-TO-LAUNCH-LANDS-IN-THE-LATEST-PERSISTENT-WORLD), so the despawn snapshot
+is post-claim. The ghost now draws the rewind save's own copy of the vessel:
+`PreProcessRewindSave` copies the VESSEL node of every vessel a chain over the committed trees
+holds back at the adjusted UT (`ResolveRewindClaimedVesselPids`,
+`ClaimedVesselHoldGhost.CaptureRewindSaveVessels`, replaced by each Rewind-to-Launch), and the
+capture prefers it by pid when the launch guids do not conclusively differ, else falls back to the
+despawn snapshot. The shown line ends `from=rewind-save|despawn`.
+
+## ~~CONSTRUCTION-GHOST-NEVER-CHANGES-SHAPE: a cargo partner's ghost keeps one shape through every EVA construction change~~ [FILED 2026-10-16 from the coverage audit (`roadmap/coverage-matrix-2026-10-16.md` section 5), confirmed in EVA-11's `2026-10-15_2343` log (the member ghost is built from the 17-part adoption snapshot, no part events are written for the two detaches, and only the tip spawn shows 15 parts). FIXED 2026-10-16, branch `claude/project-thread-wr5u4k`; xUnit; LIVE-PROVEN by EVA-11 `2026-10-16_2256` and `2026-10-16_2322` (both detaches written and applied). product]
+
+Foreign construction wrote only `SegmentEvents` (PART_ADDED / PART_REMOVED), which playback never
+reads, and an append refreshed only the member's `VesselSnapshot`. Fix: on an append,
+`ConstructionGhostShape.Apply` hides a detached part from the detach UT (`InventoryPartRemoved`)
+and, for an attach, appends the part to the member's ghost snapshot from the fresh snapshot (parent,
+attN and srfN remapped by pid) and shows it from the attach UT (`InventoryPartPlaced`, so it
+starts hidden); a part re-attached at another pose gets a stand-in node with a derived pid and
+`parsekGhostOf`. Adoption needs no event: its ghost snapshot is post-change and the pre-claim
+shape is the hold ghost above. Inventory events are ghosting triggers, so the optimizer will not
+split such a member. Log line `Construction ghost shape:`. Tests: `ConstructionGhostShapeTests`.
+
+## ~~CROSS-TREE-CREW-TRANSFER-STRANDS-RESERVATION: a kerbal taken off a vessel by a later mission's docking stays reserved to the first mission forever~~ [FILED 2026-10-16 from the coverage audit (`roadmap/coverage-matrix-2026-10-16.md` section 5), verified by code read and a red xUnit test. FIXED 2026-10-16, branch `claude/project-thread-wr5u4k`; xUnit only so far. product]
+
+A recording that ends with a kerbal Aboard (a station left in orbit) holds that kerbal open-ended.
+Only a recovery in the same tree, a split handoff or a KSC retirement closed such a hold, so a
+rescue mission in another tree that docked to the station, took the kerbal and was recovered left
+the first hold at +inf (reservations merge by max end), and the kerbal could never fly again.
+
+Fix: `KerbalsModule` collects every committed tree's Dock / Board branch point with a target
+vessel pid (`CollectDockClaims`; in practice only a Dock carries one, a Board's target pid is 0). An open-ended Aboard / Unknown hold on recording R ends at the
+earliest such dock whose target is R's vessel (pid match, launch guids not conclusively
+different, hold end at or before the dock UT) AND whose merged child carries the kerbal
+(`ResolveDockClaimHandoffUT`, pure `DockClaimHandsOffHold`). The rescue tree's own rows then
+hold the kerbal until its recovery. A dock that does not take the kerbal, a dock to another
+launch of the same craft, and a dock to an unrelated vessel keep the hold. Log line:
+`Reservation bounded by cross-tree dock handoff:`. Tests: `CrossTreeDockCrewHandoffTests`.
+
+## ~~STRATEGY-CONVERSION-ROWS-OUTLIVE-THEIR-AWARD: the share of a flight's reward a strategy converts is written untagged, so an F9, a Re-Fly merge or a revert takes the reward back and keeps the converted share~~ [FILED 2026-10-16 from the pre-release coverage audit (`roadmap/coverage-matrix-2026-10-16.md`, code read), confirmed by red-first xUnit. FIXED 2026-10-16, PR #2123; LIVE-PROVEN 2026-10-16 by QL-2c `2026-10-16_2239`. product]
+
+The query-family strategy door (`LedgerOrchestrator.OnStrategyCurrencyConversion`: Leadership
+Initiative, Appreciation Campaign, Patents Licensing and the other `CurrencyConverter` /
+`CurrencyOperation` strategies) writes its rows straight into the ledger, and wrote them all
+with `RecordingId = null`, while the award they divert from is an event tagged to the flight and
+booked at commit. Every timeline operation that takes the award back keys on that tag: the F9
+reconcile retires only tagged rows after the cutoff (`ParsekScenario.ClassifyAbandonedFutureRow`),
+a Re-Fly merge tombstones only tagged rows (`TombstoneEligibility`), and the revert prune drops
+untagged rows (so the revert alone handled it). After an F9 or a Re-Fly merge the converted share
+stayed and applied when the clock reached it, with no award behind it. Red on main:
+`StrategyConversionTimelineTests.F9_BeforeTheAward_RetiresTheConvertedShareWithTheAward` (2 rows
+kept) and `ReFlyMerge_TombstonesTheConvertedShareOfTheSupersededFlight` (no tombstone).
+
+Fix: the door tags its rows the way `GameStateRecorder.Emit` tags the award's event
+(`GameStateRecorder.ResolveStrategyConversionRecordingTag`: the live recording tag, else the
+recovery-scope owner of a progress reward, else none at the Space Center). Three paths that used
+to rely on the null tag now handle the tagged rows: the stock revert removes the reverted
+flight's conversion rows (`LedgerOrchestrator.PruneRevertedFlightStrategyConversionRows`, rows
+tagged to a never-committed recording after the launch cutoff), a non-rewind discard re-homes
+them untagged with the awards it keeps (`ClearStrategyConversionTagsForDiscard`, called from
+`PreserveIrreversibleLiveGameplayOnDiscard`), and the dedup key of a `FundsEarning` /
+`FundsEarningSource.Strategy` row now carries source and amount, so a tagged yield cannot swallow
+the same recording's recovery payout at the same UT at commit. The optimizer split already moves
+tagged rows by UT (`Ledger.RetagActionsForSplitSecondHalf`). Two log fields make it readable
+live: the conversion's `Strategy conversion recorded:` Info line ends with `recordingId=`, and the
+quickload reconcile summary carries `strategyConversionRetired=N`. Live lane:
+`QL-2c-quickload-strategy-share-not-kept` (QL-2b's in-flight F9 with Leadership Initiative active
+on the new fixture `career-gs1-leadership-pad`), green on its first flight `2026-10-16_2239`: the
+SurfaceEVA share after the F5 was tagged and retired (`strategyConversionRetired=1`), the four
+ascent shares before it were kept, and funds after the F9 equalled the quicksave's.
+
+Residuals, not fixed here: (1) a Discard Re-fly purges the attempt's award events but keeps its
+ledger rows untagged (`MergeDialog.DiscardReFlyAttemptRecordingsAndRewindPoints` ->
+`Ledger.ClearRecordingTagForRecordings`), so the attempt's converted share still survives that
+discard; it did before this fix too. (2) Rows written before this fix stay untagged; nothing on
+disk links them to their award. (3) Reverting a flight resumed through the committed-copy
+quickload restore leaves its conversion rows, since they are tagged to a committed recording the
+revert prune skips (before the fix the orphan prune removed them untagged).
 
 ## ~~QL1-KSC-CLOCK-CROSSING: after a quicksave is loaded at the Space Center behind KSC purchases, the purchases are refunded, and the hire and the contract can be bought twice~~ [FILED 2026-10-16 from QL-1's first flight (`2026-10-16_1122` / `_1124_a2`, INVALID driver-verdict-mismatch both attempts), branch `claude/project-thread-k6flcd` (PR #2121). FIXED 2026-10-16 on the same branch; LIVE-PROVEN by QL-1 `2026-10-16_1424` (PASS attempt 1). product]
 
@@ -673,7 +780,7 @@ Work:
 
 ---
 
-## ~~LAUNCHFROMEDITOR-REFUSED-ON-TRANSIENT-LAUNCH-LOCK: `LaunchFromEditor` refused `launch-locked` about 100 ms after the editor settled, with no Parsek lock up~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-09 in the seam, branch `harness-editor-lock-wait`; cause unproven; xUnit only, not re-flown. harness]
+## ~~LAUNCHFROMEDITOR-REFUSED-ON-TRANSIENT-LAUNCH-LOCK: `LaunchFromEditor` refused `launch-locked` about 100 ms after the editor settled, with no Parsek lock up~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-09 in the seam, branch `harness-editor-lock-wait`; cause unproven; xUnit only, not re-flown. harness; FLOWN 2026-10-16 without reaching the fix: SE-1 `2026-10-16_2301` and RR-1 `_2302` PASS on main d478091, but neither launch hit the intro or the lock wait, so the fix is still unproven live]
 
 `RR-1-relaunch-rewind-keeps-earlier-launch` `2026-10-09_0614` (attempt 1) and
 `SE-1-editor-round-trip` `_0643` / `_0650_a2` (both attempts) read INVALID on
@@ -718,7 +825,7 @@ unit-tested in `TestCommandEditorRouteTests`. The PR #2060 wait stays.
 
 ---
 
-## ~~RELEASE-REFLIGHT-REDS-ST2-VB1-CI1: three release re-flight reds were stale pins or shrunk waits, no product regression~~ [FILED AND FIXED 2026-10-09 in the specs, branch `release-check-final`; not re-flown. harness]
+## ~~RELEASE-REFLIGHT-REDS-ST2-VB1-CI1: three release re-flight reds were stale pins or shrunk waits, no product regression~~ [FILED AND FIXED 2026-10-09 in the specs, branch `release-check-final`; not re-flown. harness; LIVE-PROVEN 2026-10-16 on main d478091: ST-2 `2026-10-16_2310`, VB-1 `_2312`, CI-1 `_2313` PASS attempt 1]
 
 - `ST-2-rewind-point-quicksave` `2026-10-09_0701` / `_0859` PARSEK-FAIL on one token:
   `rewind point quicksaves: checked=1 vessels=7` read `vessels=4`. Stale pin from a deliberate
@@ -745,7 +852,7 @@ unit-tested in `TestCommandEditorRouteTests`. The PR #2060 wait stays.
 
 ---
 
-## ~~RSC-1-SETTLE-SHRUNK-BY-FAST-POLLS: RSC-1 opens Real Spawn Control before the proximity scan admits its row~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-09 in the spec, branch `harness-editor-lock-wait`; not re-flown. harness]
+## ~~RSC-1-SETTLE-SHRUNK-BY-FAST-POLLS: RSC-1 opens Real Spawn Control before the proximity scan admits its row~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-09 in the spec, branch `harness-editor-lock-wait`; not re-flown. harness; LIVE-PROVEN 2026-10-16: RSC-1 `2026-10-16_2314` PASS attempt 1 on main d478091]
 
 `RSC-1-real-spawn-control-warp` `2026-10-09_0620` / `_0621_a2` read INVALID on
 `UiAction open spawncontrol` -> `ERROR window-self-closed` (`auto-close: reason=zero-candidates`):
@@ -812,7 +919,7 @@ start situation is Landed / Prelaunch, so an orbiting or flying one-sample recor
 "idle on pad". Alternatively take one boundary sample at the scene-exit finalize. Either needs
 headless cells beside the existing `IsTreeIdleOnPad` ones (`Bug156Tests`).
 
-## ~~RETIRE-ROUTE-ACTIONS-OVERLOAD-BREAKS-INGAME-REFLECTION-PROBE: the Rec-1 redelivery in-game cell failed `Ambiguous match found.` on lanes H38 / H39 / H40 / HV-1~~ [FILED 2026-10-09 from the nightly `Logistics` lanes. FIXED 2026-10-09, branch `ingame-test-drift`; test drift, not a product defect; not re-flown]
+## ~~RETIRE-ROUTE-ACTIONS-OVERLOAD-BREAKS-INGAME-REFLECTION-PROBE: the Rec-1 redelivery in-game cell failed `Ambiguous match found.` on lanes H38 / H39 / H40 / HV-1~~ [FILED 2026-10-09 from the nightly `Logistics` lanes. FIXED 2026-10-09, branch `ingame-test-drift`; test drift, not a product defect; not re-flown; LIVE-PROVEN 2026-10-16 on main 412d48e: H38 `2026-10-16_2155`, H39 `_2158`, H40 `_2201`, HV-1 `_2204` PASS attempt 1]
 
 `RouteRewindRedeliveryInGameTest.RouteRedeliversAfterRewindPastDelivery` probed
 `typeof(RouteLedgerRetire).GetMethod("RetireFutureRouteActions", Static | NonPublic | Public)`
@@ -825,7 +932,7 @@ comment-stripped `Source/Parsek/InGameTests/*.cs` for every untyped `typeof(T).G
 on a Parsek type and resolves it headlessly, so a future overload or rename reds the suite
 instead of a flight (mutation-checked: re-adding the old probe reds it). Cell counts unchanged.
 
-## ~~H48-SPENDING-GATE-EXPECTS-PARSEK-BLOCK-ON-PLAIN-SHORTAGE: `SpendingGate_RespectsLiveAndBlocksNonDestructively` expected Parsek to refuse a tech the live pool cannot afford~~ [FILED 2026-10-09 from the nightly H48 flight. FIXED 2026-10-09, branch `ingame-test-drift`; test drift, not a product defect; not re-flown]
+## ~~H48-SPENDING-GATE-EXPECTS-PARSEK-BLOCK-ON-PLAIN-SHORTAGE: `SpendingGate_RespectsLiveAndBlocksNonDestructively` expected Parsek to refuse a tech the live pool cannot afford~~ [FILED 2026-10-09 from the nightly H48 flight. FIXED 2026-10-09, branch `ingame-test-drift`; test drift, not a product defect; not re-flown; LIVE-PROVEN 2026-10-16: H48 `2026-10-16_2303` PASS attempt 1 on main d478091]
 
 The cell's "Bug 2" block bought a synthetic 1e9-science tech and asserted Parsek's
 pre-deduction block (`Failure`, reason containing "Insufficient science"). PR #2001 (commit
@@ -838,7 +945,7 @@ current contract - `TechResearchPatch.IsScienceShort` false with no ledger probe
 stock's `NotEnoughFunds`, no Parsek blocked-dialog reason, science unchanged. The timeline
 shortage stays covered headlessly (`StockAnnotationConsistencyTests`). Cell count unchanged.
 
-## ~~H67-AUTOMERGE-DWELL-ENDS-BEFORE-BACKSTOP-SAMPLE: `ExitToSpaceCenter_AutoMergeOn_CommitsSilentlyAtFullFidelity` exits with a one-point recording, so the tree is discarded and nothing commits~~ [FILED 2026-10-09 from the nightly H67 flight. FIXED 2026-10-09, branch `ingame-test-drift`; test drift, not a product defect; not re-flown]
+## ~~H67-AUTOMERGE-DWELL-ENDS-BEFORE-BACKSTOP-SAMPLE: `ExitToSpaceCenter_AutoMergeOn_CommitsSilentlyAtFullFidelity` exits with a one-point recording, so the tree is discarded and nothing commits~~ [FILED 2026-10-09 from the nightly H67 flight. FIXED 2026-10-09, branch `ingame-test-drift`; test drift, not a product defect; not re-flown; LIVE-PROVEN 2026-10-16: H67 `2026-10-16_2304` PASS attempt 1 on main d478091]
 
 The cell started a recording on an orbiting vessel, dwelt a fixed 3.0 s and exited to the
 Space Center. A coasting orbit takes no direction / speed sample, so the second sample is the
@@ -851,7 +958,7 @@ and asserts at least 2 samples before the exit, so a future drift fails with tha
 instead of a missing commit. The product side is filed as
 IDLE-ON-PAD-READS-ONE-SAMPLE-ORBITING-RECORDING-AS-IDLE.
 
-## ~~RVR-3-POSTPONEMENT-CELLS-ASSERT-NO-LEDGER-ROW: three `RouteLifecycle` in-game cells still asserted that a blocked crossing writes no ledger row~~ [FILED 2026-10-09 from the release-check flight `2026-10-09_0059_RVR-3-route-lifecycle`. FIXED 2026-10-09, branch `release-check-fixes`; test drift, not a product defect; not re-flown]
+## ~~RVR-3-POSTPONEMENT-CELLS-ASSERT-NO-LEDGER-ROW: three `RouteLifecycle` in-game cells still asserted that a blocked crossing writes no ledger row~~ [FILED 2026-10-09 from the release-check flight `2026-10-09_0059_RVR-3-route-lifecycle`. FIXED 2026-10-09, branch `release-check-fixes`; test drift, not a product defect; not re-flown; LIVE-PROVEN 2026-10-16: RVR-3 `2026-10-16_2305` PASS attempt 1 on main d478091]
 
 `RVR-3-route-lifecycle` read `failed=3`: `SendOnce_PostponementBlock_KeepsArm_RouteStaysActive_NoToast`,
 `PauseInTransit_PostponementBlock_KeepsArm_StaysInTransit` and
@@ -865,7 +972,7 @@ Fix: the three cells now assert exactly one new row, of type `RouteHeld`, for th
 `RouteHoldKind = SourcesStale` and `RouteEndpointReason = "sources-stale"`; the RoutePaused-is-null
 and zero-toast assertions stay. The category's `total=8` is unchanged.
 
-## ~~OPTIMIZER-SPLIT-RETAG-COMMIT-WALK-TRANSIENT-CLAMP: after commit 2a65d49d5 the first ledger walk of a split commit runs before the second half's rows exist~~ [FILED 2026-10-08 from HC-2's regression flight on the PR #2055 DLL, measured. FIXED 2026-10-09, branch `split-commit-single-walk`; xUnit only, not flown]
+## ~~OPTIMIZER-SPLIT-RETAG-COMMIT-WALK-TRANSIENT-CLAMP: after commit 2a65d49d5 the first ledger walk of a split commit runs before the second half's rows exist~~ [FILED 2026-10-08 from HC-2's regression flight on the PR #2055 DLL, measured. FIXED 2026-10-09, branch `split-commit-single-walk`; xUnit only, not flown; LIVE-PROVEN 2026-10-16: HC-2 `2026-10-16_2214` PASS attempt 1 on main 412d48e, one `NotifyLedgerTreeCommitted: filed rows for 2 recording(s) of tree 'Jumping Flea' before one ledger walk (chainSegments=2)` and no `clamped` line in the log]
 
 `HC-2-hard-career-earn-spend` `2026-10-08_1859` reads PARSEK-FAIL on its forbidden token
 `GUARDED (UPLIFT|DRAWDOWN) clamped`: `PatchFunds: GUARDED DRAWDOWN clamped resource=Funds
@@ -911,7 +1018,7 @@ mission's impact deterministic.
 
 ---
 
-## ~~FAST-POLL-SETTLES-STILL-RACE: ZF-1's rollout and CI-6's recorder bind lose the race their one-frame settles were sized for~~ [FILED 2026-10-08 from the PR #2055 regression flights. FIXED 2026-10-09 in the specs, branch `seam-load-waits-flight-ready` (with CN-1, CN-1T and EVA-5 from nightly `2026-10-09`), NOT YET RE-FLOWN; CI-6's wait is a timed interim, see below. harness]
+## ~~FAST-POLL-SETTLES-STILL-RACE: ZF-1's rollout and CI-6's recorder bind lose the race their one-frame settles were sized for~~ [FILED 2026-10-08 from the PR #2055 regression flights. FIXED 2026-10-09 in the specs, branch `seam-load-waits-flight-ready` (with CN-1, CN-1T and EVA-5 from nightly `2026-10-09`), NOT YET RE-FLOWN; CI-6's wait is a timed interim, see below. harness; LIVE-PROVEN 2026-10-16: EVA-5 `2026-10-16_2208` (main 412d48e), ZF-1 `_2306`, CI-6 `_2307`, CN-1 `_2308`, CN-1T `_2309` (main d478091) PASS attempt 1; CI-6 still waits on a timer]
 
 Two more lanes the HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS audit left on inert-step settles
 read red on the same premise (an inert step is one frame since PR #2017):
@@ -1415,7 +1522,7 @@ and pending science), or have the Timeline dedup the legacy row against tombston
 
 ---
 
-## ~~OPTIMIZER-PAD-SPLIT-AT-FIVE-SECOND-THRESHOLD: whether a pad launch's pre-liftoff segment becomes its own recording depends on a few tens of milliseconds~~ [FILED 2026-10-07 from the release verification flights, branch `verify-followups`. RULED by the owner 2026-10-07 (never split off a launch's leading launch-site run) and FIXED 2026-10-07, branch `optimizer-no-pad-split`; xUnit only, not flown; L3 / L5 re-pinned to exactly 2]
+## ~~OPTIMIZER-PAD-SPLIT-AT-FIVE-SECOND-THRESHOLD: whether a pad launch's pre-liftoff segment becomes its own recording depends on a few tens of milliseconds~~ [FILED 2026-10-07 from the release verification flights, branch `verify-followups`. RULED by the owner 2026-10-07 (never split off a launch's leading launch-site run) and FIXED 2026-10-07, branch `optimizer-no-pad-split`; xUnit only, not flown; L3 / L5 re-pinned to exactly 2; LIVE-PROVEN 2026-10-16 on main 412d48e: L3 `2026-10-16_2221` and L5 `_2230` PASS attempt 1, each 2 recordings split only at landing with `launchSiteRunKept=1` in the Split summary]
 
 The optimizer splits a recording at the SurfaceMobile -> Atmospheric boundary at liftoff only
 when both halves last at least 5.0 s (`RecordingOptimizer.CanAutoSplitIgnoringGhostTriggers`,
@@ -1777,7 +1884,7 @@ Found by the PR #2040 re-review.
 
 ---
 
-## ~~ROUTE-TICK-BASELINE-SET-BEFORE-GO-BACK-CLOCK-MOVE: after a go-back rewind, route ticks may stall until the clock passes the pre-rewind UT~~ [FILED 2026-10-07 from the PR #2036 review. CONFIRMED and FIXED 2026-10-07 on branch `fix-route-goback-cutoff` (headless only, not flown)]
+## ~~ROUTE-TICK-BASELINE-SET-BEFORE-GO-BACK-CLOCK-MOVE: after a go-back rewind, route ticks may stall until the clock passes the pre-rewind UT~~ [FILED 2026-10-07 from the PR #2036 review. CONFIRMED and FIXED 2026-10-07 on branch `fix-route-goback-cutoff` (headless only, not flown); LIVE-PROVEN 2026-10-16: H58 `2026-10-16_2207` PASS attempt 1 on main 412d48e logs `Tick clock: UT moved back from 1600.36 to 1585.14; baseline reset, next route tick 1 s of game time from here`]
 
 **CONFIRMED.** Code: the tick gate was `if (currentUT - lastRouteTickUT < TickIntervalSec) return;`
 with no reseed, so a clock behind the baseline read as "no time passed" until it passed the
@@ -4080,7 +4187,7 @@ IR-4 remain the live proof.
 
 ---
 
-## ~~ROUTE-REWIND-CURSOR-RESET-REFIRES-LATEST-CROSSING: after a go-back rewind or a Re-Fly start, a loop route fires its last pre-rewind crossing a second time~~ [FILED 2026-10-07 from the `fix-route-state-on-load` work, reproduced headlessly. FIXED 2026-10-07 on branch `fix-route-rewind-refire` (headless only, not flown)]
+## ~~ROUTE-REWIND-CURSOR-RESET-REFIRES-LATEST-CROSSING: after a go-back rewind or a Re-Fly start, a loop route fires its last pre-rewind crossing a second time~~ [FILED 2026-10-07 from the `fix-route-state-on-load` work, reproduced headlessly. FIXED 2026-10-07 on branch `fix-route-rewind-refire` (headless only, not flown); go-back half LIVE-PROVEN 2026-10-16: H58 `2026-10-16_2207` PASS attempt 1 on main 412d48e logs `loopPositionsRestored=1` with `cutoffSource=rewind-save-ut`; the Re-Fly-start half has no lane yet]
 
 **FIXED.** Both rewind exits now run the in-session load's restore after the shared reconcile:
 `RouteLoadReconcile.RestoreLoopPositionAtRewindExit` runs
@@ -9943,7 +10050,7 @@ blocked-cycle marker CAN share its `(routeId, UT, Sequence=0)` key with a
 orders between them), and `TryActivate` REBASES owed cycles away rather than resuming them
 (desirable - documented so nobody "restores" a resume that would replay unauthorized cycles).
 
-## ~~ROUTE-ORIGIN-PROOF-TRANSPORT-MANIFESTS-INCLUDE-THE-DEPOT: the start-docked proof's transport manifests are scoped to the whole merged vessel~~ [FOUND 2026-09-02 while building the partner rule. FIXED 2026-09-02 for the ORIGIN PROOF by P12, code green, NOT YET FLOWN. `RouteRunCargoManifest` still merged-scoped, see below]
+## ~~ROUTE-ORIGIN-PROOF-TRANSPORT-MANIFESTS-INCLUDE-THE-DEPOT: the start-docked proof's transport manifests are scoped to the whole merged vessel~~ [FOUND 2026-09-02 while building the partner rule. FIXED 2026-09-02 for the ORIGIN PROOF by P12, code green, NOT YET FLOWN. `RouteRunCargoManifest` still merged-scoped, see below; LIVE-PROVEN: H57 green 2026-09-06 per its spec, re-flown 2026-10-16 `2026-10-16_2213` PASS attempt 1 on main 412d48e with `RouteOriginProof bound at undock ... transportParts=17`]
 
 **FIXED FOR `RouteOriginProof`.** Capture now walks the merged part tree and CUTS THE SEAM EDGE
 (`RouteProofCapture.TrySplitPartsAcrossSeam`), storing each half's own part-`persistentId` set and
@@ -9981,7 +10088,7 @@ applies to `RouteRunCargoManifest`, which is a separate producer with its own
 write-once/void lifecycle. Do it as one deliberate pass over both, with the
 delta-vs-today measured, not as a side effect of the identity change.
 
-## ~~ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE (CONFIRMED 2026-09-02): the start-docked `RouteOriginProof` producer keys on a part-parent condition that a settled dock can never satisfy, so no live recording has ever carried a proof~~ [FOUND BY READING 2026-09-01 while scoping which route flights can be automated, CORROBORATED by the 2026-08-30 rover flight log. CONFIRMED live 2026-09-02 by the H56 probe. FIXED 2026-09-02, code green, NOT YET FLOWN]
+## ~~ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE (CONFIRMED 2026-09-02): the start-docked `RouteOriginProof` producer keys on a part-parent condition that a settled dock can never satisfy, so no live recording has ever carried a proof~~ [FOUND BY READING 2026-09-01 while scoping which route flights can be automated, CORROBORATED by the 2026-08-30 rover flight log. CONFIRMED live 2026-09-02 by the H56 probe. FIXED 2026-09-02, code green, NOT YET FLOWN; LIVE-PROVEN: H57 green 2026-09-06 per its spec, re-flown 2026-10-16 `2026-10-16_2213` PASS attempt 1 on main 412d48e with `proofCaptured=True`]
 
 **FIXED 2026-09-02.** `FlightRecorder.CaptureStartRouteOriginProofIfDocked` now builds its
 candidate list from TWO producers instead of one. The new one is the settled dock seam:

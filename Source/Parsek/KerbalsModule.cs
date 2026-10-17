@@ -127,6 +127,17 @@ namespace Parsek
         private readonly Dictionary<string, SplitHandoff> splitHandoffs =
             new Dictionary<string, SplitHandoff>(StringComparer.Ordinal);
 
+        /// <summary>
+        /// Every Dock / Board claim on a recorded vessel in the committed trees, and the
+        /// kerbals each recording's own KerbalAssignment rows name. An open-ended hold whose
+        /// vessel a later dock claims, with the kerbal carried on by the docked recording,
+        /// ends at the dock (<see cref="ResolveDockClaimHandoffUT"/>). Built in
+        /// <see cref="PrePass"/>, cleared in <see cref="Reset"/>.
+        /// </summary>
+        private readonly List<DockClaim> dockClaims = new List<DockClaim>();
+        private readonly Dictionary<string, HashSet<string>> rowKerbalsByRecording =
+            new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+
         internal struct SplitHandoff
         {
             public string ChildRecordingId;
@@ -169,6 +180,93 @@ namespace Parsek
 
             childRecordingId = handoff.ChildRecordingId;
             return holdEndUT;
+        }
+
+        /// <summary>
+        /// A Dock / Board branch point (any tree) whose target is a recorded vessel: the
+        /// claim's UT, the target's pid and launch guid, and the merged child recording
+        /// that carries the docked vessel on. Built in <see cref="PrePass"/>.
+        /// </summary>
+        internal struct DockClaim
+        {
+            public string TreeId;
+            public string BranchPointId;
+            public double DockUT;
+            public uint TargetPid;
+            public string TargetGuid;
+            public string MergedChildRecordingId;
+        }
+
+        /// <summary>
+        /// Does a dock (or board) claiming <paramref name="dockTargetPid"/> /
+        /// <paramref name="dockTargetGuid"/> at <paramref name="dockUT"/> take over the
+        /// vessel an open-ended hold's recording (<paramref name="holdVesselPid"/> /
+        /// <paramref name="holdVesselGuid"/>, ending <paramref name="holdEndUT"/>) left the
+        /// kerbal on? The pid must match and the launch guids must not conclusively differ (a
+        /// pid is craft-baked, so another launch of the same craft is not the same vessel),
+        /// and the held recording must have ENDED by the dock (within
+        /// <see cref="RecoveryClosureEndToleranceSeconds"/>): the docking mission can only
+        /// carry on a kerbal the vessel still held when it arrived. Pure.
+        /// </summary>
+        internal static bool DockClaimHandsOffHold(
+            uint holdVesselPid, string holdVesselGuid, double holdEndUT,
+            uint dockTargetPid, string dockTargetGuid, double dockUT)
+        {
+            if (holdVesselPid == 0 || dockTargetPid != holdVesselPid)
+                return false;
+            if (VesselLaunchIdentity.GuidsConclusivelyDiffer(holdVesselGuid, dockTargetGuid))
+                return false;
+            if (double.IsNaN(holdEndUT) || double.IsInfinity(holdEndUT)
+                || double.IsNaN(dockUT) || double.IsInfinity(dockUT))
+                return false;
+            return holdEndUT <= dockUT + RecoveryClosureEndToleranceSeconds;
+        }
+
+        /// <summary>
+        /// The earliest dock claim on the vessel <paramref name="recordingId"/> ended as whose
+        /// merged child recording carries <paramref name="kerbalName"/> on
+        /// (<paramref name="carriedBy"/>: recording id -> the kerbals its own rows name), or
+        /// +inf. The claim may live in any tree: a rescue mission docks to a station another
+        /// mission left him on (design 9.3: a STRANDED hold stays open "until a rescue
+        /// recording closes it"). The held recording's own outgoing branch point is the
+        /// in-tree split hand-off, never a claim on itself. Pure.
+        /// </summary>
+        internal static double ResolveDockClaimHandoffUT(
+            IReadOnlyList<DockClaim> claims,
+            IReadOnlyDictionary<string, HashSet<string>> carriedBy,
+            string recordingId,
+            uint holdVesselPid,
+            string holdVesselGuid,
+            double holdEndUT,
+            string kerbalName,
+            out DockClaim claim)
+        {
+            claim = default(DockClaim);
+            if (claims == null || carriedBy == null || string.IsNullOrEmpty(kerbalName)
+                || string.IsNullOrEmpty(recordingId))
+                return double.PositiveInfinity;
+
+            double best = double.PositiveInfinity;
+            for (int i = 0; i < claims.Count; i++)
+            {
+                DockClaim c = claims[i];
+                if (string.IsNullOrEmpty(c.MergedChildRecordingId)
+                    || string.Equals(c.MergedChildRecordingId, recordingId, StringComparison.Ordinal))
+                    continue;
+                if (!DockClaimHandsOffHold(holdVesselPid, holdVesselGuid, holdEndUT,
+                        c.TargetPid, c.TargetGuid, c.DockUT))
+                    continue;
+                HashSet<string> carried;
+                if (!carriedBy.TryGetValue(c.MergedChildRecordingId, out carried)
+                    || carried == null || !carried.Contains(kerbalName))
+                    continue;
+                if (c.DockUT < best)
+                {
+                    best = c.DockUT;
+                    claim = c;
+                }
+            }
+            return best;
         }
 
         /// <summary>
@@ -267,6 +365,8 @@ namespace Parsek
             public double EndUT;
             public string ParentBranchPointId;
             public string ChildBranchPointId;
+            public uint VesselPid;
+            public string VesselGuid;
             // The recording's stamped crew death respawn policy (Recording.CrewDeathRespawns
             // / CrewDeathRespawnSeconds); null = unstamped, a death is permanent.
             public bool? DeathRespawns;
@@ -861,6 +961,8 @@ namespace Parsek
             recoveryClosures.Clear();
             kscRetiredRecordingIds.Clear();
             splitHandoffs.Clear();
+            dockClaims.Clear();
+            rowKerbalsByRecording.Clear();
         }
 
         /// <summary>
@@ -914,6 +1016,8 @@ namespace Parsek
                     EndUT = rec.EndUT,
                     ParentBranchPointId = rec.ParentBranchPointId,
                     ChildBranchPointId = rec.ChildBranchPointId,
+                    VesselPid = rec.VesselPersistentId,
+                    VesselGuid = rec.RecordedVesselGuid,
                     DeathRespawns = rec.CrewDeathRespawns,
                     DeathRespawnSeconds = rec.CrewDeathRespawnSeconds
                 };
@@ -971,6 +1075,14 @@ namespace Parsek
                     "hold(s) at their EndUT (no ledger row)");
             }
 
+            int claimCount = CollectDockClaims(RecordingStore.CommittedTrees, actions);
+            if (claimCount > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PrePass: {claimCount.ToString(CultureInfo.InvariantCulture)} dock claim(s) on " +
+                    "recorded vessels can end an open-ended hold the claimed vessel carried");
+            }
+
             int handoffs = CollectSplitHandoffs(actions);
             if (handoffs > 0)
             {
@@ -981,6 +1093,63 @@ namespace Parsek
 
             // The kerbals module never mutates the action list, so no re-sort is needed.
             return false;
+        }
+
+        /// <summary>
+        /// Fills <see cref="dockClaims"/> from the committed trees' Dock / Board branch points
+        /// that name a target vessel and a merged child, and <see cref="rowKerbalsByRecording"/>
+        /// from the walk's non-tourist KerbalAssignment rows (the walk's actions are the
+        /// effective ledger, so a superseded docked recording carries nobody). Returns the
+        /// claims collected.
+        /// </summary>
+        private int CollectDockClaims(IReadOnlyList<RecordingTree> trees, List<GameAction> actions)
+        {
+            if (actions != null)
+            {
+                for (int i = 0; i < actions.Count; i++)
+                {
+                    var a = actions[i];
+                    if (a == null || a.Type != GameActionType.KerbalAssignment) continue;
+                    if (string.IsNullOrEmpty(a.KerbalName) || string.IsNullOrEmpty(a.RecordingId)) continue;
+                    if (string.Equals(a.KerbalRole, "Tourist", StringComparison.OrdinalIgnoreCase)) continue;
+                    HashSet<string> set;
+                    if (!rowKerbalsByRecording.TryGetValue(a.RecordingId, out set))
+                    {
+                        set = new HashSet<string>(StringComparer.Ordinal);
+                        rowKerbalsByRecording[a.RecordingId] = set;
+                    }
+                    set.Add(a.KerbalName);
+                }
+            }
+
+            if (trees == null) return 0;
+            int collected = 0;
+            for (int t = 0; t < trees.Count; t++)
+            {
+                RecordingTree tree = trees[t];
+                if (tree?.BranchPoints == null) continue;
+                for (int b = 0; b < tree.BranchPoints.Count; b++)
+                {
+                    BranchPoint bp = tree.BranchPoints[b];
+                    if (bp == null
+                        || (bp.Type != BranchPointType.Dock && bp.Type != BranchPointType.Board)
+                        || bp.TargetVesselPersistentId == 0
+                        || bp.ChildRecordingIds == null || bp.ChildRecordingIds.Count == 0
+                        || string.IsNullOrEmpty(bp.ChildRecordingIds[0]))
+                        continue;
+                    dockClaims.Add(new DockClaim
+                    {
+                        TreeId = tree.Id,
+                        BranchPointId = bp.Id,
+                        DockUT = bp.UT,
+                        TargetPid = bp.TargetVesselPersistentId,
+                        TargetGuid = bp.TargetVesselGuid,
+                        MergedChildRecordingId = bp.ChildRecordingIds[0],
+                    });
+                    collected++;
+                }
+            }
+            return collected;
         }
 
         /// <summary>
@@ -1151,6 +1320,28 @@ namespace Parsek
                         $"Reservation bounded by split handoff: '{name}' recording '{recordingId}' " +
                         $"({endState}) endUT={handoffUT.ToString("F1", CultureInfo.InvariantCulture)} " +
                         $"bp='{meta.ChildBranchPointId}' child='{handoffChild}'");
+                }
+            }
+
+            // A later dock claims the vessel this recording left the kerbal on, and the
+            // docked recording carries him on (a rescue that docks and takes him aboard, in
+            // this tree or another): the hold ends at the dock and the docking mission's own
+            // rows decide the rest (CROSS-TREE-CREW-TRANSFER-STRANDS-RESERVATION).
+            if (!permanent && !handedOff
+                && (endState == KerbalEndState.Aboard || endState == KerbalEndState.Unknown))
+            {
+                DockClaim claim;
+                double dockUT = ResolveDockClaimHandoffUT(
+                    dockClaims, rowKerbalsByRecording, recordingId,
+                    meta.VesselPid, meta.VesselGuid, meta.EndUT, name, out claim);
+                if (!double.IsPositiveInfinity(dockUT))
+                {
+                    endUT = dockUT;
+                    handedOff = true;
+                    ParsekLog.Verbose(Tag,
+                        $"Reservation bounded by cross-tree dock handoff: '{name}' recording '{recordingId}' " +
+                        $"({endState}) endUT={dockUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $"bp='{claim.BranchPointId}' tree='{claim.TreeId}' child='{claim.MergedChildRecordingId}'");
                 }
             }
 

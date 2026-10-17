@@ -160,10 +160,14 @@ namespace Parsek
 
             if (verdict == ForeignInventoryTransferVerdict.AppendToMember)
             {
-                AppendForeignTransfer(changed, change);
+                AppendForeignTransfer(changed, change,
+                    constructionPartPid: partPid, constructionAttached: attached,
+                    constructionPartName: partName);
                 return;
             }
 
+            // The adoption snapshot is taken after the change, so the member's ghost starts in
+            // the new shape; the shape before it is the claimed vessel's own until the claim.
             AdoptForeignCargoPartner(activeRec, changed, change);
         }
 
@@ -207,7 +211,9 @@ namespace Parsek
             }
         }
 
-        void AppendForeignTransfer(Vessel v, SegmentEvent transfer)
+        void AppendForeignTransfer(Vessel v, SegmentEvent transfer,
+            uint constructionPartPid = 0u, bool constructionAttached = false,
+            string constructionPartName = null)
         {
             string recId;
             Recording member;
@@ -230,6 +236,21 @@ namespace Parsek
                 "ut={2:F2} event={3} details='{4}' snapshotRefreshed={5} events={6}",
                 member.RecordingId, v.persistentId, transfer.ut, transfer.type,
                 transfer.details ?? "(none)", snapshot != null, member.SegmentEvents.Count));
+
+            if (constructionPartPid == 0u)
+                return;
+            ConstructionGhostShapeResult shape = ConstructionGhostShape.Apply(
+                member, snapshot, constructionAttached, constructionPartPid,
+                constructionPartName, transfer.ut);
+            ConfigNode[] ghostParts = member.GhostVisualSnapshot != null
+                ? member.GhostVisualSnapshot.GetNodes("PART") : null;
+            string line = ConstructionGhostShape.FormatLog(member.RecordingId, v.persistentId,
+                constructionAttached, constructionPartPid, constructionPartName, transfer.ut, shape,
+                ghostParts != null ? ghostParts.Length : 0);
+            if (shape.EventWritten)
+                ParsekLog.Info("Flight", line);
+            else
+                ParsekLog.Warn("Flight", line);
         }
 
         private static void ReadLiveSlot(
