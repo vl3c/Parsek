@@ -16,6 +16,9 @@ namespace Parsek
     /// spawned vessel is loaded, off rails and has stood landed for a moment, every harvester
     /// that the snapshot had running and that is now off. A drill that really cannot reach the
     /// ground is switched off again by stock on its next frame.
+    /// A save taken before the restore (leaving the scene right after the spawn, a quicksave)
+    /// would otherwise write the drills off, and the KSC reloads persistent.sfs from disk, so
+    /// <see cref="CarryIntoSavedFlightState"/> marks them running in the saved snapshot too.
     /// </summary>
     internal static class SpawnedHarvesterRestore
     {
@@ -41,9 +44,17 @@ namespace Parsek
             GiveUp
         }
 
+        /// <summary>One module of a saved part: its class name and its saved values.</summary>
+        internal struct SavedModule
+        {
+            internal string Name;
+            internal ConfigNode Values;
+        }
+
         private sealed class Pending
         {
             internal uint VesselPid;
+            internal Guid VesselGuid;
             internal string VesselName;
             internal List<HarvesterKey> Harvesters;
             internal double ArmedAt;
@@ -116,6 +127,7 @@ namespace Parsek
             pending.Add(new Pending
             {
                 VesselPid = v.persistentId,
+                VesselGuid = v.id,
                 VesselName = Recording.ResolveLocalizedName(v.vesselName),
                 Harvesters = harvesters,
                 ArmedAt = UnityEngine.Time.realtimeSinceStartup
@@ -147,6 +159,119 @@ namespace Parsek
                     continue;
                 }
                 RestoreOnVessel(v, p);
+            }
+        }
+
+        /// <summary>
+        /// Pure: marks each noted harvester running in a saved vessel's part modules
+        /// (<paramref name="partPids"/> and <paramref name="partModules"/> are parallel, one entry
+        /// per part in save order). Matches a part by persistent id, else by index.
+        /// </summary>
+        internal static void MarkSavedHarvestersActive(List<uint> partPids, List<List<SavedModule>> partModules,
+            List<HarvesterKey> harvesters, out int marked, out int alreadyOn, out int missing)
+        {
+            marked = 0;
+            alreadyOn = 0;
+            missing = 0;
+            if (harvesters == null) return;
+            for (int h = 0; h < harvesters.Count; h++)
+            {
+                HarvesterKey key = harvesters[h];
+                int partIndex = partPids == null ? -1 : partPids.IndexOf(key.PartPersistentId);
+                if (partIndex < 0 && partModules != null && key.PartIndex >= 0 && key.PartIndex < partModules.Count)
+                    partIndex = key.PartIndex;
+                ConfigNode values = null;
+                if (partIndex >= 0 && partModules != null && partIndex < partModules.Count && partModules[partIndex] != null)
+                {
+                    int ordinal = 0;
+                    List<SavedModule> modules = partModules[partIndex];
+                    for (int m = 0; m < modules.Count; m++)
+                    {
+                        if (!string.Equals(modules[m].Name, HarvesterModuleName, StringComparison.Ordinal))
+                            continue;
+                        if (ordinal == key.HarvesterOrdinal)
+                        {
+                            values = modules[m].Values;
+                            break;
+                        }
+                        ordinal++;
+                    }
+                }
+                if (values == null)
+                {
+                    missing++;
+                    continue;
+                }
+                bool active;
+                if (bool.TryParse(values.GetValue("IsActivated"), out active) && active)
+                {
+                    alreadyOn++;
+                    continue;
+                }
+                if (values.HasValue("IsActivated"))
+                    values.SetValue("IsActivated", "True");
+                else
+                    values.AddValue("IsActivated", "True");
+                marked++;
+            }
+        }
+
+        /// <summary>
+        /// Runtime, from <c>ParsekScenario.OnSave</c>: stock builds the game's FLIGHTSTATE from the
+        /// live vessels before it asks the scenario modules to save, and writes the file after,
+        /// so marking a pending vessel's harvesters running here puts them running in the save.
+        /// The live modules are left to <see cref="Tick"/>.
+        /// </summary>
+        internal static void CarryIntoSavedFlightState(string context)
+        {
+            if (pending.Count == 0) return;
+            FlightState flightState = HighLogic.CurrentGame != null ? HighLogic.CurrentGame.flightState : null;
+            if (flightState == null || flightState.protoVessels == null) return;
+            for (int i = 0; i < pending.Count; i++)
+            {
+                Pending p = pending[i];
+                ProtoVessel saved = null;
+                for (int v = 0; v < flightState.protoVessels.Count; v++)
+                {
+                    ProtoVessel pv = flightState.protoVessels[v];
+                    if (pv != null && pv.persistentId == p.VesselPid && pv.vesselID == p.VesselGuid)
+                    {
+                        saved = pv;
+                        break;
+                    }
+                }
+                if (saved == null || saved.protoPartSnapshots == null)
+                {
+                    ParsekLog.Verbose(Tag,
+                        string.Format(ic, "Spawned harvester restore saved: context={0} vessel={1} pid={2} not in flight state",
+                            context ?? "?", p.VesselName, p.VesselPid));
+                    continue;
+                }
+                var partPids = new List<uint>(saved.protoPartSnapshots.Count);
+                var partModules = new List<List<SavedModule>>(saved.protoPartSnapshots.Count);
+                for (int pi = 0; pi < saved.protoPartSnapshots.Count; pi++)
+                {
+                    ProtoPartSnapshot part = saved.protoPartSnapshots[pi];
+                    partPids.Add(part != null ? part.persistentId : 0u);
+                    var modules = new List<SavedModule>();
+                    if (part != null && part.modules != null)
+                    {
+                        for (int m = 0; m < part.modules.Count; m++)
+                        {
+                            ProtoPartModuleSnapshot module = part.modules[m];
+                            if (module == null) continue;
+                            if (module.moduleValues == null) module.moduleValues = new ConfigNode("MODULE");
+                            modules.Add(new SavedModule { Name = module.moduleName, Values = module.moduleValues });
+                        }
+                    }
+                    partModules.Add(modules);
+                }
+                int marked, alreadyOn, missing;
+                MarkSavedHarvestersActive(partPids, partModules, p.Harvesters, out marked, out alreadyOn, out missing);
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Spawned harvester restore saved: context={0} vessel={1} pid={2} marked={3} alreadyOn={4} missing={5}",
+                        context ?? "?", p.VesselName, p.VesselPid, marked, alreadyOn, missing));
             }
         }
 

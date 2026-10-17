@@ -103,5 +103,76 @@ namespace Parsek.Tests
                 SpawnedHarvesterRestore.Decide(true, true, true, true,
                     10.0 + SpawnedHarvesterRestore.GiveUpSeconds + 1.0, 10.0, ref settled));
         }
+            private static List<SpawnedHarvesterRestore.SavedModule> Modules(params (string name, string active)[] modules)
+        {
+            var list = new List<SpawnedHarvesterRestore.SavedModule>();
+            foreach (var m in modules)
+            {
+                var values = new ConfigNode("MODULE");
+                values.AddValue("name", m.name);
+                if (m.active != null) values.AddValue("IsActivated", m.active);
+                list.Add(new SpawnedHarvesterRestore.SavedModule { Name = m.name, Values = values });
+            }
+            return list;
+        }
+
+        [Fact]
+        public void MarkSavedHarvestersActive_TurnsNotedDrillsOnInTheSave()
+        {
+            // MINE-8: the scene left 0.2 s after the spawn, so the save held all four drills off.
+            var pids = new List<uint> { 100u, 200u, 500u };
+            var parts = new List<List<SpawnedHarvesterRestore.SavedModule>>
+            {
+                Modules(("ModuleCommand", null)),
+                Modules(("ModuleAnimationGroup", null), ("ModuleResourceHarvester", "False")),
+                Modules(("ModuleResourceHarvester", "False"), ("ModuleResourceHarvester", "True")),
+            };
+            var keys = new List<SpawnedHarvesterRestore.HarvesterKey>
+            {
+                new SpawnedHarvesterRestore.HarvesterKey { PartIndex = 1, PartPersistentId = 200u, HarvesterOrdinal = 0 },
+                new SpawnedHarvesterRestore.HarvesterKey { PartIndex = 2, PartPersistentId = 500u, HarvesterOrdinal = 1 },
+                new SpawnedHarvesterRestore.HarvesterKey { PartIndex = 9, PartPersistentId = 900u, HarvesterOrdinal = 0 },
+            };
+
+            SpawnedHarvesterRestore.MarkSavedHarvestersActive(pids, parts, keys,
+                out int marked, out int alreadyOn, out int missing);
+
+            Assert.Equal(1, marked);
+            Assert.Equal(1, alreadyOn);
+            Assert.Equal(1, missing);
+            Assert.Equal("True", parts[1][1].Values.GetValue("IsActivated"));
+            Assert.Equal("False", parts[2][0].Values.GetValue("IsActivated"));
+            Assert.Equal("True", parts[2][1].Values.GetValue("IsActivated"));
+        }
+
+        [Fact]
+        public void MarkSavedHarvestersActive_FallsBackToPartIndexWhenPidChanged()
+        {
+            var pids = new List<uint> { 111u, 222u };
+            var parts = new List<List<SpawnedHarvesterRestore.SavedModule>>
+            {
+                Modules(("ModuleCommand", null)),
+                Modules(("ModuleResourceHarvester", null)),
+            };
+            var keys = new List<SpawnedHarvesterRestore.HarvesterKey>
+            {
+                new SpawnedHarvesterRestore.HarvesterKey { PartIndex = 1, PartPersistentId = 999u, HarvesterOrdinal = 0 },
+            };
+
+            SpawnedHarvesterRestore.MarkSavedHarvestersActive(pids, parts, keys,
+                out int marked, out int alreadyOn, out int missing);
+
+            Assert.Equal(1, marked);
+            Assert.Equal(0, alreadyOn);
+            Assert.Equal(0, missing);
+            Assert.Equal("True", parts[1][0].Values.GetValue("IsActivated"));
+        }
+
+        [Fact]
+        public void CarryIntoSavedFlightState_NothingPending_IsANoOp()
+        {
+            SpawnedHarvesterRestore.CarryIntoSavedFlightState("OnSave");
+            Assert.Equal(0, SpawnedHarvesterRestore.PendingCount);
+        }
     }
 }

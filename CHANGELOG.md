@@ -38,7 +38,8 @@ _(unreleased - entries accumulate here per commit)_
 - **A spawned mining vessel keeps its drills running.** When Parsek spawned a vessel at the end
   of its recording with its drills on, the game switched them off while the vessel settled onto
   the ground, so it never mined again. Parsek now turns those drills back on once the vessel has
-  settled; a drill that really cannot reach the ground still stops. (SPAWNED-DRILLS-SWITCH-OFF)
+  settled, and a save made before that (leaving the scene at once) keeps them on.
+  (SPAWNED-DRILLS-SWITCH-OFF)
 - **A stationary vessel that mined or ran its ISRU keeps its recording.** Leaving the flight
   threw away the recording of any vessel that never moved 30 m as "idle on the pad", so a rover
   that drilled for half an hour lost its recording. Starting or stopping a drill or converter now

@@ -19,11 +19,14 @@ tier = "nightly"
 # recording the rover must NOT have spawned yet (the tail was kept), and past its end it
 # spawns with its end snapshot.
 #   * A STARVED CONVERTER PRODUCES NOTHING. With no ElectricCharge and nothing generating
-#     it, every converter is switched on (stock clears IsActivated on overheat, not landed,
-#     no ground contact, no abundance or too fast, never for missing power: decompiled
-#     ModuleResourceHarvester / BaseConverter, KSP 1.12.5) and converts nothing. The end read
-#     (r1) must hold Ore / LF / Ox / Mono / EC all at 0, and the drills and the ISRU must
-#     still read `active=1` after the hour.
+#     it, every converter is switched on and converts nothing. The end read (r1) must hold
+#     Ore / LF / Ox / Mono / EC all at 0. READ ON THE FIRST FLIGHT (`2026-10-17_1518`): the
+#     four drills report `active=1` in the press's own frame and are off one frame later
+#     (stock or KSPCF's HarvesterECConsumption, applied on this install; not determined), so
+#     the recorder sees no drill activation at all and the harvest window lists only the
+#     ISRU. The ISRU stays `active=1` for the hour. So the lane pins the drills OFF and the
+#     ISRU ON after the hour, and neither requires nor forbids a drill part event (a
+#     one-frame blip is below the recorder's sampling by design).
 #   * NO PHANTOM PRODUCTION IN REPLAY OR SPAWN. The rover spawned past the end must hold the
 #     same zeros (rw, `expect`) and equal its end snapshot (`expectSnapshot`).
 #   * THE TAIL IS KEPT BY THE RUNNING-CONVERTER RULE ALONE. Nothing moved, so no harvest
@@ -47,7 +50,7 @@ tier = "nightly"
 # (deploy animation to UT 60, presses settle to UT 75); (4)-(5) no burns, no coasts; (6) a
 # deterministic lane, but `once` as every mining lane until its first green flight; (7)
 # recordings pinned 1..1; (8)-(9) tier and efficiency after the first flight.
-description = "MINE-11b: V's mining rover with its RTGs removed and no ElectricCharge records an hour with every drill and the ISRU switched on at 100x; the starved converters produce nothing, the recording's tail is kept by the running-converter rule alone, and after commit and Rewind-to-Launch the rover spawned past the end holds empty tanks equal to its end snapshot."
+description = "MINE-11b: V's mining rover with its RTGs removed and no ElectricCharge records an hour at 100x after switching on every drill and the ISRU; the starved drills switch themselves off, the ISRU stays on, nothing is produced, the recording's tail is kept by the running-converter rule alone, and after commit and Rewind-to-Launch the rover spawned past the end holds empty tanks equal to its end snapshot."
 instanceProfile = "stock-minimal"
 tags = ["mining", "isru", "rewind", "MINE-11"]
 
@@ -123,14 +126,14 @@ required = [
   "partaction applied button=deploy pid=110406740 part='MiniDrill' [^\\r\\n]*count=4",
   "partaction applied button=startconverter pid=110406740 part='MiniDrill' [^\\r\\n]*converter='Surface Harvester' [^\\r\\n]*count=4",
   "partaction applied button=startconverter pid=110406740 part='MiniISRU' [^\\r\\n]*converter='Lf\\+Ox' state='[^'\\r\\n]*Lf\\+Ox:active=1",
-  "Part event: ConverterActivated 'MiniDrill' pid=[0-9]+ \\(converter\\)",
   "Part event: ConverterActivated 'MiniISRU' pid=[0-9]+ \\(converter\\)",
   # Before the recording: empty tanks, no charge (the only read before StartRecording).
   "(?s)readvesselresources complete vessels=1 missing=0 uidCollisions=0 [^\\r\\n]* match=true snapshotMatch=none(?:(?!readvesselresources complete).)*?cmd=StartRecording start",
   # After the hour: still nothing in any tank.
   "(?s)MISSIONMARK label=mine11b-starved(?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=1 missing=0 uidCollisions=0 [^\\r\\n]* match=true snapshotMatch=none",
-  # The only drill / ISRU inspects come after the hour: every starved converter is still on.
-  "partaction applied button=inspect pid=110406740 part='MiniDrill' [^\\r\\n]*state='(?:[^'\\r\\n]*Surface Harvester:active=1){4}",
+  # The only drill / ISRU inspects come after the hour: the starved drills switched
+  # themselves off, the starved ISRU is still on.
+  "partaction applied button=inspect pid=110406740 part='MiniDrill' [^\\r\\n]*state='(?:[^'\\r\\n]*Surface Harvester:active=0){4}",
   "partaction applied button=inspect pid=110406740 part='MiniISRU' [^\\r\\n]*Lf\\+Ox:active=1",
   "committree committed=true",
   "MISSIONMARK label=mine11b-committed-1-[0-9a-f]{32} ",

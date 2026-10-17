@@ -143,8 +143,9 @@ count = { min = 1, max = 1 }
 [expectations.logContracts]
 required = [
   # Stock switches the spawned drills off while the spawn waits for ground contact;
-  # Parsek turns them back on once it has settled (SpawnedHarvesterRestore.cs).
-  "Spawned harvester restore: vessel=Mining Rover RC pid=[0-9]+ restored=4 alreadyOn=0 missing=0",
+  # the scene leaves before it settles, so Parsek marks them running in the save
+  # (SpawnedHarvesterRestore.CarryIntoSavedFlightState).
+  "Spawned harvester restore saved: context=OnSave vessel=Mining Rover RC pid=[0-9]+ marked=4 alreadyOn=0 missing=0",
   # MINE-9's prefix (its live-proven tokens).
   "partaction applied button=deploy pid=110406740 part='MiniDrill' [^\\r\\n]*count=4",
   "partaction applied button=startconverter pid=110406740 part='MiniISRU' [^\\r\\n]*converter='Lf\\+Ox' state='[^'\\r\\n]*Lf\\+Ox:active=1",

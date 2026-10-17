@@ -1371,6 +1371,9 @@ namespace Parsek
                 savePhase = "safety-net";
                 SafetyNetAutoCommitPending();
 
+                // A just-spawned miner whose drills stock switched off before it settled.
+                SpawnedHarvesterRestore.CarryIntoSavedFlightState("OnSave");
+
                 // Diagnostic: detect if HighLogic.SaveFolder changed since this scenario loaded.
                 // Under normal KSP flow OnSave fires before the folder changes, but if it doesn't,
                 // file writes (SaveRecordingFiles, GameStateStore, MilestoneStore) would target
