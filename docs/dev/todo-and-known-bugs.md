@@ -4054,7 +4054,9 @@ runs from the Space Center as well as FLIGHT (`VerbSceneRequirement.RequiresRewi
 `not-in-rewind-scene` elsewhere), a `KscAction upgrade-facility` that stock did not apply reads
 `upgrade-not-applied` and only a refusal by Parsek's guard reads `blocked-committed`
 (`FacilityUpgradePatch.BlockedUpgradeCount`), and the lane commits each pad flight before
-recovering it. Still open: the route action types.
+recovering it. The second flight (`2026-10-17_0700`) found HIRE-RECALC-BEFORE-STOCK-DEBIT; the
+third, `2026-10-17_0930`, PASSED attempt 1 with the produced pools equal to the oracle's
+(funds 216769, science 90, rep 0 at end clock 199.87). Still open: the route action types.
 
 ---
 

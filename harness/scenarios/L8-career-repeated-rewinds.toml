@@ -60,6 +60,10 @@ tier = "nightly"
 # twice), so the lane now counts `applied=true` lines instead. Row UTs measured there: hire
 # 599.86, rollout B 600.16, recovery B 900.09, Mission Control 900.29, engineering101 900.33,
 # recovery A 1000.29, Tracking Station 1000.57, basicRocketry 1000.59, check rollout 45.25.
+# LIVE-PROVEN on the third flight, `2026-10-17_0930` PASS attempt 1 (automation DLL sha256
+# `af5cc097...`): endUt 199.87, past 1 / future 8, funds 216769 (reserved 282931), science 90,
+# rep 0, all equal to the produced save; the hire charged once with no guard clamp and no
+# reconcile warning; LedgerGroundTruth passed=3 skipped=0, so the batch line is pinned whole.
 #
 # PRE-REGISTERED READINGS (what to check first if the next flight reds):
 #   - `recover rejected reason=recover-button-locked`: the craft was still settling; a
@@ -176,7 +180,7 @@ required = [
   "kscaction refused action=upgrade-facility reason=blocked-committed target=SpaceCenter/MissionControl",
   "\\A(?:[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false){3}",
   "OnKscSpending: deferring the reconcile and recalc one frame for KerbalHire",
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
   "result: hardFailures=0 ",
 ]
 forbidden = [
