@@ -229,7 +229,7 @@ namespace Parsek.Tests
         public void TryRestore_ChecksSuppressionBeforeTakingTheCommittedTree()
         {
             string src = ReadStripped("Source", "Parsek", "ParsekFlight.cs");
-            string body = ExtractMethodBody(src, "private bool TryRestoreCommittedTreeForSpawnedActiveVessel()");
+            string body = ExtractMethodBody(src, "private bool TryRestoreCommittedTreeForSpawnedActiveVessel(bool callerBuildsOwnSegment = false)");
 
             int checkIdx = body.IndexOf("IsCommittedSpawnedRestoreSuppressedForVessel(", StringComparison.Ordinal);
             int takeIdx = body.IndexOf("TryTakeCommittedTreeForSpawnedVesselRestore(", StringComparison.Ordinal);

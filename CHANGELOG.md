@@ -35,6 +35,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A ghost now replays what you did after flying a spawned vessel again.** When you took over a
+  vessel Parsek had spawned and drove or mined with it, that flight was added to the old
+  recording, whose ghost did not know the vessel's new parts, so the ghost never moved its wheels
+  or drills. The new flight is now its own recording, continuing the old one.
+  (RESUMED-PARSEK-SPAWN-RECORDS-REGENERATED-PART-PIDS-INTO-COMMITTED-RECORDING)
 - **A spawned mining vessel keeps its drills running.** When Parsek spawned a vessel at the end
   of its recording with its drills on, the game switched them off while the vessel settled onto
   the ground, so it never mined again. Parsek now turns those drills back on once the vessel has

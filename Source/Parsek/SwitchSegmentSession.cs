@@ -16,6 +16,15 @@ namespace Parsek
         TrackingStationFly = 0,
         KscMarkerFly = 1,
         MapSwitchTo = 2,
+
+        /// <summary>
+        /// No stock click: the committed-spawned restore took back the tree of a
+        /// Parsek-spawned vessel whose regenerated part persistentIds the target
+        /// recording's snapshot does not hold, so the flight continues in a new
+        /// segment (see <c>ParsekFlight.TryRestoreCommittedTreeForSpawnedActiveVessel</c>).
+        /// Its session carries an empty <see cref="SwitchSegmentSession.IntentId"/>.
+        /// </summary>
+        ResumedSpawnedVessel = 3,
     }
 
     /// <summary>
