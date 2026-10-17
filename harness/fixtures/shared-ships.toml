@@ -97,7 +97,10 @@
 # `Logi Cargo Rig` took. `lab-lko-sandbox` restores everything the harvest dropped
 # (the forge base's library craft arrive through the overlay, as for
 # `logi-cargo-pad`). `lab-lko-science` (build_lab_lko_science.py) is SCIENCE_SANDBOX
-# with only the LABX craft's tech researched, so that is the one craft it can
-# plausibly launch and the one overlaid (no lane launches from it yet).
+# with only the LABX craft's tech researched. `Settings Probe` (a lone Stayputnik,
+# a start-node part) is the second vessel the lab lanes launch from the pad
+# (GoToEditor + LaunchFromEditor, LAB-5 / LAB-6 / LAB-7): it holds FLIGHT while the
+# orbiting lab is unloaded, which is what an unloaded TimeJump and a spawn after a
+# rewind need, and it carries no converter and no crew of its own.
 "lab-lko-sandbox" = ["DD1 Duna Direct Probe", "Duna Rocket", "GS1 Auto-Chute Booster", "Kerbal X", "LABX Orbital Lab", "Logi Cargo Rig"]
-"lab-lko-science" = ["LABX Orbital Lab"]
+"lab-lko-science" = ["LABX Orbital Lab", "Settings Probe"]

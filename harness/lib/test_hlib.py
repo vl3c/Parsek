@@ -10627,6 +10627,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Science-lab recovery from the pad with the recorder live; operator by
         # the same discipline.
         "LAB-14-lab-recover.toml": "operator by the reading-run discipline; AUTHORED 2026-10-17, NEVER FLOWN (the stock Recover of the recording pad lab: the request carries labScience=12.50, the pending lab payout vetoes idle-on-pad at the Space Center (needs PR #2136), the tree commits, and stock pays one untagged 12.50 VesselRecovery credit booked at the KSC with none after a reload, on lab-pad-seeded); the recovery ordering and the count are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        # Science-lab time jumps on lab-lko-science, loaded and unloaded (a probe on
+        # the pad holds FLIGHT); operator by the same reading-run discipline.
+        "LAB-5-lab-time-jumps.toml": "operator by the reading-run discipline; AUTHORED 2026-10-18, NEVER FLOWN (a TimeJump with the researching lab loaded shifts its live converter clock, loadedShifted=1, and a TimeJump from a Settings Probe on the pad shifts its saved clock, unloadedShifted=1; the witness is the lab's charge, since stock's EC-limited catch-up is under half an F2 science step; research continues after both, on lab-lko-science); the pre / delta UT windows and the EC tolerances are re-pinned off the first flight, then the tier is promoted by its measured p50",
         # The SIXTH forge, same mechanism again: it stamps b17-duna-pad by
         # launching the committed DD1 Duna Direct Probe (built by construction,
         # build_dd1_craft.py) onto the pad UNCREWED. Flown + harvested
