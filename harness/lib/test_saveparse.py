@@ -843,6 +843,11 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # `miner-rover-landed` with its probe swapped for a crewless rover parked 120 m
         # north (harness/tools/build_miner_rover_watched.py). Inherits the node.
         "miner-rover-watched": True,
+        # `miner-rover-landed` with the miner's ore tanks nearly full and fuel tanks full,
+        # and with its RTGs dropped and no charge (harness/tools/build_miner_rover_variants.py,
+        # the MINE-11 hosts). Both inherit the node.
+        "miner-rover-full": True,
+        "miner-rover-starved": True,
         "fresh-career": False,
         "fresh-sandbox": False,
         "fresh-science": False,

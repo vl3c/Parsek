@@ -701,6 +701,31 @@ Spawn Control (its row needs the active vessel within 250 m) and switch to the s
 while it is loaded. Built and drift-gated by `harness/tools/build_miner_rover_watched.py`
 (`--check`) and `harness/lib/test_miner_rover_watched.py`.
 
+## miner-rover-full (GAME Mode = SANDBOX, 2 VESSELS, 0 recordings, derived from miner-rover-landed)
+
+`miner-rover-landed` with only six RESOURCE `amount`s of the miner changed: Ore 74.9 in each of
+the two RadialOreTanks (149.8 of 150) and LiquidFuel / Oxidizer / MonoPropellant at their own
+`maxAmount` (90 / 110 / 20 + 20). ElectricCharge, the RTGs, every module, the `Observer Probe`,
+`loadmeta` and every identity are the base's. With the ISRU's Lf+Ox outputs full, the drills'
+ore goes only to the ore tanks, which they top up and stop. Host of `MINE-11a-rover-full-tanks`.
+Built and drift-gated by `harness/tools/build_miner_rover_variants.py` (`--check`) and
+`harness/lib/test_miner_rover_variants.py`.
+
+## miner-rover-starved (GAME Mode = SANDBOX, 2 VESSELS, 0 recordings, derived from miner-rover-landed)
+
+`miner-rover-landed` with the miner's four `rtg` parts (indices 12..15, leaves on the FL-T200, one
+symmetry set) DROPPED and the 23 surviving parts' `parent` / `sym` / `srfN` / `attN` index
+references renumbered (KSP writes this shape itself when parts leave a vessel), and every
+ElectricCharge `amount` 0 (probe core and both batteries; capacity kept). Ore / LF / Ox / Mono
+stay empty as in the base; the `Observer Probe`, `loadmeta` and every identity are the base's.
+The parts are dropped rather than the generators switched off: the RTG's cfg `isAlwaysActive`
+makes `ModuleGenerator.OnStart` re-activate it on every load, and a saved `isAlwaysActive =
+False` override is not persistent, so the first save after it (the rewind point, the end
+snapshot) would bring the power back (decompiled, KSP 1.12.5; the builder header has the
+detail). Host of `MINE-11b-rover-ec-starved`. Built and drift-gated by
+`harness/tools/build_miner_rover_variants.py` (`--check`) and
+`harness/lib/test_miner_rover_variants.py`.
+
 ## gloops-airshow-hard (GAME Mode = SANDBOX, 1 VESSEL + 1 asteroid, derived from gloops-airshow)
 
 `gloops-airshow`'s `persistent.sfs` and `persistent.loadmeta` byte for byte, except four
