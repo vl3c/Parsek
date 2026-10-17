@@ -53,6 +53,11 @@ _(unreleased - entries accumulate here per commit)_
   moved 30 m was thrown away on leaving as "idle on the pad" even when its Mobile Processing Lab
   had transmitted science, or when you recovered it with science stored in the lab. Both now
   count as real work, like running a drill. (IDLE-ON-PAD-DISCARDS-LAB-PAYOUT-FLIGHT)
+- **Recovering a vessel with lab science no longer logs a false science warning.** When one
+  recovery paid both the vessel's science and its lab's stored science, Parsek compared only the
+  first against the game's total and logged a warning and an error, though your science was
+  right. Lab science sent beside an experiment had the same problem.
+  (LAB-RECOVERY-RECONCILE-COALESCED-FALSE-MISMATCH)
 - **A vessel that appears after a time jump no longer mines through the jump.** When a jump
   passed the end of a recording, the vessel spawned at the end and stock caught up its drills and
   ISRU for the whole jumped span, so a rover arrived with ore it never mined. It now arrives
