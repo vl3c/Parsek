@@ -64,6 +64,7 @@ namespace Parsek.Tests
         [InlineData("PartAction")]
         [InlineData("RevertToLaunch")]
         [InlineData("DriveVessel")]
+        [InlineData("CrewTransfer")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -200,7 +201,9 @@ namespace Parsek.Tests
             // a part's stock right-click menu button, and stock's plain Revert to Launch.
             // DriveVessel is ADDITIVE (50 -> 51; reserved unchanged at 4): the D4 hysteresis
             // host, a landed vessel driven on its own wheel motors.
-            Assert.Equal(51, TestCommandVerbs.ImplementedVerbNames.Count);
+            // CrewTransfer is ADDITIVE (51 -> 52; reserved unchanged at 4): a player's stock
+            // crew transfer between two crewed parts of the active vessel.
+            Assert.Equal(52, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

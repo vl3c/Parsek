@@ -1077,6 +1077,13 @@ namespace Parsek.TestCommands
                 TryCompleteDriveVessel(now);
                 return;
             }
+            // CrewTransfer, in the .CrewTransfer.cs partial: OK once stock dismissed its
+            // transfer with the kerbal moved.
+            if (completionVerb == TestCommandCrewTransfer.Verb)
+            {
+                TryCompleteCrewTransfer(now);
+                return;
+            }
 
             bool done = false;
             string verdict = null;
@@ -1281,6 +1288,9 @@ namespace Parsek.TestCommands
             // A DriveVessel callback must never outlive its command either: a stale one
             // would keep a vessel's wheels driven.
             RemoveDriveVesselCallback();
+            // A CrewTransfer prompt must never outlive its command either: it holds a control
+            // lock until dismissed.
+            RemoveCrewTransferState();
             // A multi-category RunTests that ends by TIMEOUT or by a completion
             // exception must not leave its token queue armed for the next RunTests to
             // inherit; the sequence is over the moment the two-phase state is.
@@ -1649,6 +1659,9 @@ namespace Parsek.TestCommands
         // DriveVessel: body + two-phase completion in ParsekTestCommandAddon.DriveVessel.cs.
         void ITestCommandExecutor.DriveVessel(ParsedCommand cmd) => DriveVesselImpl(cmd);
 
+        // CrewTransfer: body + two-phase completion in ParsekTestCommandAddon.CrewTransfer.cs.
+        void ITestCommandExecutor.CrewTransfer(ParsedCommand cmd) => CrewTransferImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             // Batch-baseline latch clear (finding 1). Any verb that can change state a
@@ -1719,6 +1732,7 @@ namespace Parsek.TestCommands
                 case "PartAction": exec.PartAction(cmd); break;
                 case "RevertToLaunch": exec.RevertToLaunch(cmd); break;
                 case "DriveVessel": exec.DriveVessel(cmd); break;
+                case "CrewTransfer": exec.CrewTransfer(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

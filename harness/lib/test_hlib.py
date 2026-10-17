@@ -1114,7 +1114,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # right-click menu button, and stock's plain Revert to Launch (vessel-names proof).
         # 51 / 4 after DriveVessel, an ADDITION by one: a landed vessel driven on its own
         # wheel motors, the D4 hysteresis host (ruling RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 51)
+        # 52 / 4 after CrewTransfer, an ADDITION by one: a player's stock crew transfer
+        # between two crewed parts of the active vessel (the crew-across-vessels lanes).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 52)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -17015,6 +17017,67 @@ class RevertToLaunchSourceSyncTests(unittest.TestCase):
         errs = hlib.validate_spec(spec, load_registry()).errors
         self.assertTrue(any("takes no args" in e for e in errs), errs)
         self.assertTrue(any("only the LoadGame verb reads it" in e for e in errs), errs)
+
+
+class CrewTransferSourceSyncTests(unittest.TestCase):
+    """`CrewTransfer`. Reads OUTSIDE harness/: the verb, the two arg keys and the refusal /
+    error reasons (IN ORDER) of the comment-stripped TestCommands/TestCommandCrewTransfer.cs,
+    and the applier's use of stock's own transfer, so the pre-launch validator cannot drift
+    from what the seam accepts."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# CrewTransfer tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_keys_and_reasons_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandCrewTransfer.cs")
+        self.assertIn('internal const string Verb = "%s";' % hlib.CREWTRANSFER_VERB, text)
+        self.assertIn('internal const string KerbalKey = "%s";' % hlib.CREWTRANSFER_KERBAL_KEY, text)
+        self.assertIn('internal const string PartKey = "%s";' % hlib.CREWTRANSFER_PART_KEY, text)
+        self.assertEqual(list(hlib.CREWTRANSFER_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+        self.assertEqual(list(hlib.CREWTRANSFER_ERROR_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "ErrorReasons"))
+        for reason in hlib.CREWTRANSFER_REASONS:
+            self.assertIn(hlib._SEAM_REFUSAL_SUBKINDS.get(reason), ("driver-arg", "driver-gate"), reason)
+            if "-arg-missing" in reason:
+                self.assertIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        # The post-start ERRORs are not refusals: the transfer was opened.
+        for reason in hlib.CREWTRANSFER_ERROR_REASONS:
+            self.assertNotIn(reason, hlib._SEAM_REFUSAL_SUBKINDS)
+            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+
+    def test_the_applier_uses_stocks_own_transfer(self):
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.CrewTransfer.cs")
+        self.assertIn("CrewTransfer.Create(source, crew, OnCrewTransferDismissed)", applier)
+        self.assertIn('GetMethod("OnPartSelect"', applier)
+        addon = self._source("TestCommands", "ParsekTestCommandAddon.cs")
+        # ClearTwoPhase owns the dismissal, so no exit path leaves the control lock behind.
+        clear = addon[addon.index("private void ClearTwoPhase()"):]
+        clear = clear[:clear.index("\n        }\n")]
+        self.assertIn("RemoveCrewTransferState();", clear)
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.CREWTRANSFER_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(60.0, hlib.dispatch_deferral_budget(verb))
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertFalse(hlib.post_mission_step_gates(verb))
+
+    def test_the_step_validator(self):
+        v = hlib.validate_crew_transfer_step
+        self.assertEqual([], v(0, {"kerbal": "Valentina Kerman", "part": "mk1-3pod"}))
+        self.assertIn("crewtransfer-kerbal-arg-missing", v(0, {"part": "mk1-3pod"})[0])
+        self.assertIn("crewtransfer-part-arg-missing", v(0, {"kerbal": "Val", "part": " "})[0])
+        errs = v(0, {"kerbal": "Val", "part": "mk1-3pod", "pid": "1"})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("silently ignored", errs[0])
 
 
 class DriveVesselSourceSyncTests(unittest.TestCase):
