@@ -1,0 +1,98 @@
+schema = 1
+id = "LAB-1-converter-jump-lab-ledger"
+tier = "nightly"
+# THE LIVE CHECK FOR TA-6 AND LAB SCIENCE (todo TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND
+# and LAB-SCIENCE-NEVER-LEDGERED, PR #2128). AUTHORED 2026-10-17, NEVER FLOWN.
+#
+# WHY IN-GAME CELLS AND NOT A MINING FLIGHT. A flown lane needs a drill + ISRU + lab craft no
+# committed fixture carries (MINE-1), and no seam verb starts a converter or transmits lab
+# data. Both fixes turn on seams the xUnit fakes stand in for, and all of them are reachable at
+# the Space Center:
+#   * JUMPS. Each jump cell adds a MiniDrill, a MiniISRU and a Large.Crewed.Lab as three
+#     single-part vessels in high Kerbin orbits (unloaded at the Space Center) with converter
+#     clocks 600 s behind the live clock, a never-ran converter (clock 0) on the drill and a
+#     ModuleScienceLab that persists a same-named field, runs the REAL jump
+#     (`TimeJumpManager.ExecuteForwardJump`, then `ExecuteJump` for the epoch-shift kind) by
+#     3600 s, and requires every running converter to still owe exactly 600 s, the never-ran
+#     clock at 0 and the lab field untouched. This is the TA-6 defect itself: before the fix
+#     the forward jump left unloaded clocks alone (a 4200 s catch-up on next load) and the
+#     epoch shift touched nothing.
+#   * LOADED CLOCK FIELD. The loaded half shifts `BaseConverter.lastUpdateTime` by reflection;
+#     the cell shifts it on every converter of the stock drill, ISRU and lab prefabs and
+#     requires the module's own Save to persist the shifted value (restored after).
+#   * LAB SCIENCE. A stock `ModuleScienceLab.RecoverScienceLabs` over a hand-built lab snapshot
+#     holding 12.5 science must credit the pool through the capture pair, land one ownerless
+#     `ScienceLabEarning` row (method Recovered) and one `ScienceLabCredited` event, count only
+#     after its UT in the ledger walk, and stay in the pool across a live recalc. The last cell
+#     requires the pair attached to stock's private `OnTransmissionComplete` as well.
+#
+# THE HOST is `fresh-career` (HV-2's): career, no vessel (LoadGame takes the Space Center
+# route), R&D present. It loads at UT ~0.1, so a rails WarpToUT to UT 30 runs before the
+# batch; the lab cell recalcs with the clock cut off half a second before its credit.
+#
+# THE PIN IS INTERIM: `total=5` is attribute-exact (five SPACECENTER declarations); the split
+# is predicted 5 / 0 and regexed until the reading run measures it (INTERIM_PIN_IDS).
+description = "On a career host at the Space Center: the real forward and epoch-shift jumps keep an unloaded drill, ISRU and lab owing exactly the catch-up they owed before the jump; the reflected converter clock is the stock one; a stock lab recovery lands one ownerless ledger row that a recalc keeps."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "ledger", "career", "time-jump", "LAB-1"]
+
+[fixture]
+saveTemplate = "fixtures/saves/fresh-career"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # Rails warp at the Space Center: the lab cell's before-the-credit recalc needs UT > 1.
+  { cmd = "WarpToUT",   args = { ut = "30", maxRate = "10" }, expect = "OK", budget = 120 },
+  { cmd = "RunTests",   args = { category = "ConverterJumpLab" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["ksp-state-patcher"]
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required = [
+  "BATCH_COMPLETE v1 total=5 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=ConverterJumpLab scene=SPACECENTER",
+  # Both real jump entry points reached the policy and shifted the three unloaded converters.
+  "\\[Parsek\\]\\[INFO\\]\\[TimeJump\\] Converter jump policy \\(forward\\): pre=[0-9.]+ post=[0-9.]+ loadedShifted=0 unloadedShifted=3 unloadedVessels=3 neverRan=1 unreadable=0",
+  "\\[Parsek\\]\\[INFO\\]\\[TimeJump\\] Converter jump policy \\(epoch-shift\\): pre=[0-9.]+ post=[0-9.]+ loadedShifted=0 unloadedShifted=3 unloadedVessels=3 neverRan=1 unreadable=0",
+  "\\[Parsek\\]\\[INFO\\]\\[ConverterJumpLab\\] converter jump live check passed: kind=forward shifted=3 owed=600 jump=3600 neverRanKept=1 nonConverterKept=1",
+  "\\[Parsek\\]\\[INFO\\]\\[ConverterJumpLab\\] converter jump live check passed: kind=epoch-shift shifted=3 owed=600 jump=3600 neverRanKept=1 nonConverterKept=1",
+  "\\[Parsek\\]\\[INFO\\]\\[ConverterJumpLab\\] converter jump live check teardown: kind=forward vesselsRemoved=3",
+  "\\[Parsek\\]\\[INFO\\]\\[ConverterJumpLab\\] converter jump live check teardown: kind=epoch-shift vesselsRemoved=3",
+  "\\[Parsek\\]\\[INFO\\]\\[ConverterJumpLab\\] loaded converter clock live check passed: modules=\\[MiniDrill:ModuleResourceHarvester.*MiniISRU:ModuleResourceConverter.*Large\\.Crewed\\.Lab:ModuleScienceConverter",
+  # The stock recovery reached the capture pair and the ownerless KSC door.
+  "\\[Parsek\\]\\[INFO\\]\\[GameStateRecorder\\] Game state: ScienceLabCredited \\+12\\.50 reason='VesselRecovery' vessel='ConverterJumpLab recovered lab' ut=[0-9.E+-]+ recordingId=''",
+  "\\[Parsek\\]\\[INFO\\]\\[LedgerOrchestrator\\] KSC spending recorded: type=ScienceLabEarning, UT=[0-9.]+, key=VesselRecovery",
+  "\\[Parsek\\]\\[INFO\\]\\[ConverterJumpLab\\] lab recovery ledger live check passed: credit=12\\.50 rows=1 events=1 method=Recovered owner='' runningBefore=[0-9.-]+ runningLive=[0-9.-]+ poolKept=1",
+  "\\[Parsek\\]\\[INFO\\]\\[ConverterJumpLab\\] lab recovery ledger live check teardown: rowsRemoved=1 eventsRemoved=1",
+  "\\[Parsek\\]\\[INFO\\]\\[ConverterJumpLab\\] lab capture patch live check passed: transmitPairs=1 recoverPairs=1",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "\\[ScienceLabCapture\\] .*threw",
+  "\\[ConverterJumpLab\\] .*teardown threw",
+  "\\[ConverterJumpLab\\] could not remove probe vessel",
+]
+
+[runtime]
+# HV-2's shape and budget: one deferred LoadGame, a short warp and one deferred RunTests.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

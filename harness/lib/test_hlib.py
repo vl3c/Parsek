@@ -4453,7 +4453,12 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # It LEFT the same day: its second flight, run 2026-10-16_0607 (PASS attempt 1), measured
     # the prediction, `passed=3 failed=0 skipped=0`, and the spec pinned the line whole (the
     # first flight was red on the lane setup: the host's UT ~0.1 skipped both scan cells).
-    INTERIM_PIN_IDS: set = set()
+    #
+    # LAB-1-converter-jump-lab-ledger ENTERED on 2026-10-17 (the new ConverterJumpLab
+    # category, 5 SPACECENTER cells on fresh-career, `total=5` literal with the split
+    # regexed, predicted passed=5 skipped=0). Like CN-1 it is not an H-series id, so this
+    # class's own cells never read it; CommittedBatchTallySourceSyncTests gates its `total=`.
+    INTERIM_PIN_IDS: set = {"LAB-1-converter-jump-lab-ledger"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against

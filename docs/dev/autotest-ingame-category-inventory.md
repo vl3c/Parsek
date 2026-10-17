@@ -1,4 +1,4 @@
-# In-game test category inventory (all 128 categories)
+# In-game test category inventory (all 129 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -100,6 +100,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `ClawCouple` | 2 | 2 | 0 | 0 | 0 | 2 | H42 (flown 2026-08-28, executes 2 of 2) | A |
 | `Coalescer` | 2 | 0 | 0 | 0 | 2 | 2 | H62-coalescer-isolated (ISOLATED, flown 2026-09-06, executes 2 of 2 - LIVE-PROVEN on its second flight `2026-09-06_2017`, `total=2 passed=2 failed=0 skipped=0` pinned whole; the first flight on `gs1-two-stage-pad` read `passed=0 skipped=2` because gs1's first stage lights the engine, so the host is now the derived `coalescer-pad`, gs1 with the decoupler moved into the first stage. A REAL controlled-decoupled split over a host carrying PRELAUNCH + an engine + 2 command modules + a decoupler IN THE NEXT STAGE: the live seed residual decision line with numeric `seedLiveRootDist=` / `propagatedResidual=`, and the child's `ParentAnchorRecordingId` stamped at the focused parent at split time. Both cells executed as predicted once the stage order matched. Claims D5 `controlled-decoupled-child` only - `crash-coalescing` is NOT claimed, because neither cell crashes anything) | A |
 | `Contracts` | 2 | 2 | 0 | 0 | 0 | 2 | LT-3-long-tail-career-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2035`, PASS attempt 1, 64 s wall, every verifier PASS or REPORT, every per-constituent `BATCH_COMPLETE` line matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-1, run `2026-09-07_2007`) at 2 of 2 - the whole category with zero skips, at FLIGHT on the `career-earned-pad` career, which is what both cells' career-only guards want and what no sandbox host could give them - and the flight measured that line exactly. The FIRST execution of either cell anywhere; PROMOTED to bucket **A** (A3) by that flight, on the promotion rule below: the tally is pinned whole AND the lane drove the category whole at its own boot) | A |
+| `ConverterJumpLab` | 5 | 0 | 5 | 0 | 0 | 4 | LAB-1-converter-jump-lab-ledger (authored 2026-10-17, branch `claude/lab-isru-drill-coverage-5oq37h`, NEVER FLOWN; `total=5` literal, the split regexed until the first flight) on `fresh-career` at the Space Center. Five SPACECENTER cells for TA-6 and LAB-SCIENCE-NEVER-LEDGERED: the real forward and epoch-shift jumps each shift the converter clocks of an unloaded drill, ISRU and lab by the jump (never-ran and non-converter fields untouched); the reflected clock field is the one the stock modules persist; a stock `RecoverScienceLabs` lands one ownerless `ScienceLabEarning` row a recalc keeps; the capture pair is attached to both stock payouts | A |
 | `CrewReservation` | 15 | 14 | 6 | 5 | 0 | 12 | H31 | A |
 | `CrewReservationLive` | 2 | 2 | 2 | 2 | 0 | 2 | LT-4-long-tail-route-flight (MULTI, added as a fourth constituent 2026-09-08, flown run `2026-09-08_1040`, executes 2 of 2 - the whole category at FLIGHT with zero skips. The census that found the host is CEN-9 (scratch, run `2026-09-08_1029`) on `depot-route-recorded`, whose store carries THREE committed recordings with a non-zero `SpawnedVesselPersistentId` that survives the load-time spawn reconcile - the one thing both cells short-circuit on, and the thing five earlier hosts did not have. CEN-10 (`2026-09-08_1030`) read the same 2 of 2 on `bdock-recorded`, so the property belongs to RECORDED stores rather than to `depot-route-recorded` alone. THE B1 READING WAS WRONG IN ITS SCOPE, not in its mechanism: the corpus writer still authors no spawned pid (`RecordingBuilder.WithSpawnedPid` has zero callers), but a recorded fixture is not an authored corpus, and the second census had only ever asked injected and career hosts. PROMOTED to bucket **A** (A3) by that flight, on the promotion rule below: the tally is pinned whole AND the lane drove the category whole at its own boot) | A |
 | `DataHealth` | 4 | 4 | 4 | 4 | 0 | 0 | H14 | A |
@@ -222,8 +223,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **128 categories / 671 declarations**. Buckets **A 94 categories
-(373 declarations)**, **B 33 categories (294 declarations)**, **C 1 category (4
+Totals, re-derived: **129 categories / 676 declarations**. Buckets **A 95 categories
+(378 declarations)**, **B 33 categories (294 declarations)**, **C 1 category (4
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes).
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
@@ -238,7 +239,9 @@ attempt 1, 3 of 3 each) and the pins are now WHOLE. The 2026-09-27 auto-hire liv
 `AutoHireReservation` (AH-1, one SPACECENTER cell) landed WITH its never-flown lane straight into
 **A** on the same standing, A 91 -> 92 categories, 365 -> 366 declarations (after H72's B -> A move below). The
 2026-10-16 mining live check's `HarvestCapScanLedger` (HV-2, three SPACECENTER cells) landed WITH its never-flown lane
-into **A** on the same standing, A 93 -> 94 categories, 370 -> 373 declarations. All re-derived
+into **A** on the same standing, A 93 -> 94 categories, 370 -> 373 declarations. The 2026-10-17 converter jump and
+lab ledger check's `ConverterJumpLab` (LAB-1, five SPACECENTER cells) landed WITH its never-flown lane into **A** on the
+same standing, A 94 -> 95 categories, 373 -> 378 declarations. All re-derived
 mechanically by counting the table's
 rows per Bucket cell and summing their Decls column, which is also how the bucket
 section headers below are derived. The 2026-09-08 reading was A 86 / 349 and B 27 / 275;
@@ -339,10 +342,12 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **123 of 128 categories**, covering **662 of 671
+Driven by a committed spec: **124 of 129 categories**, covering **667 of 676
 declarations** (re-derived mechanically the same way: count the table rows whose
-Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 671 declarations in
-128 categories over `Source/Parsek`. The 2026-10-16 mining live check opened a 128th row,
+Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 676 declarations in
+129 categories over `Source/Parsek`. The 2026-10-17 converter jump and lab ledger check opened a
+129th row, `ConverterJumpLab` (five SPACECENTER cells, bucket **A**), driven by LAB-1-converter-jump-lab-ledger (authored
+2026-10-17, never flown). The 2026-10-16 mining live check opened a 128th row,
 `HarvestCapScanLedger` (three SPACECENTER cells, bucket **A**), driven by HV-2-scan-ledger-drill-rates
 (authored 2026-10-16, LIVE-PROVEN the same day). The 2026-10-16 IR-10 cell took
 `RouteEscrowContention` from 2 to 3 declarations, still driven by H60. The 2026-10-11 vessel names Phase 2a opened a 127th row,
@@ -752,7 +757,7 @@ categories in 297 s and `LT-2` took 6 more in 46 s. The one-step rule stands, an
 question is still "is what it executes worth a boot", but a boot now buys a whole
 bucket rather than one row.
 
-### Bucket A - wired now (94 categories, 373 declarations)
+### Bucket A - wired now (95 categories, 378 declarations)
 
 Three sub-classes, admitted on DIFFERENT grounds. Conflating them is how a spec would
 end up pinned against the wrong derivation.

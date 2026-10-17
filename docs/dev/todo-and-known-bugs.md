@@ -2097,8 +2097,8 @@ with a red test once confirmed.
 - [ ] Stale lanes: H38 / H39 / H40 / HV-1 not green since the 10-07 and 10-15 logistics changes; H58 and EVA-5 re-pinned, never re-flown. Roadmap XS-2.
 - [ ] EVA-CONSTRUCTION-GHOST-SHAPE-NEVER-CHANGES (suspected defect): playback never reads `SegmentEventType.PartAdded / PartRemoved` (only `GhostingTriggerClassifier` and `ForeignInventoryTransfer` name them), though the flight-recorder design says the ghost renders the part from that UT. Roadmap XS-3.
 - [ ] CLAIMED-VESSEL-HAS-NO-GHOST-BEFORE-ITS-MEMBER (suspected defect): `VesselGhoster.GhostVessel` despawns the claimed vessel and creates no ghost (`VesselGhoster.cs:155-168`), so it is missing after a rewind until its member recording starts. Roadmap XS-3.
-- [x] ~~Lab science and the ledger: science reaches the ledger only with a subject (`GameStateEventConverter.cs:326-345`, `GameStateRecorder.cs:1063`, `:1153`); whether stock's lab transmit carries one needs a decompile. Roadmap XS-4, XS-5 (GC-8).~~ Decompiled 2026-10-17: it carries none; filed and fixed as LAB-SCIENCE-NEVER-LEDGERED (xUnit; lane pending).
-- [x] ~~TA-6 outside the physics bubble: see TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND. Roadmap MINE-3.~~ Fixed 2026-10-17 (xUnit; lane pending).
+- [x] ~~Lab science and the ledger: science reaches the ledger only with a subject (`GameStateEventConverter.cs:326-345`, `GameStateRecorder.cs:1063`, `:1153`); whether stock's lab transmit carries one needs a decompile. Roadmap XS-4, XS-5 (GC-8).~~ Decompiled 2026-10-17: it carries none; filed and fixed as LAB-SCIENCE-NEVER-LEDGERED (xUnit; lane LAB-1 authored, never flown).
+- [x] ~~TA-6 outside the physics bubble: see TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND. Roadmap MINE-3.~~ Fixed 2026-10-17 (xUnit; lane LAB-1 authored, never flown).
 - [ ] Contracts x Re-Fly never executes (the in-game cell skips on every host). Roadmap XS-6.
 - [ ] EVA hop across 2-3 vessels and a crew transfer while docked then undock: never flown (no spec passes `EvaBoard targetPid`, no crew-transfer verb); a crew transfer is not recorded by design (`SwitchSegmentNoOpClassifier.cs:146-161`), and a kerbal moved into another tree's vessel keeps the first tree's hold (`KerbalsModule.cs:1318-1335`). Roadmap XS-7.
 
@@ -3173,7 +3173,7 @@ credits uncapped; it is an earning, resource-impacting, counted on the reconcile
 as committed credit in the pending KSC science credit, tombstone-eligible, and never strict-blocks a
 supersede. Tests: `ScienceLabLedgerTests` (event / conversion, the recorder's untagged and tagged
 paths, round trip, uncapped walk, a rewind cutoff before / after the payout, the reconcile WARN
-before and its absence after) plus the exhaustive per-type tables. Live proof: lane pending.
+before and its absence after) plus the exhaustive per-type tables. Live proof: lane `LAB-1-converter-jump-lab-ledger` (in-game category `ConverterJumpLab`), authored, never flown.
 
 ---
 
@@ -3207,7 +3207,7 @@ catches up `now - lastUpdateTime` in `GetMaxDeltaTime` slices until closed, and 
 carry `lastUpdateTime` in the module node. One Info summary per jump (`Converter jump policy (...)`).
 Tests: `ConverterJumpPolicyTests` (pure shift rules, the snapshot rewrite, the per-vessel walk and
 a source gate that both entry points apply it; the gate was shown red with the `ExecuteJump` call
-removed). Live proof: lane pending.
+removed). Live proof: lane `LAB-1-converter-jump-lab-ledger` (in-game category `ConverterJumpLab`), authored, never flown.
 
 ---
 

@@ -183,6 +183,44 @@ namespace Parsek
                     tally.UnloadedShifted, tally.UnloadedVessels, tally.NeverRan, tally.Unreadable));
         }
 
+        /// <summary>True when the stock converter clock field resolved by reflection.</summary>
+        internal static bool LoadedTimestampFieldResolved => lastUpdateTimeField != null;
+
+        /// <summary>
+        /// Runtime: applies the policy to one live converter module through its protected
+        /// clock field. <see cref="ShiftOutcome.Unparseable"/> when the field did not resolve.
+        /// </summary>
+        internal static ShiftOutcome ShiftLoadedConverter(
+            BaseConverter converter, double pre, double post, out double oldTime, out double newTime)
+        {
+            oldTime = 0.0;
+            newTime = 0.0;
+            if (converter == null || lastUpdateTimeField == null)
+                return ShiftOutcome.Unparseable;
+            oldTime = (double)lastUpdateTimeField.GetValue(converter);
+            ShiftOutcome outcome = ComputeShiftedTimestamp(oldTime, pre, post, out newTime);
+            if (outcome == ShiftOutcome.Shifted)
+                lastUpdateTimeField.SetValue(converter, newTime);
+            return outcome;
+        }
+
+        /// <summary>Runtime: reads one live converter module's clock, NaN when unreadable.</summary>
+        internal static double ReadLoadedTimestamp(BaseConverter converter)
+        {
+            if (converter == null || lastUpdateTimeField == null)
+                return double.NaN;
+            return (double)lastUpdateTimeField.GetValue(converter);
+        }
+
+        /// <summary>Runtime: writes one live converter module's clock; false when unwritable.</summary>
+        internal static bool WriteLoadedTimestamp(BaseConverter converter, double value)
+        {
+            if (converter == null || lastUpdateTimeField == null)
+                return false;
+            lastUpdateTimeField.SetValue(converter, value);
+            return true;
+        }
+
         private static void ApplyLoaded(Vessel v, double pre, double post, ref JumpTally tally)
         {
             if (v.parts == null) return;
@@ -199,11 +237,10 @@ namespace Parsek
                 {
                     var converter = p.Modules[m] as BaseConverter;
                     if (converter == null) continue;
-                    double oldTime = (double)lastUpdateTimeField.GetValue(converter);
-                    ShiftOutcome outcome = ComputeShiftedTimestamp(oldTime, pre, post, out double newTime);
+                    ShiftOutcome outcome = ShiftLoadedConverter(
+                        converter, pre, post, out double oldTime, out double newTime);
                     if (outcome == ShiftOutcome.Shifted)
                     {
-                        lastUpdateTimeField.SetValue(converter, newTime);
                         ParsekLog.Verbose(Tag,
                             string.Format(ic,
                                 "Converter timestamp shifted (loaded): vessel={0} part={1} module={2} old={3:F1} new={4:F1}",
