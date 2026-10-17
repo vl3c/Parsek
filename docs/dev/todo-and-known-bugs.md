@@ -3368,8 +3368,8 @@ StopRecording after CommitTree (CommitTree re-takes the committed tree for the s
 rover, so the rewind was refused `recording-active`), and with the rover's radiators off every
 1200 K part (four RTGs, four wheels, two batteries) exploded about 28 minutes into the rails
 warp while packed, inferred overheat (stock `ModuleCoreHeat.MoveCoreEnergyToRadiators` counts
-only radiators with `IsCooling` set). Fixed in the spec and the fixture (radiators on); re-flight
-pending. Still open: MINE-0, MINE-4, MINE-5, GS-6r3, a lab lane (XS-5), and
+only radiators with `IsCooling` set). Fixed in the spec and the fixture (radiators on); LIVE-PROVEN
+on the second flight `2026-10-17_1242` (PASS attempt 1, both spawns `snapshotMatch=true`). Still open: MINE-0, MINE-4, MINE-5, GS-6r3, a lab lane (XS-5), and
 `HarvestCapture_CatchUpOnLoad` on a host with a drill on ore.
 
 ---

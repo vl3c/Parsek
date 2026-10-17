@@ -2,12 +2,12 @@ schema = 1
 id = "MINE-2-rover-mine-rewind-warp-jump"
 tier = "nightly"
 # THE FIRST FLOWN MINING LANE (roadmap MINE-2 / MINE-3, todo MINING-ISRU-UNTESTED-END-TO-END).
-# FLOWN ONCE (2026-10-17, INVALID, two causes, both fixed here): CommitTree re-took the
+# LIVE-PROVEN 2026-10-17 on its second flight (`2026-10-17_1242`, PASS attempt 1).
+# Flight 1 (`2026-10-17_1207`) was INVALID on two causes, both fixed here: CommitTree re-took the
 # committed tree for the still-active rover (copy-on-write restore + a promotion
 # recording), so Rewind-to-Launch was refused `recording-active`; RC-6's StopRecording
 # after CommitTree now follows it. And with the rover's radiators off, every 1200 K part
-# overheated during the rails warp; the fixture now carries them switched on. The next
-# flight is still a READING run.
+# overheated during the rails warp; the fixture now carries them switched on.
 #
 # THE CRAFT is V's own "Mining Rover RC" (built and flown by hand in his dev install on
 # 2026-10-17, harvested into the derived fixture `miner-rover-landed` by
