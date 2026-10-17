@@ -818,13 +818,15 @@ and `harness/lib/test_career_gs1_leadership_pad.py`. Host of
 
 ## lab-lko-sandbox (GAME Mode = SANDBOX, 1 VESSEL + 1 asteroid, harvested from LABX-1)
 
-The `LABX-1-lab-orbit-ascent` produced save (run `2026-10-17_1747`, PASS attempt 1), harvested
+The `LABX-1-lab-orbit-ascent` produced save (run `2026-10-17_1957`, PASS attempt 1, the current
+craft shape; first harvested from `2026-10-17_1747` before the antenna and tender), harvested
 from the run's own snapshot by `harvest_bdock_station.py --target-name lab-lko-sandbox
 --expect-situation ORBITING` (never `--force`). The by-construction `LABX Orbital Lab`
-(`harness/tools/build_lab_orbit_craft.py`) parked ORBITING Kerbin at ~107 x 92 km, throttle cut,
-ONE vessel with the spent booster gone: Mk1 pod (Valentina Kerman, Pilot), Science Jr, Mystery
-Goo, 2HOT, PresMat, Mobile Processing Lab (Bob Kerman, Scientist, in lab seat 0), RW-L wheel,
-X200-16 + Poodle with eight RTGs and four Z-400s. Plus the stock `Ast. VPA-167` asteroid KSP
+(`harness/tools/build_lab_orbit_craft.py`) parked ORBITING Kerbin at ~107 x 93 km, throttle cut,
+ONE vessel of 26 parts with the spent booster gone: Mk1 pod (Valentina Kerman, Pilot) with a
+Communotron 16-S, the probe tender above it (Clamp-O-Tron Jr pair, OKTO, Z-200; never staged),
+Science Jr, Mystery Goo, 2HOT, PresMat, Mobile Processing Lab (Bob Kerman, Scientist, in lab
+seat 0), RW-L wheel, X200-16 + Poodle with eight RTGs and four Z-400s. Plus the stock `Ast. VPA-167` asteroid KSP
 spawned during the coast. No recordings (the lane pins `autoRecordOnLaunch` false); the
 ParsekScenario node is the forge base's inert one with two dead `MILESTONE_STATE` rows (the
 `eva2-lko-crewed` / `gs2-orbital-stack` shape). The harvest dropped the forge base's five library
@@ -847,6 +849,31 @@ the lab is unlocked through `specializedCommandModules`, not stock `advExplorati
 pool stays `fresh-science`'s 100 (the nodes are granted, not bought). `AddOns/` is the base's;
 the craft arrives through the `shared-ships.toml` overlay. Built and drift-gated by the builder
 (`--check`) and `harness/lib/test_lab_lko_science.py`.
+
+## lab-pad-seeded (GAME Mode = SCIENCE_SANDBOX, 1 VESSEL PRELAUNCH, derived from lab-lko-science)
+
+`harness/tools/build_lab_seeded_variants.py`: `lab-lko-science` with two edits. The LABX
+Orbital Lab upper stage (as flown: booster gone, Poodle staged at zero throttle) is moved to
+the LaunchPad, every pad-dependent VESSEL key (sit `PRELAUNCH`, landed, landedAt, lat, lon,
+nrm, rot, camera) and the ORBIT block taken from `gs1-two-stage-pad`'s KSP-written vessel,
+alt / hgt from the pad surface plus the stage's root-to-Poodle-node height (stock's
+CheckGroundCollision settles it on unpack). PRELAUNCH, not LANDED, because stock offers
+Revert to Launch only for a vessel that loaded PRELAUNCH (FlightDriver sets
+CanRevertToPostInit from it; VN-5 proved the route). Revert to VAB cannot be carried by any
+fixture. The lab: `dataStored = 204` (the stock lab-value sum of its sixteen subjects),
+`storedScience = 12.5`, `EXPERIMENT_DATA` = the Thermometer, PresMat, Goo and Materials Bay
+subjects at Kerbin FlyingLow / FlyingHigh / InSpaceLow / InSpaceHigh; research off. Hosts
+LAB-9b / LAB-14. Drift-gated by `--check` and `harness/lib/test_lab_seeded_variants.py`.
+
+## lab-lko-seeded (GAME Mode = SCIENCE_SANDBOX, 1 VESSEL ORBITING, derived from lab-lko-science)
+
+Same builder: `lab-lko-science`'s orbiting vessel unchanged but for the lab, whose stores sit
+just under the stock caps (`dataStored = 740` of 750, `storedScience = 499` of 500, the caps
+being part-cfg values the converter clamps to). `EXPERIMENT_DATA` lists the twelve
+FlyingLow / FlyingHigh / InSpaceHigh subjects and leaves the four InSpaceLow ones out, so in
+this orbit the Thermometer (lab value 5) and PresMat (8) still fit and the Goo (15) and
+Materials Bay (22) are refused for capacity. Research off. Hosts the lab-cap lanes.
+Drift-gated with `lab-pad-seeded`.
 
 ## fresh-science (GAME Mode = SCIENCE_SANDBOX)
 

@@ -125,6 +125,14 @@ VESSEL_PART_TECH = {
     "Decoupler.2": "specializedConstruction",
     "Rockomax64.BW": "advFuelSystems",
     "liquidEngineMainsail.v2": "heavierRocketry",
+    # Added with the craft's science antenna and probe tender (build_lab_orbit_craft.py
+    # A9 / A12), same derivation; every node was already in TECH_NODES, so the
+    # committed fixture (built from the earlier vessel) still verifies, and a
+    # re-harvested vessel carrying these parts verifies too.
+    "SurfAntenna": "start",
+    "dockingPort3": "advConstruction",
+    "probeCoreOcto.v2": "survivability",
+    "batteryBankMini": "survivability",
 }
 
 # (id, cost, parts) in TechTree order. See the module docstring for the derivation.

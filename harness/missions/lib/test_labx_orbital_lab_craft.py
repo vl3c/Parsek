@@ -7,9 +7,11 @@ Runnable with the stdlib runner only (NO pytest, NO kRPC, NO KSP, NO network)::
 
 Mirrors the GS-1 and DD1 craft drift cells: the builder's `--check` runs in-process,
 so a hand edit to the committed .craft, or a drifted derivation, reds here instead
-of in a live flight. The extra cells pin the three properties the lab lanes lean on
+of in a live flight. The extra cells pin the properties the lab lanes lean on
 beyond "it flies": the scientist's seat (A2), the staging that can never drop the
-lab (A3), and the steady power the lab's research draw needs (A8).
+lab (A3), the steady power the lab's research draw needs (A8), the science link
+(A9: a DIRECT antenna, since the pod's INTERNAL one cannot transmit) and the
+never-staged probe tender on its docking-port pair (A12).
 """
 
 import importlib.util
@@ -77,9 +79,25 @@ class SeatingContractTests(unittest.TestCase):
         problems = self.builder.verify(mutated)
         self.assertTrue(any("ROOT" in p for p in problems), problems)
 
-    def test_exactly_one_command_part(self):
-        text = "\n".join(self.builder.build())
-        self.assertEqual(text.count("name = ModuleCommand"), 1)
+    def test_the_pod_is_the_only_seated_command_part(self):
+        # Two control sources since the tender (A12): the pod and the seatless OKTO.
+        commands = [n for n, r in self.records
+                    if "name = ModuleCommand" in r["__body__"]]
+        self.assertEqual(sorted(commands), ["mk1pod.v2", "probeCoreOcto.v2"])
+        self.assertEqual(self.builder.COMMAND_SEATS["probeCoreOcto.v2"], 0)
+        self.assertNotIn("probeCoreOcto.v2", self.builder.CREW_CAPACITY)
+
+    def test_a_seated_tender_core_would_be_caught(self):
+        # A HECS-with-seats / lander-can swap in the tender would join the A2 fill.
+        original = dict(self.builder.COMMAND_SEATS)
+        try:
+            self.builder.COMMAND_SEATS["probeCoreOcto.v2"] = 1
+            problems = self.builder.verify(self.builder.build())
+        finally:
+            self.builder.COMMAND_SEATS.clear()
+            self.builder.COMMAND_SEATS.update(original)
+        self.assertTrue(any("ONLY command part with seats" in p for p in problems),
+                        problems)
 
     def test_the_lab_tail_invents_no_module(self):
         lab = [r for n, r in self.records if n == "Large.Crewed.Lab"]
@@ -108,7 +126,8 @@ class StagingContractTests(unittest.TestCase):
 
     def test_the_lab_and_everything_above_the_decoupler_never_stage(self):
         for name in ("mk1pod.v2", "Large.Crewed.Lab", "science.module",
-                     "GooExperiment", "rtg", "Rockomax16.BW"):
+                     "GooExperiment", "rtg", "Rockomax16.BW", "SurfAntenna",
+                     "dockingPort3", "probeCoreOcto.v2", "batteryBankMini"):
             self.assertEqual(self._istg(name), [-1], name)
 
     def test_a_staged_lab_would_be_caught(self):
@@ -124,6 +143,120 @@ class StagingContractTests(unittest.TestCase):
                             for p in self.builder.verify(out)))
 
 
+class ScienceLinkTests(unittest.TestCase):
+    """Assumption A9: the pod's INTERNAL antenna cannot transmit science, so a DIRECT
+    or RELAY ModuleDataTransmitter must be aboard, on a part that never stages."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.builder = _load_builder()
+        cls.records = cls.builder.part_records(cls.builder.build())
+
+    def test_a_direct_or_relay_transmitter_is_aboard_and_never_staged(self):
+        links = [(n, r) for n, r in self.records
+                 if "name = ModuleDataTransmitter" in r["__body__"]
+                 and self.builder.TRANSMITTER_TYPE.get(n) in ("DIRECT", "RELAY")]
+        self.assertEqual([n for n, _r in links], ["SurfAntenna"])
+        for _n, rec in links:
+            self.assertEqual(rec["istg"], "-1")
+            self.assertTrue(rec["srfN"].startswith("srfAttach,mk1pod.v2_"))
+
+    def test_every_transmitter_aboard_has_a_pinned_antenna_type(self):
+        carriers = sorted({n for n, r in self.records
+                           if "name = ModuleDataTransmitter" in r["__body__"]})
+        self.assertEqual(carriers, ["SurfAntenna", "mk1pod.v2", "probeCoreOcto.v2"])
+        self.assertEqual(self.builder.TRANSMITTER_TYPE["mk1pod.v2"], "INTERNAL")
+        self.assertEqual(self.builder.TRANSMITTER_TYPE["probeCoreOcto.v2"], "INTERNAL")
+        self.assertEqual(self.builder.TRANSMITTER_TYPE["SurfAntenna"], "DIRECT")
+
+    def test_the_antenna_is_not_deployable(self):
+        ant = [r for n, r in self.records if n == "SurfAntenna"]
+        self.assertEqual(len(ant), 1)
+        self.assertNotIn("ModuleDeployableAntenna", ant[0]["__body__"])
+
+    def test_a_craft_without_the_antenna_would_be_caught(self):
+        # The first flown shape: only INTERNAL transmitters aboard.
+        # Drop the antenna's whole top-level PART node (an unindented "PART" / "{" /
+        # ... / "}" run) and every reference to it.
+        lines = self.builder.build()
+        out, i = [], 0
+        while i < len(lines):
+            if (lines[i] == "PART" and i + 2 < len(lines)
+                    and lines[i + 2].startswith("\tpart = SurfAntenna_")):
+                j = lines.index("}", i + 2)
+                i = j + 1
+                continue
+            if "SurfAntenna_" not in lines[i]:
+                out.append(lines[i])
+            i += 1
+        self.assertFalse(any("SurfAntenna" in l for l in out))
+        problems = self.builder.verify(out)
+        self.assertTrue(any("no DIRECT or RELAY ModuleDataTransmitter" in p
+                            for p in problems), problems)
+
+    def test_a_staged_antenna_would_be_caught(self):
+        lines = self.builder.build()
+        out, in_ant = [], False
+        for line in lines:
+            if line.startswith("\tpart = SurfAntenna_"):
+                in_ant = True
+            if in_ant and line == "\tistg = -1":
+                line, in_ant = "\tistg = 0", False
+            out.append(line)
+        self.assertTrue(any("science-link antenna SurfAntenna must never stage" in p
+                            for p in self.builder.verify(out)))
+
+
+class TenderContractTests(unittest.TestCase):
+    """Assumption A12: a seatless probe tender on a face-to-face Jr port pair above
+    the pod, never staged, separable only by an explicit undock."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.builder = _load_builder()
+        cls.records = cls.builder.part_records(cls.builder.build())
+
+    def _named(self, name):
+        return [r for n, r in self.records if n == name]
+
+    def test_the_tender_stack_order_above_the_pod(self):
+        pod = self._named("mk1pod.v2")[0]
+        lower, upper = self._named("dockingPort3")
+        okto = self._named("probeCoreOcto.v2")[0]
+        z200 = self._named("batteryBankMini")[0]
+        self.assertIn(lower["part"], pod["link"])
+        self.assertEqual(lower["link"], [upper["part"]])
+        self.assertEqual(upper["link"], [okto["part"]])
+        self.assertEqual(okto["link"], [z200["part"]])
+        ys = [float(r["pos"].split(",")[1]) for r in (pod, lower, upper, okto, z200)]
+        self.assertEqual(ys, sorted(ys))
+
+    def test_the_ports_meet_face_to_face_like_crater_crawlers_pair(self):
+        lower, upper = self._named("dockingPort3")
+        self.assertEqual(lower["rot"], "0,0,0,1")
+        self.assertEqual(upper["rot"], "1,0,0,0")
+        self.assertIn("top,%s_0|0.1474114|0" % upper["part"], lower["attN"])
+        self.assertIn("top,%s_0|0.1474114|0" % lower["part"], upper["attN"])
+        gap = float(upper["pos"].split(",")[1]) - float(lower["pos"].split(",")[1])
+        self.assertAlmostEqual(gap, 2 * 0.1474114, places=6)
+
+    def test_no_port_is_stageable_and_no_decoupler_is_in_the_tender(self):
+        for rec in self._named("dockingPort3"):
+            self.assertIn("stagingEnabled = False", rec["__body__"])
+            self.assertEqual(rec["istg"], "-1")
+        decouplers = [n for n, r in self.records
+                      if "ModuleDecouple" in r["__body__"]]
+        self.assertEqual(decouplers, ["Decoupler.2"])
+
+    def test_a_stageable_port_would_be_caught(self):
+        text = "\n".join(self.builder.build())
+        i = text.index("name = ModuleDockingNode")
+        j = text.index("stagingEnabled = False", i)
+        text = text[:j] + "stagingEnabled = True" + text[j + len("stagingEnabled = False"):]
+        self.assertTrue(any("must carry stagingEnabled = False" in p
+                            for p in self.builder.verify(text.split("\n"))))
+
+
 class PerformanceTests(unittest.TestCase):
     """Assumptions A7 / A8: the arithmetic the report quotes, held to its floors."""
 
@@ -136,11 +269,11 @@ class PerformanceTests(unittest.TestCase):
         self.assertGreater(self.perf["totalVacDv"], 3400.0)
 
     def test_the_quoted_numbers(self):
-        self.assertAlmostEqual(self.perf["padMass"], 58.43, places=2)
-        self.assertAlmostEqual(self.perf["upperWet"], 16.27, places=2)
-        self.assertAlmostEqual(self.perf["padTwr"], 2.41, places=2)
-        self.assertAlmostEqual(self.perf["upperVacDv"], 2322.6, delta=1.0)
-        self.assertAlmostEqual(self.perf["boosterVacDv"], 2411.8, delta=1.0)
+        self.assertAlmostEqual(self.perf["padMass"], 58.595, places=3)
+        self.assertAlmostEqual(self.perf["upperWet"], 16.435, places=3)
+        self.assertAlmostEqual(self.perf["padTwr"], 2.40, places=2)
+        self.assertAlmostEqual(self.perf["upperVacDv"], 2289.4, delta=1.0)
+        self.assertAlmostEqual(self.perf["boosterVacDv"], 2401.4, delta=1.0)
 
     def test_the_booster_alone_cannot_reach_orbit(self):
         # The stackAttached row needs the decoupler to fire DURING the ascent, so
