@@ -8294,9 +8294,19 @@ namespace Parsek
             string boundRecordingId = flight != null
                 ? flight.LiveRecordingIdForVessel(v.persistentId)
                 : null;
+            float labStoredScience = 0f;
+            try
+            {
+                labStoredScience = Patches.ScienceLabCreditCapture.SumLiveStoredScience(v);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Scenario",
+                    $"Recovery request: reading lab science for '{v.vesselName}' threw: {ex.Message}");
+            }
             InFlightRecoveryRequest.Arm(
                 v.persistentId, guid, v.vesselName, Planetarium.GetUniversalTime(),
-                boundRecordingId);
+                boundRecordingId, labStoredScience);
 
             if (RecordingStore.HasPendingTree
                 && RecordingStore.PendingTreeStateValue == PendingTreeState.Finalized)
