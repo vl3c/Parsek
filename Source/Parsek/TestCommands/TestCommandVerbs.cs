@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + StockScreen + the editor scene route + EvaGroundScience + SafeWriteCrash + SpinVessel + StashSlot + the D18 RealSpawn / Recover pair + TrackingStationRecover + KscMarkerRecover + ReFlyRevert + RenameVessel + PartAction / RevertToLaunch + DriveVessel): 51 verbs (DeleteRecording removed 2026-09-26; the Gloops pair 2026-10-05). The NUMBER is prose and
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + StockScreen + the editor scene route + EvaGroundScience + SafeWriteCrash + SpinVessel + StashSlot + the D18 RealSpawn / Recover pair + TrackingStationRecover + KscMarkerRecover + ReFlyRevert + RenameVessel + PartAction / RevertToLaunch + DriveVessel + ReadVesselResources + CrewTransfer): 53 verbs (DeleteRecording removed 2026-09-26; the Gloops pair 2026-10-05). The NUMBER is prose and
         // the SET below is the authority - test_hlib's
         // test_the_implemented_verb_tuple_mirrors_the_c_sharp_initializer reads that
         // initializer out of this file and pins it against hlib.IMPLEMENTED_SEAM_VERBS as
@@ -340,6 +340,19 @@ namespace Parsek.TestCommands
             // Contract on TestCommandDriveVessel; TWO-PHASE, RequiresFlight, default budget.
             // State-mutating (it moves a live vessel).
             "DriveVessel",
+            // ReadVesselResources. ADDITIVE (51 -> 52 implemented, reserved unchanged at 4): what is
+            // actually in the tanks of one or more live vessels (todo
+            // HARNESS-VERBS-FOR-TIMELINE-OPS, roadmap TC-1), with an optional summed expectation
+            // (the conservation check) and an optional comparison with each recording's end
+            // snapshot. Contract on TestCommandReadVesselResources; SINGLE-PHASE,
+            // RequiresVesselListScene, default budget. Read-only (NonMutatingVerbs).
+            "ReadVesselResources",
+            // CrewTransfer. ADDITIVE (52 -> 53 implemented, reserved unchanged at 4): a
+            // player's stock crew transfer between two crewed parts of the active vessel (two
+            // pods of a docked pair), the move the crew-across-vessels lanes record before an
+            // undock. Contract on TestCommandCrewTransfer; TWO-PHASE, RequiresFlight, default
+            // budget. State-mutating (it moves a kerbal between parts).
+            "CrewTransfer",
         };
 
         // Reserved (recognized, not implemented in v1): 4 verbs.
@@ -405,6 +418,7 @@ namespace Parsek.TestCommands
             // removed when the capture flushes, they only OBSERVE, and none of them is on
             // a Parsek method at all.
             "DumpGuiTree",           // writes one json, nothing else (hlib: TAIL_ROLE_INERT)
+            "ReadVesselResources",   // reads tanks, writes nothing (hlib: TAIL_ROLE_INERT)
             "FlushAndQuit",          // the reader of the latch, not a mutator of the world
         };
 

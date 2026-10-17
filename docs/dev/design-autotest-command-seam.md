@@ -559,6 +559,18 @@ the updates below record how each verb arrived.
 > name='..' saveActiveVesselIdx=`. All four refusals are arg-class; the first two deterministic.
 > Mirrored by `LoadGameFocusPidSourceSyncTests`; lane `VN-6-ts-rename-then-decouple`.
 
+> Update (CrewTransfer, 2026-10-17): one ADDITIVE verb, taking the table to **53 implemented / 4 reserved**,
+> for the crew-across-vessels coverage (crew moved between two pods of a docked pair):
+> `CrewTransfer kerbal= part=` runs stock's own crew transfer inside the active vessel. Full contract
+> below (`#### CrewTransfer`).
+
+> Update (ReadVesselResources, 2026-10-16): one ADDITIVE verb, taking the table to **52 implemented /
+> 4 reserved**, the first read of what is really in a vessel's tanks (todo
+> HARNESS-VERBS-FOR-TIMELINE-OPS, roadmap TC-1): `ReadVesselResources pid=|rec= [resources=]
+> [expect=] [tolerance=] [expectSnapshot=]` sums the named vessels' tanks in FLIGHT, the Space
+> Center or the Tracking Station and compares the sum with an expectation. Full contract below
+> (`#### ReadVesselResources`); lane `RC-1-docked-transfer-rewind-tanks`.
+
 > Update (DriveVessel, 2026-10-15): one ADDITIVE verb, taking the table to **51 implemented / 4 reserved**,
 > for the D4 `hysteresis` claim (owner ruling 2026-10-15, RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE):
 > `DriveVessel wheelThrottle= seconds=` holds the active rover's wheel throttle for a span of game
@@ -4450,6 +4462,76 @@ OK when the maximum srfSpeed reached 0.5 m/s (`drivevessel end: outcome=moved ..
 throttle held. Pure half `TestCommandDriveVessel`, applier `ParsekTestCommandAddon.DriveVessel.cs`,
 mirrored by `DriveVesselSourceSyncTests`. Lane: `RVR-21-rover-drive-surface-hysteresis`.
 
+#### ReadVesselResources (additive; the tank read, roadmap TC-1)
+
+**Why.** Every lane before it checked Parsek's own log lines about resources; none read a tank.
+A conservation claim (what one vessel lost, another gained) needs the game's own numbers.
+
+**Grammar.** `cmd=ReadVesselResources pid=<p1,p2,..>` or `rec=<id1,id2,..>` (exactly one of the
+two, at most 8 targets; `readvesselresources-target-arg-missing` / `-target-arg-conflict` /
+`-pid-arg-invalid` / `-rec-arg-invalid` / `-too-many-targets`), optional `resources=<R1,R2>`
+(the resources the lines and payload report; default every resource the targets hold),
+`expect=<R:amount;R:amount>` (invariant decimals, at least 0, no repeats), `tolerance=<t>`
+(default 0.01) and `expectSnapshot=true|false` (only with `rec=`; `-expect-snapshot-needs-rec`).
+Every arg refusal is deterministic.
+
+**Behavior.** SINGLE-PHASE and read-only, `RequiresVesselListScene` (FLIGHT, Space Center,
+Tracking Station; Defer elsewhere). A `pid=` target must be a live non-ghost vessel
+(`readvesselresources-vessel-not-found`, `-target-is-ghost`). A `rec=` target names a committed
+recording (`readvesselresources-unknown-recording`) and reads the vessel it spawned
+(`SpawnedVesselPersistentId`); a recording whose vessel is not live is NOT a refusal, it is
+`found=false` and counts in `missing=`, because that is a Parsek outcome a lane must be able to
+red on. A loaded vessel is read from its parts' `PartResource`s, an unloaded one from its proto
+part snapshots. It logs one `readvesselresources vessel index= rec= found= pid= name= loaded=
+parts= R=amount/max ...` line per target, one `readvesselresources total vessels= R=amount/max`
+line, one `readvesselresources expect resource= expected= actual= diff= tolerance= match=` line
+per expectation (a missing vessel fails every one), one `readvesselresources snapshot rec= pid=
+resource= live= snapshot= diff= match=` line per vessel and resource with `expectSnapshot=true`
+(each vessel against its recording's `VesselSnapshot`; ElectricCharge and IntakeAir are never
+compared, they change with time), and `readvesselresources complete vessels= missing=
+uidCollisions= uidDigest= match= snapshotMatch=` (Info when clean, Warn otherwise).
+`uidCollisions` counts the targets' part uids (`flightID`) also held by another live non-ghost
+vessel; `uidDigest` is an FNV-1a digest of the targets' sorted uids. A mismatch is an OK answer
+carrying `match=false`, never a refusal, so a lane gates it with a `forbidden` regex as
+PARSEK-FAIL instead of reading a driver INVALID that a retry would hide (the `ListHandles
+expectDigest` precedent). The payload carries `vessels pids names loaded parts uidDigest
+uidCollisions missing resources`, `<R>` / `<R>Max` per reported resource, and `match mismatches
+snapshotMatch snapshotMismatches` (`match` / `snapshotMatch` read `none` when not asked). Inert tail role, `recording`
+post-mission role. Pure half `TestCommandReadVesselResources`, applier
+`ParsekTestCommandAddon.ReadVesselResources.cs`, mirrored by `ReadVesselResourcesSourceSyncTests`.
+The offline half is `harness/lib/resourceq.py` (snapshot sidecar decode, dock-window
+conservation). Lane: `RC-1-docked-transfer-rewind-tanks`.
+#### CrewTransfer (additive; crew moved inside a docked pair)
+
+**Why.** A kerbal moved between two crewed parts of one vessel (the two pods of a docked pair) is
+how a player hands crew over before an undock; nothing else in the seam moves a kerbal between
+parts, and a roster write would skip the stock events Parsek's crew bookkeeping sees.
+
+**Grammar.** `cmd=CrewTransfer kerbal=<full name> part=<runtime part name>`, issued in FLIGHT. Both
+args are REQUIRED (`crewtransfer-kerbal-arg-missing` / `-part-arg-missing`, deterministic).
+`part=` is the dot-form runtime name of the destination; exactly one of stock's valid destinations
+for that kerbal must carry it, so two identical pods are told apart by the source being one of them.
+
+**Behavior.** Refuses with no active vessel (`crewtransfer-no-active-vessel`), a packed or unloaded
+one (`-vessel-not-ready`), a kerbal in none of its parts (`-kerbal-not-aboard`) and another stock
+item transfer open (`-transfer-running`); then opens stock's transfer
+(`CrewTransfer.Create(srcPart, crew, onDismiss)`, which builds the same valid-destination list the
+highlighted-part prompt shows) and picks the destination: several valid matches is
+`-part-ambiguous`, a matching part that is full or refuses transfers is `-transfer-unavailable`, no
+matching part is `-part-not-found` (the prompt is dismissed on every refusal). It logs
+`crewtransfer start kerbal='..' pid= from= fromId= to= toId= valid=` and selects the part through
+the transfer's own protected `OnPartSelect(Part)` (the click on a highlighted part): stock fires
+`onCrewTransferSelected`, moves the kerbal, fires `onCrewTransferred` and `Vessel.CrewWasModified`,
+and one frame later dismisses itself with `ItemMoved`. A veto from an `onCrewTransferSelected`
+handler is ERROR `crewtransfer-vetoed`; an exception is ERROR `crewtransfer-threw`.
+
+**Phases.** TWO-PHASE, `RequiresFlight`, default 60 s budget, world-mutating tail role, `recording`
+post-mission role. OK once the dismiss came with `ItemMoved` and the kerbal sits in the destination:
+line `crewtransfer applied kerbal='..' pid= from= fromId= to= toId= crewFrom= crewTo=`, payload in
+that key order. Otherwise ERROR `crewtransfer-timeout`. `ClearTwoPhase` dismisses any open prompt,
+which holds a control lock. Pure half `TestCommandCrewTransfer`, applier
+`ParsekTestCommandAddon.CrewTransfer.cs`, mirrored by `CrewTransferSourceSyncTests`.
+
 ### Addon lifecycle
 
 `ParsekTestCommandAddon` mirrors `TestRunnerShortcut`: `[KSPAddon(KSPAddon.Startup.Instantly, true)]`
@@ -4575,6 +4657,7 @@ wall-clock. Some verbs need a different bound and override the default:
 | `KscMarkerRecover` | 60 s | TWO-PHASE, the default size named: no scene load, the 180-frame marker wait, stock's one-frame recovery and a summary dismissal; NOT a `DEFERRED_SEAM_VERB` |
 | `RevertToLaunch` | 180 s | TWO-PHASE, the `LaunchFromEditor` size: stock's flight reload from the post-init state plus LoadGame's flight-ready wait; no save is parsed off disk, so NOT a `DEFERRED_SEAM_VERB` |
 | `DriveVessel` | (default) 60 s | TWO-PHASE, at most 30 game seconds of drive; the completion ends ERROR `drivevessel-timeout` rather than letting the pump convert it |
+| `CrewTransfer` | (default) 60 s | TWO-PHASE: stock moves the kerbal synchronously and dismisses one frame later; the completion ends ERROR `crewtransfer-timeout` rather than letting the pump convert it |
 | `ReFlyRevert` | 300 s | TWO-PHASE, the `InvokeRewind` / `InvokeRewindToLaunch` size: the resume settle (up to 30 s) and the stock menus, then Discard's quicksave `LoadGame` plus the Space Center / editor load or Retry's flight reload; a `DEFERRED_SEAM_VERB` |
 | `AnswerMergeDialog` | 60 s | MEASURED 2026-10-06 over 859 collected runs (2026-09-10 to 2026-10-05): OK n=65, p50 3.3 s, p99 6.6 s, max 7.2 s. 4x the OK max is 29 s; the floor is twice `TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds` (30 s), which the re-fly fallback spends before the driven exit (unit-guarded). Was 120 s; all 6 non-OK outcomes (4 `no-refly-dialog` TIMEOUT, 2 `answer-timeout` ERROR) waited the full 120 s and none was a slow success |
 | `EvaGroundScience` | 60 s | MEASURED 2026-10-06 over the same corpus: OK n=412, p50 0.9 s, p99 5.5 s, max 5.5 s (step 3.3, take 0.5, place 3.6, pickup 5.5). Each action is its own command, so the budget bounds one action. 4x the OK max is only 22 s, but the place ladder counts frames (about 1,000 worst case), so 60 s keeps it inside the budget down to about 17 fps. Was 120 s (the EvaExit size); all 37 timeouts (27 `step-timeout`, 5 `placement-timeout`, 3 `place-gate-timeout`, 2 `pickup-timeout`) waited the full 120 s, 4,440 s in all |

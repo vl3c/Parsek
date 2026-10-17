@@ -7208,12 +7208,13 @@ namespace Parsek
                 ? v.id.ToString("N")
                 : VesselLaunchIdentity.TryReadVesselGuid(lastGoodVesselSnapshot);
             ParsekLog.Verbose("Recorder", $"StartRecording: captured launch guid={pendingRecordedVesselGuid ?? "(none)"}");
-            ApplyStartRecordingTreeBackstop(
-                ActiveTree, pendingStartControllers, pendingStartCrew, pendingRecordedVesselGuid,
-                StartBodyName, StartBiome, StartSituation, LaunchSiteName);
             initialGhostVisualSnapshot = lastGoodVesselSnapshot != null
                 ? lastGoodVesselSnapshot.CreateCopy()
                 : VesselSpawner.TryBackupSnapshot(v);
+            ApplyStartRecordingTreeBackstop(
+                ActiveTree, pendingStartControllers, pendingStartCrew, pendingRecordedVesselGuid,
+                StartBodyName, StartBiome, StartSituation, LaunchSiteName,
+                initialGhostVisualSnapshot);
         }
 
         /// <summary>
@@ -7234,7 +7235,8 @@ namespace Parsek
             List<ControllerInfo> startControllers,
             Dictionary<string, int> startCrew,
             string recordedVesselGuid,
-            string startBodyName, string startBiome, string startSituation, string launchSiteName)
+            string startBodyName, string startBiome, string startSituation, string launchSiteName,
+            ConfigNode startGhostVisualSnapshot = null)
         {
             if (activeTree == null
                 || string.IsNullOrEmpty(activeTree.ActiveRecordingId)
@@ -7284,6 +7286,18 @@ namespace Parsek
                 ParsekLog.Verbose("Recorder",
                     $"StartRecording: forwarded start location (body={startBodyName ?? "(null)"}, " +
                     $"launchSite={launchSiteName ?? "(null)"}) to active tree recording '{activeTree.ActiveRecordingId}'");
+            }
+            // Forward the start ghost snapshot too: a switch / Fly continuation segment is built
+            // before any snapshot exists, and without this the commit fills the gap from the END
+            // snapshot, so the segment's ghost shows the vessel as it ended and its crew rows
+            // name the crew it ended with.
+            if (treeRecBackstop.GhostVisualSnapshot == null && startGhostVisualSnapshot != null)
+            {
+                treeRecBackstop.GhostVisualSnapshot = startGhostVisualSnapshot.CreateCopy();
+                backstopChanged = true;
+                ParsekLog.Verbose("Recorder",
+                    $"StartRecording: forwarded start ghost snapshot " +
+                    $"to active tree recording '{activeTree.ActiveRecordingId}'");
             }
             if (backstopChanged)
                 treeRecBackstop.MarkFilesDirty();

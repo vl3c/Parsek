@@ -16,6 +16,75 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REFLY-KEPT-TIP-STAMP-GHOSTED-BY-CHAIN: a chain tip whose stamp a Re-Fly kept is never re-spawned once the chain ghosts that vessel~~ [FILED 2026-10-16 from RC-1's first flight (`2026-10-16_2251`, PARSEK-FAIL), branch `claude/project-thread-81f9wc` (PR #2125). FIXED on the same branch; LIVE-PROVEN by RC-1 `2026-10-16_2324` (PASS attempt 1). product]
+
+RC-1 cycle 2 rewinds `bdock-recorded` to rp_f4ed (the Interceptor separation). The Station tip
+`37d0dc07...` is stamped `spawnedPid=3620499050` (the fixture's own adoption stamp; cycle 1's tip
+spawn writes the same pid back). The Station is not one of rp_f4ed's slots, so the strip leaves it
+alone and `RewindInvoker.ReconcilePostStripSpawnState` keeps the stamp (a same-launch survivor,
+pinned by `SpawnStateReconciliationTests.ReconcilePostStrip_SurvivorOfTheSameLaunch_DoesNotReset`).
+On flight ready `FilterAndGhostChains` ghosts that very vessel for the docking chain (`Claimed
+vessel removed (ghost-chain)`), nothing clears the stamp (`RunSpawnDeathChecks` is skipped during a
+Re-Fly), and `ShouldSpawnAtRecordingEnd` refuses the tip as `already spawned`, so it never comes
+back. Cycle 1 escaped because rp_72eb's strip removed the Station.
+
+Fix: `VesselGhoster.ReleaseTipSpawnClaimOnGhostedVessel`, called from `FilterAndGhostChains` right
+after `GhostVessel` succeeds: when the chain's tip is stamped with exactly the pid just ghosted, its
+spawn state is reset the way the strip reconcile resets it (`Chain tip spawn claim released:` Info
+line). Only the tip and only an exact pid match; earlier recordings that adopted the same vessel
+keep their stamp. Tests: `ChainTipSpawnClaimReleaseTests`.
+
+---
+
+## REFLY-TAIL-SEED-FRAME: a terminal orbit rebuilt from the recording's last point carries a wrong flight-path angle in any later session [FILED 2026-10-16 from RC-1's first flight (`2026-10-16_2251`), branch `claude/project-thread-81f9wc` (PR #2125). PARTLY FIXED on the same branch (seed priority, LIVE-PROVEN by RC-1 `2026-10-16_2324`); the frame fix is OPEN. product]
+
+After the rewind to rp_72eb both undock tips spawned from `source=trajectory-tail` seeds with
+ecc 0.134 (periapsis 14 km) where the recordings' end snapshots and live-captured terminal orbits
+read ecc 0.0106: the Interceptor `4af6cfd7...` was refused `CannotSpawnSafely
+periapsis-below-safe-altitude`, the Station took the bad orbit through the chain-tip path. Cause:
+`FlightRecorder.SampleCurrentVelocity` stores the Unity WORLD velocity, whose polar rotation
+against inertial space (`Planetarium.InverseRotAngle`, 5.44 deg in that recording session) is not
+recorded, while `OrbitSeedResolver.TryDeriveTailOrbitSeed` pairs it with a position rebuilt from
+body-fixed lat/lon/alt against today's rotation (spawn) or an assumed zero (map presence, which
+reproduces the logged `tailEcc=0.095229` exactly). Speed and radius stay right, so only ECC goes
+wrong. The seed won because the only freshness test was against stored OrbitSegments, and both
+tips have none.
+
+Fix so far: the tail seed is declined (`terminal-orbit-newer-than-tail`) when a terminal orbit on
+the same body has an epoch at or after the tail UT, so the live-captured `vessel.orbit` elements
+win (test `TailSeedTerminalOrbitPriorityTests`). Still open: record the velocity body-fixed (or the
+rotation angle per section) so the tail seed is right where it still wins (a schema shape change:
+generation bump and fixture re-harvest), and the same-class readers `GhostMapPresence.cs` gap glide
+and the `VesselSpawner` spawn-validation repair.
+
+---
+
+## REFLY-MERGE-GHOST-ONLY-NULLS-A-SPAWNED-LEAF: a Re-Fly merge marks a leaf that already spawned ghost-only and drops its spawn snapshot [FILED 2026-10-16 from RC-1 `2026-10-16_2324` (green), log read only. OPEN, suspected, product, medium]
+
+On RC-1's second merge (re-fly of rp_f4ed, the Interceptor separation) the log reads
+`[MergeDialog] ApplyVesselDecisions: ghost-only for 'Kerbal X' (id=4af6cfd7...), spawn snapshot
+nulled, ghostVisual=True` for the Interceptor leaf, which had just respawned at its end. If that
+null reaches the committed recording, a later rewind past the undock can no longer bring the
+Interceptor back. Not yet checked: whether the decision is the merge's duplicate guard for a live
+vessel (and so correct for this copy), and whether the committed copy keeps its snapshot.
+
+Fix: read which pending copy `ApplyVesselDecisions` mutates and what reaches the committed tree;
+if the snapshot is lost, a third RC-1 cycle (rewind to the undock RP after both merges) is the red
+test.
+
+---
+
+## CHAIN-TIP-SPAWN-SKIPS-ORBIT-SAFETY-GATE: a chain tip spawns on its terminal orbit without the periapsis safety check [FILED 2026-10-16 from RC-1's first flight, code read. OPEN, product, medium]
+
+`VesselGhoster` resolves the tip's terminal orbit (`TryResolveRecordedTerminalOrbitSpawnState`) and
+passes it straight to `SpawnAtPosition`; only the ordinary spawn path calls
+`TryPassTerminalOrbitSpawnSafety` (`VesselSpawner.cs` ~1691). In RC-1 cycle 1 the Station tip
+spawned on the 14 km-periapsis orbit the Interceptor was refused for (REFLY-TAIL-SEED-FRAME).
+
+Fix: run the same safety decision on the chain-tip path, with the chain's blocked / retry state
+as the outcome, and a red test over a sub-atmospheric terminal orbit.
+
+---
 ## REWIND-TO-LAUNCH-LANDS-IN-THE-LATEST-PERSISTENT-WORLD: a Rewind-to-Launch keeps every surviving vessel in its latest form [FILED 2026-10-16 from EVA-11 `2026-10-16_2256` (the rewind save `parsek_rw_add97f` holds the rover with 16 parts, the rewound game `eva11-rewound` with 15), confirmed by code read. OPEN. product]
 
 `RecordingStore`'s rewind load parses the preprocessed rewind save into `HighLogic.CurrentGame`
@@ -68,6 +137,41 @@ starts hidden); a part re-attached at another pose gets a stand-in node with a d
 shape is the hold ghost above. Inventory events are ghosting triggers, so the optimizer will not
 split such a member. Log line `Construction ghost shape:`. Tests: `ConstructionGhostShapeTests`.
 
+## SPLIT-OF-A-CREWED-COMMANDLESS-PART-READS-AS-DEBRIS: a crewed part with no command module that separates is treated as debris, so its kerbal reads as lost [FILED 2026-10-17 from the crew-across-vessels code trace, branch `claude/crew-across-vessels-db6ycy`. OPEN, not reproduced live. product]
+
+`ParsekFlight.IsTrackableVessel` counts a vessel as its own branch only when it is an EVA kerbal,
+a space object, or carries a `ModuleCommand`. A crew cabin with no command module (a Hitchhiker
+or a Mk1 crew cabin) that undocks or decouples with a kerbal inside fails it: `DeferredUndockBranch`
+resumes the recording as if debris left, nothing records the cabin, and the kerbal is missing from
+the parent recording's end snapshot, which `KerbalsModule.InferCrewEndState` reads as Dead for an
+intact terminal. Not fixed here because the predicate also decides Rewind Point authoring and
+Re-Fly slots (a commandless cabin cannot be flown), so a crewed-part rule needs its own split
+between "record it" and "offer it to Re-Fly". Next step: fly a Hitchhiker undock to confirm
+what KSP calls the separated cabin and what Parsek writes.
+
+## FOREIGN-BOARD-LEAVES-NO-GHOST-CLAIM: boarding a vessel from another mission does not claim it for ghost playback [FILED 2026-10-17 from the crew-across-vessels code trace, branch `claude/crew-across-vessels-db6ycy`. OPEN, to be checked by the EVA hop lane. product]
+
+A Board merge onto a vessel outside the tree stamps no target pid (`HandleTreeBoardMerge`; design
+`design-dock-event-graph.md` item 1 deferred Board stamping), so `GhostChainWalker` sees no claim
+on the boarded vessel. A Dock onto the same vessel is claimed. Expected effect after a rewind past
+the boarding: the boarded vessel stays a real vessel while the boarding mission's merged recording
+also plays and spawns it at its end, a possible duplicate. The crew side no longer depends on the
+stamp (CROSS-TREE-CREW-TRANSFER-STRANDS-RESERVATION follow-up). Fix candidate: stamp the partner
+pid and guid on a Board merge whose target is outside the tree, as a Dock does.
+
+## ~~SWITCH-SEGMENT-STARTS-WITHOUT-A-START-SNAPSHOT: a vessel flown again replays in its end shape and counts only its end crew~~ [FILED 2026-10-17 from the crew-across-vessels code trace, verified by a red xUnit test. FIXED 2026-10-17, branch `claude/crew-across-vessels-db6ycy`; xUnit only so far. product]
+
+`SwitchSegmentBuilder.CreateSwitchContinuationSegment` (Tracking Station Fly, KSC marker Fly,
+Map Switch-To of a committed vessel) builds the segment recording before any snapshot exists,
+and neither the recorder's start backstop (`FlightRecorder.ApplyStartRecordingTreeBackstop`) nor
+`FlushRecorderToTreeRecording` forwarded the recorder's start snapshot, so the segment had no
+`GhostVisualSnapshot` until the commit filled it from the END snapshot. Its ghost then showed the
+vessel as it ended (a docked pair for a segment that docked) and `KerbalsModule` read its start
+crew from the end crew, so a kerbal moved to another vessel during the segment dropped out of it.
+Fix: `CaptureStartSnapshots` takes the start snapshot before the backstop and the backstop
+forwards a copy when the active tree recording has none (never replacing one). Log line
+`StartRecording: forwarded start ghost snapshot`. Tests: `SwitchSegmentStartSnapshotTests`.
+
 ## ~~CROSS-TREE-CREW-TRANSFER-STRANDS-RESERVATION: a kerbal taken off a vessel by a later mission's docking stays reserved to the first mission forever~~ [FILED 2026-10-16 from the coverage audit (`roadmap/coverage-matrix-2026-10-16.md` section 5), verified by code read and a red xUnit test. FIXED 2026-10-16, branch `claude/project-thread-wr5u4k`; xUnit only so far. product]
 
 A recording that ends with a kerbal Aboard (a station left in orbit) holds that kerbal open-ended.
@@ -76,13 +180,24 @@ rescue mission in another tree that docked to the station, took the kerbal and w
 the first hold at +inf (reservations merge by max end), and the kerbal could never fly again.
 
 Fix: `KerbalsModule` collects every committed tree's Dock / Board branch point with a target
-vessel pid (`CollectDockClaims`; in practice only a Dock carries one, a Board's target pid is 0). An open-ended Aboard / Unknown hold on recording R ends at the
-earliest such dock whose target is R's vessel (pid match, launch guids not conclusively
-different, hold end at or before the dock UT) AND whose merged child carries the kerbal
-(`ResolveDockClaimHandoffUT`, pure `DockClaimHandsOffHold`). The rescue tree's own rows then
-hold the kerbal until its recovery. A dock that does not take the kerbal, a dock to another
-launch of the same craft, and a dock to an unrelated vessel keep the hold. Log line:
-`Reservation bounded by cross-tree dock handoff:`. Tests: `CrossTreeDockCrewHandoffTests`.
+vessel (`CollectDockClaims`; a Board stamps no target pid, so its target is the merged child's
+own pid and launch guid, follow-up 2026-10-17 below). An open-ended Aboard / Unknown hold on
+recording R ends at the earliest such dock whose target is R's vessel (pid match with launch guids
+not conclusively different, OR a target guid that continues R's guid through a vessel-name link
+row, i.e. a Parsek spawn of R's vessel; hold end at or before the dock UT) AND whose merged child
+carries the kerbal (`ResolveDockClaimHandoffUT`, pure `DockClaimHandsOffHold`). The rescue tree's
+own rows then hold the kerbal until its recovery. A dock that does not take the kerbal, a dock to
+another launch of the same craft, and a dock to an unrelated vessel keep the hold. Log line:
+`Reservation bounded by cross-tree dock handoff:`. Tests: `CrossTreeDockCrewHandoffTests`,
+`CrewAcrossVesselsHandoffTests`.
+
+Follow-up 2026-10-17 (crew-across-vessels coverage, branch `claude/crew-across-vessels-db6ycy`,
+red-first xUnit): the first fix missed two rescue shapes, both leaving the kerbal reserved
+forever. (1) A rescue that BOARDS the station (a kerbal EVAs from the rescue vessel and boards it):
+`HandleTreeBoardMerge` stamps no target pid on a Board, so no claim was collected. (2) A rescue
+that docks to the station's Parsek SPAWN (the station replayed after a rewind and spawned at its
+recording's end under a fresh pid and guid, joined to the recorded launch by a Spawn link): the
+dock names the spawn's pid, so the pid test failed. Both now hand the hold off as above.
 
 ## ~~STRATEGY-CONVERSION-ROWS-OUTLIVE-THEIR-AWARD: the share of a flight's reward a strategy converts is written untagged, so an F9, a Re-Fly merge or a revert takes the reward back and keeps the converted share~~ [FILED 2026-10-16 from the pre-release coverage audit (`roadmap/coverage-matrix-2026-10-16.md`, code read), confirmed by red-first xUnit. FIXED 2026-10-16, PR #2123; LIVE-PROVEN 2026-10-16 by QL-2c `2026-10-16_2239`. product]
 
@@ -2092,7 +2207,7 @@ with a red test once confirmed.
 
 - [ ] STRATEGY-CONVERSION-ROWS-SURVIVE-F9-AND-REFLY (suspected defect): conversion legs are written untagged (`LedgerOrchestrator.cs:5260-5439`) while the award they divert is flight-tagged, and F9 / a Re-Fly merge retire only tagged rows (`ParsekScenario.Trim.cs:1210-1235`, `TombstoneEligibility.cs:56-117`), so the leg would outlive its award. Roadmap XS-1.
 - [ ] Strategies across any timeline operation: no lane activates a strategy and then rewinds, re-flies, F9s or reverts; Bail-Out Grant, Aggressive Negotiations and Recovery Transponder never ran in game. Roadmap XS-1, GP-1.
-- [ ] Resource amounts: nothing checks origin-out == destination-in for routes, fuel moved while docked, or a spawned vessel's tanks. Roadmap TC-1 / TC-2, RC-1.
+- [ ] Resource amounts: nothing checks origin-out == destination-in for routes, fuel moved while docked, or a spawned vessel's tanks. Roadmap TC-1 / TC-2, RC-1. Progress 2026-10-16: the `ReadVesselResources` verb and `resourceq.py` landed, and RC-1 reads both spawned tanks after a docked transfer and two rewinds; routes are still unchecked.
 - [ ] Career x repeated rewinds, and LedgerGroundTruth after a rewind, Re-Fly or F9: never run. Roadmap TC-4, GP-1.
 - [ ] Stale lanes: H38 / H39 / H40 / HV-1 not green since the 10-07 and 10-15 logistics changes; H58 and EVA-5 re-pinned, never re-flown. Roadmap XS-2.
 - [ ] EVA-CONSTRUCTION-GHOST-SHAPE-NEVER-CHANGES (suspected defect): playback never reads `SegmentEventType.PartAdded / PartRemoved` (only `GhostingTriggerClassifier` and `ForeignInventoryTransfer` name them), though the flight-recorder design says the ghost renders the part from that UT. Roadmap XS-3.
@@ -3254,8 +3369,14 @@ ISRU aboard. The two questions it raised are ruled (2026-10-06): cap harvest-ori
   `reflyrevert-option-unavailable` during a separation Re-Fly.
 - `RunInvariantReport`: reserved, not implemented (`TestCommandVerbs.cs:343-361`); as a per-step
   read it lifts the one-`RunTests`-per-lane limit for invariant checks.
-- `ReadVesselResources pid=|name= [expect=...]`: per-vessel resource totals and a part-uid digest
-  in FLIGHT, KSC and TS.
+- ~~`ReadVesselResources pid=|name= [expect=...]`: per-vessel resource totals and a part-uid digest
+  in FLIGHT, KSC and TS.~~ DONE 2026-10-16 (branch `claude/project-thread-81f9wc`):
+  `ReadVesselResources pid=|rec= [resources=] [expect=] [tolerance=] [expectSnapshot=]` in
+  FLIGHT, KSC and TS; `rec=` reads the vessel a committed recording spawned, sums the targets
+  against `expect=` (conservation across vessels), compares each with its recording's end
+  snapshot, and counts part uids also held by another live vessel. A mismatch is an OK answer
+  with `match=false` (gated by `forbidden`). hlib mirror `ReadVesselResourcesSourceSyncTests`;
+  consumer lane `RC-1-docked-transfer-rewind-tanks`.
 - ~~Scene-agnostic `WarpToUT` (FLIGHT only today, `ParsekTestCommandAddon.WarpToUT.cs:50`).~~
   DONE 2026-10-07 (branch `scene-wait`): `RequiresWarpScene` (FLIGHT, Space Center, Tracking
   Station), the post-load physics hold a bounded defer; todo
@@ -3277,6 +3398,13 @@ live vessels; V2 a chain-tip vessel equals its snapshot plus the route rows addr
 the spawn; V3 dock-window conservation with a declared direction; V4 per-vessel windows); an
 in-game `ResourceConservation` category for V1 / V2; analyzer INV13 crew conservation and INV14
 vessel identity, baselined over every fixture first, then gated.
+
+Progress 2026-10-16 (branch `claude/project-thread-81f9wc`): `harness/lib/resourceq.py` exists
+(snapshot sidecar decode, `ROUTE_CONNECTION_WINDOWS` reader, per-window conservation, cells in
+`test_resourceq.py` over `bdock-recorded`), and V1 / V2 / V3 have a LIVE form through the
+`ReadVesselResources` verb (`uidCollisions`, `expectSnapshot`, a summed `expect=`), first used by
+RC-1. Still open: the `[expectations.world.vessels]` saveParse block, the in-game category, V2's
+route-row term, V4, and INV13 / INV14.
 
 ---
 
