@@ -77,19 +77,33 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void LabRecoveryAndTransmission_CountsEveryPayout()
+        public void TwoTaggedTransmissions_CountsEveryPayout()
         {
             RecordingTree tree = LabTree();
             var events = new List<GameStateEvent>
             {
                 LabCredit("lab-rec", "ScienceTransmission", 300.0),
-                LabCredit("lab-rec", "VesselRecovery", 905.0)
+                LabCredit("lab-rec", "ScienceTransmission", 700.0)
             };
 
             Assert.Equal(2, ParsekFlight.CountTaggedLabPayouts(tree, events));
             Assert.True(ParsekFlight.TreeHasLabPayoutsForIdle(tree, "IsActiveTreeIdleOnPad", events));
             Assert.Contains(logLines, l => l.Contains("[Flight]")
                 && l.Contains("IsActiveTreeIdleOnPad: not idle - tree has 2 lab payout(s) tree='Pad Lab'"));
+        }
+
+        // The production shape of a flight Recover's lab credit: stock pays it at the Space
+        // Center after every idle check, untagged (RecoveryDispatchScope does not own lab
+        // credits). This veto never sees it; the recovery half of the ruling is covered by
+        // TreeHasPendingLabRecoveryForIdle (RecoveryLabIdleVetoTests).
+        [Fact]
+        public void UntaggedRecoveryCredit_DoesNotVetoThroughThePayoutScan()
+        {
+            RecordingTree tree = LabTree();
+            AddToStore(LabCredit("", "VesselRecovery", 905.0));
+
+            Assert.Equal(0, ParsekFlight.CountTaggedLabPayouts(tree, GameStateStore.Events));
+            Assert.True(ParsekFlight.IsTreeIdleOnPad(tree));
         }
 
         [Fact]

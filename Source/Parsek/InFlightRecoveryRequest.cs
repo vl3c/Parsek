@@ -65,6 +65,13 @@ namespace Parsek
             /// the request armed (null when none was).
             /// </summary>
             public string BoundRecordingId;
+
+            /// <summary>
+            /// The science stock's <c>ModuleScienceLab.RecoverScienceLabs</c> will pay for this
+            /// vessel at the Space Center (its labs' positive <c>storedScience</c>, summed), read
+            /// from the live vessel when the request armed. 0 when it has no lab science.
+            /// </summary>
+            public float LabStoredScience;
         }
 
         private static Request armed;
@@ -77,11 +84,21 @@ namespace Parsek
         private static readonly HashSet<string> awaitingStockPayout =
             new HashSet<string>(StringComparer.Ordinal);
 
+        // Recordings stamped Recovered by a request whose vessel carried lab science: the
+        // lab pays out at the Space Center after the scene change (owner ruling 2026-10-17),
+        // so the Space Center OnLoad idle-on-pad checks, which run before that payout, read
+        // this mark instead. Consumed with the payout mark at commit and moved with it.
+        private static readonly Dictionary<string, float> labScienceAwaitingRecovery =
+            new Dictionary<string, float>(StringComparer.Ordinal);
+
+        internal static IReadOnlyDictionary<string, float> LabScienceAwaitingRecovery =>
+            labScienceAwaitingRecovery;
+
         internal static Request Armed => armed;
 
         internal static void Arm(
             uint vesselPid, string launchGuid, string vesselName, double requestUT,
-            string boundRecordingId = null)
+            string boundRecordingId = null, float labStoredScience = 0f)
         {
             armed = new Request
             {
@@ -90,12 +107,51 @@ namespace Parsek
                 VesselName = vesselName,
                 RequestUT = requestUT,
                 BoundRecordingId = string.IsNullOrEmpty(boundRecordingId) ? null : boundRecordingId,
+                LabStoredScience = labStoredScience > 0f ? labStoredScience : 0f,
             };
             ParsekLog.Info(Tag,
                 $"In-flight recovery requested: vessel='{vesselName ?? "(null)"}' pid={vesselPid} " +
                 $"guid={armed.LaunchGuid ?? "(none)"} boundRec={armed.BoundRecordingId ?? "(none)"} " +
                 $"ut={requestUT.ToString("F1", CultureInfo.InvariantCulture)} - " +
                 "the scene-exit finalize will commit its recording Recovered");
+            if (armed.LabStoredScience > 0f)
+                ParsekLog.Info(Tag,
+                    $"In-flight recovery request carries lab science: vessel='{vesselName ?? "(null)"}' " +
+                    $"pid={vesselPid} labScience={armed.LabStoredScience.ToString("F2", CultureInfo.InvariantCulture)} - " +
+                    "the stock recovery pays it at the Space Center");
+        }
+
+        /// <summary>
+        /// Pure: the lab science a pending in-flight recovery will pay for a vessel recorded in
+        /// <paramref name="tree"/>. While the request is still armed (the LoadScene-prefix
+        /// fast path, before the finalize consumes it) that is the request's
+        /// <see cref="Request.LabStoredScience"/> when the tree holds the recovered vessel's
+        /// tip; after the finalize stamped the tip, it is the sum of the tree's
+        /// <paramref name="stampedLabScience"/> marks. 0 when no recovery with lab science is
+        /// pending for the tree.
+        /// </summary>
+        internal static float PendingRecoveryLabScience(
+            RecordingTree tree, Request armedRequest,
+            IReadOnlyDictionary<string, float> stampedLabScience)
+        {
+            if (tree?.Recordings == null || tree.Recordings.Count == 0) return 0f;
+            if (armedRequest != null && armedRequest.LabStoredScience > 0f
+                && HasStampTarget(tree, armedRequest))
+                return armedRequest.LabStoredScience;
+            if (stampedLabScience == null || stampedLabScience.Count == 0) return 0f;
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, Recording> kv in tree.Recordings)
+            {
+                if (!string.IsNullOrEmpty(kv.Key)) ids.Add(kv.Key);
+                if (!string.IsNullOrEmpty(kv.Value?.RecordingId)) ids.Add(kv.Value.RecordingId);
+            }
+            float sum = 0f;
+            foreach (string id in ids)
+            {
+                if (stampedLabScience.TryGetValue(id, out float science) && science > 0f)
+                    sum += science;
+            }
+            return sum;
         }
 
         internal static void Clear(string reason)
@@ -253,7 +309,11 @@ namespace Parsek
                     rec, TerminalState.Recovered, endUT, "InFlightRecoveryRequest");
                 rec.MarkFilesDirty();
                 if (!string.IsNullOrEmpty(rec.RecordingId))
+                {
                     awaitingStockPayout.Add(rec.RecordingId);
+                    if (req.LabStoredScience > 0f)
+                        labScienceAwaitingRecovery[rec.RecordingId] = req.LabStoredScience;
+                }
                 stamped++;
                 ParsekLog.Info(Tag,
                     $"In-flight recovery: recording '{rec.RecordingId}' vessel='{rec.VesselName}' " +
@@ -278,6 +338,7 @@ namespace Parsek
         internal static bool TryConsumeAwaitingStockPayout(string recordingId)
         {
             if (string.IsNullOrEmpty(recordingId)) return false;
+            labScienceAwaitingRecovery.Remove(recordingId);
             return awaitingStockPayout.Remove(recordingId);
         }
 
@@ -295,6 +356,11 @@ namespace Parsek
             if (string.IsNullOrEmpty(fromId) || string.IsNullOrEmpty(toId)
                 || string.Equals(fromId, toId, StringComparison.Ordinal))
                 return false;
+            if (labScienceAwaitingRecovery.TryGetValue(fromId, out float labScience))
+            {
+                labScienceAwaitingRecovery.Remove(fromId);
+                labScienceAwaitingRecovery[toId] = labScience;
+            }
             if (!awaitingStockPayout.Remove(fromId))
                 return false;
             awaitingStockPayout.Add(toId);
@@ -314,6 +380,7 @@ namespace Parsek
         {
             armed = null;
             awaitingStockPayout.Clear();
+            labScienceAwaitingRecovery.Clear();
         }
     }
 }

@@ -51,8 +51,8 @@ _(unreleased - entries accumulate here per commit)_
   counts as real work, like planting a flag. (IDLE-ON-PAD-DISCARDS-A-STATIONARY-MINER)
 - **A stationary flight whose science lab paid out keeps its recording.** A flight that never
   moved 30 m was thrown away on leaving as "idle on the pad" even when its Mobile Processing Lab
-  had transmitted science or paid out on recovery. A lab payout now counts as real work, like
-  running a drill. (IDLE-ON-PAD-DISCARDS-LAB-PAYOUT-FLIGHT)
+  had transmitted science, or when you recovered it with science stored in the lab. Both now
+  count as real work, like running a drill. (IDLE-ON-PAD-DISCARDS-LAB-PAYOUT-FLIGHT)
 - **A vessel that appears after a time jump no longer mines through the jump.** When a jump
   passed the end of a recording, the vessel spawned at the end and stock caught up its drills and
   ISRU for the whole jumped span, so a rover arrived with ore it never mined. It now arrives
