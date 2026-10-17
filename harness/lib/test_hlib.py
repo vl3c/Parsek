@@ -1114,9 +1114,11 @@ class SpecValidationRejectTests(unittest.TestCase):
         # right-click menu button, and stock's plain Revert to Launch (vessel-names proof).
         # 51 / 4 after DriveVessel, an ADDITION by one: a landed vessel driven on its own
         # wheel motors, the D4 hysteresis host (ruling RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE).
-        # 52 / 4 after CrewTransfer, an ADDITION by one: a player's stock crew transfer
+        # 52 / 4 after ReadVesselResources, an ADDITION by one: what is actually in the
+        # tanks of live vessels, the resource-conservation read (roadmap TC-1).
+        # 53 / 4 after CrewTransfer, an ADDITION by one: a player's stock crew transfer
         # between two crewed parts of the active vessel (the crew-across-vessels lanes).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 52)
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 53)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -10260,6 +10262,11 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "operator by the reading-run discipline (CI-2's host and reason): the D18 "
             "ghost-conversion-quicksave and chain-state-rederived cells, a rewind plus a "
             "mid-re-fly SaveGame/LoadGame round trip over a harvested docking fixture",
+        "RC-1-docked-transfer-rewind-tanks.toml":
+            "operator by the reading-run discipline (CI-2's host and reason): the first "
+            "lane that reads real tank contents (ReadVesselResources) after a dock "
+            "transfer, an undock and two rewinds over the harvested bdock-recorded "
+            "fixture. AUTHORED 2026-10-16. Owes its first flight, not a human call",
         "CI-4-cross-tree-chain-pooled.toml":
             "operator by the reading-run discipline (CI-3's host family and reason): the "
             "D18 cross-tree-chain-linking cell, a rewind into the second-dock harvest "
@@ -17017,6 +17024,97 @@ class RevertToLaunchSourceSyncTests(unittest.TestCase):
         errs = hlib.validate_spec(spec, load_registry()).errors
         self.assertTrue(any("takes no args" in e for e in errs), errs)
         self.assertTrue(any("only the LoadGame verb reads it" in e for e in errs), errs)
+
+
+class ReadVesselResourcesSourceSyncTests(unittest.TestCase):
+    """`ReadVesselResources`. Reads OUTSIDE harness/: the verb, the six arg keys, the target
+    cap and the refusal reasons (IN ORDER) of the comment-stripped
+    TestCommands/TestCommandReadVesselResources.cs, and the applier's two tank sources, so
+    the pre-launch validator cannot drift from what the seam accepts and the verb cannot
+    quietly stop reading real tanks."""
+
+    SPEC = "RC-1-docked-transfer-rewind-tanks.toml"
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# ReadVesselResources tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_keys_cap_and_reasons_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandReadVesselResources.cs")
+        self.assertIn('internal const string Verb = "%s";' % hlib.READVESSELRESOURCES_VERB, text)
+        for const, key in (("PidKey", hlib.READVESSELRESOURCES_PID_KEY),
+                           ("RecKey", hlib.READVESSELRESOURCES_REC_KEY),
+                           ("ResourcesKey", hlib.READVESSELRESOURCES_RESOURCES_KEY),
+                           ("ExpectKey", hlib.READVESSELRESOURCES_EXPECT_KEY),
+                           ("ToleranceKey", hlib.READVESSELRESOURCES_TOLERANCE_KEY),
+                           ("ExpectSnapshotKey", hlib.READVESSELRESOURCES_EXPECT_SNAPSHOT_KEY)):
+            self.assertIn('internal const string %s = "%s";' % (const, key), text)
+        self.assertIn("internal const int MaxTargets = %d;" % hlib.READVESSELRESOURCES_MAX_TARGETS,
+                      text)
+        self.assertEqual(list(hlib.READVESSELRESOURCES_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+        for reason in hlib.READVESSELRESOURCES_REASONS:
+            self.assertEqual("driver-arg", hlib._SEAM_REFUSAL_SUBKINDS.get(reason), reason)
+            # The spec-text refusals are decided before any world state is read.
+            spec_text = reason not in ("readvesselresources-unknown-recording",
+                                       "readvesselresources-vessel-not-found",
+                                       "readvesselresources-target-is-ghost")
+            self.assertEqual(spec_text, reason in hlib.DETERMINISTIC_SEAM_ERROR_REASONS, reason)
+
+    def test_the_applier_reads_live_tanks_and_proto_snapshots(self):
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.ReadVesselResources.cs")
+        # Loaded: the live PartResource; unloaded: the proto part snapshot KSP would load.
+        self.assertIn("PartResource r = p.Resources[i];", applier)
+        self.assertIn("r.resourceName, r.amount, r.maxAmount", applier)
+        self.assertIn("foreach (ProtoPartResourceSnapshot r in pp.resources)", applier)
+        # A rec= target is read through the vessel the spawn really made.
+        self.assertIn("rec.SpawnedVesselPersistentId", applier)
+        # The answer is OK even with a missing vessel: missing is a finding, not a refusal.
+        self.assertNotIn("missing-vessel", applier)
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.READVESSELRESOURCES_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(60.0, hlib.dispatch_deferral_budget(verb))
+        self.assertEqual(hlib.TAIL_ROLE_INERT, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertFalse(hlib.post_mission_step_gates(verb))
+
+    def test_the_step_validator(self):
+        v = hlib.validate_read_vessel_resources_step
+        rec = "37d0dc074351408ba0374230793abb1c"
+        self.assertEqual([], v(0, {"pid": "3620499050,1223410921"}))
+        self.assertEqual([], v(0, {"rec": rec, "resources": "LiquidFuel,Oxidizer",
+                                   "expect": "LiquidFuel:704.2279;Oxidizer:880",
+                                   "tolerance": "0.01", "expectSnapshot": "true"}))
+        self.assertEqual([], v(0, {"pid": "${spawn.pid}"}))
+        cases = [
+            ({}, "target-arg-missing"),
+            ({"pid": "1", "rec": rec}, "target-arg-conflict"),
+            ({"pid": "0"}, "pid-arg-invalid"),
+            ({"pid": "1,"}, "pid-arg-invalid"),
+            ({"rec": "../x"}, "rec-arg-invalid"),
+            ({"pid": ",".join(str(i) for i in range(1, 10))}, "too-many-targets"),
+            ({"pid": "1", "resources": "Liquid Fuel"}, "resources-arg-invalid"),
+            ({"pid": "1", "resources": "A,A"}, "resources-arg-invalid"),
+            ({"pid": "1", "expect": "LiquidFuel"}, "expect-arg-invalid"),
+            ({"pid": "1", "expect": "LiquidFuel:-1"}, "expect-arg-invalid"),
+            ({"pid": "1", "expect": "LiquidFuel:1;LiquidFuel:2"}, "expect-arg-invalid"),
+            ({"pid": "1", "tolerance": "-0.1"}, "tolerance-arg-invalid"),
+            ({"rec": rec, "expectSnapshot": "yes"}, "expect-snapshot-arg-invalid"),
+            ({"pid": "1", "expectSnapshot": "true"}, "expect-snapshot-needs-rec"),
+            ({"pid": "1", "vessel": "x"}, "silently ignored"),
+        ]
+        for args, token in cases:
+            with self.subTest(args=args):
+                errors = v(0, args)
+                self.assertEqual(1, len(errors), errors)
+                self.assertIn(token, errors[0])
 
 
 class CrewTransferSourceSyncTests(unittest.TestCase):

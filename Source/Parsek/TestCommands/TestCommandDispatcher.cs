@@ -295,6 +295,8 @@ namespace Parsek.TestCommands
         // ----- DriveVessel (D4 hysteresis: drive the active landed vessel on its own wheel
         // motors for a span of game time) -----
         void DriveVessel(ParsedCommand cmd);
+        // ----- ReadVesselResources (read what is in the tanks of live vessels; read-only) -----
+        void ReadVesselResources(ParsedCommand cmd);
         // ----- CrewTransfer (a player's stock crew transfer between two crewed parts of the
         // active vessel) -----
         void CrewTransfer(ParsedCommand cmd);
@@ -321,6 +323,11 @@ namespace Parsek.TestCommands
         /// FLIGHT or the Tracking Station; else Defer(not-in-vessel-scene). RenameVessel
         /// only.</summary>
         RequiresVesselScene,
+
+        /// <summary>Requires a scene that holds the live <c>FlightGlobals.Vessels</c> list:
+        /// FLIGHT, the Space Center or the Tracking Station; else
+        /// Defer(not-in-vessel-list-scene). ReadVesselResources only.</summary>
+        RequiresVesselListScene,
     }
 
     /// <summary>
@@ -386,6 +393,24 @@ namespace Parsek.TestCommands
         /// </summary>
         internal static bool IsVesselScene(TestCommandScene scene)
             => scene == TestCommandScene.Flight || scene == TestCommandScene.TrackingStation;
+
+        /// <summary>
+        /// The wrong-scene DEFER token for a <see cref="VerbSceneRequirement.RequiresVesselListScene"/>
+        /// verb (ReadVesselResources): the run is in a scene with no live vessel list (the main
+        /// menu, the editor). A bounded defer, the FLIGHT verbs' shape.
+        /// </summary>
+        internal const string NotInVesselListSceneReason = "not-in-vessel-list-scene";
+
+        /// <summary>
+        /// The scenes whose <c>FlightGlobals.Vessels</c> holds every vessel of the game: FLIGHT
+        /// (loaded and unloaded), the Space Center (the KSC vessel markers read it) and the
+        /// Tracking Station. The same three scenes as <see cref="IsWarpScene"/>, named for what
+        /// a vessel read needs rather than for the warp controller.
+        /// </summary>
+        internal static bool IsVesselListScene(TestCommandScene scene)
+            => scene == TestCommandScene.Flight
+               || scene == TestCommandScene.SpaceCenter
+               || scene == TestCommandScene.TrackingStation;
 
         /// <summary>
         /// FLIGHT verbs that answer <c>REJECTED not-in-flight</c> at once in a settled
@@ -622,6 +647,9 @@ namespace Parsek.TestCommands
                 // both scenes fill. Rides the default budget (the wait is only the
                 // scene-arrival defer; the accept is synchronous).
                 ["RenameVessel"] = VerbSceneRequirement.RequiresVesselScene,
+                // ReadVesselResources. RequiresVesselListScene: a read of the live vessel list,
+                // which FLIGHT, the Space Center and the Tracking Station all hold.
+                ["ReadVesselResources"] = VerbSceneRequirement.RequiresVesselListScene,
                 // PartAction. RequiresFlight: a part's right-click menu exists only on a loaded
                 // vessel in FLIGHT. Default budget (the event runs synchronously).
                 ["PartAction"] = VerbSceneRequirement.RequiresFlight,
@@ -686,6 +714,8 @@ namespace Parsek.TestCommands
                 return DispatchResult.Defer(NotInWarpSceneReason);
             if (req == VerbSceneRequirement.RequiresVesselScene && !IsVesselScene(state.Scene))
                 return DispatchResult.Defer(NotInVesselSceneReason);
+            if (req == VerbSceneRequirement.RequiresVesselListScene && !IsVesselListScene(state.Scene))
+                return DispatchResult.Defer(NotInVesselListSceneReason);
 
             // 4. Per-verb extra guards (mirroring how the LoadGame guards live here).
             switch (parsed.Verb)

@@ -12957,15 +12957,14 @@ namespace Parsek
 
                 // Create ghost map vessel for chains ending in stable orbit
                 // (terminated chains already filtered by the continue above)
-                if (!string.IsNullOrEmpty(chain.TipRecordingId))
-                {
-                    Recording tipRecording = FindTipRecordingById(chain.TipRecordingId);
-                    if (tipRecording != null
-                        && (!tipRecording.TerminalStateValue.HasValue
-                            || tipRecording.TerminalStateValue == TerminalState.Orbiting
-                            || tipRecording.TerminalStateValue == TerminalState.Docked))
-                        GhostMapPresence.CreateGhostVessel(chain, tipRecording);
-                }
+                Recording tipRecording = string.IsNullOrEmpty(chain.TipRecordingId)
+                    ? null
+                    : FindTipRecordingById(chain.TipRecordingId);
+                if (tipRecording != null
+                    && (!tipRecording.TerminalStateValue.HasValue
+                        || tipRecording.TerminalStateValue == TerminalState.Orbiting
+                        || tipRecording.TerminalStateValue == TerminalState.Docked))
+                    GhostMapPresence.CreateGhostVessel(chain, tipRecording);
 
                 // Every vessel the chain holds back (its key and the claims folded into it),
                 // and only those that exist in the scene. Tree recordings may reference vessels
@@ -12989,7 +12988,12 @@ namespace Parsek
                             claimPid, pid));
                     }
                     else if (vesselGhoster.GhostVessel(claimPid))
+                    {
                         ghostedCount++;
+                        // A Re-Fly can keep the tip stamped as this very vessel; it is gone now.
+                        VesselGhoster.ReleaseTipSpawnClaimOnGhostedVessel(
+                            tipRecording, claimPid, "chain=" + pid.ToString(CultureInfo.InvariantCulture));
+                    }
                     else
                     {
                         ParsekLog.Warn("Ghoster", string.Format(CultureInfo.InvariantCulture,
