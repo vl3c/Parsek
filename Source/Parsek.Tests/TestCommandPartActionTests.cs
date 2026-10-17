@@ -418,11 +418,10 @@ namespace Parsek.Tests
             Assert.Equal(new[] { "TransmitScience" }, TestCommandPartAction.EventNamesFor(PartActionKind.LabTransmit));
             Assert.Equal(new[] { "Activate" }, TestCommandPartAction.EventNamesFor(PartActionKind.RadiatorOn));
             Assert.Equal(new[] { "Shutdown" }, TestCommandPartAction.EventNamesFor(PartActionKind.RadiatorOff));
-            // labprocess calls a private method, not a KSPEvent; inspect presses nothing.
+            // labprocess presses the results dialog page's callback; inspect presses nothing.
             Assert.Empty(TestCommandPartAction.EventNamesFor(PartActionKind.LabProcess));
             Assert.Empty(TestCommandPartAction.EventNamesFor(PartActionKind.Inspect));
             Assert.Empty(TestCommandPartAction.EventNamesFor(PartActionKind.Unknown));
-            Assert.Equal("sendDataToLab", TestCommandPartAction.LabProcessMethodName);
             Assert.Equal("OnSendToLab", TestCommandPartAction.LabProcessDialogEventName);
         }
 
@@ -688,22 +687,33 @@ namespace Parsek.Tests
         [Fact]
         public void Reasons_AreTheGateOrder_AndDisjointFromTheErrors()
         {
-            Assert.Equal(18, TestCommandPartAction.Reasons.Length);
+            Assert.Equal(27, TestCommandPartAction.Reasons.Length);
             Assert.Equal("partaction-button-arg-missing", TestCommandPartAction.Reasons[0]);
             Assert.Equal("partaction-converter-arg-unexpected", TestCommandPartAction.Reasons[3]);
             Assert.Equal("partaction-all-arg-invalid", TestCommandPartAction.Reasons[4]);
             Assert.Equal("partaction-all-arg-unexpected", TestCommandPartAction.Reasons[5]);
-            Assert.Equal("partaction-converter-not-found", TestCommandPartAction.Reasons[12]);
-            Assert.Equal("partaction-event-unavailable", TestCommandPartAction.Reasons[14]);
-            Assert.Equal("partaction-lab-method-missing", TestCommandPartAction.Reasons[16]);
-            Assert.Equal("partaction-radiator-not-found", TestCommandPartAction.Reasons[17]);
+            Assert.Equal("partaction-pid-arg-invalid", TestCommandPartAction.Reasons[6]);
+            Assert.Equal("partaction-expect-snapshot-arg-invalid", TestCommandPartAction.Reasons[7]);
+            Assert.Equal("partaction-tolerance-arg-invalid", TestCommandPartAction.Reasons[11]);
+            Assert.Equal("partaction-unknown-recording", TestCommandPartAction.Reasons[16]);
+            Assert.Equal("partaction-converter-not-found", TestCommandPartAction.Reasons[18]);
+            Assert.Equal("partaction-event-unavailable", TestCommandPartAction.Reasons[20]);
+            Assert.Equal("partaction-lab-not-active-vessel", TestCommandPartAction.Reasons[22]);
+            Assert.Equal("partaction-lab-unavailable", TestCommandPartAction.Reasons[25]);
+            Assert.Equal("partaction-radiator-not-found", TestCommandPartAction.Reasons[26]);
+            Assert.DoesNotContain("partaction-lab-method-missing", TestCommandPartAction.Reasons);
             Assert.Equal(TestCommandPartAction.Reasons.Length, TestCommandPartAction.Reasons.Distinct().Count());
             foreach (string r in new[]
             {
                 TestCommandPartAction.ConverterArgUnexpectedReason, TestCommandPartAction.ConverterNotFoundReason,
-                TestCommandPartAction.ExperimentNoDataReason, TestCommandPartAction.LabMethodMissingReason,
+                TestCommandPartAction.ExperimentNoDataReason,
                 TestCommandPartAction.AllArgInvalidReason, TestCommandPartAction.AllArgUnexpectedReason,
                 TestCommandPartAction.RadiatorNotFoundReason,
+                TestCommandPartAction.ExpectSnapshotArgInvalidReason, TestCommandPartAction.SnapshotArgUnexpectedReason,
+                TestCommandPartAction.ExpectSnapshotNeedsRecReason, TestCommandPartAction.RecArgInvalidReason,
+                TestCommandPartAction.ToleranceArgInvalidReason, TestCommandPartAction.UnknownRecordingReason,
+                TestCommandPartAction.LabNotActiveVesselReason, TestCommandPartAction.LabPageMissingReason,
+                TestCommandPartAction.LabValueZeroReason, TestCommandPartAction.LabUnavailableReason,
             })
                 Assert.Contains(r, TestCommandPartAction.Reasons);
             Assert.Empty(TestCommandPartAction.Reasons.Intersect(TestCommandPartAction.ErrorReasons));
