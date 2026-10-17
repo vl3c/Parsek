@@ -10630,6 +10630,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Science-lab time jumps on lab-lko-science, loaded and unloaded (a probe on
         # the pad holds FLIGHT); operator by the same reading-run discipline.
         "LAB-5-lab-time-jumps.toml": "operator by the reading-run discipline; AUTHORED 2026-10-18, NEVER FLOWN (a TimeJump with the researching lab loaded shifts its live converter clock, loadedShifted=1, and a TimeJump from a Settings Probe on the pad shifts its saved clock, unloadedShifted=1; the witness is the lab's charge, since stock's EC-limited catch-up is under half an F2 science step; research continues after both, on lab-lko-science); the pre / delta UT windows and the EC tolerances are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        # Science-lab background catch-up on lab-lko-science: the lab left for a probe
+        # on the pad for six hours; operator by the same reading-run discipline.
+        "LAB-6-lab-background-catch-up.toml": "operator by the reading-run discipline; AUTHORED 2026-10-18, NEVER FLOWN (research running, the player leaves for a Settings Probe on the pad for six hours of real warp and flies the lab again: nothing ran unloaded, one EC-limited catch-up of about 0.005 science with the batteries drained, none on a second save and load, no converter jump policy line; storedScience read at F4 against a committed reference recording, on lab-lko-science); the catch-up window, the EC windows and the restore-and-discard count are re-pinned off the first flight, then the tier is promoted by its measured p50",
         # The SIXTH forge, same mechanism again: it stamps b17-duna-pad by
         # launching the committed DD1 Duna Direct Probe (built by construction,
         # build_dd1_craft.py) onto the pad UNCREWED. Flown + harvested
