@@ -816,6 +816,38 @@ the shape `StrategySystem.OnSave` writes). Parsek's ledger holds no activation r
 and `harness/lib/test_career_gs1_leadership_pad.py`. Host of
 `QL-2c-quickload-strategy-share-not-kept`.
 
+## lab-lko-sandbox (GAME Mode = SANDBOX, 1 VESSEL + 1 asteroid, harvested from LABX-1)
+
+The `LABX-1-lab-orbit-ascent` produced save (run `2026-10-17_1747`, PASS attempt 1), harvested
+from the run's own snapshot by `harvest_bdock_station.py --target-name lab-lko-sandbox
+--expect-situation ORBITING` (never `--force`). The by-construction `LABX Orbital Lab`
+(`harness/tools/build_lab_orbit_craft.py`) parked ORBITING Kerbin at ~107 x 92 km, throttle cut,
+ONE vessel with the spent booster gone: Mk1 pod (Valentina Kerman, Pilot), Science Jr, Mystery
+Goo, 2HOT, PresMat, Mobile Processing Lab (Bob Kerman, Scientist, in lab seat 0), RW-L wheel,
+X200-16 + Poodle with eight RTGs and four Z-400s. Plus the stock `Ast. VPA-167` asteroid KSP
+spawned during the coast. No recordings (the lane pins `autoRecordOnLaunch` false); the
+ParsekScenario node is the forge base's inert one with two dead `MILESTONE_STATE` rows (the
+`eva2-lko-crewed` / `gs2-orbital-stack` shape). The harvest dropped the forge base's five library
+craft and kept a byte-identical copy of `LABX Orbital Lab.craft`, its second consumer, so the
+craft was promoted to `fixtures/ships/`; `shared-ships.toml` overlays all six. SANDBOX has no
+R&D, so the lab stores no data here: this save is the DONOR of `lab-lko-science`.
+
+## lab-lko-science (GAME Mode = SCIENCE_SANDBOX, 1 VESSEL, derived from fresh-science + lab-lko-sandbox)
+
+The science-lab lanes' host. `harness/tools/build_lab_lko_science.py` runs
+`build_career_pad_craft`'s splice shape over `fresh-science`: its empty `FLIGHTSTATE` replaced by
+`lab-lko-sandbox`'s minus the asteroid (`activeVessel` 1 -> 0; the vessel byte for byte),
+Valentina's and Bob's roster rows replaced by the donor's `Assigned` ones, the donor's
+ProgressTracking (this flight's FirstLaunch / records / ReachedSpace / Kerbin Orbit, so loading
+does not award orbit again) and ParsekScenario node (its `MILESTONE_STATE` rows excised, the
+`duna-park-probe` precedent) copied in, and 29 `Tech` nodes added, `state = Available`, each
+listing every part it unlocks: the closure of the craft's parts' nodes under the AUTOMATION
+instance's tree (`GameData/ModuleManager.TechTree`, CommunityTechTree + ProbesBeforeCrew), so
+the lab is unlocked through `specializedCommandModules`, not stock `advExploration`. The science
+pool stays `fresh-science`'s 100 (the nodes are granted, not bought). `AddOns/` is the base's;
+the craft arrives through the `shared-ships.toml` overlay. Built and drift-gated by the builder
+(`--check`) and `harness/lib/test_lab_lko_science.py`.
+
 ## fresh-science (GAME Mode = SCIENCE_SANDBOX)
 
 Science pool only: `ResearchAndDevelopment sci = 100`, no Funding / Reputation /

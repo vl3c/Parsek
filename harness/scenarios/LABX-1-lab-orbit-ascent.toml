@@ -1,0 +1,221 @@
+# =============================================================================
+# LABX-1: the LAB-ORBIT ASCENT PROOF, the first prerequisite of the science-lab
+# (ModuleScienceLab / ModuleScienceConverter) FLIGHT lanes.
+#
+# WHAT IT PROVES. That the by-construction craft `LABX Orbital Lab`
+# (harness/tools/build_lab_orbit_craft.py) launches with its two named crew
+# seated where the lab lanes need them, flies under MechJeb from the pad to a
+# ~100 km circular Kerbin orbit, and parks there stable, as ONE vessel with the
+# lab still attached. Its produced save is the parked state, harvestable the
+# way every orbital forge's is. Nothing about Parsek is asserted: the lab lanes
+# that follow are the coverage; this lane is the vehicle.
+#
+# MISSION PROFILE - the full ordered step list (the standing step-list
+# contract), and it is FORGE-gs2-orbital-stack's profile exactly: `forge_lko`
+# with `parkAttached = true`.
+#
+#   PRELAUNCH    the boot save's own active vessel (the bdock-forge-base
+#                airshow flight). The lane launches over it.
+#   LAUNCH       launch_vessel puts the FULL STACK `LABX Orbital Lab` on the
+#                LaunchPad with crew ["Valentina Kerman", "Bob Kerman"]. The
+#                phase completes only when the craft reads PRE_LAUNCH for 3
+#                frames AND crew_count >= 2 (pod 1 + lab 1).
+#                SEATING (craft assumption A2): the one-seat Mk1 pod is the only
+#                seated control source, so stock DefaultCrewForVessel puts the
+#                PILOT (Valentina) there and kRPC seats the leftover (Bob, the
+#                scientist) in the first empty seat in PART order: the lab.
+#   ASCENT       full stack; MechJeb AscentAutopilot + autostage. Mainsail
+#                ignites on the mission's first stage activation (istg 1);
+#                when the Jumbo-64 runs dry autostage fires istg 0: the TD-25
+#                drops the spent booster AND the Poodle lights (hot-stage).
+#                The booster carries ~2,400 m/s vac, well under the ascent's
+#                spend, so this happens DURING the ascent (craft A7).
+#   CIRCULARIZE  the Poodle burns MechJeb's circularization node.
+#   PARK         <- parkAttached = true: NO stage activation (there is no stage
+#                left: istg 0 was the last), throttle CUT, nodes CLEARED,
+#                attitude HELD (SAS stability-assist from the pilot; the RCS-on
+#                action is inert, the craft has no RCS), stable-park dwell.
+#   ORBIT        MISSION-OK; SaveGame + FlushAndQuit persist the parked state.
+#
+# WHY forge_lko AND NOT b2_lko_ascent. The brief named b2. b2 flies a vessel
+# that is ALREADY on the pad in the fixture save (B18's Duna Rocket arrived
+# there through a separate FORGE + harvest); it has no launch_vessel step and
+# no crew parameter. Using it would need a pad fixture that does not exist, and
+# a forge flight plus a harvest to make one. forge_lko launches the craft BY
+# NAME WITH NAMED CREW and then flies B2's own ascent / circularize actions
+# (mlib._bdock_ascent_entry_actions, the B-DOCK / FORGE-eva2 surface) and adds
+# the stable park, in ONE flight, and parkAttached = true is exactly "do not
+# stage after circularization". FORGE-gs2-orbital-stack flew this profile.
+#
+# THE HOST, AND WHY IT IS SANDBOX. `bdock-forge-base` (sandbox) is the committed
+# bootable base every launch_vessel forge boots; the craft reaches its
+# Ships/VAB through the shared-ships overlay. A SCIENCE_SANDBOX host was
+# considered and rejected for THIS lane: the only committed one at the time,
+# `fresh-science`, has 100 science and no tech beyond the start node, so the
+# lab and most of the stack are locked and kRPC's ExperimentalPartsAvailable
+# pre-flight check refuses the launch. CONSEQUENCE FOR THE LAB LANES: in
+# SANDBOX the lab stores no data and pays no science (lab value needs an R&D
+# subject), so they boot `lab-lko-science` instead (below); this lane proves
+# the vehicle, not the science.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse - no existing flight
+# carries this craft; the closest, FORGE-gs2-orbital-stack, flies Kerbal X, and
+# a lab cannot be bolted onto its flight. (2) no idle waits - none; the only
+# waits are the mission's own phase gates. (3) park dwell 30 game s (half the
+# forge's 60): the gate also needs 3 consecutive stable frames, which is the
+# real settle proof; 30 s is margin over a just-cut throttle. (4) burns at 1x -
+# MechJeb's own ascent physics warp is the B2 behaviour the runner already
+# bounds (max_physics_warp 4). (5) no b5 coast. (6) fail fast - forge_lko's
+# phase budgets are the bound; retry stays `once` because the first flight of
+# an unflown craft is not yet known to be deterministic. (7) count window -
+# recordings are prevented (autoRecordOnLaunch false), so {0,1} as every forge.
+# (8) tier - measured p50 268 s, far under the longhaul floor; it stays
+# operator because it is an on-request vehicle / fixture run, never a cadence
+# member. (9) flight_efficiency.py on `2026-10-17_1747`: 219 s of mission wall,
+# the only recoverable item 20 s of the 30 s PARK dwell. KEPT: the dwell is the
+# stable-park proof behind the harvested fixture, and re-pinning it would turn a
+# flown spec back into an unflown one to save 20 s on a lane that only runs on
+# request.
+#
+# WHAT A FIRST FLIGHT CAN FALSIFY, and where to look (the craft's own
+# assumption list in build_lab_orbit_craft.py has the derivations):
+#   - launch refused / never PRE_LAUNCH: craft load (A4 lab tail without MODULE
+#     blocks, A5 lab stack offsets) or the craft path.
+#   - crewAboard unmet (crew_count < 2): A2 seating; kRPC skips a named kerbal
+#     who is not Available in the save.
+#   - stuck in ASCENT / tumbling: TWR 2.41 profile or torque (A7 / A10).
+#   - stackAttached unmet (vessel_count rose in CIRCULARIZE / PARK): the
+#     booster did NOT burn out during the ascent (A7), or an asteroid spawn
+#     (the row's documented false-positive channel; compare baseline / peak).
+#   - parkedStable unmet: angular velocity over 0.05 rad/s at the end of the
+#     dwell (SAS needs the pilot in the POD - A2 again).
+#
+# FLOWN GREEN ON ITS FIRST FLIGHT, 2026-10-17: run `2026-10-17_1747`, PASS
+# attempt 1, MISSION-OK, 268 s wall. Orbit 107,498 x 91,996 m, ecc 0.011, inc
+# 0.091 deg. crewAboard 2; stackAttached met (peak vessel count 1; active parts
+# 24 -> 21 at the booster drop, during the ascent as craft A7 predicted);
+# parkedStable ORBITING. The produced save holds Valentina in mk1pod.v2 and Bob
+# in Large.Crewed.Lab, the seating craft A2 derived.
+#
+# HARVESTED (the run's own snapshot, situation gate armed, never --force):
+#   python harness/tools/harvest_bdock_station.py \
+#       --save-dir harness/results/2026-10-17_1747_LABX-1-lab-orbit-ascent_save \
+#       --target-name lab-lko-sandbox --expect-situation ORBITING
+# -> `lab-lko-sandbox` (SANDBOX). It arrived holding a byte-identical second copy
+# of the craft, so the craft was PROMOTED to fixtures/ships/ and both saves are
+# declared consumers in shared-ships.toml. `lab-lko-science`
+# (harness/tools/build_lab_lko_science.py) stamps its vessel into `fresh-science`
+# with every tech node the craft needs researched: the SCIENCE_SANDBOX host the
+# lab lanes boot.
+#
+# A failure classifies driver-INVALID (retryable), never PARSEK-FAIL:
+# logContracts.required is empty on purpose.
+# =============================================================================
+schema = 1
+id = "LABX-1-lab-orbit-ascent"
+tier = "operator"
+description = "Science-lab lane prerequisite: launch_vessel the by-construction LABX Orbital Lab (Mk1 pod + Science Jr + Mobile Processing Lab + RTGs, Jumbo-64/Mainsail booster, X200-16/Poodle orbital stage) with Valentina (pod) and Bob (lab), fly forge_lko's MechJeb ascent + circularize to a ~100 km circular LKO, park with the lab attached (parkAttached), SaveGame."
+instanceProfile = "stock-minimal"
+tags = ["LABX", "lab", "science", "orbital", "mechjeb", "fixture", "flown"]
+
+[fixture]
+# The committed bootable sandbox base (an active vessel, so LoadGame's
+# IsLoadedGameFocusable gate passes); shared-ships.toml overlays
+# Ships/VAB/LABX Orbital Lab.craft into it so launch_vessel resolves it.
+saveTemplate       = "fixtures/saves/bdock-forge-base"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "forge_lko"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams]
+# header (a key after the sub-table header would be TOML-scoped to
+# driver.missionParams.steps and the spec would validate as having zero steps).
+#
+# FORGE-gs2-orbital-stack's list verbatim. autoRecordOnLaunch is pinned FALSE so
+# the flight leaves no recording in the persisted save (harvestable state, the
+# forge convention); the same for EVA.
+#
+# Budget arithmetic: mission 1800 WALL >= connect + launch reload ~60 + ascent
+# ~250-400 game s (at 1x-4x physics warp) + the circularization coast (rails
+# warped) + burn + park dwell 30 + margin; FORGE-gs2 / FORGE-eva2 ran the same
+# shape inside it. runtime 2400 >= 240 LoadGame + 3 SetSetting + 1800 mission +
+# SaveGame + FlushAndQuit + margin.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva", value = "false" },    expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { phase = "mission",                                                           expect = "MISSION-OK", budget = 1800 },
+  { cmd = "SaveGame",   args = { name = "persistent" },                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                                        expect = "OK" },
+]
+
+# Tolerances / windows / budgets (validated against forge_lko.schema.toml), never
+# a golden trajectory. Phase timeouts are GAME seconds. FORGE-gs2-orbital-stack's
+# values except parkDwellSeconds (30, checklist item 3) and the craft / crew.
+[driver.missionParams]
+craftName                   = "LABX Orbital Lab"
+launchSite                  = "LaunchPad"
+parkAttached                = true
+# ORDER IS LOAD-BEARING ONLY AS DOCUMENTATION: stock fills the pod with the PILOT
+# whatever the order, and the leftover goes to the lab. Valentina (Pilot) gives
+# SAS for the park hold; Bob (Scientist) is the lab's crewsRequired = 1.
+crewNames                   = ["Valentina Kerman", "Bob Kerman"]
+minCrew                     = 2
+launchTimeoutSeconds        = 300
+launchSettleDebounceFrames  = 3
+# ~100 km circular: ~30 km over the 70 km atmosphere, inside the 90-110 km band
+# the B-DOCK / FORGE parks fly.
+targetApoapsisMeters        = 100000
+targetPeriapsisMeters       = 100000
+apoErrorMeters              = 10000
+periErrorMeters             = 10000
+eccentricityMax             = 0.02
+inclinationErrorDeg         = 5.0
+launchSiteLatitude          = 0.0
+# 900 game s ~ 2.5-3.5x a 250-400 game s ascent.
+ascentTimeoutSeconds        = 900
+# The circularization node can sit up to a full coast to apoapsis away (100 km
+# LKO period ~1,960 s): the live-proven forge value.
+circularizeTimeoutSeconds   = 2400
+# REQUIRED by the schema and UNUSED with parkAttached (SEPARATE is never entered).
+separationTimeoutSeconds    = 120
+parkSituations              = ["ORBITING"]
+parkDwellSeconds            = 30
+parkTimeoutSeconds          = 600
+parkDebounceFrames          = 3
+maxAngularVelocityRadPerSec = 0.05
+minSafePeriapsisMeters      = 75000
+
+# Honest environment cells only: no recording is committed, nothing Parsek is
+# asserted.
+[dimensionsCovered]
+D14 = ["kerbin", "scene-flight", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: `allowedAnomalies` must stay ahead of the
+# sub-tables (hlib.validate_spec rejects the misplaced form).
+allowedAnomalies = []
+
+[expectations.recordings]
+# autoRecordOnLaunch is pinned false and nothing calls StartRecording: 0
+# expected; max 1 absorbs a nascent auto-record (the forge window).
+count = { min = 0, max = 1 }
+
+[expectations.logContracts]
+# EMPTY required list: the lane asserts nothing about Parsek, so a failure is
+# driver-INVALID, never PARSEK-FAIL. A Parsek ERROR is still a finding.
+required  = []
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
