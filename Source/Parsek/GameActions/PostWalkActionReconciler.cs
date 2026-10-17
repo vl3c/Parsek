@@ -22,8 +22,11 @@ namespace Parsek
         // Scope: the eight action types ClassifyAction routes to the Transformed
         // bucket (ContractComplete, ContractFail, ContractCancel,
         // MilestoneAchievement, ReputationEarning, ReputationPenalty, KSC-path
-        // FundsEarning and ScienceEarning). Other action types are reconciled
-        // per-action by ReconcileKscAction and return Reconcile=false here.
+        // FundsEarning and ScienceEarning), plus ScienceLabEarning, whose
+        // ScienceChanged shares the subject science's reason key and coalesces with
+        // it in the store, so its share must sit on the same comparison's expected
+        // side. Other action types are reconciled per-action by ReconcileKscAction
+        // and return Reconcile=false here.
         //
         // See docs/dev/done/plans/fix-440-post-walk-reconciliation.md.
         // ================================================================
@@ -338,6 +341,30 @@ namespace Parsek
                     return exp;
                 }
 
+                case GameActionType.ScienceLabEarning:
+                {
+                    // The science lab's subject-less credit. Stock pays it through a bare
+                    // AddScience under the SAME reason key as the subject science beside it
+                    // (VesselRecovery from ModuleScienceLab.RecoverScienceLabs,
+                    // ScienceTransmission from a lab transmission), so its ScienceChanged
+                    // event shares - and in the store often COALESCES with - the event a
+                    // ScienceEarning leg pairs against. The leg exists so the lab's share
+                    // is on the expected side of whichever comparison sums that event; see
+                    // AbsorbLabCreditsIntoWindow and the lab ordering in ReconcilePostWalk.
+                    // Raw ScienceAwarded (uncapped, ScienceModule.ProcessLabEarning credits
+                    // it whole), the same field the commit-time reconcile sums.
+                    if (!(action.ScienceAwarded > 0f)) return exp;
+                    exp.Reconcile = true;
+                    exp.Sci = new PostWalkLeg
+                    {
+                        Applies = true,
+                        Expected = action.ScienceAwarded,
+                        ReasonKey = LedgerOrchestrator.GetScienceChangedReasonKey(action),
+                        EventType = GameStateEventType.ScienceChanged
+                    };
+                    return exp;
+                }
+
                 default:
                     return exp; // Reconcile stays false
             }
@@ -347,7 +374,9 @@ namespace Parsek
         /// Post-walk reconciliation. Runs once per <see cref="RecalculateAndPatch"/>
         /// after <see cref="RecalculationEngine.Recalculate"/> returns and before
         /// <see cref="KspStatePatcher.PatchAll"/>. Iterates actions in stored
-        /// order; for each Transformed-bucket action whose UT survives the
+        /// order, <see cref="GameActionType.ScienceLabEarning"/> rows in a second pass
+        /// (skipped when a science comparison already summed them); for each
+        /// Transformed-bucket action whose UT survives the
         /// cutoff, compares the post-walk derived delta against the live KSP
         /// delta (<c>valueAfter - valueBefore</c>) summed across matching
         /// <see cref="GameStateStore"/> events inside the observed-side match window:
@@ -390,11 +419,20 @@ namespace Parsek
             int mismatchFunds = 0;
             int mismatchRep = 0;
             int mismatchSci = 0;
+            int labCovered = 0;
 
+            // Lab credits reconciled INSIDE another action's comparison (their share sits on
+            // that comparison's expected side because their ScienceChanged event sits on its
+            // observed side). Lab rows walk in a second pass so this set is complete before
+            // any of them would anchor a comparison of its own.
+            var reconciledLabCredits = new HashSet<GameAction>();
+
+            for (int pass = 0; pass < 2; pass++)
             for (int i = 0; i < actions.Count; i++)
             {
                 var action = actions[i];
                 if (action == null) continue;
+                if ((action.Type == GameActionType.ScienceLabEarning) != (pass == 1)) continue;
 
                 // Respect the same filter as RecalculationEngine.Recalculate: seed
                 // types always pass; non-seed actions pass when UT <= cutoff.
@@ -402,6 +440,20 @@ namespace Parsek
                     !RecalculationEngine.IsSeedType(action.Type) &&
                     action.UT > utCutoff.Value)
                 {
+                    continue;
+                }
+
+                // A lab credit a science comparison already summed is reconciled there:
+                // comparing it again would count its ScienceChanged event a second time.
+                // Counted as labCovered, not as a walked action, so actions= keeps
+                // meaning "rows that owned or joined a comparison of their own".
+                if (pass == 1 && reconciledLabCredits.Contains(action))
+                {
+                    labCovered++;
+                    ParsekLog.VerboseRateLimited(Tag,
+                        $"post-walk-lab-covered:{action.RecordingId ?? ""}:{action.UT.ToString("R", CultureInfo.InvariantCulture)}",
+                        $"Post-walk lab credit ut={LedgerOrchestrator.FormatFixed1(action.UT)} " +
+                        $"method={action.Method} reconciled inside a covering science comparison - skipped");
                     continue;
                 }
 
@@ -426,7 +478,8 @@ namespace Parsek
                 if (fundsTracked && exp.Funds.Applies)
                 {
                     var result = CompareLeg(
-                        action, "funds", exp.Funds, fundsTol, events, actions, utCutoff, livePruneThreshold);
+                        action, "funds", exp.Funds, fundsTol, events, actions, utCutoff, livePruneThreshold,
+                        reconciledLabCredits);
                     if (result != PostWalkCompareResult.Skipped)
                     {
                         anyCompared = true;
@@ -440,7 +493,8 @@ namespace Parsek
                 if (repTracked && exp.Rep.Applies)
                 {
                     var result = CompareLeg(
-                        action, "rep", exp.Rep, repTol, events, actions, utCutoff, livePruneThreshold);
+                        action, "rep", exp.Rep, repTol, events, actions, utCutoff, livePruneThreshold,
+                        reconciledLabCredits);
                     if (result != PostWalkCompareResult.Skipped)
                     {
                         anyCompared = true;
@@ -454,7 +508,8 @@ namespace Parsek
                 if (scienceTracked && exp.Sci.Applies)
                 {
                     var result = CompareLeg(
-                        action, "sci", exp.Sci, sciTol, events, actions, utCutoff, livePruneThreshold);
+                        action, "sci", exp.Sci, sciTol, events, actions, utCutoff, livePruneThreshold,
+                        reconciledLabCredits);
                     if (result != PostWalkCompareResult.Skipped)
                     {
                         anyCompared = true;
@@ -479,7 +534,7 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"Post-walk reconcile: actions={walked}, compared={compared}, matches={matched}, " +
                 $"mismatches(funds/rep/sci)={mismatchFunds}/{mismatchRep}/{mismatchSci}, " +
-                $"cutoffUT={cutoffLabel}");
+                $"cutoffUT={cutoffLabel}, labCovered={labCovered}");
         }
 
         /// <summary>
@@ -912,6 +967,9 @@ namespace Parsek
             public double ObservedWindowEndUt;
             public double DisplayWindowStartUt;
             public double DisplayWindowEndUt;
+            // Lab credits whose share is in Expected (null when none). Filled only on the
+            // primary aggregate, the one that owns the comparison.
+            public List<GameAction> LabCredits;
         }
 
         private static PostWalkCompareResult CompareLeg(
@@ -922,12 +980,19 @@ namespace Parsek
             IReadOnlyList<GameStateEvent> events,
             IReadOnlyList<GameAction> actions,
             double? utCutoff,
-            double livePruneThreshold)
+            double livePruneThreshold,
+            HashSet<GameAction> reconciledLabCredits)
         {
             var aggregate = AggregatePostWalkWindow(
                 action, leg, tolerance, actions, utCutoff, events, livePruneThreshold);
             if (!aggregate.IsPrimary)
                 return PostWalkCompareResult.Skipped;
+
+            if (aggregate.LabCredits != null && reconciledLabCredits != null)
+            {
+                for (int i = 0; i < aggregate.LabCredits.Count; i++)
+                    reconciledLabCredits.Add(aggregate.LabCredits[i]);
+            }
 
             double observedWindowStartUt = aggregate.ObservedWindowStartUt;
             double observedWindowEndUt = aggregate.ObservedWindowEndUt;
@@ -1191,6 +1256,7 @@ namespace Parsek
             double displayWindowStartUt = double.PositiveInfinity;
             double displayWindowEndUt = double.NegativeInfinity;
             bool hasDisplayWindow = false;
+            List<GameAction> labCredits = null;
 
             if (actions != null)
             {
@@ -1234,8 +1300,14 @@ namespace Parsek
 
                     if (!matched) continue;
 
+                    if (other.Type == GameActionType.ScienceLabEarning)
+                    {
+                        if (labCredits == null) labCredits = new List<GameAction>();
+                        labCredits.Add(other);
+                    }
+
                     if (primaryAction == null ||
-                        (!ActionHasRecordingScope(primaryAction) && ActionHasRecordingScope(other)))
+                        GetPostWalkPrimaryRank(other) > GetPostWalkPrimaryRank(primaryAction))
                         primaryAction = other;
 
                     GetPostWalkObservedWindow(
@@ -1278,30 +1350,146 @@ namespace Parsek
                     out displayWindowStartUt,
                     out displayWindowEndUt,
                     out string ignoredAnchorDisplayWindowLabel);
+                double anchorExpected = anchorLeg.Expected;
+                int anchorContributorCount = 1;
+                var anchorContributorIds = new List<string> { ActionIdForPostWalk(anchorAction) };
+                AbsorbLabCreditsIntoWindow(
+                    anchorAction, anchorLeg, observedWindowStartUt, observedWindowEndUt,
+                    actions, utCutoff, events, livePruneThreshold,
+                    ref anchorExpected, ref anchorContributorCount, anchorContributorIds, ref labCredits);
                 return new PostWalkWindowAggregate
                 {
-                    Expected = anchorLeg.Expected,
-                    ContributorCount = 1,
+                    Expected = anchorExpected,
+                    ContributorCount = anchorContributorCount,
                     IsPrimary = true,
-                    ContributorLabel = $"id={ActionIdForPostWalk(anchorAction)}",
+                    ContributorLabel = FormatPostWalkContributorLabel(anchorContributorIds, anchorContributorCount),
                     ObservedWindowStartUt = observedWindowStartUt,
                     ObservedWindowEndUt = observedWindowEndUt,
                     DisplayWindowStartUt = displayWindowStartUt,
-                    DisplayWindowEndUt = displayWindowEndUt
+                    DisplayWindowEndUt = displayWindowEndUt,
+                    LabCredits = labCredits
                 };
+            }
+
+            bool isPrimary = object.ReferenceEquals(primaryAction, anchorAction);
+            if (isPrimary)
+            {
+                AbsorbLabCreditsIntoWindow(
+                    primaryAction, anchorLeg, observedWindowStartUt, observedWindowEndUt,
+                    actions, utCutoff, events, livePruneThreshold,
+                    ref summedExpected, ref expectedCount, contributorIds, ref labCredits);
             }
 
             return new PostWalkWindowAggregate
             {
                 Expected = summedExpected,
                 ContributorCount = expectedCount,
-                IsPrimary = object.ReferenceEquals(primaryAction, anchorAction),
+                IsPrimary = isPrimary,
                 ContributorLabel = FormatPostWalkContributorLabel(contributorIds, expectedCount),
                 ObservedWindowStartUt = observedWindowStartUt,
                 ObservedWindowEndUt = observedWindowEndUt,
                 DisplayWindowStartUt = displayWindowStartUt,
-                DisplayWindowEndUt = displayWindowEndUt
+                DisplayWindowEndUt = displayWindowEndUt,
+                LabCredits = isPrimary ? labCredits : null
             };
+        }
+
+        /// <summary>
+        /// Which coalesced-window member owns the comparison. Any subject or reward row
+        /// outranks every <see cref="GameActionType.ScienceLabEarning"/>; within each class a
+        /// recording-scoped row outranks an untagged one (the historical rule). A lab credit
+        /// therefore never owns a comparison while a non-lab row of the same key is in its
+        /// window, even an untagged one beside a tagged lab row: the untagged owner's group
+        /// already holds the lab row (an untagged anchor shares scope with every row) and its
+        /// observed side counts the lab's event (it matches every tag), so both sides agree,
+        /// whereas a tagged lab owner would skip the earning's comparison and then compare
+        /// alone, its own one-way scope leaving the earning's share out. Only a non-lab owner
+        /// absorbs further lab credits (<see cref="AbsorbLabCreditsIntoWindow"/>). Pure.
+        /// </summary>
+        internal static int GetPostWalkPrimaryRank(GameAction action)
+        {
+            if (action == null) return -1;
+            int rank = ActionHasRecordingScope(action) ? 1 : 0;
+            if (action.Type != GameActionType.ScienceLabEarning) rank += 2;
+            return rank;
+        }
+
+        /// <summary>
+        /// Adds to a science comparison every <see cref="GameActionType.ScienceLabEarning"/>
+        /// whose own ScienceChanged event that comparison's observed side already sums:
+        /// same reason key, credit UT inside the observed window, and an event at that UT
+        /// tagged to the lab row's recording passes the owner's scope filter
+        /// (<see cref="PostWalkEventMatchesAction"/>, the filter the observed loop uses).
+        /// Stock pays the lab through a bare AddScience under the subject science's own
+        /// reason (VesselRecovery / ScienceTransmission) and the store coalesces same-UT
+        /// deltas, so without this the lab's share was observed but never expected
+        /// (LAB-RECOVERY-RECONCILE-COALESCED-FALSE-MISMATCH). It catches what the same-UT
+        /// pass cannot: an untagged lab row beside a recording-scoped ScienceEarning (the
+        /// action scope test is asymmetric there), and a mid-flight lab transmission
+        /// inside an end-anchored ScienceEarning span. No-op when the owner is itself a lab
+        /// row, for a non-science leg, and for credits already counted.
+        /// </summary>
+        private static void AbsorbLabCreditsIntoWindow(
+            GameAction owner,
+            PostWalkLeg ownerLeg,
+            double windowStartUt,
+            double windowEndUt,
+            IReadOnlyList<GameAction> actions,
+            double? utCutoff,
+            IReadOnlyList<GameStateEvent> events,
+            double livePruneThreshold,
+            ref double summedExpected,
+            ref int expectedCount,
+            List<string> contributorIds,
+            ref List<GameAction> labCredits)
+        {
+            if (owner == null || actions == null) return;
+            if (owner.Type == GameActionType.ScienceLabEarning) return;
+            if (ownerLeg.EventType != GameStateEventType.ScienceChanged) return;
+
+            int absorbed = 0;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var lab = actions[i];
+                if (lab == null || lab.Type != GameActionType.ScienceLabEarning) continue;
+                if (labCredits != null && labCredits.Contains(lab)) continue;
+                if (lab.UT < windowStartUt || lab.UT > windowEndUt) continue;
+                if (utCutoff.HasValue && lab.UT > utCutoff.Value) continue;
+
+                var labExp = ClassifyPostWalk(lab);
+                if (!labExp.Reconcile || !labExp.Sci.Applies) continue;
+                if (!string.Equals(labExp.Sci.ReasonKey ?? "", ownerLeg.ReasonKey ?? "",
+                        StringComparison.Ordinal))
+                    continue;
+
+                var labEventShape = new GameStateEvent
+                {
+                    ut = lab.UT,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = labExp.Sci.ReasonKey,
+                    recordingId = lab.RecordingId ?? ""
+                };
+                if (!PostWalkEventMatchesAction(labEventShape, owner)) continue;
+                if (IsOutsidePostWalkLiveCoverage(
+                        lab, labExp, livePruneThreshold, events, actions, utCutoff))
+                    continue;
+
+                if (labCredits == null) labCredits = new List<GameAction>();
+                labCredits.Add(lab);
+                summedExpected += labExp.Sci.Expected;
+                expectedCount++;
+                contributorIds.Add("lab@" + LedgerOrchestrator.FormatFixed1(lab.UT));
+                absorbed++;
+            }
+
+            if (absorbed > 0)
+            {
+                ParsekLog.VerboseRateLimited(Tag,
+                    $"post-walk-lab-absorb:{owner.RecordingId ?? ""}:{ownerLeg.ReasonKey ?? ""}:{owner.UT.ToString("R", CultureInfo.InvariantCulture)}",
+                    $"Post-walk science window: absorbed {absorbed} lab credit(s) keyed '{ownerLeg.ReasonKey}' " +
+                    $"into {owner.Type} id={ActionIdForPostWalk(owner)} " +
+                    $"window=[{LedgerOrchestrator.FormatFixed1(windowStartUt)},{LedgerOrchestrator.FormatFixed1(windowEndUt)}]");
+            }
         }
         private static bool PostWalkEventMatchesAction(GameStateEvent evt, GameAction action)
         {
