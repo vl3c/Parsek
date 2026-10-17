@@ -660,6 +660,25 @@ the Kerbal X AND a save written at the Space Center (`activeVessel = 0`) reloads
 re-forge of either source fixture. Host of `EVA-11-construction-foreign-claim` and the intended
 host of roadmap RC-6 (an EVA take from the rover's container).
 
+## miner-rover-landed (GAME Mode = SANDBOX, 1 VESSEL, 0 recordings, derived from fresh-sandbox)
+
+`fresh-sandbox`'s save plus V's real `Mining Rover RC` (the VESSEL node from his dev save `isru`,
+committed under `harness/fixtures/donors/isru-mining-rover/` with its provenance) as the only
+vessel, index 0, `activeVessel = 0`. 27 parts: four MiniDrills, a MiniISRU, two RadialOreTanks, an
+FL-T200, two radial RCS tanks, four rover wheels, four RTGs, four small radiators and two large
+batteries on a probe core; crewless, LANDED at lat 0.0296, lon -74.7247 (just west of the KSC,
+where V parked it), vessel persistentId 110406740. Identities (pid, persistentIds,
+part uids) are verbatim. FLIGHTSTATE and `loadmeta` `UT` are 30 and `vesselCount` 1; the clone's
+`lct` / `lastUT` / ORBIT `EPH` and every converter and harvester `lastUpdateTime` are 30 and `met`
+0, so nothing catches up on load; Ore, LiquidFuel, Oxidizer and MonoPropellant amounts are 0
+(capacity kept, ElectricCharge verbatim), so the drills and the ISRU start with room to fill;
+drills retracted and every converter off, as V left them. The ten `ModuleRestock*` modules are
+stripped (the stock-minimal instance has no ReStock). The base carries no ParsekScenario node,
+but a focusable save boots through the FLIGHT route, so the builder splices `b1-pad-craft`'s inert
+three-value node. Built and drift-gated by `harness/tools/build_miner_rover_landed.py`
+(`--check`) and `harness/lib/test_miner_rover_landed.py`. The first fixture with a drill, an
+ISRU, ore storage and Ore capacity (MINING-ISRU-UNTESTED-END-TO-END).
+
 ## gloops-airshow-hard (GAME Mode = SANDBOX, 1 VESSEL + 1 asteroid, derived from gloops-airshow)
 
 `gloops-airshow`'s `persistent.sfs` and `persistent.loadmeta` byte for byte, except four
