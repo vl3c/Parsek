@@ -79,6 +79,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LabRefusal_BeforeAnySendIsRejected_AfterASendIsError()
+        {
+            // First candidate (or the only one): nothing sent yet, a side-effect-free refusal.
+            Assert.Equal("REJECTED", TestCommandPartAction.DecideLabRefusalVerdict(
+                "partaction-lab-value-zero", 0, out string reason));
+            Assert.Equal("partaction-lab-value-zero", reason);
+            // all=true, candidate 2 of 3 refuses after one send took its lab slot.
+            Assert.Equal("ERROR", TestCommandPartAction.DecideLabRefusalVerdict(
+                "partaction-lab-unavailable", 1, out reason));
+            Assert.Equal("partaction-lab-walk-stopped", reason);
+            Assert.Contains(reason, TestCommandPartAction.ErrorReasons);
+            Assert.DoesNotContain(reason, TestCommandPartAction.Reasons);
+        }
+
+        [Fact]
         public void LabCleanup_ClosesOnlyWhatTheReviewOpened()
         {
             var open = TestCommandPartAction.LabProcessRoute.OpenPage;
@@ -347,6 +362,25 @@ namespace Parsek.Tests
             Assert.Equal(new[] { "501:experiments" }, o.Mismatches.ToArray());
             Assert.Contains(o.Lines, l => l == "partaction snapshot rec=rec1 partId=501 field=experiments " +
                 "live=2 snapshot=2 diff=2 match=false onlyLive='c@z' onlySnapshot='b@y'");
+        }
+
+        [Fact]
+        public void EvaluateLabSnapshot_ToleranceZero_ComparesAtFloatPrecision()
+        {
+            // The live field is a float widened to double (3.1f -> 3.0999999046...); the snapshot
+            // holds the float's round-trip text. Equal floats must match at tolerance 0.
+            float liveData = 37.3f;
+            float liveScience = 3.1f;
+            string snapData = liveData.ToString("G9", CultureInfo.InvariantCulture);
+            var o = TestCommandPartAction.EvaluateLabSnapshot("r", Live(liveData, liveScience),
+                Snapshot(snapData, "3.1"), 0.0);
+            Assert.Equal("true", o.Token);
+            Assert.Empty(o.Mismatches);
+            // One float step apart still differs at tolerance 0.
+            float next = 3.1000003f;
+            Assert.NotEqual(liveScience, next);
+            Assert.Equal("false", TestCommandPartAction.EvaluateLabSnapshot("r", Live(liveData, next),
+                Snapshot(snapData, "3.1"), 0.0).Token);
         }
 
         [Fact]

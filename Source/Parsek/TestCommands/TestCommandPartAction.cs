@@ -273,6 +273,11 @@ namespace Parsek.TestCommands
         // Post-call ERROR terminal: the event was invoked and threw.
         internal const string EventThrewReason = "partaction-event-threw";
 
+        // Post-call ERROR terminal: an all=true labprocess walk refused on candidate k > 0,
+        // after k earlier presses had already sent data (their lab slots are taken). The
+        // typed gate reason rides the log line as cause=.
+        internal const string LabWalkStoppedReason = "partaction-lab-walk-stopped";
+
         /// <summary>The REJECTED vocabulary, in gate order. hlib.PARTACTION_REASONS mirrors it
         /// (PartActionSourceSyncTests).</summary>
         internal static readonly string[] Reasons =
@@ -307,7 +312,11 @@ namespace Parsek.TestCommands
         };
 
         /// <summary>The post-call ERROR vocabulary.</summary>
-        internal static readonly string[] ErrorReasons = { "partaction-event-threw" };
+        internal static readonly string[] ErrorReasons =
+        {
+            "partaction-event-threw",
+            "partaction-lab-walk-stopped",
+        };
 
         /// <summary>Parses the REQUIRED closed <c>button=</c> (case-sensitive, like every closed
         /// seam vocabulary). Returns null on success or the refusal reason.</summary>
@@ -771,6 +780,24 @@ namespace Parsek.TestCommands
             return pagesAfter > pagesBefore ? LabDialogCleanup.KeepPage : LabDialogCleanup.None;
         }
 
+        /// <summary>
+        /// The answer of a labprocess gate refusal: REJECTED with the typed reason when no press
+        /// of the walk has sent yet (nothing changed), else ERROR
+        /// <see cref="LabWalkStoppedReason"/> (an all=true walk stopped after earlier sends took
+        /// their lab slots: a terminal after the verb acted, never a side-effect-free refusal).
+        /// Returns the verdict; <paramref name="answerReason"/> is the wire reason.
+        /// </summary>
+        internal static string DecideLabRefusalVerdict(string gateReason, int succeeded, out string answerReason)
+        {
+            if (succeeded <= 0)
+            {
+                answerReason = gateReason;
+                return "REJECTED";
+            }
+            answerReason = LabWalkStoppedReason;
+            return "ERROR";
+        }
+
         /// <summary>The ` labRoute=.. labValue=..` tail a labprocess appends to the applied line:
         /// one comma-joined entry per press, values invariant <c>F2</c>.</summary>
         internal static string FormatLabTail(IList<LabProcessRoute> routes, IList<float> labValues)
@@ -996,7 +1023,8 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>Compares one live lab with its snapshot PART: <c>dataStored</c> and
-        /// <c>storedScience</c> within <paramref name="tolerance"/> (absolute), and the
+        /// <c>storedScience</c> within <paramref name="tolerance"/> (absolute, at float
+        /// precision: both sides rounded through float), and the
         /// EXPERIMENT_DATA subject SETS for equality.</summary>
         internal static List<LabFieldComparison> CompareLab(LiveLabReading live, LabSnapshotPart snap,
             double tolerance)
@@ -1028,9 +1056,15 @@ namespace Parsek.TestCommands
             return rows;
         }
 
+        /// <summary>Both sides are float fields in stock (<c>[KSPField] float</c>), the
+        /// snapshot holding the float's round-trip text: each side is rounded through float
+        /// before the difference, so a live value widened to double and the same value parsed
+        /// back from text compare equal, and <c>tolerance=0</c> means exact float equality.</summary>
         private static LabFieldComparison CompareNumber(string field, double live, double snapshot, double tolerance)
         {
             CultureInfo ic = CultureInfo.InvariantCulture;
+            live = (float)live;
+            snapshot = (float)snapshot;
             double diff = live - snapshot;
             return new LabFieldComparison
             {

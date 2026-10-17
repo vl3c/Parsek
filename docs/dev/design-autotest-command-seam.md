@@ -4516,7 +4516,12 @@ then invokes `page.OnSendToLab(page.pageData)` (`event=OnSendToLab`): the experi
 page. A refusal at (1)-(3) closes what the press opened: the whole dialog
 (`ExperimentsResultDialog.Dismiss()`, whose `OnDestroy` keeps every page's data) when none was up
 before, the one page the review added through the page's Keep callback when a dialog was up,
-nothing on `labRoute=page` (refusal detail `cleanup=None|DismissDialog|KeepPage`). Every member
+nothing on `labRoute=page` (refusal detail `cleanup=None|DismissDialog|KeepPage`). A refusal
+before any press of the walk has sent is REJECTED with the typed reason; with `all=true`, a
+refusal on a later candidate after earlier presses already sent (their lab slots taken) is the
+ERROR `partaction-lab-walk-stopped`, a terminal after the verb acted, its Error line
+`partaction error reason=partaction-lab-walk-stopped cause=<typed reason> <detail>` ending in
+`presses=<k>/<n>` (not a refusal subkind, not deterministic). Every member
 used is public; nothing is reflected. `inspect` presses nothing; its candidate is the
 one part carrying the name (`event=` empty). With `expectSnapshot=true rec=<id>` the recording is
 resolved first (`RecordingStore.TryFindCommittedRecordingById`, ReadVesselResources'
@@ -4526,7 +4531,9 @@ flight id (`uid`), else the live part persistentId, else the same index and name
 the same part count (a Parsek spawn regenerates both ids and keeps the PART order), else the one
 same-name PART carrying a lab (`matchedBy=uid|persistentId|index|name`). The live
 `ModuleScienceLab`'s `dataStored` and `storedScience` must lie within `tolerance` of the snapshot
-module's, and its `ExperimentData` subject set must equal the union of the snapshot module's
+module's, compared at float precision (both are stock float fields and the snapshot holds the
+float's round-trip text, so each side is rounded through float first and `tolerance=0` means
+exact float equality), and its `ExperimentData` subject set must equal the union of the snapshot module's
 EXPERIMENT_DATA `experiment` values. A part without a live lab answers `none`; a lab part with no
 snapshot, no mapped PART or a mapped PART without a lab answers `false`
 (`reason=no-snapshot|part-not-in-snapshot|no-lab-in-snapshot`). Lines, invariant:
@@ -4572,7 +4579,8 @@ drains only into radiators with `IsCooling` set. The answer's `packed=1 warpInde
 press landed on rails.
 
 **Phases.** SINGLE-PHASE, `RequiresFlight`, default budget (60 s); an exception from the event is
-the ERROR `partaction-event-threw`.
+the ERROR `partaction-event-threw`; an `all=true` labprocess walk stopped by a gate after an
+earlier send is the ERROR `partaction-lab-walk-stopped`.
 The twelve arg reasons are deterministic (`DETERMINISTIC_SEAM_ERROR_REASONS`);
 `-converter-not-found`, `-radiator-not-found`, `-unknown-recording` and `-lab-not-active-vessel`
 are arg-class but retried like `-part-not-found`, and `-experiment-no-data`, `-lab-page-missing`,

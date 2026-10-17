@@ -11461,6 +11461,10 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # refusal subkind would name a refusal that never happened, so they ride the coarse
     # driver-verdict-mismatch.
     #
+    # NOT mapped, deliberately: PartAction's `partaction-lab-walk-stopped`, the ERROR of an
+    # all=true labprocess walk that refused on a later candidate after earlier presses had
+    # already sent data. A post-act terminal like the three above.
+    #
     # NOT mapped, deliberately: StartLoopPlayback's `jump-timeout`. Like switch-threw /
     # switch-refused-by-stock it is a POST-arm terminal - the clock jump was initiated
     # and never landed - so it rides the coarse driver-verdict-mismatch rather than

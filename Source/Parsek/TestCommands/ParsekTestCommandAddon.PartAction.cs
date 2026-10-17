@@ -222,7 +222,17 @@ namespace Parsek.TestCommands
                             out string labDetail);
                         if (labReason != null)
                         {
-                            RejectPartAction(labReason, labDetail);
+                            string verdict = TestCommandPartAction.DecideLabRefusalVerdict(labReason, pressed,
+                                out string answerReason);
+                            if (verdict == "REJECTED")
+                            {
+                                RejectPartAction(labReason, labDetail);
+                                return;
+                            }
+                            // An all=true walk stopped after earlier presses already sent.
+                            ParsekLog.Error(Tag, "partaction error reason=" + answerReason
+                                + " cause=" + labReason + " " + labDetail);
+                            SetExecResult("ERROR", null, answerReason);
                             return;
                         }
                         labRoutes.Add(labRoute);

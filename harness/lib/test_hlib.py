@@ -17014,6 +17014,11 @@ class PartActionSourceSyncTests(unittest.TestCase):
                        "partaction-lab-page-missing", "partaction-lab-value-zero",
                        "partaction-lab-unavailable"):
             self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        # The all=true labprocess walk stopped after a send is a POST-act ERROR terminal:
+        # never a refusal subkind, never deterministic (rides driver-verdict-mismatch).
+        self.assertNotIn("partaction-lab-walk-stopped", hlib._SEAM_REFUSAL_SUBKINDS)
+        self.assertNotIn("partaction-lab-walk-stopped", hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        self.assertNotIn("partaction-lab-walk-stopped", hlib.PARTACTION_REASONS)
         self.assertNotIn("partaction-lab-method-missing", hlib.PARTACTION_REASONS)
         self.assertNotIn("partaction-lab-method-missing", hlib._SEAM_REFUSAL_SUBKINDS)
 
