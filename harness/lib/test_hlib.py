@@ -10621,6 +10621,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # scene change, the tagged credit, the refused second press, the payout
         # veto and the fraction paid again; operator by the same discipline.
         "LAB-4-lab-transmit.toml": "operator by the reading-run discipline; AUTHORED 2026-10-17, NEVER FLOWN (a transmit cut by ExitToSpaceCenter books nothing and its idle pad recording is discarded, the next transmit books 12.50 tagged to the live recording beside stock's +12.5, a second press below 1 is refused, the lab payout vetoes idle-on-pad at the exit (needs PR #2136), and after rails-warp research the next transmit pays the whole stored science including the first transmit's fraction, on lab-pad-seeded); the refill window, the UT margins and the recording count are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        # Science-lab transmit undone by a plain stock Revert to Launch on the
+        # seeded pad lab; operator by the same discipline.
+        "LAB-9b-lab-transmit-revert.toml": "operator by the reading-run discipline; AUTHORED 2026-10-17, NEVER FLOWN (a transmit tagged to the live recording, then Revert to Launch with the recorder live: StockRevert, the tree soft-unstashed, the lab back at 12.50 / 204.00, no PatchScience write, and the next untagged transmit lands the pool on 112.5, on lab-pad-seeded); the recordings count and the revert stash state are re-pinned off the first flight, then the tier is promoted by its measured p50",
         # The SIXTH forge, same mechanism again: it stamps b17-duna-pad by
         # launching the committed DD1 Duna Direct Probe (built by construction,
         # build_dd1_craft.py) onto the pad UNCREWED. Flown + harvested

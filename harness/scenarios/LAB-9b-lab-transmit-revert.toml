@@ -1,0 +1,178 @@
+schema = 1
+id = "LAB-9b-lab-transmit-revert"
+tier = "operator"
+# THE SCIENCE-LAB PROGRAM, lane LAB-9b (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
+# "LAB-9b transmit then Revert to Launch"). NEVER FLOWN: its first flight is a READING run, so
+# it is `operator` and tagged `pending-flight` until that run pins the measured values.
+#
+# DEPENDENCY: none on PR #2136. A stock revert never runs the idle-on-pad check (the revert
+# stashes the live tree as Limbo and the OnLoad revert branch soft-unstashes it), so this lane
+# reads the same on a DLL with or without the lab idle veto.
+#
+# HOST: `lab-pad-seeded` (harness/tools/build_lab_seeded_variants.py): SCIENCE_SANDBOX, science
+# 100, the LABX Orbital Lab (vessel persistentId 2200110055) PRELAUNCH on the KSC pad, its lab
+# seeded with dataStored 204 and storedScience 12.5, Research off, Bob in the lab, a
+# Communotron 16-S (DIRECT) as the transmitting antenna. Loading a PRELAUNCH vessel sets stock's
+# CanRevertToPostInit (decompiled FlightDriver), so Revert to Launch is offered and its target
+# is the pad state as loaded (the lab at 12.50 / 204.00, the pool at 100). VN-5 live-proved
+# the `RevertToLaunch` verb on a PRELAUNCH pad craft (`2026-10-12_1420`). Fixture UT 355.8; the
+# smoke load `2026-10-17_2023` settled at UT 357.4.
+#
+# THE STORY. Record; transmit the lab's 12.5 through the 16-S and wait for the transmission to
+# complete at 1x: exactly one `ScienceLabCredited +12.50 reason='ScienceTransmission'` tagged to
+# the live recording, stock's `ScienceChanged +12.5 (ScienceTransmission) -> 112.5`, the lab at
+# 0.50. Then Revert to Launch with the recorder live (no Re-Fly session, so stock's own revert
+# runs: `RevertInterceptor` lets it through). The load classifies StockRevert, the live tree
+# is stashed as Limbo at the scene change and soft-unstashed by the revert branch
+# (`RecordingStore.UnstashPendingTreeOnRevert`: "events stay in-memory and on-disk, filtered by
+# recording-id visibility"), so the tagged credit stays a hidden event of a tree that no longer
+# exists and never becomes a ledger row; stock reloads the post-init state, so the lab is back
+# at 12.50 / 204.00 and the pool at 100. The proof of both is the next transmit, made with no
+# recorder: it pays 12.50 again, untagged and booked at once as a KSC ledger row, and stock's
+# gain lands the pool on 112.5, not 125. Nothing may patch the pool after the revert: a
+# `PatchScience: <from> -> <to>` write would mean the ledger still held the reverted credit
+# (or lost the new one) and moved KSP's pool to match.
+#
+# THE LEDGER WITNESS AND ITS LIMIT. [expectations.ledger] is not used (the M-B2 oracle has no
+# manifest kind for a lab credit), so the ledger claim is carried by log contracts: the revert's
+# soft-unstash line, no PatchScience write after the revert, and the post-revert credit's KSC
+# row. A ledger that kept the reverted 12.5 would patch the pool up to 125.0 at the post-revert
+# recalc (forbidden) or at the post-revert transmit's recalc (forbidden), so the absence of a
+# write is a real witness. PatchScience's no-op line is Verbose and stable-state rate limited,
+# so the lane does not require it. LedgerGroundTruth (`RunTests category=LedgerGroundTruth` in
+# SCIENCE_SANDBOX) is unproven and left out; a later step may add it once LAB-4 or this lane
+# flies green.
+#
+# NOT HERE: the F9 half (an in-flight quickload after a transmit; the seam has no
+# `allowLiveRecorder=quickload`, plan Q6); Revert to VAB (a fixture cannot carry it).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse - LAB-4 and LAB-14 share the host but end
+# the flight differently; the revert must come right after a tagged transmit, so it is its own
+# lane. (2) no idle waits - every wait is an explicit-UT `WarpToUT maxRate=1` sized for a 1x
+# settle and a 3.6 s transmission (12 Mits, six 16-S packets of 0.6 s). (3) no dwells. (4) no
+# burns. (5) no coast. (6) fail fast - a refused verb fails its step at once; retry `once`
+# until the first flight shows the lane deterministic. (7) count window - nothing is committed;
+# the soft-unstash keeps the reverted tree's sidecar files for an F9, so {0,1} until the
+# reading run says which. (8) tier - operator until the reading run; promote by the measured
+# p50 (expected under 3 min). (9) flight_efficiency.py after the first green flight.
+#
+# WHAT A FIRST FLIGHT CAN FALSIFY: the link on the pad (no credit at the first transmit); the
+# revert route with a live recorder (`reverttolaunch-unavailable` if stock did not offer it;
+# a merge dialog would time the step out); the stash state (`state=Limbo` expected, any state
+# accepted); the post-revert lab reading (a lab that kept 0.50 means stock's post-init state was
+# captured after the transmit); the pool (125.0 after the post-revert transmit, or a
+# PatchScience write, means the reverted credit survived somewhere); the recordings count.
+description = "LAB-9b: on the KSC pad, a science lab transmits its 12.5 science while recording (one 12.50 credit tagged to the recording beside stock's +12.5), then Revert to Launch brings back the lab's 12.50 and the pool's 100 and drops the reverted credit with its flight, so the next transmit pays 12.50 again and the pool lands on 112.5, with no ledger patch after the revert."
+instanceProfile = "stock-minimal"
+tags = ["science-lab", "science", "transmit", "stock-revert", "LAB-9b", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/lab-pad-seeded"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # 1. Record and transmit; the transmission completes inside the 1x wait.
+  { cmd = "StartRecording",                                                          expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "370", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "lab9b-t1-before" },                    expect = "OK" },
+  { cmd = "PartAction",     args = { button = "labtransmit", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "382", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "lab9b-t1-after" },                     expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # 2. Revert to Launch with the recorder live.
+  { cmd = "RevertToLaunch",                                                          expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab9b-reverted" },                     expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # 3. Transmit again with no recorder: the lab's restored 12.5, paid once more.
+  { cmd = "WarpToUT",       args = { ut = "370", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "lab9b-t2-before" },                    expect = "OK" },
+  { cmd = "PartAction",     args = { button = "labtransmit", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "382", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "lab9b-t2-after" },                     expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+D1  = ["commit-revert-merge"]
+D8  = ["science"]
+D14 = ["kerbin", "science-mode", "scene-flight", "warp-1x"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Nothing is committed. The revert's soft-unstash keeps the tree's sidecar files on disk for an
+# F9 back into the flight, so the produced save may carry its one .prec.
+count = { min = 0, max = 1 }
+
+[expectations.logContracts]
+required = [
+  # The seeded lab.
+  "partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=204\\.00;Research:active=0'",
+  # --- 1. The tagged transmit ---
+  "(?s)startrecording recordingId=([0-9a-f]{32}) already=false(?:(?!MISSIONMARK label=lab9b-t1-after ).)*?MISSIONMARK label=lab9b-t1-before (?:(?!MISSIONMARK label=lab9b-t1-after ).)*?Game state: ScienceLabCredited \\+12\\.50 reason='ScienceTransmission' vessel='LABX Orbital Lab' ut=[0-9.]+ recordingId='\\1'",
+  "(?s)MISSIONMARK label=lab9b-t1-before (?:(?!MISSIONMARK label=lab9b-t1-after ).)*?Game state: ScienceChanged \\+12\\.5 \\(ScienceTransmission\\)[^0-9\\r\\n]+112\\.5(?![0-9])",
+  "(?s)MISSIONMARK label=lab9b-t1-after (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.50 dataStored=204\\.00;",
+  # --- 2. The plain stock revert with the recorder live ---
+  "reverttolaunch start pid=2200110055 name='LABX Orbital Lab' situation=PRELAUNCH recording=true hasActiveTree=true",
+  "Prefix: no active re-fly session [^\\r\\n]*allowing stock RevertToLaunch",
+  "GameEvents\\.OnRevertToLaunchFlightState fired; armed RevertKind\\.Launch for next OnLoad",
+  "(?s)reverttolaunch start .*?Load classified: early=\\w+ refined=StockRevert scene=FLIGHT",
+  # The live tree is stashed at the scene change and soft-unstashed by the revert branch: its
+  # events (the tagged credit) stay hidden by recording-id visibility.
+  "(?s)reverttolaunch start .*?Unstashed pending tree 'LABX Orbital Lab' on revert \\(was state=\\w+, 1 recording\\(s\\)[^\\r\\n]*filtered by recording-id visibility",
+  "reverttolaunch complete pid=2200110055 name='LABX Orbital Lab' situation=PRELAUNCH elapsed=",
+  # The lab is back at the post-init state.
+  "(?s)MISSIONMARK label=lab9b-reverted (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=204\\.00;Research:active=0'",
+  # --- 3. The post-revert transmit: 12.50 once more, untagged, booked at the KSC, ...
+  "(?s)MISSIONMARK label=lab9b-t2-before (?:(?!MISSIONMARK label=lab9b-t2-after ).)*?Game state: ScienceLabCredited \\+12\\.50 reason='ScienceTransmission' vessel='LABX Orbital Lab' ut=[0-9.]+ recordingId=''",
+  "(?s)MISSIONMARK label=lab9b-t2-before (?:(?!MISSIONMARK label=lab9b-t2-after ).)*?KSC spending recorded: type=ScienceLabEarning, UT=[0-9.]+, key=ScienceTransmission",
+  # ... and the pool lands on 112.5 again: it was back at 100 before it.
+  "(?s)MISSIONMARK label=lab9b-t2-before (?:(?!MISSIONMARK label=lab9b-t2-after ).)*?Game state: ScienceChanged \\+12\\.5 \\(ScienceTransmission\\)[^0-9\\r\\n]+112\\.5(?![0-9])",
+  "(?s)MISSIONMARK label=lab9b-t2-after (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.50 dataStored=204\\.00;",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  "partaction error ",
+  "warptout refused",
+  "reverttolaunch rejected",
+  "reverttolaunch error",
+  # Exactly two lab credits: the reverted one and the post-revert one.
+  "(?s)(?:Game state: ScienceLabCredited .*?){3}",
+  # No lab credit outside the two transmit windows (the revert, the reload).
+  "(?s)MISSIONMARK label=lab9b-t1-after (?:(?!MISSIONMARK label=lab9b-t2-before ).)*?ScienceLabCredited",
+  "(?s)MISSIONMARK label=lab9b-t2-after .*?ScienceLabCredited",
+  # After the revert nothing may move the pool to match the ledger: a write means the ledger
+  # still carried the reverted credit (or dropped the new one).
+  "(?s)reverttolaunch start .*?PatchScience: [0-9]+\\.[0-9] -> [0-9]",
+  # A revert is not a quickload, and is never a merge.
+  "Load classified: early=\\w+ refined=QuickloadFlight ",
+  "full-fidelity auto-commit",
+  "committree committed=true",
+  "Lab payout net of a strategy take",
+  "Exploded!!",
+]
+
+[runtime]
+# One LoadGame (up to 300 s), one revert (a flight reload, up to 180 s), about 50 s of 1x game
+# time.
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
