@@ -3943,6 +3943,18 @@ oracle's expected model, and a rewind-cutoff model (rows strictly after the cuto
 dormant routes, re-delivery exactly once) so route lanes can carry a gating ledger block.
 Roadmap: "The logistics integration program", row C1.
 
+Rewind half DONE 2026-10-17 (branch `claude/career-rewind-ledger-tlmab9`, TC-4): a ledger block
+that declares `timeline = "rewind-aware"` may pair with `InvokeRewind`, `InvokeRewindToLaunch`
+and `AnswerMergeDialog`. `oracle.compute_expected_rewind_aware` places every entry against the
+produced save's clock (careerSave `universalTime`, analyzer version 5) and expects the design 3.9
+AVAILABLE funds and science (running balance floored by every projected future balance, earnings
+before spendings at one UT) and the running reputation; `attempt` + `retiredAttempts` drop rows
+a Re-Fly tombstone retired, `onceKey` credits a milestone once. A missing clock is
+INVALID(tooling), a window straddling the clock a hard `timeline-unplaceable` divergence. Cells:
+`test_oracle.RewindAwareTimelineTests`, `test_ledger_timeline.py`, `LedgerGroundTruthParserTests`,
+`ReportWriterTests`. Still open: the route action types, and a career multi-rewind lane flown
+on the model.
+
 ---
 
 ## HARNESS-ROUTE-STATE-READBACK-SEAM: no seam verb reads a route's live state between steps [FILED 2026-10-06 for the logistics integration program (C2), branch `ccr-77f23eb2-dbqh6i`. OPEN, harness]

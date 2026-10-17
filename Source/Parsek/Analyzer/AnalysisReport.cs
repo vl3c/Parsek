@@ -84,8 +84,12 @@ namespace Parsek.Analyzer
         /// is "bump on ANY .analysis.json schema change" - a reader that finds no
         /// `hasRoster` key now knows it is reading a pre-roster export rather than a
         /// save whose ROSTER node was missing.
+        /// Bumped "4" -> "5" for the additive careerSave clock (`hasUniversalTime` +
+        /// `universalTime`, the save's FLIGHTSTATE UT), the end UT the harness's
+        /// rewind-aware ledger model places every expected row against. Same additive
+        /// terms as the two bumps above.
         /// </summary>
-        public const string CurrentAnalyzerVersion = "4";
+        public const string CurrentAnalyzerVersion = "5";
 
         public string SaveName;
 

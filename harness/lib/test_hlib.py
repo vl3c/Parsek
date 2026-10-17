@@ -1352,17 +1352,17 @@ class SpecValidationRejectTests(unittest.TestCase):
     def test_rewind_to_launch_cannot_pair_with_a_ledger_block(self):
         # The InvokeRewind rejection extended to the launch rewind: restoring a
         # quicksave rewrites the career pools the seed+manifest contract cannot
-        # reconstruct, and the rewound-career oracle is DEFERRED to L4. The base
-        # already declares [expectations.ledger].
+        # sum, so a sum-model block refuses it and names the rewind-aware model
+        # (TC-4). The base already declares a sum-model [expectations.ledger].
         def m(s):
             s["driver"]["steps"].insert(
                 1, {"cmd": "InvokeRewindToLaunch", "expect": "OK"})
         v = self._reject(m)
         self.assertFalse(v.ok)
         self.assertTrue(
-            any("InvokeRewindToLaunch" in e and "L4" in e and "ledger" in e
+            any("InvokeRewindToLaunch" in e and "rewind-aware" in e and "ledger" in e
                 for e in v.errors),
-            "expected ledger+InvokeRewindToLaunch L4-deferral rejection: %s"
+            "expected sum-model ledger+InvokeRewindToLaunch rejection: %s"
             % list(v.errors))
 
     def test_rewind_to_launch_refusal_reasons_classify(self):
@@ -2213,7 +2213,8 @@ class SpecValidationRejectTests(unittest.TestCase):
     def test_ledger_with_rewind_or_dialog_rejected(self):
         # Item 1: an [expectations.ledger] block cannot pair with InvokeRewind /
         # AnswerMergeDialog (a rewind/merge rewrites the career pools the seed+manifest
-        # cannot model; the oracle is DEFERRED to L4). The base already declares ledger.
+        # sum cannot model; TC-4 lifts it only for timeline = "rewind-aware"). The
+        # base already declares a sum-model ledger block.
         for verb in ("InvokeRewind", "AnswerMergeDialog"):
             with self.subTest(verb=verb):
                 def m(s):
@@ -2221,8 +2222,8 @@ class SpecValidationRejectTests(unittest.TestCase):
                 v = self._reject(m)
                 self.assertFalse(v.ok)
                 self.assertTrue(
-                    any(verb in e and "L4" in e and "ledger" in e for e in v.errors),
-                    "expected ledger+%s L4-deferral rejection: %s" % (verb, list(v.errors)))
+                    any(verb in e and "rewind-aware" in e and "ledger" in e for e in v.errors),
+                    "expected sum-model ledger+%s rejection: %s" % (verb, list(v.errors)))
 
     def test_ledger_with_timejump_allowed(self):
         # Item 1: TimeJump + ledger stays design-blessed (a forward jump keeps the
@@ -2230,7 +2231,7 @@ class SpecValidationRejectTests(unittest.TestCase):
         def m(s):
             s["driver"]["steps"].insert(1, {"cmd": "TimeJump", "expect": "OK"})
         v = self._reject(m)
-        self.assertFalse(any("cannot pair with [expectations.ledger]" in e for e in v.errors),
+        self.assertFalse(any("cannot pair with" in e for e in v.errors),
                          "TimeJump+ledger must be allowed: %s" % list(v.errors))
 
     def test_mc1_deferred_verb_membership(self):

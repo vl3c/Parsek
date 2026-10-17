@@ -138,6 +138,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Harness: ledger checks can now run on lanes that rewind.** A test can check the career's
+  funds, science and reputation after a rewind, the way Parsek shows them: money that later
+  flights will spend is held back. Before, lanes that rewind had no ledger check at all.
+  (HARNESS-LEDGER-ORACLE-ROUTES-AND-REWIND)
 - **Harness: a launch from the editor finishes only once stock has charged for it.** The test
   step waited only for the vessel to appear, so a test that followed at once could reload the
   flight before the rollout cost was taken, and a Hard career lane saw no charge. It is not a

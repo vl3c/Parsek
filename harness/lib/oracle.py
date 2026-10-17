@@ -245,6 +245,15 @@ class ManifestEntry:
     ``stock_reasons`` it is a MATCHING hint only and never enters
     ``compute_expected``.
 
+    ``attempt`` and ``once_key`` (additive, OPTIONAL, default empty) are read only
+    by the rewind-aware timeline model (``compute_expected_rewind_aware``).
+    ``attempt`` names the flight or KSC session the entry belongs to, so a block's
+    ``retiredAttempts`` can drop every row a Re-Fly tombstone retired. ``once_key``
+    groups once-ever awards (a milestone, a contract completion): among the kept
+    entries sharing one key only the earliest ``(ut, seq)`` counts, the way the
+    ledger credits the chronologically first recording and marks later ones not
+    effective. The legacy ``compute_expected`` ignores both.
+
     MIGRATION CAVEAT for ``repMode = "nominal"`` entries: ``compute_expected``
     accumulates in ``(ut is None, ut, seq)`` order and the reputation curve is
     NONLINEAR, so converting a UT-stamped nominal entry to a window (which forces
@@ -266,6 +275,8 @@ class ManifestEntry:
     rec3_row: str = ""
     stock_reasons: Tuple[str, ...] = tuple()
     ut_window: Optional[Tuple[float, float]] = None
+    attempt: str = ""
+    once_key: str = ""
 
     @property
     def seq_key(self):
@@ -307,6 +318,10 @@ class ExpectedCareer:
     active_contract_guids: Tuple[str, ...]
     ut_windows: Dict[str, Tuple[Optional[float], Optional[float]]] = field(default_factory=dict)
     rec3_residual_rows: Tuple[str, ...] = ()
+    # Rewind-aware model only (additive): the end UT, the per-pool running /
+    # available / reserved split and the kept / retired / once-shadowed counts, for
+    # the verifier log and the manifest audit. Empty under the legacy sum model.
+    timeline: Dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -592,6 +607,26 @@ def parse_manifest_entries(
                           "array of non-empty strings" % (i, raw_reasons))
             continue
 
+        # OPTIONAL rewind-model labels (see ManifestEntry.attempt / once_key). A
+        # non-string or empty value rejects: a label silently coerced to "" would
+        # drop the entry out of its retirement group or its once-ever group, and the
+        # timeline expectation would move without the author knowing why.
+        label_error = None
+        labels: Dict[str, str] = {}
+        for spec_key in ("attempt", "onceKey"):
+            if spec_key not in raw:
+                labels[spec_key] = ""
+                continue
+            v = raw.get(spec_key)
+            if not isinstance(v, str) or not v.strip():
+                label_error = ("entry[%d].%s: %r must be a non-empty string"
+                               % (i, spec_key, v))
+                break
+            labels[spec_key] = v
+        if label_error is not None:
+            errors.append(label_error)
+            continue
+
         # funds is state-INDEPENDENT: a null amount fills from an unambiguous single
         # captured line matching (seqKey, kind, contractGuid, FUNDS-FACET). The facet
         # filter (``c.funds != 0.0``) guards the multi-facet case: an entry whose captured
@@ -625,6 +660,7 @@ def parse_manifest_entries(
             rep_mode=rep_mode, subject_ids=subject_ids,
             contract_guid=contract_guid, provenance=provenance, rec3_row=rec3_row,
             stock_reasons=stock_reasons, ut_window=ut_window,
+            attempt=labels["attempt"], once_key=labels["onceKey"],
         ))
 
     return ManifestParse(tuple(entries), tuple(errors))
@@ -893,6 +929,211 @@ def compute_expected(
         subject_science=subject_science, active_contract_guids=tuple(active),
         ut_windows=ut_windows, rec3_residual_rows=tuple(residual_rows),
     )
+
+
+# ---------------------------------------------------------------------------
+# Rewind-aware timeline model (TC-4). The legacy model above sums every declared
+# delta, which is right only when the clock never goes back. A lane that rewinds
+# leaves part of its committed ledger AHEAD of the save's clock, and the game
+# design fixes what the stock pools show then (game-actions design 3.9 / 15.6 /
+# 15.9): funds and science show the AVAILABLE amount, the minimum projected
+# balance from the current UT through the committed future (floored at zero),
+# and reputation shows its running balance (no reservation). The model below
+# re-derives that from the author's own entries and the save's clock alone; it
+# never reads a Parsek number, so the independence the L-track rests on holds.
+# ---------------------------------------------------------------------------
+
+TIMELINE_SUM = "sum"
+TIMELINE_REWIND_AWARE = "rewind-aware"
+TIMELINES: Tuple[str, ...] = (TIMELINE_SUM, TIMELINE_REWIND_AWARE)
+
+
+def _entry_ut_bounds(e: ManifestEntry) -> Tuple[Optional[float], Optional[float]]:
+    if e.ut is not None:
+        return (e.ut, e.ut)
+    if e.ut_window is not None:
+        return e.ut_window
+    return (None, None)
+
+
+def _timeline_ut(e: ManifestEntry) -> float:
+    """The UT that orders an entry on the timeline: its exact UT, else its window's
+    lower bound (callers have already rejected entries with neither)."""
+    lo, _hi = _entry_ut_bounds(e)
+    return lo
+
+
+def select_timeline_entries(
+    entries: Sequence[ManifestEntry],
+    retired_attempts: Optional[Sequence[str]] = None,
+) -> Tuple[List[ManifestEntry], List[ManifestEntry], List[ManifestEntry]]:
+    """Split entries into (kept, retired, once_shadowed), pure.
+
+    Retired: the entry's ``attempt`` is in ``retired_attempts`` (a Re-Fly tombstone
+    took the row out of the effective ledger). Once-shadowed: a kept entry whose
+    ``once_key`` an earlier kept entry already carries (the ledger credits a
+    milestone or a contract completion to the chronologically first recording and
+    marks every later copy not effective). Order of ``kept`` is timeline order."""
+    retired_set = set(retired_attempts or ())
+    retired: List[ManifestEntry] = []
+    live: List[ManifestEntry] = []
+    for e in entries:
+        if e.attempt and e.attempt in retired_set:
+            retired.append(e)
+        else:
+            live.append(e)
+    live.sort(key=lambda e: (_timeline_ut(e), e.seq))
+    kept: List[ManifestEntry] = []
+    shadowed: List[ManifestEntry] = []
+    seen_once = set()
+    for e in live:
+        if e.once_key:
+            if e.once_key in seen_once:
+                shadowed.append(e)
+                continue
+            seen_once.add(e.once_key)
+        kept.append(e)
+    return kept, retired, shadowed
+
+
+def project_available(
+    seed_value: float,
+    deltas: Sequence[Tuple[float, int, float]],
+    end_ut: float,
+) -> Tuple[float, float, float]:
+    """The design 3.9 reservation formula over ``(ut, seq, delta)`` rows, pure.
+
+    ``running`` replays every row with ``ut <= end_ut`` (inclusive, the design's
+    ``action.UT <= ut``). The committed future (``ut > end_ut``) is then replayed
+    from ``running`` in timeline order, earnings before spendings at one UT (design
+    3.7), and ``available = max(0, min(running, every projected balance))``.
+    Returns ``(running, available, min_projected)``; ``min_projected`` is the
+    unclamped minimum, so a caller can name an overcommitted future."""
+    running = seed_value
+    future: List[Tuple[float, int, int, float]] = []
+    for ut, seq, delta in deltas:
+        if delta == 0.0:
+            continue
+        if ut <= end_ut:
+            running += delta
+        else:
+            future.append((ut, 0 if delta > 0.0 else 1, seq, delta))
+    future.sort()
+    projected = running
+    min_projected = running
+    for _ut, _order, _seq, delta in future:
+        projected += delta
+        if projected < min_projected:
+            min_projected = projected
+    available = min_projected if min_projected > 0.0 else 0.0
+    return running, available, min_projected
+
+
+def compute_expected_rewind_aware(
+    seed: SeedBaseline,
+    entries: Sequence[ManifestEntry],
+    end_ut: float,
+    retired_attempts: Optional[Sequence[str]] = None,
+) -> Tuple[ExpectedCareer, Tuple[str, ...]]:
+    """Expected career totals for a lane whose clock went back (pure, TC-4).
+
+    ``end_ut`` is the produced save's own clock (``FLIGHTSTATE UT``). Every entry
+    must carry ``ut`` or ``utWindow``; a window that straddles ``end_ut`` cannot be
+    placed on either side of the clock and is returned as an error (the caller
+    reds it hard, the way a rejected manifest entry reds: a dropped effect could
+    false-PASS).
+
+      - Funds / science pool (HARD): the AVAILABLE amount at ``end_ut`` (see
+        ``project_available``), the value ``PatchFunds`` / ``PatchScience`` write
+        into the stock pools.
+      - Reputation (HARD): the running balance at ``end_ut``, accumulated through
+        the stock curve in timeline order exactly as the legacy model does, over
+        the past entries only.
+      - Per-subject science / active contracts (REPORT-ONLY): the past entries.
+
+    Retired attempts and once-shadowed duplicates are left out of every facet
+    (``select_timeline_entries``)."""
+    errors: List[str] = []
+    placeable: List[ManifestEntry] = []
+    for e in entries:
+        lo, hi = _entry_ut_bounds(e)
+        if lo is None:
+            errors.append("timeline: entry kind=%s seq=%d has neither ut nor utWindow; "
+                          "the rewind-aware model cannot place it on the clock"
+                          % (e.kind, e.seq))
+            continue
+        if lo <= end_ut < hi:
+            errors.append("timeline: entry kind=%s seq=%d utWindow=[%r, %r] straddles the "
+                          "save's end UT %r; it is neither past nor committed future"
+                          % (e.kind, e.seq, lo, hi, end_ut))
+            continue
+        placeable.append(e)
+
+    kept, retired, shadowed = select_timeline_entries(placeable, retired_attempts)
+    past = [e for e in kept if _entry_ut_bounds(e)[1] <= end_ut]
+    future = [e for e in kept if _entry_ut_bounds(e)[0] > end_ut]
+    timeline: Dict = {
+        "endUt": end_ut,
+        "kept": len(kept), "past": len(past), "future": len(future),
+        "retired": len(retired), "onceShadowed": len(shadowed),
+    }
+    ut_windows: Dict[str, Tuple[Optional[float], Optional[float]]] = {}
+
+    def _rows(facet: str) -> List[Tuple[float, int, float]]:
+        return [(_timeline_ut(e), e.seq, getattr(e, facet)) for e in kept]
+
+    funds: Optional[float] = None
+    if seed.has_funds:
+        running, available, min_proj = project_available(seed.funds, _rows("funds"), end_ut)
+        funds = available
+        timeline["funds"] = {"running": running, "available": available,
+                             "minProjected": min_proj, "reserved": running - available}
+        ut_windows["funds"] = _window([e for e in kept if e.funds != 0.0])
+
+    science: Optional[float] = None
+    if seed.has_science:
+        running, available, min_proj = project_available(seed.science, _rows("science"), end_ut)
+        science = available
+        timeline["sciencePool"] = {"running": running, "available": available,
+                                   "minProjected": min_proj, "reserved": running - available}
+        ut_windows["sciencePool"] = _window([e for e in kept if e.science != 0.0])
+
+    reputation: Optional[float] = None
+    if seed.has_rep:
+        rep = seed.reputation
+        contributing_rep: List[ManifestEntry] = []
+        for e in past:
+            if e.reputation == 0.0:
+                continue
+            if e.rep_mode == REP_MODE_APPLIED:
+                rep += e.reputation
+            else:
+                _delta, rep = apply_rep_curve(e.reputation, rep)
+            contributing_rep.append(e)
+        reputation = rep
+        timeline["reputation"] = {"running": rep}
+        ut_windows["reputation"] = _window(contributing_rep)
+
+    subject_science: Dict[str, float] = {}
+    for e in past:
+        for sid in e.subject_ids:
+            subject_science[sid] = subject_science.get(sid, 0.0) + e.science
+
+    active: List[str] = []
+    for e in past:
+        if e.kind == CONTRACT_ACCEPT_KIND:
+            if e.contract_guid and e.contract_guid not in active:
+                active.append(e.contract_guid)
+        elif e.kind in CONTRACT_CLOSE_KINDS:
+            if e.contract_guid in active:
+                active.remove(e.contract_guid)
+
+    expected = ExpectedCareer(
+        funds=funds, science=science, reputation=reputation,
+        subject_science=subject_science, active_contract_guids=tuple(active),
+        ut_windows=ut_windows, timeline=timeline,
+    )
+    return expected, tuple(errors)
 
 
 # ---------------------------------------------------------------------------

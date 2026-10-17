@@ -16,6 +16,7 @@ Pure apart from the two callbacks: no file I/O, no clock. ASCII only; stdlib onl
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -49,12 +50,19 @@ class LedgerVerdict:
 def manifest_entry_to_dict(e) -> Dict:
     """Serialize an oracle.ManifestEntry to a stable-keyed dict for the accumulated
     manifest artifact."""
-    return {"ut": e.ut, "seq": e.seq, "kind": e.kind, "funds": e.funds,
-            "science": e.science, "reputation": e.reputation, "repMode": e.rep_mode,
-            "subjectIds": list(e.subject_ids), "contractGuid": e.contract_guid,
-            "provenance": e.provenance, "rec3Row": e.rec3_row,
-            "utWindow": (list(e.ut_window) if e.ut_window is not None else None),
-            "stockReason": list(e.stock_reasons)}
+    d = {"ut": e.ut, "seq": e.seq, "kind": e.kind, "funds": e.funds,
+         "science": e.science, "reputation": e.reputation, "repMode": e.rep_mode,
+         "subjectIds": list(e.subject_ids), "contractGuid": e.contract_guid,
+         "provenance": e.provenance, "rec3Row": e.rec3_row,
+         "utWindow": (list(e.ut_window) if e.ut_window is not None else None),
+         "stockReason": list(e.stock_reasons)}
+    # The rewind-model labels are written only when set, so a sum-model manifest
+    # stays byte-identical to the one every earlier run archived.
+    if e.attempt:
+        d["attempt"] = e.attempt
+    if e.once_key:
+        d["onceKey"] = e.once_key
+    return d
 
 
 def world_declared_vessels(world_block: Dict) -> List[Dict]:
@@ -127,6 +135,27 @@ def _invalid(reason: str) -> Dict:
             "utWindow": [None, None]}
 
 
+def career_save_clock(career_block: Optional[Dict]) -> Optional[float]:
+    """The produced save's clock from its careerSave block (pure): ``universalTime``
+    when ``hasUniversalTime`` is true and the value is a finite number, else None
+    (an analyzer older than version 5 exports no clock)."""
+    if not isinstance(career_block, dict) or not career_block.get("hasUniversalTime"):
+        return None
+    v = career_block.get("universalTime")
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    fv = float(v)
+    return fv if math.isfinite(fv) else None
+
+
+def timeline_model(ledger_block: Optional[Dict]) -> str:
+    """Which expected-state model a ledger block selects (pure): the legacy sum, or
+    the rewind-aware timeline model (``timeline = "rewind-aware"``, TC-4)."""
+    if not isinstance(ledger_block, dict):
+        return oracle.TIMELINE_SUM
+    return ledger_block.get(hlib.LEDGER_TIMELINE_KEY, oracle.TIMELINE_SUM)
+
+
 def evaluate(ledger_block: Optional[Dict], world_block: Optional[Dict],
              career_block: Optional[Dict], seed, log_text: str, run_id: str = "",
              log: LogFn = _no_log,
@@ -134,6 +163,9 @@ def evaluate(ledger_block: Optional[Dict], world_block: Optional[Dict],
     """Run the ledger-oracle verifier (design ~444) over its inputs. ``seed`` is the
     ``oracle.SeedBaseline`` (or None); ``career_block`` the produced save's parsed
     ``careerSave`` block (or None when absent); ``log_text`` the produced KSP.log.
+    The rewind-aware model reads the produced save's clock off the same block
+    (``universalTime``, the save's ``FLIGHTSTATE UT``); that model with no clock is
+    INVALID(tooling), never a silent fall-back to the sum.
 
     Edge 13: an ABSENT careerSave block on an ACTIVE ledger verifier is
     INVALID(tooling) (an active ledger check must never green on a missing input).
@@ -166,8 +198,23 @@ def evaluate(ledger_block: Optional[Dict], world_block: Optional[Dict],
             return LedgerVerdict(_invalid("no seed baseline"), False, True)
         rec3 = bool(ledger_block.get("rec3CarveOut", False))
         rec3_whitelist = (ledger_block.get("rec3Whitelist", []) or []) if rec3 else []
+        rewind_aware = timeline_model(ledger_block) == oracle.TIMELINE_REWIND_AWARE
+        end_ut = career_save_clock(career_block)
+        if rewind_aware and end_ut is None:
+            reason = ("rewind-aware ledger model needs the produced save's clock "
+                      "(FLIGHTSTATE UT) and none was read")
+            log("warn", "verify ledgerOracle status=INVALID subkind=tooling: %s" % reason)
+            return LedgerVerdict(_invalid(reason), False, True)
         seam_entries, captured, seam_errors, manifest = build_manifest(
             ledger_block, log_text, seed, run_id, log)
+        timeline_errors: Tuple[str, ...] = tuple()
+        if rewind_aware:
+            retired = ledger_block.get(hlib.LEDGER_RETIRED_ATTEMPTS_KEY, []) or []
+            expected, timeline_errors = oracle.compute_expected_rewind_aware(
+                seed, seam_entries, end_ut, retired)
+            manifest["timeline"] = dict(expected.timeline,
+                                        model=oracle.TIMELINE_REWIND_AWARE,
+                                        retiredAttempts=list(retired))
         if on_manifest is not None:
             on_manifest(manifest)
         # Design edge 18: a rejected seam entry (unknown kind / balance amount /
@@ -179,7 +226,26 @@ def evaluate(ledger_block: Optional[Dict], world_block: Optional[Dict],
                 expected=None, parsed=None, ut_window=(None, None), hard=True,
                 detail="manifest entry rejected (a dropped expected effect can false-PASS): %s" % err))
             log("warn", "ledger manifest-parse-error (hard): %s" % err)
-        expected = oracle.compute_expected(seed, seam_entries, tol, rec3_whitelist)
+        for err in timeline_errors:
+            divergences.append(oracle.OracleDivergence(
+                facet="ledger", kind="timeline-unplaceable", identity="",
+                expected=None, parsed=None, ut_window=(None, None), hard=True,
+                detail="manifest entry cannot be placed on the rewound clock (a dropped "
+                       "expected effect can false-PASS): %s" % err))
+            log("warn", "ledger timeline-unplaceable (hard): %s" % err)
+        if not rewind_aware:
+            expected = oracle.compute_expected(seed, seam_entries, tol, rec3_whitelist)
+        else:
+            tl = expected.timeline
+            fl = tl.get("funds") or {}
+            sl = tl.get("sciencePool") or {}
+            log("info", "oracle-timeline model=rewind-aware endUt=%r kept=%d past=%d future=%d "
+                        "retired=%d onceShadowed=%d fundsRunning=%s fundsAvailable=%s "
+                        "fundsReserved=%s scienceRunning=%s scienceAvailable=%s"
+                % (end_ut, tl.get("kept", 0), tl.get("past", 0), tl.get("future", 0),
+                   tl.get("retired", 0), tl.get("onceShadowed", 0),
+                   fl.get("running"), fl.get("available"), fl.get("reserved"),
+                   sl.get("running"), sl.get("available")))
         log("info", "oracle-expected funds=%s science=%s rep=%s subjects=%d activeContracts=%d rec3CarveOut=%s"
             % (expected.funds, expected.science, expected.reputation,
                len(expected.subject_science), len(expected.active_contract_guids), rec3))

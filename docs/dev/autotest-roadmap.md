@@ -6414,7 +6414,7 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 | TC-1 | Verbs: `Quickload`, `Revert`, ~~`ReFlyRevert`~~ (DONE 2026-10-07, branch `refly-revert-verb`: `ReFlyRevert choice=discard\|retry\|cancel target=launch\|prelaunch`, the stock Esc menu into Parsek's Re-Fly revert dialog; consumer QL-5), `RunInvariantReport`, `ReadVesselResources`, ~~scene-agnostic `WarpToUT`~~ (DONE 2026-10-07, branch `scene-wait`: FLIGHT / Space Center / Tracking Station, post-load physics hold deferred; a `maxRate=1` wait ignores TIMEWARP locks) | HARNESS-VERBS-FOR-TIMELINE-OPS |
 | TC-2 | Resource oracle (`resourceq.py`, `[expectations.world.vessels]`) + in-game `ResourceConservation` | HARNESS-RESOURCE-ORACLE-AND-INVARIANT-RULES |
 | TC-3 | Analyzer INV13 crew conservation, INV14 vessel identity (baseline, then gate) | HARNESS-RESOURCE-ORACLE-AND-INVARIANT-RULES |
-| TC-4 | Rewind-aware ledger oracle (L4) | HARNESS-LEDGER-ORACLE-ROUTES-AND-REWIND |
+| TC-4 | Rewind-aware ledger oracle (L4). ORACLE DONE 2026-10-17 (branch `claude/career-rewind-ledger-tlmab9`): `timeline = "rewind-aware"` compares the AVAILABLE pools at the produced save's clock (careerSave `universalTime`, analyzer v5), with `attempt` / `retiredAttempts` / `onceKey` labels; the career multi-rewind lane that proves it is the open half | HARNESS-LEDGER-ORACLE-ROUTES-AND-REWIND |
 | TC-5 | Mission action: deploy drills (converters already start / stop through `set_converters`) | MINING-ISRU-UNTESTED-END-TO-END |
 | TC-6 | Fixtures: `minmus-miner-landed`; career save with a rewind point and a launch quicksave; crewed Mun landing with a rewind point; docking fixture with a launch quicksave; science-bg-pad; dominance and foreign-cargo shapes; re-harvested `bdock-recorded` | several (see each lane) |
 
@@ -6542,7 +6542,7 @@ Owner decisions (interview 2026-10-06):
   wait for `OnFlightReady` and the re-fly recorder before a time step (`ListHandles
   kind=chains` + `RecordingState awaitRecorderLive=refly`, gated by
   `test_refly_flight_ready_wait.py`).
-- The ledger oracle refuses rewind lanes until TC-4.
+- The ledger oracle refuses a rewind lane unless its block declares `timeline = "rewind-aware"` (TC-4).
 
 ## Trust and fail-open risks still outstanding
 

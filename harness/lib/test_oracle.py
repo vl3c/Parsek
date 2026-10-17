@@ -921,5 +921,147 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(result["utWindow"], [None, None])
 
 
+# ---------------------------------------------------------------------------
+# Rewind-aware timeline model (TC-4).
+# ---------------------------------------------------------------------------
+
+
+def _tl_entry(kind="milestone", ut=0.0, seq=0, funds=0.0, science=0.0, reputation=0.0,
+              attempt="", once_key="", ut_window=None, contract_guid="", subject_ids=()):
+    return oracle.ManifestEntry(
+        ut=ut, seq=seq, kind=kind, funds=funds, science=science, reputation=reputation,
+        rep_mode="nominal", subject_ids=tuple(subject_ids), contract_guid=contract_guid,
+        provenance="seam-declared", ut_window=ut_window, attempt=attempt,
+        once_key=once_key)
+
+
+def _seed(funds=25000.0, science=0.0, rep=0.0):
+    return oracle.SeedBaseline(funds=funds, science=science, reputation=rep)
+
+
+class RewindAwareTimelineTests(unittest.TestCase):
+    """Guards the TC-4 model: what the stock pools must read at the produced save's
+    clock when part of the committed ledger lies ahead of it (game-actions design
+    3.9 / 15.6 / 15.9)."""
+
+    def test_design_15_7_worked_example(self):
+        # The design's own example: seed 25k, +50k@100, -30k@200, +40k@500, -60k@600.
+        # Available is 25k at UT 0, 150 and 550, and the running balance moves.
+        rows = [_tl_entry(ut=100.0, seq=0, funds=50000.0),
+                _tl_entry(kind="vessel-build-cost", ut=200.0, seq=1, funds=-30000.0),
+                _tl_entry(kind="contract-complete", ut=500.0, seq=2, funds=40000.0),
+                _tl_entry(kind="facility-upgrade", ut=600.0, seq=3, funds=-60000.0)]
+        for end_ut, running in ((0.0, 25000.0), (150.0, 75000.0), (550.0, 85000.0)):
+            with self.subTest(end_ut=end_ut):
+                exp, errs = oracle.compute_expected_rewind_aware(_seed(), rows, end_ut)
+                self.assertEqual(errs, ())
+                self.assertAlmostEqual(exp.funds, 25000.0)
+                self.assertAlmostEqual(exp.timeline["funds"]["running"], running)
+                self.assertAlmostEqual(exp.timeline["funds"]["reserved"], running - 25000.0)
+
+    def test_overcommitted_future_floors_at_zero(self):
+        # The design's 100k facility variant: min projected -15k, available 0.
+        rows = [_tl_entry(ut=100.0, seq=0, funds=50000.0),
+                _tl_entry(kind="vessel-build-cost", ut=200.0, seq=1, funds=-30000.0),
+                _tl_entry(kind="contract-complete", ut=500.0, seq=2, funds=40000.0),
+                _tl_entry(kind="facility-upgrade", ut=600.0, seq=3, funds=-100000.0)]
+        exp, _ = oracle.compute_expected_rewind_aware(_seed(), rows, 0.0)
+        self.assertEqual(exp.funds, 0.0)
+        self.assertAlmostEqual(exp.timeline["funds"]["minProjected"], -15000.0)
+
+    def test_end_ut_is_inclusive_of_rows_at_the_clock(self):
+        # design 3.9: current balance replays rows with action.UT <= ut.
+        rows = [_tl_entry(ut=100.0, funds=500.0)]
+        at, _ = oracle.compute_expected_rewind_aware(_seed(funds=0.0), rows, 100.0)
+        before, _ = oracle.compute_expected_rewind_aware(_seed(funds=0.0), rows, 99.999)
+        self.assertEqual(at.funds, 500.0)
+        self.assertEqual(before.funds, 0.0)
+
+    def test_same_ut_earning_before_spending_in_the_projection(self):
+        # design 3.7: at one UT, credits before debits. Seed 100 with -150 and +100 at
+        # the same future UT: earning first gives a minimum of 50, spending first
+        # would dip to -50 and floor available at 0.
+        rows = [_tl_entry(kind="facility-upgrade", ut=200.0, seq=0, funds=-150.0),
+                _tl_entry(ut=200.0, seq=1, funds=100.0)]
+        exp, _ = oracle.compute_expected_rewind_aware(_seed(funds=100.0), rows, 0.0)
+        self.assertAlmostEqual(exp.funds, 50.0)
+
+    def test_science_is_reservation_aware_and_reputation_is_running(self):
+        rows = [_tl_entry(kind="tech-unlock", ut=300.0, seq=0, science=-5.0),
+                _tl_entry(ut=300.0, seq=1, reputation=10.0)]
+        exp, _ = oracle.compute_expected_rewind_aware(_seed(science=8.0, rep=2.0), rows, 0.0)
+        self.assertAlmostEqual(exp.science, 3.0)
+        self.assertAlmostEqual(exp.timeline["sciencePool"]["running"], 8.0)
+        # Rep has no reservation: the future award is not counted at all.
+        self.assertAlmostEqual(exp.reputation, 2.0)
+        after, _ = oracle.compute_expected_rewind_aware(_seed(science=8.0, rep=2.0), rows, 300.0)
+        self.assertAlmostEqual(after.science, 3.0)
+        self.assertGreater(after.reputation, 2.0)
+
+    def test_once_key_credits_only_the_earliest_copy(self):
+        # A milestone re-earned by a later flight is not effective in the ledger.
+        rows = [_tl_entry(ut=500.0, seq=1, funds=800.0, once_key="FirstLaunch", attempt="b"),
+                _tl_entry(ut=20.0, seq=0, funds=800.0, once_key="FirstLaunch", attempt="a")]
+        exp, _ = oracle.compute_expected_rewind_aware(_seed(funds=0.0), rows, 1000.0)
+        self.assertAlmostEqual(exp.funds, 800.0)
+        self.assertEqual(exp.timeline["onceShadowed"], 1)
+        self.assertEqual(exp.ut_windows["funds"], (20.0, 20.0))
+
+    def test_retired_attempt_drops_its_rows_and_frees_its_once_key(self):
+        # A Re-Fly tombstone retires attempt a; attempt b's copy is then the first.
+        rows = [_tl_entry(ut=20.0, seq=0, funds=800.0, once_key="FirstLaunch", attempt="a"),
+                _tl_entry(kind="vessel-recovery", ut=90.0, seq=1, funds=3000.0, attempt="a"),
+                _tl_entry(ut=40.0, seq=2, funds=800.0, once_key="FirstLaunch", attempt="b")]
+        exp, _ = oracle.compute_expected_rewind_aware(_seed(funds=0.0), rows, 1000.0, ["a"])
+        self.assertAlmostEqual(exp.funds, 800.0)
+        self.assertEqual(exp.timeline["retired"], 2)
+        self.assertEqual(exp.timeline["onceShadowed"], 0)
+
+    def test_window_entries_place_by_bounds_and_a_straddle_is_an_error(self):
+        rows = [_tl_entry(ut=None, ut_window=(10.0, 20.0), funds=100.0),
+                _tl_entry(ut=None, ut_window=(40.0, 60.0), seq=1, funds=5.0)]
+        exp, errs = oracle.compute_expected_rewind_aware(_seed(funds=0.0), rows, 30.0)
+        self.assertEqual(errs, ())
+        self.assertAlmostEqual(exp.funds, 100.0)
+        _exp, errs = oracle.compute_expected_rewind_aware(_seed(funds=0.0), rows, 50.0)
+        self.assertEqual(len(errs), 1)
+        self.assertIn("straddles", errs[0])
+
+    def test_an_entry_off_the_clock_is_an_error(self):
+        rows = [_tl_entry(ut=None, funds=100.0)]
+        exp, errs = oracle.compute_expected_rewind_aware(_seed(funds=0.0), rows, 30.0)
+        self.assertEqual(len(errs), 1)
+        self.assertIn("neither ut nor utWindow", errs[0])
+        self.assertAlmostEqual(exp.funds, 0.0)
+
+    def test_report_only_facets_read_past_rows_only(self):
+        rows = [_tl_entry(kind="contract-accept", ut=10.0, contract_guid="g1"),
+                _tl_entry(kind="contract-accept", ut=90.0, seq=1, contract_guid="g2"),
+                _tl_entry(kind="science-transmit", ut=10.0, seq=2, science=2.0,
+                          subject_ids=["crewReport@KerbinSrfLanded"])]
+        exp, _ = oracle.compute_expected_rewind_aware(_seed(funds=0.0), rows, 50.0)
+        self.assertEqual(exp.active_contract_guids, ("g1",))
+        self.assertEqual(exp.subject_science, {"crewReport@KerbinSrfLanded": 2.0})
+
+    def test_sandbox_seed_skips_every_pool(self):
+        exp, _ = oracle.compute_expected_rewind_aware(
+            oracle.SeedBaseline(None, None, None), [_tl_entry(ut=5.0, funds=1.0)], 10.0)
+        self.assertIsNone(exp.funds)
+        self.assertIsNone(exp.science)
+        self.assertIsNone(exp.reputation)
+
+    def test_parse_reads_attempt_and_once_key_and_rejects_empty_labels(self):
+        parse = oracle.parse_manifest_entries([
+            {"kind": "milestone", "ut": 1.0, "funds": 5.0, "attempt": "a", "onceKey": "M"},
+            {"kind": "milestone", "ut": 1.0, "funds": 5.0, "attempt": ""},
+            {"kind": "milestone", "ut": 1.0, "funds": 5.0, "onceKey": 7},
+        ])
+        self.assertEqual(len(parse.entries), 1)
+        self.assertEqual(parse.entries[0].attempt, "a")
+        self.assertEqual(parse.entries[0].once_key, "M")
+        self.assertEqual(len(parse.errors), 2)
+        self.assertTrue(all("must be a non-empty string" in e for e in parse.errors))
+
+
 if __name__ == "__main__":
     unittest.main()
