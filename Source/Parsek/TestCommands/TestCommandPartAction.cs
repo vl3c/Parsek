@@ -87,14 +87,18 @@ namespace Parsek.TestCommands
     ///
     /// <para><b>Grammar.</b> <c>cmd=PartAction button=undock|decouple|controlfrom|deploy|retract|
     /// startconverter|stopconverter|experiment|labprocess|labtransmit|inspect
-    /// [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [pid=&lt;persistentId&gt;]</c>.
+    /// [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [all=true] [pid=&lt;persistentId&gt;]</c>.
     /// <c>button=</c> REQUIRED, closed. <c>part=</c> is the part's runtime name (dot form,
     /// <c>Decoupler.1</c>); REQUIRED for every button but <c>undock</c>, OPTIONAL for
     /// <c>undock</c> (absent: the vessel's one docked port pair). <c>converter=</c> is OPTIONAL
     /// and only for <c>startconverter</c> / <c>stopconverter</c>: it keeps the converter modules
     /// whose <c>BaseConverter.ConverterName</c> equals it (exact, ordinal), so a part carrying
     /// several converters (the Convert-O-Tron's four) names one; without it such a part is
-    /// <c>part-ambiguous</c>, never a silent first pick. <c>pid=</c> names a loaded, non-ghost
+    /// <c>part-ambiguous</c>, never a silent first pick. <c>all=true</c> (closed: <c>true</c>
+    /// only) presses EVERY candidate instead of requiring exactly one (a craft carrying four
+    /// drills deploys all four); allowed on every button but <c>undock</c>, <c>decouple</c> and
+    /// <c>controlfrom</c>, whose one press reshapes the vessel (<c>all-arg-unexpected</c>), and
+    /// on <c>inspect</c> it reads every part carrying the name. <c>pid=</c> names a loaded, non-ghost
     /// vessel by persistentId; absent, the ACTIVE vessel. SINGLE-PHASE, <c>RequiresFlight</c>,
     /// default budget: every event runs synchronously (the undock and the decouple create the
     /// new vessel inside the call; a converter, an experiment's data and a lab's processing
@@ -109,14 +113,20 @@ namespace Parsek.TestCommands
     /// carrying the name.</para>
     ///
     /// <para><b>Answer.</b> OK payload <c>button= pid= part= partId= event= newPid= newName=
-    /// vesselsBefore= vesselsAfter= activePid= activeName= converter= state=</c>: <c>newPid</c> /
+    /// vesselsBefore= vesselsAfter= activePid= activeName= converter= state= count=</c>: <c>newPid</c> /
     /// <c>newName</c> are the one vessel the event created (0 / empty when none, as for
     /// <c>controlfrom</c>), read at once, so a stock rename that lands one Update later is NOT
     /// in it. <c>converter</c> is the given filter (empty when none); <c>state</c> is
-    /// <see cref="FormatState"/> over the target part's modules read after the press. Line:
+    /// <see cref="FormatState"/> over the target part's modules read after the press;
+    /// <c>count</c> is how many candidates were pressed (inspect: read), 1 without
+    /// <c>all=true</c>. With <c>all=true</c>, <c>part</c> / <c>partId</c> / <c>event</c> are
+    /// the first candidate's and <c>state</c> is <see cref="FormatAllState"/>: every acted-on
+    /// part, in vessel part order, as <c>&lt;flightID&gt;:&lt;FormatState&gt;</c> joined by
+    /// <c> | </c>. A press that throws stops the walk and answers ERROR <c>event-threw</c>, the
+    /// log line naming how many presses succeeded first. Line:
     /// <c>partaction applied button= pid= part='..' partId= event= newPid= newName='..' vessels=N->M
-    /// activePid= activeName='..' converter='..' state='..'</c>; the two new fields are appended
-    /// so every earlier anchor still matches.</para>
+    /// activePid= activeName='..' converter='..' state='..' count=</c>; the newer fields are
+    /// appended so every earlier anchor still matches.</para>
     /// </summary>
     internal static class TestCommandPartAction
     {
@@ -125,6 +135,9 @@ namespace Parsek.TestCommands
         internal const string PartKey = "part";
         internal const string PidKey = "pid";
         internal const string ConverterKey = "converter";
+        internal const string AllKey = "all";
+        /// <summary>The one value <c>all=</c> takes.</summary>
+        internal const string AllTrueToken = "true";
 
         internal const string UndockToken = "undock";
         internal const string DecoupleToken = "decouple";
@@ -159,6 +172,8 @@ namespace Parsek.TestCommands
         internal const string ButtonArgInvalidReason = "partaction-button-arg-invalid";
         internal const string PartArgMissingReason = "partaction-part-arg-missing";
         internal const string ConverterArgUnexpectedReason = "partaction-converter-arg-unexpected";
+        internal const string AllArgInvalidReason = "partaction-all-arg-invalid";
+        internal const string AllArgUnexpectedReason = "partaction-all-arg-unexpected";
         internal const string PidArgInvalidReason = "partaction-pid-arg-invalid";
         internal const string NoActiveVesselReason = "partaction-no-active-vessel";
         internal const string VesselNotFoundReason = "partaction-vessel-not-found";
@@ -182,6 +197,8 @@ namespace Parsek.TestCommands
             "partaction-button-arg-invalid",
             "partaction-part-arg-missing",
             "partaction-converter-arg-unexpected",
+            "partaction-all-arg-invalid",
+            "partaction-all-arg-unexpected",
             "partaction-pid-arg-invalid",
             "partaction-no-active-vessel",
             "partaction-vessel-not-found",
@@ -276,6 +293,26 @@ namespace Parsek.TestCommands
             return null;
         }
 
+        /// <summary>True for the buttons <c>all=true</c> applies to: every button but the three
+        /// whose single press reshapes or re-points the vessel (undock, decouple, controlfrom).</summary>
+        internal static bool AcceptsAll(PartActionKind kind)
+            => kind != PartActionKind.Unknown && kind != PartActionKind.Undock
+                && kind != PartActionKind.Decouple && kind != PartActionKind.ControlFrom;
+
+        /// <summary>Parses the OPTIONAL closed <c>all=</c>: absent or empty is false; <c>true</c>
+        /// (case-sensitive) is true on a button that accepts it; any other value is
+        /// <c>all-arg-invalid</c>, and <c>true</c> on undock / decouple / controlfrom is
+        /// <c>all-arg-unexpected</c>.</summary>
+        internal static string ParseAll(string raw, PartActionKind kind, out bool all)
+        {
+            all = false;
+            if (string.IsNullOrEmpty(raw)) return null;
+            if (!string.Equals(raw, AllTrueToken, StringComparison.Ordinal)) return AllArgInvalidReason;
+            if (!AcceptsAll(kind)) return AllArgUnexpectedReason;
+            all = true;
+            return null;
+        }
+
         /// <summary>Parses the OPTIONAL <c>pid=</c> (invariant decimal uint, nonzero; the
         /// Recover / RenameVessel grammar).</summary>
         internal static string ParsePid(string raw, out uint pid, out bool hasPid)
@@ -345,6 +382,14 @@ namespace Parsek.TestCommands
         internal static string DecideCandidates(
             PartActionKind kind, string partName, int namedParts, string converterName,
             int matchingConverters, int experimentModules, int candidates)
+            => DecideCandidates(kind, partName, namedParts, converterName, matchingConverters,
+                experimentModules, candidates, false);
+
+        /// <summary>The candidate gate with <c>all=</c>: with <paramref name="all"/> true, one or
+        /// more candidates proceed (every one is pressed); zero refuses exactly as without it.</summary>
+        internal static string DecideCandidates(
+            PartActionKind kind, string partName, int namedParts, string converterName,
+            int matchingConverters, int experimentModules, int candidates, bool all)
         {
             if (partName != null && namedParts == 0) return PartNotFoundReason;
             if (converterName != null && matchingConverters == 0) return ConverterNotFoundReason;
@@ -352,8 +397,31 @@ namespace Parsek.TestCommands
                 return kind == PartActionKind.LabProcess && experimentModules > 0
                     ? ExperimentNoDataReason
                     : EventUnavailableReason;
-            if (candidates > 1) return PartAmbiguousReason;
+            if (candidates > 1 && !all) return PartAmbiguousReason;
             return null;
+        }
+
+        /// <summary>
+        /// The <c>all=true</c> <c>state=</c> field: one entry per acted-on part, in the given
+        /// (vessel part) order, as <c>&lt;flightID&gt;:&lt;FormatState(readings)&gt;</c>, joined by
+        /// <c> | </c>. Empty for no parts.
+        /// </summary>
+        internal static string FormatAllState(IList<KeyValuePair<uint, IList<PartActionModuleReading>>> parts)
+        {
+            if (parts == null || parts.Count == 0) return string.Empty;
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            var entries = new string[parts.Count];
+            for (int i = 0; i < parts.Count; i++)
+                entries[i] = parts[i].Key.ToString(ic) + ":" + FormatState(parts[i].Value);
+            return string.Join(" | ", entries);
+        }
+
+        /// <summary>The ERROR detail of an <c>all=true</c> walk that stopped on a throwing press:
+        /// <c>presses=&lt;succeeded&gt;/&lt;candidates&gt;</c>.</summary>
+        internal static string FormatPressProgress(int succeeded, int candidates)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            return "presses=" + succeeded.ToString(ic) + "/" + candidates.ToString(ic);
         }
 
         /// <summary>
@@ -432,7 +500,8 @@ namespace Parsek.TestCommands
         internal static List<KeyValuePair<string, string>> BuildOkPayload(
             PartActionKind kind, uint pid, string partName, uint partId, string eventName,
             uint newPid, string newName, int vesselsBefore, int vesselsAfter,
-            uint activePid, string activeName, string converterName = null, string state = null)
+            uint activePid, string activeName, string converterName = null, string state = null,
+            int count = 1)
         {
             CultureInfo ic = CultureInfo.InvariantCulture;
             return new List<KeyValuePair<string, string>>
@@ -450,6 +519,7 @@ namespace Parsek.TestCommands
                 new KeyValuePair<string, string>("activeName", activeName ?? string.Empty),
                 new KeyValuePair<string, string>("converter", converterName ?? string.Empty),
                 new KeyValuePair<string, string>("state", state ?? string.Empty),
+                new KeyValuePair<string, string>("count", count.ToString(ic)),
             };
         }
 
@@ -458,7 +528,8 @@ namespace Parsek.TestCommands
         internal static string FormatAppliedLine(
             PartActionKind kind, uint pid, string partName, uint partId, string eventName,
             uint newPid, string newName, int vesselsBefore, int vesselsAfter,
-            uint activePid, string activeName, string converterName = null, string state = null)
+            uint activePid, string activeName, string converterName = null, string state = null,
+            int count = 1)
         {
             CultureInfo ic = CultureInfo.InvariantCulture;
             return "partaction applied button=" + Token(kind)
@@ -472,7 +543,8 @@ namespace Parsek.TestCommands
                 + " activePid=" + activePid.ToString(ic)
                 + " activeName='" + (activeName ?? string.Empty) + "'"
                 + " converter='" + (converterName ?? string.Empty) + "'"
-                + " state='" + (state ?? string.Empty) + "'";
+                + " state='" + (state ?? string.Empty) + "'"
+                + " count=" + count.ToString(ic);
         }
     }
 }

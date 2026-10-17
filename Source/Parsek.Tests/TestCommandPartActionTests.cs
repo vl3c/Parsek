@@ -8,7 +8,7 @@ namespace Parsek.Tests
     /// <summary>
     /// The pure half and dispatch rows of <c>PartAction button=undock|decouple|controlfrom|deploy|
     /// retract|startconverter|stopconverter|experiment|labprocess|labtransmit|inspect [part=]
-    /// [converter=] [pid=]</c>: one button of one part's stock right-click menu (vessel names,
+    /// [converter=] [all=true] [pid=]</c>: one button of one part's stock right-click menu (vessel names,
     /// design 15.3; the ISRU / lab buttons).
     /// </summary>
     public class TestCommandPartActionTests
@@ -162,6 +162,71 @@ namespace Parsek.Tests
             Assert.Null(TestCommandPartAction.ParseButton(token, out PartActionKind kind));
             Assert.Equal(reason, TestCommandPartAction.ParseConverter(raw, kind, out string name));
             Assert.Equal(expected, name);
+        }
+
+        [Theory]
+        [InlineData("deploy", null, null, false)]
+        [InlineData("deploy", "", null, false)]
+        [InlineData("deploy", "true", null, true)]
+        [InlineData("retract", "true", null, true)]
+        [InlineData("startconverter", "true", null, true)]
+        [InlineData("stopconverter", "true", null, true)]
+        [InlineData("experiment", "true", null, true)]
+        [InlineData("labprocess", "true", null, true)]
+        [InlineData("labtransmit", "true", null, true)]
+        [InlineData("inspect", "true", null, true)]
+        [InlineData("undock", "true", "partaction-all-arg-unexpected", false)]
+        [InlineData("decouple", "true", "partaction-all-arg-unexpected", false)]
+        [InlineData("controlfrom", "true", "partaction-all-arg-unexpected", false)]
+        [InlineData("undock", null, null, false)]
+        [InlineData("deploy", "True", "partaction-all-arg-invalid", false)]
+        [InlineData("deploy", "false", "partaction-all-arg-invalid", false)]
+        [InlineData("deploy", "1", "partaction-all-arg-invalid", false)]
+        [InlineData("decouple", "yes", "partaction-all-arg-invalid", false)]
+        public void ParseAll_IsClosedToTrue_AndRefusedOnTheReshapingButtons(
+            string token, string raw, string reason, bool expected)
+        {
+            Assert.Null(TestCommandPartAction.ParseButton(token, out PartActionKind kind));
+            Assert.Equal(reason, TestCommandPartAction.ParseAll(raw, kind, out bool all));
+            Assert.Equal(expected, all);
+        }
+
+        [Fact]
+        public void AcceptsAll_EveryButtonButUndockDecoupleControlFrom()
+        {
+            foreach (string token in TestCommandPartAction.ButtonValues)
+            {
+                Assert.Null(TestCommandPartAction.ParseButton(token, out PartActionKind kind));
+                Assert.Equal(token != "undock" && token != "decouple" && token != "controlfrom",
+                    TestCommandPartAction.AcceptsAll(kind));
+            }
+            Assert.False(TestCommandPartAction.AcceptsAll(PartActionKind.Unknown));
+            Assert.Equal("all", TestCommandPartAction.AllKey);
+            ParsedCommand cmd = Cmd("button=deploy part=MiniDrill all=true");
+            Assert.True(cmd.ParseOk);
+            Assert.Equal("true", cmd.Args["all"]);
+        }
+
+        [Fact]
+        public void DecideCandidates_AllPressesEveryCandidate_ZeroStillRefuses()
+        {
+            // Four drills: ambiguous without all=, every one pressed with it.
+            Assert.Equal("partaction-part-ambiguous", TestCommandPartAction.DecideCandidates(
+                PartActionKind.Deploy, "MiniDrill", 4, null, 0, 0, 4, false));
+            Assert.Null(TestCommandPartAction.DecideCandidates(
+                PartActionKind.Deploy, "MiniDrill", 4, null, 0, 0, 4, true));
+            Assert.Null(TestCommandPartAction.DecideCandidates(
+                PartActionKind.Deploy, "MiniDrill", 4, null, 0, 0, 1, true));
+            Assert.Equal("partaction-event-unavailable", TestCommandPartAction.DecideCandidates(
+                PartActionKind.Deploy, "MiniDrill", 4, null, 0, 0, 0, true));
+            Assert.Equal("partaction-part-not-found", TestCommandPartAction.DecideCandidates(
+                PartActionKind.Deploy, "MiniDrill", 0, null, 0, 0, 0, true));
+            Assert.Equal("partaction-converter-not-found", TestCommandPartAction.DecideCandidates(
+                PartActionKind.StartConverter, "MiniDrill", 4, "Nope", 0, 0, 0, true));
+            Assert.Equal("partaction-experiment-no-data", TestCommandPartAction.DecideCandidates(
+                PartActionKind.LabProcess, "sensorThermometer", 4, null, 0, 4, 0, true));
+            Assert.Null(TestCommandPartAction.DecideCandidates(
+                PartActionKind.StartConverter, "MiniISRU", 4, null, 0, 0, 16, true));
         }
 
         [Fact]
@@ -350,6 +415,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FormatAllState_FlightIdPrefixed_PipeJoined_InGivenOrder()
+        {
+            var parts = new List<KeyValuePair<uint, IList<PartActionModuleReading>>>
+            {
+                new KeyValuePair<uint, IList<PartActionModuleReading>>(123, new List<PartActionModuleReading>
+                {
+                    PartActionModuleReading.Converter("Surface Harvester", true),
+                    PartActionModuleReading.AnimationGroup(true),
+                }),
+                new KeyValuePair<uint, IList<PartActionModuleReading>>(456, new List<PartActionModuleReading>
+                {
+                    PartActionModuleReading.Converter("Surface Harvester", false),
+                    PartActionModuleReading.AnimationGroup(false),
+                }),
+                new KeyValuePair<uint, IList<PartActionModuleReading>>(7, new List<PartActionModuleReading>()),
+            };
+            Assert.Equal("123:Surface Harvester:active=1;deployed=1 | 456:Surface Harvester:active=0;deployed=0 | 7:",
+                TestCommandPartAction.FormatAllState(parts));
+            Assert.Equal(string.Empty, TestCommandPartAction.FormatAllState(null));
+            Assert.Equal(string.Empty, TestCommandPartAction.FormatAllState(
+                new List<KeyValuePair<uint, IList<PartActionModuleReading>>>()));
+        }
+
+        [Fact]
+        public void FormatPressProgress_NamesTheSucceededPresses()
+        {
+            Assert.Equal("presses=2/4", TestCommandPartAction.FormatPressProgress(2, 4));
+            Assert.Equal("presses=0/1", TestCommandPartAction.FormatPressProgress(0, 1));
+        }
+
+        [Fact]
         public void FormatState_EmptyForNoReadings()
         {
             Assert.Equal(string.Empty, TestCommandPartAction.FormatState(null));
@@ -401,7 +497,7 @@ namespace Parsek.Tests
             var payload = TestCommandPartAction.BuildOkPayload(PartActionKind.Undock, 3620499050, "dockingPort2",
                 4242, "Undock", 31337, "VN4 Tug", 2, 3, 3620499050, "Kerbal X");
             Assert.Equal(new[] { "button", "pid", "part", "partId", "event", "newPid", "newName",
-                "vesselsBefore", "vesselsAfter", "activePid", "activeName", "converter", "state" },
+                "vesselsBefore", "vesselsAfter", "activePid", "activeName", "converter", "state", "count" },
                 payload.Select(kv => kv.Key));
             Assert.Equal("undock", Value(payload, "button"));
             Assert.Equal("31337", Value(payload, "newPid"));
@@ -409,6 +505,17 @@ namespace Parsek.Tests
             Assert.Equal("Kerbal X", Value(payload, "activeName"));
             Assert.Equal(string.Empty, Value(payload, "converter"));
             Assert.Equal(string.Empty, Value(payload, "state"));
+            Assert.Equal("1", Value(payload, "count"));
+        }
+
+        [Fact]
+        public void Payload_CarriesThePressCount()
+        {
+            var payload = TestCommandPartAction.BuildOkPayload(PartActionKind.Deploy, 7, "MiniDrill",
+                123, "DeployModule", 0, null, 1, 1, 7, "Miner", null,
+                "123:deployed=1 | 456:deployed=1 | 789:deployed=1 | 1011:deployed=1", 4);
+            Assert.Equal("4", Value(payload, "count"));
+            Assert.Equal("count", payload.Last().Key);
         }
 
         [Fact]
@@ -430,7 +537,7 @@ namespace Parsek.Tests
                 "probeCoreOcto2.v2", 77, "MakeReference", 0, null, 1, 1, 2200110033, "VN8 Alpha");
             Assert.Equal("partaction applied button=controlfrom pid=2200110033 part='probeCoreOcto2.v2' partId=77 " +
                 "event=MakeReference newPid=0 newName='' vessels=1->1 activePid=2200110033 activeName='VN8 Alpha' " +
-                "converter='' state=''",
+                "converter='' state='' count=1",
                 line);
         }
 
@@ -442,30 +549,36 @@ namespace Parsek.Tests
                 "Research:active=0;lab:storedScience=3.10 dataStored=25.00");
             Assert.Equal("partaction applied button=inspect pid=42 part='Large.Crewed.Lab' partId=9 event= " +
                 "newPid=0 newName='' vessels=1->1 activePid=42 activeName='ISRU Rover' converter='' " +
-                "state='Research:active=0;lab:storedScience=3.10 dataStored=25.00'", line);
+                "state='Research:active=0;lab:storedScience=3.10 dataStored=25.00' count=1", line);
             Assert.StartsWith("partaction applied button=startconverter pid=42 part='MiniISRU' partId=9 " +
                 "event=StartResourceConverter ", TestCommandPartAction.FormatAppliedLine(
                     PartActionKind.StartConverter, 42, "MiniISRU", 9, "StartResourceConverter", 0, null, 1, 1,
                     42, "ISRU Rover", "Lf+Ox", "Lf+Ox:active=1"));
-            Assert.EndsWith(" converter='Lf+Ox' state='Lf+Ox:active=1'", TestCommandPartAction.FormatAppliedLine(
+            Assert.EndsWith(" converter='Lf+Ox' state='Lf+Ox:active=1' count=1", TestCommandPartAction.FormatAppliedLine(
                 PartActionKind.StartConverter, 42, "MiniISRU", 9, "StartResourceConverter", 0, null, 1, 1,
                 42, "ISRU Rover", "Lf+Ox", "Lf+Ox:active=1"));
+            Assert.EndsWith(" state='123:deployed=1 | 456:deployed=1' count=2", TestCommandPartAction.FormatAppliedLine(
+                PartActionKind.Deploy, 42, "MiniDrill", 123, "DeployModule", 0, null, 1, 1,
+                42, "Miner", null, "123:deployed=1 | 456:deployed=1", 2));
         }
 
         [Fact]
         public void Reasons_AreTheGateOrder_AndDisjointFromTheErrors()
         {
-            Assert.Equal(15, TestCommandPartAction.Reasons.Length);
+            Assert.Equal(17, TestCommandPartAction.Reasons.Length);
             Assert.Equal("partaction-button-arg-missing", TestCommandPartAction.Reasons[0]);
             Assert.Equal("partaction-converter-arg-unexpected", TestCommandPartAction.Reasons[3]);
-            Assert.Equal("partaction-converter-not-found", TestCommandPartAction.Reasons[10]);
-            Assert.Equal("partaction-event-unavailable", TestCommandPartAction.Reasons[12]);
-            Assert.Equal("partaction-lab-method-missing", TestCommandPartAction.Reasons[14]);
+            Assert.Equal("partaction-all-arg-invalid", TestCommandPartAction.Reasons[4]);
+            Assert.Equal("partaction-all-arg-unexpected", TestCommandPartAction.Reasons[5]);
+            Assert.Equal("partaction-converter-not-found", TestCommandPartAction.Reasons[12]);
+            Assert.Equal("partaction-event-unavailable", TestCommandPartAction.Reasons[14]);
+            Assert.Equal("partaction-lab-method-missing", TestCommandPartAction.Reasons[16]);
             Assert.Equal(TestCommandPartAction.Reasons.Length, TestCommandPartAction.Reasons.Distinct().Count());
             foreach (string r in new[]
             {
                 TestCommandPartAction.ConverterArgUnexpectedReason, TestCommandPartAction.ConverterNotFoundReason,
                 TestCommandPartAction.ExperimentNoDataReason, TestCommandPartAction.LabMethodMissingReason,
+                TestCommandPartAction.AllArgInvalidReason, TestCommandPartAction.AllArgUnexpectedReason,
             })
                 Assert.Contains(r, TestCommandPartAction.Reasons);
             Assert.Empty(TestCommandPartAction.Reasons.Intersect(TestCommandPartAction.ErrorReasons));

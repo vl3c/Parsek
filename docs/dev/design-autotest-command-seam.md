@@ -562,11 +562,12 @@ the updates below record how each verb arrived.
 > Update (PartAction ISRU / lab buttons, 2026-10-17): no new verb (the table stays **53
 > implemented / 4 reserved**). `PartAction` gains `button=deploy|retract|startconverter|
 > stopconverter|experiment|labprocess|labtransmit|inspect` (all REQUIRE `part=`), an OPTIONAL
-> `converter=<ConverterName>` for the converter pair, the answer fields `converter=` and
-> `state=` (appended last), and four refusals (`partaction-converter-arg-unexpected`,
-> `-converter-not-found`, `-experiment-no-data`, `-lab-method-missing`), so a lane can drive a
-> drill, a converter, a science lab and an experiment like a player. Contract below
-> (`#### PartAction`).
+> `converter=<ConverterName>` for the converter pair, an OPTIONAL `all=true` that presses every
+> candidate (a craft carries four drills), the answer fields `converter=`, `state=` and `count=`
+> (appended last), and six refusals (`partaction-converter-arg-unexpected`,
+> `-all-arg-invalid`, `-all-arg-unexpected`, `-converter-not-found`, `-experiment-no-data`,
+> `-lab-method-missing`), so a lane can drive a drill, a converter, a science lab and an
+> experiment like a player. Contract below (`#### PartAction`).
 
 > Update (CrewTransfer, 2026-10-17): one ADDITIVE verb, taking the table to **53 implemented / 4 reserved**,
 > for the crew-across-vessels coverage (crew moved between two pods of a docked pair):
@@ -4385,14 +4386,18 @@ way a player clicks them, and read the part's module state back.
 
 **Grammar.** `cmd=PartAction button=<undock|decouple|controlfrom|deploy|retract|startconverter|
 stopconverter|experiment|labprocess|labtransmit|inspect> [part=<part name>]
-[converter=<ConverterName>] [pid=<persistentId>]`, issued in FLIGHT. `button=` REQUIRED, closed,
+[converter=<ConverterName>] [all=true] [pid=<persistentId>]`, issued in FLIGHT. `button=` REQUIRED, closed,
 case-sensitive (`partaction-button-arg-missing` / `-arg-invalid`); `part=` is the part's runtime
 name (dot form, `Decoupler.1`), REQUIRED for every button but `undock`
 (`partaction-part-arg-missing`), OPTIONAL for `undock`; `converter=` OPTIONAL and only for
 `startconverter` / `stopconverter` (on any other button `partaction-converter-arg-unexpected`):
 it keeps the converter modules whose `BaseConverter.ConverterName` equals it (exact, ordinal), so
-a part with several converters (the Convert-O-Tron's four) names one; `pid=` OPTIONAL (absent:
-the active vessel), Recover's grammar (`partaction-pid-arg-invalid`).
+a part with several converters (the Convert-O-Tron's four) names one; `all=` OPTIONAL, closed to
+the string `true` (any other value, a TOML bool included since step args are sent with
+`str(value)`, is `partaction-all-arg-invalid`), allowed on every button but `undock`,
+`decouple` and `controlfrom`, whose one press reshapes or re-points the vessel
+(`partaction-all-arg-unexpected`); on `inspect` it reads every part carrying the name; `pid=`
+OPTIONAL (absent: the active vessel), Recover's grammar (`partaction-pid-arg-invalid`).
 
 **Behavior.** Resolves a LOADED, non-ghost vessel (`-no-active-vessel`, `-vessel-not-found`,
 `-target-is-ghost`, `-vessel-unloaded`), then collects the candidate buttons: every module on the
@@ -4406,7 +4411,10 @@ Exactly one candidate is pressed; none is `partaction-part-not-found` (a named p
 lacks), `partaction-converter-not-found` (a `converter=` no converter module on the named part
 carries, whatever its event state) or `partaction-event-unavailable` (no live button), more than
 one `partaction-part-ambiguous` (a multi-converter part without `converter=` included, never a
-silent first pick). `labprocess` is the experiment results dialog's "process in lab": its
+silent first pick). With `all=true` one or more candidates proceed and every one is pressed in
+vessel part order, each with the same press as alone; zero refuses exactly as without it. A
+press that throws stops the walk: ERROR `partaction-event-threw`, the Error line naming
+`presses=<succeeded>/<candidates>`. `labprocess` is the experiment results dialog's "process in lab": its
 candidates are the named part's `ModuleScienceExperiment`s holding data (`GetScienceCount() > 0`;
 an experiment module with none is `partaction-experiment-no-data`). When the open
 `ExperimentsResultDialog`'s current page is that part's, the page's own `OnSendToLab` callback
@@ -4419,18 +4427,22 @@ vessel an undock or a decouple creates exists on return: it is the pid present a
 and absent before. A converter's output, an experiment's data and a lab's processing move on
 later frames, so `state=` is the state right after the click (read it again with `inspect`).
 Line `partaction applied button= pid= part='..' partId= event= newPid= newName='..'
-vessels=N->M activePid= activeName='..' converter='..' state='..'`; payload `button pid part
-partId event newPid newName vesselsBefore vesselsAfter activePid activeName converter state`
-(the two newer fields last, so every earlier anchor still matches). `converter` is the given
+vessels=N->M activePid= activeName='..' converter='..' state='..' count=`; payload `button pid
+part partId event newPid newName vesselsBefore vesselsAfter activePid activeName converter state
+count` (the newer fields last, so every earlier anchor still matches). `count` is how many
+candidates were pressed (inspect: read), 1 without `all=true`; with it `part` / `partId` /
+`event` are the first candidate's. `converter` is the given
 filter (empty when none); `state` is the target part's relevant modules, in module order, read
 after the press and joined by `;` (invariant culture): a converter `<ConverterName>:active=0|1`,
 a science lab `lab:storedScience=<F2> dataStored=<F2>`, an experiment `exp:data=<count>`, an
-animation group `deployed=0|1`. Names are read at once, so stock's one-Update rename after a
+animation group `deployed=0|1`. With `all=true`, `state` is every acted-on part in vessel part
+order as `<flightID>:<that part's segments>`, joined by ` | `
+(`123:Surface Harvester:active=1;deployed=1 | 456:...`). Names are read at once, so stock's one-Update rename after a
 staging split is NOT in them (VN-8 reads it from the save).
 
 **Phases.** SINGLE-PHASE, `RequiresFlight`, default budget (60 s); an exception from the event is
 the ERROR `partaction-event-threw` (a reflected `sendDataToLab` reports its inner exception).
-The five arg reasons are deterministic (`DETERMINISTIC_SEAM_ERROR_REASONS`);
+The seven arg reasons are deterministic (`DETERMINISTIC_SEAM_ERROR_REASONS`);
 `-converter-not-found` is arg-class but retried like `-part-not-found`, and
 `-experiment-no-data` / `-lab-method-missing` are gate-class. World-mutating tail role, `recording` post-mission role;
 state-mutating for the FlushAndQuit save. Pure half `TestCommandPartAction`, applier

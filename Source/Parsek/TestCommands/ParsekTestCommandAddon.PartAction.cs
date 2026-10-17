@@ -44,6 +44,13 @@ namespace Parsek.TestCommands
                 RejectPartAction(reason, $"button={actArg} converter={converterArg ?? string.Empty}");
                 return;
             }
+            string allArg = ArgOrNull(cmd, TestCommandPartAction.AllKey);
+            reason = TestCommandPartAction.ParseAll(allArg, kind, out bool all);
+            if (reason != null)
+            {
+                RejectPartAction(reason, $"button={actArg} all={allArg ?? string.Empty}");
+                return;
+            }
             string pidArg = ArgOrNull(cmd, TestCommandPartAction.PidKey);
             reason = TestCommandPartAction.ParsePid(pidArg, out uint pid, out bool hasPid);
             if (reason != null)
@@ -131,19 +138,19 @@ namespace Parsek.TestCommands
             }
 
             reason = TestCommandPartAction.DecideCandidates(kind, partName, namedParts, converterName,
-                matchingConverters, experimentModules, candidates.Count);
+                matchingConverters, experimentModules, candidates.Count, all);
             if (reason != null)
             {
                 RejectPartAction(reason, $"button={actArg} pid={v.persistentId} part={partName ?? "<any>"} " +
-                    $"converter={converterName ?? string.Empty} namedParts={namedParts} " +
+                    $"converter={converterName ?? string.Empty} all={all} namedParts={namedParts} " +
                     $"matchingConverters={matchingConverters} experimentModules={experimentModules} " +
                     $"candidates={candidates.Count}");
                 return;
             }
 
-            PartActionCandidate c = candidates[0];
-            string cPartName = c.Part.partInfo != null ? c.Part.partInfo.name : c.Part.name;
-            uint cPartId = c.Part.flightID;
+            PartActionCandidate first = candidates[0];
+            string cPartName = first.Part.partInfo != null ? first.Part.partInfo.name : first.Part.name;
+            uint cPartId = first.Part.flightID;
             uint vesselPid = v.persistentId;
 
             MethodInfo labMethod = null;
@@ -163,24 +170,35 @@ namespace Parsek.TestCommands
             }
 
             List<uint> before = ReadLivePids();
-            string eventName = c.EventName;
-            try
+            string eventName = first.EventName;
+            int pressed = 0;
+            for (int k = 0; k < candidates.Count; k++)
             {
-                if (kind == PartActionKind.LabProcess)
-                    eventName = PressLabProcess(c, labMethod);
-                else if (c.Event != null)
-                    // The part-menu button's own handler, as the PAW invokes it.
-                    c.Event.Invoke();
-            }
-            catch (Exception ex)
-            {
-                Exception inner = ex is TargetInvocationException && ex.InnerException != null
-                    ? ex.InnerException : ex;
-                ParsekLog.Error(Tag, "partaction error reason=" + TestCommandPartAction.EventThrewReason
-                    + $" button={actArg} pid={vesselPid} part='{cPartName}' event={eventName} " +
-                    $"{inner.GetType().Name}: {inner.Message}");
-                SetExecResult("ERROR", null, TestCommandPartAction.EventThrewReason);
-                return;
+                PartActionCandidate c = candidates[k];
+                string pressEvent = c.EventName;
+                try
+                {
+                    if (kind == PartActionKind.LabProcess)
+                        pressEvent = PressLabProcess(c, labMethod);
+                    else if (c.Event != null)
+                        // The part-menu button's own handler, as the PAW invokes it.
+                        c.Event.Invoke();
+                }
+                catch (Exception ex)
+                {
+                    Exception inner = ex is TargetInvocationException && ex.InnerException != null
+                        ? ex.InnerException : ex;
+                    string pName = c.Part != null && c.Part.partInfo != null ? c.Part.partInfo.name : cPartName;
+                    uint pId = c.Part != null ? c.Part.flightID : 0u;
+                    ParsekLog.Error(Tag, "partaction error reason=" + TestCommandPartAction.EventThrewReason
+                        + $" button={actArg} pid={vesselPid} part='{pName}' partId={pId} event={pressEvent} " +
+                        TestCommandPartAction.FormatPressProgress(pressed, candidates.Count) +
+                        $" {inner.GetType().Name}: {inner.Message}");
+                    SetExecResult("ERROR", null, TestCommandPartAction.EventThrewReason);
+                    return;
+                }
+                if (k == 0) eventName = pressEvent;
+                pressed++;
             }
             List<uint> after = ReadLivePids();
             List<uint> created = TestCommandPartAction.NewVesselPids(before, after);
@@ -190,14 +208,32 @@ namespace Parsek.TestCommands
             uint activePid = active != null ? active.persistentId : 0u;
             string activeName = active != null ? active.vesselName : null;
 
-            string state = TestCommandPartAction.FormatState(ReadPartActionState(c.Part));
+            string state;
+            if (all)
+            {
+                // One entry per acted-on part; candidates are collected in vessel part order.
+                var perPart = new List<KeyValuePair<uint, IList<PartActionModuleReading>>>();
+                var seenParts = new HashSet<uint>();
+                for (int k = 0; k < candidates.Count; k++)
+                {
+                    Part part = candidates[k].Part;
+                    if (part == null || !seenParts.Add(part.flightID)) continue;
+                    perPart.Add(new KeyValuePair<uint, IList<PartActionModuleReading>>(
+                        part.flightID, ReadPartActionState(part)));
+                }
+                state = TestCommandPartAction.FormatAllState(perPart);
+            }
+            else
+            {
+                state = TestCommandPartAction.FormatState(ReadPartActionState(first.Part));
+            }
 
             ParsekLog.Info(Tag, TestCommandPartAction.FormatAppliedLine(kind, vesselPid, cPartName, cPartId,
                 eventName, newPid, nv != null ? nv.vesselName : null, before.Count, after.Count,
-                activePid, activeName, converterName, state));
+                activePid, activeName, converterName, state, pressed));
             SetExecResult("OK", TestCommandPartAction.BuildOkPayload(kind, vesselPid, cPartName, cPartId,
                 eventName, newPid, nv != null ? nv.vesselName : null, before.Count, after.Count,
-                activePid, activeName, converterName, state), null);
+                activePid, activeName, converterName, state, pressed), null);
         }
 
         /// <summary>

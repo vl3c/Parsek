@@ -16892,6 +16892,16 @@ class PartActionSourceSyncTests(unittest.TestCase):
                       text)
         self.assertEqual(("startconverter", "stopconverter"),
                          hlib.PARTACTION_BUTTONS_ACCEPTING_CONVERTER)
+        # all= is closed to "true" and refused on the three one-part buttons.
+        self.assertIn('internal const string AllKey = "%s";' % hlib.PARTACTION_ALL_KEY, text)
+        self.assertEqual(("true",), hlib.PARTACTION_ALL_VALUES)
+        self.assertIn('internal const string AllTrueToken = "true";', text)
+        self.assertIn("=> kind != PartActionKind.Unknown && kind != PartActionKind.Undock\n"
+                      "                && kind != PartActionKind.Decouple && kind != PartActionKind.ControlFrom;",
+                      text)
+        self.assertEqual(tuple(b for b in hlib.PARTACTION_BUTTON_VALUES
+                               if b not in ("undock", "decouple", "controlfrom")),
+                         hlib.PARTACTION_BUTTONS_ACCEPTING_ALL)
         self.assertEqual(list(hlib.PARTACTION_REASONS),
                          StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
         for reason in hlib.PARTACTION_REASONS:
@@ -16906,6 +16916,8 @@ class PartActionSourceSyncTests(unittest.TestCase):
         self.assertIn("string.Equals(bc.ConverterName, converterName, StringComparison.Ordinal)",
                       applier)
         self.assertIn("TestCommandPartAction.ConverterKey", applier)
+        self.assertIn("TestCommandPartAction.AllKey", applier)
+        self.assertIn("candidates.Count, all);", applier)
 
     def test_the_verb_is_registered_on_every_axis(self):
         verb = hlib.PARTACTION_VERB
@@ -16920,7 +16932,8 @@ class PartActionSourceSyncTests(unittest.TestCase):
         self.assertNotIn(hlib.PARTACTION_BUTTON_KEY, hlib.VERB_SCOPED_CLOSED_ARGS)
         for reason in ("partaction-button-arg-missing", "partaction-button-arg-invalid",
                        "partaction-part-arg-missing", "partaction-pid-arg-invalid",
-                       "partaction-converter-arg-unexpected"):
+                       "partaction-converter-arg-unexpected", "partaction-all-arg-invalid",
+                       "partaction-all-arg-unexpected"):
             self.assertIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
         for reason in ("partaction-vessel-not-found", "partaction-event-unavailable",
                        "partaction-no-active-vessel", "partaction-converter-not-found",
@@ -16960,6 +16973,24 @@ class PartActionSourceSyncTests(unittest.TestCase):
                 errs = v(0, {"button": button, "part": "MiniISRU", "converter": "Lf+Ox"})
                 self.assertEqual(1, len(errs), errs)
                 self.assertIn("partaction-converter-arg-unexpected", errs[0])
+        # all= is the string "true", on every button but undock / decouple / controlfrom.
+        for button in hlib.PARTACTION_BUTTONS_ACCEPTING_ALL:
+            with self.subTest(all_on=button):
+                self.assertEqual([], v(0, {"button": button, "part": "MiniDrill", "all": "true"}))
+        self.assertEqual([], v(0, {"button": "deploy", "part": "MiniDrill", "all": ""}))
+        self.assertEqual([], v(0, {"button": "startconverter", "part": "MiniISRU",
+                                   "converter": "Lf+Ox", "all": "true"}))
+        for button in ("undock", "decouple", "controlfrom"):
+            with self.subTest(all_unexpected=button):
+                errs = v(0, {"button": button, "part": "Decoupler.1", "all": "true"})
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("partaction-all-arg-unexpected", errs[0])
+        for bad in ("True", "false", "1", "yes", True, False):
+            with self.subTest(all_value=bad):
+                errs = v(0, {"button": "deploy", "part": "MiniDrill", "all": bad})
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("partaction-all-arg-invalid", errs[0])
+        self.assertEqual([], v(0, {"button": "deploy", "part": "MiniDrill", "all": "${s.all}"}))
         # A templated button is left to the static tier, converter= included.
         self.assertEqual([], v(0, {"button": "${b.button}", "part": "MiniISRU",
                                    "converter": "Lf+Ox"}))
