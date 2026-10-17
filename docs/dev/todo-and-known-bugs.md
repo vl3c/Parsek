@@ -16,6 +16,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~IDLE-ON-PAD-DISCARDS-A-STATIONARY-MINER: a vessel that mined or ran a converter without moving 30 m is auto-discarded as idle on pad at scene exit~~ [FILED 2026-10-17 from MINE-6's first flight (`2026-10-17_1348`, INVALID driver-unresolved-handle), branch `claude/lab-isru-drill-coverage-5oq37h`. FIXED on the same branch; xUnit; MINE-6 gates it. product]
+
+**Symptom.** V's rover deployed four drills, ran them and the ISRU (two recipes) for 1500 s, then `ExitToSpaceCenter` under autoMerge: `IsTreeIdleOnPad: all 1 recordings within 30m - idle on pad`, `Idle on pad at scene exit - auto-discarding tree`, and the recording, its sidecars and its rewind point were deleted. `ListHandles committed` read count=0.
+
+**Cause.** `ParsekFlight.IsTreeIdleOnPad` / `IsActiveTreeIdleOnPad` judge idleness by distance only (`MaxDistanceFromLaunch` under 30 m), with vetoes for placed ground parts and planted flags but none for resource work.
+
+**Fix.** A third veto, `TreeHasConverterWorkForIdle`: any `ConverterActivated` / `ConverterDeactivated` part event after the recording's start seed (`CountPlayerConverterToggles`, seed window `ConverterSeedEpsilonSeconds = 1`) makes the tree not idle; a converter already running when recording started (a fuel cell on the pad) stays a seed and does not veto. Pad-failure classification is unchanged (a vessel destroyed on the pad is not kept for a converter). Log: `<caller>: not idle - tree has N converter toggle(s) tree='...'`. Cells: `ConverterWorkNotIdleTests` (3; the mining cell reds with the veto removed).
+
 ## ~~SPAWN-AFTER-JUMP-CATCHES-UP-THE-JUMP: a vessel that spawns after a time jump crossed its recording end produces through the jumped span~~ [FILED 2026-10-17 from MINE-9's first flight (`2026-10-17_1308`), owner ruling 2026-10-17 ("End snapshot"), branch `claude/lab-isru-drill-coverage-5oq37h`. FIXED on the same branch; LIVE-PROVEN by MINE-9 `2026-10-17_1343` (PASS attempt 1: `Converter jump policy (spawn): RespawnVessel ... modules=16 removed=3669.9`, the spawned rover's tanks `snapshotMatch=true`). product]
 
 **Symptom.** TimeJump 60 -> 5500 with the rewound rover's ghost beside the watcher: the rover's recording ended at 1829.9, it spawned after the jump with its drills and ISRU on, and it came up with Ore 4.27 / LF 0.297 / Ox 0.363 against its end snapshot's 0 / 0.218 / 0.267. `ConverterJumpPolicy` shifts only vessels that exist during the jump, and the spawn kept the snapshot's `lastUpdateTime` (1829.9), so stock caught up 3670 s.
@@ -3395,7 +3403,10 @@ built from V's own manual flight). First of them: `MINE-9-rover-real-spawn-and-l
 the end) on the new fixture `miner-rover-watched`: LIVE-PROVEN `2026-10-17_1343` on its third
 flight; its first found RSC-REWIND-TARGET-NEVER-LISTED and SPAWN-AFTER-JUMP-CATCHES-UP-THE-JUMP.
 `MINE-6-rover-manual-flight-replay` (V's flight step for step: mid-warp ISRU and radiator
-toggles, Space Center exit, the watched replay to the spawn) authored; first flight pending.
+toggles, Space Center exit, the watched replay to the spawn): first flight `2026-10-17_1348`
+INVALID, found IDLE-ON-PAD-DISCARDS-A-STATIONARY-MINER, and answered the open question: an ISRU
+toggled during rails warp on the landed rover is recorded at the toggle UT (every edge about
+10 ms after its packed press), so an on-and-off inside one warp is not lost.
 
 ---
 

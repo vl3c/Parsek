@@ -37,7 +37,11 @@ toggled the radiators (Parsek records nothing for radiators, so the log cannot s
 - Radiator toggles are not recorded: a static radiator panel has no visible state change on a
   ghost, and the spawn snapshot carries `IsCooling`.
 
-## Open question the lanes answer
+## Open question the lanes answer (ANSWERED 2026-10-17 by MINE-6's first flight)
+
+The edge is written at the toggle UT: every ISRU press made packed in rails warp logged its
+`Part event` about 10 ms later, still packed, long before the rails exit.
+
 
 - A converter switched on or off during rails warp on a LANDED vessel: the recorder's part poll
   runs from `OnPhysicsFrame`, which returns early only when Parsek's own `isOnRails` is set,

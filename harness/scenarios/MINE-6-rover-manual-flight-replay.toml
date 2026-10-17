@@ -53,7 +53,9 @@ tier = "nightly"
 # its `-after` mark plus that warptout start); if it sits after that warp's
 # `warptout rate requested=0 applied=0` line (the 1x tail), it is the rails exit, and an
 # on-and-off inside ONE warp would be lost (file it). The Part event line carries no UT;
-# the MISSIONMARK lines (`ut=`) bracket it.
+# the MISSIONMARK lines (`ut=`) bracket it. ANSWERED by the first flight (`2026-10-17_1348`):
+# the edge is written at the toggle UT, so the four contracts are tightened to the press's
+# own `-before` / `-after` marks.
 #
 # FAST-LANE CHECKLIST (harness/README.md): (1) not a prefix of MINE-2 / MINE-9 (mid-warp
 # toggles and a scene-exit commit neither flies), so its own spec; (2) every game-time wait is
@@ -216,13 +218,13 @@ required = [
   # Converter edges per part (FlightRecorder.cs:2303-2304; types :2261 / :2273).
   "Part event: ConverterActivated 'MiniDrill' pid=[0-9]+ \\(converter\\)",
   "Part event: ConverterDeactivated 'MiniDrill' pid=[0-9]+ \\(converter\\)",
-  # THE EVENT UTs, READING FORM (see THE OPEN QUESTION in the header): each ISRU edge lands
-  # between its press's mark and the next window's mark, at the toggle UT or at the rails
-  # exit after it. Tightened after the first flight.
-  "(?s)MISSIONMARK label=mine6-lfox-on-before (?:(?!MISSIONMARK label=mine6-lfox-off-before ).)*?Part event: ConverterActivated 'MiniISRU' pid=[0-9]+ \\(converter\\)",
-  "(?s)MISSIONMARK label=mine6-lfox-off-before (?:(?!MISSIONMARK label=mine6-mono-on-before ).)*?Part event: ConverterDeactivated 'MiniISRU' pid=[0-9]+ \\(converter\\)",
-  "(?s)MISSIONMARK label=mine6-mono-on-before (?:(?!MISSIONMARK label=mine6-mono-off-before ).)*?Part event: ConverterActivated 'MiniISRU' pid=[0-9]+ \\(converter\\)",
-  "(?s)MISSIONMARK label=mine6-mono-off-before (?:(?!MISSIONMARK label=mine6-stop-before ).)*?Part event: ConverterDeactivated 'MiniISRU' pid=[0-9]+ \\(converter\\)",
+  # THE EVENT UTs (see THE OPEN QUESTION in the header): the first flight (`2026-10-17_1348`)
+  # wrote every packed ISRU edge about 10 ms after its press, still packed and long before
+  # the rails exit, so each edge must sit between its press's `-before` and `-after` marks.
+  "(?s)MISSIONMARK label=mine6-lfox-on-before (?:(?!MISSIONMARK label=mine6-lfox-on-after ).)*?Part event: ConverterActivated 'MiniISRU' pid=[0-9]+ \\(converter\\)(?:(?!MISSIONMARK).)*?MISSIONMARK label=mine6-lfox-on-after ",
+  "(?s)MISSIONMARK label=mine6-lfox-off-before (?:(?!MISSIONMARK label=mine6-lfox-off-after ).)*?Part event: ConverterDeactivated 'MiniISRU' pid=[0-9]+ \\(converter\\)(?:(?!MISSIONMARK).)*?MISSIONMARK label=mine6-lfox-off-after ",
+  "(?s)MISSIONMARK label=mine6-mono-on-before (?:(?!MISSIONMARK label=mine6-mono-on-after ).)*?Part event: ConverterActivated 'MiniISRU' pid=[0-9]+ \\(converter\\)(?:(?!MISSIONMARK).)*?MISSIONMARK label=mine6-mono-on-after ",
+  "(?s)MISSIONMARK label=mine6-mono-off-before (?:(?!MISSIONMARK label=mine6-mono-off-after ).)*?Part event: ConverterDeactivated 'MiniISRU' pid=[0-9]+ \\(converter\\)(?:(?!MISSIONMARK).)*?MISSIONMARK label=mine6-mono-off-after ",
   # The harvest window opens when the drills start and closes when they stop (both at 1x;
   # FlightRecorder.cs:7894 / :7918; the stop-time close at :8095 says atStop=1).
   "Harvest window opened: window=[^ \\r\\n]+ ut=[0-9.]+ converters=\\[[^\\]\\r\\n]*\\] res=[0-9]+ atStart=0 trigger=[a-z-]+",
@@ -231,6 +233,9 @@ required = [
   # ParsekTestCommandAddon.ExitToSpaceCenter.cs:67 / :128; ParsekScenario.cs:8080 (Silent) or
   # :8099 (Limbo-preserving), both "full-fidelity auto-commit (scene-exit...): tree='...'".
   "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+  # The rover never moves 30 m; its drill and ISRU toggles keep the exit from discarding it
+  # as idle on pad (ParsekFlight.TreeHasConverterWorkForIdle; the first flight lost it).
+  "IsTreeIdleOnPad: not idle - tree has (?:[7-9]|[1-9][0-9]+) converter toggle\\(s\\) tree='Mining Rover RC'",
   "exittospacecenter complete scene=SPACECENTER",
   "full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='Mining Rover RC' recordings=1 ",
   "MISSIONMARK label=mine6-committed-1-[0-9a-f]{32} ",
@@ -258,6 +263,7 @@ required = [
   "(?s)MISSIONMARK label=mine6-spawned-true-.*?partaction applied button=inspect pid=[0-9]+ part='MiniISRU' [^\\r\\n]*state='(?:(?!:active=1)[^'\\r\\n])*' count=1 ",
 ]
 forbidden = [
+  "Idle on pad at scene exit",
   "\\[Parsek\\]\\[ERROR\\]",
   "partaction rejected",
   "warptout refused",

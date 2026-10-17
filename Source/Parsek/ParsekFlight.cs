@@ -2605,7 +2605,8 @@ namespace Parsek
             FlushRecorderIntoActiveTreeForSerialization();
 
             // After the flush: a flag planted this flight is still in the recorder buffer before it.
-            if (TreeHasPlantedFlagsForIdle(activeTree, "IsActiveTreeIdleOnPad"))
+            if (TreeHasPlantedFlagsForIdle(activeTree, "IsActiveTreeIdleOnPad")
+                || TreeHasConverterWorkForIdle(activeTree, "IsActiveTreeIdleOnPad"))
                 return false;
 
             bool anyHasPoints = false;
@@ -21069,6 +21070,51 @@ namespace Parsek
             return count;
         }
 
+        /// <summary>A converter event within this many seconds of its recording's start is a
+        /// start seed (<see cref="PartStateSeeder"/>), not something the player did.</summary>
+        internal const double ConverterSeedEpsilonSeconds = 1.0;
+
+        /// <summary>
+        /// Counts the converter part events (drills, ISRU, any BaseConverter) the player caused
+        /// across every recording of <paramref name="tree"/>: ConverterActivated /
+        /// ConverterDeactivated after the recording's start seed. Pure, null-safe.
+        /// </summary>
+        internal static int CountPlayerConverterToggles(RecordingTree tree)
+        {
+            if (tree?.Recordings == null) return 0;
+            int count = 0;
+            foreach (Recording rec in tree.Recordings.Values)
+            {
+                if (rec?.PartEvents == null || rec.PartEvents.Count == 0) continue;
+                double seedUT = rec.StartUT + ConverterSeedEpsilonSeconds;
+                for (int i = 0; i < rec.PartEvents.Count; i++)
+                {
+                    PartEvent ev = rec.PartEvents[i];
+                    if ((ev.eventType == PartEventType.ConverterActivated
+                            || ev.eventType == PartEventType.ConverterDeactivated)
+                        && ev.ut > seedUT)
+                        count++;
+                }
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Idle-on-pad veto for converter work: a stationary miner or ISRU run is player work
+        /// even when nothing moved 30 m. Logs the veto; returns true when the tree must not be
+        /// classified idle. The live predicate calls this after flushing the recorder.
+        /// </summary>
+        internal static bool TreeHasConverterWorkForIdle(RecordingTree tree, string caller)
+        {
+            int toggles = CountPlayerConverterToggles(tree);
+            if (toggles <= 0) return false;
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "{0}: not idle - tree has {1} converter toggle(s) tree='{2}'",
+                    caller, toggles, tree?.TreeName ?? "<unnamed>"));
+            return true;
+        }
+
         /// <summary>
         /// Idle-on-pad veto for a planted flag: the flag is a vessel the player made,
         /// so the flight is player work even when nothing moved 30 m. Logs the veto;
@@ -21114,7 +21160,8 @@ namespace Parsek
                 return false;
 
             if (TreeHasPlacedGroundPartsForIdle(tree, "IsTreeIdleOnPad")
-                || TreeHasPlantedFlagsForIdle(tree, "IsTreeIdleOnPad"))
+                || TreeHasPlantedFlagsForIdle(tree, "IsTreeIdleOnPad")
+                || TreeHasConverterWorkForIdle(tree, "IsTreeIdleOnPad"))
                 return false;
 
             bool anyHasPoints = false;
