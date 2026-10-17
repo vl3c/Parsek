@@ -10608,6 +10608,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # reading-run discipline, never flown. Its debt is the READING RUN, carried by
         # the `pending-flight` tag and its status row, not an operator-REVIEW debt.
         "LAB-2-lab-experiments-processed.toml": "operator by the reading-run discipline; AUTHORED 2026-10-17, NEVER FLOWN (the four experiments processed into the lab, the duplicate refusal, the end-snapshot match and the post-load process on lab-lko-science); the lab values and dataStored windows are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        # Science-lab research over one Kerbin day of rails warp on the same host:
+        # operator by the same reading-run discipline, never flown.
+        "LAB-3-lab-research-over-time.toml": "operator by the reading-run discipline; AUTHORED 2026-10-17, NEVER FLOWN (research started and stopped at 1x around one Kerbin day of rails warp on lab-lko-science, the recorded research edges, the end-snapshot science); the storedScience / dataStored windows are re-pinned off the first flight, then the tier is promoted by its measured p50",
         # The SIXTH forge, same mechanism again: it stamps b17-duna-pad by
         # launching the committed DD1 Duna Direct Probe (built by construction,
         # build_dd1_craft.py) onto the pad UNCREWED. Flown + harvested

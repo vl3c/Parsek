@@ -1,0 +1,216 @@
+schema = 1
+id = "LAB-3-lab-research-over-time"
+tier = "operator"
+# THE SCIENCE-LAB PROGRAM, lane LAB-3 (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
+# "LAB-3 research over time"). NEVER FLOWN: its first flight is a READING run, so it is
+# `operator` and tagged `pending-flight` until that run pins the measured values.
+#
+# HOST: `lab-lko-science` (the LAB-2 host): SCIENCE_SANDBOX, the LABX Orbital Lab (vessel
+# persistentId 2200110055) ORBITING Kerbin at about 107 x 92 km, Valentina in the Mk1 pod, Bob
+# (Scientist, level 0) in the Large.Crewed.Lab (part persistentId 1700054019, flightID
+# 1270217782). The lab loads empty with Research off. Fixture UT 355.8; LAB-2's flights
+# measured the post-load settle ending near UT 357, so the first wait targets UT 385.
+#
+# THE STORY. Process the craft's four experiments into the lab while recording (LAB-2's
+# sequence; LIVE stock lab values in this orbit from LAB-2's first flight `2026-10-17_2045`:
+# thermometer 5, Goo 15, Science Jr 22, barometer 8, so the lab holds 50.00 data). Then press
+# Start Research (`startconverter part=Large.Crewed.Lab`, the part's one BaseConverter, stock
+# ConverterName `Research`) at 1x, rails-warp ONE Kerbin day (21,600 s), read the lab, press
+# Stop Research at 1x, and commit. Parsek must record both research edges, must not lose the
+# running converter across the rails warp, must commit the recording (an orbiting lab is not
+# idle-on-pad and its tail is not trimmed), and the committed recording's END snapshot must
+# carry the post-warp science (`inspect expectSnapshot=true`): that is the proof the
+# recording's end sits after the warp, since a snapshot taken before the warp holds 0.
+# Research is stored in the lab, never booked: nothing may move the R&D pool.
+#
+# THE RATE (decompiled ModuleScienceConverter.PostProcess, lab cfg researchTime 7,
+# dataProcessingMultiplier 0.5, scienceMultiplier 5, Bob level 0 = 1 scientist):
+# science/s = 5 * 0.5 * 1 * dataStored / 1e7 = 1.25e-5 at 50 data, so one Kerbin day makes
+# about 0.27 science. Rails warp keeps Unity's fixedDeltaTime at 0.02 and advances UT by
+# rate * 0.02 per physics step (decompiled TimeWarp.updateRate), so at 50x each converter
+# step covers about 1 s. Float effects, BELIEF until read: the per-step data use (2.5e-6) is
+# above half a float ulp at 50 (1.9e-6), so each 1 s step takes one whole ulp (3.8e-6) and
+# dataStored ends near 49.92 rather than the nominal 49.95; at 1x (0.02 s steps) nothing
+# rounds into either field. EC: 8 RTGs give 6 EC/s against Research's 5 EC/s and 1,900 EC
+# stored, so research never starves. The windows: storedScience 0.15 .. 0.39 after the warp,
+# dataStored 49.80 .. 50.00. Re-pin both to the measured values after the first flight.
+#
+# THE TOGGLES (FlightRecorder.CheckConverterState, `Part event: ConverterActivated|
+# ConverterDeactivated '<part>' pid=<part persistentId> (converter)`). Both presses are made at
+# 1x with the vessel unpacked and followed by a short 1x wait, so each edge is polled in a
+# physics frame (the recorder's part poll stops on rails: FlightRecorder.OnPhysicsFrame
+# returns while isOnRails, and an ORBITING vessel's rails entry sets it). Each window opens
+# with a MissionMark BEFORE the press, because the poll that logs the edge can run before the
+# next seam step. The rails warp must not produce a ConverterDeactivated, and each edge
+# happens exactly once.
+#
+# THE COMMIT. StopRecording, CommitTree and RC-6's second StopRecording (CommitTree re-takes
+# the committed tree for the still-active vessel), then `inspect expectSnapshot=true` against
+# the one committed recording.
+#
+# NOT HERE: a toggle pressed DURING a rails warp (plan owner question Q4: it would be recorded
+# at the rails exit, and an on-off pair inside one warp records nothing); the cap stall
+# (LAB-3b); the lab losing its scientist (LAB-8); ending the recording while still researching
+# (the optimizer's running-converter witness; this lane stops research before the commit).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse - LAB-2 flies the same processing prefix
+# but its story ends in a save/load; folding a day of rails warp into it would make the
+# nightly-candidate LAB-2 ten minutes longer, so the warp stays its own lane. (2) no idle
+# waits - every wait is an explicit-UT `WarpToUT`, 1x only around the presses and the results
+# pages. (3) the warp is ONE Kerbin day, not the plan's two or the brief's "several": 0.27
+# science is 27 steps of the inspect's F2 resolution, enough for a rate window, and it halves
+# the wall time (432 s at the 50x cap LAB-2's warps measured as `ceilingIndex=3`). The day is
+# two WarpToUT steps because a deferred WarpToUT's budget is capped at 540 s (S8). (4) no
+# burns. (5) no coast beyond the warp. (6) fail fast - a refused press fails its step at once;
+# retry `once` until the first flight shows the lane deterministic. (7) count window - one
+# recording, pinned {1,1}. (8) tier - operator until the reading run; promote by the measured
+# p50 (expected about 10 min). (9) flight_efficiency.py after the first green flight.
+#
+# WHAT A FIRST FLIGHT CAN FALSIFY: the rate window (a lower warp cap only slows the lane; EC
+# starvation or a converter that does not run on rails would read near 0); the dataStored
+# float belief; the edge contracts (a missing ConverterActivated means the recorder never saw
+# the toggle at 1x; a ConverterDeactivated inside the warp means the rails handling dropped
+# the running converter); the end-snapshot positive science (a 0 snapshot means the
+# recording's end snapshot predates the warp, a Parsek finding); the one-recording count; the
+# 50x cap.
+description = "LAB-3: in a crewed science lab in low Kerbin orbit, four experiments are processed into the lab while recording, Start Research is pressed at 1x and the vessel rails-warps one Kerbin day; the lab's stored science rises at the stock rate, the recorder logs the research start and stop exactly once and nothing inside the warp, the recording commits with an end snapshot carrying the post-warp science, and research books no science."
+instanceProfile = "stock-minimal"
+tags = ["science-lab", "science", "converter", "rails-warp", "LAB-3", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/lab-lko-science"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "StartRecording",                                                          expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab3-recording-live" },                expect = "OK" },
+  # 1. The four experiments into the lab (LAB-2's live values 5, 15, 22, 8 = 50 data).
+  { cmd = "PartAction",     args = { button = "experiment", part = "sensorThermometer" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "385", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "sensorThermometer" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "experiment", part = "GooExperiment" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "391", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "GooExperiment" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "experiment", part = "science.module" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "397", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "science.module" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "experiment", part = "sensorBarometer" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "403", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "sensorBarometer" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # 2. Start Research at 1x, let the recorder poll the edge, read the lab.
+  { cmd = "MissionMark",    args = { label = "lab3-research-on-before" },            expect = "OK" },
+  { cmd = "PartAction",     args = { button = "startconverter", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "412", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # 3. One Kerbin day of rails warp in two halves (a deferred WarpToUT is capped at 540 s of
+  #    budget; at the 50x cap each half is about 216 s), back to 1x, read.
+  { cmd = "MissionMark",    args = { label = "lab3-warp-start" },                    expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "11212", maxRate = "50" },                 expect = "OK", budget = 540 },
+  { cmd = "WarpToUT",       args = { ut = "22012", maxRate = "50" },                 expect = "OK", budget = 540 },
+  { cmd = "WarpToUT",       args = { ut = "22022", maxRate = "1" },                  expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab3-warp-end" },                      expect = "OK" },
+  # 4. Stop Research at 1x, let the recorder poll the edge, read the lab.
+  { cmd = "MissionMark",    args = { label = "lab3-stop-before" },                   expect = "OK" },
+  { cmd = "PartAction",     args = { button = "stopconverter", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "22028", maxRate = "1" },                  expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab3-stopped" },                       expect = "OK" },
+  # 5. Commit, then the lab against the committed recording's end snapshot.
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "CommitTree",                                                              expect = "OK", budget = 120 },
+  # CommitTree re-takes the committed tree for the still-active vessel; stop it (RC-6).
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab3-committed-${c0.count}-${c0.rec0}" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab", expectSnapshot = "true", rec = "${c0.rec0}" }, expect = "OK" },
+  { cmd = "SaveGame",                                                                expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["science"]
+D14 = ["kerbin", "science-mode", "scene-flight", "warp-1x", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  # The baseline: an empty lab, Research off.
+  "partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.00 dataStored=0\\.00;Research:active=0'",
+  # The four processes at the live stock lab values (LAB-2 flight `2026-10-17_2045`).
+  "partaction applied button=labprocess pid=2200110055 part='sensorThermometer' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=5\\.00",
+  "partaction applied button=labprocess pid=2200110055 part='GooExperiment' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=15\\.00",
+  "partaction applied button=labprocess pid=2200110055 part='science\\.module' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=22\\.00",
+  "partaction applied button=labprocess pid=2200110055 part='sensorBarometer' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=8\\.00",
+  # ... the lab holds 50 data before research starts.
+  "(?s)labprocess pid=2200110055 part='sensorBarometer' (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.00 dataStored=50\\.00;Research:active=0'",
+  # Start Research: stock's own event, the converter on at once.
+  "partaction applied button=startconverter pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*event=StartResourceConverter [^\\r\\n]*state='lab:storedScience=0\\.00 dataStored=50\\.00;Research:active=1'",
+  # ... the recorder logged the start at 1x, before the rails warp, ...
+  "(?s)MISSIONMARK label=lab3-research-on-before (?:(?!MISSIONMARK label=lab3-warp-start ).)*?Part event: ConverterActivated 'Large\\.Crewed\\.Lab' pid=1700054019 \\(converter\\)",
+  # ... and the lab is researching going into the warp.
+  "(?s)MISSIONMARK label=lab3-research-on-before (?:(?!MISSIONMARK label=lab3-warp-start ).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*Research:active=1'",
+  # The warp really left 1x (observed peak rate 5x or more) and reached its target.
+  "warptout complete reachedUT=[0-9.]+ ut=22012 rate=[0-9.]+ maxRate=(?:[5-9]|[1-9][0-9]+)(?:\\.[0-9]+)? ",
+  # Nothing inside the warp switched research off ...
+  "(?s)MISSIONMARK label=lab3-warp-start (?:(?!ConverterDeactivated 'Large\\.Crewed\\.Lab').)*?MISSIONMARK label=lab3-warp-end ",
+  # ... and after it the lab is still researching, with stored science in the one-day window
+  # (about 0.27 at 1.25e-5 per second) and the data barely used.
+  "(?s)warptout complete reachedUT=[0-9.]+ ut=22012 (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.(?:1[5-9]|2[0-9]|3[0-9]) dataStored=(?:49\\.[89][0-9]|50\\.00);Research:active=1'",
+  # Stop Research: off at once, and the recorder logged the stop at 1x.
+  "partaction applied button=stopconverter pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*event=StopResourceConverter [^\\r\\n]*;Research:active=0'",
+  "(?s)MISSIONMARK label=lab3-stop-before (?:(?!MISSIONMARK label=lab3-stopped ).)*?Part event: ConverterDeactivated 'Large\\.Crewed\\.Lab' pid=1700054019 \\(converter\\)",
+  "(?s)MISSIONMARK label=lab3-stop-before (?:(?!MISSIONMARK label=lab3-stopped ).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*Research:active=0'",
+  # The commit: one recording, committed (an orbiting lab is never idle-on-pad) ...
+  "committree committed=true",
+  "MISSIONMARK label=lab3-committed-1-[0-9a-f]{32} ",
+  # ... and its END snapshot carries the post-warp lab: positive science, the four subjects.
+  "partaction snapshot rec=[0-9a-f]{32} partId=1270217782 field=storedScience live=0\\.(?:1[5-9]|2[0-9]|3[0-9])[0-9]{2} snapshot=0\\.(?:1[5-9]|2[0-9]|3[0-9])[0-9]{2} [^\\r\\n]*match=true",
+  "partaction snapshot rec=[0-9a-f]{32} partId=1270217782 field=experiments live=4 snapshot=4 [^\\r\\n]*match=true",
+  "partaction snapshot complete rec=[0-9a-f]{32} parts=1 compared=1 [^\\r\\n]*snapshotMatch=true ",
+  # Research stores science in the lab; nothing moves the R&D pool while recording.
+  "(?s)MISSIONMARK label=lab3-recording-live (?:(?!Game state: ScienceChanged).)*?MISSIONMARK label=lab3-stopped ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected ",
+  "partaction-lab-value-zero",
+  "partaction error ",
+  "ScienceLabCredited",
+  "snapshotMatch=false",
+  "Exploded!!",
+  # The recording must not be discarded as idle or have its tail trimmed away.
+  "IsTreeIdleOnPad: all [0-9]+ recordings",
+  "TrimBoringTail: trimmed 'LABX Orbital Lab'",
+  # Each research edge happens exactly once.
+  "(?s)Part event: ConverterActivated 'Large\\.Crewed\\.Lab'.*?Part event: ConverterActivated 'Large\\.Crewed\\.Lab'",
+  "(?s)Part event: ConverterDeactivated 'Large\\.Crewed\\.Lab'.*?Part event: ConverterDeactivated 'Large\\.Crewed\\.Lab'",
+]
+
+[runtime]
+# One LoadGame (up to 300 s, about 90 s typical), about 60 s of 1x game time, a 21,600 s rails
+# warp in two steps (432 s at 50x; each step budgeted at the 540 s WarpToUT cap), a commit and
+# a save.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
