@@ -35,6 +35,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Watching a ghost to its end under time warp now hands the camera to the spawned vessel.**
+  The camera used to jump back to your vessel mid-warp, could end up inside the ground, and never
+  moved to the vessel that appeared. It now stays on the ghost until warp ends, then switches to
+  the spawned vessel, as it already did without warp. (WATCH-END-SPAWN-UNDER-WARP-LOSES-CAMERA)
 - **Hiring a kerbal after a rewind no longer charges the hire twice.** When later actions were
   already planned on the timeline, a Space Center hire took its cost out of your funds twice,
   and the missing money stayed missing until the next rewind. The hire is now charged once,

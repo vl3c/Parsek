@@ -1691,6 +1691,7 @@ namespace Parsek
             // Save camera state only when entering fresh (not switching between ghosts)
             if (!switching)
             {
+                DisarmPostExitCameraProbe();
                 savedCameraVessel = FlightGlobals.ActiveVessel;
                 savedCameraDistance = FlightCamera.fetch.Distance;
                 // Internal convention: store pitch/hdg in degrees (see TryCaptureCurrentFlightCameraState).
@@ -2069,6 +2070,12 @@ namespace Parsek
                 ParsekLog.Verbose("CameraFollow",
                     $"FlightCamera.SetTargetVessel restored to {activeVessel.vesselName}, distance={savedCameraDistance.ToString("F1", CultureInfo.InvariantCulture)}");
             }
+            else
+            {
+                return;
+            }
+
+            ArmPostExitCameraProbe($"rec=#{watchedRecordingIndex} \"{recVesselName}\" -> {targetName}");
         }
 
         /// <summary>
@@ -2679,7 +2686,11 @@ namespace Parsek
         /// </summary>
         internal void UpdateWatchCamera()
         {
-            if (watchedRecordingIndex < 0) return;
+            if (watchedRecordingIndex < 0)
+            {
+                TickPostExitCameraProbe();
+                return;
+            }
 
             // Phase 7 of Rewind-to-Staging (design §3.3): if the watched
             // recording entered the session-suppressed subtree (e.g. player
