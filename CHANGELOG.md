@@ -187,6 +187,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Harness: the test command that processes an experiment in a science lab stores real data.**
+  It used to put zero data into the lab whenever the results window had not been shown since a
+  load, while still using up that experiment's one lab slot. It now opens the results window
+  first and refuses before sending when the lab would get nothing; a lab can also be checked
+  against a recording's end state. (PARTACTION-LABPROCESS-STORES-ZERO-DATA)
 - **Harness: ledger checks can now run on lanes that rewind.** A test can check the career's
   funds, science and reputation after a rewind, the way Parsek shows them: money that later
   flights will spend is held back. Before, lanes that rewind had no ledger check at all. The

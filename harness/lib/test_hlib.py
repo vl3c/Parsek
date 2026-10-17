@@ -16910,6 +16910,19 @@ class PartActionSourceSyncTests(unittest.TestCase):
         self.assertIn('internal const string PidKey = "%s";' % hlib.PARTACTION_PID_KEY, text)
         self.assertIn('internal const string ConverterKey = "%s";' % hlib.PARTACTION_CONVERTER_KEY,
                       text)
+        # The inspect-only snapshot args: keys, the true/false parse, inspect alone.
+        self.assertIn('internal const string ExpectSnapshotKey = "%s";'
+                      % hlib.PARTACTION_EXPECT_SNAPSHOT_KEY, text)
+        self.assertIn('internal const string RecKey = "%s";' % hlib.PARTACTION_REC_KEY, text)
+        self.assertIn('internal const string ToleranceKey = "%s";' % hlib.PARTACTION_TOLERANCE_KEY,
+                      text)
+        self.assertEqual(("true", "false"), hlib.PARTACTION_EXPECT_SNAPSHOT_VALUES)
+        self.assertIn('if (string.Equals(rawExpect, "true", StringComparison.Ordinal)) expect = true;',
+                      text)
+        self.assertIn('else if (!string.Equals(rawExpect, "false", StringComparison.Ordinal))', text)
+        self.assertIn("if ((hasExpect || hasRec || hasTolerance) && kind != PartActionKind.Inspect)",
+                      text)
+        self.assertEqual(("inspect",), hlib.PARTACTION_BUTTONS_ACCEPTING_SNAPSHOT)
         consts = ("UndockToken", "DecoupleToken", "ControlFromToken", "DeployToken",
                   "RetractToken", "StartConverterToken", "StopConverterToken", "ExperimentToken",
                   "LabProcessToken", "LabTransmitToken", "InspectToken", "RadiatorOnToken",
@@ -16960,6 +16973,16 @@ class PartActionSourceSyncTests(unittest.TestCase):
         self.assertIn("if (!(module is ModuleActiveRadiator)) continue;", applier)
         self.assertIn("radiatorKind ? radiatorModules : -1", applier)
         self.assertIn("new PartActionWarpContext(v.packed,", applier)
+        # labprocess: the experiment's own Review Data opens a missing page, the page's
+        # labValue is written before the gates, and only then the page's lab callback runs.
+        self.assertIn("c.Experiment.ReviewDataEvent();", applier)
+        self.assertIn("labValue = page.UpdatePageLabValue();", applier)
+        self.assertIn("page.OnSendToLab(page.pageData);", applier)
+        self.assertLess(applier.index("labValue = page.UpdatePageLabValue();"),
+                        applier.index("page.OnSendToLab(page.pageData);"))
+        self.assertNotIn("labMethod", applier)
+        self.assertIn("TestCommandPartAction.ExpectSnapshotKey", applier)
+        self.assertIn("RecordingStore.TryFindCommittedRecordingById(snapshotRecId)", applier)
         pure = self._source("TestCommands", "TestCommandPartAction.cs")
         self.assertIn('case PartActionKind.RadiatorOn: return new[] { "Activate" };', pure)
         self.assertIn('case PartActionKind.RadiatorOff: return new[] { "Shutdown" };', pure)
@@ -16980,13 +17003,24 @@ class PartActionSourceSyncTests(unittest.TestCase):
         for reason in ("partaction-button-arg-missing", "partaction-button-arg-invalid",
                        "partaction-part-arg-missing", "partaction-pid-arg-invalid",
                        "partaction-converter-arg-unexpected", "partaction-all-arg-invalid",
-                       "partaction-all-arg-unexpected"):
+                       "partaction-all-arg-unexpected", "partaction-expect-snapshot-arg-invalid",
+                       "partaction-snapshot-arg-unexpected", "partaction-expect-snapshot-needs-rec",
+                       "partaction-rec-arg-invalid", "partaction-tolerance-arg-invalid"):
             self.assertIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
         for reason in ("partaction-vessel-not-found", "partaction-event-unavailable",
                        "partaction-no-active-vessel", "partaction-converter-not-found",
-                       "partaction-experiment-no-data", "partaction-lab-method-missing",
-                       "partaction-radiator-not-found"):
+                       "partaction-experiment-no-data", "partaction-radiator-not-found",
+                       "partaction-unknown-recording", "partaction-lab-not-active-vessel",
+                       "partaction-lab-page-missing", "partaction-lab-value-zero",
+                       "partaction-lab-unavailable"):
             self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        # The all=true labprocess walk stopped after a send is a POST-act ERROR terminal:
+        # never a refusal subkind, never deterministic (rides driver-verdict-mismatch).
+        self.assertNotIn("partaction-lab-walk-stopped", hlib._SEAM_REFUSAL_SUBKINDS)
+        self.assertNotIn("partaction-lab-walk-stopped", hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        self.assertNotIn("partaction-lab-walk-stopped", hlib.PARTACTION_REASONS)
+        self.assertNotIn("partaction-lab-method-missing", hlib.PARTACTION_REASONS)
+        self.assertNotIn("partaction-lab-method-missing", hlib._SEAM_REFUSAL_SUBKINDS)
 
     def test_the_step_validator(self):
         v = hlib.validate_part_action_step
@@ -17002,6 +17036,34 @@ class PartActionSourceSyncTests(unittest.TestCase):
         for bad in ("0", "abc", "4294967296", "+5"):
             with self.subTest(pid=bad):
                 self.assertIn("partaction-pid-arg-invalid", v(0, {"button": "undock", "pid": bad})[0])
+
+    def test_the_step_validator_inspect_snapshot_args(self):
+        v = hlib.validate_part_action_step
+        ok = {"button": "inspect", "part": "Large.Crewed.Lab"}
+        self.assertEqual([], v(0, dict(ok, expectSnapshot="true", rec="abc123")))
+        self.assertEqual([], v(0, dict(ok, expectSnapshot="true", rec="abc123", tolerance="0.5")))
+        self.assertEqual([], v(0, dict(ok, expectSnapshot="true", rec="${c2.rec0}")))
+        self.assertEqual([], v(0, dict(ok, expectSnapshot="false")))
+        self.assertEqual([], v(0, dict(ok, expectSnapshot="true", rec="r", tolerance="5.")))
+        cases = (
+            (dict(ok, expectSnapshot=True, rec="r"), "partaction-expect-snapshot-arg-invalid"),
+            (dict(ok, expectSnapshot="True", rec="r"), "partaction-expect-snapshot-arg-invalid"),
+            ({"button": "labprocess", "part": "x", "expectSnapshot": "true", "rec": "r"},
+             "partaction-snapshot-arg-unexpected"),
+            ({"button": "deploy", "part": "x", "rec": "r"}, "partaction-snapshot-arg-unexpected"),
+            (dict(ok, expectSnapshot="true"), "partaction-expect-snapshot-needs-rec"),
+            (dict(ok, expectSnapshot="false", rec="r"), "partaction-snapshot-arg-unexpected"),
+            (dict(ok, expectSnapshot="true", rec="../x"), "partaction-rec-arg-invalid"),
+            (dict(ok, expectSnapshot="true", rec="r", tolerance="-1"),
+             "partaction-tolerance-arg-invalid"),
+            (dict(ok, expectSnapshot="true", rec="r", tolerance="1e3"),
+             "partaction-tolerance-arg-invalid"),
+        )
+        for args, reason in cases:
+            with self.subTest(args=args):
+                errs = v(0, args)
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn(reason, errs[0])
 
     def test_the_step_validator_isru_and_lab_buttons(self):
         v = hlib.validate_part_action_step
