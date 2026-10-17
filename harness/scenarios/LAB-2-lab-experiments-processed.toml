@@ -2,8 +2,8 @@ schema = 1
 id = "LAB-2-lab-experiments-processed"
 tier = "operator"
 # THE SCIENCE-LAB PROGRAM, lane LAB-2 (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
-# "LAB-2 experiments into the lab"). NEVER FLOWN: its first flight is a READING run, so it is
-# `operator` and tagged `pending-flight` until that run pins the measured values.
+# "LAB-2 experiments into the lab").
+# FLOWN 2026-10-17_2052 PASS (attempt 1, 103 s, automation DLL d0695b37): live-proven; operator.
 #
 # HOST: `lab-lko-science` (harness/tools/build_lab_lko_science.py): SCIENCE_SANDBOX, the LABX
 # Orbital Lab (persistentId 2200110055) ORBITING Kerbin at about 107 x 92 km, so InSpaceLow,
@@ -81,7 +81,7 @@ tier = "operator"
 # the review route builds a zero-valued page from a loaded datum), and the UT margins.
 description = "LAB-2: in a crewed science lab in low Kerbin orbit, the thermometer, barometer, Mystery Goo and Science Jr results are processed into the lab at their stock lab values while recording, a second thermometer result for the same subject is refused with the lab unchanged, the committed recording's end snapshot matches the lab, a datum held through a save and load still processes at a positive value, and processing books no science."
 instanceProfile = "stock-minimal"
-tags = ["science-lab", "science", "LAB-2", "pending-flight"]
+tags = ["science-lab", "science", "LAB-2", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/lab-lko-science"

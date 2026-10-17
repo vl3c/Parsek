@@ -2,8 +2,8 @@ schema = 1
 id = "LAB-3b-lab-cap-stall-and-overflow"
 tier = "operator"
 # THE SCIENCE-LAB PROGRAM, lane LAB-3b (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
-# "LAB-3b cap stall and overflow"). NEVER FLOWN: its first flight is a READING run, so it is
-# `operator` and tagged `pending-flight` until that run pins the measured values.
+# "LAB-3b cap stall and overflow").
+# FLOWN 2026-10-17_2129 PASS (attempt 1, 432 s, automation DLL d0695b37): live-proven; operator.
 #
 # HOST: `lab-lko-seeded` (harness/tools/build_lab_seeded_variants.py): `lab-lko-science` with
 # the Large.Crewed.Lab's ModuleScienceLab seeded to dataStored = 740 (of dataStorage 750),
@@ -69,7 +69,7 @@ tier = "operator"
 # page or the review route (both accepted), the end-snapshot match on a full lab.
 description = "LAB-3b: in a seeded science lab in low Kerbin orbit, research started while recording stalls just under the 500 science cap through two rails warps with the data unchanged, a Goo result is refused for lack of data space, a barometer result fits, a thermometer result is then refused, each refusal leaves the lab unchanged, and the committed recording's end snapshot carries the capped lab."
 instanceProfile = "stock-minimal"
-tags = ["science-lab", "science", "converter", "rails-warp", "LAB-3b", "pending-flight"]
+tags = ["science-lab", "science", "converter", "rails-warp", "LAB-3b", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/lab-lko-seeded"

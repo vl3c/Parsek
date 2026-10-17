@@ -2,8 +2,8 @@ schema = 1
 id = "LAB-3-lab-research-over-time"
 tier = "operator"
 # THE SCIENCE-LAB PROGRAM, lane LAB-3 (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
-# "LAB-3 research over time"). NEVER FLOWN: its first flight is a READING run, so it is
-# `operator` and tagged `pending-flight` until that run pins the measured values.
+# "LAB-3 research over time").
+# FLOWN 2026-10-17_2119 PASS (attempt 1, 598 s, automation DLL d0695b37): live-proven; operator.
 #
 # HOST: `lab-lko-science` (the LAB-2 host): SCIENCE_SANDBOX, the LABX Orbital Lab (vessel
 # persistentId 2200110055) ORBITING Kerbin at about 107 x 92 km, Valentina in the Mk1 pod, Bob
@@ -75,7 +75,7 @@ tier = "operator"
 # 50x cap.
 description = "LAB-3: in a crewed science lab in low Kerbin orbit, four experiments are processed into the lab while recording, Start Research is pressed at 1x and the vessel rails-warps one Kerbin day; the lab's stored science rises at the stock rate, the recorder logs the research start and stop exactly once and nothing inside the warp, the recording commits with an end snapshot carrying the post-warp science, and research books no science."
 instanceProfile = "stock-minimal"
-tags = ["science-lab", "science", "converter", "rails-warp", "LAB-3", "pending-flight"]
+tags = ["science-lab", "science", "converter", "rails-warp", "LAB-3", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/lab-lko-science"

@@ -2,8 +2,9 @@ schema = 1
 id = "LAB-8-lab-eva-crew-rules"
 tier = "operator"
 # THE SCIENCE-LAB PROGRAM, lane LAB-8 (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
-# "LAB-8 EVA crew rules"). NEVER FLOWN: its first flight is a READING run, so it is `operator`
-# and tagged `pending-flight` until that run pins the measured values.
+# "LAB-8 EVA crew rules").
+# FLOWN 2026-10-17_2142 PASS (attempt 1, 267 s, automation DLL d0695b37; the first flight
+# 2026-10-17_2136 failed one mis-pinned EVA-branch contract, re-pinned): live-proven; operator.
 #
 # HOST: `lab-lko-science` (the LAB-2 / LAB-3 host): SCIENCE_SANDBOX, the LABX Orbital Lab
 # (vessel persistentId 2200110055) ORBITING Kerbin at about 107 x 92 km, Valentina in the
@@ -78,7 +79,7 @@ tier = "operator"
 # the reservation line inside the commit; the UT margins after the EVA verbs.
 description = "LAB-8: in a crewed science lab in low Kerbin orbit, research is running when the lab's only scientist goes EVA from the lab; stock switches research off, it stays off after he boards back into the lab, and a fresh Start Research turns it on; the recording tree carries the EVA split and the board merge, never records research running while he was out, and the commit reserves him to the mission."
 instanceProfile = "stock-minimal"
-tags = ["science-lab", "science", "converter", "eva", "LAB-8", "pending-flight"]
+tags = ["science-lab", "science", "converter", "eva", "LAB-8", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/lab-lko-science"

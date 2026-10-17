@@ -10605,18 +10605,18 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # on-request vehicle / fixture run), not a review debt.
         "LABX-1-lab-orbit-ascent.toml":     "forge-mechanism - operator-invoked vehicle / fixture run; FLOWN 2026-10-17 (`2026-10-17_1747` PASS attempt 1); RE-FLOWN on the current shape (science antenna + probe tender) `2026-10-17_1957` PASS attempt 1, produced save re-harvested to lab-lko-sandbox (donor of lab-lko-science)",
         # The first science-lab flight lane on the LABX-1 harvest: operator by the
-        # reading-run discipline, never flown. Its debt is the READING RUN, carried by
-        # the `pending-flight` tag and its status row, not an operator-REVIEW debt.
-        "LAB-2-lab-experiments-processed.toml": "operator by the reading-run discipline; AUTHORED 2026-10-17, NEVER FLOWN (the four experiments processed into the lab, the duplicate refusal, the end-snapshot match and the post-load process on lab-lko-science); the lab values and dataStored windows are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        # reading-run discipline. FLOWN green; what remains is the ordinary promotion
+        # call by measured p50 (the LABX-1 precedent keeps it operator), not a debt.
+        "LAB-2-lab-experiments-processed.toml": "operator by the reading-run discipline; AUTHORED 2026-10-17, FLOWN `2026-10-17_2052` PASS attempt 1 after the reading flight `_2045` re-pinned the live lab values 5 / 15 / 22 / 8 (the four experiments processed into the lab, the duplicate refusal, the end-snapshot match and the post-load process on lab-lko-science); the operator tier is the open promotion call by measured p50, not a debt",
         # Science-lab research over one Kerbin day of rails warp on the same host:
-        # operator by the same reading-run discipline, never flown.
-        "LAB-3-lab-research-over-time.toml": "operator by the reading-run discipline; AUTHORED 2026-10-17, NEVER FLOWN (research started and stopped at 1x around one Kerbin day of rails warp on lab-lko-science, the recorded research edges, the end-snapshot science); the storedScience / dataStored windows are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        # operator by the same reading-run discipline, FLOWN green on its first flight.
+        "LAB-3-lab-research-over-time.toml": "operator by the reading-run discipline; AUTHORED 2026-10-17, FLOWN `2026-10-17_2119` PASS attempt 1 on its first flight, storedScience 0.27 / dataStored 49.92 inside the authored windows (research started and stopped at 1x around one Kerbin day of rails warp on lab-lko-science, the recorded research edges, the end-snapshot science); the operator tier is the open promotion call by measured p50, not a debt",
         # Science-lab cap stall and data-store overflow on the seeded LKO lab:
-        # operator by the same reading-run discipline, never flown.
-        "LAB-3b-lab-cap-stall-and-overflow.toml": "operator by the reading-run discipline; AUTHORED 2026-10-17, NEVER FLOWN (research stalls at the 500 cap through two rails warps on lab-lko-seeded, Goo and thermometer refused NO_SPACE, barometer fits, end-snapshot match); the cap and dataStored windows are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        # operator by the same reading-run discipline, FLOWN green on its first flight.
+        "LAB-3b-lab-cap-stall-and-overflow.toml": "operator by the reading-run discipline; AUTHORED 2026-10-17, FLOWN `2026-10-17_2129` PASS attempt 1 on its first flight, the cap read 500.00 / 739.67 on both readings (research stalls at the 500 cap through two rails warps on lab-lko-seeded, Goo and thermometer refused NO_SPACE, barometer fits, end-snapshot match); the operator tier is the open promotion call by measured p50, not a debt",
         # Science-lab crew rules across an EVA of the lab's only scientist on
-        # the same host: operator by the same reading-run discipline, never flown.
-        "LAB-8-lab-eva-crew-rules.toml": "operator by the reading-run discipline; AUTHORED 2026-10-17, NEVER FLOWN (research stops when Bob goes EVA from the lab, stays off after he boards back, restarts on a fresh press; EVA split, board merge and Bob reserved at the commit on lab-lko-science); the storedScience window, the EVA UT margins and the four-recording count are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        # the same host: operator by the same reading-run discipline, FLOWN green.
+        "LAB-8-lab-eva-crew-rules.toml": "operator by the reading-run discipline; AUTHORED 2026-10-17, FLOWN `2026-10-17_2142` PASS attempt 1 after the first flight `_2136` re-pinned the EVA branch line (research stops when Bob goes EVA from the lab, stays off after he boards back, restarts on a fresh press; EVA split, board merge and Bob reserved at the commit on lab-lko-science); the operator tier is the open promotion call by measured p50, not a debt",
         # Science-lab transmit on the seeded pad lab: a transmission cut by a
         # scene change, the tagged credit, the refused second press, the payout
         # veto and the fraction paid again; operator by the same discipline.
