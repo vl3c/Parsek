@@ -92,6 +92,11 @@ D1  = ["commit-scene-exit", "auto-merge"]
 D8  = ["science"]
 D14 = ["kerbin", "science-mode", "scene-flight", "scene-ksc", "warp-1x"]
 
+# FIRST FLIGHT 2026-10-17_2203: the recovery pays TWO stock gains, +10.0 vessel-recovery science
+# (recovery@KerbinOrbited: the harvested vessel has orbited) then +12.5 from the lab, 100 -> 110 -> 122.5,
+# so the pool pin is 122.5 and two VesselRecovery gains are expected. The same flight found a real
+# Parsek defect (todo LAB-RECOVERY-RECONCILE-COALESCED-FALSE-MISMATCH): the post-walk reconciler
+# reported the coalesced 22.5 against the 10.0 recovery action at ERROR. The ERROR ban stays.
 [expectations]
 allowedAnomalies = []
 
@@ -112,14 +117,14 @@ required = [
   "In-flight recovery: recording '[0-9a-f]{32}' vessel='LABX Orbital Lab' pid=2200110055 terminal [A-Za-z<>]+ -> Recovered ",
   # The Space Center idle check runs BEFORE the payout and is vetoed by the pending lab science
   # (PR #2136); the tree auto-commits and the commit clears the lab mark.
-  "(?s)MISSIONMARK label=lab14-recover-before (?:(?!ScienceLabCredited).)*?(?:IsTreeIdleOnPad|IsActiveTreeIdleOnPad): not idle - recovery pending with lab science 12\\.50 tree='LABX Orbital Lab'",
-  "(?s)MISSIONMARK label=lab14-recover-before (?:(?!ScienceLabCredited).)*?full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='LABX Orbital Lab' recordings=1 ",
+  "(?s)MISSIONMARK label=lab14-recover-before (?:(?!Game state: ScienceLabCredited).)*?(?:IsTreeIdleOnPad|IsActiveTreeIdleOnPad): not idle - recovery pending with lab science 12\\.50 tree='LABX Orbital Lab'",
+  "(?s)MISSIONMARK label=lab14-recover-before (?:(?!Game state: ScienceLabCredited).)*?full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='LABX Orbital Lab' recordings=1 ",
   "In-flight recovery: cleared 1 lab mark\\(s\\) context=commit remaining=0",
   # Stock's recovery pays the lab: one untagged credit of 12.50, booked at the Space Center, ...
   "(?s)MISSIONMARK label=lab14-recover-before (?:(?!MISSIONMARK label=lab14-reloaded ).)*?Game state: ScienceLabCredited \\+12\\.50 reason='VesselRecovery' vessel='LABX Orbital Lab' ut=[0-9.]+ recordingId=''",
   "(?s)MISSIONMARK label=lab14-recover-before (?:(?!MISSIONMARK label=lab14-reloaded ).)*?KSC spending recorded: type=ScienceLabEarning, UT=[0-9.]+, key=VesselRecovery",
   # ... beside stock's own gain, 100 -> 112.5.
-  "(?s)MISSIONMARK label=lab14-recover-before (?:(?!MISSIONMARK label=lab14-reloaded ).)*?Game state: ScienceChanged \\+12\\.5 \\(VesselRecovery\\)[^0-9\\r\\n]+112\\.5(?![0-9])",
+  "(?s)MISSIONMARK label=lab14-recover-before (?:(?!MISSIONMARK label=lab14-reloaded ).)*?Game state: ScienceChanged \\+12\\.5 \\(VesselRecovery\\)[^0-9\\r\\n]+122\\.5(?![0-9])",
   "recover complete pid=2200110055 vessel=LABX Orbital Lab scene=SPACECENTER elapsed=",
   "MISSIONMARK label=lab14-reloaded ",
 ]
@@ -133,11 +138,11 @@ forbidden = [
   "Idle on pad[^\\r\\n]*auto-discarding",
   # Exactly one lab credit, and one stock recovery gain, in the whole run.
   "(?s)(?:Game state: ScienceLabCredited .*?){2}",
-  "(?s)(?:Game state: ScienceChanged [^\\r\\n]*\\(VesselRecovery\\).*?){2}",
+  "(?s)(?:Game state: ScienceChanged [^\\r\\n]*\\(VesselRecovery\\).*?){3}",
   # No transmission happens here.
   "reason='ScienceTransmission'",
   # Nothing after the reload pays the lab again.
-  "(?s)MISSIONMARK label=lab14-reloaded .*?ScienceLabCredited",
+  "(?s)MISSIONMARK label=lab14-reloaded .*?Game state: ScienceLabCredited",
   "Lab payout net of a strategy take",
   "Exploded!!",
 ]

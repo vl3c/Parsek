@@ -165,12 +165,20 @@ D1  = ["commit-scene-exit", "auto-merge"]
 D8  = ["science"]
 D14 = ["kerbin", "science-mode", "scene-flight", "scene-ksc", "warp-1x", "warp-rails"]
 
+# FIRST FLIGHT 2026-10-17_2158 (PARSEK-FAIL on spec pins only; every product behaviour was right:
+# the interrupted transmit paid nothing and was idle-discarded, the first transmit paid +12.50 once,
+# tagged, the refused press paid nothing, the payout veto kept and auto-committed the tree, the
+# refill transmit paid +1.52 once). Two pins were wrong: the credit-count bans matched the same
+# credit's Emit:/AddEvent:/MilestoneStore lines (now anchored to "Game state: ScienceLabCredited"),
+# and the recording count: phase 3 reloads the KSC-written save, Parsek resumes the committed tree
+# from it (committed-after-quicksave), and the phase-3 DiscardTree step then discards it, so the
+# produced save holds 0 recordings by the lane's own design.
 [expectations]
 allowedAnomalies = []
 
 [expectations.recordings]
 # Recording A is discarded idle at the first exit; recording B is committed at the second.
-count = { min = 1, max = 1 }
+count = { min = 0, max = 0 }
 
 [expectations.logContracts]
 required = [
@@ -183,7 +191,7 @@ required = [
   "(?s)partaction applied button=labtransmit pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=12\\.50 (?:(?!recv id=[0-9]+ cmd=(?!ExitToSpaceCenter )).)*?exittospacecenter start ",
   "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false ",
   # Nothing was paid between the press and the reload, by Parsek or by stock.
-  "(?s)MISSIONMARK label=lab4-interrupt-before (?:(?!ScienceLabCredited)(?!\\(ScienceTransmission\\)).)*?MISSIONMARK label=lab4-reloaded-1 ",
+  "(?s)MISSIONMARK label=lab4-interrupt-before (?:(?!Game state: ScienceLabCredited)(?!\\(ScienceTransmission\\)).)*?MISSIONMARK label=lab4-reloaded-1 ",
   # The pad recording whose only event was the cut transmission is idle, and is discarded.
   "(?s)MISSIONMARK label=lab4-interrupt-before (?:(?!MISSIONMARK label=lab4-reloaded-1 ).)*?Idle on pad[^\\r\\n]*auto-discarding",
   # ... and after the reload the lab still holds everything (the cut transmission took nothing).
@@ -199,7 +207,7 @@ required = [
   # after the wait, and nothing is paid (below).
   "(?s)MISSIONMARK label=lab4-t1-after (?:(?!MISSIONMARK label=lab4-refused-after ).)*?partaction applied button=labtransmit pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*event=TransmitScience [^\\r\\n]*state='lab:storedScience=0\\.50 ",
   "(?s)MISSIONMARK label=lab4-refused-after (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.50 dataStored=204\\.00;",
-  "(?s)MISSIONMARK label=lab4-t1-after (?:(?!ScienceLabCredited)(?!\\(ScienceTransmission\\)).)*?MISSIONMARK label=lab4-refused-after ",
+  "(?s)MISSIONMARK label=lab4-t1-after (?:(?!Game state: ScienceLabCredited)(?!\\(ScienceTransmission\\)).)*?MISSIONMARK label=lab4-refused-after ",
   # The exit: the lab payout vetoes idle-on-pad (PR #2136) and the tree auto-commits.
   "(?s)MISSIONMARK label=lab4-refused-after (?:(?!MISSIONMARK label=lab4-reloaded-2 ).)*?(?:IsTreeIdleOnPad|IsActiveTreeIdleOnPad): not idle - tree has 1 lab payout\\(s\\) tree='LABX Orbital Lab'",
   "(?s)MISSIONMARK label=lab4-refused-after (?:(?!MISSIONMARK label=lab4-reloaded-2 ).)*?full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='LABX Orbital Lab' recordings=1 ",
@@ -228,11 +236,11 @@ forbidden = [
   "exittospacecenter rejected",
   # Exactly two lab credits in the whole run (phase 2's first transmit, phase 3's), each once.
   "(?s)(?:Game state: ScienceLabCredited .*?){3}",
-  "(?s)MISSIONMARK label=lab4-t1-before (?:(?!MISSIONMARK label=lab4-t1-after ).)*?ScienceLabCredited(?:(?!MISSIONMARK label=lab4-t1-after ).)*?ScienceLabCredited",
-  "(?s)MISSIONMARK label=lab4-t2-before (?:(?!MISSIONMARK label=lab4-t2-after ).)*?ScienceLabCredited(?:(?!MISSIONMARK label=lab4-t2-after ).)*?ScienceLabCredited",
+  "(?s)MISSIONMARK label=lab4-t1-before (?:(?!MISSIONMARK label=lab4-t1-after ).)*?Game state: ScienceLabCredited(?:(?!MISSIONMARK label=lab4-t1-after ).)*?Game state: ScienceLabCredited",
+  "(?s)MISSIONMARK label=lab4-t2-before (?:(?!MISSIONMARK label=lab4-t2-after ).)*?Game state: ScienceLabCredited(?:(?!MISSIONMARK label=lab4-t2-after ).)*?Game state: ScienceLabCredited",
   # No lab credit outside the two transmit windows (the reloads, the warp, the exits).
-  "(?s)MISSIONMARK label=lab4-t1-after (?:(?!MISSIONMARK label=lab4-t2-before ).)*?ScienceLabCredited",
-  "(?s)MISSIONMARK label=lab4-t2-after .*?ScienceLabCredited",
+  "(?s)MISSIONMARK label=lab4-t1-after (?:(?!MISSIONMARK label=lab4-t2-before ).)*?Game state: ScienceLabCredited",
+  "(?s)MISSIONMARK label=lab4-t2-after .*?Game state: ScienceLabCredited",
   # The interrupted pad recording is no payout; the paying one is never idle.
   "(?s)MISSIONMARK label=lab4-interrupt-before (?:(?!MISSIONMARK label=lab4-reloaded-1 ).)*?not idle - tree has [0-9]+ lab payout",
   "(?s)MISSIONMARK label=lab4-refused-after (?:(?!MISSIONMARK label=lab4-reloaded-2 ).)*?Idle on pad[^\\r\\n]*auto-discarding",

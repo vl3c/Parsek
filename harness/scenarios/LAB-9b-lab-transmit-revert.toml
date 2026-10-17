@@ -109,6 +109,8 @@ D1  = ["commit-revert-merge"]
 D8  = ["science"]
 D14 = ["kerbin", "science-mode", "scene-flight", "warp-1x"]
 
+# FIRST FLIGHT 2026-10-17_2201 (PARSEK-FAIL on one spec pin only: a credit ban matched the
+# MilestoneStore dump line of the post-revert credit; bans are now anchored to "Game state:".
 [expectations]
 allowedAnomalies = []
 
@@ -153,8 +155,8 @@ forbidden = [
   # Exactly two lab credits: the reverted one and the post-revert one.
   "(?s)(?:Game state: ScienceLabCredited .*?){3}",
   # No lab credit outside the two transmit windows (the revert, the reload).
-  "(?s)MISSIONMARK label=lab9b-t1-after (?:(?!MISSIONMARK label=lab9b-t2-before ).)*?ScienceLabCredited",
-  "(?s)MISSIONMARK label=lab9b-t2-after .*?ScienceLabCredited",
+  "(?s)MISSIONMARK label=lab9b-t1-after (?:(?!MISSIONMARK label=lab9b-t2-before ).)*?Game state: ScienceLabCredited",
+  "(?s)MISSIONMARK label=lab9b-t2-after .*?Game state: ScienceLabCredited",
   # After the revert nothing may move the pool to match the ledger: a write means the ledger
   # still carried the reverted credit (or dropped the new one).
   "(?s)reverttolaunch start .*?PatchScience: [0-9]+\\.[0-9] -> [0-9]",
