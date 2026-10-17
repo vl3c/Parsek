@@ -42,6 +42,24 @@ namespace Parsek.TestCommands
     }
 
     /// <summary>
+    /// The per-frame outcome of a <c>detach=true</c> WarpToUT that already answered OK and
+    /// keeps warping with no FIFO head waiting on it
+    /// (<see cref="TestCommandWarpToUT.DecideDetachedWarp"/>).
+    /// </summary>
+    internal enum DetachedWarpDecision
+    {
+        /// <summary>The clock has not reached the target and the budget has not run out:
+        /// step the ladder.</summary>
+        Continue,
+
+        /// <summary>The clock reached the target: drop to 1x and end.</summary>
+        Arrived,
+
+        /// <summary>The WarpToUT budget expired first: drop to 1x and end with a Warn.</summary>
+        Timeout,
+    }
+
+    /// <summary>
     /// Pure decision + payload helpers for the forward-only, REAL-TIME-ADVANCING
     /// <c>WarpToUT</c> verb.
     ///
@@ -93,6 +111,14 @@ namespace Parsek.TestCommands
     /// the applier force-sets rate 0 the instant the target is reached, AND the timeout /
     /// exception paths force rate 0 before their terminal, so no path leaves the game
     /// warped.</para>
+    ///
+    /// <para><b>detach=true.</b> The same warp, reported OK as soon as the first ladder step
+    /// was applied, so later seam steps (a part-menu press, a tank read) run while the clock
+    /// is still warping, the way a player toggles a converter in rails warp. The addon keeps
+    /// stepping the same ladder from its own Update and drops to 1x at the target exactly as
+    /// the blocking form does (<see cref="DecideDetachedWarp"/>); a later WarpToUT takes the
+    /// warp over, a clock-moving verb (<see cref="DetachedWarpYieldsTo"/>) or a scene change
+    /// ends it at 1x.</para>
     ///
     /// Kept pure so every cell is xUnit-covered without a live KSP scene.
     /// </summary>
@@ -191,6 +217,32 @@ namespace Parsek.TestCommands
 
         /// <summary>The <c>ladder</c> token that selects the physics ladder.</summary>
         internal const string PhysicsModeToken = "phys";
+
+        // ----- detach=true: the non-blocking warp -----
+
+        /// <summary>The OPTIONAL arg that detaches the warp from the FIFO head.</summary>
+        internal const string DetachKey = "detach";
+
+        /// <summary>The one value <c>detach</c> takes (closed, case-sensitive, like
+        /// <c>PartAction all=true</c>).</summary>
+        internal const string DetachTrueToken = "true";
+
+        /// <summary><c>detach</c> present but not exactly <see cref="DetachTrueToken"/>
+        /// (a TOML bool reaches the wire as <c>True</c> and lands here).</summary>
+        internal const string DetachInvalidReason = "warp-detach-invalid";
+
+        /// <summary>The <c>reason=</c> of the line that ends a detached warp because a
+        /// later WarpToUT (blocking or detached) took the warp over.</summary>
+        internal const string DetachedEndSuperseded = "superseded";
+
+        /// <summary>The <c>reason=</c> of the line that ends a detached warp on a scene
+        /// change request or a level load (a LoadGame, a scene exit).</summary>
+        internal const string DetachedEndSceneChange = "scene-change";
+
+        /// <summary>The <c>reason=</c> of the line that ends a detached warp because a verb
+        /// that moves the clock itself (<see cref="DetachedWarpYieldsTo"/>) is about to
+        /// run.</summary>
+        internal const string DetachedEndYield = "yield";
 
         // ----- The post-load physics hold (a DEFER, not a refusal) -----
 
@@ -340,6 +392,74 @@ namespace Parsek.TestCommands
             error = WarpModeInvalidReason;
             return WarpLadderMode.Auto;
         }
+
+        /// <summary>
+        /// Resolve the OPTIONAL <c>detach</c> arg. Absent (or empty) is false, the verb's
+        /// blocking form; exactly <see cref="DetachTrueToken"/> is true; anything else is
+        /// <see cref="DetachInvalidReason"/>, FAIL-CLOSED, so a mis-typed detach can never
+        /// silently hold the FIFO head for the whole warp on a lane that meant to act during
+        /// it.
+        /// </summary>
+        internal static bool ResolveDetach(string detachArg, out string error)
+        {
+            error = null;
+            if (string.IsNullOrEmpty(detachArg)) return false;
+            if (string.Equals(detachArg, DetachTrueToken, StringComparison.Ordinal)) return true;
+            error = DetachInvalidReason;
+            return false;
+        }
+
+        /// <summary>
+        /// The verbs a running detached warp yields to: each moves the clock by itself
+        /// (<c>TimeJump</c> and <c>StartLoopPlayback</c> run <c>TimeJumpManager.ExecuteJump</c>,
+        /// which stops warp before its epoch shift; <c>RealSpawn</c> presses Real Spawn
+        /// Control's warp-to-recording-end, the same jump). A detached warp still stepping its
+        /// ladder would re-raise the rate on the frame after the jump. A <c>WarpToUT</c> is not
+        /// listed: it takes the warp over inside its own executor, and only once its args
+        /// passed, so a refused second warp leaves the first one running. Scene-changing verbs
+        /// are not listed either: the scene-change handler ends the detached warp for every
+        /// one of them.
+        /// </summary>
+        internal static bool DetachedWarpYieldsTo(string verb)
+            => string.Equals(verb, "TimeJump", StringComparison.Ordinal)
+               || string.Equals(verb, "StartLoopPlayback", StringComparison.Ordinal)
+               || string.Equals(verb, TestCommandRealSpawn.Verb, StringComparison.Ordinal);
+
+        /// <summary>
+        /// The per-frame decision for a DETACHED warp (no FIFO head waits on it). Arrived
+        /// once the clock reached the target (the same one-sided latch as the blocking form);
+        /// otherwise Timeout once the WarpToUT budget expired, measured from the detached
+        /// start; otherwise Continue (step the ladder). Arrived wins over Timeout on the same
+        /// frame: a warp that got there is not a timeout. No settle window: nothing is waiting
+        /// to be ordered after it.
+        /// </summary>
+        internal static DetachedWarpDecision DecideDetachedWarp(
+            double currentUT, double targetUT, double toleranceSeconds,
+            double elapsedSeconds, double budgetSeconds)
+        {
+            if (HasReached(currentUT, targetUT, toleranceSeconds)) return DetachedWarpDecision.Arrived;
+            if (elapsedSeconds >= budgetSeconds) return DetachedWarpDecision.Timeout;
+            return DetachedWarpDecision.Continue;
+        }
+
+        /// <summary>
+        /// The OK payload a <c>detach=true</c> WarpToUT answers with as soon as its first
+        /// ladder step was applied: <c>detached=true</c>, the captured target, the start UT,
+        /// the rung requested and the rung stock applied (read back at once: stock's
+        /// <c>setRate</c> moves the index on the call, while the rate itself eases up over the
+        /// next frames), and the rate read at that moment. InvariantCulture round-trip.
+        /// </summary>
+        internal static List<KeyValuePair<string, string>> BuildDetachedPayload(
+            double targetUT, double startUT, int requestedIndex, int appliedIndex, double rate)
+            => new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("detached", DetachTrueToken),
+                new KeyValuePair<string, string>("target", targetUT.ToString("R", CultureInfo.InvariantCulture)),
+                new KeyValuePair<string, string>("startUT", startUT.ToString("R", CultureInfo.InvariantCulture)),
+                new KeyValuePair<string, string>("requested", requestedIndex.ToString(CultureInfo.InvariantCulture)),
+                new KeyValuePair<string, string>("applied", appliedIndex.ToString(CultureInfo.InvariantCulture)),
+                new KeyValuePair<string, string>("rate", rate.ToString("R", CultureInfo.InvariantCulture)),
+            };
 
         /// <summary>
         /// The physics-mode feasibility gate: a <see cref="WarpLadderMode.Physics"/> request in

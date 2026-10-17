@@ -853,6 +853,119 @@ namespace Parsek.Tests
                 "the measured hold lasts 1.0-1.2 s after OnFlightReady; the bound needs margin");
         }
 
+        // ----- detach=true: the non-blocking warp -----
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        public void ResolveDetach_AbsentIsTheBlockingForm(string raw)
+        {
+            Assert.False(TestCommandWarpToUT.ResolveDetach(raw, out string error));
+            Assert.Null(error);
+        }
+
+        [Fact]
+        public void ResolveDetach_TrueDetaches()
+        {
+            Assert.True(TestCommandWarpToUT.ResolveDetach("true", out string error));
+            Assert.Null(error);
+            Assert.Equal("detach", TestCommandWarpToUT.DetachKey);
+            ParsedCommand cmd = TestCommandParser.ParseLine("id=1 cmd=WarpToUT ut=900 detach=true", 1);
+            Assert.True(cmd.ParseOk);
+            Assert.Equal("true", cmd.Args["detach"]);
+        }
+
+        [Theory]
+        [InlineData("True")]   // a TOML bool reaches the wire as str(True)
+        [InlineData("TRUE")]
+        [InlineData("false")]
+        [InlineData("1")]
+        [InlineData("yes")]
+        public void ResolveDetach_FailsClosedOnAnyOtherValue(string raw)
+        {
+            Assert.False(TestCommandWarpToUT.ResolveDetach(raw, out string error));
+            Assert.Equal(TestCommandWarpToUT.DetachInvalidReason, error);
+            Assert.Equal("warp-detach-invalid", error);
+        }
+
+        [Fact]
+        public void DecideDetachedWarp_ContinuesUntilTheClockArrives()
+        {
+            Assert.Equal(DetachedWarpDecision.Continue, TestCommandWarpToUT.DecideDetachedWarp(
+                100.0, 4000.0, TestCommandWarpToUT.UtToleranceSeconds, 5.0, 540.0));
+            Assert.Equal(DetachedWarpDecision.Continue, TestCommandWarpToUT.DecideDetachedWarp(
+                3999.7, 4000.0, TestCommandWarpToUT.UtToleranceSeconds, 5.0, 540.0));
+        }
+
+        [Fact]
+        public void DecideDetachedWarp_ArrivesInsideTheToleranceAndStaysArrivedOnAnOvershoot()
+        {
+            Assert.Equal(DetachedWarpDecision.Arrived, TestCommandWarpToUT.DecideDetachedWarp(
+                3999.8, 4000.0, TestCommandWarpToUT.UtToleranceSeconds, 5.0, 540.0));
+            Assert.Equal(DetachedWarpDecision.Arrived, TestCommandWarpToUT.DecideDetachedWarp(
+                4012.0, 4000.0, TestCommandWarpToUT.UtToleranceSeconds, 5.0, 540.0));
+        }
+
+        [Fact]
+        public void DecideDetachedWarp_TimesOutOnTheBudget_ButArrivalWins()
+        {
+            Assert.Equal(DetachedWarpDecision.Timeout, TestCommandWarpToUT.DecideDetachedWarp(
+                1000.0, 4000.0, TestCommandWarpToUT.UtToleranceSeconds, 540.0, 540.0));
+            Assert.Equal(DetachedWarpDecision.Arrived, TestCommandWarpToUT.DecideDetachedWarp(
+                4000.0, 4000.0, TestCommandWarpToUT.UtToleranceSeconds, 600.0, 540.0));
+        }
+
+        [Theory]
+        [InlineData("TimeJump", true)]
+        [InlineData("StartLoopPlayback", true)]
+        [InlineData("RealSpawn", true)]
+        [InlineData("WarpToUT", false)]   // takes the warp over inside its own executor
+        [InlineData("PartAction", false)]
+        [InlineData("ReadVesselResources", false)]
+        [InlineData("LoadGame", false)]   // ended by the scene-change handler instead
+        [InlineData(null, false)]
+        public void DetachedWarpYieldsTo_OnlyTheClockMovingVerbs(string verb, bool expected)
+        {
+            Assert.Equal(expected, TestCommandWarpToUT.DetachedWarpYieldsTo(verb));
+        }
+
+        [Fact]
+        public void BuildDetachedPayload_IsInWireOrder_AndInvariant()
+        {
+            CultureInfo saved = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+                List<KeyValuePair<string, string>> payload =
+                    TestCommandWarpToUT.BuildDetachedPayload(4000.5, 120.25, 6, 5, 1.0);
+                Assert.Equal(new[] { "detached", "target", "startUT", "requested", "applied", "rate" },
+                    payload.Select(kv => kv.Key));
+                Assert.Equal("true", payload.Single(kv => kv.Key == "detached").Value);
+                Assert.Equal("4000.5", payload.Single(kv => kv.Key == "target").Value);
+                Assert.Equal("120.25", payload.Single(kv => kv.Key == "startUT").Value);
+                Assert.Equal("6", payload.Single(kv => kv.Key == "requested").Value);
+                Assert.Equal("5", payload.Single(kv => kv.Key == "applied").Value);
+                Assert.Equal("1", payload.Single(kv => kv.Key == "rate").Value);
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
+
+        [Fact]
+        public void DetachedEndReasons_AreDistinctLogTokens()
+        {
+            string[] reasons =
+            {
+                TestCommandWarpToUT.DetachedEndSuperseded,
+                TestCommandWarpToUT.DetachedEndSceneChange,
+                TestCommandWarpToUT.DetachedEndYield,
+            };
+            Assert.Equal(reasons.Length, reasons.Distinct().Count());
+            Assert.All(reasons, r => Assert.DoesNotContain(" ", r));
+        }
+
         // ----- The refusal vocabulary is distinct -----
 
         [Fact]
@@ -870,6 +983,7 @@ namespace Parsek.Tests
                 TestCommandWarpToUT.WarpModeInvalidReason,
                 TestCommandWarpToUT.PhysicsWarpDisallowedReason,
                 TestCommandWarpToUT.PhysicsWarpNotInFlightReason,
+                TestCommandWarpToUT.DetachInvalidReason,
                 // The physics-hold DEFER reason travels as a TIMEOUT msg if the bound is
                 // ever reached by the budget, so it must not alias a refusal token either.
                 TestCommandWarpToUT.PhysicsHoldDeferReason,

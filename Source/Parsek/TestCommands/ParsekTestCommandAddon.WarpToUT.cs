@@ -15,6 +15,12 @@
 // an exception - and all three force rate index 0 before emitting. The success condition
 // itself requires rate 0 (TestCommandWarpToUT.DecideWarpCompletion), so an OK terminal is
 // PROOF the rate came down rather than an assumption about it.
+//
+// detach=true answers OK after the first ladder step and keeps warping from Update
+// (TickDetachedWarp). Its exits lower the warp the same way: arrival and the budget force
+// rate 0, a throw forces rate 0, and a scene change or a clock-moving verb ends it through
+// EndDetachedWarp with the rate forced down. A later WarpToUT is the one exit that keeps the
+// rate: it takes the same warp over and lowers it at its own target.
 // =====================================================================================
 using System;
 using System.Collections.Generic;
@@ -47,6 +53,14 @@ namespace Parsek.TestCommands
         // lock, and when (wall seconds), so the dispatcher's bound is measured per head.
         private string warpHoldHeadId;
         private double warpHoldFirstSeenAt;
+
+        // detach=true state: a warp that already answered OK and keeps stepping the ladder
+        // from Update (TickDetachedWarp) with no FIFO head waiting on it. It shares every
+        // warp field above with the blocking form; only one warp is ever live, because a
+        // later WarpToUT takes it over (EndDetachedWarp "superseded") before re-arming them.
+        private bool warpDetached;
+        private string warpDetachedId;
+        private double warpDetachedStartedAt;
 
         /// <summary>
         /// Samples the dispatch bits for the post-load physics-hold defer. Reads the input
@@ -92,6 +106,7 @@ namespace Parsek.TestCommands
             string utArg = ArgOrNull(cmd, "ut");
             string maxRateArg = ArgOrNull(cmd, "maxRate");
             string modeArg = ArgOrNull(cmd, "ladder");
+            string detachArg = ArgOrNull(cmd, "detach");
             double nowUt = SafeUniversalTime();
 
             double target = TestCommandWarpToUT.ResolveTargetUt(utArg, out string targetError);
@@ -115,6 +130,14 @@ namespace Parsek.TestCommands
             {
                 ParsekLog.Warn(Tag, $"warptout refused reason={modeError} ladder={modeArg}");
                 SetExecResult("REJECTED", null, modeError);
+                return;
+            }
+
+            bool detach = TestCommandWarpToUT.ResolveDetach(detachArg, out string detachError);
+            if (detachError != null)
+            {
+                ParsekLog.Warn(Tag, $"warptout refused reason={detachError} detach={detachArg}");
+                SetExecResult("REJECTED", null, detachError);
                 return;
             }
 
@@ -155,6 +178,19 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // A detached warp still running is taken over HERE, after every refusal above, so
+            // a refused second warp leaves the first one warping. The rate is not dropped:
+            // the new warp's ladder re-selects from the rung stock is at. The one exception is
+            // a physics-ladder detached warp taken over by a ladder-auto one, which is lowered
+            // and its mode restored first, because an auto warp never restores a mode itself.
+            bool takeover = warpDetached;
+            bool previousPhysics = warpRequestedMode == WarpLadderMode.Physics;
+            TimeWarp.Modes previousModeBefore = warpModeBefore;
+            if (takeover)
+                EndDetachedWarp(TestCommandWarpToUT.DetachedEndSuperseded,
+                    lower: previousPhysics && mode != WarpLadderMode.Physics,
+                    $" by={cmd.Id} newUt={Inv(target)} newDetach={(detach ? "true" : "false")}");
+
             warpTargetUt = target;
             warpStartUt = nowUt;
             warpMaxRateCap = cap;
@@ -162,7 +198,11 @@ namespace Parsek.TestCommands
             warpLastRequestedIndex = -1;
             warpSettleFramesRemaining = TestCommandWarpToUT.SettleFrames;
             warpRequestedMode = mode;
-            warpModeBefore = SafeStockInPhysicsWarp() ? TimeWarp.Modes.LOW : TimeWarp.Modes.HIGH;
+            // A physics warp taking over a physics warp keeps the mode captured before the
+            // first one forced LOW, so the final restore returns to the player's mode.
+            warpModeBefore = takeover && previousPhysics && mode == WarpLadderMode.Physics
+                ? previousModeBefore
+                : (SafeStockInPhysicsWarp() ? TimeWarp.Modes.LOW : TimeWarp.Modes.HIGH);
             warpPhysicsModeAsserts = 0;
 
             ParsekLog.Info(Tag,
@@ -178,6 +218,12 @@ namespace Parsek.TestCommands
                     $"warptout scene={HighLogic.LoadedScene} outside FLIGHT: rails ladder, "
                     + $"no vessel ceiling, maxRate={Inv(cap)}");
 
+            if (detach)
+            {
+                StartDetachedWarp(cmd, nowUt);
+                return;
+            }
+
             // ARM THE TWO-PHASE FIRST, THEN RAISE THE WARP. The order is load-bearing and
             // it is the fourth exit the file header's "always lowered" claim has to cover:
             // if the first ladder step throws BEFORE the pending verdict is set, the pump's
@@ -189,6 +235,151 @@ namespace Parsek.TestCommands
             // the warp starts no later than it did before.
             SetExecResult(PendingVerdict, null, null);
             ApplyWarpLadderStep(nowUt);
+        }
+
+        /// <summary>
+        /// The <c>detach=true</c> start: arm the detached state, take the first ladder step on
+        /// this frame, and answer OK at once with what stock applied. Armed BEFORE the step for
+        /// the blocking form's reason: a throw inside it must still find a warp to lower, so the
+        /// catch force-lowers, clears the state and rethrows into ExecuteHead's ERROR terminal.
+        /// </summary>
+        private void StartDetachedWarp(ParsedCommand cmd, double nowUt)
+        {
+            warpDetached = true;
+            warpDetachedId = cmd.Id;
+            warpDetachedStartedAt = WallClockSeconds();
+            try
+            {
+                ApplyWarpLadderStep(nowUt);
+            }
+            catch (Exception)
+            {
+                ForceWarpToRealTime("detached-start-threw");
+                RestoreWarpModeIfForced("detached-start-threw");
+                warpDetached = false;
+                warpDetachedId = null;
+                throw;
+            }
+
+            int applied = SafeCurrentWarpRateIndex();
+            double rate = SafeCurrentWarpRate();
+            ParsekLog.Info(Tag,
+                $"warptout detached start id={cmd.Id} ut={Inv(warpTargetUt)} "
+                + $"delta={Inv(warpTargetUt - nowUt)}s "
+                + $"requested={warpLastRequestedIndex.ToString(CultureInfo.InvariantCulture)} "
+                + $"applied={applied.ToString(CultureInfo.InvariantCulture)} rate={Inv(rate)} "
+                + $"ladder={WarpModeToken(warpRequestedMode)} mode={SafeWarpModeName()} "
+                + $"maxRate={Inv(warpMaxRateCap)}");
+            SetExecResult("OK", TestCommandWarpToUT.BuildDetachedPayload(
+                warpTargetUt, nowUt, warpLastRequestedIndex, applied, rate), null);
+        }
+
+        /// <summary>
+        /// One Update frame of a detached warp: step the ladder toward the target, drop to 1x
+        /// on arrival (the blocking form's <c>warptout complete</c> line, with
+        /// <c>detached=true id=</c> appended), or on the budget (a Warn). A throw lowers the
+        /// warp and ends it, so no path leaves the game warped. Runs on every safe-point frame
+        /// (the caller is past the scene-transition gate), whatever the FIFO head is doing.
+        /// </summary>
+        private void TickDetachedWarp()
+        {
+            if (!warpDetached) return;
+            double elapsed = WallClockSeconds() - warpDetachedStartedAt;
+            try
+            {
+                double currentUt = SafeUniversalTime();
+                int currentRateIndex = SafeCurrentWarpRateIndex();
+                double rate = SafeCurrentWarpRate();
+                if (rate > warpMaxObservedRate) warpMaxObservedRate = rate;
+
+                DetachedWarpDecision decision = TestCommandWarpToUT.DecideDetachedWarp(
+                    currentUt, warpTargetUt, TestCommandWarpToUT.UtToleranceSeconds,
+                    elapsed, DeferralBudget.BudgetSeconds("WarpToUT"));
+                string id = warpDetachedId;
+                switch (decision)
+                {
+                    case DetachedWarpDecision.Continue:
+                        ApplyWarpLadderStep(currentUt);
+                        ParsekLog.InfoRateLimited(Tag,
+                            "warptout-detached-progress-" + currentRateIndex.ToString(CultureInfo.InvariantCulture),
+                            $"warptout detached progress id={id} ut={Inv(warpTargetUt)} "
+                            + $"reachedUT={Inv(currentUt)} remaining={Inv(warpTargetUt - currentUt)}s "
+                            + $"rate={Inv(SafeCurrentWarpRate())} "
+                            + $"rateIndex={currentRateIndex.ToString(CultureInfo.InvariantCulture)} "
+                            + $"elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
+                        return;
+                    case DetachedWarpDecision.Arrived:
+                        ForceWarpToRealTime("target-reached");
+                        RestoreWarpModeIfForced("target-reached");
+                        warpDetached = false;
+                        warpDetachedId = null;
+                        ParsekLog.Info(Tag,
+                            $"warptout complete reachedUT={Inv(currentUt)} ut={Inv(warpTargetUt)} "
+                            + $"rate={Inv(SafeCurrentWarpRate())} maxRate={Inv(warpMaxObservedRate)} "
+                            + $"ladder={WarpModeToken(warpRequestedMode)} "
+                            + $"modeAsserts={warpPhysicsModeAsserts.ToString(CultureInfo.InvariantCulture)} "
+                            + $"elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s "
+                            + $"detached=true id={id}");
+                        return;
+                    default: // Timeout
+                        ForceWarpToRealTime(TestCommandWarpToUT.WarpTimeoutReason);
+                        RestoreWarpModeIfForced(TestCommandWarpToUT.WarpTimeoutReason);
+                        warpDetached = false;
+                        warpDetachedId = null;
+                        ParsekLog.Warn(Tag,
+                            $"warptout detached timeout reason={TestCommandWarpToUT.WarpTimeoutReason} "
+                            + $"id={id} ut={Inv(warpTargetUt)} reachedUT={Inv(currentUt)} "
+                            + $"maxRate={Inv(warpMaxObservedRate)} "
+                            + $"elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
+                        return;
+                }
+            }
+            catch (Exception ex)
+            {
+                string id = warpDetachedId;
+                ForceWarpToRealTime("detached-threw");
+                RestoreWarpModeIfForced("detached-threw");
+                warpDetached = false;
+                warpDetachedId = null;
+                ParsekLog.Error(Tag,
+                    $"warptout detached threw id={id} ut={Inv(warpTargetUt)} "
+                    + $"{ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Ends a running detached warp without arrival and logs
+        /// <c>warptout detached ended reason=&lt;r&gt; id= ut= reachedUT= rate= maxRate= elapsed=</c>
+        /// plus <paramref name="detail"/>. With <paramref name="lower"/> the rate is forced to
+        /// index 0 and a forced physics mode restored first. Idempotent (a no-op when no
+        /// detached warp runs).
+        /// </summary>
+        private void EndDetachedWarp(string reason, bool lower, string detail)
+        {
+            if (!warpDetached) return;
+            string id = warpDetachedId;
+            double elapsed = WallClockSeconds() - warpDetachedStartedAt;
+            if (lower)
+            {
+                ForceWarpToRealTime(reason);
+                RestoreWarpModeIfForced(reason);
+            }
+            warpDetached = false;
+            warpDetachedId = null;
+            ParsekLog.Info(Tag,
+                $"warptout detached ended reason={reason} id={id} ut={Inv(warpTargetUt)} "
+                + $"reachedUT={Inv(SafeUniversalTime())} rate={Inv(SafeCurrentWarpRate())} "
+                + $"maxRate={Inv(warpMaxObservedRate)} lowered={(lower ? "true" : "false")} "
+                + $"elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s{detail ?? string.Empty}");
+        }
+
+        /// <summary>Ends a running detached warp at 1x before a verb that moves the clock by
+        /// itself runs (<see cref="TestCommandWarpToUT.DetachedWarpYieldsTo"/>).</summary>
+        private void YieldDetachedWarpTo(ParsedCommand head)
+        {
+            if (!warpDetached || !TestCommandWarpToUT.DetachedWarpYieldsTo(head.Verb)) return;
+            EndDetachedWarp(TestCommandWarpToUT.DetachedEndYield, lower: true,
+                $" verb={head.Verb} by={head.Id}");
         }
 
         private void TryCompleteWarpToUT(double now)

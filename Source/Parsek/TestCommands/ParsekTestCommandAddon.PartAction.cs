@@ -71,6 +71,8 @@ namespace Parsek.TestCommands
             int namedParts = 0;
             int matchingConverters = 0;
             int experimentModules = 0;
+            int radiatorModules = 0;
+            bool radiatorKind = TestCommandPartAction.IsRadiatorKind(kind);
             var found = new List<PartActionCandidate>();
             string[] eventNames = TestCommandPartAction.EventNamesFor(kind);
             for (int i = 0; i < v.parts.Count; i++)
@@ -101,6 +103,13 @@ namespace Parsek.TestCommands
                                 EventName = TestCommandPartAction.LabProcessMethodName,
                             });
                         continue;
+                    }
+                    if (radiatorKind)
+                    {
+                        // Only the radiator module's Activate / Shutdown: other modules on
+                        // the part may carry an event of the same name.
+                        if (!(module is ModuleActiveRadiator)) continue;
+                        radiatorModules++;
                     }
                     if (converterName != null)
                     {
@@ -138,13 +147,14 @@ namespace Parsek.TestCommands
             }
 
             reason = TestCommandPartAction.DecideCandidates(kind, partName, namedParts, converterName,
-                matchingConverters, experimentModules, candidates.Count, all);
+                matchingConverters, experimentModules, radiatorKind ? radiatorModules : -1,
+                candidates.Count, all);
             if (reason != null)
             {
                 RejectPartAction(reason, $"button={actArg} pid={v.persistentId} part={partName ?? "<any>"} " +
                     $"converter={converterName ?? string.Empty} all={all} namedParts={namedParts} " +
                     $"matchingConverters={matchingConverters} experimentModules={experimentModules} " +
-                    $"candidates={candidates.Count}");
+                    $"radiatorModules={radiatorModules} candidates={candidates.Count}");
                 return;
             }
 
@@ -228,12 +238,16 @@ namespace Parsek.TestCommands
                 state = TestCommandPartAction.FormatState(ReadPartActionState(first.Part));
             }
 
+            // A packed (on-rails) vessel is pressed like an unpacked one: still loaded, so its
+            // modules and events exist, exactly as for a player's PAW click in rails warp.
+            var warp = new PartActionWarpContext(v.packed, SafeCurrentWarpRateIndex(),
+                SafeCurrentWarpRate(), SafeUniversalTime());
             ParsekLog.Info(Tag, TestCommandPartAction.FormatAppliedLine(kind, vesselPid, cPartName, cPartId,
                 eventName, newPid, nv != null ? nv.vesselName : null, before.Count, after.Count,
-                activePid, activeName, converterName, state, pressed));
+                activePid, activeName, converterName, state, pressed, warp));
             SetExecResult("OK", TestCommandPartAction.BuildOkPayload(kind, vesselPid, cPartName, cPartId,
                 eventName, newPid, nv != null ? nv.vesselName : null, before.Count, after.Count,
-                activePid, activeName, converterName, state, pressed), null);
+                activePid, activeName, converterName, state, pressed, warp), null);
         }
 
         /// <summary>
@@ -275,6 +289,8 @@ namespace Parsek.TestCommands
                     readings.Add(PartActionModuleReading.Experiment(exp.GetScienceCount()));
                 else if (module is ModuleAnimationGroup anim)
                     readings.Add(PartActionModuleReading.AnimationGroup(anim.isDeployed));
+                else if (module is ModuleActiveRadiator rad)
+                    readings.Add(PartActionModuleReading.Radiator(rad.IsCooling));
             }
             return readings;
         }

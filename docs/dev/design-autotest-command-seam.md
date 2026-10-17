@@ -569,6 +569,16 @@ the updates below record how each verb arrived.
 > `-lab-method-missing`), so a lane can drive a drill, a converter, a science lab and an
 > experiment like a player. Contract below (`#### PartAction`).
 
+> Update (WarpToUT detach / PartAction radiators, 2026-10-17): no new verb (the table stays
+> **53 implemented / 4 reserved**). `WarpToUT` gains an OPTIONAL `detach=true`: the same warp,
+> answered OK as soon as its first ladder step is applied, then stepped from the addon's Update
+> until it drops to 1x at `ut`, so later steps act DURING the warp (a player toggling a converter
+> in rails warp). `PartAction` gains `button=radiatoron|radiatoroff` (`ModuleActiveRadiator`
+> Activate / Shutdown), the reading `radiator:cooling=0|1` in `state=`, the refusal
+> `partaction-radiator-not-found`, and four appended answer fields `packed= warpIndex= warpRate=
+> ut=`. New WarpToUT refusal `warp-detach-invalid`. Contracts below (`#### WarpToUT`,
+> `#### PartAction`).
+
 > Update (CrewTransfer, 2026-10-17): one ADDITIVE verb, taking the table to **53 implemented / 4 reserved**,
 > for the crew-across-vessels coverage (crew moved between two pods of a docked pair):
 > `CrewTransfer kerbal= part=` runs stock's own crew transfer inside the active vessel. Full contract
@@ -1658,7 +1668,35 @@ budget a spec declares.
 |---|---|---|
 | `ut` | InvariantCulture float | REQUIRED, ABSOLUTE, and strictly in the future. Absent / unparseable is `REJECTED missing-warp-target` (a locale comma such as `600,0` fails: InvariantCulture only); non-finite or beyond 1e12 is `REJECTED target-out-of-range`; at or before now is `REJECTED backward-warp`. |
 | `maxRate` | InvariantCulture float `>= 1` | OPTIONAL cap on the rails rate the ladder may select. Absent means uncapped. Present-but-unparseable or below 1 is `REJECTED max-rate-invalid` - FAIL-CLOSED rather than ignored, so a mis-typed cap can never read as an uncapped warp. |
+| `detach` | `true` | OPTIONAL. Absent keeps the blocking form above. `true` runs the SAME warp (same ladder, cap, physics mode and refusals) but answers OK as soon as the first ladder step is applied, so later steps run while the clock is still warping. See "detach=true" below. Any other value (a TOML bool reaches the wire as `True`) is `REJECTED warp-detach-invalid`, fail-closed. The harness validates it pre-launch through `hlib.VERB_SCOPED_CLOSED_ARGS`. |
 | `ladder` | `phys` | OPTIONAL (coverage wave 5, D14 `warp-phys`). Absent keeps the behaviour below: whichever ladder stock is on, re-read every frame. `phys` drives stock PHYSICS warp for the whole span: it writes `TimeWarp.Mode = LOW`, selects against `physicsWarpRates` with the physics ceiling, re-asserts LOW before any rung above 1x if stock switched back (stock's `TimeWarp.Update` returns LOW to HIGH by itself at or below `maxModeSwitchRate_index` in vacuum or landed-and-still), and restores the starting mode once the rate is back at index 0 on every terminal. Any other value is `REJECTED warp-ladder-invalid`; a game whose difficulty forbids physics warp (`GameParameters.Flight.CanTimeWarpLow`, the gate stock's own physics button reads) is `REJECTED physics-warp-disallowed`. Pure halves: `ResolveWarpMode`, `EvaluateModeFeasibility`, `ShouldAssertPhysicsMode`. Logged as `ladder=phys` on the `warptout start` / `warptout complete` lines (the latter also carries `modeAsserts=N`), plus `warptout mode asserted physics ...` / `warptout mode restored ...`. The harness validates it pre-launch through `hlib.VERB_SCOPED_CLOSED_ARGS`. |
+
+**detach=true: the warp the next steps run inside.** A player toggles an ISRU on and off and
+switches radiators while the game is in rails warp; the blocking form holds the FIFO head until
+the target, so no later step could act during it. With `detach=true` the executor passes every
+refusal above, arms the warp state, takes the first ladder step on that frame and answers OK at
+once with `detached=true target=<ut> startUT=<now> requested=<i> applied=<j> rate=<r>`
+(`TestCommandWarpToUT.BuildDetachedPayload`; stock's `setRate` moves the rung on the call, the rate
+eases up over the next frames, so `applied=` is the proof the warp engaged). From then on the
+addon's Update steps the same ladder every safe-point frame, whatever the FIFO head is doing
+(`TickDetachedWarp`, before the two-phase and batch gates), so a `PartAction`, a
+`ReadVesselResources` or any other step runs during the warp. Each frame
+`TestCommandWarpToUT.DecideDetachedWarp` answers Continue, Arrived (the blocking form's one-sided
+latch) or Timeout (the 540 s WarpToUT budget, measured from the detached start; Arrived wins on
+the same frame). Arrival forces rate 0, restores a forced physics mode and logs the blocking
+form's completion line with `detached=true id=<id>` appended. Every other exit lowers the warp
+too: the timeout (`warptout detached timeout reason=warp-timeout ...` at Warn), a throw (Error,
+rate forced 0), a scene change request or level load (LoadGame, a scene exit), and a verb that
+moves the clock itself (`DetachedWarpYieldsTo`: `TimeJump`, `StartLoopPlayback`, `RealSpawn`,
+whose epoch shift a still-stepping ladder would undo the frame after), each logged
+`warptout detached ended reason=<scene-change|yield> ... lowered=true`. A later `WarpToUT`,
+blocking or detached, TAKES THE WARP OVER once its own args pass (a refused one leaves the first
+warp running): `warptout detached ended reason=superseded ... lowered=false by=<id> newUt=<t>
+newDetach=<bool>`, then its own `warptout start` and ladder from the rung stock is at, dropping to
+1x at its own target. The one takeover that lowers first is a `ladder=phys` detached warp taken
+over by a ladder-auto one (an auto warp never restores a mode itself); a physics warp taking over
+a physics warp keeps the mode captured before the first. Only one warp is ever live: both forms
+share the applier's warp state.
 
 **Why `ut` is absolute-only, unlike `TimeJump`'s `ut` / `deltaSeconds` pair.** A warp's own
 duration depends on the clamps stock applies, so a delta-relative target would land
@@ -1730,12 +1768,22 @@ remaining=<s>s ut=<t> instant=<bool>` on each ladder CHANGE (bounded by the ladd
 plain Info rather than rate-limited); `warptout dewarp reason=<r> fromIndex=<i> rate=<r>`
 whenever the rate is forced down; and `warptout complete reachedUT=<u> ut=<t> rate=<r>
 maxRate=<m> elapsed=<e>s` on success. Refusals log `warptout refused reason=<r> ...` at
-Warn and the timeout logs at Error.
+Warn and the timeout logs at Error. A `detach=true` warp adds, after the unchanged `warptout
+start` line, `warptout detached start id=<id> ut=<t> delta=<d>s requested=<i> applied=<j>
+rate=<r> ladder=<l> mode=<m> maxRate=<c>` once; `warptout detached progress id= ut= reachedUT=
+remaining= rate= rateIndex= elapsed=` rate-limited per rung; on arrival `warptout complete
+reachedUT=<u> ut=<t> rate=<r> maxRate=<m> ladder=<l> modeAsserts=<n> elapsed=<e>s detached=true
+id=<id>`; otherwise `warptout detached ended reason=<superseded|scene-change|yield> id= ut=
+reachedUT= rate= maxRate= lowered=<bool> elapsed=` (plus `by= newUt= newDetach=` or `verb= by=`)
+or the Warn `warptout detached timeout reason=warp-timeout id= ut= reachedUT= maxRate= elapsed=`.
+A lane proves a press landed inside the warp with the `PartAction` line's `warpIndex=[1-9]`
+between `warptout detached start` and the detached `warptout complete`.
 
 **Pure decision.** `TestCommandWarpToUT` (`ResolveTargetUt`, `ResolveMaxRate`,
 `IsForwardWarp`, `EvaluateFeasibility`, `EvaluateSceneFeasibility`,
 `IsTransientPhysicsHoldOnly`, `ShouldDeferForPhysicsHold`, `HasReached`, `SelectRateIndex`,
-`BottomRungIndex`, `MinRealSecondsForRung`, `ShouldSetRateInstantly`, `DecideWarpCompletion`, `BuildCompletePayload`, and the refusal-reason constants) plus
+`BottomRungIndex`, `MinRealSecondsForRung`, `ShouldSetRateInstantly`, `DecideWarpCompletion`, `BuildCompletePayload`,
+`ResolveDetach`, `DecideDetachedWarp`, `DetachedWarpYieldsTo`, `BuildDetachedPayload`, and the refusal-reason constants) plus
 `TestCommandDispatcher.IsWarpScene` and the `WarpToUT` dispatch case,
 xUnit-covered in `TestCommandWarpToUTTests.cs`. The partial
 `ParsekTestCommandAddon.WarpToUT.cs` only samples live KSP state and calls
@@ -4385,7 +4433,7 @@ after the split). The PAW buttons are `KSPEvent`s; the verb invokes the module's
 way a player clicks them, and read the part's module state back.
 
 **Grammar.** `cmd=PartAction button=<undock|decouple|controlfrom|deploy|retract|startconverter|
-stopconverter|experiment|labprocess|labtransmit|inspect> [part=<part name>]
+stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff> [part=<part name>]
 [converter=<ConverterName>] [all=true] [pid=<persistentId>]`, issued in FLIGHT. `button=` REQUIRED, closed,
 case-sensitive (`partaction-button-arg-missing` / `-arg-invalid`); `part=` is the part's runtime
 name (dot form, `Decoupler.1`), REQUIRED for every button but `undock`
@@ -4405,11 +4453,15 @@ named part (or on any part, for an undock without `part=`) whose event for the b
 (`Undock`; `Decouple`; `MakeReference`, else `MakeReferenceTransform`; `DeployModule` /
 `RetractModule` on `ModuleAnimationGroup`; `StartResourceConverter` / `StopResourceConverter` on
 any `BaseConverter`, i.e. a harvester, an ISRU converter or a lab's research;
-`DeployExperiment`; `TransmitScience` on `ModuleScienceLab`) is `active` and `guiActive`, after
-the `converter=` filter. An undock folds the two ports of a docked pair into one candidate.
+`DeployExperiment`; `TransmitScience` on `ModuleScienceLab`; `Activate` / `Shutdown` on
+`ModuleActiveRadiator` only) is `active` and `guiActive`, after the `converter=` filter. An undock folds the two ports of a docked pair into one candidate.
 Exactly one candidate is pressed; none is `partaction-part-not-found` (a named part the vessel
 lacks), `partaction-converter-not-found` (a `converter=` no converter module on the named part
-carries, whatever its event state) or `partaction-event-unavailable` (no live button), more than
+carries, whatever its event state), `partaction-radiator-not-found` (a radiator button on named
+parts carrying no `ModuleActiveRadiator`, whatever its event state) or
+`partaction-event-unavailable` (no live button: stock shows only the radiator button that changes
+`IsCooling`, so `radiatoron` on a cooling radiator lands here, and neither on a deployable
+radiator, which its own Extend / Retract drives), more than
 one `partaction-part-ambiguous` (a multi-converter part without `converter=` included, never a
 silent first pick). With `all=true` one or more candidates proceed and every one is pressed in
 vessel part order, each with the same press as alone; zero refuses exactly as without it. A
@@ -4427,23 +4479,35 @@ vessel an undock or a decouple creates exists on return: it is the pid present a
 and absent before. A converter's output, an experiment's data and a lab's processing move on
 later frames, so `state=` is the state right after the click (read it again with `inspect`).
 Line `partaction applied button= pid= part='..' partId= event= newPid= newName='..'
-vessels=N->M activePid= activeName='..' converter='..' state='..' count=`; payload `button pid
-part partId event newPid newName vesselsBefore vesselsAfter activePid activeName converter state
-count` (the newer fields last, so every earlier anchor still matches). `count` is how many
+vessels=N->M activePid= activeName='..' converter='..' state='..' count= packed= warpIndex=
+warpRate= ut=`; payload `button pid part partId event newPid newName vesselsBefore vesselsAfter
+activePid activeName converter state count packed warpIndex warpRate ut` (the newer fields last,
+so every earlier anchor still matches). `packed` is the target vessel's `Vessel.packed` (1 on
+rails), `warpIndex` / `warpRate` the stock warp rung and rate and `ut` the game clock, all read
+right after the press (`TestCommandPartAction.AppendWarpContext`). `count` is how many
 candidates were pressed (inspect: read), 1 without `all=true`; with it `part` / `partId` /
 `event` are the first candidate's. `converter` is the given
 filter (empty when none); `state` is the target part's relevant modules, in module order, read
 after the press and joined by `;` (invariant culture): a converter `<ConverterName>:active=0|1`,
 a science lab `lab:storedScience=<F2> dataStored=<F2>`, an experiment `exp:data=<count>`, an
-animation group `deployed=0|1`. With `all=true`, `state` is every acted-on part in vessel part
+animation group `deployed=0|1`, an active radiator `radiator:cooling=0|1`. With `all=true`, `state` is every acted-on part in vessel part
 order as `<flightID>:<that part's segments>`, joined by ` | `
 (`123:Surface Harvester:active=1;deployed=1 | 456:...`). Names are read at once, so stock's one-Update rename after a
 staging split is NOT in them (VN-8 reads it from the save).
 
+**Packed (on-rails) vessels.** Nothing refuses a packed vessel: in rails warp a landed vessel
+stays LOADED (only `packed`), its part modules and their `KSPEvent`s exist, and the vessel gate
+checks `loaded` only, so a press during a `WarpToUT detach=true` warp invokes the same `BaseEvent`
+a player's PAW click invokes in warp. Stock applies the click at once (`BaseConverter.IsActivated`,
+`ModuleActiveRadiator.IsCooling`, both persistent fields) and simulates the effect itself: a
+converter's `FixedUpdate` catches the warped span up from its `lastUpdateTime`, and core heat
+drains only into radiators with `IsCooling` set. The answer's `packed=1 warpIndex=<i>` says the
+press landed on rails.
+
 **Phases.** SINGLE-PHASE, `RequiresFlight`, default budget (60 s); an exception from the event is
 the ERROR `partaction-event-threw` (a reflected `sendDataToLab` reports its inner exception).
 The seven arg reasons are deterministic (`DETERMINISTIC_SEAM_ERROR_REASONS`);
-`-converter-not-found` is arg-class but retried like `-part-not-found`, and
+`-converter-not-found` and `-radiator-not-found` are arg-class but retried like `-part-not-found`, and
 `-experiment-no-data` / `-lab-method-missing` are gate-class. World-mutating tail role, `recording` post-mission role;
 state-mutating for the FlushAndQuit save. Pure half `TestCommandPartAction`, applier
 `ParsekTestCommandAddon.PartAction.cs`, mirrored by `PartActionSourceSyncTests`. Lanes:

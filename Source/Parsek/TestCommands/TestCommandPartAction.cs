@@ -34,6 +34,10 @@ namespace Parsek.TestCommands
         LabTransmit,
         /// <summary>Presses nothing: reads the named part's module state only.</summary>
         Inspect,
+        /// <summary>A radiator's "Activate Radiator" (<c>ModuleActiveRadiator.Activate</c>).</summary>
+        RadiatorOn,
+        /// <summary>A radiator's "Shutdown Radiator" (<c>ModuleActiveRadiator.Shutdown</c>).</summary>
+        RadiatorOff,
     }
 
     /// <summary>One module reading of the target part for the <c>state=</c> answer field: plain
@@ -41,7 +45,7 @@ namespace Parsek.TestCommands
     /// <see cref="TestCommandPartAction.FormatState"/>.</summary>
     internal struct PartActionModuleReading
     {
-        internal enum ReadingKind { Converter, Lab, Experiment, AnimationGroup }
+        internal enum ReadingKind { Converter, Lab, Experiment, AnimationGroup, Radiator }
 
         internal ReadingKind Kind;
         internal string Name;
@@ -64,6 +68,28 @@ namespace Parsek.TestCommands
 
         internal static PartActionModuleReading AnimationGroup(bool deployed)
             => new PartActionModuleReading { Kind = ReadingKind.AnimationGroup, Flag = deployed };
+
+        internal static PartActionModuleReading Radiator(bool cooling)
+            => new PartActionModuleReading { Kind = ReadingKind.Radiator, Flag = cooling };
+    }
+
+    /// <summary>The warp context of a press, read right after it: the target vessel's
+    /// <c>packed</c>, the stock warp rung and rate, and the game clock
+    /// (<see cref="TestCommandPartAction.AppendWarpContext"/>).</summary>
+    internal struct PartActionWarpContext
+    {
+        internal bool Packed;
+        internal int WarpIndex;
+        internal double WarpRate;
+        internal double UT;
+
+        internal PartActionWarpContext(bool packed, int warpIndex, double warpRate, double ut)
+        {
+            Packed = packed;
+            WarpIndex = warpIndex;
+            WarpRate = warpRate;
+            UT = ut;
+        }
     }
 
     /// <summary>
@@ -83,10 +109,17 @@ namespace Parsek.TestCommands
     /// <para>The ISRU / lab buttons (deploy, retract, startconverter, stopconverter,
     /// experiment, labprocess, labtransmit, inspect) let a lane drive a drill, a converter, a
     /// science lab and an experiment the way a player clicks them, and read the part's module
-    /// state back.</para>
+    /// state back. <c>radiatoron</c> / <c>radiatoroff</c> press a radiator's Activate / Shutdown
+    /// (<c>ModuleActiveRadiator</c>), the switch a mining craft's overheating parts depend on.</para>
+    ///
+    /// <para><b>Packed vessels.</b> Nothing here refuses a PACKED (on-rails) vessel: it is still
+    /// loaded and its part modules and events still exist, so a press in rails warp runs the same
+    /// KSPEvent a player's PAW click runs then. Stock applies it at once (the converter's
+    /// <c>IsActivated</c>, the radiator's <c>IsCooling</c>) and simulates the effect on its own:
+    /// a converter catches up over the warp from its <c>lastUpdateTime</c>.</para>
     ///
     /// <para><b>Grammar.</b> <c>cmd=PartAction button=undock|decouple|controlfrom|deploy|retract|
-    /// startconverter|stopconverter|experiment|labprocess|labtransmit|inspect
+    /// startconverter|stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff
     /// [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [all=true] [pid=&lt;persistentId&gt;]</c>.
     /// <c>button=</c> REQUIRED, closed. <c>part=</c> is the part's runtime name (dot form,
     /// <c>Decoupler.1</c>); REQUIRED for every button but <c>undock</c>, OPTIONAL for
@@ -110,7 +143,11 @@ namespace Parsek.TestCommands
     /// the dialog button's body); otherwise the experiment's private <c>sendDataToLab</c> runs
     /// by reflection (<c>event=sendDataToLab</c>). A build without that method refuses
     /// <c>lab-method-missing</c>. <b>inspect</b> presses nothing; its candidate is the one part
-    /// carrying the name.</para>
+    /// carrying the name. <b>radiatoron / radiatoroff</b> candidates are the named part's
+    /// <c>ModuleActiveRadiator</c>s whose <c>Activate</c> / <c>Shutdown</c> event is live (stock
+    /// shows only the one that changes <c>IsCooling</c>, and neither on a deployable radiator,
+    /// which its own Extend / Retract drives); named parts carrying no such module refuse
+    /// <c>radiator-not-found</c>.</para>
     ///
     /// <para><b>Answer.</b> OK payload <c>button= pid= part= partId= event= newPid= newName=
     /// vesselsBefore= vesselsAfter= activePid= activeName= converter= state= count=</c>: <c>newPid</c> /
@@ -125,8 +162,9 @@ namespace Parsek.TestCommands
     /// <c> | </c>. A press that throws stops the walk and answers ERROR <c>event-threw</c>, the
     /// log line naming how many presses succeeded first. Line:
     /// <c>partaction applied button= pid= part='..' partId= event= newPid= newName='..' vessels=N->M
-    /// activePid= activeName='..' converter='..' state='..' count=</c>; the newer fields are
-    /// appended so every earlier anchor still matches.</para>
+    /// activePid= activeName='..' converter='..' state='..' count= packed= warpIndex= warpRate= ut=</c>;
+    /// the newer fields are appended so every earlier anchor still matches (the payload carries
+    /// the same four warp fields last).</para>
     /// </summary>
     internal static class TestCommandPartAction
     {
@@ -150,6 +188,8 @@ namespace Parsek.TestCommands
         internal const string LabProcessToken = "labprocess";
         internal const string LabTransmitToken = "labtransmit";
         internal const string InspectToken = "inspect";
+        internal const string RadiatorOnToken = "radiatoron";
+        internal const string RadiatorOffToken = "radiatoroff";
 
         /// <summary>The closed <c>button=</c> vocabulary. hlib.PARTACTION_BUTTON_VALUES mirrors it
         /// (PartActionSourceSyncTests).</summary>
@@ -157,7 +197,7 @@ namespace Parsek.TestCommands
         {
             UndockToken, DecoupleToken, ControlFromToken, DeployToken, RetractToken,
             StartConverterToken, StopConverterToken, ExperimentToken, LabProcessToken,
-            LabTransmitToken, InspectToken,
+            LabTransmitToken, InspectToken, RadiatorOnToken, RadiatorOffToken,
         };
 
         /// <summary>The private <c>ModuleScienceExperiment</c> method the results dialog's lab
@@ -185,6 +225,7 @@ namespace Parsek.TestCommands
         internal const string EventUnavailableReason = "partaction-event-unavailable";
         internal const string ExperimentNoDataReason = "partaction-experiment-no-data";
         internal const string LabMethodMissingReason = "partaction-lab-method-missing";
+        internal const string RadiatorNotFoundReason = "partaction-radiator-not-found";
 
         // Post-call ERROR terminal: the event was invoked and threw.
         internal const string EventThrewReason = "partaction-event-threw";
@@ -210,6 +251,7 @@ namespace Parsek.TestCommands
             "partaction-event-unavailable",
             "partaction-experiment-no-data",
             "partaction-lab-method-missing",
+            "partaction-radiator-not-found",
         };
 
         /// <summary>The post-call ERROR vocabulary.</summary>
@@ -234,6 +276,8 @@ namespace Parsek.TestCommands
                 case LabProcessToken: kind = PartActionKind.LabProcess; return null;
                 case LabTransmitToken: kind = PartActionKind.LabTransmit; return null;
                 case InspectToken: kind = PartActionKind.Inspect; return null;
+                case RadiatorOnToken: kind = PartActionKind.RadiatorOn; return null;
+                case RadiatorOffToken: kind = PartActionKind.RadiatorOff; return null;
                 default: return ButtonArgInvalidReason;
             }
         }
@@ -254,6 +298,8 @@ namespace Parsek.TestCommands
                 case PartActionKind.LabProcess: return LabProcessToken;
                 case PartActionKind.LabTransmit: return LabTransmitToken;
                 case PartActionKind.Inspect: return InspectToken;
+                case PartActionKind.RadiatorOn: return RadiatorOnToken;
+                case PartActionKind.RadiatorOff: return RadiatorOffToken;
                 default: return "unknown";
             }
         }
@@ -263,6 +309,11 @@ namespace Parsek.TestCommands
         /// on an ordinary docked vessel.</summary>
         internal static bool RequiresPart(PartActionKind kind)
             => kind != PartActionKind.Unknown && kind != PartActionKind.Undock;
+
+        /// <summary>True for the two radiator buttons, whose candidates come from
+        /// <c>ModuleActiveRadiator</c> only.</summary>
+        internal static bool IsRadiatorKind(PartActionKind kind)
+            => kind == PartActionKind.RadiatorOn || kind == PartActionKind.RadiatorOff;
 
         /// <summary>True for the two buttons a <c>converter=</c> filter applies to.</summary>
         internal static bool AcceptsConverter(PartActionKind kind)
@@ -354,6 +405,8 @@ namespace Parsek.TestCommands
                 case PartActionKind.StopConverter: return new[] { "StopResourceConverter" };
                 case PartActionKind.Experiment: return new[] { "DeployExperiment" };
                 case PartActionKind.LabTransmit: return new[] { "TransmitScience" };
+                case PartActionKind.RadiatorOn: return new[] { "Activate" };
+                case PartActionKind.RadiatorOff: return new[] { "Shutdown" };
                 // labprocess calls a private method, not a KSPEvent; inspect presses nothing.
                 default: return new string[0];
             }
@@ -390,9 +443,22 @@ namespace Parsek.TestCommands
         internal static string DecideCandidates(
             PartActionKind kind, string partName, int namedParts, string converterName,
             int matchingConverters, int experimentModules, int candidates, bool all)
+            => DecideCandidates(kind, partName, namedParts, converterName, matchingConverters,
+                experimentModules, -1, candidates, all);
+
+        /// <summary>The candidate gate with the radiator count: a radiator button on named
+        /// part(s) carrying no <c>ModuleActiveRadiator</c> at all
+        /// (<paramref name="radiatorModules"/> 0, counted whatever the event state) is
+        /// <c>radiator-not-found</c>, a spec fault like <c>converter-not-found</c>; a radiator
+        /// that is there but already in the asked state (stock hides the pressed button) stays
+        /// <c>event-unavailable</c>. A negative count means "not counted" and never refuses.</summary>
+        internal static string DecideCandidates(
+            PartActionKind kind, string partName, int namedParts, string converterName,
+            int matchingConverters, int experimentModules, int radiatorModules, int candidates, bool all)
         {
             if (partName != null && namedParts == 0) return PartNotFoundReason;
             if (converterName != null && matchingConverters == 0) return ConverterNotFoundReason;
+            if (IsRadiatorKind(kind) && radiatorModules == 0) return RadiatorNotFoundReason;
             if (candidates == 0)
                 return kind == PartActionKind.LabProcess && experimentModules > 0
                     ? ExperimentNoDataReason
@@ -429,8 +495,8 @@ namespace Parsek.TestCommands
         /// by <c>;</c> (a converter name may hold spaces). Segments: a converter
         /// <c>&lt;ConverterName&gt;:active=0|1</c>; a science lab
         /// <c>lab:storedScience=&lt;F2&gt; dataStored=&lt;F2&gt;</c>; an experiment
-        /// <c>exp:data=&lt;count&gt;</c>; an animation group <c>deployed=0|1</c>. Invariant
-        /// culture; empty for no readings.
+        /// <c>exp:data=&lt;count&gt;</c>; an animation group <c>deployed=0|1</c>; an active
+        /// radiator <c>radiator:cooling=0|1</c>. Invariant culture; empty for no readings.
         /// </summary>
         internal static string FormatState(IList<PartActionModuleReading> readings)
         {
@@ -454,6 +520,9 @@ namespace Parsek.TestCommands
                         break;
                     case PartActionModuleReading.ReadingKind.AnimationGroup:
                         parts.Add("deployed=" + (r.Flag ? "1" : "0"));
+                        break;
+                    case PartActionModuleReading.ReadingKind.Radiator:
+                        parts.Add("radiator:cooling=" + (r.Flag ? "1" : "0"));
                         break;
                 }
             }
@@ -496,15 +565,16 @@ namespace Parsek.TestCommands
             return created;
         }
 
-        /// <summary>The OK payload, in wire order (the two newer fields last).</summary>
+        /// <summary>The OK payload, in wire order (the newer fields last). The four warp
+        /// fields (<see cref="AppendWarpContext"/>) close it.</summary>
         internal static List<KeyValuePair<string, string>> BuildOkPayload(
             PartActionKind kind, uint pid, string partName, uint partId, string eventName,
             uint newPid, string newName, int vesselsBefore, int vesselsAfter,
             uint activePid, string activeName, string converterName = null, string state = null,
-            int count = 1)
+            int count = 1, PartActionWarpContext warp = default(PartActionWarpContext))
         {
             CultureInfo ic = CultureInfo.InvariantCulture;
-            return new List<KeyValuePair<string, string>>
+            var payload = new List<KeyValuePair<string, string>>
             {
                 new KeyValuePair<string, string>("button", Token(kind)),
                 new KeyValuePair<string, string>("pid", pid.ToString(ic)),
@@ -521,6 +591,27 @@ namespace Parsek.TestCommands
                 new KeyValuePair<string, string>("state", state ?? string.Empty),
                 new KeyValuePair<string, string>("count", count.ToString(ic)),
             };
+            payload.Add(new KeyValuePair<string, string>("packed", warp.Packed ? "1" : "0"));
+            payload.Add(new KeyValuePair<string, string>("warpIndex", warp.WarpIndex.ToString(ic)));
+            payload.Add(new KeyValuePair<string, string>("warpRate", warp.WarpRate.ToString("R", ic)));
+            payload.Add(new KeyValuePair<string, string>("ut", warp.UT.ToString("R", ic)));
+            return payload;
+        }
+
+        /// <summary>
+        /// The ` packed=0|1 warpIndex=&lt;i&gt; warpRate=&lt;r&gt; ut=&lt;u&gt;` tail of the applied
+        /// line: whether the target vessel was PACKED (on rails), the stock warp rung and rate,
+        /// and the game clock, all read right after the press. A lane proves a press happened
+        /// during a <c>WarpToUT detach=true</c> warp with <c>warpIndex=[1-9]</c> (the rung
+        /// moves on stock's <c>setRate</c> call; the rate eases up over the next frames).
+        /// </summary>
+        internal static string AppendWarpContext(PartActionWarpContext warp)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            return " packed=" + (warp.Packed ? "1" : "0")
+                + " warpIndex=" + warp.WarpIndex.ToString(ic)
+                + " warpRate=" + warp.WarpRate.ToString("R", ic)
+                + " ut=" + warp.UT.ToString("R", ic);
         }
 
         /// <summary>The grep-stable success line. Names are single-quoted so a spec can anchor
@@ -529,7 +620,7 @@ namespace Parsek.TestCommands
             PartActionKind kind, uint pid, string partName, uint partId, string eventName,
             uint newPid, string newName, int vesselsBefore, int vesselsAfter,
             uint activePid, string activeName, string converterName = null, string state = null,
-            int count = 1)
+            int count = 1, PartActionWarpContext warp = default(PartActionWarpContext))
         {
             CultureInfo ic = CultureInfo.InvariantCulture;
             return "partaction applied button=" + Token(kind)
@@ -544,7 +635,8 @@ namespace Parsek.TestCommands
                 + " activeName='" + (activeName ?? string.Empty) + "'"
                 + " converter='" + (converterName ?? string.Empty) + "'"
                 + " state='" + (state ?? string.Empty) + "'"
-                + " count=" + count.ToString(ic);
+                + " count=" + count.ToString(ic)
+                + AppendWarpContext(warp);
         }
     }
 }

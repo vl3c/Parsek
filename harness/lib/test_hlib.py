@@ -1168,7 +1168,8 @@ class SpecValidationRejectTests(unittest.TestCase):
                                 ("warp-locked", "driver-gate"),
                                 ("warp-ladder-invalid", "driver-arg"),
                                 ("physics-warp-disallowed", "driver-gate"),
-                                ("physics-warp-not-in-flight", "driver-arg")):
+                                ("physics-warp-not-in-flight", "driver-arg"),
+                                ("warp-detach-invalid", "driver-arg")):
             self.assertEqual(subkind, hlib._SEAM_REFUSAL_SUBKINDS[reason])
 
     def test_warptout_step_accepted_by_validate_spec(self):
@@ -1209,6 +1210,34 @@ class SpecValidationRejectTests(unittest.TestCase):
                     "expect": "OK", "budget": 300})
         v = self._reject(wrong_verb)
         self.assertTrue(any("args.ladder" in e and "only the WarpToUT verb" in e
+                            for e in v.errors), list(v.errors))
+
+    def test_warptout_detach_arg_is_a_closed_verb_scoped_value(self):
+        """`detach="true"` validates clean; a TOML bool (sent as `True`), any other
+        spelling, and the arg on a verb that does not read it are pre-launch spec errors
+        rather than a typed REJECTED warp-detach-invalid after a whole boot."""
+        def ok(s):
+            s["driver"]["steps"].insert(
+                1, {"cmd": "WarpToUT", "args": {"ut": "1200", "detach": "true"},
+                    "expect": "OK", "budget": 300})
+        v = self._reject(ok)
+        self.assertFalse(any("detach" in e for e in v.errors), list(v.errors))
+
+        for bad in (True, "True", "false", "1"):
+            def bad_value(s, bad=bad):
+                s["driver"]["steps"].insert(
+                    1, {"cmd": "WarpToUT", "args": {"ut": "1200", "detach": bad},
+                        "expect": "OK", "budget": 300})
+            with self.subTest(detach=bad):
+                v = self._reject(bad_value)
+                self.assertTrue(any("args.detach" in e for e in v.errors), list(v.errors))
+
+        def wrong_verb(s):
+            s["driver"]["steps"].insert(
+                1, {"cmd": "TimeJump", "args": {"ut": "1200", "detach": "true"},
+                    "expect": "OK", "budget": 300})
+        v = self._reject(wrong_verb)
+        self.assertTrue(any("args.detach" in e and "only the WarpToUT verb" in e
                             for e in v.errors), list(v.errors))
 
     def test_warptout_step_budget_over_the_cap_is_a_spec_error(self):
@@ -16877,7 +16906,8 @@ class PartActionSourceSyncTests(unittest.TestCase):
                       text)
         consts = ("UndockToken", "DecoupleToken", "ControlFromToken", "DeployToken",
                   "RetractToken", "StartConverterToken", "StopConverterToken", "ExperimentToken",
-                  "LabProcessToken", "LabTransmitToken", "InspectToken")
+                  "LabProcessToken", "LabTransmitToken", "InspectToken", "RadiatorOnToken",
+                  "RadiatorOffToken")
         self.assertEqual(len(consts), len(hlib.PARTACTION_BUTTON_VALUES))
         for token, const in zip(hlib.PARTACTION_BUTTON_VALUES, consts):
             self.assertIn('internal const string %s = "%s";' % (const, token), text)
@@ -16918,6 +16948,17 @@ class PartActionSourceSyncTests(unittest.TestCase):
         self.assertIn("TestCommandPartAction.ConverterKey", applier)
         self.assertIn("TestCommandPartAction.AllKey", applier)
         self.assertIn("candidates.Count, all);", applier)
+        # The radiator buttons take their candidates from ModuleActiveRadiator alone and
+        # pass the module count to the radiator-not-found gate; every press reports the
+        # packed / warp context.
+        self.assertIn("if (!(module is ModuleActiveRadiator)) continue;", applier)
+        self.assertIn("radiatorKind ? radiatorModules : -1", applier)
+        self.assertIn("new PartActionWarpContext(v.packed,", applier)
+        pure = self._source("TestCommands", "TestCommandPartAction.cs")
+        self.assertIn('case PartActionKind.RadiatorOn: return new[] { "Activate" };', pure)
+        self.assertIn('case PartActionKind.RadiatorOff: return new[] { "Shutdown" };', pure)
+        self.assertIn('if (IsRadiatorKind(kind) && radiatorModules == 0) return RadiatorNotFoundReason;',
+                      pure)
 
     def test_the_verb_is_registered_on_every_axis(self):
         verb = hlib.PARTACTION_VERB
@@ -16937,7 +16978,8 @@ class PartActionSourceSyncTests(unittest.TestCase):
             self.assertIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
         for reason in ("partaction-vessel-not-found", "partaction-event-unavailable",
                        "partaction-no-active-vessel", "partaction-converter-not-found",
-                       "partaction-experiment-no-data", "partaction-lab-method-missing"):
+                       "partaction-experiment-no-data", "partaction-lab-method-missing",
+                       "partaction-radiator-not-found"):
             self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
 
     def test_the_step_validator(self):
@@ -16958,7 +17000,7 @@ class PartActionSourceSyncTests(unittest.TestCase):
     def test_the_step_validator_isru_and_lab_buttons(self):
         v = hlib.validate_part_action_step
         for button in ("deploy", "retract", "startconverter", "stopconverter", "experiment",
-                       "labprocess", "labtransmit", "inspect"):
+                       "labprocess", "labtransmit", "inspect", "radiatoron", "radiatoroff"):
             with self.subTest(button=button):
                 self.assertEqual([], v(0, {"button": button, "part": "MiniDrill"}))
                 self.assertIn("partaction-part-arg-missing", v(0, {"button": button})[0])
@@ -16968,7 +17010,7 @@ class PartActionSourceSyncTests(unittest.TestCase):
                                    "converter": "Surface Harvester", "pid": "7"}))
         self.assertEqual([], v(0, {"button": "startconverter", "part": "MiniISRU",
                                    "converter": ""}))
-        for button in ("deploy", "inspect", "labtransmit", "undock"):
+        for button in ("deploy", "inspect", "labtransmit", "undock", "radiatoron"):
             with self.subTest(converter_on=button):
                 errs = v(0, {"button": button, "part": "MiniISRU", "converter": "Lf+Ox"})
                 self.assertEqual(1, len(errs), errs)
@@ -16978,6 +17020,7 @@ class PartActionSourceSyncTests(unittest.TestCase):
             with self.subTest(all_on=button):
                 self.assertEqual([], v(0, {"button": button, "part": "MiniDrill", "all": "true"}))
         self.assertEqual([], v(0, {"button": "deploy", "part": "MiniDrill", "all": ""}))
+        self.assertEqual([], v(0, {"button": "radiatoroff", "part": "radPanelSm", "all": "true"}))
         self.assertEqual([], v(0, {"button": "startconverter", "part": "MiniISRU",
                                    "converter": "Lf+Ox", "all": "true"}))
         for button in ("undock", "decouple", "controlfrom"):
@@ -25345,7 +25388,27 @@ class WarpToUTLadderSourceSyncTests(unittest.TestCase):
         self.assertIn(hlib.WARPTOUT_LADDER_KEY, keys)
         # The key sits beside the verb's other two args, so a rename of either
         # shape is caught rather than matched by a stray literal elsewhere.
-        self.assertEqual({"ut", "maxRate", hlib.WARPTOUT_LADDER_KEY}, set(keys))
+        self.assertEqual({"ut", "maxRate", hlib.WARPTOUT_LADDER_KEY, hlib.WARPTOUT_DETACH_KEY},
+                         set(keys))
+
+    def test_the_detach_key_and_token_mirror_the_c_sharp(self):
+        self.assertEqual(self.consts["DetachKey"], hlib.WARPTOUT_DETACH_KEY)
+        self.assertEqual((self.consts["DetachTrueToken"],), hlib.WARPTOUT_DETACH_VALUES)
+        self.assertEqual("driver-arg",
+                         hlib._SEAM_REFUSAL_SUBKINDS[self.consts["DetachInvalidReason"]])
+        self.assertIn(self.consts["DetachInvalidReason"], hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        self.assertEqual(("WarpToUT", hlib.WARPTOUT_DETACH_VALUES),
+                         hlib.VERB_SCOPED_CLOSED_ARGS[hlib.WARPTOUT_DETACH_KEY])
+        # The detached warp is stepped from the addon's Update, ended on both scene
+        # events, and yields to the clock-moving verbs before their executor runs.
+        addon_path = os.path.join(self.DIR, "ParsekTestCommandAddon.cs")
+        with open(addon_path, encoding="utf-8-sig") as fh:
+            addon = "\n".join(strip_cs_line_comment(l)
+                              for l in fh.read().replace("\r\n", "\n").split("\n"))
+        self.assertIn("TickDetachedWarp();", addon)
+        self.assertIn("YieldDetachedWarpTo(head);", addon)
+        self.assertEqual(2, addon.count(
+            "EndDetachedWarp(TestCommandWarpToUT.DetachedEndSceneChange, lower: true, null);"))
 
     def test_the_ladder_refusal_reasons_are_mapped(self):
         self.assertEqual("driver-arg",

@@ -7,7 +7,8 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// The pure half and dispatch rows of <c>PartAction button=undock|decouple|controlfrom|deploy|
-    /// retract|startconverter|stopconverter|experiment|labprocess|labtransmit|inspect [part=]
+    /// retract|startconverter|stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|
+    /// radiatoroff [part=]
     /// [converter=] [all=true] [pid=]</c>: one button of one part's stock right-click menu (vessel names,
     /// design 15.3; the ISRU / lab buttons).
     /// </summary>
@@ -72,6 +73,8 @@ namespace Parsek.Tests
         [InlineData("labprocess", "LabProcess")]
         [InlineData("labtransmit", "LabTransmit")]
         [InlineData("inspect", "Inspect")]
+        [InlineData("radiatoron", "RadiatorOn")]
+        [InlineData("radiatoroff", "RadiatorOff")]
         public void ParseButton_AcceptsTheClosedVocabulary(string raw, string expected)
         {
             Assert.Null(TestCommandPartAction.ParseButton(raw, out PartActionKind kind));
@@ -88,6 +91,9 @@ namespace Parsek.Tests
         [InlineData("StartConverter", "partaction-button-arg-invalid")]
         [InlineData("start-converter", "partaction-button-arg-invalid")]
         [InlineData("process", "partaction-button-arg-invalid")]
+        [InlineData("RadiatorOn", "partaction-button-arg-invalid")]
+        [InlineData("radiator", "partaction-button-arg-invalid")]
+        [InlineData("radiator-on", "partaction-button-arg-invalid")]
         public void ParseButton_RefusesAbsentAndUnknown(string raw, string reason)
         {
             Assert.Equal(reason, TestCommandPartAction.ParseButton(raw, out PartActionKind kind));
@@ -98,7 +104,8 @@ namespace Parsek.Tests
         public void ButtonValues_AreTheParsedTokens_InOrder()
         {
             Assert.Equal(new[] { "undock", "decouple", "controlfrom", "deploy", "retract", "startconverter",
-                "stopconverter", "experiment", "labprocess", "labtransmit", "inspect" },
+                "stopconverter", "experiment", "labprocess", "labtransmit", "inspect", "radiatoron",
+                "radiatoroff" },
                 TestCommandPartAction.ButtonValues);
             foreach (string v in TestCommandPartAction.ButtonValues)
                 Assert.Null(TestCommandPartAction.ParseButton(v, out _));
@@ -130,6 +137,8 @@ namespace Parsek.Tests
         [InlineData("labprocess", true)]
         [InlineData("labtransmit", true)]
         [InlineData("inspect", true)]
+        [InlineData("radiatoron", true)]
+        [InlineData("radiatoroff", true)]
         [InlineData("undock", false)]
         public void RequiresPart_EveryButtonButUndock(string token, bool required)
         {
@@ -156,6 +165,7 @@ namespace Parsek.Tests
         [InlineData("inspect", "Lf+Ox", "partaction-converter-arg-unexpected", null)]
         [InlineData("labtransmit", "Research", "partaction-converter-arg-unexpected", null)]
         [InlineData("undock", "x", "partaction-converter-arg-unexpected", null)]
+        [InlineData("radiatoron", "Lf+Ox", "partaction-converter-arg-unexpected", null)]
         public void ParseConverter_OnlyTheConverterButtonsTakeIt(
             string token, string raw, string reason, string expected)
         {
@@ -175,6 +185,9 @@ namespace Parsek.Tests
         [InlineData("labprocess", "true", null, true)]
         [InlineData("labtransmit", "true", null, true)]
         [InlineData("inspect", "true", null, true)]
+        [InlineData("radiatoron", "true", null, true)]
+        [InlineData("radiatoroff", "true", null, true)]
+        [InlineData("radiatoroff", "True", "partaction-all-arg-invalid", false)]
         [InlineData("undock", "true", "partaction-all-arg-unexpected", false)]
         [InlineData("decouple", "true", "partaction-all-arg-unexpected", false)]
         [InlineData("controlfrom", "true", "partaction-all-arg-unexpected", false)]
@@ -227,6 +240,50 @@ namespace Parsek.Tests
                 PartActionKind.LabProcess, "sensorThermometer", 4, null, 0, 4, 0, true));
             Assert.Null(TestCommandPartAction.DecideCandidates(
                 PartActionKind.StartConverter, "MiniISRU", 4, null, 0, 0, 16, true));
+        }
+
+        [Fact]
+        public void DecideCandidates_Radiator_NoModuleIsNotFound_AlreadyInStateIsUnavailable()
+        {
+            // The rover's four small radiators, all switched off: radiatoron presses all four.
+            Assert.Null(TestCommandPartAction.DecideCandidates(
+                PartActionKind.RadiatorOn, "radPanelSm", 4, null, 0, 0, 4, 4, true));
+            Assert.Equal("partaction-part-ambiguous", TestCommandPartAction.DecideCandidates(
+                PartActionKind.RadiatorOn, "radPanelSm", 4, null, 0, 0, 4, 4, false));
+            Assert.Null(TestCommandPartAction.DecideCandidates(
+                PartActionKind.RadiatorOff, "radPanelSm", 1, null, 0, 0, 1, 1, false));
+            // A named part that carries no ModuleActiveRadiator is a spec fault.
+            Assert.Equal("partaction-radiator-not-found", TestCommandPartAction.DecideCandidates(
+                PartActionKind.RadiatorOn, "MiniDrill", 4, null, 0, 0, 0, 0, true));
+            Assert.Equal("partaction-radiator-not-found", TestCommandPartAction.DecideCandidates(
+                PartActionKind.RadiatorOff, "MiniDrill", 1, null, 0, 0, 0, 0, false));
+            // Radiators that are there but already cooling (stock hides Activate): unavailable.
+            Assert.Equal("partaction-event-unavailable", TestCommandPartAction.DecideCandidates(
+                PartActionKind.RadiatorOn, "radPanelSm", 4, null, 0, 0, 4, 0, true));
+            // A part the vessel does not carry is still part-not-found first.
+            Assert.Equal("partaction-part-not-found", TestCommandPartAction.DecideCandidates(
+                PartActionKind.RadiatorOn, "radPanelSm", 0, null, 0, 0, 0, 0, true));
+            // The radiator count never refuses another button, and a negative count is
+            // "not counted" (the older overloads).
+            Assert.Null(TestCommandPartAction.DecideCandidates(
+                PartActionKind.Deploy, "MiniDrill", 1, null, 0, 0, 0, 1, false));
+            Assert.Equal("partaction-event-unavailable", TestCommandPartAction.DecideCandidates(
+                PartActionKind.RadiatorOn, "radPanelSm", 4, null, 0, 0, 0, true));
+        }
+
+        [Fact]
+        public void IsRadiatorKind_IsTheOnOffPair()
+        {
+            foreach (string token in TestCommandPartAction.ButtonValues)
+            {
+                Assert.Null(TestCommandPartAction.ParseButton(token, out PartActionKind kind));
+                Assert.Equal(token == "radiatoron" || token == "radiatoroff",
+                    TestCommandPartAction.IsRadiatorKind(kind));
+            }
+            Assert.False(TestCommandPartAction.IsRadiatorKind(PartActionKind.Unknown));
+            ParsedCommand cmd = Cmd("button=radiatoroff part=radPanelSm all=true");
+            Assert.True(cmd.ParseOk);
+            Assert.Equal("radiatoroff", cmd.Args["button"]);
         }
 
         [Fact]
@@ -359,6 +416,8 @@ namespace Parsek.Tests
                 TestCommandPartAction.EventNamesFor(PartActionKind.StopConverter));
             Assert.Equal(new[] { "DeployExperiment" }, TestCommandPartAction.EventNamesFor(PartActionKind.Experiment));
             Assert.Equal(new[] { "TransmitScience" }, TestCommandPartAction.EventNamesFor(PartActionKind.LabTransmit));
+            Assert.Equal(new[] { "Activate" }, TestCommandPartAction.EventNamesFor(PartActionKind.RadiatorOn));
+            Assert.Equal(new[] { "Shutdown" }, TestCommandPartAction.EventNamesFor(PartActionKind.RadiatorOff));
             // labprocess calls a private method, not a KSPEvent; inspect presses nothing.
             Assert.Empty(TestCommandPartAction.EventNamesFor(PartActionKind.LabProcess));
             Assert.Empty(TestCommandPartAction.EventNamesFor(PartActionKind.Inspect));
@@ -391,6 +450,32 @@ namespace Parsek.Tests
                 PartActionModuleReading.Experiment(1),
                 PartActionModuleReading.AnimationGroup(false),
             }));
+        }
+
+        [Fact]
+        public void FormatState_RadiatorReadsItsCoolingFlag()
+        {
+            Assert.Equal("radiator:cooling=1", TestCommandPartAction.FormatState(new List<PartActionModuleReading>
+            {
+                PartActionModuleReading.Radiator(true),
+            }));
+            Assert.Equal("radiator:cooling=0;deployed=1", TestCommandPartAction.FormatState(new List<PartActionModuleReading>
+            {
+                PartActionModuleReading.Radiator(false),
+                PartActionModuleReading.AnimationGroup(true),
+            }));
+            var parts = new List<KeyValuePair<uint, IList<PartActionModuleReading>>>
+            {
+                new KeyValuePair<uint, IList<PartActionModuleReading>>(11, new List<PartActionModuleReading>
+                {
+                    PartActionModuleReading.Radiator(true),
+                }),
+                new KeyValuePair<uint, IList<PartActionModuleReading>>(12, new List<PartActionModuleReading>
+                {
+                    PartActionModuleReading.Radiator(false),
+                }),
+            };
+            Assert.Equal("11:radiator:cooling=1 | 12:radiator:cooling=0", TestCommandPartAction.FormatAllState(parts));
         }
 
         [Fact]
@@ -497,7 +582,8 @@ namespace Parsek.Tests
             var payload = TestCommandPartAction.BuildOkPayload(PartActionKind.Undock, 3620499050, "dockingPort2",
                 4242, "Undock", 31337, "VN4 Tug", 2, 3, 3620499050, "Kerbal X");
             Assert.Equal(new[] { "button", "pid", "part", "partId", "event", "newPid", "newName",
-                "vesselsBefore", "vesselsAfter", "activePid", "activeName", "converter", "state", "count" },
+                "vesselsBefore", "vesselsAfter", "activePid", "activeName", "converter", "state", "count",
+                "packed", "warpIndex", "warpRate", "ut" },
                 payload.Select(kv => kv.Key));
             Assert.Equal("undock", Value(payload, "button"));
             Assert.Equal("31337", Value(payload, "newPid"));
@@ -506,6 +592,35 @@ namespace Parsek.Tests
             Assert.Equal(string.Empty, Value(payload, "converter"));
             Assert.Equal(string.Empty, Value(payload, "state"));
             Assert.Equal("1", Value(payload, "count"));
+            Assert.Equal("0", Value(payload, "packed"));
+            Assert.Equal("0", Value(payload, "warpIndex"));
+            Assert.Equal("0", Value(payload, "warpRate"));
+            Assert.Equal("0", Value(payload, "ut"));
+        }
+
+        [Fact]
+        public void Payload_CarriesTheWarpContext_Invariant()
+        {
+            var prev = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    System.Globalization.CultureInfo.GetCultureInfo("de-DE");
+                var payload = TestCommandPartAction.BuildOkPayload(PartActionKind.StopConverter, 7, "MiniISRU",
+                    55, "StopResourceConverter", 0, null, 1, 1, 7, "Miner", "Lf+Ox", "Lf+Ox:active=0", 1,
+                    new PartActionWarpContext(true, 4, 100.0, 1234.5));
+                Assert.Equal("1", Value(payload, "packed"));
+                Assert.Equal("4", Value(payload, "warpIndex"));
+                Assert.Equal("100", Value(payload, "warpRate"));
+                Assert.Equal("1234.5", Value(payload, "ut"));
+                Assert.Equal("ut", payload.Last().Key);
+                Assert.Equal(" packed=1 warpIndex=4 warpRate=37.5 ut=1234.5",
+                    TestCommandPartAction.AppendWarpContext(new PartActionWarpContext(true, 4, 37.5, 1234.5)));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = prev;
+            }
         }
 
         [Fact]
@@ -515,7 +630,7 @@ namespace Parsek.Tests
                 123, "DeployModule", 0, null, 1, 1, 7, "Miner", null,
                 "123:deployed=1 | 456:deployed=1 | 789:deployed=1 | 1011:deployed=1", 4);
             Assert.Equal("4", Value(payload, "count"));
-            Assert.Equal("count", payload.Last().Key);
+            Assert.Equal("count", payload[13].Key);
         }
 
         [Fact]
@@ -537,7 +652,7 @@ namespace Parsek.Tests
                 "probeCoreOcto2.v2", 77, "MakeReference", 0, null, 1, 1, 2200110033, "VN8 Alpha");
             Assert.Equal("partaction applied button=controlfrom pid=2200110033 part='probeCoreOcto2.v2' partId=77 " +
                 "event=MakeReference newPid=0 newName='' vessels=1->1 activePid=2200110033 activeName='VN8 Alpha' " +
-                "converter='' state='' count=1",
+                "converter='' state='' count=1 packed=0 warpIndex=0 warpRate=0 ut=0",
                 line);
         }
 
@@ -549,23 +664,31 @@ namespace Parsek.Tests
                 "Research:active=0;lab:storedScience=3.10 dataStored=25.00");
             Assert.Equal("partaction applied button=inspect pid=42 part='Large.Crewed.Lab' partId=9 event= " +
                 "newPid=0 newName='' vessels=1->1 activePid=42 activeName='ISRU Rover' converter='' " +
-                "state='Research:active=0;lab:storedScience=3.10 dataStored=25.00' count=1", line);
+                "state='Research:active=0;lab:storedScience=3.10 dataStored=25.00' count=1 packed=0 warpIndex=0 " +
+                "warpRate=0 ut=0", line);
             Assert.StartsWith("partaction applied button=startconverter pid=42 part='MiniISRU' partId=9 " +
                 "event=StartResourceConverter ", TestCommandPartAction.FormatAppliedLine(
                     PartActionKind.StartConverter, 42, "MiniISRU", 9, "StartResourceConverter", 0, null, 1, 1,
                     42, "ISRU Rover", "Lf+Ox", "Lf+Ox:active=1"));
-            Assert.EndsWith(" converter='Lf+Ox' state='Lf+Ox:active=1' count=1", TestCommandPartAction.FormatAppliedLine(
+            Assert.EndsWith(" converter='Lf+Ox' state='Lf+Ox:active=1' count=1 packed=0 warpIndex=0 warpRate=0 ut=0",
+                TestCommandPartAction.FormatAppliedLine(
                 PartActionKind.StartConverter, 42, "MiniISRU", 9, "StartResourceConverter", 0, null, 1, 1,
                 42, "ISRU Rover", "Lf+Ox", "Lf+Ox:active=1"));
-            Assert.EndsWith(" state='123:deployed=1 | 456:deployed=1' count=2", TestCommandPartAction.FormatAppliedLine(
+            Assert.EndsWith(" state='123:deployed=1 | 456:deployed=1' count=2 packed=0 warpIndex=0 warpRate=0 ut=0",
+                TestCommandPartAction.FormatAppliedLine(
                 PartActionKind.Deploy, 42, "MiniDrill", 123, "DeployModule", 0, null, 1, 1,
                 42, "Miner", null, "123:deployed=1 | 456:deployed=1", 2));
+            // A press during a detached rails warp on the packed rover: the tail a lane anchors.
+            Assert.EndsWith(" state='radiator:cooling=1' count=1 packed=1 warpIndex=5 warpRate=1000 ut=86400.25",
+                TestCommandPartAction.FormatAppliedLine(
+                PartActionKind.RadiatorOn, 42, "radPanelSm", 9, "Activate", 0, null, 1, 1,
+                42, "Miner", null, "radiator:cooling=1", 1, new PartActionWarpContext(true, 5, 1000.0, 86400.25)));
         }
 
         [Fact]
         public void Reasons_AreTheGateOrder_AndDisjointFromTheErrors()
         {
-            Assert.Equal(17, TestCommandPartAction.Reasons.Length);
+            Assert.Equal(18, TestCommandPartAction.Reasons.Length);
             Assert.Equal("partaction-button-arg-missing", TestCommandPartAction.Reasons[0]);
             Assert.Equal("partaction-converter-arg-unexpected", TestCommandPartAction.Reasons[3]);
             Assert.Equal("partaction-all-arg-invalid", TestCommandPartAction.Reasons[4]);
@@ -573,12 +696,14 @@ namespace Parsek.Tests
             Assert.Equal("partaction-converter-not-found", TestCommandPartAction.Reasons[12]);
             Assert.Equal("partaction-event-unavailable", TestCommandPartAction.Reasons[14]);
             Assert.Equal("partaction-lab-method-missing", TestCommandPartAction.Reasons[16]);
+            Assert.Equal("partaction-radiator-not-found", TestCommandPartAction.Reasons[17]);
             Assert.Equal(TestCommandPartAction.Reasons.Length, TestCommandPartAction.Reasons.Distinct().Count());
             foreach (string r in new[]
             {
                 TestCommandPartAction.ConverterArgUnexpectedReason, TestCommandPartAction.ConverterNotFoundReason,
                 TestCommandPartAction.ExperimentNoDataReason, TestCommandPartAction.LabMethodMissingReason,
                 TestCommandPartAction.AllArgInvalidReason, TestCommandPartAction.AllArgUnexpectedReason,
+                TestCommandPartAction.RadiatorNotFoundReason,
             })
                 Assert.Contains(r, TestCommandPartAction.Reasons);
             Assert.Empty(TestCommandPartAction.Reasons.Intersect(TestCommandPartAction.ErrorReasons));

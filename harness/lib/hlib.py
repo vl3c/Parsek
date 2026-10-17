@@ -524,7 +524,9 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT: no seam path could conclude a
     # re-fly in flight because the only clock verb did not move the vessel. TWO-PHASE
     # and a DEFERRED_SEAM_VERB (below) - its completion polls an advancing clock and
-    # can legitimately run minutes when stock clamps the ladder to 1x.
+    # can legitimately run minutes when stock clamps the ladder to 1x. `detach=true`
+    # answers OK once the first ladder step is applied and keeps the warp running from
+    # the addon's Update (later steps act DURING it; a later WarpToUT takes it over).
     "WarpToUT",
     # The GUI-census pair. ADDITIVE (33 -> 35 implemented, reserved unchanged at 5):
     # the reserved envelope never carried a screenshot verb or a UI-driving verb, so
@@ -684,16 +686,18 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # ADDITIVE (48 -> 50 implemented, reserved unchanged at 4), the vessel-names proof pair
     # (design-vessel-and-mission-names.md 15.3).
     #   PartAction button=undock|decouple|controlfrom|deploy|retract|startconverter|
-    #     stopconverter|experiment|labprocess|labtransmit|inspect [part=<part name>]
+    #     stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff
+    #     [part=<part name>]
     #     [converter=<ConverterName>] [all=true] [pid=<pid>], FLIGHT, SINGLE-PHASE, default 60 s: one
     #     button of one part's stock right-click menu (ModuleDockingNode.Undock,
     #     ModuleDecouplerBase.Decouple, ModuleCommand.MakeReference, ModuleAnimationGroup
     #     Deploy / Retract, BaseConverter Start / Stop, ModuleScienceExperiment.DeployExperiment,
-    #     ModuleScienceLab.TransmitScience) pressed through its BaseEvent; labprocess is the
+    #     ModuleScienceLab.TransmitScience, ModuleActiveRadiator Activate / Shutdown) pressed
+    #     through its BaseEvent (a packed vessel included); labprocess is the
     #     results dialog's lab button, inspect presses nothing. OK `button= pid= part= partId=
     #     event= newPid= newName= vesselsBefore= vesselsAfter= activePid= activeName=
-    #     converter= state= count=`; all=true presses every candidate (not on undock / decouple /
-    #     controlfrom).
+    #     converter= state= count= packed= warpIndex= warpRate= ut=`; all=true presses every
+    #     candidate (not on undock / decouple / controlfrom).
     #   RevertToLaunch (no args), FLIGHT, TWO-PHASE, 180 s: stock's Revert to Launch outside a
     #     Re-Fly session (ReFlyRevert owns the in-session one), answered once the new flight is
     #     ready. OK `scene= activePid= activeName= situation=`.
@@ -2707,6 +2711,12 @@ UIACTION_MODE_KEY = "mode"
 # case-sensitive and REJECTS anything else `warp-ladder-invalid`.
 WARPTOUT_LADDER_KEY = "ladder"
 WARPTOUT_LADDER_VALUES: Tuple[str, ...] = ("phys",)
+# WarpToUT's optional non-blocking mode (TestCommandWarpToUT.ResolveDetach): `true` answers
+# OK once the first ladder step is applied and keeps the warp running, so later steps act
+# during it. Closed to the STRING "true" (a TOML bool is sent as `True`); anything else is
+# REJECTED `warp-detach-invalid`.
+WARPTOUT_DETACH_KEY = "detach"
+WARPTOUT_DETACH_VALUES: Tuple[str, ...] = ("true",)
 UIACTION_MODE_VALUES: Tuple[str, ...] = ("basic", "advanced")
 
 # `op=find`'s control-kind filter, mirroring TestCommandUiFind.CtrlValues, which itself
@@ -3562,7 +3572,8 @@ PARTACTION_PID_KEY = "pid"
 PARTACTION_CONVERTER_KEY = "converter"
 PARTACTION_BUTTON_VALUES: Tuple[str, ...] = (
     "undock", "decouple", "controlfrom", "deploy", "retract", "startconverter",
-    "stopconverter", "experiment", "labprocess", "labtransmit", "inspect",
+    "stopconverter", "experiment", "labprocess", "labtransmit", "inspect", "radiatoron",
+    "radiatoroff",
 )
 PARTACTION_BUTTONS_REQUIRING_PART: Tuple[str, ...] = tuple(
     b for b in PARTACTION_BUTTON_VALUES if b != "undock")
@@ -3581,6 +3592,7 @@ PARTACTION_REASONS: Tuple[str, ...] = (
     "partaction-part-not-found", "partaction-converter-not-found",
     "partaction-part-ambiguous", "partaction-event-unavailable",
     "partaction-experiment-no-data", "partaction-lab-method-missing",
+    "partaction-radiator-not-found",
 )
 
 
@@ -4736,6 +4748,7 @@ VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     UIACTION_WINDOW_KEY: ("UiAction", UIACTION_WINDOW_VALUES),
     UIACTION_MODE_KEY: ("UiAction", UIACTION_MODE_VALUES),
     WARPTOUT_LADDER_KEY: ("WarpToUT", WARPTOUT_LADDER_VALUES),
+    WARPTOUT_DETACH_KEY: ("WarpToUT", WARPTOUT_DETACH_VALUES),
     UIACTION_CTRL_KEY: ("UiAction", UIACTION_CTRL_VALUES),
     UIACTION_STATE_KEY: ("UiAction", UIACTION_STATE_VALUES),
     UIACTION_PARK_KEY: ("UiAction", UIACTION_PARK_VALUES),
@@ -10848,6 +10861,8 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # maxRate); a game whose difficulty forbids physics warp is a gate.
     "warp-ladder-invalid": "driver-arg",
     "physics-warp-disallowed": "driver-gate",
+    # WarpToUT detach=: anything but the string `true` is arg-class (fail-closed).
+    "warp-detach-invalid": "driver-arg",
     # WarpToUT is scene-agnostic since TC-1 (FLIGHT, Space Center, Tracking Station), but
     # physics warp is a FLIGHT mode: `ladder=phys` outside FLIGHT is the spec asking for a
     # ladder that scene does not have, arg-class like an unknown ladder token.
@@ -11088,6 +11103,9 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "partaction-event-unavailable": "driver-gate",
     "partaction-experiment-no-data": "driver-gate",
     "partaction-lab-method-missing": "driver-gate",
+    # A radiator button on a part carrying no ModuleActiveRadiator: a spec typo, like a
+    # converter name the part lacks.
+    "partaction-radiator-not-found": "driver-arg",
     # RevertToLaunch: a live Re-Fly marker and stock not offering the option are live states
     # (RevertToLaunchSourceSyncTests).
     "reverttolaunch-refly-session": "driver-gate",
@@ -11767,7 +11785,7 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     # spelling, number format, closed value sets) before reading any world state.
     # The retry sends the same args.
     "missing-arg", "missing-jump-target", "missing-warp-target",
-    "max-rate-invalid", "warp-ladder-invalid",
+    "max-rate-invalid", "warp-ladder-invalid", "warp-detach-invalid",
     # WarpToUT `ladder=phys` outside FLIGHT: the spec put a physics-ladder warp in a
     # scene that has none; the retry reaches the same scene with the same arg.
     "physics-warp-not-in-flight",
