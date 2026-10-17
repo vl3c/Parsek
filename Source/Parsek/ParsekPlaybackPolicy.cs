@@ -42,6 +42,8 @@ namespace Parsek
         internal Action<uint> DeferredActivateVesselOverrideForTesting;
         internal Action<int, string> DestroyGhostOverrideForTesting;
         internal Func<Recording, bool> IsSpawnBlockedChainTipOverrideForTesting;
+        internal Func<int> WatchedRecordingIndexOverrideForTesting;
+        internal Action ExitWatchModeOverrideForTesting;
         internal const int FlagReplayWarnRetryThreshold = 3;
 
         // Deferred spawn queue: recording IDs queued during warp, flushed when warp ends
@@ -49,6 +51,13 @@ namespace Parsek
         internal readonly HashSet<string> pendingFlagReplayRecordingIds = new HashSet<string>();
         private readonly Dictionary<string, int> pendingFlagReplayFailureCounts = new Dictionary<string, int>();
         internal string pendingWatchRecordingId;
+
+        /// <summary>
+        /// Recording whose watch stayed on its held ghost when it ended under warp, so the
+        /// camera is handed over only once warp is over (never retargeted onto a vessel that
+        /// rails warp keeps packed). Null when no such watch is pending.
+        /// </summary>
+        internal string warpHeldWatchRecordingId;
 
         /// <summary>
         /// Tracks ghosts held at their final position while waiting for a blocked/deferred
@@ -108,7 +117,7 @@ namespace Parsek
 
             // Tell the engine how to check if a ghost is being held
             engine.IsGhostHeld = idx =>
-                heldGhosts.ContainsKey(idx) || host.WatchedRecordingIndex == idx;
+                heldGhosts.ContainsKey(idx) || CurrentWatchedRecordingIndex() == idx;
 
             // Tell the engine how to resolve the chain continuation for a
             // given slot. Used by ChainHandoffLogic to shadow the head when
@@ -468,11 +477,19 @@ namespace Parsek
                     continue;
 
                 bool spawnedNow = false;
+                // The held-ghost retry can materialize a warp-deferred recording before warp
+                // ends; the watch follow it skipped is still owed here.
+                bool spawnedWhileDeferred = false;
+                bool watchHeldThroughWarp = pendingSpawn
+                    && string.Equals(warpHeldWatchRecordingId, rec.RecordingId, StringComparison.Ordinal);
+                bool watchStillOnHeldGhost = watchHeldThroughWarp && CurrentWatchedRecordingIndex() == i;
                 if (pendingSpawn && rec.TerminalSpawnCannotSpawnSafely)
                 {
                     ParsekLog.Warn("Policy",
                         $"Deferred spawn cannot execute safely: #{i} \"{rec.VesselName}\" " +
                         $"id={rec.RecordingId} reason={rec.TerminalSpawnSafetyReasonCode ?? "(none)"}");
+                    if (watchStillOnHeldGhost)
+                        HandOffWarpHeldWatch(i, rec, "cannot-spawn-safely");
                     flushedSpawnIds.Add(rec.RecordingId);
                     pendingSpawn = false;
                 }
@@ -493,13 +510,20 @@ namespace Parsek
                 {
                     ParsekLog.Verbose("Policy",
                         $"Deferred spawn skipped — #{i} \"{rec.VesselName}\" already spawned or no snapshot");
+                    if (watchStillOnHeldGhost)
+                        HandOffWarpHeldWatch(i, rec, "already-spawned-or-no-snapshot");
                     flushedSpawnIds.Add(rec.RecordingId);
                     pendingSpawn = false;
+                    spawnedWhileDeferred = rec.VesselSpawned;
                 }
                 else if (pendingSpawn)
                 {
                     ParsekLog.Info("Policy",
                         $"Deferred spawn executing: #{i} \"{rec.VesselName}\" id={rec.RecordingId}");
+                    // Same order as an end-of-watch at 1x: leave the watch, spawn, then
+                    // activate the spawned vessel once it loads.
+                    if (watchStillOnHeldGhost)
+                        HandOffWarpHeldWatch(i, rec, "deferred-spawn");
                     if (SpawnVesselOrChainTipOverrideForTesting != null)
                         SpawnVesselOrChainTipOverrideForTesting(rec, i);
                     else
@@ -575,12 +599,23 @@ namespace Parsek
                     }
                 }
 
+                // The player left a watch that was kept on the held ghost: no switch is owed.
+                bool watchAbandonedDuringWarp = watchHeldThroughWarp && !watchStillOnHeldGhost;
+                if (watchAbandonedDuringWarp && (spawnedNow || spawnedWhileDeferred))
+                {
+                    ParsekLog.Info("Policy",
+                        $"Deferred watch dropped: #{i} \"{rec.VesselName}\" id={rec.RecordingId} " +
+                        "- the watch on the held ghost ended during warp, staying on the current vessel");
+                }
+
                 // Restore camera follow if this recording was being watched when deferred
-                if (spawnedNow && GhostPlaybackLogic.ShouldRestoreWatchMode(
+                if ((spawnedNow || spawnedWhileDeferred) && !watchAbandonedDuringWarp
+                    && GhostPlaybackLogic.ShouldRestoreWatchMode(
                         pendingWatchRecordingId, rec.RecordingId, rec.SpawnedVesselPersistentId))
                 {
                     ParsekLog.Info("Policy",
-                        $"Deferred watch: switching to spawned vessel pid={rec.SpawnedVesselPersistentId}");
+                        $"Deferred watch: switching to spawned vessel pid={rec.SpawnedVesselPersistentId}" +
+                        (spawnedWhileDeferred ? " (spawned by held-ghost retry during warp)" : string.Empty));
                     if (DeferredActivateVesselOverrideForTesting != null)
                         DeferredActivateVesselOverrideForTesting(rec.SpawnedVesselPersistentId);
                     else
@@ -608,8 +643,66 @@ namespace Parsek
                     $"Deferred spawn flush waiting: pending={pendingSpawnRecordingIds.Count}");
             }
 
+            if (warpHeldWatchRecordingId != null
+                && !pendingSpawnRecordingIds.Contains(warpHeldWatchRecordingId))
+                warpHeldWatchRecordingId = null;
             if (pendingSpawnRecordingIds.Count == 0)
                 pendingWatchRecordingId = null;
+        }
+
+        /// <summary>
+        /// A watched ghost that ends under warp keeps its watch on the held ghost (the camera
+        /// stays where it already is) only when there is a ghost to hold; with no ghost the
+        /// watch ends at once as before.
+        /// </summary>
+        internal static bool ShouldKeepWatchOnHeldGhostDuringWarp(bool isWatched, bool ghostWasActive)
+        {
+            return isWatched && ghostWasActive;
+        }
+
+        /// <summary>
+        /// While warp runs, a held ghost that the player is still watching and whose spawn is
+        /// queued for warp end keeps holding: no retry spawn and no timeout. Spawning it here
+        /// would end the watch mid-warp and retarget the camera onto a vessel rails warp keeps
+        /// packed; the warp-end flush spawns it and hands the camera over instead.
+        /// </summary>
+        internal static bool ShouldHoldWatchedGhostForWarp(
+            bool warpActive,
+            int heldIndex,
+            int watchedIndex,
+            string heldRecordingId,
+            string warpHeldWatchRecordingId,
+            bool spawnQueuedForWarpEnd)
+        {
+            return warpActive
+                && heldIndex >= 0
+                && heldIndex == watchedIndex
+                && spawnQueuedForWarpEnd
+                && !string.IsNullOrEmpty(heldRecordingId)
+                && string.Equals(heldRecordingId, warpHeldWatchRecordingId, StringComparison.Ordinal);
+        }
+
+        private int CurrentWatchedRecordingIndex()
+        {
+            return WatchedRecordingIndexOverrideForTesting != null
+                ? WatchedRecordingIndexOverrideForTesting()
+                : host.WatchedRecordingIndexForDiagnostics;
+        }
+
+        private void ExitWatchModeForHandoff()
+        {
+            if (ExitWatchModeOverrideForTesting != null)
+                ExitWatchModeOverrideForTesting();
+            else
+                host.ExitWatchModeFromPolicy();
+        }
+
+        private void HandOffWarpHeldWatch(int index, Recording rec, string reason)
+        {
+            ParsekLog.Info("Policy",
+                $"Warp ended - leaving the watch kept on held ghost #{index} \"{rec?.VesselName}\" " +
+                $"id={rec?.RecordingId} reason={reason}");
+            ExitWatchModeForHandoff();
         }
 
         private static IReadOnlyDictionary<string, TimelineInactiveReason> CurrentTimelineInactiveRecordingReasons(
@@ -653,6 +746,9 @@ namespace Parsek
                 && timelineInactiveIds.ContainsKey(pendingWatchRecordingId);
             if (clearedWatch)
                 pendingWatchRecordingId = null;
+            if (!string.IsNullOrEmpty(warpHeldWatchRecordingId)
+                && timelineInactiveIds.ContainsKey(warpHeldWatchRecordingId))
+                warpHeldWatchRecordingId = null;
 
             if (purged.Count > 0 || clearedWatch)
             {
@@ -674,7 +770,7 @@ namespace Parsek
 
         private void HandlePlaybackCompleted(PlaybackCompletedEvent evt)
         {
-            bool isWatched = IsWatchedCompletion(host.WatchedRecordingIndex, evt);
+            bool isWatched = IsWatchedCompletion(CurrentWatchedRecordingIndex(), evt);
 
             ParsekLog.Verbose("Policy",
                 $"PlaybackCompleted index={evt.Index} vessel={evt.Trajectory?.VesselName} " +
@@ -764,7 +860,17 @@ namespace Parsek
                     if (isWatched)
                     {
                         pendingWatchRecordingId = evt.Flags.recordingId;
-                        host.ExitWatchModeFromPolicy();
+                        if (ShouldKeepWatchOnHeldGhostDuringWarp(isWatched, evt.GhostWasActive))
+                        {
+                            warpHeldWatchRecordingId = evt.Flags.recordingId;
+                            ParsekLog.Info("Policy",
+                                $"Watch kept on held ghost during warp: #{evt.Index} \"{evt.Trajectory?.VesselName}\" " +
+                                $"id={evt.Flags.recordingId} - camera hand-off waits for warp end");
+                        }
+                        else
+                        {
+                            ExitWatchModeForHandoff();
+                        }
                     }
 
                     // Hold ghost during warp-deferred spawn (#96)
@@ -953,6 +1059,11 @@ namespace Parsek
                 ? CurrentUTOverrideForTesting()
                 : CurrentUniversalTimeSafe();
 
+            bool warpActive = IsWarpActiveOverrideForTesting != null
+                ? IsWarpActiveOverrideForTesting()
+                : IsAnyWarpActiveFromGlobalsCore();
+            int watchedIndex = CurrentWatchedRecordingIndex();
+
             // Collect indices to release and retry-time updates (cannot modify dict during iteration)
             List<KeyValuePair<int, string>> toRelease = null;  // index + destroy reason
             List<KeyValuePair<int, float>> retryTimeUpdates = null;
@@ -964,12 +1075,27 @@ namespace Parsek
 
                 bool spawnBlockedChainTip = index >= 0 && index < committed.Count
                     && IsSpawnBlockedChainTipForHold(committed[index]);
+                bool holdForWarpWatch = ShouldHoldWatchedGhostForWarp(
+                    warpActive,
+                    index,
+                    watchedIndex,
+                    info.recordingId,
+                    warpHeldWatchRecordingId,
+                    info.recordingId != null && pendingSpawnRecordingIds.Contains(info.recordingId));
                 var decision = DecideHeldGhostAction(
                     index, info, committed, now, HeldGhostTimeoutSeconds,
                     HeldGhostRetryIntervalSeconds,
                     timelineInactiveIds,
                     currentUT,
-                    spawnBlockedChainTip);
+                    spawnBlockedChainTip,
+                    holdForWarpWatch);
+                if (holdForWarpWatch && decision == HeldGhostAction.Hold)
+                {
+                    ParsekLog.VerboseRateLimited("Policy",
+                        "held-warp-watch-" + (info.recordingId ?? index.ToString(CultureInfo.InvariantCulture)),
+                        $"Held ghost kept for the watch until warp ends: #{index} \"{info.vesselName}\" " +
+                        $"id={info.recordingId} held={now - info.holdStartTime:F1}s");
+                }
 
                 switch (decision)
                 {
@@ -989,7 +1115,7 @@ namespace Parsek
                                 $"id={info.recordingId} held={now - info.holdStartTime:F1}s");
 
                             // If user is currently watching this recording, activate the spawned vessel
-                            if (host.WatchedRecordingIndex == index)
+                            if (watchedIndex == index)
                             {
                                 uint spawnedPid = committed[index].SpawnedVesselPersistentId;
                                 if (spawnedPid != 0)
@@ -1083,6 +1209,18 @@ namespace Parsek
                 {
                     int index = toRelease[i].Key;
                     string reason = toRelease[i].Value;
+                    // Never destroy the ghost the camera is following: leave the watch first,
+                    // as every other end-of-watch does before its ghost goes.
+                    if (index == watchedIndex)
+                    {
+                        ParsekLog.Info("Policy",
+                            $"Leaving watch before releasing held ghost #{index} reason={reason}");
+                        // Parsek ended this watch, not the player: a warp-end switch stays owed.
+                        if (heldGhosts.TryGetValue(index, out var releasedInfo)
+                            && string.Equals(releasedInfo.recordingId, warpHeldWatchRecordingId, StringComparison.Ordinal))
+                            warpHeldWatchRecordingId = null;
+                        ExitWatchModeForHandoff();
+                    }
                     if (DestroyGhostOverrideForTesting != null)
                         DestroyGhostOverrideForTesting(index, reason);
                     else
@@ -1155,7 +1293,8 @@ namespace Parsek
             float retryIntervalSeconds = 1.0f,
             IReadOnlyDictionary<string, TimelineInactiveReason> timelineInactiveIds = null,
             double currentUT = double.NaN,
-            bool spawnBlockedChainTip = false)
+            bool spawnBlockedChainTip = false,
+            bool holdForWarpWatch = false)
         {
             // Invalid index — recording list may have changed
             if (index < 0 || index >= committed.Count)
@@ -1193,6 +1332,11 @@ namespace Parsek
             if (terminalDeferredState == TerminalOrbitDeferredSpawnState.Refused)
                 return HeldGhostAction.ReleaseCannotSpawnSafely;
             if (terminalDeferredState == TerminalOrbitDeferredSpawnState.Hold)
+                return HeldGhostAction.Hold;
+
+            // A watched ghost whose spawn waits for warp end: no retry, no timeout. Every
+            // release above still applies to it.
+            if (holdForWarpWatch)
                 return HeldGhostAction.Hold;
 
             // Timeout check. A collision-blocked chain tip is exempt: its blocker can move away
@@ -1794,6 +1938,7 @@ namespace Parsek
             pendingFlagReplayRecordingIds.Clear();
             pendingFlagReplayFailureCounts.Clear();
             pendingWatchRecordingId = null;
+            warpHeldWatchRecordingId = null;
             heldGhosts.Clear();
             GhostMapPresence.ClearFlightMapPresenceState();
         }

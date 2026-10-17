@@ -3801,6 +3801,60 @@ namespace Parsek.Tests
             }
         }
 
+        // HIRE-RECALC-BEFORE-STOCK-DEBIT. KerbalRoster.HireApplicant raises
+        // OnCrewmemberHired and stock Funding charges the hire from its own listener on the
+        // same event, which runs after Parsek's. An inline recalc there patches funds to the
+        // post-hire value and the stock charge then lands on top (a double charge held by
+        // the uplift guard), or the drawdown guard clamps it; the reconcile finds no
+        // FundsChanged(CrewRecruited) yet. Both must wait for the host's next frame.
+        [Fact]
+        public void OnKscSpending_KerbalHire_DefersTheReconcileAndRecalcPastStocksCharge()
+        {
+            Action deferred = null;
+            LedgerOrchestrator.DeferOneFrameForTesting = a => deferred = a;
+            try
+            {
+                LedgerOrchestrator.OnKscSpending(new GameStateEvent
+                {
+                    ut = 600.0,
+                    eventType = GameStateEventType.CrewHired,
+                    key = "Verhat Kerman",
+                    detail = "trait=Pilot;cost=62113"
+                });
+
+                Assert.NotNull(deferred);
+                Assert.NotNull(FindLedgerRow(GameActionType.KerbalHire));
+                Assert.Contains(logLines, l =>
+                    l.Contains("[LedgerOrchestrator]")
+                    && l.Contains("OnKscSpending: deferring the reconcile and recalc one frame for KerbalHire"));
+                Assert.DoesNotContain(logLines, l =>
+                    l.Contains("[RecalcEngine]") && l.Contains("Recalculate complete"));
+                Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation (funds)"));
+
+                // Stock's charge lands after the handler returns.
+                var charge = new GameStateEvent
+                {
+                    ut = 600.0,
+                    eventType = GameStateEventType.FundsChanged,
+                    key = "CrewRecruited",
+                    valueBefore = 354182.0,
+                    valueAfter = 292069.0
+                };
+                GameStateStore.AddEvent(ref charge);
+
+                deferred();
+
+                Assert.Contains(logLines, l =>
+                    l.Contains("[RecalcEngine]") && l.Contains("Recalculate complete"));
+                Assert.DoesNotContain(logLines, l =>
+                    l.Contains("KSC reconciliation (funds)") && l.Contains("no matching"));
+            }
+            finally
+            {
+                LedgerOrchestrator.DeferOneFrameForTesting = null;
+            }
+        }
+
         // A non-milestone row still recalculates inline through the same host-aware path -
         // the deferral must not leak onto the rest of the door.
         [Fact]
@@ -3880,12 +3934,22 @@ namespace Parsek.Tests
         // losing the recalc entirely would be worse than running it early, which is what
         // the seed guard is there to absorb.
         [Fact]
-        public void ShouldDeferKscRecalcOneFrame_IsMilestoneOnlyAndNeedsAHost()
+        public void ShouldDeferKscRecalcOneFrame_IsMilestoneOrHireOnlyAndNeedsAHost()
         {
             Assert.True(LedgerOrchestrator.ShouldDeferKscRecalcOneFrame(
                 GameActionType.MilestoneAchievement, hasFrameHost: true));
             Assert.False(LedgerOrchestrator.ShouldDeferKscRecalcOneFrame(
                 GameActionType.MilestoneAchievement, hasFrameHost: false));
+            Assert.True(LedgerOrchestrator.ShouldDeferKscRecalcOneFrame(
+                GameActionType.KerbalHire, hasFrameHost: true));
+            Assert.False(LedgerOrchestrator.ShouldDeferKscRecalcOneFrame(
+                GameActionType.KerbalHire, hasFrameHost: false));
+            Assert.True(LedgerOrchestrator.ShouldDeferKscReconcileOneFrame(
+                GameActionType.KerbalHire, hasFrameHost: true));
+            Assert.False(LedgerOrchestrator.ShouldDeferKscReconcileOneFrame(
+                GameActionType.KerbalHire, hasFrameHost: false));
+            Assert.False(LedgerOrchestrator.ShouldDeferKscReconcileOneFrame(
+                GameActionType.MilestoneAchievement, hasFrameHost: true));
 
             foreach (GameActionType other in new[]
             {

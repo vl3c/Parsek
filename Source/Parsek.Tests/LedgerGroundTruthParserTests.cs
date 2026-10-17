@@ -331,6 +331,39 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Parse_FlightStateUT_ReadsTheSaveClock()
+        {
+            // Guards: the save clock the rewind-aware ledger oracle places every
+            // expected row against. A misread would move rows across the end UT.
+            var game = MakeGame(funds: 1000.0);
+            EnsureFlightState(game).AddValue("UT", R(17532.25));
+
+            var snap = CareerSaveParser.Parse(game);
+
+            Assert.True(snap.HasUniversalTime);
+            Assert.Equal(17532.25, snap.UniversalTime);
+            Assert.Contains(logLines, l => l.Contains("[LedgerGroundTruth]")
+                && l.Contains("ParseUniversalTime: ut=17532.25"));
+        }
+
+        [Fact]
+        public void Parse_NoFlightStateUT_LeavesTheClockAbsent()
+        {
+            // Guards: a missing UT stays absent rather than reading as 0, which would
+            // put every expected row in the committed future.
+            var game = MakeGame(funds: 1000.0);
+            EnsureFlightState(game);
+
+            var snap = CareerSaveParser.Parse(game);
+
+            Assert.True(snap.Parsed);
+            Assert.False(snap.HasUniversalTime);
+            Assert.Equal(0.0, snap.UniversalTime);
+            Assert.Contains(logLines, l => l.Contains("[LedgerGroundTruth]")
+                && l.Contains("ParseUniversalTime: FLIGHTSTATE has no parsable UT"));
+        }
+
+        [Fact]
         public void Parse_GameWrapperAndBareRoot_BothWork()
         {
             // Guards: root-vs-GAME descent regression.

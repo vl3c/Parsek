@@ -40,6 +40,15 @@ namespace Parsek
         public bool HasRep;
         public double Reputation;
 
+        /// <summary>
+        /// The save's own clock, FLIGHTSTATE &gt; UT. The rewind-aware ledger oracle
+        /// places every expected ledger row before or after it (a rewound career keeps
+        /// part of its committed ledger in the future). False when FLIGHTSTATE or its
+        /// UT value is missing.
+        /// </summary>
+        public bool HasUniversalTime;
+        public double UniversalTime;
+
         /// <summary>subjectId -> cumulative earned science.</summary>
         public Dictionary<string, double> SubjectScience = new Dictionary<string, double>();
 

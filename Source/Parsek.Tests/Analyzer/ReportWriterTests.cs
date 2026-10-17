@@ -126,7 +126,7 @@ namespace Parsek.Tests.Analyzer
             string golden = string.Join("\n", new[]
             {
                 "{",
-                "  \"analyzerVersion\": \"4\",",
+                "  \"analyzerVersion\": \"5\",",
                 "  \"saveName\": \"testsave\",",
                 "  \"subjectSchemaGeneration\": 4,",
                 "  \"counts\": {",
@@ -343,6 +343,8 @@ namespace Parsek.Tests.Analyzer
                 Funds = 25000.0,
                 HasScience = true,
                 SciencePool = 0.0,
+                HasUniversalTime = true,
+                UniversalTime = 1234.5,
                 HasRep = true,
                 Reputation = 0.0,
             };
@@ -397,7 +399,7 @@ namespace Parsek.Tests.Analyzer
             string golden = string.Join("\n", new[]
             {
                 "{",
-                "  \"analyzerVersion\": \"4\",",
+                "  \"analyzerVersion\": \"5\",",
                 "  \"saveName\": \"testsave\",",
                 "  \"subjectSchemaGeneration\": 4,",
                 "  \"counts\": {",
@@ -418,6 +420,8 @@ namespace Parsek.Tests.Analyzer
                 "    \"sciencePool\": 0,",
                 "    \"hasRep\": true,",
                 "    \"reputation\": 0,",
+                "    \"hasUniversalTime\": true,",
+                "    \"universalTime\": 1234.5,",
                 "    \"subjectScience\": {",
                 "      \"a@Y\": 1,",
                 "      \"z@X\": 2.5",
@@ -598,6 +602,20 @@ namespace Parsek.Tests.Analyzer
             Assert.DoesNotContain("\"funds\": 0", json);
             Assert.DoesNotContain("\"sciencePool\": 0", json);
             Assert.DoesNotContain("\"reputation\": 0", json);
+        }
+
+        // Guards: a save with no FLIGHTSTATE UT exports the clock as absent (flag false,
+        // value null), never as a finite 0. The rewind-aware ledger oracle reads this
+        // value as the save's end UT, and a laundered 0 would place every expected row
+        // in the committed future.
+        [Fact]
+        public void BuildJson_AbsentClock_EmitsFlagFalseAndNull()
+        {
+            var cs = new CareerSaveSnapshot { Parsed = true, HasFunds = true, Funds = 1000.0 };
+            string json = ReportWriter.BuildJson(ReportWith(cs, null));
+            Assert.Contains("\"hasUniversalTime\": false", json);
+            Assert.Contains("\"universalTime\": null", json);
+            Assert.DoesNotContain("\"universalTime\": 0", json);
         }
 
         // Guards (review SF2): a non-finite value in a per-identity facet map or a
