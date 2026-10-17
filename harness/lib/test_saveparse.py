@@ -947,6 +947,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # lab-lko-relay is lab-lko-seeded's orbit with lab-pad-seeded's lab and CommNet
         # ground stations off (same builder, the LAB-11 host), so it carries the node too.
         "lab-lko-relay": True,
+        # lab-pad-career is strategy-career with lab-pad-seeded's FLIGHTSTATE, crew rows,
+        # tech and inert node spliced in (harness/tools/build_lab_pad_career.py, the LAB-12
+        # host): focusable, so it carries the donor's node.
+        "lab-pad-career": True,
         # The FORGE-logi-pad harvest: the purpose-built `Logi Cargo Rig` PRELAUNCH on
         # the pad, the fixture H38-logistics-isolated flies. True like every other
         # forged pad fixture - the forge boots a save that already carries a
