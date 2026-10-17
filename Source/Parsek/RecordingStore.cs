@@ -3369,12 +3369,55 @@ namespace Parsek
                 segment, hasDescendants, out string keepReason);
             reason = noOp ? "no-op" : keepReason;
 
+            // A committed-restore clone is torn down WHOLE on a no-op, so a segment
+            // that did nothing must not take other members' new work with it (the
+            // player flew a background member and came back): every recording
+            // outside the segment's subtree must also be unchanged since the switch.
+            if (noOp && disposition == SwitchSegmentDisposition.CommittedRestoreClone
+                && !CommittedCloneMembersOutsideSegmentUnchanged(
+                    tree, subtreeIds, session.SwitchUT, out string memberReason))
+            {
+                noOp = false;
+                reason = memberReason;
+            }
+
             ParsekLog.Verbose("SwitchSegment",
                 $"TryClassifyActiveSwitchSegmentNoOp: sessionId={session.SessionId:D} " +
                 $"segId={segId} disposition={disposition} subtreeCount={subtreeIds.Count} " +
                 $"hasDescendants={hasDescendants} noOp={noOp} reason={reason ?? "<none>"}");
 
             return noOp;
+        }
+
+        /// <summary>
+        /// Pure: true when every recording of <paramref name="tree"/> outside
+        /// <paramref name="segmentSubtreeIds"/> changed nothing at or after
+        /// <paramref name="sinceUT"/> (<see cref="SwitchSegmentNoOpClassifier.IsNoOpResumeTail"/>,
+        /// the same tail rule the no-session committed resume applies tree-wide;
+        /// committed history before the switch passes). The first member that did
+        /// something is named in <paramref name="keepReason"/> as
+        /// <c>member:&lt;id&gt;:&lt;reason&gt;</c>.
+        /// </summary>
+        internal static bool CommittedCloneMembersOutsideSegmentUnchanged(
+            RecordingTree tree, HashSet<string> segmentSubtreeIds, double sinceUT,
+            out string keepReason)
+        {
+            keepReason = null;
+            if (tree?.Recordings == null)
+                return true;
+            foreach (var kvp in tree.Recordings)
+            {
+                Recording rec = kvp.Value;
+                if (rec == null) continue;
+                if (segmentSubtreeIds != null && segmentSubtreeIds.Contains(kvp.Key))
+                    continue;
+                if (!SwitchSegmentNoOpClassifier.IsNoOpResumeTail(rec, sinceUT, out string memberReason))
+                {
+                    keepReason = "member:" + (kvp.Key ?? "<null>") + ":" + (memberReason ?? "<none>");
+                    return false;
+                }
+            }
+            return true;
         }
 
         /// <summary>

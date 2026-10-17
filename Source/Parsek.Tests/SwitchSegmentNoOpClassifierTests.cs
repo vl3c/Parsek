@@ -643,6 +643,89 @@ namespace Parsek.Tests
             Assert.Equal(SwitchSegmentDisposition.BgMemberOrMixed, disp);
         }
 
+        private static Recording Member(string id, string treeId, double startUT, double endUT, bool propulsive)
+        {
+            var rec = new Recording
+            {
+                RecordingId = id,
+                TreeId = treeId,
+                VesselName = "Rover A",
+                ExplicitStartUT = startUT,
+                ExplicitEndUT = endUT,
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = propulsive ? SegmentEnvironment.ExoPropulsive
+                                         : SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = startUT, endUT = endUT,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment>(),
+            });
+            return rec;
+        }
+
+        [Fact]
+        public void CommittedClone_NoOpSegment_OtherMemberDroveAfterSwitch_IsKept()
+        {
+            // Review finding on the resumed-spawn segment: the clone is discarded
+            // whole on a no-op, so rover A's drive (after the switch at UT 150)
+            // must keep it even though rover B's own segment did nothing.
+            var parent = new Recording { RecordingId = "rec_b", TreeId = "tree_k" };
+            var other = Member("rec_a", "tree_k", 160, 190, propulsive: true);
+            var seg = Segment("rec_seg", "tree_k", noOp: true);
+            var tree = Tree("tree_k", "rec_seg", parent, other, seg);
+            RecordingStore.StashPendingTree(tree);
+            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, "test");
+            ArmSession("tree_k", "rec_seg", parentId: "rec_b", committedTreeId: "tree_k");
+
+            bool noOp = RecordingStore.TryClassifyActiveSwitchSegmentNoOp(
+                out string reason, out SwitchSegmentDisposition disp);
+
+            Assert.False(noOp);
+            Assert.Equal(SwitchSegmentDisposition.CommittedRestoreClone, disp);
+            Assert.StartsWith("member:rec_a:", reason);
+            Assert.Contains(logLines, l => l.Contains("[SwitchSegment]")
+                && l.Contains("disposition=CommittedRestoreClone") && l.Contains("reason=member:rec_a:"));
+        }
+
+        [Fact]
+        public void CommittedClone_NoOpSegment_OtherMemberOnlyHistory_IsNoOp()
+        {
+            // The same member whose work all ended before the switch is committed
+            // history: the clone reverts to its committed original, nothing lost.
+            var parent = new Recording { RecordingId = "rec_b", TreeId = "tree_h" };
+            var other = Member("rec_a", "tree_h", 40, 90, propulsive: true);
+            var seg = Segment("rec_seg", "tree_h", noOp: true);
+            var tree = Tree("tree_h", "rec_seg", parent, other, seg);
+            RecordingStore.StashPendingTree(tree);
+            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, "test");
+            ArmSession("tree_h", "rec_seg", parentId: "rec_b", committedTreeId: "tree_h");
+
+            bool noOp = RecordingStore.TryClassifyActiveSwitchSegmentNoOp(
+                out string reason, out SwitchSegmentDisposition disp);
+
+            Assert.True(noOp);
+            Assert.Equal("no-op", reason);
+            Assert.Equal(SwitchSegmentDisposition.CommittedRestoreClone, disp);
+        }
+
+        [Fact]
+        public void CommittedCloneMembersOutsideSegmentUnchanged_SkipsTheSegmentSubtree()
+        {
+            var tree = Tree("tree_p", "rec_seg",
+                Member("rec_seg", "tree_p", 160, 190, propulsive: true),
+                Member("rec_a", "tree_p", 40, 90, propulsive: true));
+            var subtree = new HashSet<string>(StringComparer.Ordinal) { "rec_seg" };
+
+            Assert.True(RecordingStore.CommittedCloneMembersOutsideSegmentUnchanged(
+                tree, subtree, 150.0, out string keep));
+            Assert.Null(keep);
+            Assert.False(RecordingStore.CommittedCloneMembersOutsideSegmentUnchanged(
+                tree, new HashSet<string>(StringComparer.Ordinal), 150.0, out keep));
+            Assert.StartsWith("member:rec_seg:", keep);
+        }
+
         [Fact]
         public void SegmentNotActiveRecording_IsKept()
         {

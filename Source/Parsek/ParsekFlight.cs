@@ -2769,6 +2769,25 @@ namespace Parsek
             try
             {
                 FlushRecorderIntoActiveTreeForSerialization();
+                // A committed-restore clone is discarded whole on a no-op, so the
+                // classifier also tail-checks every other member. Close the on-rails
+                // background members' open segments first so that check sees them;
+                // a LOADED background member accrues per-frame data the checkpoint
+                // does not flush, so keep (the no-session resume's guard).
+                bool committedClone = activeTree != null
+                    && RecordingStore.IsCommittedTreeRestoreAttemptTree(activeTree.Id);
+                if (committedClone && backgroundRecorder != null)
+                {
+                    if (backgroundRecorder.HasLoadedBackgroundMembers)
+                    {
+                        reason = "loaded-background-member";
+                        ParsekLog.Verbose("SwitchSegment",
+                            $"TryEvaluateActiveSwitchSegmentNoOp: treeId={activeTree.Id} " +
+                            "keep reason=loaded-background-member (committed-restore clone)");
+                        return false;
+                    }
+                    backgroundRecorder.CheckpointAllVessels(Planetarium.GetUniversalTime());
+                }
                 return RecordingStore.TryClassifyActiveSwitchSegmentNoOp(out reason, out disposition);
             }
             catch (System.Exception ex)
