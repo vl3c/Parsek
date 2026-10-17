@@ -172,6 +172,8 @@ namespace Parsek
                 // Strategy currency-converter science yield: credits the pool, so it
                 // moves a resource exactly like a ScienceEarning.
                 case GameActionType.StrategyScienceCredit:
+                // Science lab credit: credits the pool like a ScienceEarning.
+                case GameActionType.ScienceLabEarning:
                 case GameActionType.ReputationEarning:
                 case GameActionType.ReputationPenalty:
                     return true;

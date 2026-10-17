@@ -59,6 +59,11 @@ namespace Parsek
                 case GameActionType.StrategyScienceCredit:
                     return string.Format(IC, "Strategy exchange +{0:0.#} sci", action.ScienceAwarded);
 
+                case GameActionType.ScienceLabEarning:
+                    return string.Format(IC, "Lab science {0} +{1:0.#} sci",
+                        action.Method == ScienceMethod.Recovered ? "recovered" : "transmitted",
+                        action.ScienceAwarded);
+
                 case GameActionType.FundsEarning:
                     return string.Format(IC, "{0} +{1:0}",
                         FormatFundsSource(action.FundsSource), action.FundsAwarded);
@@ -448,6 +453,7 @@ namespace Parsek
                 // Earnings — green
                 case GameActionType.ScienceEarning:
                 case GameActionType.StrategyScienceCredit:
+                case GameActionType.ScienceLabEarning:
                 case GameActionType.FundsEarning:
                 case GameActionType.ReputationEarning:
                 case GameActionType.MilestoneAchievement:

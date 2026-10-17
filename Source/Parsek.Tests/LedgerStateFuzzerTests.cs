@@ -987,6 +987,11 @@ namespace Parsek.Tests
                 case GameActionType.StrategyScienceCredit:
                     action.ScienceAwarded = 5f + rng.Next(0, 200);
                     break;
+                // ScienceLabEarning: the lab's pool credit and how it was paid out.
+                case GameActionType.ScienceLabEarning:
+                    action.ScienceAwarded = 5f + rng.Next(0, 200);
+                    action.Method = rng.Next(0, 2) == 0 ? ScienceMethod.Transmitted : ScienceMethod.Recovered;
+                    break;
                 case GameActionType.FundsEarning:
                     action.FundsAwarded = Amount(rng, 10f, 5000f);
                     break;

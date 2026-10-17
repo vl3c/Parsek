@@ -109,6 +109,10 @@ namespace Parsek
                 // makes it; the default would PRESERVE the row and the patcher would
                 // re-apply a scan from a flight the merge deleted.
                 case GameActionType.ResourceScanUnlocked:
+                // ScienceLabEarning: lab science a superseded flight transmitted or
+                // recovered. Like a ScienceEarning, it goes with the flight; the default
+                // would PRESERVE it and keep crediting science the merge deleted.
+                case GameActionType.ScienceLabEarning:
                 case GameActionType.FacilityUpgrade:
                 case GameActionType.FacilityDestruction:
                 case GameActionType.FacilityRepair:

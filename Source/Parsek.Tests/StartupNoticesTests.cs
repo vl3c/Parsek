@@ -56,6 +56,8 @@ namespace Parsek.Tests
         [InlineData("PartVesselNamingAcceptCapturePatch", "vessel names")]
         [InlineData("ResourceScanUnlockPlanetPatch", "resource scan recording")]
         [InlineData("ResourceScanUnlockBiomePatch", "resource scan recording")]
+        [InlineData("ScienceLabTransmissionCreditPatch", "science and milestone rewards")]
+        [InlineData("ScienceLabRecoveryCreditPatch", "science and milestone rewards")]
         [InlineData("DisplayPatch", null)]
         [InlineData("SomethingNew", null)]
         [InlineData("", null)]
