@@ -21047,15 +21047,23 @@ class FlownScenarioUtWindowCorroborationTests(unittest.TestCase):
         # The windows are PHASE BOUNDS, never pins: that same second Progression
         # award measured ut 19.0 on 2026-07-30 and 19.1 on the baseline flight, and
         # the impact has now measured 119.7 / 119.8 / 119.9 across six runs.
+        #
+        # A rewind-aware block (`timeline = "rewind-aware"`) is admitted on its own
+        # terms: it MUST place every entry with `ut` or `utWindow` (validate_spec
+        # refuses one without), and a flown row's UT is never pinnable, so a window is
+        # the placement, not an arming act.
         allowed = {"CL-2-pod-impact-ledger.toml"}
+        rewind_aware = set()
         declaring = []
         for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
             ledger = ((load_spec(name).get("expectations", {}) or {}).get("ledger") or {})
+            if ledger.get(hlib.LEDGER_TIMELINE_KEY) == oracle.TIMELINE_REWIND_AWARE:
+                rewind_aware.add(name)
             for entry in (ledger.get("manifest", []) or []):
                 if isinstance(entry, dict) and (
                         "utWindow" in entry or "ut_window" in entry):
                     declaring.append(name)
-        self.assertEqual(sorted(allowed), sorted(set(declaring)),
+        self.assertEqual(sorted(allowed), sorted(set(declaring) - rewind_aware),
                          "a committed spec outside the armed allowlist declares utWindow")
 
     def test_the_armed_cl2_windows_are_the_measured_phase_bounds(self):

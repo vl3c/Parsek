@@ -1,0 +1,244 @@
+schema = 1
+id = "L8-career-repeated-rewinds"
+tier = "nightly"
+# CAREER x REPEATED REWINDS (coverage matrix 2026-10-16, section 2: "career x repeated
+# rewinds is untested"; roadmap TC-4). Every repeated-rewind lane flew a sandbox host, and the
+# ledger oracle refused every rewind lane, so nothing checked that a career's funds, science
+# and reputation stay right after the second and third rewind. This lane is the first rewind
+# lane with a gating ledger block, on the rewind-aware model (`timeline = "rewind-aware"`,
+# design-autotest-ledger-oracle.md "The rewind-aware model").
+#
+# THE HOST. `career-pad-craft` (L2's host: funds 500000, science 100, rep 0, the Jumping Flea
+# on the pad at UT 9.06, pid 2905720181) plus the shared `Settings Probe` (a one-part
+# Stayputnik, the cheapest craft this ProbesBeforeCrew career can launch, HC-2 / ZF-1).
+#
+# THE WALK (UTs are the plan; the reading run measures them):
+#   flight A   warp the pad to 60, record the Flea, warp to 360, Recover: the recovery payout
+#              is booked to A, and the scene exit auto-merges A.
+#   KSC 1      warp to 1000: upgrade the Tracking Station (-150000), research basicRocketry (-5).
+#   rewind 1   Rewind-to-Launch A: clock 45 (launch - 15 s lead). The two KSC rows are kept as
+#              committed future, so the upgrade is refused (blocked-committed).
+#   KSC 2      warp to 600: hire Verhat Kerman (-62113, fresh-career's measured cost).
+#   flight B   VAB launch of the probe (rollout -300), record, Recover (+300 on the pad):
+#              auto-merges B.
+#   KSC 3      warp to 2000: upgrade Mission Control, research engineering101 (-5).
+#   rewind 2   Rewind-to-Launch B (the latest tree): clock ~585. Both upgrades refused.
+#   rewind 3   Rewind-to-Launch A again, by id (ListHandles kind=committed rec0tree): clock 45,
+#              BEFORE every row of the walk, the deepest layering: three timelines of rows,
+#              all committed future.
+#   check      VAB launch of the probe (rollout -300, the one past row), warp to 200, and
+#              LedgerGroundTruth in that flight: the first ground-truth run after a rewind
+#              (it scene-skips at the Space Center and skips with a live or pending tree, so
+#              this unrecorded launch is its only window). Then quit.
+#
+# THE EXPECTATION (oracle, HARD). End clock ~200: past = the check rollout; future = every
+# other row. Available funds = min(running, every projected future balance) = the final
+# projected balance, because the only future earnings (the two recoveries) come before the
+# spendings that outweigh them: 500000 - 300 + RA - 62113 - 300 + 300 - 150000 - MC. Science
+# 100 - 5 - 5 = 90 (both research rows reserved). Reputation 0. RA (the Flea's pad recovery)
+# and MC (Mission Control 0 -> 1) are PLACEHOLDERS until the reading run reads them off the
+# `VesselRecovery funds patched` and `kscaction ... applied=true` lines.
+#
+# STATUS: AUTHORED 2026-10-17 (branch `claude/career-rewind-ledger-tlmab9`), NOT YET FLOWN.
+# The BATCH_COMPLETE pin is interim (INTERIM_PIN_IDS) until the first flight.
+#
+# PRE-REGISTERED READINGS (what to check first if the first flight reds):
+#   - `recover rejected reason=recover-button-locked`: the craft was still settling; a
+#     premise miss, add RecordingState steps before the press.
+#   - `VesselRecovery funds patched ... recordingId=(none)`: the payout was booked untagged
+#     (the tree not yet committed); a product question, file it before re-pinning.
+#   - `invokerewindtolaunch refused`: read the reason; `ambiguous`/`not-found` on rewind 3
+#     means the handle named the wrong tree.
+#   - A ledger divergence on funds with every token green: compare the oracle's
+#     `fundsReserved=` against the last `PatchFunds` target before the quit; equal values
+#     with a different expectation mean a manifest constant, not a product drift.
+#   - `kscaction ... applied=true` for a REJECTED step: the kept row did not block the
+#     control after that rewind; a product finding (the reservation layering).
+description = "Career x repeated rewinds on career-pad-craft: record and recover two flights with KSC spending after each, rewind to the launch three times (the newer tree, then the older one by id), check every kept row still blocks its control, then run LedgerGroundTruth after the third rewind; the rewind-aware ledger oracle gates the final pools."
+instanceProfile = "stock-minimal"
+tags = ["L8", "career", "ledger", "rewind", "repeated-rewinds", "recovery", "editor",
+        "ingame-batch", "ground-truth", "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-pad-craft"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoMerge", value = "true" },                 expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+
+  # ---- flight A: the Flea, recorded and recovered on the pad ----
+  { cmd = "WarpToUT",       args = { ut = "60" },                                          expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "360" },                                         expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "Recover",        args = { pid = "2905720181" },                                 expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "l8-a-committed" },                           expect = "OK" },
+
+  # ---- KSC 1 ----
+  { cmd = "WarpToUT",       args = { ut = "1000", maxRate = "100" },                       expect = "OK", budget = 120 },
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/TrackingStation" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",      args = { action = "research-node", node = "basicRocketry" },   expect = "OK", budget = 60 },
+
+  # ---- rewind 1: A's launch ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "l8-rewound-1" },                             expect = "OK" },
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/TrackingStation" }, expect = "REJECTED", budget = 60 },
+  { cmd = "UiAction",       args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+
+  # ---- KSC 2 and flight B: the probe ----
+  { cmd = "WarpToUT",       args = { ut = "600", maxRate = "100" },                        expect = "OK", budget = 120 },
+  { cmd = "KscAction",      args = { action = "hire-kerbal", kerbal = "Verhat Kerman" },   expect = "OK", budget = 60 },
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Settings Probe" },         expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                              expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "Recover",        args = { pid = "1100000001" },                                 expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "l8-b-committed" },                           expect = "OK" },
+
+  # ---- KSC 3 ----
+  { cmd = "WarpToUT",       args = { ut = "2000", maxRate = "100" },                       expect = "OK", budget = 120 },
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/MissionControl" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",      args = { action = "research-node", node = "engineering101" },  expect = "OK", budget = 60 },
+
+  # ---- rewind 2: B's launch (the latest tree) ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "l8-rewound-2" },                             expect = "OK" },
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/MissionControl" }, expect = "REJECTED", budget = 60 },
+  { cmd = "UiAction",       args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/TrackingStation" }, expect = "REJECTED", budget = 60 },
+  { cmd = "UiAction",       args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+
+  # ---- rewind 3: A's launch again, by id ----
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "trees",                expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "${trees.rec0tree}" },                   expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "l8-rewound-3" },                             expect = "OK" },
+
+  # ---- the ground truth after the third rewind ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Settings Probe" },         expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                              expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "200" },                                         expect = "OK", budget = 120 },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "science", "kerbals", "facilities", "recalc-engine", "ksp-state-patcher", "action-blocking"]
+D14 = ["career", "scene-ksc", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Flight A and flight B; the check launch is unrecorded and no rewind removes a recording.
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  "kscaction action=upgrade-facility target=SpaceCenter/TrackingStation applied=true",
+  "kscaction action=research-node target=basicRocketry applied=true",
+  "kscaction action=hire-kerbal target=Verhat Kerman applied=true",
+  "kscaction action=upgrade-facility target=SpaceCenter/MissionControl applied=true",
+  "kscaction action=research-node target=engineering101 applied=true",
+  "\\A(?:[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT ){3}",
+  "kscaction refused action=upgrade-facility reason=blocked-committed target=SpaceCenter/TrackingStation",
+  "kscaction refused action=upgrade-facility reason=blocked-committed target=SpaceCenter/MissionControl",
+  "\\A(?:[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false){3}",
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "result: hardFailures=0 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  "Allowing facility upgrade: 'SpaceCenter/TrackingStation'[\\s\\S]*Allowing facility upgrade: 'SpaceCenter/TrackingStation'",
+]
+
+# The rewind-aware ledger oracle. Every row of the walk sits after the end clock (~200, the
+# third rewind lands at 45 and the check warps to 200) except the check launch's rollout. The
+# windows are the planned UTs with margin; the reading run narrows them.
+[expectations.ledger]
+seedFrom     = "template"
+tolerances   = "default"
+rec3CarveOut = false
+timeline     = "rewind-aware"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [40.0, 150.0]
+  kind       = "vessel-build-cost"
+  # The check launch's rollout: the Settings Probe's Stayputnik (HC-2's measured 300).
+  funds      = -300.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [355.0, 420.0]
+  kind       = "vessel-recovery"
+  # Flight A's pad recovery of the Jumping Flea. PLACEHOLDER until the reading run.
+  funds      = 1.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [1000.0, 1100.0]
+  kind       = "facility-upgrade"
+  # Tracking Station 0 -> 1 (L1-upgrade-facility-career, QL-1).
+  funds      = -150000.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [1000.0, 1100.0]
+  kind       = "tech-unlock"
+  # basicRocketry (L1-research-node-career).
+  science    = -5.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [600.0, 610.0]
+  kind       = "kerbal-hire"
+  # fresh-career's measured recruit cost (L1-hire-kerbal-career); the same roster here.
+  funds      = -62113.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [610.0, 700.0]
+  kind       = "vessel-build-cost"
+  # Flight B's rollout.
+  funds      = -300.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [610.0, 700.0]
+  kind       = "vessel-recovery"
+  # Flight B's pad recovery: the probe's full value on the pad.
+  funds      = 300.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [2000.0, 2100.0]
+  kind       = "facility-upgrade"
+  # Mission Control 0 -> 1. PLACEHOLDER until the reading run.
+  funds      = -1.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [2000.0, 2100.0]
+  kind       = "tech-unlock"
+  # engineering101.
+  science    = -5.0
+  provenance = "seam-declared"
+
+[runtime]
+budgetSeconds = 3600
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

@@ -4034,8 +4034,9 @@ before spendings at one UT) and the running reputation; `attempt` + `retiredAtte
 a Re-Fly tombstone retired, `onceKey` credits a milestone once. A missing clock is
 INVALID(tooling), a window straddling the clock a hard `timeline-unplaceable` divergence. Cells:
 `test_oracle.RewindAwareTimelineTests`, `test_ledger_timeline.py`, `LedgerGroundTruthParserTests`,
-`ReportWriterTests`. Still open: the route action types, and a career multi-rewind lane flown
-on the model.
+`ReportWriterTests`. Lane `L8-career-repeated-rewinds` (three Rewind-to-Launch on a career with
+KSC spending, two recovered flights, LedgerGroundTruth after the third rewind) is authored, not yet
+flown. Still open: the route action types.
 
 ---
 
