@@ -1472,6 +1472,7 @@ namespace Parsek
 
             HandleJointBreakDeferredCheck();
             TickCrashCoalescer();
+            SpawnedHarvesterRestore.Tick();
 
             // Skip auto-record and chain handlers while a split is being processed
             if (pendingSplitInProgress)
@@ -2258,6 +2259,7 @@ namespace Parsek
 
         void OnDestroy()
         {
+            SpawnedHarvesterRestore.Clear("flight-destroy");
             if (inertForGameMode)
                 return; // never subscribed, never became Instance (S9 game-mode gate)
             Instance = null;
