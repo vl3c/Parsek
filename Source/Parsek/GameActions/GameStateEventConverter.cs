@@ -292,6 +292,9 @@ namespace Parsek
                 case GameStateEventType.ResourceScanCompleted:
                     return ConvertResourceScanCompleted(evt, recordingId);
 
+                case GameStateEventType.ScienceLabCredited:
+                    return ConvertScienceLabCredited(evt, recordingId);
+
                 case GameStateEventType.StrategyActivated:
                     return ConvertStrategyActivated(evt, recordingId);
 
@@ -1153,6 +1156,38 @@ namespace Parsek
                 RecordingId = recordingId,
                 ScanBodyName = evt.key,
                 ScanBiomeName = string.IsNullOrEmpty(biome) ? null : biome
+            };
+        }
+
+        /// <summary>
+        /// ScienceLabCredited -> ScienceLabEarning. The credit is the event's pool delta;
+        /// <c>evt.key</c> <c>VesselRecovery</c> marks the recovery payout, anything else a
+        /// transmission. Returns null for a non-positive credit (nothing to re-apply).
+        /// This is the ONE science-earning channel fed from a pool delta: the lab credits
+        /// with no subject, so <see cref="ConvertScienceSubjects"/> never sees it and the
+        /// paired <see cref="GameStateEventType.ScienceChanged"/> stays dropped, which is
+        /// what keeps the two from double counting. Internal static for testability.
+        /// </summary>
+        internal static GameAction ConvertScienceLabCredited(GameStateEvent evt, string recordingId)
+        {
+            double credit = evt.valueAfter - evt.valueBefore;
+            if (!(credit > 0.0))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ConvertScienceLabCredited: non-positive credit={credit.ToString("R", IC)} " +
+                    $"at UT={evt.ut.ToString("F1", IC)} - skipping");
+                return null;
+            }
+
+            return new GameAction
+            {
+                UT = evt.ut,
+                Type = GameActionType.ScienceLabEarning,
+                RecordingId = recordingId,
+                ScienceAwarded = (float)credit,
+                Method = string.Equals(evt.key, "VesselRecovery", StringComparison.Ordinal)
+                    ? ScienceMethod.Recovered
+                    : ScienceMethod.Transmitted
             };
         }
 

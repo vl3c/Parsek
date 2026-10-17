@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Reflection;
 using UnityEngine;
 
 namespace Parsek
@@ -321,8 +320,9 @@ namespace Parsek
         /// KSP runtime: execute the full time jump sequence.
         /// 1. Set Planetarium UT
         /// 2. Epoch-shift all vessel orbits (keep position/velocity, update epoch)
-        /// 3. Process spawn queue (chain tips crossed during jump)
-        /// 4. Trigger game actions recalculation at the post-jump UT
+        /// 3. Shift converter timestamps (<see cref="ConverterJumpPolicy"/>)
+        /// 4. Process spawn queue (chain tips crossed during jump)
+        /// 5. Trigger game actions recalculation at the post-jump UT
         /// </summary>
         internal static void ExecuteJump(
             double targetUT,
@@ -384,6 +384,10 @@ namespace Parsek
 
                 ParsekLog.Verbose(Tag,
                     string.Format(ic, "UT set to {0:F1}", targetUT));
+
+                // Step 2b: the same converter policy as the forward jump (TA-6), before any
+                // chain tip spawns so a spawned snapshot's own timestamp is never shifted.
+                ConverterJumpPolicy.Apply(t0, targetUT, "epoch-shift");
 
                 // Step 3: Epoch-shift all captured vessel orbits.
                 // Recompute orbital elements at the new epoch from the pre-jump state vectors.
@@ -490,8 +494,8 @@ namespace Parsek
         /// this lets orbits propagate naturally — vessels advance along their Keplerian paths.
         /// Used for the FF button to skip ahead to a future recording's start.
         ///
-        /// After advancing UT, fixes ModuleResourceConverter.lastUpdateTime on all loaded
-        /// vessels to prevent burst resource production/consumption from the large time delta.
+        /// After advancing UT, applies <see cref="ConverterJumpPolicy"/> (the same policy as
+        /// <see cref="ExecuteJump"/>) so no converter catches up the jumped span.
         /// </summary>
         internal static void ExecuteForwardJump(double targetUT)
         {
@@ -545,10 +549,9 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     string.Format(ic, "Forward jump: UT set to {0:F1}", targetUT));
 
-                // Fix resource converter timestamps to prevent burst production/consumption.
-                // BaseConverter.lastUpdateTime tracks when the converter last ran; after a large
-                // UT jump, converters see a massive deltaTime and drain/produce in one burst.
-                FixResourceConverterTimestamps(targetUT);
+                // A jump is not production time: shift every converter's lastUpdateTime
+                // (loaded and unloaded) by the delta so nothing catches up the jumped span.
+                ConverterJumpPolicy.Apply(t0, targetUT, "forward");
 
                 // Take vessels off rails
                 TakeVesselsOffRails(onRailsVessels);
@@ -806,66 +809,6 @@ namespace Parsek
                             "Failed to take vessel off rails: pid={0} name={1} error={2}",
                             v.persistentId, Recording.ResolveLocalizedName(v.vesselName), ex.Message));
                 }
-            }
-        }
-
-        /// <summary>
-        /// Resets lastUpdateTime on all BaseConverter (ModuleResourceConverter) modules
-        /// across all loaded vessels to the given UT. This prevents converters from seeing
-        /// the full time jump delta and producing/consuming resources in a single burst.
-        /// lastUpdateTime is protected, so we use reflection.
-        /// </summary>
-        private static readonly FieldInfo lastUpdateTimeField =
-            typeof(BaseConverter).GetField("lastUpdateTime",
-                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-
-        private static void FixResourceConverterTimestamps(double newUT)
-        {
-            if (FlightGlobals.VesselsLoaded == null) return;
-
-            if (lastUpdateTimeField == null)
-            {
-                ParsekLog.Warn(Tag,
-                    "FixResourceConverterTimestamps: lastUpdateTime field not found via reflection — skipping");
-                return;
-            }
-
-            int fixedCount = 0;
-            var vessels = new List<Vessel>(FlightGlobals.VesselsLoaded);
-            foreach (Vessel v in vessels)
-            {
-                if (v == null || v.parts == null) continue;
-                if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
-
-                foreach (Part p in v.parts)
-                {
-                    if (p == null || p.Modules == null) continue;
-
-                    for (int m = 0; m < p.Modules.Count; m++)
-                    {
-                        var converter = p.Modules[m] as BaseConverter;
-                        if (converter != null)
-                        {
-                            double oldTime = (double)lastUpdateTimeField.GetValue(converter);
-                            lastUpdateTimeField.SetValue(converter, newUT);
-                            fixedCount++;
-
-                            ParsekLog.Verbose(Tag,
-                                string.Format(ic,
-                                    "Fixed converter timestamp: vessel={0} part={1} module={2} old={3:F1} new={4:F1}",
-                                    Recording.ResolveLocalizedName(v.vesselName), p.partInfo?.name ?? "?", converter.GetType().Name,
-                                    oldTime, newUT));
-                        }
-                    }
-                }
-            }
-
-            if (fixedCount > 0)
-            {
-                ParsekLog.Info(Tag,
-                    string.Format(ic,
-                        "Fixed {0} resource converter timestamp(s) to UT={1:F1}",
-                        fixedCount, newUT));
             }
         }
     }

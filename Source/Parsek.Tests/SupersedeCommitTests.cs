@@ -209,6 +209,9 @@ namespace Parsek.Tests
             // stock already applied; the merge retires it via IsSupersedeTombstoneEligible
             // and the rewind quicksave predates the scan. Neither gate blocks.
             yield return new object[] { GameActionType.ResourceScanUnlocked, false, false };
+            // ScienceLabEarning (LAB-SCIENCE-NEVER-LEDGERED): the lab's subject-less credit;
+            // the merge retires it via IsSupersedeTombstoneEligible. Neither gate blocks.
+            yield return new object[] { GameActionType.ScienceLabEarning, false, false };
         }
 
         [Fact]

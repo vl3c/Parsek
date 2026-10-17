@@ -133,6 +133,9 @@ namespace Parsek
                 case GameActionType.StrategyScienceCredit:
                     ProcessStrategyScienceCredit(action);
                     break;
+                case GameActionType.ScienceLabEarning:
+                    ProcessLabEarning(action);
+                    break;
                 case GameActionType.ContractComplete:
                     ProcessContractScienceReward(action);
                     break;
@@ -438,6 +441,35 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Processes a <see cref="GameActionType.ScienceLabEarning"/> row: the science lab's
+        /// subject-less credit, applied uncapped (stock caps only the lab's stored science,
+        /// and that cap already bounded the credit when it was paid). Feeds
+        /// <see cref="totalEffectiveEarnings"/> like every other spendable earning and sets
+        /// <see cref="GameAction.EffectiveScience"/> so the earnings reconcile reads it.
+        /// </summary>
+        internal void ProcessLabEarning(GameAction action)
+        {
+            double credit = (double)action.ScienceAwarded;
+            if (!(credit > 0.0))
+            {
+                action.EffectiveScience = 0f;
+                ParsekLog.Verbose("ScienceModule",
+                    $"LabEarning: non-positive credit={credit.ToString("R", IC)} " +
+                    $"at UT={action.UT.ToString("R", IC)} - no-op");
+                return;
+            }
+
+            runningScience += credit;
+            totalEffectiveEarnings += credit;
+            action.EffectiveScience = (float)credit;
+
+            ParsekLog.Verbose("ScienceModule",
+                $"LabEarning: credit={credit.ToString("R", IC)}, method={action.Method}, " +
+                $"runningScience={runningScience.ToString("R", IC)}, " +
+                $"recordingId={action.RecordingId ?? "(none)"}");
+        }
+
+        /// <summary>
         /// Processes a StrategyActivate action's science setup cost. The action already
         /// carries the exact configured science charge from the strategy detail.
         /// </summary>
@@ -633,6 +665,9 @@ namespace Parsek
                     delta = -(double)action.Cost;
                     return true;
                 case GameActionType.StrategyScienceCredit:
+                    delta = (double)action.ScienceAwarded;
+                    return true;
+                case GameActionType.ScienceLabEarning:
                     delta = (double)action.ScienceAwarded;
                     return true;
                 case GameActionType.StrategyActivate:

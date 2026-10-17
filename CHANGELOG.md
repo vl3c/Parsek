@@ -43,6 +43,12 @@ _(unreleased - entries accumulate here per commit)_
   the station in the world and the docking flight then took it over, the station's recording still
   read "already spawned" and it never reappeared at the end. It now spawns at its recorded end time
   again. (REFLY-KEPT-TIP-STAMP-GHOSTED-BY-CHAIN)
+- **Science from the Mobile Processing Lab now counts in your career.** Lab science you transmit
+  or recover is kept by Parsek, so it is no longer lost after a rewind or held back with a "Kept
+  your earned science" notice. (LAB-SCIENCE-NEVER-LEDGERED)
+- **Skipping time no longer gives drills, ISRUs, fuel cells or labs free production.** A
+  Real Spawn Control warp now pauses them like fast-forward always did, and a vessel far away is
+  paused too: it no longer makes hours of ore or lab data the next time you visit it. (TA-6)
 - **A vessel another mission will use no longer vanishes after a rewind.** A rover or station that
   a later flight builds on or docks to used to disappear from the rewind until that flight reached
   it. It now stays visible as a ghost in the shape and place it had, until the flight takes it

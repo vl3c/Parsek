@@ -116,6 +116,8 @@ namespace Parsek.Tests
         // ResourceScanUnlocked (RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED): flips stock scan
         // state; moves no pool.
         [InlineData(GameActionType.ResourceScanUnlocked, false)]
+        // ScienceLabEarning (LAB-SCIENCE-NEVER-LEDGERED): credits the science pool.
+        [InlineData(GameActionType.ScienceLabEarning,    true)]
         public void IsResourceImpactingAction_Theory(GameActionType type, bool expected)
         {
             Assert.Equal(expected, LedgerOrchestrator.IsResourceImpactingAction(type));

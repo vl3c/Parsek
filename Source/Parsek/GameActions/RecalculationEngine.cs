@@ -428,6 +428,8 @@ namespace Parsek
                 // one movement, one leg kept and one dropped. Listing it is the only
                 // classification that keeps the pair together.
                 case GameActionType.StrategyScienceCredit:
+                // Science lab credit: an earning like ScienceEarning.
+                case GameActionType.ScienceLabEarning:
                 case GameActionType.FundsEarning:
                 // Logistics deferred recovery credit: a funds earning (FundsModule adds
                 // it to totalEarnings), so it sorts before spendings at a shared UT.

@@ -1507,6 +1507,67 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: the <see cref="GameStateEventType.ScienceLabCredited"/> event for one science
+        /// lab payout. <paramref name="reasonKey"/> is the stock reason the lab passed to
+        /// <c>AddScience</c> (<c>ScienceTransmission</c> or <c>VesselRecovery</c>). Internal
+        /// static for direct unit testing.
+        /// </summary>
+        internal static GameStateEvent BuildScienceLabCreditEvent(
+            double ut, float scienceBefore, float scienceAfter, string reasonKey, string vesselName)
+        {
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.ScienceLabCredited,
+                key = reasonKey ?? "",
+                valueBefore = scienceBefore,
+                valueAfter = scienceAfter,
+                detail = string.IsNullOrEmpty(vesselName) ? "" : "vessel=" + vesselName
+            };
+        }
+
+        /// <summary>
+        /// Called from the Harmony postfixes on <c>ModuleScienceLab.OnTransmissionComplete</c>
+        /// and <c>ModuleScienceLab.RecoverScienceLabs</c> with the R&amp;D pool read around the
+        /// stock call (lab science reaching the ledger, LAB-SCIENCE-NEVER-LEDGERED). Stock
+        /// credits the lab's science through a bare <c>AddScience</c>, with no subject and no
+        /// <c>OnScienceRecieved</c>, so this is the only capture of it. Emits
+        /// <see cref="GameStateEventType.ScienceLabCredited"/>, tagged to the live recording
+        /// like any other flight event, and forwards an ownerless one straight to the ledger.
+        /// Suppressed during timeline replay. Internal static for testability.
+        /// </summary>
+        internal static void OnScienceLabCredited(
+            double ut, float scienceBefore, float scienceAfter, string reasonKey, string vesselName)
+        {
+            if (IsReplayingActions || SuppressResourceEvents)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "OnScienceLabCredited: suppressed during action replay");
+                return;
+            }
+            float credit = scienceAfter - scienceBefore;
+            if (IsScienceDeltaBelowThreshold(credit) || credit < 0f)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"OnScienceLabCredited: no pool credit ({credit.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}) " +
+                    $"reason='{reasonKey}' vessel='{vesselName}' - skipped");
+                return;
+            }
+
+            var evt = BuildScienceLabCreditEvent(ut, scienceBefore, scienceAfter, reasonKey, vesselName);
+            Emit(ref evt, "ScienceLabCredited");
+
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: ScienceLabCredited +{credit.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"reason='{reasonKey}' vessel='{vesselName}' " +
+                $"ut={ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"recordingId='{evt.recordingId ?? ""}'");
+
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
+                LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>
         /// Pure: builds the semicolon-separated detail string for a StrategyActivated
         /// event. Format:
         /// <c>title=&lt;t&gt;;dept=&lt;d&gt;;factor=&lt;f&gt;;source=&lt;src&gt;;target=&lt;tgt&gt;;setupFunds=&lt;sf&gt;;setupSci=&lt;ss&gt;;setupRep=&lt;sr&gt;</c>.

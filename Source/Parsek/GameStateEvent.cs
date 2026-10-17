@@ -43,7 +43,19 @@ namespace Parsek
         /// <c>biome=&lt;name&gt;</c> for a biome unlock and is empty for a whole-body survey.
         /// Explicitly numbered and append-only, like <see cref="ExperienceGained"/>.
         /// </summary>
-        ResourceScanCompleted = 23
+        ResourceScanCompleted = 23,
+
+        /// <summary>
+        /// The Mobile Processing Lab credited science to the pool with no science subject
+        /// (a lab transmission, or the lab's stored science on recovery). <c>key</c> is the
+        /// stock reason (<c>ScienceTransmission</c> / <c>VesselRecovery</c>),
+        /// <c>valueBefore</c> the pool before the call and <c>valueAfter</c> that pool plus the
+        /// gross payout (before any converter strategy's take, which is its own ledger row), and
+        /// <c>detail</c> carries <c>vessel=&lt;name&gt;</c>. Recorded beside the stock
+        /// <see cref="ScienceChanged"/> event, which stays the reconcile's store side.
+        /// Explicitly numbered and append-only, like <see cref="ExperienceGained"/>.
+        /// </summary>
+        ScienceLabCredited = 24
     }
 
     public struct GameStateEvent
@@ -326,6 +338,7 @@ namespace Parsek
                 case GameStateEventType.FundsChanged:
                     return "Funds";
                 case GameStateEventType.ScienceChanged:
+                case GameStateEventType.ScienceLabCredited:
                     return "Science";
                 case GameStateEventType.ReputationChanged:
                     return "Reputation";
@@ -427,6 +440,14 @@ namespace Parsek
                 {
                     string title = ExtractDetailField(detail, "title");
                     return title != null ? $"\"{title}\" deactivated" : $"\"{key}\" deactivated";
+                }
+                case GameStateEventType.ScienceLabCredited:
+                {
+                    var ic = CultureInfo.InvariantCulture;
+                    double credit = e.valueAfter - e.valueBefore;
+                    string how = string.Equals(key, "VesselRecovery", StringComparison.Ordinal)
+                        ? "recovered" : "transmitted";
+                    return $"Lab science {how}: +{credit.ToString("N1", ic)}";
                 }
                 case GameStateEventType.ResourceScanCompleted:
                 {
