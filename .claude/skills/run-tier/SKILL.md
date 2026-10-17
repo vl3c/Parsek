@@ -60,6 +60,10 @@ the >= 30 min interplanetary lanes, is about 5 h of p50 wall on its own). Do not
 timeout of your own: run.py owns per-spec budgets. Tail
 `harness/results/tier-runs/<tier>_<stamp>.log` for progress.
 
+Any console you capture yourself (a provision run, a single `run.py --id`) goes to
+`<umbrella>/logs/console/<YYYY-MM-DD>/<label>.log` (`../../logs/console/...` from
+`harness/`), never the umbrella root.
+
 ## 4. Report
 
 Give the operator: the `history.txt` line, the verdict tally, and

@@ -14,6 +14,7 @@ This file (`.claude/CLAUDE.md`) is canonical. The repo-root `AGENTS.md` (read na
   - **Exception: stock-control annotation** (owner ruling D1, 2026-09-25). Parsek may annotate a STOCK KSP control the player can act on, to explain a Parsek block on that exact control, using only stock's own mechanisms: the control's disabled or greyed state; text appended to that control's existing stock tooltip or description; stock's own reason field (`Strategy.CanBeActivated` reason, `CrewListItem.SetButtonEnabled` caption); the row's own stock status or label text (`CrewListItem.SetLabel`, the `MissionControl.AddItem` label); a tint of the control's existing icon. An annotation on a CLICKABLE action ships with a click-block that reads the same predicate (a mark on a live control misleads; a block with no mark is a surprise). An informational annotation (a committed completion on an Active contract, a lost or stand-in kerbal) is allowed only on the row's own status or label text. No Parsek-drawn boxes, badges, counters or panels on stock screens. Plan and block audit: `docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md`.
   - **Exception: the Route History window** (owner ruling 2026-10-03). A supply route's Log button opens "Parsek - Route History: <route>", a second instance of the Mission Log's log-table window (`StructureListWindowUI`, same columns, styles, hover strip and Close) whose rows are the route's ledger actions. It reuses that template; it is not a precedent for other new windows.
 - **House style for docs and comments: plain ASCII, no em dashes, no emoji.** Comments explain constraints, not history.
+- **Never write output files to the umbrella root (or into the repo tree).** A captured console (`provision.py` / `run.py` / unittest stdout), a mutation-sweep report, a decompile dump or any other ad-hoc output goes under `<umbrella>/logs/<kind>/`: console captures in `logs/console/<YYYY-MM-DD>/<label>.log` (from a worktree's `harness/`: `mkdir -p ../../logs/console/$(date +%F) && python run.py --id X > ../../logs/console/$(date +%F)/X-run1.log 2>&1`), whole-run snapshots in `logs/flights/<label>/`, others in `logs/mutation/`, `logs/decompile/`. `> ../../x.log` from `harness/` lands in the umbrella root itself.
 - **Keep going between steps.** When the next step needs no input from Vlad, take it and put status notes in the same message as the action. Stop and ask only when you cannot continue without him, or before anything destructive or outward-facing (flights, provisioning, force-push, deleting data).
 
 ## Build & test
@@ -223,7 +224,7 @@ scripts/                    # Dev scripts (release, log collection, analyzers, g
 docs/                       # Design docs (docs/dev/), roadmap, reference analyses; docs/dev/done/ holds archived plans and closed todo volumes
 ../Kerbal Space Program/    # Local dev KSP instance (UMBRELLA root, outside git; deploy target)
 ../automation/              # Provisioned harness KSP instances (stock-minimal; umbrella root, outside git)
-../logs/                    # collect-logs.py output (umbrella root, outside git)
+../logs/                    # collect-logs.py output + console/ flights/ mutation/ decompile/ (umbrella root, outside git)
 ```
 
 **Scripts** (`--help` / the `param(...)` block is authoritative):
