@@ -2,8 +2,16 @@ schema = 1
 id = "LAB-9a-lab-quickload-mid-research"
 tier = "operator"
 # THE SCIENCE-LAB PROGRAM, lane LAB-9a (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
-# "LAB-9a F9 mid-research"). NEVER FLOWN: its first flight is a READING run, so it is `operator`
-# and tagged `pending-flight` until that run pins the measured values.
+# "LAB-9a F9 mid-research"). FIRST FLIGHT `2026-10-17_2328` PARSEK-FAIL on one spec premise
+# only: the resume pin read `listhandles kind=active count=` as "recordings resumed", but for
+# kind=active that count is the BACKGROUND-member count (TestCommandListHandles.CountFromPayload
+# reads `bg`), and this one-vessel tree has none, so it read 0 although the F9 DID resume the
+# tree (`RestoreActiveTreeFromPending: resumed recording tree 'LABX Orbital Lab' ... pid=2200110055
+# at UT=4397.1`, a `promotion` recorder start). The ListHandles step and both of its pins are
+# gone; the resume line, anchored after the F9's load, is the pin. Every other contract matched
+# the flight (the lab read 0.05 / 49.99 before the F5, 0.19 / 49.94 before leaving, 0.05 / 49.99
+# after the F9; the reconcile `kind=InSessionOther ... ledgerRowsRetired=2 (afterCutoff=0
+# kerbalAssignment=2`). Spec changed, not re-flown.
 #
 # HOST: `lab-lko-science` (the LAB-2 / LAB-3 host): SCIENCE_SANDBOX, the LABX Orbital Lab (vessel
 # persistentId 2200110055) ORBITING Kerbin at about 107 x 92 km, Bob (Scientist, level 0) in the
@@ -113,7 +121,6 @@ steps = [
   { cmd = "MissionMark",    args = { label = "lab9a-f9-loaded" },                    expect = "OK" },
   # 10 s at 1x: the resume (OnFlightReady) and stock's post-load hold, then read (q2 == q0).
   { cmd = "WarpToUT",       args = { ut = "4407", maxRate = "1" },                   expect = "OK", budget = 120 },
-  { cmd = "ListHandles",    args = { kind = "active" },                              expect = "OK" },
   { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
   { cmd = "MissionMark",    args = { label = "lab9a-f9-read" },                      expect = "OK" },
   # 6. The resumed flight commits again at the next exit.
@@ -160,10 +167,10 @@ required = [
   "TryRestoreActiveTreeNode: removed committed tree 'LABX Orbital Lab' \\(id=\\S+, [1-9][0-9]* recording\\(s\\)\\)",
   "OnLoad: pending-Limbo tree 'LABX Orbital Lab' deferred to OnFlightReady for quickload-resume",
   "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide",
-  "RestoreActiveTreeFromPending: resumed recording tree 'LABX Orbital Lab' activeRec='[0-9a-f]{32}'",
+  # The F9 resumed the quicksave's tree on the lab at the quicksave's clock.
+  "(?s)loadgame start save=\\S+ name=quicksave .*?RestoreActiveTreeFromPending: resumed recording tree 'LABX Orbital Lab' activeRec='[0-9a-f]{32}' vessel='LABX Orbital Lab' pid=2200110055 at UT=439[0-9]\\.[0-9]",
   # The reconcile retires the abandoned future; no ledger row is dated after the cutoff.
   "\\[Scenario\\] Quickload abandoned-future reconcile: tree='LABX Orbital Lab' (?=[^\\r\\n]*\\bscope=TreeWide\\b)(?=[^\\r\\n]*\\bledgerRowsRetired=[0-9]+ \\(afterCutoff=0 )(?=[^\\r\\n]*\\bskippedCommitted=0\\b)",
-  "(?s)MISSIONMARK label=lab9a-f9-loaded (?:(?!MISSIONMARK).)*?listhandles kind=active count=[1-9][0-9]* truncated=false",
   # THE EQUALITY: the lab after the F9 reads exactly as before the F5 (q2 == q0), researching.
   "(?s)partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=([0-9]+\\.[0-9]{2}) dataStored=([0-9]+\\.[0-9]{2});Research:active=1'(?:(?!partaction applied button=).)*?MISSIONMARK label=lab9a-f5 .*?MISSIONMARK label=lab9a-f9-loaded (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*activePid=2200110055 [^\\r\\n]*state='lab:storedScience=\\1 dataStored=\\2;Research:active=1'",
   # ... and the abandoned half day is gone (q2 is back in the pre-F5 window).
@@ -191,7 +198,6 @@ forbidden = [
   "Quickload abandoned-future reconcile skipped: tree='LABX Orbital Lab'",
   "dropped entire tree 'LABX Orbital Lab'",
   "keeping in-memory pending tree 'LABX Orbital Lab'",
-  "listhandles kind=active count=0 truncated=false",
 ]
 
 [runtime]
