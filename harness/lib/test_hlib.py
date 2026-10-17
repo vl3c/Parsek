@@ -10617,6 +10617,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Science-lab crew rules across an EVA of the lab's only scientist on
         # the same host: operator by the same reading-run discipline, never flown.
         "LAB-8-lab-eva-crew-rules.toml": "operator by the reading-run discipline; AUTHORED 2026-10-17, NEVER FLOWN (research stops when Bob goes EVA from the lab, stays off after he boards back, restarts on a fresh press; EVA split, board merge and Bob reserved at the commit on lab-lko-science); the storedScience window, the EVA UT margins and the four-recording count are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        # Science-lab transmit on the seeded pad lab: a transmission cut by a
+        # scene change, the tagged credit, the refused second press, the payout
+        # veto and the fraction paid again; operator by the same discipline.
+        "LAB-4-lab-transmit.toml": "operator by the reading-run discipline; AUTHORED 2026-10-17, NEVER FLOWN (a transmit cut by ExitToSpaceCenter books nothing and its idle pad recording is discarded, the next transmit books 12.50 tagged to the live recording beside stock's +12.5, a second press below 1 is refused, the lab payout vetoes idle-on-pad at the exit (needs PR #2136), and after rails-warp research the next transmit pays the whole stored science including the first transmit's fraction, on lab-pad-seeded); the refill window, the UT margins and the recording count are re-pinned off the first flight, then the tier is promoted by its measured p50",
         # The SIXTH forge, same mechanism again: it stamps b17-duna-pad by
         # launching the committed DD1 Duna Direct Probe (built by construction,
         # build_dd1_craft.py) onto the pad UNCREWED. Flown + harvested
