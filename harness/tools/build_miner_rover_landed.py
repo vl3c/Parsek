@@ -17,8 +17,8 @@ WHAT IS COPIED AND WHAT IS DERIVED.
   RadialOreTank x2, fuelTankSmall, radialRCSTank x2, roverWheel1 x4, rtg x4,
   radPanelSm x4, ksp.r.largeBatteryPack x2, adapterSmallMiniShort; crewless; LANDED
   just west of the KSC (lat 0.0296, lon -74.7247).
-  INSERTED as the ONLY vessel (index 0) at the end of FLIGHTSTATE, where KSP writes its
-  VESSEL nodes (after `commNetUIModeFlight`, before the closing brace).
+  INSERTED as vessel index 0 (the active vessel) at the end of FLIGHTSTATE, where KSP
+  writes its VESSEL nodes (after `commNetUIModeFlight`, before the closing brace).
   IDENTITIES verbatim: the vessel `pid`, the vessel `persistentId` (110406740), every
   part `persistentId` and `uid`. The donor is in no other fixture, so nothing collides.
   EDITED IN THE CLONE, so the lane starts from a quiet, empty rover:
@@ -43,9 +43,22 @@ WHAT IS COPIED AND WHAT IS DERIVED.
   flight (CL-1 flight 1; `test_every_node_less_fixture_is_vessel_less`). Three values
   is also a footprint by `PreParsekBackup.HasParsekGameplayFootprint`, so no pre-Parsek
   backup fires on the first load.
-  EDITED IN THE SAVE: FLIGHTSTATE `UT = 30`, `activeVessel = 0`; the `Title` (so the
-  Load menu names the fixture) and `Description`; `persistent.loadmeta`'s
-  `vesselCount` 0 -> 1 and `UT` 0 -> 30.
+  SECOND VESSEL, index 1: a FLIGHT host for after Rewind-to-Launch strips the rover.
+  TimeJump and Real Spawn Control need FLIGHT, and a save whose only vessel was the
+  stripped rover reloads at the Space Center. CLONED from the crewless 13-part `Kerbal X
+  Probe` (type Probe, ORBITING Kerbin, PE ~93 km) in `fixtures/saves/eva2-lko-crewed`;
+  RENAMED `Observer Probe` (vessel `name` only) so logs never confuse it with a Kerbal
+  X. DERIVED, deterministically (sha256 of `PROBE_SEED` and the old value), so the clone
+  shares no identity with its donor: the vessel `pid` (launch Guid), the vessel
+  `persistentId` and EVERY part `persistentId`; the builder asserts none collides with
+  the rover's. Part `uid`s stay verbatim; the builder asserts they do not collide with
+  the rover's either. `lct` / `lastUT` / ORBIT `EPH` = 30 and `met` = 0 (the other
+  orbital elements verbatim, so the probe sits at a different point of the same orbit);
+  every `lastUpdateTime` would be 30, and the donor has none. Its MechJeb module data
+  (inert on a stock install) stays verbatim.
+  EDITED IN THE SAVE: FLIGHTSTATE `UT = 30`, `activeVessel = 0` (the rover); the
+  `Title` (so the Load menu names the fixture) and `Description`;
+  `persistent.loadmeta`'s `vesselCount` 0 -> 2 and `UT` 0 -> 30.
 
 `--check` re-derives and compares every file against the committed bytes;
 `harness/lib/test_miner_rover_landed.py` runs it in-process.
@@ -56,6 +69,7 @@ Stdlib only; ASCII only; no em dashes.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import re
 import shutil
@@ -69,6 +83,7 @@ SAVES = os.path.join(FIXTURES, "saves")
 BASE_DIR = os.path.join(SAVES, "fresh-sandbox")
 DONOR_VESSEL = os.path.join(FIXTURES, "donors", "isru-mining-rover", "mining-rover-rc.vessel")
 SCENARIO_DONOR_SFS = os.path.join(SAVES, "b1-pad-craft", "persistent.sfs")
+PROBE_DONOR_SFS = os.path.join(SAVES, "eva2-lko-crewed", "persistent.sfs")
 OUT_DIR = os.path.join(SAVES, "miner-rover-landed")
 
 BASE_TITLE = "fresh-sandbox (SANDBOX)"
@@ -90,6 +105,11 @@ LAST_UPDATE_TIME_COUNT = 25
 IS_DEPLOYED_COUNT = 4
 IS_ACTIVATED_COUNT = 16
 PART_COUNT = 27
+
+PROBE_DONOR_NAME = "Kerbal X Probe"
+PROBE_NAME = "Observer Probe"
+PROBE_PART_COUNT = 13
+PROBE_SEED = "miner-rover-landed/observer-probe/v1"
 
 
 def _read_bytes(path: str) -> bytes:
@@ -237,6 +257,79 @@ def build_clone() -> List[str]:
     return clone
 
 
+def _derive_uint(tag: str) -> int:
+    value = int(hashlib.sha256((PROBE_SEED + "|" + tag).encode("ascii")).hexdigest()[:8], 16)
+    return value or 1
+
+
+def _derive_guid(tag: str) -> str:
+    return hashlib.sha256((PROBE_SEED + "|" + tag).encode("ascii")).hexdigest()[:32]
+
+
+def _probe_donor_block() -> List[str]:
+    donor = _read(PROBE_DONOR_SFS)
+    assert "\r" not in donor, "eva2-lko-crewed is committed LF"
+    lines = donor.split(LF)
+    hits = []
+    for start, end, name in vessel_blocks(lines):
+        block = lines[start:end]
+        if name == PROBE_DONOR_NAME and not any(l.strip().startswith("crew = ") for l in block):
+            hits.append(block)
+    assert len(hits) == 1, "crewless %r found %d times" % (PROBE_DONOR_NAME, len(hits))
+    return list(hits[0])
+
+
+def probe_persistent_id() -> int:
+    """The Observer Probe's derived vessel persistentId."""
+    for line in _probe_donor_block():
+        if line.startswith("\t\t\tpersistentId = "):
+            return _derive_uint("persistentId|" + line[len("\t\t\tpersistentId = "):])
+    raise AssertionError("probe donor has no persistentId")
+
+
+def build_probe(rover: List[str]) -> List[str]:
+    """The `Kerbal X Probe` clone, renamed and re-identified as the docstring says."""
+    clone = _probe_donor_block()
+    assert "\t\t\ttype = Probe" in clone and "\t\t\tsit = ORBITING" in clone
+    assert sum(1 for l in clone if l == "\t\t\tPART") == PROBE_PART_COUNT
+    assert "\t\t\t\tREF = 1" in clone, "the probe must orbit Kerbin"
+
+    pid_re = re.compile(r"^(\t+)persistentId = (\d+)$")
+    rover_pids = {int(m.group(2)) for m in (pid_re.match(l) for l in rover) if m}
+    rover_guids = {l.strip() for l in rover if l.startswith("\t\t\tpid = ")}
+    rover_uids = {l.strip() for l in rover if l.strip().startswith("uid = ")}
+    probe_uids = {l.strip() for l in clone if l.strip().startswith("uid = ")}
+    assert probe_uids and not (rover_uids & probe_uids), "part uid collision with the rover"
+
+    out = []
+    seen = set()
+    lut = re.compile(r"^(\t+)lastUpdateTime = .*$")
+    for line in clone:
+        m = pid_re.match(line)
+        u = lut.match(line)
+        if line.startswith("\t\t\tpid = "):
+            line = "\t\t\tpid = " + _derive_guid("vessel-pid")
+            assert line.strip() not in rover_guids
+        elif m:
+            new_pid = _derive_uint("persistentId|" + m.group(2))
+            assert new_pid not in seen, "derived persistentId collision"
+            assert new_pid not in rover_pids, "derived persistentId collides with the rover"
+            seen.add(new_pid)
+            line = "%spersistentId = %d" % (m.group(1), new_pid)
+        elif u:
+            line = u.group(1) + "lastUpdateTime = " + FIXTURE_UT
+        out.append(line)
+    assert len(seen) == PROBE_PART_COUNT + 1, "vessel + every part persistentId re-derived"
+    _set_top(out, "name", PROBE_NAME)
+    _set_top(out, "lct", FIXTURE_UT)
+    _set_top(out, "lastUT", FIXTURE_UT)
+    _set_top(out, "met", "0")
+    eph = [i for i, l in enumerate(out) if l.startswith("\t\t\t\tEPH = ")]
+    assert len(eph) == 1, "probe ORBIT EPH found %d times" % len(eph)
+    out[eph[0]] = "\t\t\t\tEPH = " + FIXTURE_UT
+    return out
+
+
 def restock_blocks_stripped() -> int:
     return sum(RESTOCK_STRIPPED_BY_PART.values())
 
@@ -265,7 +358,8 @@ def build_texts() -> Tuple[str, str]:
         assert len(hits) == 1 and lines[hits[0]] == "\t\t%s = %s" % (key, old), (key, hits)
         lines[hits[0]] = "\t\t%s = %s" % (key, new)
     assert lines[fs_end - 2] == "\t\tcommNetUIModeFlight = Path", lines[fs_end - 2]
-    lines[fs_end - 1:fs_end - 1] = build_clone()
+    rover = build_clone()
+    lines[fs_end - 1:fs_end - 1] = rover + build_probe(rover)
 
     assert _scenario_node(lines, "ParsekScenario")[0] < 0, "fresh-sandbox has no Parsek node"
     s_start, s_end = _scenario_node(scn_lines, "ParsekScenario")
@@ -285,7 +379,7 @@ def build_texts() -> Tuple[str, str]:
     sfs = LF.join(lines)
 
     meta = _read(os.path.join(BASE_DIR, "persistent.loadmeta"))
-    meta, n = re.subn(r"^vesselCount = 0(\r?\n)", r"vesselCount = 1\1", meta, count=1, flags=re.M)
+    meta, n = re.subn(r"^vesselCount = 0(\r?\n)", r"vesselCount = 2\1", meta, count=1, flags=re.M)
     assert n == 1, "loadmeta vesselCount = 0 not found"
     meta, n = re.subn(r"^UT = 0(\r?\n)", r"UT = %s\1" % FIXTURE_UT, meta, count=1, flags=re.M)
     assert n == 1, "loadmeta UT = 0 not found"
@@ -345,8 +439,8 @@ def main(argv: List[str]) -> int:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as fh:
             fh.write(data)
-    print("wrote " + OUT_DIR + " roverPersistentId=%d restockStripped=%d"
-          % (rover_persistent_id(), restock_blocks_stripped()))
+    print("wrote " + OUT_DIR + " roverPersistentId=%d probePersistentId=%d restockStripped=%d"
+          % (rover_persistent_id(), probe_persistent_id(), restock_blocks_stripped()))
     return 0
 
 

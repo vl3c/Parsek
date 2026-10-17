@@ -4,11 +4,14 @@ The fixture is DERIVED by `harness/tools/build_miner_rover_landed.py` from
 `fresh-sandbox` (the base) and V's real `Mining Rover RC` VESSEL node
 (`fixtures/donors/isru-mining-rover/mining-rover-rc.vessel`), so a change to either must
 re-run the builder. These cells turn that "must" into a red, and pin the properties the
-mining lanes depend on: the rover is the only vessel, index 0 and active, LANDED,
+mining lanes depend on: the rover is vessel index 0 and active, LANDED,
 crewless, keeps its own persistentId, carries four drills, one ISRU and two ore tanks,
 holds no ReStock module (the harness instance is stock), starts with empty Ore /
 LiquidFuel / Oxidizer / MonoPropellant tanks that still have room, and every converter
-timestamp sits at the fixture UT so nothing catches up on load.
+timestamp sits at the fixture UT so nothing catches up on load. Vessel index 1 is the
+`Observer Probe`, a crewless clone of `eva2-lko-crewed`'s `Kerbal X Probe` in low Kerbin
+orbit with re-derived identities: the FLIGHT host a lane needs after Rewind-to-Launch
+strips the rover (TimeJump and Real Spawn Control require FLIGHT).
 
 Stdlib only; ASCII only; no em dashes.
 """
@@ -28,6 +31,7 @@ if _HERE not in sys.path:
 FIXTURE_DIR = os.path.join(_HARNESS, "fixtures", "saves", "miner-rover-landed")
 FIXTURE_SFS = os.path.join(FIXTURE_DIR, "persistent.sfs")
 FIXTURE_META = os.path.join(FIXTURE_DIR, "persistent.loadmeta")
+PROBE_DONOR_SFS = os.path.join(_HARNESS, "fixtures", "saves", "eva2-lko-crewed", "persistent.sfs")
 
 
 def _load_builder():
@@ -68,17 +72,19 @@ class MinerRoverLandedFixtureTests(unittest.TestCase):
         cls.blocks = cls.builder.vessel_blocks(cls.lines)
         start, end, _ = cls.blocks[0]
         cls.rover = cls.lines[start:end]
+        start, end, _ = cls.blocks[1]
+        cls.probe = cls.lines[start:end]
 
     def test_committed_fixture_is_the_builder_output(self):
         self.assertEqual([], self.builder.committed_problems(),
                          "re-run python harness/tools/build_miner_rover_landed.py")
 
-    def test_rover_is_the_only_vessel_index_zero_and_active(self):
-        self.assertEqual(["Mining Rover RC"], [b[2] for b in self.blocks])
-        self.assertEqual(1, sum(1 for l in self.lines if l == "\t\tVESSEL"))
+    def test_rover_is_index_zero_and_active_probe_is_index_one(self):
+        self.assertEqual(["Mining Rover RC", "Observer Probe"], [b[2] for b in self.blocks])
+        self.assertEqual(2, sum(1 for l in self.lines if l == "\t\tVESSEL"))
         self.assertIn("\t\tactiveVessel = 0", self.lines)
         meta = _read(FIXTURE_META).split("\n")
-        self.assertIn("vesselCount = 1", meta)
+        self.assertIn("vesselCount = 2", meta)
         self.assertIn("UT = 30", meta)
 
     def test_ut_is_thirty(self):
@@ -133,6 +139,35 @@ class MinerRoverLandedFixtureTests(unittest.TestCase):
         self.assertEqual(["isDeployed = False"] * 4, deployed)
         activated = {l.strip() for l in self.rover if l.strip().startswith("IsActivated = ")}
         self.assertEqual({"IsActivated = False"}, activated)
+
+    def test_observer_probe_orbits_crewless_at_the_fixture_ut(self):
+        self.assertIn("\t\t\ttype = Probe", self.probe)
+        self.assertIn("\t\t\tsit = ORBITING", self.probe)
+        self.assertIn("\t\t\t\tREF = 1", self.probe)
+        self.assertFalse(any(l.strip().startswith("crew = ") for l in self.probe))
+        self.assertEqual(13, sum(1 for l in self.probe if l == "\t\t\tPART"))
+        for key, value in (("lct", "30"), ("lastUT", "30"), ("met", "0")):
+            self.assertIn("\t\t\t%s = %s" % (key, value), self.probe)
+        self.assertIn("\t\t\t\tEPH = 30", self.probe)
+        self.assertFalse([l for l in self.probe
+                          if l.strip().startswith("lastUpdateTime = ") and l.strip() != "lastUpdateTime = 30"])
+
+    def test_observer_probe_identities_are_derived_and_disjoint(self):
+        pid = self.builder.probe_persistent_id()
+        self.assertIn("\t\t\tpersistentId = %d" % pid, self.probe)
+        donor = _read(PROBE_DONOR_SFS).split("\n")
+        donor_block = [b for b in self.builder.vessel_blocks(donor) if b[2] == "Kerbal X Probe"]
+        self.assertEqual(1, len(donor_block))
+        donor_lines = donor[donor_block[0][0]:donor_block[0][1]]
+
+        def ids(block):
+            return {l.strip() for l in block if l.strip().startswith(("pid = ", "persistentId = "))}
+
+        self.assertEqual(15, len(ids(self.probe)))  # vessel pid + vessel + 13 part persistentIds
+        self.assertFalse(ids(donor_lines) & ids(self.probe))
+        self.assertFalse(ids(self.rover) & ids(self.probe))
+        uids = lambda block: {l.strip() for l in block if l.strip().startswith("uid = ")}
+        self.assertFalse(uids(self.rover) & uids(self.probe))
 
     def test_carries_the_inert_parsek_scenario_node(self):
         # A focusable save boots through the FLIGHT route, where a node-less save gets

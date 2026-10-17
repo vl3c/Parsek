@@ -660,22 +660,30 @@ the Kerbal X AND a save written at the Space Center (`activeVessel = 0`) reloads
 re-forge of either source fixture. Host of `EVA-11-construction-foreign-claim` and the intended
 host of roadmap RC-6 (an EVA take from the rover's container).
 
-## miner-rover-landed (GAME Mode = SANDBOX, 1 VESSEL, 0 recordings, derived from fresh-sandbox)
+## miner-rover-landed (GAME Mode = SANDBOX, 2 VESSELS, 0 recordings, derived from fresh-sandbox)
 
 `fresh-sandbox`'s save plus V's real `Mining Rover RC` (the VESSEL node from his dev save `isru`,
-committed under `harness/fixtures/donors/isru-mining-rover/` with its provenance) as the only
-vessel, index 0, `activeVessel = 0`. 27 parts: four MiniDrills, a MiniISRU, two RadialOreTanks, an
+committed under `harness/fixtures/donors/isru-mining-rover/` with its provenance) as vessel
+index 0, `activeVessel = 0`. 27 parts: four MiniDrills, a MiniISRU, two RadialOreTanks, an
 FL-T200, two radial RCS tanks, four rover wheels, four RTGs, four small radiators and two large
 batteries on a probe core; crewless, LANDED at lat 0.0296, lon -74.7247 (just west of the KSC,
 where V parked it), vessel persistentId 110406740. Identities (pid, persistentIds,
-part uids) are verbatim. FLIGHTSTATE and `loadmeta` `UT` are 30 and `vesselCount` 1; the clone's
+part uids) are verbatim. FLIGHTSTATE and `loadmeta` `UT` are 30 and `vesselCount` 2; the rover's
 `lct` / `lastUT` / ORBIT `EPH` and every converter and harvester `lastUpdateTime` are 30 and `met`
 0, so nothing catches up on load; Ore, LiquidFuel, Oxidizer and MonoPropellant amounts are 0
 (capacity kept, ElectricCharge verbatim), so the drills and the ISRU start with room to fill;
 drills retracted and every converter off, as V left them. The ten `ModuleRestock*` modules are
 stripped (the stock-minimal instance has no ReStock). The base carries no ParsekScenario node,
 but a focusable save boots through the FLIGHT route, so the builder splices `b1-pad-craft`'s inert
-three-value node. Built and drift-gated by `harness/tools/build_miner_rover_landed.py`
+three-value node. Vessel index 1 is the `Observer Probe`, a crewless clone of
+`eva2-lko-crewed`'s 13-part `Kerbal X Probe` ORBITING Kerbin (PE ~93 km), renamed so logs never
+read it as a Kerbal X: the FLIGHT host a lane needs after Rewind-to-Launch strips the rover
+(TimeJump and Real Spawn Control require FLIGHT, and a save holding only the stripped rover
+reloads at the Space Center). Its launch Guid, vessel `persistentId` (2109271953) and every
+part `persistentId` are re-derived from the seed `miner-rover-landed/observer-probe/v1`, part
+uids verbatim (asserted disjoint from the rover's), `lct` / `lastUT` / ORBIT `EPH` 30 and `met`
+0 with the other orbital elements verbatim. Built and drift-gated by
+`harness/tools/build_miner_rover_landed.py`
 (`--check`) and `harness/lib/test_miner_rover_landed.py`. The first fixture with a drill, an
 ISRU, ore storage and Ore capacity (MINING-ISRU-UNTESTED-END-TO-END).
 
