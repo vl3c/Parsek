@@ -875,6 +875,18 @@ this orbit the Thermometer (lab value 5) and PresMat (8) still fit and the Goo (
 Materials Bay (22) are refused for capacity. Research off. Hosts the lab-cap lanes.
 Drift-gated with `lab-pad-seeded`.
 
+## lab-lko-seeded-transmit (GAME Mode = SCIENCE_SANDBOX, 1 VESSEL ORBITING, derived from lab-lko-science)
+
+`harness/tools/build_lab_lko_transmit.py`: `lab-lko-science` with ONE vessel edit, the lab's
+`storedScience = 0` -> `12.5` (the pad variant's value: a transmit pays 12.50 at once, 12 Mits
+in six 16-S packets, 72 EC). `dataStored` stays 0 and `EXPERIMENT_DATA` stays empty, so every
+subject is storable. The probe tender stays joined above the pod by its two PreAttached
+Clamp-O-Tron Jr ports: its first `PartAction button=undock` is the Re-Fly separation (a
+JointBreak split with cause UNDOCK and two controllable sides, so a Rewind Point). Research
+off. Hosts LAB-10 / LAB-10b / LAB-13. In this orbit the KSC ground station sees the vessel from
+about UT 2105 to 2480 (the first pass after the fixture's UT 355.8), so the lanes transmit
+inside that window. Drift-gated by `--check` and `harness/lib/test_lab_lko_transmit.py`.
+
 ## fresh-science (GAME Mode = SCIENCE_SANDBOX)
 
 Science pool only: `ResearchAndDevelopment sci = 100`, no Funding / Reputation /

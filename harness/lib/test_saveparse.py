@@ -944,6 +944,9 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # harness/tools/build_lab_seeded_variants.py, so they carry the same node.
         "lab-pad-seeded": True,
         "lab-lko-seeded": True,
+        # lab-lko-seeded-transmit is lab-lko-science with 12.5 science in the lab, by
+        # harness/tools/build_lab_lko_transmit.py, so it carries the same node.
+        "lab-lko-seeded-transmit": True,
         # The FORGE-logi-pad harvest: the purpose-built `Logi Cargo Rig` PRELAUNCH on
         # the pad, the fixture H38-logistics-isolated flies. True like every other
         # forged pad fixture - the forge boots a save that already carries a

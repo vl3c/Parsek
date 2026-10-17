@@ -10640,6 +10640,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Science-lab F5 / F9 mid-research on lab-lko-science, QL-2's route (leave to the
         # Space Center, then quickload); operator by the same reading-run discipline.
         "LAB-9a-lab-quickload-mid-research.toml": "operator by the reading-run discipline; AUTHORED 2026-10-18, NEVER FLOWN (a quicksave with research running at about 0.05 science, half a Kerbin day more, ExitToSpaceCenter's auto-commit, then LoadGame quicksave from the Space Center: the committed-copy restore resumes the flight, the lab reads exactly as before the F5 with research on, the reconcile retires no row after the cutoff, no lab credit, on lab-lko-science); the reconcile line's shape and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        # Science-lab Re-Fly with a lab transmit in the replaced branch, merged, on
+        # lab-lko-seeded-transmit (the probe tender's pre-attached undock is the separation);
+        # operator by the same reading-run discipline.
+        "LAB-10-lab-refly-supersede.toml": "operator by the reading-run discipline; AUTHORED 2026-10-18, NEVER FLOWN (the tender's pre-attached undock authors a Rewind Point with the lab as focus slot 0, a 12.50 transmit tagged to the lab's recording at the KSC pass, the scene-exit commit, StashSlot on the lab's stable slot, InvokeRewind, a second 12.50 transmit tagged to the provisional, and the merge splitting the lab's recording at the rewind, tombstoning the first credit (Science=1) and leaving the replacement's as the one walked lab earning, on lab-lko-seeded-transmit); the undock fold, the split and RP shape, the KSC-window link, runningScience=112.5 and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
         # The SIXTH forge, same mechanism again: it stamps b17-duna-pad by
         # launching the committed DD1 Duna Direct Probe (built by construction,
         # build_dd1_craft.py) onto the pad UNCREWED. Flown + harvested
