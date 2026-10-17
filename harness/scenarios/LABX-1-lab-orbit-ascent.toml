@@ -108,13 +108,26 @@
 # with every tech node the craft needs researched: the SCIENCE_SANDBOX host the
 # lab lanes boot.
 #
+# RE-FLOWN GREEN ON THE CURRENT SHAPE, 2026-10-17 (branch claude/lab-craft-antenna):
+# run `2026-10-17_1957`, PASS attempt 1, MISSION-OK, 314 s wall. The craft now also
+# carries a Communotron 16-S on the pod (craft A9: the pod's INTERNAL antenna
+# cannot transmit science) and a never-staged probe TENDER above the pod (craft
+# A12: Clamp-O-Tron Jr pair face to face + OKTO + Z-200, the two-controllable
+# separation the Re-Fly lab lane needs). Steps and missionParams were unchanged.
+# Orbit 106,991 x 92,501 m, ecc 0.010, inc 0.090 deg; active parts 29 -> 26 at
+# the booster drop (nothing else lost); crewAboard 2, stackAttached, parkedStable
+# ORBITING. The produced save holds Valentina in mk1pod.v2, Bob in
+# Large.Crewed.Lab, and the SurfAntenna, both dockingPort3 and the OKTO aboard.
+# Re-harvested the same way (run snapshot, ORBITING gate, never --force) over
+# lab-lko-sandbox, and lab-lko-science rebuilt from it.
+#
 # A failure classifies driver-INVALID (retryable), never PARSEK-FAIL:
 # logContracts.required is empty on purpose.
 # =============================================================================
 schema = 1
 id = "LABX-1-lab-orbit-ascent"
 tier = "operator"
-description = "Science-lab lane prerequisite: launch_vessel the by-construction LABX Orbital Lab (Mk1 pod + Science Jr + Mobile Processing Lab + RTGs, Jumbo-64/Mainsail booster, X200-16/Poodle orbital stage) with Valentina (pod) and Bob (lab), fly forge_lko's MechJeb ascent + circularize to a ~100 km circular LKO, park with the lab attached (parkAttached), SaveGame."
+description = "Science-lab lane prerequisite: launch_vessel the by-construction LABX Orbital Lab (Mk1 pod + Communotron 16-S + Science Jr + Mobile Processing Lab + RTGs, a never-staged OKTO probe tender on a Clamp-O-Tron Jr pair above the pod, Jumbo-64/Mainsail booster, X200-16/Poodle orbital stage) with Valentina (pod) and Bob (lab), fly forge_lko's MechJeb ascent + circularize to a ~100 km circular LKO, park with the lab attached (parkAttached), SaveGame."
 instanceProfile = "stock-minimal"
 tags = ["LABX", "lab", "science", "orbital", "mechjeb", "fixture", "flown"]
 

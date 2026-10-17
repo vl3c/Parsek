@@ -930,7 +930,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # carries the same node.
         "career-gs1-leadership-pad": True,
         "gs2-orbital-stack": True,
-        # The LABX-1 harvest (`2026-10-17_1747`, situation gate ORBITING): the LABX
+        # The LABX-1 harvest (`2026-10-17_1957`, situation gate ORBITING): the LABX
         # Orbital Lab parked in LKO, SANDBOX, with the forge base's inert node (two
         # dead MILESTONE_STATE rows, the eva2 / gs2 shape) and zero recording state.
         "lab-lko-sandbox": True,
@@ -939,6 +939,11 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # spliced in, plus the craft's tech researched
         # (harness/tools/build_lab_lko_science.py).
         "lab-lko-science": True,
+        # lab-pad-seeded / lab-lko-seeded are lab-lko-science with the lab's data and
+        # science seeded (pad: the vessel PRELAUNCH on the LaunchPad), by
+        # harness/tools/build_lab_seeded_variants.py, so they carry the same node.
+        "lab-pad-seeded": True,
+        "lab-lko-seeded": True,
         # The FORGE-logi-pad harvest: the purpose-built `Logi Cargo Rig` PRELAUNCH on
         # the pad, the fixture H38-logistics-isolated flies. True like every other
         # forged pad fixture - the forge boots a save that already carries a
