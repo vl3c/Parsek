@@ -2,7 +2,8 @@ schema = 1
 id = "CX-1-docked-crew-transfer-eva-hop"
 # =====================================================================================
 # CX-1: CREW ACROSS VESSELS (coverage audit 2026-10-16 item 3; branch
-# `claude/crew-across-vessels-db6ycy`). AUTHORED 2026-10-17, NEVER FLOWN: a reading run.
+# `claude/crew-across-vessels-db6ycy`). LIVE-PROVEN 2026-10-17 on its first flight
+# (`2026-10-17_0648` PASS attempt 1, 66 s).
 #
 # THE HOST is SD-1's: `bdock-second-dock-recorded`, whose ACTIVE vessel is the Station +
 # third-Kerbal-X pair (pid 3620499050), the tip of committed tree ac9641d6 (scene entry
@@ -32,23 +33,24 @@ id = "CX-1-docked-crew-transfer-eva-hop"
 # The undock ejection drifts the halves apart; (c)-(f) take seconds, inside EvaBoard's 10 m
 # board range.
 #
-# READING-RUN PREDICTIONS a first flight must confirm (then pin): the undock's activePid is
-# the Station's 3620499050; the resumed recorder after (d) and which tree the boards land in
-# (a single-parent board onto a committed vessel vs a two-parent one); the hand-off lines'
-# hold states; the recording counts.
+# THE FIRST FLIGHT READ: the undock's activePid is the Station's 3620499050 and the Kerbal X
+# half leaves under a fresh pid; the recorder stays in tree ac9641d6 across both commits; Bob's
+# board is a single-parent Board onto the committed half, and its claim hand-off ends Jebediah's
+# and Valentina's Aboard hold in the undock child at it; Valentina's is a two-parent Board
+# (her EVA + the Station's post-EVA recording) whose holds end by split hand-off; 39 recordings.
 #
 # FAST-LANE CHECKLIST: (1) no existing flight is a prefix (SD-1 flies a redock mission on
 # this host); (2) no idle waits, the four RecordingState steps after the undock are the
 # frame settle the deferred undock branch needs (VN-4's); (3) EvaExit's 5 s settle is the
 # minimum that lets the EVA branch sample before the board; (4)-(5) no burns, no coasts;
-# (6) seam-only, a refusal is immediate; (7) windows pinned after the first flight; (8)-(9)
-# after the first flight.
+# (6) seam-only, a refusal is immediate; (7) the count window pinned exactly from the first
+# flight; (8) nightly at 66 s wall.
 # =====================================================================================
 tier = "nightly"
 description = "Crew across vessels on bdock-second-dock-recorded: a stock crew transfer moves Valentina between the two pods of the docked Station + Kerbal X pair, an F5, the undock, a commit, then two EVA hops between the halves (Bob boards the committed Kerbal X half; Valentina boards the Station back), a second commit and the F9. Witnesses the cross-tree dock hand-off of the host's own trees (PR #2126) and the board hand-off of the follow-up fix."
 instanceProfile = "stock-minimal"
 tags = ["CX-1", "crew", "crew-transfer", "eva", "board", "undock", "dock", "quickload",
-        "cross-tree", "reservation", "kerbin", "sandbox", "reading-run"]
+        "cross-tree", "reservation", "kerbin", "sandbox"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/bdock-second-dock-recorded"
@@ -104,9 +106,10 @@ D14 = ["kerbin", "sandbox", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The fixture's 30 plus the undock children and the EVA / board recordings of both hops.
-# Wide until the first flight pins it.
-count = { min = 32, max = 60 }
+# The fixture's recordings plus the flight's: the two undock children, the two EVA recordings,
+# each EVA's vessel continuation and the two board children. Pinned exactly from the
+# 2026-10-17_0648 flight.
+count = { min = 39, max = 39 }
 
 [expectations.logContracts]
 required = [
@@ -139,8 +142,8 @@ forbidden = [
   "crewtransfer error",
   "partaction rejected",
   "partaction error",
-  "evaboard rejected",
-  "evaexit rejected",
+  "evaboard refused",
+  "evaexit refused",
 ]
 
 [runtime]
