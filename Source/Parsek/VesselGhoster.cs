@@ -719,6 +719,53 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Releases a chain tip's spawn claim when it names the vessel the chain just ghosted.
+        /// A Re-Fly keeps a tip's stamp when the stamped vessel survives the strip as the same
+        /// launch; once the chain ghosts that vessel, the stamp names a vessel Parsek removed and
+        /// the "already spawned" gate would keep the tip from ever spawning. Only an exact pid
+        /// match on the tip itself: an earlier recording that adopted the same vessel keeps its
+        /// stamp, since releasing it would re-arm an end spawn that duplicates the tip. Called
+        /// only after the vessel and its ProtoVessel are gone, so the tip spawn is the one copy.
+        /// The reset matches <c>ParsekScenario.ReconcileSpawnStateAfterStrip</c>.
+        /// </summary>
+        internal static bool ReleaseTipSpawnClaimOnGhostedVessel(
+            Recording tipRecording,
+            uint ghostedPid,
+            string logContext)
+        {
+            if (tipRecording == null || ghostedPid == 0)
+                return false;
+            if (tipRecording.SpawnedVesselPersistentId != ghostedPid)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "Chain tip spawn claim kept: rec={0} spawnedPid={1} ghostedPid={2} ({3})",
+                        tipRecording.RecordingId ?? "(unknown)",
+                        tipRecording.SpawnedVesselPersistentId,
+                        ghostedPid,
+                        logContext ?? "(none)"));
+                return false;
+            }
+
+            bool priorSpawned = tipRecording.VesselSpawned;
+            tipRecording.SpawnedVesselPersistentId = 0;
+            tipRecording.VesselSpawned = false;
+            tipRecording.SpawnAttempts = 0;
+            tipRecording.SpawnDeathCount = 0;
+            TerminalOrbitSpawnSafety.Clear(tipRecording);
+            ParsekLog.Info(Tag,
+                string.Format(ic,
+                    "Chain tip spawn claim released: rec={0} vessel={1} pid={2} priorSpawned={3} " +
+                    "- the chain ghosted the vessel the claim named ({4})",
+                    tipRecording.RecordingId ?? "(unknown)",
+                    tipRecording.VesselName ?? "(unknown)",
+                    ghostedPid,
+                    priorSpawned,
+                    logContext ?? "(none)"));
+            return true;
+        }
+
         private uint TryAdoptExistingSourceForChainTip(
             GhostChain chain,
             Recording tipRecording,

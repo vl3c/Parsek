@@ -559,6 +559,13 @@ the updates below record how each verb arrived.
 > name='..' saveActiveVesselIdx=`. All four refusals are arg-class; the first two deterministic.
 > Mirrored by `LoadGameFocusPidSourceSyncTests`; lane `VN-6-ts-rename-then-decouple`.
 
+> Update (ReadVesselResources, 2026-10-16): one ADDITIVE verb, taking the table to **52 implemented /
+> 4 reserved**, the first read of what is really in a vessel's tanks (todo
+> HARNESS-VERBS-FOR-TIMELINE-OPS, roadmap TC-1): `ReadVesselResources pid=|rec= [resources=]
+> [expect=] [tolerance=] [expectSnapshot=]` sums the named vessels' tanks in FLIGHT, the Space
+> Center or the Tracking Station and compares the sum with an expectation. Full contract below
+> (`#### ReadVesselResources`); lane `RC-1-docked-transfer-rewind-tanks`.
+
 > Update (DriveVessel, 2026-10-15): one ADDITIVE verb, taking the table to **51 implemented / 4 reserved**,
 > for the D4 `hysteresis` claim (owner ruling 2026-10-15, RF1-HYSTERESIS-WITNESS-WAS-A-LOAD-RACE):
 > `DriveVessel wheelThrottle= seconds=` holds the active rover's wheel throttle for a span of game
@@ -4449,6 +4456,46 @@ OK when the maximum srfSpeed reached 0.5 m/s (`drivevessel end: outcome=moved ..
 `ClearTwoPhase` always removes the callback and restores the Brakes, so no exit path leaves the
 throttle held. Pure half `TestCommandDriveVessel`, applier `ParsekTestCommandAddon.DriveVessel.cs`,
 mirrored by `DriveVesselSourceSyncTests`. Lane: `RVR-21-rover-drive-surface-hysteresis`.
+
+#### ReadVesselResources (additive; the tank read, roadmap TC-1)
+
+**Why.** Every lane before it checked Parsek's own log lines about resources; none read a tank.
+A conservation claim (what one vessel lost, another gained) needs the game's own numbers.
+
+**Grammar.** `cmd=ReadVesselResources pid=<p1,p2,..>` or `rec=<id1,id2,..>` (exactly one of the
+two, at most 8 targets; `readvesselresources-target-arg-missing` / `-target-arg-conflict` /
+`-pid-arg-invalid` / `-rec-arg-invalid` / `-too-many-targets`), optional `resources=<R1,R2>`
+(the resources the lines and payload report; default every resource the targets hold),
+`expect=<R:amount;R:amount>` (invariant decimals, at least 0, no repeats), `tolerance=<t>`
+(default 0.01) and `expectSnapshot=true|false` (only with `rec=`; `-expect-snapshot-needs-rec`).
+Every arg refusal is deterministic.
+
+**Behavior.** SINGLE-PHASE and read-only, `RequiresVesselListScene` (FLIGHT, Space Center,
+Tracking Station; Defer elsewhere). A `pid=` target must be a live non-ghost vessel
+(`readvesselresources-vessel-not-found`, `-target-is-ghost`). A `rec=` target names a committed
+recording (`readvesselresources-unknown-recording`) and reads the vessel it spawned
+(`SpawnedVesselPersistentId`); a recording whose vessel is not live is NOT a refusal, it is
+`found=false` and counts in `missing=`, because that is a Parsek outcome a lane must be able to
+red on. A loaded vessel is read from its parts' `PartResource`s, an unloaded one from its proto
+part snapshots. It logs one `readvesselresources vessel index= rec= found= pid= name= loaded=
+parts= R=amount/max ...` line per target, one `readvesselresources total vessels= R=amount/max`
+line, one `readvesselresources expect resource= expected= actual= diff= tolerance= match=` line
+per expectation (a missing vessel fails every one), one `readvesselresources snapshot rec= pid=
+resource= live= snapshot= diff= match=` line per vessel and resource with `expectSnapshot=true`
+(each vessel against its recording's `VesselSnapshot`; ElectricCharge and IntakeAir are never
+compared, they change with time), and `readvesselresources complete vessels= missing=
+uidCollisions= uidDigest= match= snapshotMatch=` (Info when clean, Warn otherwise).
+`uidCollisions` counts the targets' part uids (`flightID`) also held by another live non-ghost
+vessel; `uidDigest` is an FNV-1a digest of the targets' sorted uids. A mismatch is an OK answer
+carrying `match=false`, never a refusal, so a lane gates it with a `forbidden` regex as
+PARSEK-FAIL instead of reading a driver INVALID that a retry would hide (the `ListHandles
+expectDigest` precedent). The payload carries `vessels pids names loaded parts uidDigest
+uidCollisions missing resources`, `<R>` / `<R>Max` per reported resource, and `match mismatches
+snapshotMatch snapshotMismatches` (`match` / `snapshotMatch` read `none` when not asked). Inert tail role, `recording`
+post-mission role. Pure half `TestCommandReadVesselResources`, applier
+`ParsekTestCommandAddon.ReadVesselResources.cs`, mirrored by `ReadVesselResourcesSourceSyncTests`.
+The offline half is `harness/lib/resourceq.py` (snapshot sidecar decode, dock-window
+conservation). Lane: `RC-1-docked-transfer-rewind-tanks`.
 
 ### Addon lifecycle
 

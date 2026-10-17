@@ -6674,6 +6674,15 @@ namespace Parsek
                             seed.TailUT,
                             seed.LatestStoredSegmentEndUT));
                 }
+                else if (declineReason == "terminal-orbit-newer-than-tail")
+                {
+                    ParsekLog.Verbose("Spawner",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Tail-derived terminal orbit skipped: rec={0} reason=terminal-orbit-newer-than-tail tailUT={1:F2} terminalOrbitEpoch={2:F2}",
+                            recId,
+                            seed.TailUT,
+                            seed.TerminalOrbitEpoch));
+                }
                 else if (declineReason == "rotation-drift-out-of-bounds")
                 {
                     ParsekLog.Verbose("Spawner",
