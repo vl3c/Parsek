@@ -748,6 +748,12 @@ Assertions:
 
 Tier nightly, about 10 min, once the fixture exists.
 
+AUTHORED 2026-10-18 REDUCED as `LAB-13-lab-process-separate-transmit`: no re-dock is
+drivable on the LABX craft (no seam dock verb; MechJeb's docking autopilot needs RCS and
+neither the lab nor the OKTO tender has any). The lane processes while the tender is still
+joined, separates it (a PreAttached decouple, not `onVesselsUndocking`) and transmits. A
+true dock / undock pair needs an RCS craft revision or the docking-variant fixture above.
+
 ## Build order
 
 1. Step 0 (other worktrees): the labprocess fix, the antenna re-fly and re-harvest, `inspect

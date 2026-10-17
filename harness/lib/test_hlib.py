@@ -10647,6 +10647,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # The Discard Re-fly half of LAB-10 on the same host and act A; operator by the same
         # reading-run discipline.
         "LAB-10b-lab-refly-discard.toml": "operator by the reading-run discipline; AUTHORED 2026-10-18, NEVER FLOWN (LAB-10's act A, then StashSlot, InvokeRewind and a second 12.50 transmit tagged to the provisional, then Esc > Revert to Launch > Discard Re-Fly: the attempt's tagged events purged, its credit never re-homed, walked or kept as an untagged row, nothing tombstoned, the original credit committed on the lab's recording, the stashed slot and its point still offered, on lab-lko-seeded-transmit); the purge count, slotListed and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        # Science-lab process-while-joined, tender separation and transmit (LAB-13 reduced: no
+        # re-dock is drivable without RCS); operator by the same reading-run discipline.
+        "LAB-13-lab-process-separate-transmit.toml": "operator by the reading-run discipline; AUTHORED 2026-10-18, NEVER FLOWN (a thermometer processed into the lab while the probe tender is still joined, the tender's pre-attached undock as one JointBreak / UNDOCK split with a Rewind Point and no Undock branch, the lab keeping its 5.00 data and 12.50 science, one 12.50 credit at the KSC pass tagged to the lab's continuing recording, the in-flight commit's end snapshot matching, on lab-lko-seeded-transmit); the undock fold, the split shape, the link window and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
         # The SIXTH forge, same mechanism again: it stamps b17-duna-pad by
         # launching the committed DD1 Duna Direct Probe (built by construction,
         # build_dd1_craft.py) onto the pad UNCREWED. Flown + harvested
