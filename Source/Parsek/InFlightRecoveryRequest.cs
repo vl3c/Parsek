@@ -87,7 +87,12 @@ namespace Parsek
         // Recordings stamped Recovered by a request whose vessel carried lab science: the
         // lab pays out at the Space Center after the scene change (owner ruling 2026-10-17),
         // so the Space Center OnLoad idle-on-pad checks, which run before that payout, read
-        // this mark instead. Consumed with the payout mark at commit and moved with it.
+        // this mark instead. A mark counts only while its recording still carries the
+        // Recovered terminal the stamp wrote (a reload of a save taken before the Recover
+        // restores the recording without it), and it is cleared when the recording is
+        // committed (LedgerOrchestrator.FileRecordingCommitRows, whichever payout branch the
+        // commit takes) or discarded (PreserveIrreversibleLiveGameplayOnDiscard), and moved
+        // with the terminal by the optimizer.
         private static readonly Dictionary<string, float> labScienceAwaitingRecovery =
             new Dictionary<string, float>(StringComparer.Ordinal);
 
@@ -139,19 +144,39 @@ namespace Parsek
                 && HasStampTarget(tree, armedRequest))
                 return armedRequest.LabStoredScience;
             if (stampedLabScience == null || stampedLabScience.Count == 0) return 0f;
-            var ids = new HashSet<string>(StringComparer.Ordinal);
+            float sum = 0f;
             foreach (KeyValuePair<string, Recording> kv in tree.Recordings)
             {
-                if (!string.IsNullOrEmpty(kv.Key)) ids.Add(kv.Key);
-                if (!string.IsNullOrEmpty(kv.Value?.RecordingId)) ids.Add(kv.Value.RecordingId);
-            }
-            float sum = 0f;
-            foreach (string id in ids)
-            {
-                if (stampedLabScience.TryGetValue(id, out float science) && science > 0f)
+                Recording rec = kv.Value;
+                if (rec == null || rec.TerminalStateValue != TerminalState.Recovered)
+                    continue;
+                string id = !string.IsNullOrEmpty(rec.RecordingId) ? rec.RecordingId : kv.Key;
+                if (!string.IsNullOrEmpty(id)
+                    && stampedLabScience.TryGetValue(id, out float science) && science > 0f)
                     sum += science;
             }
             return sum;
+        }
+
+        /// <summary>
+        /// Drops the lab mark of each of <paramref name="recordingIds"/> (a committed or
+        /// discarded recording no longer waits on the idle check). Returns how many were
+        /// dropped; logs one summary when any were.
+        /// </summary>
+        internal static int ClearLabRecoveryMarks(IEnumerable<string> recordingIds, string context)
+        {
+            if (recordingIds == null || labScienceAwaitingRecovery.Count == 0) return 0;
+            int cleared = 0;
+            foreach (string id in recordingIds)
+            {
+                if (!string.IsNullOrEmpty(id) && labScienceAwaitingRecovery.Remove(id))
+                    cleared++;
+            }
+            if (cleared > 0)
+                ParsekLog.Info(Tag,
+                    $"In-flight recovery: cleared {cleared} lab mark(s) context={context ?? "<none>"} " +
+                    $"remaining={labScienceAwaitingRecovery.Count}");
+            return cleared;
         }
 
         internal static void Clear(string reason)
@@ -338,7 +363,6 @@ namespace Parsek
         internal static bool TryConsumeAwaitingStockPayout(string recordingId)
         {
             if (string.IsNullOrEmpty(recordingId)) return false;
-            labScienceAwaitingRecovery.Remove(recordingId);
             return awaitingStockPayout.Remove(recordingId);
         }
 

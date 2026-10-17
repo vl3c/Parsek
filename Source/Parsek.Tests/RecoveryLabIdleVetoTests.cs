@@ -118,7 +118,7 @@ namespace Parsek.Tests
         // The Space Center OnLoad shape: the scene-exit finalize consumed the request and
         // stamped the tip Recovered; the lab has not paid yet.
         [Fact]
-        public void StampedRecoveryWithLabScience_VetoesTheOnLoadCheckUntilCommit()
+        public void StampedRecoveryWithLabScience_VetoesTheOnLoadCheckUntilCleared()
         {
             RecordingTree tree = PadLabTree();
             InFlightRecoveryRequest.Arm(Pid, LaunchGuid, "Pad Lab", 905.0, null, 12.5f);
@@ -129,10 +129,11 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[Flight]")
                 && l.Contains("IsTreeIdleOnPad: not idle - recovery pending with lab science 12.50 tree='Pad Lab'"));
 
-            // The commit consumes the mark with the payout mark.
-            Assert.True(InFlightRecoveryRequest.TryConsumeAwaitingStockPayout("lab-rec"));
+            // The commit and the discard clear it (RecoveryLabMarkLifecycleTests drive both).
+            Assert.Equal(1, InFlightRecoveryRequest.ClearLabRecoveryMarks(new[] { "lab-rec" }, "test"));
             Assert.Equal(0f, InFlightRecoveryRequest.PendingRecoveryLabScience(
                 tree, null, InFlightRecoveryRequest.LabScienceAwaitingRecovery));
+            Assert.True(ParsekFlight.IsTreeIdleOnPad(tree));
         }
 
         [Fact]
@@ -152,6 +153,7 @@ namespace Parsek.Tests
             // The commit-time optimizer moves the Recovered terminal from rec-a to rec-b.
             RecordingTree source = PadLabTree("rec-a");
             RecordingTree target = PadLabTree("rec-b");
+            target.Recordings["rec-b"].TerminalStateValue = TerminalState.Recovered;
             InFlightRecoveryRequest.Arm(Pid, LaunchGuid, "Pad Lab", 905.0, null, 4f);
             Assert.Equal(1, InFlightRecoveryRequest.ApplyAtSceneExit(source, GameScenes.SPACECENTER, "test"));
 
@@ -200,6 +202,7 @@ namespace Parsek.Tests
             {
                 Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
                 RecordingTree tree = PadLabTree();
+                tree.Recordings["lab-rec"].TerminalStateValue = TerminalState.Recovered;
                 Assert.True(ParsekFlight.TreeHasPendingLabRecoveryForIdle(
                     tree, "IsTreeIdleOnPad", null,
                     new Dictionary<string, float> { { "lab-rec", 7.25f } }));
