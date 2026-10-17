@@ -10633,6 +10633,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Science-lab background catch-up on lab-lko-science: the lab left for a probe
         # on the pad for six hours; operator by the same reading-run discipline.
         "LAB-6-lab-background-catch-up.toml": "operator by the reading-run discipline; AUTHORED 2026-10-18, NEVER FLOWN (research running, the player leaves for a Settings Probe on the pad for six hours of real warp and flies the lab again: nothing ran unloaded, one EC-limited catch-up of about 0.005 science with the batteries drained, none on a second save and load, no converter jump policy line; storedScience read at F4 against a committed reference recording, on lab-lko-science); the catch-up window, the EC windows and the restore-and-discard count are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        # Science-lab rewind and spawn on lab-lko-science: a researching recording, Rewind
+        # to Launch, the lab spawned by a pad warp and after a TimeJump; operator by the
+        # same reading-run discipline.
+        "LAB-7-lab-rewind-spawn.toml": "operator by the reading-run discipline; AUTHORED 2026-10-18, NEVER FLOWN (a recording that ends researching, committed and rewound to launch; with a Settings Probe on the pad, a warp past the end spawns the lab with its end snapshot, Research on with no Parsek restore and Bob aboard, still researching and catching up once after a Space Center stay, and a TimeJump past the end spawns it with the jumped span removed from its converter clock, matching the snapshot at F4 and in charge; crew reserved while the ghost plays, no lab credit, on lab-lko-science); the snapshot-diff windows, the removed= window, the spawn crew line and the restore-and-discard count are re-pinned off the first flight, then the tier is promoted by its measured p50",
         # The SIXTH forge, same mechanism again: it stamps b17-duna-pad by
         # launching the committed DD1 Duna Direct Probe (built by construction,
         # build_dd1_craft.py) onto the pad UNCREWED. Flown + harvested
