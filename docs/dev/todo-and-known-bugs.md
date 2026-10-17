@@ -3162,18 +3162,27 @@ reconcile's "missing earning channel" WARN, the patcher's drawdown guard held th
 ("Kept your earned science"), and after a rewind (authoritative reduction) the science was gone,
 while the spawned lab's snapshot no longer held it. Design 15.7 of the flight-recorder doc promised
 it as an earning action. (Also seen in the decompile: stock credits the whole `storedScience` but
-subtracts only its floor, a stock quirk the pool-delta capture records as it is.)
+subtracts only its floor, a stock quirk the capture records as it is, since it records what stock
+passed to `AddScience`.)
 
-Fix: Harmony prefix / postfix pairs on both methods read the R&D pool around the call
-(`Patches/ScienceLabCreditCapturePatch.cs`) and call `GameStateRecorder.OnScienceLabCredited`,
-which emits `ScienceLabCredited` (event 24; key = stock reason, pool before / after,
-`vessel=` detail), tagged and forwarded like the scan event. It converts to
+Fix: Harmony prefix / postfix pairs on both methods read the R&D pool and the gross stock is about
+to pass to `AddScience` (the lab's `storedScience`, or the recovered labs' summed `storedScience`)
+(`Patches/ScienceLabCreditCapturePatch.cs`) and, when the call moved the pool, call
+`GameStateRecorder.OnScienceLabCredited`, which emits `ScienceLabCredited` (event 24; key = stock
+reason, pool before / pool plus gross, `vessel=` detail), tagged and forwarded like the scan event.
+The credit is the GROSS, not the pool delta: a converter strategy takes its share inside
+`AddScience` and the ledger already records that take as a `StrategyScienceDebit`, so a net credit
+charged it twice (found by the PR review; a `ScienceEarning` likewise stores the gross subject
+value). A non-rewind discard re-homes a discarded flight's lab credit as an untagged row
+(`IsIrreversibleLiveGameplayEvent`), since the pool keeps it. It converts to
 `ScienceLabEarning` (action 38; `scienceAwarded`, `method`), which `ScienceModule.ProcessLabEarning`
 credits uncapped; it is an earning, resource-impacting, counted on the reconcile's emitted side and
 as committed credit in the pending KSC science credit, tombstone-eligible, and never strict-blocks a
 supersede. Tests: `ScienceLabLedgerTests` (event / conversion, the recorder's untagged and tagged
 paths, round trip, uncapped walk, a rewind cutoff before / after the payout, the reconcile WARN
-before and its absence after) plus the exhaustive per-type tables. Live proof: lane `LAB-1-converter-jump-lab-ledger` (in-game category `ConverterJumpLab`), LIVE-PROVEN 2026-10-17 (run `2026-10-17_0622`, PASS attempt 1, 5 of 5 cells).
+before and its absence after, the strategy take charged once, the stock-shaped recovery sum),
+`DiscardEconomyPreservationTests.Rehome_LabScienceCredit_BecomesDirectLabEarning`, plus the
+exhaustive per-type tables. Live proof: lane `LAB-1-converter-jump-lab-ledger` (in-game category `ConverterJumpLab`), LIVE-PROVEN 2026-10-17 (run `2026-10-17_0622`, PASS attempt 1, 5 of 5 cells).
 
 ---
 

@@ -88,6 +88,27 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Rehome_LabScienceCredit_BecomesDirectLabEarning()
+        {
+            // The lab banks its science in the R&D pool the moment it pays out, so a discard
+            // that reloads no quicksave leaves it there: the ledger must keep it, untagged.
+            var e = TaggedEvent(GameStateEventType.ScienceLabCredited, "ScienceTransmission", 400.0,
+                "rec-A", "vessel=Lab");
+            e.valueBefore = 10.0;
+            e.valueAfter = 22.5;
+            AddTagged(e);
+
+            LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard(
+                new HashSet<string> { "rec-A" }, "test");
+
+            var a = Ledger.Actions.SingleOrDefault(x => x.Type == GameActionType.ScienceLabEarning);
+            Assert.NotNull(a);
+            Assert.Null(a.RecordingId);
+            Assert.Equal(400.0, a.UT);
+            Assert.Equal(12.5, (double)a.ScienceAwarded, 3);
+        }
+
+        [Fact]
         public void Rehome_ContractCompletion_BecomesDirectLedgerAction()
         {
             AddTagged(TaggedEvent(GameStateEventType.ContractCompleted, "guid-c", 200.0, "rec-A"));
@@ -311,6 +332,7 @@ namespace Parsek.Tests
             Assert.True(LedgerOrchestrator.IsIrreversibleLiveGameplayEvent(GameStateEventType.ContractCancelled));
             Assert.True(LedgerOrchestrator.IsIrreversibleLiveGameplayEvent(GameStateEventType.MilestoneAchieved));
             Assert.True(LedgerOrchestrator.IsIrreversibleLiveGameplayEvent(GameStateEventType.BuildingDestroyed));
+            Assert.True(LedgerOrchestrator.IsIrreversibleLiveGameplayEvent(GameStateEventType.ScienceLabCredited));
             Assert.False(LedgerOrchestrator.IsIrreversibleLiveGameplayEvent(GameStateEventType.BuildingRepaired));
             Assert.False(LedgerOrchestrator.IsIrreversibleLiveGameplayEvent(GameStateEventType.ContractAccepted));
             Assert.False(LedgerOrchestrator.IsIrreversibleLiveGameplayEvent(GameStateEventType.TechResearched));

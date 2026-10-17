@@ -5533,7 +5533,9 @@ namespace Parsek
                 || type == GameStateEventType.ContractFailed
                 || type == GameStateEventType.ContractCancelled
                 || type == GameStateEventType.MilestoneAchieved
-                || type == GameStateEventType.BuildingDestroyed;
+                || type == GameStateEventType.BuildingDestroyed
+                // Lab science is banked in the R&D pool the moment the lab pays it out.
+                || type == GameStateEventType.ScienceLabCredited;
         }
 
         /// <summary>
@@ -5622,7 +5624,7 @@ namespace Parsek
             // 1. Tagged irreversible terminal events from the discarded recordings ->
             //    direct ledger actions (ConvertEvent with recordingId=null clears the tag).
             var rehomed = new List<GameAction>();
-            int contractEvents = 0, milestoneEvents = 0, strategyExchangeEvents = 0, buildingEvents = 0;
+            int contractEvents = 0, milestoneEvents = 0, strategyExchangeEvents = 0, buildingEvents = 0, labEvents = 0;
             var storeEvents = GameStateStore.Events;
             for (int i = 0; i < storeEvents.Count; i++)
             {
@@ -5646,6 +5648,7 @@ namespace Parsek
                 if (e.eventType == GameStateEventType.MilestoneAchieved) milestoneEvents++;
                 else if (e.eventType == GameStateEventType.ScienceChanged) strategyExchangeEvents++;
                 else if (e.eventType == GameStateEventType.BuildingDestroyed) buildingEvents++;
+                else if (e.eventType == GameStateEventType.ScienceLabCredited) labEvents++;
                 else contractEvents++;
             }
 
@@ -5730,6 +5733,7 @@ namespace Parsek
                 $"milestone={milestoneEvents.ToString(CultureInfo.InvariantCulture)}, " +
                 $"strategyExchange={strategyExchangeEvents.ToString(CultureInfo.InvariantCulture)}, " +
                 $"building={buildingEvents.ToString(CultureInfo.InvariantCulture)}, " +
+                $"lab={labEvents.ToString(CultureInfo.InvariantCulture)}, " +
                 $"science={scienceSubjectCount.ToString(CultureInfo.InvariantCulture)}, " +
                 $"deduped={deduped.ToString(CultureInfo.InvariantCulture)}, " +
                 $"subjectsRemoved={subjectsRemoved.ToString(CultureInfo.InvariantCulture)}, " +

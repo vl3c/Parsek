@@ -14,23 +14,34 @@ namespace Parsek.Patches
     /// no <c>SubmitScienceData</c> and no <c>OnScienceRecieved</c> fire, and the ledger's
     /// subject channel never saw lab science.
     ///
-    /// The prefix reads the R&amp;D pool; the postfix hands the pool before and after to
-    /// <see cref="GameStateRecorder.OnScienceLabCredited"/> when the call credited science.
-    /// A lab handler that returned early (another part's data, an aborted transmission)
-    /// moves no science and is ignored silently, since every lab sees every triggered
-    /// transmission. Never rethrows into the stock call.
+    /// The prefix reads the R&amp;D pool and the gross payout stock is about to pass to
+    /// <c>AddScience</c> (the lab's <c>storedScience</c>, or the recovered labs' summed
+    /// <c>storedScience</c> the way stock sums it). The postfix reports that gross to
+    /// <see cref="GameStateRecorder.OnScienceLabCredited"/> when the call moved the pool.
+    /// The gross, not the pool delta, is the credit: a converter strategy (Patents
+    /// Licensing) takes its share inside <c>AddScience</c> through
+    /// <c>OnCurrencyModified</c>, which the ledger already records as its own
+    /// <c>StrategyScienceDebit</c>, so a net credit would charge the take twice, the same
+    /// way a <c>ScienceEarning</c> stores the gross subject value. A lab handler that
+    /// returned early (another part's data, an aborted transmission) moves no science and
+    /// is ignored silently, since every lab sees every triggered transmission. Never
+    /// rethrows into the stock call.
     /// </summary>
     [HarmonyPatch(typeof(ModuleScienceLab), "OnTransmissionComplete")]
     internal static class ScienceLabTransmissionCreditPatch
     {
         private const string Tag = "ScienceLabCapture";
 
-        internal static void Prefix(out float __state)
+        internal static void Prefix(ModuleScienceLab __instance, out ScienceLabCreditCapture.CallState __state)
         {
-            __state = ScienceLabCreditCapture.ReadPool();
+            __state = new ScienceLabCreditCapture.CallState
+            {
+                PoolBefore = ScienceLabCreditCapture.ReadPool(),
+                Gross = __instance != null ? __instance.storedScience : 0f,
+            };
         }
 
-        internal static void Postfix(ModuleScienceLab __instance, float __state)
+        internal static void Postfix(ModuleScienceLab __instance, ScienceLabCreditCapture.CallState __state)
         {
             if (ParsekGameModeGate.CheckInert("ScienceLabTransmissionCreditPatch.Postfix")) return; // S9 game-mode gate
             try
@@ -52,12 +63,16 @@ namespace Parsek.Patches
     {
         private const string Tag = "ScienceLabCapture";
 
-        internal static void Prefix(out float __state)
+        internal static void Prefix(ProtoVessel protoVessel, out ScienceLabCreditCapture.CallState __state)
         {
-            __state = ScienceLabCreditCapture.ReadPool();
+            __state = new ScienceLabCreditCapture.CallState
+            {
+                PoolBefore = ScienceLabCreditCapture.ReadPool(),
+                Gross = ScienceLabCreditCapture.SumStoredScience(protoVessel),
+            };
         }
 
-        internal static void Postfix(ProtoVessel protoVessel, float __state)
+        internal static void Postfix(ProtoVessel protoVessel, ScienceLabCreditCapture.CallState __state)
         {
             if (ParsekGameModeGate.CheckInert("ScienceLabRecoveryCreditPatch.Postfix")) return; // S9 game-mode gate
             try
@@ -77,6 +92,51 @@ namespace Parsek.Patches
     /// <summary>Shared pool read and report for the two lab credit patches.</summary>
     internal static class ScienceLabCreditCapture
     {
+        /// <summary>What a prefix reads before the stock lab call.</summary>
+        internal struct CallState
+        {
+            internal float PoolBefore;
+            internal float Gross;
+        }
+
+        /// <summary>
+        /// Runtime: the science stock's <c>RecoverScienceLabs</c> pays for this vessel - every
+        /// <c>ModuleScienceLab</c> snapshot's positive <c>storedScience</c> values, summed.
+        /// </summary>
+        internal static float SumStoredScience(ProtoVessel protoVessel)
+        {
+            if (protoVessel == null || protoVessel.protoPartSnapshots == null)
+                return 0f;
+            float sum = 0f;
+            foreach (ProtoPartSnapshot pps in protoVessel.protoPartSnapshots)
+            {
+                if (pps == null || pps.modules == null) continue;
+                foreach (ProtoPartModuleSnapshot m in pps.modules)
+                {
+                    if (m == null || m.moduleName != "ModuleScienceLab" || m.moduleValues == null)
+                        continue;
+                    sum += SumPositiveValues(m.moduleValues.GetValues("storedScience"));
+                }
+            }
+            return sum;
+        }
+
+        /// <summary>Pure: the sum of the parseable values above float epsilon, as stock sums them.</summary>
+        internal static float SumPositiveValues(string[] values)
+        {
+            if (values == null) return 0f;
+            float sum = 0f;
+            foreach (string raw in values)
+            {
+                float v;
+                if (float.TryParse(raw, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out v)
+                    && v > float.Epsilon)
+                    sum += v;
+            }
+            return sum;
+        }
+
         internal static float ReadPool()
         {
             try
@@ -92,23 +152,35 @@ namespace Parsek.Patches
         }
 
         /// <summary>
-        /// Pure: true when the pool read around a lab call shows a credit worth recording.
-        /// A missing read (no R&amp;D: sandbox) or no positive move is not one.
+        /// Pure: true when the pool read around a lab call shows the lab paid out, so the
+        /// gross is a credit worth recording. A missing read (no R&amp;D: sandbox), no
+        /// positive move, or no gross is not one.
         /// </summary>
-        internal static bool IsCredit(float before, float after)
+        internal static bool IsCredit(float before, float after, float gross)
         {
-            if (float.IsNaN(before) || float.IsNaN(after)) return false;
-            if (float.IsInfinity(before) || float.IsInfinity(after)) return false;
-            return !GameStateRecorder.IsScienceDeltaBelowThreshold(after - before) && after > before;
+            if (float.IsNaN(before) || float.IsNaN(after) || float.IsNaN(gross)) return false;
+            if (float.IsInfinity(before) || float.IsInfinity(after) || float.IsInfinity(gross)) return false;
+            if (GameStateRecorder.IsScienceDeltaBelowThreshold(after - before) || after <= before)
+                return false;
+            return !GameStateRecorder.IsScienceDeltaBelowThreshold(gross) && gross > 0f;
         }
 
-        internal static void Report(float before, string reasonKey, string vesselName)
+        /// <summary>
+        /// Reports the lab's gross payout. The event carries the pool before the call and
+        /// that pool plus the gross, so its delta is the credit before any strategy take.
+        /// </summary>
+        internal static void Report(CallState state, string reasonKey, string vesselName)
         {
             float after = ReadPool();
-            if (!IsCredit(before, after))
+            if (!IsCredit(state.PoolBefore, after, state.Gross))
                 return;
+            if (Math.Abs((after - state.PoolBefore) - state.Gross) > 0.01f)
+                ParsekLog.Verbose("ScienceLabCapture",
+                    $"Lab payout net of a strategy take: gross={state.Gross.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"poolDelta={(after - state.PoolBefore).ToString("R", System.Globalization.CultureInfo.InvariantCulture)} reason='{reasonKey}'");
             GameStateRecorder.OnScienceLabCredited(
-                Planetarium.GetUniversalTime(), before, after, reasonKey, vesselName);
+                Planetarium.GetUniversalTime(), state.PoolBefore, state.PoolBefore + state.Gross,
+                reasonKey, vesselName);
         }
     }
 }

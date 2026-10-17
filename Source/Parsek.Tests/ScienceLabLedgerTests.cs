@@ -172,13 +172,47 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData(10f, 25f, true)]
-        [InlineData(10f, 10f, false)]
-        [InlineData(10f, 9f, false)]
-        [InlineData(float.NaN, 9f, false)]
-        public void CapturePatch_OnlyAPositivePoolMoveIsACredit(float before, float after, bool expected)
+        [InlineData(10f, 25f, 15f, true)]
+        // A converter strategy took 10% inside AddScience: the pool moved 13.5 of 15.
+        [InlineData(10f, 23.5f, 15f, true)]
+        [InlineData(10f, 10f, 15f, false)]
+        [InlineData(10f, 9f, 15f, false)]
+        [InlineData(10f, 25f, 0f, false)]
+        [InlineData(float.NaN, 9f, 15f, false)]
+        public void CapturePatch_APoolMoveWithAGrossIsACredit(float before, float after, float gross, bool expected)
         {
-            Assert.Equal(expected, Parsek.Patches.ScienceLabCreditCapture.IsCredit(before, after));
+            Assert.Equal(expected, Parsek.Patches.ScienceLabCreditCapture.IsCredit(before, after, gross));
+        }
+
+        [Fact]
+        public void CapturePatch_SumsRecoveredStoredScienceTheWayStockDoes()
+        {
+            // Stock skips unparseable and non-positive values and sums the rest.
+            float sum = Parsek.Patches.ScienceLabCreditCapture.SumPositiveValues(
+                new[] { "12.5", "0", "-3", "junk", "2.25" });
+            Assert.Equal(14.75, (double)sum, 3);
+            Assert.Equal(0f, Parsek.Patches.ScienceLabCreditCapture.SumPositiveValues(null));
+        }
+
+        [Fact]
+        public void StrategyTake_IsChargedOnce_GrossLabRowPlusItsOwnDebit()
+        {
+            // Lab transmits 100, Patents Licensing takes 10 inside AddScience. The capture
+            // records the gross (event 10 -> 110, not the pool's 100); the take is the
+            // strategy's own StrategyScienceDebit. The walk nets +90, what KSP applied.
+            var evt = GameStateRecorder.BuildScienceLabCreditEvent(500, 10f, 110f, "ScienceTransmission", "Lab");
+            var lab = GameStateEventConverter.ConvertEvent(evt, null);
+            Assert.NotNull(lab);
+            Assert.Equal(100.0, (double)lab.ScienceAwarded, 3);
+
+            var module = new ScienceModule();
+            module.ProcessAction(new GameAction { UT = 0, Type = GameActionType.ScienceInitial, InitialScience = 10f });
+            module.ProcessAction(lab);
+            module.ProcessAction(new GameAction
+            {
+                UT = 500, Type = GameActionType.StrategyScienceDebit, Cost = 10f,
+            });
+            Assert.Equal(100.0, module.GetRunningScience(), 3);
         }
 
         // ================================================================

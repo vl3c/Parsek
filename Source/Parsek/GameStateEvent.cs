@@ -49,7 +49,8 @@ namespace Parsek
         /// The Mobile Processing Lab credited science to the pool with no science subject
         /// (a lab transmission, or the lab's stored science on recovery). <c>key</c> is the
         /// stock reason (<c>ScienceTransmission</c> / <c>VesselRecovery</c>),
-        /// <c>valueBefore</c> / <c>valueAfter</c> the pool around the credit, and
+        /// <c>valueBefore</c> the pool before the call and <c>valueAfter</c> that pool plus the
+        /// gross payout (before any converter strategy's take, which is its own ledger row), and
         /// <c>detail</c> carries <c>vessel=&lt;name&gt;</c>. Recorded beside the stock
         /// <see cref="ScienceChanged"/> event, which stays the reconcile's store side.
         /// Explicitly numbered and append-only, like <see cref="ExperienceGained"/>.
