@@ -44,6 +44,9 @@ tier = "operator"
 # out or between the board and the restart. The EVA is a recording split but never a rewind
 # point (owner ruling 2026-09-27, `[Rewind] Split type=EVA: no Rewind Point`).
 #
+# FIRST FLIGHT 2026-10-17_2136 (PARSEK-FAIL on one contract only): the EVA branch line names
+# the lab vessel as activeChild and Bob's EVA vessel as bgChild (the split fires while the lab
+# is still the active vessel; EVA-lane precedent pins the same shape). Re-pinned to that shape.
 # THE TREE. Root (the lab vessel to the EVA), the lab's background child and Bob's EVA child
 # (the split), and the merged child after the board: 4 recordings, the EVA-3 arithmetic
 # (1 + 2 + 1 per EVA cycle). StopRecording, CommitTree, RC-6's second StopRecording; the
@@ -170,7 +173,7 @@ required = [
   # child, and no rewind point for an EVA split.
   "evaexit start kerbal=Bob Kerman fromPid=2200110055 ",
   "evaexit complete kerbal=Bob Kerman evaPid=[0-9]+ ",
-  "Tree branch created: type=EVA, [^\\r\\n]*bgChild=[0-9a-f]+ \\(pid=2200110055\\)[^\\r\\n]*, evaCrew=Bob Kerman",
+  "Tree branch created: type=EVA, [^\\r\\n]*activeChild=[0-9a-f]{32} \\(pid=2200110055\\), bgChild=[0-9a-f]{32} \\(pid=[0-9]+\\)[^\\r\\n]*, evaCrew=Bob Kerman",
   "\\[Rewind\\] Split type=EVA: no Rewind Point \\(Re-Fly is for vessel separations only\\) bp=[0-9a-f]{32}",
   # With no scientist in the lab, stock switched research OFF (read from the EVA kerbal, so
   # the active vessel is not the lab).
