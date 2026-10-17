@@ -35,6 +35,14 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A vessel that undocks in orbit comes back on its real orbit after a rewind.** Parsek rebuilt
+  the orbit from the recording's last point, which after a reload could tilt the vessel's path into
+  a 14 km periapsis. It now uses the orbit the game reported when the recording ended, so the
+  vessel is no longer refused as unsafe or spawned on a falling orbit. (REFLY-TAIL-SEED-FRAME)
+- **A station claimed by a later docking comes back after a second rewind.** When a Re-Fly kept
+  the station in the world and the docking flight then took it over, the station's recording still
+  read "already spawned" and it never reappeared at the end. It now spawns at its recorded end time
+  again. (REFLY-KEPT-TIP-STAMP-GHOSTED-BY-CHAIN)
 - **A vessel another mission will use no longer vanishes after a rewind.** A rover or station that
   a later flight builds on or docks to used to disappear from the rewind until that flight reached
   it. It now stays visible as a ghost in the shape and place it had, until the flight takes it
@@ -142,6 +150,10 @@ _(unreleased - entries accumulate here per commit)_
   funds, science and reputation after a rewind, the way Parsek shows them: money that later
   flights will spend is held back. Before, lanes that rewind had no ledger check at all.
   (HARNESS-LEDGER-ORACLE-ROUTES-AND-REWIND)
+- **Automated tests can read what is really in a vessel's tanks.** A new test command reads the
+  fuel in named vessels and checks that it adds up, so a test can prove fuel moved between docked
+  vessels is neither lost nor duplicated. A new test flight uses it to check both vessels' tanks
+  after a docked fuel transfer, an undock and two rewinds. (HARNESS-VERBS-FOR-TIMELINE-OPS)
 - **Harness: a launch from the editor finishes only once stock has charged for it.** The test
   step waited only for the vessel to appear, so a test that followed at once could reload the
   flight before the rollout cost was taken, and a Hard career lane saw no charge. It is not a

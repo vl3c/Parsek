@@ -1,0 +1,136 @@
+# RC-1: fuel moved while two vessels were docked, then undocked, then rewound: are both
+# vessels' TANKS what the recorded flight left in them, every time the timeline replays?
+#
+# The first lane that reads real tank contents (seam verb ReadVesselResources, roadmap TC-1)
+# instead of Parsek's own log lines about them (coverage audit 2026-10-16, section 3:
+# "no lane independently reads a tank").
+#
+# HOST: bdock-recorded, BDOCK-1's produced save. That flight docked the Interceptor to the
+# Station in orbit, ran a real stock fuel transfer (15.772 LiquidFuel Station -> Interceptor,
+# a pickup: the Station docked full, BDOCK-FIXTURE-TRANSFER-INVERTED, kept by owner ruling)
+# and undocked. Reusing it costs no flight. The numbers below are not hand-typed: they are
+# the fixture's own, and test_resourceq.Rc1SpecPinsTests derives every one of them from the
+# save (the ROUTE_CONNECTION_WINDOWS manifests) and the two undock tips' _vessel.craft
+# sidecars, so a re-harvest or an edit that moves them reds offline first.
+#
+#   Station tip      37d0dc074351408ba0374230793abb1c  LF 704.2279/720  Ox 880.0000/880
+#   Interceptor tip  4af6cfd725d646ccbac9ef2f7749667e  LF 720.0000/720  Ox 860.7229/880
+#   Pair at DOCK time (window manifests): LF 720 + 704.2279 = 1424.2279, Ox 1740.7229
+#
+# CONSERVATION: each read names BOTH tips and expects their SUM to equal what the pair held
+# when it docked: the transfer only moved fuel between them, so the Station's loss must be
+# the Interceptor's gain, through the undock, the rewind and the respawn. expectSnapshot
+# also checks each vessel against its own recording's end snapshot. MonoPropellant is left
+# out on purpose: no MP moved in this window, and RCS on a loaded vessel drains it with time.
+#
+# THREE READS, the roadmap's RC-1 shape (repeated rewind / replay cycles, same tanks every
+# cycle, no duplicated part uids):
+#   0. the fixture's own live vessels, just after the recorded undock (baseline);
+#   1. rewind to the Station separation (rp0, UT 382.7) and re-fly its probe (slot 1), so the
+#      whole Interceptor tree - launch, dock, transfer, undock - is the committed future;
+#      TimeJump past both tip ends (8950.6 / 8951.5): the Station respawns as a chain tip,
+#      the Interceptor at its leaf end. Read, merge.
+#   2. reload, rewind to the Interceptor separation (the next rp0, UT 693.3) and re-fly its
+#      probe: the walker claims the docking partner and ghosts the real Station; TimeJump
+#      again, read again, merge.
+# THE FLIGHT-READY WAIT (CI-2's, todo CI-2-TIMEJUMP-BEFORE-FLIGHT-READY): after the recorder
+# is live, `ListHandles kind=chains` defers (`ghost-chains-pending`) until the re-fly scene's
+# OnFlightReady built the ghost chains, so the TimeJump never crosses the tip with no chain.
+# A tip whose vessel did not spawn is `missing=1` on an OK answer (a Parsek outcome, never a
+# driver refusal), and every gating token below is on the read's own `complete` line.
+schema = 1
+id = "RC-1-docked-transfer-rewind-tanks"
+tier = "operator"
+description = "Resource conservation through dock, transfer, undock and rewind: on bdock-recorded (a real 15.772 LF dock transfer), read both undock tips' REAL tanks with ReadVesselResources three times - the fixture's live vessels, then after a rewind to the Station separation and a TimeJump past both tip spawns, then after a second rewind to the Interceptor separation - each time expecting the pair to sum to what it held when it docked, each vessel to equal its recording's end snapshot, and no part uid on two live vessels."
+instanceProfile = "stock-minimal"
+tags = ["RC-1", "resources", "conservation", "dock-transfer", "chain-tip", "rewind", "refly",
+        "time-jump", "runtime-handles", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/bdock-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "ReadVesselResources", args = { rec = "37d0dc074351408ba0374230793abb1c,4af6cfd725d646ccbac9ef2f7749667e", resources = "LiquidFuel,Oxidizer", expect = "LiquidFuel:1424.2279;Oxidizer:1740.7229", tolerance = "0.01", expectSnapshot = "true" }, label = "tanks0", expect = "OK" },
+  { cmd = "ListHandles",         args = { kind = "rewindpoints" }, label = "h1",          expect = "OK" },
+  { cmd = "InvokeRewind",        args = { rp = "${h1.rp0}", slot = "1" },                 expect = "OK", budget = 300 },
+  { cmd = "RecordingState",      args = { awaitRecorderLive = "refly" },                  expect = "OK" },
+  { cmd = "ListHandles",         args = { kind = "chains" }, label = "chains1",           expect = "OK" },
+  { cmd = "TimeJump",            args = { ut = "8960" },                                  expect = "OK", budget = 120 },
+  { cmd = "ReadVesselResources", args = { rec = "37d0dc074351408ba0374230793abb1c,4af6cfd725d646ccbac9ef2f7749667e", resources = "LiquidFuel,Oxidizer", expect = "LiquidFuel:1424.2279;Oxidizer:1740.7229", tolerance = "0.01", expectSnapshot = "true" }, label = "tanks1", expect = "OK" },
+  { cmd = "AnswerMergeDialog",   args = { choice = "merge" },                             expect = "OK", budget = 120 },
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "ListHandles",         args = { kind = "rewindpoints" }, label = "h2",          expect = "OK" },
+  { cmd = "InvokeRewind",        args = { rp = "${h2.rp0}", slot = "1" },                 expect = "OK", budget = 300 },
+  { cmd = "RecordingState",      args = { awaitRecorderLive = "refly" },                  expect = "OK" },
+  { cmd = "ListHandles",         args = { kind = "chains" }, label = "chains2",           expect = "OK" },
+  { cmd = "TimeJump",            args = { ut = "8960" },                                  expect = "OK", budget = 120 },
+  { cmd = "ReadVesselResources", args = { rec = "37d0dc074351408ba0374230793abb1c,4af6cfd725d646ccbac9ef2f7749667e", resources = "LiquidFuel,Oxidizer", expect = "LiquidFuel:1424.2279;Oxidizer:1740.7229", tolerance = "0.01", expectSnapshot = "true" }, label = "tanks2", expect = "OK" },
+  { cmd = "AnswerMergeDialog",   args = { choice = "merge" },                             expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# 22 in the fixture; each merge adds the re-flown probe's provisional (and may split a
+# recording that spans the rewind UT), so the window is loose: the lane is about tanks.
+count = { min = 22, max = 40 }
+
+[expectations.logContracts]
+# Each read is pinned between its own `exec ... start` line and the next read's, so a clean
+# later read can never satisfy an earlier one. Step ids: tanks0 = 0005, tanks1 = 0011,
+# tanks2 = 0021.
+required = [
+  "listhandles kind=rewindpoints count=3 truncated=false",
+  "listhandles kind=rewindpoints count=2 truncated=false",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_72ebafb509b943b6a353fa86eb3a4225 slot=1",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_f4edbb9721bc43649a6c1727dca67b1e slot=1",
+  "Chain tip spawn complete: #[0-9]+ \"Kerbal X\" pid=3620499050",
+  "(?s)exec id=0005 cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=2 missing=0 uidCollisions=0 uidDigest=[0-9a-f]{8} match=true snapshotMatch=true",
+  "(?s)exec id=0011 cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=2 missing=0 uidCollisions=0 uidDigest=[0-9a-f]{8} match=true snapshotMatch=true",
+  "(?s)exec id=0021 cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=2 missing=0 uidCollisions=0 uidDigest=[0-9a-f]{8} match=true snapshotMatch=true",
+  # The per-vessel numbers, so a pair that summed right with fuel on the wrong side still reds.
+  "readvesselresources vessel index=0 rec=37d0dc074351408ba0374230793abb1c found=true pid=[0-9]+ name='Kerbal X' loaded=(true|false) parts=28 LiquidFuel=704\\.2279/720\\.0000 Oxidizer=880\\.0000/880\\.0000",
+  "readvesselresources vessel index=1 rec=4af6cfd725d646ccbac9ef2f7749667e found=true pid=[0-9]+ name='Kerbal X' loaded=(true|false) parts=28 LiquidFuel=720\\.0000/720\\.0000 Oxidizer=860\\.7229/880\\.0000",
+  "readvesselresources total vessels=2 LiquidFuel=1424\\.2279/1440\\.0000 Oxidizer=1740\\.7229/1760\\.0000",
+  "timejump complete reachedUT=896[0-9]",
+  "answermergedialog choice=merge result=committed",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "readvesselresources rejected",
+  "readvesselresources vessel index=[0-9]+ rec=\\S+ found=false",
+  "readvesselresources expect .* match=false",
+  "readvesselresources snapshot .* match=false",
+  "readvesselresources complete .*(missing=[1-9]|uidCollisions=[1-9]|match=false|snapshotMatch=false)",
+  "Chain tip spawn blocked by collision",
+  "Chain tip spawn failed",
+  "timejump rejected",
+]
+
+[runtime]
+# LoadGame x2 at max(300,600)+60 = 1320, InvokeRewind x2 at 660 = 1320, TimeJump x2 and
+# AnswerMergeDialog x2 at 180 = 720, and 16 default-budget steps at 120 = 1920: 5280, plus
+# boot and quit margin.
+budgetSeconds = 5700
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -6411,8 +6411,8 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 
 | Id | Capability | Todo |
 |---|---|---|
-| TC-1 | Verbs: `Quickload`, `Revert`, ~~`ReFlyRevert`~~ (DONE 2026-10-07, branch `refly-revert-verb`: `ReFlyRevert choice=discard\|retry\|cancel target=launch\|prelaunch`, the stock Esc menu into Parsek's Re-Fly revert dialog; consumer QL-5), `RunInvariantReport`, `ReadVesselResources`, ~~scene-agnostic `WarpToUT`~~ (DONE 2026-10-07, branch `scene-wait`: FLIGHT / Space Center / Tracking Station, post-load physics hold deferred; a `maxRate=1` wait ignores TIMEWARP locks) | HARNESS-VERBS-FOR-TIMELINE-OPS |
-| TC-2 | Resource oracle (`resourceq.py`, `[expectations.world.vessels]`) + in-game `ResourceConservation` | HARNESS-RESOURCE-ORACLE-AND-INVARIANT-RULES |
+| TC-1 | Verbs: `Quickload`, `Revert`, ~~`ReFlyRevert`~~ (DONE 2026-10-07, branch `refly-revert-verb`: `ReFlyRevert choice=discard\|retry\|cancel target=launch\|prelaunch`, the stock Esc menu into Parsek's Re-Fly revert dialog; consumer QL-5), `RunInvariantReport`, ~~`ReadVesselResources`~~ (DONE 2026-10-16, branch `claude/project-thread-81f9wc`: tank totals by pid or by the vessel a recording spawned, a summed expectation, the end-snapshot compare and a part-uid collision count; consumer RC-1), ~~scene-agnostic `WarpToUT`~~ (DONE 2026-10-07, branch `scene-wait`: FLIGHT / Space Center / Tracking Station, post-load physics hold deferred; a `maxRate=1` wait ignores TIMEWARP locks) | HARNESS-VERBS-FOR-TIMELINE-OPS |
+| TC-2 | Resource oracle (~~`resourceq.py`~~ DONE 2026-10-16: sidecar decode and dock-window conservation; `[expectations.world.vessels]`) + in-game `ResourceConservation` | HARNESS-RESOURCE-ORACLE-AND-INVARIANT-RULES |
 | TC-3 | Analyzer INV13 crew conservation, INV14 vessel identity (baseline, then gate) | HARNESS-RESOURCE-ORACLE-AND-INVARIANT-RULES |
 | TC-4 | Rewind-aware ledger oracle (L4). ORACLE DONE 2026-10-17 (branch `claude/career-rewind-ledger-tlmab9`): `timeline = "rewind-aware"` compares the AVAILABLE pools at the produced save's clock (careerSave `universalTime`, analyzer v5), with `attempt` / `retiredAttempts` / `onceKey` labels; the career multi-rewind lane that proves it is the open half | HARNESS-LEDGER-ORACLE-ROUTES-AND-REWIND |
 | TC-5 | Mission action: deploy drills (converters already start / stop through `set_converters`) | MINING-ISRU-UNTESTED-END-TO-END |
@@ -6440,7 +6440,7 @@ unless its status says otherwise; the todo entry named in a row owns the detail.
 | MINE-4 | Mining-base docked-origin route across a rewind (pairs with IR-8) | MINE-1 + route | IR-8 |
 | MINE-5 | Live-drill harvest-origin route (moves D10 harvest-provenance from synthetic to live) | MINE-1 | TC-5 |
 | GS-6r3 | ISRU / drill on the GS-6 sweep craft (closes GS6-CONVERTER-LOOP-NEEDS-AN-ANIMATION-GROUP-PART-ABOARD) | GS-6 | VAB part harvest |
-| RC-1 | Three rewind / replay cycles at `bdock-recorded`'s rewind point, reading the station after each; same LF / MP every cycle, no duplicate part uids | `bdock-recorded` (re-harvested) | TC-1 ReadVesselResources |
+| RC-1 | Three rewind / replay cycles at `bdock-recorded`'s rewind point, reading the station after each; same LF / MP every cycle, no duplicate part uids. AUTHORED 2026-10-16 as `RC-1-docked-transfer-rewind-tanks`: three reads of BOTH undock tips (the fixture as loaded, then after a rewind to each separation and a TimeJump past the tip spawns), LF / Ox only (RCS drains MP), on the fixture as committed (no re-harvest) | `bdock-recorded` | TC-1 ReadVesselResources |
 | RC-2 | Route into a station that a committed mission later docks; rewind before the dock | new fixture | TA-7 (fixed 2026-10-07; the lane is the live proof) |
 | RC-3 | Rewind-to-Launch, chain tip crossed at the KSC, then into flight; station resources | bdock twin with a launch quicksave | TA-8 |
 | RC-4 | Real warp across a spawn UT and three route crossings | RC-2 host | TC-1 |

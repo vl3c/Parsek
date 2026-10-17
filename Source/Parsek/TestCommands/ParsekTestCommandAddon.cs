@@ -1648,6 +1648,9 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.RevertToLaunch(ParsedCommand cmd) => RevertToLaunchImpl(cmd);
         // DriveVessel: body + two-phase completion in ParsekTestCommandAddon.DriveVessel.cs.
         void ITestCommandExecutor.DriveVessel(ParsedCommand cmd) => DriveVesselImpl(cmd);
+        // ReadVesselResources: body in ParsekTestCommandAddon.ReadVesselResources.cs. Single-phase
+        // and read-only, so no TryComplete*.
+        void ITestCommandExecutor.ReadVesselResources(ParsedCommand cmd) => ReadVesselResourcesImpl(cmd);
 
         private void InvokeExecutor(ParsedCommand cmd)
         {
@@ -1719,6 +1722,7 @@ namespace Parsek.TestCommands
                 case "PartAction": exec.PartAction(cmd); break;
                 case "RevertToLaunch": exec.RevertToLaunch(cmd); break;
                 case "DriveVessel": exec.DriveVessel(cmd); break;
+                case "ReadVesselResources": exec.ReadVesselResources(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

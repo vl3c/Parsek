@@ -19,6 +19,7 @@ namespace Parsek
         internal double TailUT;
         internal double RotationDriftSeconds;
         internal double LatestStoredSegmentEndUT;
+        internal double TerminalOrbitEpoch;
         internal string TailFrameSource;
         internal bool UsedHistoricalBodyRotation;
         internal double HistoricalLongitude;
@@ -72,6 +73,7 @@ namespace Parsek
                 TailUT = double.NaN,
                 RotationDriftSeconds = double.NaN,
                 LatestStoredSegmentEndUT = double.NaN,
+                TerminalOrbitEpoch = double.NaN,
                 TailFrameSource = null,
                 UsedHistoricalBodyRotation = false,
                 HistoricalLongitude = double.NaN,
@@ -109,6 +111,22 @@ namespace Parsek
                 && candidate.ut <= latestStoredSegmentEndUT + TailDerivedOrbitFreshnessEpsilon)
             {
                 seed.DeclineReason = "segment-newer-than-tail";
+                return false;
+            }
+
+            // A terminal orbit captured from the live vessel at recording end carries
+            // stock's own frame-correct elements, with an epoch at (or after) the last
+            // physics frame. The tail state vector cannot beat it: the recorded velocity
+            // is in the Unity world frame of the recording session, whose polar rotation
+            // (Planetarium.InverseRotAngle) is not recorded and differs in any later
+            // session, so a tail seed built against today's body rotation carries a
+            // wrong flight-path angle.
+            double terminalOrbitEpoch = ResolveTerminalOrbitEpoch(traj, bodyName);
+            seed.TerminalOrbitEpoch = terminalOrbitEpoch;
+            if (IsFinite(terminalOrbitEpoch)
+                && candidate.ut <= terminalOrbitEpoch + TailDerivedOrbitFreshnessEpsilon)
+            {
+                seed.DeclineReason = "terminal-orbit-newer-than-tail";
                 return false;
             }
 
@@ -296,6 +314,23 @@ namespace Parsek
             }
 
             return latest;
+        }
+
+        internal static double ResolveTerminalOrbitEpoch(
+            IPlaybackTrajectory traj,
+            string bodyName)
+        {
+            if (traj == null
+                || string.IsNullOrEmpty(bodyName)
+                || !string.Equals(traj.TerminalOrbitBody, bodyName, StringComparison.Ordinal)
+                || !IsFinite(traj.TerminalOrbitSemiMajorAxis)
+                || traj.TerminalOrbitSemiMajorAxis <= 0.0
+                || !IsFinite(traj.TerminalOrbitEpoch))
+            {
+                return double.NaN;
+            }
+
+            return traj.TerminalOrbitEpoch;
         }
 
         internal static bool IsFiniteOrbitSeedElements(Orbit orbit)
