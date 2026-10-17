@@ -15,6 +15,55 @@ namespace Parsek.TestCommands
         /// <summary>A command part's or docking port's "Control From Here"
         /// (<c>ModuleCommand.MakeReference</c> / <c>ModuleDockingNode.MakeReferenceTransform</c>).</summary>
         ControlFrom,
+        /// <summary>An animation group's "Deploy" (<c>ModuleAnimationGroup.DeployModule</c>; the
+        /// drill's deploy).</summary>
+        Deploy,
+        /// <summary>An animation group's "Retract" (<c>ModuleAnimationGroup.RetractModule</c>).</summary>
+        Retract,
+        /// <summary>A converter's "Start" (<c>BaseConverter.StartResourceConverter</c>: a
+        /// harvester, an ISRU converter, a lab's research).</summary>
+        StartConverter,
+        /// <summary>A converter's "Stop" (<c>BaseConverter.StopResourceConverter</c>).</summary>
+        StopConverter,
+        /// <summary>A science experiment's run button (<c>ModuleScienceExperiment.DeployExperiment</c>).</summary>
+        Experiment,
+        /// <summary>The experiment results dialog's "process in lab" button: the experiment's
+        /// private <c>sendDataToLab(ScienceData)</c>, the callback the dialog page carries.</summary>
+        LabProcess,
+        /// <summary>A science lab's "Transmit Science" (<c>ModuleScienceLab.TransmitScience</c>).</summary>
+        LabTransmit,
+        /// <summary>Presses nothing: reads the named part's module state only.</summary>
+        Inspect,
+    }
+
+    /// <summary>One module reading of the target part for the <c>state=</c> answer field: plain
+    /// values the applier read from a live module, formatted by
+    /// <see cref="TestCommandPartAction.FormatState"/>.</summary>
+    internal struct PartActionModuleReading
+    {
+        internal enum ReadingKind { Converter, Lab, Experiment, AnimationGroup }
+
+        internal ReadingKind Kind;
+        internal string Name;
+        internal bool Flag;
+        internal float StoredScience;
+        internal float DataStored;
+        internal int Count;
+
+        internal static PartActionModuleReading Converter(string converterName, bool active)
+            => new PartActionModuleReading { Kind = ReadingKind.Converter, Name = converterName, Flag = active };
+
+        internal static PartActionModuleReading Lab(float storedScience, float dataStored)
+            => new PartActionModuleReading
+            {
+                Kind = ReadingKind.Lab, StoredScience = storedScience, DataStored = dataStored,
+            };
+
+        internal static PartActionModuleReading Experiment(int dataCount)
+            => new PartActionModuleReading { Kind = ReadingKind.Experiment, Count = dataCount };
+
+        internal static PartActionModuleReading AnimationGroup(bool deployed)
+            => new PartActionModuleReading { Kind = ReadingKind.AnimationGroup, Flag = deployed };
     }
 
     /// <summary>
@@ -31,21 +80,43 @@ namespace Parsek.TestCommands
     /// own <c>KSPEvent</c> through its <c>BaseEvent</c>, which is exactly what the PAW button
     /// does, so stock and every Parsek hook run as for a player.</para>
     ///
-    /// <para><b>Grammar.</b> <c>cmd=PartAction button=undock|decouple|controlfrom
-    /// [part=&lt;part name&gt;] [pid=&lt;persistentId&gt;]</c>. <c>button=</c> REQUIRED, closed.
-    /// <c>part=</c> is the part's runtime name (dot form, <c>Decoupler.1</c>); REQUIRED for
-    /// <c>decouple</c> and <c>controlfrom</c>, OPTIONAL for <c>undock</c> (absent: the vessel's
-    /// one docked port pair). <c>pid=</c> names a loaded, non-ghost vessel by persistentId;
-    /// absent, the ACTIVE vessel. SINGLE-PHASE, <c>RequiresFlight</c>, default budget: every
-    /// event runs synchronously (the undock and the decouple create the new vessel inside the
-    /// call).</para>
+    /// <para>The ISRU / lab buttons (deploy, retract, startconverter, stopconverter,
+    /// experiment, labprocess, labtransmit, inspect) let a lane drive a drill, a converter, a
+    /// science lab and an experiment the way a player clicks them, and read the part's module
+    /// state back.</para>
+    ///
+    /// <para><b>Grammar.</b> <c>cmd=PartAction button=undock|decouple|controlfrom|deploy|retract|
+    /// startconverter|stopconverter|experiment|labprocess|labtransmit|inspect
+    /// [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [pid=&lt;persistentId&gt;]</c>.
+    /// <c>button=</c> REQUIRED, closed. <c>part=</c> is the part's runtime name (dot form,
+    /// <c>Decoupler.1</c>); REQUIRED for every button but <c>undock</c>, OPTIONAL for
+    /// <c>undock</c> (absent: the vessel's one docked port pair). <c>converter=</c> is OPTIONAL
+    /// and only for <c>startconverter</c> / <c>stopconverter</c>: it keeps the converter modules
+    /// whose <c>BaseConverter.ConverterName</c> equals it (exact, ordinal), so a part carrying
+    /// several converters (the Convert-O-Tron's four) names one; without it such a part is
+    /// <c>part-ambiguous</c>, never a silent first pick. <c>pid=</c> names a loaded, non-ghost
+    /// vessel by persistentId; absent, the ACTIVE vessel. SINGLE-PHASE, <c>RequiresFlight</c>,
+    /// default budget: every event runs synchronously (the undock and the decouple create the
+    /// new vessel inside the call; a converter, an experiment's data and a lab's processing
+    /// move on later frames, so <c>state=</c> is the state right after the click).</para>
+    ///
+    /// <para><b>labprocess</b> candidates are the named part's experiment modules holding data
+    /// (none with data: <c>experiment-no-data</c>). When the results dialog shows that part's
+    /// page, its own lab callback runs (<c>event=OnSendToLab</c>: process and dismiss the page,
+    /// the dialog button's body); otherwise the experiment's private <c>sendDataToLab</c> runs
+    /// by reflection (<c>event=sendDataToLab</c>). A build without that method refuses
+    /// <c>lab-method-missing</c>. <b>inspect</b> presses nothing; its candidate is the one part
+    /// carrying the name.</para>
     ///
     /// <para><b>Answer.</b> OK payload <c>button= pid= part= partId= event= newPid= newName=
-    /// vesselsBefore= vesselsAfter= activePid= activeName=</c>: <c>newPid</c> / <c>newName</c>
-    /// are the one vessel the event created (0 / empty when none, as for <c>controlfrom</c>),
-    /// read at once, so a stock rename that lands one Update later is NOT in it. Line:
+    /// vesselsBefore= vesselsAfter= activePid= activeName= converter= state=</c>: <c>newPid</c> /
+    /// <c>newName</c> are the one vessel the event created (0 / empty when none, as for
+    /// <c>controlfrom</c>), read at once, so a stock rename that lands one Update later is NOT
+    /// in it. <c>converter</c> is the given filter (empty when none); <c>state</c> is
+    /// <see cref="FormatState"/> over the target part's modules read after the press. Line:
     /// <c>partaction applied button= pid= part='..' partId= event= newPid= newName='..' vessels=N->M
-    /// activePid= activeName='..'</c>.</para>
+    /// activePid= activeName='..' converter='..' state='..'</c>; the two new fields are appended
+    /// so every earlier anchor still matches.</para>
     /// </summary>
     internal static class TestCommandPartAction
     {
@@ -53,26 +124,52 @@ namespace Parsek.TestCommands
         internal const string ButtonKey = "button";
         internal const string PartKey = "part";
         internal const string PidKey = "pid";
+        internal const string ConverterKey = "converter";
 
         internal const string UndockToken = "undock";
         internal const string DecoupleToken = "decouple";
         internal const string ControlFromToken = "controlfrom";
+        internal const string DeployToken = "deploy";
+        internal const string RetractToken = "retract";
+        internal const string StartConverterToken = "startconverter";
+        internal const string StopConverterToken = "stopconverter";
+        internal const string ExperimentToken = "experiment";
+        internal const string LabProcessToken = "labprocess";
+        internal const string LabTransmitToken = "labtransmit";
+        internal const string InspectToken = "inspect";
 
         /// <summary>The closed <c>button=</c> vocabulary. hlib.PARTACTION_BUTTON_VALUES mirrors it
         /// (PartActionSourceSyncTests).</summary>
-        internal static readonly string[] ButtonValues = { UndockToken, DecoupleToken, ControlFromToken };
+        internal static readonly string[] ButtonValues =
+        {
+            UndockToken, DecoupleToken, ControlFromToken, DeployToken, RetractToken,
+            StartConverterToken, StopConverterToken, ExperimentToken, LabProcessToken,
+            LabTransmitToken, InspectToken,
+        };
+
+        /// <summary>The private <c>ModuleScienceExperiment</c> method the results dialog's lab
+        /// button calls (KSP 1.12.5, decompiled): <c>void sendDataToLab(ScienceData)</c>.</summary>
+        internal const string LabProcessMethodName = "sendDataToLab";
+
+        /// <summary>The <c>event=</c> of a labprocess that ran the open results dialog page's own
+        /// lab callback (the dialog button's body: process, then dismiss the page).</summary>
+        internal const string LabProcessDialogEventName = "OnSendToLab";
 
         internal const string ButtonArgMissingReason = "partaction-button-arg-missing";
         internal const string ButtonArgInvalidReason = "partaction-button-arg-invalid";
         internal const string PartArgMissingReason = "partaction-part-arg-missing";
+        internal const string ConverterArgUnexpectedReason = "partaction-converter-arg-unexpected";
         internal const string PidArgInvalidReason = "partaction-pid-arg-invalid";
         internal const string NoActiveVesselReason = "partaction-no-active-vessel";
         internal const string VesselNotFoundReason = "partaction-vessel-not-found";
         internal const string TargetIsGhostReason = "partaction-target-is-ghost";
         internal const string VesselUnloadedReason = "partaction-vessel-unloaded";
         internal const string PartNotFoundReason = "partaction-part-not-found";
+        internal const string ConverterNotFoundReason = "partaction-converter-not-found";
         internal const string PartAmbiguousReason = "partaction-part-ambiguous";
         internal const string EventUnavailableReason = "partaction-event-unavailable";
+        internal const string ExperimentNoDataReason = "partaction-experiment-no-data";
+        internal const string LabMethodMissingReason = "partaction-lab-method-missing";
 
         // Post-call ERROR terminal: the event was invoked and threw.
         internal const string EventThrewReason = "partaction-event-threw";
@@ -84,14 +181,18 @@ namespace Parsek.TestCommands
             "partaction-button-arg-missing",
             "partaction-button-arg-invalid",
             "partaction-part-arg-missing",
+            "partaction-converter-arg-unexpected",
             "partaction-pid-arg-invalid",
             "partaction-no-active-vessel",
             "partaction-vessel-not-found",
             "partaction-target-is-ghost",
             "partaction-vessel-unloaded",
             "partaction-part-not-found",
+            "partaction-converter-not-found",
             "partaction-part-ambiguous",
             "partaction-event-unavailable",
+            "partaction-experiment-no-data",
+            "partaction-lab-method-missing",
         };
 
         /// <summary>The post-call ERROR vocabulary.</summary>
@@ -108,6 +209,14 @@ namespace Parsek.TestCommands
                 case UndockToken: kind = PartActionKind.Undock; return null;
                 case DecoupleToken: kind = PartActionKind.Decouple; return null;
                 case ControlFromToken: kind = PartActionKind.ControlFrom; return null;
+                case DeployToken: kind = PartActionKind.Deploy; return null;
+                case RetractToken: kind = PartActionKind.Retract; return null;
+                case StartConverterToken: kind = PartActionKind.StartConverter; return null;
+                case StopConverterToken: kind = PartActionKind.StopConverter; return null;
+                case ExperimentToken: kind = PartActionKind.Experiment; return null;
+                case LabProcessToken: kind = PartActionKind.LabProcess; return null;
+                case LabTransmitToken: kind = PartActionKind.LabTransmit; return null;
+                case InspectToken: kind = PartActionKind.Inspect; return null;
                 default: return ButtonArgInvalidReason;
             }
         }
@@ -120,15 +229,42 @@ namespace Parsek.TestCommands
                 case PartActionKind.Undock: return UndockToken;
                 case PartActionKind.Decouple: return DecoupleToken;
                 case PartActionKind.ControlFrom: return ControlFromToken;
+                case PartActionKind.Deploy: return DeployToken;
+                case PartActionKind.Retract: return RetractToken;
+                case PartActionKind.StartConverter: return StartConverterToken;
+                case PartActionKind.StopConverter: return StopConverterToken;
+                case PartActionKind.Experiment: return ExperimentToken;
+                case PartActionKind.LabProcess: return LabProcessToken;
+                case PartActionKind.LabTransmit: return LabTransmitToken;
+                case PartActionKind.Inspect: return InspectToken;
                 default: return "unknown";
             }
         }
 
-        /// <summary>True when <paramref name="kind"/> needs a <c>part=</c>: a decoupler and a
-        /// control point are chosen by the player on one named part; an undock has one obvious
-        /// port pair on an ordinary docked vessel.</summary>
+        /// <summary>True when <paramref name="kind"/> needs a <c>part=</c>: every button but an
+        /// undock is chosen by the player on one named part; an undock has one obvious port pair
+        /// on an ordinary docked vessel.</summary>
         internal static bool RequiresPart(PartActionKind kind)
-            => kind == PartActionKind.Decouple || kind == PartActionKind.ControlFrom;
+            => kind != PartActionKind.Unknown && kind != PartActionKind.Undock;
+
+        /// <summary>True for the two buttons a <c>converter=</c> filter applies to.</summary>
+        internal static bool AcceptsConverter(PartActionKind kind)
+            => kind == PartActionKind.StartConverter || kind == PartActionKind.StopConverter;
+
+        /// <summary>Parses the OPTIONAL <c>converter=</c>: null (success) with
+        /// <paramref name="converterName"/> null when absent, the name verbatim when given on a
+        /// converter button, or <c>converter-arg-unexpected</c> on any other button (the filter
+        /// would be silently ignored).</summary>
+        internal static string ParseConverter(string raw, PartActionKind kind, out string converterName)
+        {
+            converterName = string.IsNullOrEmpty(raw) ? null : raw;
+            if (converterName != null && !AcceptsConverter(kind))
+            {
+                converterName = null;
+                return ConverterArgUnexpectedReason;
+            }
+            return null;
+        }
 
         /// <summary>Parses <c>part=</c> for <paramref name="kind"/>: null (success) with
         /// <paramref name="partName"/> null when absent and optional, or the refusal reason.
@@ -175,6 +311,13 @@ namespace Parsek.TestCommands
                 case PartActionKind.Undock: return new[] { "Undock" };
                 case PartActionKind.Decouple: return new[] { "Decouple" };
                 case PartActionKind.ControlFrom: return new[] { "MakeReference", "MakeReferenceTransform" };
+                case PartActionKind.Deploy: return new[] { "DeployModule" };
+                case PartActionKind.Retract: return new[] { "RetractModule" };
+                case PartActionKind.StartConverter: return new[] { "StartResourceConverter" };
+                case PartActionKind.StopConverter: return new[] { "StopResourceConverter" };
+                case PartActionKind.Experiment: return new[] { "DeployExperiment" };
+                case PartActionKind.LabTransmit: return new[] { "TransmitScience" };
+                // labprocess calls a private method, not a KSPEvent; inspect presses nothing.
                 default: return new string[0];
             }
         }
@@ -189,11 +332,64 @@ namespace Parsek.TestCommands
         /// than one is <c>part-ambiguous</c>, never a silent first pick.
         /// </summary>
         internal static string DecideCandidates(string partName, int namedParts, int candidates)
+            => DecideCandidates(PartActionKind.Unknown, partName, namedParts, null, 0, 0, candidates);
+
+        /// <summary>
+        /// The full candidate gate. On top of the three-count form: a <c>converter=</c> that no
+        /// converter module on the named part(s) carries (<paramref name="matchingConverters"/>,
+        /// counted whatever the event state) is <c>converter-not-found</c>, a spec typo rather
+        /// than a live state; a labprocess with no candidate on a part that does carry an
+        /// experiment module (<paramref name="experimentModules"/>) is <c>experiment-no-data</c>
+        /// (nothing to process yet). For inspect the candidates are the named parts.
+        /// </summary>
+        internal static string DecideCandidates(
+            PartActionKind kind, string partName, int namedParts, string converterName,
+            int matchingConverters, int experimentModules, int candidates)
         {
             if (partName != null && namedParts == 0) return PartNotFoundReason;
-            if (candidates == 0) return EventUnavailableReason;
+            if (converterName != null && matchingConverters == 0) return ConverterNotFoundReason;
+            if (candidates == 0)
+                return kind == PartActionKind.LabProcess && experimentModules > 0
+                    ? ExperimentNoDataReason
+                    : EventUnavailableReason;
             if (candidates > 1) return PartAmbiguousReason;
             return null;
+        }
+
+        /// <summary>
+        /// The <c>state=</c> field: one segment per reading, in the part's module order, joined
+        /// by <c>;</c> (a converter name may hold spaces). Segments: a converter
+        /// <c>&lt;ConverterName&gt;:active=0|1</c>; a science lab
+        /// <c>lab:storedScience=&lt;F2&gt; dataStored=&lt;F2&gt;</c>; an experiment
+        /// <c>exp:data=&lt;count&gt;</c>; an animation group <c>deployed=0|1</c>. Invariant
+        /// culture; empty for no readings.
+        /// </summary>
+        internal static string FormatState(IList<PartActionModuleReading> readings)
+        {
+            if (readings == null || readings.Count == 0) return string.Empty;
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            var parts = new List<string>(readings.Count);
+            for (int i = 0; i < readings.Count; i++)
+            {
+                PartActionModuleReading r = readings[i];
+                switch (r.Kind)
+                {
+                    case PartActionModuleReading.ReadingKind.Converter:
+                        parts.Add((r.Name ?? string.Empty) + ":active=" + (r.Flag ? "1" : "0"));
+                        break;
+                    case PartActionModuleReading.ReadingKind.Lab:
+                        parts.Add("lab:storedScience=" + r.StoredScience.ToString("F2", ic)
+                            + " dataStored=" + r.DataStored.ToString("F2", ic));
+                        break;
+                    case PartActionModuleReading.ReadingKind.Experiment:
+                        parts.Add("exp:data=" + r.Count.ToString(ic));
+                        break;
+                    case PartActionModuleReading.ReadingKind.AnimationGroup:
+                        parts.Add("deployed=" + (r.Flag ? "1" : "0"));
+                        break;
+                }
+            }
+            return string.Join(";", parts.ToArray());
         }
 
         /// <summary>
@@ -232,11 +428,11 @@ namespace Parsek.TestCommands
             return created;
         }
 
-        /// <summary>The OK payload, in wire order.</summary>
+        /// <summary>The OK payload, in wire order (the two newer fields last).</summary>
         internal static List<KeyValuePair<string, string>> BuildOkPayload(
             PartActionKind kind, uint pid, string partName, uint partId, string eventName,
             uint newPid, string newName, int vesselsBefore, int vesselsAfter,
-            uint activePid, string activeName)
+            uint activePid, string activeName, string converterName = null, string state = null)
         {
             CultureInfo ic = CultureInfo.InvariantCulture;
             return new List<KeyValuePair<string, string>>
@@ -252,6 +448,8 @@ namespace Parsek.TestCommands
                 new KeyValuePair<string, string>("vesselsAfter", vesselsAfter.ToString(ic)),
                 new KeyValuePair<string, string>("activePid", activePid.ToString(ic)),
                 new KeyValuePair<string, string>("activeName", activeName ?? string.Empty),
+                new KeyValuePair<string, string>("converter", converterName ?? string.Empty),
+                new KeyValuePair<string, string>("state", state ?? string.Empty),
             };
         }
 
@@ -260,7 +458,7 @@ namespace Parsek.TestCommands
         internal static string FormatAppliedLine(
             PartActionKind kind, uint pid, string partName, uint partId, string eventName,
             uint newPid, string newName, int vesselsBefore, int vesselsAfter,
-            uint activePid, string activeName)
+            uint activePid, string activeName, string converterName = null, string state = null)
         {
             CultureInfo ic = CultureInfo.InvariantCulture;
             return "partaction applied button=" + Token(kind)
@@ -272,7 +470,9 @@ namespace Parsek.TestCommands
                 + " newName='" + (newName ?? string.Empty) + "'"
                 + " vessels=" + vesselsBefore.ToString(ic) + "->" + vesselsAfter.ToString(ic)
                 + " activePid=" + activePid.ToString(ic)
-                + " activeName='" + (activeName ?? string.Empty) + "'";
+                + " activeName='" + (activeName ?? string.Empty) + "'"
+                + " converter='" + (converterName ?? string.Empty) + "'"
+                + " state='" + (state ?? string.Empty) + "'";
         }
     }
 }

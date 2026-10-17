@@ -683,11 +683,16 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     "RenameVessel",
     # ADDITIVE (48 -> 50 implemented, reserved unchanged at 4), the vessel-names proof pair
     # (design-vessel-and-mission-names.md 15.3).
-    #   PartAction button=undock|decouple|controlfrom [part=<part name>] [pid=<pid>], FLIGHT,
-    #     SINGLE-PHASE, default 60 s: one button of one part's stock right-click menu
-    #     (ModuleDockingNode.Undock, ModuleDecouplerBase.Decouple, ModuleCommand.MakeReference)
-    #     pressed through its BaseEvent. OK `button= pid= part= partId= event= newPid= newName=
-    #     vesselsBefore= vesselsAfter= activePid= activeName=`.
+    #   PartAction button=undock|decouple|controlfrom|deploy|retract|startconverter|
+    #     stopconverter|experiment|labprocess|labtransmit|inspect [part=<part name>]
+    #     [converter=<ConverterName>] [pid=<pid>], FLIGHT, SINGLE-PHASE, default 60 s: one
+    #     button of one part's stock right-click menu (ModuleDockingNode.Undock,
+    #     ModuleDecouplerBase.Decouple, ModuleCommand.MakeReference, ModuleAnimationGroup
+    #     Deploy / Retract, BaseConverter Start / Stop, ModuleScienceExperiment.DeployExperiment,
+    #     ModuleScienceLab.TransmitScience) pressed through its BaseEvent; labprocess is the
+    #     results dialog's lab button, inspect presses nothing. OK `button= pid= part= partId=
+    #     event= newPid= newName= vesselsBefore= vesselsAfter= activePid= activeName=
+    #     converter= state=`.
     #   RevertToLaunch (no args), FLIGHT, TWO-PHASE, 180 s: stock's Revert to Launch outside a
     #     Re-Fly session (ReFlyRevert owns the in-session one), answered once the new flight is
     #     ready. OK `scene= activePid= activeName= situation=`.
@@ -3545,29 +3550,39 @@ def validate_rename_vessel_step(index: int, step_args: Dict) -> List[str]:
 
 # PartAction: mirrored from TestCommands/TestCommandPartAction.cs (PartActionSourceSyncTests).
 # `button=` is REQUIRED and closed (validated here, not as a VERB_SCOPED_CLOSED_ARGS row, so
-# the act-specific `part=` rule sits beside it). `part=` is REQUIRED for decouple and
-# controlfrom; `pid=` is OPTIONAL with Recover's grammar.
+# the act-specific `part=` rule sits beside it). `part=` is REQUIRED for every button but
+# undock; `converter=` is OPTIONAL and only for startconverter / stopconverter (an exact
+# BaseConverter.ConverterName); `pid=` is OPTIONAL with Recover's grammar.
 PARTACTION_VERB = "PartAction"
 PARTACTION_BUTTON_KEY = "button"
 PARTACTION_PART_KEY = "part"
 PARTACTION_PID_KEY = "pid"
-PARTACTION_BUTTON_VALUES: Tuple[str, ...] = ("undock", "decouple", "controlfrom")
-PARTACTION_BUTTONS_REQUIRING_PART: Tuple[str, ...] = ("decouple", "controlfrom")
+PARTACTION_CONVERTER_KEY = "converter"
+PARTACTION_BUTTON_VALUES: Tuple[str, ...] = (
+    "undock", "decouple", "controlfrom", "deploy", "retract", "startconverter",
+    "stopconverter", "experiment", "labprocess", "labtransmit", "inspect",
+)
+PARTACTION_BUTTONS_REQUIRING_PART: Tuple[str, ...] = tuple(
+    b for b in PARTACTION_BUTTON_VALUES if b != "undock")
+PARTACTION_BUTTONS_ACCEPTING_CONVERTER: Tuple[str, ...] = ("startconverter", "stopconverter")
 PARTACTION_REASONS: Tuple[str, ...] = (
     "partaction-button-arg-missing", "partaction-button-arg-invalid",
-    "partaction-part-arg-missing", "partaction-pid-arg-invalid",
+    "partaction-part-arg-missing", "partaction-converter-arg-unexpected",
+    "partaction-pid-arg-invalid",
     "partaction-no-active-vessel", "partaction-vessel-not-found",
     "partaction-target-is-ghost", "partaction-vessel-unloaded",
-    "partaction-part-not-found", "partaction-part-ambiguous",
-    "partaction-event-unavailable",
+    "partaction-part-not-found", "partaction-converter-not-found",
+    "partaction-part-ambiguous", "partaction-event-unavailable",
+    "partaction-experiment-no-data", "partaction-lab-method-missing",
 )
 
 
 def validate_part_action_step(index: int, step_args: Dict) -> List[str]:
     """Pre-launch shape check for one ``PartAction`` step: ``button=`` REQUIRED and one of
-    PARTACTION_BUTTON_VALUES (case-sensitive, the C# switch), ``part=`` REQUIRED for
-    ``decouple`` / ``controlfrom``, an OPTIONAL literal ``pid=`` an ASCII decimal in
-    1..4294967295. A ``${step.field}`` handle is left to the R10 static tier."""
+    PARTACTION_BUTTON_VALUES (case-sensitive, the C# switch), ``part=`` REQUIRED for every
+    button but ``undock``, an OPTIONAL non-empty ``converter=`` only on ``startconverter`` /
+    ``stopconverter``, an OPTIONAL literal ``pid=`` an ASCII decimal in 1..4294967295. A
+    ``${step.field}`` handle is left to the R10 static tier."""
     errors: List[str] = []
     act = step_args.get(PARTACTION_BUTTON_KEY)
     if act is None or str(act) == "":
@@ -3583,6 +3598,15 @@ def validate_part_action_step(index: int, step_args: Dict) -> List[str]:
         errors.append(
             "driver.steps[%d].args.%s: button=%s REQUIRES it; the seam answers REJECTED "
             "partaction-part-arg-missing" % (index, PARTACTION_PART_KEY, act))
+    raw_converter = step_args.get(PARTACTION_CONVERTER_KEY)
+    if (raw_converter is not None and str(raw_converter) != "" and act is not None
+            and "${" not in str(act) and str(act) in PARTACTION_BUTTON_VALUES
+            and str(act) not in PARTACTION_BUTTONS_ACCEPTING_CONVERTER):
+        errors.append(
+            "driver.steps[%d].args.%s: only %s read it, but this step is button=%s; the "
+            "seam answers REJECTED partaction-converter-arg-unexpected"
+            % (index, PARTACTION_CONVERTER_KEY,
+               " / ".join(PARTACTION_BUTTONS_ACCEPTING_CONVERTER), act))
     raw_pid = step_args.get(PARTACTION_PID_KEY)
     if raw_pid is not None and str(raw_pid) != "" and "${" not in str(raw_pid) and not (
             re.fullmatch(r"[0-9]+", str(raw_pid))
@@ -11016,22 +11040,28 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "renamevessel-part-not-found": "driver-arg",
     "renamevessel-part-ambiguous": "driver-arg",
     "renamevessel-part-naming-unavailable": "driver-gate",
-    # PartAction: a missing / unknown button, a missing part, a malformed pid, a pid naming no
-    # live vessel, a ghost, a named part the vessel lacks and an ambiguous selector are the
-    # SPEC's fault; no active vessel, an unloaded vessel and a button stock does not show are
-    # live states the click would not act in. Mirrored from the C# `Reasons` array
+    # PartAction: a missing / unknown button, a missing part, a converter filter on a
+    # non-converter button, a malformed pid, a pid naming no live vessel, a ghost, a named part
+    # the vessel lacks, a converter name the part lacks and an ambiguous selector are the
+    # SPEC's fault; no active vessel, an unloaded vessel, a button stock does not show, an
+    # experiment holding no data yet and a build whose experiment lacks the private lab method
+    # are live / build states the click would not act in. Mirrored from the C# `Reasons` array
     # (PartActionSourceSyncTests).
     "partaction-button-arg-missing": "driver-arg",
     "partaction-button-arg-invalid": "driver-arg",
     "partaction-part-arg-missing": "driver-arg",
+    "partaction-converter-arg-unexpected": "driver-arg",
     "partaction-pid-arg-invalid": "driver-arg",
     "partaction-no-active-vessel": "driver-gate",
     "partaction-vessel-not-found": "driver-arg",
     "partaction-target-is-ghost": "driver-arg",
     "partaction-vessel-unloaded": "driver-gate",
     "partaction-part-not-found": "driver-arg",
+    "partaction-converter-not-found": "driver-arg",
     "partaction-part-ambiguous": "driver-arg",
     "partaction-event-unavailable": "driver-gate",
+    "partaction-experiment-no-data": "driver-gate",
+    "partaction-lab-method-missing": "driver-gate",
     # RevertToLaunch: a live Re-Fly marker and stock not offering the option are live states
     # (RevertToLaunchSourceSyncTests).
     "reverttolaunch-refly-session": "driver-gate",
@@ -11732,8 +11762,8 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "kscrecover-pid-arg-missing", "label-arg-invalid", "label-arg-missing",
     "loop-arg-invalid", "mock-arg-missing", "mode-arg-invalid", "mode-arg-missing",
     "op-arg-invalid", "op-arg-missing", "partaction-button-arg-invalid",
-    "partaction-button-arg-missing", "partaction-part-arg-missing",
-    "partaction-pid-arg-invalid", "picker-arg-conflict", "picker-arg-missing",
+    "partaction-button-arg-missing", "partaction-converter-arg-unexpected",
+    "partaction-part-arg-missing", "partaction-pid-arg-invalid", "picker-arg-conflict", "picker-arg-missing",
     "pid-arg-invalid", "pointer-arg-conflict", "pointer-arg-invalid",
     "pointer-arg-missing", "popup-arg-missing",
     "readvesselresources-expect-arg-invalid",

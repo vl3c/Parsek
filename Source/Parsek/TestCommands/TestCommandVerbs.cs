@@ -321,10 +321,13 @@ namespace Parsek.TestCommands
             "RenameVessel",
             // ADDITIVE (48 -> 50 implemented, reserved unchanged at 4): the two stock controls
             // the remaining vessel-name claims need (design-vessel-and-mission-names.md 15.3).
-            //   PartAction button=undock|decouple|controlfrom [part=] [pid=] presses one button of
-            //     one part's stock right-click menu (ModuleDockingNode.Undock,
-            //     ModuleDecouplerBase.Decouple, ModuleCommand.MakeReference) through its
-            //     BaseEvent. Contract on TestCommandPartAction; SINGLE-PHASE, RequiresFlight,
+            //   PartAction button=undock|decouple|controlfrom|deploy|retract|startconverter|
+            //     stopconverter|experiment|labprocess|labtransmit|inspect [part=] [converter=]
+            //     [pid=] presses one button of one part's stock right-click menu
+            //     (ModuleDockingNode.Undock, ModuleDecouplerBase.Decouple,
+            //     ModuleCommand.MakeReference, the ISRU / lab module events) through its
+            //     BaseEvent; labprocess is the results dialog's lab button, inspect presses
+            //     nothing. Contract on TestCommandPartAction; SINGLE-PHASE, RequiresFlight,
             //     default budget.
             //   RevertToLaunch is stock's Revert to Launch OUTSIDE a Re-Fly (ReFlyRevert owns
             //     the in-session one): FlightDriver.RevertToLaunch(), answered once the new

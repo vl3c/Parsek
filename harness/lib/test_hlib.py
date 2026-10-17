@@ -16854,10 +16854,11 @@ class RenameVesselSourceSyncTests(unittest.TestCase):
 
 
 class PartActionSourceSyncTests(unittest.TestCase):
-    """`PartAction`. Reads OUTSIDE harness/: the verb, the three arg keys, the closed `button=`
+    """`PartAction`. Reads OUTSIDE harness/: the verb, the four arg keys, the closed `button=`
     vocabulary and the refusal reasons (both arrays IN ORDER) of the comment-stripped
     TestCommands/TestCommandPartAction.cs, plus the applier's press through the module's own
-    BaseEvent (a direct method call would skip nothing today, but the PAW invokes the event)."""
+    BaseEvent (a direct method call would skip nothing today, but the PAW invokes the event)
+    and its converter filter on the exact ConverterName."""
 
     def _source(self, *parts):
         path = os.path.join(PARSEK_SOURCE_DIR, *parts)
@@ -16872,12 +16873,25 @@ class PartActionSourceSyncTests(unittest.TestCase):
         self.assertIn('internal const string ButtonKey = "%s";' % hlib.PARTACTION_BUTTON_KEY, text)
         self.assertIn('internal const string PartKey = "%s";' % hlib.PARTACTION_PART_KEY, text)
         self.assertIn('internal const string PidKey = "%s";' % hlib.PARTACTION_PID_KEY, text)
-        for token, const in zip(hlib.PARTACTION_BUTTON_VALUES,
-                                ("UndockToken", "DecoupleToken", "ControlFromToken")):
+        self.assertIn('internal const string ConverterKey = "%s";' % hlib.PARTACTION_CONVERTER_KEY,
+                      text)
+        consts = ("UndockToken", "DecoupleToken", "ControlFromToken", "DeployToken",
+                  "RetractToken", "StartConverterToken", "StopConverterToken", "ExperimentToken",
+                  "LabProcessToken", "LabTransmitToken", "InspectToken")
+        self.assertEqual(len(consts), len(hlib.PARTACTION_BUTTON_VALUES))
+        for token, const in zip(hlib.PARTACTION_BUTTON_VALUES, consts):
             self.assertIn('internal const string %s = "%s";' % (const, token), text)
-        self.assertIn("ButtonValues = { UndockToken, DecoupleToken, ControlFromToken };", text)
-        self.assertIn("kind == PartActionKind.Decouple || kind == PartActionKind.ControlFrom", text)
-        self.assertEqual(("decouple", "controlfrom"), hlib.PARTACTION_BUTTONS_REQUIRING_PART)
+        m = re.search(r"ButtonValues\s*=\s*\{([^}]*)\}", text)
+        self.assertIsNotNone(m, "ButtonValues initializer moved")
+        self.assertEqual(list(consts), [t.strip() for t in m.group(1).split(",") if t.strip()])
+        # Every button but undock needs part=; only the converter pair takes converter=.
+        self.assertIn("=> kind != PartActionKind.Unknown && kind != PartActionKind.Undock;", text)
+        self.assertEqual(tuple(b for b in hlib.PARTACTION_BUTTON_VALUES if b != "undock"),
+                         hlib.PARTACTION_BUTTONS_REQUIRING_PART)
+        self.assertIn("=> kind == PartActionKind.StartConverter || kind == PartActionKind.StopConverter;",
+                      text)
+        self.assertEqual(("startconverter", "stopconverter"),
+                         hlib.PARTACTION_BUTTONS_ACCEPTING_CONVERTER)
         self.assertEqual(list(hlib.PARTACTION_REASONS),
                          StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
         for reason in hlib.PARTACTION_REASONS:
@@ -16889,6 +16903,9 @@ class PartActionSourceSyncTests(unittest.TestCase):
         self.assertIn("c.Event.Invoke();", applier)
         self.assertIn("module.Events[eventNames[e]]", applier)
         self.assertIn("!ev.active || !ev.guiActive", applier)
+        self.assertIn("string.Equals(bc.ConverterName, converterName, StringComparison.Ordinal)",
+                      applier)
+        self.assertIn("TestCommandPartAction.ConverterKey", applier)
 
     def test_the_verb_is_registered_on_every_axis(self):
         verb = hlib.PARTACTION_VERB
@@ -16902,10 +16919,12 @@ class PartActionSourceSyncTests(unittest.TestCase):
         # PartAction validates its own closed `button=`; no closed-arg row claims the key.
         self.assertNotIn(hlib.PARTACTION_BUTTON_KEY, hlib.VERB_SCOPED_CLOSED_ARGS)
         for reason in ("partaction-button-arg-missing", "partaction-button-arg-invalid",
-                       "partaction-part-arg-missing", "partaction-pid-arg-invalid"):
+                       "partaction-part-arg-missing", "partaction-pid-arg-invalid",
+                       "partaction-converter-arg-unexpected"):
             self.assertIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
         for reason in ("partaction-vessel-not-found", "partaction-event-unavailable",
-                       "partaction-no-active-vessel"):
+                       "partaction-no-active-vessel", "partaction-converter-not-found",
+                       "partaction-experiment-no-data", "partaction-lab-method-missing"):
             self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
 
     def test_the_step_validator(self):
@@ -16922,6 +16941,28 @@ class PartActionSourceSyncTests(unittest.TestCase):
         for bad in ("0", "abc", "4294967296", "+5"):
             with self.subTest(pid=bad):
                 self.assertIn("partaction-pid-arg-invalid", v(0, {"button": "undock", "pid": bad})[0])
+
+    def test_the_step_validator_isru_and_lab_buttons(self):
+        v = hlib.validate_part_action_step
+        for button in ("deploy", "retract", "startconverter", "stopconverter", "experiment",
+                       "labprocess", "labtransmit", "inspect"):
+            with self.subTest(button=button):
+                self.assertEqual([], v(0, {"button": button, "part": "MiniDrill"}))
+                self.assertIn("partaction-part-arg-missing", v(0, {"button": button})[0])
+        self.assertEqual([], v(0, {"button": "startconverter", "part": "MiniISRU",
+                                   "converter": "Lf+Ox"}))
+        self.assertEqual([], v(0, {"button": "stopconverter", "part": "MiniDrill",
+                                   "converter": "Surface Harvester", "pid": "7"}))
+        self.assertEqual([], v(0, {"button": "startconverter", "part": "MiniISRU",
+                                   "converter": ""}))
+        for button in ("deploy", "inspect", "labtransmit", "undock"):
+            with self.subTest(converter_on=button):
+                errs = v(0, {"button": button, "part": "MiniISRU", "converter": "Lf+Ox"})
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("partaction-converter-arg-unexpected", errs[0])
+        # A templated button is left to the static tier, converter= included.
+        self.assertEqual([], v(0, {"button": "${b.button}", "part": "MiniISRU",
+                                   "converter": "Lf+Ox"}))
 
     def test_validate_spec_runs_the_step_validator(self):
         spec = copy.deepcopy(load_spec("B10-career-passive-safety.toml"))
