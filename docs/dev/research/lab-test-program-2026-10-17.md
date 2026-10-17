@@ -719,6 +719,16 @@ Assertions:
 
 Tier: nightly with (a), about 10 min; longhaul with (b).
 
+AUTHORED 2026-10-18 as LAB-10 (merge) and LAB-10b (Discard Re-fly) on the new
+`lab-lko-seeded-transmit` (12.5 science in orbit). Corrections from the code:
+- the tender's first undock is a PreAttached decouple: the lab keeps its recording
+  (breakup-continuous) and is the FOCUS slot 0, so its Orbiting slot opens only after
+  `StashSlot` (RF-20's route);
+- run 2's rehome reading is wrong: `PreserveIrreversibleLiveGameplayOnDiscard` is never
+  called on a Re-Fly discard (it reloads the rewind point's game). The original credit is
+  untouched committed history; the attempt's credit is purged with the attempt. LAB-10b
+  pins that.
+
 ### LAB-13 dock and undock (last)
 
 Fixture: a docking variant, with Clamp-O-Tron ports from the bdock fixtures on the lab plus a
