@@ -559,6 +559,11 @@ the updates below record how each verb arrived.
 > name='..' saveActiveVesselIdx=`. All four refusals are arg-class; the first two deterministic.
 > Mirrored by `LoadGameFocusPidSourceSyncTests`; lane `VN-6-ts-rename-then-decouple`.
 
+> Update (CrewTransfer, 2026-10-17): one ADDITIVE verb, taking the table to **53 implemented / 4 reserved**,
+> for the crew-across-vessels coverage (crew moved between two pods of a docked pair):
+> `CrewTransfer kerbal= part=` runs stock's own crew transfer inside the active vessel. Full contract
+> below (`#### CrewTransfer`).
+
 > Update (ReadVesselResources, 2026-10-16): one ADDITIVE verb, taking the table to **52 implemented /
 > 4 reserved**, the first read of what is really in a vessel's tanks (todo
 > HARNESS-VERBS-FOR-TIMELINE-OPS, roadmap TC-1): `ReadVesselResources pid=|rec= [resources=]
@@ -4496,6 +4501,36 @@ post-mission role. Pure half `TestCommandReadVesselResources`, applier
 `ParsekTestCommandAddon.ReadVesselResources.cs`, mirrored by `ReadVesselResourcesSourceSyncTests`.
 The offline half is `harness/lib/resourceq.py` (snapshot sidecar decode, dock-window
 conservation). Lane: `RC-1-docked-transfer-rewind-tanks`.
+#### CrewTransfer (additive; crew moved inside a docked pair)
+
+**Why.** A kerbal moved between two crewed parts of one vessel (the two pods of a docked pair) is
+how a player hands crew over before an undock; nothing else in the seam moves a kerbal between
+parts, and a roster write would skip the stock events Parsek's crew bookkeeping sees.
+
+**Grammar.** `cmd=CrewTransfer kerbal=<full name> part=<runtime part name>`, issued in FLIGHT. Both
+args are REQUIRED (`crewtransfer-kerbal-arg-missing` / `-part-arg-missing`, deterministic).
+`part=` is the dot-form runtime name of the destination; exactly one of stock's valid destinations
+for that kerbal must carry it, so two identical pods are told apart by the source being one of them.
+
+**Behavior.** Refuses with no active vessel (`crewtransfer-no-active-vessel`), a packed or unloaded
+one (`-vessel-not-ready`), a kerbal in none of its parts (`-kerbal-not-aboard`) and another stock
+item transfer open (`-transfer-running`); then opens stock's transfer
+(`CrewTransfer.Create(srcPart, crew, onDismiss)`, which builds the same valid-destination list the
+highlighted-part prompt shows) and picks the destination: several valid matches is
+`-part-ambiguous`, a matching part that is full or refuses transfers is `-transfer-unavailable`, no
+matching part is `-part-not-found` (the prompt is dismissed on every refusal). It logs
+`crewtransfer start kerbal='..' pid= from= fromId= to= toId= valid=` and selects the part through
+the transfer's own protected `OnPartSelect(Part)` (the click on a highlighted part): stock fires
+`onCrewTransferSelected`, moves the kerbal, fires `onCrewTransferred` and `Vessel.CrewWasModified`,
+and one frame later dismisses itself with `ItemMoved`. A veto from an `onCrewTransferSelected`
+handler is ERROR `crewtransfer-vetoed`; an exception is ERROR `crewtransfer-threw`.
+
+**Phases.** TWO-PHASE, `RequiresFlight`, default 60 s budget, world-mutating tail role, `recording`
+post-mission role. OK once the dismiss came with `ItemMoved` and the kerbal sits in the destination:
+line `crewtransfer applied kerbal='..' pid= from= fromId= to= toId= crewFrom= crewTo=`, payload in
+that key order. Otherwise ERROR `crewtransfer-timeout`. `ClearTwoPhase` dismisses any open prompt,
+which holds a control lock. Pure half `TestCommandCrewTransfer`, applier
+`ParsekTestCommandAddon.CrewTransfer.cs`, mirrored by `CrewTransferSourceSyncTests`.
 
 ### Addon lifecycle
 
@@ -4622,6 +4657,7 @@ wall-clock. Some verbs need a different bound and override the default:
 | `KscMarkerRecover` | 60 s | TWO-PHASE, the default size named: no scene load, the 180-frame marker wait, stock's one-frame recovery and a summary dismissal; NOT a `DEFERRED_SEAM_VERB` |
 | `RevertToLaunch` | 180 s | TWO-PHASE, the `LaunchFromEditor` size: stock's flight reload from the post-init state plus LoadGame's flight-ready wait; no save is parsed off disk, so NOT a `DEFERRED_SEAM_VERB` |
 | `DriveVessel` | (default) 60 s | TWO-PHASE, at most 30 game seconds of drive; the completion ends ERROR `drivevessel-timeout` rather than letting the pump convert it |
+| `CrewTransfer` | (default) 60 s | TWO-PHASE: stock moves the kerbal synchronously and dismisses one frame later; the completion ends ERROR `crewtransfer-timeout` rather than letting the pump convert it |
 | `ReFlyRevert` | 300 s | TWO-PHASE, the `InvokeRewind` / `InvokeRewindToLaunch` size: the resume settle (up to 30 s) and the stock menus, then Discard's quicksave `LoadGame` plus the Space Center / editor load or Retry's flight reload; a `DEFERRED_SEAM_VERB` |
 | `AnswerMergeDialog` | 60 s | MEASURED 2026-10-06 over 859 collected runs (2026-09-10 to 2026-10-05): OK n=65, p50 3.3 s, p99 6.6 s, max 7.2 s. 4x the OK max is 29 s; the floor is twice `TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds` (30 s), which the re-fly fallback spends before the driven exit (unit-guarded). Was 120 s; all 6 non-OK outcomes (4 `no-refly-dialog` TIMEOUT, 2 `answer-timeout` ERROR) waited the full 120 s and none was a slow success |
 | `EvaGroundScience` | 60 s | MEASURED 2026-10-06 over the same corpus: OK n=412, p50 0.9 s, p99 5.5 s, max 5.5 s (step 3.3, take 0.5, place 3.6, pickup 5.5). Each action is its own command, so the budget bounds one action. 4x the OK max is only 22 s, but the place ladder counts frames (about 1,000 worst case), so 60 s keeps it inside the budget down to about 17 fps. Was 120 s (the EvaExit size); all 37 timeouts (27 `step-timeout`, 5 `placement-timeout`, 3 `place-gate-timeout`, 2 `pickup-timeout`) waited the full 120 s, 4,440 s in all |
