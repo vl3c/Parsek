@@ -51,6 +51,8 @@
 # cheapest craft both can.
 "career-science-pad-hard" = ["Settings Probe"]
 "career-pad-craft-zero-funds" = ["Settings Probe"]
+# L8 launches the probe twice on L2's host after its rewinds strip the Jumping Flea.
+"career-pad-craft" = ["Settings Probe"]
 # RF-9's produced save, harvested. The row is INHERITED rather than chosen: the
 # fixture is a copy of what a `gs1-two-stage-pad` run left behind, so its
 # `Ships/VAB` held the same two craft and the harvester dropped them as already

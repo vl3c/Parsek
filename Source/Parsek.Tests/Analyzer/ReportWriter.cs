@@ -132,6 +132,10 @@ namespace Parsek.Tests.Analyzer
             sb.Append("    \"sciencePool\": ").Append(JsonFacetDouble(cs.SciencePool)).Append(",").Append(Nl);
             sb.Append("    \"hasRep\": ").Append(cs.HasRep ? "true" : "false").Append(",").Append(Nl);
             sb.Append("    \"reputation\": ").Append(JsonFacetDouble(cs.Reputation)).Append(",").Append(Nl);
+            // The save's clock (FLIGHTSTATE UT): the rewind-aware ledger oracle's end UT.
+            // `hasUniversalTime` carries absence, as the pool flags do.
+            sb.Append("    \"hasUniversalTime\": ").Append(cs.HasUniversalTime ? "true" : "false").Append(",").Append(Nl);
+            sb.Append("    \"universalTime\": ").Append(cs.HasUniversalTime ? JsonFacetDouble(cs.UniversalTime) : "null").Append(",").Append(Nl);
 
             AppendStringDoubleMap(sb, "subjectScience", cs.SubjectScience);
             sb.Append(",").Append(Nl);

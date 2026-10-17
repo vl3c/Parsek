@@ -306,8 +306,10 @@ class _Recorder:
 # ---------------------------------------------------------------------------
 
 
-def _expected(expectations: Dict, seed_block: Dict, log_text: str) -> Optional[oracle.ExpectedCareer]:
-    """The oracle's expected career for planning only (the verdict never reads it)."""
+def _expected(expectations: Dict, seed_block: Dict, log_text: str,
+              career_block: Optional[Dict] = None) -> Optional[oracle.ExpectedCareer]:
+    """The oracle's expected career for planning only (the verdict never reads it).
+    ``career_block`` supplies the save clock the rewind-aware model needs."""
     led, _w = blocks(expectations)
     if led is None or seed_block is None:
         return None
@@ -316,6 +318,12 @@ def _expected(expectations: Dict, seed_block: Dict, log_text: str) -> Optional[o
     except ValueError:
         return None
     seam, _cap, _err, _m = ledgerverify.build_manifest(led, log_text, seed, "")
+    if ledgerverify.timeline_model(led) == oracle.TIMELINE_REWIND_AWARE:
+        end_ut = ledgerverify.career_save_clock(career_block)
+        if end_ut is None:
+            return None
+        retired = led.get(hlib.LEDGER_RETIRED_ATTEMPTS_KEY, []) or []
+        return oracle.compute_expected_rewind_aware(seed, seam, end_ut, retired)[0]
     rec3 = bool(led.get("rec3CarveOut", False))
     wl = (led.get("rec3Whitelist", []) or []) if rec3 else []
     return oracle.compute_expected(seed, seam, oracle.default_tolerances(), wl)
@@ -354,7 +362,7 @@ def _plan_and_run(expectations: Dict, base: LedgerBaseline, facet: str, tol: flo
     applied, or None when the shift is not constructible (a capped author
     constant). Returns ``(attempt, unchecked_reason)``: attempt None when nothing
     was constructible; a survivor's note names whether the plan moved at all."""
-    base_exp = _pool_value(_expected(expectations, base.seed_block, base.log_text), facet)
+    base_exp = _pool_value(_expected(expectations, base.seed_block, base.log_text, base.career_block), facet)
     step = tol * (1.0 + CROSSING_MARGIN)
     chosen = None
     moved = False
@@ -362,7 +370,7 @@ def _plan_and_run(expectations: Dict, base: LedgerBaseline, facet: str, tol: flo
         built = build(sign * step * (2 ** k) + (parsed - base_exp))
         if built is None:
             break
-        planned = _pool_value(_expected(built[0], built[1], base.log_text), facet)
+        planned = _pool_value(_expected(built[0], built[1], base.log_text, base.career_block), facet)
         if planned is not None and base_exp is not None and planned != base_exp:
             moved = True
         chosen = (built, planned)
@@ -407,7 +415,7 @@ def mutate_ledger(expectations: Dict, base: LedgerBaseline) -> LedgerCheck:
         rec.mutation(label, kind, detail, killed, note)
         return _Attempt(side, detail, killed, note)
 
-    exp = _expected(expectations, base.seed_block, log_text) if led is not None else None
+    exp = _expected(expectations, base.seed_block, log_text, base.career_block) if led is not None else None
 
     # 1. Pools: the produced value and the seed value, each across both sides.
     if led is not None:

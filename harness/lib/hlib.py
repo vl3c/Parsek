@@ -7525,33 +7525,35 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                 % (i, RENDER_MANIFEST_EXPORT_VERB,
                    rendercompose.RENDER_COMPOSITION_BLOCK))
 
-    # An [expectations.ledger] block cannot be modeled across an in-run rewind or a
-    # merge-dialog answer: InvokeRewind rewrites the career pools (funds/science/rep)
-    # from a quicksave the seed + manifest contract cannot reconstruct, and
-    # AnswerMergeDialog drives the merge that commits/discards those rewound pools. The
-    # oracle for a rewound/merged career is DEFERRED to L4, so pairing the two is a
-    # hard spec error (never launch KSP for an unassertable run). TimeJump + ledger
-    # stays allowed (design-blessed: a forward jump keeps the seed + manifest sum
-    # valid). M-A5 integration item 1.
+    # A SUM-model [expectations.ledger] block cannot be modeled across an in-run
+    # rewind or a merge-dialog answer: InvokeRewind / InvokeRewindToLaunch restore a
+    # quicksave and AnswerMergeDialog commits or discards the rewound attempt, so part
+    # of the committed ledger ends up AHEAD of the save's clock, and the stock pools
+    # then show the reservation-aware available amount, not seed + every delta.
+    # Pairing the sum model with those verbs is a hard spec error (never launch KSP
+    # for an unassertable run). A block declaring `timeline = "rewind-aware"` places
+    # every entry on the clock and expects the design's available-at-end-UT pools
+    # (oracle.compute_expected_rewind_aware), so it may pair with all three. TimeJump
+    # stays allowed under the sum model (a forward jump keeps the sum valid). M-A5
+    # integration item 1, TC-4.
     #
-    # InvokeRewindToLaunch joins the refused set for the SAME mechanical reason and not
-    # by analogy: it restores a quicksave, so the career pools after it are whatever
-    # that file carried, which the seed + manifest contract cannot reconstruct. The
-    # deferral is identical (L4), so the message names it too. SCOPE HONESTY: this
-    # check sees only `driver.steps` - a MISSION that drives the verb over the seam
-    # bridge (GS-4's kx_rewind_watch does exactly that) is invisible to it, so a
-    # future lane pairing a bridge-driven rewind with [expectations.ledger] is NOT
-    # refused here. GS-4 declares no ledger block, so no committed spec authors that
-    # unassertable run today; a mission-aware pairing check would need the machine's
-    # emitted-verb set, which spec validation cannot know statically.
-    if "ledger" in expectations:
+    # SCOPE: this check sees only `driver.steps`. A MISSION that drives a rewind over
+    # the seam bridge (GS-4's kx_rewind_watch) is invisible to it; a lane pairing a
+    # bridge-driven rewind with a sum-model ledger block is NOT refused here, because
+    # spec validation cannot know a mission's emitted verbs statically.
+    ledger_block_for_pairing = expectations.get("ledger")
+    rewind_aware_ledger = (isinstance(ledger_block_for_pairing, dict)
+                           and ledger_block_for_pairing.get(LEDGER_TIMELINE_KEY)
+                           == "rewind-aware")
+    if "ledger" in expectations and not rewind_aware_ledger:
         for i, step in enumerate(steps):
             scmd = (step or {}).get("cmd")
             if scmd in ("InvokeRewind", "InvokeRewindToLaunch", "AnswerMergeDialog"):
                 errors.append(
-                    "driver.steps[%d].cmd: %r cannot pair with [expectations.ledger] -- a "
-                    "rewind/merge rewrites the career pools the seed+manifest contract cannot "
-                    "model; the rewound-career ledger oracle is DEFERRED to L4" % (i, scmd))
+                    "driver.steps[%d].cmd: %r cannot pair with a sum-model "
+                    "[expectations.ledger] -- a rewind/merge leaves part of the ledger in "
+                    "the committed future, which the seed+manifest sum cannot model; "
+                    "declare timeline = \"rewind-aware\" (with ut on every entry)" % (i, scmd))
 
     # Dimensions covered: every key + value present in the registry.
     dims = spec.get("dimensionsCovered", {}) or {}
@@ -9389,6 +9391,17 @@ def capture_cross_check_gates(ledger_block: Optional[Dict]) -> bool:
     return ledger_block.get(LEDGER_CAPTURE_CROSS_CHECK_KEY) == LEDGER_CAPTURE_CROSS_CHECK_GATE
 
 
+# The expected-state model of `[expectations.ledger]` (TC-4). Absent / "sum" is the
+# original seed + every declared delta. "rewind-aware" places every entry on the
+# clock and expects what the game design says the stock pools show at the produced
+# save's UT: funds and science AVAILABLE (the minimum projected balance through the
+# committed future, floored at zero), reputation running (oracle.
+# compute_expected_rewind_aware). It is the model a lane that rewinds or merges
+# must declare; `retiredAttempts` names the entry `attempt` labels a Re-Fly
+# tombstone retired.
+LEDGER_TIMELINE_KEY = "timeline"
+LEDGER_RETIRED_ATTEMPTS_KEY = "retiredAttempts"
+
 # The one oracle rejection reason a PRE-LAUNCH gate must NOT raise: it reads the
 # captured pool, which is empty by construction before the flight. See the carve-out
 # note in validate_ledger_expectations.
@@ -9469,6 +9482,50 @@ def validate_ledger_expectations(ledger_block: Optional[Dict]) -> List[str]:
             errs.append("expectations.ledger.%s: %r not in %s"
                         % (LEDGER_CAPTURE_CROSS_CHECK_KEY, mode,
                            list(LEDGER_CAPTURE_CROSS_CHECK_VALUES)))
+    errs.extend(_validate_ledger_timeline(ledger_block, manifest))
+    return errs
+
+
+def _validate_ledger_timeline(ledger_block: Dict, manifest) -> List[str]:
+    """The rewind-aware model's spec surface (TC-4), checked pre-launch because each
+    rule otherwise costs a flight: an unknown model name, a `retiredAttempts` that is
+    not a list of non-empty strings, a retired label no entry carries (a typo that
+    would retire nothing and quietly move the expectation), `retiredAttempts` on the
+    sum model (inert there), and, under the rewind-aware model, an entry with neither
+    `ut` nor `utWindow` (it cannot be placed on the clock)."""
+    import oracle  # deferred sibling import, as in validate_ledger_expectations
+    errs: List[str] = []
+    model = ledger_block.get(LEDGER_TIMELINE_KEY, oracle.TIMELINE_SUM)
+    if model not in oracle.TIMELINES:
+        errs.append("expectations.ledger.%s: %r not in %s"
+                    % (LEDGER_TIMELINE_KEY, model, list(oracle.TIMELINES)))
+        return errs
+    entries = manifest if isinstance(manifest, list) else []
+    if LEDGER_RETIRED_ATTEMPTS_KEY in ledger_block:
+        retired = ledger_block.get(LEDGER_RETIRED_ATTEMPTS_KEY)
+        if model != oracle.TIMELINE_REWIND_AWARE:
+            errs.append("expectations.ledger.%s: only the %r model reads it; under %r it "
+                        "would retire nothing" % (LEDGER_RETIRED_ATTEMPTS_KEY,
+                                                  oracle.TIMELINE_REWIND_AWARE, model))
+        elif (not isinstance(retired, list)
+              or any(not isinstance(a, str) or not a.strip() for a in retired)):
+            errs.append("expectations.ledger.%s: %r must be an array of non-empty "
+                        "attempt labels" % (LEDGER_RETIRED_ATTEMPTS_KEY, retired))
+        else:
+            labels = {e.get("attempt") for e in entries if isinstance(e, dict)}
+            for a in retired:
+                if a not in labels:
+                    errs.append("expectations.ledger.%s: %r names no manifest entry's "
+                                "attempt (it would retire nothing)"
+                                % (LEDGER_RETIRED_ATTEMPTS_KEY, a))
+    if model == oracle.TIMELINE_REWIND_AWARE:
+        for i, e in enumerate(entries):
+            if not isinstance(e, dict):
+                continue
+            if e.get("ut") is None and e.get("utWindow", e.get("ut_window")) is None:
+                errs.append("expectations.ledger.manifest[%d]: the %r model needs ut or "
+                            "utWindow on every entry (an entry off the clock is neither "
+                            "past nor committed future)" % (i, oracle.TIMELINE_REWIND_AWARE))
     return errs
 
 
@@ -10864,6 +10921,8 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # repaired nothing, e.g. its CanAfford gate declined).
     "demolish-not-applied": "driver-gate",
     "repair-not-applied": "driver-gate",
+    # upgrade-facility whose level did not move while Parsek's guard allowed it.
+    "upgrade-not-applied": "driver-gate",
     # KscAction activate-strategy / deactivate-strategy (the Administration building's
     # activate and cancel). A name the strategy system does not know and an unparseable
     # commitment are the SPEC's fault; an already-active / not-active strategy, a full slot

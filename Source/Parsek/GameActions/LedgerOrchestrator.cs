@@ -4921,6 +4921,22 @@ namespace Parsek
             // delta mismatch. Surfaces missing earning channels (strategy, world first, etc.)
             // as they happen without triggering false positives on curve-/strategy-
             // transformed rewards.
+            var deferHost = ResolveKscDeferHost();
+            if (ShouldDeferKscReconcileOneFrame(action.Type, deferHost != null))
+            {
+                GameAction deferredAction = action;
+                double deferredUt = evt.ut;
+                ParsekLog.Verbose(Tag,
+                    $"OnKscSpending: deferring the reconcile and recalc one frame for {action.Type} - " +
+                    "stock charges it after this handler returns");
+                deferHost(() =>
+                {
+                    ReconcileKscAction(GameStateStore.Events, Ledger.Actions, deferredAction, deferredUt);
+                    RecalculateAndPatchForLiveTimelineEvent(deferredUt, "ksc-spending");
+                });
+                return;
+            }
+
             ReconcileKscAction(GameStateStore.Events, Ledger.Actions, action, evt.ut);
 
             // THE MILESTONE ROW'S RECALC IS DEFERRED ONE FRAME. Everything else on this
@@ -5065,10 +5081,7 @@ namespace Parsek
         /// </summary>
         private static void ScheduleKscSpendingRecalc(GameActionType type, double eventUt, string reason)
         {
-            var deferHost = DeferOneFrameForTesting
-                ?? (WarpToTimeConsumer.Instance != null
-                    ? (Action<Action>)WarpToTimeConsumer.RunNextFrame
-                    : null);
+            var deferHost = ResolveKscDeferHost();
             if (ShouldDeferKscRecalcOneFrame(type, deferHost != null))
             {
                 double deferredUt = eventUt;
@@ -5081,6 +5094,14 @@ namespace Parsek
             {
                 RecalculateAndPatchForLiveTimelineEvent(eventUt, reason);
             }
+        }
+
+        private static Action<Action> ResolveKscDeferHost()
+        {
+            return DeferOneFrameForTesting
+                ?? (WarpToTimeConsumer.Instance != null
+                    ? (Action<Action>)WarpToTimeConsumer.RunNextFrame
+                    : null);
         }
 
         /// <summary>
@@ -5098,14 +5119,15 @@ namespace Parsek
         /// next frame instead of running it inline.
         ///
         /// <para>
-        /// Exactly one row type qualifies, and it qualifies because of a decompiled
-        /// ordering rather than a preference. <c>ProgressNode.Complete()</c> raises
+        /// Two row types qualify, each because of a decompiled ordering rather than a
+        /// preference: the KerbalHire row (see <see cref="ShouldDeferKscReconcileOneFrame"/>)
+        /// and the milestone row. <c>ProgressNode.Complete()</c> raises
         /// <c>OnProgressComplete</c> before the subclass calls
         /// <c>AwardProgressStandard</c>, so a milestone row reaches the ledger carrying
         /// zero rewards and is enriched in place moments later; a recalc inside that
         /// window reads pools that have not taken the award. Contract outcomes and
         /// StrategyActivate carry their real amounts at the door and are unaffected, as
-        /// are the tech / facility / hire rows that move no reputation at all.
+        /// are the tech and facility rows (their flown lanes log no guard clamp at the action).
         /// </para>
         ///
         /// <para>
@@ -5116,7 +5138,24 @@ namespace Parsek
         /// </summary>
         internal static bool ShouldDeferKscRecalcOneFrame(GameActionType type, bool hasFrameHost)
         {
-            return type == GameActionType.MilestoneAchievement && hasFrameHost;
+            return hasFrameHost
+                && (type == GameActionType.MilestoneAchievement
+                    || ShouldDeferKscReconcileOneFrame(type, hasFrameHost));
+        }
+
+        /// <summary>
+        /// True when the KSC door must also postpone the row's reconcile (and with it the
+        /// recalc) to the frame host's next frame: the KerbalHire row. Decompiled
+        /// <c>KerbalRoster.HireApplicant</c> raises <c>OnCrewmemberHired</c>, and stock
+        /// Funding charges the hire from its own listener on that event, which runs after
+        /// Parsek's. Inside the handler the live pool has not been charged and no
+        /// FundsChanged(CrewRecruited) exists yet, so an inline recalc either clamps the
+        /// drawdown or, with committed-future rows authorising it, patches the charge in
+        /// and stock then charges it a second time (HIRE-RECALC-BEFORE-STOCK-DEBIT).
+        /// </summary>
+        internal static bool ShouldDeferKscReconcileOneFrame(GameActionType type, bool hasFrameHost)
+        {
+            return type == GameActionType.KerbalHire && hasFrameHost;
         }
 
 

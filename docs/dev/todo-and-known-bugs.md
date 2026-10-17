@@ -59,7 +59,7 @@ and the `VesselSpawner` spawn-validation repair.
 
 ---
 
-## REFLY-MERGE-GHOST-ONLY-NULLS-A-SPAWNED-LEAF: a Re-Fly merge marks a leaf that already spawned ghost-only and drops its spawn snapshot [FILED 2026-10-16 from RC-1 `2026-10-16_2324` (green), log read only. OPEN, suspected, product, medium]
+## ~~REFLY-MERGE-GHOST-ONLY-NULLS-A-SPAWNED-LEAF~~: a Re-Fly merge marks a leaf that already spawned ghost-only and drops its spawn snapshot [FILED 2026-10-16 from RC-1 `2026-10-16_2324` (green), log read only. CLOSED 2026-10-17, not a bug (branch `claude/career-rewind-ledger-tlmab9`)]
 
 On RC-1's second merge (re-fly of rp_f4ed, the Interceptor separation) the log reads
 `[MergeDialog] ApplyVesselDecisions: ghost-only for 'Kerbal X' (id=4af6cfd7...), spawn snapshot
@@ -71,6 +71,19 @@ vessel (and so correct for this copy), and whether the committed copy keeps its 
 Fix: read which pending copy `ApplyVesselDecisions` mutates and what reaches the committed tree;
 if the snapshot is lost, a third RC-1 cycle (rewind to the undock RP after both merges) is the red
 test.
+
+Resolution (code read + `ReFlyGhostOnlyLeafRespawnTests`): the null reaches the committed
+recording (`ApplyVesselDecisions` mutates the pending tree's own objects, which `MergeCommit`
+moves into the committed list), but only in memory. `SaveRecordingFiles` writes `_vessel.craft`
+only for a non-null snapshot and never deletes it for a null one; a Rewind-to-Launch
+(`ResetRecordingPlaybackFields`) or Re-Fly load (`ResetTreeRecordingMutableStateForLoad`) zeroes
+the spawn fields, and `ShouldSpawnAtRecordingEnd` re-hydrates the snapshot from the sidecar
+(`TryHydrateVesselSnapshotFromSidecar`) and answers spawn. The one precondition, pinned by the
+boundary cell, is that the sidecar was written while the snapshot was in memory, which holds for
+any leaf that spawned. A third rewind that fails to bring the Interceptor back would have another
+cause (supersede, `TerminalSpawnSupersededByRecordingId`, slot suppression). Side effect noted,
+not filed: the same re-hydration makes a ghost-only decision on a leaf with a sidecar non-durable
+across a rewind, which matters only if ghost-only is meant as "never spawn".
 
 ---
 
@@ -4121,6 +4134,48 @@ Fix: add the route action types (dispatch debit, recovery credit, delivery, pick
 oracle's expected model, and a rewind-cutoff model (rows strictly after the cutoff retired,
 dormant routes, re-delivery exactly once) so route lanes can carry a gating ledger block.
 Roadmap: "The logistics integration program", row C1.
+
+Rewind half DONE 2026-10-17 (branch `claude/career-rewind-ledger-tlmab9`, TC-4): a ledger block
+that declares `timeline = "rewind-aware"` may pair with `InvokeRewind`, `InvokeRewindToLaunch`
+and `AnswerMergeDialog`. `oracle.compute_expected_rewind_aware` places every entry against the
+produced save's clock (careerSave `universalTime`, analyzer version 5) and expects the design 3.9
+AVAILABLE funds and science (running balance floored by every projected future balance, earnings
+before spendings at one UT) and the running reputation; `attempt` + `retiredAttempts` drop rows
+a Re-Fly tombstone retired, `onceKey` credits a milestone once. A missing clock is
+INVALID(tooling), a window straddling the clock a hard `timeline-unplaceable` divergence. Cells:
+`test_oracle.RewindAwareTimelineTests`, `test_ledger_timeline.py`, `LedgerGroundTruthParserTests`,
+`ReportWriterTests`. Lane `L8-career-repeated-rewinds` (three Rewind-to-Launch on a career with
+KSC spending, two recovered flights, LedgerGroundTruth after the third rewind) is authored; its
+first reading run (`2026-10-17_0632`) was INVALID on driver gaps, now fixed: `InvokeRewindToLaunch`
+runs from the Space Center as well as FLIGHT (`VerbSceneRequirement.RequiresRewindScene`, deferring
+`not-in-rewind-scene` elsewhere), a `KscAction upgrade-facility` that stock did not apply reads
+`upgrade-not-applied` and only a refusal by Parsek's guard reads `blocked-committed`
+(`FacilityUpgradePatch.BlockedUpgradeCount`), and the lane commits each pad flight before
+recovering it. The second flight (`2026-10-17_0700`) found HIRE-RECALC-BEFORE-STOCK-DEBIT; the
+third, `2026-10-17_0930`, PASSED attempt 1 with the produced pools equal to the oracle's
+(funds 216769, science 90, rep 0 at end clock 199.87). Still open: the route action types.
+
+---
+
+## ~~HIRE-RECALC-BEFORE-STOCK-DEBIT: a Space Center hire was recalculated before stock charged it, so it clamped or was charged twice~~ [FILED 2026-10-17 from the L8 flights `2026-10-17_0632` and `2026-10-17_0700`. FIXED 2026-10-17, branch `claude/career-rewind-ledger-tlmab9` (PR #2129). product, medium]
+
+`KerbalRoster.HireApplicant` raises `OnCrewmemberHired`, and stock Funding charges the hire from
+its own listener on that event, which runs after Parsek's. Parsek's handler wrote the KerbalHire
+row and recalculated inline, before the charge. With no committed future the funds patch clamped
+the drawdown (`GUARDED DRAWDOWN clamped resource=Funds running=292069 live=354182`, a gap of
+exactly 62113) and then the charge landed, so the pool ended right. With committed future rows
+(after a rewind) the reduction is authorised, so the patch charged the hire and stock charged
+it again: flight `2026-10-17_0700` logged `GUARDED UPLIFT clamped ... running=437887
+live=229956 wouldBeTarget=292069`, one hire below the right value, held through a whole flight
+and the next KSC actions until a rewind re-patched it. Both cases also warned `KSC
+reconciliation (funds): ... KerbalHire ... no matching FundsChanged`.
+
+Fix: `LedgerOrchestrator.OnKscSpending` hands a KerbalHire row's reconcile and recalc to the
+next frame (`ShouldDeferKscReconcileOneFrame`, the frame host the milestone row already uses;
+inline when there is no host), so both see the charged pool and the FundsChanged(CrewRecruited)
+event. Cell: `LedgerOrchestratorTests.OnKscSpending_KerbalHire_DefersTheReconcileAndRecalcPastStocksCharge`
+(red before the fix). Live proof: L8, which requires the deferral line and forbids every guard
+clamp and the hire's reconcile warning.
 
 ---
 

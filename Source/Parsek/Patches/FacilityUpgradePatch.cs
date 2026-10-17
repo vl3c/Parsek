@@ -18,6 +18,13 @@ namespace Parsek.Patches
     {
         private const string Tag = "FacilityUpgradePatch";
 
+        /// <summary>
+        /// How many upgrades the committed-timeline guard has refused this process. The
+        /// KscAction seam reads it around its call so a stock no-op is never reported as a
+        /// committed-timeline block.
+        /// </summary>
+        internal static int BlockedUpgradeCount { get; private set; }
+
         static bool Prefix(UpgradeableFacility __instance, int lvl)
         {
             if (ParsekGameModeGate.CheckInert("FacilityUpgradePatch.Prefix")) return true; // S9 game-mode gate
@@ -135,6 +142,7 @@ namespace Parsek.Patches
             var text = ReservationExplanation.FacilityUpgrade(blockers, ReservationExplanation.DefaultDateFormatter);
             CommittedActionDialog.ShowBlocked(BlockedDialogTitle(facilityId), text.Body, "");
 
+            BlockedUpgradeCount++;
             return true;
         }
 

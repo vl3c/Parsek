@@ -335,7 +335,8 @@ added then (that would have been new parse behavior); see the `world` roster not
 Behavior. The parser later gained the `GAME > ROSTER` read and the export gained
 `hasRoster` plus a `roster` array of `{name, gender, type, trait, state}`, sorted by
 (name, type, trait) - status in `docs/dev/autotest-status.md`, the single status
-authority. The tech /
+authority. Analyzer version 5 adds `hasUniversalTime` / `universalTime` (the
+save's `FLIGHTSTATE UT`), the clock the rewind-aware model places rows against. The tech /
 part-purchase / strategy domains the parser also reads are deliberately NOT
 exported - no Python consumer parses them, and an exported field nobody reads is
 surface to keep in step for nothing.
@@ -465,6 +466,37 @@ Pure. `ExpectedCareer = compute_expected(seed, entries, tol, rec3_whitelist)`:
 - **Facet absence**: if `seed.hasFunds` is false (Sandbox), the funds facet is
   absent from `ExpectedCareer` and the diff skips it (the facet-skip-when-absent
   policy, mirroring `LedgerGroundTruthDiff`).
+
+### The rewind-aware model (`timeline = "rewind-aware"`, L4)
+
+The sum above is the career's balance only when the produced save's clock sits after
+every row. A rewind lane ends with the clock BEFORE rows it kept (a Rewind-to-Launch
+keeps the committed flight's rows in the future), and Parsek then shows the AVAILABLE
+amount of game-actions design 3.9, not the sum. A ledger block that declares
+`timeline = "rewind-aware"` switches `ledgerverify` to
+`oracle.compute_expected_rewind_aware(seed, entries, endUt, retiredAttempts)`:
+
+- **Clock.** `endUt` is the produced save's `FLIGHTSTATE UT`, exported as careerSave
+  `hasUniversalTime` / `universalTime` (analyzer version 5). A missing clock is
+  `INVALID(tooling)`, never a fall-back to the sum.
+- **Placement.** Every entry needs `ut` or `utWindow` (spec validation refuses one
+  without). A window that straddles `endUt` cannot be placed and is a HARD
+  `timeline-unplaceable` divergence: the spec author narrows the window.
+- **Selection.** An entry whose `attempt` label is in the block's `retiredAttempts`
+  is dropped (a Re-Fly tombstone retired it). Among entries sharing an `onceKey`,
+  only the earliest kept one counts (a milestone or contract credits once).
+- **Funds and science (HARD).** `available = max(0, min(running, every projected
+  future balance))`: `running` replays every row with `ut <= endUt`; the future
+  replays earnings before spendings at one UT, then by `seq`. The report carries
+  `reserved = running - available`.
+- **Reputation (HARD).** The running balance through the curve, past rows only.
+- **Per-subject science and contracts** stay report-only, over the past rows.
+
+The same model drives the mutation checker (`mutledger._expected`). A future-only
+earning moves no available amount, so a mutation of one can read VACUOUS; that is
+the model, not a gap in the lane. `hlib.validate_spec` refuses a rewind verb
+(`InvokeRewind`, `InvokeRewindToLaunch`, `AnswerMergeDialog`) next to a sum-model
+block, and `retiredAttempts` under the sum model.
 
 ### The ledger-oracle verifier (harness-core verifier chain, slot 8)
 
@@ -934,10 +966,9 @@ Recorded so they are not lost; none blocks the v1 B10 passive-safety oracle.
   confirm each enumerated line against a live EN KSP.log (PENDING-OPERATOR) and,
   where stock is silent, wait for the `gameevents-captured` in-game subscriber
   (M-B3) rather than reading a Parsek-derived number.
-- **Rewind / timeline-layering oracle (L4, M-C3).** Reservations across rewinds,
-  tombstones, supersede flips, and recalc-from-UT=0 layering exercise the oracle
-  under save manipulation; the `rec3CarveOut` and UT-window machinery here are the
-  seams those build on. Deferred with M-C2/M-C3.
+- **Rewind / timeline-layering oracle (L4, M-C3).** See "The rewind-aware model"
+  below; the remaining deferral is route action types (todo
+  HARNESS-LEDGER-ORACLE-ROUTES-AND-REWIND).
 - **Reputation curve fidelity.** RESOLVED, not open: `apply_rep_curve` mirrors
   `ReputationModule.ApplyReputationCurve`, whose keyframes are the decompiled STOCK
   values extracted in the game-actions spike (`docs/dev/done/game-actions/game-actions-spike-findings.md (note: the ReputationModule.cs:22 comment cites a stale plans/ path)`,

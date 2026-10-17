@@ -610,6 +610,7 @@ namespace Parsek.TestCommands
 
             int levelBefore = fac.FacilityLevel;
             double scienceBefore = LiveScience();
+            int guardBlocksBefore = Parsek.Patches.FacilityUpgradePatch.BlockedUpgradeCount;
             try { InvokeUpgradeFacility(building); }
             catch (System.Exception ex)
             {
@@ -617,7 +618,8 @@ namespace Parsek.TestCommands
             }
 
             // Confirm: FacilityUpgradeSpendPatch can block a committed upgrade (no debit,
-            // no level bump).
+            // no level bump). Only a guard refusal is blocked-committed; a level that did
+            // not move with the guard allowing it is stock's own no-op.
             int levelAfter = building.Facility != null ? building.Facility.FacilityLevel : levelBefore;
             if (levelAfter <= levelBefore)
             {
@@ -625,13 +627,22 @@ namespace Parsek.TestCommands
                     levelBefore.ToString(CultureInfo.InvariantCulture),
                     levelAfter.ToString(CultureInfo.InvariantCulture),
                     funds, LiveFunds(), scienceBefore, LiveScience()));
-                return Refuse(action, facility, "blocked-committed");
+                return Refuse(action, facility, UpgradeNotAppliedReason(
+                    Parsek.Patches.FacilityUpgradePatch.BlockedUpgradeCount > guardBlocksBefore));
             }
 
             string observed = levelAfter.ToString(CultureInfo.InvariantCulture);
             LogApplied(action, facility, d.ManifestKind, "level=" + observed);
             return KscActionExecOutcome.Ok(OkPayload(action, facility, "level", observed));
         }
+
+        /// <summary>
+        /// The refusal for an upgrade that left the level unchanged: <c>blocked-committed</c>
+        /// only when Parsek's committed-timeline guard refused it during the call, else
+        /// <c>upgrade-not-applied</c> (stock's own call changed nothing).
+        /// </summary>
+        internal static string UpgradeNotAppliedReason(bool guardBlocked)
+            => guardBlocked ? "blocked-committed" : "upgrade-not-applied";
 
         private static SpaceCenterBuilding ResolveBuilding(string facility)
         {

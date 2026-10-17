@@ -71,6 +71,7 @@ namespace Parsek
 
             snapshot.Parsed = true;
 
+            ParseUniversalTime(flightState, snapshot);
             ParseFunds(gameNode, snapshot);
             ParseScience(gameNode, snapshot);
             ParseReputation(gameNode, snapshot);
@@ -87,7 +88,8 @@ namespace Parsek
             ParseStrategies(gameNode, snapshot);
 
             ParsekLog.Verbose(Tag,
-                $"Parse: complete hasFunds={snapshot.HasFunds.ToString(IC)} " +
+                $"Parse: complete hasUT={snapshot.HasUniversalTime.ToString(IC)} " +
+                $"hasFunds={snapshot.HasFunds.ToString(IC)} " +
                 $"hasScience={snapshot.HasScience.ToString(IC)} " +
                 $"hasRep={snapshot.HasRep.ToString(IC)} " +
                 $"subjects={snapshot.SubjectScience.Count.ToString(IC)} " +
@@ -206,6 +208,28 @@ namespace Parsek
                     return sc;
             }
             return null;
+        }
+
+        private static void ParseUniversalTime(ConfigNode flightState, CareerSaveSnapshot snapshot)
+        {
+            if (flightState == null)
+            {
+                ParsekLog.Verbose(Tag, "ParseUniversalTime: no FLIGHTSTATE -> HasUniversalTime=false");
+                return;
+            }
+
+            if (TryGetDouble(flightState, "UT", out double ut))
+            {
+                snapshot.HasUniversalTime = true;
+                snapshot.UniversalTime = ut;
+                ParsekLog.Verbose(Tag,
+                    $"ParseUniversalTime: ut={ut.ToString("R", IC)}");
+            }
+            else
+            {
+                ParsekLog.Verbose(Tag,
+                    "ParseUniversalTime: FLIGHTSTATE has no parsable UT -> HasUniversalTime=false");
+            }
         }
 
         private static void ParseFunds(ConfigNode gameNode, CareerSaveSnapshot snapshot)

@@ -139,10 +139,38 @@ namespace Parsek.Tests
         // the plain rewind able to race a merge journal / a load / a live recorder.
 
         [Fact]
-        public void InvokeRewindToLaunch_OutsideFlight_Defers_NotInFlight()
+        public void InvokeRewindToLaunch_OutsideARewindScene_Defers_NotInRewindScene()
         {
             AssertDefer(TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=InvokeRewindToLaunch"), MainMenu()),
-                "not-in-flight");
+                "not-in-rewind-scene");
+            foreach (TestCommandScene scene in new[] { TestCommandScene.Editor, TestCommandScene.TrackingStation })
+            {
+                var st = Flight();
+                st.Scene = scene;
+                AssertDefer(TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=InvokeRewindToLaunch"), st),
+                    "not-in-rewind-scene");
+            }
+        }
+
+        [Fact]
+        public void InvokeRewindToLaunch_ReadyAtTheSpaceCenter_Executes()
+        {
+            // The Space Center's Recordings table draws the same "R" button as FLIGHT's.
+            var st = Flight();
+            st.Scene = TestCommandScene.SpaceCenter;
+            var r = TestCommandDispatcher.DecideDispatch(
+                Cmd("id=1 cmd=InvokeRewindToLaunch tree=latest"), st);
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Fact]
+        public void InvokeRewindToLaunch_RecordingActiveAtTheSpaceCenter_Rejects()
+        {
+            var st = Flight();
+            st.Scene = TestCommandScene.SpaceCenter;
+            st.Recording = true;
+            AssertReject(TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=InvokeRewindToLaunch"), st),
+                "recording-active");
         }
 
         [Fact]
