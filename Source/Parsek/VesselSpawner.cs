@@ -887,6 +887,7 @@ namespace Parsek
 
                 // Use a copy to avoid modifying the saved snapshot
                 ConfigNode spawnNode = vesselNode.CreateCopy();
+                ConverterJumpPolicy.ApplyToSpawnSnapshot(spawnNode, "RespawnVessel");
 
                 // (#608/#609/#687) Rescue Missing crew BEFORE the keep/remove
                 // pass so RemoveDeadCrewFromSnapshot sees them as Available
@@ -944,6 +945,7 @@ namespace Parsek
                 // lost cargo). No capture on the snapshot keeps the roster inventory.
                 crewInventoryRestore = CrewInventorySnapshot.RestoreForSpawnLive(spawnNode, "RespawnVessel");
 
+                var runningHarvesters = SpawnedHarvesterRestore.CollectActiveHarvesters(spawnNode);
                 pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
                 pv.Load(HighLogic.CurrentGame.flightState);
@@ -973,6 +975,8 @@ namespace Parsek
 
                 // Zero velocity for surface spawns to prevent physics jitter (#239)
                 ApplyPostSpawnStabilization(pv.vesselRef, spawnNode.GetValue("sit"));
+                if (HighLogic.LoadedSceneIsFlight)
+                    SpawnedHarvesterRestore.Arm(pv.vesselRef, runningHarvesters, "RespawnVessel");
 
                 GameEvents.onNewVesselCreated.Fire(pv.vesselRef);
 
@@ -1325,6 +1329,7 @@ namespace Parsek
             try
             {
                 ConfigNode spawnNode = vesselNode.CreateCopy();
+                ConverterJumpPolicy.ApplyToSpawnSnapshot(spawnNode, "SpawnAtPosition");
 
                 // Determine situation from altitude and velocity
                 double orbitalSpeed = Math.Sqrt(body.gravParameter / (body.Radius + alt));
@@ -1451,6 +1456,7 @@ namespace Parsek
                 // lost cargo). No capture on the snapshot keeps the roster inventory.
                 crewInventoryRestore = CrewInventorySnapshot.RestoreForSpawnLive(spawnNode, "SpawnAtPosition");
 
+                var runningHarvesters = SpawnedHarvesterRestore.CollectActiveHarvesters(spawnNode);
                 pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
                 pv.Load(HighLogic.CurrentGame.flightState);
@@ -1480,6 +1486,8 @@ namespace Parsek
 
                 // Zero velocity for surface spawns to prevent physics jitter (#239)
                 ApplyPostSpawnStabilization(pv.vesselRef, sit);
+                if (HighLogic.LoadedSceneIsFlight)
+                    SpawnedHarvesterRestore.Arm(pv.vesselRef, runningHarvesters, "SpawnAtPosition");
 
                 GameEvents.onNewVesselCreated.Fire(pv.vesselRef);
 

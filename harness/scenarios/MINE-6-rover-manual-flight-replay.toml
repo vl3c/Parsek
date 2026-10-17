@@ -1,0 +1,298 @@
+schema = 1
+id = "MINE-6-rover-manual-flight-replay"
+tier = "nightly"
+# THE MINING PROGRAM, lane MINE-6 (plan `docs/dev/research/mining-isru-test-program-2026-10-17.md`,
+# closes GS-6r3 if its ghost converter-loop gate goes green). NEVER FLOWN: its first flight is
+# a READING run. Every regex below matches a literal found in C# source (file:line cited where
+# the line is not one the sibling lanes already pin).
+#
+# HOST: `miner-rover-watched` (harness/tools/build_miner_rover_watched.py), MINE-9's fixture:
+# V's real "Mining Rover RC" (pid 110406740, index 0, active, radiators on, tanks empty, every
+# converter clock at UT 30; 4 x `MiniDrill` with converter `Surface Harvester`, 1 x `MiniISRU`
+# with `Lf+Ox` / `LiquidFuel` / `Oxidizer` / `MonoPropellant`, 4 x `radPanelSm`) and the
+# crewless `Miner Watcher` (pid 3179797026) parked 120 m north. After Rewind-to-Launch strips
+# the miner, a reload of the rewound save lands FLIGHT on the watcher, close enough to the
+# miner's ghost to watch it and to load the spawned miner.
+#
+# THE STORY is V's manual flight (his collected log `logs/2026-10-17_1419_mining-rover`), step
+# for step: deploy all four drills; start all four Surface Harvesters; climb the rails ladder in
+# steps (5x, 10x, 50x, then 100x; never above 100x); WHILE ON RAILS switch the ISRU's `Lf+Ox`
+# on and later off; flick the radiators off and straight back on while on rails (only
+# briefly: radiators off through a long warp overheats the 1200 K parts, MINE-2 flight 1);
+# while on rails switch `MonoPropellant` on and later off; back at 1x stop all four
+# harvesters and retract the drills; exit to the Space Center (the scene-exit auto-commit
+# under autoMerge, EVA-9's commit path, which also runs the optimization pass); back into
+# FLIGHT on the miner (a Space Center save focuses vessel 0) for Rewind-to-Launch; save and
+# reload into FLIGHT on the watcher (MINE-9); watch the miner's ghost through its whole replay
+# (rails warp at 100x, then 1x across its end) until the end spawn hands the camera to the
+# spawned rover; read the spawned rover's tanks against the end snapshot.
+#
+# THE MID-WARP TOGGLE PATTERN (seam `WarpToUT detach=true`, commit 7335f3c). There is no seam
+# wait that keeps rails warp running, so every press lands a few frames after a DETACHED warp
+# to a far UT (1800) starts, behind a MissionMark, a tank read and an inspect (three inert
+# steps, so the vessel has packed), and a BLOCKING WarpToUT to an intermediate UT then takes
+# the warp over (`warptout detached ended reason=superseded`) and drops to 1x at its target.
+# Each recipe's ON and OFF therefore sit in two different rails segments with a 1x drop
+# between them: ON in one detached warp, OFF in the next. That shape keeps every press
+# packed (`packed=1 warpIndex=[1-9]` on the PartAction answer) and gives each recipe ~300 s
+# of real running, so the spawn carries LF, Ox and Mono as V's did. The radiator flick sits
+# inside ONE segment (off, inspect, on: a few frames), which is all "briefly" needs.
+#
+# THE OPEN QUESTION (plan doc): WHEN is a converter toggled during rails warp on a LANDED
+# vessel recorded? `OnVesselGoOnRails` returns before setting `isOnRails` for a surface vessel
+# (FlightRecorder.cs:11580-11611), so `OnPhysicsFrame` (FlightRecorder.cs:9382-9385) does not
+# return early on it, and the harvest poll's own doc says a packed surface vessel keeps
+# ticking physics frames (FlightRecorder.cs:7720-7729). If that holds, `CheckConverterState`
+# (FlightRecorder.cs:2288-2307) writes the ISRU edge at the TOGGLE UT; if the hook does not
+# fire packed, the edge lands at the next rails exit (the blocking warp's 1x drop). The four
+# ISRU contracts below accept EITHER: each requires the edge between its press's MissionMark
+# and the next window's MissionMark, which both hypotheses satisfy because every OFF / ON
+# has a 1x drop after it inside that bracket. READ ON THE FIRST FLIGHT, THEN TIGHTEN: if
+# `Part event: ConverterActivated 'MiniISRU'` sits before the blocking warp's
+# `warptout start ut=780` line, the edge is at the toggle UT (tighten each bracket to end at
+# its `-after` mark plus that warptout start); if it sits after that warp's
+# `warptout rate requested=0 applied=0` line (the 1x tail), it is the rails exit, and an
+# on-and-off inside ONE warp would be lost (file it). The Part event line carries no UT;
+# the MISSIONMARK lines (`ut=`) bracket it. ANSWERED by the first flight (`2026-10-17_1348`):
+# the edge is written at the toggle UT, so the four contracts are tightened to the press's
+# own `-before` / `-after` marks.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) not a prefix of MINE-2 / MINE-9 (mid-warp
+# toggles and a scene-exit commit neither flies), so its own spec; (2) every game-time wait is
+# an explicit-UT WarpToUT, the 1x ones only where the story is 1x (drill deploy, the stop /
+# retract tail, the end crossing); (3) the replay warps at 100x to 1562, just before the
+# stop at the recording's 1560, and crosses the end (retract + up to 15 s) at 1x; (4)-(5) no
+# burns, no coast; (6) retry once (the pack-latency premise of the first mid-warp press is
+# unmeasured); (7) count pinned 1; (8)-(9) after the first green flight.
+description = "MINE-6: V's manual mining flight replayed step for step on his real rover: four drills deployed and started, a 5x / 10x / 50x / 100x rails ladder, the ISRU's Lf+Ox and then MonoPropellant each switched on and off while on rails, the radiators flicked off and on while on rails, a 1x stop and retract, a scene-exit commit at the Space Center, Rewind-to-Launch, and from a neighbouring rover the miner's ghost watched through its replay (drill deploy, converter loop) to its end spawn, the camera handed to the spawned rover, whose tanks equal its end snapshot."
+instanceProfile = "stock-minimal"
+tags = ["mining", "isru", "rewind", "scene-exit", "watch-mode", "MINE-6"]
+
+[fixture]
+saveTemplate = "fixtures/saves/miner-rover-watched"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  # The scene-exit commit needs autoMerge (ExitToSpaceCenter refuses `dialog-required` otherwise).
+  { cmd = "SetSetting",          args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "StartRecording",                                                               expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  # ACT 1: V's flight. Deploy all four drills; stock shows Start only once the deploy is done.
+  { cmd = "PartAction",          args = { button = "deploy", part = "MiniDrill", all = "true" },   expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "60", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "PartAction",          args = { button = "startconverter", part = "MiniDrill", converter = "Surface Harvester", all = "true" }, expect = "OK" },
+  # The rails ladder in steps (each drops to 1x at its target, as V's did a few times).
+  { cmd = "WarpToUT",            args = { ut = "120", maxRate = "5" },                    expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",            args = { ut = "300", maxRate = "10" },                   expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",            args = { ut = "480", maxRate = "50" },                   expect = "OK", budget = 300 },
+  # Lf+Ox ON, on rails.
+  { cmd = "WarpToUT",            args = { ut = "1800", maxRate = "100", detach = "true" }, expect = "OK", budget = 120 },
+  { cmd = "MissionMark",         args = { label = "mine6-lfox-on-before" },               expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant,ElectricCharge" }, label = "ra", expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniISRU" },               expect = "OK" },
+  { cmd = "PartAction",          args = { button = "startconverter", part = "MiniISRU", converter = "Lf+Ox" }, expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine6-lfox-on-after" },                expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "780", maxRate = "100" },                  expect = "OK", budget = 300 },
+  { cmd = "MissionMark",         args = { label = "mine6-lfox-on-1x" },                   expect = "OK" },
+  # Lf+Ox OFF, on rails.
+  { cmd = "WarpToUT",            args = { ut = "1800", maxRate = "100", detach = "true" }, expect = "OK", budget = 120 },
+  { cmd = "MissionMark",         args = { label = "mine6-lfox-off-before" },              expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant,ElectricCharge" }, label = "rb", expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniISRU" },               expect = "OK" },
+  { cmd = "PartAction",          args = { button = "stopconverter", part = "MiniISRU", converter = "Lf+Ox" }, expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine6-lfox-off-after" },               expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "960", maxRate = "100" },                  expect = "OK", budget = 300 },
+  { cmd = "MissionMark",         args = { label = "mine6-lfox-off-1x" },                  expect = "OK" },
+  # Radiators off and straight back on, then MonoPropellant ON, all on rails.
+  { cmd = "WarpToUT",            args = { ut = "1800", maxRate = "100", detach = "true" }, expect = "OK", budget = 120 },
+  { cmd = "MissionMark",         args = { label = "mine6-mono-on-before" },               expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant,ElectricCharge" }, label = "rc", expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "radPanelSm", all = "true" }, expect = "OK" },
+  { cmd = "PartAction",          args = { button = "radiatoroff", part = "radPanelSm", all = "true" }, expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "radPanelSm", all = "true" }, expect = "OK" },
+  { cmd = "PartAction",          args = { button = "radiatoron", part = "radPanelSm", all = "true" }, expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniISRU" },               expect = "OK" },
+  { cmd = "PartAction",          args = { button = "startconverter", part = "MiniISRU", converter = "MonoPropellant" }, expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine6-mono-on-after" },                expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "1260", maxRate = "100" },                 expect = "OK", budget = 300 },
+  { cmd = "MissionMark",         args = { label = "mine6-mono-on-1x" },                   expect = "OK" },
+  # MonoPropellant OFF, on rails.
+  { cmd = "WarpToUT",            args = { ut = "1800", maxRate = "100", detach = "true" }, expect = "OK", budget = 120 },
+  { cmd = "MissionMark",         args = { label = "mine6-mono-off-before" },              expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant,ElectricCharge" }, label = "rd", expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniISRU" },               expect = "OK" },
+  { cmd = "PartAction",          args = { button = "stopconverter", part = "MiniISRU", converter = "MonoPropellant" }, expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine6-mono-off-after" },               expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "1560", maxRate = "100" },                 expect = "OK", budget = 300 },
+  # Back at 1x: stop all four harvesters, retract, and let the retract play into the recording.
+  { cmd = "MissionMark",         args = { label = "mine6-stop-before" },                  expect = "OK" },
+  { cmd = "PartAction",          args = { button = "stopconverter", part = "MiniDrill", converter = "Surface Harvester", all = "true" }, expect = "OK" },
+  { cmd = "PartAction",          args = { button = "retract", part = "MiniDrill", all = "true" },  expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant,ElectricCharge" }, label = "re", expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "1575", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniDrill", all = "true" },  expect = "OK" },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  # THE COMMIT, the way V made it: leave for the Space Center with the recording running.
+  { cmd = "ExitToSpaceCenter",                                                            expect = "OK", budget = 120 },
+  # Back into FLIGHT for the rewind verb: a Space Center save focuses vessel 0, the miner.
+  { cmd = "SaveGame",            args = { name = "mine6-committed" },                     expect = "OK", budget = 120 },
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "mine6-committed" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine6-committed-${c0.count}-${c0.rec0}" }, expect = "OK" },
+  # EVA-9's preamble flake: a re-adopted recorder would refuse the rewind `recording-active`.
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  # ACT 2: rewind, then FLIGHT on the watcher.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                             expect = "OK", budget = 300 },
+  { cmd = "SaveGame",            args = { name = "mine6-rewound" },                       expect = "OK", budget = 120 },
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "mine6-rewound" },  expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine6-rewound-reloaded" },             expect = "OK" },
+  # ACT 3: the recording starts near UT 31 (the reload lands ~15 s before it); by 36 its ghost
+  # stands 120 m from the watcher with its drills deploying.
+  { cmd = "WarpToUT",            args = { ut = "36", maxRate = "5" },                     expect = "OK", budget = 120 },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c1",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine6-ghost-live-spawned-${c1.rec0spawned}" }, expect = "OK" },
+  { cmd = "EnterWatchMode",                                                               expect = "OK", budget = 120 },
+  # The watched replay: V's 100x cap up to just before the stop at the recording's 1560 ...
+  { cmd = "WarpToUT",            args = { ut = "1562", maxRate = "100" },                 expect = "OK", budget = 300 },
+  { cmd = "MissionMark",         args = { label = "mine6-replay-before-end" },            expect = "OK" },
+  # ... then 1x across the end (retract + at most 15 s): the end spawn and the camera handoff.
+  { cmd = "WarpToUT",            args = { ut = "1590", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c2",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine6-spawned-${c2.rec0spawned}-${c2.rec0spawnedPid}" }, expect = "OK" },
+  { cmd = "ReadVesselResources", args = { rec = "${c0.rec0}", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant", expectSnapshot = "true", tolerance = "0.01" }, label = "rs", expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniDrill", all = "true", pid = "${c2.rec0spawnedPid}" }, expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniISRU", pid = "${c2.rec0spawnedPid}" }, expect = "OK" },
+  { cmd = "SaveGame",                                                                     expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
+]
+
+[dimensionsCovered]
+D1  = ["commit-scene-exit", "auto-merge"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  # --- ACT 1: the presses (TestCommandPartAction.cs:626-639 FormatAppliedLine) ---
+  "partaction applied button=deploy pid=110406740 part='MiniDrill' [^\\r\\n]*count=4",
+  "partaction applied button=startconverter pid=110406740 part='MiniDrill' [^\\r\\n]*converter='Surface Harvester' [^\\r\\n]*count=4",
+  # The four ISRU presses and the two radiator presses landed ON RAILS (AppendWarpContext,
+  # TestCommandPartAction.cs:608-615, the tail at :611).
+  "partaction applied button=startconverter pid=110406740 part='MiniISRU' [^\\r\\n]*converter='Lf\\+Ox' state='[^'\\r\\n]*Lf\\+Ox:active=1[^'\\r\\n]*' count=1 packed=1 warpIndex=[1-9]",
+  "partaction applied button=stopconverter pid=110406740 part='MiniISRU' [^\\r\\n]*converter='Lf\\+Ox' state='[^'\\r\\n]*Lf\\+Ox:active=0[^'\\r\\n]*' count=1 packed=1 warpIndex=[1-9]",
+  "partaction applied button=startconverter pid=110406740 part='MiniISRU' [^\\r\\n]*converter='MonoPropellant' state='[^'\\r\\n]*MonoPropellant:active=1[^'\\r\\n]*' count=1 packed=1 warpIndex=[1-9]",
+  "partaction applied button=stopconverter pid=110406740 part='MiniISRU' [^\\r\\n]*converter='MonoPropellant' state='[^'\\r\\n]*MonoPropellant:active=0[^'\\r\\n]*' count=1 packed=1 warpIndex=[1-9]",
+  # `radiator:cooling=0|1` (TestCommandPartAction.cs:525); all four switched each way.
+  "partaction applied button=radiatoroff pid=110406740 part='radPanelSm' [^\\r\\n]*state='(?:(?!cooling=1)[^'\\r\\n])*radiator:cooling=0(?:(?!cooling=1)[^'\\r\\n])*' count=4 packed=1 warpIndex=[1-9]",
+  "partaction applied button=radiatoron pid=110406740 part='radPanelSm' [^\\r\\n]*state='(?:(?!cooling=0)[^'\\r\\n])*radiator:cooling=1(?:(?!cooling=0)[^'\\r\\n])*' count=4 packed=1 warpIndex=[1-9]",
+  "partaction applied button=stopconverter pid=110406740 part='MiniDrill' [^\\r\\n]*converter='Surface Harvester' [^\\r\\n]*count=4",
+  "partaction applied button=retract pid=110406740 part='MiniDrill' [^\\r\\n]*count=4",
+  # Each mid-warp press ran inside a detached warp that a blocking WarpToUT took over
+  # (ParsekTestCommandAddon.WarpToUT.cs:267 start, :370 ended + :192 detail).
+  "warptout detached start id=[^\\r\\n]* ut=1800 [^\\r\\n]*maxRate=100",
+  "warptout detached ended reason=superseded id=[^\\r\\n]* lowered=false elapsed=[0-9.]+s by=[^\\r\\n]* newDetach=false",
+  # --- The recorder's part events (Verbose; verboseLogging is on) ---
+  # Animation-group deploy / retract (FlightRecorder.cs:3231-3232, event types :2663 / :2676).
+  "Part event: DeployableExtended 'MiniDrill' pid=[0-9]+ midx=[0-9]+ \\(animation-group\\)",
+  "Part event: DeployableRetracted 'MiniDrill' pid=[0-9]+ midx=[0-9]+ \\(animation-group\\)",
+  # Converter edges per part (FlightRecorder.cs:2303-2304; types :2261 / :2273).
+  "Part event: ConverterActivated 'MiniDrill' pid=[0-9]+ \\(converter\\)",
+  "Part event: ConverterDeactivated 'MiniDrill' pid=[0-9]+ \\(converter\\)",
+  # THE EVENT UTs (see THE OPEN QUESTION in the header): the first flight (`2026-10-17_1348`)
+  # wrote every packed ISRU edge about 10 ms after its press, still packed and long before
+  # the rails exit, so each edge must sit between its press's `-before` and `-after` marks.
+  "(?s)MISSIONMARK label=mine6-lfox-on-before (?:(?!MISSIONMARK label=mine6-lfox-on-after ).)*?Part event: ConverterActivated 'MiniISRU' pid=[0-9]+ \\(converter\\)(?:(?!MISSIONMARK).)*?MISSIONMARK label=mine6-lfox-on-after ",
+  "(?s)MISSIONMARK label=mine6-lfox-off-before (?:(?!MISSIONMARK label=mine6-lfox-off-after ).)*?Part event: ConverterDeactivated 'MiniISRU' pid=[0-9]+ \\(converter\\)(?:(?!MISSIONMARK).)*?MISSIONMARK label=mine6-lfox-off-after ",
+  "(?s)MISSIONMARK label=mine6-mono-on-before (?:(?!MISSIONMARK label=mine6-mono-on-after ).)*?Part event: ConverterActivated 'MiniISRU' pid=[0-9]+ \\(converter\\)(?:(?!MISSIONMARK).)*?MISSIONMARK label=mine6-mono-on-after ",
+  "(?s)MISSIONMARK label=mine6-mono-off-before (?:(?!MISSIONMARK label=mine6-mono-off-after ).)*?Part event: ConverterDeactivated 'MiniISRU' pid=[0-9]+ \\(converter\\)(?:(?!MISSIONMARK).)*?MISSIONMARK label=mine6-mono-off-after ",
+  # The harvest window opens when the drills start and closes when they stop (both at 1x;
+  # FlightRecorder.cs:7894 / :7918; the stop-time close at :8095 says atStop=1).
+  "Harvest window opened: window=[^ \\r\\n]+ ut=[0-9.]+ converters=\\[[^\\]\\r\\n]*\\] res=[0-9]+ atStart=0 trigger=[a-z-]+",
+  "(?s)MISSIONMARK label=mine6-stop-before .*?Harvest window closed: window=[^ \\r\\n]+ ut=[0-9.]+ res=[0-9]+ atStop=0 trigger=[a-z-]+",
+  # --- THE COMMIT: the scene exit and its auto-commit ---
+  # ParsekTestCommandAddon.ExitToSpaceCenter.cs:67 / :128; ParsekScenario.cs:8080 (Silent) or
+  # :8099 (Limbo-preserving), both "full-fidelity auto-commit (scene-exit...): tree='...'".
+  "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+  # The rover never moves 30 m; its drill and ISRU toggles keep the exit from discarding it
+  # as idle on pad (ParsekFlight.TreeHasConverterWorkForIdle; the first flight lost it).
+  "IsTreeIdleOnPad: not idle - tree has (?:[7-9]|[1-9][0-9]+) converter toggle\\(s\\) tree='Mining Rover RC'",
+  "exittospacecenter complete scene=SPACECENTER",
+  "full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='Mining Rover RC' recordings=1 ",
+  "MISSIONMARK label=mine6-committed-1-[0-9a-f]{32} ",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # --- ACT 3: the watched replay ---
+  "MISSIONMARK label=mine6-ghost-live-spawned-false ",
+  # The watch is on the committed miner recording (ParsekTestCommandAddon.EnterWatchMode.cs:217).
+  "MISSIONMARK label=mine6-committed-1-([0-9a-f]{32}) [\\s\\S]*enterwatchmode complete: index=[0-9]+ recId=\\1",
+  # The ghost applied the drill deploy, the converter loop start and stop, and the retract
+  # (GhostPartEventApplyLog.cs:214 FormatLine; tallies at GhostPlaybackLogic.cs:1907-1922
+  # deployable and :1936-1951 converter-loop), and drove the loop (GhostPlaybackLogic.cs:6163).
+  "(?s)MISSIONMARK label=mine6-rewound-reloaded .*?apply family=DeployableExtended surface=deployable rec=[0-9]+ pid=[0-9]+ applied=[1-9][0-9]* ",
+  "(?s)MISSIONMARK label=mine6-rewound-reloaded .*?apply family=ConverterActivated surface=converter-loop rec=[0-9]+ pid=[0-9]+ applied=[1-9][0-9]* ",
+  "(?s)MISSIONMARK label=mine6-rewound-reloaded .*?Converter loops driven: [1-9][0-9]* \\(vessel='Mining Rover RC'\\)",
+  "(?s)MISSIONMARK label=mine6-rewound-reloaded .*?apply family=ConverterDeactivated surface=converter-loop rec=[0-9]+ pid=[0-9]+ applied=[1-9][0-9]* ",
+  "(?s)MISSIONMARK label=mine6-rewound-reloaded .*?apply family=DeployableRetracted surface=deployable rec=[0-9]+ pid=[0-9]+ applied=[1-9][0-9]* ",
+  # The end spawn while watched hands the active vessel to the spawned rover
+  # (ParsekPlaybackPolicy.cs:802-811 or the deferred :578-587 -> ParsekFlight.cs:21245), and
+  # that is the vessel the store reads back as the spawn.
+  "MISSIONMARK label=mine6-spawned-true-[0-9]+ ",
+  "(?s)MISSIONMARK label=mine6-replay-before-end .*?Activated spawned vessel pid=([0-9]+) \\(Mining Rover RC\\).*?MISSIONMARK label=mine6-spawned-true-\\1 ",
+  "(?s)MISSIONMARK label=mine6-spawned-(?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=1 missing=0 uidCollisions=0 [^\\r\\n]*snapshotMatch=true",
+  # The spawned rover carries the end pose and state: drills retracted, no converter running.
+  "(?s)MISSIONMARK label=mine6-spawned-true-.*?partaction applied button=inspect pid=[0-9]+ part='MiniDrill' [^\\r\\n]*state='(?:(?!deployed=1)[^'\\r\\n])*deployed=0(?:(?!deployed=1)[^'\\r\\n])*' count=4 ",
+  "(?s)MISSIONMARK label=mine6-spawned-true-.*?partaction applied button=inspect pid=[0-9]+ part='MiniISRU' [^\\r\\n]*state='(?:(?!:active=1)[^'\\r\\n])*' count=1 ",
+]
+forbidden = [
+  "Idle on pad at scene exit",
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  "warptout refused",
+  # ParsekTestCommandAddon.WarpToUT.cs:330 / :345.
+  "warptout detached timeout",
+  "warptout detached threw",
+  "invokerewindtolaunch refused",
+  "enterwatchmode rejected",
+  # ParsekScenario.cs:8135: a ghost-only commit nulls the snapshot, so nothing could spawn.
+  "Ghost-only auto-commit",
+  "Spawn RETIRED",
+  "Spawn ABANDONED",
+  "Spawn FAILED",
+  "uidCollisions=[1-9]",
+  # A part lost while recording (radiators off too long overheats the 1200 K parts).
+  "Within-segment breakage",
+  # ParsekFlight.cs:21241 / :21249: the camera handoff did not reach the spawned rover.
+  "Spawned vessel pid=[0-9]+ not loaded",
+  "Could not find spawned vessel pid=",
+]
+
+[runtime]
+# Four LoadGame / rewind steps (up to 300 s each), the Space Center exit and three saves
+# (120 s each), about 70 s of 1x and ladder time while recording, and the replay: 1x / 5x to
+# UT 36, 100x to 1562 (~15 s) and 28 s of 1x across the end.
+budgetSeconds = 2100
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

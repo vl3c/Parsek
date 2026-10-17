@@ -8682,6 +8682,28 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Spawn eligibility for Real Spawn Control's nearby-candidate list: the ghost's
+        /// recording has not ended yet, it would spawn at its end, and no ghost chain
+        /// suppresses it. The #573 rewind lift is resolved the same way as the playback
+        /// spawn (<see cref="ResolveRewindSuppressionLiveLaunchPresence"/>), so a standalone
+        /// Rewind-to-Launch target the player did not re-fly is listed, not only spawned
+        /// once its ghost runs out.
+        /// </summary>
+        internal static bool IsNearbySpawnCandidateEligible(
+            Recording rec, double currentUT, Dictionary<uint, GhostChain> chains)
+        {
+            if (rec == null || rec.EndUT <= currentUT)
+                return false;
+            var (needsSpawn, _) = ShouldSpawnAtRecordingEnd(
+                rec, isActiveChainMember: false, treeContext: null,
+                ResolveRewindSuppressionLiveLaunchPresence(rec));
+            if (!needsSpawn)
+                return false;
+            var (suppressed, _) = ShouldSuppressSpawnForChain(chains, rec);
+            return !suppressed;
+        }
+
+        /// <summary>
         /// KSC-specific spawn eligibility check. Simplified version of the Flight scene's
         /// spawn decision: at KSC there is no active chain being built, so isActiveChainMember
         /// is always false. Chain looping/disabled state is derived from RecordingStore.

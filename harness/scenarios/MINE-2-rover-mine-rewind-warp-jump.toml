@@ -1,0 +1,145 @@
+schema = 1
+id = "MINE-2-rover-mine-rewind-warp-jump"
+tier = "nightly"
+# THE FIRST FLOWN MINING LANE (roadmap MINE-2 / MINE-3, todo MINING-ISRU-UNTESTED-END-TO-END).
+# LIVE-PROVEN 2026-10-17 on its second flight (`2026-10-17_1242`, PASS attempt 1).
+# Flight 1 (`2026-10-17_1207`) was INVALID on two causes, both fixed here: CommitTree re-took the
+# committed tree for the still-active rover (copy-on-write restore + a promotion
+# recording), so Rewind-to-Launch was refused `recording-active`; RC-6's StopRecording
+# after CommitTree now follows it. And with the rover's radiators off, every 1200 K part
+# overheated during the rails warp; the fixture now carries them switched on.
+#
+# THE CRAFT is V's own "Mining Rover RC" (built and flown by hand in his dev install on
+# 2026-10-17, harvested into the derived fixture `miner-rover-landed` by
+# `harness/tools/build_miner_rover_landed.py`): a crewless probe rover with four
+# Drill-O-Matic Juniors, a Convert-O-Tron 125, two radial ore tanks, an FL-T100, two radial
+# RCS tanks, four RTGs and two Z-4K batteries, LANDED where V found ore 2 km north-west of
+# the pad, its Ore / LF / Ox / Mono tanks emptied and every converter clock at the fixture
+# UT 30. The fixture's second vessel, `Observer Probe` in low Kerbin orbit, exists only so a
+# save written after the rewind (which strips the rover) still reloads in FLIGHT: TimeJump
+# requires FLIGHT.
+#
+# THE STORY. Record the rover deploying its drills and running the drills and the ISRU for
+# an hour of game time (a rails WarpToUT), commit, Rewind-to-Launch, save that world, then:
+#   * WARP branch: warp past the recording's end at the Space Center; the rover spawns at
+#     its tip, and its tanks must equal the recording's end snapshot.
+#   * JUMP branch: reload the rewound save (FLIGHT on the probe), TimeJump past the end;
+#     the rover spawns through the jump, and its tanks must equal the same snapshot.
+# Every PartAction answer carries the pressed parts' converter / deploy state, so the log
+# names each converter's stock ConverterName; the two `inspect` steps before the first
+# press read those names even if a start step is refused.
+#
+# READ ON FLIGHT 1: the drill's ConverterName is `Surface Harvester` (each drill also
+# carries two unnamed harvesters, `:active=0`), the ISRU's are `Lf+Ox`, `LiquidFuel`,
+# `Oxidizer` and `MonoPropellant`. The rover's 3 EC/s of RTG power is less than its
+# converters draw, so the mined amounts are whatever stock's starved catch-up produces
+# and nothing below pins an amount, only snapshot equality and that the ISRU is still
+# running after the hour (it was off on flight 1, after the overheat).
+description = "V's real mining rover deploys and runs four drills and an ISRU for an hour while recording; after commit and Rewind-to-Launch, the rover spawned at its recording's end holds exactly its end-snapshot Ore / LF / Ox / Mono, through a Space Center warp and through a FLIGHT time jump."
+instanceProfile = "stock-minimal"
+tags = ["mining", "isru", "rewind", "time-jump", "MINE-2"]
+
+[fixture]
+saveTemplate = "fixtures/saves/miner-rover-landed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant", expect = "Ore:0;LiquidFuel:0;Oxidizer:0;MonoPropellant:0", tolerance = "0.01" }, label = "r0", expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniDrill", all = "true" },  expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniISRU" },               expect = "OK" },
+  { cmd = "StartRecording",                                                               expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  { cmd = "PartAction",          args = { button = "deploy", part = "MiniDrill", all = "true" },   expect = "OK" },
+  # The drills' deploy animation must finish before stock shows their Start button.
+  { cmd = "WarpToUT",            args = { ut = "60", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "PartAction",          args = { button = "startconverter", part = "MiniDrill", converter = "Surface Harvester", all = "true" }, expect = "OK" },
+  { cmd = "PartAction",          args = { button = "startconverter", part = "MiniISRU", converter = "Lf+Ox" }, expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "75", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniDrill", all = "true" },  expect = "OK" },
+  # An hour of mining on rails.
+  { cmd = "WarpToUT",            args = { ut = "3660", maxRate = "1000" },                expect = "OK", budget = 300 },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant,ElectricCharge" }, label = "r1", expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniISRU" },               expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniDrill", all = "true" },  expect = "OK" },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "CommitTree",                                                                   expect = "OK", budget = 120 },
+  # CommitTree on the still-active rover re-takes the committed tree (copy-on-write
+  # restore plus a promotion recording); stop that before the rewind, as RC-6 does.
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine2-committed-${c0.count}-${c0.rec0}" }, expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                             expect = "OK", budget = 300 },
+  { cmd = "SaveGame",            args = { name = "mine2-rewound" },                       expect = "OK", budget = 120 },
+  # WARP branch: a Space Center warp past the recording's end.
+  { cmd = "WarpToUT",            args = { ut = "3760", maxRate = "1000" },                expect = "OK", budget = 300 },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c1",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine2-warp-spawned-${c1.rec0spawned}-${c1.rec0spawnedPid}" }, expect = "OK" },
+  { cmd = "ReadVesselResources", args = { rec = "${c0.rec0}", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant", expectSnapshot = "true", tolerance = "0.01" }, label = "rw", expect = "OK" },
+  # JUMP branch: back to the rewound world, in FLIGHT on the Observer Probe.
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "mine2-rewound" },  expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "TimeJump",            args = { ut = "3760" },                                  expect = "OK", budget = 120 },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c2",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine2-jump-spawned-${c2.rec0spawned}-${c2.rec0spawnedPid}" }, expect = "OK" },
+  { cmd = "ReadVesselResources", args = { rec = "${c0.rec0}", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant", expectSnapshot = "true", tolerance = "0.01" }, label = "rj", expect = "OK" },
+  { cmd = "SaveGame",                                                                     expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rewind-to-launch", "fast-forward"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  "partaction applied button=deploy pid=110406740 part='MiniDrill' [^\\r\\n]*count=4",
+  "partaction applied button=startconverter pid=110406740 part='MiniDrill' [^\\r\\n]*converter='Surface Harvester' [^\\r\\n]*count=4",
+  "partaction applied button=startconverter pid=110406740 part='MiniISRU' [^\\r\\n]*converter='Lf\\+Ox' state='[^'\\r\\n]*Lf\\+Ox:active=1",
+  # The only MiniISRU inspect after the start is the one after the hour's warp.
+  "partaction applied button=inspect pid=110406740 part='MiniISRU' [^\\r\\n]*Lf\\+Ox:active=1",
+  "committree committed=true",
+  "MISSIONMARK label=mine2-committed-1-[0-9a-f]{32} ",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # Both branches spawn the rover and read its tanks equal to the end snapshot.
+  "MISSIONMARK label=mine2-warp-spawned-true-[0-9]+ ",
+  "MISSIONMARK label=mine2-jump-spawned-true-[0-9]+ ",
+  "(?s)MISSIONMARK label=mine2-warp-spawned-(?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=1 missing=0 uidCollisions=0 [^\\r\\n]*snapshotMatch=true",
+  "(?s)MISSIONMARK label=mine2-jump-spawned-(?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=1 missing=0 uidCollisions=0 [^\\r\\n]*snapshotMatch=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  "invokerewindtolaunch refused",
+  "Spawn RETIRED",
+  "Spawn ABANDONED",
+  "Spawn FAILED",
+  "uidCollisions=[1-9]",
+]
+
+[runtime]
+# Four deferred LoadGame / rewind steps (up to 300 s each), an hour of rails mining, two
+# 3600 s warps and a jump. RC-6's measured-safe shape plus the extra branch.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -35,6 +35,28 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A ghost now replays what you did after flying a spawned vessel again.** When you took over a
+  vessel Parsek had spawned and drove or mined with it, that flight was added to the old
+  recording, whose ghost did not know the vessel's new parts, so the ghost never moved its wheels
+  or drills. The new flight is now its own recording, continuing the old one.
+  (RESUMED-PARSEK-SPAWN-RECORDS-REGENERATED-PART-PIDS-INTO-COMMITTED-RECORDING)
+- **A spawned mining vessel keeps its drills running.** When Parsek spawned a vessel at the end
+  of its recording with its drills on, the game switched them off while the vessel settled onto
+  the ground, so it never mined again. Parsek now turns those drills back on once the vessel has
+  settled, and a save made before that (leaving the scene at once) keeps them on.
+  (SPAWNED-DRILLS-SWITCH-OFF)
+- **A stationary vessel that mined or ran its ISRU keeps its recording.** Leaving the flight
+  threw away the recording of any vessel that never moved 30 m as "idle on the pad", so a rover
+  that drilled for half an hour lost its recording. Starting or stopping a drill or converter now
+  counts as real work, like planting a flag. (IDLE-ON-PAD-DISCARDS-A-STATIONARY-MINER)
+- **A vessel that appears after a time jump no longer mines through the jump.** When a jump
+  passed the end of a recording, the vessel spawned at the end and stock caught up its drills and
+  ISRU for the whole jumped span, so a rover arrived with ore it never mined. It now arrives
+  exactly as recorded and mines only from then on. (SPAWN-AFTER-JUMP-CATCHES-UP-THE-JUMP)
+- **Real Spawn Control lists a vessel again after a Rewind-to-Launch you did not re-fly.** The
+  vessel came back at its recording end, but its Real Spawn Control row never appeared, so you
+  could not warp to it early from a nearby vessel. The row now shows whenever the end spawn would
+  happen. (RSC-REWIND-TARGET-NEVER-LISTED)
 - **Watching a ghost to its end under time warp now hands the camera to the spawned vessel.**
   The camera used to jump back to your vessel mid-warp, could end up inside the ground, and never
   moved to the vessel that appeared. It now stays on the ghost until warp ends, then switches to

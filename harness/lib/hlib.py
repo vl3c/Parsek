@@ -524,7 +524,9 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT: no seam path could conclude a
     # re-fly in flight because the only clock verb did not move the vessel. TWO-PHASE
     # and a DEFERRED_SEAM_VERB (below) - its completion polls an advancing clock and
-    # can legitimately run minutes when stock clamps the ladder to 1x.
+    # can legitimately run minutes when stock clamps the ladder to 1x. `detach=true`
+    # answers OK once the first ladder step is applied and keeps the warp running from
+    # the addon's Update (later steps act DURING it; a later WarpToUT takes it over).
     "WarpToUT",
     # The GUI-census pair. ADDITIVE (33 -> 35 implemented, reserved unchanged at 5):
     # the reserved envelope never carried a screenshot verb or a UI-driving verb, so
@@ -683,11 +685,19 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     "RenameVessel",
     # ADDITIVE (48 -> 50 implemented, reserved unchanged at 4), the vessel-names proof pair
     # (design-vessel-and-mission-names.md 15.3).
-    #   PartAction button=undock|decouple|controlfrom [part=<part name>] [pid=<pid>], FLIGHT,
-    #     SINGLE-PHASE, default 60 s: one button of one part's stock right-click menu
-    #     (ModuleDockingNode.Undock, ModuleDecouplerBase.Decouple, ModuleCommand.MakeReference)
-    #     pressed through its BaseEvent. OK `button= pid= part= partId= event= newPid= newName=
-    #     vesselsBefore= vesselsAfter= activePid= activeName=`.
+    #   PartAction button=undock|decouple|controlfrom|deploy|retract|startconverter|
+    #     stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff
+    #     [part=<part name>]
+    #     [converter=<ConverterName>] [all=true] [pid=<pid>], FLIGHT, SINGLE-PHASE, default 60 s: one
+    #     button of one part's stock right-click menu (ModuleDockingNode.Undock,
+    #     ModuleDecouplerBase.Decouple, ModuleCommand.MakeReference, ModuleAnimationGroup
+    #     Deploy / Retract, BaseConverter Start / Stop, ModuleScienceExperiment.DeployExperiment,
+    #     ModuleScienceLab.TransmitScience, ModuleActiveRadiator Activate / Shutdown) pressed
+    #     through its BaseEvent (a packed vessel included); labprocess is the
+    #     results dialog's lab button, inspect presses nothing. OK `button= pid= part= partId=
+    #     event= newPid= newName= vesselsBefore= vesselsAfter= activePid= activeName=
+    #     converter= state= count= packed= warpIndex= warpRate= ut=`; all=true presses every
+    #     candidate (not on undock / decouple / controlfrom).
     #   RevertToLaunch (no args), FLIGHT, TWO-PHASE, 180 s: stock's Revert to Launch outside a
     #     Re-Fly session (ReFlyRevert owns the in-session one), answered once the new flight is
     #     ready. OK `scene= activePid= activeName= situation=`.
@@ -2701,6 +2711,12 @@ UIACTION_MODE_KEY = "mode"
 # case-sensitive and REJECTS anything else `warp-ladder-invalid`.
 WARPTOUT_LADDER_KEY = "ladder"
 WARPTOUT_LADDER_VALUES: Tuple[str, ...] = ("phys",)
+# WarpToUT's optional non-blocking mode (TestCommandWarpToUT.ResolveDetach): `true` answers
+# OK once the first ladder step is applied and keeps the warp running, so later steps act
+# during it. Closed to the STRING "true" (a TOML bool is sent as `True`); anything else is
+# REJECTED `warp-detach-invalid`.
+WARPTOUT_DETACH_KEY = "detach"
+WARPTOUT_DETACH_VALUES: Tuple[str, ...] = ("true",)
 UIACTION_MODE_VALUES: Tuple[str, ...] = ("basic", "advanced")
 
 # `op=find`'s control-kind filter, mirroring TestCommandUiFind.CtrlValues, which itself
@@ -3545,27 +3561,46 @@ def validate_rename_vessel_step(index: int, step_args: Dict) -> List[str]:
 
 # PartAction: mirrored from TestCommands/TestCommandPartAction.cs (PartActionSourceSyncTests).
 # `button=` is REQUIRED and closed (validated here, not as a VERB_SCOPED_CLOSED_ARGS row, so
-# the act-specific `part=` rule sits beside it). `part=` is REQUIRED for decouple and
-# controlfrom; `pid=` is OPTIONAL with Recover's grammar.
+# the act-specific `part=` rule sits beside it). `part=` is REQUIRED for every button but
+# undock; `converter=` is OPTIONAL and only for startconverter / stopconverter (an exact
+# BaseConverter.ConverterName); `all=` is OPTIONAL, closed to `true`, and refused on undock /
+# decouple / controlfrom; `pid=` is OPTIONAL with Recover's grammar.
 PARTACTION_VERB = "PartAction"
 PARTACTION_BUTTON_KEY = "button"
 PARTACTION_PART_KEY = "part"
 PARTACTION_PID_KEY = "pid"
-PARTACTION_BUTTON_VALUES: Tuple[str, ...] = ("undock", "decouple", "controlfrom")
-PARTACTION_BUTTONS_REQUIRING_PART: Tuple[str, ...] = ("decouple", "controlfrom")
+PARTACTION_CONVERTER_KEY = "converter"
+PARTACTION_BUTTON_VALUES: Tuple[str, ...] = (
+    "undock", "decouple", "controlfrom", "deploy", "retract", "startconverter",
+    "stopconverter", "experiment", "labprocess", "labtransmit", "inspect", "radiatoron",
+    "radiatoroff",
+)
+PARTACTION_BUTTONS_REQUIRING_PART: Tuple[str, ...] = tuple(
+    b for b in PARTACTION_BUTTON_VALUES if b != "undock")
+PARTACTION_BUTTONS_ACCEPTING_CONVERTER: Tuple[str, ...] = ("startconverter", "stopconverter")
+PARTACTION_ALL_KEY = "all"
+PARTACTION_ALL_VALUES: Tuple[str, ...] = ("true",)
+PARTACTION_BUTTONS_ACCEPTING_ALL: Tuple[str, ...] = tuple(
+    b for b in PARTACTION_BUTTON_VALUES if b not in ("undock", "decouple", "controlfrom"))
 PARTACTION_REASONS: Tuple[str, ...] = (
     "partaction-button-arg-missing", "partaction-button-arg-invalid",
-    "partaction-part-arg-missing", "partaction-pid-arg-invalid",
+    "partaction-part-arg-missing", "partaction-converter-arg-unexpected",
+    "partaction-all-arg-invalid", "partaction-all-arg-unexpected",
+    "partaction-pid-arg-invalid",
     "partaction-no-active-vessel", "partaction-vessel-not-found",
     "partaction-target-is-ghost", "partaction-vessel-unloaded",
-    "partaction-part-not-found", "partaction-part-ambiguous",
-    "partaction-event-unavailable",
+    "partaction-part-not-found", "partaction-converter-not-found",
+    "partaction-part-ambiguous", "partaction-event-unavailable",
+    "partaction-experiment-no-data", "partaction-lab-method-missing",
+    "partaction-radiator-not-found",
 )
 
 
 def validate_part_action_step(index: int, step_args: Dict) -> List[str]:
     """Pre-launch shape check for one ``PartAction`` step: ``button=`` REQUIRED and one of
-    PARTACTION_BUTTON_VALUES (case-sensitive, the C# switch), ``part=`` REQUIRED for
+    PARTACTION_BUTTON_VALUES (case-sensitive, the C# switch), ``part=`` REQUIRED for every
+    button but ``undock``, an OPTIONAL non-empty ``converter=`` only on ``startconverter`` /
+    ``stopconverter``, an OPTIONAL ``all=`` that is exactly ``true`` and not on ``undock`` /
     ``decouple`` / ``controlfrom``, an OPTIONAL literal ``pid=`` an ASCII decimal in
     1..4294967295. A ``${step.field}`` handle is left to the R10 static tier."""
     errors: List[str] = []
@@ -3583,6 +3618,30 @@ def validate_part_action_step(index: int, step_args: Dict) -> List[str]:
         errors.append(
             "driver.steps[%d].args.%s: button=%s REQUIRES it; the seam answers REJECTED "
             "partaction-part-arg-missing" % (index, PARTACTION_PART_KEY, act))
+    raw_converter = step_args.get(PARTACTION_CONVERTER_KEY)
+    if (raw_converter is not None and str(raw_converter) != "" and act is not None
+            and "${" not in str(act) and str(act) in PARTACTION_BUTTON_VALUES
+            and str(act) not in PARTACTION_BUTTONS_ACCEPTING_CONVERTER):
+        errors.append(
+            "driver.steps[%d].args.%s: only %s read it, but this step is button=%s; the "
+            "seam answers REJECTED partaction-converter-arg-unexpected"
+            % (index, PARTACTION_CONVERTER_KEY,
+               " / ".join(PARTACTION_BUTTONS_ACCEPTING_CONVERTER), act))
+    raw_all = step_args.get(PARTACTION_ALL_KEY)
+    if raw_all is not None and str(raw_all) != "" and "${" not in str(raw_all):
+        # Step args are wire-encoded with str(value), so a TOML bool `true` is sent as `True`,
+        # which the seam's case-sensitive parse refuses: the value must be the STRING "true".
+        if isinstance(raw_all, bool) or str(raw_all) not in PARTACTION_ALL_VALUES:
+            errors.append(
+                "driver.steps[%d].args.%s: %r must be the STRING %s (a TOML bool is sent as "
+                "`True`); the seam answers REJECTED partaction-all-arg-invalid"
+                % (index, PARTACTION_ALL_KEY, raw_all,
+                   " or ".join(repr(v) for v in PARTACTION_ALL_VALUES)))
+        elif (act is not None and "${" not in str(act) and str(act) in PARTACTION_BUTTON_VALUES
+              and str(act) not in PARTACTION_BUTTONS_ACCEPTING_ALL):
+            errors.append(
+                "driver.steps[%d].args.%s: button=%s presses one part only; the seam answers "
+                "REJECTED partaction-all-arg-unexpected" % (index, PARTACTION_ALL_KEY, act))
     raw_pid = step_args.get(PARTACTION_PID_KEY)
     if raw_pid is not None and str(raw_pid) != "" and "${" not in str(raw_pid) and not (
             re.fullmatch(r"[0-9]+", str(raw_pid))
@@ -4689,6 +4748,7 @@ VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     UIACTION_WINDOW_KEY: ("UiAction", UIACTION_WINDOW_VALUES),
     UIACTION_MODE_KEY: ("UiAction", UIACTION_MODE_VALUES),
     WARPTOUT_LADDER_KEY: ("WarpToUT", WARPTOUT_LADDER_VALUES),
+    WARPTOUT_DETACH_KEY: ("WarpToUT", WARPTOUT_DETACH_VALUES),
     UIACTION_CTRL_KEY: ("UiAction", UIACTION_CTRL_VALUES),
     UIACTION_STATE_KEY: ("UiAction", UIACTION_STATE_VALUES),
     UIACTION_PARK_KEY: ("UiAction", UIACTION_PARK_VALUES),
@@ -10858,6 +10918,8 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # maxRate); a game whose difficulty forbids physics warp is a gate.
     "warp-ladder-invalid": "driver-arg",
     "physics-warp-disallowed": "driver-gate",
+    # WarpToUT detach=: anything but the string `true` is arg-class (fail-closed).
+    "warp-detach-invalid": "driver-arg",
     # WarpToUT is scene-agnostic since TC-1 (FLIGHT, Space Center, Tracking Station), but
     # physics warp is a FLIGHT mode: `ladder=phys` outside FLIGHT is the spec asking for a
     # ladder that scene does not have, arg-class like an unknown ladder token.
@@ -11075,22 +11137,34 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "renamevessel-part-not-found": "driver-arg",
     "renamevessel-part-ambiguous": "driver-arg",
     "renamevessel-part-naming-unavailable": "driver-gate",
-    # PartAction: a missing / unknown button, a missing part, a malformed pid, a pid naming no
-    # live vessel, a ghost, a named part the vessel lacks and an ambiguous selector are the
-    # SPEC's fault; no active vessel, an unloaded vessel and a button stock does not show are
-    # live states the click would not act in. Mirrored from the C# `Reasons` array
+    # PartAction: a missing / unknown button, a missing part, a converter filter on a
+    # non-converter button, an all= that is not `true` or sits on a one-part button, a
+    # malformed pid, a pid naming no live vessel, a ghost, a named part
+    # the vessel lacks, a converter name the part lacks and an ambiguous selector are the
+    # SPEC's fault; no active vessel, an unloaded vessel, a button stock does not show, an
+    # experiment holding no data yet and a build whose experiment lacks the private lab method
+    # are live / build states the click would not act in. Mirrored from the C# `Reasons` array
     # (PartActionSourceSyncTests).
     "partaction-button-arg-missing": "driver-arg",
     "partaction-button-arg-invalid": "driver-arg",
     "partaction-part-arg-missing": "driver-arg",
+    "partaction-converter-arg-unexpected": "driver-arg",
+    "partaction-all-arg-invalid": "driver-arg",
+    "partaction-all-arg-unexpected": "driver-arg",
     "partaction-pid-arg-invalid": "driver-arg",
     "partaction-no-active-vessel": "driver-gate",
     "partaction-vessel-not-found": "driver-arg",
     "partaction-target-is-ghost": "driver-arg",
     "partaction-vessel-unloaded": "driver-gate",
     "partaction-part-not-found": "driver-arg",
+    "partaction-converter-not-found": "driver-arg",
     "partaction-part-ambiguous": "driver-arg",
     "partaction-event-unavailable": "driver-gate",
+    "partaction-experiment-no-data": "driver-gate",
+    "partaction-lab-method-missing": "driver-gate",
+    # A radiator button on a part carrying no ModuleActiveRadiator: a spec typo, like a
+    # converter name the part lacks.
+    "partaction-radiator-not-found": "driver-arg",
     # RevertToLaunch: a live Re-Fly marker and stock not offering the option are live states
     # (RevertToLaunchSourceSyncTests).
     "reverttolaunch-refly-session": "driver-gate",
@@ -11770,7 +11844,7 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     # spelling, number format, closed value sets) before reading any world state.
     # The retry sends the same args.
     "missing-arg", "missing-jump-target", "missing-warp-target",
-    "max-rate-invalid", "warp-ladder-invalid",
+    "max-rate-invalid", "warp-ladder-invalid", "warp-detach-invalid",
     # WarpToUT `ladder=phys` outside FLIGHT: the spec put a physics-ladder warp in a
     # scene that has none; the retry reaches the same scene with the same arg.
     "physics-warp-not-in-flight",
@@ -11790,9 +11864,10 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "kind-arg-invalid", "kind-arg-missing", "kscrecover-pid-arg-invalid",
     "kscrecover-pid-arg-missing", "label-arg-invalid", "label-arg-missing",
     "loop-arg-invalid", "mock-arg-missing", "mode-arg-invalid", "mode-arg-missing",
-    "op-arg-invalid", "op-arg-missing", "partaction-button-arg-invalid",
-    "partaction-button-arg-missing", "partaction-part-arg-missing",
-    "partaction-pid-arg-invalid", "picker-arg-conflict", "picker-arg-missing",
+    "op-arg-invalid", "op-arg-missing", "partaction-all-arg-invalid",
+    "partaction-all-arg-unexpected", "partaction-button-arg-invalid",
+    "partaction-button-arg-missing", "partaction-converter-arg-unexpected",
+    "partaction-part-arg-missing", "partaction-pid-arg-invalid", "picker-arg-conflict", "picker-arg-missing",
     "pid-arg-invalid", "pointer-arg-conflict", "pointer-arg-invalid",
     "pointer-arg-missing", "popup-arg-missing",
     "readvesselresources-expect-arg-invalid",

@@ -141,9 +141,12 @@ required = [
   "TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree '[^'\\r\\n]*' for vessel 'Spawn Control Target' pid=[0-9]+ via (?:ResumeActiveRecording|PromoteFromBackground)",
   # (3) THE CLAIM, rename half: the resumed vessel's stock rename resolves the identity
   # with both guids and names the resumed recording as its current leg.
+  # Since RESUMED-PARSEK-SPAWN-RECORDS-REGENERATED-PART-PIDS-INTO-COMMITTED-RECORDING the
+  # resume onto a regenerated-pid spawn continues in a new switch-continuation segment under
+  # rsc-target-0001, so the current leg is that segment (dash-form id; `2026-10-17_1619`).
   "renamevessel applied pid=[0-9]+ old='Spawn Control Target' new='VN12 Relay Resumed' type=\\S+ active=true changed=true legs=[1-9][0-9]* decision=StockDialog decisionName='VN12 Relay Resumed'",
   "Vessel name decision recorded: identity=\\S+ 'Spawn Control Target' -> 'VN12 Relay Resumed' source=StockDialog seq=[0-9]+ legs=[1-9][0-9]* guids=[2-9] ",
-  "Stock rename captured: source=StockDialog pid=[0-9]+ guid=[0-9a-f]+ 'Spawn Control Target' -> 'VN12 Relay Resumed' seq=[0-9]+ namingPart=\\S+ currentLeg=rsc-target-0001",
+  "Stock rename captured: source=StockDialog pid=[0-9]+ guid=[0-9a-f]+ 'Spawn Control Target' -> 'VN12 Relay Resumed' seq=[0-9]+ namingPart=\\S+ currentLeg=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
   "committree committed=true",
   # (5) The Parsek rename after the commit, written onto the live probe.
   "uiaction edit window=missions field=recordingname key=rsc-target-0001 draft=VN12 Relay Final committed=true ",

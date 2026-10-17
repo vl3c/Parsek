@@ -386,7 +386,8 @@ namespace Parsek
                     string.Format(ic, "UT set to {0:F1}", targetUT));
 
                 // Step 2b: the same converter policy as the forward jump (TA-6), before any
-                // chain tip spawns so a spawned snapshot's own timestamp is never shifted.
+                // chain tip spawns: the live pass never sees a tip, and the tip's own snapshot
+                // clock is shifted by the spawn (ConverterJumpPolicy.ApplyToSpawnSnapshot).
                 ConverterJumpPolicy.Apply(t0, targetUT, "epoch-shift");
 
                 // Step 3: Epoch-shift all captured vessel orbits.

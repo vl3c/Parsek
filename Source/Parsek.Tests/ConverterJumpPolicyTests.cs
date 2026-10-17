@@ -21,7 +21,125 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            ConverterJumpPolicy.ResetForTesting();
             ParsekLog.ResetTestOverrides();
+        }
+
+        private static List<KeyValuePair<double, double>> Spans(params double[] prePost)
+        {
+            var list = new List<KeyValuePair<double, double>>();
+            for (int i = 0; i + 1 < prePost.Length; i += 2)
+                list.Add(new KeyValuePair<double, double>(prePost[i], prePost[i + 1]));
+            return list;
+        }
+
+        // A vessel that spawns after a jump crossed its recording end arrives with its end
+        // snapshot (owner ruling 2026-10-17, MINE-9: the rover came up with 4.3 Ore it never mined).
+
+        [Fact]
+        public void SpawnSnapshot_EndInsideTheJump_ArrivesAtTheJumpTarget()
+        {
+            // MINE-9: recorded end 1829.9, TimeJump 60 -> 5500, spawn at 5500.
+            var outcome = ConverterJumpPolicy.ComputeSpawnSnapshotTimestamp(
+                1829.9, Spans(60.0, 5500.0), currentUT: 5500.0, out double newTime);
+
+            Assert.Equal(ConverterJumpPolicy.ShiftOutcome.Shifted, outcome);
+            Assert.Equal(5500.0, newTime, 6);
+        }
+
+        [Fact]
+        public void SpawnSnapshot_EndBeforeTheJump_KeepsTheTimeThatReallyPassed()
+        {
+            // End 1000, played on to 2000, jumped 2000 -> 9000, spawned later at 9100:
+            // 1000 s before the jump and 100 s after it are real; 7000 s are removed.
+            var outcome = ConverterJumpPolicy.ComputeSpawnSnapshotTimestamp(
+                1000.0, Spans(2000.0, 9000.0), currentUT: 9100.0, out double newTime);
+
+            Assert.Equal(ConverterJumpPolicy.ShiftOutcome.Shifted, outcome);
+            Assert.Equal(8000.0, newTime, 6);
+            Assert.Equal(1100.0, 9100.0 - newTime, 6);
+        }
+
+        [Fact]
+        public void SpawnSnapshot_SeveralJumps_RemovesEachJumpedPartAfterTheClock()
+        {
+            var outcome = ConverterJumpPolicy.ComputeSpawnSnapshotTimestamp(
+                1500.0, Spans(100.0, 1000.0, 1200.0, 3000.0, 3500.0, 6000.0), currentUT: 6000.0,
+                out double newTime);
+
+            Assert.Equal(ConverterJumpPolicy.ShiftOutcome.Shifted, outcome);
+            // 1500..3000 and 3500..6000 removed; 3000..3500 really passed.
+            Assert.Equal(5500.0, newTime, 6);
+        }
+
+        [Fact]
+        public void SpawnSnapshot_TakenAfterTheJump_OrNoJump_OrNeverRan_IsUntouched()
+        {
+            Assert.Equal(ConverterJumpPolicy.ShiftOutcome.NoJump,
+                ConverterJumpPolicy.ComputeSpawnSnapshotTimestamp(
+                    6000.0, Spans(60.0, 5500.0), currentUT: 6100.0, out double after));
+            Assert.Equal(6000.0, after);
+            Assert.Equal(ConverterJumpPolicy.ShiftOutcome.NoJump,
+                ConverterJumpPolicy.ComputeSpawnSnapshotTimestamp(
+                    1829.9, Spans(), currentUT: 1830.0, out double none));
+            Assert.Equal(1829.9, none);
+            Assert.Equal(ConverterJumpPolicy.ShiftOutcome.NeverRan,
+                ConverterJumpPolicy.ComputeSpawnSnapshotTimestamp(
+                    0.0, Spans(60.0, 5500.0), currentUT: 5500.0, out double never));
+            Assert.Equal(0.0, never);
+        }
+
+        [Fact]
+        public void SpawnSnapshot_SpanFromAFutureTheClockLeft_IsIgnored()
+        {
+            // Jumped 60 -> 5500, then a rewind took the clock back to 30; a spawn at 1830
+            // during normal play must not lose the abandoned jump.
+            var outcome = ConverterJumpPolicy.ComputeSpawnSnapshotTimestamp(
+                1829.9, Spans(60.0, 5500.0), currentUT: 1830.0, out double newTime);
+
+            Assert.Equal(ConverterJumpPolicy.ShiftOutcome.NoJump, outcome);
+            Assert.Equal(1829.9, newTime);
+        }
+
+        [Fact]
+        public void SpawnSnapshotModules_ShiftsOnlyConverterClocks()
+        {
+            var vessel = new ConfigNode("VESSEL");
+            var drill = vessel.AddNode("PART");
+            var harvester = drill.AddNode("MODULE");
+            harvester.AddValue("name", "ModuleResourceHarvester");
+            harvester.AddValue("lastUpdateTime", "1829.9");
+            var anim = drill.AddNode("MODULE");
+            anim.AddValue("name", "ModuleAnimationGroup");
+            anim.AddValue("lastUpdateTime", "1829.9");
+            var isru = vessel.AddNode("PART").AddNode("MODULE");
+            isru.AddValue("name", "ModuleResourceConverter");
+            isru.AddValue("lastUpdateTime", "1829.9");
+
+            int shifted = ConverterJumpPolicy.ShiftSpawnSnapshotModules(
+                vessel, Spans(60.0, 5500.0), 5500.0,
+                n => n == "ModuleResourceHarvester" || n == "ModuleResourceConverter",
+                out double maxRemoved);
+
+            Assert.Equal(2, shifted);
+            Assert.Equal(3670.1, maxRemoved, 6);
+            Assert.Equal(5500.0, double.Parse(harvester.GetValue("lastUpdateTime"), ic), 6);
+            Assert.Equal(5500.0, double.Parse(isru.GetValue("lastUpdateTime"), ic), 6);
+            Assert.Equal("1829.9", anim.GetValue("lastUpdateTime"));
+        }
+
+        [Fact]
+        public void JumpedSpans_AreNotedCappedAndCleared()
+        {
+            ConverterJumpPolicy.ResetForTesting();
+            ConverterJumpPolicy.NoteJumpedSpan(60.0, 5500.0);
+            ConverterJumpPolicy.NoteJumpedSpan(5500.0, 5500.0); // not a jump
+            Assert.Equal(1, ConverterJumpPolicy.JumpedSpanCount);
+            for (int i = 0; i < ConverterJumpPolicy.MaxJumpedSpans + 5; i++)
+                ConverterJumpPolicy.NoteJumpedSpan(10000.0 + i * 10, 10005.0 + i * 10);
+            Assert.Equal(ConverterJumpPolicy.MaxJumpedSpans, ConverterJumpPolicy.JumpedSpanCount);
+            ConverterJumpPolicy.ClearJumpedSpans("test");
+            Assert.Equal(0, ConverterJumpPolicy.JumpedSpanCount);
         }
 
         [Fact]

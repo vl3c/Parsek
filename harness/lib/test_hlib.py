@@ -1168,7 +1168,8 @@ class SpecValidationRejectTests(unittest.TestCase):
                                 ("warp-locked", "driver-gate"),
                                 ("warp-ladder-invalid", "driver-arg"),
                                 ("physics-warp-disallowed", "driver-gate"),
-                                ("physics-warp-not-in-flight", "driver-arg")):
+                                ("physics-warp-not-in-flight", "driver-arg"),
+                                ("warp-detach-invalid", "driver-arg")):
             self.assertEqual(subkind, hlib._SEAM_REFUSAL_SUBKINDS[reason])
 
     def test_warptout_step_accepted_by_validate_spec(self):
@@ -1209,6 +1210,34 @@ class SpecValidationRejectTests(unittest.TestCase):
                     "expect": "OK", "budget": 300})
         v = self._reject(wrong_verb)
         self.assertTrue(any("args.ladder" in e and "only the WarpToUT verb" in e
+                            for e in v.errors), list(v.errors))
+
+    def test_warptout_detach_arg_is_a_closed_verb_scoped_value(self):
+        """`detach="true"` validates clean; a TOML bool (sent as `True`), any other
+        spelling, and the arg on a verb that does not read it are pre-launch spec errors
+        rather than a typed REJECTED warp-detach-invalid after a whole boot."""
+        def ok(s):
+            s["driver"]["steps"].insert(
+                1, {"cmd": "WarpToUT", "args": {"ut": "1200", "detach": "true"},
+                    "expect": "OK", "budget": 300})
+        v = self._reject(ok)
+        self.assertFalse(any("detach" in e for e in v.errors), list(v.errors))
+
+        for bad in (True, "True", "false", "1"):
+            def bad_value(s, bad=bad):
+                s["driver"]["steps"].insert(
+                    1, {"cmd": "WarpToUT", "args": {"ut": "1200", "detach": bad},
+                        "expect": "OK", "budget": 300})
+            with self.subTest(detach=bad):
+                v = self._reject(bad_value)
+                self.assertTrue(any("args.detach" in e for e in v.errors), list(v.errors))
+
+        def wrong_verb(s):
+            s["driver"]["steps"].insert(
+                1, {"cmd": "TimeJump", "args": {"ut": "1200", "detach": "true"},
+                    "expect": "OK", "budget": 300})
+        v = self._reject(wrong_verb)
+        self.assertTrue(any("args.detach" in e and "only the WarpToUT verb" in e
                             for e in v.errors), list(v.errors))
 
     def test_warptout_step_budget_over_the_cap_is_a_spec_error(self):
@@ -16855,10 +16884,11 @@ class RenameVesselSourceSyncTests(unittest.TestCase):
 
 
 class PartActionSourceSyncTests(unittest.TestCase):
-    """`PartAction`. Reads OUTSIDE harness/: the verb, the three arg keys, the closed `button=`
+    """`PartAction`. Reads OUTSIDE harness/: the verb, the four arg keys, the closed `button=`
     vocabulary and the refusal reasons (both arrays IN ORDER) of the comment-stripped
     TestCommands/TestCommandPartAction.cs, plus the applier's press through the module's own
-    BaseEvent (a direct method call would skip nothing today, but the PAW invokes the event)."""
+    BaseEvent (a direct method call would skip nothing today, but the PAW invokes the event)
+    and its converter filter on the exact ConverterName."""
 
     def _source(self, *parts):
         path = os.path.join(PARSEK_SOURCE_DIR, *parts)
@@ -16873,12 +16903,36 @@ class PartActionSourceSyncTests(unittest.TestCase):
         self.assertIn('internal const string ButtonKey = "%s";' % hlib.PARTACTION_BUTTON_KEY, text)
         self.assertIn('internal const string PartKey = "%s";' % hlib.PARTACTION_PART_KEY, text)
         self.assertIn('internal const string PidKey = "%s";' % hlib.PARTACTION_PID_KEY, text)
-        for token, const in zip(hlib.PARTACTION_BUTTON_VALUES,
-                                ("UndockToken", "DecoupleToken", "ControlFromToken")):
+        self.assertIn('internal const string ConverterKey = "%s";' % hlib.PARTACTION_CONVERTER_KEY,
+                      text)
+        consts = ("UndockToken", "DecoupleToken", "ControlFromToken", "DeployToken",
+                  "RetractToken", "StartConverterToken", "StopConverterToken", "ExperimentToken",
+                  "LabProcessToken", "LabTransmitToken", "InspectToken", "RadiatorOnToken",
+                  "RadiatorOffToken")
+        self.assertEqual(len(consts), len(hlib.PARTACTION_BUTTON_VALUES))
+        for token, const in zip(hlib.PARTACTION_BUTTON_VALUES, consts):
             self.assertIn('internal const string %s = "%s";' % (const, token), text)
-        self.assertIn("ButtonValues = { UndockToken, DecoupleToken, ControlFromToken };", text)
-        self.assertIn("kind == PartActionKind.Decouple || kind == PartActionKind.ControlFrom", text)
-        self.assertEqual(("decouple", "controlfrom"), hlib.PARTACTION_BUTTONS_REQUIRING_PART)
+        m = re.search(r"ButtonValues\s*=\s*\{([^}]*)\}", text)
+        self.assertIsNotNone(m, "ButtonValues initializer moved")
+        self.assertEqual(list(consts), [t.strip() for t in m.group(1).split(",") if t.strip()])
+        # Every button but undock needs part=; only the converter pair takes converter=.
+        self.assertIn("=> kind != PartActionKind.Unknown && kind != PartActionKind.Undock;", text)
+        self.assertEqual(tuple(b for b in hlib.PARTACTION_BUTTON_VALUES if b != "undock"),
+                         hlib.PARTACTION_BUTTONS_REQUIRING_PART)
+        self.assertIn("=> kind == PartActionKind.StartConverter || kind == PartActionKind.StopConverter;",
+                      text)
+        self.assertEqual(("startconverter", "stopconverter"),
+                         hlib.PARTACTION_BUTTONS_ACCEPTING_CONVERTER)
+        # all= is closed to "true" and refused on the three one-part buttons.
+        self.assertIn('internal const string AllKey = "%s";' % hlib.PARTACTION_ALL_KEY, text)
+        self.assertEqual(("true",), hlib.PARTACTION_ALL_VALUES)
+        self.assertIn('internal const string AllTrueToken = "true";', text)
+        self.assertIn("=> kind != PartActionKind.Unknown && kind != PartActionKind.Undock\n"
+                      "                && kind != PartActionKind.Decouple && kind != PartActionKind.ControlFrom;",
+                      text)
+        self.assertEqual(tuple(b for b in hlib.PARTACTION_BUTTON_VALUES
+                               if b not in ("undock", "decouple", "controlfrom")),
+                         hlib.PARTACTION_BUTTONS_ACCEPTING_ALL)
         self.assertEqual(list(hlib.PARTACTION_REASONS),
                          StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
         for reason in hlib.PARTACTION_REASONS:
@@ -16890,6 +16944,22 @@ class PartActionSourceSyncTests(unittest.TestCase):
         self.assertIn("c.Event.Invoke();", applier)
         self.assertIn("module.Events[eventNames[e]]", applier)
         self.assertIn("!ev.active || !ev.guiActive", applier)
+        self.assertIn("string.Equals(bc.ConverterName, converterName, StringComparison.Ordinal)",
+                      applier)
+        self.assertIn("TestCommandPartAction.ConverterKey", applier)
+        self.assertIn("TestCommandPartAction.AllKey", applier)
+        self.assertIn("candidates.Count, all);", applier)
+        # The radiator buttons take their candidates from ModuleActiveRadiator alone and
+        # pass the module count to the radiator-not-found gate; every press reports the
+        # packed / warp context.
+        self.assertIn("if (!(module is ModuleActiveRadiator)) continue;", applier)
+        self.assertIn("radiatorKind ? radiatorModules : -1", applier)
+        self.assertIn("new PartActionWarpContext(v.packed,", applier)
+        pure = self._source("TestCommands", "TestCommandPartAction.cs")
+        self.assertIn('case PartActionKind.RadiatorOn: return new[] { "Activate" };', pure)
+        self.assertIn('case PartActionKind.RadiatorOff: return new[] { "Shutdown" };', pure)
+        self.assertIn('if (IsRadiatorKind(kind) && radiatorModules == 0) return RadiatorNotFoundReason;',
+                      pure)
 
     def test_the_verb_is_registered_on_every_axis(self):
         verb = hlib.PARTACTION_VERB
@@ -16903,10 +16973,14 @@ class PartActionSourceSyncTests(unittest.TestCase):
         # PartAction validates its own closed `button=`; no closed-arg row claims the key.
         self.assertNotIn(hlib.PARTACTION_BUTTON_KEY, hlib.VERB_SCOPED_CLOSED_ARGS)
         for reason in ("partaction-button-arg-missing", "partaction-button-arg-invalid",
-                       "partaction-part-arg-missing", "partaction-pid-arg-invalid"):
+                       "partaction-part-arg-missing", "partaction-pid-arg-invalid",
+                       "partaction-converter-arg-unexpected", "partaction-all-arg-invalid",
+                       "partaction-all-arg-unexpected"):
             self.assertIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
         for reason in ("partaction-vessel-not-found", "partaction-event-unavailable",
-                       "partaction-no-active-vessel"):
+                       "partaction-no-active-vessel", "partaction-converter-not-found",
+                       "partaction-experiment-no-data", "partaction-lab-method-missing",
+                       "partaction-radiator-not-found"):
             self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
 
     def test_the_step_validator(self):
@@ -16923,6 +16997,47 @@ class PartActionSourceSyncTests(unittest.TestCase):
         for bad in ("0", "abc", "4294967296", "+5"):
             with self.subTest(pid=bad):
                 self.assertIn("partaction-pid-arg-invalid", v(0, {"button": "undock", "pid": bad})[0])
+
+    def test_the_step_validator_isru_and_lab_buttons(self):
+        v = hlib.validate_part_action_step
+        for button in ("deploy", "retract", "startconverter", "stopconverter", "experiment",
+                       "labprocess", "labtransmit", "inspect", "radiatoron", "radiatoroff"):
+            with self.subTest(button=button):
+                self.assertEqual([], v(0, {"button": button, "part": "MiniDrill"}))
+                self.assertIn("partaction-part-arg-missing", v(0, {"button": button})[0])
+        self.assertEqual([], v(0, {"button": "startconverter", "part": "MiniISRU",
+                                   "converter": "Lf+Ox"}))
+        self.assertEqual([], v(0, {"button": "stopconverter", "part": "MiniDrill",
+                                   "converter": "Surface Harvester", "pid": "7"}))
+        self.assertEqual([], v(0, {"button": "startconverter", "part": "MiniISRU",
+                                   "converter": ""}))
+        for button in ("deploy", "inspect", "labtransmit", "undock", "radiatoron"):
+            with self.subTest(converter_on=button):
+                errs = v(0, {"button": button, "part": "MiniISRU", "converter": "Lf+Ox"})
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("partaction-converter-arg-unexpected", errs[0])
+        # all= is the string "true", on every button but undock / decouple / controlfrom.
+        for button in hlib.PARTACTION_BUTTONS_ACCEPTING_ALL:
+            with self.subTest(all_on=button):
+                self.assertEqual([], v(0, {"button": button, "part": "MiniDrill", "all": "true"}))
+        self.assertEqual([], v(0, {"button": "deploy", "part": "MiniDrill", "all": ""}))
+        self.assertEqual([], v(0, {"button": "radiatoroff", "part": "radPanelSm", "all": "true"}))
+        self.assertEqual([], v(0, {"button": "startconverter", "part": "MiniISRU",
+                                   "converter": "Lf+Ox", "all": "true"}))
+        for button in ("undock", "decouple", "controlfrom"):
+            with self.subTest(all_unexpected=button):
+                errs = v(0, {"button": button, "part": "Decoupler.1", "all": "true"})
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("partaction-all-arg-unexpected", errs[0])
+        for bad in ("True", "false", "1", "yes", True, False):
+            with self.subTest(all_value=bad):
+                errs = v(0, {"button": "deploy", "part": "MiniDrill", "all": bad})
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("partaction-all-arg-invalid", errs[0])
+        self.assertEqual([], v(0, {"button": "deploy", "part": "MiniDrill", "all": "${s.all}"}))
+        # A templated button is left to the static tier, converter= included.
+        self.assertEqual([], v(0, {"button": "${b.button}", "part": "MiniISRU",
+                                   "converter": "Lf+Ox"}))
 
     def test_validate_spec_runs_the_step_validator(self):
         spec = copy.deepcopy(load_spec("B10-career-passive-safety.toml"))
@@ -25282,7 +25397,27 @@ class WarpToUTLadderSourceSyncTests(unittest.TestCase):
         self.assertIn(hlib.WARPTOUT_LADDER_KEY, keys)
         # The key sits beside the verb's other two args, so a rename of either
         # shape is caught rather than matched by a stray literal elsewhere.
-        self.assertEqual({"ut", "maxRate", hlib.WARPTOUT_LADDER_KEY}, set(keys))
+        self.assertEqual({"ut", "maxRate", hlib.WARPTOUT_LADDER_KEY, hlib.WARPTOUT_DETACH_KEY},
+                         set(keys))
+
+    def test_the_detach_key_and_token_mirror_the_c_sharp(self):
+        self.assertEqual(self.consts["DetachKey"], hlib.WARPTOUT_DETACH_KEY)
+        self.assertEqual((self.consts["DetachTrueToken"],), hlib.WARPTOUT_DETACH_VALUES)
+        self.assertEqual("driver-arg",
+                         hlib._SEAM_REFUSAL_SUBKINDS[self.consts["DetachInvalidReason"]])
+        self.assertIn(self.consts["DetachInvalidReason"], hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        self.assertEqual(("WarpToUT", hlib.WARPTOUT_DETACH_VALUES),
+                         hlib.VERB_SCOPED_CLOSED_ARGS[hlib.WARPTOUT_DETACH_KEY])
+        # The detached warp is stepped from the addon's Update, ended on both scene
+        # events, and yields to the clock-moving verbs before their executor runs.
+        addon_path = os.path.join(self.DIR, "ParsekTestCommandAddon.cs")
+        with open(addon_path, encoding="utf-8-sig") as fh:
+            addon = "\n".join(strip_cs_line_comment(l)
+                              for l in fh.read().replace("\r\n", "\n").split("\n"))
+        self.assertIn("TickDetachedWarp();", addon)
+        self.assertIn("YieldDetachedWarpTo(head);", addon)
+        self.assertEqual(2, addon.count(
+            "EndDetachedWarp(TestCommandWarpToUT.DetachedEndSceneChange, lower: true, null);"))
 
     def test_the_ladder_refusal_reasons_are_mapped(self):
         self.assertEqual("driver-arg",

@@ -1,0 +1,249 @@
+schema = 1
+id = "MINE-13-rover-rewind-and-mine-again"
+tier = "nightly"
+# THE MINING PROGRAM, lane MINE-13 (rewind and mine again; plan
+# `docs/dev/research/mining-isru-test-program-2026-10-17.md`). NEVER FLOWN: its first flight
+# is a READING run. Every regex below matches a literal found in C# source (file:line cited
+# where the line is not one the sibling MINE lanes already pin).
+#
+# HOST: `miner-rover-watched` (harness/tools/build_miner_rover_watched.py), MINE-9's host:
+# V's "Mining Rover RC" (pid 110406740) and `Miner Watcher` (pid 3179797026) 120 m north,
+# the FLIGHT host after the rewind.
+#
+# WHAT "MINE AGAIN" CAN MEAN AFTER A REWIND. Rewind-to-Launch strips the recorded rover out
+# of the rewound world: its recording is the vessel until the recording's end, marked
+# `SpawnSuppressedByRewind` reason `same-recording` (ParsekScenario.cs:7550-7640). The
+# block is lifted only for a standalone rewind target with NO live same-craft vessel
+# (GhostPlaybackLogic.ResolveRewindSuppressionLiveLaunchPresence, GhostPlaybackLogic.cs:8637-8682);
+# a live vessel sharing the pid (a re-flight) HOLDS it. A rover that was never launched from
+# the editor has no re-flight: the rewound save holds no copy of it, and Re-Fly
+# (rewind-to-separation) is for vessel separations only. So the player cannot drive the same
+# rover again over the same span. The closest valid shape, and the one a player takes, is:
+# rewind, let the rover come back (Real Spawn Control's Warp, MINE-9's click path), switch to
+# it and mine again. Flying the spawned rover makes Parsek take its committed tree back
+# (copy-on-write, `TryRestoreCommittedTreeForSpawnedActiveVessel`, on the 1 Hz Update retry,
+# because the switch-intent consume defers an on-surface target).
+#
+# SESSION 2 IS ITS OWN SEGMENT (todo
+# RESUMED-PARSEK-SPAWN-RECORDS-REGENERATED-PART-PIDS-INTO-COMMITTED-RECORDING). The spawn
+# regenerated every part persistentId, and the committed recording's ghost snapshot still
+# names session 1's parts. Run `2026-10-17_1525` resumed session 2 INTO that recording, and
+# the analyzer read 8 unresolved part-event pids (INV4-PARTEVENT-PID): the ghost could not
+# replay any of session 2's wheel or drill events. The restore now sees that the snapshot
+# does not hold the live part pids and continues in a new switch-continuation segment under
+# the committed recording (`Resumed spawn continues in a new segment: rec= segment= ...`,
+# entry reason ResumedSpawnedVessel, its own start snapshot with the live pids, a
+# SwitchSegmentSession armed for it). The re-commit therefore holds TWO recordings: the
+# committed one (session 1, untouched) and the segment (session 2), whose id is a
+# dash-form guid.
+#
+# THE DOUBLE-COUNT QUESTION. Each session opens its own harvest window (session 1 at the
+# drill start, session 2 at the segment's start because the spawned rover's converters are
+# already on, trigger=recording-start). Each recording carries only its own session's
+# window now: the segment's copy line at the second stop reads `harvestWindows=1`, and
+# session 1's window stays on the committed recording. 3 or more on any copy after the
+# second stop stays FORBIDDEN (a double count). The tanks are the other half of "no double
+# count": the spawn arrives once with its end snapshot (MINE-9's gate), and session 2
+# starts from it, so session 2's growth is measured against that snapshot.
+#
+# THE STORY. MINE-9's first half verbatim (record half an hour of mining at 100x, commit,
+# Rewind-to-Launch, save and reload on the watcher, RealSpawn the miner's ghost), then
+# switch to the spawned miner, let the committed tree come back, mine on for another half
+# hour at 100x in a new segment, stop, re-commit, and list: TWO committed recordings, the
+# first one's id unchanged.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) shared flight considered, not applied:
+# MINE-9 (live-proven) and MINE-7 / MINE-8 share the prefix, but each of their next steps
+# keeps the watcher active and forbids exactly the committed-tree restore this lane needs;
+# (2) every wait is an explicit-UT WarpToUT; (3) 5 s of 1x after the switch covers the 1 Hz
+# restore retry; the second session is the same half hour MINE-7 measured a rate over; (6)
+# retry once, as MINE-9; (7) count pinned 2; (8)/(9) after the first green flight.
+description = "MINE-13: V's mining rover records half an hour of mining, commits and is rewound to launch; the rewind strips it, so it comes back through Real Spawn Control with its end-snapshot tanks, and the player switches to it and mines for another half hour: Parsek takes the committed tree back and, because the spawn's part ids are new, records the second session in a new continuation segment under the committed recording, so the re-commit holds two recordings whose harvest windows are not counted twice, and whose second session grew the tanks from the end snapshot."
+instanceProfile = "stock-minimal"
+tags = ["mining", "isru", "rewind", "real-spawn-control", "committed-tree-restore", "MINE-13", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/miner-rover-watched"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # ---- SESSION 1 (MINE-9's first half): record half an hour of mining, commit, rewind.
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "StartRecording",                                                               expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  { cmd = "PartAction",          args = { button = "deploy", part = "MiniDrill", all = "true" },   expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "60", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "PartAction",          args = { button = "startconverter", part = "MiniDrill", converter = "Surface Harvester", all = "true" }, expect = "OK" },
+  { cmd = "PartAction",          args = { button = "startconverter", part = "MiniISRU", converter = "Lf+Ox" }, expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "75", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",            args = { ut = "1830", maxRate = "100" },                 expect = "OK", budget = 300 },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant,ElectricCharge" }, label = "r1", expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine13-session1-stop" },               expect = "OK" },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "CommitTree",                                                                   expect = "OK", budget = 120 },
+  # CommitTree re-takes the committed tree for the still-active miner; stop it (RC-6).
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine13-committed-${c0.count}-${c0.rec0}" }, expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                             expect = "OK", budget = 300 },
+  { cmd = "SaveGame",            args = { name = "mine13-rewound" },                      expect = "OK", budget = 120 },
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "mine13-rewound" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  # ---- The rover comes back: Real Spawn Control on its live ghost beside the watcher.
+  { cmd = "WarpToUT",            args = { ut = "60", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "RealSpawn",           args = { rec = "${c0.rec0}" },                           expect = "OK", budget = 180 },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c2",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine13-rsc-spawned-${c2.rec0spawned}-${c2.rec0spawnedPid}" }, expect = "OK" },
+  { cmd = "ReadVesselResources", args = { rec = "${c0.rec0}", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant", expectSnapshot = "true", tolerance = "0.01" }, label = "rs", expect = "OK" },
+  # ---- SESSION 2: fly the spawned rover again; its committed tree comes back.
+  { cmd = "MissionMark",         args = { label = "mine13-switch-to-spawn" },             expect = "OK" },
+  { cmd = "SimulateStockSwitchClick", args = { pid = "${c2.rec0spawnedPid}" },            expect = "OK", budget = 120 },
+  # RealSpawn lands the clock on the recording's end (UT 1829.9); 5 s of 1x for the restore.
+  { cmd = "WarpToUT",            args = { ut = "1835", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",         args = { label = "mine13-resumed" },                     expect = "OK" },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniISRU", pid = "${c2.rec0spawnedPid}" }, expect = "OK" },
+  # Another half hour of mining at no more than 100x.
+  { cmd = "WarpToUT",            args = { ut = "3630", maxRate = "100" },                 expect = "OK", budget = 300 },
+  { cmd = "MissionMark",         args = { label = "mine13-session2-end" },                expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "${c2.rec0spawnedPid}", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant,ElectricCharge", expect = "LiquidFuel:${rs.LiquidFuel};Oxidizer:${rs.Oxidizer}", tolerance = "0.01" }, label = "rw", expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniISRU", pid = "${c2.rec0spawnedPid}" }, expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine13-session2-stop" },               expect = "OK" },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "CommitTree",                                                                   expect = "OK", budget = 120 },
+  # The re-take again (RC-6), then drop the re-taken copy (the committed original stays).
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c3",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine13-recommitted-${c3.count}-${c3.rec0}" }, expect = "OK" },
+  # The re-committed recording ends at about UT 3630 with its own vessel still live: its end
+  # must not spawn a second rover. A few seconds of 1x let playback evaluate the end.
+  { cmd = "WarpToUT",            args = { ut = "3640", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c4",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine13-after-end-${c4.count}-spawned-${c4.rec0spawned}-${c4.rec0spawnedPid}" }, expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "${c2.rec0spawnedPid}", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant" }, label = "rz", expect = "OK" },
+  { cmd = "SaveGame",                                                                     expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
+]
+
+[dimensionsCovered]
+# fast-forward: RealSpawn is Real Spawn Control's warp to the recording's end (MINE-9's claim).
+D9  = ["rewind-to-launch", "fast-forward"]
+D13 = ["real-spawn-control"]
+D14 = ["kerbin", "sandbox", "scene-flight", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The committed recording (session 1) and session 2's continuation segment.
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  # --- SESSION 1 (MINE-9's live-proven tokens) ---
+  "partaction applied button=deploy pid=110406740 part='MiniDrill' [^\\r\\n]*count=4",
+  "partaction applied button=startconverter pid=110406740 part='MiniISRU' [^\\r\\n]*converter='Lf\\+Ox' state='[^'\\r\\n]*Lf\\+Ox:active=1",
+  # Session 1's own window: opened at the drill start, closed at its stop, copied onto the
+  # recording (FlightRecorder.cs:7893-7898 / :8093-8096; ParsekFlight.cs:4946-4953).
+  "(?s)Harvest window opened: window=[^ \\r\\n]+ ut=[0-9.]+ converters=\\[[^\\]\\r\\n]*\\] res=[0-9]+ atStart=0 trigger=toggle .*?MISSIONMARK label=mine13-session1-stop ",
+  "(?s)MISSIONMARK label=mine13-session1-stop .*?Harvest window closed: window=[^ \\r\\n]+ ut=[0-9.]+ res=[0-9]+ atStop=1 trigger=recording-stop.*?MISSIONMARK label=mine13-committed-",
+  "committree committed=true",
+  "MISSIONMARK label=mine13-committed-1-[0-9a-f]{32} ",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # --- The rover comes back ---
+  # The rewind's same-recording block is lifted because nothing live shares the rover's pid
+  # (GhostPlaybackLogic.cs:8656-8662).
+  "same-recording spawn suppression lifted for standalone rewind target rec=[0-9a-f]{32} vessel=\"Mining Rover RC\" pid=110406740 ",
+  "realspawn complete rec=[0-9a-f]{32} pid=[0-9]+ vessel=Mining Rover RC loaded=(?:true|false) ",
+  "MISSIONMARK label=mine13-rsc-spawned-true-[0-9]+ ",
+  "(?s)MISSIONMARK label=mine13-rsc-spawned-(?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=1 missing=0 uidCollisions=0 [^\\r\\n]*snapshotMatch=true",
+  # --- SESSION 2: the switch, the committed tree back, session 2 in its own segment ---
+  # No tree is live, so the plain path (ParsekTestCommandAddon.SimulateSwitchClick.cs:150-160 / :256-260).
+  "MISSIONMARK label=mine13-rsc-spawned-true-([0-9]+) [\\s\\S]*switchclick gate targetPid=\\1 targetName=Mining Rover RC [^\\r\\n]*hasActiveRecording=false hasActiveSession=false [^\\r\\n]*dialogDecision=NoPriorSession",
+  "MISSIONMARK label=mine13-rsc-spawned-true-([0-9]+) [\\s\\S]*switchclick complete site=map targetPid=\\1 targetName=Mining Rover RC [^\\r\\n]*activeVesselPid=\\1 switched=true",
+  # The copy-on-write restore matched the committed recording and cleared its spawn flags
+  # (TryTakeCommittedTreeForSpawnedVesselRestore), then found none of the live part pids in
+  # its ghost snapshot (every one regenerated by the spawn: uncovered == livePids) and
+  # continued in a new segment under it, bound the recorder there and armed its session.
+  "MISSIONMARK label=mine13-committed-1-([0-9a-f]{32}) [\\s\\S]*TryTakeCommittedTreeForSpawnedVesselRestore: cleared prior spawn flags on resumed recording '\\1' ",
+  "MISSIONMARK label=mine13-committed-1-([0-9a-f]{32}) [\\s\\S]*MISSIONMARK label=mine13-switch-to-spawn [\\s\\S]*Resumed spawn continues in a new segment: rec=\\1 segment=[0-9a-f-]{36} vessel='Mining Rover RC' pid=[0-9]+ action=(?:ResumeActiveRecording|PromoteFromBackground) livePids=([0-9]+) snapshotPids=[0-9]+ uncovered=\\2 snapshot=ghost ",
+  "(?s)MISSIONMARK label=mine13-switch-to-spawn .*?Resumed spawn continues in a new segment: rec=[0-9a-f]{32} segment=([0-9a-f-]{36}) .*?recorder-bound route=resumed-spawn new-recording-id=\\1 .*?armed: sessionId=[0-9a-f-]{36} intentId=00000000-0000-0000-0000-000000000000 entryReason=ResumedSpawnedVessel [^\\r\\n]*activeSegmentRecordingId=\\1 .*?MISSIONMARK label=mine13-resumed ",
+  "(?s)MISSIONMARK label=mine13-resumed (?:(?!MISSIONMARK label=).)*?recordingstate recording=true tree=[0-9a-f]{32} ",
+  # The spawned rover's converters were on, so the resumed recorder opened session 2's
+  # window AT its start (FlightRecorder.cs:6649, :7822-7832, logged :7893-7898).
+  "(?s)MISSIONMARK label=mine13-switch-to-spawn .*?Harvest window opened: window=[^ \\r\\n]+ ut=18[2-3][0-9]\\.[0-9]{2} converters=\\[[^\\]\\r\\n]+\\] res=[0-9]+ atStart=1 trigger=recording-start .*?MISSIONMARK label=mine13-resumed ",
+  "(?s)MISSIONMARK label=mine13-resumed (?:(?!cmd=PartAction start).)*?cmd=PartAction start(?:(?!cmd=PartAction start).)*?partaction applied button=inspect pid=[0-9]+ part='MiniISRU' [^\\r\\n]*Lf\\+Ox:active=1",
+  # Session 2 grew LF and Ox above the spawn's end snapshot by 0.05..0.9999 (READING-RUN
+  # BRACKET, MINE-7's: expected about +0.22 / +0.27; TestCommandReadVesselResources.cs:569-575).
+  "(?s)MISSIONMARK label=mine13-session2-end (?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources vessel index=0 rec=- found=true pid=[0-9]+ name='Mining Rover RC' loaded=true parts=27 ",
+  "(?s)MISSIONMARK label=mine13-session2-end (?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources expect resource=LiquidFuel expected=[0-9]+\\.[0-9]{4} actual=[0-9]+\\.[0-9]{4} diff=0\\.(?:0[5-9]|[1-9][0-9])[0-9]{2} tolerance=0\\.0100 match=false",
+  "(?s)MISSIONMARK label=mine13-session2-end (?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources expect resource=Oxidizer expected=[0-9]+\\.[0-9]{4} actual=[0-9]+\\.[0-9]{4} diff=0\\.(?:0[5-9]|[1-9][0-9])[0-9]{2} tolerance=0\\.0100 match=false",
+  # Session 2's stop: its window closed at the stop and forwarded, and the copy onto the
+  # SEGMENT carries exactly session 2's one window (THE DOUBLE-COUNT QUESTION in the header;
+  # 3+ is forbidden below).
+  "(?s)MISSIONMARK label=mine13-session2-stop .*?Harvest window closed: window=[^ \\r\\n]+ ut=[0-9.]+ res=[0-9]+ atStop=1 trigger=recording-stop",
+  "(?s)MISSIONMARK label=mine13-session2-stop .*?BuildCaptureRecording: forwarded 1 harvest window\\(s\\) recording=",
+  "Resumed spawn continues in a new segment: rec=[0-9a-f]{32} segment=([0-9a-f-]{36}) [\\s\\S]*MISSIONMARK label=mine13-session2-stop [\\s\\S]*Logistics metadata copied: path=[^ \\r\\n]+ target=\\1 [^\\r\\n]*harvestWindows=1(?:\\r?\\n|$)",
+  # TWO recordings re-committed: the first one (its id unchanged, the segment's parent
+  # above) and the segment. The list sorts by id, so rec0 is either; no rec1 reference, so
+  # a regression to one recording reads as this token's mismatch, not an unresolved handle.
+  "MISSIONMARK label=mine13-committed-1-([0-9a-f]{32}) [\\s\\S]*MISSIONMARK label=mine13-recommitted-2-(?:\\1|[0-9a-f-]{36}) ",
+  # Past the re-committed end, still two committed recordings and the live rover read clean
+  # (no second rover sharing its part uids). READ ON FLIGHT 1: the spawned / spawnedPid
+  # flags the mark carries (whether the re-commit adopted the live rover as the segment's
+  # spawn).
+  "MISSIONMARK label=mine13-after-end-2-spawned-",
+  "(?s)MISSIONMARK label=mine13-after-end-(?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=1 missing=0 uidCollisions=0 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  "invokerewindtolaunch refused",
+  "realspawn rejected",
+  "readvesselresources rejected",
+  "switchclick rejected",
+  "switchclick refused",
+  "switchclick failed",
+  "Spawn RETIRED",
+  "Spawn ABANDONED",
+  "Spawn FAILED",
+  "uidCollisions=[1-9]",
+  "Within-segment breakage",
+  # GhostPlaybackLogic.cs:8672-8679: before session 2, a live vessel sharing the pid would
+  # hold the spawn. (After the re-commit the HELD line is the RIGHT answer: the live rover
+  # is that recording's vessel, so its end must not spawn a second one.)
+  "(?s)invokerewindtolaunch complete .*?same-recording spawn suppression HELD.*?MISSIONMARK label=mine13-switch-to-spawn ",
+  # ParsekFlight.cs:16005-16007 / :16018-16020, :4473-4475: the take-back failed.
+  "TryTakeCommittedTreeForSpawnedVesselRestore: matched tree '[^'\\r\\n]*' recording '[0-9a-f]{32}' for pid=[0-9]+, but could not",
+  "ResumeCommittedActiveRecording: StartRecording returned IsRecording=false",
+  # The segment could not be attached or its recorder could not bind.
+  "Resumed spawn segment refused",
+  "recorder-bind-failed route=resumed-spawn",
+  # THE DEFECT (`2026-10-17_1525`): session 2 recorded INTO a committed 32-hex recording.
+  "(?s)MISSIONMARK label=mine13-switch-to-spawn (?:(?!MISSIONMARK label=mine13-session2-stop ).)*?(?:ResumeCommittedActiveRecording: resumed committed recording '[0-9a-f]{32}'|Promoted recording '[0-9a-f]{32}' from background)",
+  # A DOUBLE COUNT: after session 2's stop, the resumed recording carries 3 or more windows.
+  "(?s)MISSIONMARK label=mine13-session2-stop .*?Logistics metadata copied: [^\\r\\n]*harvestWindows=(?:[3-9]|[1-9][0-9]+)",
+]
+
+[runtime]
+# Two LoadGame steps and the rewind (up to 300 s each), two half hours at 100x (~18 s
+# each), a Real Spawn Control jump, a switch, two commits and saves. MINE-9, with three
+# loads, measured 220 s of wall.
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

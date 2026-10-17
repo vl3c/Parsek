@@ -1,0 +1,257 @@
+schema = 1
+id = "MINE-12-rover-background-miner"
+tier = "nightly"
+# THE MINING PROGRAM, lane MINE-12 (background miner; plan
+# `docs/dev/research/mining-isru-test-program-2026-10-17.md`). NEVER FLOWN: its first flight
+# is a READING run. Every regex below matches a literal found in C# source (file:line cited
+# where the line is not one the sibling MINE lanes already pin).
+#
+# HOST: `miner-rover-watched` (harness/tools/build_miner_rover_watched.py), MINE-9's host:
+# V's "Mining Rover RC" (pid 110406740, four MiniDrill `Surface Harvester`s, a MiniISRU,
+# radiators on, RTG power, tanks empty, active) and `Miner Watcher` (pid 3179797026), a
+# crewless rover parked 120 m north.
+#
+# WHY THE NEIGHBOUR AND NOT THE ORBITING PROBE (the plan names "switch to the orbiting
+# probe"). A switch to an UNLOADED vessel while a tree is recording is Case B of the
+# pre-switch dialog (MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction,
+# MapFocusObjectOnSelectPatch.cs:1167-1205): stock would scene-reload, so Parsek asks the
+# player to Merge or Discard the live tree FIRST. The player cannot leave a recording miner
+# running in the background behind an orbiting probe at all; the dialog ends the recording.
+# The seam's `SimulateStockSwitchClick` refuses that case typed (`dialog-required case=B`,
+# TestCommandSimulateSwitchClick.cs:91-108 / RefusedTargetUnloaded). The only way the
+# product keeps a miner recording in the background is a switch to a LOADED neighbour, which
+# is exactly this fixture. The unloaded catch-up (stock's lastUpdateTime burst on a vessel
+# that was out of range) is MINE-8's subject, not this lane's.
+#
+# THE STORY.
+#   1. Record the miner: deploy all four drills, start all four Surface Harvesters and the
+#      ISRU's `Lf+Ox` at 1x (the harvest window opens at the drill start, trigger=toggle).
+#   2. Switch to the watcher (map Switch-To, the plain arm-and-switch path; the consume
+#      defers because the target is on the surface, SwitchSegmentConsume.cs:288-289). The
+#      recorder transitions to background: the miner joins the tree's BackgroundMap, its
+#      open harvest window is DISCARDED (windows only reach a recording through an active
+#      stop, FlightRecorder.cs:12060-12075) and its run manifest is voided
+#      (RouteProofCapture.cs:2452-2484), so a later route over this leg reads degraded.
+#   3. While the miner is in the background and unpacked (1x), press its ISRU from the
+#      watcher: `Lf+Ox` off, then `MonoPropellant` on. The BACKGROUND recorder's converter
+#      poll writes both edges (BackgroundRecorder.PartEventPolling.cs:282-301).
+#   4. Rails warp at no more than 100x (V's cap). Both rovers pack; the background miner
+#      moves to the on-rails state (BackgroundRecorder.cs:2998). A few frames into a
+#      DETACHED warp (MINE-6's pattern), switch `MonoPropellant` off while the miner is
+#      PACKED; the background poll does not run packed, so the edge must come back as the
+#      rails-span reconcile at the rails exit (BackgroundRecorder.cs:4865-4902,
+#      PartStateSeeder.Diff.cs:158-161 for the converter family).
+#   5. The drills keep running on rails with the ISRU off, so Ore grows while the player is
+#      away: the read at the end of the warp (rb) is ABOVE the read before it (ra).
+#   6. Switch back to the miner. The live tanks right after the refocus equal rb (no jump,
+#      no catch-up burst for a vessel that never left physics range). The consume defers
+#      again (surface), and the tracked background member is promoted by the post-switch
+#      watcher's first trigger (ParsekFlight.cs:11238-11292): a resource change if Ore moves
+#      enough inside the 5 s landed settle window, else the drill retract the lane presses
+#      (an `animation-group:` part-state token, ParsekFlight.cs:10846-10856).
+#   7. Stop, commit (RC-6's StopRecording after CommitTree, then DiscardTree for the
+#      re-taken copy), list the committed recordings.
+#
+# WHAT IS NOT PINNED (read on flight 1, then tighten):
+#   * whether the promotion fires on the resource change or on the retract (both pass);
+#   * whether the promoted recorder opens a harvest window at start (only when the drills
+#     are still running at the promotion: `Harvest window opened: ... atStart=1
+#     trigger=recording-start`);
+#   * whether the WATCHER gets a recording of its own: the switch to it arms the post-switch
+#     watcher for an outsider (`Post-switch auto-record armed: vessel='Miner Watcher'`), and a
+#     resource change on it (its solar-charged battery) would start a fresh recording in the
+#     tree. The count window is therefore 1..2 until flight 1 says which;
+#   * Ore amounts (the rover is EC-starved; MINE-2): only "grew by at least 0.05" is gated.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) shared flight considered, not applied: no
+# MINE host switches away from the miner while it records, and appending a switch to
+# MINE-9's recording would change what MINE-9's live-proven spawn reads; (2) every wait is an
+# explicit-UT WarpToUT, the 1x ones only where a background PHYSICS poll or the post-switch
+# settle must run; (3) the 1x stretches are 10 s each (background poll ticks, the 5 s landed
+# settle plus margin), the rails span is the half hour MINE-9 measured at 100x (~18 s wall);
+# (4)-(5) no burns, no coast; (6) retry once (the packed press premise is MINE-6's, measured
+# on the active vessel only); (7) count window 1..2 until flight 1; (8)/(9) after the first
+# green flight.
+description = "MINE-12: V's mining rover records drilling, then the player switches to a neighbouring rover; the miner keeps recording in the background (its harvest window dropped and run manifest voided at the switch), records ISRU toggles pressed while unpacked and, through the rails-span reconcile, one pressed while packed, keeps mining through half an hour of rails warp so its Ore grows, reads the same tanks right after the switch back, is promoted back to the active recorder, and commits as one tree."
+instanceProfile = "stock-minimal"
+tags = ["mining", "isru", "background-recording", "vessel-switch", "warp-rails", "MINE-12", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/miner-rover-watched"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  # ---- 1. Record the miner mining.
+  { cmd = "StartRecording",                                                               expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  { cmd = "PartAction",          args = { button = "deploy", part = "MiniDrill", all = "true" },   expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "60", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "PartAction",          args = { button = "startconverter", part = "MiniDrill", converter = "Surface Harvester", all = "true" }, expect = "OK" },
+  { cmd = "PartAction",          args = { button = "startconverter", part = "MiniISRU", converter = "Lf+Ox" }, expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "75", maxRate = "1" },                     expect = "OK", budget = 120 },
+  # ---- 2. Switch to the neighbour; the miner goes to the background.
+  { cmd = "MissionMark",         args = { label = "mine12-switch-away" },                 expect = "OK" },
+  { cmd = "SimulateStockSwitchClick", args = { pid = "3179797026" },                      expect = "OK", budget = 120 },
+  { cmd = "MissionMark",         args = { label = "mine12-away" },                        expect = "OK" },
+  # ---- 3. ISRU toggles on the background miner, unpacked (the background physics poll).
+  { cmd = "WarpToUT",            args = { ut = "85", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "PartAction",          args = { button = "stopconverter", part = "MiniISRU", converter = "Lf+Ox", pid = "110406740" }, expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "95", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "PartAction",          args = { button = "startconverter", part = "MiniISRU", converter = "MonoPropellant", pid = "110406740" }, expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "105", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant,ElectricCharge" }, label = "ra", expect = "OK" },
+  # ---- 4. Rails warp; a press on the PACKED background miner a few frames in.
+  { cmd = "WarpToUT",            args = { ut = "3600", maxRate = "100", detach = "true" }, expect = "OK", budget = 120 },
+  { cmd = "MissionMark",         args = { label = "mine12-packed-before" },               expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant,ElectricCharge" }, label = "rp", expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniISRU", pid = "110406740" }, expect = "OK" },
+  { cmd = "PartAction",          args = { button = "stopconverter", part = "MiniISRU", converter = "MonoPropellant", pid = "110406740" }, expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine12-packed-after" },                expect = "OK" },
+  # The blocking warp takes the detached one over and drops to 1x at its target.
+  { cmd = "WarpToUT",            args = { ut = "1830", maxRate = "100" },                 expect = "OK", budget = 300 },
+  # ---- 5. Ore grew while away (rb.Ore - ra.Ore, on the expect line's diff).
+  { cmd = "MissionMark",         args = { label = "mine12-rails-exit" },                  expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant,ElectricCharge", expect = "Ore:${ra.Ore}", tolerance = "0.01" }, label = "rb", expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniISRU", pid = "110406740" }, expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniDrill", all = "true", pid = "110406740" }, expect = "OK" },
+  # ---- 6. Back to the miner: same tanks at once, then the promotion.
+  { cmd = "MissionMark",         args = { label = "mine12-switch-back-ore-${rb.Ore}" },   expect = "OK" },
+  { cmd = "SimulateStockSwitchClick", args = { pid = "110406740" },                       expect = "OK", budget = 120 },
+  { cmd = "MissionMark",         args = { label = "mine12-back" },                        expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant", expect = "Ore:${rb.Ore};LiquidFuel:${rb.LiquidFuel};Oxidizer:${rb.Oxidizer};MonoPropellant:${rb.MonoPropellant}", tolerance = "0.05" }, label = "rc", expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "1840", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",         args = { label = "mine12-back-settled" },                expect = "OK" },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  { cmd = "PartAction",          args = { button = "stopconverter", part = "MiniDrill", converter = "Surface Harvester", all = "true" }, expect = "OK" },
+  { cmd = "PartAction",          args = { button = "retract", part = "MiniDrill", all = "true" },  expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "1855", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",         args = { label = "mine12-before-stop" },                 expect = "OK" },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  # ---- 7. Commit and list.
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "CommitTree",                                                                   expect = "OK", budget = 120 },
+  # CommitTree re-takes the committed tree for the still-active miner (RC-6); stop it and
+  # drop the re-taken copy (the committed original stays committed).
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine12-committed-${c0.count}-${c0.rec0}" }, expect = "OK" },
+  { cmd = "SaveGame",                                                                     expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
+]
+
+[dimensionsCovered]
+# auto-record-first-mod-switch: the promotion back runs through the post-switch watcher's
+# trigger (ParsekFlight.TryStartPostSwitchAutoRecord), gated below.
+D1  = ["switch-backgrounds-recording", "auto-record-first-mod-switch"]
+D5  = ["bg-recording", "bg-on-rails"]
+D14 = ["kerbin", "sandbox", "scene-flight", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# READING-RUN WINDOW: 1 is the miner's tree alone; 2 if the watcher got a recording of its
+# own from the post-switch outsider watcher (see the header). Tighten after flight 1.
+count = { min = 1, max = 2 }
+
+[expectations.logContracts]
+required = [
+  # --- 1. The recording and the presses (MINE-9's live-proven tokens) ---
+  "partaction applied button=deploy pid=110406740 part='MiniDrill' [^\\r\\n]*count=4",
+  "partaction applied button=startconverter pid=110406740 part='MiniDrill' [^\\r\\n]*converter='Surface Harvester' [^\\r\\n]*count=4",
+  "partaction applied button=startconverter pid=110406740 part='MiniISRU' [^\\r\\n]*converter='Lf\\+Ox' state='[^'\\r\\n]*Lf\\+Ox:active=1",
+  # The drill start opened the harvest window while recording (FlightRecorder.cs:7893-7898).
+  "(?s)Harvest window opened: window=[^ \\r\\n]+ ut=[0-9.]+ converters=\\[[^\\]\\r\\n]*\\] res=[0-9]+ atStart=0 trigger=toggle .*?MISSIONMARK label=mine12-switch-away ",
+  # --- 2. The switch away (ParsekTestCommandAddon.SimulateSwitchClick.cs:150-160 gate, :256-260 complete) ---
+  "switchclick gate targetPid=3179797026 targetName=Miner Watcher scenarioReady=true canSwitchVesselsFar=true targetIsActiveVessel=false targetIsUnloaded=false hasActiveRecording=true hasActiveSession=false priorFocusedPid=0 anotherDialogOpen=false targetIsSeparateCommittedVessel=false dialogDecision=NoPriorSession",
+  "switchclick complete site=map targetPid=3179797026 targetName=Miner Watcher [^\\r\\n]*activeVesselPid=3179797026 switched=true",
+  # The consume declines a surface target (SwitchSegmentConsume.cs:303-318, logged at ParsekFlight.cs:9639-9641).
+  "refused: reason=on-surface-defer-to-trigger intentId=[^ \\r\\n]+ action=MapSwitchTo markerTargetPid=3179797026 newVesselPid=3179797026",
+  # The recorder went to the background (FlightRecorder.cs:12046-12047, :12084).
+  "(?s)MISSIONMARK label=mine12-switch-away .*?Background transition: surface vessel \\(sit=LANDED\\), skipping orbit segment",
+  "(?s)MISSIONMARK label=mine12-switch-away .*?Transitioned to background \\(pid=110406740, points=[0-9]+, orbitSegments=0\\)",
+  # THE SWITCH DROPS THE HARVEST WINDOW: one window, open, discarded (FlightRecorder.cs:12066-12075),
+  # and the run manifest voided or tombstoned (RouteProofCapture.cs:2472-2474 / :2481-2482).
+  "(?s)MISSIONMARK label=mine12-switch-away .*?Harvest windows discarded on background transition: recording=[0-9a-f]{32} windows=1 open=1",
+  "(?s)MISSIONMARK label=mine12-switch-away .*?RouteRunManifest (?:voided|void tombstone set): recording=[0-9a-f]{32} reason=background-transition",
+  # --- 3. Background presses at 1x and the background recorder's converter edges ---
+  # The press is on the miner while the watcher is active (TestCommandPartAction.cs:626-640).
+  "partaction applied button=stopconverter pid=110406740 part='MiniISRU' [^\\r\\n]*activePid=3179797026 activeName='Miner Watcher' converter='Lf\\+Ox' state='[^'\\r\\n]*Lf\\+Ox:active=0[^'\\r\\n]*' count=1 packed=0 ",
+  "partaction applied button=startconverter pid=110406740 part='MiniISRU' [^\\r\\n]*activePid=3179797026 activeName='Miner Watcher' converter='MonoPropellant' state='[^'\\r\\n]*MonoPropellant:active=1[^'\\r\\n]*' count=1 packed=0 ",
+  # BackgroundRecorder.PartEventPolling.cs:298-299: off, then on, both background-written.
+  "(?s)MISSIONMARK label=mine12-away .*?Part event: ConverterDeactivated 'MiniISRU' pid=[0-9]+ \\(bg vessel 110406740, converter\\).*?Part event: ConverterActivated 'MiniISRU' pid=[0-9]+ \\(bg vessel 110406740, converter\\).*?MISSIONMARK label=mine12-packed-before ",
+  # --- 4. Rails: the background miner packs, the packed press, the reconcile at the exit ---
+  # BackgroundRecorder.cs:2998 (the arrow is one non-ASCII character; `.{1,3}` spans it in any decoding).
+  "(?s)MISSIONMARK label=mine12-away .*?Mode transition loaded.{1,3}on-rails: pid=110406740",
+  # The press landed while the miner was packed, in the warp (TestCommandPartAction.cs:608-615).
+  "partaction applied button=stopconverter pid=110406740 part='MiniISRU' [^\\r\\n]*activePid=3179797026 [^\\r\\n]*converter='MonoPropellant' state='[^'\\r\\n]*MonoPropellant:active=0[^'\\r\\n]*' count=1 packed=1 warpIndex=[1-9]",
+  "warptout detached start id=[^\\r\\n]* ut=3600 [^\\r\\n]*maxRate=100",
+  "warptout detached ended reason=superseded id=[^\\r\\n]* lowered=false elapsed=[0-9.]+s by=[^\\r\\n]* newDetach=false",
+  # At the rails exit the background miner unpacks (BackgroundRecorder.cs:3215) and the
+  # reconcile writes the packed edge (BackgroundRecorder.cs:4898-4900; per-event Verbose at
+  # PartStateSeeder.Diff.cs:231-234, converter family at :160-161).
+  "(?s)MISSIONMARK label=mine12-packed-after .*?Mode transition on-rails.{1,3}loaded: pid=110406740",
+  "(?s)MISSIONMARK label=mine12-packed-after .*?Rails-span event: ConverterDeactivated pid=[0-9]+ midx=[0-9-]+ part='MiniISRU'",
+  "(?s)MISSIONMARK label=mine12-packed-after .*?Rails-span reconcile for pid=110406740 rec=[0-9a-f]{32}: [1-9][0-9]* event\\(s\\) at UT=",
+  # --- 5. Ore grew while away: rb - ra in [0.05, 999.9999] (TestCommandReadVesselResources.cs:569-575) ---
+  "(?s)MISSIONMARK label=mine12-rails-exit (?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources vessel index=0 rec=- found=true pid=110406740 name='Mining Rover RC' loaded=true parts=27 ",
+  "(?s)MISSIONMARK label=mine12-rails-exit (?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources expect resource=Ore expected=[0-9]+\\.[0-9]{4} actual=[0-9]+\\.[0-9]{4} diff=(?:0\\.(?:0[5-9]|[1-9][0-9])[0-9]{2}|[1-9][0-9]{0,2}\\.[0-9]{4}) tolerance=0\\.0100 match=false",
+  # The drills still ran at the end of the warp; the ISRU is off.
+  "(?s)MISSIONMARK label=mine12-rails-exit [^\\r\\n]*(?:(?!MISSIONMARK label=).)*?partaction applied button=inspect pid=110406740 part='MiniDrill' [^\\r\\n]*Surface Harvester:active=1",
+  # --- 6. The switch back ---
+  "switchclick gate targetPid=110406740 targetName=Mining Rover RC scenarioReady=true canSwitchVesselsFar=true targetIsActiveVessel=false targetIsUnloaded=false hasActiveRecording=true hasActiveSession=false priorFocusedPid=0 anotherDialogOpen=false targetIsSeparateCommittedVessel=false dialogDecision=NoPriorSession",
+  "switchclick complete site=map targetPid=110406740 targetName=Mining Rover RC [^\\r\\n]*activeVesselPid=110406740 switched=true",
+  # No jump on the refocus: every tank within 0.05 of rb (TestCommandReadVesselResources.cs:588-595).
+  "(?s)MISSIONMARK label=mine12-back (?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=1 missing=0 uidCollisions=0 uidDigest=[^ \\r\\n]+ match=true snapshotMatch=none",
+  # The tracked background member is watched (ParsekFlight.cs:9484-9487) and promoted by
+  # the first trigger (ParsekFlight.cs:11254-11256 accepted, :4324-4325 promoted), and the
+  # promoted recorder starts as a promotion (FlightRecorder.cs:6702-6705).
+  "(?s)MISSIONMARK label=mine12-switch-back-.*?Post-switch auto-record armed: vessel='Mining Rover RC' pid=110406740 tracked=True reason=vessel switch to tracked background member while idle",
+  "(?s)MISSIONMARK label=mine12-switch-back-.*?Post-switch trigger accepted: vessel='Mining Rover RC' pid=110406740 trigger=[A-Za-z]+ decision=PromoteTrackedRecording",
+  "(?s)MISSIONMARK label=mine12-switch-back-.*?Promoted recording '[0-9a-f]{32}' from background \\(pid=110406740\\)",
+  "(?s)MISSIONMARK label=mine12-switch-back-.*?Recording started: vessel=\"Mining Rover RC\", parts=27, points=0, promotion, treeRec=",
+  "(?s)MISSIONMARK label=mine12-before-stop (?:(?!MISSIONMARK label=).)*?recordingstate recording=true tree=[0-9a-f]{32} ",
+  "partaction applied button=stopconverter pid=110406740 part='MiniDrill' [^\\r\\n]*converter='Surface Harvester' [^\\r\\n]*count=4",
+  "partaction applied button=retract pid=110406740 part='MiniDrill' [^\\r\\n]*count=4",
+  # --- 7. Commit ---
+  "committree committed=true",
+  "MISSIONMARK label=mine12-committed-[12]-[0-9a-f]{32} ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  # ParsekTestCommandAddon.SimulateSwitchClick.cs:116 / :165 / :238.
+  "switchclick rejected",
+  "switchclick refused",
+  "switchclick failed",
+  "warptout refused",
+  # ParsekTestCommandAddon.WarpToUT.cs:330 / :345.
+  "warptout detached timeout",
+  "warptout detached threw",
+  "readvesselresources rejected",
+  # ParsekFlight.cs:4307: the promotion's StartRecording failed.
+  "PromoteRecordingFromBackground: StartRecording failed",
+  "uidCollisions=[1-9]",
+  "Within-segment breakage",
+]
+
+[runtime]
+# One LoadGame (300 s) and StartRecording (180 s), about 50 s of 1x before the warp, two
+# switches (120 s each), the half hour at 100x (~18 s), 25 s of 1x after the switch back, a
+# commit and a save (120 s each).
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

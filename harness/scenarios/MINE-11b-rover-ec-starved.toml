@@ -1,0 +1,167 @@
+schema = 1
+id = "MINE-11b-rover-ec-starved"
+tier = "nightly"
+# THE MINING PROGRAM, lane MINE-11, second half (plan
+# `docs/dev/research/mining-isru-test-program-2026-10-17.md`; the first half, full tanks, is
+# `MINE-11a-rover-full-tanks` on its own fixture). NEVER FLOWN: its first flight is a READING
+# run, and the brackets below are tightened after it.
+#
+# HOST: `miner-rover-starved` (harness/tools/build_miner_rover_variants.py): V's real "Mining
+# Rover RC" (pid 110406740, index 0, active, radiators on, tanks empty) with its four RTGs
+# REMOVED (23 parts, part indices renumbered) and every ElectricCharge amount 0, plus the
+# base's `Observer Probe` in low Kerbin orbit. The builder's header says why the parts are
+# dropped rather than the generators switched off: the RTG's `isAlwaysActive` override does
+# not survive a save, so the spawned rover would have had power again.
+#
+# THE STORY. Record MINE-2's mining shape (deploy all four drills, start all four
+# `Surface Harvester`s and the ISRU's `Lf+Ox`), warp on rails at no more than 100x for an
+# hour, stop, commit, Rewind-to-Launch, then warp at the Space Center: halfway through the
+# recording the rover must NOT have spawned yet (the tail was kept), and past its end it
+# spawns with its end snapshot.
+#   * A STARVED CONVERTER PRODUCES NOTHING. With no ElectricCharge and nothing generating
+#     it, every converter is switched on and converts nothing. The end read (r1) must hold
+#     Ore / LF / Ox / Mono / EC all at 0. READ ON THE FIRST FLIGHT (`2026-10-17_1518`): the
+#     four drills report `active=1` in the press's own frame and are off one frame later
+#     (stock or KSPCF's HarvesterECConsumption, applied on this install; not determined), so
+#     the recorder sees no drill activation at all and the harvest window lists only the
+#     ISRU. The ISRU stays `active=1` for the hour. So the lane pins the drills OFF and the
+#     ISRU ON after the hour, and neither requires nor forbids a drill part event (a
+#     one-frame blip is below the recorder's sampling by design).
+#   * NO PHANTOM PRODUCTION IN REPLAY OR SPAWN. The rover spawned past the end must hold the
+#     same zeros (rw, `expect`) and equal its end snapshot (`expectSnapshot`).
+#   * THE TAIL IS KEPT BY THE RUNNING-CONVERTER RULE ALONE. Nothing moved, so no harvest
+#     window witnesses a resource change (RecordingOptimizer.FindLastHarvestWindowChangeUT
+#     reads NaN); only the converters still on at the end (CountConvertersRunningAtEnd, a
+#     proxy that "keeps a stalled converter's tail too", per its own comment) keep the boring
+#     stationary tail. Seen twice: the optimizer's summary names `resource-changing-tail`, and
+#     at UT 1800 (between the last part event near UT 60 and the end near 3660) ListHandles
+#     reads the rover not spawned. A trimmed tail would have ended ~10 s after the last part
+#     event and the rover would already stand at UT 1800.
+#
+# UNKNOWN UNTIL THE FIRST FLIGHT: whether stock lets the drills deploy and start with 0 EC
+# exactly as it did with power (the seam presses the part-menu buttons through
+# BaseEvent.Invoke, which does not check commandability; a player on a dead probe could not,
+# so the lane is a model of a rover that ran flat, not a click path); whether the last track
+# section is a boring one (if not, the optimizer summary names `last-section-not-boring` and
+# that token is re-read, the not-spawned check still holds).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) no host flight to reuse, a new fixture; (2)
+# every wait is an explicit-UT WarpToUT; (3) the 1x dwells are MINE-2's measured minimum
+# (deploy animation to UT 60, presses settle to UT 75); (4)-(5) no burns, no coasts; (6) a
+# deterministic lane, but `once` as every mining lane until its first green flight; (7)
+# recordings pinned 1..1; (8)-(9) tier and efficiency after the first flight.
+description = "MINE-11b: V's mining rover with its RTGs removed and no ElectricCharge records an hour at 100x after switching on every drill and the ISRU; the starved drills switch themselves off, the ISRU stays on, nothing is produced, the recording's tail is kept by the running-converter rule alone, and after commit and Rewind-to-Launch the rover spawned past the end holds empty tanks equal to its end snapshot."
+instanceProfile = "stock-minimal"
+tags = ["mining", "isru", "rewind", "MINE-11"]
+
+[fixture]
+saveTemplate = "fixtures/saves/miner-rover-starved"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant,ElectricCharge", expect = "Ore:0;LiquidFuel:0;Oxidizer:0;MonoPropellant:0;ElectricCharge:0", tolerance = "0.01" }, label = "r0", expect = "OK" },
+  { cmd = "StartRecording",                                                               expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  { cmd = "PartAction",          args = { button = "deploy", part = "MiniDrill", all = "true" },   expect = "OK" },
+  # The drills' deploy animation must finish before stock shows their Start button.
+  { cmd = "WarpToUT",            args = { ut = "60", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "PartAction",          args = { button = "startconverter", part = "MiniDrill", converter = "Surface Harvester", all = "true" }, expect = "OK" },
+  { cmd = "PartAction",          args = { button = "startconverter", part = "MiniISRU", converter = "Lf+Ox" }, expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "75", maxRate = "1" },                     expect = "OK", budget = 120 },
+  # An hour of starved converters on rails, no faster than V ever warped.
+  { cmd = "WarpToUT",            args = { ut = "3660", maxRate = "100" },                 expect = "OK", budget = 300 },
+  { cmd = "MissionMark",         args = { label = "mine11b-starved" },                    expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant,ElectricCharge", expect = "Ore:0;LiquidFuel:0;Oxidizer:0;MonoPropellant:0;ElectricCharge:0", tolerance = "0.01" }, label = "r1", expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniDrill", all = "true" },  expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniISRU" },               expect = "OK" },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "CommitTree",                                                                   expect = "OK", budget = 120 },
+  # CommitTree re-takes the committed tree for the still-active rover; stop it (RC-6).
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine11b-committed-${c0.count}-${c0.rec0}" }, expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                             expect = "OK", budget = 300 },
+  # Halfway through the recording at the Space Center: a kept tail has not spawned yet.
+  { cmd = "WarpToUT",            args = { ut = "1800", maxRate = "1000" },                expect = "OK", budget = 300 },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c1",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine11b-midtail-spawned-${c1.rec0spawned}" }, expect = "OK" },
+  # Past the end: the rover spawns at its tip with its end snapshot.
+  { cmd = "WarpToUT",            args = { ut = "3760", maxRate = "1000" },                expect = "OK", budget = 300 },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c2",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine11b-warp-spawned-${c2.rec0spawned}-${c2.rec0spawnedPid}" }, expect = "OK" },
+  { cmd = "ReadVesselResources", args = { rec = "${c0.rec0}", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant,ElectricCharge", expect = "Ore:0;LiquidFuel:0;Oxidizer:0;MonoPropellant:0;ElectricCharge:0", expectSnapshot = "true", tolerance = "0.01" }, label = "rw", expect = "OK" },
+  { cmd = "SaveGame",                                                                     expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rewind-to-launch", "fast-forward"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+# Literal sources (C#, file:line): `partaction applied button=` TestCommandPartAction.cs:626,
+# `<ConverterName>:active=` TestCommandPartAction.cs:512; `Part event: ` FlightRecorder.cs:2304;
+# `Optimization pass: TrimBoringTail skipped ` and `<category>=<n>` RecordingStore.Optimization.cs:428
+# (category `resource-changing-tail` RecordingOptimizer.TailTrim.cs:843); `MISSIONMARK label=`
+# TestCommandMissionMark.cs:22; `exec id= cmd=<verb> start` TestCommandDiagnostics.cs:45;
+# `readvesselresources complete vessels=` TestCommandReadVesselResources.cs:590;
+# `committree committed=true` ParsekTestCommandAddon.cs:2538; `invokerewindtolaunch complete
+# rec=` ParsekTestCommandAddon.InvokeRewindToLaunch.cs:243; the `spawned` token
+# TestCommandListHandles.cs:452.
+[expectations.logContracts]
+required = [
+  "partaction applied button=deploy pid=110406740 part='MiniDrill' [^\\r\\n]*count=4",
+  "partaction applied button=startconverter pid=110406740 part='MiniDrill' [^\\r\\n]*converter='Surface Harvester' [^\\r\\n]*count=4",
+  "partaction applied button=startconverter pid=110406740 part='MiniISRU' [^\\r\\n]*converter='Lf\\+Ox' state='[^'\\r\\n]*Lf\\+Ox:active=1",
+  "Part event: ConverterActivated 'MiniISRU' pid=[0-9]+ \\(converter\\)",
+  # Before the recording: empty tanks, no charge (the only read before StartRecording).
+  "(?s)readvesselresources complete vessels=1 missing=0 uidCollisions=0 [^\\r\\n]* match=true snapshotMatch=none(?:(?!readvesselresources complete).)*?cmd=StartRecording start",
+  # After the hour: still nothing in any tank.
+  "(?s)MISSIONMARK label=mine11b-starved(?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=1 missing=0 uidCollisions=0 [^\\r\\n]* match=true snapshotMatch=none",
+  # The only drill / ISRU inspects come after the hour: the starved drills switched
+  # themselves off, the starved ISRU is still on.
+  "partaction applied button=inspect pid=110406740 part='MiniDrill' [^\\r\\n]*state='(?:[^'\\r\\n]*Surface Harvester:active=0){4}",
+  "partaction applied button=inspect pid=110406740 part='MiniISRU' [^\\r\\n]*Lf\\+Ox:active=1",
+  "committree committed=true",
+  "MISSIONMARK label=mine11b-committed-1-[0-9a-f]{32} ",
+  "Optimization pass: TrimBoringTail skipped [0-9]+ recording\\(s\\) [^\\r\\n]*resource-changing-tail=[1-9]",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "MISSIONMARK label=mine11b-midtail-spawned-false ",
+  "MISSIONMARK label=mine11b-warp-spawned-true-[0-9]+ ",
+  "(?s)MISSIONMARK label=mine11b-warp-spawned-(?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=1 missing=0 uidCollisions=0 [^\\r\\n]* match=true snapshotMatch=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  "invokerewindtolaunch refused",
+  "MISSIONMARK label=mine11b-midtail-spawned-true ",
+  "Spawn RETIRED",
+  "Spawn ABANDONED",
+  "Spawn FAILED",
+  "uidCollisions=[1-9]",
+  "Within-segment breakage",
+]
+
+[runtime]
+# Two deferred LoadGame / rewind steps (up to 300 s each), an hour of rails warp at 100x
+# (about 36 s) and two Space Center warps.
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

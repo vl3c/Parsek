@@ -288,7 +288,7 @@ namespace Parsek.TestCommands
         // vessel: Vessel.onVesselRenameAccept by reflection, so Parsek's capture runs) -----
         void RenameVessel(ParsedCommand cmd);
         // ----- PartAction (one button of one part's stock right-click menu: Undock,
-        // Decouple, Control From Here) -----
+        // Decouple, Control From Here, the drill / converter / experiment / lab buttons) -----
         void PartAction(ParsedCommand cmd);
         // ----- RevertToLaunch (stock's Revert to Launch outside a Re-Fly session) -----
         void RevertToLaunch(ParsedCommand cmd);

@@ -167,6 +167,11 @@ namespace Parsek.TestCommands
             // Folding the two into one verb would make the wire token ambiguous about
             // which of the two clock mechanisms a spec exercised, exactly the argument
             // that kept InvokeRewindToLaunch separate from InvokeRewind.
+            // Args: ut= [maxRate=] [ladder=phys] [detach=true]. detach=true answers OK once
+            // the first ladder step is applied and keeps warping from the addon's Update, so
+            // later steps (a PartAction press, a tank read) run DURING the warp; it drops to
+            // 1x at its target, a later WarpToUT takes it over, and a clock-moving verb or a
+            // scene change ends it at 1x.
             "WarpToUT",
             // The GUI-census pair. ADDITIVE (33 -> 35 implemented, reserved unchanged
             // at 5): the reserved envelope never carried a screenshot or a UI-driving
@@ -321,10 +326,15 @@ namespace Parsek.TestCommands
             "RenameVessel",
             // ADDITIVE (48 -> 50 implemented, reserved unchanged at 4): the two stock controls
             // the remaining vessel-name claims need (design-vessel-and-mission-names.md 15.3).
-            //   PartAction button=undock|decouple|controlfrom [part=] [pid=] presses one button of
-            //     one part's stock right-click menu (ModuleDockingNode.Undock,
-            //     ModuleDecouplerBase.Decouple, ModuleCommand.MakeReference) through its
-            //     BaseEvent. Contract on TestCommandPartAction; SINGLE-PHASE, RequiresFlight,
+            //   PartAction button=undock|decouple|controlfrom|deploy|retract|startconverter|
+            //     stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff
+            //     [part=] [converter=] [all=true] [pid=] presses one button of one part's stock
+            //     right-click menu (all=true: every candidate)
+            //     (ModuleDockingNode.Undock, ModuleDecouplerBase.Decouple,
+            //     ModuleCommand.MakeReference, the ISRU / lab module events, ModuleActiveRadiator
+            //     Activate / Shutdown) through its BaseEvent, on a packed (on-rails) vessel as on
+            //     an unpacked one; labprocess is the results dialog's lab button, inspect presses
+            //     nothing. Contract on TestCommandPartAction; SINGLE-PHASE, RequiresFlight,
             //     default budget.
             //   RevertToLaunch is stock's Revert to Launch OUTSIDE a Re-Fly (ReFlyRevert owns
             //     the in-session one): FlightDriver.RevertToLaunch(), answered once the new

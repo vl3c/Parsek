@@ -836,6 +836,18 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # vessel list reordered to [Kerbal X, asteroid, rover] (harness/tools/
         # build_eva_construct_pad.py, the EVA-11 host). Inherits the base's node.
         "eva-construct-pad": True,
+        # `fresh-sandbox` plus V's real Mining Rover RC (index 0, active) and an orbiting
+        # Observer Probe (harness/tools/build_miner_rover_landed.py). The base has no node,
+        # but a focusable save routes to FLIGHT, so the builder splices b1-pad-craft's.
+        "miner-rover-landed": True,
+        # `miner-rover-landed` with its probe swapped for a crewless rover parked 120 m
+        # north (harness/tools/build_miner_rover_watched.py). Inherits the node.
+        "miner-rover-watched": True,
+        # `miner-rover-landed` with the miner's ore tanks nearly full and fuel tanks full,
+        # and with its RTGs dropped and no charge (harness/tools/build_miner_rover_variants.py,
+        # the MINE-11 hosts). Both inherit the node.
+        "miner-rover-full": True,
+        "miner-rover-starved": True,
         "fresh-career": False,
         "fresh-sandbox": False,
         "fresh-science": False,

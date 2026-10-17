@@ -299,6 +299,12 @@ namespace Parsek.TestCommands
             if (HighLogic.LoadedScene == GameScenes.LOADING) return;
             if (sceneTransitioning || settleCounter > 0) return;
 
+            // A `WarpToUT detach=true` already answered OK; its warp keeps stepping the ladder
+            // here, every safe-point frame, whatever the FIFO head is doing (a part-menu press,
+            // a tank read, a held two-phase verb). Before the two-phase and batch gates below,
+            // which would otherwise starve it.
+            TickDetachedWarp();
+
             // Two-phase completion (RunTests / LoadGame) is checked BEFORE the batch gate:
             // RunTests must complete precisely when its owned batch stops running, which
             // the IsBatchRunning early return below would otherwise mask. While a two-phase
@@ -734,6 +740,9 @@ namespace Parsek.TestCommands
 
             TestCommandDiagnostics.ExecStart(id, head.Verb);
             ClearExecResult();
+            // A clock-moving verb ends a running detached warp at 1x first, so the warp's
+            // ladder cannot re-raise the rate after that verb's own jump.
+            YieldDetachedWarpTo(head);
             try
             {
                 InvokeExecutor(head);
@@ -3386,6 +3395,9 @@ namespace Parsek.TestCommands
             // this clear the flag would survive the transition and relax the gate around
             // whatever ran next.
             ClearDetachedBatchRelaxation("scene-change");
+            // A detached warp cannot span a scene load (LoadGame, a scene exit): lowered and
+            // ended here, and again on onLevelWasLoaded for a load that never requested.
+            EndDetachedWarp(TestCommandWarpToUT.DetachedEndSceneChange, lower: true, null);
         }
 
         // The new scene is active: start the settle countdown. Transitioning clears when
@@ -3397,6 +3409,7 @@ namespace Parsek.TestCommands
             // fires the request event (a direct level load) would otherwise leave a scope
             // pointing at destroyed window instances.
             ClearGuiMockSessionOnExit("level-loaded");
+            EndDetachedWarp(TestCommandWarpToUT.DetachedEndSceneChange, lower: true, null);
         }
 
         /// <summary>Human-readable rendering of the env value for the inert log line:

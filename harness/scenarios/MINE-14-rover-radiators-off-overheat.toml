@@ -1,0 +1,184 @@
+schema = 1
+id = "MINE-14-rover-radiators-off-overheat"
+tier = "nightly"
+# THE MINING PROGRAM, lane MINE-14 (radiators off through a long rails warp; plan
+# `docs/dev/research/mining-isru-test-program-2026-10-17.md`). NEVER FLOWN: its first flight
+# is a READING run. Every regex below matches a literal found in C# source (file:line cited
+# where the line is not one the sibling MINE lanes already pin).
+#
+# HOST: `miner-rover-watched` (harness/tools/build_miner_rover_watched.py), MINE-9's host:
+# V's "Mining Rover RC" (pid 110406740, 27 parts, four `radPanelSm` radiators ON in the
+# fixture) and `Miner Watcher` (pid 3179797026) 120 m north, the FLIGHT host after the
+# rewind, close enough to watch the miner's ghost lose its parts and to load the spawn.
+#
+# THE ACCIDENT IT REPRODUCES. MINE-2's first flight (`2026-10-17_1207`) ran the drills and
+# the ISRU through an hour of 1000x rails warp from UT 75 with the radiators OFF: every
+# 1200 K part (four RTGs, four wheels, two batteries; todo MINING-ISRU-UNTESTED-END-TO-END)
+# exploded about 28 minutes in (UT 1763..1814) while packed, inferred overheat (stock
+# `ModuleCoreHeat.MoveCoreEnergyToRadiators` counts only radiators with `IsCooling` set).
+# This lane makes that the subject: radiators off by the seam's `radiatoroff` button
+# (TestCommandPartAction.cs:525 reads `radiator:cooling=`), the same hour at 1000x.
+#
+# WHAT IS STOCK AND WHAT IS PARSEK. How many parts die, and when, is stock thermal physics:
+# the lane pins it loosely (at least three `Destroyed` part events, the survivors' part
+# count in 10..24). Parsek's handling is pinned tightly:
+#   * each death while recording is a recorder part event
+#     (FlightRecorder.OnPartDie, FlightRecorder.cs:1367-1391, `Part event: Destroyed`);
+#   * the replayed ghost hides the dead parts (`apply family=Destroyed surface=visibility`,
+#     GhostPlaybackLogic.cs:1826-1838, line grammar GhostPartEventApplyLog.cs:203-221);
+#   * the rover spawned at the recording's end carries EXACTLY the parts that survived:
+#     the part count the recording read at its end (r1) equals the spawned vessel's (rs),
+#     compared by backreference, and its tanks equal the end snapshot.
+# NOT GATED, READ ON FLIGHT 1: whether each explosion also reaches the joint-break path as a
+# within-segment breakage (`Within-segment breakage: part=` at SegmentBoundaryLogic.cs:309-311
+# and `Within-segment breakage - emitting SegmentEvents` at ParsekFlight.cs:7732-7733); the
+# other mining lanes forbid that line as an overheat tripwire, but a leaf part dying packed
+# may or may not break a joint first. Whether the rover splits (a dead part with children
+# would make debris vessels): flight 1 of MINE-2 lost only leaf parts, so the count stays 1.
+#
+# THE STORY. Record: deploy the drills, start the four Surface Harvesters and the ISRU's
+# `Lf+Ox`, switch all four radiators off, then an hour of rails warp at 1000x (MINE-2 flight
+# 1's shape). Read the survivors, stop, commit, Rewind-to-Launch, save, reload into FLIGHT on
+# the watcher, replay the ghost at 100x through the overheat to just before the end, cross the
+# end at 1x so the rover spawns beside the watcher, and read it. The recording ends near UT
+# 3670 (10 s of 1x after the warp let the unpacked survivors settle).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) shared flight considered, not applied: every
+# MINE host keeps the radiators ON on purpose (MINE-2, MINE-6, MINE-7, MINE-8, MINE-9 all
+# forbid the breakage line), and an overheat inside any of them would void their snapshot and
+# spawn gates; (2) every wait is an explicit-UT WarpToUT; (3) the hour at 1000x is the shape
+# that overheated (about 4 s wall); the replay runs at 100x (V's cap, ~36 s wall) because the
+# ghost must play the deaths in FLIGHT, and only the end crossing is 1x (30 s, the spawn);
+# the 10 s of 1x after the warp is the unpacked settle the part count needs; (4)-(5) no
+# burns, no coast; (6) retry once (stock thermal timing is not ours); (7) count pinned 1;
+# (8)/(9) after the first green flight.
+description = "MINE-14: V's mining rover runs its drills and ISRU through an hour of rails warp with its radiators switched off; stock overheats and destroys its 1200 K parts while Parsek records each loss as a part event, the replayed ghost hides the lost parts, and after Rewind-to-Launch the rover spawned at its recording's end carries exactly the parts that survived and its end-snapshot tanks."
+instanceProfile = "stock-minimal"
+tags = ["mining", "isru", "overheat", "part-destroyed", "rewind", "warp-rails", "MINE-14", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/miner-rover-watched"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "StartRecording",                                                               expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  { cmd = "PartAction",          args = { button = "deploy", part = "MiniDrill", all = "true" },   expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "60", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "PartAction",          args = { button = "startconverter", part = "MiniDrill", converter = "Surface Harvester", all = "true" }, expect = "OK" },
+  { cmd = "PartAction",          args = { button = "startconverter", part = "MiniISRU", converter = "Lf+Ox" }, expect = "OK" },
+  # THE CAUSE: all four radiators off.
+  { cmd = "PartAction",          args = { button = "radiatoroff", part = "radPanelSm", all = "true" }, expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "radPanelSm", all = "true" }, expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "75", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",         args = { label = "mine14-radiators-off" },               expect = "OK" },
+  # An hour on rails at 1000x (MINE-2 flight 1 lost ten parts around UT 1763..1814).
+  { cmd = "WarpToUT",            args = { ut = "3660", maxRate = "1000" },                expect = "OK", budget = 300 },
+  # 10 s of 1x: the rover unpacks without whatever died (wheels included) and settles, so the
+  # part count read next is the one the stop snapshot captures.
+  { cmd = "WarpToUT",            args = { ut = "3670", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",         args = { label = "mine14-after-warp" },                  expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant,ElectricCharge" }, label = "r1", expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniDrill", all = "true" },  expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "radPanelSm", all = "true" }, expect = "OK" },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "CommitTree",                                                                   expect = "OK", budget = 120 },
+  # CommitTree re-takes the committed tree for the still-active miner; stop it (RC-6).
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine14-committed-${c0.count}-${c0.rec0}-parts-${r1.parts}" }, expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                             expect = "OK", budget = 300 },
+  { cmd = "SaveGame",            args = { name = "mine14-rewound" },                      expect = "OK", budget = 120 },
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "mine14-rewound" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine14-rewound-reloaded" },            expect = "OK" },
+  # The recording starts near UT 31; at UT 60 its ghost stands 120 m from the watcher.
+  { cmd = "WarpToUT",            args = { ut = "60", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c1",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine14-ghost-live-spawned-${c1.rec0spawned}" }, expect = "OK" },
+  # The replay through the overheat, at V's 100x cap, to just before the end ...
+  { cmd = "WarpToUT",            args = { ut = "3660", maxRate = "100" },                 expect = "OK", budget = 300 },
+  { cmd = "MissionMark",         args = { label = "mine14-replay-before-end" },           expect = "OK" },
+  # ... then 1x across the end: the rover spawns beside the watcher.
+  { cmd = "WarpToUT",            args = { ut = "3690", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c2",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine14-spawned-${c2.rec0spawned}-${c2.rec0spawnedPid}" }, expect = "OK" },
+  { cmd = "ReadVesselResources", args = { rec = "${c0.rec0}", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant", expectSnapshot = "true", tolerance = "0.01" }, label = "rs", expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine14-spawn-parts-${rs.parts}" },     expect = "OK" },
+  { cmd = "SaveGame",                                                                     expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
+]
+
+[dimensionsCovered]
+# decouple-stage-destroy: part destruction recorded as `Destroyed` part events and applied on
+# the ghost (the destroy half of the value).
+D7  = ["decouple-stage-destroy"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "sandbox", "scene-flight", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  # --- The presses (MINE-9's live-proven tokens, MINE-6's radiator state token) ---
+  "partaction applied button=deploy pid=110406740 part='MiniDrill' [^\\r\\n]*count=4",
+  "partaction applied button=startconverter pid=110406740 part='MiniDrill' [^\\r\\n]*converter='Surface Harvester' [^\\r\\n]*count=4",
+  "partaction applied button=startconverter pid=110406740 part='MiniISRU' [^\\r\\n]*converter='Lf\\+Ox' state='[^'\\r\\n]*Lf\\+Ox:active=1",
+  "partaction applied button=radiatoroff pid=110406740 part='radPanelSm' [^\\r\\n]*state='(?:(?!cooling=1)[^'\\r\\n])*radiator:cooling=0(?:(?!cooling=1)[^'\\r\\n])*' count=4 ",
+  # --- THE LOSS WHILE RECORDING: at least three recorder `Destroyed` part events after the
+  # radiators went off (FlightRecorder.cs:1378-1389; ClassifyPartDeath returns Destroyed for a
+  # part with no parachute) ---
+  "(?s)MISSIONMARK label=mine14-radiators-off (?:.*?Part event: Destroyed '[^'\\r\\n]+' pid=[0-9]+){3}.*?MISSIONMARK label=mine14-after-warp ",
+  # The survivors: still loaded and landed, 10..24 of 27 parts (STOCK PHYSICS: a bracket;
+  # MINE-2 flight 1 left 17). TestCommandReadVesselResources.cs:547-560.
+  "(?s)MISSIONMARK label=mine14-after-warp (?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources vessel index=0 rec=- found=true pid=110406740 name='Mining Rover RC' loaded=true parts=(?:1[0-9]|2[0-4]) ",
+  "committree committed=true",
+  "MISSIONMARK label=mine14-committed-1-[0-9a-f]{32}-parts-(?:1[0-9]|2[0-4]) ",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # --- THE GHOST LOSES THE PARTS on replay (GhostPartEventApplyLog.cs:213, surface token
+  # :163; Destroyed -> Visibility at GhostPlaybackLogic.cs:1826-1838) ---
+  "MISSIONMARK label=mine14-ghost-live-spawned-false ",
+  "(?s)MISSIONMARK label=mine14-rewound-reloaded .*?apply family=Destroyed surface=visibility rec=[0-9]+ pid=[0-9]+ applied=[1-9][0-9]* .*?MISSIONMARK label=mine14-replay-before-end ",
+  # --- THE SPAWN CARRIES ONLY THE SURVIVORS ---
+  "MISSIONMARK label=mine14-spawned-true-[0-9]+ ",
+  "(?s)MISSIONMARK label=mine14-spawned-(?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources vessel index=0 rec=[0-9a-f]{32} found=true pid=[0-9]+ name='Mining Rover RC' loaded=(?:true|false) parts=(?:1[0-9]|2[0-4]) ",
+  "(?s)MISSIONMARK label=mine14-spawned-(?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=1 missing=0 uidCollisions=0 [^\\r\\n]*snapshotMatch=true",
+  # Same part count at the recording's end and on the spawned vessel, by backreference.
+  "MISSIONMARK label=mine14-committed-1-[0-9a-f]{32}-parts-([0-9]+) [\\s\\S]*MISSIONMARK label=mine14-spawn-parts-\\1 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  "readvesselresources rejected",
+  "invokerewindtolaunch refused",
+  "Spawn RETIRED",
+  "Spawn ABANDONED",
+  "Spawn FAILED",
+  "uidCollisions=[1-9]",
+]
+
+[runtime]
+# Two LoadGame steps and the rewind (up to 300 s each), an hour at 1000x (~4 s wall), 10 s
+# of 1x, the replay at 100x (~36 s), 30 s of 1x across the end, a commit and two saves.
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
