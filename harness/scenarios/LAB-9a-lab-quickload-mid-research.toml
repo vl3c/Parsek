@@ -1,0 +1,206 @@
+schema = 1
+id = "LAB-9a-lab-quickload-mid-research"
+tier = "operator"
+# THE SCIENCE-LAB PROGRAM, lane LAB-9a (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
+# "LAB-9a F9 mid-research"). NEVER FLOWN: its first flight is a READING run, so it is `operator`
+# and tagged `pending-flight` until that run pins the measured values.
+#
+# HOST: `lab-lko-science` (the LAB-2 / LAB-3 host): SCIENCE_SANDBOX, the LABX Orbital Lab (vessel
+# persistentId 2200110055) ORBITING Kerbin at about 107 x 92 km, Bob (Scientist, level 0) in the
+# Large.Crewed.Lab (part persistentId 1700054019, flightID 1270217782). Fixture UT 355.8.
+#
+# THE STORY. While recording, process the four experiments (50 data), start Research and
+# rails-warp 3,990 s so the lab holds about 0.05 science, then press F5 (`SaveGame quicksave`)
+# with research running. Research on for half a Kerbin day more (10,800 s, about +0.135), so the
+# lab holds about 0.19. Then F9. The seam refuses an in-flight LoadGame with a live recorder
+# (`recording-active`; there is no `allowLiveRecorder=quickload`, plan owner question Q6), so the
+# lane takes QL-2 / QL-4b's route: leave to the Space Center (the scene-exit auto-commit of the
+# tree, autoMerge on), then `LoadGame quicksave` from there, which lands in FLIGHT on the lab.
+# The lab's fields must come back with the quicksave (storedScience and dataStored equal to the
+# reading taken just before the F5, Research still on), the half day of research must be gone,
+# and the committed-copy restore must resume the flight (`Quickload committed-copy restore: ...
+# action=ResumeFromQuicksave reason=committed-after-quicksave`, the tree committed AFTER the
+# quicksave) with the resume reconcile retiring the abandoned future. Then the player leaves
+# again and the resumed flight commits again.
+#
+# THE LEDGER. Research is stored in the lab, never booked, so the abandoned span carries no lab
+# earning: no `ScienceLabCredited` and no `ScienceChanged` anywhere, and the reconcile retires no
+# row dated after the cutoff (`ledgerRowsRetired=N (afterCutoff=0 ...`; a sandbox flight's only
+# retired rows are the kerbal-assignment summaries the exit commit wrote, QL-4's
+# `afterCutoff=0 kerbalAssignment=1`). A lab credit inside the abandoned span would need a
+# transmit, which takes about 2.7 days of research in this orbit to reach 1 science, so the
+# ledger half of an F9 belongs on the seeded pad lab (LAB-9b covers a revert).
+#
+# THE EQUALITY. The quicksave holds the lab's float fields verbatim and the F9 restores the clock
+# to the save's UT, so the converter owes nothing on load (no catch-up) and 10 s at 1x adds
+# 0.000125 science (invisible at F2) and no data (under half a float ulp of dataStored per 0.02 s
+# step). A backreference pins the reading after the F9 to the one taken before the F5, at F2,
+# for both fields; the pre-F5 value is about 0.0501, mid-step, so the comparison does not ride a
+# rounding edge, and it is not 0 (a lab that came back empty is told apart from the save).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse - LAB-3 flies research over a day but ends
+# in a commit; QL-2 / QL-4b fly the F9 route on non-lab craft; this is the lab's F9, its own
+# lane. (2) no idle waits - every wait is an explicit-UT WarpToUT; 10 s at 1x after the F9
+# covers the resume (RestoreActiveTreeFromPending runs from OnFlightReady) and stock's 1 s
+# post-load hold. (3) the abandoned span is half a day (about 231 s at the measured 46.7x), not
+# the plan's full day: +0.135 is 13 F2 steps, plenty, at half the wall. (4) no burns. (5) no
+# coast. (6) fail fast - a refused verb fails its step; retry `once` until the first flight
+# shows the lane deterministic. (7) count window - the one tree, committed twice, pinned {1,2}
+# until read. (8) tier - operator until the reading run; promote by the measured p50 (expected
+# about 7 min). (9) flight_efficiency.py after the first green flight.
+#
+# WHAT A FIRST FLIGHT CAN FALSIFY: the F9 route on an orbiting lab (`refined=QuickloadFlight`
+# or `InSessionOther`, the committed-copy restore, the resume); the lab's fields coming back
+# with the quicksave (a backreference miss means a Parsek or stock path changed the restored
+# lab: the abandoned research kept, a catch-up of the abandoned span, or an emptied lab); the
+# reconcile line's shape on a lab flight (`afterCutoff=0`); the recordings count after the
+# second commit (pinned {1,2} until read).
+description = "LAB-9a: a crewed science lab in low Kerbin orbit is researching (about 0.05 science) while recording when the player quicksaves, researches half a Kerbin day more (about 0.19), leaves to the Space Center and quickloads: the flight resumes from the quicksave with the lab's stored science and data exactly as saved and research still on, the abandoned half day gone, the resume reconcile retiring the abandoned future with no ledger row dated after the save, and no lab science paid anywhere."
+instanceProfile = "stock-minimal"
+tags = ["science-lab", "science", "converter", "quickload", "scene-exit", "LAB-9a", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/lab-lko-science"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # Both exits auto-commit (no merge modal can stand at a scene exit).
+  { cmd = "SetSetting",     args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "StartRecording",                                                          expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab9a-recording-live" },               expect = "OK" },
+  # 1. The four experiments into the lab (50 data).
+  { cmd = "PartAction",     args = { button = "experiment", part = "sensorThermometer" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "370", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "sensorThermometer" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "experiment", part = "GooExperiment" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "376", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "GooExperiment" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "experiment", part = "science.module" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "382", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "science.module" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "experiment", part = "sensorBarometer" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "388", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "sensorBarometer" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # 2. Research on at 1x, 3,990 s of rails warp, back to 1x: the lab holds about 0.05 (q0).
+  { cmd = "MissionMark",    args = { label = "lab9a-research-on-before" },           expect = "OK" },
+  { cmd = "PartAction",     args = { button = "startconverter", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "397", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",       args = { ut = "4387", maxRate = "50" },                  expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",       args = { ut = "4397", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # 3. THE F5, research running.
+  { cmd = "MissionMark",    args = { label = "lab9a-f5" },                           expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "quicksave" },                           expect = "OK", budget = 120 },
+  # 4. Half a Kerbin day more research (about +0.135), back to 1x, read (q1).
+  { cmd = "WarpToUT",       args = { ut = "15187", maxRate = "50" },                 expect = "OK", budget = 540 },
+  { cmd = "WarpToUT",       args = { ut = "15197", maxRate = "1" },                  expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # 5. THE F9 from the Space Center (the scene exit auto-commits the tree first).
+  { cmd = "MissionMark",    args = { label = "lab9a-leaving" },                      expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                       expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave" },      expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "lab9a-f9-loaded" },                    expect = "OK" },
+  # 10 s at 1x: the resume (OnFlightReady) and stock's post-load hold, then read (q2 == q0).
+  { cmd = "WarpToUT",       args = { ut = "4407", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "ListHandles",    args = { kind = "active" },                              expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab9a-f9-read" },                      expect = "OK" },
+  # 6. The resumed flight commits again at the next exit.
+  { cmd = "ExitToSpaceCenter",                                                       expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "lab9a-done" },                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+D1  = ["commit-scene-exit", "auto-merge"]
+D8  = ["science"]
+D14 = ["kerbin", "science-mode", "scene-flight", "scene-ksc", "warp-1x", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# One tree; its recording is resumed by the F9 and committed again. Pinned after the reading run.
+count = { min = 1, max = 2 }
+
+[expectations.logContracts]
+required = [
+  # The four processes at the live stock values, 50 data, Research on at 1x and recorded.
+  "partaction applied button=labprocess pid=2200110055 part='sensorThermometer' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=5\\.00",
+  "partaction applied button=labprocess pid=2200110055 part='GooExperiment' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=15\\.00",
+  "partaction applied button=labprocess pid=2200110055 part='science\\.module' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=22\\.00",
+  "partaction applied button=labprocess pid=2200110055 part='sensorBarometer' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=8\\.00",
+  "partaction applied button=startconverter pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*event=StartResourceConverter [^\\r\\n]*state='lab:storedScience=0\\.00 dataStored=50\\.00;Research:active=1'",
+  "(?s)MISSIONMARK label=lab9a-research-on-before (?:(?!MISSIONMARK label=lab9a-f5 ).)*?Part event: ConverterActivated 'Large\\.Crewed\\.Lab' pid=1700054019 \\(converter\\)",
+  # q0: about 0.05 science, researching, just before the F5.
+  "(?s)warptout complete reachedUT=[0-9.]+ ut=4397 (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.0[4-6] dataStored=49\\.9[0-9];Research:active=1'",
+  "savegame name=quicksave folder=\\S+ saved=true",
+  # q1: the abandoned half day ran (about 0.19, the data used), still researching.
+  "warptout complete reachedUT=[0-9.]+ ut=15187 rate=[0-9.]+ maxRate=(?:[5-9]|[1-9][0-9]+)(?:\\.[0-9]+)? ",
+  "(?s)warptout complete reachedUT=[0-9.]+ ut=15197 (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.(?:1[5-9]|2[0-2]) dataStored=49\\.(?:8[5-9]|9[0-9]);Research:active=1'",
+  # The exit commits the tree after the quicksave (orbiting: never idle-on-pad).
+  "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+  "(?s)MISSIONMARK label=lab9a-leaving (?:(?!loadgame start).)*?Silent full-fidelity auto-commit \\(scene-exit\\): tree='LABX Orbital Lab' recordings=[1-9][0-9]*",
+  "exittospacecenter complete scene=SPACECENTER game-loaded=true",
+  # THE F9 from the Space Center reaches the quickload resume (QL-4b's route).
+  "loadgame start save=\\S+ name=quicksave scene=SPACECENTER requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false",
+  "Load classified: early=InSession refined=(?:QuickloadFlight|InSessionOther) scene=FLIGHT initialLoadDone=true rewinding=false reFlyInvoke=false discardReFly=none",
+  "\\[Scenario\\] Quickload committed-copy restore: tree='LABX Orbital Lab' id=\\S+ route=space-center action=ResumeFromQuicksave reason=committed-after-quicksave ",
+  "TryRestoreActiveTreeNode: removed committed tree 'LABX Orbital Lab' \\(id=\\S+, [1-9][0-9]* recording\\(s\\)\\)",
+  "OnLoad: pending-Limbo tree 'LABX Orbital Lab' deferred to OnFlightReady for quickload-resume",
+  "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide",
+  "RestoreActiveTreeFromPending: resumed recording tree 'LABX Orbital Lab' activeRec='[0-9a-f]{32}'",
+  # The reconcile retires the abandoned future; no ledger row is dated after the cutoff.
+  "\\[Scenario\\] Quickload abandoned-future reconcile: tree='LABX Orbital Lab' (?=[^\\r\\n]*\\bscope=TreeWide\\b)(?=[^\\r\\n]*\\bledgerRowsRetired=[0-9]+ \\(afterCutoff=0 )(?=[^\\r\\n]*\\bskippedCommitted=0\\b)",
+  "(?s)MISSIONMARK label=lab9a-f9-loaded (?:(?!MISSIONMARK).)*?listhandles kind=active count=[1-9][0-9]* truncated=false",
+  # THE EQUALITY: the lab after the F9 reads exactly as before the F5 (q2 == q0), researching.
+  "(?s)partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=([0-9]+\\.[0-9]{2}) dataStored=([0-9]+\\.[0-9]{2});Research:active=1'(?:(?!partaction applied button=).)*?MISSIONMARK label=lab9a-f5 .*?MISSIONMARK label=lab9a-f9-loaded (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*activePid=2200110055 [^\\r\\n]*state='lab:storedScience=\\1 dataStored=\\2;Research:active=1'",
+  # ... and the abandoned half day is gone (q2 is back in the pre-F5 window).
+  "(?s)MISSIONMARK label=lab9a-f9-loaded (?:(?!MISSIONMARK).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.0[4-6] dataStored=49\\.9[0-9];Research:active=1'",
+  # The resumed flight commits again at the next exit.
+  "(?s)MISSIONMARK label=lab9a-f9-read .*?Silent full-fidelity auto-commit \\(scene-exit\\): tree='LABX Orbital Lab' recordings=[1-9][0-9]*",
+  "MISSIONMARK label=lab9a-done ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected ",
+  "partaction-lab-value-zero",
+  "partaction error ",
+  "loadgame refused",
+  "loadgame rejected",
+  # Research is never income: no lab credit and no stock science gain, before or after the F9.
+  "ScienceLabCredited",
+  "Game state: ScienceChanged",
+  "Exploded!!",
+  "IsTreeIdleOnPad: all [0-9]+ recordings",
+  "TrimBoringTail: trimmed 'LABX Orbital Lab'",
+  # The F9 must take the resume route, not keep or drop the tree.
+  "Quickload resume prep skipped",
+  "Quickload committed-copy restore: tree='LABX Orbital Lab' id=\\S+ route=\\S+ action=Unchanged",
+  "Quickload abandoned-future reconcile skipped: tree='LABX Orbital Lab'",
+  "dropped entire tree 'LABX Orbital Lab'",
+  "keeping in-memory pending tree 'LABX Orbital Lab'",
+  "listhandles kind=active count=0 truncated=false",
+]
+
+[runtime]
+# Two LoadGame steps (about 7 s each measured, up to 300 s budgeted), about 40 s of 1x game time,
+# 3,990 s and 10,800 s of rails warp at 50x (about 86 + 231 s), two Space Center exits, a save.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
