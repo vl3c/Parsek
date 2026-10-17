@@ -688,7 +688,9 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #   PartAction button=undock|decouple|controlfrom|deploy|retract|startconverter|
     #     stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff
     #     [part=<part name>]
-    #     [converter=<ConverterName>] [all=true] [pid=<pid>], FLIGHT, SINGLE-PHASE, default 60 s: one
+    #     [converter=<ConverterName>] [all=true] [pid=<pid>]
+    #     [expectSnapshot=true|false rec=<recordingId> tolerance=<abs>] (inspect only), FLIGHT,
+    #     SINGLE-PHASE, default 60 s: one
     #     button of one part's stock right-click menu (ModuleDockingNode.Undock,
     #     ModuleDecouplerBase.Decouple, ModuleCommand.MakeReference, ModuleAnimationGroup
     #     Deploy / Retract, BaseConverter Start / Stop, ModuleScienceExperiment.DeployExperiment,
@@ -697,7 +699,10 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     results dialog's lab button, inspect presses nothing. OK `button= pid= part= partId=
     #     event= newPid= newName= vesselsBefore= vesselsAfter= activePid= activeName=
     #     converter= state= count= packed= warpIndex= warpRate= ut=`; all=true presses every
-    #     candidate (not on undock / decouple / controlfrom).
+    #     candidate (not on undock / decouple / controlfrom). labprocess adds `labRoute= labValue=`
+    #     (it writes the page's labValue itself and refuses a zero one before the send); inspect
+    #     adds `snapshotMatch= snapshotMismatches=` (expectSnapshot=true compares the part's
+    #     ModuleScienceLab with the recording's end snapshot).
     #   RevertToLaunch (no args), FLIGHT, TWO-PHASE, 180 s: stock's Revert to Launch outside a
     #     Re-Fly session (ReFlyRevert owns the in-session one), answered once the new flight is
     #     ready. OK `scene= activePid= activeName= situation=`.
@@ -3564,12 +3569,19 @@ def validate_rename_vessel_step(index: int, step_args: Dict) -> List[str]:
 # the act-specific `part=` rule sits beside it). `part=` is REQUIRED for every button but
 # undock; `converter=` is OPTIONAL and only for startconverter / stopconverter (an exact
 # BaseConverter.ConverterName); `all=` is OPTIONAL, closed to `true`, and refused on undock /
-# decouple / controlfrom; `pid=` is OPTIONAL with Recover's grammar.
+# decouple / controlfrom; `pid=` is OPTIONAL with Recover's grammar. `expectSnapshot=` (true |
+# false), `rec=` (a recording id) and `tolerance=` (a decimal >= 0) are for inspect only;
+# expectSnapshot=true needs rec=, and rec= / tolerance= need expectSnapshot=true.
 PARTACTION_VERB = "PartAction"
 PARTACTION_BUTTON_KEY = "button"
 PARTACTION_PART_KEY = "part"
 PARTACTION_PID_KEY = "pid"
 PARTACTION_CONVERTER_KEY = "converter"
+PARTACTION_EXPECT_SNAPSHOT_KEY = "expectSnapshot"
+PARTACTION_REC_KEY = "rec"
+PARTACTION_TOLERANCE_KEY = "tolerance"
+PARTACTION_EXPECT_SNAPSHOT_VALUES: Tuple[str, ...] = ("true", "false")
+PARTACTION_BUTTONS_ACCEPTING_SNAPSHOT: Tuple[str, ...] = ("inspect",)
 PARTACTION_BUTTON_VALUES: Tuple[str, ...] = (
     "undock", "decouple", "controlfrom", "deploy", "retract", "startconverter",
     "stopconverter", "experiment", "labprocess", "labtransmit", "inspect", "radiatoron",
@@ -3587,11 +3599,16 @@ PARTACTION_REASONS: Tuple[str, ...] = (
     "partaction-part-arg-missing", "partaction-converter-arg-unexpected",
     "partaction-all-arg-invalid", "partaction-all-arg-unexpected",
     "partaction-pid-arg-invalid",
+    "partaction-expect-snapshot-arg-invalid", "partaction-snapshot-arg-unexpected",
+    "partaction-expect-snapshot-needs-rec", "partaction-rec-arg-invalid",
+    "partaction-tolerance-arg-invalid",
     "partaction-no-active-vessel", "partaction-vessel-not-found",
     "partaction-target-is-ghost", "partaction-vessel-unloaded",
+    "partaction-unknown-recording",
     "partaction-part-not-found", "partaction-converter-not-found",
     "partaction-part-ambiguous", "partaction-event-unavailable",
-    "partaction-experiment-no-data", "partaction-lab-method-missing",
+    "partaction-experiment-no-data", "partaction-lab-not-active-vessel",
+    "partaction-lab-page-missing", "partaction-lab-value-zero", "partaction-lab-unavailable",
     "partaction-radiator-not-found",
 )
 
@@ -3602,7 +3619,10 @@ def validate_part_action_step(index: int, step_args: Dict) -> List[str]:
     button but ``undock``, an OPTIONAL non-empty ``converter=`` only on ``startconverter`` /
     ``stopconverter``, an OPTIONAL ``all=`` that is exactly ``true`` and not on ``undock`` /
     ``decouple`` / ``controlfrom``, an OPTIONAL literal ``pid=`` an ASCII decimal in
-    1..4294967295. A ``${step.field}`` handle is left to the R10 static tier."""
+    1..4294967295, and the inspect-only ``expectSnapshot=`` (``true`` / ``false``, the STRING),
+    ``rec=`` (needed by and only with ``expectSnapshot=true``) and ``tolerance=`` (a decimal
+    >= 0, only with ``expectSnapshot=true``). A ``${step.field}`` handle is left to the R10
+    static tier."""
     errors: List[str] = []
     act = step_args.get(PARTACTION_BUTTON_KEY)
     if act is None or str(act) == "":
@@ -3650,7 +3670,59 @@ def validate_part_action_step(index: int, step_args: Dict) -> List[str]:
             "driver.steps[%d].args.%s: %r is not a positive decimal persistentId; the "
             "seam answers REJECTED partaction-pid-arg-invalid"
             % (index, PARTACTION_PID_KEY, raw_pid))
+    errors.extend(_validate_part_action_snapshot_args(index, step_args, act))
     return errors
+
+
+def _validate_part_action_snapshot_args(index: int, step_args: Dict, act) -> List[str]:
+    """The inspect-only snapshot args of one ``PartAction`` step, in the C#
+    ``ParseSnapshotArgs`` gate order: an ``expectSnapshot=`` that is not the STRING ``true`` /
+    ``false``, any of the three on another button, ``expectSnapshot=true`` without ``rec=``,
+    ``rec=`` / ``tolerance=`` without it, a ``rec=`` holding a path sequence, a ``tolerance=``
+    that is not a plain decimal >= 0. A value holding a ``${step.field}`` handle is skipped."""
+    def literal(key):
+        raw = step_args.get(key)
+        if raw is None or str(raw) == "" or "${" in str(raw):
+            return None
+        return raw
+
+    raw_expect = step_args.get(PARTACTION_EXPECT_SNAPSHOT_KEY)
+    raw_rec = step_args.get(PARTACTION_REC_KEY)
+    raw_tol = step_args.get(PARTACTION_TOLERANCE_KEY)
+    has_expect = raw_expect is not None and str(raw_expect) != ""
+    has_rec = raw_rec is not None and str(raw_rec) != ""
+    has_tol = raw_tol is not None and str(raw_tol) != ""
+    expect_lit = literal(PARTACTION_EXPECT_SNAPSHOT_KEY)
+    if expect_lit is not None and (isinstance(expect_lit, bool)
+                                   or str(expect_lit) not in PARTACTION_EXPECT_SNAPSHOT_VALUES):
+        return ["driver.steps[%d].args.%s: %r must be the STRING true or false (a TOML bool is "
+                "sent as `True`); the seam answers REJECTED partaction-expect-snapshot-arg-invalid"
+                % (index, PARTACTION_EXPECT_SNAPSHOT_KEY, expect_lit)]
+    known_button = act is not None and "${" not in str(act) and str(act) in PARTACTION_BUTTON_VALUES
+    if ((has_expect or has_rec or has_tol) and known_button
+            and str(act) not in PARTACTION_BUTTONS_ACCEPTING_SNAPSHOT):
+        return ["driver.steps[%d].args: expectSnapshot= / rec= / tolerance= are for button=inspect "
+                "only, but this step is button=%s; the seam answers REJECTED "
+                "partaction-snapshot-arg-unexpected" % (index, act)]
+    if has_expect and expect_lit is None:
+        return []  # a ${step.field} handle: the R10 static tier checks it
+    expect = expect_lit is not None and str(expect_lit) == "true"
+    if expect and not has_rec:
+        return ["driver.steps[%d].args.%s: expectSnapshot=true names no recording; the seam "
+                "answers REJECTED partaction-expect-snapshot-needs-rec"
+                % (index, PARTACTION_REC_KEY)]
+    if not expect and (has_rec or has_tol):
+        return ["driver.steps[%d].args: rec= / tolerance= need expectSnapshot=true; the seam "
+                "answers REJECTED partaction-snapshot-arg-unexpected" % index]
+    rec_lit = literal(PARTACTION_REC_KEY)
+    if rec_lit is not None and ("/" in str(rec_lit) or "\\" in str(rec_lit) or ".." in str(rec_lit)):
+        return ["driver.steps[%d].args.%s: %r is not a recording id; the seam answers REJECTED "
+                "partaction-rec-arg-invalid" % (index, PARTACTION_REC_KEY, rec_lit)]
+    tol_lit = literal(PARTACTION_TOLERANCE_KEY)
+    if tol_lit is not None and not re.fullmatch(r"[0-9]*\.?[0-9]+|[0-9]+\.", str(tol_lit)):
+        return ["driver.steps[%d].args.%s: %r is not a decimal >= 0; the seam answers REJECTED "
+                "partaction-tolerance-arg-invalid" % (index, PARTACTION_TOLERANCE_KEY, tol_lit)]
+    return []
 
 
 # RevertToLaunch: mirrored from TestCommands/TestCommandRevertToLaunch.cs
@@ -11152,16 +11224,30 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "partaction-all-arg-invalid": "driver-arg",
     "partaction-all-arg-unexpected": "driver-arg",
     "partaction-pid-arg-invalid": "driver-arg",
+    # The inspect-only snapshot args: malformed, on another button, or incomplete.
+    "partaction-expect-snapshot-arg-invalid": "driver-arg",
+    "partaction-snapshot-arg-unexpected": "driver-arg",
+    "partaction-expect-snapshot-needs-rec": "driver-arg",
+    "partaction-rec-arg-invalid": "driver-arg",
+    "partaction-tolerance-arg-invalid": "driver-arg",
     "partaction-no-active-vessel": "driver-gate",
     "partaction-vessel-not-found": "driver-arg",
     "partaction-target-is-ghost": "driver-arg",
     "partaction-vessel-unloaded": "driver-gate",
+    # expectSnapshot rec= naming no committed recording: the spec's fault.
+    "partaction-unknown-recording": "driver-arg",
     "partaction-part-not-found": "driver-arg",
     "partaction-converter-not-found": "driver-arg",
     "partaction-part-ambiguous": "driver-arg",
     "partaction-event-unavailable": "driver-gate",
     "partaction-experiment-no-data": "driver-gate",
-    "partaction-lab-method-missing": "driver-gate",
+    # labprocess on a vessel that is not the active one: the spec's fault (stock values the
+    # page against the active vessel's lab). No results page after the review, a zero labValue
+    # and no lab able to take the datum are live states the send would not act in.
+    "partaction-lab-not-active-vessel": "driver-arg",
+    "partaction-lab-page-missing": "driver-gate",
+    "partaction-lab-value-zero": "driver-gate",
+    "partaction-lab-unavailable": "driver-gate",
     # A radiator button on a part carrying no ModuleActiveRadiator: a spec typo, like a
     # converter name the part lacks.
     "partaction-radiator-not-found": "driver-arg",
@@ -11867,7 +11953,10 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "op-arg-invalid", "op-arg-missing", "partaction-all-arg-invalid",
     "partaction-all-arg-unexpected", "partaction-button-arg-invalid",
     "partaction-button-arg-missing", "partaction-converter-arg-unexpected",
-    "partaction-part-arg-missing", "partaction-pid-arg-invalid", "picker-arg-conflict", "picker-arg-missing",
+    "partaction-part-arg-missing", "partaction-pid-arg-invalid",
+    "partaction-expect-snapshot-arg-invalid", "partaction-snapshot-arg-unexpected",
+    "partaction-expect-snapshot-needs-rec", "partaction-rec-arg-invalid",
+    "partaction-tolerance-arg-invalid", "picker-arg-conflict", "picker-arg-missing",
     "pid-arg-invalid", "pointer-arg-conflict", "pointer-arg-invalid",
     "pointer-arg-missing", "popup-arg-missing",
     "readvesselresources-expect-arg-invalid",

@@ -27,8 +27,9 @@ namespace Parsek.TestCommands
         StopConverter,
         /// <summary>A science experiment's run button (<c>ModuleScienceExperiment.DeployExperiment</c>).</summary>
         Experiment,
-        /// <summary>The experiment results dialog's "process in lab" button: the experiment's
-        /// private <c>sendDataToLab(ScienceData)</c>, the callback the dialog page carries.</summary>
+        /// <summary>The experiment results dialog's "process in lab" button: the dialog page's own
+        /// <c>OnSendToLab</c> callback (the experiment's <c>sendDataToLab</c>, then the page
+        /// dismissal), the page opened by the experiment's "Review Data" when none is up.</summary>
         LabProcess,
         /// <summary>A science lab's "Transmit Science" (<c>ModuleScienceLab.TransmitScience</c>).</summary>
         LabTransmit,
@@ -120,7 +121,10 @@ namespace Parsek.TestCommands
     ///
     /// <para><b>Grammar.</b> <c>cmd=PartAction button=undock|decouple|controlfrom|deploy|retract|
     /// startconverter|stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff
-    /// [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [all=true] [pid=&lt;persistentId&gt;]</c>.
+    /// [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [all=true] [pid=&lt;persistentId&gt;]
+    /// [expectSnapshot=true|false rec=&lt;recordingId&gt; tolerance=&lt;abs&gt;]</c>. The three snapshot
+    /// args are for <c>inspect</c> only (<c>snapshot-arg-unexpected</c> elsewhere, and for
+    /// <c>rec=</c> / <c>tolerance=</c> without <c>expectSnapshot=true</c>).
     /// <c>button=</c> REQUIRED, closed. <c>part=</c> is the part's runtime name (dot form,
     /// <c>Decoupler.1</c>); REQUIRED for every button but <c>undock</c>, OPTIONAL for
     /// <c>undock</c> (absent: the vessel's one docked port pair). <c>converter=</c> is OPTIONAL
@@ -138,12 +142,26 @@ namespace Parsek.TestCommands
     /// move on later frames, so <c>state=</c> is the state right after the click).</para>
     ///
     /// <para><b>labprocess</b> candidates are the named part's experiment modules holding data
-    /// (none with data: <c>experiment-no-data</c>). When the results dialog shows that part's
-    /// page, its own lab callback runs (<c>event=OnSendToLab</c>: process and dismiss the page,
-    /// the dialog button's body); otherwise the experiment's private <c>sendDataToLab</c> runs
-    /// by reflection (<c>event=sendDataToLab</c>). A build without that method refuses
-    /// <c>lab-method-missing</c>. <b>inspect</b> presses nothing; its candidate is the one part
-    /// carrying the name. <b>radiatoron / radiatoroff</b> candidates are the named part's
+    /// (none with data: <c>experiment-no-data</c>); the target must be the ACTIVE vessel
+    /// (<c>lab-not-active-vessel</c>: stock's <c>UpdatePageLabValue</c> reads the active vessel's
+    /// lab). The press is the dialog button's body, <c>OnSendToLab</c> on the results dialog's
+    /// current page for that part and datum (<c>labRoute=page</c>); with no such page the
+    /// experiment's own "Review Data" (<c>ReviewDataEvent</c>) opens it first
+    /// (<c>labRoute=review</c>; no page after it: <c>lab-page-missing</c>). Stock writes
+    /// <c>ScienceData.labValue</c>, the data the lab stores, ONLY when the dialog shows the page
+    /// with a lab aboard (<c>ExperimentsResultDialog.SetPage</c>), and nothing saves or copies
+    /// it, so the press calls the page's <c>UpdatePageLabValue()</c> itself and refuses
+    /// <c>lab-value-zero</c> when it is not positive, and <c>lab-unavailable</c> when no lab on
+    /// the vessel can take the datum (stock's own <c>ScienceLabSearch</c>), both BEFORE the send:
+    /// a send that stores nothing would still burn the subject's one lab slot and end the
+    /// experiment. A dialog or page the press opened and then refused on is closed again (the
+    /// whole dialog when the press opened it, else its one page through the page's Keep); a
+    /// successful send dismisses the page itself (stock closes the dialog with its last page).
+    /// <b>inspect</b> presses nothing; its candidate is the one part carrying the name. With
+    /// <c>expectSnapshot=true rec=&lt;recordingId&gt; [tolerance=&lt;abs&gt;]</c> it compares each
+    /// inspected part's <c>ModuleScienceLab</c> (<c>dataStored</c>, <c>storedScience</c>, the
+    /// EXPERIMENT_DATA subject set) with the same part in the recording's end vessel snapshot
+    /// (<see cref="EvaluateLabSnapshot"/>). <b>radiatoron / radiatoroff</b> candidates are the named part's
     /// <c>ModuleActiveRadiator</c>s whose <c>Activate</c> / <c>Shutdown</c> event is live (stock
     /// shows only the one that changes <c>IsCooling</c>, and neither on a deployable radiator,
     /// which its own Extend / Retract drives); named parts carrying no such module refuse
@@ -164,7 +182,10 @@ namespace Parsek.TestCommands
     /// <c>partaction applied button= pid= part='..' partId= event= newPid= newName='..' vessels=N->M
     /// activePid= activeName='..' converter='..' state='..' count= packed= warpIndex= warpRate= ut=</c>;
     /// the newer fields are appended so every earlier anchor still matches (the payload carries
-    /// the same four warp fields last).</para>
+    /// the same four warp fields last). A labprocess appends <c> labRoute=page|review
+    /// labValue=&lt;F2&gt;</c> (one comma-joined entry per press) and an inspect
+    /// <c> snapshotMatch=true|false|none</c> (payload <c>labRoute labValue</c> /
+    /// <c>snapshotMatch snapshotMismatches</c> after the warp fields).</para>
     /// </summary>
     internal static class TestCommandPartAction
     {
@@ -174,6 +195,9 @@ namespace Parsek.TestCommands
         internal const string PidKey = "pid";
         internal const string ConverterKey = "converter";
         internal const string AllKey = "all";
+        internal const string ExpectSnapshotKey = "expectSnapshot";
+        internal const string RecKey = "rec";
+        internal const string ToleranceKey = "tolerance";
         /// <summary>The one value <c>all=</c> takes.</summary>
         internal const string AllTrueToken = "true";
 
@@ -200,13 +224,23 @@ namespace Parsek.TestCommands
             LabTransmitToken, InspectToken, RadiatorOnToken, RadiatorOffToken,
         };
 
-        /// <summary>The private <c>ModuleScienceExperiment</c> method the results dialog's lab
-        /// button calls (KSP 1.12.5, decompiled): <c>void sendDataToLab(ScienceData)</c>.</summary>
-        internal const string LabProcessMethodName = "sendDataToLab";
-
-        /// <summary>The <c>event=</c> of a labprocess that ran the open results dialog page's own
-        /// lab callback (the dialog button's body: process, then dismiss the page).</summary>
+        /// <summary>The <c>event=</c> of every labprocess: the results dialog page's own lab
+        /// callback (the dialog button's body, KSP 1.12.5 decompiled: the experiment's private
+        /// <c>sendDataToLab</c>, then the dialog's <c>dismissCurrentPage</c>).</summary>
         internal const string LabProcessDialogEventName = "OnSendToLab";
+
+        /// <summary>The <c>labRoute=</c> of a labprocess that pressed the page already showing.</summary>
+        internal const string LabRoutePageToken = "page";
+
+        /// <summary>The <c>labRoute=</c> of a labprocess that opened the page first through the
+        /// experiment's public <c>ReviewDataEvent</c> (its "Review Data" PAW button).</summary>
+        internal const string LabRouteReviewToken = "review";
+
+        /// <summary>The default absolute tolerance of <c>expectSnapshot=</c>, ReadVesselResources'.</summary>
+        internal const double DefaultSnapshotTolerance = 0.01;
+
+        /// <summary>The <c>snapshotMatch=</c> value when nothing was compared.</summary>
+        internal const string SnapshotNotAskedToken = "none";
 
         internal const string ButtonArgMissingReason = "partaction-button-arg-missing";
         internal const string ButtonArgInvalidReason = "partaction-button-arg-invalid";
@@ -215,16 +249,25 @@ namespace Parsek.TestCommands
         internal const string AllArgInvalidReason = "partaction-all-arg-invalid";
         internal const string AllArgUnexpectedReason = "partaction-all-arg-unexpected";
         internal const string PidArgInvalidReason = "partaction-pid-arg-invalid";
+        internal const string ExpectSnapshotArgInvalidReason = "partaction-expect-snapshot-arg-invalid";
+        internal const string SnapshotArgUnexpectedReason = "partaction-snapshot-arg-unexpected";
+        internal const string ExpectSnapshotNeedsRecReason = "partaction-expect-snapshot-needs-rec";
+        internal const string RecArgInvalidReason = "partaction-rec-arg-invalid";
+        internal const string ToleranceArgInvalidReason = "partaction-tolerance-arg-invalid";
         internal const string NoActiveVesselReason = "partaction-no-active-vessel";
         internal const string VesselNotFoundReason = "partaction-vessel-not-found";
         internal const string TargetIsGhostReason = "partaction-target-is-ghost";
         internal const string VesselUnloadedReason = "partaction-vessel-unloaded";
+        internal const string UnknownRecordingReason = "partaction-unknown-recording";
         internal const string PartNotFoundReason = "partaction-part-not-found";
         internal const string ConverterNotFoundReason = "partaction-converter-not-found";
         internal const string PartAmbiguousReason = "partaction-part-ambiguous";
         internal const string EventUnavailableReason = "partaction-event-unavailable";
         internal const string ExperimentNoDataReason = "partaction-experiment-no-data";
-        internal const string LabMethodMissingReason = "partaction-lab-method-missing";
+        internal const string LabNotActiveVesselReason = "partaction-lab-not-active-vessel";
+        internal const string LabPageMissingReason = "partaction-lab-page-missing";
+        internal const string LabValueZeroReason = "partaction-lab-value-zero";
+        internal const string LabUnavailableReason = "partaction-lab-unavailable";
         internal const string RadiatorNotFoundReason = "partaction-radiator-not-found";
 
         // Post-call ERROR terminal: the event was invoked and threw.
@@ -241,16 +284,25 @@ namespace Parsek.TestCommands
             "partaction-all-arg-invalid",
             "partaction-all-arg-unexpected",
             "partaction-pid-arg-invalid",
+            "partaction-expect-snapshot-arg-invalid",
+            "partaction-snapshot-arg-unexpected",
+            "partaction-expect-snapshot-needs-rec",
+            "partaction-rec-arg-invalid",
+            "partaction-tolerance-arg-invalid",
             "partaction-no-active-vessel",
             "partaction-vessel-not-found",
             "partaction-target-is-ghost",
             "partaction-vessel-unloaded",
+            "partaction-unknown-recording",
             "partaction-part-not-found",
             "partaction-converter-not-found",
             "partaction-part-ambiguous",
             "partaction-event-unavailable",
             "partaction-experiment-no-data",
-            "partaction-lab-method-missing",
+            "partaction-lab-not-active-vessel",
+            "partaction-lab-page-missing",
+            "partaction-lab-value-zero",
+            "partaction-lab-unavailable",
             "partaction-radiator-not-found",
         };
 
@@ -407,7 +459,7 @@ namespace Parsek.TestCommands
                 case PartActionKind.LabTransmit: return new[] { "TransmitScience" };
                 case PartActionKind.RadiatorOn: return new[] { "Activate" };
                 case PartActionKind.RadiatorOff: return new[] { "Shutdown" };
-                // labprocess calls a private method, not a KSPEvent; inspect presses nothing.
+                // labprocess presses the results dialog page's callback; inspect presses nothing.
                 default: return new string[0];
             }
         }
@@ -637,6 +689,461 @@ namespace Parsek.TestCommands
                 + " state='" + (state ?? string.Empty) + "'"
                 + " count=" + count.ToString(ic)
                 + AppendWarpContext(warp);
+        }
+
+        // ----- labprocess -----
+
+        /// <summary>The two ways a labprocess reaches the results dialog page it presses.</summary>
+        internal enum LabProcessRoute
+        {
+            /// <summary>The dialog's current page is already this part's page for this datum.</summary>
+            OpenPage,
+            /// <summary>No such page: the experiment's <c>ReviewDataEvent</c> opens it first.</summary>
+            Review,
+        }
+
+        /// <summary>What to undo when a labprocess refuses after it opened something.</summary>
+        internal enum LabDialogCleanup
+        {
+            /// <summary>Nothing: the page was already up, or the review added no page.</summary>
+            None,
+            /// <summary>The press opened the whole dialog: <c>ExperimentsResultDialog.Dismiss()</c>
+            /// (its <c>OnDestroy</c> keeps every page's data).</summary>
+            DismissDialog,
+            /// <summary>The press added one page to a dialog already up: the page's own Keep
+            /// callback (the experiment's <c>keepData</c>, then <c>dismissCurrentPage</c>).</summary>
+            KeepPage,
+        }
+
+        /// <summary>The <c>labRoute=</c> token of <paramref name="route"/>.</summary>
+        internal static string LabRouteToken(LabProcessRoute route)
+            => route == LabProcessRoute.OpenPage ? LabRoutePageToken : LabRouteReviewToken;
+
+        /// <summary>
+        /// Whether a results dialog page is the one a labprocess may press: present, hosted by
+        /// the target part, carrying the lab callback, and holding the experiment module's OWN
+        /// datum (the same object, not just the same subject: stock's <c>sendDataToLab</c>
+        /// processes the module's <c>experimentData</c>, so the <c>labValue</c> written on any
+        /// other object would never reach the lab).
+        /// </summary>
+        internal static bool LabPageMatches(bool pagePresent, bool hostIsPart, bool hasLabCallback,
+            bool pageDataIsModuleDatum)
+            => pagePresent && hostIsPart && hasLabCallback && pageDataIsModuleDatum;
+
+        /// <summary>The route: the open page when it matches, else a review that opens it.</summary>
+        internal static LabProcessRoute DecideLabRoute(bool openPageMatches)
+            => openPageMatches ? LabProcessRoute.OpenPage : LabProcessRoute.Review;
+
+        /// <summary>The labprocess target gate, before any press: stock's
+        /// <c>UpdatePageLabValue</c> reads <c>FlightGlobals.ActiveVessel</c>'s lab and situation,
+        /// so a target that is not the active vessel would be valued against another vessel.</summary>
+        internal static string DecideLabTarget(bool targetIsActiveVessel)
+            => targetIsActiveVessel ? null : LabNotActiveVesselReason;
+
+        /// <summary>The page gate after a review: the review must leave this part's page for
+        /// this datum current.</summary>
+        internal static string DecideLabPageAfterReview(bool pageMatches)
+            => pageMatches ? null : LabPageMissingReason;
+
+        /// <summary>The value gate, after <c>UpdatePageLabValue()</c> and BEFORE the send: a
+        /// zero (or NaN) <c>labValue</c> would store no data yet still take the subject's one
+        /// lab slot and end the experiment.</summary>
+        internal static string DecideLabValue(float labValue)
+            => labValue > 0f ? null : LabValueZeroReason;
+
+        /// <summary>The lab gate, BEFORE the send: stock's own <c>ScienceLabSearch</c> over the
+        /// vessel (the one <c>sendDataToLab</c> runs) must find a lab that can take the datum,
+        /// else the send only posts the search's error.</summary>
+        internal static string DecideLabSearch(bool nextLabFound)
+            => nextLabFound ? null : LabUnavailableReason;
+
+        /// <summary>
+        /// What a refused labprocess closes again: nothing on the open-page route (the page was
+        /// the player's or the lane's); on the review route the whole dialog when none was up
+        /// before, else the one page the review added (a review whose datum already had a page
+        /// only re-points the dialog at it and adds none).
+        /// </summary>
+        internal static LabDialogCleanup DecideLabCleanup(LabProcessRoute route, bool dialogExistedBefore,
+            int pagesBefore, int pagesAfter)
+        {
+            if (route == LabProcessRoute.OpenPage) return LabDialogCleanup.None;
+            if (!dialogExistedBefore) return LabDialogCleanup.DismissDialog;
+            return pagesAfter > pagesBefore ? LabDialogCleanup.KeepPage : LabDialogCleanup.None;
+        }
+
+        /// <summary>The ` labRoute=.. labValue=..` tail a labprocess appends to the applied line:
+        /// one comma-joined entry per press, values invariant <c>F2</c>.</summary>
+        internal static string FormatLabTail(IList<LabProcessRoute> routes, IList<float> labValues)
+        {
+            return " labRoute=" + JoinLabRoutes(routes) + " labValue=" + JoinLabValues(labValues);
+        }
+
+        /// <summary>The <c>labRoute</c> / <c>labValue</c> payload fields (after the warp fields).</summary>
+        internal static List<KeyValuePair<string, string>> LabPayloadFields(
+            IList<LabProcessRoute> routes, IList<float> labValues)
+        {
+            return new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("labRoute", JoinLabRoutes(routes)),
+                new KeyValuePair<string, string>("labValue", JoinLabValues(labValues)),
+            };
+        }
+
+        private static string JoinLabRoutes(IList<LabProcessRoute> routes)
+        {
+            if (routes == null || routes.Count == 0) return string.Empty;
+            var parts = new string[routes.Count];
+            for (int i = 0; i < routes.Count; i++) parts[i] = LabRouteToken(routes[i]);
+            return string.Join(",", parts);
+        }
+
+        private static string JoinLabValues(IList<float> labValues)
+        {
+            if (labValues == null || labValues.Count == 0) return string.Empty;
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            var parts = new string[labValues.Count];
+            for (int i = 0; i < labValues.Count; i++) parts[i] = labValues[i].ToString("F2", ic);
+            return string.Join(",", parts);
+        }
+
+        /// <summary>The grep-stable labprocess refusal detail: the gate's numbers.</summary>
+        internal static string FormatLabRefusalDetail(uint pid, string partName, uint partId, string subjectId,
+            LabProcessRoute route, LabDialogCleanup cleanup, float labValue, string labError,
+            int succeeded, int candidates)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            return "button=" + LabProcessToken
+                + " pid=" + pid.ToString(ic)
+                + " part='" + (partName ?? string.Empty) + "'"
+                + " partId=" + partId.ToString(ic)
+                + " subject='" + (subjectId ?? string.Empty) + "'"
+                + " labRoute=" + LabRouteToken(route)
+                + " labValue=" + labValue.ToString("F2", ic)
+                + " labError=" + (string.IsNullOrEmpty(labError) ? "-" : labError)
+                + " cleanup=" + cleanup
+                + " " + FormatPressProgress(succeeded, candidates);
+        }
+
+        // ----- inspect expectSnapshot -----
+
+        /// <summary>
+        /// Parses the inspect-only snapshot args. <c>expectSnapshot=</c> is <c>true</c> /
+        /// <c>false</c> (ordinal; anything else <c>expect-snapshot-arg-invalid</c>); any of the
+        /// three on another button, or <c>rec=</c> / <c>tolerance=</c> without
+        /// <c>expectSnapshot=true</c>, is <c>snapshot-arg-unexpected</c> (it would be silently
+        /// ignored); <c>expectSnapshot=true</c> needs <c>rec=</c>
+        /// (<c>expect-snapshot-needs-rec</c>), a recording id <paramref name="isValidRecordingId"/>
+        /// accepts (<c>rec-arg-invalid</c>); <c>tolerance=</c> is a finite invariant decimal
+        /// &gt;= 0 (<c>tolerance-arg-invalid</c>), default <see cref="DefaultSnapshotTolerance"/>.
+        /// </summary>
+        internal static string ParseSnapshotArgs(PartActionKind kind, string rawExpect, string rawRec,
+            string rawTolerance, Func<string, bool> isValidRecordingId,
+            out bool expectSnapshot, out string recId, out double tolerance)
+        {
+            expectSnapshot = false;
+            recId = null;
+            tolerance = DefaultSnapshotTolerance;
+            bool hasExpect = !string.IsNullOrEmpty(rawExpect);
+            bool hasRec = !string.IsNullOrEmpty(rawRec);
+            bool hasTolerance = !string.IsNullOrEmpty(rawTolerance);
+            bool expect = false;
+            if (hasExpect)
+            {
+                if (string.Equals(rawExpect, "true", StringComparison.Ordinal)) expect = true;
+                else if (!string.Equals(rawExpect, "false", StringComparison.Ordinal))
+                    return ExpectSnapshotArgInvalidReason;
+            }
+            if ((hasExpect || hasRec || hasTolerance) && kind != PartActionKind.Inspect)
+                return SnapshotArgUnexpectedReason;
+            if (expect && !hasRec) return ExpectSnapshotNeedsRecReason;
+            if (!expect && (hasRec || hasTolerance)) return SnapshotArgUnexpectedReason;
+            if (!expect) return null;
+            if (isValidRecordingId == null || !isValidRecordingId(rawRec)) return RecArgInvalidReason;
+            if (hasTolerance)
+            {
+                if (!double.TryParse(rawTolerance, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture,
+                        out double t) || double.IsNaN(t) || double.IsInfinity(t) || t < 0)
+                    return ToleranceArgInvalidReason;
+                tolerance = t;
+            }
+            expectSnapshot = true;
+            recId = rawRec;
+            return null;
+        }
+
+        /// <summary>One PART of a recording's end vessel snapshot, as the lab comparison reads it.</summary>
+        internal sealed class LabSnapshotPart
+        {
+            internal uint Uid;
+            internal uint PersistentId;
+            internal string Name;
+            /// <summary>True when the PART carries a <c>MODULE name = ModuleScienceLab</c>.</summary>
+            internal bool HasLab;
+            internal double DataStored;
+            internal double StoredScience;
+            /// <summary>The union of every <c>experiment</c> value under the lab module's
+            /// EXPERIMENT_DATA node(s) (stock's <c>ModuleScienceLab.OnSave</c>).</summary>
+            internal List<string> Experiments = new List<string>();
+        }
+
+        /// <summary>The live lab of one inspected part, read by the applier.</summary>
+        internal struct LiveLabReading
+        {
+            internal uint PartId;
+            internal uint PersistentId;
+            internal string Name;
+            /// <summary>The part's index in <c>Vessel.parts</c> and the vessel's part count.</summary>
+            internal int Index;
+            internal int PartCount;
+            internal bool HasLab;
+            internal double DataStored;
+            internal double StoredScience;
+            internal IList<string> Experiments;
+        }
+
+        /// <summary>One compared field of one lab part.</summary>
+        internal struct LabFieldComparison
+        {
+            internal string Field;
+            internal string Live;
+            internal string Snapshot;
+            internal string Diff;
+            internal bool Match;
+            /// <summary>For <c>experiments</c>: the subjects only the live lab / only the
+            /// snapshot holds, ordinal-sorted, comma-joined (null for the numeric fields).</summary>
+            internal string OnlyLive;
+            internal string OnlySnapshot;
+        }
+
+        /// <summary>The result of one inspected part's snapshot comparison.</summary>
+        internal sealed class LabSnapshotOutcome
+        {
+            /// <summary><c>true</c>, <c>false</c>, or <c>none</c> for a part without a lab.</summary>
+            internal string Token = SnapshotNotAskedToken;
+            /// <summary>The grep-stable lines, in order.</summary>
+            internal List<string> Lines = new List<string>();
+            /// <summary><c>&lt;partId&gt;:&lt;field or reason&gt;</c> per failed field.</summary>
+            internal List<string> Mismatches = new List<string>();
+        }
+
+        /// <summary>The PART list of a vessel snapshot, in node order, or null when the snapshot
+        /// is null or has no PART node.</summary>
+        internal static List<LabSnapshotPart> ParseSnapshotParts(ConfigNode vesselSnapshot)
+        {
+            if (vesselSnapshot == null) return null;
+            ConfigNode[] partNodes = vesselSnapshot.GetNodes("PART");
+            if (partNodes == null || partNodes.Length == 0) return null;
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            var parts = new List<LabSnapshotPart>(partNodes.Length);
+            foreach (ConfigNode pn in partNodes)
+            {
+                var sp = new LabSnapshotPart { Name = pn.GetValue("name") };
+                uint.TryParse(pn.GetValue("uid"), NumberStyles.Integer, ic, out sp.Uid);
+                uint.TryParse(pn.GetValue("persistentId"), NumberStyles.Integer, ic, out sp.PersistentId);
+                foreach (ConfigNode mod in pn.GetNodes("MODULE"))
+                {
+                    if (!string.Equals(mod.GetValue("name"), "ModuleScienceLab", StringComparison.Ordinal))
+                        continue;
+                    sp.HasLab = true;
+                    double.TryParse(mod.GetValue("dataStored"), NumberStyles.Float, ic, out sp.DataStored);
+                    double.TryParse(mod.GetValue("storedScience"), NumberStyles.Float, ic, out sp.StoredScience);
+                    foreach (ConfigNode ed in mod.GetNodes("EXPERIMENT_DATA"))
+                        foreach (string subject in ed.GetValues("experiment"))
+                            if (!string.IsNullOrEmpty(subject) && !sp.Experiments.Contains(subject))
+                                sp.Experiments.Add(subject);
+                    break;
+                }
+                parts.Add(sp);
+            }
+            return parts;
+        }
+
+        /// <summary>
+        /// Finds the snapshot PART of a live part, in this order: the same flight id
+        /// (<c>uid</c>; the recorded vessel itself), the same part persistentId, the same index
+        /// with the same name in a snapshot of the same part count (a Parsek spawn regenerates
+        /// both ids but keeps the PART order), else the one snapshot PART with that name that
+        /// carries a lab. Returns the index (or -1) and how it matched
+        /// (<c>uid|persistentId|index|name|none</c>).
+        /// </summary>
+        internal static int MatchSnapshotPart(IList<LabSnapshotPart> parts, uint liveFlightId,
+            uint livePersistentId, string liveName, int liveIndex, int livePartCount, out string matchedBy)
+        {
+            matchedBy = "none";
+            if (parts == null || parts.Count == 0) return -1;
+            if (liveFlightId != 0)
+                for (int i = 0; i < parts.Count; i++)
+                    if (parts[i].Uid == liveFlightId) { matchedBy = "uid"; return i; }
+            if (livePersistentId != 0)
+                for (int i = 0; i < parts.Count; i++)
+                    if (parts[i].PersistentId == livePersistentId) { matchedBy = "persistentId"; return i; }
+            if (liveIndex >= 0 && livePartCount == parts.Count && liveIndex < parts.Count
+                && string.Equals(parts[liveIndex].Name, liveName, StringComparison.Ordinal))
+            {
+                matchedBy = "index";
+                return liveIndex;
+            }
+            int found = -1;
+            for (int i = 0; i < parts.Count; i++)
+            {
+                if (!parts[i].HasLab || !string.Equals(parts[i].Name, liveName, StringComparison.Ordinal))
+                    continue;
+                if (found >= 0) return -1; // two same-name labs: no silent pick
+                found = i;
+            }
+            if (found >= 0) matchedBy = "name";
+            return found;
+        }
+
+        /// <summary>Compares one live lab with its snapshot PART: <c>dataStored</c> and
+        /// <c>storedScience</c> within <paramref name="tolerance"/> (absolute), and the
+        /// EXPERIMENT_DATA subject SETS for equality.</summary>
+        internal static List<LabFieldComparison> CompareLab(LiveLabReading live, LabSnapshotPart snap,
+            double tolerance)
+        {
+            var rows = new List<LabFieldComparison>(3)
+            {
+                CompareNumber("dataStored", live.DataStored, snap.DataStored, tolerance),
+                CompareNumber("storedScience", live.StoredScience, snap.StoredScience, tolerance),
+            };
+            var liveSet = new SortedSet<string>(StringComparer.Ordinal);
+            if (live.Experiments != null)
+                foreach (string s in live.Experiments) if (!string.IsNullOrEmpty(s)) liveSet.Add(s);
+            var snapSet = new SortedSet<string>(snap.Experiments ?? new List<string>(), StringComparer.Ordinal);
+            var onlyLive = new List<string>();
+            var onlySnap = new List<string>();
+            foreach (string s in liveSet) if (!snapSet.Contains(s)) onlyLive.Add(s);
+            foreach (string s in snapSet) if (!liveSet.Contains(s)) onlySnap.Add(s);
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            rows.Add(new LabFieldComparison
+            {
+                Field = "experiments",
+                Live = liveSet.Count.ToString(ic),
+                Snapshot = snapSet.Count.ToString(ic),
+                Diff = (onlyLive.Count + onlySnap.Count).ToString(ic),
+                Match = onlyLive.Count == 0 && onlySnap.Count == 0,
+                OnlyLive = string.Join(",", onlyLive.ToArray()),
+                OnlySnapshot = string.Join(",", onlySnap.ToArray()),
+            });
+            return rows;
+        }
+
+        private static LabFieldComparison CompareNumber(string field, double live, double snapshot, double tolerance)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            double diff = live - snapshot;
+            return new LabFieldComparison
+            {
+                Field = field,
+                Live = live.ToString("F4", ic),
+                Snapshot = snapshot.ToString("F4", ic),
+                Diff = diff.ToString("F4", ic),
+                Match = Math.Abs(diff) <= tolerance,
+            };
+        }
+
+        private static string SnapshotLineHead(string recId, uint partId)
+            => "partaction snapshot rec=" + (recId ?? string.Empty)
+                + " partId=" + partId.ToString(CultureInfo.InvariantCulture);
+
+        /// <summary>One compared field: <c>partaction snapshot rec= partId= field= live= snapshot=
+        /// diff= match=</c> (the subject set adds <c>onlyLive='..' onlySnapshot='..'</c>).</summary>
+        internal static string FormatSnapshotFieldLine(string recId, uint partId, LabFieldComparison c)
+        {
+            string line = SnapshotLineHead(recId, partId)
+                + " field=" + c.Field
+                + " live=" + c.Live
+                + " snapshot=" + c.Snapshot
+                + " diff=" + c.Diff
+                + " match=" + (c.Match ? "true" : "false");
+            if (c.OnlyLive != null || c.OnlySnapshot != null)
+                line += " onlyLive='" + (c.OnlyLive ?? string.Empty) + "'"
+                    + " onlySnapshot='" + (c.OnlySnapshot ?? string.Empty) + "'";
+            return line;
+        }
+
+        /// <summary>
+        /// One inspected part against the recording's end snapshot. A part without a live
+        /// <c>ModuleScienceLab</c> answers <c>none</c>. A lab part answers <c>false</c> when the
+        /// recording has no snapshot (<c>reason=no-snapshot</c>), no snapshot PART maps to it
+        /// (<c>reason=part-not-in-snapshot</c>) or the mapped PART carries no lab
+        /// (<c>reason=no-lab-in-snapshot</c>); else one line per field and <c>true</c> only when
+        /// every field matches. The first line is the <c>field=part</c> mapping line.
+        /// </summary>
+        internal static LabSnapshotOutcome EvaluateLabSnapshot(string recId, LiveLabReading live,
+            IList<LabSnapshotPart> snapshotParts, double tolerance)
+        {
+            var o = new LabSnapshotOutcome();
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            string head = SnapshotLineHead(recId, live.PartId) + " field=part";
+            if (!live.HasLab)
+            {
+                o.Token = SnapshotNotAskedToken;
+                o.Lines.Add(head + " match=none reason=no-lab-module");
+                return o;
+            }
+            string reason = null;
+            int index = -1;
+            string matchedBy = "none";
+            if (snapshotParts == null) reason = "no-snapshot";
+            else
+            {
+                index = MatchSnapshotPart(snapshotParts, live.PartId, live.PersistentId, live.Name,
+                    live.Index, live.PartCount, out matchedBy);
+                if (index < 0) reason = "part-not-in-snapshot";
+                else if (!snapshotParts[index].HasLab) reason = "no-lab-in-snapshot";
+            }
+            if (reason != null)
+            {
+                o.Token = "false";
+                o.Lines.Add(head + " matchedBy=" + matchedBy + " match=false reason=" + reason);
+                o.Mismatches.Add(live.PartId.ToString(ic) + ":" + reason);
+                return o;
+            }
+            o.Lines.Add(head + " matchedBy=" + matchedBy + " snapshotIndex=" + index.ToString(ic)
+                + " match=true");
+            bool all = true;
+            foreach (LabFieldComparison c in CompareLab(live, snapshotParts[index], tolerance))
+            {
+                o.Lines.Add(FormatSnapshotFieldLine(recId, live.PartId, c));
+                if (c.Match) continue;
+                all = false;
+                o.Mismatches.Add(live.PartId.ToString(ic) + ":" + c.Field);
+            }
+            o.Token = all ? "true" : "false";
+            return o;
+        }
+
+        /// <summary>Folds per-part tokens: <c>false</c> if any part is false, else <c>true</c> if
+        /// any part was compared, else <c>none</c> (no lab among the inspected parts, or no
+        /// comparison asked).</summary>
+        internal static string FoldSnapshotTokens(IEnumerable<string> tokens)
+        {
+            bool anyTrue = false;
+            if (tokens != null)
+                foreach (string t in tokens)
+                {
+                    if (t == "false") return "false";
+                    if (t == "true") anyTrue = true;
+                }
+            return anyTrue ? "true" : SnapshotNotAskedToken;
+        }
+
+        /// <summary>The ` snapshotMatch=..` tail an inspect appends to the applied line.</summary>
+        internal static string FormatSnapshotTail(string token)
+            => " snapshotMatch=" + (string.IsNullOrEmpty(token) ? SnapshotNotAskedToken : token);
+
+        /// <summary>The <c>snapshotMatch</c> / <c>snapshotMismatches</c> payload fields.</summary>
+        internal static List<KeyValuePair<string, string>> SnapshotPayloadFields(string token,
+            IList<string> mismatches)
+        {
+            string list = mismatches == null ? string.Empty : string.Join(",", new List<string>(mismatches).ToArray());
+            return new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("snapshotMatch",
+                    string.IsNullOrEmpty(token) ? SnapshotNotAskedToken : token),
+                new KeyValuePair<string, string>("snapshotMismatches", list),
+            };
         }
     }
 }

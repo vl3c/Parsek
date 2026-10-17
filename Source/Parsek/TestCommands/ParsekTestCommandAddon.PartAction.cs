@@ -59,6 +59,19 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            string expectSnapshotArg = ArgOrNull(cmd, TestCommandPartAction.ExpectSnapshotKey);
+            string recArg = ArgOrNull(cmd, TestCommandPartAction.RecKey);
+            string toleranceArg = ArgOrNull(cmd, TestCommandPartAction.ToleranceKey);
+            reason = TestCommandPartAction.ParseSnapshotArgs(kind, expectSnapshotArg, recArg, toleranceArg,
+                id => RecordingPaths.ValidateRecordingId(id),
+                out bool expectSnapshot, out string snapshotRecId, out double snapshotTolerance);
+            if (reason != null)
+            {
+                RejectPartAction(reason, $"button={actArg} expectSnapshot={expectSnapshotArg ?? string.Empty} " +
+                    $"rec={recArg ?? string.Empty} tolerance={toleranceArg ?? string.Empty}");
+                return;
+            }
+
             Vessel v = hasPid ? FindLiveVesselByPid(pid) : FlightGlobals.ActiveVessel;
             bool ghost = v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId);
             reason = TestCommandPartAction.DecideVessel(hasPid, v != null, ghost, v != null && v.loaded);
@@ -66,6 +79,22 @@ namespace Parsek.TestCommands
             {
                 RejectPartAction(reason, hasPid ? $"pid={pidArg}" : "target=active");
                 return;
+            }
+
+            // The recording whose end snapshot an inspect compares with, resolved before
+            // anything is read (ReadVesselResources' resolution: committed recording by id,
+            // its VesselSnapshot).
+            List<TestCommandPartAction.LabSnapshotPart> snapshotParts = null;
+            if (expectSnapshot)
+            {
+                Recording snapRec = RecordingStore.TryFindCommittedRecordingById(snapshotRecId);
+                if (snapRec == null)
+                {
+                    RejectPartAction(TestCommandPartAction.UnknownRecordingReason,
+                        $"button={actArg} rec={snapshotRecId}");
+                    return;
+                }
+                snapshotParts = TestCommandPartAction.ParseSnapshotParts(snapRec.VesselSnapshot);
             }
 
             int namedParts = 0;
@@ -100,7 +129,7 @@ namespace Parsek.TestCommands
                             found.Add(new PartActionCandidate
                             {
                                 Part = p, Experiment = exp,
-                                EventName = TestCommandPartAction.LabProcessMethodName,
+                                EventName = TestCommandPartAction.LabProcessDialogEventName,
                             });
                         continue;
                     }
@@ -163,18 +192,14 @@ namespace Parsek.TestCommands
             uint cPartId = first.Part.flightID;
             uint vesselPid = v.persistentId;
 
-            MethodInfo labMethod = null;
             if (kind == PartActionKind.LabProcess)
             {
-                labMethod = typeof(ModuleScienceExperiment).GetMethod(
-                    TestCommandPartAction.LabProcessMethodName,
-                    BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public,
-                    null, new[] { typeof(ScienceData) }, null);
-                if (labMethod == null)
+                Vessel activeNow = FlightGlobals.ActiveVessel;
+                reason = TestCommandPartAction.DecideLabTarget(activeNow != null && activeNow == v);
+                if (reason != null)
                 {
-                    RejectPartAction(TestCommandPartAction.LabMethodMissingReason,
-                        $"button={actArg} pid={vesselPid} part='{cPartName}' " +
-                        $"method={TestCommandPartAction.LabProcessMethodName}(ScienceData)");
+                    RejectPartAction(reason, $"button={actArg} pid={vesselPid} part='{cPartName}' " +
+                        $"activePid={(activeNow != null ? activeNow.persistentId : 0u)}");
                     return;
                 }
             }
@@ -182,6 +207,8 @@ namespace Parsek.TestCommands
             List<uint> before = ReadLivePids();
             string eventName = first.EventName;
             int pressed = 0;
+            var labRoutes = new List<TestCommandPartAction.LabProcessRoute>();
+            var labValues = new List<float>();
             for (int k = 0; k < candidates.Count; k++)
             {
                 PartActionCandidate c = candidates[k];
@@ -189,7 +216,18 @@ namespace Parsek.TestCommands
                 try
                 {
                     if (kind == PartActionKind.LabProcess)
-                        pressEvent = PressLabProcess(c, labMethod);
+                    {
+                        string labReason = PressLabProcess(c, v, pressed, candidates.Count,
+                            out TestCommandPartAction.LabProcessRoute labRoute, out float labValue,
+                            out string labDetail);
+                        if (labReason != null)
+                        {
+                            RejectPartAction(labReason, labDetail);
+                            return;
+                        }
+                        labRoutes.Add(labRoute);
+                        labValues.Add(labValue);
+                    }
                     else if (c.Event != null)
                         // The part-menu button's own handler, as the PAW invokes it.
                         c.Event.Invoke();
@@ -242,35 +280,172 @@ namespace Parsek.TestCommands
             // modules and events exist, exactly as for a player's PAW click in rails warp.
             var warp = new PartActionWarpContext(v.packed, SafeCurrentWarpRateIndex(),
                 SafeCurrentWarpRate(), SafeUniversalTime());
-            ParsekLog.Info(Tag, TestCommandPartAction.FormatAppliedLine(kind, vesselPid, cPartName, cPartId,
+            string appliedLine = TestCommandPartAction.FormatAppliedLine(kind, vesselPid, cPartName, cPartId,
                 eventName, newPid, nv != null ? nv.vesselName : null, before.Count, after.Count,
-                activePid, activeName, converterName, state, pressed, warp));
-            SetExecResult("OK", TestCommandPartAction.BuildOkPayload(kind, vesselPid, cPartName, cPartId,
-                eventName, newPid, nv != null ? nv.vesselName : null, before.Count, after.Count,
-                activePid, activeName, converterName, state, pressed, warp), null);
+                activePid, activeName, converterName, state, pressed, warp);
+            List<KeyValuePair<string, string>> payload = TestCommandPartAction.BuildOkPayload(kind, vesselPid,
+                cPartName, cPartId, eventName, newPid, nv != null ? nv.vesselName : null, before.Count,
+                after.Count, activePid, activeName, converterName, state, pressed, warp);
+            if (kind == PartActionKind.LabProcess)
+            {
+                appliedLine += TestCommandPartAction.FormatLabTail(labRoutes, labValues);
+                payload.AddRange(TestCommandPartAction.LabPayloadFields(labRoutes, labValues));
+            }
+            else if (kind == PartActionKind.Inspect)
+            {
+                string snapshotToken = TestCommandPartAction.SnapshotNotAskedToken;
+                var snapshotMismatches = new List<string>();
+                if (expectSnapshot)
+                    snapshotToken = CompareInspectedLabsWithSnapshot(v, candidates, all, snapshotRecId,
+                        snapshotParts, snapshotTolerance, snapshotMismatches);
+                appliedLine += TestCommandPartAction.FormatSnapshotTail(snapshotToken);
+                payload.AddRange(TestCommandPartAction.SnapshotPayloadFields(snapshotToken, snapshotMismatches));
+            }
+            ParsekLog.Info(Tag, appliedLine);
+            SetExecResult("OK", payload, null);
         }
 
         /// <summary>
-        /// The results dialog's "process in lab": when the open dialog's current page is this
-        /// part's, its own <c>OnSendToLab</c> callback runs (the dialog button's body: the
-        /// experiment's <c>sendDataToLab</c>, then the page dismissal), so no stale page stays on
-        /// screen; otherwise the private method runs directly with the module's first datum.
-        /// Returns the <c>event=</c> name of the path taken.
+        /// The inspect <c>expectSnapshot=true</c> comparison: every inspected part (the first
+        /// alone without <c>all=true</c>) against the recording's end snapshot, one
+        /// <c>partaction snapshot</c> line per mapping and field, then one summary line.
+        /// Returns the folded <c>snapshotMatch</c> token.
         /// </summary>
-        private static string PressLabProcess(PartActionCandidate c, MethodInfo labMethod)
+        private string CompareInspectedLabsWithSnapshot(Vessel v, List<PartActionCandidate> candidates,
+            bool all, string recId, List<TestCommandPartAction.LabSnapshotPart> snapshotParts,
+            double tolerance, List<string> mismatches)
         {
+            var tokens = new List<string>();
+            int compared = 0;
+            int count = all ? candidates.Count : Math.Min(1, candidates.Count);
+            for (int k = 0; k < count; k++)
+            {
+                Part p = candidates[k].Part;
+                if (p == null) continue;
+                ModuleScienceLab lab = p.FindModuleImplementing<ModuleScienceLab>();
+                var live = new TestCommandPartAction.LiveLabReading
+                {
+                    PartId = p.flightID,
+                    PersistentId = p.persistentId,
+                    Name = p.partInfo != null ? p.partInfo.name : p.name,
+                    Index = v.parts.IndexOf(p),
+                    PartCount = v.parts.Count,
+                    HasLab = lab != null,
+                    DataStored = lab != null ? lab.dataStored : 0f,
+                    StoredScience = lab != null ? lab.storedScience : 0f,
+                    Experiments = lab != null ? lab.ExperimentData : null,
+                };
+                TestCommandPartAction.LabSnapshotOutcome o =
+                    TestCommandPartAction.EvaluateLabSnapshot(recId, live, snapshotParts, tolerance);
+                foreach (string line in o.Lines) ParsekLog.Info(Tag, line);
+                mismatches.AddRange(o.Mismatches);
+                tokens.Add(o.Token);
+                if (o.Token != TestCommandPartAction.SnapshotNotAskedToken) compared++;
+            }
+            string token = TestCommandPartAction.FoldSnapshotTokens(tokens);
+            string summary = $"partaction snapshot complete rec={recId} parts={count} compared={compared} " +
+                $"snapshotParts={(snapshotParts != null ? snapshotParts.Count : 0)} " +
+                $"tolerance={tolerance.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"snapshotMatch={token} mismatches='{string.Join(",", mismatches.ToArray())}'";
+            if (token == "false") ParsekLog.Warn(Tag, summary);
+            else ParsekLog.Info(Tag, summary);
+            return token;
+        }
+
+        /// <summary>
+        /// The results dialog's "process in lab" for one experiment module (contract on
+        /// <see cref="TestCommandPartAction"/>): the dialog's current page for this part and
+        /// this datum, else the page the experiment's own <c>ReviewDataEvent</c> opens; then
+        /// the page's <c>UpdatePageLabValue()</c> (stock writes <c>labValue</c> only in
+        /// <c>ExperimentsResultDialog.SetPage</c>, so a datum loaded from a save, or a page shown
+        /// with no lab aboard, holds 0), the value and lab-search gates, and only then the
+        /// page's <c>OnSendToLab</c>. Returns null after the send, or the refusal reason with
+        /// its log detail; a refusal closes whatever the press opened.
+        /// </summary>
+        private static string PressLabProcess(PartActionCandidate c, Vessel v, int succeeded, int candidateCount,
+            out TestCommandPartAction.LabProcessRoute route, out float labValue, out string detail)
+        {
+            labValue = 0f;
+            detail = string.Empty;
+            string partName = c.Part.partInfo != null ? c.Part.partInfo.name : c.Part.name;
             ScienceData[] data = c.Experiment.GetData();
             ScienceData datum = data != null && data.Length > 0 ? data[0] : null;
+            string subject = datum != null ? datum.subjectID : null;
+
             ExperimentsResultDialog dialog = ExperimentsResultDialog.Instance;
             ExperimentResultDialogPage page = dialog != null ? dialog.currentPage : null;
-            if (page != null && page.host == c.Part && page.OnSendToLab != null && page.pageData != null
-                && datum != null && string.Equals(page.pageData.subjectID, datum.subjectID, StringComparison.Ordinal))
+            bool dialogBefore = dialog != null;
+            int pagesBefore = dialog != null && dialog.pages != null ? dialog.pages.Count : 0;
+            route = TestCommandPartAction.DecideLabRoute(LabPageIsFor(page, c.Part, datum));
+            if (route == TestCommandPartAction.LabProcessRoute.Review)
             {
-                page.OnSendToLab(page.pageData);
-                return TestCommandPartAction.LabProcessDialogEventName;
+                // The experiment's "Review Data" PAW button: ExperimentsResultDialog.DisplayResult
+                // opens (or re-points) the dialog synchronously and SetPage makes the page current.
+                c.Experiment.ReviewDataEvent();
+                dialog = ExperimentsResultDialog.Instance;
+                page = dialog != null ? dialog.currentPage : null;
             }
-            labMethod.Invoke(c.Experiment, new object[] { datum });
-            return TestCommandPartAction.LabProcessMethodName;
+            int pagesAfter = dialog != null && dialog.pages != null ? dialog.pages.Count : 0;
+            TestCommandPartAction.LabDialogCleanup cleanup =
+                TestCommandPartAction.DecideLabCleanup(route, dialogBefore, pagesBefore, pagesAfter);
+
+            string reason = null;
+            string labError = null;
+            if (route == TestCommandPartAction.LabProcessRoute.Review)
+                reason = TestCommandPartAction.DecideLabPageAfterReview(LabPageIsFor(page, c.Part, datum));
+            if (reason == null)
+            {
+                labValue = page.UpdatePageLabValue();
+                reason = TestCommandPartAction.DecideLabValue(labValue);
+            }
+            if (reason == null)
+            {
+                // Stock's own search, the one sendDataToLab runs: it reads labValue for the
+                // space check, so it runs after the value is written.
+                var search = new ScienceLabSearch(v, page.pageData);
+                if (!search.NextLabForDataFound)
+                    labError = search.Error + ":labs=" + search.LabsTotal + ",manned=" + search.LabsManned
+                        + ",space=" + search.LabsWithSpace + ",notResearched=" + search.LabsNotResearched
+                        + ",idle=" + search.LabsNotProcessing;
+                reason = TestCommandPartAction.DecideLabSearch(search.NextLabForDataFound);
+            }
+            if (reason != null)
+            {
+                ApplyLabCleanup(cleanup, dialog, page);
+                detail = TestCommandPartAction.FormatLabRefusalDetail(v.persistentId, partName, c.Part.flightID,
+                    subject, route, cleanup, labValue, labError, succeeded, candidateCount);
+                return reason;
+            }
+
+            // The dialog's lab button body: sendDataToLab (process into the lab the search
+            // found, end the experiment), then dismissCurrentPage, which closes the dialog with
+            // its last page.
+            page.OnSendToLab(page.pageData);
+            ExperimentsResultDialog after = ExperimentsResultDialog.Instance;
+            ParsekLog.Verbose(Tag, $"partaction labprocess sent: part='{partName}' partId={c.Part.flightID} " +
+                $"subject='{subject}' labRoute={TestCommandPartAction.LabRouteToken(route)} " +
+                $"labValue={labValue.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"pagesLeft={(after != null && after.pages != null ? after.pages.Count : 0)}");
+            return null;
+        }
+
+        /// <summary>Whether <paramref name="page"/> is <paramref name="part"/>'s results page for
+        /// the module's own <paramref name="datum"/> object (see
+        /// <see cref="TestCommandPartAction.LabPageMatches"/>).</summary>
+        private static bool LabPageIsFor(ExperimentResultDialogPage page, Part part, ScienceData datum)
+            => TestCommandPartAction.LabPageMatches(page != null, page != null && page.host == part,
+                page != null && page.OnSendToLab != null,
+                page != null && datum != null && ReferenceEquals(page.pageData, datum));
+
+        /// <summary>Closes what a refused labprocess opened (<see cref="TestCommandPartAction.DecideLabCleanup"/>).</summary>
+        private static void ApplyLabCleanup(TestCommandPartAction.LabDialogCleanup cleanup,
+            ExperimentsResultDialog dialog, ExperimentResultDialogPage page)
+        {
+            if (cleanup == TestCommandPartAction.LabDialogCleanup.DismissDialog && dialog != null)
+                dialog.Dismiss();
+            else if (cleanup == TestCommandPartAction.LabDialogCleanup.KeepPage && page != null
+                     && page.OnKeepData != null)
+                page.OnKeepData(page.pageData);
         }
 
         /// <summary>The target part's relevant module state for <c>state=</c>, in module order.</summary>

@@ -579,6 +579,20 @@ the updates below record how each verb arrived.
 > ut=`. New WarpToUT refusal `warp-detach-invalid`. Contracts below (`#### WarpToUT`,
 > `#### PartAction`).
 
+> Update (PartAction labprocess value / inspect snapshot, 2026-10-17): no new verb (the table
+> stays **53 implemented / 4 reserved**). `labprocess` no longer reflects into the private
+> `sendDataToLab`: with no results page up it opens one through the experiment's own
+> `ReviewDataEvent`, writes the page's `labValue` itself (`UpdatePageLabValue()`), and refuses a
+> zero value or a vessel with no lab able to take the datum BEFORE the send (stock's labValue
+> is written only by the dialog's `SetPage` and never saved, so the old reflected send stored 0
+> data after any load and still burned the subject's lab slot). `inspect` gains OPTIONAL
+> `expectSnapshot=true rec=<recordingId> [tolerance=<abs>]`, comparing the part's
+> `ModuleScienceLab` with the recording's end snapshot. `-lab-method-missing` is gone; new
+> refusals `-expect-snapshot-arg-invalid`, `-snapshot-arg-unexpected`,
+> `-expect-snapshot-needs-rec`, `-rec-arg-invalid`, `-tolerance-arg-invalid`,
+> `-unknown-recording`, `-lab-not-active-vessel`, `-lab-page-missing`, `-lab-value-zero`,
+> `-lab-unavailable`. Contract below (`#### PartAction`).
+
 > Update (CrewTransfer, 2026-10-17): one ADDITIVE verb, taking the table to **53 implemented / 4 reserved**,
 > for the crew-across-vessels coverage (crew moved between two pods of a docked pair):
 > `CrewTransfer kerbal= part=` runs stock's own crew transfer inside the active vessel. Full contract
@@ -4434,7 +4448,8 @@ way a player clicks them, and read the part's module state back.
 
 **Grammar.** `cmd=PartAction button=<undock|decouple|controlfrom|deploy|retract|startconverter|
 stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff> [part=<part name>]
-[converter=<ConverterName>] [all=true] [pid=<persistentId>]`, issued in FLIGHT. `button=` REQUIRED, closed,
+[converter=<ConverterName>] [all=true] [pid=<persistentId>] [expectSnapshot=true|false
+rec=<recordingId> tolerance=<abs>]`, issued in FLIGHT. `button=` REQUIRED, closed,
 case-sensitive (`partaction-button-arg-missing` / `-arg-invalid`); `part=` is the part's runtime
 name (dot form, `Decoupler.1`), REQUIRED for every button but `undock`
 (`partaction-part-arg-missing`), OPTIONAL for `undock`; `converter=` OPTIONAL and only for
@@ -4446,6 +4461,12 @@ the string `true` (any other value, a TOML bool included since step args are sen
 `decouple` and `controlfrom`, whose one press reshapes or re-points the vessel
 (`partaction-all-arg-unexpected`); on `inspect` it reads every part carrying the name; `pid=`
 OPTIONAL (absent: the active vessel), Recover's grammar (`partaction-pid-arg-invalid`).
+`expectSnapshot=` (the string `true` or `false`, else `partaction-expect-snapshot-arg-invalid`),
+`rec=` and `tolerance=` are for `inspect` only: any of them on another button, or `rec=` /
+`tolerance=` without `expectSnapshot=true`, is `partaction-snapshot-arg-unexpected`;
+`expectSnapshot=true` needs `rec=` (`partaction-expect-snapshot-needs-rec`), a recording id
+`RecordingPaths.ValidateRecordingId` accepts (`partaction-rec-arg-invalid`); `tolerance=` is a
+plain decimal >= 0 (`partaction-tolerance-arg-invalid`), default 0.01 (ReadVesselResources').
 
 **Behavior.** Resolves a LOADED, non-ghost vessel (`-no-active-vessel`, `-vessel-not-found`,
 `-target-is-ghost`, `-vessel-unloaded`), then collects the candidate buttons: every module on the
@@ -4468,13 +4489,55 @@ vessel part order, each with the same press as alone; zero refuses exactly as wi
 press that throws stops the walk: ERROR `partaction-event-threw`, the Error line naming
 `presses=<succeeded>/<candidates>`. `labprocess` is the experiment results dialog's "process in lab": its
 candidates are the named part's `ModuleScienceExperiment`s holding data (`GetScienceCount() > 0`;
-an experiment module with none is `partaction-experiment-no-data`). When the open
-`ExperimentsResultDialog`'s current page is that part's, the page's own `OnSendToLab` callback
-runs (the dialog button's body: the experiment's private `sendDataToLab`, then the page
-dismissal; `event=OnSendToLab`); otherwise `sendDataToLab(GetData()[0])` runs by reflection
-(`event=sendDataToLab`). The method is looked up before either path, and a build without it is
-`partaction-lab-method-missing`, never a throw. `inspect` presses nothing; its candidate is the
-one part carrying the name (`event=` empty). `BaseEvent.Invoke()` runs synchronously, so the
+an experiment module with none is `partaction-experiment-no-data`), and the target must be the
+ACTIVE vessel (`partaction-lab-not-active-vessel`, checked before any press: stock's
+`ExperimentResultDialogPage.UpdatePageLabValue` values the datum against
+`FlightGlobals.ActiveVessel`'s lab and situation). Why the press is more than a callback
+(KSP 1.12.5, decompiled): the lab stores `ScienceData.labValue` (`ModuleScienceLab.StoreData`
+adds it to `dataStored`), whose ONLY writer is `UpdatePageLabValue`, whose only caller is
+`ExperimentsResultDialog.SetPage`, and only when the page's lab search found a lab; nothing saves,
+loads or copies it. A datum that never went through `SetPage` with a lab aboard (after a load or
+an F9, inside the experiment's `dialogDelay`, a page shown before the lab was attached) holds 0,
+and a send then stores 0 data while still taking the subject's one lab slot
+(`ExperimentData.Add`) and ending the experiment. So each press: (1) uses the dialog's current
+page when it is this part's page for the module's OWN datum object (`page.host == part`,
+`OnSendToLab` set, `ReferenceEquals(page.pageData, GetData()[0])`; `labRoute=page`), else calls the
+experiment's public `ReviewDataEvent()` (its "Review Data" PAW button:
+`ExperimentsResultDialog.DisplayResult` opens or re-points the dialog synchronously) and takes
+`ExperimentsResultDialog.Instance.currentPage` (`labRoute=review`; not a matching page:
+`partaction-lab-page-missing`); (2) calls `page.UpdatePageLabValue()` explicitly (a page that
+already existed for the datum is only re-pointed by `DisplayResult`, without `SetPage`) and
+refuses `partaction-lab-value-zero` when it is not positive; (3) runs stock's own
+`new ScienceLabSearch(vessel, page.pageData)` (the search `sendDataToLab` runs; it reads
+`labValue` for the space check) and refuses `partaction-lab-unavailable` when it finds no lab
+(the detail names `labError=<SearchError>:labs=,manned=,space=,notResearched=,idle=`); (4) only
+then invokes `page.OnSendToLab(page.pageData)` (`event=OnSendToLab`): the experiment's
+`sendDataToLab`, then the dialog's `dismissCurrentPage`, which closes the dialog with its last
+page. A refusal at (1)-(3) closes what the press opened: the whole dialog
+(`ExperimentsResultDialog.Dismiss()`, whose `OnDestroy` keeps every page's data) when none was up
+before, the one page the review added through the page's Keep callback when a dialog was up,
+nothing on `labRoute=page` (refusal detail `cleanup=None|DismissDialog|KeepPage`). Every member
+used is public; nothing is reflected. `inspect` presses nothing; its candidate is the
+one part carrying the name (`event=` empty). With `expectSnapshot=true rec=<id>` the recording is
+resolved first (`RecordingStore.TryFindCommittedRecordingById`, ReadVesselResources'
+resolution; none: `partaction-unknown-recording`) and each inspected part (every one with
+`all=true`) is compared with the same part in its `VesselSnapshot`: the PART with the live
+flight id (`uid`), else the live part persistentId, else the same index and name in a snapshot of
+the same part count (a Parsek spawn regenerates both ids and keeps the PART order), else the one
+same-name PART carrying a lab (`matchedBy=uid|persistentId|index|name`). The live
+`ModuleScienceLab`'s `dataStored` and `storedScience` must lie within `tolerance` of the snapshot
+module's, and its `ExperimentData` subject set must equal the union of the snapshot module's
+EXPERIMENT_DATA `experiment` values. A part without a live lab answers `none`; a lab part with no
+snapshot, no mapped PART or a mapped PART without a lab answers `false`
+(`reason=no-snapshot|part-not-in-snapshot|no-lab-in-snapshot`). Lines, invariant:
+`partaction snapshot rec=<id> partId=<flightID> field=part matchedBy=<by> snapshotIndex=<i>
+match=true` (or `field=part matchedBy=<by> match=false reason=<r>`, or `field=part match=none
+reason=no-lab-module`), then per field `partaction snapshot rec= partId= field=dataStored|storedScience
+live=<F4> snapshot=<F4> diff=<F4> match=true|false` and `... field=experiments live=<n>
+snapshot=<n> diff=<symmetric difference> match= onlyLive='<ids>' onlySnapshot='<ids>'`, then
+`partaction snapshot complete rec= parts= compared= snapshotParts= tolerance= snapshotMatch=
+mismatches='..'` (Warn when false). The answer's `snapshotMatch` folds the parts: `false` if any
+is, else `true` if any lab was compared, else `none`. `BaseEvent.Invoke()` runs synchronously, so the
 vessel an undock or a decouple creates exists on return: it is the pid present after the call
 and absent before. A converter's output, an experiment's data and a lab's processing move on
 later frames, so `state=` is the state right after the click (read it again with `inspect`).
@@ -4493,7 +4556,11 @@ a science lab `lab:storedScience=<F2> dataStored=<F2>`, an experiment `exp:data=
 animation group `deployed=0|1`, an active radiator `radiator:cooling=0|1`. With `all=true`, `state` is every acted-on part in vessel part
 order as `<flightID>:<that part's segments>`, joined by ` | `
 (`123:Surface Harvester:active=1;deployed=1 | 456:...`). Names are read at once, so stock's one-Update rename after a
-staging split is NOT in them (VN-8 reads it from the save).
+staging split is NOT in them (VN-8 reads it from the save). A `labprocess` line appends
+` labRoute=page|review labValue=<F2>` and its payload `labRoute labValue` (one comma-joined entry
+per press); an `inspect` line appends ` snapshotMatch=true|false|none` and its payload
+`snapshotMatch snapshotMismatches` (`<partId>:<field or reason>`, comma-joined), after the warp
+fields.
 
 **Packed (on-rails) vessels.** Nothing refuses a packed vessel: in rails warp a landed vessel
 stays LOADED (only `packed`), its part modules and their `KSPEvent`s exist, and the vessel gate
@@ -4505,12 +4572,17 @@ drains only into radiators with `IsCooling` set. The answer's `packed=1 warpInde
 press landed on rails.
 
 **Phases.** SINGLE-PHASE, `RequiresFlight`, default budget (60 s); an exception from the event is
-the ERROR `partaction-event-threw` (a reflected `sendDataToLab` reports its inner exception).
-The seven arg reasons are deterministic (`DETERMINISTIC_SEAM_ERROR_REASONS`);
-`-converter-not-found` and `-radiator-not-found` are arg-class but retried like `-part-not-found`, and
-`-experiment-no-data` / `-lab-method-missing` are gate-class. World-mutating tail role, `recording` post-mission role;
+the ERROR `partaction-event-threw`.
+The twelve arg reasons are deterministic (`DETERMINISTIC_SEAM_ERROR_REASONS`);
+`-converter-not-found`, `-radiator-not-found`, `-unknown-recording` and `-lab-not-active-vessel`
+are arg-class but retried like `-part-not-found`, and `-experiment-no-data`, `-lab-page-missing`,
+`-lab-value-zero` and `-lab-unavailable` are gate-class. A labprocess press inside the
+experiment's `dialogDelay` (between `DeployExperiment` and stock opening the results page) races
+stock's delayed `reviewData()`, which reads the module's datum after the send cleared it; a lane
+waits for the page before pressing. World-mutating tail role, `recording` post-mission role;
 state-mutating for the FlushAndQuit save. Pure half `TestCommandPartAction`, applier
-`ParsekTestCommandAddon.PartAction.cs`, mirrored by `PartActionSourceSyncTests`. Lanes:
+`ParsekTestCommandAddon.PartAction.cs`, mirrored by `PartActionSourceSyncTests`; xUnit
+`TestCommandPartActionTests` and `TestCommandPartActionLabTests`. Lanes:
 `VN-4-dock-undock-rename` (undock), `VN-6-ts-rename-then-decouple` (decouple),
 `VN-8-control-part-leaves-staging` (controlfrom + decouple).
 
