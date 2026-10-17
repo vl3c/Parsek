@@ -1,0 +1,182 @@
+"""Unit tests for the LABX Orbital Lab craft (harness/tools/build_lab_orbit_craft.py),
+the craft LABX-1-lab-orbit-ascent flies to low Kerbin orbit for the science-lab lanes.
+
+Runnable with the stdlib runner only (NO pytest, NO kRPC, NO KSP, NO network)::
+
+    cd harness && python -m unittest discover -s missions/lib -q
+
+Mirrors the GS-1 and DD1 craft drift cells: the builder's `--check` runs in-process,
+so a hand edit to the committed .craft, or a drifted derivation, reds here instead
+of in a live flight. The extra cells pin the three properties the lab lanes lean on
+beyond "it flies": the scientist's seat (A2), the staging that can never drop the
+lab (A3), and the steady power the lab's research draw needs (A8).
+"""
+
+import importlib.util
+import math
+import os
+import tomllib
+import unittest
+
+HARNESS_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))))
+
+
+def _load_builder():
+    path = os.path.join(HARNESS_ROOT, "tools", "build_lab_orbit_craft.py")
+    spec = importlib.util.spec_from_file_location("build_lab_orbit_craft", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class CraftDriftTests(unittest.TestCase):
+    """WIRES THE BUILDER'S `--check` INTO THE SUITE."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.builder = _load_builder()
+
+    def test_the_committed_craft_satisfies_every_post_condition(self):
+        committed = self.builder.read_lines(self.builder.CRAFT_PATH)
+        self.assertEqual(self.builder.verify(committed), [])
+
+    def test_the_committed_craft_is_byte_identical_to_a_fresh_rebuild(self):
+        committed = self.builder.read_lines(self.builder.CRAFT_PATH)
+        self.assertEqual(
+            committed, self.builder.build(),
+            "the committed LABX craft has DRIFTED from the derivation; re-run "
+            "build_lab_orbit_craft.py --write and commit, or explain")
+
+    def test_check_mode_exits_clean(self):
+        self.assertEqual(self.builder.main(["--check"]), 0)
+
+
+class SeatingContractTests(unittest.TestCase):
+    """Assumption A2: kRPC fills the one control-source seat with the pilot, then
+    seats the leftover named kerbal in the first empty seat in PART order, so the
+    pod must be ONE seat, first, and the lab the only other crewable part."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.builder = _load_builder()
+        cls.records = cls.builder.part_records(cls.builder.build())
+
+    def test_the_root_is_the_one_seat_pod_and_the_lab_is_the_next_crewable_part(self):
+        crewable = [n for n, _r in self.records if n in self.builder.CREW_CAPACITY]
+        self.assertEqual(self.records[0][0], "mk1pod.v2")
+        self.assertEqual(crewable, ["mk1pod.v2", "Large.Crewed.Lab"])
+        self.assertEqual(self.builder.CREW_CAPACITY["mk1pod.v2"], 1)
+
+    def test_a_three_seat_pod_would_be_caught(self):
+        # The mutation the seating contract exists for: a Mk1-3 pod absorbs both
+        # names and leaves the lab empty. Re-labelling the root reds the census and
+        # the root check, so the swap cannot slip through as a drift alone.
+        lines = self.builder.build()
+        mutated = [l.replace("mk1pod.v2_", "mk1-3pod_") for l in lines]
+        problems = self.builder.verify(mutated)
+        self.assertTrue(any("ROOT" in p for p in problems), problems)
+
+    def test_exactly_one_command_part(self):
+        text = "\n".join(self.builder.build())
+        self.assertEqual(text.count("name = ModuleCommand"), 1)
+
+    def test_the_lab_tail_invents_no_module(self):
+        lab = [r for n, r in self.records if n == "Large.Crewed.Lab"]
+        self.assertEqual(len(lab), 1)
+        self.assertNotIn("\tMODULE", lab[0]["__body__"])
+
+
+class StagingContractTests(unittest.TestCase):
+    """Assumption A3: Mainsail alone in istg 1, TD-25 + Poodle hot-stage in istg 0,
+    nothing above the decoupler ever stages."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.builder = _load_builder()
+        cls.records = cls.builder.part_records(cls.builder.build())
+
+    def _istg(self, name):
+        return sorted({int(r["istg"]) for n, r in self.records if n == name})
+
+    def test_the_two_stage_hot_stage_contract(self):
+        self.assertEqual(self._istg("liquidEngineMainsail.v2"),
+                         [self.builder.STAGE_IGNITE])
+        self.assertEqual(self._istg("Decoupler.2"), [self.builder.STAGE_SEPARATE])
+        self.assertEqual(self._istg("liquidEngine2-2.v2"),
+                         [self.builder.STAGE_SEPARATE])
+
+    def test_the_lab_and_everything_above_the_decoupler_never_stage(self):
+        for name in ("mk1pod.v2", "Large.Crewed.Lab", "science.module",
+                     "GooExperiment", "rtg", "Rockomax16.BW"):
+            self.assertEqual(self._istg(name), [-1], name)
+
+    def test_a_staged_lab_would_be_caught(self):
+        lines = self.builder.build()
+        out, in_lab = [], False
+        for line in lines:
+            if line.startswith("\tpart = Large.Crewed.Lab_"):
+                in_lab = True
+            if in_lab and line == "\tistg = -1":
+                line, in_lab = "\tistg = 0", False
+            out.append(line)
+        self.assertTrue(any("Large.Crewed.Lab sits above the decoupler" in p
+                            for p in self.builder.verify(out)))
+
+
+class PerformanceTests(unittest.TestCase):
+    """Assumptions A7 / A8: the arithmetic the report quotes, held to its floors."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.perf = _load_builder().performance()
+
+    def test_pad_twr_and_total_vacuum_dv_clear_the_floors(self):
+        self.assertGreater(self.perf["padTwr"], 1.3)
+        self.assertGreater(self.perf["totalVacDv"], 3400.0)
+
+    def test_the_quoted_numbers(self):
+        self.assertAlmostEqual(self.perf["padMass"], 58.43, places=2)
+        self.assertAlmostEqual(self.perf["upperWet"], 16.27, places=2)
+        self.assertAlmostEqual(self.perf["padTwr"], 2.41, places=2)
+        self.assertAlmostEqual(self.perf["upperVacDv"], 2322.6, delta=1.0)
+        self.assertAlmostEqual(self.perf["boosterVacDv"], 2411.8, delta=1.0)
+
+    def test_the_booster_alone_cannot_reach_orbit(self):
+        # The stackAttached row needs the decoupler to fire DURING the ascent, so
+        # the booster must carry well under an LKO ascent's spend.
+        self.assertLess(self.perf["boosterVacDv"], 3000.0)
+
+    def test_rtg_power_covers_the_lab_research_draw(self):
+        self.assertGreaterEqual(self.perf["ecPerSecond"], 5.0)
+
+
+class LaneWiringTests(unittest.TestCase):
+    """The LABX-1 spec launches THIS craft with THIS crew order, from the fixture
+    that physically carries it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.builder = _load_builder()
+        with open(os.path.join(HARNESS_ROOT, "scenarios",
+                               "LABX-1-lab-orbit-ascent.toml"), "rb") as fh:
+            cls.spec = tomllib.load(fh)
+
+    def test_the_spec_names_the_craft_and_the_crew_in_seat_order(self):
+        params = self.spec["driver"]["missionParams"]
+        self.assertEqual(params["craftName"], self.builder.SHIP_NAME)
+        self.assertEqual(tuple(params["crewNames"]), self.builder.CREW_NAMES)
+        self.assertEqual(params["minCrew"], len(self.builder.CREW_NAMES))
+        self.assertTrue(params["parkAttached"])
+
+    def test_the_spec_boots_the_fixture_that_carries_the_craft(self):
+        leaf = self.spec["fixture"]["saveTemplate"].rstrip("/").rsplit("/", 1)[-1]
+        expected = os.path.join(HARNESS_ROOT, "fixtures", "saves", leaf, "Ships",
+                                "VAB", self.builder.SHIP_NAME + ".craft")
+        self.assertEqual(os.path.normcase(os.path.abspath(expected)),
+                         os.path.normcase(os.path.abspath(self.builder.CRAFT_PATH)))
+        self.assertTrue(os.path.isfile(expected))
+
+
+if __name__ == "__main__":
+    unittest.main()

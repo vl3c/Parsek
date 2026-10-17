@@ -10599,6 +10599,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # fixture is not committed yet; that debt rides the `pending-flight` tag
         # and GS-2's STATUS block, not an operator-REVIEW debt.
         "FORGE-gs2-orbital-stack.toml":     "forge-mechanism - manual by design; FLOWN 2026-08-05 (PASS attempt 1), fixture gs2-orbital-stack committed + pinned",
+        # FORGE-gs2's profile again (forge_lko, parkAttached = true) flying the
+        # by-construction LABX Orbital Lab (build_lab_orbit_craft.py), the vehicle
+        # the science-lab lanes need in LKO. NOT FLOWN: the first flight of an
+        # unflown craft is a reading run, and that debt rides the `pending-flight`
+        # tag and its own status row, not an operator-REVIEW debt.
+        "LABX-1-lab-orbit-ascent.toml":     "forge-mechanism + first flight of a by-construction craft - operator-invoked to prove the LABX Orbital Lab reaches a parked LKO (harvestable save); NOT FLOWN, a reading run carried by `pending-flight`, not an operator-review debt",
         # The SIXTH forge, same mechanism again: it stamps b17-duna-pad by
         # launching the committed DD1 Duna Direct Probe (built by construction,
         # build_dd1_craft.py) onto the pad UNCREWED. Flown + harvested
