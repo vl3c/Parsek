@@ -4058,16 +4058,25 @@ recovering it. Still open: the route action types.
 
 ---
 
-## HIRE-RECALC-BEFORE-STOCK-DEBIT: a KSC hire logs a funds drawdown clamp and a reconciliation warning before stock charges it [FILED 2026-10-17 from the L8 reading run `2026-10-17_0632`. OPEN, product, low]
+## ~~HIRE-RECALC-BEFORE-STOCK-DEBIT: a Space Center hire was recalculated before stock charged it, so it clamped or was charged twice~~ [FILED 2026-10-17 from the L8 flights `2026-10-17_0632` and `2026-10-17_0700`. FIXED 2026-10-17, branch `claude/career-rewind-ledger-tlmab9` (PR #2129). product, medium]
 
-Hiring at the Space Center runs Parsek's `OnCrewmemberHired` recalc before stock Funding's
-listener debits the hire. The recalc already holds the KerbalHire row, so running funds sit the
-hire cost below live and the patch clamps (`GUARDED DRAWDOWN clamped resource=Funds running=292069
-live=354182`, a gap of exactly 62113), and the KSC reconciliation warns `KerbalHire ... no matching
-FundsChanged`. Stock's debit then lands and the next recalc agrees, so the pools end right; the
-cost is one misleading WRN pair per hire. A fix would defer the hire recalc one frame (or past
-Funding's listener) so it sees the debited pool. L8 tolerates the funds drawdown clamp for this
-reason and still forbids an uplift or a science / reputation drawdown.
+`KerbalRoster.HireApplicant` raises `OnCrewmemberHired`, and stock Funding charges the hire from
+its own listener on that event, which runs after Parsek's. Parsek's handler wrote the KerbalHire
+row and recalculated inline, before the charge. With no committed future the funds patch clamped
+the drawdown (`GUARDED DRAWDOWN clamped resource=Funds running=292069 live=354182`, a gap of
+exactly 62113) and then the charge landed, so the pool ended right. With committed future rows
+(after a rewind) the reduction is authorised, so the patch charged the hire and stock charged
+it again: flight `2026-10-17_0700` logged `GUARDED UPLIFT clamped ... running=437887
+live=229956 wouldBeTarget=292069`, one hire below the right value, held through a whole flight
+and the next KSC actions until a rewind re-patched it. Both cases also warned `KSC
+reconciliation (funds): ... KerbalHire ... no matching FundsChanged`.
+
+Fix: `LedgerOrchestrator.OnKscSpending` hands a KerbalHire row's reconcile and recalc to the
+next frame (`ShouldDeferKscReconcileOneFrame`, the frame host the milestone row already uses;
+inline when there is no host), so both see the charged pool and the FundsChanged(CrewRecruited)
+event. Cell: `LedgerOrchestratorTests.OnKscSpending_KerbalHire_DefersTheReconcileAndRecalcPastStocksCharge`
+(red before the fix). Live proof: L8, which requires the deferral line and forbids every guard
+clamp and the hire's reconcile warning.
 
 ---
 

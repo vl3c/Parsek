@@ -35,6 +35,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Hiring a kerbal after a rewind no longer charges the hire twice.** When later actions were
+  already planned on the timeline, a Space Center hire took its cost out of your funds twice,
+  and the missing money stayed missing until the next rewind. The hire is now charged once,
+  and hires no longer log a funds warning. (HIRE-RECALC-BEFORE-STOCK-DEBIT)
 - **A vessel that undocks in orbit comes back on its real orbit after a rewind.** Parsek rebuilt
   the orbit from the recording's last point, which after a reload could tilt the vessel's path into
   a 14 km periapsis. It now uses the orbit the game reported when the recording ended, so the

@@ -29,10 +29,13 @@ tier = "nightly"
 #   rewind 3   Rewind-to-Launch A again, by id (ListHandles kind=committed rec0tree): clock 45,
 #              BEFORE every row of the walk, the deepest layering: three timelines of rows,
 #              all committed future.
-#   check      VAB launch of the probe (rollout -300, the one past row), warp to 200, and
-#              LedgerGroundTruth in that flight: the first ground-truth run after a rewind
-#              (it scene-skips at the Space Center and skips with a live or pending tree, so
-#              this unrecorded launch is its only window). Then quit.
+#   check      VAB launch of the probe (rollout -300, the one past row), warp to 200, save
+#              persistent, and LedgerGroundTruth in that flight: the first ground-truth run
+#              after a rewind (it scene-skips at the Space Center and skips with a live or
+#              pending tree, so this unrecorded launch is its only window). Then quit. The
+#              batch teardown restores persistent.sfs to its batch-start bytes and the quit
+#              does not re-save, so the explicit save is what puts the produced save's clock
+#              at ~200 rather than at the launch (where the rollout row sits ON the clock).
 #
 # THE EXPECTATION (oracle, HARD). End clock ~200: past = the check rollout; future = every
 # other row. Available funds = min(running, every projected future balance) = the final
@@ -40,15 +43,23 @@ tier = "nightly"
 # future earning is outweighed by a later spending. Science 100 - 5 - 5 = 90 (both research
 # rows reserved). Reputation 0.
 #
-# THE HIRE CLAMP. Parsek's hire recalc runs before stock Funding debits the hire, so each hire
-# logs one `GUARDED DRAWDOWN clamped resource=Funds` (live - running = the hire cost) and a KSC
-# reconciliation WRN, then the debit lands (todo HIRE-RECALC-BEFORE-STOCK-DEBIT). The funds
-# drawdown is therefore not forbidden; an uplift, or a science / reputation drawdown, is.
+# THE HIRE. Stock Funding charges a hire from its own OnCrewmemberHired listener, after
+# Parsek's, so an inline recalc ran before the charge: with no committed future it clamped the
+# drawdown, and after rewind 1 (committed future rows authorising it) it patched the charge in
+# and stock charged it again (flight `2026-10-17_0700`: `GUARDED UPLIFT clamped ... live=229956`,
+# one hire below the 292069 target, held through flight B). Fixed by deferring the hire's
+# reconcile and recalc one frame (todo HIRE-RECALC-BEFORE-STOCK-DEBIT): the lane requires the
+# deferral line and forbids every guard clamp and the hire's reconcile warning.
 #
 # STATUS: AUTHORED 2026-10-17 (branch `claude/career-rewind-ledger-tlmab9`). The first reading
 # run (`2026-10-17_0632`) was INVALID: the recovery summary locked warp, the rewind verb was
-# FLIGHT-only, and both pad trees were auto-discarded. The BATCH_COMPLETE pin is interim
-# (INTERIM_PIN_IDS) until the first flight that reaches the batch.
+# FLIGHT-only, and both pad trees were auto-discarded. The second (`2026-10-17_0700`) met every
+# step and read the final pools right (funds 216769, science 90, rep 0) but was PARSEK-FAIL on
+# the hire double charge above and two lane errors: the end clock sat on the check rollout
+# (fixed by the save step) and the TrackingStation "Allowing" pair is one click (stock logs it
+# twice), so the lane now counts `applied=true` lines instead. Row UTs measured there: hire
+# 599.86, rollout B 600.16, recovery B 900.09, Mission Control 900.29, engineering101 900.33,
+# recovery A 1000.29, Tracking Station 1000.57, basicRocketry 1000.59, check rollout 45.25.
 #
 # PRE-REGISTERED READINGS (what to check first if the next flight reds):
 #   - `recover rejected reason=recover-button-locked`: the craft was still settling; a
@@ -137,6 +148,7 @@ steps = [
   { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Settings Probe" },         expect = "OK", budget = 120 },
   { cmd = "LaunchFromEditor",                                                              expect = "OK", budget = 180 },
   { cmd = "WarpToUT",       args = { ut = "200" },                                         expect = "OK", budget = 120 },
+  { cmd = "SaveGame",       args = { name = "persistent" },                                expect = "OK" },
   { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit",                                                                  expect = "OK" },
 ]
@@ -163,15 +175,17 @@ required = [
   "kscaction refused action=upgrade-facility reason=blocked-committed target=SpaceCenter/TrackingStation",
   "kscaction refused action=upgrade-facility reason=blocked-committed target=SpaceCenter/MissionControl",
   "\\A(?:[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false){3}",
+  "OnKscSpending: deferring the reconcile and recalc one frame for KerbalHire",
   "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
   "result: hardFailures=0 ",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "result: hardFailures=[1-9]",
-  "GUARDED UPLIFT clamped",
-  "GUARDED DRAWDOWN clamped resource=(?:Science|Reputation)",
-  "Allowing facility upgrade: 'SpaceCenter/TrackingStation'[\\s\\S]*Allowing facility upgrade: 'SpaceCenter/TrackingStation'",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  "KSC reconciliation \\(funds\\): action KerbalHire .*no matching",
+  "kscaction action=upgrade-facility target=SpaceCenter/TrackingStation applied=true[\\s\\S]*kscaction action=upgrade-facility target=SpaceCenter/TrackingStation applied=true",
+  "kscaction action=upgrade-facility target=SpaceCenter/MissionControl applied=true[\\s\\S]*kscaction action=upgrade-facility target=SpaceCenter/MissionControl applied=true",
 ]
 
 # The rewind-aware ledger oracle. Every row of the walk sits after the end clock (~200, the
@@ -184,66 +198,66 @@ rec3CarveOut = false
 timeline     = "rewind-aware"
 
 # Every row except the check rollout sits after the end clock (~200: the third rewind lands
-# at 45 and the check warps to 200), so every window below stays clear of it. The windows
-# are the planned UTs with margin; the reading run narrows them.
+# at 45, the check warps to 200 and saves), so every window below stays clear of it. The
+# windows bracket the UTs flight `2026-10-17_0700` measured.
 [[expectations.ledger.manifest]]
-  utWindow   = [40.0, 150.0]
+  utWindow   = [44.0, 60.0]
   kind       = "vessel-build-cost"
   # The check launch's rollout: the Settings Probe's Stayputnik (HC-2's measured 300).
   funds      = -300.0
   provenance = "seam-declared"
 
 [[expectations.ledger.manifest]]
-  utWindow   = [990.0, 1100.0]
+  utWindow   = [1000.0, 1010.0]
   kind       = "vessel-recovery"
   # Flight A's pad recovery of the Jumping Flea (L2's measured payout).
   funds      = 4182.0
   provenance = "seam-declared"
 
 [[expectations.ledger.manifest]]
-  utWindow   = [990.0, 1100.0]
+  utWindow   = [1000.0, 1010.0]
   kind       = "facility-upgrade"
   # Tracking Station 0 -> 1 (L1-upgrade-facility-career, QL-1).
   funds      = -150000.0
   provenance = "seam-declared"
 
 [[expectations.ledger.manifest]]
-  utWindow   = [990.0, 1100.0]
+  utWindow   = [1000.0, 1010.0]
   kind       = "tech-unlock"
   # basicRocketry (L1-research-node-career).
   science    = -5.0
   provenance = "seam-declared"
 
 [[expectations.ledger.manifest]]
-  utWindow   = [600.0, 615.0]
+  utWindow   = [595.0, 605.0]
   kind       = "kerbal-hire"
   # fresh-career's measured recruit cost (L1-hire-kerbal-career); the same roster here.
   funds      = -62113.0
   provenance = "seam-declared"
 
 [[expectations.ledger.manifest]]
-  utWindow   = [600.0, 680.0]
+  utWindow   = [599.0, 610.0]
   kind       = "vessel-build-cost"
   # Flight B's rollout.
   funds      = -300.0
   provenance = "seam-declared"
 
 [[expectations.ledger.manifest]]
-  utWindow   = [895.0, 980.0]
+  utWindow   = [900.0, 910.0]
   kind       = "vessel-recovery"
   # Flight B's pad recovery: the probe's full value on the pad.
   funds      = 300.0
   provenance = "seam-declared"
 
 [[expectations.ledger.manifest]]
-  utWindow   = [895.0, 980.0]
+  utWindow   = [900.0, 910.0]
   kind       = "facility-upgrade"
   # Mission Control 0 -> 1 (measured 75000 on this career's host).
   funds      = -75000.0
   provenance = "seam-declared"
 
 [[expectations.ledger.manifest]]
-  utWindow   = [895.0, 980.0]
+  utWindow   = [900.0, 910.0]
   kind       = "tech-unlock"
   # engineering101.
   science    = -5.0
