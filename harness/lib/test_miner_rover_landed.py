@@ -140,6 +140,11 @@ class MinerRoverLandedFixtureTests(unittest.TestCase):
         activated = {l.strip() for l in self.rover if l.strip().startswith("IsActivated = ")}
         self.assertEqual({"IsActivated = False"}, activated)
 
+    def test_the_four_radiators_are_switched_on(self):
+        # With them off, a rails warp overheats every 1200 K part (MINE-2 flight 1).
+        cooling = [l.strip() for l in self.rover if l.strip().startswith("IsCooling = ")]
+        self.assertEqual(["IsCooling = True"] * 4, cooling)
+
     def test_observer_probe_orbits_crewless_at_the_fixture_ut(self):
         self.assertIn("\t\t\ttype = Probe", self.probe)
         self.assertIn("\t\t\tsit = ORBITING", self.probe)

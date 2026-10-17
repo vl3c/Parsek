@@ -2,7 +2,12 @@ schema = 1
 id = "MINE-2-rover-mine-rewind-warp-jump"
 tier = "nightly"
 # THE FIRST FLOWN MINING LANE (roadmap MINE-2 / MINE-3, todo MINING-ISRU-UNTESTED-END-TO-END).
-# NEVER FLOWN: its first flight is a READING run.
+# FLOWN ONCE (2026-10-17, INVALID, two causes, both fixed here): CommitTree re-took the
+# committed tree for the still-active rover (copy-on-write restore + a promotion
+# recording), so Rewind-to-Launch was refused `recording-active`; RC-6's StopRecording
+# after CommitTree now follows it. And with the rover's radiators off, every 1200 K part
+# overheated during the rails warp; the fixture now carries them switched on. The next
+# flight is still a READING run.
 #
 # THE CRAFT is V's own "Mining Rover RC" (built and flown by hand in his dev install on
 # 2026-10-17, harvested into the derived fixture `miner-rover-landed` by
@@ -24,10 +29,12 @@ tier = "nightly"
 # names each converter's stock ConverterName; the two `inspect` steps before the first
 # press read those names even if a start step is refused.
 #
-# FIRST-FLIGHT READING. The ConverterNames `Surface Harvester` (drill) and `Lf+Ox` (ISRU)
-# are stock's as remembered, not read from this install; the rover's 3 EC/s of RTG power
-# is less than its converters draw, so the mined amounts are whatever stock's starved
-# catch-up produces and nothing below pins an amount, only snapshot equality.
+# READ ON FLIGHT 1: the drill's ConverterName is `Surface Harvester` (each drill also
+# carries two unnamed harvesters, `:active=0`), the ISRU's are `Lf+Ox`, `LiquidFuel`,
+# `Oxidizer` and `MonoPropellant`. The rover's 3 EC/s of RTG power is less than its
+# converters draw, so the mined amounts are whatever stock's starved catch-up produces
+# and nothing below pins an amount, only snapshot equality and that the ISRU is still
+# running after the hour (it was off on flight 1, after the overheat).
 description = "V's real mining rover deploys and runs four drills and an ISRU for an hour while recording; after commit and Rewind-to-Launch, the rover spawned at its recording's end holds exactly its end-snapshot Ore / LF / Ox / Mono, through a Space Center warp and through a FLIGHT time jump."
 instanceProfile = "stock-minimal"
 tags = ["mining", "isru", "rewind", "time-jump", "MINE-2"]
@@ -61,8 +68,12 @@ steps = [
   { cmd = "WarpToUT",            args = { ut = "3660", maxRate = "1000" },                expect = "OK", budget = 300 },
   { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant,ElectricCharge" }, label = "r1", expect = "OK" },
   { cmd = "PartAction",          args = { button = "inspect", part = "MiniISRU" },               expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniDrill", all = "true" },  expect = "OK" },
   { cmd = "StopRecording",                                                                expect = "OK" },
   { cmd = "CommitTree",                                                                   expect = "OK", budget = 120 },
+  # CommitTree on the still-active rover re-takes the committed tree (copy-on-write
+  # restore plus a promotion recording); stop that before the rewind, as RC-6 does.
+  { cmd = "StopRecording",                                                                expect = "OK" },
   { cmd = "ListHandles",         args = { kind = "committed" }, label = "c0",             expect = "OK" },
   { cmd = "MissionMark",         args = { label = "mine2-committed-${c0.count}-${c0.rec0}" }, expect = "OK" },
   { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                             expect = "OK", budget = 300 },
@@ -101,6 +112,8 @@ required = [
   "partaction applied button=deploy pid=110406740 part='MiniDrill' [^\\r\\n]*count=4",
   "partaction applied button=startconverter pid=110406740 part='MiniDrill' [^\\r\\n]*converter='Surface Harvester' [^\\r\\n]*count=4",
   "partaction applied button=startconverter pid=110406740 part='MiniISRU' [^\\r\\n]*converter='Lf\\+Ox' state='[^'\\r\\n]*Lf\\+Ox:active=1",
+  # The only MiniISRU inspect after the start is the one after the hour's warp.
+  "partaction applied button=inspect pid=110406740 part='MiniISRU' [^\\r\\n]*Lf\\+Ox:active=1",
   "committree committed=true",
   "MISSIONMARK label=mine2-committed-1-[0-9a-f]{32} ",
   "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",

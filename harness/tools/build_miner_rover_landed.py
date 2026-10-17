@@ -28,12 +28,21 @@ WHAT IS COPIED AND WHAT IS DERIVED.
     `amount` = 0 on every Ore, LiquidFuel, Oxidizer and MonoPropellant RESOURCE
     (`maxAmount` kept; ElectricCharge verbatim), so the drills and the ISRU have room
     to fill;
+    `IsCooling` = True on the four radPanelSm ModuleActiveRadiator modules (V's save had
+    them False). LOAD-BEARING: stock ModuleCoreHeat.MoveCoreEnergyToRadiators counts
+    only radiators whose IsCooling is set, so with them off nothing drains the drills'
+    and the ISRU's core heat. MINE-2's first flight (2026-10-17) warped the rover on
+    rails with them off, and all ten 1200 K parts (four RTGs, four wheels, two
+    batteries) exploded about 28 minutes in while it was packed (inferred overheat:
+    a packed part has no collision path). A mining rig runs with its radiators on;
+    switching them on is what a player does before a long warp;
     every `MODULE` whose `name` starts with `ModuleRestock` STRIPPED (10 blocks: two on
     the MiniISRU, one on each roverWheel1, one on each radPanelSm). The harness's
     stock-minimal instance has no ReStock; KSP's ProtoPartSnapshot matches modules by
     name, so the removal leaves every stock module's state where it was.
   ASSERTED UNCHANGED: crewless, LANDED, all four ModuleAnimationGroup `isDeployed =
   False`, every `IsActivated = False` (converters and harvesters off).
+  (The radiators are the one switch turned ON; see above.)
   SPLICED: the INERT `SCENARIO{name=ParsekScenario}` node (name, scene,
   missionHideArchived, gameStateEventCount), copied verbatim from
   `fixtures/saves/b1-pad-craft` and placed after the last stock SCENARIO, as every
@@ -105,6 +114,7 @@ LAST_UPDATE_TIME_COUNT = 25
 IS_DEPLOYED_COUNT = 4
 IS_ACTIVATED_COUNT = 16
 PART_COUNT = 27
+RADIATOR_COUNT = 4
 
 PROBE_DONOR_NAME = "Kerbal X Probe"
 PROBE_NAME = "Observer Probe"
@@ -254,6 +264,12 @@ def build_clone() -> List[str]:
 
     emptied = _empty_resources(clone)
     assert emptied == EMPTIED_RESOURCES, emptied
+
+    cooling = [i for i, l in enumerate(clone) if l.strip().startswith("IsCooling = ")]
+    assert [clone[i].strip() for i in cooling] == ["IsCooling = False"] * RADIATOR_COUNT, \
+        "the donor's radiators must all be off"
+    for i in cooling:
+        clone[i] = clone[i].replace("IsCooling = False", "IsCooling = True")
     return clone
 
 

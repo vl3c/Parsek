@@ -672,7 +672,9 @@ part uids) are verbatim. FLIGHTSTATE and `loadmeta` `UT` are 30 and `vesselCount
 `lct` / `lastUT` / ORBIT `EPH` and every converter and harvester `lastUpdateTime` are 30 and `met`
 0, so nothing catches up on load; Ore, LiquidFuel, Oxidizer and MonoPropellant amounts are 0
 (capacity kept, ElectricCharge verbatim), so the drills and the ISRU start with room to fill;
-drills retracted and every converter off, as V left them. The ten `ModuleRestock*` modules are
+drills retracted and every converter off, as V left them; the four radiators are switched ON
+(V had them off, and MINE-2's first flight overheated every 1200 K part in a rails warp without
+them). The ten `ModuleRestock*` modules are
 stripped (the stock-minimal instance has no ReStock). The base carries no ParsekScenario node,
 but a focusable save boots through the FLIGHT route, so the builder splices `b1-pad-craft`'s inert
 three-value node. Vessel index 1 is the `Observer Probe`, a crewless clone of

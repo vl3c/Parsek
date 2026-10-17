@@ -4095,7 +4095,7 @@ GAME
 				{
 					name = ModuleActiveRadiator
 					isEnabled = True
-					IsCooling = False
+					IsCooling = True
 					stagingEnabled = True
 					EVENTS
 					{
@@ -4259,7 +4259,7 @@ GAME
 				{
 					name = ModuleActiveRadiator
 					isEnabled = True
-					IsCooling = False
+					IsCooling = True
 					stagingEnabled = True
 					EVENTS
 					{
@@ -4423,7 +4423,7 @@ GAME
 				{
 					name = ModuleActiveRadiator
 					isEnabled = True
-					IsCooling = False
+					IsCooling = True
 					stagingEnabled = True
 					EVENTS
 					{
@@ -4587,7 +4587,7 @@ GAME
 				{
 					name = ModuleActiveRadiator
 					isEnabled = True
-					IsCooling = False
+					IsCooling = True
 					stagingEnabled = True
 					EVENTS
 					{

@@ -3362,8 +3362,15 @@ after a rewind). The seam can now drive the parts: `PartAction` gained `deploy`,
 `labtransmit`, `inspect` and `all=true`. `MINE-2-rover-mine-rewind-warp-jump` (MINE-2 and
 MINE-3 in one flight, on Kerbin instead of Minmus) records an hour of mining, commits, rewinds
 to launch and checks the spawned rover's tanks against its end snapshot after a warp and after
-a FLIGHT time jump; never flown. Still open: MINE-0, MINE-4, MINE-5, GS-6r3, a lab lane (XS-5),
-and `HarvestCapture_CatchUpOnLoad` on a host with a drill on ore.
+a FLIGHT time jump. First flight 2026-10-17 (`2026-10-17_1207`, both attempts) INVALID, no
+Parsek defect: deploy, startconverter and inspect all worked, but the spec missed RC-6's
+StopRecording after CommitTree (CommitTree re-takes the committed tree for the still-active
+rover, so the rewind was refused `recording-active`), and with the rover's radiators off every
+1200 K part (four RTGs, four wheels, two batteries) exploded about 28 minutes into the rails
+warp while packed, inferred overheat (stock `ModuleCoreHeat.MoveCoreEnergyToRadiators` counts
+only radiators with `IsCooling` set). Fixed in the spec and the fixture (radiators on); re-flight
+pending. Still open: MINE-0, MINE-4, MINE-5, GS-6r3, a lab lane (XS-5), and
+`HarvestCapture_CatchUpOnLoad` on a host with a drill on ore.
 
 ---
 
