@@ -58,7 +58,7 @@ and PartAction radiator on / off buttons.
 | Id | Lane | Gates |
 |---|---|---|
 | MINE-6 | V's flight step for step: deploy 4, start 4, warp ladder up to 100x, ISRU on (`Lf+Ox`) and off mid-warp, on (`MonoPropellant`) and off mid-warp, radiators on, stop, retract, exit to the Space Center (scene-exit commit), Rewind-to-Launch, flight reload, watch the ghost through the spawn | converter / deploy events and their UTs, harvest window open / close, ghost drill pose and converter loop applied, spawn tanks = end snapshot, watch camera returns to the spawned rover |
-| MINE-7 | Loaded spawn catch-up: after the spawn, fly the spawned rover with converters running and warp on | tanks grow from the snapshot, no jump or negative catch-up at the spawn UT; the `HarvestCapture_CatchUpOnLoad` in-game cell finally executes on a drill on ore |
+| MINE-7 | Loaded spawn catch-up: after the spawn, fly the spawned rover with converters running and warp on | tanks grow from the snapshot, no jump or negative catch-up at the spawn UT, nothing recorded for the unrecorded spawn (the `HarvestCapture_CatchUpOnLoad` in-game cell cannot run alone: `RunTests` has no single-test selector) |
 | MINE-8 | Space Center round trip with converters running (hours away), back to flight | stock background catch-up from `lastUpdateTime`, no spurious converter events, harvest window state across the scene change |
 | MINE-9 | Real Spawn Control warp across the end, and a forward jump with the rover LOADED (the MINE-3 remainder) | same tanks as the TimeJump branch; `ConverterJumpPolicy` on a loaded vessel |
 | MINE-10 | F5, mine, F9 | recording and harvest windows cut at the quicksave UT, tanks back to the quicksave |
