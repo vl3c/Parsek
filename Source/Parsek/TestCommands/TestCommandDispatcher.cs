@@ -297,6 +297,9 @@ namespace Parsek.TestCommands
         void DriveVessel(ParsedCommand cmd);
         // ----- ReadVesselResources (read what is in the tanks of live vessels; read-only) -----
         void ReadVesselResources(ParsedCommand cmd);
+        // ----- CrewTransfer (a player's stock crew transfer between two crewed parts of the
+        // active vessel) -----
+        void CrewTransfer(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -676,6 +679,9 @@ namespace Parsek.TestCommands
                 // DriveVessel. RequiresFlight: it drives the active vessel's wheel motors.
                 // Default budget (the drive span is capped well under it).
                 ["DriveVessel"] = VerbSceneRequirement.RequiresFlight,
+                // CrewTransfer. RequiresFlight: stock's crew transfer moves a kerbal between
+                // parts of the live active vessel. Default budget (stock completes in a frame).
+                ["CrewTransfer"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>

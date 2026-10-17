@@ -713,6 +713,13 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     snapshotMatch= snapshotMismatches=`. A rec= vessel that is not live is counted in
     #     `missing=` on an OK answer, a Parsek outcome a spec reds on, never a refusal.
     "ReadVesselResources",
+    # ADDITIVE (52 -> 53 implemented, reserved unchanged at 4), the crew-across-vessels host.
+    #   CrewTransfer kerbal=<full name> part=<runtime part name>, FLIGHT, TWO-PHASE, default
+    #     60 s: a player's stock crew transfer between two crewed parts of the ACTIVE vessel
+    #     (CrewTransfer.Create, then the transfer's own OnPartSelect on the destination). OK
+    #     once stock dismissed it with the kerbal moved: `kerbal= pid= from= fromId= to= toId=
+    #     crewFrom= crewTo=`.
+    "CrewTransfer",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1328,6 +1335,9 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     "RevertToLaunch": TAIL_ROLE_WORLD_MUTATING,
     # DriveVessel moves a live vessel across the surface (and toggles its Brakes group).
     "DriveVessel": TAIL_ROLE_WORLD_MUTATING,
+    # CrewTransfer moves a kerbal between two parts of a live vessel (stock state a save
+    # captures, and the crew each half of a later undock carries).
+    "CrewTransfer": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1534,6 +1544,9 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # claim is about (a vessel moving on the surface), and the recorder's own lines re-derive
     # what it did.
     "DriveVessel": POST_MISSION_ROLE_RECORDING,
+    # CrewTransfer is `recording` for DriveVessel's reason: it sets up the subject the crew
+    # claims are about (who sits in which half of a docked pair), never a mission outcome.
+    "CrewTransfer": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -3781,6 +3794,46 @@ def validate_drive_vessel_step(index: int, step_args: Dict) -> List[str]:
                       "silently ignored"
                       % (index, DRIVEVESSEL_VERB, DRIVEVESSEL_THROTTLE_KEY,
                          DRIVEVESSEL_SECONDS_KEY, ", ".join(extra)))
+    return errors
+
+
+# CrewTransfer: mirrored from TestCommands/TestCommandCrewTransfer.cs
+# (CrewTransferSourceSyncTests). Both args REQUIRED and kept verbatim: `kerbal=` a crew
+# member's full name, `part=` the destination's runtime part name (dot form).
+CREWTRANSFER_VERB = "CrewTransfer"
+CREWTRANSFER_KERBAL_KEY = "kerbal"
+CREWTRANSFER_PART_KEY = "part"
+CREWTRANSFER_REASONS: Tuple[str, ...] = (
+    "crewtransfer-kerbal-arg-missing", "crewtransfer-part-arg-missing",
+    "crewtransfer-no-active-vessel", "crewtransfer-vessel-not-ready",
+    "crewtransfer-kerbal-not-aboard", "crewtransfer-transfer-running",
+    "crewtransfer-part-not-found", "crewtransfer-part-ambiguous",
+    "crewtransfer-transfer-unavailable",
+)
+CREWTRANSFER_ERROR_REASONS: Tuple[str, ...] = (
+    "crewtransfer-threw", "crewtransfer-vetoed", "crewtransfer-timeout",
+)
+
+
+def validate_crew_transfer_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``CrewTransfer`` step: ``kerbal=`` and ``part=``
+    REQUIRED and not blank (the seam answers REJECTED crewtransfer-*-arg-missing), and no
+    other key (the verb reads none, so it would be sent and silently ignored)."""
+    errors: List[str] = []
+    for key, reason in ((CREWTRANSFER_KERBAL_KEY, "crewtransfer-kerbal-arg-missing"),
+                        (CREWTRANSFER_PART_KEY, "crewtransfer-part-arg-missing")):
+        raw = step_args.get(key)
+        if raw is None or str(raw).strip() == "":
+            errors.append(
+                "driver.steps[%d].args.%s: %s REQUIRES it; the seam answers REJECTED %s"
+                % (index, key, CREWTRANSFER_VERB, reason))
+    extra = sorted(str(k) for k in step_args
+                   if k not in (CREWTRANSFER_KERBAL_KEY, CREWTRANSFER_PART_KEY))
+    if extra:
+        errors.append("driver.steps[%d].args: %s reads only %s and %s, so %s would be "
+                      "silently ignored"
+                      % (index, CREWTRANSFER_VERB, CREWTRANSFER_KERBAL_KEY,
+                         CREWTRANSFER_PART_KEY, ", ".join(extra)))
     return errors
 
 
@@ -6895,6 +6948,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_drive_vessel_step(i, step_args))
         elif cmd == READVESSELRESOURCES_VERB:
             errors.extend(validate_read_vessel_resources_step(i, step_args))
+        elif cmd == CREWTRANSFER_VERB:
+            errors.extend(validate_crew_transfer_step(i, step_args))
         # LoadGame focusPid= (any verb: the validator flags it on a verb that ignores it).
         if LOADGAME_FOCUS_PID_KEY in step_args:
             errors.extend(validate_loadgame_focus_step(i, cmd, step_args))
@@ -11068,6 +11123,19 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "readvesselresources-unknown-recording": "driver-arg",
     "readvesselresources-vessel-not-found": "driver-arg",
     "readvesselresources-target-is-ghost": "driver-arg",
+    # CrewTransfer: a missing arg, a kerbal the active vessel does not carry and a part name
+    # no valid destination (or several) carries are the SPEC's fault; no active vessel, a
+    # packed one, a transfer already open and a destination that is full or refuses transfers
+    # are live states the transfer would not act in (CrewTransferSourceSyncTests).
+    "crewtransfer-kerbal-arg-missing": "driver-arg",
+    "crewtransfer-part-arg-missing": "driver-arg",
+    "crewtransfer-no-active-vessel": "driver-gate",
+    "crewtransfer-vessel-not-ready": "driver-gate",
+    "crewtransfer-kerbal-not-aboard": "driver-arg",
+    "crewtransfer-transfer-running": "driver-gate",
+    "crewtransfer-part-not-found": "driver-arg",
+    "crewtransfer-part-ambiguous": "driver-arg",
+    "crewtransfer-transfer-unavailable": "driver-gate",
     # SimulateStockSwitchClick, arg half: site / selector spellings and target resolution.
     # target-not-found / -name-ambiguous / -is-ghost are arg-class because each one means
     # the SPEC named the wrong thing, the same call `unknown-target` gets for KscAction.
@@ -11711,6 +11779,7 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "category-arg-empty", "dialog-arg-invalid",
     "drivevessel-seconds-arg-invalid", "drivevessel-seconds-arg-missing",
     "drivevessel-throttle-arg-invalid", "drivevessel-throttle-arg-missing",
+    "crewtransfer-kerbal-arg-missing", "crewtransfer-part-arg-missing",
     "edit-commit-arg-invalid",
     "edit-field-arg-missing", "edit-key-arg-missing", "expand-key-arg-missing",
     "factor-arg-invalid", "find-ctrl-arg-invalid", "find-index-arg-invalid",

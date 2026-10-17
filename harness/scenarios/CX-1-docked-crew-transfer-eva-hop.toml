@@ -1,0 +1,158 @@
+schema = 1
+id = "CX-1-docked-crew-transfer-eva-hop"
+# =====================================================================================
+# CX-1: CREW ACROSS VESSELS (coverage audit 2026-10-16 item 3; branch
+# `claude/crew-across-vessels-db6ycy`). LIVE-PROVEN 2026-10-17 on its first flight
+# (`2026-10-17_0648` PASS attempt 1, 66 s).
+#
+# THE HOST is SD-1's: `bdock-second-dock-recorded`, whose ACTIVE vessel is the Station +
+# third-Kerbal-X pair (pid 3620499050), the tip of committed tree ac9641d6 (scene entry
+# promotes it into a live restore of that tree). Two mk1-3pods: the Station's (Bill, Bob,
+# Valentina; full) and the third Kerbal X's (Jebediah, two free seats). The Station was
+# recorded by BDOCK-1's tree 8c677bba and left in orbit with its crew aboard; tree ac9641d6
+# docked to it from outside (a single-parent Dock), which is the PR #2126 shape: every ledger
+# walk hands the Station crew's open-ended hold in 8c677bba over to ac9641d6's docked
+# recording (`Reservation bounded by cross-tree dock handoff: ... tree='ac9641d6...'`).
+#
+# THE FLIGHT, every step a player's:
+#   (a) CrewTransfer: Valentina moves from the Station pod to the Kerbal X pod while docked
+#       (stock's own transfer, the new seam verb).
+#   (b) SaveGame quicksave (the F5 the last step loads).
+#   (c) PartAction undock. The Station keeps the focus (stock keeps the vessel holding the
+#       old root active); the Kerbal X half (Jebediah, Valentina) leaves under a fresh pid.
+#   (d) CommitTree: the undock and both halves are committed history. The recorder resumes
+#       on the Station.
+#   (e) EVA hop 1: Bob EVAs from the Station and boards the Kerbal X half, a COMMITTED
+#       vessel. Its crew's hold (Jebediah, Valentina) must end at the board: the merged
+#       recording carries them on (CROSS-TREE-CREW-TRANSFER-STRANDS-RESERVATION follow-up;
+#       before it a Board never counted as a claim).
+#   (f) EVA hop 2: Valentina EVAs from the Kerbal X and boards the Station back. She has
+#       now been in both vessels twice.
+#   (g) CommitTree, then the F9: LoadGame quicksave lands back on the docked pair with
+#       Valentina in the Kerbal X pod, while the two commits stay committed history.
+# The undock ejection drifts the halves apart; (c)-(f) take seconds, inside EvaBoard's 10 m
+# board range.
+#
+# THE FIRST FLIGHT READ: the undock's activePid is the Station's 3620499050 and the Kerbal X
+# half leaves under a fresh pid; the recorder stays in tree ac9641d6 across both commits; Bob's
+# board is a single-parent Board onto the committed half, and its claim hand-off ends Jebediah's
+# and Valentina's Aboard hold in the undock child at it; Valentina's is a two-parent Board
+# (her EVA + the Station's post-EVA recording) whose holds end by split hand-off; 39 recordings.
+#
+# FAST-LANE CHECKLIST: (1) no existing flight is a prefix (SD-1 flies a redock mission on
+# this host); (2) no idle waits, the four RecordingState steps after the undock are the
+# frame settle the deferred undock branch needs (VN-4's); (3) EvaExit's 5 s settle is the
+# minimum that lets the EVA branch sample before the board; (4)-(5) no burns, no coasts;
+# (6) seam-only, a refusal is immediate; (7) the count window pinned exactly from the first
+# flight; (8) nightly at 66 s wall.
+# =====================================================================================
+tier = "nightly"
+description = "Crew across vessels on bdock-second-dock-recorded: a stock crew transfer moves Valentina between the two pods of the docked Station + Kerbal X pair, an F5, the undock, a commit, then two EVA hops between the halves (Bob boards the committed Kerbal X half; Valentina boards the Station back), a second commit and the F9. Witnesses the cross-tree dock hand-off of the host's own trees (PR #2126) and the board hand-off of the follow-up fix."
+instanceProfile = "stock-minimal"
+tags = ["CX-1", "crew", "crew-transfer", "eva", "board", "undock", "dock", "quickload",
+        "cross-tree", "reservation", "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/bdock-second-dock-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # LOAD-BEARING: the hand-off and crew end-state lines are Verbose.
+  { cmd = "SetSetting",   args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnEva", value = "true" }, expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # (a) The transfer while docked.
+  { cmd = "CrewTransfer", args = { kerbal = "Valentina Kerman", part = "mk1-3pod" }, expect = "OK" },
+  # (b) The F5.
+  { cmd = "SaveGame",     args = { name = "quicksave" }, expect = "OK", budget = 120 },
+  # (c) The undock.
+  { cmd = "PartAction",   args = { button = "undock" }, label = "und", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # (d) Commit the undock.
+  { cmd = "CommitTree",   expect = "OK", budget = 120 },
+  { cmd = "RecordingState", expect = "OK" },
+  # (e) Hop 1: Bob onto the committed Kerbal X half.
+  { cmd = "EvaExit",      args = { kerbal = "Bob Kerman", settleSeconds = "5" }, expect = "OK", budget = 120 },
+  { cmd = "EvaBoard",     args = { targetPid = "${und.newPid}" }, expect = "OK", budget = 120 },
+  { cmd = "RecordingState", expect = "OK" },
+  # (f) Hop 2: Valentina back onto the Station.
+  { cmd = "EvaExit",      args = { kerbal = "Valentina Kerman", settleSeconds = "5" }, expect = "OK", budget = 120 },
+  { cmd = "EvaBoard",     args = { targetPid = "3620499050" }, expect = "OK", budget = 120 },
+  { cmd = "RecordingState", expect = "OK" },
+  # (g) Commit, then the F9.
+  { cmd = "CommitTree",   expect = "OK", budget = 120 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "committed" }, label = "c1", expect = "OK" },
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "quicksave" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "committed" }, label = "c2", expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# D14 values only, each already covered elsewhere; no D value names a crew transfer or a
+# cross-vessel EVA hop yet.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's recordings plus the flight's: the two undock children, the two EVA recordings,
+# each EVA's vessel continuation and the two board children. Pinned exactly from the
+# 2026-10-17_0648 flight.
+count = { min = 39, max = 39 }
+
+[expectations.logContracts]
+required = [
+  # The host's own cross-tree dock (PR #2126): a Station crew hold in BDOCK-1's tree ends at
+  # ac9641d6's dock.
+  "Reservation bounded by cross-tree dock handoff: '(?:Bill|Bob|Valentina) Kerman' recording '[0-9a-f]+' \\((?:Aboard|Unknown)\\) endUT=[0-9.]+ bp='[0-9a-f]+' tree='ac9641d6[0-9a-f]*'",
+
+  # (a) The transfer: both pods end with two crew.
+  "crewtransfer applied kerbal='Valentina Kerman' pid=3620499050 from=mk1-3pod fromId=[0-9]+ to=mk1-3pod toId=[0-9]+ crewFrom=2 crewTo=2",
+
+  # (c) The undock off the Station, a Parsek split.
+  "partaction applied button=undock pid=3620499050 part='[^']+' partId=[0-9]+ event=Undock newPid=[1-9][0-9]* ",
+  "Tree branch created: type=Undock, bp=[0-9a-f]+, activeChild=[0-9a-f]+ \\(pid=[0-9]+\\), bgChild=[0-9a-f]+ \\(pid=[0-9]+\\)",
+  "committree committed=true",
+
+  # (e) Hop 1 lands on the Kerbal X half, and its crew's hold ends at that board: the
+  # board's merged recording carries Jebediah on.
+  "evaboard complete kerbal=Bob Kerman boardedPid=[1-9][0-9]*",
+  "(?s)Tree merge created: type=Board, bp=([0-9a-f]+), parents=\\[[0-9a-f,]+\\], child=[0-9a-f]+ \\(pid=[0-9]+\\).*?Reservation bounded by (?:split|cross-tree dock) handoff: 'Jebediah Kerman' recording '[0-9a-f]+' \\((?:Aboard|Unknown)\\) endUT=[0-9.]+ bp='\\1'",
+
+  # (f) Hop 2 lands on the Station.
+  "evaboard complete kerbal=Valentina Kerman boardedPid=3620499050",
+
+  # (g) The F9 is an in-flight quickload.
+  "Load classified: early=InSession refined=QuickloadFlight scene=FLIGHT initialLoadDone=true rewinding=false reFlyInvoke=false discardReFly=none",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "crewtransfer rejected",
+  "crewtransfer error",
+  "partaction rejected",
+  "partaction error",
+  "evaboard refused",
+  "evaexit refused",
+]
+
+[runtime]
+# LoadGame 300 x2, SaveGame 120, CommitTree 120 x2, EvaExit / EvaBoard 120 x4, the rest on
+# the default budget. Expected wall a few minutes.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

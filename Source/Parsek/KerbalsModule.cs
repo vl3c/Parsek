@@ -204,17 +204,27 @@ namespace Parsek
         /// <paramref name="holdVesselGuid"/>, ending <paramref name="holdEndUT"/>) left the
         /// kerbal on? The pid must match and the launch guids must not conclusively differ (a
         /// pid is craft-baked, so another launch of the same craft is not the same vessel),
-        /// and the held recording must have ENDED by the dock (within
-        /// <see cref="RecoveryClosureEndToleranceSeconds"/>): the docking mission can only
-        /// carry on a kerbal the vessel still held when it arrived. Pure.
+        /// OR the dock's guid continues the hold's guid through a link row
+        /// (<paramref name="guidContinues"/>, default <see cref="VesselNameStore.GuidContinuesIdentity"/>):
+        /// a Parsek spawn of the held vessel carries a fresh pid and guid, and a rescue that
+        /// docks after a rewind docks to that spawn. The held recording must have ENDED by the
+        /// dock (within <see cref="RecoveryClosureEndToleranceSeconds"/>): the docking mission
+        /// can only carry on a kerbal the vessel still held when it arrived. Pure given the
+        /// reader.
         /// </summary>
         internal static bool DockClaimHandsOffHold(
             uint holdVesselPid, string holdVesselGuid, double holdEndUT,
-            uint dockTargetPid, string dockTargetGuid, double dockUT)
+            uint dockTargetPid, string dockTargetGuid, double dockUT,
+            Func<string, string, bool> guidContinues = null)
         {
-            if (holdVesselPid == 0 || dockTargetPid != holdVesselPid)
+            if (holdVesselPid == 0 || dockTargetPid == 0)
                 return false;
-            if (VesselLaunchIdentity.GuidsConclusivelyDiffer(holdVesselGuid, dockTargetGuid))
+            bool sameLaunch = dockTargetPid == holdVesselPid
+                && !VesselLaunchIdentity.GuidsConclusivelyDiffer(holdVesselGuid, dockTargetGuid);
+            if (!sameLaunch
+                && (VesselLaunchIdentity.NormalizeGuid(holdVesselGuid) == null
+                    || VesselLaunchIdentity.NormalizeGuid(dockTargetGuid) == null
+                    || !(guidContinues ?? VesselNameStore.GuidContinuesIdentity)(dockTargetGuid, holdVesselGuid)))
                 return false;
             if (double.IsNaN(holdEndUT) || double.IsInfinity(holdEndUT)
                 || double.IsNaN(dockUT) || double.IsInfinity(dockUT))
@@ -1097,7 +1107,8 @@ namespace Parsek
 
         /// <summary>
         /// Fills <see cref="dockClaims"/> from the committed trees' Dock / Board branch points
-        /// that name a target vessel and a merged child, and <see cref="rowKerbalsByRecording"/>
+        /// that name a target vessel (a Board's is its merged child's vessel) and a merged
+        /// child, and <see cref="rowKerbalsByRecording"/>
         /// from the walk's non-tourist KerbalAssignment rows (the walk's actions are the
         /// effective ledger, so a superseded docked recording carries nobody). Returns the
         /// claims collected.
@@ -1133,18 +1144,34 @@ namespace Parsek
                     BranchPoint bp = tree.BranchPoints[b];
                     if (bp == null
                         || (bp.Type != BranchPointType.Dock && bp.Type != BranchPointType.Board)
-                        || bp.TargetVesselPersistentId == 0
                         || bp.ChildRecordingIds == null || bp.ChildRecordingIds.Count == 0
                         || string.IsNullOrEmpty(bp.ChildRecordingIds[0]))
+                        continue;
+                    string mergedChildId = bp.ChildRecordingIds[0];
+                    uint targetPid = bp.TargetVesselPersistentId;
+                    string targetGuid = bp.TargetVesselGuid;
+                    if (targetPid == 0 && bp.Type == BranchPointType.Board)
+                    {
+                        // A Board merge stamps no target (HandleTreeBoardMerge), but the boarded
+                        // vessel IS the merged child's vessel: the kerbal joins it and the
+                        // vessel flies on under its own pid and launch guid.
+                        RecordingMeta childMeta;
+                        if (recordingMeta.TryGetValue(mergedChildId, out childMeta))
+                        {
+                            targetPid = childMeta.VesselPid;
+                            targetGuid = childMeta.VesselGuid;
+                        }
+                    }
+                    if (targetPid == 0)
                         continue;
                     dockClaims.Add(new DockClaim
                     {
                         TreeId = tree.Id,
                         BranchPointId = bp.Id,
                         DockUT = bp.UT,
-                        TargetPid = bp.TargetVesselPersistentId,
-                        TargetGuid = bp.TargetVesselGuid,
-                        MergedChildRecordingId = bp.ChildRecordingIds[0],
+                        TargetPid = targetPid,
+                        TargetGuid = targetGuid,
+                        MergedChildRecordingId = mergedChildId,
                     });
                     collected++;
                 }

@@ -65,6 +65,7 @@ namespace Parsek.Tests
         [InlineData("RevertToLaunch")]
         [InlineData("DriveVessel")]
         [InlineData("ReadVesselResources")]
+        [InlineData("CrewTransfer")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -203,7 +204,9 @@ namespace Parsek.Tests
             // host, a landed vessel driven on its own wheel motors.
             // ReadVesselResources is ADDITIVE (51 -> 52; reserved unchanged at 4): what is
             // actually in the tanks of live vessels, the resource-conservation read.
-            Assert.Equal(52, TestCommandVerbs.ImplementedVerbNames.Count);
+            // CrewTransfer is ADDITIVE (52 -> 53; reserved unchanged at 4): a player's stock
+            // crew transfer between two crewed parts of the active vessel.
+            Assert.Equal(53, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 
