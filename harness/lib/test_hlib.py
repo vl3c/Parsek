@@ -10611,6 +10611,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Science-lab research over one Kerbin day of rails warp on the same host:
         # operator by the same reading-run discipline, never flown.
         "LAB-3-lab-research-over-time.toml": "operator by the reading-run discipline; AUTHORED 2026-10-17, NEVER FLOWN (research started and stopped at 1x around one Kerbin day of rails warp on lab-lko-science, the recorded research edges, the end-snapshot science); the storedScience / dataStored windows are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        # Science-lab cap stall and data-store overflow on the seeded LKO lab:
+        # operator by the same reading-run discipline, never flown.
+        "LAB-3b-lab-cap-stall-and-overflow.toml": "operator by the reading-run discipline; AUTHORED 2026-10-17, NEVER FLOWN (research stalls at the 500 cap through two rails warps on lab-lko-seeded, Goo and thermometer refused NO_SPACE, barometer fits, end-snapshot match); the cap and dataStored windows are re-pinned off the first flight, then the tier is promoted by its measured p50",
         # The SIXTH forge, same mechanism again: it stamps b17-duna-pad by
         # launching the committed DD1 Duna Direct Probe (built by construction,
         # build_dd1_craft.py) onto the pad UNCREWED. Flown + harvested

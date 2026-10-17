@@ -1,0 +1,209 @@
+schema = 1
+id = "LAB-3b-lab-cap-stall-and-overflow"
+tier = "operator"
+# THE SCIENCE-LAB PROGRAM, lane LAB-3b (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
+# "LAB-3b cap stall and overflow"). NEVER FLOWN: its first flight is a READING run, so it is
+# `operator` and tagged `pending-flight` until that run pins the measured values.
+#
+# HOST: `lab-lko-seeded` (harness/tools/build_lab_seeded_variants.py): `lab-lko-science` with
+# the Large.Crewed.Lab's ModuleScienceLab seeded to dataStored = 740 (of dataStorage 750),
+# storedScience = 499 (of scienceCap 500) and the TWELVE FlyingLow / FlyingHigh / InSpaceHigh
+# subjects of the thermometer, barometer, Goo and Materials Bay; the four InSpaceLow subjects
+# are left out, so this orbit can still offer fresh data. Research off. Same vessel
+# (persistentId 2200110055, lab part persistentId 1700054019, flightID 1270217782), same crew
+# (Bob in the lab), same orbit and fixture UT 355.8 as `lab-lko-science`; the ZZ-SMOKE load
+# `2026-10-17_2025` read the lab back as `storedScience=499.00 dataStored=740.00`.
+#
+# THE STORY. Two stall states play cannot reach cheaply. (1) THE CAP: start Research while
+# recording and rails-warp past the cap; storedScience must stop just under 500 and stay there
+# through a second warp with dataStored unchanged (a stalled step adds nothing and uses no
+# data) and Research still on. (2) THE FULL DATA STORE: with about 10 data of room left, run
+# InSpaceLow experiments and process them: the Goo (lab value 15) is refused for space, the
+# barometer (8) fits, and the thermometer (5) is then refused because the barometer used the
+# room. Each refusal leaves the lab unchanged and the datum in its experiment. Then commit,
+# and the committed recording's END snapshot must carry the capped, full lab.
+#
+# STOCK FACTS (decompiled 1.12.5).
+#   ModuleScienceConverter.PostProcess: science step = 5 * 0.5 * scientists * dataStored / 1e7
+#   * dt; if step + storedScience > scienceCap it RETURNS with nothing added and no data used.
+#   At 740 data and one level-0 scientist that is 1.85e-4 science per second, so the last 1.0
+#   takes about 5,400 s of game time; the first warp is 10,800 s (216 s at the 50x cap).
+#   Rails warp advances UT by rate * 0.02 per physics step (TimeWarp.updateRate keeps
+#   fixedDeltaTime 0.02), so at 50x each step is about 1 s and the stall lands within one step
+#   (< 2e-4) of the cap: F2 reads 500.00 (499.99 allowed). Float, BELIEF until read: at 1x a
+#   step (3.7e-6) is below half an ulp of 499 (1.5e-5), so storedScience does not move at 1x
+#   at all; at 50x the data step (3.7e-5) rounds to one ulp of 740 (6.1e-5), so dataStored
+#   ends near 739.67 rather than the nominal 739.80. Window: 739.00 .. 740.00.
+#   ScienceLabSearch: a lab has space when labValue + dataStored <= dataStorage (<=, so an
+#   exact fit is accepted); with no lab that has space and every other gate passing, the
+#   search error is NO_SPACE, which the seam reports as REJECTED `partaction-lab-unavailable`
+#   with `labError=NO_SPACE:labs=1,manned=1,space=0,notResearched=1,idle=1` before any send
+#   (TestCommandPartAction.DecideLabSearch; PressLabProcess formats the counts).
+#   Lab values in this orbit (LAB-2's first flight `2026-10-17_2045`, live stock): thermometer
+#   5, Goo 15, Science Jr 22, barometer 8. Room after the cap is about 10.3: Goo 15 > room
+#   (refused), barometer 8 <= room (fits, dataStored 747.00 .. 748.00), then thermometer 5 >
+#   the about 2.3 left (refused).
+#
+# THE RECORDING. StartRecording before the press, so the recorder logs the ConverterActivated
+# edge at 1x (MissionMark window opened before the press); no ConverterDeactivated anywhere
+# before the commit (the cap stall keeps IsActivated on). StopRecording, CommitTree and RC-6's
+# second StopRecording, then `inspect expectSnapshot=true` against the one committed recording.
+#
+# NOT HERE: EC starvation (needs a craft without the RTGs; no Parsek surface reads lab EC);
+# transmitting the capped science (LAB-4).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse - no other lane boots lab-lko-seeded in
+# orbit. (2) no idle waits - every wait is an explicit-UT `WarpToUT`. (3) the first warp is
+# twice the time to the cap (margin for a lower cap or a slower warp ramp), the second is
+# 3,600 s (72 s at 50x), the minimum that shows a stall over many 1 s steps. (4) no burns.
+# (5) no coast. (6) fail fast - a refused press fails its step at once (the two refusals are
+# `expect = "REJECTED"`); retry `once` until the first flight shows the lane deterministic.
+# (7) count window - one recording, pinned {1,1}. (8) tier - operator until the reading run;
+# promote by the measured p50 (expected about 7 min). (9) flight_efficiency.py after the first
+# green flight.
+#
+# WHAT A FIRST FLIGHT CAN FALSIFY: whether the cap is reached inside the first warp (the
+# storedScience window), the dataStored float belief, the stall (a moved storedScience or
+# dataStored in the second reading), the NO_SPACE token and its counts, the subject ids
+# (`mysteryGoo@KerbinInSpaceLow`), whether a labprocess after an open-page refusal takes the
+# page or the review route (both accepted), the end-snapshot match on a full lab.
+description = "LAB-3b: in a seeded science lab in low Kerbin orbit, research started while recording stalls just under the 500 science cap through two rails warps with the data unchanged, a Goo result is refused for lack of data space, a barometer result fits, a thermometer result is then refused, each refusal leaves the lab unchanged, and the committed recording's end snapshot carries the capped lab."
+instanceProfile = "stock-minimal"
+tags = ["science-lab", "science", "converter", "rails-warp", "LAB-3b", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/lab-lko-seeded"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "StartRecording",                                                          expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab3b-recording-live" },               expect = "OK" },
+  # 1. Start Research at 1x and let the recorder poll the edge.
+  { cmd = "MissionMark",    args = { label = "lab3b-research-on-before" },           expect = "OK" },
+  { cmd = "PartAction",     args = { button = "startconverter", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "385", maxRate = "1" },                    expect = "OK", budget = 120 },
+  # 2. Warp past the cap (about 5,400 s needed; 10,800 s at the 50x cap is about 216 s), read.
+  { cmd = "MissionMark",    args = { label = "lab3b-warp-start" },                   expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "11185", maxRate = "50" },                 expect = "OK", budget = 540 },
+  { cmd = "WarpToUT",       args = { ut = "11195", maxRate = "1" },                  expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab3b-capped" },                       expect = "OK" },
+  # 3. Warp on at the cap (3,600 s, about 72 s): the stall adds nothing and uses no data.
+  { cmd = "WarpToUT",       args = { ut = "14795", maxRate = "50" },                 expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",       args = { ut = "14805", maxRate = "1" },                  expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab3b-stalled" },                      expect = "OK" },
+  # 4. The Goo (15) does not fit the room left (about 10): refused, lab unchanged.
+  { cmd = "PartAction",     args = { button = "experiment", part = "GooExperiment" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "14811", maxRate = "1" },                  expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "GooExperiment" }, expect = "REJECTED" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "GooExperiment" },   expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # 5. The barometer (8) fits.
+  { cmd = "PartAction",     args = { button = "experiment", part = "sensorBarometer" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "14817", maxRate = "1" },                  expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "sensorBarometer" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # 6. The thermometer (5) no longer fits the about 2 left: refused, lab unchanged.
+  { cmd = "PartAction",     args = { button = "experiment", part = "sensorThermometer" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "14823", maxRate = "1" },                  expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "sensorThermometer" }, expect = "REJECTED" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "sensorThermometer" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab3b-processed" },                    expect = "OK" },
+  # 7. Commit, then the lab against the committed recording's end snapshot.
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "CommitTree",                                                              expect = "OK", budget = 120 },
+  # CommitTree re-takes the committed tree for the still-active vessel; stop it (RC-6).
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab3b-committed-${c0.count}-${c0.rec0}" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab", expectSnapshot = "true", rec = "${c0.rec0}" }, expect = "OK" },
+  { cmd = "SaveGame",                                                                expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["science"]
+D14 = ["kerbin", "science-mode", "scene-flight", "warp-1x", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  # The baseline: the seeded lab, Research off.
+  "partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=499\\.00 dataStored=740\\.00;Research:active=0'",
+  # Start Research, and the recorder logged it at 1x before the warp.
+  "partaction applied button=startconverter pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*event=StartResourceConverter [^\\r\\n]*state='lab:storedScience=499\\.00 dataStored=740\\.00;Research:active=1'",
+  "(?s)MISSIONMARK label=lab3b-research-on-before (?:(?!MISSIONMARK label=lab3b-warp-start ).)*?Part event: ConverterActivated 'Large\\.Crewed\\.Lab' pid=1700054019 \\(converter\\)",
+  # The first warp really left 1x and reached its target.
+  "warptout complete reachedUT=[0-9.]+ ut=11185 rate=[0-9.]+ maxRate=(?:[5-9]|[1-9][0-9]+)(?:\\.[0-9]+)? ",
+  # Reading A: at the cap (within one step of 500), a little data used, still researching.
+  "(?s)partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=(?:499\\.99|500\\.00) dataStored=(?:739\\.[0-9]{2}|740\\.00);Research:active=1'(?:(?!partaction applied button=inspect ).)*?MISSIONMARK label=lab3b-capped ",
+  # Reading B equals reading A after another 3,600 s at the cap: the stall adds nothing and
+  # uses no data, and Research stays on.
+  "(?s)state='lab:storedScience=([0-9]+\\.[0-9]{2}) dataStored=([0-9]+\\.[0-9]{2});Research:active=1'(?:(?!partaction applied button=inspect ).)*?MISSIONMARK label=lab3b-capped (?:(?!partaction applied button=inspect ).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=\\1 dataStored=\\2;Research:active=1'(?:(?!partaction applied button=inspect ).)*?MISSIONMARK label=lab3b-stalled ",
+  # The Goo: refused for space before any send, its datum kept, the lab unchanged.
+  "partaction rejected reason=partaction-lab-unavailable button=labprocess pid=2200110055 part='GooExperiment' [^\\r\\n]*subject='mysteryGoo@KerbinInSpaceLow' [^\\r\\n]*labValue=15\\.00 labError=NO_SPACE:labs=1,manned=1,space=0,notResearched=1,idle=1 ",
+  "(?s)partaction rejected reason=partaction-lab-unavailable button=labprocess pid=2200110055 part='GooExperiment' (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='GooExperiment' [^\\r\\n]*state='[^'\\r\\n]*exp:data=1",
+  "(?s)state='lab:storedScience=([0-9]+\\.[0-9]{2}) dataStored=([0-9]+\\.[0-9]{2});Research:active=1'(?:(?!partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab').)*?MISSIONMARK label=lab3b-stalled (?:(?!partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab').)*?part='GooExperiment'(?:(?!partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab').)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=\\1 dataStored=\\2;Research:active=1'",
+  # The barometer: sent at its stock value, and the lab gains it (747.00 .. 748.00), still
+  # capped and researching.
+  "partaction applied button=labprocess pid=2200110055 part='sensorBarometer' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=8\\.00",
+  "(?s)labprocess pid=2200110055 part='sensorBarometer' (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=(?:499\\.99|500\\.00) dataStored=(?:747\\.[0-9]{2}|748\\.00);Research:active=1'",
+  # The thermometer: refused for space after the barometer used the room, datum kept, the
+  # lab reading after it equal to the one after the barometer.
+  "partaction rejected reason=partaction-lab-unavailable button=labprocess pid=2200110055 part='sensorThermometer' [^\\r\\n]*subject='temperatureScan@KerbinInSpaceLow' [^\\r\\n]*labValue=5\\.00 labError=NO_SPACE:labs=1,manned=1,space=0,notResearched=1,idle=1 ",
+  "(?s)partaction rejected reason=partaction-lab-unavailable button=labprocess pid=2200110055 part='sensorThermometer' (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='sensorThermometer' [^\\r\\n]*state='[^'\\r\\n]*exp:data=1",
+  "(?s)labprocess pid=2200110055 part='sensorBarometer' (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=([0-9]+\\.[0-9]{2}) dataStored=([0-9]+\\.[0-9]{2});Research:active=1'(?:(?!partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab').)*?partaction rejected reason=partaction-lab-unavailable [^\\r\\n]*part='sensorThermometer'(?:(?!partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab').)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=\\1 dataStored=\\2;Research:active=1'",
+  # The cap stall never switched Research off.
+  "(?s)MISSIONMARK label=lab3b-research-on-before (?:(?!ConverterDeactivated 'Large\\.Crewed\\.Lab').)*?MISSIONMARK label=lab3b-processed ",
+  # The commit: one recording, its END snapshot carrying the capped, full lab (13 subjects).
+  "committree committed=true",
+  "MISSIONMARK label=lab3b-committed-1-[0-9a-f]{32} ",
+  "partaction snapshot rec=[0-9a-f]{32} partId=1270217782 field=storedScience live=(?:499\\.99[0-9]{2}|500\\.0000) snapshot=(?:499\\.99[0-9]{2}|500\\.0000) [^\\r\\n]*match=true",
+  "partaction snapshot rec=[0-9a-f]{32} partId=1270217782 field=dataStored live=(?:747\\.[0-9]{4}|748\\.0000) snapshot=(?:747\\.[0-9]{4}|748\\.0000) [^\\r\\n]*match=true",
+  "partaction snapshot rec=[0-9a-f]{32} partId=1270217782 field=experiments live=13 snapshot=13 [^\\r\\n]*match=true",
+  "partaction snapshot complete rec=[0-9a-f]{32} parts=1 compared=1 [^\\r\\n]*snapshotMatch=true ",
+  # Nothing moves the R&D pool while recording.
+  "(?s)MISSIONMARK label=lab3b-recording-live (?:(?!Game state: ScienceChanged).)*?MISSIONMARK label=lab3b-processed ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The two deliberate refusals are the Goo and the thermometer, for space; any other
+  # refusal is a failure.
+  "partaction rejected (?!reason=partaction-lab-unavailable button=labprocess pid=2200110055 part='(?:GooExperiment|sensorThermometer)' [^\\r\\n]*labError=NO_SPACE:)",
+  "partaction-lab-value-zero",
+  "partaction error ",
+  "ScienceLabCredited",
+  "snapshotMatch=false",
+  "Exploded!!",
+  "IsTreeIdleOnPad: all [0-9]+ recordings",
+  "TrimBoringTail: trimmed 'LABX Orbital Lab'",
+  "(?s)Part event: ConverterActivated 'Large\\.Crewed\\.Lab'.*?Part event: ConverterActivated 'Large\\.Crewed\\.Lab'",
+]
+
+[runtime]
+# One LoadGame (up to 300 s, about 90 s typical), 14,400 s of rails warp (288 s at 50x),
+# about 50 s of 1x game time, a commit and a save.
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
