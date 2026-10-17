@@ -59,7 +59,7 @@ and the `VesselSpawner` spawn-validation repair.
 
 ---
 
-## REFLY-MERGE-GHOST-ONLY-NULLS-A-SPAWNED-LEAF: a Re-Fly merge marks a leaf that already spawned ghost-only and drops its spawn snapshot [FILED 2026-10-16 from RC-1 `2026-10-16_2324` (green), log read only. OPEN, suspected, product, medium]
+## ~~REFLY-MERGE-GHOST-ONLY-NULLS-A-SPAWNED-LEAF~~: a Re-Fly merge marks a leaf that already spawned ghost-only and drops its spawn snapshot [FILED 2026-10-16 from RC-1 `2026-10-16_2324` (green), log read only. CLOSED 2026-10-17, not a bug (branch `claude/career-rewind-ledger-tlmab9`)]
 
 On RC-1's second merge (re-fly of rp_f4ed, the Interceptor separation) the log reads
 `[MergeDialog] ApplyVesselDecisions: ghost-only for 'Kerbal X' (id=4af6cfd7...), spawn snapshot
@@ -71,6 +71,19 @@ vessel (and so correct for this copy), and whether the committed copy keeps its 
 Fix: read which pending copy `ApplyVesselDecisions` mutates and what reaches the committed tree;
 if the snapshot is lost, a third RC-1 cycle (rewind to the undock RP after both merges) is the red
 test.
+
+Resolution (code read + `ReFlyGhostOnlyLeafRespawnTests`): the null reaches the committed
+recording (`ApplyVesselDecisions` mutates the pending tree's own objects, which `MergeCommit`
+moves into the committed list), but only in memory. `SaveRecordingFiles` writes `_vessel.craft`
+only for a non-null snapshot and never deletes it for a null one; a Rewind-to-Launch
+(`ResetRecordingPlaybackFields`) or Re-Fly load (`ResetTreeRecordingMutableStateForLoad`) zeroes
+the spawn fields, and `ShouldSpawnAtRecordingEnd` re-hydrates the snapshot from the sidecar
+(`TryHydrateVesselSnapshotFromSidecar`) and answers spawn. The one precondition, pinned by the
+boundary cell, is that the sidecar was written while the snapshot was in memory, which holds for
+any leaf that spawned. A third rewind that fails to bring the Interceptor back would have another
+cause (supersede, `TerminalSpawnSupersededByRecordingId`, slot suppression). Side effect noted,
+not filed: the same re-hydration makes a ghost-only decision on a leaf with a sidecar non-durable
+across a rewind, which matters only if ghost-only is meant as "never spawn".
 
 ---
 
