@@ -2608,7 +2608,9 @@ namespace Parsek
 
             // After the flush: a flag planted this flight is still in the recorder buffer before it.
             if (TreeHasPlantedFlagsForIdle(activeTree, "IsActiveTreeIdleOnPad")
-                || TreeHasConverterWorkForIdle(activeTree, "IsActiveTreeIdleOnPad"))
+                || TreeHasConverterWorkForIdle(activeTree, "IsActiveTreeIdleOnPad")
+                || TreeHasLabPayoutsForIdle(activeTree, "IsActiveTreeIdleOnPad")
+                || TreeHasPendingLabRecoveryForIdle(activeTree, "IsActiveTreeIdleOnPad"))
                 return false;
 
             bool anyHasPoints = false;
@@ -21411,6 +21413,92 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Counts the science-lab payouts (<see cref="GameStateEventType.ScienceLabCredited"/>:
+        /// a lab transmission or a lab recovery) in <paramref name="events"/> tagged to any
+        /// recording of <paramref name="tree"/>. Pure, null-safe.
+        /// </summary>
+        internal static int CountTaggedLabPayouts(
+            RecordingTree tree, IReadOnlyList<GameStateEvent> events)
+        {
+            if (tree?.Recordings == null || tree.Recordings.Count == 0
+                || events == null || events.Count == 0)
+                return 0;
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, Recording> kv in tree.Recordings)
+            {
+                if (!string.IsNullOrEmpty(kv.Key)) ids.Add(kv.Key);
+                if (!string.IsNullOrEmpty(kv.Value?.RecordingId)) ids.Add(kv.Value.RecordingId);
+            }
+            int count = 0;
+            for (int i = 0; i < events.Count; i++)
+            {
+                GameStateEvent e = events[i];
+                if (e.eventType == GameStateEventType.ScienceLabCredited
+                    && !string.IsNullOrEmpty(e.recordingId)
+                    && ids.Contains(e.recordingId))
+                    count++;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Idle-on-pad veto for a science-lab payout (owner ruling 2026-10-17): the lab's
+        /// science is banked in the R&amp;D pool the moment it pays out, so the flight is
+        /// player work even when nothing moved 30 m. Reads the live event store, the same
+        /// source a discard re-homes lab credits from. Logs the veto; returns true when the
+        /// tree must not be classified idle.
+        /// </summary>
+        internal static bool TreeHasLabPayoutsForIdle(RecordingTree tree, string caller)
+        {
+            return TreeHasLabPayoutsForIdle(tree, caller, GameStateStore.Events);
+        }
+
+        internal static bool TreeHasLabPayoutsForIdle(
+            RecordingTree tree, string caller, IReadOnlyList<GameStateEvent> events)
+        {
+            int payouts = CountTaggedLabPayouts(tree, events);
+            if (payouts <= 0) return false;
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "{0}: not idle - tree has {1} lab payout(s) tree='{2}'",
+                    caller, payouts, tree?.TreeName ?? "<unnamed>"));
+            return true;
+        }
+
+        /// <summary>
+        /// Idle-on-pad veto for the recovery half of the lab ruling (owner ruling 2026-10-17):
+        /// a flight Recover pays the lab's stored science at the Space Center, AFTER every
+        /// idle-on-pad check has run (the LoadScene-prefix fast path and the Space Center
+        /// OnLoad), and that payout is stored untagged, so
+        /// <see cref="TreeHasLabPayoutsForIdle(RecordingTree, string)"/> can never see it.
+        /// Reads the armed <see cref="InFlightRecoveryRequest"/> (lab science captured from
+        /// the live vessel) or, after the finalize stamped the tip Recovered, the request's
+        /// per-recording lab mark. Logs the veto; returns true when the tree must not be
+        /// classified idle.
+        /// </summary>
+        internal static bool TreeHasPendingLabRecoveryForIdle(RecordingTree tree, string caller)
+        {
+            return TreeHasPendingLabRecoveryForIdle(
+                tree, caller, InFlightRecoveryRequest.Armed,
+                InFlightRecoveryRequest.LabScienceAwaitingRecovery);
+        }
+
+        internal static bool TreeHasPendingLabRecoveryForIdle(
+            RecordingTree tree, string caller,
+            InFlightRecoveryRequest.Request armedRequest,
+            IReadOnlyDictionary<string, float> stampedLabScience)
+        {
+            float science = InFlightRecoveryRequest.PendingRecoveryLabScience(
+                tree, armedRequest, stampedLabScience);
+            if (!(science > 0f)) return false;
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "{0}: not idle - recovery pending with lab science {1:F2} tree='{2}'",
+                    caller, science, tree?.TreeName ?? "<unnamed>"));
+            return true;
+        }
+
+        /// <summary>
         /// Idle-on-pad veto for a planted flag: the flag is a vessel the player made,
         /// so the flight is player work even when nothing moved 30 m. Logs the veto;
         /// returns true when the tree must not be classified idle. The live predicate
@@ -21456,7 +21544,9 @@ namespace Parsek
 
             if (TreeHasPlacedGroundPartsForIdle(tree, "IsTreeIdleOnPad")
                 || TreeHasPlantedFlagsForIdle(tree, "IsTreeIdleOnPad")
-                || TreeHasConverterWorkForIdle(tree, "IsTreeIdleOnPad"))
+                || TreeHasConverterWorkForIdle(tree, "IsTreeIdleOnPad")
+                || TreeHasLabPayoutsForIdle(tree, "IsTreeIdleOnPad")
+                || TreeHasPendingLabRecoveryForIdle(tree, "IsTreeIdleOnPad"))
                 return false;
 
             bool anyHasPoints = false;

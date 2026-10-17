@@ -121,6 +121,28 @@ namespace Parsek.Patches
             return sum;
         }
 
+        /// <summary>
+        /// Runtime: the same sum read from a LIVE vessel, before stock turns it into the
+        /// <c>ProtoVessel</c> it recovers: every <c>ModuleScienceLab</c>'s
+        /// <c>storedScience</c> above float epsilon. Used when the flight Recover request arms.
+        /// </summary>
+        internal static float SumLiveStoredScience(Vessel vessel)
+        {
+            if (vessel == null || vessel.parts == null) return 0f;
+            float sum = 0f;
+            foreach (Part part in vessel.parts)
+            {
+                if (part == null || part.Modules == null) continue;
+                foreach (PartModule pm in part.Modules)
+                {
+                    var lab = pm as ModuleScienceLab;
+                    if (lab != null && lab.storedScience > float.Epsilon)
+                        sum += lab.storedScience;
+                }
+            }
+            return sum;
+        }
+
         /// <summary>Pure: the sum of the parseable values above float epsilon, as stock sums them.</summary>
         internal static float SumPositiveValues(string[] values)
         {

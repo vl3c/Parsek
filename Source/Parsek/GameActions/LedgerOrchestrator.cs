@@ -353,6 +353,10 @@ namespace Parsek
 
             Initialize();
 
+            // A committed recording no longer waits on the idle-on-pad check, whichever
+            // recovery-payout branch the cost rows below take.
+            InFlightRecoveryRequest.ClearLabRecoveryMarks(new[] { recordingId }, "commit");
+
             // 1. Convert GameStateStore events to GameActions
             var events = GameStateStore.Events;
             var actions = GameStateEventConverter.ConvertEvents(events, recordingId, startUT, endUT);
@@ -5659,6 +5663,9 @@ namespace Parsek
 
             var idSet = discardedRecordingIds as HashSet<string>
                 ?? new HashSet<string>(discardedRecordingIds);
+
+            // A discarded recording's pending lab recovery no longer vetoes any idle check.
+            InFlightRecoveryRequest.ClearLabRecoveryMarks(idSet, "discard: " + reason);
 
             // 1. Tagged irreversible terminal events from the discarded recordings ->
             //    direct ledger actions (ConvertEvent with recordingId=null clears the tag).
