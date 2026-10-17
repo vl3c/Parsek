@@ -144,8 +144,11 @@ count = { min = 1, max = 1 }
 required = [
   # Stock switches the spawned drills off while the spawn waits for ground contact;
   # the scene leaves before it settles, so Parsek marks them running in the save
-  # (SpawnedHarvesterRestore.CarryIntoSavedFlightState).
-  "Spawned harvester restore saved: context=OnSave vessel=Mining Rover RC pid=[0-9]+ marked=4 alreadyOn=0 missing=0",
+  # (SpawnedHarvesterRestore.CarryIntoSavedFlightState). Whether stock has switched a drill
+  # off yet when the exit save runs (0.2 s after the spawn) is frame timing: run
+  # `2026-10-17_1510` saved them off, `2026-10-17_1535` still on (marked=0 alreadyOn=4), so
+  # the line pins the four drills between the two counters; rf below is the gate.
+  "Spawned harvester restore saved: context=OnSave vessel=Mining Rover RC pid=[0-9]+ (?:marked=4 alreadyOn=0|marked=3 alreadyOn=1|marked=2 alreadyOn=2|marked=1 alreadyOn=3|marked=0 alreadyOn=4) missing=0",
   # MINE-9's prefix (its live-proven tokens).
   "partaction applied button=deploy pid=110406740 part='MiniDrill' [^\\r\\n]*count=4",
   "partaction applied button=startconverter pid=110406740 part='MiniISRU' [^\\r\\n]*converter='Lf\\+Ox' state='[^'\\r\\n]*Lf\\+Ox:active=1",
