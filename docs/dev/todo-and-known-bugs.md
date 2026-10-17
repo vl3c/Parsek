@@ -68,6 +68,41 @@ starts hidden); a part re-attached at another pose gets a stand-in node with a d
 shape is the hold ghost above. Inventory events are ghosting triggers, so the optimizer will not
 split such a member. Log line `Construction ghost shape:`. Tests: `ConstructionGhostShapeTests`.
 
+## SPLIT-OF-A-CREWED-COMMANDLESS-PART-READS-AS-DEBRIS: a crewed part with no command module that separates is treated as debris, so its kerbal reads as lost [FILED 2026-10-17 from the crew-across-vessels code trace, branch `claude/crew-across-vessels-db6ycy`. OPEN, not reproduced live. product]
+
+`ParsekFlight.IsTrackableVessel` counts a vessel as its own branch only when it is an EVA kerbal,
+a space object, or carries a `ModuleCommand`. A crew cabin with no command module (a Hitchhiker
+or a Mk1 crew cabin) that undocks or decouples with a kerbal inside fails it: `DeferredUndockBranch`
+resumes the recording as if debris left, nothing records the cabin, and the kerbal is missing from
+the parent recording's end snapshot, which `KerbalsModule.InferCrewEndState` reads as Dead for an
+intact terminal. Not fixed here because the predicate also decides Rewind Point authoring and
+Re-Fly slots (a commandless cabin cannot be flown), so a crewed-part rule needs its own split
+between "record it" and "offer it to Re-Fly". Next step: fly a Hitchhiker undock to confirm
+what KSP calls the separated cabin and what Parsek writes.
+
+## FOREIGN-BOARD-LEAVES-NO-GHOST-CLAIM: boarding a vessel from another mission does not claim it for ghost playback [FILED 2026-10-17 from the crew-across-vessels code trace, branch `claude/crew-across-vessels-db6ycy`. OPEN, to be checked by the EVA hop lane. product]
+
+A Board merge onto a vessel outside the tree stamps no target pid (`HandleTreeBoardMerge`; design
+`design-dock-event-graph.md` item 1 deferred Board stamping), so `GhostChainWalker` sees no claim
+on the boarded vessel. A Dock onto the same vessel is claimed. Expected effect after a rewind past
+the boarding: the boarded vessel stays a real vessel while the boarding mission's merged recording
+also plays and spawns it at its end, a possible duplicate. The crew side no longer depends on the
+stamp (CROSS-TREE-CREW-TRANSFER-STRANDS-RESERVATION follow-up). Fix candidate: stamp the partner
+pid and guid on a Board merge whose target is outside the tree, as a Dock does.
+
+## ~~SWITCH-SEGMENT-STARTS-WITHOUT-A-START-SNAPSHOT: a vessel flown again replays in its end shape and counts only its end crew~~ [FILED 2026-10-17 from the crew-across-vessels code trace, verified by a red xUnit test. FIXED 2026-10-17, branch `claude/crew-across-vessels-db6ycy`; xUnit only so far. product]
+
+`SwitchSegmentBuilder.CreateSwitchContinuationSegment` (Tracking Station Fly, KSC marker Fly,
+Map Switch-To of a committed vessel) builds the segment recording before any snapshot exists,
+and neither the recorder's start backstop (`FlightRecorder.ApplyStartRecordingTreeBackstop`) nor
+`FlushRecorderToTreeRecording` forwarded the recorder's start snapshot, so the segment had no
+`GhostVisualSnapshot` until the commit filled it from the END snapshot. Its ghost then showed the
+vessel as it ended (a docked pair for a segment that docked) and `KerbalsModule` read its start
+crew from the end crew, so a kerbal moved to another vessel during the segment dropped out of it.
+Fix: `CaptureStartSnapshots` takes the start snapshot before the backstop and the backstop
+forwards a copy when the active tree recording has none (never replacing one). Log line
+`StartRecording: forwarded start ghost snapshot`. Tests: `SwitchSegmentStartSnapshotTests`.
+
 ## ~~CROSS-TREE-CREW-TRANSFER-STRANDS-RESERVATION: a kerbal taken off a vessel by a later mission's docking stays reserved to the first mission forever~~ [FILED 2026-10-16 from the coverage audit (`roadmap/coverage-matrix-2026-10-16.md` section 5), verified by code read and a red xUnit test. FIXED 2026-10-16, branch `claude/project-thread-wr5u4k`; xUnit only so far. product]
 
 A recording that ends with a kerbal Aboard (a station left in orbit) holds that kerbal open-ended.
@@ -76,13 +111,24 @@ rescue mission in another tree that docked to the station, took the kerbal and w
 the first hold at +inf (reservations merge by max end), and the kerbal could never fly again.
 
 Fix: `KerbalsModule` collects every committed tree's Dock / Board branch point with a target
-vessel pid (`CollectDockClaims`; in practice only a Dock carries one, a Board's target pid is 0). An open-ended Aboard / Unknown hold on recording R ends at the
-earliest such dock whose target is R's vessel (pid match, launch guids not conclusively
-different, hold end at or before the dock UT) AND whose merged child carries the kerbal
-(`ResolveDockClaimHandoffUT`, pure `DockClaimHandsOffHold`). The rescue tree's own rows then
-hold the kerbal until its recovery. A dock that does not take the kerbal, a dock to another
-launch of the same craft, and a dock to an unrelated vessel keep the hold. Log line:
-`Reservation bounded by cross-tree dock handoff:`. Tests: `CrossTreeDockCrewHandoffTests`.
+vessel (`CollectDockClaims`; a Board stamps no target pid, so its target is the merged child's
+own pid and launch guid, follow-up 2026-10-17 below). An open-ended Aboard / Unknown hold on
+recording R ends at the earliest such dock whose target is R's vessel (pid match with launch guids
+not conclusively different, OR a target guid that continues R's guid through a vessel-name link
+row, i.e. a Parsek spawn of R's vessel; hold end at or before the dock UT) AND whose merged child
+carries the kerbal (`ResolveDockClaimHandoffUT`, pure `DockClaimHandsOffHold`). The rescue tree's
+own rows then hold the kerbal until its recovery. A dock that does not take the kerbal, a dock to
+another launch of the same craft, and a dock to an unrelated vessel keep the hold. Log line:
+`Reservation bounded by cross-tree dock handoff:`. Tests: `CrossTreeDockCrewHandoffTests`,
+`CrewAcrossVesselsHandoffTests`.
+
+Follow-up 2026-10-17 (crew-across-vessels coverage, branch `claude/crew-across-vessels-db6ycy`,
+red-first xUnit): the first fix missed two rescue shapes, both leaving the kerbal reserved
+forever. (1) A rescue that BOARDS the station (a kerbal EVAs from the rescue vessel and boards it):
+`HandleTreeBoardMerge` stamps no target pid on a Board, so no claim was collected. (2) A rescue
+that docks to the station's Parsek SPAWN (the station replayed after a rewind and spawned at its
+recording's end under a fresh pid and guid, joined to the recorded launch by a Spawn link): the
+dock names the spawn's pid, so the pid test failed. Both now hand the hold off as above.
 
 ## ~~STRATEGY-CONVERSION-ROWS-OUTLIVE-THEIR-AWARD: the share of a flight's reward a strategy converts is written untagged, so an F9, a Re-Fly merge or a revert takes the reward back and keeps the converted share~~ [FILED 2026-10-16 from the pre-release coverage audit (`roadmap/coverage-matrix-2026-10-16.md`, code read), confirmed by red-first xUnit. FIXED 2026-10-16, PR #2123; LIVE-PROVEN 2026-10-16 by QL-2c `2026-10-16_2239`. product]
 

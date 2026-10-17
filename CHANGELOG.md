@@ -43,9 +43,14 @@ _(unreleased - entries accumulate here per commit)_
   a vessel a kerbal built on kept one shape for the whole replay. It now gains each attached part
   and loses each removed part at the moment you did it. (CONSTRUCTION-GHOST-NEVER-CHANGES-SHAPE)
 - **A kerbal rescued by a docking from another mission is freed when the rescue lands.** A kerbal
-  left aboard a station and taken off it by a later mission that docks there stayed booked to the
-  station forever. The docking now hands the kerbal to the rescue mission, so they can fly again
-  once it is recovered. (CROSS-TREE-CREW-TRANSFER-STRANDS-RESERVATION)
+  left aboard a station and taken off it by a later mission stayed booked to the station forever.
+  The docking, or a kerbal from the rescue boarding the station on EVA, now hands them to the
+  rescue mission, also when the station is the copy Parsek placed after a rewind, so they can fly
+  again once it is recovered. (CROSS-TREE-CREW-TRANSFER-STRANDS-RESERVATION)
+- **A vessel you fly again replays in the shape it started in.** A flight that picked up a vessel
+  from the Tracking Station, the map or a Space Center marker replayed it in the shape it ended
+  in, docked parts included, and counted only the crew it ended with. It now replays the vessel
+  as it was when you took control. (SWITCH-SEGMENT-STARTS-WITHOUT-A-START-SNAPSHOT)
 - **A strategy's share of a reward now goes back with the reward.** With Leadership Initiative,
   Appreciation Campaign, Patents Licensing or another converting strategy active, an F9 or a
   Re-Fly merge took a flight's reward back but kept the part the strategy had converted, so funds,
