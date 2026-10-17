@@ -168,9 +168,14 @@ namespace Parsek.Tests
                         PostWalkActionReconciler.GetPostWalkPrimaryRank(labUntagged));
             Assert.True(PostWalkActionReconciler.GetPostWalkPrimaryRank(scienceTagged) >
                         PostWalkActionReconciler.GetPostWalkPrimaryRank(labTagged));
-            // The historical rule is unchanged: recording scope beats an untagged row.
-            Assert.True(PostWalkActionReconciler.GetPostWalkPrimaryRank(labTagged) >
+            // Any non-lab row beats any lab credit, a tagged lab row included.
+            Assert.True(PostWalkActionReconciler.GetPostWalkPrimaryRank(scienceUntagged) >
+                        PostWalkActionReconciler.GetPostWalkPrimaryRank(labTagged));
+            // The historical rule holds within each class: recording scope first.
+            Assert.True(PostWalkActionReconciler.GetPostWalkPrimaryRank(scienceTagged) >
                         PostWalkActionReconciler.GetPostWalkPrimaryRank(scienceUntagged));
+            Assert.True(PostWalkActionReconciler.GetPostWalkPrimaryRank(labTagged) >
+                        PostWalkActionReconciler.GetPostWalkPrimaryRank(labUntagged));
         }
 
         // ------------------------------------------------------------------
@@ -200,9 +205,74 @@ namespace Parsek.Tests
 
             AssertNoWarnOrError();
             string summary = SummaryLine();
+            // The lab row is reconciled inside the earning's comparison: it is reported
+            // as labCovered, not as a walked action that never compared.
+            Assert.Contains("actions=1", summary);
             Assert.Contains("compared=1", summary);
             Assert.Contains("matches=1", summary);
             Assert.Contains("mismatches(funds/rep/sci)=0/0/0", summary);
+            Assert.Contains("labCovered=1", summary);
+        }
+
+        // ------------------------------------------------------------------
+        // Untagged earning beside a TAGGED lab row (the one-way scope shape)
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void ReconcilePostWalk_UntaggedEarningBesideTaggedLab_CoalescedEvent_Matches()
+        {
+            // A tagged lab row must not own the comparison over the untagged earning: its
+            // own scope (tagged events only) would leave the earning's share and the
+            // untagged coalesced event out and read a missing channel.
+            CommitLabRecording();
+            var events = new List<GameStateEvent>
+            {
+                ScienceEvent(372.15, 100.0, 122.5, "VesselRecovery")
+            };
+            var actions = new List<GameAction>
+            {
+                SubjectScience(372.15, 372.15f, 372.15f, 10f, ScienceMethod.Recovered,
+                    "recovery@KerbinOrbited", null),
+                LabCredit(372.15, 12.5f, ScienceMethod.Recovered, LabRecordingId)
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            AssertNoWarnOrError();
+            string summary = SummaryLine();
+            Assert.Contains("actions=1", summary);
+            Assert.Contains("compared=1", summary);
+            Assert.Contains("matches=1", summary);
+            Assert.Contains("labCovered=1", summary);
+        }
+
+        [Fact]
+        public void ReconcilePostWalk_UntaggedEarningBesideTaggedLab_EarningShortfallStillReports()
+        {
+            // Separate events (different tags do not coalesce): the lab's own +12.5 agrees,
+            // the earning's +9.0 does not. The earning must still be compared, so the
+            // 1.0 shortfall reports instead of the lab row matching alone.
+            CommitLabRecording();
+            var events = new List<GameStateEvent>
+            {
+                ScienceEvent(372.15, 100.0, 109.0, "VesselRecovery"),
+                ScienceEvent(372.15, 109.0, 121.5, "VesselRecovery", LabRecordingId)
+            };
+            var actions = new List<GameAction>
+            {
+                SubjectScience(372.15, 372.15f, 372.15f, 10f, ScienceMethod.Recovered,
+                    "recovery@KerbinOrbited", null),
+                LabCredit(372.15, 12.5f, ScienceMethod.Recovered, LabRecordingId)
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, sci)") &&
+                l.Contains("ScienceEarning") &&
+                l.Contains("expected=22.5") &&
+                l.Contains("observed=21.5"));
+            Assert.Contains("mismatches(funds/rep/sci)=0/0/1", SummaryLine());
         }
 
         [Fact]

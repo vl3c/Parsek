@@ -419,6 +419,7 @@ namespace Parsek
             int mismatchFunds = 0;
             int mismatchRep = 0;
             int mismatchSci = 0;
+            int labCovered = 0;
 
             // Lab credits reconciled INSIDE another action's comparison (their share sits on
             // that comparison's expected side because their ScienceChanged event sits on its
@@ -439,6 +440,20 @@ namespace Parsek
                     !RecalculationEngine.IsSeedType(action.Type) &&
                     action.UT > utCutoff.Value)
                 {
+                    continue;
+                }
+
+                // A lab credit a science comparison already summed is reconciled there:
+                // comparing it again would count its ScienceChanged event a second time.
+                // Counted as labCovered, not as a walked action, so actions= keeps
+                // meaning "rows that owned or joined a comparison of their own".
+                if (pass == 1 && reconciledLabCredits.Contains(action))
+                {
+                    labCovered++;
+                    ParsekLog.VerboseRateLimited(Tag,
+                        $"post-walk-lab-covered:{action.RecordingId ?? ""}:{action.UT.ToString("R", CultureInfo.InvariantCulture)}",
+                        $"Post-walk lab credit ut={LedgerOrchestrator.FormatFixed1(action.UT)} " +
+                        $"method={action.Method} reconciled inside a covering science comparison - skipped");
                     continue;
                 }
 
@@ -519,7 +534,7 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"Post-walk reconcile: actions={walked}, compared={compared}, matches={matched}, " +
                 $"mismatches(funds/rep/sci)={mismatchFunds}/{mismatchRep}/{mismatchSci}, " +
-                $"cutoffUT={cutoffLabel}");
+                $"cutoffUT={cutoffLabel}, labCovered={labCovered}");
         }
 
         /// <summary>
@@ -968,19 +983,6 @@ namespace Parsek
             double livePruneThreshold,
             HashSet<GameAction> reconciledLabCredits)
         {
-            // A lab credit another comparison already summed is reconciled; comparing it
-            // again would count its ScienceChanged event a second time.
-            if (action.Type == GameActionType.ScienceLabEarning &&
-                reconciledLabCredits != null &&
-                reconciledLabCredits.Contains(action))
-            {
-                ParsekLog.VerboseRateLimited(Tag,
-                    $"post-walk-lab-covered:{legTag}:{action.RecordingId ?? ""}:{action.UT.ToString("R", CultureInfo.InvariantCulture)}",
-                    $"Post-walk lab credit {legTag} ut={LedgerOrchestrator.FormatFixed1(action.UT)} " +
-                    $"keyed '{leg.ReasonKey}' reconciled inside a covering science comparison - skipped");
-                return PostWalkCompareResult.Skipped;
-            }
-
             var aggregate = AggregatePostWalkWindow(
                 action, leg, tolerance, actions, utCutoff, events, livePruneThreshold);
             if (!aggregate.IsPrimary)
@@ -1393,19 +1395,22 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Which coalesced-window member owns the comparison. A recording-scoped row
-        /// outranks an untagged one (the historical rule); among equals a subject or reward
-        /// row outranks a <see cref="GameActionType.ScienceLabEarning"/>, so a lab credit
-        /// never owns the comparison while the subject science it coalesced with is in the
-        /// window: that owner's window and scope are the ones the coalesced event was
-        /// captured under, and only a non-lab owner absorbs further lab credits
-        /// (<see cref="AbsorbLabCreditsIntoWindow"/>). Pure.
+        /// Which coalesced-window member owns the comparison. Any subject or reward row
+        /// outranks every <see cref="GameActionType.ScienceLabEarning"/>; within each class a
+        /// recording-scoped row outranks an untagged one (the historical rule). A lab credit
+        /// therefore never owns a comparison while a non-lab row of the same key is in its
+        /// window, even an untagged one beside a tagged lab row: the untagged owner's group
+        /// already holds the lab row (an untagged anchor shares scope with every row) and its
+        /// observed side counts the lab's event (it matches every tag), so both sides agree,
+        /// whereas a tagged lab owner would skip the earning's comparison and then compare
+        /// alone, its own one-way scope leaving the earning's share out. Only a non-lab owner
+        /// absorbs further lab credits (<see cref="AbsorbLabCreditsIntoWindow"/>). Pure.
         /// </summary>
         internal static int GetPostWalkPrimaryRank(GameAction action)
         {
             if (action == null) return -1;
-            int rank = ActionHasRecordingScope(action) ? 2 : 0;
-            if (action.Type != GameActionType.ScienceLabEarning) rank += 1;
+            int rank = ActionHasRecordingScope(action) ? 1 : 0;
+            if (action.Type != GameActionType.ScienceLabEarning) rank += 2;
             return rank;
         }
 
