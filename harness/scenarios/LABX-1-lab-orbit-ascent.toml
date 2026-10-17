@@ -48,16 +48,15 @@
 # stage after circularization". FORGE-gs2-orbital-stack flew this profile.
 #
 # THE HOST, AND WHY IT IS SANDBOX. `bdock-forge-base` (sandbox) is the committed
-# bootable base every launch_vessel forge boots, and it now carries the craft
-# physically (one consumer -> not in the shared library). A SCIENCE_SANDBOX host
-# was considered and rejected for THIS lane: the only committed one,
+# bootable base every launch_vessel forge boots; the craft reaches its
+# Ships/VAB through the shared-ships overlay. A SCIENCE_SANDBOX host was
+# considered and rejected for THIS lane: the only committed one at the time,
 # `fresh-science`, has 100 science and no tech beyond the start node, so the
-# lab (advExploration) and most of the stack are locked and kRPC's
-# ExperimentalPartsAvailable pre-flight check refuses the launch. CONSEQUENCE
-# FOR THE LAB LANES: in SANDBOX the lab stores no data and pays no science (lab
-# value needs an R&D subject), so the eventual lab FIXTURE must be a
-# SCIENCE_SANDBOX or career save whose tech tree has advExploration (and the
-# stack's nodes) purchased; this lane proves the vehicle, not the science.
+# lab and most of the stack are locked and kRPC's ExperimentalPartsAvailable
+# pre-flight check refuses the launch. CONSEQUENCE FOR THE LAB LANES: in
+# SANDBOX the lab stores no data and pays no science (lab value needs an R&D
+# subject), so they boot `lab-lko-science` instead (below); this lane proves
+# the vehicle, not the science.
 #
 # FAST-LANE CHECKLIST (harness/README.md): (1) reuse - no existing flight
 # carries this craft; the closest, FORGE-gs2-orbital-stack, flies Kerbal X, and
@@ -70,8 +69,13 @@
 # phase budgets are the bound; retry stays `once` because the first flight of
 # an unflown craft is not yet known to be deterministic. (7) count window -
 # recordings are prevented (autoRecordOnLaunch false), so {0,1} as every forge.
-# (8) tier - operator until measured. (9) run flight_efficiency.py after the
-# first green flight.
+# (8) tier - measured p50 268 s, far under the longhaul floor; it stays
+# operator because it is an on-request vehicle / fixture run, never a cadence
+# member. (9) flight_efficiency.py on `2026-10-17_1747`: 219 s of mission wall,
+# the only recoverable item 20 s of the 30 s PARK dwell. KEPT: the dwell is the
+# stable-park proof behind the harvested fixture, and re-pinning it would turn a
+# flown spec back into an unflown one to save 20 s on a lane that only runs on
+# request.
 #
 # WHAT A FIRST FLIGHT CAN FALSIFY, and where to look (the craft's own
 # assumption list in build_lab_orbit_craft.py has the derivations):
@@ -86,15 +90,25 @@
 #   - parkedStable unmet: angular velocity over 0.05 rad/s at the end of the
 #     dwell (SAS needs the pilot in the POD - A2 again).
 #
-# HARVEST (when the lab lanes want this state as a fixture; NOTE a sandbox
-# state cannot host lab science, see THE HOST above):
-#   python harness/tools/harvest_bdock_station.py --instance <ksp-instance> \
-#       --run-save bdock-forge-base --target-name <name> --expect-situation ORBITING
-# The harvested save will carry a byte-identical second copy of the craft: that
-# is the moment to PROMOTE it to fixtures/ships/ (build_lab_orbit_craft.py's
-# CRAFT_PATH note).
+# FLOWN GREEN ON ITS FIRST FLIGHT, 2026-10-17: run `2026-10-17_1747`, PASS
+# attempt 1, MISSION-OK, 268 s wall. Orbit 107,498 x 91,996 m, ecc 0.011, inc
+# 0.091 deg. crewAboard 2; stackAttached met (peak vessel count 1; active parts
+# 24 -> 21 at the booster drop, during the ascent as craft A7 predicted);
+# parkedStable ORBITING. The produced save holds Valentina in mk1pod.v2 and Bob
+# in Large.Crewed.Lab, the seating craft A2 derived.
 #
-# UNFLOWN. A failure classifies driver-INVALID (retryable), never PARSEK-FAIL:
+# HARVESTED (the run's own snapshot, situation gate armed, never --force):
+#   python harness/tools/harvest_bdock_station.py \
+#       --save-dir harness/results/2026-10-17_1747_LABX-1-lab-orbit-ascent_save \
+#       --target-name lab-lko-sandbox --expect-situation ORBITING
+# -> `lab-lko-sandbox` (SANDBOX). It arrived holding a byte-identical second copy
+# of the craft, so the craft was PROMOTED to fixtures/ships/ and both saves are
+# declared consumers in shared-ships.toml. `lab-lko-science`
+# (harness/tools/build_lab_lko_science.py) stamps its vessel into `fresh-science`
+# with every tech node the craft needs researched: the SCIENCE_SANDBOX host the
+# lab lanes boot.
+#
+# A failure classifies driver-INVALID (retryable), never PARSEK-FAIL:
 # logContracts.required is empty on purpose.
 # =============================================================================
 schema = 1
@@ -102,12 +116,12 @@ id = "LABX-1-lab-orbit-ascent"
 tier = "operator"
 description = "Science-lab lane prerequisite: launch_vessel the by-construction LABX Orbital Lab (Mk1 pod + Science Jr + Mobile Processing Lab + RTGs, Jumbo-64/Mainsail booster, X200-16/Poodle orbital stage) with Valentina (pod) and Bob (lab), fly forge_lko's MechJeb ascent + circularize to a ~100 km circular LKO, park with the lab attached (parkAttached), SaveGame."
 instanceProfile = "stock-minimal"
-tags = ["LABX", "lab", "science", "orbital", "mechjeb", "fixture", "pending-flight"]
+tags = ["LABX", "lab", "science", "orbital", "mechjeb", "fixture", "flown"]
 
 [fixture]
 # The committed bootable sandbox base (an active vessel, so LoadGame's
-# IsLoadedGameFocusable gate passes), which carries
-# Ships/VAB/LABX Orbital Lab.craft physically so launch_vessel resolves it.
+# IsLoadedGameFocusable gate passes); shared-ships.toml overlays
+# Ships/VAB/LABX Orbital Lab.craft into it so launch_vessel resolves it.
 saveTemplate       = "fixtures/saves/bdock-forge-base"
 injectedRecordings = "none"
 craft              = []

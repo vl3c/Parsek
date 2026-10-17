@@ -229,7 +229,11 @@ class ForgeSpecTests(unittest.TestCase):
                                            "shared-ships.toml"))["ships"]
         consumers = sorted(save for save, ships in manifest.items()
                            if self.builder.SHIP_NAME in ships)
-        self.assertEqual(["bdock-forge-base", "logi-cargo-pad"], consumers)
+        # `lab-lko-sandbox` (the LABX-1 harvest) is a third consumer by
+        # INHERITANCE, the `refly-autopilot-recorded` rule: it was produced over
+        # bdock-forge-base, so its row restores the base's library craft.
+        self.assertEqual(["bdock-forge-base", "lab-lko-sandbox", "logi-cargo-pad"],
+                         consumers)
         saves_dir = os.path.join(_HARNESS, "fixtures", "saves")
         strays = []
         for dirpath, _dirnames, filenames in os.walk(saves_dir):

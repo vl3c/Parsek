@@ -31,7 +31,7 @@
 [ships]
 "b17-duna-pad" = ["DD1 Duna Direct Probe", "GS1 Auto-Chute Booster", "Kerbal X"]
 "b18-dres-pad" = ["DD1 Duna Direct Probe", "Duna Rocket", "GS1 Auto-Chute Booster", "Kerbal X"]
-"bdock-forge-base" = ["DD1 Duna Direct Probe", "Duna Rocket", "GS1 Auto-Chute Booster", "Kerbal X", "Logi Cargo Rig"]
+"bdock-forge-base" = ["DD1 Duna Direct Probe", "Duna Rocket", "GS1 Auto-Chute Booster", "Kerbal X", "LABX Orbital Lab", "Logi Cargo Rig"]
 "bdock-recorded" = ["Kerbal X"]
 "bdock-second-dock-recorded" = ["Kerbal X"]
 "bdock-station-craft" = ["Kerbal X"]
@@ -89,3 +89,15 @@
 # never execute in game at all. The row makes `craftDirsMirrored=1` a real
 # measurement, which PPB-1 pins as a required log token.
 "preparsek-untouched-career" = ["Kerbal X"]
+# The LABX-1 harvest and its science-mode derivative. `LABX Orbital Lab` (built by
+# construction, build_lab_orbit_craft.py) was committed physically into
+# bdock-forge-base while it had ONE consumer; the harvest of LABX-1's produced save
+# arrived holding a byte-identical second copy, so both physical copies left the
+# fixtures and the single library copy went into `fixtures/ships/` - the route
+# `Logi Cargo Rig` took. `lab-lko-sandbox` restores everything the harvest dropped
+# (the forge base's library craft arrive through the overlay, as for
+# `logi-cargo-pad`). `lab-lko-science` (build_lab_lko_science.py) is SCIENCE_SANDBOX
+# with only the LABX craft's tech researched, so that is the one craft it can
+# plausibly launch and the one overlaid (no lane launches from it yet).
+"lab-lko-sandbox" = ["DD1 Duna Direct Probe", "Duna Rocket", "GS1 Auto-Chute Booster", "Kerbal X", "LABX Orbital Lab", "Logi Cargo Rig"]
+"lab-lko-science" = ["LABX Orbital Lab"]

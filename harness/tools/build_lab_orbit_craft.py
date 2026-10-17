@@ -150,18 +150,16 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _HARNESS_ROOT = os.path.dirname(_HERE)                       # harness/
 
-# ONE consumer today, so the craft lives PHYSICALLY in that fixture and is NOT in
-# the shared library (harness/fixtures/shared-ships.toml: a library craft needs two
-# consumers, and a craft used by exactly one fixture stays in it). The consumer is
-# bdock-forge-base, the committed bootable sandbox base every launch_vessel forge
-# boots; kRPC resolves <save>/Ships/VAB/<craftName>.craft against the staged save.
-# PROMOTION: when a second fixture needs it (a harvest of LABX-1's produced save
-# will carry a byte-identical copy), move the single copy to fixtures/ships/,
-# delete the physical ones, list both consumers in shared-ships.toml, and point
-# CRAFT_PATH there -- the route GS1 Auto-Chute Booster and Logi Cargo Rig took.
+# The craft is committed ONCE, in the shared library at harness/fixtures/ships/, and
+# `run.py::stage_fixture` overlays it into each consuming save's Ships/VAB at stage
+# time (the directory kRPC launch_vessel resolves <save>/Ships/VAB/<craftName>.craft
+# against). Consumers are declared in harness/fixtures/shared-ships.toml:
+# bdock-forge-base (LABX-1 launches it from there), lab-lko-sandbox (LABX-1's
+# harvested produced save, which arrived holding a byte-identical second copy - the
+# PROMOTION moment, the route GS1 Auto-Chute Booster and Logi Cargo Rig took) and
+# lab-lko-science (build_lab_lko_science.py, the science-mode host of the lab lanes).
 SHIP_NAME = "LABX Orbital Lab"
-CRAFT_PATH = os.path.join(_HARNESS_ROOT, "fixtures", "saves", "bdock-forge-base",
-                          "Ships", "VAB", SHIP_NAME + ".craft")
+CRAFT_PATH = os.path.join(_HARNESS_ROOT, "fixtures", "ships", SHIP_NAME + ".craft")
 
 # Root placement (assumption A1).
 ROOT_Y = 25.0

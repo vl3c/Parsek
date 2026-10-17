@@ -153,7 +153,7 @@ class PerformanceTests(unittest.TestCase):
 
 class LaneWiringTests(unittest.TestCase):
     """The LABX-1 spec launches THIS craft with THIS crew order, from the fixture
-    that physically carries it."""
+    that overlays it."""
 
     @classmethod
     def setUpClass(cls):
@@ -169,13 +169,21 @@ class LaneWiringTests(unittest.TestCase):
         self.assertEqual(params["minCrew"], len(self.builder.CREW_NAMES))
         self.assertTrue(params["parkAttached"])
 
-    def test_the_spec_boots_the_fixture_that_carries_the_craft(self):
-        leaf = self.spec["fixture"]["saveTemplate"].rstrip("/").rsplit("/", 1)[-1]
-        expected = os.path.join(HARNESS_ROOT, "fixtures", "saves", leaf, "Ships",
-                                "VAB", self.builder.SHIP_NAME + ".craft")
-        self.assertEqual(os.path.normcase(os.path.abspath(expected)),
+    def test_the_craft_is_the_library_copy_and_every_consumer_declares_it(self):
+        # Promoted to the shared library when the LABX-1 harvest became its second
+        # consumer; the builder must write THAT copy, and the spec's host plus both
+        # lab fixtures must overlay it.
+        library = os.path.join(HARNESS_ROOT, "fixtures", "ships",
+                               self.builder.SHIP_NAME + ".craft")
+        self.assertEqual(os.path.normcase(os.path.abspath(library)),
                          os.path.normcase(os.path.abspath(self.builder.CRAFT_PATH)))
-        self.assertTrue(os.path.isfile(expected))
+        self.assertTrue(os.path.isfile(library))
+        with open(os.path.join(HARNESS_ROOT, "fixtures", "shared-ships.toml"),
+                  "rb") as fh:
+            ships = tomllib.load(fh)["ships"]
+        leaf = self.spec["fixture"]["saveTemplate"].rstrip("/").rsplit("/", 1)[-1]
+        for save in (leaf, "lab-lko-sandbox", "lab-lko-science"):
+            self.assertIn(self.builder.SHIP_NAME, ships.get(save, ()), save)
 
 
 if __name__ == "__main__":
