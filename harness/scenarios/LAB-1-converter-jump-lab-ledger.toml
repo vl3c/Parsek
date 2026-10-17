@@ -2,7 +2,8 @@ schema = 1
 id = "LAB-1-converter-jump-lab-ledger"
 tier = "nightly"
 # THE LIVE CHECK FOR TA-6 AND LAB SCIENCE (todo TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND
-# and LAB-SCIENCE-NEVER-LEDGERED, PR #2128). AUTHORED 2026-10-17, NEVER FLOWN.
+# and LAB-SCIENCE-NEVER-LEDGERED, PR #2128). LIVE-PROVEN 2026-10-17 on its first flight (run
+# `2026-10-17_0622`, PASS attempt 1, wall 69 s, automation DLL sha256 prefix 098a97c8a88a5db5).
 #
 # WHY IN-GAME CELLS AND NOT A MINING FLIGHT. A flown lane needs a drill + ISRU + lab craft no
 # committed fixture carries (MINE-1), and no seam verb starts a converter or transmits lab
@@ -30,8 +31,11 @@ tier = "nightly"
 # route), R&D present. It loads at UT ~0.1, so a rails WarpToUT to UT 30 runs before the
 # batch; the lab cell recalcs with the clock cut off half a second before its credit.
 #
-# THE PIN IS INTERIM: `total=5` is attribute-exact (five SPACECENTER declarations); the split
-# is predicted 5 / 0 and regexed until the reading run measures it (INTERIM_PIN_IDS).
+# THE PIN IS WHOLE: `total=5` is attribute-exact (five SPACECENTER declarations) and run
+# `2026-10-17_0622` measured the predicted split, `passed=5 failed=0 skipped=0`; the id has left
+# INTERIM_PIN_IDS. The same run measured epoch-shift 29.9 -> 3629.9 and forward 3629.9 -> 7229.9,
+# each `unloadedShifted=3 unloadedVessels=3 neverRan=1`, the lab credit +12.50 with the ledger
+# walk at 100.00 before its UT and 112.50 live, and both capture pairs attached.
 description = "On a career host at the Space Center: the real forward and epoch-shift jumps keep an unloaded drill, ISRU and lab owing exactly the catch-up they owed before the jump; the reflected converter clock is the stock one; a stock lab recovery lands one ownerless ledger row that a recalc keeps."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "ledger", "career", "time-jump", "LAB-1"]
@@ -64,7 +68,7 @@ count = { min = 0, max = 0 }
 
 [expectations.logContracts]
 required = [
-  "BATCH_COMPLETE v1 total=5 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=ConverterJumpLab scene=SPACECENTER",
+  "BATCH_COMPLETE v1 total=5 passed=5 failed=0 skipped=0 category=ConverterJumpLab scene=SPACECENTER",
   # Both real jump entry points reached the policy and shifted the three unloaded converters.
   "\\[Parsek\\]\\[INFO\\]\\[TimeJump\\] Converter jump policy \\(forward\\): pre=[0-9.]+ post=[0-9.]+ loadedShifted=0 unloadedShifted=3 unloadedVessels=3 neverRan=1 unreadable=0",
   "\\[Parsek\\]\\[INFO\\]\\[TimeJump\\] Converter jump policy \\(epoch-shift\\): pre=[0-9.]+ post=[0-9.]+ loadedShifted=0 unloadedShifted=3 unloadedVessels=3 neverRan=1 unreadable=0",
