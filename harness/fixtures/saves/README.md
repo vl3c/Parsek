@@ -689,6 +689,18 @@ uids verbatim (asserted disjoint from the rover's), `lct` / `lastUT` / ORBIT `EP
 (`--check`) and `harness/lib/test_miner_rover_landed.py`. The first fixture with a drill, an
 ISRU, ore storage and Ore capacity (MINING-ISRU-UNTESTED-END-TO-END).
 
+## miner-rover-watched (GAME Mode = SANDBOX, 2 VESSELS, 0 recordings, derived from miner-rover-landed)
+
+`miner-rover-landed` with its index-1 `Observer Probe` swapped for `Miner Watcher`, a crewless
+clone of `rover-route-recorded`'s 16-part `rover fuel 0` parked 120 m due north of the miner
+(lat 0.0410754), LANDED, with `skipGroundPositioning = False` so KSP settles it on the terrain
+at load, re-derived identities from the seed `miner-rover-watched/watcher/v1`, and `lct` /
+`lastUT` / ORBIT `EPH` 30. The miner (index 0, active) is byte-identical to the base's. The
+neighbour is the FLIGHT host after a rewind: close enough to draw the miner's ghost, press Real
+Spawn Control (its row needs the active vessel within 250 m) and switch to the spawned miner
+while it is loaded. Built and drift-gated by `harness/tools/build_miner_rover_watched.py`
+(`--check`) and `harness/lib/test_miner_rover_watched.py`.
+
 ## gloops-airshow-hard (GAME Mode = SANDBOX, 1 VESSEL + 1 asteroid, derived from gloops-airshow)
 
 `gloops-airshow`'s `persistent.sfs` and `persistent.loadmeta` byte for byte, except four

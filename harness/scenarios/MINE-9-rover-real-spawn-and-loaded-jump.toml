@@ -1,0 +1,131 @@
+schema = 1
+id = "MINE-9-rover-real-spawn-and-loaded-jump"
+tier = "nightly"
+# THE MINING PROGRAM, lane MINE-9 (roadmap MINE-3's remainder; plan
+# `docs/dev/research/mining-isru-test-program-2026-10-17.md`). NEVER FLOWN: its first
+# flight is a READING run.
+#
+# HOST: `miner-rover-watched` (harness/tools/build_miner_rover_watched.py): V's real
+# "Mining Rover RC" (index 0, active, radiators on, tanks empty, every converter clock at
+# UT 30) and `Miner Watcher`, a crewless rover parked 120 m north (index 1). After the
+# rewind strips the miner, a reload of the rewound save lands FLIGHT on the watcher, close
+# enough to the miner's ghost for Real Spawn Control's row (250 m) and for the spawned
+# miner to load into physics.
+#
+# THE STORY. Record half an hour of V's mining shape (deploy all four drills, start all
+# four `Surface Harvester`s, start the ISRU's `Lf+Ox`, warp on rails at no more than
+# 100x, as V never went above 125x), commit, Rewind-to-Launch, save and reload into
+# FLIGHT on the watcher. Then:
+#   * REAL SPAWN CONTROL: once the ghost is live beside the watcher, press its row's Warp
+#     (RealSpawn, the player's click path: an epoch-shift jump to the recording's end and
+#     the end spawn). The spawned miner's tanks must equal the end snapshot.
+#   * THE LOADED JUMP: the spawned miner is loaded, its converters still on (the snapshot
+#     carries IsActivated), and a TimeJump of about an hour follows. A Parsek jump is not
+#     production time (ConverterJumpPolicy, TA-6), so after the jump the tanks must STILL
+#     equal the end snapshot within 0.01: an hour of the rover's production (about 0.44 LF
+#     on MINE-2's flight) would break that, a few seconds of live play would not.
+description = "MINE-9: V's mining rover records half an hour of drilling and ISRU, then after commit and Rewind-to-Launch its ghost is spawned through Real Spawn Control beside a neighbouring rover with tanks equal to its end snapshot, and a TimeJump with the spawned miner loaded and its converters on produces nothing over the jumped hour."
+instanceProfile = "stock-minimal"
+tags = ["mining", "isru", "rewind", "real-spawn-control", "time-jump", "MINE-9"]
+
+[fixture]
+saveTemplate = "fixtures/saves/miner-rover-watched"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "StartRecording",                                                               expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  { cmd = "PartAction",          args = { button = "deploy", part = "MiniDrill", all = "true" },   expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "60", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "PartAction",          args = { button = "startconverter", part = "MiniDrill", converter = "Surface Harvester", all = "true" }, expect = "OK" },
+  { cmd = "PartAction",          args = { button = "startconverter", part = "MiniISRU", converter = "Lf+Ox" }, expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "75", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",            args = { ut = "1830", maxRate = "100" },                 expect = "OK", budget = 300 },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant,ElectricCharge" }, label = "r1", expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniISRU" },               expect = "OK" },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "CommitTree",                                                                   expect = "OK", budget = 120 },
+  # CommitTree re-takes the committed tree for the still-active miner; stop it (RC-6).
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine9-committed-${c0.count}-${c0.rec0}" }, expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                             expect = "OK", budget = 300 },
+  { cmd = "SaveGame",            args = { name = "mine9-rewound" },                       expect = "OK", budget = 120 },
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "mine9-rewound" },  expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  # The recording starts near UT 31; at UT 60 its ghost stands 120 m from the watcher.
+  { cmd = "WarpToUT",            args = { ut = "60", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c1",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine9-ghost-live-spawned-${c1.rec0spawned}" }, expect = "OK" },
+  { cmd = "RealSpawn",           args = { rec = "${c0.rec0}" },                           expect = "OK", budget = 180 },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c2",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine9-rsc-spawned-${c2.rec0spawned}-${c2.rec0spawnedPid}" }, expect = "OK" },
+  { cmd = "ReadVesselResources", args = { rec = "${c0.rec0}", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant", expectSnapshot = "true", tolerance = "0.01" }, label = "rs", expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniISRU", pid = "${c2.rec0spawnedPid}" }, expect = "OK" },
+  # THE LOADED JUMP: about an hour past the spawn, the miner loaded with its converters on.
+  { cmd = "TimeJump",            args = { ut = "5500" },                                  expect = "OK", budget = 120 },
+  { cmd = "MissionMark",         args = { label = "mine9-after-loaded-jump" },            expect = "OK" },
+  { cmd = "ReadVesselResources", args = { rec = "${c0.rec0}", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant", expectSnapshot = "true", tolerance = "0.01" }, label = "rj", expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniISRU", pid = "${c2.rec0spawnedPid}" }, expect = "OK" },
+  { cmd = "SaveGame",                                                                     expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rewind-to-launch", "fast-forward"]
+D14 = ["kerbin", "sandbox", "scene-flight", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  "partaction applied button=deploy pid=110406740 part='MiniDrill' [^\\r\\n]*count=4",
+  "partaction applied button=startconverter pid=110406740 part='MiniISRU' [^\\r\\n]*converter='Lf\\+Ox' state='[^'\\r\\n]*Lf\\+Ox:active=1",
+  "committree committed=true",
+  "MISSIONMARK label=mine9-committed-1-[0-9a-f]{32} ",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "MISSIONMARK label=mine9-ghost-live-spawned-false ",
+  "realspawn complete rec=[0-9a-f]{32} pid=[0-9]+ vessel=Mining Rover RC loaded=true ",
+  "MISSIONMARK label=mine9-rsc-spawned-true-[0-9]+ ",
+  "(?s)MISSIONMARK label=mine9-rsc-spawned-(?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=1 missing=0 uidCollisions=0 [^\\r\\n]*snapshotMatch=true",
+  # The jump shifted the LOADED miner's converter clocks, and its tanks did not move.
+  "Converter jump policy \\([^)]*\\): pre=[0-9.]+ post=55[0-9][0-9]\\.[0-9] loadedShifted=[1-9]",
+  "(?s)MISSIONMARK label=mine9-after-loaded-jump(?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=1 missing=0 uidCollisions=0 [^\\r\\n]*snapshotMatch=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  "invokerewindtolaunch refused",
+  "realspawn rejected",
+  "Spawn RETIRED",
+  "Spawn ABANDONED",
+  "Spawn FAILED",
+  "uidCollisions=[1-9]",
+  "Within-segment breakage",
+]
+
+[runtime]
+# Two LoadGame steps and the rewind (up to 300 s each), half an hour of rails mining at
+# 100x (about 18 s), a Real Spawn Control jump and a TimeJump.
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

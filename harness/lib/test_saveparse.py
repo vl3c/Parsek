@@ -840,6 +840,9 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # Observer Probe (harness/tools/build_miner_rover_landed.py). The base has no node,
         # but a focusable save routes to FLIGHT, so the builder splices b1-pad-craft's.
         "miner-rover-landed": True,
+        # `miner-rover-landed` with its probe swapped for a crewless rover parked 120 m
+        # north (harness/tools/build_miner_rover_watched.py). Inherits the node.
+        "miner-rover-watched": True,
         "fresh-career": False,
         "fresh-sandbox": False,
         "fresh-science": False,

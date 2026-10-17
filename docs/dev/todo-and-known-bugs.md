@@ -3372,6 +3372,12 @@ only radiators with `IsCooling` set). Fixed in the spec and the fixture (radiato
 on the second flight `2026-10-17_1242` (PASS attempt 1, both spawns `snapshotMatch=true`). Still open: MINE-0, MINE-4, MINE-5, GS-6r3, a lab lane (XS-5), and
 `HarvestCapture_CatchUpOnLoad` on a host with a drill on ore.
 
+Program 2026-10-17 (owner ask: cover every drill and ISRU idea): the lane plan is
+`docs/dev/research/mining-isru-test-program-2026-10-17.md` (MINE-6..MINE-15 plus MINE-4 / MINE-5,
+built from V's own manual flight). First of them: `MINE-9-rover-real-spawn-and-loaded-jump`
+(Real Spawn Control, then a TimeJump with the spawned miner loaded) on the new fixture
+`miner-rover-watched`; never flown.
+
 ---
 
 ## HARNESS-VERBS-FOR-TIMELINE-OPS: no verb drives F9 while recording, a stock revert, the Re-Fly revert dialog, warp outside flight, or reads a vessel's resources [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. OPEN, harness]
