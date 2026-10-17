@@ -10604,6 +10604,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # the science-lab lanes need in LKO. The tier is the mechanism (an
         # on-request vehicle / fixture run), not a review debt.
         "LABX-1-lab-orbit-ascent.toml":     "forge-mechanism - operator-invoked vehicle / fixture run; FLOWN 2026-10-17 (`2026-10-17_1747` PASS attempt 1); RE-FLOWN on the current shape (science antenna + probe tender) `2026-10-17_1957` PASS attempt 1, produced save re-harvested to lab-lko-sandbox (donor of lab-lko-science)",
+        # The first science-lab flight lane on the LABX-1 harvest: operator by the
+        # reading-run discipline, never flown. Its debt is the READING RUN, carried by
+        # the `pending-flight` tag and its status row, not an operator-REVIEW debt.
+        "LAB-2-lab-experiments-processed.toml": "operator by the reading-run discipline; AUTHORED 2026-10-17, NEVER FLOWN (the four experiments processed into the lab, the duplicate refusal, the end-snapshot match and the post-load process on lab-lko-science); the lab values and dataStored windows are re-pinned off the first flight, then the tier is promoted by its measured p50",
         # The SIXTH forge, same mechanism again: it stamps b17-duna-pad by
         # launching the committed DD1 Duna Direct Probe (built by construction,
         # build_dd1_craft.py) onto the pad UNCREWED. Flown + harvested
