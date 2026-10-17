@@ -24,7 +24,13 @@ tier = "nightly"
 #     production time (ConverterJumpPolicy, TA-6), so after the jump the tanks must STILL
 #     equal the end snapshot within 0.01: an hour of the rover's production (about 0.44 LF
 #     on MINE-2's flight) would break that, a few seconds of live play would not.
-description = "MINE-9: V's mining rover records half an hour of drilling and ISRU, then after commit and Rewind-to-Launch its ghost is spawned through Real Spawn Control beside a neighbouring rover with tanks equal to its end snapshot, and a TimeJump with the spawned miner loaded and its converters on produces nothing over the jumped hour."
+#   * THE SPAWN AFTER A JUMP: reload the rewound save and TimeJump straight past the
+#     recording's end with the ghost beside the watcher, so the miner does not exist during
+#     the jump and spawns after it, loaded. It must arrive with its end snapshot (owner ruling
+#     2026-10-17): the spawn removes the jumped span from its converter clocks
+#     (`Converter jump policy (spawn)`). Its first flight caught 3670 s of stock catch-up here
+#     (Ore 4.27 against 0).
+description = "MINE-9: V's mining rover records half an hour of drilling and ISRU, then after commit and Rewind-to-Launch its ghost is spawned through Real Spawn Control beside a neighbouring rover with tanks equal to its end snapshot, a TimeJump with the spawned miner loaded and its converters on produces nothing over the jumped hour, and after a reload a TimeJump past the end spawns the miner with its end-snapshot tanks."
 instanceProfile = "stock-minimal"
 tags = ["mining", "isru", "rewind", "real-spawn-control", "time-jump", "MINE-9"]
 
@@ -78,6 +84,20 @@ steps = [
   { cmd = "MissionMark",         args = { label = "mine9-after-loaded-jump" },            expect = "OK" },
   { cmd = "ReadVesselResources", args = { rec = "${c0.rec0}", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant", expectSnapshot = "true", tolerance = "0.01" }, label = "rj", expect = "OK" },
   { cmd = "PartAction",          args = { button = "inspect", part = "MiniISRU", pid = "${c2.rec0spawnedPid}" }, expect = "OK" },
+  # THE SPAWN AFTER A JUMP: back to the rewound save, jump past the end with the ghost beside us.
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "mine9-rewound" },  expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "60", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "TimeJump",            args = { ut = "5500" },                                  expect = "OK", budget = 120 },
+  # A few seconds of 1x so the spawned miner loads and stock runs its catch-up.
+  { cmd = "WarpToUT",            args = { ut = "5503", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c3",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine9-jump-spawned-${c3.rec0spawned}-${c3.rec0spawnedPid}" }, expect = "OK" },
+  { cmd = "ReadVesselResources", args = { rec = "${c0.rec0}", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant", expectSnapshot = "true", tolerance = "0.01" }, label = "rk", expect = "OK" },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniISRU", pid = "${c3.rec0spawnedPid}" }, expect = "OK" },
   { cmd = "SaveGame",                                                                     expect = "OK", budget = 120 },
   { cmd = "FlushAndQuit",                                                                 expect = "OK" },
 ]
@@ -100,12 +120,18 @@ required = [
   "MISSIONMARK label=mine9-committed-1-[0-9a-f]{32} ",
   "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
   "MISSIONMARK label=mine9-ghost-live-spawned-false ",
-  "realspawn complete rec=[0-9a-f]{32} pid=[0-9]+ vessel=Mining Rover RC loaded=true ",
+  # The vessel is created in the same frame, so loaded= reads false here; rs below reads it loaded.
+  "realspawn complete rec=[0-9a-f]{32} pid=[0-9]+ vessel=Mining Rover RC loaded=(?:true|false) ",
   "MISSIONMARK label=mine9-rsc-spawned-true-[0-9]+ ",
   "(?s)MISSIONMARK label=mine9-rsc-spawned-(?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=1 missing=0 uidCollisions=0 [^\\r\\n]*snapshotMatch=true",
   # The jump shifted the LOADED miner's converter clocks, and its tanks did not move.
   "Converter jump policy \\([^)]*\\): pre=[0-9.]+ post=55[0-9][0-9]\\.[0-9] loadedShifted=[1-9]",
   "(?s)MISSIONMARK label=mine9-after-loaded-jump(?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=1 missing=0 uidCollisions=0 [^\\r\\n]*snapshotMatch=true",
+  # The miner spawned after the jump had the jumped span (5500 - 1829.9 = 3670 s) removed
+  # from its converter clocks (ConverterJumpPolicy.ApplyToSpawnSnapshot), and its tanks match.
+  "Converter jump policy \\(spawn\\): (?:RespawnVessel|SpawnAtPosition) vessel=Mining Rover RC modules=[1-9][0-9]* removed=36[67][0-9]\\.[0-9] ",
+  "MISSIONMARK label=mine9-jump-spawned-true-[0-9]+ ",
+  "(?s)MISSIONMARK label=mine9-jump-spawned-(?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=1 missing=0 uidCollisions=0 [^\\r\\n]*snapshotMatch=true",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -120,9 +146,9 @@ forbidden = [
 ]
 
 [runtime]
-# Two LoadGame steps and the rewind (up to 300 s each), half an hour of rails mining at
-# 100x (about 18 s), a Real Spawn Control jump and a TimeJump.
-budgetSeconds = 1500
+# Three LoadGame steps and the rewind (up to 300 s each), half an hour of rails mining at
+# 100x (about 18 s), a Real Spawn Control jump and two TimeJumps.
+budgetSeconds = 1800
 
 [retry]
 policy = "once"

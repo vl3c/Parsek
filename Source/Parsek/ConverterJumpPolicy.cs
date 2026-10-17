@@ -21,6 +21,12 @@ namespace Parsek
     /// jumped span is removed, and any catch-up the vessel already owed from before the jump
     /// (an unloaded miner left running) is kept. A zero timestamp is stock's "never ran"
     /// sentinel (stock resets it to now without catching up) and is left alone.</para>
+    ///
+    /// <para>A vessel that does not exist during the jump and spawns after it (a recording whose
+    /// end the jump crossed) arrives with its end snapshot (owner ruling 2026-10-17): every jumped
+    /// span since the last load is remembered, and the spawn removes from each snapshot converter
+    /// clock the part of those spans that lies after the clock, so stock catches up only time that
+    /// really passed.</para>
     /// </summary>
     internal static class ConverterJumpPolicy
     {
@@ -158,6 +164,7 @@ namespace Parsek
         /// </summary>
         internal static void Apply(double preJumpUT, double postJumpUT, string jumpKind)
         {
+            NoteJumpedSpan(preJumpUT, postJumpUT);
             var tally = new JumpTally();
             List<Vessel> vessels = FlightGlobals.Vessels != null
                 ? new List<Vessel>(FlightGlobals.Vessels)
@@ -181,6 +188,131 @@ namespace Parsek
                     "unloadedShifted={4} unloadedVessels={5} neverRan={6} unreadable={7}",
                     jumpKind ?? "?", preJumpUT, postJumpUT, tally.LoadedShifted,
                     tally.UnloadedShifted, tally.UnloadedVessels, tally.NeverRan, tally.Unreadable));
+        }
+
+        internal const int MaxJumpedSpans = 64;
+
+        private static readonly List<KeyValuePair<double, double>> jumpedSpans =
+            new List<KeyValuePair<double, double>>();
+
+        internal static int JumpedSpanCount => jumpedSpans.Count;
+
+        /// <summary>Remembers a jumped span (pre, post) for later spawns; oldest dropped past the cap.</summary>
+        internal static void NoteJumpedSpan(double preJumpUT, double postJumpUT)
+        {
+            if (!(postJumpUT > preJumpUT) || double.IsNaN(preJumpUT) || double.IsInfinity(postJumpUT))
+                return;
+            jumpedSpans.Add(new KeyValuePair<double, double>(preJumpUT, postJumpUT));
+            if (jumpedSpans.Count > MaxJumpedSpans)
+                jumpedSpans.RemoveAt(0);
+        }
+
+        /// <summary>Forgets every jumped span: a load starts a new timeline.</summary>
+        internal static void ClearJumpedSpans(string reason)
+        {
+            if (jumpedSpans.Count == 0)
+                return;
+            ParsekLog.Verbose(Tag,
+                string.Format(ic, "Converter jumped spans cleared: count={0} reason={1}",
+                    jumpedSpans.Count, reason ?? "?"));
+            jumpedSpans.Clear();
+        }
+
+        internal static void ResetForTesting()
+        {
+            jumpedSpans.Clear();
+        }
+
+        /// <summary>
+        /// Pure: the clock a spawning snapshot's converter gets. Adds to
+        /// <paramref name="oldTime"/> the part of every jumped span (pre, post] that lies after
+        /// it, ignoring spans from a future the clock has gone back behind (post later than
+        /// <paramref name="currentUT"/>). Spans never overlap (each jump starts where the clock
+        /// is), so the result never passes <paramref name="currentUT"/>.
+        /// </summary>
+        internal static ShiftOutcome ComputeSpawnSnapshotTimestamp(
+            double oldTime, IList<KeyValuePair<double, double>> spans, double currentUT,
+            out double newTime)
+        {
+            newTime = oldTime;
+            if (Math.Abs(oldTime) < 1e-9)
+                return ShiftOutcome.NeverRan;
+            if (double.IsNaN(oldTime) || double.IsInfinity(oldTime) || spans == null)
+                return ShiftOutcome.NoJump;
+
+            double removed = 0.0;
+            for (int i = 0; i < spans.Count; i++)
+            {
+                double pre = spans[i].Key;
+                double post = spans[i].Value;
+                if (post > currentUT + 1e-6 || !(post > oldTime))
+                    continue;
+                removed += post - Math.Max(pre, oldTime);
+            }
+            if (!(removed > 0.0))
+                return ShiftOutcome.NoJump;
+            newTime = oldTime + removed;
+            return ShiftOutcome.Shifted;
+        }
+
+        /// <summary>
+        /// Pure over a spawning VESSEL node: applies <see cref="ComputeSpawnSnapshotTimestamp"/>
+        /// to every PART / MODULE the predicate classifies as a converter. Returns the number of
+        /// modules shifted and the largest amount of time removed.
+        /// </summary>
+        internal static int ShiftSpawnSnapshotModules(
+            ConfigNode vesselNode, IList<KeyValuePair<double, double>> spans, double currentUT,
+            Func<string, bool> isConverterModule, out double maxRemoved)
+        {
+            maxRemoved = 0.0;
+            if (vesselNode == null || spans == null || spans.Count == 0 || isConverterModule == null)
+                return 0;
+            int shifted = 0;
+            ConfigNode[] parts = vesselNode.GetNodes("PART");
+            for (int pi = 0; pi < parts.Length; pi++)
+            {
+                ConfigNode[] modules = parts[pi].GetNodes("MODULE");
+                for (int m = 0; m < modules.Length; m++)
+                {
+                    ConfigNode module = modules[m];
+                    if (!isConverterModule(module.GetValue("name")) || !module.HasValue(TimestampKey))
+                        continue;
+                    if (!double.TryParse(module.GetValue(TimestampKey), NumberStyles.Float, ic,
+                            out double oldTime))
+                        continue;
+                    if (ComputeSpawnSnapshotTimestamp(oldTime, spans, currentUT, out double newTime)
+                        != ShiftOutcome.Shifted)
+                        continue;
+                    module.SetValue(TimestampKey, newTime.ToString("R", ic));
+                    maxRemoved = Math.Max(maxRemoved, newTime - oldTime);
+                    shifted++;
+                }
+            }
+            return shifted;
+        }
+
+        /// <summary>
+        /// Runtime: applies the jumped spans to a vessel node about to be spawned (a copy, never
+        /// the stored snapshot). Spans the clock has gone back behind are dropped first.
+        /// </summary>
+        internal static void ApplyToSpawnSnapshot(ConfigNode spawnNode, string context)
+        {
+            if (spawnNode == null || jumpedSpans.Count == 0)
+                return;
+            double now = Planetarium.GetUniversalTime();
+            int stale = jumpedSpans.RemoveAll(s => s.Value > now + 1e-6);
+            if (stale > 0)
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic, "Converter jumped spans dropped behind the clock: count={0} ut={1:F1}",
+                        stale, now));
+            int shifted = ShiftSpawnSnapshotModules(
+                spawnNode, jumpedSpans, now, IsConverterModuleName, out double maxRemoved);
+            if (shifted > 0)
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Converter jump policy (spawn): {0} vessel={1} modules={2} removed={3:F1} spans={4} ut={5:F1}",
+                        context ?? "?", spawnNode.GetValue("name") ?? "?", shifted, maxRemoved,
+                        jumpedSpans.Count, now));
         }
 
         /// <summary>True when the stock converter clock field resolved by reflection.</summary>

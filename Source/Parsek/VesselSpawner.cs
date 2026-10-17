@@ -887,6 +887,7 @@ namespace Parsek
 
                 // Use a copy to avoid modifying the saved snapshot
                 ConfigNode spawnNode = vesselNode.CreateCopy();
+                ConverterJumpPolicy.ApplyToSpawnSnapshot(spawnNode, "RespawnVessel");
 
                 // (#608/#609/#687) Rescue Missing crew BEFORE the keep/remove
                 // pass so RemoveDeadCrewFromSnapshot sees them as Available
@@ -1325,6 +1326,7 @@ namespace Parsek
             try
             {
                 ConfigNode spawnNode = vesselNode.CreateCopy();
+                ConverterJumpPolicy.ApplyToSpawnSnapshot(spawnNode, "SpawnAtPosition");
 
                 // Determine situation from altitude and velocity
                 double orbitalSpeed = Math.Sqrt(body.gravParameter / (body.Radius + alt));

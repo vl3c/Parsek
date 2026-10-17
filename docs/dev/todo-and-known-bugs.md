@@ -16,7 +16,15 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~RSC-REWIND-TARGET-NEVER-LISTED: after a Rewind-to-Launch the player did not re-fly, Real Spawn Control never lists the rewound vessel~~ [FILED 2026-10-17 from MINE-9's first flight (`2026-10-17_1308` / `_1311_a2`, INVALID driver-gate both attempts), branch `claude/lab-isru-drill-coverage-5oq37h`. FIXED on the same branch; xUnit; awaiting MINE-9's re-flight. product]
+## ~~SPAWN-AFTER-JUMP-CATCHES-UP-THE-JUMP: a vessel that spawns after a time jump crossed its recording end produces through the jumped span~~ [FILED 2026-10-17 from MINE-9's first flight (`2026-10-17_1308`), owner ruling 2026-10-17 ("End snapshot"), branch `claude/lab-isru-drill-coverage-5oq37h`. FIXED on the same branch; xUnit; MINE-9's spawn-after-jump branch gates it. product]
+
+**Symptom.** TimeJump 60 -> 5500 with the rewound rover's ghost beside the watcher: the rover's recording ended at 1829.9, it spawned after the jump with its drills and ISRU on, and it came up with Ore 4.27 / LF 0.297 / Ox 0.363 against its end snapshot's 0 / 0.218 / 0.267. `ConverterJumpPolicy` shifts only vessels that exist during the jump, and the spawn kept the snapshot's `lastUpdateTime` (1829.9), so stock caught up 3670 s.
+
+**Ruling.** A vessel that only appears after a jump arrives with its end snapshot: a jump is not production time for it either.
+
+**Fix.** `ConverterJumpPolicy.Apply` remembers each jumped span; `ApplyToSpawnSnapshot` (called on the spawn copy in `VesselSpawner.RespawnVessel` and `SpawnAtPosition`) adds to each converter clock the part of those spans after it (`ComputeSpawnSnapshotTimestamp`), so time that really passed before or after the jump is still caught up. Spans the clock has gone back behind are ignored, and every `ParsekScenario.OnLoad` clears them; known limit: a spawn deferred across a scene change after a jump is not covered. Log: `Converter jump policy (spawn): <path> vessel= modules= removed=`. Cells: `ConverterJumpPolicyTests.SpawnSnapshot*` / `JumpedSpans_*`.
+
+## ~~RSC-REWIND-TARGET-NEVER-LISTED: after a Rewind-to-Launch the player did not re-fly, Real Spawn Control never lists the rewound vessel~~ [FILED 2026-10-17 from MINE-9's first flight (`2026-10-17_1308` / `_1311_a2`, INVALID driver-gate both attempts), branch `claude/lab-isru-drill-coverage-5oq37h`. FIXED on the same branch; LIVE-PROVEN by MINE-9 `2026-10-17_1330_a2` (realspawn complete, rs snapshotMatch=true; its PARSEK-FAIL was one over-strict lane contract, `loaded=true` in the spawn frame, since loosened). product]
 
 **Symptom.** The ghost of the rewound `Mining Rover RC` was drawn 120 m from the active vessel for 28 s of 1x play, yet `RealSpawn` was refused `realspawn-not-a-candidate ... candidates=0`, with no proximity line in the whole log. The end-of-recording spawn of the same recording was allowed (`same-recording spawn suppression lifted ... recorded terminal will materialize` every 5 s).
 
