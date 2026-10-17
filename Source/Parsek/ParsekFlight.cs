@@ -28211,23 +28211,9 @@ namespace Parsek
                     continue;
 
                 Recording rec = committed[i];
-                if (rec.EndUT <= currentUT)
+                if (!GhostPlaybackLogic.IsNearbySpawnCandidateEligible(
+                        rec, currentUT, activeGhostChains))
                     continue;
-
-                // Check spawn eligibility
-                var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                    rec, isActiveChainMember: false);
-                if (!needsSpawn)
-                    continue;
-
-                // Check chain suppression
-                if (activeGhostChains != null)
-                {
-                    var (suppressed, _) = GhostPlaybackLogic.ShouldSuppressSpawnForChain(
-                        activeGhostChains, rec);
-                    if (suppressed)
-                        continue;
-                }
 
                 Vector3d ghostPos = state.ghost.transform.position;
                 double dist = Vector3d.Distance(activePos, ghostPos);

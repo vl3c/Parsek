@@ -35,6 +35,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Real Spawn Control lists a vessel again after a Rewind-to-Launch you did not re-fly.** The
+  vessel came back at its recording end, but its Real Spawn Control row never appeared, so you
+  could not warp to it early from a nearby vessel. The row now shows whenever the end spawn would
+  happen. (RSC-REWIND-TARGET-NEVER-LISTED)
 - **A vessel that undocks in orbit comes back on its real orbit after a rewind.** Parsek rebuilt
   the orbit from the recording's last point, which after a reload could tilt the vessel's path into
   a 14 km periapsis. It now uses the orbit the game reported when the recording ended, so the

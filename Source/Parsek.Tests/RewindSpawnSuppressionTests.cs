@@ -1039,6 +1039,70 @@ namespace Parsek.Tests
                 l.Contains("same-recording spawn suppression"));
         }
 
+        // ----------------------------------------------------------------
+        // Real Spawn Control's nearby-candidate list reads the same scene-aware
+        // #573 lift as the playback spawn: a standalone Rewind-to-Launch target
+        // the player did not re-fly is listed (MINE-9 found it refused
+        // realspawn-not-a-candidate because the scan assumed a live launch).
+        // ----------------------------------------------------------------
+
+        [Fact]
+        public void IsNearbySpawnCandidateEligible_StandaloneRewindTarget_NoLiveCraft_IsListed()
+        {
+            var rec = MakeRecording(
+                "rsc-standalone-lift",
+                "Mining Rover RC",
+                110406740u,
+                treeId: null,
+                startUT: 31.0,
+                endUT: 1829.9);
+            rec.SpawnSuppressedByRewind = true;
+            rec.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
+            rec.SpawnSuppressedByRewindUT = 30.0;
+            GhostPlaybackLogic.SetLiveSameCraftOverrideForTesting(_ => false);
+
+            Assert.True(GhostPlaybackLogic.IsNearbySpawnCandidateEligible(
+                rec, currentUT: 60.0, chains: null));
+            Assert.True(rec.SpawnSuppressedByRewind);
+        }
+
+        [Fact]
+        public void IsNearbySpawnCandidateEligible_StandaloneRewindTarget_LiveCraftPresent_IsNotListed()
+        {
+            var rec = MakeRecording(
+                "rsc-standalone-reflight",
+                "Mining Rover RC",
+                110406740u,
+                treeId: null,
+                startUT: 31.0,
+                endUT: 1829.9);
+            rec.SpawnSuppressedByRewind = true;
+            rec.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
+            GhostPlaybackLogic.SetLiveSameCraftOverrideForTesting(_ => true);
+
+            Assert.False(GhostPlaybackLogic.IsNearbySpawnCandidateEligible(
+                rec, currentUT: 60.0, chains: null));
+        }
+
+        [Fact]
+        public void IsNearbySpawnCandidateEligible_PastEnd_IsNotListed()
+        {
+            var rec = MakeRecording(
+                "rsc-past-end",
+                "Mining Rover RC",
+                110406740u,
+                treeId: null,
+                startUT: 31.0,
+                endUT: 1829.9);
+
+            Assert.True(GhostPlaybackLogic.IsNearbySpawnCandidateEligible(
+                rec, currentUT: 60.0, chains: null));
+            Assert.False(GhostPlaybackLogic.IsNearbySpawnCandidateEligible(
+                rec, currentUT: 1829.9, chains: null));
+        }
+
         private static Recording MakeRecording(
             string recordingId,
             string vesselName,

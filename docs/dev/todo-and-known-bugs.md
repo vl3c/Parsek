@@ -16,6 +16,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~RSC-REWIND-TARGET-NEVER-LISTED: after a Rewind-to-Launch the player did not re-fly, Real Spawn Control never lists the rewound vessel~~ [FILED 2026-10-17 from MINE-9's first flight (`2026-10-17_1308` / `_1311_a2`, INVALID driver-gate both attempts), branch `claude/lab-isru-drill-coverage-5oq37h`. FIXED on the same branch; xUnit; awaiting MINE-9's re-flight. product]
+
+**Symptom.** The ghost of the rewound `Mining Rover RC` was drawn 120 m from the active vessel for 28 s of 1x play, yet `RealSpawn` was refused `realspawn-not-a-candidate ... candidates=0`, with no proximity line in the whole log. The end-of-recording spawn of the same recording was allowed (`same-recording spawn suppression lifted ... recorded terminal will materialize` every 5 s).
+
+**Cause.** `ParsekFlight.CollectNearbySpawnCandidates` called the two-argument `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(rec, false)`, whose `liveSameLaunchVesselPresent` defaults to true, so the #573 same-recording block stayed absolute for the candidate list. The playback spawn, KSC and the Tracking Station all pass `ResolveRewindSuppressionLiveLaunchPresence(rec)`.
+
+**Fix.** The scan's eligibility is now `GhostPlaybackLogic.IsNearbySpawnCandidateEligible(rec, currentUT, chains)`: not ended, spawn-at-end with the scene-aware #573 lift, not chain-suppressed. `RewindSpawnSuppressionTests.IsNearbySpawnCandidateEligible_*` (3 cells; the lift cell reds when the helper reverts to the two-argument overload).
+
 ## ~~REFLY-KEPT-TIP-STAMP-GHOSTED-BY-CHAIN: a chain tip whose stamp a Re-Fly kept is never re-spawned once the chain ghosts that vessel~~ [FILED 2026-10-16 from RC-1's first flight (`2026-10-16_2251`, PARSEK-FAIL), branch `claude/project-thread-81f9wc` (PR #2125). FIXED on the same branch; LIVE-PROVEN by RC-1 `2026-10-16_2324` (PASS attempt 1). product]
 
 RC-1 cycle 2 rewinds `bdock-recorded` to rp_f4ed (the Interceptor separation). The Station tip
