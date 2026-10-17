@@ -468,6 +468,9 @@ namespace Parsek
                     continue;
 
                 bool spawnedNow = false;
+                // The held-ghost retry can materialize a warp-deferred recording before warp
+                // ends; the watch follow it skipped is still owed here.
+                bool spawnedWhileDeferred = false;
                 if (pendingSpawn && rec.TerminalSpawnCannotSpawnSafely)
                 {
                     ParsekLog.Warn("Policy",
@@ -495,6 +498,7 @@ namespace Parsek
                         $"Deferred spawn skipped — #{i} \"{rec.VesselName}\" already spawned or no snapshot");
                     flushedSpawnIds.Add(rec.RecordingId);
                     pendingSpawn = false;
+                    spawnedWhileDeferred = rec.VesselSpawned;
                 }
                 else if (pendingSpawn)
                 {
@@ -576,11 +580,12 @@ namespace Parsek
                 }
 
                 // Restore camera follow if this recording was being watched when deferred
-                if (spawnedNow && GhostPlaybackLogic.ShouldRestoreWatchMode(
+                if ((spawnedNow || spawnedWhileDeferred) && GhostPlaybackLogic.ShouldRestoreWatchMode(
                         pendingWatchRecordingId, rec.RecordingId, rec.SpawnedVesselPersistentId))
                 {
                     ParsekLog.Info("Policy",
-                        $"Deferred watch: switching to spawned vessel pid={rec.SpawnedVesselPersistentId}");
+                        $"Deferred watch: switching to spawned vessel pid={rec.SpawnedVesselPersistentId}" +
+                        (spawnedWhileDeferred ? " (spawned by held-ghost retry during warp)" : string.Empty));
                     if (DeferredActivateVesselOverrideForTesting != null)
                         DeferredActivateVesselOverrideForTesting(rec.SpawnedVesselPersistentId);
                     else

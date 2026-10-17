@@ -150,6 +150,35 @@ starts hidden); a part re-attached at another pose gets a stand-in node with a d
 shape is the hold ghost above. Inventory events are ghosting triggers, so the optimizer will not
 split such a member. Log line `Construction ghost shape:`. Tests: `ConstructionGhostShapeTests`.
 
+## WATCH-END-SPAWN-UNDER-WARP-LOSES-CAMERA: watching a ghost to its end under warp leaves the camera on the old vessel, and the view can end up inside the ground [FILED 2026-10-17 from V's mining-rover session (`logs/2026-10-17_1419_mining-rover`, DLL = main at fc491b151). Part 1 FIXED 2026-10-17, branch `claude/ghost-spawn-camera-6osrjb`; xUnit only so far. Part 2 (the brown view) OPEN, instrumented. product]
+
+Sequence (KSP.log 14:17:07-08): the watched landed ghost "Mining Rover RC" completed at 50x warp
+with a spawn due, so `HandlePlaybackCompleted` took the warp branch: it exited watch (camera
+restored to the active Bug-E Buggy, 819 m away and still packed), queued the spawn for the warp-end
+flush with `pendingWatchRecordingId`, and held the ghost. The held ghost's `lastRetryTime` starts at
+0, so `RetryHeldGhostSpawns` retried on the next frame, still under warp, and spawned the rover; its
+watch follow checks only the live watched index, which the exit had already cleared. At warp end
+`FlushDeferredSpawns` saw the rover already spawned, skipped it, and dropped the pending watch id,
+so nothing ever made the rover active. V saw a brown view (camera in the ground) until switching by
+hand 23 s later.
+
+Part 1 fix: the flush's already-spawned branch now also runs the deferred watch follow
+(`DeferredActivateVessel` to the spawned pid) when the pending watch id names that recording, so
+the warp path ends on the spawned vessel as the no-warp path does. Pinned by
+`DeferredSpawnTests.FlushDeferredSpawns_WatchedRecordingSpawnedByHeldRetryDuringWarp_StillFollowsSpawnedVessel`
+(reds when the follow is removed).
+
+Part 2, OPEN: why the camera on the packed Buggy rendered as inside the ground is not settled by
+the log; stock `FlightCamera.SetTarget` snaps the pivot onto the vessel, so the restore itself
+looks correct on paper. `WatchModeController.ExitCameraProbe.cs` now logs the camera's altitude,
+the terrain altitude under it, the target, packed state and warp at frames +0/+1/+10/+60/+240
+after every watch-exit restore (`Post-watch-exit camera sample`), and one Warn
+(`Post-watch-exit camera BELOW TERRAIN`) the first frame the camera is under the terrain. Next
+step: repro on the owner's PC (watch a landed ghost to its end under 50x warp with another landed
+vessel active about 800 m away) and read those lines. Also open: the held retry spawning a
+warp-deferred recording before warp ends (the immediate first retry) defeats the #96 deferral;
+left as is because the spawn itself worked.
+
 ## SPLIT-OF-A-CREWED-COMMANDLESS-PART-READS-AS-DEBRIS: a crewed part with no command module that separates is treated as debris, so its kerbal reads as lost [FILED 2026-10-17 from the crew-across-vessels code trace, branch `claude/crew-across-vessels-db6ycy`. OPEN, not reproduced live. product]
 
 `ParsekFlight.IsTrackableVessel` counts a vessel as its own branch only when it is an EVA kerbal,

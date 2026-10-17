@@ -308,6 +308,82 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FlushDeferredSpawns_WatchedRecordingSpawnedByHeldRetryDuringWarp_StillFollowsSpawnedVessel()
+        {
+            // Watched landed ghost ends under warp: watch exits and the spawn is deferred,
+            // but the held-ghost retry materializes the vessel before warp ends. The flush
+            // at warp end must still hand the camera to the spawned vessel.
+            var rec = new Recording
+            {
+                RecordingId = "rec-watched-spawned-during-warp",
+                VesselName = "Mining Rover RC",
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                TerminalStateValue = TerminalState.Landed,
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 110406740
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            int spawnCalls = 0;
+            var activated = new List<uint>();
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            var engine = new GhostPlaybackEngine(null);
+            var policy = new ParsekPlaybackPolicy(engine, host)
+            {
+                IsWarpActiveOverrideForTesting = () => false,
+                CurrentUTOverrideForTesting = () => 200.0,
+                SpawnVesselOrChainTipOverrideForTesting = (recording, index) => spawnCalls++,
+                DeferredActivateVesselOverrideForTesting = pid => activated.Add(pid)
+            };
+            policy.pendingSpawnRecordingIds.Add(rec.RecordingId);
+            policy.pendingWatchRecordingId = rec.RecordingId;
+
+            policy.FlushDeferredSpawns();
+
+            Assert.Equal(0, spawnCalls);
+            Assert.Equal(new List<uint> { 110406740u }, activated);
+            Assert.DoesNotContain(rec.RecordingId, policy.pendingSpawnRecordingIds);
+            Assert.Null(policy.pendingWatchRecordingId);
+            Assert.Contains(logLines, line =>
+                line.Contains("[Policy]")
+                && line.Contains("Deferred watch: switching to spawned vessel pid=110406740")
+                && line.Contains("spawned by held-ghost retry during warp"));
+        }
+
+        [Fact]
+        public void FlushDeferredSpawns_UnwatchedRecordingSpawnedDuringWarp_DoesNotActivate()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-unwatched-spawned-during-warp",
+                VesselName = "Other Rover",
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                TerminalStateValue = TerminalState.Landed,
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 4242
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var activated = new List<uint>();
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            var engine = new GhostPlaybackEngine(null);
+            var policy = new ParsekPlaybackPolicy(engine, host)
+            {
+                IsWarpActiveOverrideForTesting = () => false,
+                CurrentUTOverrideForTesting = () => 200.0,
+                SpawnVesselOrChainTipOverrideForTesting = (recording, index) => { },
+                DeferredActivateVesselOverrideForTesting = pid => activated.Add(pid)
+            };
+            policy.pendingSpawnRecordingIds.Add(rec.RecordingId);
+            policy.pendingWatchRecordingId = "some-other-recording";
+
+            policy.FlushDeferredSpawns();
+
+            Assert.Empty(activated);
+            Assert.DoesNotContain(rec.RecordingId, policy.pendingSpawnRecordingIds);
+        }
+
+        [Fact]
         public void FlushDeferredSpawns_TerminalSafetyDeferred_KeepsPendingWithoutSpawn()
         {
             var rec = new Recording
