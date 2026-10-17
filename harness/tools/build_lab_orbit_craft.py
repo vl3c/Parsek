@@ -20,9 +20,11 @@ WHAT IS DERIVED AND WHAT IS COPIED, stated exactly:
   RESOURCE*) is lifted byte-for-byte out of a craft KSP itself wrote, EXCEPT the
   lab's (A4). The source of each is named above its TAILS entry. Donors were
   chosen by MODULE-sequence match against the automation instance's stock part
-  cfgs: twelve of the thirteen donor tails carry the cfg's module list exactly or
-  short only a trailing ModuleCargoPart; the mk1pod.v2 tail is GS-1's Jumping Flea
-  tail, already flown. NO tail line is rewritten: every donor already carries stock
+  cfgs: sixteen of the seventeen donor tails carry the cfg's module list exactly or
+  short only a trailing ModuleCargoPart, or (the OKTO) the cfg list followed by
+  the ModuleScienceExperiment the instance's ConfigCache appends and the
+  ModuleTripLogger KSP adds to every command part at load; the mk1pod.v2 tail is
+  GS-1's Jumping Flea tail, already flown. NO tail line is rewritten: every donor already carries stock
   defaults (full propellant, engines unignited, thrustPercentage 100, every
   actionGroup None except the mk1 pod's stock `ModuleColorChanger` Light binding),
   which verify() re-asserts.
@@ -36,14 +38,27 @@ WHAT IS DERIVED AND WHAT IS COPIED, stated exactly:
   attPos0 is the offset from the PARENT part (KSP's own convention, read off
   Kerbal X / Kerbal 2 / Science Jr: e.g. Kerbal X's Poodle carries attPos0
   0,-0.92,0, its offset below the X200-16 it hangs from), and the root's own pos
-  on the root.
+  on the root. The tender (A12) stacks UPWARD from the pod's top node by the
+  mirror formula (`_stack_up`), and its one flipped part (the upper Jr port,
+  rot 1,0,0,0) meets its twin top node to top node, as Crater Crawler's pair
+  does: there the two port origins sit 0.2948 apart, twice the 0.1474114 top-node
+  offset, which is what the formula gives.
 
   RADIAL PLACEMENT. Two kinds, both from KSP-written evidence:
   (a) COPIED RELATIVE TRANSFORMS. The 2HOT thermometer and PresMat barometer sit
       on the mk1 pod, and the Mystery Goo on the SC-9001, at EXACTLY the
       parent-relative offset and rotation stock Science Jr.craft gives them on the
       same parent parts (its pod and its science.module both carry identity
-      rotation, as ours do). Nothing about those three is computed.
+      rotation, as ours do). Nothing about those three is computed. The
+      Communotron 16-S (A11) is the same kind, from the operator's c1 career
+      craft L5-B4-U1-C1.craft (KSP 1.12.5), whose mk1pod.v2 also carries identity
+      rotation: its rot is copied verbatim and its parent-relative offset is that
+      craft's pos(antenna) - pos(pod). That donor had nudged the antenna with the
+      editor offset gizmo (attPos 0,-0.0228,-0.0790 over attPos0 0,0.1741,0.5020);
+      KSP places a loaded part at `pos`, and pos - parent.pos equals attPos0 +
+      attPos on the donor to float precision, so the header here writes the sum
+      as attPos0 with attPos 0,0,0, which is what placing it there without the
+      gizmo would have written.
   (b) AZIMUTH RINGS on the X200-16, via one formula
           q(az) = Ry(-az) * q_ref
       where q_ref is the part's own rotation as KSP wrote it at azimuth 0 and az is
@@ -80,13 +95,22 @@ live run can falsify, in the order they would bite:
       pilot) takes the pod, Bob (the scientist) is the leftover and lands in lab
       seat 0. That is why the pod is a Mk1 and not a Mk1-3: a 3-seat pod would
       absorb both names and leave the lab empty. If a lab lane finds Bob in the
-      pod, this analysis is what was wrong.
+      pod, this analysis is what was wrong. The tender's OKTO (A12) is a SECOND
+      control source but has NO seat (CrewCapacity 0, minimumCrew 0): the fill
+      has nothing to put there and kRPC's leftover pass finds no empty seat in
+      it, so the pod stays the only seated control source and the seating above
+      is unchanged.
   A3  STAGING. `istg` is the authority KSP reads. Two stages only, DD1's shape:
       istg 1 ignites the Mainsail (the pad click); istg 0 fires the TD-25
       (Decoupler.2) AND ignites the Poodle (hot-stage, which MechJeb autostage
       drives when the Mainsail flames out). The Jumbo-64 carries istg 0 (its
       separator's stage); every part above the decoupler carries istg -1 (never
-      staged). There is NO stage after istg 0, so nothing can drop the lab.
+      staged). There is NO stage after istg 0, so nothing can drop the lab. The
+      tender (A12) carries istg -1 throughout and its two docking ports carry
+      ModuleDockingNode stagingEnabled = False (the cfg default, kept by the donor
+      tail): a docking node stages only when stagingEnabled is set
+      (ModuleDockingNode.OnActive / StagingEnabled, decompiled), so no stage and
+      no MechJeb autostage can separate the tender.
   A4  THE LAB TAIL IS AUTHORED AND CARRIES NO MODULE BLOCK. No donor exists. KSP's
       craft loader instantiates every module from the part prefab and only loads
       values onto modules a MODULE node names (Part.LoadModule, decompiled), so a
@@ -105,32 +129,78 @@ live run can falsify, in the order they would bite:
       on the same OKTO (0.33565) to a millimetre. Radial parts clip freely;
       a floating or sunk RTG is cosmetic unless the joint fails.
   A7  DV / TWR (every mass, Isp and thrust from the 1.12.5 part cfgs; see
-      `performance()` and verify()'s floor checks): upper stage wet 16.27 t, dry
-      8.27 t, Poodle Isp 350 vac -> 2,323 m/s vac, vac TWR 1.57 at ignition.
-      Pad mass 58.43 t, Mainsail ASL thrust 1500 * 285/310 = 1,379 kN -> pad TWR
-      2.41; booster vac dv = 310 * g0 * ln(58.43/26.43) = 2,412 m/s (2,217 at the
-      ASL Isp). Total ~4,735 m/s vac against ~3,400 to a 100 km LKO. THE STAGING
+      `performance()` and verify()'s floor checks): upper stage wet 16.435 t
+      (the 16-S 0.015 t and the tender 0.15 t included), dry 8.435 t, Poodle Isp
+      350 vac -> 2,289 m/s vac, vac TWR 1.55 at ignition. Pad mass 58.595 t,
+      Mainsail ASL thrust 1500 * 285/310 = 1,379 kN -> pad TWR 2.40; booster vac
+      dv = 310 * g0 * ln(58.595/26.595) = 2,401 m/s (2,208 at the ASL Isp).
+      Total ~4,691 m/s vac against ~3,400 to a 100 km LKO. THE STAGING
       TIMING THE FLIGHT DEPENDS ON: the booster must burn out DURING the ascent
       (it carries well under the ~3,000+ m/s a MechJeb ascent spends before its
       apoapsis latch), so the decoupler fires before CIRCULARIZE and the
       `stackAttached` row (vessel_count must not rise during CIRCULARIZE / PARK)
       holds. A booster still burning at the apoapsis latch is this estimate.
-      TWR 2.41 is high-normal; MechJeb flies it at full throttle.
+      TWR 2.40 is high-normal; MechJeb flies it at full throttle.
   A8  POWER. Eight RTGs, 8 * 0.75 = 6.0 EC/s, sun-independent and non-deployable,
       against the lab converter's 5 EC/s research draw (ModuleScienceConverter
       powerRequirement = 5); 4 * 400 EC Z-400 + the pod's 50 EC buffer the
-      reaction wheels and any data-processing burst. NO deployable part anywhere
-      (no panels, no antennas): a lab lane never has to click anything open.
-  A9  COMM. No antenna part: the Mk1 pod's internal ModuleDataTransmitter is the
-      link. From LKO that reaches the KSC network easily (range is set by pod power
-      x DSN power, thousands of km), but it is occluded behind Kerbin for part of
-      each orbit unless the save enables extra ground stations. A lab lane that
-      needs a CONTINUOUS link (transmitting results) may need a relay; this craft
-      does not provide one.
-  A10 CONTROL. One ModuleCommand (the pod). Torque: the pod's own wheel plus the
-      RW-L asasmodule1-2 directly under the lab; pilot SAS from Valentina; Mainsail
-      and Poodle gimbals. No fins: a mass-forward 2.5 m stack, DD1's finless
-      precedent flew green under MechJeb.
+      reaction wheels and any data-processing burst; the tender's OKTO 50 EC +
+      Z-200 200 EC are its own once it separates (OKTO draw ~0.05 EC/s). NO
+      deployable part anywhere (no panels, no deploying antenna): a lab lane
+      never has to click anything open.
+  A9  COMM. The Communotron 16-S (`SurfAntenna`; C16S.cfg: antennaType DIRECT,
+      antennaPower 500000, packetSize 2 Mits every 0.6 s at 12 EC per packet) on
+      the pod is the science link. The Mk1 pod's own ModuleDataTransmitter is NOT:
+      it is antennaType INTERNAL, ModuleDataTransmitter.CanTransmit() returns
+      false for INTERNAL and CommNetVessel.GetBestTransmitter skips it, so without
+      a DIRECT or RELAY part the lab's TransmitScience has nothing to send through
+      (the first flown LABX shape had none). Range to a KSC ground station is
+      sqrt(500000 x DSN power): ~31,600 km at the level-1 tracking station, far
+      beyond a 100 km LKO. The link is still occluded behind Kerbin for part of
+      each orbit unless the save enables extra ground stations. Power: a
+      transmission draws ~20 EC/s against the RTGs' 6.0, so a long one runs down
+      the 1,650 EC of batteries (~115 s, ~380 Mits) before it stalls. The 16-S is
+      NON-deploying (no ModuleDeployableAntenna), so nothing has to open before a
+      transmission and nothing extended can break off during the ascent.
+  A10 CONTROL. Two ModuleCommand parts: the pod (the ROOT, so the launch control
+      point) and the tender's OKTO, aligned with it (upright, same axis). Torque:
+      the pod's own wheel, the OKTO's 0.3 kN-m, and the RW-L asasmodule1-2
+      directly under the lab; pilot SAS from Valentina; Mainsail and Poodle
+      gimbals. No fins: a mass-forward 2.5 m stack, DD1's finless precedent flew
+      green under MechJeb. On the automation instance ModuleManager adds a
+      MechJebCore to every probe core and pod, so this vessel carries two cores;
+      MechJeb steers by the vessel's control point, not by the core's part.
+  A11 THE ANTENNA PLACEMENT. The 16-S sits on the pod at azimuth +90 (+Z), 0.15 m
+      above the pod's origin, clear of the 2HOT (az -30) and PresMat (az -150)
+      and of the tender's Jr port on the pod's top node. It is on the
+      never-staged upper stage (istg -1, above the decoupler), so no stage drops
+      it. Surface-attached at the upper end of the stack, it takes the ascent's
+      airflow and heating: 0.015 t, drag 0.2, maxTemp 2000 K, non-deploying. An
+      antenna lost during the ascent (26 parts expected after the booster drop,
+      25 seen) is this placement.
+  A12 THE PROBE TENDER (the Re-Fly separation and the dock / undock partner the
+      lab lanes need). Parsek authors a Re-Fly rewind point only at a split with
+      TWO controllable sides, and the booster drop has one, so the tender is a
+      second controllable vessel-to-be riding on the lab vessel: on the pod's top
+      node a Clamp-O-Tron Jr (dockingPort3, upright), a second Jr FLIPPED (rot
+      1,0,0,0) and joined to it face to face exactly as stock Crater Crawler's
+      pair is, then an OKTO probe core (probeCoreOcto.v2: ModuleCommand with no
+      seat, ModuleSAS, ModuleReactionWheel, 50 EC, INTERNAL antenna 5000) and a
+      Z-200 (batteryBankMini, 200 EC) as the nose. 0.15 t in all. The Jr fits
+      both the pod's top node and the 0.625 m OKTO. No decoupler anywhere in
+      it. Ports joined in the editor load PreAttached: ModuleDockingNode's
+      PreAttached state arms the port's own Undock event, and Undock() on a
+      PreAttached port calls Decouple() -> Part.decouple() (decompiled, KSP
+      1.12.5), so the FIRST separation is a decouple-shaped split (onPartJointBreak
+      / a new vessel), not a Part.Undock / onVesselsUndocking event; it happens
+      only when commanded (the M-A2 seam's `PartAction button=undock`, or kRPC
+      DockingPort.undock()). After it the two Jr ports are plain Ready ports, so a
+      re-dock and a later undock are the true dock / undock pair. The tender
+      keeps a CommNet link for control through the OKTO's INTERNAL antenna
+      (control, unlike science transmission, accepts an INTERNAL antenna) and
+      needs no antenna part. Ascent heating: the OKTO's maxTemp is 1,200 K, the
+      lowest aboard, shielded by the Z-200 above it; a tender lost in the ascent
+      is this.
 
 Usage:
     python harness/tools/build_lab_orbit_craft.py --check     # verify committed bytes
@@ -186,12 +256,33 @@ NODE_OFFSET = {
     "Rockomax64.BW":           {"top": 3.73, "bottom": -3.73},
     # Kerbal X: attN = top,...|1.01358998|0 (default variant; nothing below it)
     "liquidEngineMainsail.v2": {"top": 1.01359},
+    # THE TENDER (A12), stacked ABOVE the pod.
+    # Crater Crawler: attN = top,dockingPort3_..|0.1474114|0 and bottom |0|0 (the
+    # origin is AT the bottom node; the docking face is the top node)
+    "dockingPort3":            {"top": 0.1474114, "bottom": 0.0},
+    # c1 R2-B2-S4: attN = top,...|0.187081799|0 and bottom |-0.187081799|0
+    "probeCoreOcto.v2":        {"top": 0.1870818, "bottom": -0.1870818},
+    # c1 R2-B2-S4: attN = top,...|0.100000001|0 and bottom |-0.100000001|0
+    "batteryBankMini":         {"top": 0.1, "bottom": -0.1},
 }
+
+# A stack part flipped end for end (rot 180 deg about X, written by KSP as 1,0,0,0:
+# Crater Crawler's upper dockingPort3 of its top-to-top pair). Its local top node
+# then points DOWN, so attached by its top it sits ABOVE the part below it.
+ROT_FLIPPED = "1,0,0,0"
 
 # COPIED RELATIVE TRANSFORMS (radial kind (a)): parent-relative attPos0 and rot,
 # verbatim from stock VAB/Science Jr.craft, whose mk1pod.v2 and science.module both
 # carry rot 0,0,0,1 exactly as ours do.
 COPIED_RADIALS = {
+    # SurfAntenna_4293783042 on mk1pod.v2_4294122274, from c1's
+    # Ships/VAB/L5-B4-U1-C1.craft (KSP 1.12.5), NOT Science Jr.craft: rot verbatim,
+    # offset = pos(antenna) - pos(pod) = (0.00810668711 - 0.00810668711,
+    # 15.7130451 - 15.5617275, 0.377105951 - -0.045910798), the donor's
+    # attPos0 + attPos (module docstring, radial kind (a)).
+    "ant": ("SurfAntenna", "pod",
+            (0.0, 0.1513176, 0.423016749),
+            "0.425192654,-0.564987779,-0.425192654,0.564987779"),
     # sensorThermometer_4294596382 on mk1pod.v2_4294611124
     "thermo": ("sensorThermometer", "pod",
                (0.305041492, 0.495138168, -0.176115841),
@@ -229,13 +320,18 @@ _KEYS = (["pod", "thermo", "baro", "sci", "goo", "lab", "wheel", "x16"]
          + ["batt%d" % i for i in range(len(BATTERY_AZIMUTHS))]
          + ["rtg%d" % i for i in range(len(RTG_AZIMUTHS))]
          + ["poodle", "dec", "x64", "mainsail"])
-_PART_UID = {k: 4260000001 + i for i, k in enumerate(_KEYS)}
-_PERSISTENT_ID = {k: 1700000000 + i * 7717 for i, k in enumerate(sorted(_PART_UID))}
+# Parts added after the first flown shape, APPENDED (never folded into the sorted
+# enumeration) so every part of that shape keeps its uid and persistentId.
+_ADDED_KEYS = ["ant", "dockA", "dockB", "okto", "z200"]
+_PART_UID = {k: 4260000001 + i for i, k in enumerate(_KEYS + _ADDED_KEYS)}
+_PERSISTENT_ID = {k: 1700000000 + i * 7717
+                  for i, k in enumerate(sorted(_KEYS) + _ADDED_KEYS)}
 SHIP_PERSISTENT_ID = 2200110055
 assert max(_PART_UID.values()) <= 0xFFFFFFFF, "part uid exceeds UInt32"
 assert max(_PERSISTENT_ID.values()) <= 0xFFFFFFFF, "persistentId exceeds UInt32"
 assert SHIP_PERSISTENT_ID <= 0xFFFFFFFF, "ship persistentId exceeds UInt32"
 assert len(set(_PART_UID.values())) == len(_PART_UID), "duplicate part uid"
+assert len(set(_PERSISTENT_ID.values())) == len(_PERSISTENT_ID), "duplicate persistentId"
 
 # THE STAGING TABLE (assumption A3). KSP fires stages in DESCENDING istg order.
 STAGE_IGNITE = 1
@@ -247,6 +343,26 @@ STAGE_SEPARATE = 0
 CREW_CAPACITY = {"mk1pod.v2": 1, "Large.Crewed.Lab": 2}
 CREW_NAMES = ("Valentina Kerman", "Bob Kerman")
 
+# Every ModuleCommand part and its seats (part cfg CrewCapacity). The tender's OKTO
+# is a control source with NO seat (probeCoreOcto_v2.cfg CrewCapacity 0, minimumCrew
+# 0), so DefaultCrewForVessel has nothing to fill there and kRPC's leftover fill
+# finds no empty seat in it: the A2 seating is unchanged (A12).
+COMMAND_SEATS = {"mk1pod.v2": 1, "probeCoreOcto.v2": 0}
+
+# The tender (A12), bottom to top above the pod. Never staged.
+TENDER_PARTS = ("dockingPort3", "probeCoreOcto.v2", "batteryBankMini")
+
+# The antennaType of every part aboard that carries a ModuleDataTransmitter. The
+# value lives in the part cfg, not in the craft's MODULE node, so it is pinned here
+# (assumption A9). INTERNAL cannot send science (CanTransmit() is false), so
+# verify() requires at least one DIRECT or RELAY entry aboard that never stages.
+TRANSMITTER_TYPE = {
+    "mk1pod.v2": "INTERNAL",            # mk1pod_v2.cfg ModuleDataTransmitter
+    "SurfAntenna": "DIRECT",            # C16S.cfg, antennaPower 500000
+    "probeCoreOcto.v2": "INTERNAL",     # probeCoreOcto_v2.cfg, antennaPower 5000
+}
+SCIENCE_LINK_TYPES = ("DIRECT", "RELAY")
+
 # ---------------------------------------------------------------------------
 # Performance arithmetic (assumption A7). Masses / Isp / thrust from the KSP 1.12.5
 # part cfgs; propellant masses from the donor tails' full loads (LF and Ox 0.005 t
@@ -257,6 +373,10 @@ PART_WET_MASS = {
     "mk1pod.v2": 0.8 + 10 * 0.004,
     "sensorThermometer": 0.005,
     "sensorBarometer": 0.005,
+    "SurfAntenna": 0.015,
+    "dockingPort3": 0.02,
+    "probeCoreOcto.v2": 0.1,
+    "batteryBankMini": 0.01,
     "science.module": 0.2,
     "GooExperiment": 0.05,
     "Large.Crewed.Lab": 3.5,
@@ -367,6 +487,38 @@ def _stack_down(parent: Part, key: str, name: str, **kw) -> Part:
     return child
 
 
+def _stack_up(parent: Part, key: str, name: str, flipped: bool = False,
+              **kw) -> Part:
+    """Place ``name`` ABOVE ``parent`` on the stack axis, on the parent's TOP node.
+
+    Upright child: its bottom node meets the parent's top node, so
+        child.y = parent.top_world - child.bottom.
+    Flipped child (ROT_FLIPPED): its own TOP node points down and meets the parent's
+    top node (a docking pair joins face to face), so
+        child.y = parent.top_world + child.top.
+    ``parent.top_world`` is the parent's top node in world space: parent.y + top for
+    an upright parent, parent.y - bottom for a flipped one (its bottom node points
+    up). attN tokens stay in each part's LOCAL frame, as KSP writes them (Crater
+    Crawler's flipped port carries `top,...|0.1474114|0` like its upright twin).
+    """
+    if parent.rot == ROT_FLIPPED:
+        parent_node, anchor = "bottom", parent.pos[1] - NODE_OFFSET[parent.name]["bottom"]
+    else:
+        parent_node, anchor = "top", parent.pos[1] + NODE_OFFSET[parent.name]["top"]
+    if flipped:
+        child_node = "top"
+        y = anchor + NODE_OFFSET[name]["top"]
+        child = Part(key, name, (0.0, y, 0.0), rot=ROT_FLIPPED, parent=parent, **kw)
+    else:
+        child_node = "bottom"
+        y = anchor - NODE_OFFSET[name]["bottom"]
+        child = Part(key, name, (0.0, y, 0.0), parent=parent, **kw)
+    parent.links.append(child.uid)
+    parent.attn.append((parent_node, child.uid, NODE_OFFSET[parent.name][parent_node]))
+    child.attn.append((child_node, parent.uid, NODE_OFFSET[name][child_node]))
+    return child
+
+
 def _surface(parent: Part, key: str, name: str, pos, rot: str, **kw) -> Part:
     p = Part(key, name, pos, rot=rot, attm=1, parent=parent, **kw)
     p.srfn = parent.uid
@@ -391,6 +543,13 @@ def layout():
 
     thermo = copied_radial("thermo", pod)
     baro = copied_radial("baro", pod)
+    ant = copied_radial("ant", pod)
+    # THE TENDER (A12): pod top -> Jr port (upright) -> Jr port (flipped, face to
+    # face) -> OKTO -> Z-200. Never staged; separation is an explicit undock.
+    dock_a = _stack_up(pod, "dockA", "dockingPort3")
+    dock_b = _stack_up(dock_a, "dockB", "dockingPort3", flipped=True)
+    okto = _stack_up(dock_b, "okto", "probeCoreOcto.v2")
+    z200 = _stack_up(okto, "z200", "batteryBankMini")
     sci = _stack_down(pod, "sci", "science.module")
     goo = copied_radial("goo", sci)
     lab = _stack_down(sci, "lab", "Large.Crewed.Lab")
@@ -421,7 +580,8 @@ def layout():
     mainsail = _stack_down(x64, "mainsail", "liquidEngineMainsail.v2",
                            istg=STAGE_IGNITE, dstg=3, sidx=0, sqor=STAGE_IGNITE)
 
-    return ([pod, thermo, baro, sci, goo, lab, wheel, x16] + batts + rtgs
+    return ([pod, thermo, baro, ant, dock_a, dock_b, okto, z200, sci, goo, lab, wheel,
+             x16] + batts + rtgs
             + [poodle, dec, x64, mainsail])
 
 
@@ -440,7 +600,10 @@ def render_part(part: Part) -> str:
     out.append("\tattPos0 = %s" % _vec(*rel))
     out.append("\trot = %s" % part.rot)
     out.append("\tattRot = 0,0,0,1")
-    out.append("\tattRot0 = %s" % (part.rot if part.attm else "0,0,0,1"))
+    # attRot0 = the part's own rot: a surface part's attach rotation, a flipped stack
+    # part's 1,0,0,0 (Crater Crawler's flipped port writes exactly that), identity
+    # for every upright stack part.
+    out.append("\tattRot0 = %s" % part.rot)
     out.append("\tmir = 1,1,1")
     out.append("\tsymMethod = Radial")
     out.append("\tautostrutMode = Off")
@@ -481,8 +644,11 @@ def build():
         "orbit: one-seat Mk1 pod (pilot) over an SC-9001 Science Jr, the MPL-LG-2 "
         "lab (the second named crew, the scientist, seats here), an RW-L reaction "
         "wheel, and an X200-16 / Poodle orbital stage carrying eight RTGs and four "
-        "Z-400s; Goo, 2HOT and PresMat aboard. Jumbo-64 / Mainsail booster, "
-        "hot-staged. No deployables, no action groups. Built by construction by "
+        "Z-400s; Goo, 2HOT and PresMat aboard; a Communotron 16-S on the pod sends "
+        "science home; a probe tender (OKTO + Z-200) rides above the pod on a "
+        "Clamp-O-Tron Jr pair and leaves only by an explicit undock. Jumbo-64 / "
+        "Mainsail booster, hot-staged. No deployables, no action groups. Built by "
+        "construction by "
         "harness/tools/build_lab_orbit_craft.py.",
         "type = VAB",
         "size = %s" % _vec(max(xs) - min(xs) + 2.5, max(ys) - min(ys) + 2.0,
@@ -530,6 +696,7 @@ def performance():
 
 EXPECTED_PARTS = {
     "mk1pod.v2": 1, "sensorThermometer": 1, "sensorBarometer": 1,
+    "SurfAntenna": 1, "dockingPort3": 2, "probeCoreOcto.v2": 1, "batteryBankMini": 1,
     "science.module": 1, "GooExperiment": 1, "Large.Crewed.Lab": 1,
     "asasmodule1-2": 1, "Rockomax16.BW": 1, "ksp.r.largeBatteryPack": 4,
     "rtg": 8, "liquidEngine2-2.v2": 1, "Decoupler.2": 1, "Rockomax64.BW": 1,
@@ -636,10 +803,40 @@ def verify(lines):
                         "scientist")
     if sum(CREW_CAPACITY.values()) < len(CREW_NAMES):
         problems.append("not enough seats for the named crew")
-    n_command = text.count("name = ModuleCommand")
-    if n_command != 1:
-        problems.append("expected exactly ONE ModuleCommand (the pod), found %d"
-                        % n_command)
+    commands = [name for name, rec in records
+                if "name = ModuleCommand" in rec["__body__"]]
+    if sorted(commands) != sorted(COMMAND_SEATS):
+        problems.append("ModuleCommand parts %r != expected %r (the pod and the "
+                        "tender's probe core)" % (commands, sorted(COMMAND_SEATS)))
+    seated_commands = [n for n in commands if COMMAND_SEATS.get(n, 0) > 0]
+    if seated_commands != ["mk1pod.v2"]:
+        problems.append("the pod must be the ONLY command part with seats, got %r: "
+                        "a second seated control source changes the A2 fill"
+                        % seated_commands)
+    for name in commands:
+        if COMMAND_SEATS.get(name, 0) != CREW_CAPACITY.get(name, 0):
+            problems.append("COMMAND_SEATS / CREW_CAPACITY disagree on %s" % name)
+
+    # THE TENDER (A12): two Jr ports joined face to face between the pod and the
+    # probe core, neither one stageable, and every tender part never staged.
+    ports = by_name.get("dockingPort3", [])
+    uids = [r.get("part") for r in ports]
+    if len(ports) == 2:
+        for rec, other in ((ports[0], uids[1]), (ports[1], uids[0])):
+            if not any(a.startswith("top,%s_0|" % other) for a in rec.get("attN", [])):
+                problems.append("dockingPort3 %s must join its twin face to face "
+                                "(attN top -> %s)" % (rec.get("part"), other))
+    for name, rec in records:
+        body = rec["__body__"]
+        if "name = ModuleDockingNode" in body and "stagingEnabled = False" not in body:
+            problems.append("%s: a ModuleDockingNode must carry stagingEnabled = False "
+                            "(a stageable port is a stage MechJeb autostage can fire)"
+                            % name)
+    for name in TENDER_PARTS:
+        stages = sorted({int(r["istg"]) for r in by_name.get(name, [])})
+        if stages != [-1]:
+            problems.append("tender part %s must be aboard and never stage, got istg "
+                            "%r" % (name, stages))
 
     # THE LAB TAIL (assumption A4): authored, and it invents no module data.
     for rec in by_name.get("Large.Crewed.Lab", []):
@@ -699,9 +896,30 @@ def verify(lines):
             problems.append("a deployable crept in (%s); the craft must need no "
                             "click to open" % module)
 
+    # THE SCIENCE LINK (A9): at least one DIRECT / RELAY transmitter aboard, on a
+    # part that never stages; every transmitter-carrying part has a pinned type.
+    science_links = []
+    for name, rec in records:
+        if "name = ModuleDataTransmitter" not in rec["__body__"]:
+            continue
+        kind = TRANSMITTER_TYPE.get(name)
+        if kind is None:
+            problems.append("%s carries a ModuleDataTransmitter with no pinned "
+                            "antennaType in TRANSMITTER_TYPE" % name)
+        elif kind in SCIENCE_LINK_TYPES:
+            science_links.append((name, rec))
+    if not science_links:
+        problems.append("no DIRECT or RELAY ModuleDataTransmitter aboard: the pod's "
+                        "INTERNAL antenna cannot transmit science (A9)")
+    for name, rec in science_links:
+        if int(rec["istg"]) != -1:
+            problems.append("the science-link antenna %s must never stage (istg -1), "
+                            "got %s" % (name, rec["istg"]))
+
     # Radial hosts.
     for name, host in (("sensorThermometer", "mk1pod.v2"),
                        ("sensorBarometer", "mk1pod.v2"),
+                       ("SurfAntenna", "mk1pod.v2"),
                        ("GooExperiment", "science.module"),
                        ("ksp.r.largeBatteryPack", "Rockomax16.BW"),
                        ("rtg", "Rockomax16.BW")):
@@ -790,6 +1008,14 @@ TAILS = {
     'Large.Crewed.Lab': '\tEVENTS\n\t{\n\t}\n\tACTIONS\n\t{\n\t}\n\tPARTDATA\n\t{\n\t}',
     # verbatim from stock VAB/Jumping Flea.craft (KSP 1.12.0)
     'mk1pod.v2': '\tEVENTS\n\t{\n\t}\n\tACTIONS\n\t{\n\t}\n\tPARTDATA\n\t{\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleCommand\n\t\tisEnabled = True\n\t\thibernation = False\n\t\thibernateOnWarp = False\n\t\tactiveControlPointName = _default\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tMakeReferenceToggle\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tHibernateToggle\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\tactive = False\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleReactionWheel\n\t\tisEnabled = True\n\t\tactuatorModeCycle = 0\n\t\tauthorityLimiter = 100\n\t\tstateString = Active\n\t\tstagingEnabled = True\n\t\tWheelState = Active\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tCycleAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tActivate\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tDeactivate\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tToggle\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleColorChanger\n\t\tisEnabled = True\n\t\tanimState = False\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tToggleAction\n\t\t\t{\n\t\t\t\tactionGroup = Light\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleScienceExperiment\n\t\tisEnabled = True\n\t\tDeployed = False\n\t\tInoperable = False\n\t\tcooldownToGo = 0\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tDeployAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tResetAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleScienceContainer\n\t\tisEnabled = True\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tCollectAllAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleConductionMultiplier\n\t\tisEnabled = True\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleDataTransmitter\n\t\tisEnabled = True\n\t\txmitIncomplete = False\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tStartTransmissionAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\tactive = False\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleLiftingSurface\n\t\tisEnabled = True\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = FlagDecal\n\t\tisEnabled = True\n\t\tflagDisplayed = True\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModulePartVariants\n\t\tisEnabled = True\n\t\tuseVariantMass = True\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleTripLogger\n\t\tisEnabled = True\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tLog\n\t\t{\n\t\t\tflight = 0\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tRESOURCE\n\t{\n\t\tname = ElectricCharge\n\t\tamount = 50\n\t\tmaxAmount = 50\n\t\tflowState = True\n\t\tisTweakable = True\n\t\thideFlow = False\n\t\tisVisible = True\n\t\tflowMode = Both\n\t}\n\tRESOURCE\n\t{\n\t\tname = MonoPropellant\n\t\tamount = 10\n\t\tmaxAmount = 10\n\t\tflowState = True\n\t\tisTweakable = True\n\t\thideFlow = False\n\t\tisVisible = True\n\t\tflowMode = Both\n\t}',
+    # verbatim from Kerbal Space Program/saves/c1/Ships/VAB/L5-B4-U1-C1.craft (KSP 1.12.5)
+    'SurfAntenna': '\tEVENTS\n\t{\n\t}\n\tACTIONS\n\t{\n\t\tToggleSameVesselInteraction\n\t\t{\n\t\t\tactionGroup = None\n\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t}\n\t\tSetSameVesselInteraction\n\t\t{\n\t\t\tactionGroup = None\n\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t}\n\t\tRemoveSameVesselInteraction\n\t\t{\n\t\t\tactionGroup = None\n\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t}\n\t\tAutostrutOff\n\t\t{\n\t\t\tactionGroup = None\n\t\t\tactive = False\n\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t}\n\t\tAutostrutRoot\n\t\t{\n\t\t\tactionGroup = None\n\t\t\tactive = False\n\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t}\n\t\tAutostrutHeaviest\n\t\t{\n\t\t\tactionGroup = None\n\t\t\tactive = False\n\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t}\n\t\tAutostrutGrandparent\n\t\t{\n\t\t\tactionGroup = None\n\t\t\tactive = False\n\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t}\n\t\tResourcesEnableFlow\n\t\t{\n\t\t\tactionGroup = None\n\t\t\tactive = False\n\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t}\n\t\tResourcesDisableFlow\n\t\t{\n\t\t\tactionGroup = None\n\t\t\tactive = False\n\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t}\n\t}\n\tPARTDATA\n\t{\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleDataTransmitter\n\t\tisEnabled = True\n\t\txmitIncomplete = False\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tStartTransmissionAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleCargoPart\n\t\tisEnabled = True\n\t\tpackedVolume = 5\n\t\tbeingAttached = False\n\t\tbeingSettled = False\n\t\treinitResourcesOnStoreInVessel = False\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}',
+    # verbatim from stock SPH/Crater Crawler.craft (KSP 1.12.0); both ports of its face-to-face pair carry this same tail
+    'dockingPort3': '\tEVENTS\n\t{\n\t}\n\tACTIONS\n\t{\n\t}\n\tPARTDATA\n\t{\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleDockingNode\n\t\tisEnabled = True\n\t\tcrossfeed = True\n\t\tstagingEnabled = False\n\t\tstate = Ready\n\t\tdockUId = 0\n\t\tdockNodeIdx = 0\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tUndockAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tDecoupleAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tMakeReferenceToggle\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tEnableXFeedAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tDisableXFeedAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tToggleXFeedAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}',
+    # verbatim from Kerbal Space Program/saves/c1/Ships/VAB/R2-B2-S4.craft (KSP 1.12.5)
+    'probeCoreOcto.v2': '\tEVENTS\n\t{\n\t}\n\tACTIONS\n\t{\n\t\tToggleSameVesselInteraction\n\t\t{\n\t\t\tactionGroup = None\n\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t}\n\t\tSetSameVesselInteraction\n\t\t{\n\t\t\tactionGroup = None\n\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t}\n\t\tRemoveSameVesselInteraction\n\t\t{\n\t\t\tactionGroup = None\n\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t}\n\t}\n\tPARTDATA\n\t{\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleCommand\n\t\tisEnabled = True\n\t\thibernation = False\n\t\thibernateOnWarp = False\n\t\tactiveControlPointName = _default\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tMakeReferenceToggle\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tHibernateToggle\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleReactionWheel\n\t\tisEnabled = True\n\t\tactuatorModeCycle = 0\n\t\tauthorityLimiter = 100\n\t\tstateString = Active\n\t\tstagingEnabled = True\n\t\tWheelState = Active\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tCycleAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tActivate\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tDeactivate\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tToggle\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleSAS\n\t\tisEnabled = True\n\t\tstandaloneToggle = True\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleKerbNetAccess\n\t\tisEnabled = True\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tOpenKerbNetAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleDataTransmitter\n\t\tisEnabled = True\n\t\txmitIncomplete = False\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tStartTransmissionAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\tactive = False\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleCargoPart\n\t\tisEnabled = True\n\t\tbeingAttached = False\n\t\tbeingSettled = False\n\t\treinitResourcesOnStoreInVessel = False\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleScienceExperiment\n\t\tisEnabled = True\n\t\tDeployed = False\n\t\tInoperable = False\n\t\tcooldownToGo = 0\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tDeployAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tResetAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleTripLogger\n\t\tisEnabled = True\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tLog\n\t\t{\n\t\t\tflight = 0\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tRESOURCE\n\t{\n\t\tname = ElectricCharge\n\t\tamount = 50\n\t\tmaxAmount = 50\n\t\tflowState = True\n\t\tisTweakable = True\n\t\thideFlow = False\n\t\tisVisible = True\n\t\tflowMode = Both\n\t}',
+    # verbatim from Kerbal Space Program/saves/c1/Ships/VAB/R2-B2-S4.craft (KSP 1.12.5)
+    'batteryBankMini': '\tEVENTS\n\t{\n\t}\n\tACTIONS\n\t{\n\t\tToggleSameVesselInteraction\n\t\t{\n\t\t\tactionGroup = None\n\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t}\n\t\tSetSameVesselInteraction\n\t\t{\n\t\t\tactionGroup = None\n\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t}\n\t\tRemoveSameVesselInteraction\n\t\t{\n\t\t\tactionGroup = None\n\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t}\n\t}\n\tPARTDATA\n\t{\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleCargoPart\n\t\tisEnabled = True\n\t\tbeingAttached = False\n\t\tbeingSettled = False\n\t\treinitResourcesOnStoreInVessel = False\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tRESOURCE\n\t{\n\t\tname = ElectricCharge\n\t\tamount = 200\n\t\tmaxAmount = 200\n\t\tflowState = True\n\t\tisTweakable = True\n\t\thideFlow = False\n\t\tisVisible = True\n\t\tflowMode = Both\n\t}',
     # verbatim from Kerbal Space Program/saves/c1/Subassemblies/Science Module S.craft (KSP 1.12.5)
     'science.module': '\tEVENTS\n\t{\n\t}\n\tACTIONS\n\t{\n\t\tToggleSameVesselInteraction\n\t\t{\n\t\t\tactionGroup = None\n\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t}\n\t\tSetSameVesselInteraction\n\t\t{\n\t\t\tactionGroup = None\n\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t}\n\t\tRemoveSameVesselInteraction\n\t\t{\n\t\t\tactionGroup = None\n\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t}\n\t}\n\tPARTDATA\n\t{\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleAnimateGeneric\n\t\tisEnabled = True\n\t\taniState = LOCKED\n\t\tanimSwitch = True\n\t\tanimTime = 0\n\t\tanimSpeed = 1\n\t\tdeployPercent = 100\n\t\tanimationIsDisabled = False\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tToggleAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tAXISGROUPS\n\t\t{\n\t\t\tdeployPercent\n\t\t\t{\n\t\t\t\taxisGroup = None\n\t\t\t\taxisIncremental = Pitch, Yaw, Roll, TranslateX, TranslateY, TranslateZ, WheelSteer, WheelThrottle, Custom01, Custom02, Custom03, Custom04\n\t\t\t\taxisSpeedMultiplier = 0\n\t\t\t\taxisInverted = None\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleScienceExperiment\n\t\tisEnabled = True\n\t\tDeployed = False\n\t\tInoperable = False\n\t\tcooldownToGo = 0\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tDeployAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tResetAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleCargoPart\n\t\tisEnabled = True\n\t\tbeingAttached = False\n\t\tbeingSettled = False\n\t\treinitResourcesOnStoreInVessel = False\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}',
     # verbatim from Kerbal Space Program/saves/c1/Subassemblies/Science Module S.craft (KSP 1.12.5)
