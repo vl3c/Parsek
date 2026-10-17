@@ -3353,6 +3353,18 @@ docked-origin route across a rewind; a live-drill harvest-origin route; GS-6 rev
 ISRU aboard. The two questions it raised are ruled (2026-10-06): cap harvest-origin routes
 (HARVEST-ROUTE-PLAUSIBILITY-CAP) and ledger resource-scan unlocks (RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED).
 
+Progress 2026-10-17 (branch `claude/lab-isru-drill-coverage-5oq37h`): the fixture now exists.
+V built and flew a mining rover by hand ("Mining Rover RC", Kerbin, 2 km from the pad), and
+`harness/tools/build_miner_rover_landed.py` derives `miner-rover-landed` from its VESSEL node
+(tanks emptied, ReStock modules stripped, plus an orbiting `Observer Probe` as a FLIGHT host
+after a rewind). The seam can now drive the parts: `PartAction` gained `deploy`, `retract`,
+`startconverter` / `stopconverter` (with `converter=`), `experiment`, `labprocess`,
+`labtransmit`, `inspect` and `all=true`. `MINE-2-rover-mine-rewind-warp-jump` (MINE-2 and
+MINE-3 in one flight, on Kerbin instead of Minmus) records an hour of mining, commits, rewinds
+to launch and checks the spawned rover's tanks against its end snapshot after a warp and after
+a FLIGHT time jump; never flown. Still open: MINE-0, MINE-4, MINE-5, GS-6r3, a lab lane (XS-5),
+and `HarvestCapture_CatchUpOnLoad` on a host with a drill on ore.
+
 ---
 
 ## HARNESS-VERBS-FOR-TIMELINE-OPS: no verb drives F9 while recording, a stock revert, the Re-Fly revert dialog, warp outside flight, or reads a vessel's resources [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. OPEN, harness]
