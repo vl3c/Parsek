@@ -35,6 +35,9 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Skipping time no longer gives drills, ISRUs, fuel cells or labs free production.** A
+  Real Spawn Control warp now pauses them like fast-forward always did, and a vessel far away is
+  paused too: it no longer makes hours of ore or lab data the next time you visit it. (TA-6)
 - **A vessel another mission will use no longer vanishes after a rewind.** A rover or station that
   a later flight builds on or docks to used to disappear from the rewind until that flight reached
   it. It now stays visible as a ghost in the shape and place it had, until the flight takes it

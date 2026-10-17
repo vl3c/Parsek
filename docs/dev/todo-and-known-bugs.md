@@ -2098,7 +2098,7 @@ with a red test once confirmed.
 - [ ] EVA-CONSTRUCTION-GHOST-SHAPE-NEVER-CHANGES (suspected defect): playback never reads `SegmentEventType.PartAdded / PartRemoved` (only `GhostingTriggerClassifier` and `ForeignInventoryTransfer` name them), though the flight-recorder design says the ghost renders the part from that UT. Roadmap XS-3.
 - [ ] CLAIMED-VESSEL-HAS-NO-GHOST-BEFORE-ITS-MEMBER (suspected defect): `VesselGhoster.GhostVessel` despawns the claimed vessel and creates no ghost (`VesselGhoster.cs:155-168`), so it is missing after a rewind until its member recording starts. Roadmap XS-3.
 - [ ] Lab science and the ledger: science reaches the ledger only with a subject (`GameStateEventConverter.cs:326-345`, `GameStateRecorder.cs:1063`, `:1153`); whether stock's lab transmit carries one needs a decompile. Roadmap XS-4, XS-5 (GC-8).
-- [ ] TA-6 outside the physics bubble: see TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND. Roadmap MINE-3.
+- [x] ~~TA-6 outside the physics bubble: see TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND. Roadmap MINE-3.~~ Fixed 2026-10-17 (xUnit; lane pending).
 - [ ] Contracts x Re-Fly never executes (the in-game cell skips on every host). Roadmap XS-6.
 - [ ] EVA hop across 2-3 vessels and a crew transfer while docked then undock: never flown (no spec passes `EvaBoard targetPid`, no crew-transfer verb); a crew transfer is not recorded by design (`SwitchSegmentNoOpClassifier.cs:146-161`), and a kerbal moved into another tree's vessel keeps the first tree's hold (`KerbalsModule.cs:1318-1335`). Roadmap XS-7.
 
@@ -3149,7 +3149,7 @@ Fix: to trace - decide which recordings under the Re-Fly scope belong to the aba
 
 ---
 
-## TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND: a loaded miner or ISRU produces over a Real Spawn Control warp but not over a fast-forward of the same length [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product]
+## ~~TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND: a loaded miner or ISRU produces over a Real Spawn Control warp but not over a fast-forward of the same length~~ [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-17, branch `claude/lab-isru-drill-coverage-5oq37h` (xUnit; lane pending)]
 
 `TimeJumpManager.ExecuteForwardJump` resets converter `lastUpdateTime` on loaded vessels
 (`:541`, `:812-856`); `ExecuteJump` (`:317-407`) never does. `ExecuteJump` serves Real Spawn
@@ -3166,6 +3166,20 @@ Scope found 2026-10-16 (CROSS-SYSTEM-COVERAGE-GAPS-2026-10-16, code read): the f
 walks loaded vessels only, so an UNLOADED miner, ISRU or lab keeps its old `lastUpdateTime` and
 catches up the whole jump when it next loads. The one policy must cover unloaded vessels too, and
 MINE-3 should fly one.
+
+Fixed 2026-10-17: `ConverterJumpPolicy.Apply` is the one policy, called by both jump kinds right
+after the clock moves (`ExecuteJump` before any chain tip spawns, so a spawned snapshot's own
+timestamp is never shifted). Every non-ghost vessel's `BaseConverter.lastUpdateTime` is SHIFTED by
+the jump delta (clamped to the post-jump UT), loaded vessels through the live field, unloaded ones
+through their `ProtoPartModuleSnapshot` `lastUpdateTime` value (module class resolved through
+`AssemblyLoader`, so modded converters count and a non-converter with a same-named field does not).
+Shifting rather than setting keeps the catch-up an unloaded vessel already owed from before the
+jump; stock's zero "never ran" sentinel is left alone. Decompiled basis: `BaseConverter.GetDeltaTime`
+catches up `now - lastUpdateTime` in `GetMaxDeltaTime` slices until closed, and `OnSave` / `OnLoad`
+carry `lastUpdateTime` in the module node. One Info summary per jump (`Converter jump policy (...)`).
+Tests: `ConverterJumpPolicyTests` (pure shift rules, the snapshot rewrite, the per-vessel walk and
+a source gate that both entry points apply it; the gate was shown red with the `ExecuteJump` call
+removed). Live proof: the lane for LAB-ISRU-DRILL coverage below.
 
 ---
 
