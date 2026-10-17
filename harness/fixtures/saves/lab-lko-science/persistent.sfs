@@ -241,26 +241,26 @@ GAME
 		{
 			FirstLaunch
 			{
-				completedManned = 27.679999999999499
+				completedManned = 27.939999999999493
 			}
 			RecordsAltitude
 			{
-				completed = 162.97988510130355
+				completed = 169.69988372801578
 				record = 70000
 			}
 			RecordsSpeed
 			{
-				reached = 311.53218948358329
-				record = 2243.7058827154679
+				reached = 323.03153320307416
+				record = 2243.958165667786
 			}
 			RecordsDistance
 			{
-				completed = 155.37988510130506
+				completed = 154.09988372801888
 				record = 100000
 			}
 			ReachedSpace
 			{
-				completedManned = 163.01988510130354
+				completedManned = 169.73988372801577
 				vessel
 				{
 					name = LABX Orbital Lab
@@ -273,10 +273,10 @@ GAME
 			}
 			Kerbin
 			{
-				reached = 302.91218948359113
+				reached = 314.43153320308198
 				Orbit
 				{
-					completedManned = 302.91218948359113
+					completedManned = 314.43153320308198
 					vessel
 					{
 						name = LABX Orbital Lab
@@ -1059,14 +1059,14 @@ GAME
 	FLIGHTSTATE
 	{
 		version = 1.12.5
-		UT = 344.61218948355321
+		UT = 355.83153320304433
 		activeVessel = 0
 		mapViewFiltering = -1026
 		commNetUIModeTracking = Network
 		commNetUIModeFlight = Path
 		VESSEL
 		{
-			pid = 8da9c892fb724681aa9331c2fe0b88e4
+			pid = 1c485ac7f2274170a4b7e53e9f1a827f
 			persistentId = 2200110055
 			name = LABX Orbital Lab
 			type = Ship
@@ -1079,21 +1079,21 @@ GAME
 			landedAt = 
 			displaylandedAt = 
 			splashed = False
-			met = 317.9521894835537
-			lct = 26.639999999999521
-			lastUT = 344.61218948355321
-			distanceTraveled = 275259.91993450874
+			met = 328.91153320304483
+			lct = 26.899999999999515
+			lastUT = 355.83153320304433
+			distanceTraveled = 278765.22483664629
 			root = 0
-			lat = -0.089192988974762369
-			lon = -40.879014273411059
-			alt = 101443.04779022885
-			hgt = 101443.047
-			nrm = 0.00746177044,0.222760975,-0.974844575
-			rot = 0.221956372,-0.217986777,-0.671267509,0.672768176
-			CoM = 0.00234770589,-5.11585712,2.38418579E-06
+			lat = -0.08792470560504867
+			lon = -38.347974475418631
+			alt = 101304.94805513578
+			hgt = 101304.945
+			nrm = 0.00631504413,0.215513915,-0.976480305
+			rot = 0.238916099,-0.235556871,-0.665617645,0.666622221
+			CoM = 0.00235900655,-4.99752617,1.43051147E-06
 			stg = 0
 			prst = False
-			ref = 1286672347
+			ref = 2159480965
 			ctrl = True
 			PQSMin = 2
 			PQSMax = 10
@@ -1103,26 +1103,26 @@ GAME
 			OverrideAxisControl = 0,0,0,0
 			OverrideGroupNames = ,,,
 			altDispState = ASL
-			cPch = -1.213155
-			cHdg = -3.589143
+			cPch = -1.560478
+			cHdg = -2.276921
 			cMod = 0
 			ORBIT
 			{
-				SMA = 699747.02762701188
-				ECC = 0.011077418145224303
-				INC = 0.091008724957077416
-				LPE = 178.21421675491828
-				LAN = 133.41471929406532
-				MNA = 1.7804229026669987
-				EPH = 344.61218948355321
+				SMA = 699745.8283512796
+				ECC = 0.01035403245671126
+				INC = 0.089524385822714714
+				LPE = 177.84990197070871
+				LAN = 136.74925454430991
+				MNA = 1.7774225278322933
+				EPH = 355.83153320304433
 				REF = 1
 			}
 			PART
 			{
 				name = mk1pod.v2
 				cid = 4260000001
-				uid = 1286672347
-				mid = 3751568704
+				uid = 2159480965
+				mid = 3397738813
 				persistentId = 1700069453
 				launchID = 2
 				parent = 0
@@ -1139,12 +1139,12 @@ GAME
 				attm = 0
 				sameVesselCollision = False
 				srfN = , -1
-				attN = bottom, 3
-				attN = top, -1
+				attN = bottom, 8
+				attN = top, 4
 				mass = 0.800000072
 				shielded = False
-				temp = 322.12300790569105
-				tempExt = 319.97968805164049
+				temp = 319.89170520898023
+				tempExt = 318.01055412641705
 				tempExtUnexp = 4
 				staticPressureAtm = 0
 				expt = 0.5
@@ -2143,17 +2143,17 @@ GAME
 						}
 						MechJebModuleFlightRecorder
 						{
-							MarkUT = 26.639999999999521
-							DeltaVExpended = 3602.1063416457309
-							DragLosses = 606.52598471962267
-							GravityLosses = 748.50622888048713
-							SteeringLosses = 214.34108381353795
-							MarkLAN = 105.86804833400747
-							MarkLatitude = -0.097207810981172982
-							MarkLongitude = -74.557675444297089
-							MarkAltitude = 80.759871402930003
+							MarkUT = 26.899999999999515
+							DeltaVExpended = 3641.6411269136092
+							DragLosses = 659.06770422007492
+							GravityLosses = 736.88808154622359
+							SteeringLosses = 213.72286664158548
+							MarkLAN = 105.93327358171109
+							MarkLatitude = -0.097207814395519759
+							MarkLongitude = -74.557676140511532
+							MarkAltitude = 80.813748351868711
 							MarkBodyIndex = 1
-							MaxDragGees = 1.4498906773659153
+							MaxDragGees = 1.5142920973852538
 							UnlockParts = 
 							UnlockTechs = 
 						}
@@ -2232,8 +2232,8 @@ GAME
 			{
 				name = sensorThermometer
 				cid = 4260000002
-				uid = 2445484802
-				mid = 3751568704
+				uid = 4005014675
+				mid = 3397738813
 				persistentId = 1700154340
 				launchID = 2
 				parent = 0
@@ -2252,8 +2252,8 @@ GAME
 				srfN = srfAttach, 0
 				mass = 0.00499999989
 				shielded = False
-				temp = 322.5982092373394
-				tempExt = 320.3381959532839
+				temp = 320.23257674508142
+				tempExt = 318.4133924578627
 				tempExtUnexp = 4
 				staticPressureAtm = 0
 				expt = 0.5
@@ -2417,8 +2417,8 @@ GAME
 			{
 				name = sensorBarometer
 				cid = 4260000003
-				uid = 4129670934
-				mid = 3751568704
+				uid = 1903135747
+				mid = 3397738813
 				persistentId = 1700000000
 				launchID = 2
 				parent = 0
@@ -2437,8 +2437,8 @@ GAME
 				srfN = srfAttach, 0
 				mass = 0.00499999989
 				shielded = False
-				temp = 322.24014184554954
-				tempExt = 320.40020178334493
+				temp = 319.96571802457788
+				tempExt = 318.43803644802523
 				tempExtUnexp = 4
 				staticPressureAtm = 0
 				expt = 0.5
@@ -2600,10 +2600,1168 @@ GAME
 			}
 			PART
 			{
+				name = SurfAntenna
+				cid = 4260000025
+				uid = 2111773379
+				mid = 3397738813
+				persistentId = 1700185208
+				launchID = 2
+				parent = 0
+				position = 0,0.15131759643554688,0.423016756772995
+				rotation = 0.425192654,-0.564987779,-0.425192654,0.564987779
+				mirror = 1,1,1
+				symMethod = Radial
+				istg = -1
+				resPri = 0
+				dstg = 0
+				sqor = -1
+				sepI = -1
+				sidx = -1
+				attm = 1
+				sameVesselCollision = False
+				srfN = srfAttach, 0
+				mass = 0.0149999997
+				shielded = False
+				temp = 320.29895467214055
+				tempExt = 318.61618193666072
+				tempExtUnexp = 4
+				staticPressureAtm = 0
+				expt = 0.5
+				state = 0
+				PreFailState = 0
+				attached = True
+				autostrutMode = Off
+				rigidAttachment = False
+				flag = 
+				rTrf = SurfAntenna
+				modCost = 0
+				modMass = 0
+				moduleVariantName = 
+				moduleCargoStackableQuantity = 4
+				EVENTS
+				{
+				}
+				ACTIONS
+				{
+					ToggleSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					SetSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					RemoveSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutOff
+					{
+						actionGroup = None
+						active = False
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutRoot
+					{
+						actionGroup = None
+						active = False
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutHeaviest
+					{
+						actionGroup = None
+						active = False
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutGrandparent
+					{
+						actionGroup = None
+						active = False
+						wasActiveBeforePartWasAdjusted = False
+					}
+					ResourcesEnableFlow
+					{
+						actionGroup = None
+						active = False
+						wasActiveBeforePartWasAdjusted = False
+					}
+					ResourcesDisableFlow
+					{
+						actionGroup = None
+						active = False
+						wasActiveBeforePartWasAdjusted = False
+					}
+				}
+				PARTDATA
+				{
+				}
+				MODULE
+				{
+					name = ModuleDataTransmitter
+					isEnabled = True
+					xmitIncomplete = False
+					stagingEnabled = True
+					canComm = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+						StartTransmissionAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleCargoPart
+					isEnabled = True
+					packedVolume = 5
+					beingAttached = False
+					beingSettled = False
+					reinitResourcesOnStoreInVessel = False
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = KOSNameTag
+					isEnabled = True
+					nameTag = 
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+			}
+			PART
+			{
+				name = dockingPort3
+				cid = 4260000026
+				uid = 1593411084
+				mid = 3397738813
+				persistentId = 1700192925
+				launchID = 2
+				parent = 0
+				position = 0,0.64237594604492188,0
+				rotation = 0,0,0,1
+				mirror = 1,1,1
+				symMethod = Radial
+				istg = -1
+				resPri = 0
+				dstg = 0
+				sqor = -1
+				sepI = 0
+				sidx = -1
+				attm = 0
+				sameVesselCollision = False
+				srfN = srfAttach, -1
+				attN = top, 5
+				attN = bottom, 0
+				mass = 0.0199999996
+				shielded = False
+				temp = 320.43467601743293
+				tempExt = 319.12725875013382
+				tempExtUnexp = 4
+				staticPressureAtm = 0
+				expt = 0.5
+				state = 0
+				PreFailState = 0
+				attached = True
+				autostrutMode = Off
+				rigidAttachment = False
+				flag = 
+				rTrf = dockingPort3
+				modCost = 0
+				modMass = 0
+				moduleVariantName = 
+				moduleCargoStackableQuantity = 1
+				EVENTS
+				{
+				}
+				ACTIONS
+				{
+					ToggleSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					SetSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					RemoveSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutOff
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutRoot
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutHeaviest
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutGrandparent
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					ResourcesEnableFlow
+					{
+						actionGroup = None
+						active = False
+						wasActiveBeforePartWasAdjusted = False
+					}
+					ResourcesDisableFlow
+					{
+						actionGroup = None
+						active = False
+						wasActiveBeforePartWasAdjusted = False
+					}
+				}
+				PARTDATA
+				{
+				}
+				MODULE
+				{
+					name = ModuleDockingNode
+					isEnabled = True
+					acquireForceTweak = 100
+					crossfeed = True
+					nodeIsLocked = True
+					targetAngle = 0
+					inverted = False
+					stagingEnabled = False
+					state = PreAttached
+					dockUId = 0
+					dockNodeIdx = 0
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+						ToggleLockedAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						ServoEngageLockAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						ServoDisgageLockAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						UndockAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						DecoupleAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						MakeReferenceToggle
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						EnableXFeedAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						DisableXFeedAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						ToggleXFeedAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+					}
+					AXISGROUPS
+					{
+						targetAngle
+						{
+							axisGroup = None
+							axisIncremental = Pitch, Yaw, Roll, TranslateX, TranslateY, TranslateZ, WheelSteer, WheelThrottle, Custom01, Custom02, Custom03, Custom04
+							axisSpeedMultiplier = 0
+							axisInverted = None
+							overrideIncremental0 = Pitch, Yaw, Roll, TranslateX, TranslateY, TranslateZ, WheelSteer, WheelThrottle, Custom01, Custom02, Custom03, Custom04
+							overrideIncremental1 = Pitch, Yaw, Roll, TranslateX, TranslateY, TranslateZ, WheelSteer, WheelThrottle, Custom01, Custom02, Custom03, Custom04
+							overrideIncremental2 = Pitch, Yaw, Roll, TranslateX, TranslateY, TranslateZ, WheelSteer, WheelThrottle, Custom01, Custom02, Custom03, Custom04
+							overrideIncremental3 = Pitch, Yaw, Roll, TranslateX, TranslateY, TranslateZ, WheelSteer, WheelThrottle, Custom01, Custom02, Custom03, Custom04
+						}
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleCargoPart
+					isEnabled = True
+					packedVolume = 140
+					beingAttached = False
+					beingSettled = False
+					reinitResourcesOnStoreInVessel = False
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = KOSNameTag
+					isEnabled = True
+					nameTag = 
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+			}
+			PART
+			{
+				name = dockingPort3
+				cid = 4260000027
+				uid = 4206747886
+				mid = 3397738813
+				persistentId = 1700200642
+				launchID = 2
+				parent = 4
+				position = 0,0.93719863891601563,0
+				rotation = 1,0,0,0
+				mirror = 1,1,1
+				symMethod = Radial
+				istg = -1
+				resPri = 0
+				dstg = 0
+				sqor = -1
+				sepI = 1
+				sidx = -1
+				attm = 0
+				sameVesselCollision = False
+				srfN = srfAttach, -1
+				attN = top, 4
+				attN = bottom, 6
+				mass = 0.0199999996
+				shielded = False
+				temp = 321.82051388756639
+				tempExt = 320.66626652490828
+				tempExtUnexp = 4
+				staticPressureAtm = 0
+				expt = 0.5
+				state = 0
+				PreFailState = 0
+				attached = True
+				autostrutMode = Off
+				rigidAttachment = False
+				flag = 
+				rTrf = dockingPort3
+				modCost = 0
+				modMass = 0
+				moduleVariantName = 
+				moduleCargoStackableQuantity = 1
+				EVENTS
+				{
+				}
+				ACTIONS
+				{
+					ToggleSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					SetSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					RemoveSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutOff
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutRoot
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutHeaviest
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutGrandparent
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					ResourcesEnableFlow
+					{
+						actionGroup = None
+						active = False
+						wasActiveBeforePartWasAdjusted = False
+					}
+					ResourcesDisableFlow
+					{
+						actionGroup = None
+						active = False
+						wasActiveBeforePartWasAdjusted = False
+					}
+				}
+				PARTDATA
+				{
+				}
+				MODULE
+				{
+					name = ModuleDockingNode
+					isEnabled = True
+					acquireForceTweak = 100
+					crossfeed = True
+					nodeIsLocked = True
+					targetAngle = 0
+					inverted = False
+					stagingEnabled = False
+					state = PreAttached
+					dockUId = 0
+					dockNodeIdx = 0
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+						ToggleLockedAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						ServoEngageLockAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						ServoDisgageLockAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						UndockAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						DecoupleAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						MakeReferenceToggle
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						EnableXFeedAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						DisableXFeedAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						ToggleXFeedAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+					}
+					AXISGROUPS
+					{
+						targetAngle
+						{
+							axisGroup = None
+							axisIncremental = Pitch, Yaw, Roll, TranslateX, TranslateY, TranslateZ, WheelSteer, WheelThrottle, Custom01, Custom02, Custom03, Custom04
+							axisSpeedMultiplier = 0
+							axisInverted = None
+							overrideIncremental0 = Pitch, Yaw, Roll, TranslateX, TranslateY, TranslateZ, WheelSteer, WheelThrottle, Custom01, Custom02, Custom03, Custom04
+							overrideIncremental1 = Pitch, Yaw, Roll, TranslateX, TranslateY, TranslateZ, WheelSteer, WheelThrottle, Custom01, Custom02, Custom03, Custom04
+							overrideIncremental2 = Pitch, Yaw, Roll, TranslateX, TranslateY, TranslateZ, WheelSteer, WheelThrottle, Custom01, Custom02, Custom03, Custom04
+							overrideIncremental3 = Pitch, Yaw, Roll, TranslateX, TranslateY, TranslateZ, WheelSteer, WheelThrottle, Custom01, Custom02, Custom03, Custom04
+						}
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleCargoPart
+					isEnabled = True
+					packedVolume = 140
+					beingAttached = False
+					beingSettled = False
+					reinitResourcesOnStoreInVessel = False
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = KOSNameTag
+					isEnabled = True
+					nameTag = 
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+			}
+			PART
+			{
+				name = probeCoreOcto.v2
+				cid = 4260000028
+				uid = 215015700
+				mid = 3397738813
+				persistentId = 1700208359
+				launchID = 2
+				parent = 5
+				position = 0,1.1242809295654297,0
+				rotation = 0,0,0,1
+				mirror = 1,1,1
+				symMethod = Radial
+				istg = -1
+				resPri = 0
+				dstg = 0
+				sqor = -1
+				sepI = 1
+				sidx = -1
+				attm = 0
+				sameVesselCollision = False
+				srfN = , -1
+				attN = bottom, 5
+				attN = top, 7
+				mass = 0.100000001
+				shielded = False
+				temp = 323.0687794886714
+				tempExt = 321.66481200825854
+				tempExtUnexp = 4
+				staticPressureAtm = 0
+				expt = 0
+				state = 0
+				PreFailState = 0
+				attached = True
+				autostrutMode = Off
+				rigidAttachment = False
+				flag = 
+				rTrf = _default
+				modCost = 0
+				modMass = 0
+				moduleVariantName = 
+				moduleCargoStackableQuantity = 1
+				EVENTS
+				{
+				}
+				ACTIONS
+				{
+					ToggleSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					SetSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					RemoveSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutOff
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutRoot
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutHeaviest
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutGrandparent
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					ResourcesEnableFlow
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					ResourcesDisableFlow
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+				}
+				PARTDATA
+				{
+				}
+				MODULE
+				{
+					name = ModuleCommand
+					isEnabled = True
+					hibernation = False
+					hibernateOnWarp = False
+					activeControlPointName = _default
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+						MakeReferenceToggle
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						HibernateToggle
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleReactionWheel
+					isEnabled = True
+					actuatorModeCycle = 0
+					authorityLimiter = 100
+					stateString = Running
+					stagingEnabled = True
+					WheelState = Active
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+						CycleAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						Activate
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						Deactivate
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						Toggle
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleSAS
+					isEnabled = True
+					standaloneToggle = True
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleKerbNetAccess
+					isEnabled = True
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+						OpenKerbNetAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleDataTransmitter
+					isEnabled = True
+					xmitIncomplete = False
+					stagingEnabled = True
+					canComm = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+						StartTransmissionAction
+						{
+							actionGroup = None
+							active = False
+							wasActiveBeforePartWasAdjusted = False
+						}
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleCargoPart
+					isEnabled = True
+					packedVolume = 180
+					beingAttached = False
+					beingSettled = False
+					reinitResourcesOnStoreInVessel = False
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = MechJebCore
+					isEnabled = True
+					running = True
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+						OnOrbitProgradeAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						OnOrbitRetrogradeAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						OnOrbitNormalAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						OnOrbitAntinormalAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						OnOrbitRadialInAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						OnOrbitRadialOutAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						OnKillRotationAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						OnDeactivateSmartASSAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						OnLandsomewhereAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						OnLandTargetAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						OnPanicAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						OnTranslatronOffAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						OnTranslatronKeepVertAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						OnTranslatronZeroSpeedAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						OnTranslatronPlusOneSpeedAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						OnTranslatronMinusOneSpeedAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						OnTranslatronToggleHSAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						OnAscentAPToggleAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = KOSNameTag
+					isEnabled = True
+					nameTag = 
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleScienceExperiment
+					isEnabled = True
+					Deployed = False
+					Inoperable = False
+					cooldownToGo = 0
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+						DeployAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+						ResetAction
+						{
+							actionGroup = None
+							wasActiveBeforePartWasAdjusted = False
+						}
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = ModuleTripLogger
+					isEnabled = True
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					Log
+					{
+						flight = 0
+						0 = Flight,Kerbin
+						0 = Suborbit,Kerbin
+						0 = Orbit,Kerbin
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				RESOURCE
+				{
+					name = ElectricCharge
+					amount = 50
+					maxAmount = 50
+					flowState = True
+					isTweakable = True
+					hideFlow = False
+					isVisible = True
+					flowMode = Both
+				}
+			}
+			PART
+			{
+				name = batteryBankMini
+				cid = 4260000029
+				uid = 3783712516
+				mid = 3397738813
+				persistentId = 1700216076
+				launchID = 2
+				parent = 6
+				position = 0,1.4113616943359375,0
+				rotation = 0,0,0,1
+				mirror = 1,1,1
+				symMethod = Radial
+				istg = -1
+				resPri = 0
+				dstg = 0
+				sqor = -1
+				sepI = 1
+				sidx = -1
+				attm = 0
+				sameVesselCollision = False
+				srfN = srfAttach, -1
+				attN = top, -1
+				attN = bottom, 6
+				mass = 0.00999999978
+				shielded = False
+				temp = 323.11860405352718
+				tempExt = 321.94557213484427
+				tempExtUnexp = 4
+				staticPressureAtm = 0
+				expt = 0.5
+				state = 0
+				PreFailState = 0
+				attached = True
+				autostrutMode = Off
+				rigidAttachment = False
+				flag = 
+				rTrf = batteryBankMini
+				modCost = 0
+				modMass = 0
+				moduleVariantName = 
+				moduleCargoStackableQuantity = 1
+				EVENTS
+				{
+				}
+				ACTIONS
+				{
+					ToggleSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					SetSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					RemoveSameVesselInteraction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutOff
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutRoot
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutHeaviest
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					AutostrutGrandparent
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					ResourcesEnableFlow
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					ResourcesDisableFlow
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+				}
+				PARTDATA
+				{
+				}
+				MODULE
+				{
+					name = ModuleCargoPart
+					isEnabled = True
+					packedVolume = 80
+					beingAttached = False
+					beingSettled = False
+					reinitResourcesOnStoreInVessel = False
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				MODULE
+				{
+					name = KOSNameTag
+					isEnabled = True
+					nameTag = 
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
+				RESOURCE
+				{
+					name = ElectricCharge
+					amount = 200
+					maxAmount = 200
+					flowState = True
+					isTweakable = True
+					hideFlow = False
+					isVisible = True
+					flowMode = Both
+				}
+			}
+			PART
+			{
 				name = science.module
 				cid = 4260000004
-				uid = 4166937319
-				mid = 3751568704
+				uid = 745834219
+				mid = 3397738813
 				persistentId = 1700146623
 				launchID = 2
 				parent = 0
@@ -2621,11 +3779,11 @@ GAME
 				sameVesselCollision = False
 				srfN = srfAttach, -1
 				attN = top, 0
-				attN = bottom, 5
+				attN = bottom, 10
 				mass = 0.200000003
 				shielded = False
-				temp = 320.25951168287634
-				tempExt = 319.47380992149129
+				temp = 318.00131521578527
+				tempExt = 317.3287815695341
 				tempExtUnexp = 4
 				staticPressureAtm = 0
 				expt = 0.5
@@ -2800,11 +3958,11 @@ GAME
 			{
 				name = GooExperiment
 				cid = 4260000005
-				uid = 1771008726
-				mid = 3751568704
+				uid = 851778561
+				mid = 3397738813
 				persistentId = 1700046302
 				launchID = 2
-				parent = 3
+				parent = 8
 				position = 0.52965688705444336,-0.90633201599121094,8.6000000010244548E-08
 				rotation = 0,0.707106471,0,-0.707107186
 				mirror = 1,1,1
@@ -2817,11 +3975,11 @@ GAME
 				sidx = -1
 				attm = 1
 				sameVesselCollision = False
-				srfN = srfAttach, 3
+				srfN = srfAttach, 8
 				mass = 0.0500000007
 				shielded = False
-				temp = 321.83323983738717
-				tempExt = 320.12195335023199
+				temp = 319.58731501896477
+				tempExt = 317.98624102384042
 				tempExtUnexp = 4
 				staticPressureAtm = 0
 				expt = 0.5
@@ -2996,11 +4154,11 @@ GAME
 			{
 				name = Large.Crewed.Lab
 				cid = 4260000006
-				uid = 2992032351
-				mid = 3751568704
+				uid = 1270217782
+				mid = 3397738813
 				persistentId = 1700054019
 				launchID = 2
-				parent = 3
+				parent = 8
 				position = 0,-3.3550376892089844,0
 				rotation = 0,0,0,1
 				mirror = 1,1,1
@@ -3014,12 +4172,12 @@ GAME
 				attm = 0
 				sameVesselCollision = False
 				srfN = , -1
-				attN = top, 3
-				attN = bottom, 6
+				attN = top, 8
+				attN = bottom, 11
 				mass = 3.50400019
 				shielded = False
-				temp = 319.89226941020507
-				tempExt = 319.25550604588989
+				temp = 317.64269737974007
+				tempExt = 317.06154685812527
 				tempExtUnexp = 4
 				staticPressureAtm = 0
 				expt = 0.5
@@ -3138,7 +4296,7 @@ GAME
 					EfficiencyBonus = 1
 					IsActivated = False
 					stagingEnabled = True
-					lastUpdateTime = 344.61218948355321
+					lastUpdateTime = 355.83153320304433
 					EVENTS
 					{
 					}
@@ -3298,11 +4456,11 @@ GAME
 			{
 				name = asasmodule1-2
 				cid = 4260000007
-				uid = 1663540275
-				mid = 3751568704
+				uid = 245522033
+				mid = 3397738813
 				persistentId = 1700162057
 				launchID = 2
-				parent = 5
+				parent = 10
 				position = 0,-5.4360370635986328,0
 				rotation = 0,0,0,1
 				mirror = 1,1,1
@@ -3316,12 +4474,12 @@ GAME
 				attm = 0
 				sameVesselCollision = False
 				srfN = , -1
-				attN = top, 5
-				attN = bottom, 7
+				attN = top, 10
+				attN = bottom, 12
 				mass = 0.200000003
 				shielded = False
-				temp = 319.64992719976016
-				tempExt = 319.07186529048039
+				temp = 317.61737521019825
+				tempExt = 317.18979886411239
 				tempExtUnexp = 4
 				staticPressureAtm = 0
 				expt = 0.5
@@ -3471,11 +4629,11 @@ GAME
 			{
 				name = Rockomax16.BW
 				cid = 4260000008
-				uid = 975647319
-				mid = 3751568704
+				uid = 2299954355
+				mid = 3397738813
 				persistentId = 1700169774
 				launchID = 2
-				parent = 6
+				parent = 11
 				position = 0,-6.6060371398925781,0
 				rotation = 0,0,0,1
 				mirror = 1,1,1
@@ -3489,12 +4647,12 @@ GAME
 				attm = 0
 				sameVesselCollision = False
 				srfN = srfAttach, -1
-				attN = top, 6
-				attN = bottom, 20
+				attN = top, 11
+				attN = bottom, 25
 				mass = 1
 				shielded = False
-				temp = 318.30784728736245
-				tempExt = 318.27753793928144
+				temp = 317.3886215582973
+				tempExt = 317.58019340614572
 				tempExtUnexp = 4
 				staticPressureAtm = 0
 				expt = 0.5
@@ -3598,7 +4756,7 @@ GAME
 				RESOURCE
 				{
 					name = LiquidFuel
-					amount = 270.54409635010711
+					amount = 250.84613224977005
 					maxAmount = 720
 					flowState = True
 					isTweakable = True
@@ -3609,7 +4767,7 @@ GAME
 				RESOURCE
 				{
 					name = Oxidizer
-					amount = 330.66498019103983
+					amount = 306.58968957546563
 					maxAmount = 880
 					flowState = True
 					isTweakable = True
@@ -3622,11 +4780,11 @@ GAME
 			{
 				name = ksp.r.largeBatteryPack
 				cid = 4260000009
-				uid = 1492777723
-				mid = 3751568704
+				uid = 4199814400
+				mid = 3397738813
 				persistentId = 1700007717
 				launchID = 2
-				parent = 7
+				parent = 12
 				position = 1.2078299522399902,-6.1560382843017578,0
 				rotation = 0,-0.707106829,0,0.707106829
 				mirror = 1,1,1
@@ -3639,14 +4797,14 @@ GAME
 				sidx = -1
 				attm = 1
 				sameVesselCollision = False
-				sym = 9
-				sym = 10
-				sym = 11
-				srfN = srfAttach, 7
+				sym = 14
+				sym = 15
+				sym = 16
+				srfN = srfAttach, 12
 				mass = 0.0199999996
 				shielded = False
-				temp = 318.15918523316014
-				tempExt = 317.93029967482016
+				temp = 317.25336610635435
+				tempExt = 317.16315480871992
 				tempExtUnexp = 4
 				staticPressureAtm = 0
 				expt = 0.5
@@ -3770,11 +4928,11 @@ GAME
 			{
 				name = ksp.r.largeBatteryPack
 				cid = 4260000010
-				uid = 3312859391
-				mid = 3751568704
+				uid = 664317875
+				mid = 3397738813
 				persistentId = 1700015434
 				launchID = 2
-				parent = 7
+				parent = 12
 				position = 0,-6.1560382843017578,1.2078299522399902
 				rotation = 0,-1,0,0
 				mirror = 1,1,1
@@ -3787,14 +4945,14 @@ GAME
 				sidx = -1
 				attm = 1
 				sameVesselCollision = False
-				sym = 8
-				sym = 10
-				sym = 11
-				srfN = srfAttach, 7
+				sym = 13
+				sym = 15
+				sym = 16
+				srfN = srfAttach, 12
 				mass = 0.0199999996
 				shielded = False
-				temp = 318.16164207354541
-				tempExt = 317.91389127488418
+				temp = 317.25763675590883
+				tempExt = 317.21727365860619
 				tempExtUnexp = 4
 				staticPressureAtm = 0
 				expt = 0.5
@@ -3918,11 +5076,11 @@ GAME
 			{
 				name = ksp.r.largeBatteryPack
 				cid = 4260000011
-				uid = 1942942238
-				mid = 3751568704
+				uid = 3790849289
+				mid = 3397738813
 				persistentId = 1700023151
 				launchID = 2
-				parent = 7
+				parent = 12
 				position = -1.2078299522399902,-6.1560382843017578,0
 				rotation = 0,-0.707106829,0,-0.707106829
 				mirror = 1,1,1
@@ -3935,14 +5093,14 @@ GAME
 				sidx = -1
 				attm = 1
 				sameVesselCollision = False
-				sym = 8
-				sym = 9
-				sym = 11
-				srfN = srfAttach, 7
+				sym = 13
+				sym = 14
+				sym = 16
+				srfN = srfAttach, 12
 				mass = 0.0199999996
 				shielded = False
-				temp = 318.15926731533898
-				tempExt = 317.92955470115305
+				temp = 317.25295031685857
+				tempExt = 317.1561796469756
 				tempExtUnexp = 4
 				staticPressureAtm = 0
 				expt = 0.5
@@ -4066,11 +5224,11 @@ GAME
 			{
 				name = ksp.r.largeBatteryPack
 				cid = 4260000012
-				uid = 90916766
-				mid = 3751568704
+				uid = 2098461017
+				mid = 3397738813
 				persistentId = 1700030868
 				launchID = 2
-				parent = 7
+				parent = 12
 				position = 0,-6.1560382843017578,-1.2078299522399902
 				rotation = 0,0,0,-1
 				mirror = 1,1,1
@@ -4083,14 +5241,14 @@ GAME
 				sidx = -1
 				attm = 1
 				sameVesselCollision = False
-				sym = 8
-				sym = 9
-				sym = 10
-				srfN = srfAttach, 7
+				sym = 13
+				sym = 14
+				sym = 15
+				srfN = srfAttach, 12
 				mass = 0.0199999996
 				shielded = False
-				temp = 318.15689415217156
-				tempExt = 317.90195002673931
+				temp = 317.25135635180231
+				tempExt = 317.14113635235225
 				tempExtUnexp = 4
 				staticPressureAtm = 0
 				expt = 0.5
@@ -4214,11 +5372,11 @@ GAME
 			{
 				name = rtg
 				cid = 4260000013
-				uid = 2289405493
-				mid = 3751568704
+				uid = 3581135791
+				mid = 3397738813
 				persistentId = 1700084887
 				launchID = 2
-				parent = 7
+				parent = 12
 				position = 1.4178155660629272,-6.9560375213623047,0.58727842569351196
 				rotation = 0.587937832,0.392847508,-0.392847508,0.587937832
 				mirror = 1,1,1
@@ -4231,20 +5389,20 @@ GAME
 				sidx = -1
 				attm = 1
 				sameVesselCollision = False
-				sym = 13
-				sym = 14
-				sym = 15
-				sym = 16
-				sym = 17
 				sym = 18
 				sym = 19
-				srfN = srfAttach, 7
+				sym = 20
+				sym = 21
+				sym = 22
+				sym = 23
+				sym = 24
+				srfN = srfAttach, 12
 				attN = top, -1
 				attN = bottom, -1
 				mass = 0.0799999982
 				shielded = False
-				temp = 312.62702466831888
-				tempExt = 316.19835584351841
+				temp = 312.10665384803247
+				tempExt = 315.55356847595499
 				tempExtUnexp = 4
 				staticPressureAtm = 0
 				expt = 0.5
@@ -4355,9 +5513,9 @@ GAME
 					name = ModuleCoreHeat
 					isEnabled = True
 					CoreTempGoalAdjustment = 0
-					CoreThermalEnergy = 15847.200361387568
+					CoreThermalEnergy = 15847.200369103713
 					stagingEnabled = True
-					lastUpdateTime = 344.61218948355321
+					lastUpdateTime = 355.83153320304433
 					EVENTS
 					{
 					}
@@ -4408,11 +5566,11 @@ GAME
 			{
 				name = rtg
 				cid = 4260000014
-				uid = 1164737009
-				mid = 3751568704
+				uid = 3949494190
+				mid = 3397738813
 				persistentId = 1700092604
 				launchID = 2
-				parent = 7
+				parent = 12
 				position = 0.58727842569351196,-6.9560375213623047,1.4178155660629272
 				rotation = 0.69351995,0.13794969,-0.13794969,0.69351995
 				mirror = 1,1,1
@@ -4425,20 +5583,20 @@ GAME
 				sidx = -1
 				attm = 1
 				sameVesselCollision = False
-				sym = 12
-				sym = 14
-				sym = 15
-				sym = 16
 				sym = 17
-				sym = 18
 				sym = 19
-				srfN = srfAttach, 7
+				sym = 20
+				sym = 21
+				sym = 22
+				sym = 23
+				sym = 24
+				srfN = srfAttach, 12
 				attN = top, -1
 				attN = bottom, -1
 				mass = 0.0799999982
 				shielded = False
-				temp = 312.5764385359127
-				tempExt = 316.17031194385038
+				temp = 312.07868649999597
+				tempExt = 315.53985443535623
 				tempExtUnexp = 4
 				staticPressureAtm = 0
 				expt = 0.5
@@ -4549,9 +5707,9 @@ GAME
 					name = ModuleCoreHeat
 					isEnabled = True
 					CoreTempGoalAdjustment = 0
-					CoreThermalEnergy = 15847.200361387568
+					CoreThermalEnergy = 15847.200369103713
 					stagingEnabled = True
-					lastUpdateTime = 344.61218948355321
+					lastUpdateTime = 355.83153320304433
 					EVENTS
 					{
 					}
@@ -4602,11 +5760,11 @@ GAME
 			{
 				name = rtg
 				cid = 4260000015
-				uid = 2740020423
-				mid = 3751568704
+				uid = 1746412537
+				mid = 3397738813
 				persistentId = 1700100321
 				launchID = 2
-				parent = 7
+				parent = 12
 				position = -0.58727842569351196,-6.9560375213623047,1.4178155660629272
 				rotation = 0.69351995,-0.13794969,0.13794969,0.69351995
 				mirror = 1,1,1
@@ -4619,20 +5777,20 @@ GAME
 				sidx = -1
 				attm = 1
 				sameVesselCollision = False
-				sym = 12
-				sym = 13
-				sym = 15
-				sym = 16
 				sym = 17
 				sym = 18
-				sym = 19
-				srfN = srfAttach, 7
+				sym = 20
+				sym = 21
+				sym = 22
+				sym = 23
+				sym = 24
+				srfN = srfAttach, 12
 				attN = top, -1
 				attN = bottom, -1
 				mass = 0.0799999982
 				shielded = False
-				temp = 312.5603236230487
-				tempExt = 316.1641250770266
+				temp = 312.06706947534036
+				tempExt = 315.53527908546516
 				tempExtUnexp = 4
 				staticPressureAtm = 0
 				expt = 0.5
@@ -4743,9 +5901,9 @@ GAME
 					name = ModuleCoreHeat
 					isEnabled = True
 					CoreTempGoalAdjustment = 0
-					CoreThermalEnergy = 15847.200359630486
+					CoreThermalEnergy = 15847.200369103713
 					stagingEnabled = True
-					lastUpdateTime = 344.61218948355321
+					lastUpdateTime = 355.83153320304433
 					EVENTS
 					{
 					}
@@ -4796,11 +5954,11 @@ GAME
 			{
 				name = rtg
 				cid = 4260000016
-				uid = 3577788389
-				mid = 3751568704
+				uid = 3558361048
+				mid = 3397738813
 				persistentId = 1700108038
 				launchID = 2
-				parent = 7
+				parent = 12
 				position = -1.4178155660629272,-6.9560375213623047,0.58727842569351196
 				rotation = 0.587937832,-0.392847508,0.392847508,0.587937832
 				mirror = 1,1,1
@@ -4813,20 +5971,20 @@ GAME
 				sidx = -1
 				attm = 1
 				sameVesselCollision = False
-				sym = 12
-				sym = 13
-				sym = 14
-				sym = 16
 				sym = 17
 				sym = 18
 				sym = 19
-				srfN = srfAttach, 7
+				sym = 21
+				sym = 22
+				sym = 23
+				sym = 24
+				srfN = srfAttach, 12
 				attN = top, -1
 				attN = bottom, -1
 				mass = 0.0799999982
 				shielded = False
-				temp = 312.86830197342687
-				tempExt = 316.2748917476618
+				temp = 312.25861987112626
+				tempExt = 315.60373921146379
 				tempExtUnexp = 4
 				staticPressureAtm = 0
 				expt = 0.5
@@ -4937,9 +6095,9 @@ GAME
 					name = ModuleCoreHeat
 					isEnabled = True
 					CoreTempGoalAdjustment = 0
-					CoreThermalEnergy = 15847.200359630486
+					CoreThermalEnergy = 15847.200369103713
 					stagingEnabled = True
-					lastUpdateTime = 344.61218948355321
+					lastUpdateTime = 355.83153320304433
 					EVENTS
 					{
 					}
@@ -4990,11 +6148,11 @@ GAME
 			{
 				name = rtg
 				cid = 4260000017
-				uid = 4242629647
-				mid = 3751568704
+				uid = 612921493
+				mid = 3397738813
 				persistentId = 1700115755
 				launchID = 2
-				parent = 7
+				parent = 12
 				position = -1.4178155660629272,-6.9560375213623047,-0.58727842569351196
 				rotation = 0.392847508,-0.587937832,0.587937832,0.392847508
 				mirror = 1,1,1
@@ -5007,20 +6165,20 @@ GAME
 				sidx = -1
 				attm = 1
 				sameVesselCollision = False
-				sym = 12
-				sym = 13
-				sym = 14
-				sym = 15
 				sym = 17
 				sym = 18
 				sym = 19
-				srfN = srfAttach, 7
+				sym = 20
+				sym = 22
+				sym = 23
+				sym = 24
+				srfN = srfAttach, 12
 				attN = top, -1
 				attN = bottom, -1
 				mass = 0.0799999982
 				shielded = False
-				temp = 312.5974754323147
-				tempExt = 316.14345630883906
+				temp = 312.08387260023534
+				tempExt = 315.50269049524508
 				tempExtUnexp = 4
 				staticPressureAtm = 0
 				expt = 0.5
@@ -5131,9 +6289,9 @@ GAME
 					name = ModuleCoreHeat
 					isEnabled = True
 					CoreTempGoalAdjustment = 0
-					CoreThermalEnergy = 15847.200359630486
+					CoreThermalEnergy = 15847.200369103713
 					stagingEnabled = True
-					lastUpdateTime = 344.61218948355321
+					lastUpdateTime = 355.83153320304433
 					EVENTS
 					{
 					}
@@ -5184,11 +6342,11 @@ GAME
 			{
 				name = rtg
 				cid = 4260000018
-				uid = 3760833713
-				mid = 3751568704
+				uid = 411406927
+				mid = 3397738813
 				persistentId = 1700123472
 				launchID = 2
-				parent = 7
+				parent = 12
 				position = -0.58727842569351196,-6.9560375213623047,-1.4178155660629272
 				rotation = 0.13794969,-0.69351995,0.69351995,0.13794969
 				mirror = 1,1,1
@@ -5201,20 +6359,20 @@ GAME
 				sidx = -1
 				attm = 1
 				sameVesselCollision = False
-				sym = 12
-				sym = 13
-				sym = 14
-				sym = 15
-				sym = 16
+				sym = 17
 				sym = 18
 				sym = 19
-				srfN = srfAttach, 7
+				sym = 20
+				sym = 21
+				sym = 23
+				sym = 24
+				srfN = srfAttach, 12
 				attN = top, -1
 				attN = bottom, -1
 				mass = 0.0799999982
 				shielded = False
-				temp = 314.58652738934228
-				tempExt = 316.81049517984684
+				temp = 313.62999541771262
+				tempExt = 316.03151362162521
 				tempExtUnexp = 4
 				staticPressureAtm = 0
 				expt = 0.5
@@ -5325,9 +6483,9 @@ GAME
 					name = ModuleCoreHeat
 					isEnabled = True
 					CoreTempGoalAdjustment = 0
-					CoreThermalEnergy = 15847.200359630486
+					CoreThermalEnergy = 15847.200369103713
 					stagingEnabled = True
-					lastUpdateTime = 344.61218948355321
+					lastUpdateTime = 355.83153320304433
 					EVENTS
 					{
 					}
@@ -5378,11 +6536,11 @@ GAME
 			{
 				name = rtg
 				cid = 4260000019
-				uid = 3070489846
-				mid = 3751568704
+				uid = 1968206595
+				mid = 3397738813
 				persistentId = 1700131189
 				launchID = 2
-				parent = 7
+				parent = 12
 				position = 0.58727842569351196,-6.9560375213623047,-1.4178155660629272
 				rotation = -0.13794969,-0.69351995,0.69351995,-0.13794969
 				mirror = 1,1,1
@@ -5395,20 +6553,20 @@ GAME
 				sidx = -1
 				attm = 1
 				sameVesselCollision = False
-				sym = 12
-				sym = 13
-				sym = 14
-				sym = 15
-				sym = 16
 				sym = 17
+				sym = 18
 				sym = 19
-				srfN = srfAttach, 7
+				sym = 20
+				sym = 21
+				sym = 22
+				sym = 24
+				srfN = srfAttach, 12
 				attN = top, -1
 				attN = bottom, -1
 				mass = 0.0799999982
 				shielded = False
-				temp = 312.67901998662603
-				tempExt = 316.25907919433149
+				temp = 312.1507625395671
+				tempExt = 315.62008320193235
 				tempExtUnexp = 4
 				staticPressureAtm = 0
 				expt = 0.5
@@ -5519,9 +6677,9 @@ GAME
 					name = ModuleCoreHeat
 					isEnabled = True
 					CoreTempGoalAdjustment = 0
-					CoreThermalEnergy = 15847.200361387568
+					CoreThermalEnergy = 15847.200369103713
 					stagingEnabled = True
-					lastUpdateTime = 344.61218948355321
+					lastUpdateTime = 355.83153320304433
 					EVENTS
 					{
 					}
@@ -5572,11 +6730,11 @@ GAME
 			{
 				name = rtg
 				cid = 4260000020
-				uid = 1419936715
-				mid = 3751568704
+				uid = 692207893
+				mid = 3397738813
 				persistentId = 1700138906
 				launchID = 2
-				parent = 7
+				parent = 12
 				position = 1.4178155660629272,-6.9560375213623047,-0.58727842569351196
 				rotation = -0.392847508,-0.587937832,0.587937832,-0.392847508
 				mirror = 1,1,1
@@ -5589,20 +6747,20 @@ GAME
 				sidx = -1
 				attm = 1
 				sameVesselCollision = False
-				sym = 12
-				sym = 13
-				sym = 14
-				sym = 15
-				sym = 16
 				sym = 17
 				sym = 18
-				srfN = srfAttach, 7
+				sym = 19
+				sym = 20
+				sym = 21
+				sym = 22
+				sym = 23
+				srfN = srfAttach, 12
 				attN = top, -1
 				attN = bottom, -1
 				mass = 0.0799999982
 				shielded = False
-				temp = 314.65776329623708
-				tempExt = 316.80396904981575
+				temp = 313.59741078297469
+				tempExt = 315.98180031578573
 				tempExtUnexp = 4
 				staticPressureAtm = 0
 				expt = 0.5
@@ -5713,9 +6871,9 @@ GAME
 					name = ModuleCoreHeat
 					isEnabled = True
 					CoreTempGoalAdjustment = 0
-					CoreThermalEnergy = 15847.200361387568
+					CoreThermalEnergy = 15847.200369103713
 					stagingEnabled = True
-					lastUpdateTime = 344.61218948355321
+					lastUpdateTime = 355.83153320304433
 					EVENTS
 					{
 					}
@@ -5766,11 +6924,11 @@ GAME
 			{
 				name = liquidEngine2-2.v2
 				cid = 4260000021
-				uid = 78678381
-				mid = 3751568704
+				uid = 1746878794
+				mid = 3397738813
 				persistentId = 1700077170
 				launchID = 2
-				parent = 7
+				parent = 12
 				position = 0,-7.5260372161865234,0
 				rotation = 0,0,0,1
 				mirror = 1,1,1
@@ -5784,12 +6942,12 @@ GAME
 				attm = 0
 				sameVesselCollision = False
 				srfN = , -1
-				attN = top, 7
+				attN = top, 12
 				attN = bottom, -1
 				mass = 1.75
 				shielded = False
-				temp = 324.85062489406744
-				tempExt = 322.72686885325373
+				temp = 323.80120989628909
+				tempExt = 321.2490246486671
 				tempExtUnexp = 4
 				staticPressureAtm = 0
 				expt = 0.5
@@ -6025,7 +7183,7 @@ GAME
 				{
 					name = FXModuleAnimateThrottle
 					isEnabled = True
-					animState = 0.222085804
+					animState = 0.202112332
 					stagingEnabled = True
 					EVENTS
 					{
@@ -6041,7 +7199,7 @@ GAME
 				{
 					name = FXModuleAnimateThrottle
 					isEnabled = True
-					animState = 0.222085804
+					animState = 0.202112332
 					stagingEnabled = True
 					EVENTS
 					{
@@ -6155,8 +7313,8 @@ GAME
 				Stage = False, 0
 				Gear = False, 0
 				Light = False, 0
-				RCS = True, 312.192189483583
-				SAS = True, 312.172189483583
+				RCS = True, 323.651533203074
+				SAS = True, 323.651533203074
 				Brakes = False, 0
 				Abort = False, 0
 				Custom01 = False, 0
@@ -6183,9 +7341,9 @@ GAME
 			}
 			CTRLSTATE
 			{
-				pitch = -3.4237897E-09
-				yaw = -9.95909795E-06
-				roll = -3.89540929E-07
+				pitch = -5.69181975E-06
+				yaw = 9.18600836E-06
+				roll = 2.47197022E-07
 				trimPitch = 0
 				trimYaw = 0
 				trimRoll = 0
@@ -7037,7 +8195,7 @@ GAME
 							cid = 4294883584
 							uid = 0
 							mid = 0
-							persistentId = 3295337266
+							persistentId = 2368356453
 							launchID = 0
 							parent = 0
 							position = 0,0,0
@@ -7177,7 +8335,7 @@ GAME
 							cid = 4294883650
 							uid = 0
 							mid = 0
-							persistentId = 3239440730
+							persistentId = 3864479889
 							launchID = 0
 							parent = 0
 							position = 0,0,0
@@ -7387,7 +8545,7 @@ GAME
 							cid = 4294883584
 							uid = 0
 							mid = 0
-							persistentId = 619373642
+							persistentId = 2706328212
 							launchID = 0
 							parent = 0
 							position = 0,0,0
@@ -7527,7 +8685,7 @@ GAME
 							cid = 4294883650
 							uid = 0
 							mid = 0
-							persistentId = 301409074
+							persistentId = 2441293760
 							launchID = 0
 							parent = 0
 							position = 0,0,0

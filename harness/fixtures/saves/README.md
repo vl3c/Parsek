@@ -818,13 +818,15 @@ and `harness/lib/test_career_gs1_leadership_pad.py`. Host of
 
 ## lab-lko-sandbox (GAME Mode = SANDBOX, 1 VESSEL + 1 asteroid, harvested from LABX-1)
 
-The `LABX-1-lab-orbit-ascent` produced save (run `2026-10-17_1747`, PASS attempt 1), harvested
+The `LABX-1-lab-orbit-ascent` produced save (run `2026-10-17_1957`, PASS attempt 1, the current
+craft shape; first harvested from `2026-10-17_1747` before the antenna and tender), harvested
 from the run's own snapshot by `harvest_bdock_station.py --target-name lab-lko-sandbox
 --expect-situation ORBITING` (never `--force`). The by-construction `LABX Orbital Lab`
-(`harness/tools/build_lab_orbit_craft.py`) parked ORBITING Kerbin at ~107 x 92 km, throttle cut,
-ONE vessel with the spent booster gone: Mk1 pod (Valentina Kerman, Pilot), Science Jr, Mystery
-Goo, 2HOT, PresMat, Mobile Processing Lab (Bob Kerman, Scientist, in lab seat 0), RW-L wheel,
-X200-16 + Poodle with eight RTGs and four Z-400s. Plus the stock `Ast. VPA-167` asteroid KSP
+(`harness/tools/build_lab_orbit_craft.py`) parked ORBITING Kerbin at ~107 x 93 km, throttle cut,
+ONE vessel of 26 parts with the spent booster gone: Mk1 pod (Valentina Kerman, Pilot) with a
+Communotron 16-S, the probe tender above it (Clamp-O-Tron Jr pair, OKTO, Z-200; never staged),
+Science Jr, Mystery Goo, 2HOT, PresMat, Mobile Processing Lab (Bob Kerman, Scientist, in lab
+seat 0), RW-L wheel, X200-16 + Poodle with eight RTGs and four Z-400s. Plus the stock `Ast. VPA-167` asteroid KSP
 spawned during the coast. No recordings (the lane pins `autoRecordOnLaunch` false); the
 ParsekScenario node is the forge base's inert one with two dead `MILESTONE_STATE` rows (the
 `eva2-lko-crewed` / `gs2-orbital-stack` shape). The harvest dropped the forge base's five library
