@@ -850,6 +850,31 @@ pool stays `fresh-science`'s 100 (the nodes are granted, not bought). `AddOns/` 
 the craft arrives through the `shared-ships.toml` overlay. Built and drift-gated by the builder
 (`--check`) and `harness/lib/test_lab_lko_science.py`.
 
+## lab-pad-seeded (GAME Mode = SCIENCE_SANDBOX, 1 VESSEL PRELAUNCH, derived from lab-lko-science)
+
+`harness/tools/build_lab_seeded_variants.py`: `lab-lko-science` with two edits. The LABX
+Orbital Lab upper stage (as flown: booster gone, Poodle staged at zero throttle) is moved to
+the LaunchPad, every pad-dependent VESSEL key (sit `PRELAUNCH`, landed, landedAt, lat, lon,
+nrm, rot, camera) and the ORBIT block taken from `gs1-two-stage-pad`'s KSP-written vessel,
+alt / hgt from the pad surface plus the stage's root-to-Poodle-node height (stock's
+CheckGroundCollision settles it on unpack). PRELAUNCH, not LANDED, because stock offers
+Revert to Launch only for a vessel that loaded PRELAUNCH (FlightDriver sets
+CanRevertToPostInit from it; VN-5 proved the route). Revert to VAB cannot be carried by any
+fixture. The lab: `dataStored = 204` (the stock lab-value sum of its sixteen subjects),
+`storedScience = 12.5`, `EXPERIMENT_DATA` = the Thermometer, PresMat, Goo and Materials Bay
+subjects at Kerbin FlyingLow / FlyingHigh / InSpaceLow / InSpaceHigh; research off. Hosts
+LAB-9b / LAB-14. Drift-gated by `--check` and `harness/lib/test_lab_seeded_variants.py`.
+
+## lab-lko-seeded (GAME Mode = SCIENCE_SANDBOX, 1 VESSEL ORBITING, derived from lab-lko-science)
+
+Same builder: `lab-lko-science`'s orbiting vessel unchanged but for the lab, whose stores sit
+just under the stock caps (`dataStored = 740` of 750, `storedScience = 499` of 500, the caps
+being part-cfg values the converter clamps to). `EXPERIMENT_DATA` lists the twelve
+FlyingLow / FlyingHigh / InSpaceHigh subjects and leaves the four InSpaceLow ones out, so in
+this orbit the Thermometer (lab value 5) and PresMat (8) still fit and the Goo (15) and
+Materials Bay (22) are refused for capacity. Research off. Hosts the lab-cap lanes.
+Drift-gated with `lab-pad-seeded`.
+
 ## fresh-science (GAME Mode = SCIENCE_SANDBOX)
 
 Science pool only: `ResearchAndDevelopment sci = 100`, no Funding / Reputation /
