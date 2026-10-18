@@ -40,6 +40,11 @@ _(unreleased - entries accumulate here per commit)_
   the pad. Parsek now needs proof of a pad (a launch site, a landed or prelaunch start, or a
   landing) somewhere in the flight before it calls the flight idle.
   (IDLE-ON-PAD-READS-ONE-SAMPLE-ORBITING-RECORDING-AS-IDLE)
+- **A vessel claimed by a later mission no longer appears on an orbit that dips into the air.**
+  When time reached the end of such a chain, its final vessel spawned on its recorded orbit
+  without the periapsis check every other spawn gets, so it could appear on an orbit that would
+  drag it down. It now waits for a safe point, or ends as a ghost without spawning, like any
+  other vessel. (CHAIN-TIP-SPAWN-SKIPS-ORBIT-SAFETY-GATE)
 - **A vessel in a low orbit now reappears at the end of its recording.** A ship orbiting Kerbin
   below about 100 km, whose recording ended there, was judged to be falling into the atmosphere
   when time reached the recording's end (worse after a reload), so its ghost vanished and the real
