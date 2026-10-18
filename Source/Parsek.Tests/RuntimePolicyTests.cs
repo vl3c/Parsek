@@ -781,6 +781,9 @@ namespace Parsek.Tests
             var tree = new RecordingTree();
             tree.Recordings["a"] = new Recording
             {
+                // The root carries the pad evidence, so the tree-level evidence gate passes
+                // and the short/close guard this test is about decides.
+                StartSituation = "Prelaunch",
                 Points = MakePoints(100, 105),
                 MaxDistanceFromLaunch = 10
             };
@@ -793,6 +796,9 @@ namespace Parsek.Tests
             var tree = new RecordingTree();
             tree.Recordings["a"] = new Recording
             {
+                // Prelaunch root: the pad-evidence gate passes, so the long-recording guard
+                // is what makes this tree not a pad failure.
+                StartSituation = "Prelaunch",
                 Points = MakePoints(100, 105),
                 MaxDistanceFromLaunch = 10
             };

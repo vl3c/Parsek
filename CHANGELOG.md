@@ -39,10 +39,10 @@ _(unreleased - entries accumulate here per commit)_
   reset dropped a restored tree, its restore marker stayed armed afterwards and could hold
   back recorded events on later saves until another restore replaced it. It is now cleared
   with the tree. (RESET-FLIGHT-READY-STATE-LEAVES-RESTORE-ATTEMPT-ARMED)
-- **A recording started in orbit is no longer thrown away as "idle on pad".** Leaving a flight
-  within a few seconds of starting its recording could discard it as if the ship had never left
-  the pad. Parsek now needs proof of a pad (a launch site, a landed or prelaunch start, or a
-  landing) somewhere in the flight before it calls the flight idle.
+- **A recording started in orbit is no longer thrown away as "idle on pad".** Leaving a flight,
+  or losing the ship, within seconds of starting its recording could discard it as if the ship
+  never left the pad. Parsek now needs proof of a pad (a launch site, a landed or prelaunch
+  start, or a landing) before it calls a flight idle or a launchpad failure.
   (IDLE-ON-PAD-READS-ONE-SAMPLE-ORBITING-RECORDING-AS-IDLE)
 - **A vessel claimed by a later mission no longer appears on an orbit that dips into the air.**
   When time reached the end of such a chain, its final vessel spawned on its recorded orbit

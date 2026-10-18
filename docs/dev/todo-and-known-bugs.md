@@ -1246,17 +1246,22 @@ background-only children carry no launch situation of their own, so they never n
 flight with an EVA board tree or destroyed debris stays idle through its root.
 Callers: `IsTreeIdleOnPad` (the Finalized pending-tree auto-discards in `ParsekScenario.cs` at
 scene exit, outside flight and in the deferred merge dialog), `IsActiveTreeIdleOnPad` (via
-`SceneExitInterceptor`), and `ShowPostDestructionTreeMergeDialog`. Open, not changed here:
-(1) the destroyed-during-split branch in `ParsekFlight.cs` calls the per-recording `IsIdleOnPad`
-and is still distance-only, so a one-sample orbiting recording destroyed in that branch is still
-discarded (a per-recording evidence rule would drop debris children, which carry no situation);
-(2) `IsPadFailure` has the same one-sample hole (duration under 10 s and maxDist under 30 m) on the
-post-destruction and destroyed-during-split paths. Cells: `IdleOnPadPadEvidenceTests` (the orbiting
+`SceneExitInterceptor`), and `ShowPostDestructionTreeMergeDialog`. Follow-up 2026-10-18, branch
+`pad-failure-one-sample` (headless only, not flown): both paths above are now fixed.
+`IsTreePadFailure` additionally requires `TreeHasPadEvidenceForIdle(tree, "IsTreePadFailure")`
+after its existing placed-part / planted-flag vetoes and its per-recording loop, so the
+post-destruction merge dialog keeps a one-sample orbiting tree; and the destroyed-during-split
+branch of `FallbackCommitSplitRecorder` gates both of its discard checks on the pure
+`DecideDestroyedSplitRecordingDiscard(rec)` ("pad failure" / "idle on pad" or null), which needs
+that single recording's own pad evidence, and logs "no pad evidence - committing" when a
+within-threshold recording shows none. Cells: `IdleOnPadPadEvidenceTests` (the orbiting
 one-sample tree, the fizzled launch, the EVA board tree, destroyed debris, no-evidence trees, guard
 order, the pure `TreePadEvidence` and `PadEvidenceReason` truth tables, the log, the source order),
-`Bug156Tests` (the negative guards now carry a Prelaunch root, so the guard they exist for decides),
-and the fixtures that name a Landed root (`ConverterWorkNotIdleTests`, `LabPayoutNotIdleTests`,
-`RecoveryLabIdleVetoTests`) or an EVA kerbal (`PlacedPartsNotIdleTests`).
+`PadFailurePadEvidenceTests` (the one-sample orbiting pad-failure tree, the pad tree with destroyed
+debris, the fizzled launch, the pure `DecideDestroyedSplitRecordingDiscard` table, the source
+wiring), `Bug156Tests` (the negative guards now carry a Prelaunch root, so the guard they exist for
+decides), and the fixtures that name a Landed root (`ConverterWorkNotIdleTests`,
+`LabPayoutNotIdleTests`, `RecoveryLabIdleVetoTests`) or an EVA kerbal (`PlacedPartsNotIdleTests`).
 
 ## ~~RETIRE-ROUTE-ACTIONS-OVERLOAD-BREAKS-INGAME-REFLECTION-PROBE: the Rec-1 redelivery in-game cell failed `Ambiguous match found.` on lanes H38 / H39 / H40 / HV-1~~ [FILED 2026-10-09 from the nightly `Logistics` lanes. FIXED 2026-10-09, branch `ingame-test-drift`; test drift, not a product defect; not re-flown; LIVE-PROVEN 2026-10-16 on main 412d48e: H38 `2026-10-16_2155`, H39 `_2158`, H40 `_2201`, HV-1 `_2204` PASS attempt 1]
 
