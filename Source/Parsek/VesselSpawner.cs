@@ -6624,9 +6624,11 @@ namespace Parsek
         /// sections. Skips Surface / Atmospheric / ExoPropulsive / Approach
         /// environments — those produce sub-orbital or transitional osculating
         /// orbits that are not meaningful as the recording's "terminal" orbit.
-        /// A sample below the body's inverse-rotation altitude carries a
-        /// surface-relative velocity and is converted to inertial before the orbit is
-        /// seeded (<see cref="OrbitReseed.FromLatLonAltAndRecordedVelocityFrameAware"/>).
+        /// The tail's velocity is not trusted as recorded: its frame (surface-relative
+        /// below the inverse-rotation altitude) and its world yaw are resolved from the
+        /// tail and the coast frame before it
+        /// (<see cref="OrbitReseed.TryFromRecordedTailPair"/>); a tail that cannot be
+        /// resolved is declined so the stored segment / terminal orbit seeds answer.
         /// Also rejects when |spawnUT − tailUT| exceeds
         /// <see cref="TailDerivedOrbitMaxRotationDriftSeconds"/> because
         /// <c>body.GetWorldSurfacePosition</c> uses the body's current rotation,
@@ -6714,6 +6716,24 @@ namespace Parsek
                             seed.Segment.semiMajorAxis,
                             seed.Segment.eccentricity));
                 }
+                else if (declineReason == "tail-velocity-single-frame"
+                    || declineReason == RecordedTailVelocityResolver.DeclineNonFinite
+                    || declineReason == RecordedTailVelocityResolver.DeclinePairGap
+                    || declineReason == RecordedTailVelocityResolver.DeclineAzimuthUndefined
+                    || declineReason == RecordedTailVelocityResolver.DeclineNoFit)
+                {
+                    ParsekLog.Verbose("Spawner",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Tail-derived terminal orbit skipped: rec={0} reason={1} tailUT={2:F2} " +
+                            "velFrame={3} yaw={4:F3}deg residual={5:F3} recordedSpeed={6:F2}",
+                            recId,
+                            declineReason,
+                            seed.TailUT,
+                            seed.VelocityWasRotatingFrame ? "rotating" : "inertial",
+                            seed.VelocityFrameYawDegrees,
+                            seed.VelocityFrameResidual,
+                            seed.RecordedSpeed));
+                }
                 else if (declineReason == "exception")
                 {
                     ParsekLog.Warn("Spawner",
@@ -6738,7 +6758,7 @@ namespace Parsek
             ParsekLog.Verbose("Spawner",
                 string.Format(CultureInfo.InvariantCulture,
                     "Tail-derived terminal orbit: rec={0} body={1} tailUT={2:F2} sma={3:F1} ecc={4:F4} periAlt={5:F1} apoAlt={6:F1} " +
-                    "tailVelFrame={7} recordedSpeed={8:F2} inertialSpeed={9:F2}",
+                    "tailVelFrame={7} yaw={8:F3}deg residual={9:F3} recordedSpeed={10:F2} inertialSpeed={11:F2}",
                     recId,
                     seed.BodyName,
                     seed.TailUT,
@@ -6747,6 +6767,8 @@ namespace Parsek
                     periAlt,
                     apoAlt,
                     seed.VelocityWasRotatingFrame ? "rotating" : "inertial",
+                    seed.VelocityFrameYawDegrees,
+                    seed.VelocityFrameResidual,
                     seed.RecordedSpeed,
                     seed.InertialSpeed));
             return true;

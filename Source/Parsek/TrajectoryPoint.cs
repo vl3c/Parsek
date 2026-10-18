@@ -19,7 +19,10 @@ namespace Parsek
         // Y-up Unity world velocity as captured. Its frame is not stored: an unpacked
         // sample taken while the world frame co-rotates with the body (active vessel
         // below body.inverseRotThresholdAltitude) is surface-relative; a packed sample,
-        // or one taken above that altitude, is inertial. See OrbitReseed's class summary.
+        // or one taken above that altitude, is inertial. Its world axes also sit at a yaw
+        // about the spin axis that depends on session history and is not stored, so it
+        // must not be paired as-is with a position rebuilt in another session
+        // (RecordedTailVelocityResolver). See OrbitReseed's class summary.
         public Vector3 velocity;
         public string bodyName;     // Reference celestial body
 
