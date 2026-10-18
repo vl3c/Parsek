@@ -2430,12 +2430,47 @@ namespace Parsek
 
         private static void ClearCommittedTreeRestoreAttemptForTree(string treeId, string reason)
         {
-            if (string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId))
-                return;
-            if (!string.Equals(committedTreeRestoreAttemptTreeId, treeId, StringComparison.Ordinal))
+            if (!DroppedTreeMatchesArmedRestoreAttempt(committedTreeRestoreAttemptTreeId, treeId))
                 return;
 
             ClearCommittedTreeRestoreAttempt(reason);
+        }
+
+        /// <summary>
+        /// Pure: true when a tree a scene reset is about to drop is the clone the armed
+        /// committed-tree restore attempt guards (same tree id), so the attempt must be
+        /// cleared with it. An attempt armed for a different tree id stays armed; a null
+        /// or empty id on either side never clears.
+        /// </summary>
+        internal static bool DroppedTreeMatchesArmedRestoreAttempt(
+            string armedAttemptTreeId, string droppedTreeId)
+        {
+            if (string.IsNullOrEmpty(armedAttemptTreeId) || string.IsNullOrEmpty(droppedTreeId))
+                return false;
+
+            return string.Equals(armedAttemptTreeId, droppedTreeId, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Clears the armed committed-tree restore attempt when <paramref name="droppedTreeId"/>
+        /// is its clone, so a reset that drops the clone tree (for example
+        /// <c>ParsekFlight.ResetFlightReadyState</c>) leaves no stale attempt armed: while it
+        /// stays armed every OnSave defers the pending-event milestone flush and the next arm
+        /// logs a replacing-stale-context warn. An attempt for another tree id, or no attempt
+        /// at all, is left alone. Returns true when an attempt was cleared.
+        /// </summary>
+        internal static bool ClearCommittedTreeRestoreAttemptForDroppedTree(
+            string droppedTreeId, string reason)
+        {
+            if (!DroppedTreeMatchesArmedRestoreAttempt(
+                    committedTreeRestoreAttemptTreeId, droppedTreeId))
+                return false;
+
+            ParsekLog.Info("RecordingStore",
+                $"ClearCommittedTreeRestoreAttemptForDroppedTree: dropped tree={droppedTreeId} " +
+                $"matches the armed restore attempt; clearing it reason={reason ?? "<none>"}");
+            ClearCommittedTreeRestoreAttempt(reason);
+            return true;
         }
 
         /// <summary>

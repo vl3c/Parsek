@@ -5766,7 +5766,7 @@ OPEN as follow-ups: one green flight each for the fourteen lanes and EVA-6..EVA-
 their `retry policy = "once"` can go; `LaunchFromEditor` still answers before stock
 onFlightReady (RR-1 waits on `ListHandles kind=chains`), not touched here.
 
-## RESET-FLIGHT-READY-STATE-LEAVES-RESTORE-ATTEMPT-ARMED: the flight-ready reset drops a committed-restore clone tree but leaves its restore attempt armed [FILED 2026-10-03 from EVA-6 `2026-10-03_1437`, branch `closing-flights`; observed in a harness boot, not traced on a player path]
+## ~~RESET-FLIGHT-READY-STATE-LEAVES-RESTORE-ATTEMPT-ARMED: the flight-ready reset drops a committed-restore clone tree but leaves its restore attempt armed~~ [FILED 2026-10-03 from EVA-6 `2026-10-03_1437`, branch `closing-flights`; FIXED 2026-10-18, headless only, not flown; observed in a harness boot, not traced on a player path]
 
 **Evidence.** Same run as LOADGAME-COMPLETES-BEFORE-ONFLIGHTREADY:
 - 17:38:33.081 `Armed committed-tree restore attempt for 'Kerbal X'
@@ -5790,6 +5790,18 @@ attempt's clone (same tree id), clear the attempt with a reset reason (the
 uses) and log it. Add a pure cell for the "is this the attempt's clone" decision. Trace first
 whether any player path reaches ResetFlightReadyState with a live clone. A revert or quickload
 re-enters FLIGHT through OnFlightReady, so it plausibly does.
+
+**Fix (2026-10-18, headless only, not flown).** `ParsekFlight.ResetFlightReadyState` now calls
+`RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(activeTree?.Id, "flight-ready
+reset dropped the restore clone")` BEFORE `activeTree = null`. The pure cell
+`RecordingStore.DroppedTreeMatchesArmedRestoreAttempt(armedAttemptTreeId, droppedTreeId)`
+answers same-id (null/empty on either side never matches), and only then the existing
+`ClearCommittedTreeRestoreAttempt(reason)` path runs, after one new Info line
+`ClearCommittedTreeRestoreAttemptForDroppedTree: dropped tree=... matches the armed restore
+attempt; clearing it reason=...`. A dropped tree with a different id, a null tree or no armed
+attempt clears nothing. Tests: `ResetFlightReadyStateRestoreAttemptTests` (the four decision
+cells, the clear and no-op log lines, and a file-scrape gate that the clear runs before
+`activeTree = null`). No player path was traced or flown for this fix.
 
 ## DEPLOYED-SCIENCE-FLOW-LANE-NEEDS-A-HOST: no committed science or career fixture can place a powered Breaking Ground cluster [FILED 2026-09-28, branch `deployables-lanes`]
 
