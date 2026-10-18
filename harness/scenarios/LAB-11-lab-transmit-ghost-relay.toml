@@ -5,6 +5,16 @@ tier = "operator"
 # "LAB-11 a ghost relay is the only link"). Operator tier and tagged `pending-flight` until a
 # green flight of THIS shape pins the measured values.
 #
+# FIRST FLIGHT 2026-10-18_0047_a2 PASS (attempt 2; attempt 1 INVALID on an environmental boot
+# stall), automation DLL 41a4f2c7 (main 9a483c4a5 + PR #2139), 169 s wall. Measured: the relay
+# `Registered ghost node: key=lab11-relay ... ut=356.9 window=[356.8,100356.8] ...
+# relay=64999997615.814209 transmit=3249.9998807907104` (RA-100 1e11 and the probe core's 5000
+# times rangeModifier 0.65 in single precision), the warps landing at 894.8 / 899.8 /
+# 1694.8 / 1699.8 (25 s and 31 s wall), the control press paying nothing with the lab at 12.50,
+# the window press paying `ScienceChanged +12.5 (ScienceTransmission) -> 112.5` and
+# `ScienceLabCredited +12.50 ... ut=1704.9 recordingId=''` 4.98 s after the press. The tier and
+# the `pending-flight` tag stay until the status row and tag review move with an armed pin.
+#
 # UNDER TEST: design 15.6, a ghost counts for CommNet as the vessel it replays, here carrying a
 # REAL stock transmission: the science lab's Transmit Science completes, and Parsek books it,
 # only because a ghost relay's GhostCommNetNode is the lab's path home.
