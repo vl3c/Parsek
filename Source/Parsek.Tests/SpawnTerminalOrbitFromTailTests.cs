@@ -536,6 +536,51 @@ namespace Parsek.Tests
             Assert.Equal(110, frame.ut); // Skipped the NaN-velocity tail, used the prior valid frame.
         }
 
+        // ---------- the tail pair the spawn seed resolves the velocity frame from ----------
+
+        [Fact]
+        public void TryFindLatestCoastTrajectoryFrame_ReturnsThePreviousUsableFrameOfTheSameList()
+        {
+            var rec = new Recording { RecordingId = "rec-pair" };
+            rec.TrackSections.Add(BuildAbsoluteCoastSection(
+                startUT: 100, endUT: 120,
+                BuildPoint(ut: 103, lat: 0, lon: 0, alt: 93000, vel: new Vector3(2066, 0, 0)),
+                BuildPoint(ut: 106, lat: 0, lon: 0.1, alt: 93000, vel: new Vector3(float.NaN, 0, 0)),
+                BuildPoint(ut: 109, lat: 0, lon: 0.2, alt: 93000, vel: new Vector3(2066, 0, 0))));
+
+            bool found = OrbitSeedResolver.TryFindLatestCoastTrajectoryFrame(
+                rec, "Kerbin", out TrajectoryPoint tail, out string source,
+                out bool hasPrevious, out TrajectoryPoint previous);
+
+            Assert.True(found);
+            Assert.Equal("absolute", source);
+            Assert.Equal(109, tail.ut);
+            Assert.True(hasPrevious);
+            Assert.Equal(103, previous.ut);   // the NaN frame between them is skipped
+        }
+
+        [Fact]
+        public void TryFindLatestCoastTrajectoryFrame_NeverPairsAcrossSections()
+        {
+            // A section boundary can carry a frame flip or a scene seam, so the frame before
+            // the tail must come from the tail's own list.
+            var rec = new Recording { RecordingId = "rec-pair-sections" };
+            rec.TrackSections.Add(BuildAbsoluteCoastSection(
+                startUT: 100, endUT: 105,
+                BuildPoint(ut: 104, lat: 0, lon: 0, alt: 93000, vel: new Vector3(2066, 0, 0))));
+            rec.TrackSections.Add(BuildAbsoluteCoastSection(
+                startUT: 105, endUT: 110,
+                BuildPoint(ut: 108, lat: 0, lon: 0.2, alt: 93000, vel: new Vector3(2066, 0, 0))));
+
+            bool found = OrbitSeedResolver.TryFindLatestCoastTrajectoryFrame(
+                rec, "Kerbin", out TrajectoryPoint tail, out _,
+                out bool hasPrevious, out _);
+
+            Assert.True(found);
+            Assert.Equal(108, tail.ut);
+            Assert.False(hasPrevious);
+        }
+
         // ---------- helpers ----------
 
         private static TrajectoryPoint BuildPoint(

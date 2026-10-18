@@ -23,6 +23,13 @@ namespace Parsek
         internal string TailFrameSource;
         internal bool UsedHistoricalBodyRotation;
         internal double HistoricalLongitude;
+        // Spawn use only: how the tail pair's velocity frame resolved
+        // (RecordedTailVelocityResolver). Speeds and yaw are NaN when not computed.
+        internal bool VelocityWasRotatingFrame;
+        internal double VelocityFrameYawDegrees;
+        internal double VelocityFrameResidual;
+        internal double RecordedSpeed;
+        internal double InertialSpeed;
         internal OrbitSegment Segment;
     }
 
@@ -77,6 +84,11 @@ namespace Parsek
                 TailFrameSource = null,
                 UsedHistoricalBodyRotation = false,
                 HistoricalLongitude = double.NaN,
+                VelocityWasRotatingFrame = false,
+                VelocityFrameYawDegrees = double.NaN,
+                VelocityFrameResidual = double.NaN,
+                RecordedSpeed = double.NaN,
+                InertialSpeed = double.NaN,
                 Segment = default(OrbitSegment)
             };
 
@@ -91,7 +103,9 @@ namespace Parsek
                     traj,
                     bodyName,
                     out TrajectoryPoint candidate,
-                    out string frameSource))
+                    out string frameSource,
+                    out bool hasPreviousFrame,
+                    out TrajectoryPoint previousFrame))
             {
                 seed.DeclineReason = "no-absolute-coast-tail";
                 return false;
@@ -166,6 +180,10 @@ namespace Parsek
                     }
 
                     double initialRotation = ResolveInitialRotation(body);
+                    // The recorded vector is used as-is here: its frame (surface-relative
+                    // below the inverse-rotation altitude) and its world yaw are not
+                    // resolved on this path (todos TERMINAL-SPAWN-TAIL-ORBIT-SURFACE-VELOCITY
+                    // and REFLY-TAIL-SEED-FRAME).
                     if (!OrbitReseed.TryFromHistoricalLatLonAltAndRecordedVelocity(
                             reseeded,
                             body,
@@ -188,14 +206,36 @@ namespace Parsek
                 }
                 else
                 {
-                    OrbitReseed.FromLatLonAltAndRecordedVelocity(
+                    // The recorded vector alone cannot seed the orbit: it may be
+                    // surface-relative, and its world axes sit at a yaw about the spin axis
+                    // that this session does not share (LAB-7: sma 596266 in the recording
+                    // session, ecc 0.9996 after a reload). Resolve both from the pair; a
+                    // tail that cannot be resolved yields to the stored segment / terminal
+                    // orbit seeds.
+                    if (!hasPreviousFrame)
+                    {
+                        seed.DeclineReason = "tail-velocity-single-frame";
+                        return false;
+                    }
+
+                    bool pairResolved = OrbitReseed.TryFromRecordedTailPair(
                         reseeded,
                         body,
-                        candidate.latitude,
-                        candidate.longitude,
-                        candidate.altitude,
-                        recordedVelocity,
-                        candidate.ut);
+                        previousFrame,
+                        candidate,
+                        out RecordedTailVelocityResolution resolution);
+                    seed.VelocityWasRotatingFrame = resolution.SampleWasRotatingFrame;
+                    seed.VelocityFrameYawDegrees = resolution.YawDegrees;
+                    seed.VelocityFrameResidual = resolution.Residual;
+                    seed.RecordedSpeed = resolution.RecordedSpeed;
+                    seed.InertialSpeed = pairResolved
+                        ? resolution.InertialVelocityYup.magnitude
+                        : double.NaN;
+                    if (!pairResolved)
+                    {
+                        seed.DeclineReason = resolution.DeclineReason ?? RecordedTailVelocityResolver.DeclineNoFit;
+                        return false;
+                    }
                 }
 
                 if (!IsFiniteOrbitSeedElements(reseeded))
@@ -246,8 +286,34 @@ namespace Parsek
             out TrajectoryPoint frame,
             out string frameSource)
         {
+            return TryFindLatestCoastTrajectoryFrame(
+                traj,
+                bodyName,
+                out frame,
+                out frameSource,
+                out _,
+                out _);
+        }
+
+        /// <summary>
+        /// The latest valid coast frame on <paramref name="bodyName"/>, plus the valid
+        /// frame before it in the SAME frames list (same section and frame source, so no
+        /// section boundary or scene seam sits between them), when one exists. A pair that
+        /// straddles a rotating-frame flip inside the section fits neither velocity frame
+        /// and is declined by <see cref="RecordedTailVelocityResolver.TryResolve"/>.
+        /// </summary>
+        internal static bool TryFindLatestCoastTrajectoryFrame(
+            IPlaybackTrajectory traj,
+            string bodyName,
+            out TrajectoryPoint frame,
+            out string frameSource,
+            out bool hasPrevious,
+            out TrajectoryPoint previous)
+        {
             frame = default(TrajectoryPoint);
             frameSource = null;
+            hasPrevious = false;
+            previous = default(TrajectoryPoint);
             if (traj?.TrackSections == null || string.IsNullOrEmpty(bodyName))
                 return false;
 
@@ -265,31 +331,45 @@ namespace Parsek
                 for (int i = framesList.Count - 1; i >= 0; i--)
                 {
                     TrajectoryPoint candidate = framesList[i];
-                    if (string.IsNullOrEmpty(candidate.bodyName)
-                        || !string.Equals(candidate.bodyName, bodyName, StringComparison.Ordinal))
-                    {
+                    if (!IsUsableCoastFrame(candidate, bodyName))
                         continue;
-                    }
-
-                    if (!IsFinite(candidate.ut)
-                        || !IsFinite(candidate.latitude)
-                        || !IsFinite(candidate.longitude)
-                        || !IsFinite(candidate.altitude)
-                        || !IsFinite(new Vector3d(
-                            candidate.velocity.x,
-                            candidate.velocity.y,
-                            candidate.velocity.z)))
-                    {
-                        continue;
-                    }
 
                     frame = candidate;
                     frameSource = source;
+                    for (int j = i - 1; j >= 0; j--)
+                    {
+                        TrajectoryPoint earlier = framesList[j];
+                        if (IsUsableCoastFrame(earlier, bodyName) && earlier.ut < candidate.ut)
+                        {
+                            previous = earlier;
+                            hasPrevious = true;
+                            break;
+                        }
+                    }
+
                     return true;
                 }
             }
 
             return false;
+        }
+
+        private static bool IsUsableCoastFrame(TrajectoryPoint candidate, string bodyName)
+        {
+            if (string.IsNullOrEmpty(candidate.bodyName)
+                || !string.Equals(candidate.bodyName, bodyName, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return IsFinite(candidate.ut)
+                && IsFinite(candidate.latitude)
+                && IsFinite(candidate.longitude)
+                && IsFinite(candidate.altitude)
+                && IsFinite(new Vector3d(
+                    candidate.velocity.x,
+                    candidate.velocity.y,
+                    candidate.velocity.z));
         }
 
         internal static double ResolveLatestStoredOrbitSegmentEndUT(
