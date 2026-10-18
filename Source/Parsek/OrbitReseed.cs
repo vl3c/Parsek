@@ -319,7 +319,7 @@ namespace Parsek
                 tailPos,
                 tail.ut,
                 new Vector3d(tail.velocity.x, tail.velocity.y, tail.velocity.z),
-                body.rotationPeriod,
+                body.rotates ? body.rotationPeriod : double.NaN,
                 altitudeRuleRotating,
                 out resolution);
 

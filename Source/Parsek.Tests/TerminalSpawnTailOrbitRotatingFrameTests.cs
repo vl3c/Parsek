@@ -146,7 +146,13 @@ namespace Parsek.Tests
 
             Vector3d spinBf = OrbitReseed.ComputeRotatingFrameVelocityYup(posBf, KerbinRotationPeriod);
             Vector3d surfaceBf = inertialBf - spinBf;
-            Vector3d previousBf = posBf - surfaceBf * 1.0;
+            // One second earlier: a surface-relative tail moves on a straight body-fixed
+            // line; an inertial one on a straight inertial line, which in body-fixed axes at
+            // the earlier UT sits Omega*dt further round.
+            Vector3d previousBf = recordedInRotatingFrame
+                ? posBf - surfaceBf * 1.0
+                : RecordedTailVelocityResolver.RotateAboutY(posBf - inertialBf * 1.0,
+                    RecordedTailVelocityResolver.InertialYawDriftRadians(KerbinRotationPeriod, 1.0));
             Vector3d recordedBf = recordedInRotatingFrame ? surfaceBf : inertialBf;
             Vector3d recorded = RecordedTailVelocityResolver.RotateAboutY(
                 recordedBf, -recordYawDegrees * Math.PI / 180.0);
@@ -164,6 +170,52 @@ namespace Parsek.Tests
             Vector3d expected = RecordedTailVelocityResolver.RotateAboutY(inertialBf, spawnYaw);
             Assert.InRange((res.InertialVelocityYup - expected).magnitude, 0.0, 0.5);
             Assert.InRange(Math.Abs(r - tailPos.magnitude), 0.0, 1e-6);
+        }
+
+        [Theory]
+        [InlineData(0.0, 0.0)]
+        [InlineData(64.0, -150.0)]
+        public void SyntheticInertialTail_CarriesTheYawFromTheMidpointToTheTail(
+            double recordYawDegrees, double spawnYawDegrees)
+        {
+            // A 30 s pair (the longest accepted): the body turns 0.5 deg under the
+            // straight inertial path, so a midpoint yaw applied to the tail is ~9.6 m/s off.
+            const double dt = 30.0;
+            Vector3d posBf = BodyFixed(-8.0, 110.0, 101000.0);
+            Vector3d radialBf = posBf.normalized;
+            Vector3d eastBf = Vector3d.Cross(new Vector3d(0, 1, 0), radialBf).normalized * -1.0;
+            Vector3d northBf = Vector3d.Cross(radialBf, eastBf).normalized;
+            // Inertial velocity at the tail, in body-fixed axes at the tail UT.
+            Vector3d inertialBf = eastBf * 2150.0 - northBf * 600.0 + radialBf * 20.0;
+
+            // The previous sample is dt earlier on the same straight inertial path; in
+            // body-fixed axes at ITS UT an inertial vector sits Omega*dt further round.
+            double drift = RecordedTailVelocityResolver.InertialYawDriftRadians(KerbinRotationPeriod, dt);
+            Vector3d previousBf = RecordedTailVelocityResolver.RotateAboutY(posBf - inertialBf * dt, drift);
+
+            // Recorded in inertial world axes at the record session's yaw: one vector.
+            Vector3d recorded = RecordedTailVelocityResolver.RotateAboutY(
+                inertialBf, -recordYawDegrees * Math.PI / 180.0);
+
+            double spawnYaw = spawnYawDegrees * Math.PI / 180.0;
+            Assert.True(RecordedTailVelocityResolver.TryResolve(
+                RecordedTailVelocityResolver.RotateAboutY(previousBf, spawnYaw), 100.0, recorded,
+                RecordedTailVelocityResolver.RotateAboutY(posBf, spawnYaw), 100.0 + dt, recorded,
+                KerbinRotationPeriod, preferRotatingOnTie: false, out RecordedTailVelocityResolution res),
+                res.DeclineReason);
+            Assert.False(res.SampleWasRotatingFrame);
+
+            Vector3d expected = RecordedTailVelocityResolver.RotateAboutY(inertialBf, spawnYaw);
+            Assert.InRange((res.InertialVelocityYup - expected).magnitude, 0.0, 1.0);
+        }
+
+        [Fact]
+        public void InertialYawDrift_IsZeroForANonRotatingFrame()
+        {
+            Assert.Equal(0.0, RecordedTailVelocityResolver.InertialYawDriftRadians(double.NaN, 30.0));
+            Assert.Equal(0.0, RecordedTailVelocityResolver.InertialYawDriftRadians(0.0, 30.0));
+            Assert.Equal(2.0 * Math.PI * 30.0 / KerbinRotationPeriod,
+                RecordedTailVelocityResolver.InertialYawDriftRadians(KerbinRotationPeriod, 30.0), 12);
         }
 
         // ---------- declines ----------

@@ -48,8 +48,8 @@ namespace Parsek
     /// are kept exactly) and, for a rotating sample, the frame velocity at the tail added.
     ///
     /// Bounds: the chord approximates the midpoint velocity to O(dt^2) (0.1 m/s at 3 s in
-    /// low Kerbin orbit); for an inertial sample the yaw drifts by the body rotation over
-    /// half the pair gap (0.025 deg at 3 s). Measured on LAB-7's recorded tail (run
+    /// low Kerbin orbit); an inertial sample's fitted yaw is carried from the midpoint to the
+    /// tail by the body rotation over half the pair gap (0.025 deg at 3 s). Measured on LAB-7's recorded tail (run
     /// 2026-10-18_0026): rotating residual 0.014 m/s against 202 m/s for the wrong
     /// hypothesis, sma 699737.9 / ecc 0.0103 against stock's 699745.8 / 0.0104.
     /// </summary>
@@ -137,7 +137,11 @@ namespace Parsek
                 chooseRotating = rotatingOk;
             }
 
-            double yaw = chooseRotating ? rotatingYaw : inertialYaw;
+            // The fit aligns the midpoint; an inertial vector's azimuth in body-fixed axes
+            // falls at the spin rate, so the tail's own yaw is half a pair gap further on.
+            double yaw = chooseRotating
+                ? rotatingYaw
+                : inertialYaw - InertialYawDriftRadians(rotationPeriod, dt * 0.5);
             result.SampleWasRotatingFrame = chooseRotating;
             result.YawDegrees = WrapDegrees(yaw * (180.0 / Math.PI));
             result.Residual = chooseRotating ? rotatingResidual : inertialResidual;
@@ -157,6 +161,19 @@ namespace Parsek
                 : tailInRebuildFrame;
             result.Resolved = true;
             return true;
+        }
+
+        /// <summary>
+        /// Pure: the azimuth (about +Y, the <see cref="RotateAboutY"/> sense) a body-fixed point
+        /// gains over <paramref name="seconds"/> of spin, the sense of
+        /// <see cref="OrbitReseed.ComputeRotatingFrameVelocityYup"/>; 0 for a non-rotating
+        /// frame (non-finite or zero period).
+        /// </summary>
+        internal static double InertialYawDriftRadians(double rotationPeriod, double seconds)
+        {
+            if (!IsFinite(rotationPeriod) || Math.Abs(rotationPeriod) <= double.Epsilon || !IsFinite(seconds))
+                return 0.0;
+            return 2.0 * Math.PI / rotationPeriod * seconds;
         }
 
         /// <summary>
