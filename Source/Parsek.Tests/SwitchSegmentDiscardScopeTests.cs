@@ -815,6 +815,103 @@ namespace Parsek.Tests
             Assert.Null(scenario.ActiveSwitchSegmentSession);
         }
 
+        // Fails if: the committed-restore-clone branch clears the restore attempt
+        // WITHOUT purging its same-id post-cutoff event tails (the bare clear). The
+        // segment-subtree purge above only covers the owned segment ids
+        // (rec_clone_seg), never the resumed committed parent's recordings, so a
+        // post-cutoff tail tagged to the committed parent survives every other purge
+        // in this path and, once the clear lifts the suppression, becomes durable on
+        // the next save. The kept pre-cutoff tail proves the purge is cutoff-scoped
+        // and is also the purge-BEFORE-clear ordering witness (a clear first would
+        // null the cutoff map and purge nothing).
+        [Fact]
+        public void Discard_CommittedRestoreClone_PurgesAttemptPostCutoffEventTails_BeforeClear()
+        {
+            string committedTreeId = "tree_committed";
+
+            var committedParent = MakeRecording("rec_committed_parent", committedTreeId,
+                vesselName: "Committed Parent");
+            var committedTree = MakeTree(committedTreeId,
+                activeRecordingId: committedParent.RecordingId, committedParent);
+            RecordingStore.AddCommittedInternal(committedParent);
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+
+            RecordingStore.ArmCommittedTreeRestoreAttempt(committedTree, "test-arm");
+            Assert.True(RecordingStore.HasCommittedTreeRestoreAttempt);
+
+            var postCutoff = new GameStateEvent
+            {
+                ut = 250.0,
+                eventType = GameStateEventType.TechResearched,
+                key = "attempt-tail-post",
+                detail = "",
+                recordingId = "rec_committed_parent",
+            };
+            GameStateStore.AddEvent(ref postCutoff);
+            var preCutoff = new GameStateEvent
+            {
+                ut = 150.0,
+                eventType = GameStateEventType.TechResearched,
+                key = "attempt-tail-pre",
+                detail = "",
+                recordingId = "rec_committed_parent",
+            };
+            GameStateStore.AddEvent(ref preCutoff);
+            Assert.True(
+                RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
+                    postCutoff));
+            Assert.False(
+                RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
+                    preCutoff));
+
+            // Clone tree with the same id, an in-place mutated parent (clone copy of
+            // committedParent) and a marker-owned segment under it.
+            var scenario = new ParsekScenario();
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            Guid sessionId = Guid.NewGuid();
+            string sessionIdStr = SessionIdString(sessionId);
+            string bpId = "bp_clone_seg";
+
+            var cloneParent = MakeRecording("rec_committed_parent", committedTreeId,
+                childBranchPointId: bpId, vesselName: "Committed Parent");
+            var cloneSegment = MakeRecording("rec_clone_seg", committedTreeId,
+                switchSegmentSessionId: sessionIdStr,
+                parentBranchPointId: bpId, vesselName: "Probe Alpha");
+            var cloneTree = MakeTree(committedTreeId,
+                activeRecordingId: cloneSegment.RecordingId, cloneParent, cloneSegment);
+            cloneTree.BranchPoints.Add(MakeBranchPoint(
+                bpId, cloneParent.RecordingId, cloneSegment.RecordingId));
+            RecordingStore.StashPendingTree(cloneTree);
+
+            var session = new SwitchSegmentSession
+            {
+                SessionId = sessionId,
+                IntentId = Guid.NewGuid(),
+                EntryReason = SwitchSegmentEntryReason.MapSwitchTo,
+                TreeId = committedTreeId,
+                CommittedTreeId = committedTreeId,
+                ParentRecordingId = cloneParent.RecordingId,
+                ActiveSegmentRecordingId = cloneSegment.RecordingId,
+                SwitchUT = 150.0,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            scenario.ArmSwitchSegmentSession(session);
+
+            string reason;
+            var disposition =
+                RecordingStore.TryDiscardActiveSwitchSegmentAttempt(out reason);
+
+            Assert.Equal(
+                RecordingStore.SwitchSegmentDiscardDisposition.CommittedRestoreClone,
+                disposition);
+            Assert.False(RecordingStore.HasCommittedTreeRestoreAttempt);
+            Assert.DoesNotContain(GameStateStore.Events,
+                e => e.key == "attempt-tail-post");
+            Assert.Contains(GameStateStore.Events,
+                e => e.key == "attempt-tail-pre");
+        }
+
         // Fails if: IsCommittedTreeRestoreAttemptTree (the guard the in-flight
         // revert-clone teardown uses to detect a live committed clone before the
         // scoped discard clears the attempt) does not track the armed tree id, or

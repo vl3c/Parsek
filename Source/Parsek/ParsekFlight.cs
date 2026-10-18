@@ -3027,17 +3027,21 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Reverts a no-op no-session committed-restore resume: clears the
-        /// committed-tree restore attempt and tears the live clone down via
-        /// <see cref="AutoDiscardActiveTreeCore"/> (in-memory only — deletes no
+        /// Reverts a no-op no-session committed-restore resume: discards the
+        /// committed-tree restore attempt (purging its same-id post-cutoff event
+        /// tails, then clearing it, so the clone's suppressed events cannot become
+        /// durable after the clear) and tears the live clone down via
+        /// <see cref="AutoDiscardActiveTreeCore"/> (in-memory only - deletes no
         /// files, never touches <c>committedTrees</c>), so the committed original
         /// survives and the clone is never serialized active. The session path's
-        /// restore-attempt clear is done by the scoped discard; here there is no
-        /// session/segment to scoped-discard, so the clear is explicit.
+        /// restore-attempt discard is done by the scoped discard; here there is no
+        /// session/segment to scoped-discard, so it is explicit. After this call
+        /// the drop-site clear in AutoDiscardActiveTreeCore no-ops (the attempt is
+        /// already gone).
         /// </summary>
         internal void AutoDiscardNoOpNoSessionCommittedResume(string reason)
         {
-            RecordingStore.ClearCommittedTreeRestoreAttempt(
+            RecordingStore.DiscardCommittedTreeRestoreAttempt(
                 "noop-no-session-committed-resume-revert");
             AutoDiscardActiveTreeWithMessage(
                 reason: reason,
@@ -3125,9 +3129,11 @@ namespace Parsek
             // drops them while the recalc below would re-list an externally-accepted
             // contract as active (KSP keeps it finished -> dual-listing + duplicate
             // reward). Re-home the irreversible bits to the direct ledger first. Collect
-            // ids BEFORE activeTree is nulled. This core does not purge the store events
-            // (pre-existing orphan behavior, left unchanged); the direct ledger actions
-            // are the truth and the orphaned tagged events are not recalc inputs.
+            // ids BEFORE activeTree is nulled. This core does not purge the tree's own
+            // store events (orphans; the direct ledger actions are the truth and the
+            // orphaned tagged events are not recalc inputs). The one purge here is the
+            // drop-site clear below, which removes a committed-restore attempt's same-id
+            // post-cutoff tails only.
             if (activeTree?.Recordings != null && activeTree.Recordings.Count > 0)
             {
                 var rehomeIds = new HashSet<string>(StringComparer.Ordinal);
@@ -3176,6 +3182,17 @@ namespace Parsek
                 Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
                 backgroundRecorder = null;
             }
+
+            // This teardown drops the tree WITHOUT stashing it as pending, so its armed
+            // committed-tree restore attempt must go with it: while the attempt outlives
+            // its clone every OnSave defers the pending-event milestone flush, and its
+            // same-id post-cutoff event tails must be purged with it or they become
+            // durable on the next save. The helper purges first, then clears, and is
+            // id-matched: it no-ops when a caller already discarded the attempt (the
+            // no-op revert, the switch-segment discard, the pre-switch dialog discard)
+            // or when the tree is another attempt's clone.
+            RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+                activeTree?.Id, "auto-discard dropped the restore clone");
             activeTree = null;
 
             // A discarded active tree must not leave an armed switch-segment
@@ -3396,6 +3413,11 @@ namespace Parsek
                 backgroundRecorder = null;
             }
 
+            // Discarded without a pending stash, so the armed committed-tree restore
+            // attempt must be cleared with the tree (id-matched, reads the id before the
+            // null below): a stale attempt keeps deferring the OnSave milestone flush.
+            RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+                activeTree?.Id, "suppressed scene exit dropped the restore clone");
             activeTree = null;
             if (logRecorderState)
                 RecorderStateLog.RecState("FinalizeTreeOnSceneChange:suppressed-post", CaptureRecorderState());
@@ -7410,10 +7432,22 @@ namespace Parsek
                         $"Vessel destroyed during split — idle on pad (maxDist={maxDist:F1}m), discarding");
                     return;
                 }
-                if (discardReason == null && !HasPadEvidence(rec))
+                if (discardReason == null)
                 {
+                    // Log WHY this destroyed recording commits, once, from values the
+                    // decision already produced: HasPadEvidence is the decision's own
+                    // gate (no thresholds recomputed here), so evidence with a null
+                    // decision means the thresholds did not match.
+                    bool hasPadEvidence = HasPadEvidence(rec);
+                    string commitWhy = hasPadEvidence
+                        ? "outside pad thresholds - committing"
+                        : "no pad evidence - committing";
+                    string commitReason = hasPadEvidence
+                        ? "outside-pad-thresholds"
+                        : "no-pad-evidence";
                     ParsekLog.Info("Flight",
-                        $"Vessel destroyed during split - {rec.RecordingId} ({dur:F1}s, {maxDist:F0}m) no pad evidence - committing");
+                        $"Vessel destroyed during split - {rec.RecordingId} ({dur:F1}s, {maxDist:F0}m) " +
+                        $"{commitWhy} reason={commitReason}");
                 }
             }
 
@@ -14275,6 +14309,13 @@ namespace Parsek
                     backgroundRecorder.Shutdown();
                     Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
                     backgroundRecorder = null;
+                    // The failed start drops this tree (the single-node tree created
+                    // above, or a pre-existing one-recording tree) without stashing it as
+                    // pending, so its armed committed-tree restore attempt must be
+                    // cleared with it; the clear is id-matched and reads the id here,
+                    // before the null.
+                    RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+                        activeTree?.Id, "start-recording cleanup dropped the restore clone");
                     activeTree = null;
                     ParsekLog.Info("Flight", "Cleaned up single-node tree after StartRecording failure");
                 }

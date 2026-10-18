@@ -161,11 +161,78 @@ namespace Parsek.Tests
         [Fact]
         public void FallbackCommitSplitRecorder_DecisionReadsTheRecordingAndKeepsTheNoEvidenceLog()
         {
+            string body = ReadFallbackCommitSplitRecorderBody();
+
+            // Pin the argument that matters: the decision reads THIS branch's recording.
+            Assert.Contains("string discardReason = DecideDestroyedSplitRecordingDiscard(rec);", body);
+            Assert.Contains("no pad evidence - committing", body);
+        }
+
+        // The commit line names the ACTUAL decision for every non-discarded destroyed
+        // recording: the decision returned null either because the recording shows no pad
+        // evidence or because the thresholds did not match, and the log says which.
+        [Fact]
+        public void FallbackCommitSplitRecorder_LogsTheCommitReasonForEveryNonDiscardedDestroyedRecording()
+        {
+            string body = ReadFallbackCommitSplitRecorderBody();
+
+            // One Info line for every destroyed recording that is NOT discarded: the block
+            // is gated on the decision alone, never on re-testing the evidence/thresholds.
+            Assert.Contains("if (discardReason == null)\n", body);
+            Assert.Contains("bool hasPadEvidence = HasPadEvidence(rec);", body);
+            // Both outcomes are named on that line: the exact reason tokens and the
+            // reason= key they are logged under, plus the no-evidence wording the spec
+            // pins for its case.
+            Assert.Contains("reason={commitReason}", body);
+            Assert.Contains("\"no-pad-evidence\"", body);
+            Assert.Contains("\"outside-pad-thresholds\"", body);
+            Assert.Contains("no pad evidence - committing", body);
+            Assert.Contains("outside pad thresholds - committing", body);
+
+            // Pin WHICH branch carries WHICH literal: the tokens above all being present
+            // would stay green if the two ternaries swapped their branches, logging
+            // "outside-pad-thresholds" for a recording with no pad evidence and vice
+            // versa. In source the true branch (?) is written first in each ternary, so
+            // index order inside the span pins the association: condition < true literal
+            // < false literal, for the human wording and the reason token alike.
+            int whyCond = body.IndexOf(
+                "string commitWhy = hasPadEvidence", StringComparison.Ordinal);
+            int whyTrue = body.IndexOf(
+                "\"outside pad thresholds - committing\"", StringComparison.Ordinal);
+            int whyFalse = body.IndexOf(
+                "\"no pad evidence - committing\"", StringComparison.Ordinal);
+            int reasonCond = body.IndexOf(
+                "string commitReason = hasPadEvidence", StringComparison.Ordinal);
+            int reasonTrue = body.IndexOf(
+                "\"outside-pad-thresholds\"", StringComparison.Ordinal);
+            int reasonFalse = body.IndexOf(
+                "\"no-pad-evidence\"", StringComparison.Ordinal);
+            Assert.True(
+                whyCond >= 0 && whyTrue >= 0 && whyFalse >= 0
+                && reasonCond >= 0 && reasonTrue >= 0 && reasonFalse >= 0,
+                "one of the commit-reason ternaries is gone or renamed - update this gate.");
+            Assert.True(whyCond < whyTrue && whyTrue < whyFalse,
+                "commitWhy no longer reads `hasPadEvidence ? outside : no evidence` - a " +
+                "swapped branch would log the wrong wording for the recording.");
+            Assert.True(reasonCond < reasonTrue && reasonTrue < reasonFalse,
+                "commitReason no longer reads `hasPadEvidence ? outside : no evidence` - a " +
+                "swapped branch would log the wrong reason= token for the recording.");
+        }
+
+        /// <summary>
+        /// Reads the live FallbackCommitSplitRecorder span out of ParsekFlight.cs
+        /// (same walk as the cell above): declaration through the next method. Comments
+        /// are stripped first so a needle that also appears in a comment (the guard the
+        /// comment documents repeats its words) cannot satisfy these gates; string
+        /// literals survive whole, which the literal assertions rely on.
+        /// </summary>
+        private static string ReadFallbackCommitSplitRecorderBody()
+        {
             string projectRoot = Path.GetFullPath(
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
-            string source = File.ReadAllText(
-                Path.Combine(projectRoot, "Source", "Parsek", "ParsekFlight.cs"))
+            string source = SourceScanText.StripCSharpComments(File.ReadAllText(
+                    Path.Combine(projectRoot, "Source", "Parsek", "ParsekFlight.cs")))
                 .Replace("\r\n", "\n");
 
             int start = source.IndexOf("void FallbackCommitSplitRecorder(FlightRecorder splitRec)\n",
@@ -173,11 +240,7 @@ namespace Parsek.Tests
             Assert.True(start >= 0, "FallbackCommitSplitRecorder declaration not found");
             int end = source.IndexOf("void ResumeSplitRecorder(", start, StringComparison.Ordinal);
             Assert.True(end > start, "FallbackCommitSplitRecorder end marker not found");
-            string body = source.Substring(start, end - start);
-
-            // Pin the argument that matters: the decision reads THIS branch's recording.
-            Assert.Contains("string discardReason = DecideDestroyedSplitRecordingDiscard(rec);", body);
-            Assert.Contains("no pad evidence - committing", body);
+            return source.Substring(start, end - start);
         }
     }
 }
