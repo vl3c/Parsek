@@ -35,6 +35,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Starting a flight no longer leaves a stale restore marker behind.** If the flight-ready
+  reset dropped a restored tree, its restore marker stayed armed afterwards and could hold
+  back recorded events on later saves until another restore replaced it. It is now cleared
+  with the tree. (RESET-FLIGHT-READY-STATE-LEAVES-RESTORE-ATTEMPT-ARMED)
 - **A vessel in a low orbit now reappears at the end of its recording.** A ship orbiting Kerbin
   below about 100 km, whose recording ended there, was judged to be falling into the atmosphere
   when time reached the recording's end (worse after a reload), so its ghost vanished and the real

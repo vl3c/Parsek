@@ -13089,7 +13089,11 @@ namespace Parsek
                 backgroundRecorder = null;
             }
 
-            // Clear tree state on flight ready (revert resets everything)
+            // Clear tree state on flight ready (revert resets everything). When this tree
+            // is the armed committed-restore attempt's clone (same tree id), the attempt is
+            // cleared with it, so no stale attempt outlives the tree it guarded.
+            RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+                activeTree?.Id, "flight-ready reset dropped the restore clone");
             activeTree = null;
 
             // Clear split event detection state
