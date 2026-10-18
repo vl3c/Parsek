@@ -1779,6 +1779,114 @@ namespace Parsek.Tests
                 l.Contains("deletedFiles=1"));
         }
 
+        /// <summary>
+        /// PR #2140 review: PreSessionBranchPointIds is snapshot from the instance the marker
+        /// write found (usually the committed original), while the prune now walks the live
+        /// clone. A branch point the clone kept and the original lost reads as session-authored;
+        /// its child is committed history and must not be adopted (removed, purged, sidecars
+        /// deleted). A genuine NotCommitted attempt child of a session branch point still is.
+        /// </summary>
+        [Fact]
+        public void PruneAttempt_LiveClone_NonBaselineBranchPointChildInCommittedHistory_IsKept()
+        {
+            const string treeId = "tree-guard";
+            const string sessionId = "sess-guard";
+            const string rpId = "rp_guard";
+            const string originId = "rec-guard-origin";
+            const string forkId = "rec-guard-fork";
+            const string historyChildId = "rec-guard-history-child";
+            const string attemptDebrisId = "rec-guard-attempt-debris";
+
+            var committedOrigin = new Recording
+            {
+                RecordingId = originId, TreeId = treeId,
+                MergeState = MergeState.Immutable, VesselName = "Lab",
+            };
+            var committedHistoryChild = new Recording
+            {
+                RecordingId = historyChildId, TreeId = treeId,
+                MergeState = MergeState.Immutable, VesselName = "Tender",
+            };
+            var committedTree = new RecordingTree
+            {
+                Id = treeId, TreeName = treeId, RootRecordingId = originId,
+                ActiveRecordingId = originId,
+            };
+            committedTree.AddOrReplaceRecording(committedOrigin);
+            committedTree.AddOrReplaceRecording(committedHistoryChild);
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            RecordingStore.AddCommittedInternal(committedOrigin);
+            RecordingStore.AddCommittedInternal(committedHistoryChild);
+
+            var fork = new Recording
+            {
+                RecordingId = forkId, TreeId = treeId,
+                MergeState = MergeState.NotCommitted, CreatingSessionId = sessionId,
+                ProvisionalForRpId = rpId, SupersedeTargetId = originId, VesselName = "Lab",
+            };
+            var attemptDebris = new Recording
+            {
+                RecordingId = attemptDebrisId, TreeId = treeId,
+                MergeState = MergeState.NotCommitted, ParentBranchPointId = "bp-session",
+            };
+            var liveClone = new RecordingTree
+            {
+                Id = treeId, TreeName = treeId, RootRecordingId = originId,
+                ActiveRecordingId = forkId,
+            };
+            liveClone.AddOrReplaceRecording(new Recording
+            {
+                RecordingId = originId, TreeId = treeId, MergeState = MergeState.Immutable,
+            });
+            liveClone.AddOrReplaceRecording(new Recording
+            {
+                RecordingId = historyChildId, TreeId = treeId, MergeState = MergeState.Immutable,
+            });
+            liveClone.AddOrReplaceRecording(fork);
+            liveClone.AddOrReplaceRecording(attemptDebris);
+            // The clone kept bp-lost-by-original; the baseline (from the original) lacks it.
+            liveClone.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-lost-by-original", UT = 50.0, Type = BranchPointType.JointBreak,
+                ParentRecordingIds = new List<string> { originId },
+                ChildRecordingIds = new List<string> { historyChildId },
+            });
+            liveClone.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-session", UT = 80.0, Type = BranchPointType.JointBreak,
+                ParentRecordingIds = new List<string> { forkId },
+                ChildRecordingIds = new List<string> { attemptDebrisId },
+            });
+            RecordingStore.AddProvisional(fork);
+
+            var marker = MakeMarker(
+                sessionId: sessionId, treeId: treeId, rpId: rpId,
+                originId: originId, activeReFlyRecordingId: forkId);
+            marker.SupersedeTargetId = originId;
+            marker.InPlaceContinuation = true;
+            marker.PreSessionBranchPointIds = new List<string>();
+
+            Assert.True(MergeDialog.IsCommittedHistoryRecordingId(historyChildId));
+            Assert.False(MergeDialog.IsCommittedHistoryRecordingId(forkId));
+            Assert.False(MergeDialog.IsCommittedHistoryRecordingId(attemptDebrisId));
+
+            var summary = MergeDialog.PruneActiveReFlyAttemptOwnedTopology(
+                marker, "RevertInterceptor:DiscardReFly", liveClone);
+
+            Assert.Same(liveClone, summary.Tree);
+            Assert.DoesNotContain(historyChildId, summary.AttemptIds);
+            Assert.Contains(forkId, summary.AttemptIds);
+            Assert.Contains(attemptDebrisId, summary.AttemptIds);
+            Assert.Equal(2, summary.DeletedFiles);
+            Assert.Contains(RecordingStore.CommittedRecordings, r => r?.RecordingId == historyChildId);
+            Assert.True(committedTree.Recordings.ContainsKey(historyChildId));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]") &&
+                l.Contains("kept rec=" + historyChildId + " out of the attempt discard") &&
+                l.Contains("bp=bp-lost-by-original"));
+            Assert.Contains(logLines, l => l.Contains("skippedCommittedHistory=1"));
+        }
+
         [Fact]
         public void ResolveReFlyAttemptTree_PrefersTheInstanceThatHoldsTheFork()
         {

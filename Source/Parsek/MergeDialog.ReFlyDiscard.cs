@@ -871,6 +871,7 @@ namespace Parsek
             int adopted = 0;
             var skippedOtherSession = new HashSet<string>(System.StringComparer.Ordinal);
             var skippedNotHeld = new HashSet<string>(System.StringComparer.Ordinal);
+            var skippedCommittedHistory = new HashSet<string>(System.StringComparer.Ordinal);
             // One pass suffices outside a resume: every non-pre-session branch point is the
             // session's, chained breakups included. On a resume a branch point may qualify only
             // once a parent joined the set, so the walk repeats until nothing is added.
@@ -918,6 +919,26 @@ namespace Parsek
                             skippedOtherSession.Add(childId);
                             continue;
                         }
+                        // The baseline (PreSessionBranchPointIds) was snapshot from the tree
+                        // instance the marker write found, usually the committed original, while
+                        // the prune may walk the live clone (ResolveReFlyAttemptTree). A branch
+                        // point the clone kept and the original lost (optimizer, splitter) then
+                        // reads as session-authored, and its children are committed history,
+                        // not attempt debris. Outside a resume every genuine attempt recording
+                        // is NotCommitted, so a child committed history holds is never adopted:
+                        // the discard would remove it, purge its events and delete its sidecars.
+                        if (!resume && IsCommittedHistoryRecordingId(childId))
+                        {
+                            if (skippedCommittedHistory.Add(childId))
+                            {
+                                ParsekLog.Warn("MergeDialog",
+                                    $"AddSessionBranchPointDescendantAttemptIds: kept rec={childId} " +
+                                    $"out of the attempt discard - it is committed history (child of " +
+                                    $"non-baseline bp={bp.Id}, tree={tree.Id ?? "<none>"}, " +
+                                    $"sess={marker.SessionId ?? "<none>"}); its sidecars stay");
+                            }
+                            continue;
+                        }
 
                         ids.Add(childId);
                         adopted++;
@@ -927,7 +948,8 @@ namespace Parsek
                 }
             }
 
-            if (adopted > 0 || skippedOtherSession.Count > 0 || skippedNotHeld.Count > 0)
+            if (adopted > 0 || skippedOtherSession.Count > 0 || skippedNotHeld.Count > 0
+                || skippedCommittedHistory.Count > 0)
             {
                 ParsekLog.Info("MergeDialog",
                     $"AddSessionBranchPointDescendantAttemptIds: " +
@@ -935,8 +957,51 @@ namespace Parsek
                     $"linked to session-authored branch points " +
                     $"(tree={tree.Id ?? "<none>"}, sess={marker.SessionId ?? "<none>"}, " +
                     $"mode={(resume ? "resume" : "live")}, skippedOtherSession={skippedOtherSession.Count}, " +
-                    $"skippedBranchPointsNotHeld={skippedNotHeld.Count})");
+                    $"skippedBranchPointsNotHeld={skippedNotHeld.Count}, " +
+                    $"skippedCommittedHistory={skippedCommittedHistory.Count})");
             }
+        }
+
+        /// <summary>
+        /// True when committed history holds <paramref name="recordingId"/>: a recording with
+        /// that id in the committed list or in any committed tree whose merge state is not
+        /// <see cref="MergeState.NotCommitted"/> (a live Re-Fly fork attached to a committed
+        /// tree is NotCommitted and stays discardable).
+        /// </summary>
+        internal static bool IsCommittedHistoryRecordingId(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return false;
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed != null)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    var rec = committed[i];
+                    if (rec != null
+                        && rec.MergeState != MergeState.NotCommitted
+                        && string.Equals(rec.RecordingId, recordingId, System.StringComparison.Ordinal))
+                        return true;
+                }
+            }
+
+            var committedTrees = RecordingStore.CommittedTrees;
+            if (committedTrees != null)
+            {
+                for (int i = 0; i < committedTrees.Count; i++)
+                {
+                    var committedTree = committedTrees[i];
+                    if (committedTree == null || committedTree.Recordings == null)
+                        continue;
+                    if (committedTree.Recordings.TryGetValue(recordingId, out Recording rec)
+                        && rec != null
+                        && rec.MergeState != MergeState.NotCommitted)
+                        return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>

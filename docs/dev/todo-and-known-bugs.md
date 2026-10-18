@@ -94,6 +94,19 @@ the live tree`, verbose). `RevertInterceptor.DiscardReFlyHandler` passes
 `ReFlyRevertDialogTests.PruneAttempt_LiveCloneHoldsTheFork_PrunesTheCloneNotTheCommittedOriginal`,
 `ResolveReFlyAttemptTree_PrefersTheInstanceThatHoldsTheFork`.
 
+Guard (PR #2140 review): `marker.PreSessionBranchPointIds` is snapshot from the instance the
+marker write found (usually the committed original), while the prune can now walk the live clone,
+so a branch point the clone kept and the original lost (optimizer, splitter) would read as
+session-authored and its children, committed history, would be adopted: removed, purged and their
+sidecars deleted (the Esc rewind cancel, which already walked the live tree, had the same
+exposure). Outside a resume `AddSessionBranchPointDescendantAttemptIds` no longer adopts a child
+that committed history holds (`MergeDialog.IsCommittedHistoryRecordingId`: a non-NotCommitted
+recording with that id in the committed list or a committed tree), logging `kept rec=<id> out of
+the attempt discard - it is committed history (child of non-baseline bp=<id> ...)` (Warn) and
+`skippedCommittedHistory=N` on the summary. Cell:
+`ReFlyRevertDialogTests.PruneAttempt_LiveClone_NonBaselineBranchPointChildInCommittedHistory_IsKept`
+(red with the guard disabled).
+
 ## REFLY-SESSION-CAREER-SHOWS-THE-REPLACED-FLIGHTS-FUTURE: during a Re-Fly the career pools and the progress tree include the replaced flight's future earnings [FILED 2026-10-18 from harness lanes LAB-10 / LAB-10b (runs `2026-10-17_2337` / `_2341`). OPEN, owner question; behavior is the documented design]
 
 **What happens.** The Re-Fly invoke walks the whole ledger with no cutoff
