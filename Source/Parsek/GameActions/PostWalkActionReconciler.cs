@@ -561,6 +561,21 @@ namespace Parsek
         /// state - the matching capture IS in the store and IS hidden - and nothing wider:
         /// an action with no capture at all still WARNs.
         /// </para>
+        /// <para>
+        /// THIRD WAY: the capture was PRUNED while its recording was still visible, and the
+        /// recording left the timeline afterwards. <see cref="GameStateStore.PruneProcessedEvents"/>
+        /// removes visible events at or below the visible milestone watermark; once the
+        /// recording is session-suppressed, the milestone holding its events stops counting
+        /// toward <see cref="MilestoneStore.GetLatestCommittedEndUT"/>, the live threshold
+        /// drops below the row's UT, and the row looks in-coverage with nothing left to pair.
+        /// Measured on LAB-10-lab-refly-supersede (2026-10-17_2337): the superseded lab
+        /// recording's ScienceLabEarning WARNed (plus the ERROR dump) in the Re-Fly merge's
+        /// tree-commit walk, between the active tree being committed and the tombstone pass
+        /// retiring the row. <see cref="HasPrunedTimelineHiddenPostWalkCoverage"/> catches it:
+        /// recording outside the timeline, row UT at or below the highest committed milestone
+        /// EndUT counting hidden milestones (an upper bound on every prune threshold
+        /// applied), and no capture left at all, visible or hidden.
+        /// </para>
         /// </summary>
         private static bool IsOutsidePostWalkLiveCoverage(
             GameAction action,
@@ -590,6 +605,23 @@ namespace Parsek
                     "the observed reward leg is present but tagged to a recording outside " +
                     "the current timeline");
                 return true;
+            }
+
+            if (!IsActionRecordingVisibleToCurrentTimeline(action))
+            {
+                double committedWatermarkIncludingHidden =
+                    MilestoneStore.GetLatestCommittedEndUTIncludingHidden();
+                if (HasPrunedTimelineHiddenPostWalkCoverage(
+                        action, expectation, events, livePruneThreshold,
+                        committedWatermarkIncludingHidden))
+                {
+                    LogPostWalkLiveCoverageSkip(
+                        action,
+                        "its recording is outside the current timeline and its capture was " +
+                        "pruned at the committed milestone watermark=" +
+                        committedWatermarkIncludingHidden.ToString("F1", CultureInfo.InvariantCulture));
+                    return true;
+                }
             }
 
             GameStateEventType anchorType;
@@ -659,6 +691,70 @@ namespace Parsek
                        action, expectation.Rep, events, livePruneThreshold, actions, utCutoff) ||
                    HasTimelineHiddenPostWalkObservedEventForLeg(
                        action, expectation.Sci, events, livePruneThreshold, actions, utCutoff);
+        }
+
+        /// <summary>
+        /// True when the action's recording is outside the current timeline, its UT is at or
+        /// below <paramref name="committedWatermarkIncludingHidden"/> (so the store has had
+        /// the chance to prune its capture while the recording was visible), and NO capture
+        /// of it remains, neither a live one nor a hidden one of any amount. A hidden capture
+        /// still in the store belongs to <see cref="HasOnlyTimelineHiddenPostWalkCoverage"/>,
+        /// which also checks its amount; a row above the watermark, or on a visible recording,
+        /// takes the unchanged path and keeps its "missing earning channel" WARN.
+        /// </summary>
+        internal static bool HasPrunedTimelineHiddenPostWalkCoverage(
+            GameAction action,
+            PostWalkExpectation expectation,
+            IReadOnlyList<GameStateEvent> events,
+            double livePruneThreshold,
+            double committedWatermarkIncludingHidden)
+        {
+            if (action == null)
+                return false;
+            if (IsActionRecordingVisibleToCurrentTimeline(action))
+                return false;
+            if (action.UT > committedWatermarkIncludingHidden)
+                return false;
+            if (HasLivePostWalkObservedEvent(action, expectation, events, livePruneThreshold))
+                return false;
+
+            return !HasTimelineHiddenPostWalkCaptureForLeg(
+                       action, expectation.Funds, events, livePruneThreshold) &&
+                   !HasTimelineHiddenPostWalkCaptureForLeg(
+                       action, expectation.Rep, events, livePruneThreshold) &&
+                   !HasTimelineHiddenPostWalkCaptureForLeg(
+                       action, expectation.Sci, events, livePruneThreshold);
+        }
+
+        /// <summary>
+        /// True when any HIDDEN capture shaped like this leg's observed event is still in the
+        /// store, whatever its amount (the filters of
+        /// <see cref="HasTimelineHiddenPostWalkObservedEventForLeg"/> without its amount check).
+        /// </summary>
+        private static bool HasTimelineHiddenPostWalkCaptureForLeg(
+            GameAction action,
+            PostWalkLeg leg,
+            IReadOnlyList<GameStateEvent> events,
+            double livePruneThreshold)
+        {
+            if (action == null || !leg.Applies || events == null || events.Count == 0)
+                return false;
+
+            string expectedKey = leg.ReasonKey ?? "";
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (e.ut <= livePruneThreshold) continue;
+                if (GameStateStore.IsEventVisibleToCurrentTimeline(e)) continue;
+                if (e.eventType != leg.EventType) continue;
+                if (Math.Abs(e.ut - action.UT) > PostWalkReconcileEpsilonSeconds) continue;
+                if (!PostWalkEventMatchesAction(e, action)) continue;
+                if (!string.Equals(e.key ?? "", expectedKey, StringComparison.Ordinal))
+                    continue;
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>
