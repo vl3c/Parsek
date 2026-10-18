@@ -3,8 +3,31 @@ id = "LAB-10-lab-refly-supersede"
 tier = "operator"
 # THE SCIENCE-LAB PROGRAM, lane LAB-10 (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
 # "LAB-10 Re-Fly, supersede and Discard Re-fly", the MERGE half; the Discard Re-fly half is
-# LAB-10b). NEVER FLOWN: its first flight is a READING run, so it is `operator` and tagged
-# `pending-flight` until that run pins the measured values.
+# LAB-10b). Still `operator` / `pending-flight`: the reading run below found product defects.
+#
+# READING RUN `2026-10-17_2337` (automation DLL = main 9a483c4a5, PR #2138 included): PARSEK-FAIL
+# on three mismatches. Act A, the split, the RP, both transmits, the stash, the split at the
+# rewind UT, the retag, the tombstone (`Tombstoned 2 career actions (... Milestone=1 ...
+# Science=1 ...)`), the seal and the merge all matched; the recordings count was 4.
+#   (1) SPEC PREMISE, re-pinned: the pool after the rewind is NOT 100. The Re-Fly invoke walks
+#       the whole ledger with no cutoff (`RewindInvoker`: `RecalculateAndPatch(double.MaxValue)`,
+#       the design's "career state during this attempt stays as it is now"), so act A's credit
+#       at UT 2284.9 is still counted at UT 368: `PatchScience: 100.0 -> 112.5` before
+#       `Invocation complete`, and the replacement transmit lands on 125.0. The merge's
+#       tree-commit walk also counts both credits (125) until the tombstone pass. The 125
+#       forbiddens are scoped to after the tombstone; whether a Re-Fly should show the replaced
+#       flight's future is an owner question (todo REFLY-SESSION-CAREER-SHOWS-THE-REPLACED-
+#       FLIGHTS-FUTURE).
+#   (2) PRODUCT, kept red: the post-merge walk read `runningScience=113.5`, not 112.5. Parsek
+#       spawned the tender at the end of its recording 15 m from the lab, stock fired Rendezvous
+#       (no reward outside CAREER), and the AwardProgress postfix booked its nominal sci=1.0
+#       (todo MILESTONE-REWARDS-BOOKED-OUTSIDE-CAREER, PR #2140). The same defect printed the
+#       commit reconcile's `[ERROR] Science reconcile dump (commit)` (13.5 emitted vs 12.5).
+#   (3) PRODUCT, kept red: `[ERROR] Science reconcile dump (post-walk)` for act A's lab credit,
+#       compared against its already-pruned capture between CommitTree and the tombstone pass
+#       (todo REFLY-MERGE-RECONCILES-PRUNED-CAPTURE-OF-SUPERSEDED-ROW, PR #2140).
+# The required `End reason=merged ... runningScience=112.5` token and the `[ERROR]` forbidden
+# stay as written: both turn green only on a DLL carrying PR #2140.
 #
 # HOST: `lab-lko-seeded-transmit` (harness/tools/build_lab_lko_transmit.py): `lab-lko-science`
 # with 12.5 science in the lab. SCIENCE_SANDBOX, science 100, the LABX Orbital Lab (vessel
@@ -51,10 +74,11 @@ tier = "operator"
 #   precedent for a stable focus slot). The verdict must read `stashedStableLeaf`, NOT
 #   `recordingAction:...`: a lab payout is not a retry-blocking world action
 #   (`SupersedeCommit.IsRetryBlockingRecordingAction` is ScienceEarning-only). `InvokeRewind`
-#   (the Fly click) rewinds to the separation: the lab is back at 12.50 and the R&D pool at 100
-#   (the rewind point was saved before the first transmit). Rails-warp to the pass, transmit
-#   again: a second credit `+12.50` tagged to the Re-Fly's provisional (`rec_...`), stock's
-#   +12.5 landing on 112.5 again. Merge (`AnswerMergeDialog merge`).
+#   (the Fly click) rewinds to the separation: the lab is back at 12.50, and the R&D pool is
+#   patched from the rewind point's 100 to the committed career's 112.5 (the invoke walks the
+#   whole ledger, act A's future credit included). Rails-warp to the pass, transmit again: a
+#   second credit `+12.50` tagged to the Re-Fly's provisional (`rec_...`), stock's +12.5 landing
+#   on 125.0. Merge (`AnswerMergeDialog merge`).
 #   THE MERGE. The lab's recording spans the rewind UT, so the splitter cuts it into HEAD (kept)
 #   and TIP (superseded) and retags the first credit to TIP (`actionsRetagged=N`, N >= 1); the
 #   supersede rows go in; the tombstone pass retires the first credit
@@ -70,9 +94,9 @@ tier = "operator"
 # folding to one candidate (no lane has pressed this pair before; LAB-6 chose not to), the
 # split being the JointBreak / UNDOCK shape with the RP, the 16-S link inside the computed KSC
 # window, `runningScience=112.5` (no other science earning in the ledger; LAB-4 measured the
-# same value from the same base), the pool back at 100 after the rewind (`-> 112.5` on the
-# second gain), the recordings count 4 (lab, tender, the TIP the merge splits off, the Re-Fly's
-# own recording: RF-20's 5 + 2 shape with one EVA pair fewer).
+# same value from the same base), the recordings count 4 (lab, tender, the TIP the merge splits
+# off, the Re-Fly's own recording: RF-20's 5 + 2 shape with one EVA pair fewer). Measured on the
+# reading run: count 4, the invoke patch `100.0 -> 112.5`, the second gain `-> 125.0`.
 #
 # NOT HERE: LedgerGroundTruth (unproven in SCIENCE_SANDBOX); the Discard Re-fly half (LAB-10b).
 # `[expectations.ledger]` is refused next to InvokeRewind, so the ledger claim is carried by
@@ -237,13 +261,16 @@ required = [
   # --- ACT B: THE RE-FLY ---
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_[0-9a-f]{32} slot=0",
   "Invocation complete: sess=\\S+ rp=rp_[0-9a-f]{32} slot=0 activePid=2200110055",
+  # The invoke's full-ledger walk patches the rewind point's 100 to the committed career's 112.5
+  # (act A's credit is future at UT 368 but still counted: "career state stays as it is now").
+  "(?s)Re-Fly \\(Rewind-to-Separation\\) StartInvoke: (?:(?!Invocation complete: ).)*?\\[KspStatePatcher\\] PatchScience: 100\\.0 -> 112\\.5 \\(delta=12\\.5, target=112\\.5\\)(?:(?!Invocation complete: ).)*?Invocation complete: ",
   "recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true",
   # The rewind brings back the lab as it was at the separation (before the first transmit).
   "(?s)MISSIONMARK label=lab10-refly-start (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=0\\.00;",
   # The replacement transmit: 12.50 again, tagged to the Re-Fly's provisional, ...
   "(?s)MISSIONMARK label=lab10-refly-t-before (?:(?!MISSIONMARK label=lab10-refly-t-after ).)*?Game state: ScienceLabCredited \\+12\\.50 reason='ScienceTransmission' vessel='LABX Orbital Lab' ut=[0-9.]+ recordingId='rec_[0-9a-f]{32}'",
-  # ... and stock's gain lands on 112.5 again: the rewind put the pool back at 100.
-  "(?s)MISSIONMARK label=lab10-refly-t-before (?:(?!MISSIONMARK label=lab10-refly-t-after ).)*?Game state: ScienceChanged \\+12\\.5 \\(ScienceTransmission\\)[^0-9\\r\\n]+112\\.5(?![0-9])",
+  # ... and stock's gain lands on 125.0: the pool the rewind left was the committed 112.5.
+  "(?s)MISSIONMARK label=lab10-refly-t-before (?:(?!MISSIONMARK label=lab10-refly-t-after ).)*?Game state: ScienceChanged \\+12\\.5 \\(ScienceTransmission\\)[^0-9\\r\\n]+125(?:\\.0)?(?![0-9])",
   "(?s)MISSIONMARK label=lab10-refly-t-after (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.50 dataStored=0\\.00;",
   # --- THE MERGE ---
   # The lab's recording (the startrecording id) is split at the rewind UT; the first credit
@@ -293,9 +320,10 @@ forbidden = [
   "(?s)MISSIONMARK label=lab10-refly-t-after .*?Game state: ScienceLabCredited",
   # A merge never re-homes (that is the non-rewind discard path).
   "PreserveIrreversibleLiveGameplayOnDiscard \\([^)\\r\\n]*\\): re-homed",
-  # No walk ever counts both credits: 100 + 12.5 + 12.5.
-  "LabEarning: credit=[^\\r\\n]*runningScience=125, ",
-  "PatchScience: [^\\r\\n]*target=125\\.0\\)",
+  # From the tombstone on no walk counts both credits (100 + 12.5 + 12.5). Before it the
+  # session's pool and the merge's tree-commit walk do, by design (header, finding 1).
+  "(?s)Tombstoned [1-9][0-9]* career actions .*?LabEarning: credit=[^\\r\\n]*runningScience=125, ",
+  "(?s)Tombstoned [1-9][0-9]* career actions .*?PatchScience: [^\\r\\n]*target=125\\.0\\)",
   # Once tombstoned, the TIP's credit is walked no more ...
   "(?s)Split origin \\S+ at UT=[^\\r\\n]* TIP=(\\S+) \\[.*?tomb=[^\\r\\n]*type=ScienceLabEarning rec=\\1 [^\\r\\n]*\\r?\\n.*?LabEarning: credit=[^\\r\\n]*recordingId=\\1(?![0-9a-f])",
   # ... nothing is walked on the lab's id after the retag moved its credit to TIP ...

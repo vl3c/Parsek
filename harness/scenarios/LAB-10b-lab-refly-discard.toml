@@ -3,8 +3,21 @@ id = "LAB-10b-lab-refly-discard"
 tier = "operator"
 # THE SCIENCE-LAB PROGRAM, lane LAB-10b (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
 # "LAB-10 Re-Fly, supersede and Discard Re-fly", the DISCARD half; the merge half is LAB-10).
-# NEVER FLOWN: its first flight is a READING run, so it is `operator` and tagged
-# `pending-flight` until that run pins the measured values.
+# Still `operator` / `pending-flight`: the reading run below found a product defect.
+#
+# READING RUN `2026-10-17_2341` (automation DLL = main 9a483c4a5, PR #2138 included): PARSEK-FAIL
+# on two mismatches; every other token matched (the purge `live=3`, `ledgerTagsCleared=0`, no
+# re-home, no tombstone, `slotListed=true`, the point kept).
+#   (1) SPEC PREMISE, re-pinned: the pool after the rewind is the committed 112.5, not 100 (the
+#       Re-Fly invoke walks the whole ledger, act A's future credit included: `PatchScience:
+#       100.0 -> 112.5` before `Invocation complete`), so the attempt's transmit lands on 125.0.
+#       See LAB-10's header, finding 1, and todo REFLY-SESSION-CAREER-SHOWS-THE-REPLACED-
+#       FLIGHTS-FUTURE (owner question).
+#   (2) PRODUCT, kept red: `recordings.count 3 > max 2`. The third `.prec` is the discarded
+#       attempt's own sidecar (`rec_...`): the Esc Discard pruned the committed original
+#       instead of the live clone that holds the fork (`PruneActiveReFlyAttemptOwnedTopology ...
+#       deletedFiles=0`; todo ESC-DISCARD-REFLY-LEAVES-ATTEMPT-SIDECARS, PR #2140). The {2,2}
+#       window stays and turns green only on a DLL carrying PR #2140.
 #
 # HOST AND ACT A: LAB-10's, verbatim (`lab-lko-seeded-transmit`; record, separate the probe
 # tender with the pre-attached port's Undock at UT ~368, the JointBreak / UNDOCK split and its
@@ -14,8 +27,9 @@ tier = "operator"
 # window arithmetic.
 #
 # THE STORY AFTER ACT A. Fly the lab again, Stash its slot, re-fly it from the separation (the
-# lab back at 12.50, the pool at 100), rails-warp to the pass and transmit again: a second credit
-# `+12.50` tagged to the Re-Fly's provisional (`rec_...`). Then the player changes their mind:
+# lab back at 12.50, the pool patched to the committed 112.5), rails-warp to the pass and transmit
+# again: a second credit `+12.50` tagged to the Re-Fly's provisional (`rec_...`), stock landing on
+# 125.0. Then the player changes their mind:
 # Esc > Revert Flight > Revert to Launch > Discard Re-Fly (`ReFlyRevert choice=discard
 # target=launch`, QL-5's verb and route through the stock menus and Parsek's dialog).
 #
@@ -52,7 +66,8 @@ tier = "operator"
 # WHAT IS GATED ON BELIEF (reading-run pins): everything LAB-10's act A gates; `live=N` with N >=
 # 1 on the purge (the two attempt events); `slotListed=true` (the stash surviving the discard's
 # in-session hand-off: the RP list comes from memory for a tree committed in memory); the
-# recordings count 2 (the lab and the tender; the attempt's sidecar is deleted).
+# recordings count 2 (the lab and the tender; the attempt's sidecar is deleted: measured 3 on the
+# reading run, the product defect above).
 #
 # NOT HERE: a positive witness that the ORIGINAL credit is still booked after the discard. It
 # needs a ledger walk past UT 2280 from the rewound clock (fly the lab again and warp past the
@@ -151,7 +166,8 @@ allowedAnomalies = []
 
 [expectations.recordings]
 # DERIVED 2: the lab's recording and the tender's; the attempt's sidecar is deleted by the
-# discard. A reading-run pin.
+# discard. The reading run measured 3 (the attempt's leftover sidecar, ESC-DISCARD-REFLY-LEAVES-
+# ATTEMPT-SIDECARS): kept at {2,2} on purpose, red until PR #2140 ships.
 count = { min = 2, max = 2 }
 
 [expectations.logContracts]
@@ -177,11 +193,13 @@ required = [
   "IsUnfinishedFlight=true rec=\\S+ reason=stashedStableLeaf slot=0 ",
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_[0-9a-f]{32} slot=0",
   "Invocation complete: sess=\\S+ rp=rp_[0-9a-f]{32} slot=0 activePid=2200110055",
+  # The invoke's full-ledger walk patches the rewind point's 100 to the committed 112.5.
+  "(?s)Re-Fly \\(Rewind-to-Separation\\) StartInvoke: (?:(?!Invocation complete: ).)*?\\[KspStatePatcher\\] PatchScience: 100\\.0 -> 112\\.5 \\(delta=12\\.5, target=112\\.5\\)(?:(?!Invocation complete: ).)*?Invocation complete: ",
   "recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true",
   "(?s)MISSIONMARK label=lab10b-refly-start (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=0\\.00;",
-  # The attempt's credit: 12.50 tagged to the Re-Fly's provisional, stock landing on 112.5.
+  # The attempt's credit: 12.50 tagged to the Re-Fly's provisional, stock landing on 125.0.
   "(?s)MISSIONMARK label=lab10b-refly-t-before (?:(?!MISSIONMARK label=lab10b-refly-t-after ).)*?Game state: ScienceLabCredited \\+12\\.50 reason='ScienceTransmission' vessel='LABX Orbital Lab' ut=[0-9.]+ recordingId='rec_[0-9a-f]{32}'",
-  "(?s)MISSIONMARK label=lab10b-refly-t-before (?:(?!MISSIONMARK label=lab10b-refly-t-after ).)*?Game state: ScienceChanged \\+12\\.5 \\(ScienceTransmission\\)[^0-9\\r\\n]+112\\.5(?![0-9])",
+  "(?s)MISSIONMARK label=lab10b-refly-t-before (?:(?!MISSIONMARK label=lab10b-refly-t-after ).)*?Game state: ScienceChanged \\+12\\.5 \\(ScienceTransmission\\)[^0-9\\r\\n]+125(?:\\.0)?(?![0-9])",
   "(?s)MISSIONMARK label=lab10b-refly-t-after (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.50 dataStored=0\\.00;",
   # --- THE DISCARD (QL-5's tokens; the verb's slot= is the slot origin, the lab's recording) ---
   "(?s)startrecording recordingId=([0-9a-f]{32}) already=false.*?reflyrevert start choice=discard target=launch sess=\\S+ rp=rp_[0-9a-f]{32} slot=\\1 ",
