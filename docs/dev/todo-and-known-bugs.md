@@ -309,7 +309,9 @@ entry check (`StopChainTipSpawnForTerminalOrbitVerdict`, after adoption and KSC 
 ordinary path) stops a later attempt on a standing refusal, or on a deferral before its next safe UT,
 without re-running the period scan. A refusal ends the chain's collision block
 (`EndCollisionBlockForNonCollisionFailure`, reason `terminal-orbit-cannot-spawn-safely`), so the
-held ghost takes the ordinary bounded hold. A deferral keeps it. `ParsekFlight.SpawnVesselOrChainTip`
+policy releases the held ghost at once (`ReleaseCannotSpawnSafely`). A deferral keeps the block, and
+the ghost is held until the next safe UT. A refused tip leaves its chain in `activeGhostChains` for
+the scene, as the other chain-tip failures (no snapshot, failed spawn) already do. `ParsekFlight.SpawnVesselOrChainTip`
 logs a held tip at Info instead of `Chain tip spawn failed`. A tip spawned from a trajectory point
 (no orbit) and the walkback spawn are not gated, matching the ordinary path. Not changed: when the
 terminal orbit cannot be resolved, the chain path still falls back to the last point's velocity,

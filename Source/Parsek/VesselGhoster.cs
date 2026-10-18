@@ -1636,7 +1636,7 @@ namespace Parsek
         /// Entry check shared by <see cref="SpawnAtChainTip"/> and
         /// <see cref="TrySpawnBlockedChain"/>: logs and returns true when a standing verdict
         /// stops the attempt. A refused tip is no longer collision-blocked (no blocker can
-        /// clear it), so its held ghost takes the ordinary bounded hold.
+        /// clear it), so the policy releases its held ghost as cannot-spawn-safely.
         /// </summary>
         internal static bool StopChainTipSpawnForTerminalOrbitVerdict(
             GhostChain chain,
