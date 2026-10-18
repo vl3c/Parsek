@@ -199,6 +199,11 @@ steps = [
   { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
   { cmd = "MissionMark",    args = { label = "lab7-warp-before" },                   expect = "OK" },
+  # 1x settle first. Stock TimeWarp flips to physics (LOW) mode on any frame the just-unpacked
+  # pad probe's surface speed exceeds sqrt(GThreshold) and flips back only at 1x; a ladder=auto
+  # warp started inside that window adopts LOW and climbs to 4x, never reaching UT 3695
+  # (2026-10-18 flights 0116 / 0140, warp-timeout on both attempts).
+  { cmd = "WarpToUT",       args = { ut = "352", maxRate = "1" },                    expect = "OK", budget = 120 },
   { cmd = "WarpToUT",       args = { ut = "3695", maxRate = "1000" },                expect = "OK", budget = 300 },
   # A few seconds of 1x so a spawn deferred by the warp lands before the read (MINE-6 / MINE-9).
   { cmd = "WarpToUT",       args = { ut = "3700", maxRate = "1" },                   expect = "OK", budget = 120 },
