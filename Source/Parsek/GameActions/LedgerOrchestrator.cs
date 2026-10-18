@@ -2774,6 +2774,7 @@ namespace Parsek
             if (LedgerHasSeed(GameActionType.ScienceInitial))
                 return true;
 
+            bool scienceBaselineUnread = false;
             if (hasInitialBaseline)
             {
                 if (initialBaseline.IsScienceKnown(ExpectedCurrencySingletonsForBaseline()))
@@ -2788,14 +2789,13 @@ namespace Parsek
                 // science and fall through to the live pool, which DeferredSeed reaches once
                 // R&D has loaded.
                 LogBaselineCurrencyNotCaptured("science", initialBaseline);
+                scienceBaselineUnread = true;
             }
 
             if (LedgerHasScienceTimelineActions())
             {
                 Ledger.SeedInitialScience(0f);
-                ParsekLog.Warn(Tag,
-                    "SeedInitialScience: refusing to treat current science as initial " +
-                    "because science timeline actions already exist and no baseline was available");
+                LogSeedRefusal("SeedInitialScience", "science", scienceBaselineUnread);
                 return true;
             }
 
@@ -2849,6 +2849,7 @@ namespace Parsek
                 return true;
             }
 
+            bool reputationBaselineUnread = false;
             if (hasInitialBaseline)
             {
                 if (initialBaseline.IsReputationKnown(ExpectedCurrencySingletonsForBaseline()))
@@ -2864,6 +2865,7 @@ namespace Parsek
                 // so the baseline carries no reputation reading. The branches below then
                 // decide exactly as they do with no baseline at all.
                 LogBaselineCurrencyNotCaptured("reputation", initialBaseline);
+                reputationBaselineUnread = true;
             }
 
             if (LedgerHasReputationTimelineActions())
@@ -2872,9 +2874,7 @@ namespace Parsek
                 // (0 - what a stock career begins at), so its value predates the flight
                 // just as a baseline does.
                 Ledger.SeedInitialReputation(0f);
-                ParsekLog.Warn(Tag,
-                    "SeedInitialReputation: refusing to treat current reputation as initial " +
-                    "because reputation timeline actions already exist and no baseline was available");
+                LogSeedRefusal("SeedInitialReputation", "reputation", reputationBaselineUnread);
                 origin = ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback;
                 RestampInsideSeedRowsAgainstCareerStartSeed(origin);
                 return true;
@@ -3189,6 +3189,28 @@ namespace Parsek
                     ") - treating every currency singleton as expected");
                 return CurrencySingletons.All;
             }
+        }
+
+        /// <summary>
+        /// The history-refusal branch's line. With no career-start baseline at all the
+        /// refusal is unexpected and stays a Warn. With a baseline whose value was merely
+        /// unread (captured before that scenario module loaded, the normal cold Space Center
+        /// load) it is the expected path for a fresh career whose pool is 0 until the first
+        /// row - a 0 pool defers the live read - so it is Info and stays off the WRN surface.
+        /// </summary>
+        private static void LogSeedRefusal(string prefix, string currency, bool baselineUnread)
+        {
+            string head = prefix + ": refusing to treat current " + currency + " as initial " +
+                "because " + currency + " timeline actions already exist and ";
+            if (baselineUnread)
+            {
+                ParsekLog.Info(Tag, head +
+                    "the career-start baseline carries no " + currency + " reading " +
+                    "(captured before its scenario module loaded) - seeding career start 0");
+                return;
+            }
+
+            ParsekLog.Warn(Tag, head + "no baseline was available");
         }
 
         private static void LogBaselineCurrencyNotCaptured(string currency, GameStateBaseline baseline)

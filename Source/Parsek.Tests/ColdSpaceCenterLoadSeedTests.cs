@@ -395,26 +395,118 @@ namespace Parsek.Tests
             Assert.Equal(0f, SeedOf(GameActionType.ReputationInitial).InitialReputation);
         }
 
-        [Fact]
-        public void ColdLoad_WithReputationHistoryAndNoReading_TakesTheNoBaselineRefusal()
+        private static GameAction ContractDeclinePenalty(double ut)
         {
-            // The fall-through decides exactly as with no baseline: reputation history
-            // already in the ledger refuses the live pool (career-start 0, Warn), unchanged.
-            GameStateStore.AddBaseline(ColdSpaceCenterBaseline());
-            Ledger.AddAction(new GameAction
+            return new GameAction
             {
-                UT = 120.0,
+                UT = ut,
                 Type = GameActionType.ReputationPenalty,
                 RepPenaltySource = ReputationPenaltySource.ContractDecline,
                 NominalPenalty = 5f
-            });
+            };
+        }
+
+        private static GameAction KscScienceSpending(double ut)
+        {
+            return new GameAction
+            {
+                UT = ut,
+                Type = GameActionType.ScienceSpending,
+                Cost = 5f
+            };
+        }
+
+        private void AssertRefusalLine(string prefix, string currency, string level)
+        {
+            string phrase = prefix + ": refusing to treat current " + currency + " as initial";
+            Assert.Contains(logLines, l => l.Contains("[" + level + "][LedgerOrchestrator]") && l.Contains(phrase));
+            string other = level == "INFO" ? "WARN" : "INFO";
+            Assert.DoesNotContain(logLines, l => l.Contains("[" + other + "]") && l.Contains(phrase));
+        }
+
+        [Fact]
+        public void ColdLoad_WithReputationHistoryAndNoReading_RefusesAtInfo()
+        {
+            // The fall-through decides exactly as with no baseline (reputation history
+            // refuses the live pool, career-start 0), but the baseline was merely unread, so
+            // the expected refusal stays off the WRN surface.
+            GameStateStore.AddBaseline(ColdSpaceCenterBaseline());
+            Ledger.AddAction(ContractDeclinePenalty(120.0));
             LedgerOrchestrator.CurrencyPoolProbeForTesting = DeferredSeedProbe;
 
             var origin = LedgerOrchestrator.EnsureReputationSeedForCommit();
 
             Assert.Equal(ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback, origin);
             Assert.Equal(0f, SeedOf(GameActionType.ReputationInitial).InitialReputation);
-            Assert.Contains(logLines, l => l.Contains("SeedInitialReputation: refusing to treat current reputation"));
+            AssertRefusalLine("SeedInitialReputation", "reputation", "INFO");
+            Assert.Contains(logLines, l => l.Contains("carries no reputation reading (captured before its scenario module loaded)"));
+        }
+
+        [Fact]
+        public void FreshCareerAtZeroReputation_ColdSpaceCenterLoad_FirstRowSeedsZeroWithNoWarn()
+        {
+            // The normal career start after a cold SC load: Reputation reads 0, so the live
+            // read defers; the first reputation row then takes the refusal path. No Warn.
+            GameStateStore.AddBaseline(ColdSpaceCenterBaseline());
+            LedgerOrchestrator.CurrencyPoolProbeForTesting = () => new LedgerOrchestrator.CurrencyPoolProbe
+            {
+                FundingPresent = true,
+                FundingLoaded = true,
+                Funds = 25000.0,
+                ScienceSingletonPresent = true,
+                ScienceSingletonLoaded = true,
+                Science = 0f,
+                ReputationSingletonPresent = true,
+                ReputationValue = 0f
+            };
+
+            LedgerOrchestrator.RecalculateAndPatch();
+            Assert.Null(SeedOf(GameActionType.ReputationInitial));
+            Assert.Equal(0f, SeedOf(GameActionType.ScienceInitial).InitialScience);
+
+            Ledger.AddAction(ContractDeclinePenalty(120.0));
+            LedgerOrchestrator.RecalculateAndPatch();
+
+            Assert.Equal(0f, SeedOf(GameActionType.ReputationInitial).InitialReputation);
+            Assert.DoesNotContain(logLines, l => l.Contains("][WARN]") && l.Contains("SeedInitial"));
+            AssertRefusalLine("SeedInitialReputation", "reputation", "INFO");
+        }
+
+        [Fact]
+        public void NoBaseline_WithReputationHistory_StillRefusesAtWarn()
+        {
+            // Mirror: with no career-start baseline at all the refusal is unexpected and
+            // keeps its Warn and its wording.
+            Ledger.AddAction(ContractDeclinePenalty(120.0));
+            LedgerOrchestrator.CurrencyPoolProbeForTesting = DeferredSeedProbe;
+
+            var origin = LedgerOrchestrator.EnsureReputationSeedForCommit();
+
+            Assert.Equal(ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback, origin);
+            AssertRefusalLine("SeedInitialReputation", "reputation", "WARN");
+            Assert.Contains(logLines, l => l.Contains("[WARN]") && l.Contains("no baseline was available"));
+        }
+
+        [Fact]
+        public void ScienceRefusal_FollowsTheSameLevelRule()
+        {
+            // Science mirror, unread baseline: Info.
+            GameStateStore.AddBaseline(ColdSpaceCenterBaseline());
+            Ledger.AddAction(KscScienceSpending(120.0));
+            LedgerOrchestrator.CurrencyPoolProbeForTesting = OnLoadProbe;
+            LedgerOrchestrator.RecalculateAndPatch();
+            Assert.Equal(0f, SeedOf(GameActionType.ScienceInitial).InitialScience);
+            AssertRefusalLine("SeedInitialScience", "science", "INFO");
+        }
+
+        [Fact]
+        public void ScienceRefusal_WithNoBaseline_StaysWarn()
+        {
+            Ledger.AddAction(KscScienceSpending(120.0));
+            LedgerOrchestrator.CurrencyPoolProbeForTesting = OnLoadProbe;
+            LedgerOrchestrator.RecalculateAndPatch();
+            Assert.Equal(0f, SeedOf(GameActionType.ScienceInitial).InitialScience);
+            AssertRefusalLine("SeedInitialScience", "science", "WARN");
         }
     }
 }
