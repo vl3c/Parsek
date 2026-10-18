@@ -55,6 +55,7 @@ namespace Parsek.Tests
                 RecordedVesselGuid = LaunchGuid,
                 ExplicitStartUT = 10.0,
                 ExplicitEndUT = 900.0,
+                StartSituation = "Landed",
                 MaxDistanceFromLaunch = 0.3,
                 VesselSnapshot = snapshot,
                 TerminalStateValue = TerminalState.Landed,

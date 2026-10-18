@@ -35,6 +35,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A recording started in orbit is no longer thrown away as "idle on pad".** Leaving a flight
+  within a few seconds of starting its recording could discard it as if the ship had never left
+  the pad. Parsek now needs proof of a pad (a launch site, a landed or prelaunch start, or a
+  landing) before it calls a recording idle.
+  (IDLE-ON-PAD-READS-ONE-SAMPLE-ORBITING-RECORDING-AS-IDLE)
 - **A vessel in a low orbit now reappears at the end of its recording.** A ship orbiting Kerbin
   below about 100 km, whose recording ended there, was judged to be falling into the atmosphere
   when time reached the recording's end (worse after a reload), so its ghost vanished and the real

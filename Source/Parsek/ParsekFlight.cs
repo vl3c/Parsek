@@ -21180,17 +21180,86 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Recording-aware idle-on-pad check. Extends the legacy 3D max-distance rule
-        /// with a pad-drop override so local collapse or topple noise does not
-        /// promote a pad-local failure into merge UI.
+        /// Recording-aware idle-on-pad check. The distance rule (the legacy 3D max-distance
+        /// rule, or the pad-drop override so local collapse or topple noise does not promote
+        /// a pad-local failure into merge UI) is necessary but not sufficient: the recording
+        /// must also show pad evidence (<see cref="PadEvidenceReason(string, string, TerminalState?)"/>).
+        /// A one-sample recording reads maxDist 0 whatever the vessel did, so without the
+        /// evidence an orbiting one-sample recording was discarded as "idle on pad".
         /// </summary>
         internal static bool IsIdleOnPad(Recording rec)
         {
             if (rec == null)
                 return false;
 
-            return IsIdleOnPad(rec.MaxDistanceFromLaunch)
-                || HasPadLocalizedMotionOverride(rec);
+            if (!IsIdleOnPad(rec.MaxDistanceFromLaunch) && !HasPadLocalizedMotionOverride(rec))
+                return false;
+
+            string evidence = PadEvidenceReason(rec.StartSituation, rec.LaunchSiteName, rec.TerminalStateValue);
+            if (evidence == null)
+            {
+                ParsekLog.Verbose("Flight",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "IsIdleOnPad: rec='{0}' within 30m but no pad evidence " +
+                        "(startSituation={1}, launchSite={2}, terminal={3}) - not idle",
+                        rec.RecordingId ?? "(unknown)",
+                        rec.StartSituation ?? "(none)",
+                        string.IsNullOrEmpty(rec.LaunchSiteName) ? "(none)" : rec.LaunchSiteName,
+                        rec.TerminalStateValue.HasValue ? rec.TerminalStateValue.Value.ToString() : "(none)"));
+                return false;
+            }
+
+            ParsekLog.Verbose("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "IsIdleOnPad: rec='{0}' pad evidence={1} (maxDist={2:F1}m)",
+                    rec.RecordingId ?? "(unknown)", evidence, rec.MaxDistanceFromLaunch));
+            return true;
+        }
+
+        /// <summary>
+        /// Pure decision: the pad evidence a recording shows, or null when it shows none.
+        /// The launch site is checked first and wins over any start situation: a normal
+        /// launch recording starts airborne ("Flying") with a site, because the auto-record
+        /// trigger fires when the vessel leaves PRELAUNCH, so a fizzled launch that never
+        /// left the pad is still an idle-on-pad recording. Otherwise the evidence is a
+        /// Prelaunch / Landed / Splashed start, then a Landed / Splashed terminal. An
+        /// orbiting or flying start with no site and no surface terminal shows no evidence
+        /// (the one-sample orbiting case). Returns the first matching reason: "launch-site",
+        /// "start-prelaunch", "start-landed", "start-splashed", "terminal-landed" or
+        /// "terminal-splashed".
+        /// </summary>
+        internal static string PadEvidenceReason(string startSituation, string launchSiteName, TerminalState? terminal)
+        {
+            if (!string.IsNullOrEmpty(launchSiteName))
+                return "launch-site";
+            if (string.Equals(startSituation, "Prelaunch", StringComparison.OrdinalIgnoreCase))
+                return "start-prelaunch";
+            if (string.Equals(startSituation, "Landed", StringComparison.OrdinalIgnoreCase))
+                return "start-landed";
+            if (string.Equals(startSituation, "Splashed", StringComparison.OrdinalIgnoreCase))
+                return "start-splashed";
+            if (terminal == TerminalState.Landed)
+                return "terminal-landed";
+            if (terminal == TerminalState.Splashed)
+                return "terminal-splashed";
+            return null;
+        }
+
+        /// <summary>
+        /// Pure decision: true when <see cref="PadEvidenceReason(string, string, TerminalState?)"/> finds evidence.
+        /// </summary>
+        internal static bool HasPadEvidence(string startSituation, string launchSiteName, TerminalState? terminal)
+        {
+            return PadEvidenceReason(startSituation, launchSiteName, terminal) != null;
+        }
+
+        /// <summary>
+        /// Pure decision: true when the recording's own start / site / terminal fields show pad evidence.
+        /// </summary>
+        internal static bool HasPadEvidence(Recording rec)
+        {
+            return rec != null
+                && HasPadEvidence(rec.StartSituation, rec.LaunchSiteName, rec.TerminalStateValue);
         }
 
         private static bool HasPadLocalizedMotionOverride(Recording rec)
@@ -21535,7 +21604,8 @@ namespace Parsek
 
         /// <summary>
         /// Returns true if every recording in the tree is idle-on-pad (never moved
-        /// more than 30m from launch). A tree with any non-idle recording is not discarded.
+        /// more than 30m from launch, and shows pad evidence per <see cref="IsIdleOnPad(Recording)"/>).
+        /// A tree with any non-idle recording is not discarded.
         /// </summary>
         internal static bool IsTreeIdleOnPad(RecordingTree tree)
         {

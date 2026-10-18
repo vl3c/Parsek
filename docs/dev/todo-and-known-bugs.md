@@ -1200,7 +1200,7 @@ Parsek defect (a mission that did not fly is driver-INVALID).
 
 ---
 
-## IDLE-ON-PAD-READS-ONE-SAMPLE-ORBITING-RECORDING-AS-IDLE: a recording with one trajectory sample reads maxDist 0, so the idle-on-pad discard drops it even when the vessel is orbiting [FILED 2026-10-09 from H67's drift (todo H67-AUTOMERGE-DWELL-ENDS-BEFORE-BACKSTOP-SAMPLE), branch `ingame-test-drift`. OPEN, product, low]
+## ~~IDLE-ON-PAD-READS-ONE-SAMPLE-ORBITING-RECORDING-AS-IDLE: a recording with one trajectory sample reads maxDist 0, so the idle-on-pad discard drops it even when the vessel is orbiting~~ [FILED 2026-10-09 from H67's drift (todo H67-AUTOMERGE-DWELL-ENDS-BEFORE-BACKSTOP-SAMPLE), branch `ingame-test-drift`. FIXED 2026-10-18, branch `idle-on-pad-one-sample`; headless only, not flown]
 
 `ParsekFlight.IsTreeIdleOnPad` (`Source/Parsek/ParsekFlight.cs`) returns true when every recording
 in the tree is within 30 m of its launch point (`IsIdleOnPad(Recording)`: `MaxDistanceFromLaunch <
@@ -1214,11 +1214,27 @@ the SPACECENTER OnLoad (`ParsekScenario.cs`, "Idle on pad at scene exit - auto-d
 and the two sibling `IsTreeIdleOnPad` gates) instead of committed. Seen only through the H67
 in-game cell (its dwell was too short); a player would need to start a recording and leave
 the flight within one sample interval, so the loss is a few seconds of trajectory.
-Proposal (not implemented): idle-on-pad should also require evidence of a pad: the recording
-starts at a launch site (`LaunchSiteName` set or `StartSituation` Prelaunch) or its terminal /
-start situation is Landed / Prelaunch, so an orbiting or flying one-sample recording is never
-"idle on pad". Alternatively take one boundary sample at the scene-exit finalize. Either needs
-headless cells beside the existing `IsTreeIdleOnPad` ones (`Bug156Tests`).
+Fix: `ParsekFlight.IsIdleOnPad(Recording)` now requires pad evidence on top of the distance rule
+(the 30 m rule and the pad-drop override, both unchanged). The pure decision is
+`ParsekFlight.PadEvidenceReason(startSituation, launchSiteName, terminal)` (with `HasPadEvidence`):
+the launch site is checked first and wins over any start situation, because a normal launch
+recording starts "Flying" with the site set (the auto-record trigger fires when the vessel leaves
+PRELAUNCH), so a fizzled launch that never got 30 m off the pad stays idle. Otherwise the evidence
+is, in order, a Prelaunch / Landed / Splashed start, or a Landed / Splashed terminal. An orbiting
+or flying start with no site and no surface terminal shows no evidence, which is the one-sample
+orbiting case. A within-30 m recording with no evidence logs `IsIdleOnPad: rec='...' within
+30m but no pad evidence (...) - not idle` at Verbose; one with evidence logs `pad evidence=<reason>`.
+Every caller reads that one gate: `IsTreeIdleOnPad` (the Finalized pending-tree auto-discards in
+`ParsekScenario.cs` at scene exit, outside flight and in the deferred merge dialog),
+`IsActiveTreeIdleOnPad` (via `SceneExitInterceptor`), `ShowPostDestructionTreeMergeDialog` and the
+destroyed-during-split branch in `ParsekFlight.cs`. Consequences: a recording with no start
+situation and no surface terminal (a legacy record) no longer reads idle; an orbiting one-sample
+recording whose terminal is Landed still reads idle (the terminal is the only evidence there).
+Cells: `IdleOnPadPadEvidenceTests` (new; the orbiting one-sample case, the fizzled-launch case,
+the pure truth table), with `Bug156Tests` and four fixture classes (`ConverterWorkNotIdleTests`,
+`LabPayoutNotIdleTests`, `RecoveryLabIdleVetoTests`, `PlacedPartsNotIdleTests`) that now name a
+start situation. Open, not changed here: `IsPadFailure` has the same one-sample hole (duration
+under 10 s and maxDist under 30 m) on the post-destruction and destroyed-during-split paths.
 
 ## ~~RETIRE-ROUTE-ACTIONS-OVERLOAD-BREAKS-INGAME-REFLECTION-PROBE: the Rec-1 redelivery in-game cell failed `Ambiguous match found.` on lanes H38 / H39 / H40 / HV-1~~ [FILED 2026-10-09 from the nightly `Logistics` lanes. FIXED 2026-10-09, branch `ingame-test-drift`; test drift, not a product defect; not re-flown; LIVE-PROVEN 2026-10-16 on main 412d48e: H38 `2026-10-16_2155`, H39 `_2158`, H40 `_2201`, HV-1 `_2204` PASS attempt 1]
 
