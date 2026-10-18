@@ -293,15 +293,31 @@ across a rewind, which matters only if ghost-only is meant as "never spawn".
 
 ---
 
-## CHAIN-TIP-SPAWN-SKIPS-ORBIT-SAFETY-GATE: a chain tip spawns on its terminal orbit without the periapsis safety check [FILED 2026-10-16 from RC-1's first flight, code read. OPEN, product, medium]
+## ~~CHAIN-TIP-SPAWN-SKIPS-ORBIT-SAFETY-GATE: a chain tip spawns on its terminal orbit without the periapsis safety check~~ [FILED 2026-10-16 from RC-1's first flight, code read. FIXED 2026-10-18, branch `chain-tip-orbit-safety`; headless only, not flown]
 
 `VesselGhoster` resolves the tip's terminal orbit (`TryResolveRecordedTerminalOrbitSpawnState`) and
 passes it straight to `SpawnAtPosition`; only the ordinary spawn path calls
 `TryPassTerminalOrbitSpawnSafety` (`VesselSpawner.cs` ~1691). In RC-1 cycle 1 the Station tip
 spawned on the 14 km-periapsis orbit the Interceptor was refused for (REFLY-TAIL-SEED-FRAME).
 
-Fix: run the same safety decision on the chain-tip path, with the chain's blocked / retry state
-as the outcome, and a red test over a sub-atmospheric terminal orbit.
+Fix: both chain-tip spawn paths (`SpawnAtChainTip`, `TrySpawnBlockedChain`) now run
+`VesselGhoster.PassChainTipTerminalOrbitSafety` after resolving a recorded or jump-shifted terminal
+orbit and before `SpawnChainTipWithResolvedState`. It calls the same
+`VesselSpawner.TryPassTerminalOrbitSpawnSafety`, so a deferral or refusal is stamped on the tip
+recording, where the playback policy's deferred-spawn hold and held-ghost retry already read it. An
+entry check (`StopChainTipSpawnForTerminalOrbitVerdict`, after adoption and KSC retirement, as on the
+ordinary path) stops a later attempt on a standing refusal, or on a deferral before its next safe UT,
+without re-running the period scan. A refusal ends the chain's collision block
+(`EndCollisionBlockForNonCollisionFailure`, reason `terminal-orbit-cannot-spawn-safely`), so the
+policy releases the held ghost at once (`ReleaseCannotSpawnSafely`). A deferral keeps the block, and
+the ghost is held until the next safe UT. A refused tip leaves its chain in `activeGhostChains` for
+the scene, as the other chain-tip failures (no snapshot, failed spawn) already do. `ParsekFlight.SpawnVesselOrChainTip`
+logs a held tip at Info instead of `Chain tip spawn failed`. A tip spawned from a trajectory point
+(no orbit) and the walkback spawn are not gated, matching the ordinary path. Not changed: when the
+terminal orbit cannot be resolved, the chain path still falls back to the last point's velocity,
+where the ordinary path refuses (`RejectUnresolvedTerminalOrbitSpawn`). Tests:
+`ChainTipTerminalOrbitSafetyTests`, including the RC-1 14 km periapsis and a source-order wiring cell
+for both paths, which was checked by mutation.
 
 ---
 ## REWIND-TO-LAUNCH-LANDS-IN-THE-LATEST-PERSISTENT-WORLD: a Rewind-to-Launch keeps every surviving vessel in its latest form [FILED 2026-10-16 from EVA-11 `2026-10-16_2256` (the rewind save `parsek_rw_add97f` holds the rover with 16 parts, the rewound game `eva11-rewound` with 15), confirmed by code read. OPEN. product]
@@ -1200,7 +1216,7 @@ Parsek defect (a mission that did not fly is driver-INVALID).
 
 ---
 
-## IDLE-ON-PAD-READS-ONE-SAMPLE-ORBITING-RECORDING-AS-IDLE: a recording with one trajectory sample reads maxDist 0, so the idle-on-pad discard drops it even when the vessel is orbiting [FILED 2026-10-09 from H67's drift (todo H67-AUTOMERGE-DWELL-ENDS-BEFORE-BACKSTOP-SAMPLE), branch `ingame-test-drift`. OPEN, product, low]
+## ~~IDLE-ON-PAD-READS-ONE-SAMPLE-ORBITING-RECORDING-AS-IDLE: a recording with one trajectory sample reads maxDist 0, so the idle-on-pad discard drops it even when the vessel is orbiting~~ [FILED 2026-10-09 from H67's drift (todo H67-AUTOMERGE-DWELL-ENDS-BEFORE-BACKSTOP-SAMPLE), branch `ingame-test-drift`. FIXED 2026-10-18, branch `idle-on-pad-one-sample`; headless only, not flown]
 
 `ParsekFlight.IsTreeIdleOnPad` (`Source/Parsek/ParsekFlight.cs`) returns true when every recording
 in the tree is within 30 m of its launch point (`IsIdleOnPad(Recording)`: `MaxDistanceFromLaunch <
@@ -1214,11 +1230,33 @@ the SPACECENTER OnLoad (`ParsekScenario.cs`, "Idle on pad at scene exit - auto-d
 and the two sibling `IsTreeIdleOnPad` gates) instead of committed. Seen only through the H67
 in-game cell (its dwell was too short); a player would need to start a recording and leave
 the flight within one sample interval, so the loss is a few seconds of trajectory.
-Proposal (not implemented): idle-on-pad should also require evidence of a pad: the recording
-starts at a launch site (`LaunchSiteName` set or `StartSituation` Prelaunch) or its terminal /
-start situation is Landed / Prelaunch, so an orbiting or flying one-sample recording is never
-"idle on pad". Alternatively take one boundary sample at the scene-exit finalize. Either needs
-headless cells beside the existing `IsTreeIdleOnPad` ones (`Bug156Tests`).
+Fix: pad evidence is a TREE-level requirement. `ParsekFlight.IsIdleOnPad(Recording)` is the
+origin/main distance rule again (the 30 m rule and the pad-drop override). `IsTreeIdleOnPad` and
+`IsActiveTreeIdleOnPad` additionally require that AT LEAST ONE recording in the tree shows pad
+evidence: `TreeHasPadEvidenceForIdle` logs the verdict (`tree='...' id=... pad evidence=<reason>`
+or `none`) and uses the pure `TreePadEvidence`, which returns the first recording's
+`PadEvidenceReason`. The check runs after the existing vetoes, the distance walk and the points
+check, so those guards keep their order. The live path reads it after
+`FlushRecorderIntoActiveTreeForSerialization`, which copies the live root's StartSituation and
+LaunchSiteName onto its tree recording. `PadEvidenceReason` checks the launch site first (a normal
+launch recording starts "Flying" with the site set, so a fizzled launch stays idle), then a
+Prelaunch / Landed / Splashed start, then a Landed / Splashed terminal. A one-sample orbiting
+flight with no site and no surface terminal has no evidence and is not discarded. EVA kerbals and
+background-only children carry no launch situation of their own, so they never need it; a pad
+flight with an EVA board tree or destroyed debris stays idle through its root.
+Callers: `IsTreeIdleOnPad` (the Finalized pending-tree auto-discards in `ParsekScenario.cs` at
+scene exit, outside flight and in the deferred merge dialog), `IsActiveTreeIdleOnPad` (via
+`SceneExitInterceptor`), and `ShowPostDestructionTreeMergeDialog`. Open, not changed here:
+(1) the destroyed-during-split branch in `ParsekFlight.cs` calls the per-recording `IsIdleOnPad`
+and is still distance-only, so a one-sample orbiting recording destroyed in that branch is still
+discarded (a per-recording evidence rule would drop debris children, which carry no situation);
+(2) `IsPadFailure` has the same one-sample hole (duration under 10 s and maxDist under 30 m) on the
+post-destruction and destroyed-during-split paths. Cells: `IdleOnPadPadEvidenceTests` (the orbiting
+one-sample tree, the fizzled launch, the EVA board tree, destroyed debris, no-evidence trees, guard
+order, the pure `TreePadEvidence` and `PadEvidenceReason` truth tables, the log, the source order),
+`Bug156Tests` (the negative guards now carry a Prelaunch root, so the guard they exist for decides),
+and the fixtures that name a Landed root (`ConverterWorkNotIdleTests`, `LabPayoutNotIdleTests`,
+`RecoveryLabIdleVetoTests`) or an EVA kerbal (`PlacedPartsNotIdleTests`).
 
 ## ~~RETIRE-ROUTE-ACTIONS-OVERLOAD-BREAKS-INGAME-REFLECTION-PROBE: the Rec-1 redelivery in-game cell failed `Ambiguous match found.` on lanes H38 / H39 / H40 / HV-1~~ [FILED 2026-10-09 from the nightly `Logistics` lanes. FIXED 2026-10-09, branch `ingame-test-drift`; test drift, not a product defect; not re-flown; LIVE-PROVEN 2026-10-16 on main 412d48e: H38 `2026-10-16_2155`, H39 `_2158`, H40 `_2201`, HV-1 `_2204` PASS attempt 1]
 

@@ -2639,6 +2639,12 @@ namespace Parsek
                 return false;
             }
 
+            // The flush above copied the live root's StartSituation / LaunchSiteName onto
+            // its tree recording (FlushRecorderIntoActiveTreeForSerialization), so the
+            // evidence check sees the live state.
+            if (!TreeHasPadEvidenceForIdle(activeTree, "IsActiveTreeIdleOnPad"))
+                return false;
+
             ParsekLog.Verbose("Flight",
                 $"IsActiveTreeIdleOnPad: all {activeTree.Recordings.Count} recordings " +
                 "within 30m - idle on pad");
@@ -19262,6 +19268,14 @@ namespace Parsek
                         ParsekLog.Info("Flight",
                             $"Chain tip spawn blocked by collision: #{index} \"{rec.VesselName}\" — chain stays active");
                     }
+                    else if (TerminalOrbitSpawnSafety.HasActiveHold(rec))
+                    {
+                        ParsekLog.InfoRateLimited("Flight",
+                            "chain-tip-orbit-safety|" + (rec.RecordingId ?? "(none)"),
+                            $"Chain tip spawn held by terminal orbit safety: #{index} \"{rec.VesselName}\" " +
+                            $"cannotSpawnSafely={rec.TerminalSpawnCannotSpawnSafely} " +
+                            $"reason={rec.TerminalSpawnSafetyReasonCode ?? "(none)"}");
+                    }
                     else
                     {
                         ParsekLog.Warn("Flight",
@@ -21186,7 +21200,9 @@ namespace Parsek
         /// <summary>
         /// Recording-aware idle-on-pad check. Extends the legacy 3D max-distance rule
         /// with a pad-drop override so local collapse or topple noise does not
-        /// promote a pad-local failure into merge UI.
+        /// promote a pad-local failure into merge UI. Pad evidence is a tree-level
+        /// requirement (<see cref="TreePadEvidence"/>), not a per-recording one: EVA
+        /// kerbals and background-only children carry no launch situation of their own.
         /// </summary>
         internal static bool IsIdleOnPad(Recording rec)
         {
@@ -21195,6 +21211,87 @@ namespace Parsek
 
             return IsIdleOnPad(rec.MaxDistanceFromLaunch)
                 || HasPadLocalizedMotionOverride(rec);
+        }
+        /// <summary>
+        /// Pure decision: the pad evidence a recording shows, or null when it shows none.
+        /// The launch site is checked first and wins over any start situation: a normal
+        /// launch recording starts airborne ("Flying") with a site, because the auto-record
+        /// trigger fires when the vessel leaves PRELAUNCH, so a fizzled launch that never
+        /// left the pad is still an idle-on-pad recording. Otherwise the evidence is a
+        /// Prelaunch / Landed / Splashed start, then a Landed / Splashed terminal. An
+        /// orbiting or flying start with no site and no surface terminal shows no evidence
+        /// (the one-sample orbiting case). Returns the first matching reason: "launch-site",
+        /// "start-prelaunch", "start-landed", "start-splashed", "terminal-landed" or
+        /// "terminal-splashed".
+        /// </summary>
+        internal static string PadEvidenceReason(string startSituation, string launchSiteName, TerminalState? terminal)
+        {
+            if (!string.IsNullOrEmpty(launchSiteName))
+                return "launch-site";
+            if (string.Equals(startSituation, "Prelaunch", StringComparison.OrdinalIgnoreCase))
+                return "start-prelaunch";
+            if (string.Equals(startSituation, "Landed", StringComparison.OrdinalIgnoreCase))
+                return "start-landed";
+            if (string.Equals(startSituation, "Splashed", StringComparison.OrdinalIgnoreCase))
+                return "start-splashed";
+            if (terminal == TerminalState.Landed)
+                return "terminal-landed";
+            if (terminal == TerminalState.Splashed)
+                return "terminal-splashed";
+            return null;
+        }
+
+        /// <summary>
+        /// Pure decision: true when <see cref="PadEvidenceReason(string, string, TerminalState?)"/> finds evidence.
+        /// </summary>
+        internal static bool HasPadEvidence(string startSituation, string launchSiteName, TerminalState? terminal)
+        {
+            return PadEvidenceReason(startSituation, launchSiteName, terminal) != null;
+        }
+
+        /// <summary>
+        /// Pure decision: true when the recording's own start / site / terminal fields show pad evidence.
+        /// </summary>
+        internal static bool HasPadEvidence(Recording rec)
+        {
+            return rec != null
+                && HasPadEvidence(rec.StartSituation, rec.LaunchSiteName, rec.TerminalStateValue);
+        }
+
+        /// <summary>
+        /// Pure decision: the pad evidence of a flight's recordings, or null when none shows
+        /// any. The first recording (in enumeration order) with evidence supplies the reason.
+        /// Null entries are skipped.
+        /// </summary>
+        internal static string TreePadEvidence(IEnumerable<Recording> recordings)
+        {
+            if (recordings == null)
+                return null;
+
+            foreach (Recording rec in recordings)
+            {
+                if (rec == null)
+                    continue;
+                string reason = PadEvidenceReason(rec.StartSituation, rec.LaunchSiteName, rec.TerminalStateValue);
+                if (reason != null)
+                    return reason;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Tree-level pad-evidence gate shared by <see cref="IsTreeIdleOnPad(RecordingTree)"/>
+        /// and <see cref="IsActiveTreeIdleOnPad"/>. Logs the verdict (tree, reason or "none")
+        /// and returns true when at least one recording shows pad evidence.
+        /// </summary>
+        internal static bool TreeHasPadEvidenceForIdle(RecordingTree tree, string caller)
+        {
+            string reason = TreePadEvidence(tree?.Recordings?.Values);
+            ParsekLog.Verbose("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "{0}: tree='{1}' id={2} pad evidence={3}",
+                    caller, tree?.TreeName ?? "<unnamed>", tree?.Id ?? "(none)", reason ?? "none"));
+            return reason != null;
         }
 
         private static bool HasPadLocalizedMotionOverride(Recording rec)
@@ -21539,7 +21636,8 @@ namespace Parsek
 
         /// <summary>
         /// Returns true if every recording in the tree is idle-on-pad (never moved
-        /// more than 30m from launch). A tree with any non-idle recording is not discarded.
+        /// more than 30m from launch, and shows pad evidence per <see cref="IsIdleOnPad(Recording)"/>).
+        /// A tree with any non-idle recording is not discarded.
         /// </summary>
         internal static bool IsTreeIdleOnPad(RecordingTree tree)
         {
@@ -21576,6 +21674,8 @@ namespace Parsek
                     "cannot determine idle, returning false");
                 return false;
             }
+            if (!TreeHasPadEvidenceForIdle(tree, "IsTreeIdleOnPad"))
+                return false;
             ParsekLog.Verbose("Flight",
                 $"IsTreeIdleOnPad: all {tree.Recordings.Count} recordings within 30m — idle on pad");
             return true;

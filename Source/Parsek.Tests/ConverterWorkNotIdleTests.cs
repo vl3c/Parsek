@@ -34,6 +34,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rover",
                 VesselName = "Mining Rover RC",
+                StartSituation = "Landed",
                 MaxDistanceFromLaunch = 0.4
             };
             rec.Points.Add(new TrajectoryPoint { ut = 31.0, bodyName = "Kerbin" });
