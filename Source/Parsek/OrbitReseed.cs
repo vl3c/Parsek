@@ -26,6 +26,10 @@ namespace Parsek
     ///     world axes from both its packed (<c>v.obt_velocity</c>) and unpacked
     ///     (<c>rb_velocityD + Krakensbane.GetFrameVelocity()</c>) branches, so
     ///     the velocity needs <c>.xzy</c>.</item>
+    ///   <item><see cref="FromLatLonAltAndRecordedVelocityFrameAware"/> - the
+    ///     same inputs, but the recorded velocity is first converted to an
+    ///     inertial one when the sample was taken in the body's co-rotating
+    ///     frame (see "Recorded velocity frame" below).</item>
     ///   <item><see cref="FromWorldPosAndZupVelocity"/> — world-absolute Y-up
     ///     position plus a velocity already in Zup-local (e.g. the output of
     ///     <c>Orbit.getOrbitalVelocityAtUT</c>). The velocity is passed through;
@@ -36,6 +40,24 @@ namespace Parsek
     /// Sites that take a caller-supplied velocity whose frame depends on the
     /// caller (e.g. <c>VesselSpawner.SpawnFromSnapshot</c> internals) should be
     /// audited per-call-site before being routed through one of these helpers.
+    ///
+    /// Recorded velocity frame. The unpacked recorder branch
+    /// (<c>rb_velocityD + Krakensbane.GetFrameVelocity()</c>) is a velocity in the
+    /// Unity world frame, and that frame CO-ROTATES with the dominant body while
+    /// the active vessel is below <c>body.inverseRotThresholdAltitude</c>
+    /// (decompiled <c>OrbitPhysicsManager.CheckReferenceFrame</c>: strict
+    /// <c>altitude &lt; inverseRotThresholdAltitude</c>, no hysteresis, only when
+    /// <c>body.rotates</c>). There the recorded velocity is SURFACE-RELATIVE: stock
+    /// adds the frame term back before seeding an orbit
+    /// (<c>OrbitDriver.TrackRigidbody</c>: <c>vel = velocityD.xzy + GetRotFrameVelAtPos</c>)
+    /// and removes it for <c>srf_velocity</c> (<c>orbit.GetVel() - getRFrmVelOrbit</c>).
+    /// The packed branch (<c>v.obt_velocity = orbit.vel.xzy</c>) is inertial at any
+    /// altitude. A TrajectoryPoint carries no packed / rotating flag, so
+    /// <see cref="IsRecordedVelocityInRotatingFrame"/> classifies by the sample's
+    /// own altitude: exact for the active-vessel recorder's unpacked samples, an
+    /// approximation for background samples (the frame follows the ACTIVE vessel,
+    /// which is within physics range) and wrong for a packed sample below the
+    /// threshold (rare inside an ExoBallistic Absolute section).
     /// </summary>
     internal static class OrbitReseed
     {
@@ -58,6 +80,87 @@ namespace Parsek
         {
             Vector3d bodyRelPos = worldPosYup - bodyPositionYup;
             return new StateVectorInputs(bodyRelPos.xzy, recordedVelWorldYup.xzy);
+        }
+
+        /// <summary>
+        /// Pure: was a recorded sample at <paramref name="sampleAltitude"/> taken in the
+        /// body's co-rotating frame (surface-relative velocity)? Mirrors stock's
+        /// <c>OrbitPhysicsManager.CheckReferenceFrame</c> rule: the body rotates and the
+        /// altitude is strictly below its <c>inverseRotThresholdAltitude</c>.
+        /// </summary>
+        internal static bool IsRecordedVelocityInRotatingFrame(
+            bool bodyRotates,
+            double inverseRotThresholdAltitude,
+            double sampleAltitude)
+        {
+            return bodyRotates
+                && IsFinite(inverseRotThresholdAltitude)
+                && inverseRotThresholdAltitude > 0.0
+                && IsFinite(sampleAltitude)
+                && sampleAltitude < inverseRotThresholdAltitude;
+        }
+
+        /// <summary>
+        /// Pure: the velocity of the body's co-rotating frame at a body-relative Y-up
+        /// world position, i.e. stock <c>CelestialBody.getRFrmVel</c>:
+        /// <c>Cross(angularVelocity, worldPos - body.position)</c> with
+        /// <c>angularVelocity = Vector3d.down * 2*pi / rotationPeriod</c>
+        /// (decompiled <c>CelestialBody</c> rotation setup). Zero when the period or
+        /// the position is unusable.
+        /// </summary>
+        internal static Vector3d ComputeRotatingFrameVelocityYup(
+            Vector3d bodyRelPosYup,
+            double rotationPeriod)
+        {
+            if (!IsFinite(rotationPeriod)
+                || System.Math.Abs(rotationPeriod) <= double.Epsilon
+                || !IsFinite(bodyRelPosYup))
+            {
+                return Vector3d.zero;
+            }
+
+            Vector3d angularVelocity = Vector3d.down * (System.Math.PI * 2.0 / rotationPeriod);
+            return Vector3d.Cross(angularVelocity, bodyRelPosYup);
+        }
+
+        /// <summary>
+        /// Pure: the inertial (body-centred, non-rotating) Y-up world velocity of a
+        /// recorded sample. A co-rotating-frame sample gets the frame velocity added,
+        /// as stock's <c>OrbitDriver.TrackRigidbody</c> does; an inertial sample passes
+        /// through unchanged.
+        /// </summary>
+        internal static Vector3d ComputeInertialRecordedVelocityYup(
+            Vector3d recordedVelWorldYup,
+            Vector3d bodyRelPosYup,
+            bool sampleInRotatingFrame,
+            double rotationPeriod)
+        {
+            if (!sampleInRotatingFrame)
+                return recordedVelWorldYup;
+
+            return recordedVelWorldYup
+                + ComputeRotatingFrameVelocityYup(bodyRelPosYup, rotationPeriod);
+        }
+
+        /// <summary>
+        /// Pure: <see cref="ComputeRecordedVelocityInputs(Vector3d, Vector3d, Vector3d)"/>
+        /// after converting the recorded velocity to inertial
+        /// (<see cref="ComputeInertialRecordedVelocityYup"/>).
+        /// </summary>
+        internal static StateVectorInputs ComputeRecordedVelocityInputs(
+            Vector3d worldPosYup,
+            Vector3d bodyPositionYup,
+            Vector3d recordedVelWorldYup,
+            bool sampleInRotatingFrame,
+            double rotationPeriod)
+        {
+            Vector3d bodyRelPos = worldPosYup - bodyPositionYup;
+            Vector3d inertialVel = ComputeInertialRecordedVelocityYup(
+                recordedVelWorldYup,
+                bodyRelPos,
+                sampleInRotatingFrame,
+                rotationPeriod);
+            return new StateVectorInputs(bodyRelPos.xzy, inertialVel.xzy);
         }
 
         internal static StateVectorInputs ComputeZupVelocityInputs(
@@ -179,10 +282,11 @@ namespace Parsek
         /// lat/lon/alt position and a recorder-frame Y-up world velocity.
         /// </summary>
         /// <remarks>
-        /// Use this for state vectors emitted by <see cref="FlightRecorder"/> —
-        /// the recorder stores <c>TrajectoryPoint.velocity</c> in Y-up Unity
-        /// world axes, body-relative inertial in steady-state operation (with
-        /// brief Krakensbane shifts compensated by <c>+ GetFrameVelocity()</c>).
+        /// The recorder stores <c>TrajectoryPoint.velocity</c> in Y-up Unity world
+        /// axes. This helper passes it through unchanged, which is right only for an
+        /// inertial sample; a sample taken below the body's inverse-rotation altitude
+        /// is surface-relative (see the class summary), and
+        /// <see cref="FromLatLonAltAndRecordedVelocityFrameAware"/> converts it.
         /// </remarks>
         internal static void FromLatLonAltAndRecordedVelocity(
             Orbit dst,
@@ -223,6 +327,67 @@ namespace Parsek
                     bodyRelPos.magnitude,
                     body != null ? body.position.magnitude : 0.0,
                     recordedVelWorldYup.magnitude));
+        }
+
+        /// <summary>
+        /// Build orbit elements at <paramref name="ut"/> from a body-fixed lat/lon/alt
+        /// position and a recorder-frame Y-up world velocity, converting a co-rotating
+        /// (surface-relative) sample to inertial first. The frame is classified from the
+        /// sample altitude against the body's inverse-rotation threshold
+        /// (<see cref="IsRecordedVelocityInRotatingFrame"/>), and the frame velocity is
+        /// taken at the same <c>GetWorldSurfacePosition</c> the orbit is seeded from.
+        /// </summary>
+        internal static void FromLatLonAltAndRecordedVelocityFrameAware(
+            Orbit dst,
+            CelestialBody body,
+            double lat,
+            double lon,
+            double alt,
+            Vector3d recordedVelWorldYup,
+            double ut,
+            out bool sampleInRotatingFrame,
+            out Vector3d inertialVelWorldYup)
+        {
+            double inverseRotThresholdAltitude = body.inverseRotThresholdAltitude;
+            double rotationPeriod = body.rotationPeriod;
+            sampleInRotatingFrame = IsRecordedVelocityInRotatingFrame(
+                body.rotates,
+                inverseRotThresholdAltitude,
+                alt);
+
+            Vector3d worldPos = body.GetWorldSurfacePosition(lat, lon, alt);
+            Vector3d bodyRelPos = worldPos - body.position;
+            inertialVelWorldYup = ComputeInertialRecordedVelocityYup(
+                recordedVelWorldYup,
+                bodyRelPos,
+                sampleInRotatingFrame,
+                rotationPeriod);
+            StateVectorInputs inputs = ComputeRecordedVelocityInputs(
+                worldPos,
+                body.position,
+                recordedVelWorldYup,
+                sampleInRotatingFrame,
+                rotationPeriod);
+            dst.UpdateFromStateVectors(
+                inputs.PositionForUpdate,
+                inputs.VelocityForUpdate,
+                body,
+                ut);
+            ParsekLog.Verbose("OrbitReseed",
+                string.Format(CultureInfo.InvariantCulture,
+                    "FromLatLonAltAndRecordedVelocityFrameAware: body={0} ut={1:F2} " +
+                    "lat={2:F4} lon={3:F4} alt={4:F1} invRotAlt={5:F1} velFrame={6} " +
+                    "|bodyRelPos|={7:F1} |recordedVel|={8:F2} |inertialVel|={9:F2}",
+                    body.name ?? "(null)",
+                    ut,
+                    lat,
+                    lon,
+                    alt,
+                    inverseRotThresholdAltitude,
+                    sampleInRotatingFrame ? "rotating" : "inertial",
+                    bodyRelPos.magnitude,
+                    recordedVelWorldYup.magnitude,
+                    inertialVelWorldYup.magnitude));
         }
 
         /// <summary>

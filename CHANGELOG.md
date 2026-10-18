@@ -35,6 +35,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A vessel in a low orbit now reappears at the end of its recording.** A ship orbiting Kerbin
+  below about 100 km, whose recording ended there, was judged to be falling into the atmosphere
+  when time reached the recording's end, so its ghost vanished and the real vessel never came
+  back. Parsek now accounts for the planet's spin at that height and spawns the vessel in its
+  real orbit. (TERMINAL-SPAWN-TAIL-ORBIT-SURFACE-VELOCITY)
 - **A ghost now replays what you did after flying a spawned vessel again.** When you took over a
   vessel Parsek had spawned and drove or mined with it, that flight was added to the old
   recording, whose ghost did not know the vessel's new parts, so the ghost never moved its wheels

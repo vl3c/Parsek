@@ -6624,6 +6624,9 @@ namespace Parsek
         /// sections. Skips Surface / Atmospheric / ExoPropulsive / Approach
         /// environments — those produce sub-orbital or transitional osculating
         /// orbits that are not meaningful as the recording's "terminal" orbit.
+        /// A sample below the body's inverse-rotation altitude carries a
+        /// surface-relative velocity and is converted to inertial before the orbit is
+        /// seeded (<see cref="OrbitReseed.FromLatLonAltAndRecordedVelocityFrameAware"/>).
         /// Also rejects when |spawnUT − tailUT| exceeds
         /// <see cref="TailDerivedOrbitMaxRotationDriftSeconds"/> because
         /// <c>body.GetWorldSurfacePosition</c> uses the body's current rotation,
@@ -6734,14 +6737,18 @@ namespace Parsek
             double apoAlt = semiMajorAxis * (1.0 + eccentricity) - body.Radius;
             ParsekLog.Verbose("Spawner",
                 string.Format(CultureInfo.InvariantCulture,
-                    "Tail-derived terminal orbit: rec={0} body={1} tailUT={2:F2} sma={3:F1} ecc={4:F4} periAlt={5:F1} apoAlt={6:F1}",
+                    "Tail-derived terminal orbit: rec={0} body={1} tailUT={2:F2} sma={3:F1} ecc={4:F4} periAlt={5:F1} apoAlt={6:F1} " +
+                    "tailVelFrame={7} recordedSpeed={8:F2} inertialSpeed={9:F2}",
                     recId,
                     seed.BodyName,
                     seed.TailUT,
                     semiMajorAxis,
                     eccentricity,
                     periAlt,
-                    apoAlt));
+                    apoAlt,
+                    seed.VelocityWasRotatingFrame ? "rotating" : "inertial",
+                    seed.RecordedSpeed,
+                    seed.InertialSpeed));
             return true;
         }
 

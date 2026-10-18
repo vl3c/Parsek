@@ -1069,6 +1069,117 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "SpawnTerminalOrbit", Scene = GameScenes.FLIGHT,
+            Description = "A tail sample below Kerbin's inverse-rotation altitude carries a surface-relative velocity; the spawn tail seed adds the body's rotation back and derives the circular ~93 km orbit (LAB-7)")]
+        public void TerminalOrbitFromTail_SurfaceRelativeLowOrbitTail_DerivesInertialOrbit()
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == "Kerbin");
+            if (kerbin == null)
+            {
+                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies");
+                return;
+            }
+
+            // LAB-7 (runs 2026-10-17_2308 / _2318_a2): an orbiting lab whose recording ended
+            // at 92.95 km, below Kerbin's inverse-rotation altitude, so its tail velocity was
+            // recorded in the co-rotating frame. Build that sample from a circular inertial
+            // orbit minus stock's own frame velocity at the same position, which makes the
+            // test independent of whether the live frame is rotating right now.
+            const double tailUT = 3606.65;
+            const double tailAlt = 92950.7;
+            const double tailLat = 0.0;
+            const double tailLon = 143.7565;
+            if (!kerbin.rotates || !(kerbin.inverseRotThresholdAltitude > tailAlt))
+            {
+                InGameAssert.Skip(
+                    $"needs a rotating Kerbin with inverseRotThresholdAltitude above {tailAlt:F0} m " +
+                    $"(rotates={kerbin.rotates}, threshold={kerbin.inverseRotThresholdAltitude:F0})");
+                return;
+            }
+
+            Vector3d worldPos = kerbin.GetWorldSurfacePosition(tailLat, tailLon, tailAlt);
+            Vector3d radial = (worldPos - kerbin.position).normalized;
+            // Same prograde construction as TerminalOrbitFromTail_DerivesPostBurnCircularOrbit.
+            Vector3d tangent = Vector3d.Cross(radial, new Vector3d(0.0, 1.0, 0.0)).normalized;
+            double radius = (worldPos - kerbin.position).magnitude;
+            double circularSpeed = System.Math.Sqrt(kerbin.gravParameter / radius);
+            Vector3d inertialVel = tangent * circularSpeed;
+            Vector3d surfaceRelativeVel = inertialVel - kerbin.getRFrmVel(worldPos);
+            UnityEngine.Vector3 recordedVel = new UnityEngine.Vector3(
+                (float)surfaceRelativeVel.x,
+                (float)surfaceRelativeVel.y,
+                (float)surfaceRelativeVel.z);
+
+            // Negative control: the pass-through reseed (the pre-fix spawn path) reads the
+            // surface-relative speed as inertial and lands the periapsis under the atmosphere.
+            Orbit legacy = new Orbit();
+            OrbitReseed.FromLatLonAltAndRecordedVelocity(
+                legacy, kerbin, tailLat, tailLon, tailAlt,
+                new Vector3d(recordedVel.x, recordedVel.y, recordedVel.z), tailUT);
+            InGameAssert.IsTrue(legacy.PeA < kerbin.atmosphereDepth,
+                $"control: the pass-through reseed of a surface-relative sample must sink the periapsis " +
+                $"below the atmosphere (PeA={legacy.PeA:F0} m, |v|={surfaceRelativeVel.magnitude:F2}, " +
+                $"circular={circularSpeed:F2})");
+
+            var rec = new Recording { RecordingId = "ingame-tail-surface-relative-low-orbit" };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = tailUT,
+                endUT = tailUT,
+                frames = new System.Collections.Generic.List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = tailUT,
+                        latitude = tailLat,
+                        longitude = tailLon,
+                        altitude = tailAlt,
+                        rotation = UnityEngine.Quaternion.identity,
+                        velocity = recordedVel,
+                        bodyName = "Kerbin"
+                    }
+                }
+            });
+
+            bool ok = VesselSpawner.TryDeriveTerminalOrbitSeedFromTrajectoryTail(
+                rec, kerbin, tailUT,
+                out _,
+                out double eccentricity,
+                out double semiMajorAxis,
+                out _, out _, out _, out _, out _,
+                out string declineReason);
+            InGameAssert.IsTrue(ok,
+                $"tail derive should succeed (declineReason={declineReason ?? "(null)"})");
+
+            double periAlt = semiMajorAxis * (1.0 - eccentricity) - kerbin.Radius;
+            double apoAlt = semiMajorAxis * (1.0 + eccentricity) - kerbin.Radius;
+            InGameAssert.IsTrue(System.Math.Abs(semiMajorAxis - radius) < 1000.0,
+                $"sma={semiMajorAxis:F1} should be the circular radius {radius:F1}; a sma near " +
+                $"{radius * 0.86:F0} means the body's rotation speed was not added back");
+            InGameAssert.IsTrue(eccentricity < 0.005,
+                $"ecc={eccentricity:F4} should be near zero for the circular inertial orbit");
+
+            var decision = TerminalOrbitSpawnSafety.Evaluate(
+                currentAltitude: tailAlt,
+                atmosphereDepth: kerbin.atmosphereDepth,
+                safetyMargin: TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
+                periapsisAltitude: periAlt,
+                apoapsisAltitude: apoAlt);
+            InGameAssert.AreEqual(
+                TerminalOrbitSpawnSafetyAction.SpawnNow,
+                decision.Action,
+                $"spawn safety for the converted tail orbit should be SpawnNow, got {decision.Action} " +
+                $"reason={decision.ReasonCode} periAlt={periAlt:F0}");
+
+            ParsekLog.Info("TestRunner",
+                $"TerminalOrbitFromTail_SurfaceRelativeLowOrbitTail_DerivesInertialOrbit: " +
+                $"sma={semiMajorAxis:F1} ecc={eccentricity:F4} periAlt={periAlt:F0} apoAlt={apoAlt:F0} " +
+                $"legacyPeA={legacy.PeA:F0} recordedSpeed={surfaceRelativeVel.magnitude:F2} " +
+                $"circularSpeed={circularSpeed:F2} decision={decision.Action}");
+        }
+
+        [InGameTest(Category = "SpawnTerminalOrbit", Scene = GameScenes.FLIGHT,
             Description = "Probe-shape tail (highly eccentric ellipse) reseeds correctly — sma must match the analytic 4.5 Mm orbit, not the buggy ~500 k garbage that the bare UpdateFromStateVectors produces")]
         public void TerminalOrbitFromTail_DerivesPostBurnEccentricOrbit()
         {

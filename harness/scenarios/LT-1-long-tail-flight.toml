@@ -44,6 +44,9 @@ tier = "nightly"
 # the flown one minus that constituent's 2/2/0/0 line (58/51/0/7 -> 56/49/0/7,
 # multi:31 -> multi:30, and the runtests start line's multi=31 -> multi=30). Not
 # re-flown for the removal alone.
+# 2026-10-18: SpawnTerminalOrbit gained a fourth cell (the surface-relative low-orbit
+# tail seed, todo TERMINAL-SPAWN-TAIL-ORBIT-SURFACE-VELOCITY), so its line is 3/3/0/0
+# -> 4/4/0/0 and the aggregate 56/49/0/7 -> 57/50/0/7. Not yet flown at this pin.
 description = "Run the 30 long-tail in-game categories as one multi-category batch at FLIGHT over the injected synthetic corpus, every constituent pinned whole."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "multi-category", "long-tail", "LT-1"]
@@ -117,7 +120,7 @@ required  = [
   "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=RevertVesselStrip scene=FLIGHT",
   "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=RewindSaves scene=FLIGHT",
   "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=SpawnCollision scene=FLIGHT",
-  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=SpawnTerminalOrbit scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=SpawnTerminalOrbit scene=FLIGHT",
   "BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=Spawner scene=FLIGHT",
   "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=StockWarpLimits scene=FLIGHT",
   "BATCH_COMPLETE v1 total=3 passed=1 failed=0 skipped=2 category=SwitchIntentPatch scene=FLIGHT",
@@ -126,7 +129,7 @@ required  = [
   "BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=TestRunnerIsolation scene=FLIGHT",
   "BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=Unity scene=FLIGHT",
   "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Watch scene=FLIGHT",
-  "BATCH_COMPLETE v1 total=56 passed=49 failed=0 skipped=7 category=multi:30 scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=57 passed=50 failed=0 skipped=7 category=multi:30 scene=FLIGHT",
   # THE WATCH CONSTITUENT'S OWN CELL-LEVEL LINES (claim pass 2026-09-08). Both are
   # written AFTER the cell's assertions (`WatchAutoFollowFollowsSupersedeForkRuntimeTest.cs`,
   # `WatchCoverageRetiredEligibilityRuntimeTest.cs`), so neither can print on a

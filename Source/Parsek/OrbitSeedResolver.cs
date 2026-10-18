@@ -23,6 +23,12 @@ namespace Parsek
         internal string TailFrameSource;
         internal bool UsedHistoricalBodyRotation;
         internal double HistoricalLongitude;
+        // Spawn use only: whether the tail sample's recorded velocity was read as
+        // co-rotating-frame (surface-relative) and converted to inertial, plus both
+        // speeds. RecordedSpeed / InertialSpeed are NaN when not computed.
+        internal bool VelocityWasRotatingFrame;
+        internal double RecordedSpeed;
+        internal double InertialSpeed;
         internal OrbitSegment Segment;
     }
 
@@ -77,6 +83,9 @@ namespace Parsek
                 TailFrameSource = null,
                 UsedHistoricalBodyRotation = false,
                 HistoricalLongitude = double.NaN,
+                VelocityWasRotatingFrame = false,
+                RecordedSpeed = double.NaN,
+                InertialSpeed = double.NaN,
                 Segment = default(OrbitSegment)
             };
 
@@ -166,6 +175,10 @@ namespace Parsek
                     }
 
                     double initialRotation = ResolveInitialRotation(body);
+                    // The recorded velocity is passed through unconverted here, so a tail
+                    // sample below the inverse-rotation altitude (surface-relative) still
+                    // seeds a too-slow orbit on this path (todo
+                    // TERMINAL-SPAWN-TAIL-ORBIT-SURFACE-VELOCITY, follow-up audit).
                     if (!OrbitReseed.TryFromHistoricalLatLonAltAndRecordedVelocity(
                             reseeded,
                             body,
@@ -188,14 +201,23 @@ namespace Parsek
                 }
                 else
                 {
-                    OrbitReseed.FromLatLonAltAndRecordedVelocity(
+                    // A tail sample below the body's inverse-rotation altitude carries a
+                    // surface-relative velocity; seeding it as inertial loses the body's
+                    // rotation speed (~200 m/s at low Kerbin orbit) and turns a low orbit
+                    // into a sub-surface ellipse the spawn safety gate refuses.
+                    OrbitReseed.FromLatLonAltAndRecordedVelocityFrameAware(
                         reseeded,
                         body,
                         candidate.latitude,
                         candidate.longitude,
                         candidate.altitude,
                         recordedVelocity,
-                        candidate.ut);
+                        candidate.ut,
+                        out bool velocityWasRotatingFrame,
+                        out Vector3d inertialVelocity);
+                    seed.VelocityWasRotatingFrame = velocityWasRotatingFrame;
+                    seed.RecordedSpeed = recordedVelocity.magnitude;
+                    seed.InertialSpeed = inertialVelocity.magnitude;
                 }
 
                 if (!IsFiniteOrbitSeedElements(reseeded))

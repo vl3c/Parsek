@@ -16,7 +16,11 @@ namespace Parsek
         // Absolute / surface playback stores body-surface-relative rotation
         // (v.srfRelRotation). RELATIVE TrackSections store anchor-local world rotation.
         public Quaternion rotation;
-        public Vector3 velocity;    // Playback velocity captured from KSP; not guaranteed surface-relative
+        // Y-up Unity world velocity as captured. Its frame is not stored: an unpacked
+        // sample taken while the world frame co-rotates with the body (active vessel
+        // below body.inverseRotThresholdAltitude) is surface-relative; a packed sample,
+        // or one taken above that altitude, is inertial. See OrbitReseed's class summary.
+        public Vector3 velocity;
         public string bodyName;     // Reference celestial body
 
         // Career mode resources (absolute values at this tick)
