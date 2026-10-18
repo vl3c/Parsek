@@ -159,9 +159,12 @@ namespace Parsek
         /// Caller is responsible for clearing the marker / scenario journal
         /// and any flow-specific cleanup (<see cref="EndDiscardedReFlySession"/>); this helper
         /// handles only the recording/topology side.
+        /// The tree comes from <see cref="ResolveReFlyAttemptTree"/>: the instance that holds
+        /// the attempt's fork, which in an ordinary in-flight session is the live clone the
+        /// rewind point's save loaded, not the committed original under the same id.
         /// </summary>
         internal static AttemptDiscardSummary PruneActiveReFlyAttemptOwnedTopology(
-            ReFlySessionMarker marker, string callSite)
+            ReFlySessionMarker marker, string callSite, RecordingTree liveActiveTree = null)
         {
             var summary = new AttemptDiscardSummary();
             if (marker == null)
@@ -172,7 +175,7 @@ namespace Parsek
                 return summary;
             }
 
-            var tree = RewindInvoker.FindTreeForReFlyFork(marker.TreeId);
+            var tree = ResolveReFlyAttemptTree(marker, liveActiveTree, callSite);
             if (tree == null)
             {
                 // Degenerate case: marker points at a tree id that no
@@ -232,6 +235,54 @@ namespace Parsek
                 $"stagedRowsPruned={summary.StagedRows.Total}");
 
             return summary;
+        }
+
+        /// <summary>
+        /// The in-memory tree an attempt discard must prune: the one that HOLDS the marker's
+        /// fork. After the invoke's load the reconciliation bundle puts the pre-Re-Fly
+        /// committed tree back, so a live session usually has two instances under one id: the
+        /// untouched committed original and the live clone the rewind point's save loaded,
+        /// which alone holds the attempt (fork, sidecars, session branch points).
+        /// <see cref="RewindInvoker.FindTreeForReFlyFork"/> answers the committed original
+        /// first; pruning that deletes no sidecar of the attempt (LAB-10b and QL-5 read
+        /// <c>deletedFiles=0</c>, and the fork's <c>.prec</c> outlived the discard). The
+        /// lookup's answer is kept whenever it holds the fork (the committed-tree-attach and
+        /// pending shapes), or when the marker names no fork; otherwise the live tree is used
+        /// when it carries the session's tree id and holds the fork. The Esc rewind cancel
+        /// (<see cref="TryDiscardLiveReFlySessionForRewind"/>) already prefers the live tree.
+        /// </summary>
+        internal static RecordingTree ResolveReFlyAttemptTree(
+            ReFlySessionMarker marker, RecordingTree liveActiveTree, string callSite)
+        {
+            if (marker == null)
+                return null;
+
+            RecordingTree lookedUp = RewindInvoker.FindTreeForReFlyFork(marker.TreeId);
+            string forkId = marker.ActiveReFlyRecordingId;
+            if (string.IsNullOrEmpty(forkId) || TreeHoldsRecording(lookedUp, forkId))
+                return lookedUp;
+
+            if (liveActiveTree != null
+                && !object.ReferenceEquals(liveActiveTree, lookedUp)
+                && string.Equals(liveActiveTree.Id, marker.TreeId, System.StringComparison.Ordinal)
+                && TreeHoldsRecording(liveActiveTree, forkId))
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    $"ResolveReFlyAttemptTree callSite={callSite ?? "<none>"}: using the live tree " +
+                    $"tree={liveActiveTree.Id ?? "<none>"} fork={forkId} - the " +
+                    $"{(lookedUp == null ? "lookup found no tree" : "looked-up instance does not hold the fork")}");
+                return liveActiveTree;
+            }
+
+            return lookedUp;
+        }
+
+        private static bool TreeHoldsRecording(RecordingTree tree, string recordingId)
+        {
+            return tree != null
+                && tree.Recordings != null
+                && !string.IsNullOrEmpty(recordingId)
+                && tree.Recordings.ContainsKey(recordingId);
         }
 
         /// <summary>

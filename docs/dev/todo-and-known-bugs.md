@@ -16,6 +16,108 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~MILESTONE-REWARDS-BOOKED-OUTSIDE-CAREER: in SANDBOX / SCIENCE_SANDBOX a milestone is ledgered with the nominal reward stock never paid, and the science patch writes it into R&D~~ [FILED AND FIXED 2026-10-18 from harness lane LAB-10 (run `2026-10-17_2337`), branch `claude/refly-lab-ledger`. xUnit; not re-flown. product]
+
+**Symptom.** LAB-10 (SCIENCE_SANDBOX, pool 100): during the Re-Fly Parsek spawned the probe tender
+at the end of its recording 15 m from the lab, stock fired `[Progress Node Reached]: Rendezvous`,
+and Parsek logged `Milestone enriched: 'Kerbin/Rendezvous' funds=12000 rep=2.0 sci=1.0`. No
+`ScienceChanged` followed (stock paid nothing), yet the merge walk read `MilestoneAchievement
+science: id=Kerbin/Rendezvous, reward=1`, `PatchScience: 125.0 -> 126.0`, the commit reconcile
+logged `store delta=12.5 vs ledger emitted delta=13.5` with an `[ERROR] Science reconcile dump
+(commit)`, and the final pool was 113.5 instead of 112.5.
+
+**Cause.** Decompiled `ProgressNode.AwardProgress` (KSP 1.12.5) returns at its first line when
+`HighLogic.CurrentGame.Mode != Game.Modes.CAREER`, but the Harmony postfix
+(`Patches/ProgressRewardPatch`) still runs with the nominal `funds` / `science` / `reputation`
+arguments and enriched the pending `MilestoneAchieved` event with them. The comment on
+`EnrichPendingMilestoneRewards` assumed the `OnProgressComplete` subscriber does not run outside
+career; it does.
+
+**Fix.** `ProgressRewardPatch.Postfix` passes `StockPaysProgressRewards(mode)` (CAREER, or no
+current game) to `RoutePostfix`; outside CAREER both branches (enrich and standalone record
+emit) record the milestone with zero rewards and log `AwardProgress outside CAREER pays no
+reward in stock: recording '<id>' with zero rewards (nominal funds=.. sci=.. rep=..)` (verbose).
+The milestone row and its once-ever bookkeeping are unchanged. Cells:
+`MilestoneRewardCaptureTests.StockPaysProgressRewards_*`, `RoutePostfix_OutsideCareer_*`,
+`RoutePostfix_Career_KeepsTheNominalRewards`.
+
+## ~~REFLY-MERGE-RECONCILES-PRUNED-CAPTURE-OF-SUPERSEDED-ROW: the Re-Fly merge's tree-commit walk reports the replaced recording's lab credit as a missing earning channel (WARN + ERROR dump)~~ [FILED AND FIXED 2026-10-18 from harness lane LAB-10 (run `2026-10-17_2337`), branch `claude/refly-lab-ledger`. xUnit; not re-flown. product (log noise only)]
+
+**Symptom.** In the merge of a Re-Fly that replaced a flight whose lab transmitted (credit at UT
+2284.9 on the origin `c098...`): `[WARN] Earnings reconciliation (post-walk, sci): ScienceLabEarning
+id=c098... expected=12.5 but no matching ScienceChanged event keyed 'ScienceTransmission' within
+0.1s of ut=2284.9` and `[ERROR] Science reconcile dump (post-walk): ... (no ScienceChanged events
+in dump window)`, in the tree-commit walk just before `Tombstoned 2 career actions (...
+Science=1 ...)` retired that very row. The ledger was right.
+
+**Cause.** An ordering gap in the post-walk live-coverage gate. Act A's commit at the Space Center
+pruned the credit's `ScienceChanged` capture (`PruneProcessedEvents: removed 3 events
+(threshold=2292.0 ...)`). During the session the origin stayed visible through the live active
+tree, so the act-A milestone kept the live threshold at 2292 and the row was skipped (`ut is
+at/below live prune threshold`). The merge's `CommitTree` then cleared the live tree; the origin,
+session-suppressed, left the effective set, the act-A milestone's events turned hidden, the
+threshold fell below 2284.9, and the row compared against nothing. The CL-4 skip
+(`HasOnlyTimelineHiddenPostWalkCoverage`) needs a hidden capture still in the store, and this one
+was gone. Lab rows reach the comparison since PR #2138; any anchorless recording-scoped row
+(ScienceEarning, reputation / funds earning) of a replaced flight had the same exposure.
+
+**Fix.** `PostWalkActionReconciler.HasPrunedTimelineHiddenPostWalkCoverage`: a row whose recording
+is outside the current timeline, whose UT is at or below the highest committed milestone EndUT
+counting hidden milestones (`MilestoneStore.GetLatestCommittedEndUTIncludingHidden`, an upper
+bound on every prune threshold applied), and of which no capture remains at all, visible or
+hidden, is skipped: `Post-walk live-coverage skip: ... -- its recording is outside the current
+timeline and its capture was pruned at the committed milestone watermark=<ut>`. A row above the
+watermark, on a visible recording, or with a hidden capture of a different amount still reports.
+Cells: `PostWalkLabCreditReconcileTests` section (e) (pruned skip, above-watermark, visible
+recording, divergent hidden capture, pure truth table).
+
+## ~~ESC-DISCARD-REFLY-LEAVES-ATTEMPT-SIDECARS: the Esc menu's Discard Re-fly prunes the committed original instead of the live clone, so the attempt's sidecar files stay in the save~~ [FILED AND FIXED 2026-10-18 from harness lane LAB-10b (run `2026-10-17_2341`, `recordings.count 3 > max 2`), branch `claude/refly-lab-ledger`. xUnit; not re-flown. product]
+
+**Symptom.** `PruneActiveReFlyAttemptOwnedTopology callSite=RevertInterceptor:DiscardReFly ...
+attemptIds=1 removedCommitted=1 purgedEvents=3 deletedFiles=0`, and `rec_<fork>.prec` (with its
+craft and mirrors) still in `Parsek/Recordings/` after the discard; QL-5 `2026-10-15_1601` reads
+`deletedFiles=0` too, QL-5c (after an F9, no committed copy) `deletedFiles=1`. The cold-load orphan
+pass quarantines the files later; nothing references them.
+
+**Cause.** In an ordinary in-flight session two tree instances share the session's tree id: the
+committed original the reconciliation bundle put back and the live clone the rewind point's save
+loaded, which alone holds the fork. `RewindInvoker.FindTreeForReFlyFork` answers the committed
+original first, so `DeleteAttemptRecordingFiles` walked a tree without the fork. RF-15 fixed the
+same lookup for the Esc rewind cancel (`TryDiscardLiveReFlySessionForRewind`, live tree first);
+the Discard Re-fly path kept it.
+
+**Fix.** `MergeDialog.ResolveReFlyAttemptTree`: the lookup's answer when it holds the marker's fork
+(committed-tree-attach and pending shapes unchanged) or the marker names none; otherwise the live
+tree when it carries the session's tree id and holds the fork (`ResolveReFlyAttemptTree ... using
+the live tree`, verbose). `RevertInterceptor.DiscardReFlyHandler` passes
+`ParsekFlight.Instance?.ActiveTreeForSerialization` at both prune calls. Cells:
+`ReFlyRevertDialogTests.PruneAttempt_LiveCloneHoldsTheFork_PrunesTheCloneNotTheCommittedOriginal`,
+`ResolveReFlyAttemptTree_PrefersTheInstanceThatHoldsTheFork`.
+
+## REFLY-SESSION-CAREER-SHOWS-THE-REPLACED-FLIGHTS-FUTURE: during a Re-Fly the career pools and the progress tree include the replaced flight's future earnings [FILED 2026-10-18 from harness lanes LAB-10 / LAB-10b (runs `2026-10-17_2337` / `_2341`). OPEN, owner question; behavior is the documented design]
+
+**What happens.** The Re-Fly invoke walks the whole ledger with no cutoff
+(`RewindInvoker`: `RecalculateAndPatch(double.MaxValue)`, design "career state during this
+attempt stays as it is now"). Rewound to UT 368, the lab's R&D pool reads 112.5: the replaced
+flight's lab credit at UT 2284.9 is still counted (`PatchScience: 100.0 -> 112.5`; the read-back
+guard accepts it, `eBefore=112.5 eRp=100`). The replacement's own transmit then lands on 125.0, and
+the merge's tree-commit walk patches 125.0 before the tombstone pass brings it to 112.5. The same
+walk marks the replaced flight's once-ever milestones achieved in stock's progress tree
+(`PatchMilestones: set achieved 'Kerbin/Science'`), so the replacement's first transmit does not
+fire stock's Science node, and after the merge tombstones the replaced flight's milestone row
+(`PatchMilestones: cleared achieved 'Kerbin/Science'`) neither flight holds it; the next science
+event re-earns it. A plain Rewind-to-Launch takes the current-UT cutoff instead
+(`post-rewind current-UT cutoff decision useCurrentUtCutoff=True`), and a stock revert (LAB-9b)
+returns the pool to 100.
+
+**Options.** (A) Keep the design (today). (B) Leave the pools as they are but keep the
+session-suppressed subtree's once-ever milestones out of the progress-tree patch during the
+session, so the replacement can earn them itself. (C) Walk the Re-Fly session without the
+session-suppressed subtree's rows after the rewind point (they come back on Discard and are
+tombstoned on Merge), so the pools and the progress tree show the replacement's world.
+Recommendation: (B) now; (C) only if players read the inflated pool as a bug, since it changes
+the Re-Fly confirmation's "Career state during this attempt stays as it is now" promise.
+
 ## ~~LAB-RECOVERY-RECONCILE-COALESCED-FALSE-MISMATCH: recovering a vessel whose lab holds science logs a false post-walk science mismatch (WARN + ERROR dump)~~ [FILED AND FIXED 2026-10-18 from harness lane LAB-14 (run `2026-10-17_2203`), branch `claude/lab-recovery-reconcile`. xUnit; not re-flown. product (log noise only)]
 
 **Symptom.** SCIENCE_SANDBOX, recovering from the pad a lab vessel whose lab held `storedScience` 12.5 and whose history had orbited Kerbin: `ScienceChanged +10.0 (VesselRecovery)` then `+12.5 (VesselRecovery)`, `Coalesced ScienceChanged event at ut=372.15`, `ScienceLabCredited +12.50`, then `[WARN][LedgerOrchestrator] Earnings reconciliation (post-walk, sci): ScienceEarning id=recovery@KerbinOrbited expected=10.0, observed=22.5 across 1 event(s) keyed 'VesselRecovery' ... -- post-walk delta mismatch` and the `[ERROR] Science reconcile dump (post-walk)`. The ledger was right (pool 122.5 = 100 + 10 + 12.5).

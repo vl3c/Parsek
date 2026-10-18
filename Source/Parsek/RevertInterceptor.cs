@@ -405,7 +405,8 @@ namespace Parsek
                 // Step 3-6 still run so the session does not strand the
                 // player behind the marker; skip 7-10 (no RP to reload).
                 MergeDialog.PruneActiveReFlyAttemptOwnedTopology(
-                    marker, "RevertInterceptor:DiscardReFly:rp-unresolvable");
+                    marker, "RevertInterceptor:DiscardReFly:rp-unresolvable",
+                    ParsekFlight.Instance?.ActiveTreeForSerialization);
                 if (!ReferenceEquals(null, scenario))
                 {
                     // The merge-dialog discard's session-state half: pending science,
@@ -433,13 +434,15 @@ namespace Parsek
             // removed; the committed-tree-attach shape introduced by the
             // post-#734 fork model meant the abandoned attempt could
             // survive in any committed tree that owned the marker's tree id.
-            // The shared MergeDialog helper finds the in-memory tree via
-            // the same Pending/Committed/live-active fallback chain
-            // FindTreeForReFlyFork uses, so this works regardless of which
-            // attach shape the marker write hit.
+            // The shared MergeDialog helper prunes the in-memory tree that
+            // HOLDS the fork (MergeDialog.ResolveReFlyAttemptTree): the
+            // Pending/Committed/live-active chain FindTreeForReFlyFork uses,
+            // except that the live tree wins when the committed original
+            // under the same id does not hold the attempt.
             MergeDialog.AttemptDiscardSummary pruneSummary =
                 MergeDialog.PruneActiveReFlyAttemptOwnedTopology(
-                    marker, "RevertInterceptor:DiscardReFly");
+                    marker, "RevertInterceptor:DiscardReFly",
+                    ParsekFlight.Instance?.ActiveTreeForSerialization);
 
             // Step 4: promote the origin RP to persistent BEFORE clearing
             // the marker — LoadTimeSweep's RP-discard pass in the fresh

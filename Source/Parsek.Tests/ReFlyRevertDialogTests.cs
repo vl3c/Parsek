@@ -1703,6 +1703,118 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// ESC-DISCARD-REFLY-LEAVES-ATTEMPT-SIDECARS (LAB-10b 2026-10-17_2341, QL-5
+        /// 2026-10-15_1601: <c>deletedFiles=0</c>): in an ordinary in-flight session the
+        /// committed original and the live clone the rewind point's save loaded share one tree
+        /// id, and only the clone holds the attempt. The Esc Discard pruned the committed
+        /// original, so no attempt sidecar was deleted and the fork's .prec outlived the
+        /// discard. The prune now takes the instance that holds the fork.
+        /// </summary>
+        [Fact]
+        public void PruneAttempt_LiveCloneHoldsTheFork_PrunesTheCloneNotTheCommittedOriginal()
+        {
+            const string treeId = "tree-live-clone";
+            const string sessionId = "sess-live-clone";
+            const string rpId = "rp_live_clone";
+            const string originId = "rec-live-clone-origin";
+            const string forkId = "rec-live-clone-fork";
+
+            var committedOrigin = new Recording
+            {
+                RecordingId = originId, TreeId = treeId,
+                MergeState = MergeState.Immutable, VesselName = "LABX Orbital Lab",
+            };
+            var committedTree = new RecordingTree
+            {
+                Id = treeId, TreeName = treeId, RootRecordingId = originId,
+                ActiveRecordingId = originId,
+            };
+            committedTree.AddOrReplaceRecording(committedOrigin);
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            RecordingStore.AddCommittedInternal(committedOrigin);
+
+            var cloneOrigin = new Recording
+            {
+                RecordingId = originId, TreeId = treeId,
+                MergeState = MergeState.Immutable, VesselName = "LABX Orbital Lab",
+            };
+            var fork = new Recording
+            {
+                RecordingId = forkId, TreeId = treeId,
+                MergeState = MergeState.NotCommitted, CreatingSessionId = sessionId,
+                ProvisionalForRpId = rpId, SupersedeTargetId = originId,
+                VesselName = "LABX Orbital Lab",
+            };
+            var liveClone = new RecordingTree
+            {
+                Id = treeId, TreeName = treeId, RootRecordingId = originId,
+                ActiveRecordingId = forkId,
+            };
+            liveClone.AddOrReplaceRecording(cloneOrigin);
+            liveClone.AddOrReplaceRecording(fork);
+            RecordingStore.AddProvisional(fork);
+
+            var marker = MakeMarker(
+                sessionId: sessionId, treeId: treeId, rpId: rpId,
+                originId: originId, activeReFlyRecordingId: forkId);
+            marker.SupersedeTargetId = originId;
+            marker.InPlaceContinuation = true;
+
+            var summary = MergeDialog.PruneActiveReFlyAttemptOwnedTopology(
+                marker, "RevertInterceptor:DiscardReFly", liveClone);
+
+            Assert.Same(liveClone, summary.Tree);
+            Assert.Equal(1, summary.DeletedFiles);
+            // The clone itself is dropped whole at the Discard's scene exit (FinalizeTreeOnSceneChange
+            // suppressed commit); what must not survive it is the fork's sidecars.
+            Assert.True(committedTree.Recordings.ContainsKey(originId));
+            Assert.Equal(originId, committedTree.ActiveRecordingId);
+            Assert.DoesNotContain(RecordingStore.CommittedRecordings, r => r?.RecordingId == forkId);
+            Assert.Contains(logLines, l =>
+                l.Contains("ResolveReFlyAttemptTree callSite=RevertInterceptor:DiscardReFly") &&
+                l.Contains("using the live tree") &&
+                l.Contains("fork=" + forkId));
+            Assert.Contains(logLines, l =>
+                l.Contains("PruneActiveReFlyAttemptOwnedTopology callSite=RevertInterceptor:DiscardReFly") &&
+                l.Contains("deletedFiles=1"));
+        }
+
+        [Fact]
+        public void ResolveReFlyAttemptTree_PrefersTheInstanceThatHoldsTheFork()
+        {
+            const string treeId = "tree-resolve";
+            var committed = new RecordingTree { Id = treeId, TreeName = treeId };
+            committed.AddOrReplaceRecording(new Recording { RecordingId = "rec-origin", TreeId = treeId });
+            RecordingStore.AddCommittedTreeForTesting(committed);
+
+            var liveWithFork = new RecordingTree { Id = treeId, TreeName = treeId };
+            liveWithFork.AddOrReplaceRecording(new Recording { RecordingId = "rec-fork", TreeId = treeId });
+            var liveWithoutFork = new RecordingTree { Id = treeId, TreeName = treeId };
+            var liveOtherId = new RecordingTree { Id = "tree-other", TreeName = "tree-other" };
+            liveOtherId.AddOrReplaceRecording(new Recording { RecordingId = "rec-fork", TreeId = "tree-other" });
+
+            var marker = MakeMarker(treeId: treeId, activeReFlyRecordingId: "rec-fork");
+
+            // Committed original lacks the fork, the live clone holds it: the clone.
+            Assert.Same(liveWithFork, MergeDialog.ResolveReFlyAttemptTree(marker, liveWithFork, "t"));
+            // Nobody holds the fork: the lookup's answer, as before.
+            Assert.Same(committed, MergeDialog.ResolveReFlyAttemptTree(marker, liveWithoutFork, "t"));
+            // A live tree under another id never wins.
+            Assert.Same(committed, MergeDialog.ResolveReFlyAttemptTree(marker, liveOtherId, "t"));
+            // No live tree: the lookup's answer.
+            Assert.Same(committed, MergeDialog.ResolveReFlyAttemptTree(marker, null, "t"));
+
+            // Committed-tree-attach shape: the committed tree holds the fork and keeps winning.
+            committed.AddOrReplaceRecording(new Recording { RecordingId = "rec-fork", TreeId = treeId });
+            Assert.Same(committed, MergeDialog.ResolveReFlyAttemptTree(marker, liveWithFork, "t"));
+
+            // A marker naming no fork keeps the lookup's answer.
+            var noFork = MakeMarker(treeId: treeId, activeReFlyRecordingId: null);
+            Assert.Same(committed, MergeDialog.ResolveReFlyAttemptTree(noFork, liveWithFork, "t"));
+            Assert.Null(MergeDialog.ResolveReFlyAttemptTree(null, liveWithFork, "t"));
+        }
+
+        /// <summary>
         /// ESC-DISCARD-REFLY-KEEPS-PENDING-SCIENCE-AND-LEDGER-TAGS, tree branch: with the
         /// marker's tree registered, PruneActiveReFlyAttemptOwnedTopology takes its tree branch
         /// (not the no-tree fallback) and re-homes the ledger tags of EVERY attempt-owned
