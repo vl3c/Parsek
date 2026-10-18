@@ -666,6 +666,95 @@ namespace Parsek.Tests
                 l.Contains("source='MilestoneAchievedStandalone'"));
         }
 
+        // Stock's AwardProgress returns before paying anything outside CAREER, yet the
+        // postfix runs with the nominal reward arguments. LAB-10 (SCIENCE_SANDBOX) booked a
+        // Rendezvous milestone's 1 science that stock never paid, and the science patch
+        // wrote it into R&D. Outside CAREER the milestone is recorded with zero rewards.
+
+        [Theory]
+        [InlineData(Game.Modes.CAREER, true)]
+        [InlineData(Game.Modes.SCIENCE_SANDBOX, false)]
+        [InlineData(Game.Modes.SANDBOX, false)]
+        public void StockPaysProgressRewards_CareerOnly(Game.Modes mode, bool expected)
+        {
+            Assert.Equal(expected, Parsek.Patches.ProgressRewardPatch.StockPaysProgressRewards(mode));
+        }
+
+        [Fact]
+        public void StockPaysProgressRewards_NoCurrentGame_KeepsHistoricalAnswer()
+        {
+            Assert.True(Parsek.Patches.ProgressRewardPatch.StockPaysProgressRewards(null));
+        }
+
+        [Fact]
+        public void RoutePostfix_OutsideCareer_PendingEntry_EnrichesWithZeroRewards()
+        {
+            var node = new FakeProgressNode("Kerbin/Rendezvous");
+            var seed = new GameStateEvent
+            {
+                ut = TestUt,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = "Kerbin/Rendezvous",
+                detail = GameStateRecorder.BuildMilestoneDetail(0, 0f, 0)
+            };
+            GameStateStore.AddEvent(ref seed);
+            GameStateRecorder.PendingMilestoneEventById["Kerbin/Rendezvous"] = seed;
+
+            Parsek.Patches.ProgressRewardPatch.RoutePostfix(
+                node, funds: 12000f, science: 1f, reputation: 2f, ut: TestUt,
+                stockPaysRewards: false);
+
+            var stored = FindLastMilestoneEvent("Kerbin/Rendezvous");
+            Assert.True(stored.HasValue);
+            Assert.Contains("funds=0", stored.Value.detail);
+            Assert.Contains("rep=0", stored.Value.detail);
+            Assert.Contains("sci=0", stored.Value.detail);
+            Assert.DoesNotContain("funds=12000", stored.Value.detail);
+            Assert.False(GameStateRecorder.PendingMilestoneEventById.ContainsKey("Kerbin/Rendezvous"));
+
+            var action = GameStateEventConverter.ConvertMilestoneAchieved(stored.Value, "rec-sci-mode");
+            Assert.Equal(0f, action.MilestoneScienceAwarded);
+            Assert.Equal(0f, action.MilestoneFundsAwarded);
+            Assert.Equal(0f, action.MilestoneRepAwarded);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[ProgressRewardPatch]") &&
+                l.Contains("AwardProgress outside CAREER pays no reward in stock") &&
+                l.Contains("'Kerbin/Rendezvous'") &&
+                l.Contains("nominal funds=12000 sci=1.0 rep=2.0"));
+        }
+
+        [Fact]
+        public void RoutePostfix_OutsideCareer_NoPendingEntry_EmitsZeroRewardStandalone()
+        {
+            var node = new FakeProgressNode("RecordsDistance");
+
+            Parsek.Patches.ProgressRewardPatch.RoutePostfix(
+                node, funds: 4800f, science: 0f, reputation: 2f, ut: TestUt,
+                stockPaysRewards: false);
+
+            var stored = FindLastMilestoneEvent("RecordsDistance");
+            Assert.True(stored.HasValue, "the milestone itself is still recorded");
+            Assert.Contains("funds=0", stored.Value.detail);
+            Assert.DoesNotContain("funds=4800", stored.Value.detail);
+            Assert.Contains("rep=0", stored.Value.detail);
+        }
+
+        [Fact]
+        public void RoutePostfix_Career_KeepsTheNominalRewards()
+        {
+            var node = new FakeProgressNode("RecordsDistance");
+
+            Parsek.Patches.ProgressRewardPatch.RoutePostfix(
+                node, funds: 4800f, science: 0f, reputation: 2f, ut: TestUt,
+                stockPaysRewards: true);
+
+            var stored = FindLastMilestoneEvent("RecordsDistance");
+            Assert.True(stored.HasValue);
+            Assert.Contains("funds=4800", stored.Value.detail);
+            Assert.DoesNotContain(logLines, l => l.Contains("AwardProgress outside CAREER"));
+        }
+
         // #442 follow-up: end-to-end smoke that the standalone-emit fix actually closes
         // the ReconcileEarningsWindow gap that motivated the bug. Synthesizes the
         // RecordsDistance-style pair (FundsChanged(Progression) + standalone

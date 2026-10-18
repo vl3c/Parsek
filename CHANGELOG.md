@@ -40,6 +40,17 @@ _(unreleased - entries accumulate here per commit)_
   when time reached the recording's end (worse after a reload), so its ghost vanished and the real
   vessel never came back. Its final orbit is now worked out from its last recorded positions, so
   it spawns in its real orbit. (TERMINAL-SPAWN-TAIL-ORBIT-SURFACE-VELOCITY)
+- **Milestones no longer add science stock never paid in Science and Sandbox games.** Outside
+  Career, stock awards nothing for a milestone, but Parsek booked its nominal reward and wrote the
+  science into R&D. A Rendezvous in a Science game added 1 science. Milestones are now recorded
+  with no reward outside Career. (MILESTONE-REWARDS-BOOKED-OUTSIDE-CAREER)
+- **Merging a Re-Fly no longer logs a false science error for the replaced flight.** A science
+  credit of the flight being replaced was checked against the live event list after its event
+  had already been tidied away, and reported missing just before the merge retired it.
+  (REFLY-MERGE-RECONCILES-PRUNED-CAPTURE-OF-SUPERSEDED-ROW)
+- **Discard Re-fly from the Esc menu deletes the discarded attempt's files.** The attempt's
+  recording files stayed in the save folder after the discard (they were set aside on the next
+  load). They are now deleted with the attempt. (ESC-DISCARD-REFLY-LEAVES-ATTEMPT-SIDECARS)
 - **A ghost now replays what you did after flying a spawned vessel again.** When you took over a
   vessel Parsek had spawned and drove or mined with it, that flight was added to the old
   recording, whose ghost did not know the vessel's new parts, so the ghost never moved its wheels

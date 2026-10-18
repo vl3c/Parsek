@@ -450,5 +450,160 @@ namespace Parsek.Tests
             Assert.Contains("compared=2", summary);
             Assert.Contains("matches=2", summary);
         }
+        // ------------------------------------------------------------------
+        // (e) a superseded recording's row whose capture was PRUNED (LAB-10)
+        //
+        // LAB-10-lab-refly-supersede (2026-10-17_2337): act A transmitted the lab's 12.5 at
+        // UT 2284.9 and committed at the Space Center, where PruneProcessedEvents removed
+        // the ScienceChanged capture (threshold 2292, the milestone's EndUT). The Re-Fly
+        // then session-suppressed the lab recording; once the merge committed the tree
+        // and the live tree stopped vouching for it, the act-A milestone's events turned
+        // hidden, the live threshold dropped, and the lab row compared against nothing:
+        // WARN "no matching ScienceChanged event" plus the [ERROR] dump, just before the
+        // tombstone pass retired the row.
+        // ------------------------------------------------------------------
+
+        private static void AddCommittedMilestone(double endUt, string taggedRecordingId)
+        {
+            var m = new Milestone
+            {
+                MilestoneId = "m-act-a",
+                StartUT = 0,
+                EndUT = endUt,
+                Committed = true
+            };
+            if (taggedRecordingId != null)
+            {
+                m.Events.Add(new GameStateEvent
+                {
+                    ut = 2284.9,
+                    eventType = GameStateEventType.ScienceLabCredited,
+                    key = "ScienceTransmission",
+                    recordingId = taggedRecordingId
+                });
+            }
+            MilestoneStore.AddMilestoneForTesting(m);
+        }
+
+        [Fact]
+        public void ReconcilePostWalk_HiddenRecordingLabRowWithPrunedCapture_SkipsQuietly()
+        {
+            // The lab recording is not in the effective set (session-suppressed), the
+            // milestone that took its events ends at 2292, and the store holds no capture.
+            AddCommittedMilestone(2292.0, LabRecordingId);
+            Assert.False(RecordingStore.IsCurrentTimelineRecordingId(LabRecordingId));
+            Assert.Equal(0.0, MilestoneStore.GetLatestCommittedEndUT());
+            Assert.Equal(2292.0, MilestoneStore.GetLatestCommittedEndUTIncludingHidden());
+
+            var actions = new List<GameAction>
+            {
+                LabCredit(2284.87, 12.5f, ScienceMethod.Transmitted, LabRecordingId)
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(new List<GameStateEvent>(), actions, utCutoff: null);
+
+            AssertNoWarnOrError();
+            Assert.Contains(logLines, l =>
+                l.Contains("Post-walk live-coverage skip: ScienceLabEarning") &&
+                l.Contains("its recording is outside the current timeline and its capture was " +
+                           "pruned at the committed milestone watermark=2292.0"));
+            Assert.Contains("actions=0", SummaryLine());
+        }
+
+        [Fact]
+        public void ReconcilePostWalk_HiddenRecordingRowAboveTheWatermark_StillWarns()
+        {
+            // Nothing was ever pruned at the row's UT, so a missing capture is a missing
+            // earning channel, hidden recording or not.
+            AddCommittedMilestone(2000.0, LabRecordingId);
+            var actions = new List<GameAction>
+            {
+                LabCredit(2284.87, 12.5f, ScienceMethod.Transmitted, LabRecordingId)
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(new List<GameStateEvent>(), actions, utCutoff: null);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, sci)") &&
+                l.Contains("ScienceLabEarning"));
+            Assert.DoesNotContain(logLines, l => l.Contains("its capture was pruned"));
+            Assert.Contains("mismatches(funds/rep/sci)=0/0/1", SummaryLine());
+        }
+
+        [Fact]
+        public void ReconcilePostWalk_VisibleRecordingRowWithNoCapture_StillWarns()
+        {
+            // A committed milestone with no events covers the row's UT, so only the
+            // hidden-inclusive watermark reaches it; the recording is in the timeline, so
+            // the new skip must not apply and the missing capture reports as before.
+            CommitLabRecording();
+            AddCommittedMilestone(2292.0, null);
+            Assert.True(RecordingStore.IsCurrentTimelineRecordingId(LabRecordingId));
+
+            var actions = new List<GameAction>
+            {
+                LabCredit(2284.87, 12.5f, ScienceMethod.Transmitted, LabRecordingId)
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(new List<GameStateEvent>(), actions, utCutoff: null);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, sci)") &&
+                l.Contains("ScienceLabEarning"));
+            Assert.DoesNotContain(logLines, l => l.Contains("its capture was pruned"));
+        }
+
+        [Fact]
+        public void ReconcilePostWalk_HiddenRecordingWithDivergentHiddenCapture_StillWarns()
+        {
+            // A hidden capture still in the store belongs to the amount-checked skip; one
+            // whose amount diverges must keep reporting, so the pruned rule (capture GONE)
+            // must not swallow it.
+            AddCommittedMilestone(2292.0, LabRecordingId);
+            var events = new List<GameStateEvent>
+            {
+                ScienceEvent(2284.87, 100.0, 105.0, "ScienceTransmission", LabRecordingId)
+            };
+            var actions = new List<GameAction>
+            {
+                LabCredit(2284.87, 12.5f, ScienceMethod.Transmitted, LabRecordingId)
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, sci)") &&
+                l.Contains("ScienceLabEarning"));
+            Assert.DoesNotContain(logLines, l => l.Contains("its capture was pruned"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("the observed reward leg is present but tagged to a recording"));
+        }
+
+        [Fact]
+        public void HasPrunedTimelineHiddenPostWalkCoverage_PureTruthTable()
+        {
+            var row = LabCredit(2284.87, 12.5f, ScienceMethod.Transmitted, LabRecordingId);
+            var exp = PostWalkActionReconciler.ClassifyPostWalk(row);
+            var none = new List<GameStateEvent>();
+
+            // hidden + under the watermark + nothing left -> skip
+            Assert.True(PostWalkActionReconciler.HasPrunedTimelineHiddenPostWalkCoverage(
+                row, exp, none, livePruneThreshold: 0.0, committedWatermarkIncludingHidden: 2292.0));
+            // above the watermark -> no
+            Assert.False(PostWalkActionReconciler.HasPrunedTimelineHiddenPostWalkCoverage(
+                row, exp, none, livePruneThreshold: 0.0, committedWatermarkIncludingHidden: 2284.0));
+            // a hidden capture of any amount still in the store -> no
+            var hidden = new List<GameStateEvent>
+            {
+                ScienceEvent(2284.87, 100.0, 112.5, "ScienceTransmission", LabRecordingId)
+            };
+            Assert.False(PostWalkActionReconciler.HasPrunedTimelineHiddenPostWalkCoverage(
+                row, exp, hidden, livePruneThreshold: 0.0, committedWatermarkIncludingHidden: 2292.0));
+            // an untagged row is always in the timeline -> no
+            var untagged = LabCredit(2284.87, 12.5f, ScienceMethod.Transmitted, null);
+            Assert.False(PostWalkActionReconciler.HasPrunedTimelineHiddenPostWalkCoverage(
+                untagged, PostWalkActionReconciler.ClassifyPostWalk(untagged), none,
+                livePruneThreshold: 0.0, committedWatermarkIncludingHidden: 2292.0));
+        }
     }
 }

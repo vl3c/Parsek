@@ -88,6 +88,27 @@ namespace Parsek
             return latest;
         }
 
+        /// <summary>
+        /// The highest EndUT among ALL committed milestones, hidden ones included. Every
+        /// threshold <see cref="GameStateStore.PruneProcessedEvents"/> has applied is at or
+        /// below it (the visible watermark never exceeds a milestone's EndUT), so a capture
+        /// at or below it may have been pruned. Read by the post-walk reconciler for rows of
+        /// recordings that left the timeline after their capture was pruned.
+        /// </summary>
+        internal static double GetLatestCommittedEndUTIncludingHidden()
+        {
+            double latest = 0;
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                var m = milestones[i];
+                if (m == null || !m.Committed)
+                    continue;
+                if (m.EndUT > latest)
+                    latest = m.EndUT;
+            }
+            return latest;
+        }
+
         internal static Milestone CreateMilestone(string recordingId, double currentUT)
         {
             double startUT = 0;
