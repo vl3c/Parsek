@@ -124,6 +124,21 @@ the attempt discard - it is committed history (child of non-baseline bp=<id> ...
 `ReFlyRevertDialogTests.PruneAttempt_LiveClone_NonBaselineBranchPointChildInCommittedHistory_IsKept`
 (red with the guard disabled).
 
+## RESTORE-CLONE-DISCARD-DROPS-IRREVERSIBLE-CAREER-ACTIONS: a contract completion, milestone or science earned during a discarded committed-tree restore attempt has no ledger row [FILED 2026-10-18 from the PR #2146 review, code read. OPEN, product, low; not reproduced]
+
+While a committed tree is resumed as a clone (`TryTakeCommittedTreeForSpawnedVesselRestore`),
+new game-state events are tagged with the committed recording ids. When the attempt is discarded
+(`DiscardPendingTree`, the drop-site / discard helpers in `RecordingStore`, or a plain reload),
+`LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard` skips every event or science
+subject whose `recordingId` is a committed id (~LedgerOrchestrator.cs:5685 / :5713), so an
+irreversible action from the clone attempt (KSP keeps the contract finished, the science
+banked) is never re-homed to the direct ledger, and the post-cutoff tails are then purged. Older
+than PR #2146, which only made every discard path purge the same tails `DiscardPendingTree`
+already purged. Fix direction: in the re-home step, treat a committed-id event past the armed
+attempt's cutoff for that id as the clone's own and re-home it, before the purge runs.
+
+---
+
 ## REFLY-SESSION-CAREER-SHOWS-THE-REPLACED-FLIGHTS-FUTURE: during a Re-Fly the career pools and the progress tree include the replaced flight's future earnings [FILED 2026-10-18 from harness lanes LAB-10 / LAB-10b (runs `2026-10-17_2337` / `_2341`). OPEN, owner question; behavior is the documented design]
 
 **What happens.** The Re-Fly invoke walks the whole ledger with no cutoff

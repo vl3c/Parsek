@@ -3129,9 +3129,11 @@ namespace Parsek
             // drops them while the recalc below would re-list an externally-accepted
             // contract as active (KSP keeps it finished -> dual-listing + duplicate
             // reward). Re-home the irreversible bits to the direct ledger first. Collect
-            // ids BEFORE activeTree is nulled. This core does not purge the store events
-            // (pre-existing orphan behavior, left unchanged); the direct ledger actions
-            // are the truth and the orphaned tagged events are not recalc inputs.
+            // ids BEFORE activeTree is nulled. This core does not purge the tree's own
+            // store events (orphans; the direct ledger actions are the truth and the
+            // orphaned tagged events are not recalc inputs). The one purge here is the
+            // drop-site clear below, which removes a committed-restore attempt's same-id
+            // post-cutoff tails only.
             if (activeTree?.Recordings != null && activeTree.Recordings.Count > 0)
             {
                 var rehomeIds = new HashSet<string>(StringComparer.Ordinal);
