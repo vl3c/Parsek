@@ -3176,6 +3176,14 @@ namespace Parsek
                 Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
                 backgroundRecorder = null;
             }
+
+            // This teardown drops the tree WITHOUT stashing it as pending, so its armed
+            // committed-tree restore attempt must go with it: while the attempt outlives
+            // its clone every OnSave defers the pending-event milestone flush. The clear
+            // is id-matched and no-ops when a caller already cleared (the no-op revert,
+            // the switch-segment discard) or when the tree is another attempt's clone.
+            RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+                activeTree?.Id, "auto-discard dropped the restore clone");
             activeTree = null;
 
             // A discarded active tree must not leave an armed switch-segment
@@ -3396,6 +3404,11 @@ namespace Parsek
                 backgroundRecorder = null;
             }
 
+            // Discarded without a pending stash, so the armed committed-tree restore
+            // attempt must be cleared with the tree (id-matched, reads the id before the
+            // null below): a stale attempt keeps deferring the OnSave milestone flush.
+            RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+                activeTree?.Id, "suppressed scene exit dropped the restore clone");
             activeTree = null;
             if (logRecorderState)
                 RecorderStateLog.RecState("FinalizeTreeOnSceneChange:suppressed-post", CaptureRecorderState());
@@ -7410,10 +7423,22 @@ namespace Parsek
                         $"Vessel destroyed during split — idle on pad (maxDist={maxDist:F1}m), discarding");
                     return;
                 }
-                if (discardReason == null && !HasPadEvidence(rec))
+                if (discardReason == null)
                 {
+                    // Log WHY this destroyed recording commits, once, from values the
+                    // decision already produced: HasPadEvidence is the decision's own
+                    // gate (no thresholds recomputed here), so evidence with a null
+                    // decision means the thresholds did not match.
+                    bool hasPadEvidence = HasPadEvidence(rec);
+                    string commitWhy = hasPadEvidence
+                        ? "outside pad thresholds - committing"
+                        : "no pad evidence - committing";
+                    string commitReason = hasPadEvidence
+                        ? "outside-pad-thresholds"
+                        : "no-pad-evidence";
                     ParsekLog.Info("Flight",
-                        $"Vessel destroyed during split - {rec.RecordingId} ({dur:F1}s, {maxDist:F0}m) no pad evidence - committing");
+                        $"Vessel destroyed during split - {rec.RecordingId} ({dur:F1}s, {maxDist:F0}m) " +
+                        $"{commitWhy} reason={commitReason}");
                 }
             }
 
@@ -14275,6 +14300,13 @@ namespace Parsek
                     backgroundRecorder.Shutdown();
                     Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
                     backgroundRecorder = null;
+                    // The failed start drops this tree (the single-node tree created
+                    // above, or a pre-existing one-recording tree) without stashing it as
+                    // pending, so its armed committed-tree restore attempt must be
+                    // cleared with it; the clear is id-matched and reads the id here,
+                    // before the null.
+                    RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+                        activeTree?.Id, "start-recording cleanup dropped the restore clone");
                     activeTree = null;
                     ParsekLog.Info("Flight", "Cleaned up single-node tree after StartRecording failure");
                 }

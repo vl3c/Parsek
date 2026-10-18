@@ -161,6 +161,41 @@ namespace Parsek.Tests
         [Fact]
         public void FallbackCommitSplitRecorder_DecisionReadsTheRecordingAndKeepsTheNoEvidenceLog()
         {
+            string body = ReadFallbackCommitSplitRecorderBody();
+
+            // Pin the argument that matters: the decision reads THIS branch's recording.
+            Assert.Contains("string discardReason = DecideDestroyedSplitRecordingDiscard(rec);", body);
+            Assert.Contains("no pad evidence - committing", body);
+        }
+
+        // The commit line names the ACTUAL decision for every non-discarded destroyed
+        // recording: the decision returned null either because the recording shows no pad
+        // evidence or because the thresholds did not match, and the log says which.
+        [Fact]
+        public void FallbackCommitSplitRecorder_LogsTheCommitReasonForEveryNonDiscardedDestroyedRecording()
+        {
+            string body = ReadFallbackCommitSplitRecorderBody();
+
+            // One Info line for every destroyed recording that is NOT discarded: the block
+            // is gated on the decision alone, never on re-testing the evidence/thresholds.
+            Assert.Contains("if (discardReason == null)\n", body);
+            Assert.Contains("bool hasPadEvidence = HasPadEvidence(rec);", body);
+            // Both outcomes are named on that line: the exact reason tokens and the
+            // reason= key they are logged under, plus the no-evidence wording the spec
+            // pins for its case.
+            Assert.Contains("reason={commitReason}", body);
+            Assert.Contains("\"no-pad-evidence\"", body);
+            Assert.Contains("\"outside-pad-thresholds\"", body);
+            Assert.Contains("no pad evidence - committing", body);
+            Assert.Contains("outside pad thresholds - committing", body);
+        }
+
+        /// <summary>
+        /// Reads the live FallbackCommitSplitRecorder span out of ParsekFlight.cs
+        /// (same walk as the cell above): declaration through the next method.
+        /// </summary>
+        private static string ReadFallbackCommitSplitRecorderBody()
+        {
             string projectRoot = Path.GetFullPath(
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
@@ -173,11 +208,7 @@ namespace Parsek.Tests
             Assert.True(start >= 0, "FallbackCommitSplitRecorder declaration not found");
             int end = source.IndexOf("void ResumeSplitRecorder(", start, StringComparison.Ordinal);
             Assert.True(end > start, "FallbackCommitSplitRecorder end marker not found");
-            string body = source.Substring(start, end - start);
-
-            // Pin the argument that matters: the decision reads THIS branch's recording.
-            Assert.Contains("string discardReason = DecideDestroyedSplitRecordingDiscard(rec);", body);
-            Assert.Contains("no pad evidence - committing", body);
+            return source.Substring(start, end - start);
         }
     }
 }

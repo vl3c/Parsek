@@ -35,10 +35,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
-- **Starting a flight no longer leaves a stale restore marker behind.** If the flight-ready
-  reset dropped a restored tree, its restore marker stayed armed afterwards and could hold
-  back recorded events on later saves until another restore replaced it. It is now cleared
-  with the tree. (RESET-FLIGHT-READY-STATE-LEAVES-RESTORE-ATTEMPT-ARMED)
+- **Dropping a restored tree no longer leaves a stale restore marker behind.** When a reset or
+  a discard dropped the tree a restore marker pointed at, the marker stayed armed afterwards
+  and could hold back recorded events on later saves until another restore replaced it. It is
+  now cleared with the tree. (RESET-FLIGHT-READY-STATE-LEAVES-RESTORE-ATTEMPT-ARMED)
 - **A recording started in orbit is no longer thrown away as "idle on pad".** Leaving a flight,
   or losing the ship, within seconds of starting its recording could discard it as if the ship
   never left the pad. Parsek now needs proof of a pad (a launch site, a landed or prelaunch

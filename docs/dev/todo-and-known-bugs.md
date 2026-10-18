@@ -1262,6 +1262,9 @@ debris, the fizzled launch, the pure `DecideDestroyedSplitRecordingDiscard` tabl
 wiring), `Bug156Tests` (the negative guards now carry a Prelaunch root, so the guard they exist for
 decides), and the fixtures that name a Landed root (`ConverterWorkNotIdleTests`,
 `LabPayoutNotIdleTests`, `RecoveryLabIdleVetoTests`) or an EVA kerbal (`PlacedPartsNotIdleTests`).
+A tree that does not start on the pad (a Re-Fly or switch continuation that starts in flight with
+no launch site) and is destroyed or left within the pad thresholds is now kept for the merge dialog
+instead of discarded; this is intended.
 
 ## ~~RETIRE-ROUTE-ACTIONS-OVERLOAD-BREAKS-INGAME-REFLECTION-PROBE: the Rec-1 redelivery in-game cell failed `Ambiguous match found.` on lanes H38 / H39 / H40 / HV-1~~ [FILED 2026-10-09 from the nightly `Logistics` lanes. FIXED 2026-10-09, branch `ingame-test-drift`; test drift, not a product defect; not re-flown; LIVE-PROVEN 2026-10-16 on main 412d48e: H38 `2026-10-16_2155`, H39 `_2158`, H40 `_2201`, HV-1 `_2204` PASS attempt 1]
 
@@ -5807,6 +5810,20 @@ attempt; clearing it reason=...`. A dropped tree with a different id, a null tre
 attempt clears nothing. Tests: `ResetFlightReadyStateRestoreAttemptTests` (the four decision
 cells, the clear and no-op log lines, and a file-scrape gate that the clear runs before
 `activeTree = null`). No player path was traced or flown for this fix.
+Follow-up 2026-10-18, branch `restore-attempt-drop-sites`: the same id-matched clear now runs at
+the three other `activeTree` drop sites that drop the tree WITHOUT stashing it as pending, each
+immediately before its `activeTree = null` with a distinct reason -
+`AutoDiscardActiveTreeCore` ("auto-discard dropped the restore clone", so the idle-on-pad
+`SceneExitInterceptor` scene-exit discard and the automation `DiscardTree` verb clear too, and
+callers that already clear simply no-op),
+`DiscardActiveTreeForSuppressedSceneExit` ("suppressed scene exit dropped the restore clone") and
+`StartRecording`'s #271 small-tree cleanup ("start-recording cleanup dropped the restore clone").
+Each is gated by a source-order cell in `ResetFlightReadyStateRestoreAttemptTests` pinning the
+call, the reason literal, the `activeTree?.Id` argument and the order before EVERY
+`activeTree = null;` in the method.
+`FinalizeTreeOnSceneChangeCore` and `ShowPostDestructionTreeMergeDialog` are intentionally left
+alone: both stash the tree as pending first, and the pending-tree commit/discard path owns the
+attempt by design.
 
 ## DEPLOYED-SCIENCE-FLOW-LANE-NEEDS-A-HOST: no committed science or career fixture can place a powered Breaking Ground cluster [FILED 2026-09-28, branch `deployables-lanes`]
 
