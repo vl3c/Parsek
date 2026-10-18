@@ -5824,6 +5824,16 @@ call, the reason literal, the `activeTree?.Id` argument and the order before EVE
 `FinalizeTreeOnSceneChangeCore` and `ShowPostDestructionTreeMergeDialog` are intentionally left
 alone: both stash the tree as pending first, and the pending-tree commit/discard path owns the
 attempt by design.
+Follow-up 2026-10-18 (same branch, review): the drop-site clear PURGES the attempt's same-id
+post-cutoff game-state event tails first, the same order `DiscardPendingTree` uses, through a
+shared `PurgeCommittedTreeRestoreAttemptEventTails` helper (the clear nulls the cutoff map, so
+a purge after it would find nothing and the clone's suppressed post-restore events would become
+durable on the next save). Gated by two cells in `ResetFlightReadyStateRestoreAttemptTests`:
+the same-id drop purges the post-cutoff tail (keeping the pre-cutoff one) and names the drop
+reason in the `PurgeEventsForRecordingAfterUT` line; a different-id drop purges nothing.
+`AutoDiscardNoOpNoSessionCommittedResume` still clears BEFORE the core and is left alone: its
+clear wins first, so the id-matched drop-site clear no-ops, and a no-op resume has no
+meaningful tails.
 
 ## DEPLOYED-SCIENCE-FLOW-LANE-NEEDS-A-HOST: no committed science or career fixture can place a powered Breaking Ground cluster [FILED 2026-09-28, branch `deployables-lanes`]
 

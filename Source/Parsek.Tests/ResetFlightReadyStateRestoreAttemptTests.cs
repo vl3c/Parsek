@@ -31,12 +31,16 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             RecordingStore.ResetForTesting();
             RecordingStore.ClearCommittedTreeRestoreAttempt("test-setup");
+            MilestoneStore.ResetForTesting();
+            GameStateStore.ResetForTesting();
         }
 
         public void Dispose()
         {
             RecordingStore.ClearCommittedTreeRestoreAttempt("test-teardown");
             RecordingStore.ResetForTesting();
+            GameStateStore.ResetForTesting();
+            MilestoneStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -44,6 +48,41 @@ namespace Parsek.Tests
         private static RecordingTree Tree(string id)
         {
             return new RecordingTree { Id = id, TreeName = "ResetClone " + id };
+        }
+
+        /// <summary>
+        /// A tree with ONE recording carrying <paramref name="endUT"/> as its explicit end,
+        /// so the armed attempt builds a cutoff map entry for the recording id (an empty
+        /// tree arms with zero cutoffs and the purge would find nothing to do).
+        /// </summary>
+        private static RecordingTree TreeWithRecording(
+            string treeId, string recordingId, double endUT)
+        {
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                TreeId = treeId,
+                VesselName = "Test Recording",
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = endUT,
+            };
+            RecordingTree tree = Tree(treeId);
+            tree.AddOrReplaceRecording(rec);
+            return tree;
+        }
+
+        private static GameStateEvent MakeGameStateEvent(string key, double ut, string recordingId)
+        {
+            // TechResearched is not a resource event, so AddEvent never coalesces it and
+            // two events on the same id stay two events (the two cells count events).
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.TechResearched,
+                key = key,
+                detail = "",
+                recordingId = recordingId,
+            };
         }
 
         // ===== the pure "is this dropped tree the attempt's clone" decision ==========
@@ -143,6 +182,76 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("reason=" + ResetReason));
         }
 
+        // ===== the purge: the drop-site clear removes the attempt's event tails ======
+
+        // catches: ClearCommittedTreeRestoreAttemptForDroppedTree clearing the attempt
+        // WITHOUT purging its same-id post-cutoff game-state event tails. While the attempt
+        // is armed those tails are kept off every save (the suppression predicate below
+        // returns true for ut > cutoff), so the moment the clear nulls the cutoff map they
+        // become durable - the clone's abandoned post-restore events would be written into
+        // the next save by OnSave. Purge-then-clear, the same order DiscardPendingTree uses.
+        [Fact]
+        public void DroppedCloneTree_PurgesSameIdPostCutoffEventTails_ThenClears()
+        {
+            RecordingTree tree = TreeWithRecording(CloneTreeId, "rec-clone", endUT: 200.0);
+            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, ArmReason);
+
+            GameStateEvent postCutoff = MakeGameStateEvent("tail-post", ut: 250.0,
+                recordingId: "rec-clone");
+            GameStateStore.AddEvent(ref postCutoff);
+            GameStateEvent preCutoff = MakeGameStateEvent("tail-pre", ut: 150.0,
+                recordingId: "rec-clone");
+            GameStateStore.AddEvent(ref preCutoff);
+
+            // The precondition that makes the purge load-bearing: while armed, only the
+            // post-cutoff tail is held off disk, so only it can leak after the clear.
+            Assert.True(RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
+                postCutoff));
+            Assert.False(RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
+                preCutoff));
+
+            bool cleared = RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+                CloneTreeId, ResetReason);
+
+            Assert.True(cleared);
+            Assert.False(RecordingStore.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
+            Assert.DoesNotContain(GameStateStore.Events, e => e.key == "tail-post");
+            Assert.Contains(GameStateStore.Events, e => e.key == "tail-pre");
+            // The purge must name THIS drop reason: a collected log then ties the tail
+            // purge to this reset instead of to some generic purge site.
+            Assert.Contains(logLines, l =>
+                l.Contains("[GameStateStore]")
+                && l.Contains("PurgeEventsForRecordingAfterUT (" + ResetReason + ")")
+                && l.Contains("rec=rec-clone"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]")
+                && l.Contains("purged 1 same-id game-state event tail(s)"));
+        }
+
+        // catches: a drop-site clear for a DIFFERENT tree purging the armed attempt's
+        // tails anyway - the tree-id match must gate the purge, not just the clear. A
+        // purge for an attempt that stays armed would destroy state its suppression
+        // contract is still hiding from every save.
+        [Fact]
+        public void DroppedOtherTree_PurgesNothing_AndKeepsTheAttemptArmed()
+        {
+            RecordingTree tree = TreeWithRecording(CloneTreeId, "rec-clone", endUT: 200.0);
+            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, ArmReason);
+
+            GameStateEvent postCutoff = MakeGameStateEvent("tail-post", ut: 250.0,
+                recordingId: "rec-clone");
+            GameStateStore.AddEvent(ref postCutoff);
+
+            bool cleared = RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+                OtherTreeId, ResetReason);
+
+            Assert.False(cleared);
+            Assert.True(RecordingStore.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
+            Assert.Contains(GameStateStore.Events, e => e.key == "tail-post");
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("PurgeEventsForRecordingAfterUT") && l.Contains("rec=rec-clone"));
+        }
+
         // ===== wiring: ResetFlightReadyState clears before it nulls ================
         //
         // The clear reads activeTree?.Id, so it must run inside ResetFlightReadyState
@@ -153,7 +262,12 @@ namespace Parsek.Tests
         [Fact]
         public void ResetFlightReadyState_ClearsTheAttemptForTheDroppedTreeBeforeNulling()
         {
-            string src = File.ReadAllText(LocateParsekFlightSource());
+            // Comments stripped first: a needle that also appears in a comment near the
+            // site (the comment explaining the guard says the same words) must not satisfy
+            // this gate. StripCSharpComments is length- and line-preserving, and string
+            // literals survive whole, so the exact-format assertion below still holds.
+            string src = SourceScanText.StripCSharpComments(
+                File.ReadAllText(LocateParsekFlightSource()));
             string body = ExtractMethodBody(src, "void ResetFlightReadyState()");
 
             int clearing = body.IndexOf(
@@ -225,7 +339,10 @@ namespace Parsek.Tests
         /// </summary>
         private static void AssertDropSiteClearsBeforeNulling(string signature, string reason)
         {
-            string src = File.ReadAllText(LocateParsekFlightSource());
+            // Comments stripped, same as the cell above: the clear-callee and reason
+            // needles must match code, not the comment that documents them.
+            string src = SourceScanText.StripCSharpComments(
+                File.ReadAllText(LocateParsekFlightSource()));
             string body = ExtractMethodBody(src, signature);
 
             const string clearCallee = "ClearCommittedTreeRestoreAttemptForDroppedTree(";

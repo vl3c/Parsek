@@ -2456,8 +2456,11 @@ namespace Parsek
         /// is its clone, so a reset that drops the clone tree (for example
         /// <c>ParsekFlight.ResetFlightReadyState</c>) leaves no stale attempt armed: while it
         /// stays armed every OnSave defers the pending-event milestone flush and the next arm
-        /// logs a replacing-stale-context warn. An attempt for another tree id, or no attempt
-        /// at all, is left alone. Returns true when an attempt was cleared.
+        /// logs a replacing-stale-context warn. The attempt's same-id post-cutoff event tails
+        /// are purged FIRST, the same order as DiscardPendingTree, because the clear nulls the
+        /// cutoff map and the clone's abandoned post-restore events must not become durable on
+        /// the next save. An attempt for another tree id, or no attempt at all, is left alone
+        /// untouched. Returns true when an attempt was cleared.
         /// </summary>
         internal static bool ClearCommittedTreeRestoreAttemptForDroppedTree(
             string droppedTreeId, string reason)
@@ -2469,6 +2472,9 @@ namespace Parsek
             ParsekLog.Info("RecordingStore",
                 $"ClearCommittedTreeRestoreAttemptForDroppedTree: dropped tree={droppedTreeId} " +
                 $"matches the armed restore attempt; clearing it reason={reason ?? "<none>"}");
+            // Purge before the clear: the clear nulls committedTreeRestoreAttemptEventCutoffs,
+            // so a purge after it would find no cutoffs and leave the tails to save.
+            PurgeCommittedTreeRestoreAttemptEventTails(reason ?? "<none>");
             ClearCommittedTreeRestoreAttempt(reason);
             return true;
         }
@@ -2704,10 +2710,19 @@ namespace Parsek
                     StringComparison.Ordinal);
         }
 
-        private static int PurgeCommittedTreeRestoreAttemptEventTailsForPendingDiscard()
+        /// <summary>
+        /// Purges the armed attempt's same-id post-cutoff game-state event tails - the events
+        /// <see cref="ShouldSuppressCommittedTreeRestoreAttemptEventPersistence"/> keeps off
+        /// disk while the attempt is armed - keyed by the cutoff map built at arm time. Call
+        /// BEFORE <see cref="ClearCommittedTreeRestoreAttempt"/>: the clear nulls that map.
+        /// <paramref name="contextLabel"/> is the per-recording reason GameStateStore logs,
+        /// <paramref name="warnLabel"/> prefixes the summary line (emitted only when
+        /// something was purged). Returns the number of events purged.
+        /// </summary>
+        private static int PurgeCommittedTreeRestoreAttemptEventTails(
+            string contextLabel, string warnLabel = null)
         {
-            if (!PendingTreeMatchesCommittedTreeRestoreAttempt()
-                || committedTreeRestoreAttemptEventCutoffs == null
+            if (committedTreeRestoreAttemptEventCutoffs == null
                 || committedTreeRestoreAttemptEventCutoffs.Count == 0)
             {
                 return 0;
@@ -2719,18 +2734,32 @@ namespace Parsek
                 purged += GameStateStore.PurgeEventsForRecordingAfterUT(
                     kvp.Key,
                     kvp.Value,
-                    $"DiscardPendingTree committed-spawned-vessel attempt '{pendingTree.TreeName}'");
+                    contextLabel);
             }
 
             if (purged > 0)
             {
                 ParsekLog.Warn("RecordingStore",
-                    $"DiscardPendingTree: purged {purged} same-id game-state event tail(s) " +
+                    $"{warnLabel ?? contextLabel}: purged {purged} same-id game-state event tail(s) " +
                     $"for committed-tree restore attempt tree={committedTreeRestoreAttemptTreeId} " +
                     $"armedReason={committedTreeRestoreAttemptReason ?? "<none>"}");
             }
 
             return purged;
+        }
+
+        private static int PurgeCommittedTreeRestoreAttemptEventTailsForPendingDiscard()
+        {
+            if (!PendingTreeMatchesCommittedTreeRestoreAttempt()
+                || committedTreeRestoreAttemptEventCutoffs == null
+                || committedTreeRestoreAttemptEventCutoffs.Count == 0)
+            {
+                return 0;
+            }
+
+            return PurgeCommittedTreeRestoreAttemptEventTails(
+                $"DiscardPendingTree committed-spawned-vessel attempt '{pendingTree.TreeName}'",
+                "DiscardPendingTree");
         }
 
         /// <summary>
