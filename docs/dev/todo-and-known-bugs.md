@@ -5831,9 +5831,24 @@ a purge after it would find nothing and the clone's suppressed post-restore even
 durable on the next save). Gated by two cells in `ResetFlightReadyStateRestoreAttemptTests`:
 the same-id drop purges the post-cutoff tail (keeping the pre-cutoff one) and names the drop
 reason in the `PurgeEventsForRecordingAfterUT` line; a different-id drop purges nothing.
-`AutoDiscardNoOpNoSessionCommittedResume` still clears BEFORE the core and is left alone: its
-clear wins first, so the id-matched drop-site clear no-ops, and a no-op resume has no
-meaningful tails.
+Follow-up 2026-10-18 (same branch, review round 2): THREE discard paths drop the clone before
+any drop-site id match can run, so their caller-side clear left the suppressed post-cutoff tails
+to become durable on the next save. `ParsekFlight.AutoDiscardNoOpNoSessionCommittedResume`, the
+`isCommittedRestoreClone` branch of `RecordingStore.TryDiscardActiveSwitchSegmentAttempt` (its
+segment-subtree purge only covers the segment's owned ids, never the resumed committed parent's
+recordings) and `MapFocusObjectOnSelectPatch.DiscardActiveRecordingAndSwitchTo` now call the
+shared `RecordingStore.DiscardCommittedTreeRestoreAttempt(reason)` (purge-then-clear, no-op when
+no attempt is armed); `ClearCommittedTreeRestoreAttemptForDroppedTree` routes through it too, so
+there is ONE purge-then-clear path. `CommitTree`'s `ClearCommittedTreeRestoreAttemptForTree`,
+the quickload clear in `ParsekScenario.HydrationRepair` and `DiscardPendingTree`'s
+pending-match-guarded clear keep the bare clear by design (commit keeps the events; those paths
+are gated elsewhere). Tests: `CommittedTreeRestoreAttemptDiscardTests` (two headless cells for
+the helper plus a three-site source gate, comments stripped, each site's reason literal and the
+switch-segment branch position pinned), `SwitchSegmentDiscardScopeTests` (runtime cell driving
+the scoped discard and asserting the committed parent's post-cutoff tail is purged while the
+pre-cutoff one stays) and `VesselSwitchTreeTests.DiscardPendingTree_OtherPendingTree_KeepsArmedAttemptAndItsEventTails`
+(the pending-match guard cell). The now-stale comments at the three sites and in
+`AutoDiscardActiveTreeCore` were rewritten to match.
 
 ## DEPLOYED-SCIENCE-FLOW-LANE-NEEDS-A-HOST: no committed science or career fixture can place a powered Breaking Ground cluster [FILED 2026-09-28, branch `deployables-lanes`]
 

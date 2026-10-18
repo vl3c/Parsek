@@ -2428,6 +2428,26 @@ namespace Parsek
             committedTreeRestoreAttemptEventCutoffs = null;
         }
 
+        /// <summary>
+        /// Discards the armed committed-tree restore attempt as a whole: purges the
+        /// attempt's same-id post-cutoff game-state event tails FIRST (see
+        /// <see cref="PurgeCommittedTreeRestoreAttemptEventTails"/> - the clear nulls
+        /// the cutoff map), then clears it. No-op when no attempt is armed.
+        /// Discard paths whose caller drops the attempt's clone tree before any
+        /// drop-site id match can run (the no-op no-session resume revert, the
+        /// switch-segment scoped discard, the pre-switch dialog discard) must call
+        /// THIS, not the bare clear: the caller-side clear leaves the clone's
+        /// suppressed post-cutoff events to become durable on the next save.
+        /// </summary>
+        internal static void DiscardCommittedTreeRestoreAttempt(string reason)
+        {
+            if (string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId))
+                return;
+
+            PurgeCommittedTreeRestoreAttemptEventTails(reason ?? "<none>");
+            ClearCommittedTreeRestoreAttempt(reason);
+        }
+
         private static void ClearCommittedTreeRestoreAttemptForTree(string treeId, string reason)
         {
             if (!DroppedTreeMatchesArmedRestoreAttempt(committedTreeRestoreAttemptTreeId, treeId))
@@ -2457,10 +2477,11 @@ namespace Parsek
         /// <c>ParsekFlight.ResetFlightReadyState</c>) leaves no stale attempt armed: while it
         /// stays armed every OnSave defers the pending-event milestone flush and the next arm
         /// logs a replacing-stale-context warn. The attempt's same-id post-cutoff event tails
-        /// are purged FIRST, the same order as DiscardPendingTree, because the clear nulls the
-        /// cutoff map and the clone's abandoned post-restore events must not become durable on
-        /// the next save. An attempt for another tree id, or no attempt at all, is left alone
-        /// untouched. Returns true when an attempt was cleared.
+        /// are purged FIRST through <see cref="DiscardCommittedTreeRestoreAttempt"/> (the same
+        /// purge-then-clear order DiscardPendingTree uses), because the clear nulls the cutoff
+        /// map and the clone's abandoned post-restore events must not become durable on the
+        /// next save. An attempt for another tree id, or no attempt at all, is left untouched.
+        /// Returns true when an attempt was cleared.
         /// </summary>
         internal static bool ClearCommittedTreeRestoreAttemptForDroppedTree(
             string droppedTreeId, string reason)
@@ -2472,10 +2493,7 @@ namespace Parsek
             ParsekLog.Info("RecordingStore",
                 $"ClearCommittedTreeRestoreAttemptForDroppedTree: dropped tree={droppedTreeId} " +
                 $"matches the armed restore attempt; clearing it reason={reason ?? "<none>"}");
-            // Purge before the clear: the clear nulls committedTreeRestoreAttemptEventCutoffs,
-            // so a purge after it would find no cutoffs and leave the tails to save.
-            PurgeCommittedTreeRestoreAttemptEventTails(reason ?? "<none>");
-            ClearCommittedTreeRestoreAttempt(reason);
+            DiscardCommittedTreeRestoreAttempt(reason);
             return true;
         }
 
@@ -3321,7 +3339,7 @@ namespace Parsek
                     droppedPending = true;
                 }
 
-                ClearCommittedTreeRestoreAttempt(
+                DiscardCommittedTreeRestoreAttempt(
                     "switch-segment-scoped-discard committed-restore-clone");
                 // Pending science was already scoped-removed for this segment subtree by
                 // PreserveIrreversibleLiveGameplayOnDiscard(ownedIds) above. Do NOT

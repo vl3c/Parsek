@@ -3027,17 +3027,21 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Reverts a no-op no-session committed-restore resume: clears the
-        /// committed-tree restore attempt and tears the live clone down via
-        /// <see cref="AutoDiscardActiveTreeCore"/> (in-memory only — deletes no
+        /// Reverts a no-op no-session committed-restore resume: discards the
+        /// committed-tree restore attempt (purging its same-id post-cutoff event
+        /// tails, then clearing it, so the clone's suppressed events cannot become
+        /// durable after the clear) and tears the live clone down via
+        /// <see cref="AutoDiscardActiveTreeCore"/> (in-memory only - deletes no
         /// files, never touches <c>committedTrees</c>), so the committed original
         /// survives and the clone is never serialized active. The session path's
-        /// restore-attempt clear is done by the scoped discard; here there is no
-        /// session/segment to scoped-discard, so the clear is explicit.
+        /// restore-attempt discard is done by the scoped discard; here there is no
+        /// session/segment to scoped-discard, so it is explicit. After this call
+        /// the drop-site clear in AutoDiscardActiveTreeCore no-ops (the attempt is
+        /// already gone).
         /// </summary>
         internal void AutoDiscardNoOpNoSessionCommittedResume(string reason)
         {
-            RecordingStore.ClearCommittedTreeRestoreAttempt(
+            RecordingStore.DiscardCommittedTreeRestoreAttempt(
                 "noop-no-session-committed-resume-revert");
             AutoDiscardActiveTreeWithMessage(
                 reason: reason,
@@ -3179,9 +3183,12 @@ namespace Parsek
 
             // This teardown drops the tree WITHOUT stashing it as pending, so its armed
             // committed-tree restore attempt must go with it: while the attempt outlives
-            // its clone every OnSave defers the pending-event milestone flush. The clear
-            // is id-matched and no-ops when a caller already cleared (the no-op revert,
-            // the switch-segment discard) or when the tree is another attempt's clone.
+            // its clone every OnSave defers the pending-event milestone flush, and its
+            // same-id post-cutoff event tails must be purged with it or they become
+            // durable on the next save. The helper purges first, then clears, and is
+            // id-matched: it no-ops when a caller already discarded the attempt (the
+            // no-op revert, the switch-segment discard, the pre-switch dialog discard)
+            // or when the tree is another attempt's clone.
             RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
                 activeTree?.Id, "auto-discard dropped the restore clone");
             activeTree = null;

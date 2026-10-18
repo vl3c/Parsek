@@ -918,12 +918,16 @@ namespace Parsek.Patches
                 try
                 {
                     // If the prior tree is a committed-restore clone (no-session
-                    // resume), clear its restore attempt before the teardown so a
-                    // stale attempt id does not linger past the switch (the
-                    // AutoDiscardActiveTreeCore body clears the session but not the
-                    // committed-tree restore attempt). Mirrors the Hook-1 revert
-                    // (AutoDiscardNoOpNoSessionCommittedResume). No-op when none armed.
-                    RecordingStore.ClearCommittedTreeRestoreAttempt(
+                    // resume), discard its restore attempt before the teardown:
+                    // purge the attempt's same-id post-cutoff event tails, then
+                    // clear the id, so neither a stale attempt id nor its
+                    // suppressed tails outlive the switch (the
+                    // AutoDiscardActiveTreeCore body clears the session but not
+                    // the committed-tree restore attempt, and its drop-site clear
+                    // no-ops once this caller has discarded). Mirrors the Hook-1
+                    // revert (AutoDiscardNoOpNoSessionCommittedResume). No-op
+                    // when none armed.
+                    RecordingStore.DiscardCommittedTreeRestoreAttempt(
                         "pre-switch-dialog discard (no-session)");
                     flight.AutoDiscardActiveTreeWithMessage(
                         reason: "pre-switch-dialog discard (no-session)",
