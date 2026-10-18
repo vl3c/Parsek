@@ -5836,10 +5836,12 @@ any drop-site id match can run, so their caller-side clear left the suppressed p
 to become durable on the next save. `ParsekFlight.AutoDiscardNoOpNoSessionCommittedResume`, the
 `isCommittedRestoreClone` branch of `RecordingStore.TryDiscardActiveSwitchSegmentAttempt` (its
 segment-subtree purge only covers the segment's owned ids, never the resumed committed parent's
-recordings) and `MapFocusObjectOnSelectPatch.DiscardActiveRecordingAndSwitchTo` now call the
-shared `RecordingStore.DiscardCommittedTreeRestoreAttempt(reason)` (purge-then-clear, no-op when
-no attempt is armed); `ClearCommittedTreeRestoreAttemptForDroppedTree` routes through it too, so
-there is ONE purge-then-clear path. `CommitTree`'s `ClearCommittedTreeRestoreAttemptForTree`,
+recordings) now call the shared `RecordingStore.DiscardCommittedTreeRestoreAttempt(reason)`
+(purge-then-clear, no-op when no attempt is armed; both sites are already scoped to the clone).
+`MapFocusObjectOnSelectPatch.DiscardActiveRecordingAndSwitchTo` calls the id-matched
+`ClearCommittedTreeRestoreAttemptForDroppedTree` with the tree it tears down, so an attempt
+armed for another tree (a parked pending clone) keeps its tails. That helper routes through the
+discard helper too, so there is ONE purge-then-clear path. `CommitTree`'s `ClearCommittedTreeRestoreAttemptForTree`,
 the quickload clear in `ParsekScenario.HydrationRepair` and `DiscardPendingTree`'s
 pending-match-guarded clear keep the bare clear by design (commit keeps the events; those paths
 are gated elsewhere). Tests: `CommittedTreeRestoreAttemptDiscardTests` (two headless cells for

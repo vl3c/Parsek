@@ -219,9 +219,17 @@ namespace Parsek.Tests
             string body = ExtractMethodBody(
                 ReadStrippedParsekSource("Patches/MapFocusObjectOnSelectPatch.cs"),
                 "void DiscardActiveRecordingAndSwitchTo(");
-            AssertDiscardHelperNotBareClear(body,
-                "DiscardActiveRecordingAndSwitchTo",
-                "pre-switch-dialog discard (no-session)");
+            // Id-matched purge-then-clear for the tree this discard tears down: an
+            // unmatched discard would purge a parked pending clone's tails.
+            Assert.Contains(
+                "ClearCommittedTreeRestoreAttemptForDroppedTree(\n" +
+                "                        flight.ActiveTreeForDisplay?.Id,\n" +
+                "                        \"pre-switch-dialog discard (no-session)\")",
+                body.Replace("\r\n", "\n"));
+            Assert.True(body.IndexOf("ClearCommittedTreeRestoreAttempt(", StringComparison.Ordinal) < 0,
+                "DiscardActiveRecordingAndSwitchTo calls the bare ClearCommittedTreeRestoreAttempt");
+            Assert.True(body.IndexOf("DiscardCommittedTreeRestoreAttempt(", StringComparison.Ordinal) < 0,
+                "DiscardActiveRecordingAndSwitchTo calls the unmatched DiscardCommittedTreeRestoreAttempt");
         }
 
         /// <summary>
