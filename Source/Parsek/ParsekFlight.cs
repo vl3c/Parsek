@@ -7410,7 +7410,7 @@ namespace Parsek
                         $"Vessel destroyed during split — idle on pad (maxDist={maxDist:F1}m), discarding");
                     return;
                 }
-                if (!HasPadEvidence(rec) && (IsPadFailure(rec) || IsIdleOnPad(rec)))
+                if (discardReason == null && !HasPadEvidence(rec))
                 {
                     ParsekLog.Info("Flight",
                         $"Vessel destroyed during split - {rec.RecordingId} ({dur:F1}s, {maxDist:F0}m) no pad evidence - committing");
