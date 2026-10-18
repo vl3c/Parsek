@@ -1675,14 +1675,27 @@ namespace Parsek.Tests
         [Fact]
         public void ZeroFundsInitialBaseline_DoesNotSealFundsBeforeFundingLoads()
         {
-            GameStateStore.AddBaseline(new GameStateBaseline
+            GameStateBaseline earlyCapture = new GameStateBaseline
             {
                 ut = 0.0,
                 funds = 0.0,
                 science = 0.0,
                 reputation = 0f
-            });
+            };
+            GameStateStore.AddBaseline(earlyCapture);
 
+            LedgerOrchestrator.RecalculateAndPatch(0.0);
+
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.FundsInitial);
+            // The same early capture (no flag recorded, 0 science beside an empty tech list)
+            // carries no science / reputation reading either, so it seals neither
+            // (CAREER-COLD-SC-LOAD-SEEDS-SCIENCE-REP-ZERO).
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.ScienceInitial);
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.ReputationInitial);
+
+            // With the currency singletons recorded as loaded, the zeros are real and seed.
+            earlyCapture.scienceKnown = true;
+            earlyCapture.reputationKnown = true;
             LedgerOrchestrator.RecalculateAndPatch(0.0);
 
             Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.FundsInitial);

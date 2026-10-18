@@ -11,6 +11,18 @@ namespace Parsek
         public double funds;
         public double science;
         public float reputation;
+
+        // Whether science / reputation above are the career's real values at capture. A
+        // cold Space Center load runs ParsekScenario.OnLoad BEFORE the R&D and Reputation
+        // scenario modules load (a KSP-written career saves them after ParsekScenario), so
+        // their singletons are still missing and both fields read 0 even when the save holds
+        // 400 science / 25 reputation. False: the game mode creates that singleton and it
+        // had not loaded, so the field is no reading. True: a real reading, or a mode with no
+        // such singleton (its 0 IS the value). Null: not recorded (a baseline written before
+        // these keys existed, or built in code); see DecideCurrencyValueKnown.
+        public bool? scienceKnown;
+        public bool? reputationKnown;
+
         public List<string> researchedTechIds = new List<string>();
         public Dictionary<string, float> facilityLevels = new Dictionary<string, float>();
         public Dictionary<string, bool> buildingIntact = new Dictionary<string, bool>();
@@ -53,6 +65,13 @@ namespace Parsek
                 baseline.science = ResearchAndDevelopment.Instance.Science;
             if (Reputation.Instance != null)
                 baseline.reputation = Reputation.Instance.reputation;
+
+            var expectedCurrencies = CurrencyScenarioReadiness.ExpectedForCurrentGame();
+            var loadedCurrencies = CurrencyScenarioReadiness.LoadedNow();
+            baseline.scienceKnown = DecideCurrencyValueCaptured(
+                expectedCurrencies, loadedCurrencies, CurrencySingletons.ResearchAndDevelopment);
+            baseline.reputationKnown = DecideCurrencyValueCaptured(
+                expectedCurrencies, loadedCurrencies, CurrencySingletons.Reputation);
 
             // Tech tree — iterate all tech nodes and record the unlocked ones
             if (ResearchAndDevelopment.Instance != null && AssetBase.RnDTechTree != null &&
@@ -137,9 +156,85 @@ namespace Parsek
             ParsekLog.Info("Baseline",
                 $"Captured baseline at ut={baseline.ut:F0}: tech={baseline.researchedTechIds.Count}, " +
                 $"facilities={baseline.facilityLevels.Count}, buildings={baseline.buildingIntact.Count}, " +
-                $"contracts={baseline.activeContracts.Count}, crew={baseline.crewEntries.Count}");
+                $"contracts={baseline.activeContracts.Count}, crew={baseline.crewEntries.Count}, " +
+                $"science={FormatCurrencyValue(baseline.science, baseline.scienceKnown)}, " +
+                $"reputation={FormatCurrencyValue(baseline.reputation, baseline.reputationKnown)} " +
+                $"(currency singletons expected={CurrencyScenarioReadiness.Format(expectedCurrencies)}, " +
+                $"loaded={CurrencyScenarioReadiness.Format(loadedCurrencies)})");
 
             return baseline;
+        }
+
+        /// <summary>
+        /// Pure: whether a baseline captured while <paramref name="loaded"/> currency
+        /// singletons had finished their OnLoad holds a real value for
+        /// <paramref name="singleton"/>. True when that singleton had loaded, or when the
+        /// game mode never creates it (the 0 the field defaults to IS the value). False when
+        /// the mode creates it and it had not loaded yet: the field's 0 is no reading.
+        /// </summary>
+        internal static bool DecideCurrencyValueCaptured(
+            CurrencySingletons expected,
+            CurrencySingletons loaded,
+            CurrencySingletons singleton)
+        {
+            if ((expected & singleton) == CurrencySingletons.None)
+                return true;
+            return (loaded & singleton) != CurrencySingletons.None;
+        }
+
+        /// <summary>
+        /// Pure: whether a baseline's science / reputation value may seed the ledger. A
+        /// recorded flag is the answer. A baseline without one (written before the flag
+        /// existed, or built in code) keeps the historical reading - the value is trusted -
+        /// except for the one shape the early-capture defect leaves and a real reading
+        /// cannot: a 0 value beside an EMPTY researched-tech list in a mode that creates
+        /// R&amp;D. A loaded R&amp;D always reports its starting node researched, so an empty
+        /// list means R&amp;D had not loaded; a KSP-written career saves Reputation after
+        /// R&amp;D, so Reputation had not loaded either.
+        /// </summary>
+        internal static bool DecideCurrencyValueKnown(
+            bool? recorded,
+            double value,
+            int researchedTechCount,
+            bool singletonExpected)
+        {
+            if (recorded.HasValue)
+                return recorded.Value;
+            return !(value == 0.0 && researchedTechCount == 0 && singletonExpected);
+        }
+
+        /// <summary>See <see cref="DecideCurrencyValueKnown"/>.</summary>
+        internal bool IsScienceKnown(CurrencySingletons expectedForMode)
+        {
+            return DecideCurrencyValueKnown(
+                scienceKnown,
+                science,
+                researchedTechIds != null ? researchedTechIds.Count : 0,
+                (expectedForMode & CurrencySingletons.ResearchAndDevelopment) != CurrencySingletons.None);
+        }
+
+        /// <summary>
+        /// See <see cref="DecideCurrencyValueKnown"/>. The legacy heuristic reads the
+        /// R&amp;D-not-loaded signature, so it applies only where the mode creates both.
+        /// </summary>
+        internal bool IsReputationKnown(CurrencySingletons expectedForMode)
+        {
+            const CurrencySingletons both =
+                CurrencySingletons.ResearchAndDevelopment | CurrencySingletons.Reputation;
+            return DecideCurrencyValueKnown(
+                reputationKnown,
+                reputation,
+                researchedTechIds != null ? researchedTechIds.Count : 0,
+                (expectedForMode & both) == both);
+        }
+
+        /// <summary>Invariant rendering of a captured currency value: "absent" when the
+        /// capture recorded that the singleton had not loaded.</summary>
+        internal static string FormatCurrencyValue(double value, bool? known)
+        {
+            if (known.HasValue && !known.Value)
+                return "absent";
+            return value.ToString("R", CultureInfo.InvariantCulture);
         }
 
         public void SerializeInto(ConfigNode node)
@@ -148,6 +243,10 @@ namespace Parsek
             node.AddValue("funds", funds.ToString("R", CultureInfo.InvariantCulture));
             node.AddValue("science", science.ToString("R", CultureInfo.InvariantCulture));
             node.AddValue("reputation", reputation.ToString("R", CultureInfo.InvariantCulture));
+            if (scienceKnown.HasValue)
+                node.AddValue("scienceKnown", scienceKnown.Value ? "True" : "False");
+            if (reputationKnown.HasValue)
+                node.AddValue("reputationKnown", reputationKnown.Value ? "True" : "False");
 
             // Tech
             ConfigNode techNode = node.AddNode("TECH_IDS");
@@ -210,6 +309,9 @@ namespace Parsek
                     ParsekLog.Warn("Baseline", $"Failed to parse baseline reputation '{repStr}'");
             }
 
+            baseline.scienceKnown = ParseOptionalBool(node, "scienceKnown");
+            baseline.reputationKnown = ParseOptionalBool(node, "reputationKnown");
+
             // Tech
             ConfigNode techNode = node.GetNode("TECH_IDS");
             if (techNode != null)
@@ -266,9 +368,28 @@ namespace Parsek
             ParsekLog.Verbose("Baseline",
                 $"Deserialized baseline at ut={baseline.ut:F0}: tech={baseline.researchedTechIds.Count}, " +
                 $"facilities={baseline.facilityLevels.Count}, buildings={baseline.buildingIntact.Count}, " +
-                $"contracts={baseline.activeContracts.Count}, crew={baseline.crewEntries.Count}");
+                $"contracts={baseline.activeContracts.Count}, crew={baseline.crewEntries.Count}, " +
+                $"scienceKnown={FormatOptionalBool(baseline.scienceKnown)}, " +
+                $"reputationKnown={FormatOptionalBool(baseline.reputationKnown)}");
 
             return baseline;
+        }
+
+        private static bool? ParseOptionalBool(ConfigNode node, string key)
+        {
+            string text = node.GetValue(key);
+            if (text == null)
+                return null;
+            bool value;
+            if (bool.TryParse(text, out value))
+                return value;
+            ParsekLog.Warn("Baseline", $"Failed to parse baseline {key} '{text}' - treated as not recorded");
+            return null;
+        }
+
+        private static string FormatOptionalBool(bool? value)
+        {
+            return value.HasValue ? (value.Value ? "True" : "False") : "unrecorded";
         }
     }
 }

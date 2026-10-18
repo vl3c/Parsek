@@ -2501,6 +2501,10 @@ namespace Parsek
             public bool ScienceSingletonPresent;
             public bool ScienceSingletonLoaded;
             public float Science;
+            // The reputation seed's live read (presence + value only: its zero pool defers
+            // rather than trusting a loaded zero, see EnsureInitialReputationSeed).
+            public bool ReputationSingletonPresent;
+            public float ReputationValue;
         }
 
         /// <summary>Test seam replacing <see cref="ReadCurrencyPoolProbe"/>. Cleared by ResetForTesting.</summary>
@@ -2527,6 +2531,13 @@ namespace Parsek
                 probe.ScienceSingletonPresent = true;
                 probe.ScienceSingletonLoaded = CurrencyScenarioReadiness.IsScenarioModuleLoaded(rnd);
                 probe.Science = rnd.Science;
+            }
+
+            var reputation = global::Reputation.Instance;
+            if (reputation != null)
+            {
+                probe.ReputationSingletonPresent = true;
+                probe.ReputationValue = reputation.reputation;
             }
 
             return probe;
@@ -2765,8 +2776,18 @@ namespace Parsek
 
             if (hasInitialBaseline)
             {
-                Ledger.SeedInitialScience((float)initialBaseline.science);
-                return true;
+                if (initialBaseline.IsScienceKnown(ExpectedCurrencySingletonsForBaseline()))
+                {
+                    Ledger.SeedInitialScience((float)initialBaseline.science);
+                    return true;
+                }
+
+                // CAREER-COLD-SC-LOAD-SEEDS-SCIENCE-REP-ZERO: the career-start baseline was
+                // captured before R&D loaded (a cold Space Center load runs ParsekScenario's
+                // OnLoad ahead of it), so its 0 is no reading. Treat it as no baseline for
+                // science and fall through to the live pool, which DeferredSeed reaches once
+                // R&D has loaded.
+                LogBaselineCurrencyNotCaptured("science", initialBaseline);
             }
 
             if (LedgerHasScienceTimelineActions())
@@ -2830,11 +2851,19 @@ namespace Parsek
 
             if (hasInitialBaseline)
             {
-                // A career-start value: it predates every flight this commit files.
-                Ledger.SeedInitialReputation(initialBaseline.reputation);
-                origin = ReputationSeedOrigin.CreatedThisCommitFromCareerBaseline;
-                RestampInsideSeedRowsAgainstCareerStartSeed(origin);
-                return true;
+                if (initialBaseline.IsReputationKnown(ExpectedCurrencySingletonsForBaseline()))
+                {
+                    // A career-start value: it predates every flight this commit files.
+                    Ledger.SeedInitialReputation(initialBaseline.reputation);
+                    origin = ReputationSeedOrigin.CreatedThisCommitFromCareerBaseline;
+                    RestampInsideSeedRowsAgainstCareerStartSeed(origin);
+                    return true;
+                }
+
+                // Same early-capture shape as the science seed: Reputation had not loaded,
+                // so the baseline carries no reputation reading. The branches below then
+                // decide exactly as they do with no baseline at all.
+                LogBaselineCurrencyNotCaptured("reputation", initialBaseline);
             }
 
             if (LedgerHasReputationTimelineActions())
@@ -2883,9 +2912,10 @@ namespace Parsek
                 return false;
             }
 
-            bool noReputationInstance = global::Reputation.Instance == null;
+            var repProbe = ReadCurrencyPoolProbe();
+            bool noReputationInstance = !repProbe.ReputationSingletonPresent;
             if (noReputationInstance
-                || Math.Abs(global::Reputation.Instance.reputation) <= 0.01f)
+                || Math.Abs(repProbe.ReputationValue) <= 0.01f)
             {
                 // Still deferred: the seed is EXPECTED to be captured off a LATER live
                 // pool, one that has already taken any death this commit is filing. If
@@ -2903,7 +2933,7 @@ namespace Parsek
                     (noReputationInstance
                         ? "Reputation.Instance null"
                         : "pool ~0, deferring (reputation="
-                            + global::Reputation.Instance.reputation.ToString("R", CultureInfo.InvariantCulture)
+                            + repProbe.ReputationValue.ToString("R", CultureInfo.InvariantCulture)
                             + ")"));
                 return false;
             }
@@ -2923,7 +2953,7 @@ namespace Parsek
             // from the normal one-tree-at-a-time flow; closing it means correlating the
             // pool against uncommitted trees, which is a bigger change than the state
             // deserves.
-            Ledger.SeedInitialReputation(global::Reputation.Instance.reputation);
+            Ledger.SeedInitialReputation(repProbe.ReputationValue);
             origin = ReputationSeedOrigin.CreatedThisCommitFromLivePool;
             return true;
         }
@@ -3130,6 +3160,48 @@ namespace Parsek
                 $"SeedInitialReputation: {restamped.ToString(CultureInfo.InvariantCulture)} " +
                 $"reputation row(s) were stamped inside a seed that was then " +
                 $"read from {seedSource}; re-stamped outside so the walk applies them");
+        }
+
+        /// <summary>Test seam replacing the live game-mode read the baseline presence
+        /// decision consults. Cleared by ResetForTesting.</summary>
+        internal static Func<CurrencySingletons> ExpectedCurrencySingletonsForTesting;
+
+        /// <summary>
+        /// The currency singletons the current game mode creates, which
+        /// <see cref="GameStateBaseline.IsScienceKnown"/> / <see cref="GameStateBaseline.IsReputationKnown"/>
+        /// consult for a baseline that recorded no presence flag. No live game reads as the
+        /// full set (the conservative answer: a 0 with the R&amp;D-not-loaded signature is
+        /// then not trusted).
+        /// </summary>
+        private static CurrencySingletons ExpectedCurrencySingletonsForBaseline()
+        {
+            var provider = ExpectedCurrencySingletonsForTesting;
+            if (provider != null)
+                return provider();
+            try
+            {
+                return CurrencyScenarioReadiness.ExpectedForCurrentGame();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.VerboseOnChange(Tag, "baseline-currency-mode-read", ex.GetType().Name,
+                    "Initial resource baseline: game-mode read failed (" + ex.GetType().Name +
+                    ") - treating every currency singleton as expected");
+                return CurrencySingletons.All;
+            }
+        }
+
+        private static void LogBaselineCurrencyNotCaptured(string currency, GameStateBaseline baseline)
+        {
+            bool? recorded = currency == "science" ? baseline.scienceKnown : baseline.reputationKnown;
+            ParsekLog.InfoRateLimited(Tag, "seed-baseline-not-captured:" + currency,
+                "SeedInitial: career-start baseline at ut=" +
+                baseline.ut.ToString("R", CultureInfo.InvariantCulture) +
+                " carries no " + currency + " reading (" +
+                (recorded.HasValue
+                    ? "its scenario module had not loaded at capture"
+                    : "unrecorded flag, 0 beside an empty researched-tech list") +
+                ") - not seeding " + currency + " from it; the live pool decides instead");
         }
 
         private static bool TryGetInitialResourceBaseline(out GameStateBaseline initialBaseline)
@@ -8543,6 +8615,7 @@ namespace Parsek
         {
             initialized = false;
             CurrencyPoolProbeForTesting = null;
+            ExpectedCurrencySingletonsForTesting = null;
             ProgressSeedProbeForTesting = null;
             FacilityCostTableProbeForTesting = null;
             legacyFacilityUpgradeEstimateDone = false;

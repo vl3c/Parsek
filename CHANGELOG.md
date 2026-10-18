@@ -58,6 +58,16 @@ _(unreleased - entries accumulate here per commit)_
   first against the game's total and logged a warning and an error, though your science was
   right. Lab science sent beside an experiment had the same problem.
   (LAB-RECOVERY-RECONCILE-COALESCED-FALSE-MISMATCH)
+- **A career loaded from the Space Center keeps its science and reputation in Parsek's ledger.**
+  Loading a career straight into the Space Center could start Parsek's ledger at 0 science and 0
+  reputation instead of the save's totals, so the ledger stayed short by that amount and a
+  strategy paid in science looked unaffordable. The ledger now starts from the real totals.
+  (CAREER-COLD-SC-LOAD-SEEDS-SCIENCE-REP-ZERO)
+- **Science paid under Patents Licensing no longer logs a false warning.** While a strategy that
+  converts science was active, every lab or experiment payout logged a science warning and an
+  error, because the game reports the payout after the strategy's share is taken. Your science
+  was right; the check now counts the strategy's share.
+  (POSTWALK-SCIENCE-RECONCILE-IGNORES-CONVERTER-TAKE)
 - **A vessel that appears after a time jump no longer mines through the jump.** When a jump
   passed the end of a recording, the vessel spawned at the end and stock caught up its drills and
   ISRU for the whole jumped span, so a rover arrived with ore it never mined. It now arrives

@@ -3353,7 +3353,10 @@ namespace Parsek.Tests
                 ut = 0.0,
                 funds = 500000.0,
                 science = 0.0,
-                reputation = 0f
+                reputation = 0f,
+                // A genuine career start: Reputation had loaded, its 0 is a reading.
+                scienceKnown = true,
+                reputationKnown = true
             });
 
             var deathRow = MakeInsideSeedKerbalDeathRow(119.92, 9.999828f);

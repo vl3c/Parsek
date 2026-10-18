@@ -583,7 +583,7 @@ namespace Parsek
             }
 
             if (HasOnlyTimelineHiddenPostWalkCoverage(
-                    action, expectation, events, livePruneThreshold))
+                    action, expectation, events, livePruneThreshold, actions, utCutoff))
             {
                 LogPostWalkLiveCoverageSkip(
                     action,
@@ -644,7 +644,9 @@ namespace Parsek
             GameAction action,
             PostWalkExpectation expectation,
             IReadOnlyList<GameStateEvent> events,
-            double livePruneThreshold)
+            double livePruneThreshold,
+            IReadOnlyList<GameAction> actions,
+            double? utCutoff)
         {
             if (IsActionRecordingVisibleToCurrentTimeline(action))
                 return false;
@@ -652,11 +654,11 @@ namespace Parsek
                 return false;
 
             return HasTimelineHiddenPostWalkObservedEventForLeg(
-                       action, expectation.Funds, events, livePruneThreshold) ||
+                       action, expectation.Funds, events, livePruneThreshold, actions, utCutoff) ||
                    HasTimelineHiddenPostWalkObservedEventForLeg(
-                       action, expectation.Rep, events, livePruneThreshold) ||
+                       action, expectation.Rep, events, livePruneThreshold, actions, utCutoff) ||
                    HasTimelineHiddenPostWalkObservedEventForLeg(
-                       action, expectation.Sci, events, livePruneThreshold);
+                       action, expectation.Sci, events, livePruneThreshold, actions, utCutoff);
         }
 
         /// <summary>
@@ -680,23 +682,23 @@ namespace Parsek
             GameAction action,
             PostWalkLeg leg,
             IReadOnlyList<GameStateEvent> events,
-            double livePruneThreshold)
+            double livePruneThreshold,
+            IReadOnlyList<GameAction> actions,
+            double? utCutoff)
         {
             if (action == null || !leg.Applies || events == null || events.Count == 0)
                 return false;
 
-            string expectedKey = leg.ReasonKey ?? "";
+            double windowStartUt = action.UT - PostWalkReconcileEpsilonSeconds;
+            double windowEndUt = action.UT + PostWalkReconcileEpsilonSeconds;
             double observed = 0.0;
             int observedCount = 0;
             for (int i = 0; i < events.Count; i++)
             {
                 var e = events[i];
-                if (e.ut <= livePruneThreshold) continue;
-                if (GameStateStore.IsEventVisibleToCurrentTimeline(e)) continue;
-                if (e.eventType != leg.EventType) continue;
-                if (Math.Abs(e.ut - action.UT) > PostWalkReconcileEpsilonSeconds) continue;
-                if (!PostWalkEventMatchesAction(e, action)) continue;
-                if (!string.Equals(e.key ?? "", expectedKey, StringComparison.Ordinal))
+                if (!IsComparisonObservedEvent(
+                        e, action, leg, windowStartUt, windowEndUt,
+                        livePruneThreshold, hiddenTimeline: true))
                     continue;
                 observed += (e.valueAfter - e.valueBefore);
                 observedCount++;
@@ -704,6 +706,16 @@ namespace Parsek
 
             if (observedCount == 0)
                 return false;
+
+            // Same NET-vs-GROSS basis correction as CompareLeg, over the hidden events: the
+            // "would it have matched?" answer must use the numbers the compare would use.
+            if (leg.EventType == GameStateEventType.ScienceChanged)
+            {
+                var fold = ComputeConverterScienceFold(
+                    action, leg, windowStartUt, windowEndUt,
+                    actions, events, utCutoff, livePruneThreshold, hiddenTimeline: true);
+                observed += fold.Take - fold.Yield;
+            }
 
             return Math.Abs(leg.Expected - observed) <= GetPostWalkLegTolerance(leg.EventType);
         }
@@ -1009,15 +1021,51 @@ namespace Parsek
                 for (int i = 0; i < events.Count; i++)
                 {
                     var e = events[i];
-                    if (!IsLivePostWalkObservedEvent(e, livePruneThreshold)) continue;
-                    if (e.eventType != leg.EventType) continue;
-                    if (e.ut < observedWindowStartUt || e.ut > observedWindowEndUt) continue;
-                    if (!PostWalkEventMatchesAction(e, action)) continue;
-                    string eventKey = e.key ?? "";
-                    if (!string.Equals(eventKey, leg.ReasonKey, StringComparison.Ordinal))
+                    if (!IsComparisonObservedEvent(
+                            e, action, leg, observedWindowStartUt, observedWindowEndUt,
+                            livePruneThreshold, hiddenTimeline: false))
                         continue;
                     observed += (e.valueAfter - e.valueBefore);
                     observedCount++;
+                }
+            }
+
+            // The observed science delta is NET of any query-family strategy take
+            // (Patents Licensing and siblings mutate the CurrencyModifierQuery in place), while
+            // every expected science figure is GROSS and the take is its own
+            // StrategyScienceDebit row. Gross the observed side back up, exactly as the KSC
+            // door does (LedgerOrchestrator.ComputePendingRecentKscScienceCredit).
+            if (observedCount > 0 && leg.EventType == GameStateEventType.ScienceChanged)
+            {
+                var fold = ComputeConverterScienceFold(
+                    action, leg, observedWindowStartUt, observedWindowEndUt,
+                    actions, events, utCutoff, livePruneThreshold, hiddenTimeline: false);
+                if (fold.Take > 0.0 || fold.Yield > 0.0)
+                {
+                    double observedNet = observed;
+                    observed = observedNet + fold.Take - fold.Yield;
+                    ParsekLog.VerboseRateLimited(Tag,
+                        $"post-walk-converter-fold:{action.Type}:{action.RecordingId ?? ""}:{leg.ReasonKey ?? ""}:{action.UT.ToString("R", CultureInfo.InvariantCulture)}",
+                        "Post-walk science window: grossed the observed NET credit " +
+                        observedNet.ToString("R", CultureInfo.InvariantCulture) +
+                        " keyed '" + (leg.ReasonKey ?? "") + "' up through " +
+                        fold.Rows.ToString(CultureInfo.InvariantCulture) +
+                        " in-window strategy converter leg(s) (take=" +
+                        fold.Take.ToString("R", CultureInfo.InvariantCulture) +
+                        ", yield=" + fold.Yield.ToString("R", CultureInfo.InvariantCulture) +
+                        ") -> " + observed.ToString("R", CultureInfo.InvariantCulture) +
+                        " for " + action.Type + " id=" + ActionIdForPostWalk(action));
+                }
+                if (fold.Ambiguous > 0)
+                {
+                    ParsekLog.VerboseRateLimited(Tag,
+                        $"post-walk-converter-fold-ambiguous:{action.Type}:{action.RecordingId ?? ""}:{leg.ReasonKey ?? ""}:{action.UT.ToString("R", CultureInfo.InvariantCulture)}",
+                        "Post-walk science window: left " +
+                        fold.Ambiguous.ToString(CultureInfo.InvariantCulture) +
+                        " in-window strategy converter leg(s) out of the '" + (leg.ReasonKey ?? "") +
+                        "' comparison for " + action.Type + " id=" + ActionIdForPostWalk(action) +
+                        " - a science credit outside this comparison shares their UT, so the take " +
+                        "cannot be attributed to it");
                 }
             }
 
@@ -1491,6 +1539,138 @@ namespace Parsek
                     $"window=[{LedgerOrchestrator.FormatFixed1(windowStartUt)},{LedgerOrchestrator.FormatFixed1(windowEndUt)}]");
             }
         }
+
+        /// <summary>
+        /// The one membership test for a comparison's observed side: a live (or, for the
+        /// timeline-hidden coverage probe, a hidden) event of the leg's type and reason key,
+        /// inside the window, that passes the owner's scope filter. CompareLeg's observed sum
+        /// and the converter fold's attribution both read it, so the fold can only gross up
+        /// an event the comparison actually counts.
+        /// </summary>
+        private static bool IsComparisonObservedEvent(
+            GameStateEvent e,
+            GameAction owner,
+            PostWalkLeg leg,
+            double windowStartUt,
+            double windowEndUt,
+            double livePruneThreshold,
+            bool hiddenTimeline)
+        {
+            if (!IsEventInTimelineMode(e, livePruneThreshold, hiddenTimeline)) return false;
+            if (e.eventType != leg.EventType) return false;
+            if (e.ut < windowStartUt || e.ut > windowEndUt) return false;
+            if (!PostWalkEventMatchesAction(e, owner)) return false;
+            return string.Equals(e.key ?? "", leg.ReasonKey ?? "", StringComparison.Ordinal);
+        }
+
+        private static bool IsEventInTimelineMode(
+            GameStateEvent e, double livePruneThreshold, bool hiddenTimeline)
+        {
+            if (e.ut <= livePruneThreshold) return false;
+            bool visible = GameStateStore.IsEventVisibleToCurrentTimeline(e);
+            return hiddenTimeline ? !visible : visible;
+        }
+
+        /// <summary>Result of <see cref="ComputeConverterScienceFold"/>.</summary>
+        internal struct ConverterScienceFold
+        {
+            public double Take;
+            public double Yield;
+            public int Rows;
+            public int Ambiguous;
+        }
+
+        /// <summary>
+        /// The query-family strategy legs a science comparison's observed side must be
+        /// grossed back up through. A <see cref="GameActionType.StrategyScienceDebit"/>
+        /// with <see cref="StrategyConversionSource.Converter"/> source is the take a
+        /// CurrencyConverter (Patents Licensing) diverted out of a science credit, so the
+        /// ScienceChanged KSP fired is that much SHORT of the gross figure every expected
+        /// science leg carries; a <see cref="GameActionType.StrategyScienceCredit"/> is a
+        /// converter YIELD that rode in on a credit under the transaction's own reason, so it
+        /// sits on the observed side with no expected counterpart. Exchanger-sourced debits
+        /// move science under their own StrategyInput key, never a reward key, and are left
+        /// out (the KSC door's rule).
+        /// <para>
+        /// The rows carry no reason key, so each is ATTRIBUTED through the event it rode on:
+        /// a positive ScienceChanged within the coalesce epsilon of the row, with a
+        /// compatible recording tag (equal, or either side untagged). The row folds in only
+        /// when at least one such event is counted by THIS comparison
+        /// (<see cref="IsComparisonObservedEvent"/>) and every such event is: a same-UT
+        /// credit under another reason key or outside this comparison's scope makes the row
+        /// ambiguous, and it is left out (<see cref="ConverterScienceFold.Ambiguous"/>)
+        /// rather than gross two comparisons up with one take. Reads nothing but its
+        /// inputs and the current-timeline visibility filter the observed side uses.
+        /// </para>
+        /// </summary>
+        internal static ConverterScienceFold ComputeConverterScienceFold(
+            GameAction owner,
+            PostWalkLeg leg,
+            double windowStartUt,
+            double windowEndUt,
+            IReadOnlyList<GameAction> actions,
+            IReadOnlyList<GameStateEvent> events,
+            double? utCutoff,
+            double livePruneThreshold,
+            bool hiddenTimeline)
+        {
+            var fold = new ConverterScienceFold();
+            if (owner == null || actions == null || events == null || events.Count == 0)
+                return fold;
+            if (leg.EventType != GameStateEventType.ScienceChanged)
+                return fold;
+
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var row = actions[i];
+                if (row == null) continue;
+                bool isTake = row.Type == GameActionType.StrategyScienceDebit
+                    && row.ConversionSource == StrategyConversionSource.Converter;
+                bool isYield = row.Type == GameActionType.StrategyScienceCredit;
+                if (!isTake && !isYield) continue;
+                if (row.UT < windowStartUt || row.UT > windowEndUt) continue;
+                if (utCutoff.HasValue && row.UT > utCutoff.Value) continue;
+
+                double amount = isTake ? row.Cost : row.ScienceAwarded;
+                if (!(amount > 0.0)) continue;
+
+                string rowTag = row.RecordingId ?? "";
+                int candidates = 0;
+                int counted = 0;
+                for (int j = 0; j < events.Count; j++)
+                {
+                    var e = events[j];
+                    if (e.eventType != GameStateEventType.ScienceChanged) continue;
+                    if (!(e.valueAfter > e.valueBefore)) continue;
+                    if (Math.Abs(e.ut - row.UT) > PostWalkReconcileEpsilonSeconds) continue;
+                    if (!IsEventInTimelineMode(e, livePruneThreshold, hiddenTimeline)) continue;
+                    string eventTag = e.recordingId ?? "";
+                    if (rowTag.Length > 0 && eventTag.Length > 0
+                        && !string.Equals(rowTag, eventTag, StringComparison.Ordinal))
+                        continue;
+                    candidates++;
+                    if (IsComparisonObservedEvent(
+                            e, owner, leg, windowStartUt, windowEndUt,
+                            livePruneThreshold, hiddenTimeline))
+                        counted++;
+                }
+
+                if (counted == 0)
+                    continue;
+                if (counted < candidates)
+                {
+                    fold.Ambiguous++;
+                    continue;
+                }
+
+                if (isTake) fold.Take += amount;
+                else fold.Yield += amount;
+                fold.Rows++;
+            }
+
+            return fold;
+        }
+
         private static bool PostWalkEventMatchesAction(GameStateEvent evt, GameAction action)
         {
             if (evt.eventType == GameStateEventType.ScienceChanged &&
