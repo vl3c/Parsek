@@ -248,6 +248,9 @@ namespace Parsek
                 ? (TrajectoryPoint?)tipRecording.Points[tipRecording.Points.Count - 1]
                 : null;
             double spawnUT = Planetarium.GetUniversalTime();
+            if (StopChainTipSpawnForTerminalOrbitVerdict(chain, tipRecording, spawnUT, "chain-tip"))
+                return 0;
+
             // A tip an epoch-shift jump froze in the bubble spawns from its jump-shifted
             // orbit; resolve that once and check overlap where it will actually appear.
             JumpShiftedTipSpawn shifted = tipPoint.HasValue
@@ -330,6 +333,10 @@ namespace Parsek
                         tipPoint.Value.velocity.y,
                         tipPoint.Value.velocity.z);
                 }
+
+                if (!PassChainTipTerminalOrbitSafety(
+                        chain, tipRecording, spawnBody, orbitOverride, spawnUT, spawnAlt, "chain-tip"))
+                    return 0;
 
                 spawnedPid = SpawnChainTipWithResolvedState(
                     tipRecording,
@@ -417,6 +424,9 @@ namespace Parsek
                 return adoptedPid;
 
             if (RetireChainTipAtKscIfEnded(chain, tipRecording))
+                return 0;
+
+            if (StopChainTipSpawnForTerminalOrbitVerdict(chain, tipRecording, currentUT, "chain-tip-blocked"))
                 return 0;
 
             ConfigNode vesselSnapshot = tipRecording.VesselSnapshot;
@@ -564,6 +574,12 @@ namespace Parsek
                             tipPoint.Value.velocity.z)
                         : Vector3d.zero;
                 }
+
+                if (haveResolvedSpawnPosition
+                    && !PassChainTipTerminalOrbitSafety(
+                        chain, tipRecording, spawnBody, orbitOverride, currentUT, spawnAlt,
+                        "chain-tip-blocked"))
+                    return 0;
 
                 if (haveResolvedSpawnPosition)
                 {
@@ -1594,6 +1610,125 @@ namespace Parsek
                     "Blocked chain tip no longer collision-blocked: originalPid={0} tip={1} reason={2} - " +
                     "the held ghost takes the ordinary bounded hold",
                     chain.OriginalVesselPid, chain.TipRecordingId ?? "(null)", reason ?? "(none)"));
+        }
+
+        internal const string ChainTipTerminalOrbitRefusedReason = "terminal-orbit-cannot-spawn-safely";
+
+        /// <summary>
+        /// Pure: does the tip already carry a terminal-orbit safety verdict that stops this
+        /// spawn attempt before any placement work? A refusal (CannotSpawnSafely) stops it for
+        /// the scene, and a deferral stops it until its next safe UT; a deferral whose UT has
+        /// passed is re-evaluated by the spawn. Same verdicts the ordinary spawn path and the
+        /// playback policy read, so a chain tip and a plain recording wait and refuse alike.
+        /// </summary>
+        internal static bool ShouldStopChainTipSpawnForTerminalOrbitVerdict(
+            Recording tip,
+            double currentUT,
+            out TerminalOrbitDeferredSpawnState state,
+            out string reason)
+        {
+            state = TerminalOrbitSpawnSafety.GetDeferredSpawnState(tip, currentUT, out reason);
+            return state == TerminalOrbitDeferredSpawnState.Hold
+                || state == TerminalOrbitDeferredSpawnState.Refused;
+        }
+
+        /// <summary>
+        /// Entry check shared by <see cref="SpawnAtChainTip"/> and
+        /// <see cref="TrySpawnBlockedChain"/>: logs and returns true when a standing verdict
+        /// stops the attempt. A refused tip is no longer collision-blocked (no blocker can
+        /// clear it), so its held ghost takes the ordinary bounded hold.
+        /// </summary>
+        internal static bool StopChainTipSpawnForTerminalOrbitVerdict(
+            GhostChain chain,
+            Recording tip,
+            double currentUT,
+            string site)
+        {
+            if (!ShouldStopChainTipSpawnForTerminalOrbitVerdict(
+                    tip, currentUT, out TerminalOrbitDeferredSpawnState state, out string reason))
+                return false;
+
+            string message = string.Format(ic,
+                "Chain tip spawn skipped for terminal orbit safety: site={0} tip={1} vessel={2} " +
+                "originalPid={3} verdict={4} reason={5}",
+                site,
+                tip?.RecordingId ?? "(null)",
+                tip?.VesselName ?? "(unknown)",
+                chain != null ? chain.OriginalVesselPid : 0u,
+                state,
+                reason ?? "(none)");
+            if (state == TerminalOrbitDeferredSpawnState.Refused)
+            {
+                ParsekLog.InfoRateLimited(Tag,
+                    "chain-tip-orbit-refused|" + (tip?.RecordingId ?? "(null)"), message);
+                EndCollisionBlockForNonCollisionFailure(chain, ChainTipTerminalOrbitRefusedReason);
+            }
+            else
+            {
+                ParsekLog.VerboseRateLimited(Tag,
+                    "chain-tip-orbit-hold|" + (tip?.RecordingId ?? "(null)"), message);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Test seam replacing the live <see cref="VesselSpawner.TryPassTerminalOrbitSpawnSafety"/>
+        /// call (which needs a real <c>CelestialBody</c>). Receives the tip, the resolved orbit,
+        /// the spawn UT and the propagated altitude; returns whether the spawn may proceed and
+        /// must leave the tip's safety fields as the live call would.
+        /// </summary>
+        internal static Func<Recording, Orbit, double, double, bool> TerminalOrbitSafetyCheckOverrideForTesting;
+
+        /// <summary>
+        /// Runs the ordinary spawn path's terminal-orbit safety decision on a chain tip that is
+        /// about to spawn on its recorded (or jump-shifted) terminal orbit. No orbit means the
+        /// tip spawns from a trajectory point, which the ordinary path does not gate either.
+        /// A deferral or refusal is stamped on the tip recording, where the playback policy's
+        /// hold and the next attempt's entry check read it.
+        /// </summary>
+        internal static bool PassChainTipTerminalOrbitSafety(
+            GhostChain chain,
+            Recording tip,
+            CelestialBody body,
+            Orbit orbit,
+            double spawnUT,
+            double spawnAltitude,
+            string site)
+        {
+            if (orbit == null)
+                return true;
+
+            bool passed = TerminalOrbitSafetyCheckOverrideForTesting != null
+                ? TerminalOrbitSafetyCheckOverrideForTesting(tip, orbit, spawnUT, spawnAltitude)
+                : RunLiveTerminalOrbitSafety(tip, body, orbit, spawnUT, spawnAltitude);
+            if (passed)
+                return true;
+
+            bool refused = tip != null && tip.TerminalSpawnCannotSpawnSafely;
+            ParsekLog.Info(Tag, string.Format(ic,
+                "Chain tip spawn stopped by terminal orbit safety: site={0} tip={1} vessel={2} " +
+                "originalPid={3} outcome={4} reason={5} spawnUT={6:F2} alt={7:F1} nextAttemptUT={8}",
+                site,
+                tip?.RecordingId ?? "(null)",
+                tip?.VesselName ?? "(unknown)",
+                chain != null ? chain.OriginalVesselPid : 0u,
+                refused ? "refused" : "deferred",
+                tip?.TerminalSpawnSafetyReasonCode ?? "(none)",
+                spawnUT,
+                spawnAltitude,
+                tip != null ? tip.TerminalSpawnNextAttemptUT.ToString("F2", ic) : "NaN"));
+            if (refused)
+                EndCollisionBlockForNonCollisionFailure(chain, ChainTipTerminalOrbitRefusedReason);
+            return false;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static bool RunLiveTerminalOrbitSafety(
+            Recording tip, CelestialBody body, Orbit orbit, double spawnUT, double spawnAltitude)
+        {
+            return VesselSpawner.TryPassTerminalOrbitSpawnSafety(
+                tip, -1, body, orbit, spawnUT, spawnAltitude, out _);
         }
 
         /// <summary>Real-time clock seam for the walkback backoff (headless tests).</summary>

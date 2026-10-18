@@ -293,15 +293,29 @@ across a rewind, which matters only if ghost-only is meant as "never spawn".
 
 ---
 
-## CHAIN-TIP-SPAWN-SKIPS-ORBIT-SAFETY-GATE: a chain tip spawns on its terminal orbit without the periapsis safety check [FILED 2026-10-16 from RC-1's first flight, code read. OPEN, product, medium]
+## ~~CHAIN-TIP-SPAWN-SKIPS-ORBIT-SAFETY-GATE: a chain tip spawns on its terminal orbit without the periapsis safety check~~ [FILED 2026-10-16 from RC-1's first flight, code read. FIXED 2026-10-18, branch `chain-tip-orbit-safety`; headless only, not flown]
 
 `VesselGhoster` resolves the tip's terminal orbit (`TryResolveRecordedTerminalOrbitSpawnState`) and
 passes it straight to `SpawnAtPosition`; only the ordinary spawn path calls
 `TryPassTerminalOrbitSpawnSafety` (`VesselSpawner.cs` ~1691). In RC-1 cycle 1 the Station tip
 spawned on the 14 km-periapsis orbit the Interceptor was refused for (REFLY-TAIL-SEED-FRAME).
 
-Fix: run the same safety decision on the chain-tip path, with the chain's blocked / retry state
-as the outcome, and a red test over a sub-atmospheric terminal orbit.
+Fix: both chain-tip spawn paths (`SpawnAtChainTip`, `TrySpawnBlockedChain`) now run
+`VesselGhoster.PassChainTipTerminalOrbitSafety` after resolving a recorded or jump-shifted terminal
+orbit and before `SpawnChainTipWithResolvedState`. It calls the same
+`VesselSpawner.TryPassTerminalOrbitSpawnSafety`, so a deferral or refusal is stamped on the tip
+recording, where the playback policy's deferred-spawn hold and held-ghost retry already read it. An
+entry check (`StopChainTipSpawnForTerminalOrbitVerdict`, after adoption and KSC retirement, as on the
+ordinary path) stops a later attempt on a standing refusal, or on a deferral before its next safe UT,
+without re-running the period scan. A refusal ends the chain's collision block
+(`EndCollisionBlockForNonCollisionFailure`, reason `terminal-orbit-cannot-spawn-safely`), so the
+held ghost takes the ordinary bounded hold. A deferral keeps it. `ParsekFlight.SpawnVesselOrChainTip`
+logs a held tip at Info instead of `Chain tip spawn failed`. A tip spawned from a trajectory point
+(no orbit) and the walkback spawn are not gated, matching the ordinary path. Not changed: when the
+terminal orbit cannot be resolved, the chain path still falls back to the last point's velocity,
+where the ordinary path refuses (`RejectUnresolvedTerminalOrbitSpawn`). Tests:
+`ChainTipTerminalOrbitSafetyTests`, including the RC-1 14 km periapsis and a source-order wiring cell
+for both paths, which was checked by mutation.
 
 ---
 ## REWIND-TO-LAUNCH-LANDS-IN-THE-LATEST-PERSISTENT-WORLD: a Rewind-to-Launch keeps every surviving vessel in its latest form [FILED 2026-10-16 from EVA-11 `2026-10-16_2256` (the rewind save `parsek_rw_add97f` holds the rover with 16 parts, the rewound game `eva11-rewound` with 15), confirmed by code read. OPEN. product]

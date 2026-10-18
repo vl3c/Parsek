@@ -19258,6 +19258,14 @@ namespace Parsek
                         ParsekLog.Info("Flight",
                             $"Chain tip spawn blocked by collision: #{index} \"{rec.VesselName}\" — chain stays active");
                     }
+                    else if (TerminalOrbitSpawnSafety.HasActiveHold(rec))
+                    {
+                        ParsekLog.InfoRateLimited("Flight",
+                            "chain-tip-orbit-safety|" + (rec.RecordingId ?? "(none)"),
+                            $"Chain tip spawn held by terminal orbit safety: #{index} \"{rec.VesselName}\" " +
+                            $"cannotSpawnSafely={rec.TerminalSpawnCannotSpawnSafely} " +
+                            $"reason={rec.TerminalSpawnSafetyReasonCode ?? "(none)"}");
+                    }
                     else
                     {
                         ParsekLog.Warn("Flight",
