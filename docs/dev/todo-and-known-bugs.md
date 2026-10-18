@@ -1216,7 +1216,7 @@ Parsek defect (a mission that did not fly is driver-INVALID).
 
 ---
 
-## IDLE-ON-PAD-READS-ONE-SAMPLE-ORBITING-RECORDING-AS-IDLE: a recording with one trajectory sample reads maxDist 0, so the idle-on-pad discard drops it even when the vessel is orbiting [FILED 2026-10-09 from H67's drift (todo H67-AUTOMERGE-DWELL-ENDS-BEFORE-BACKSTOP-SAMPLE), branch `ingame-test-drift`. OPEN, product, low]
+## ~~IDLE-ON-PAD-READS-ONE-SAMPLE-ORBITING-RECORDING-AS-IDLE: a recording with one trajectory sample reads maxDist 0, so the idle-on-pad discard drops it even when the vessel is orbiting~~ [FILED 2026-10-09 from H67's drift (todo H67-AUTOMERGE-DWELL-ENDS-BEFORE-BACKSTOP-SAMPLE), branch `ingame-test-drift`. FIXED 2026-10-18, branch `idle-on-pad-one-sample`; headless only, not flown]
 
 `ParsekFlight.IsTreeIdleOnPad` (`Source/Parsek/ParsekFlight.cs`) returns true when every recording
 in the tree is within 30 m of its launch point (`IsIdleOnPad(Recording)`: `MaxDistanceFromLaunch <
@@ -1230,11 +1230,33 @@ the SPACECENTER OnLoad (`ParsekScenario.cs`, "Idle on pad at scene exit - auto-d
 and the two sibling `IsTreeIdleOnPad` gates) instead of committed. Seen only through the H67
 in-game cell (its dwell was too short); a player would need to start a recording and leave
 the flight within one sample interval, so the loss is a few seconds of trajectory.
-Proposal (not implemented): idle-on-pad should also require evidence of a pad: the recording
-starts at a launch site (`LaunchSiteName` set or `StartSituation` Prelaunch) or its terminal /
-start situation is Landed / Prelaunch, so an orbiting or flying one-sample recording is never
-"idle on pad". Alternatively take one boundary sample at the scene-exit finalize. Either needs
-headless cells beside the existing `IsTreeIdleOnPad` ones (`Bug156Tests`).
+Fix: pad evidence is a TREE-level requirement. `ParsekFlight.IsIdleOnPad(Recording)` is the
+origin/main distance rule again (the 30 m rule and the pad-drop override). `IsTreeIdleOnPad` and
+`IsActiveTreeIdleOnPad` additionally require that AT LEAST ONE recording in the tree shows pad
+evidence: `TreeHasPadEvidenceForIdle` logs the verdict (`tree='...' id=... pad evidence=<reason>`
+or `none`) and uses the pure `TreePadEvidence`, which returns the first recording's
+`PadEvidenceReason`. The check runs after the existing vetoes, the distance walk and the points
+check, so those guards keep their order. The live path reads it after
+`FlushRecorderIntoActiveTreeForSerialization`, which copies the live root's StartSituation and
+LaunchSiteName onto its tree recording. `PadEvidenceReason` checks the launch site first (a normal
+launch recording starts "Flying" with the site set, so a fizzled launch stays idle), then a
+Prelaunch / Landed / Splashed start, then a Landed / Splashed terminal. A one-sample orbiting
+flight with no site and no surface terminal has no evidence and is not discarded. EVA kerbals and
+background-only children carry no launch situation of their own, so they never need it; a pad
+flight with an EVA board tree or destroyed debris stays idle through its root.
+Callers: `IsTreeIdleOnPad` (the Finalized pending-tree auto-discards in `ParsekScenario.cs` at
+scene exit, outside flight and in the deferred merge dialog), `IsActiveTreeIdleOnPad` (via
+`SceneExitInterceptor`), and `ShowPostDestructionTreeMergeDialog`. Open, not changed here:
+(1) the destroyed-during-split branch in `ParsekFlight.cs` calls the per-recording `IsIdleOnPad`
+and is still distance-only, so a one-sample orbiting recording destroyed in that branch is still
+discarded (a per-recording evidence rule would drop debris children, which carry no situation);
+(2) `IsPadFailure` has the same one-sample hole (duration under 10 s and maxDist under 30 m) on the
+post-destruction and destroyed-during-split paths. Cells: `IdleOnPadPadEvidenceTests` (the orbiting
+one-sample tree, the fizzled launch, the EVA board tree, destroyed debris, no-evidence trees, guard
+order, the pure `TreePadEvidence` and `PadEvidenceReason` truth tables, the log, the source order),
+`Bug156Tests` (the negative guards now carry a Prelaunch root, so the guard they exist for decides),
+and the fixtures that name a Landed root (`ConverterWorkNotIdleTests`, `LabPayoutNotIdleTests`,
+`RecoveryLabIdleVetoTests`) or an EVA kerbal (`PlacedPartsNotIdleTests`).
 
 ## ~~RETIRE-ROUTE-ACTIONS-OVERLOAD-BREAKS-INGAME-REFLECTION-PROBE: the Rec-1 redelivery in-game cell failed `Ambiguous match found.` on lanes H38 / H39 / H40 / HV-1~~ [FILED 2026-10-09 from the nightly `Logistics` lanes. FIXED 2026-10-09, branch `ingame-test-drift`; test drift, not a product defect; not re-flown; LIVE-PROVEN 2026-10-16 on main 412d48e: H38 `2026-10-16_2155`, H39 `_2158`, H40 `_2201`, HV-1 `_2204` PASS attempt 1]
 

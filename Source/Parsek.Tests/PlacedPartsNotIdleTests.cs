@@ -28,12 +28,13 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
         }
 
-        private static Recording IdleRec(string id, string name)
+        private static Recording IdleRec(string id, string name, string startSituation)
         {
             var rec = new Recording
             {
                 RecordingId = id,
                 VesselName = name,
+                StartSituation = startSituation,
                 MaxDistanceFromLaunch = 12.0
             };
             rec.Points.Add(new TrajectoryPoint { ut = 100.0, bodyName = "Mun" });
@@ -50,8 +51,8 @@ namespace Parsek.Tests
                 TreeName = "Mun Lander",
                 Recordings = new Dictionary<string, Recording>()
             };
-            tree.Recordings["capsule"] = IdleRec("capsule", "Mun Lander");
-            tree.Recordings["kerbal"] = IdleRec("kerbal", "Jebediah Kerman");
+            tree.Recordings["capsule"] = IdleRec("capsule", "Mun Lander", "Landed");
+            tree.Recordings["kerbal"] = IdleRec("kerbal", "Jebediah Kerman", "EVA");
             tree.BranchPoints.Add(new BranchPoint
             {
                 Id = "bp-eva",
