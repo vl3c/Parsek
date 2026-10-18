@@ -35,6 +35,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A ship destroyed seconds after its recording started is no longer thrown away as a launchpad
+  failure.** A very short recording that shows no sign of ever standing on the pad is now kept
+  when the ship is destroyed, instead of being discarded as if the launch had failed.
+  (IDLE-ON-PAD-READS-ONE-SAMPLE-ORBITING-RECORDING-AS-IDLE)
 - **Starting a flight no longer leaves a stale restore marker behind.** If the flight-ready
   reset dropped a restored tree, its restore marker stayed armed afterwards and could hold
   back recorded events on later saves until another restore replaced it. It is now cleared

@@ -7389,21 +7389,31 @@ namespace Parsek
             TagSegmentPhaseIfMissing(rec, FlightGlobals.ActiveVessel);
 
             // Destroyed vessels: discard pad failures or idle-on-pad, otherwise commit directly.
+            // Both discards require pad evidence on the recording itself (this branch handles
+            // a single recording): a one-sample recording has duration 0 and maxDist 0, so the
+            // thresholds alone would discard an orbiting recording destroyed within one
+            // sample interval.
             if (rec.VesselDestroyed)
             {
                 double dur = rec.EndUT - rec.StartUT;
                 double maxDist = rec.MaxDistanceFromLaunch;
-                if (IsPadFailure(rec))
+                string discardReason = DecideDestroyedSplitRecordingDiscard(rec);
+                if (discardReason == "pad failure")
                 {
                     ParsekLog.Info("Flight",
                         $"Vessel destroyed during split — pad failure ({dur:F1}s, {maxDist:F0}m), discarding");
                     return;
                 }
-                if (IsIdleOnPad(rec))
+                if (discardReason == "idle on pad")
                 {
                     ParsekLog.Info("Flight",
                         $"Vessel destroyed during split — idle on pad (maxDist={maxDist:F1}m), discarding");
                     return;
+                }
+                if (!HasPadEvidence(rec) && (IsPadFailure(rec) || IsIdleOnPad(rec)))
+                {
+                    ParsekLog.Info("Flight",
+                        $"Vessel destroyed during split - {rec.RecordingId} ({dur:F1}s, {maxDist:F0}m) no pad evidence - committing");
                 }
             }
 
@@ -21294,6 +21304,27 @@ namespace Parsek
             return reason != null;
         }
 
+        /// <summary>
+        /// Pure decision for the destroyed-during-split single-recording path
+        /// (<c>FallbackCommitSplitRecorder</c>): "pad failure" or "idle on pad" when the
+        /// recording is within the pad thresholds AND shows pad evidence, else null. The pad
+        /// rules stay tree-level wherever a tree is available (EVA and debris children carry
+        /// no launch situation); this branch handles one recording, so the recording's own
+        /// evidence is the gate. A one-sample recording has duration 0 and maxDist 0, so
+        /// without the evidence check an orbiting recording destroyed within one sample
+        /// interval is discarded.
+        /// </summary>
+        internal static string DecideDestroyedSplitRecordingDiscard(Recording rec)
+        {
+            if (rec == null || !HasPadEvidence(rec))
+                return null;
+            if (IsPadFailure(rec))
+                return "pad failure";
+            if (IsIdleOnPad(rec))
+                return "idle on pad";
+            return null;
+        }
+
         private static bool HasPadLocalizedMotionOverride(Recording rec)
         {
             if (rec == null
@@ -21414,8 +21445,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns true if every recording in the tree qualifies as a pad failure.
-        /// A tree with any non-pad-failure recording is not discarded.
+        /// Returns true if every recording in the tree qualifies as a pad failure AND the
+        /// tree shows pad evidence. A tree with any non-pad-failure recording is not
+        /// discarded. The evidence gate matters because a one-sample recording has duration 0
+        /// and MaxDistanceFromLaunch 0 by construction, so the thresholds alone would read an
+        /// orbiting tree destroyed within one sample interval as a pad failure.
         /// </summary>
         internal static bool IsTreePadFailure(RecordingTree tree)
         {
@@ -21431,7 +21465,7 @@ namespace Parsek
                 if (!IsPadFailure(rec))
                     return false;
             }
-            return true;
+            return TreeHasPadEvidenceForIdle(tree, "IsTreePadFailure");
         }
 
         /// <summary>
