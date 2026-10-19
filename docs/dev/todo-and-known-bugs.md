@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## REFLY-MERGE-RETIRES-VALUE-LATER-SPENDING-USED: a Re-Fly merge takes back the replaced flight's earnings after the timeline already spent them [FILED 2026-10-19 from the "Re-Fly ledger paradox analysis" thread, code read on main 4503a53. OPEN, critical (owner rulings: never lower the ledger, no time-travel paradox); designed in `parsek-rewind-to-separation-design.md` section 2.12, no code until the owner confirms Option 1]
+## REFLY-MERGE-RETIRES-VALUE-LATER-SPENDING-USED: a Re-Fly merge takes back the replaced flight's earnings after the timeline already spent them [FILED 2026-10-19 from the "Re-Fly ledger paradox analysis" thread, code read on main 4503a53. OPEN, critical (owner rulings: never lower the ledger, no time-travel paradox); designed in `parsek-rewind-to-separation-design.md` section 2.12, Option 1 confirmed by the owner 2026-10-19, implementation plan `docs/dev/plans/refly-ledger-safety-implementation.md`]
 
 **What happens.** Since the 2026-05-06 broad tombstone scope (`f4763de1`, `d66626ba`) a Re-Fly
 merge tombstones every eligible row of the replaced flight after the rewind point, gains
@@ -88,26 +88,59 @@ Retry inherits the previous attempt's rows. The Re-Fly discards revert stock sta
 rewind point or the post-discard recalc (the non-rewind `PreserveIrreversibleLiveGameplayOnDiscard`
 says Re-Fly discards must not re-home), so the rows can be removed. Fix: remove the attempt's rows
 on every discard path, Retry and the load-time zombie discard; untagged session rows stay.
-Exception: an attempt a quickload resumed after its merge (OQ-1) keeps today's untag-and-keep,
-because its rows were committed and may already have been spent (review of the design, worked
-example: +30 science transmitted, merged, a 30-science node bought, F9 to before the merge,
-Discard: removing the row would leave the node unpaid).
+Discard is never refused (owner ruling 2026-10-19). An attempt a quickload resumed after its
+merge (OQ-1) is unmerged again and follows the same rule; the one open dependency is in
+REFLY-RESUMED-MERGED-DISCARD-RESTORES-LOSSES.
 
-## REFLY-RESUMED-MERGED-DISCARD-RESTORES-LOSSES: discarding a Re-Fly that a quickload resumed after its merge brings the replaced flight's losses back [FILED 2026-10-19 from the design review. OPEN, owner question]
+## REFLY-RESUMED-MERGED-DISCARD-RESTORES-LOSSES: discarding a Re-Fly that a quickload resumed after its merge can leave a later Space Center purchase unpaid [FILED 2026-10-19 from the design review. OPEN, ruled 2026-10-19, ships with section 2.12]
 
-Owner ruling OQ-1 makes that discard prune the merge's tombstones (`PruneStagedRowsNamingAttempt`)
-so "the origin is visible again and its crew death counts again". The replaced flight's death
-penalty then returns at its old UT, after later committed spends (a reputation-costing strategy,
-for example) may have relied on the higher reputation. That lowers the ledger, against the
-2026-10-19 rulings. Options: keep the merge's tombstones on that path (the death stays undone
-while the attempt is discarded), or refuse that discard when the restored losses fail the
-dominance check. Unchanged until the owner answers.
+Owner rulings 2026-10-19: Discard is never refused, and a quickload takes the whole game state back,
+so an attempt a quickload resumed after its merge is unmerged again. Its discard removes its rows
+and prunes the merge's tombstones, returning the ledger to the timeline before the merge (the
+replaced flight's crew death counts again, as it did then). Flights committed after the save are
+retired by the resume already; Space Center purchases, upgrades and hires made after the save are
+kept today (design QL-R2, `LoadReconcilePolicy` "a quickload keeps untagged KSC rows"), so a node
+bought with the merged attempt's science would be left unpaid (worked example: +30 science
+transmitted, merged, a 30-science node bought, F9 into the session, Discard). Ruling: "a
+quickload also undoes Space Center purchases made after the quicksave". Fix: the quickload
+resume retires untagged Space Center rows after the save UT (the QL-R2 cell flips); rewinds keep
+ruling D2. This also closes O1 of LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY.
+
+## QUICKLOAD-RESTORES-THE-SAVE-EXACTLY: an in-session load keeps Parsek state from after the save that the save itself does not have [FILED 2026-10-19 from the owner ruling and a code audit at 2f9256d. OPEN, needs design; owner principle stated, scope to confirm]
+
+Owner ruling (V, 2026-10-19): "a quick/load should work exactly as a quickload - restoring the
+state of the game exactly to what it was at the moment of the quicksave / save". Today an F9 or a
+Space Center pause-menu load (LoadKind QuickloadFlight / InSessionOther) keeps much of Parsek's
+state from memory; a main-menu Load is already Cold and reads the save, except the external
+ledger / event / milestone files (COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE).
+Kept from memory today (in-session branch never calls `LoadRecordingTrees` or `LoadExternalFiles`):
+- Trees committed after the save other than the resumed flight, with their tagged events, ledger
+  rows, reserved crew and rewind points (D2 applied to quickloads as QL-R2; user guide "every
+  other committed flight is kept"). Only the resumed flight's future is retired (OQ-2).
+- Untagged Space Center rows after the save (QL-R2; reversal ruled 2026-10-19, ships with the
+  Re-Fly ledger plan, Phase 2).
+- Supersede rows, tombstones, retirements, the merge journal (PR #2038's in-session carry; user
+  guide "a quickload keeps your Re-Fly history"), so a Re-Fly merged after the save stays merged.
+- Rewind points of committed trees (OQ-3) and their files; missions, groups and archive state;
+  milestone replay indices (`resetUnmatched:false`); vessel-name decisions (names design 7.6
+  ruling 5); pending science on InSessionOther; routes created after the save (dormant, return
+  when the clock passes `CreatedUT`); a flight discarded after the save records again (QL-R1).
+Already matching: the resumed flight itself (save node plus trim), crew replacements, switch
+segment session, intents, the test batch marker. OQ-1 (F9 resumes a merged Re-Fly session) fits.
+Open question for the owner: does "exactly" include other flights committed after the save
+(they would disappear on F9, the biggest player-visible change), and Re-Fly merges made after
+it? A literal reading reverses D2-for-quickloads, QL-R1, OQ-3's listing, PR #2038's carry and
+names ruling 5. Direction if confirmed: an in-session load reads Parsek state from the save the
+way a cold load does, keeping only what the save cannot hold. Audit table:
+`docs/dev/plans/refly-ledger-safety-implementation.md` appendix.
 
 ## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. OPEN, needs owner decisions one by one; same invariant as section 2.12]
 
 Each breaks "the committed timeline pays for every committed spend at every UT" without Re-Fly:
-(O1) a quickload into a quicksave taken before a later-committed flight retires that flight's
-rows but keeps untagged KSC spends made after it (design QL-R2, ParsekScenario.Trim.cs:1211);
+(O1, ruled 2026-10-19: a quickload undoes Space Center rows after the save, fixed with
+REFLY-RESUMED-MERGED-DISCARD-RESTORES-LOSSES) a quickload into a quicksave taken before a
+later-committed flight retires that flight's rows but keeps untagged KSC spends made after it
+(design QL-R2, ParsekScenario.Trim.cs:1211);
 (O2) a stock revert after a plain rewind prunes untagged rows after the launch UT
 (`Ledger.PruneOrphanActionsAfterUT`, Ledger.cs:321), committed-future credits included, while
 later tagged spends survive; (O3) a recording that fails to load has its earnings pruned by
