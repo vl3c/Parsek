@@ -235,8 +235,9 @@ Validation is automated harness lanes flown on V's PC through Remote Control, on
 ## Not in this plan
 
 - `LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY` O2-O7 (separate owner decisions).
-- The wider "a load restores the save exactly" audit (todo QUICKLOAD-RESTORES-THE-SAVE-EXACTLY),
-  except the Space Center purchase cell above.
+- The wider "a load restores the save exactly" work (todo QUICKLOAD-RESTORES-THE-SAVE-EXACTLY;
+  scope ruled 2026-10-19: drop everything after the save, other committed flights included),
+  except the Space Center purchase cell above, which Phase 2 needs and which that work keeps.
 - Plain Rewind-to-Launch's claimed hold (todo REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE).
 
 ## Appendix: what an in-session load keeps today (audit 2026-10-19, at 2f9256d)

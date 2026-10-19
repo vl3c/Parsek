@@ -106,7 +106,7 @@ quickload also undoes Space Center purchases made after the quicksave". Fix: the
 resume retires untagged Space Center rows after the save UT (the QL-R2 cell flips); rewinds keep
 ruling D2. This also closes O1 of LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY.
 
-## QUICKLOAD-RESTORES-THE-SAVE-EXACTLY: an in-session load keeps Parsek state from after the save that the save itself does not have [FILED 2026-10-19 from the owner ruling and a code audit at 2f9256d. OPEN, needs design; owner principle stated, scope to confirm]
+## QUICKLOAD-RESTORES-THE-SAVE-EXACTLY: an in-session load keeps Parsek state from after the save that the save itself does not have [FILED 2026-10-19 from the owner ruling and a code audit at 2f9256d. OPEN, needs design; scope ruled 2026-10-19: drop everything after the save]
 
 Owner ruling (V, 2026-10-19): "a quick/load should work exactly as a quickload - restoring the
 state of the game exactly to what it was at the moment of the quicksave / save". Today an F9 or a
@@ -127,11 +127,13 @@ Kept from memory today (in-session branch never calls `LoadRecordingTrees` or `L
   when the clock passes `CreatedUT`); a flight discarded after the save records again (QL-R1).
 Already matching: the resumed flight itself (save node plus trim), crew replacements, switch
 segment session, intents, the test batch marker. OQ-1 (F9 resumes a merged Re-Fly session) fits.
-Open question for the owner: does "exactly" include other flights committed after the save
-(they would disappear on F9, the biggest player-visible change), and Re-Fly merges made after
-it? A literal reading reverses D2-for-quickloads, QL-R1, OQ-3's listing, PR #2038's carry and
-names ruling 5. Direction if confirmed: an in-session load reads Parsek state from the save the
-way a cold load does, keeping only what the save cannot hold. Audit table:
+Scope ruled (V, 2026-10-19, "Drop them"): an F9 restores Parsek exactly as saved, so flights
+committed after the save, Re-Fly merges, renames and groups made after it are gone too. This
+reverses D2-for-quickloads, QL-R1, OQ-3's listing, PR #2038's carry and names ruling 5 for
+in-session loads; rewinds keep D2. Reason it matters: keeping a later flight while the quickload
+undoes the tech it was built with is a paradox. Direction: an in-session load reads Parsek state
+from the save the way a cold load does, keeping only what the save cannot hold; separate work
+after the Re-Fly ledger plan. Audit table:
 `docs/dev/plans/refly-ledger-safety-implementation.md` appendix.
 
 ## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. OPEN, needs owner decisions one by one; same invariant as section 2.12]
