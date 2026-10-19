@@ -16,6 +16,103 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## REFLY-MERGE-RETIRES-VALUE-LATER-SPENDING-USED: a Re-Fly merge takes back the replaced flight's earnings after the timeline already spent them [FILED 2026-10-19 from the "Re-Fly ledger paradox analysis" thread, code read on main 4503a53. OPEN, critical (owner rulings: never lower the ledger, no time-travel paradox); designed in `parsek-rewind-to-separation-design.md` section 2.12, no code until the owner confirms Option 1]
+
+**What happens.** Since the 2026-05-06 broad tombstone scope (`f4763de1`, `d66626ba`) a Re-Fly
+merge tombstones every eligible row of the replaced flight after the rewind point, gains
+included, and nothing checks the committed spends that come after. Example: 20k funds, the
+replaced flight's contract pays +100k at UT 1500, a facility upgrade costs 110k at UT 2000, the
+re-fly crashes and merges: funds read -90k at UT 2000 (FundsModule charges anyway; the bar is
+patched to 0 and the tooltip shows "Short by"). Science: a later tech node the replaced flight's
+lab science paid for is refused and never unlocked. Also: a first-time milestone is lost (stock
+already counts it during the session, so the re-fly cannot earn it, LAB-10 log); once-ever
+credit can move later; a retired contract outcome re-opens the contract (slot over-subscription,
+an impossible rescue); a retired contract failure erases its penalty (stock cannot fail it again
+in the session); earn, spend at the Space Center, then re-fly the earning away; a rescued kerbal
+stays on the roster with no ledger origin. Only `ScienceEarning` seals a slot today
+(`SupersedeCommit.IsRetryBlockingRecordingAction`). Full case list R1-R9:
+`docs/dev/research/refly-ledger-paradox-2026-10-19.md`.
+
+**Fix (designed, section 2.12).** Rule 1: a slot is re-flyable only when every row its merge
+would retire is a loss (crew deaths and bookkeeping, crew-death and vessel-loss reputation,
+building damage); any other row seals it, at Site A, Stash, `CanInvoke` and Site B-1. Rule 2:
+reputation loss swap (keep the replaced flight's penalties when the re-fly lost more). Rule 3:
+session isolation (switch block, awards filed by cause, the deadline clock, the recovered-later
+vessel stripped, Discard and Retry remove the attempt's rows). Rule 5: a dominance check before
+the journal's `Begin` refuses any merge that would lower a balance. Migration: open value-holding
+slots are concluded on load; existing deficits are not repaired. User guide and CHANGELOG move
+with the implementation, not with the design.
+
+## REFLY-START-RETIRES-RECOVERY-OF-RESURRECTED-VESSEL: starting a Re-Fly tombstones the recovery rewards of a vessel the player recovered later, and a Discard keeps them retired [FILED 2026-10-19, code read. OPEN, high; fix designed in `parsek-rewind-to-separation-design.md` section 2.12 Rule 3]
+
+`RewindInvoker.RetireResurrectedVesselRecoveryRows` ("Step 3b" of `ConsumePostLoad`, around
+RewindInvoker.cs:1357-1384) tombstones the recovery rows of every vessel the rewind point brings
+back that the committed timeline recovered later. It runs before the marker exists, under the
+authoritative-reduction recalc (no drawdown guard), and is deliberately durable through Discard.
+Example: 20k, vessel V recovered at UT 1500 for +50k, facility upgrade -65k at UT 1800; a Re-Fly
+of an unrelated split at UT 1000 brings V back and retires the 50k: UT 1800 reads -45k, even if
+the player discards. Fix: the strip removes such a vessel (ghost where its recordings cover it)
+and its recovery rows stay; delete Step 3b. Red-first unit cell first.
+
+## REFLY-SESSION-FAILS-EVERY-DEADLINE-CONTRACT: during a Re-Fly every contract with a deadline reads as expired [FILED 2026-10-19, code read. OPEN, medium; live effect inferred, needs a red-first unit cell]
+
+The invoke walk calls `RecalculateAndPatch(double.MaxValue)` and `ContractsModule.PrePass` uses the
+walk cutoff as the deadline clock (ContractsModule.cs ~310), so every active deadline contract
+gets a synthetic failure in the session's walk: its penalty shows in the session's pools and the
+contract leaves stock's active list until the merge walk restores it. Fix: keep the MaxValue
+horizon but pass the current UT as the deadline clock (section 2.12 Rule 3).
+
+## REFLY-SESSION-SWITCH-ESCAPES-THE-ATTEMPT: switching vessels during a Re-Fly files gains outside the attempt, and a far Switch-To can commit the Re-Fly tree as a plain flight [FILED 2026-10-19, code read. OPEN, high; owner ruling 2026-10-19: block switching]
+
+Nothing blocks a switch during a session. `[` / `]` attaches the vessel switched to under a
+`Launch` branch point (attempt-owned); a map Switch-To creates a parentless segment (not
+attempt-owned, its rows survive a Discard). Awards go to the live active recording
+(`ParsekFlight.cs:246`, `GameStateRecorder.cs:147`) and an empty tag falls back to the provisional
+(`ReFlyAwardTagging.Resolve`), so the re-flown vessel's background gains can be filed under the
+other vessel and escape the value gate, and the other vessel's gains can seal the slot wrongly.
+A Switch-To an unloaded vessel opens the pre-switch Merge / Discard dialog, which has no Re-Fly
+input (`DecidePreSwitchDialogAction`, MapFocusObjectOnSelectPatch.cs:1168-1199); its Merge runs a
+plain `CommitTreeFlight` on the live Re-Fly tree (no supersede rows, no tombstones, the marker left
+set; end state inferred). Also: design section 6.11 claimed session-born children carry
+`CreatingSessionId`; only the provisional does (RewindInvoker.cs:2690), doc fixed. Fix: section
+2.12 Rule 3 (only the re-flown vessel and its own EVA crew can be flown; awards filed by cause).
+
+## REFLY-DISCARD-KEEPS-ATTEMPT-ROWS: a discarded Re-Fly attempt keeps the ledger rows it filed, with their career effect [FILED 2026-10-19, code read. OPEN, high; fix designed in section 2.12 Rule 3]
+
+Every Re-Fly discard path untags the attempt's rows (`Ledger.ClearRecordingTagForRecordings`,
+MergeDialog.ReFlyDiscard.cs ~612-648) and keeps them, so a discarded attempt still pays out, and
+Retry inherits the previous attempt's rows. The Re-Fly discards revert stock state through the
+rewind point or the post-discard recalc (the non-rewind `PreserveIrreversibleLiveGameplayOnDiscard`
+says Re-Fly discards must not re-home), so the rows can be removed. Fix: remove the attempt's rows
+on every discard path, Retry and the load-time zombie discard; untagged session rows stay.
+
+## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. OPEN, needs owner decisions one by one; same invariant as section 2.12]
+
+Each breaks "the committed timeline pays for every committed spend at every UT" without Re-Fly:
+(O1) a quickload into a quicksave taken before a later-committed flight retires that flight's
+rows but keeps untagged KSC spends made after it (design QL-R2, ParsekScenario.Trim.cs:1211);
+(O2) a stock revert after a plain rewind prunes untagged rows after the launch UT
+(`Ledger.PruneOrphanActionsAfterUT`, Ledger.cs:321), committed-future credits included, while
+later tagged spends survive; (O3) a recording that fails to load has its earnings pruned by
+`Ledger.Reconcile` (Ledger.cs:1005); (O4) route recovery credits after a rewind are retired and
+come back later or never; (O5) the resumed-tree tombstone rule (InSessionStagedStateHandoff.cs:551)
+can re-retire credits or un-retire debits; (O6) any post-rewind flight can insert a loss before a
+committed spend (contract fail or deadline fail, cancel / decline penalties, death reputation,
+strategy converter debits, a destruction that makes a later committed repair chargeable, an early
+fail that zeroes a later committed completion); (O7) `CanAffordFundsSpending` has no production
+caller and the "keep what you earned" floor can hold the funds counter above the reservation.
+Coop retirements (a transient dependent's ledger effects, a truncation's tail rows) are the same
+shape (`design-coop-async-multiplayer.md` section 7.10). Candidate shapes in the research doc,
+section 7.
+
+## REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE: after a rewind, a vessel whose committed future is a root-lineage or switch-continuation flight stays a real vessel [FILED 2026-10-19, inferred from code. OPEN, medium, physical paradox]
+
+The strip removes only the split's sibling slots (and, once section 2.12 lands, vessels the
+committed timeline recovers later). A vessel that existed at the rewind point and is flown later
+by a committed recording with no claiming branch point stays live in the rewound world, so it can
+be bumped or destroyed before the flight its recording replays. The Re-Fly switch block keeps the
+player from flying it. Design `parsek-rewind-to-separation-design.md` section 10.13.
+
 ## ~~TERMINAL-ORBIT-HEAL-DISCARDS-LIVE-CAPTURE: finalizing a recording replaces the vessel's live-captured final orbit with the older last orbit segment~~ [FILED AND FIXED 2026-10-19 from the LAB-7 log (run `2026-10-18_0217`), branch `claude/terminal-orbit-heal-keeps-live-capture`. xUnit; re-flown green as LAB-7 `2026-10-19_2019`: `preserved cached terminal orbit ... because it is newer than the last segment ... cachedEpoch=3607.00 segmentEndUT=3594.54`, `tailDecline=terminal-orbit-newer-than-tail`, map ghost `from visible-segment ... sma=699746 ecc=0.010354 inc=0.0895`, spawn on the stock orbit 92500.6 x 106991.0. product]
 
 **Symptom.** LAB-7's lab was captured at finalize as `FinalizeIndividualRecording ... orbit[sma=699745.8 ecc=0.0104]` (UT 3607), then `PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit ... previousSma=699745.8 newSma=699745.8`, leaving `termOrbit[epoch=396.87 ...]`. Same orbit, older epoch: with the epoch before the recorded tail (3606.67), the `terminal-orbit-newer-than-tail` gate in `OrbitSeedResolver` no longer declined the tail seed, so the map ghost was built from the raw tail (`sma=596266 ecc=0.9566 inc=179.8014`). After a burn past the last on-rails segment, the heal would also swap the post-burn orbit for the pre-burn one.
@@ -186,6 +283,12 @@ session-suppressed subtree's rows after the rewind point (they come back on Disc
 tombstoned on Merge), so the pools and the progress tree show the replacement's world.
 Recommendation: (B) now; (C) only if players read the inflated pool as a bug, since it changes
 the Re-Fly confirmation's "Career state during this attempt stays as it is now" promise.
+
+**Update 2026-10-19.** Superseded by REFLY-MERGE-RETIRES-VALUE-LATER-SPENDING-USED once its
+design (section 2.12) lands: a flight that earned lab science or a milestone after its separation
+is no longer re-flyable, so the replaced flight's retire set holds only losses and the session's
+pools can only be lower than after the merge, never higher. LAB-10 / LAB-10b re-fly exactly such
+a flight and must be re-shaped (a re-fly of a slot that earned nothing) or retired with the change.
 
 ## ~~LAB-RECOVERY-RECONCILE-COALESCED-FALSE-MISMATCH: recovering a vessel whose lab holds science logs a false post-walk science mismatch (WARN + ERROR dump)~~ [FILED AND FIXED 2026-10-18 from harness lane LAB-14 (run `2026-10-17_2203`), branch `claude/lab-recovery-reconcile`. xUnit; not re-flown. product (log noise only)]
 

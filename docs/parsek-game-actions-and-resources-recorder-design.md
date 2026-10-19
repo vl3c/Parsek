@@ -51,7 +51,7 @@ Resources committed to future recordings are **reserved**. If you rewound to bef
 
 Parsek prevents time-travel paradoxes through three complementary layers, all working by prevention rather than detection:
 
-**Layer 1: No-delete invariant.** Recordings can only be added to the timeline, never removed. Total earnable resources never decrease. Existing spendings that were valid when committed cannot become invalid.
+**Layer 1: No-delete invariant.** Recordings can only be added to the timeline, never removed. Total earnable resources never decrease. Existing spendings that were valid when committed cannot become invalid. Re-Fly is the one operation that rewrites past events; it keeps this layer by only ever retiring losses (`parsek-rewind-to-separation-design.md` section 2.12).
 
 **Layer 2: Spending reservation.** Committed spendings — past, present, and future — are reserved against the resource cashflow. New spendings (vessel builds, tech nodes, facility upgrades, kerbal hires) are blocked if they would create a deficit at any point on the timeline. Applies to science and funds.
 
@@ -216,7 +216,9 @@ However, the invariant does not prevent the player from adding **new** spendings
 
 The **reservation system** (sections 6.5 and 7.6) covers this gap: committed spendings — past, present, and future — are reserved against projected cashflow. The player can only add new spendings if the projected minimum balance is sufficient. Together, the no-delete invariant protects existing spendings, and the reservation system prevents new overspending.
 
-**STASH / Re-Fly interaction:** Re-Fly supersede keeps old ledger rows physically append-only but may tombstone reviewed, recording-scoped career actions from the superseded subtree so they leave ELS. Superseded recording events remain in `Ledger.Actions` for audit/recovery, while recalculation consumes only the post-tombstone ELS and patches stock KSP state for removed science, contracts, facilities, and safe roster-created kerbals. Unfinished Flights still uses retry-blocking gates for user-attributable actions that should close a retry slot, but automatic career consequences are no longer sticky solely because their old branch changed career/world state; a successful retry can retire those rows through the tombstone path. Null-scoped KSC/system rows, initial seeds, already-paid rollout costs, and unknown future action types remain preserved until reviewed.
+**STASH / Re-Fly interaction:** Re-Fly supersede keeps old ledger rows physically append-only but may tombstone reviewed, recording-scoped career actions from the superseded subtree so they leave ELS. Superseded recording events remain in `Ledger.Actions` for audit/recovery, while recalculation consumes only the post-tombstone ELS and patches stock KSP state for removed science, contracts, facilities, and safe roster-created kerbals. Null-scoped KSC/system rows, initial seeds, already-paid rollout costs, and unknown future action types remain preserved until reviewed.
+
+Tombstoning a credit is exactly the retroactive invalidation this section rules out: the credit may already have paid for a later committed spend, which the recalculation then charges into a negative balance (funds) or refuses (a tech node never unlocked). From 2026-05-06 (the broad tombstone scope) until the 2026-10-19 rulings the Re-Fly path did this. The rulings (`parsek-rewind-to-separation-design.md` section 2.12, designed, not yet implemented) restore this section's invariant for Re-Fly: a slot can be re-flown only when every row its merge would retire is a loss (crew deaths and bookkeeping, crew-death and vessel-loss reputation, building damage); any gain, contract outcome or flight-tagged spend seals the slot. A merge therefore only ever raises a balance, and a dominance check before the merge refuses any that would not. Other operations that still retire committed credit (a quickload trim that keeps later KSC spends, revert-to-launch pruning, a recording that fails to load, route credits after a rewind) are tracked as todo `LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY`.
 
 ### 3.6 Recalculation triggers
 
@@ -337,7 +339,7 @@ Together, the two mechanisms keep new player spendings from making science or fu
 
 Parsek prevents time-travel paradoxes through three complementary design layers:
 
-**Layer 1: No-delete invariant.** Recordings can only be added to the timeline, never removed. This guarantees that total earnable resources never decrease. Existing spendings that were valid when committed cannot become invalid — there is no scenario in normal play where an earlier-valid spending becomes unaffordable due to a new recording being added.
+**Layer 1: No-delete invariant.** Recordings can only be added to the timeline, never removed. This guarantees that total earnable resources never decrease. Existing spendings that were valid when committed cannot become invalid — there is no scenario in normal play where an earlier-valid spending becomes unaffordable due to a new recording being added. Re-Fly, the only operation that rewrites past events, keeps the layer by retiring losses only and refusing any merge that would lower a balance (section 3.5, `parsek-rewind-to-separation-design.md` section 2.12).
 
 **Layer 2: Spending reservation.** Committed spendings — past, present, and future — are reserved against projected cashflow. The player can only add new spendings (vessel builds, tech nodes, facility upgrades, kerbal hires) if the projected balance never dips negative. This prevents the player from creating new deficits after rewinding to an earlier UT. Applies to science and funds.
 
