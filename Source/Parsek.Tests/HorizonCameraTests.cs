@@ -183,19 +183,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ComputeSurfaceRelativeVelocity_SubtractsBodyRotation()
-        {
-            Vector3 playbackVelocity = new Vector3(120f, 0f, 0f);
-            Vector3 rotatingFrameVelocity = new Vector3(200f, 0f, 0f);
-
-            Vector3 surfaceVelocity = ParsekFlight.ComputeSurfaceRelativeVelocity(
-                playbackVelocity, rotatingFrameVelocity);
-
-            Assert.True(Vector3.Dot(surfaceVelocity, Vector3.left) > 79.9f,
-                $"Surface-relative velocity should point west, got {surfaceVelocity}");
-        }
-
-        [Fact]
         public void ShouldUseSurfaceRelativeWatchHeading_InAtmosphere_True()
         {
             Assert.True(ParsekFlight.ShouldUseSurfaceRelativeWatchHeading(
@@ -217,22 +204,22 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ComputeWatchHorizonBasis_InAtmosphere_BodyRotationDominates_FollowsSurfaceRelativePrograde()
+        public void ComputeWatchHorizonBasis_InAtmosphere_FollowsTheSurfaceVelocity_IgnoringPlayback()
         {
             Vector3 up = Vector3.up;
-            Vector3 playbackVelocity = new Vector3(120f, 0f, 0f);       // inertial east
-            Vector3 rotatingFrameVelocity = new Vector3(200f, 0f, 0f);  // body rotates east faster
+            Vector3 surfaceVelocity = new Vector3(-80f, 0f, 0f);         // moving west over the ground
+            Vector3 playbackVelocity = new Vector3(120f, 0f, 0f);        // recorded vector, not read here
+            Vector3 rotatingFrameVelocity = new Vector3(200f, 0f, 0f);
 
-            var (forward, horizonVelocity, headingVelocity, appliedFrameVelocity, source) =
+            var (forward, horizonVelocity, headingVelocity, headingFrame, source) =
                 ParsekFlight.ComputeWatchHorizonBasis(
                     hasAtmosphere: true, atmosphereDepth: 70000, altitude: 10000,
-                    up, playbackVelocity, rotatingFrameVelocity, Vector3.forward);
+                    up, surfaceVelocity, GhostSurfaceVelocitySource.Positions,
+                    playbackVelocity, rotatingFrameVelocity, Vector3.forward);
 
             Assert.Equal(HorizonForwardSource.ProjectedVelocity, source);
-            Assert.True(Vector3.Dot(appliedFrameVelocity.normalized, Vector3.right) > 0.99f,
-                $"Applied frame velocity should match body rotation, got {appliedFrameVelocity}");
-            Assert.True(Vector3.Dot(headingVelocity.normalized, Vector3.left) > 0.99f,
-                $"Heading velocity should point west, got {headingVelocity}");
+            Assert.Equal(WatchModeController.HeadingFrameSurface, headingFrame);
+            Assert.Equal(surfaceVelocity, headingVelocity);
             Assert.True(Vector3.Dot(horizonVelocity.normalized, Vector3.left) > 0.99f,
                 $"Projected horizon velocity should point west, got {horizonVelocity}");
             Assert.True(Vector3.Dot(forward, Vector3.left) > 0.99f,
@@ -240,46 +227,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ComputeWatchHorizonBasis_AboveAtmosphere_PreservesPlaybackHeading()
+        public void ComputeWatchHorizonBasis_InAtmosphere_ParkedGhost_FallsBackToLastForward()
         {
             Vector3 up = Vector3.up;
-            Vector3 playbackVelocity = new Vector3(120f, 0f, 0f);
-            Vector3 rotatingFrameVelocity = new Vector3(200f, 0f, 0f);
-
-            var (forward, horizonVelocity, headingVelocity, appliedFrameVelocity, source) =
-                ParsekFlight.ComputeWatchHorizonBasis(
-                    hasAtmosphere: true, atmosphereDepth: 70000, altitude: 71000,
-                    up, playbackVelocity, rotatingFrameVelocity, Vector3.forward);
-
-            Assert.Equal(HorizonForwardSource.ProjectedVelocity, source);
-            Assert.True(appliedFrameVelocity.sqrMagnitude < 0.0001f,
-                $"Above atmosphere should preserve playback heading, got {appliedFrameVelocity}");
-            Assert.True(Vector3.Dot(headingVelocity.normalized, Vector3.right) > 0.99f,
-                $"Heading velocity should preserve the raw playback direction, got {headingVelocity}");
-            Assert.True(Vector3.Dot(horizonVelocity.normalized, Vector3.right) > 0.99f,
-                $"Projected horizon velocity should preserve the raw playback direction, got {horizonVelocity}");
-            Assert.True(Vector3.Dot(forward, Vector3.right) > 0.99f,
-                $"Forward should preserve the raw playback direction, got {forward}");
-        }
-
-        [Fact]
-        public void ComputeWatchHorizonBasis_InAtmosphere_HeadingVelocityCancels_FallsBackToLastForward()
-        {
-            Vector3 up = Vector3.up;
-            Vector3 playbackVelocity = new Vector3(175f, 0f, 0f);
-            Vector3 rotatingFrameVelocity = new Vector3(175f, 0f, 0f);
             Vector3 lastForward = Vector3.forward;
 
-            var (forward, horizonVelocity, headingVelocity, appliedFrameVelocity, source) =
+            var (forward, horizonVelocity, headingVelocity, headingFrame, source) =
                 ParsekFlight.ComputeWatchHorizonBasis(
                     hasAtmosphere: true, atmosphereDepth: 70000, altitude: 10000,
-                    up, playbackVelocity, rotatingFrameVelocity, lastForward);
+                    up, Vector3.zero, GhostSurfaceVelocitySource.SurfaceHold,
+                    new Vector3(175f, 0f, 0f), new Vector3(175f, 0f, 0f), lastForward);
 
             Assert.Equal(HorizonForwardSource.LastForwardFallback, source);
-            Assert.True(Vector3.Dot(appliedFrameVelocity.normalized, Vector3.right) > 0.99f,
-                $"Applied frame velocity should use the body's rotation, got {appliedFrameVelocity}");
+            Assert.Equal(WatchModeController.HeadingFrameSurface, headingFrame);
             Assert.True(headingVelocity.sqrMagnitude < 0.0001f,
-                $"Heading velocity should cancel out, got {headingVelocity}");
+                $"Heading velocity should be zero, got {headingVelocity}");
             Assert.True(horizonVelocity.sqrMagnitude < 0.0001f,
                 $"Projected horizon velocity should be near zero, got {horizonVelocity}");
             Assert.True(Vector3.Dot(forward, Vector3.forward) > 0.99f,

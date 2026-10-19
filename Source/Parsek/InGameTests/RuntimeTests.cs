@@ -22323,7 +22323,6 @@ namespace Parsek.InGameTests
             InGameAssert.AreEqual(GhostVisualBuilder.ReentryFireMaxParticles, info.fireParticles.main.maxParticles,
                 "Built reentry fire particle system should use the tuned max-particle cap");
 
-            Vector3 rotatingFrameVelocity = (Vector3)body.getRFrmVel(ghostRoot.transform.position);
             Vector3 desiredSurfaceVelocity = ghostRoot.transform.right * targetSurfaceSpeed;
             var state = new GhostPlaybackState
             {
@@ -22331,7 +22330,9 @@ namespace Parsek.InGameTests
                 reentryFxInfo = info,
                 lastInterpolatedBodyName = body.name,
                 lastInterpolatedAltitude = targetAltitude,
-                lastInterpolatedVelocity = rotatingFrameVelocity + desiredSurfaceVelocity,
+                lastInterpolatedVelocity = desiredSurfaceVelocity,
+                lastInterpolatedSurfaceVelocity = desiredSurfaceVelocity,
+                lastInterpolatedSurfaceVelocitySource = GhostSurfaceVelocitySource.Positions,
             };
 
             var engine = new GhostPlaybackEngine(positioner: null);

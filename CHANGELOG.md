@@ -35,6 +35,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Parked ghost rovers no longer spin their wheels, and ghost ground speed reads true.** A ghost
+  replaying on or near the ground read about 175 m/s of extra speed at Kerbin, so a parked rover
+  spun its wheels as if driving, reentry glow misjudged its speed and the watch camera pointed the
+  wrong way at liftoff. (GHOST-PLAYBACK-SURFACE-VELOCITY-DOUBLE-ROTATION)
 - **Dropping a restored tree no longer leaves a stale restore marker behind.** When a reset or
   a discard dropped the tree a restore marker pointed at, the marker stayed armed afterwards
   and could hold back recorded events on later saves until another restore replaced it. It is
