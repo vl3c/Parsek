@@ -35,6 +35,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A recording keeps the orbit its vessel really ended on.** When a recording finished, the
+  vessel's live final orbit was swapped for an older one from the recording's last on-rails stretch
+  just because the two were timestamped differently. That older orbit could let a bad estimate
+  through, such as a low-orbit lab drawn on the map plunging into Kerbin. The live orbit now stays.
+  (TERMINAL-ORBIT-HEAL-DISCARDS-LIVE-CAPTURE)
 - **Dropping a restored tree no longer leaves a stale restore marker behind.** When a reset or
   a discard dropped the tree a restore marker pointed at, the marker stayed armed afterwards
   and could hold back recorded events on later saves until another restore replaced it. It is
