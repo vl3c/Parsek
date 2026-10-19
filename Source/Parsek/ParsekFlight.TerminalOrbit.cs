@@ -537,6 +537,32 @@ namespace Parsek
                 && TerminalOrbitScalarMatches(rec.TerminalOrbitEpoch, seg.epoch);
         }
 
+        /// <summary>
+        /// True when the cached terminal orbit is on the segment's body, is a finite, plausible
+        /// orbit, and its epoch is at or after the segment's end (a capture taken after the
+        /// segment closed). Epoch 0 (never captured live) and an epoch before the segment's end
+        /// stay stale and are healed.
+        /// </summary>
+        internal static bool CachedTerminalOrbitIsNewerThanSegment(Recording rec, OrbitSegment seg)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.TerminalOrbitBody))
+                return false;
+            if (!string.Equals(rec.TerminalOrbitBody, seg.bodyName, StringComparison.Ordinal))
+                return false;
+            double epoch = rec.TerminalOrbitEpoch;
+            double sma = rec.TerminalOrbitSemiMajorAxis;
+            double ecc = rec.TerminalOrbitEccentricity;
+            if (double.IsNaN(epoch) || double.IsInfinity(epoch) || epoch <= 0.0)
+                return false;
+            if (double.IsNaN(sma) || double.IsInfinity(sma) || sma == 0.0)
+                return false;
+            if (double.IsNaN(ecc) || double.IsInfinity(ecc) || ecc < 0.0)
+                return false;
+            if (double.IsNaN(seg.endUT) || double.IsInfinity(seg.endUT))
+                return false;
+            return epoch >= seg.endUT - TerminalOrbitNumericTolerance;
+        }
+
         private static void CopyTerminalOrbitFromSegment(Recording rec, OrbitSegment seg)
         {
             rec.TerminalOrbitInclination = seg.inclination;
@@ -742,6 +768,24 @@ namespace Parsek
                             seg.semiMajorAxis));
                 }
 
+                return false;
+            }
+
+            // A live capture of an unpacked vessel is reseeded every frame (epoch = now), so its
+            // epoch and mean anomaly never equal the segment's even when the orbit is the same.
+            // A same-body tuple whose epoch is at or after the segment's end is newer evidence
+            // than the segment, not a stale cache: keep it.
+            if (CachedTerminalOrbitIsNewerThanSegment(rec, seg))
+            {
+                ParsekLog.Info("Flight",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "ShouldPopulateTerminalOrbitFromLastSegment: preserved cached terminal orbit for '{0}' because it is newer than the last segment body={1} cachedEpoch={2:F2} segmentEndUT={3:F2} cachedSma={4:F1} segmentSma={5:F1}",
+                        rec.RecordingId ?? "(null)",
+                        seg.bodyName,
+                        rec.TerminalOrbitEpoch,
+                        seg.endUT,
+                        rec.TerminalOrbitSemiMajorAxis,
+                        seg.semiMajorAxis));
                 return false;
             }
 

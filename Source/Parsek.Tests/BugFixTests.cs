@@ -2552,6 +2552,96 @@ namespace Parsek.Tests
                 && l.Contains("newSma=700000.0"));
         }
 
+        // LAB-7 (run 2026-10-18_0217): the finalize capture of an unpacked lab at UT 3607
+        // (sma 699745.8, epoch = capture UT) was replaced by the last segment (epoch 396.87)
+        // only because a live capture's epoch and mean anomaly never equal the segment's.
+        private static Recording BuildLiveCaptureAfterSegment(string id, string capturedBody, double capturedEpoch)
+        {
+            return new Recording
+            {
+                RecordingId = id,
+                TerminalOrbitBody = capturedBody,
+                TerminalOrbitSemiMajorAxis = 699745.8,
+                TerminalOrbitEccentricity = 0.0104,
+                TerminalOrbitInclination = 0.09,
+                TerminalOrbitMeanAnomalyAtEpoch = 2.1,
+                TerminalOrbitEpoch = capturedEpoch,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 3606.67, bodyName = "Kerbin" }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        startUT = 396.9, endUT = 3594.6, bodyName = "Kerbin",
+                        semiMajorAxis = 699745.8, eccentricity = 0.0104, inclination = 0.09,
+                        meanAnomalyAtEpoch = 0.4, epoch = 396.87
+                    }
+                }
+            };
+        }
+
+        [Fact]
+        public void SameBodyLiveCaptureNewerThanLastSegment_IsKept()
+        {
+            var rec = BuildLiveCaptureAfterSegment("keep-live-capture", "Kerbin", 3607.06);
+
+            ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
+
+            Assert.Equal(3607.06, rec.TerminalOrbitEpoch);
+            Assert.Equal(2.1, rec.TerminalOrbitMeanAnomalyAtEpoch);
+            Assert.Contains(logLines, l => l.Contains("[INFO][Flight]")
+                && l.Contains("preserved cached terminal orbit for 'keep-live-capture' because it is newer than the last segment")
+                && l.Contains("cachedEpoch=3607.06")
+                && l.Contains("segmentEndUT=3594.60"));
+            Assert.DoesNotContain(logLines, l => l.Contains("healed stale cached terminal orbit")
+                && l.Contains("keep-live-capture"));
+        }
+
+        [Theory]
+        [InlineData(0.0)]      // never captured live (#475 / #484 shape)
+        [InlineData(1200.0)]   // captured before the last segment closed
+        public void SameBodyCaptureNotNewerThanLastSegment_IsHealed(double capturedEpoch)
+        {
+            var rec = BuildLiveCaptureAfterSegment("heal-old-capture", "Kerbin", capturedEpoch);
+
+            ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
+
+            Assert.Equal(396.87, rec.TerminalOrbitEpoch);
+            Assert.Equal(0.4, rec.TerminalOrbitMeanAnomalyAtEpoch);
+            Assert.Contains(logLines, l => l.Contains("healed stale cached terminal orbit")
+                && l.Contains("heal-old-capture"));
+        }
+
+        [Fact]
+        public void NewerCaptureOnAnotherBody_IsHealed()
+        {
+            var rec = BuildLiveCaptureAfterSegment("heal-other-body-capture", "Mun", 3607.06);
+
+            ParsekFlight.PopulateTerminalOrbitFromLastSegment(rec);
+
+            Assert.Equal("Kerbin", rec.TerminalOrbitBody);
+            Assert.Equal(396.87, rec.TerminalOrbitEpoch);
+            Assert.DoesNotContain(logLines, l => l.Contains("because it is newer than the last segment")
+                && l.Contains("heal-other-body-capture"));
+        }
+
+        [Theory]
+        [InlineData(double.NaN, 699745.8, 0.0104)]
+        [InlineData(3607.06, 0.0, 0.0104)]
+        [InlineData(3607.06, double.NaN, 0.0104)]
+        [InlineData(3607.06, 699745.8, -0.5)]
+        public void CachedTerminalOrbitIsNewerThanSegment_RejectsImplausibleCaptures(
+            double epoch, double sma, double ecc)
+        {
+            var rec = BuildLiveCaptureAfterSegment("implausible-capture", "Kerbin", epoch);
+            rec.TerminalOrbitSemiMajorAxis = sma;
+            rec.TerminalOrbitEccentricity = ecc;
+
+            Assert.False(ParsekFlight.CachedTerminalOrbitIsNewerThanSegment(rec, rec.OrbitSegments[0]));
+        }
+
         [Fact]
         public void SameBodyWithStaleTuple_HealLog_UsesInvariantCultureUnderCommaLocale()
         {
