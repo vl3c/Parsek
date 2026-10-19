@@ -26,6 +26,9 @@ namespace Parsek
     ///     world axes from both its packed (<c>v.obt_velocity</c>) and unpacked
     ///     (<c>rb_velocityD + Krakensbane.GetFrameVelocity()</c>) branches, so
     ///     the velocity needs <c>.xzy</c>.</item>
+    ///   <item><see cref="TryFromRecordedTailPair"/> - two consecutive recorded
+    ///     samples whose velocity frame is RESOLVED from the samples themselves
+    ///     (see "Recorded velocity frame" below) instead of trusted.</item>
     ///   <item><see cref="FromWorldPosAndZupVelocity"/> — world-absolute Y-up
     ///     position plus a velocity already in Zup-local (e.g. the output of
     ///     <c>Orbit.getOrbitalVelocityAtUT</c>). The velocity is passed through;
@@ -36,6 +39,24 @@ namespace Parsek
     /// Sites that take a caller-supplied velocity whose frame depends on the
     /// caller (e.g. <c>VesselSpawner.SpawnFromSnapshot</c> internals) should be
     /// audited per-call-site before being routed through one of these helpers.
+    ///
+    /// Recorded velocity frame. <c>TrajectoryPoint.velocity</c> is a Unity WORLD vector
+    /// as captured, and neither half of that is stable:
+    /// (1) the unpacked branch (<c>rb_velocityD + Krakensbane.GetFrameVelocity()</c>) is
+    /// SURFACE-RELATIVE while the world frame co-rotates with the body (active vessel
+    /// below <c>body.inverseRotThresholdAltitude</c>, decompiled
+    /// <c>OrbitPhysicsManager.CheckReferenceFrame</c>; stock adds the frame term back in
+    /// <c>OrbitDriver.TrackRigidbody</c>), and inertial otherwise (and when packed);
+    /// (2) the world axes sit at a yaw about the spin axis (world Y) against the body
+    /// that depends on session history: <c>CelestialBody.CBUpdate</c> freezes
+    /// <c>directRotAngle</c> in the rotating frame and <c>Planetarium.InverseRotAngle</c>
+    /// in the inertial one, and neither is recorded. Positions are stored body-fixed
+    /// (lat/lon/alt), so pairing a stored velocity with a position rebuilt in another
+    /// session rotates the velocity by an unknown angle (LAB-7 run 2026-10-18_0026: ecc
+    /// 0.9996). <see cref="RecordedTailVelocityResolver"/> recovers both unknowns from two
+    /// consecutive samples: the chord of their body-fixed positions is the surface-relative
+    /// velocity in the rebuild frame, and the one yaw that maps the recorded vectors onto
+    /// it (or onto it plus the frame velocity) names both the frame and the angle.
     /// </summary>
     internal static class OrbitReseed
     {
@@ -58,6 +79,47 @@ namespace Parsek
         {
             Vector3d bodyRelPos = worldPosYup - bodyPositionYup;
             return new StateVectorInputs(bodyRelPos.xzy, recordedVelWorldYup.xzy);
+        }
+
+        /// <summary>
+        /// Pure: was a recorded sample at <paramref name="sampleAltitude"/> taken in the
+        /// body's co-rotating frame (surface-relative velocity)? Mirrors stock's
+        /// <c>OrbitPhysicsManager.CheckReferenceFrame</c> rule: the body rotates and the
+        /// altitude is strictly below its <c>inverseRotThresholdAltitude</c>.
+        /// </summary>
+        internal static bool IsRecordedVelocityInRotatingFrame(
+            bool bodyRotates,
+            double inverseRotThresholdAltitude,
+            double sampleAltitude)
+        {
+            return bodyRotates
+                && IsFinite(inverseRotThresholdAltitude)
+                && inverseRotThresholdAltitude > 0.0
+                && IsFinite(sampleAltitude)
+                && sampleAltitude < inverseRotThresholdAltitude;
+        }
+
+        /// <summary>
+        /// Pure: the velocity of the body's co-rotating frame at a body-relative Y-up
+        /// world position, i.e. stock <c>CelestialBody.getRFrmVel</c>:
+        /// <c>Cross(angularVelocity, worldPos - body.position)</c> with
+        /// <c>angularVelocity = Vector3d.down * 2*pi / rotationPeriod</c>
+        /// (decompiled <c>CelestialBody</c> rotation setup). Zero when the period or
+        /// the position is unusable.
+        /// </summary>
+        internal static Vector3d ComputeRotatingFrameVelocityYup(
+            Vector3d bodyRelPosYup,
+            double rotationPeriod)
+        {
+            if (!IsFinite(rotationPeriod)
+                || System.Math.Abs(rotationPeriod) <= double.Epsilon
+                || !IsFinite(bodyRelPosYup))
+            {
+                return Vector3d.zero;
+            }
+
+            Vector3d angularVelocity = Vector3d.down * (System.Math.PI * 2.0 / rotationPeriod);
+            return Vector3d.Cross(angularVelocity, bodyRelPosYup);
         }
 
         internal static StateVectorInputs ComputeZupVelocityInputs(
@@ -179,10 +241,10 @@ namespace Parsek
         /// lat/lon/alt position and a recorder-frame Y-up world velocity.
         /// </summary>
         /// <remarks>
-        /// Use this for state vectors emitted by <see cref="FlightRecorder"/> —
-        /// the recorder stores <c>TrajectoryPoint.velocity</c> in Y-up Unity
-        /// world axes, body-relative inertial in steady-state operation (with
-        /// brief Krakensbane shifts compensated by <c>+ GetFrameVelocity()</c>).
+        /// The velocity is passed through unchanged, so it is right only when the
+        /// recorded vector is inertial AND the world axes it was captured in match this
+        /// session's; neither is guaranteed (see the class summary).
+        /// <see cref="TryFromRecordedTailPair"/> resolves both from two samples.
         /// </remarks>
         internal static void FromLatLonAltAndRecordedVelocity(
             Orbit dst,
@@ -223,6 +285,71 @@ namespace Parsek
                     bodyRelPos.magnitude,
                     body != null ? body.position.magnitude : 0.0,
                     recordedVelWorldYup.magnitude));
+        }
+
+        /// <summary>
+        /// Build orbit elements at <paramref name="tail"/>'s UT from the tail sample and
+        /// the coast sample before it, with the velocity frame and the world yaw resolved
+        /// by <see cref="RecordedTailVelocityResolver.TryResolve"/> rather than trusted.
+        /// Both positions are rebuilt with this session's <c>GetWorldSurfacePosition</c>,
+        /// so the seeded state is in this session's world axes. Leaves
+        /// <paramref name="dst"/> untouched and returns false when the pair cannot be
+        /// resolved (<see cref="RecordedTailVelocityResolution.DeclineReason"/>).
+        /// </summary>
+        internal static bool TryFromRecordedTailPair(
+            Orbit dst,
+            CelestialBody body,
+            TrajectoryPoint previous,
+            TrajectoryPoint tail,
+            out RecordedTailVelocityResolution resolution)
+        {
+            Vector3d previousPos = body.GetWorldSurfacePosition(
+                previous.latitude, previous.longitude, previous.altitude) - body.position;
+            Vector3d tailPos = body.GetWorldSurfacePosition(
+                tail.latitude, tail.longitude, tail.altitude) - body.position;
+            bool altitudeRuleRotating = IsRecordedVelocityInRotatingFrame(
+                body.rotates,
+                body.inverseRotThresholdAltitude,
+                tail.altitude);
+
+            bool resolved = RecordedTailVelocityResolver.TryResolve(
+                previousPos,
+                previous.ut,
+                new Vector3d(previous.velocity.x, previous.velocity.y, previous.velocity.z),
+                tailPos,
+                tail.ut,
+                new Vector3d(tail.velocity.x, tail.velocity.y, tail.velocity.z),
+                body.rotates ? body.rotationPeriod : double.NaN,
+                altitudeRuleRotating,
+                out resolution);
+
+            ParsekLog.Verbose("OrbitReseed",
+                string.Format(CultureInfo.InvariantCulture,
+                    "TryFromRecordedTailPair: body={0} prevUT={1:F2} tailUT={2:F2} alt={3:F1} " +
+                    "resolved={4} decline={5} velFrame={6} altitudeRule={7} yaw={8:F3}deg " +
+                    "residual={9:F3} otherResidual={10:F3} |recordedVel|={11:F2} |inertialVel|={12:F2}",
+                    body.name ?? "(null)",
+                    previous.ut,
+                    tail.ut,
+                    tail.altitude,
+                    resolved,
+                    resolution.DeclineReason ?? "(none)",
+                    resolution.SampleWasRotatingFrame ? "rotating" : "inertial",
+                    altitudeRuleRotating ? "rotating" : "inertial",
+                    resolution.YawDegrees,
+                    resolution.Residual,
+                    resolution.OtherResidual,
+                    resolution.RecordedSpeed,
+                    resolution.InertialVelocityYup.magnitude));
+            if (!resolved)
+                return false;
+
+            dst.UpdateFromStateVectors(
+                tailPos.xzy,
+                resolution.InertialVelocityYup.xzy,
+                body,
+                tail.ut);
+            return true;
         }
 
         /// <summary>

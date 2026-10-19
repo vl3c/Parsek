@@ -39,6 +39,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "lab-rec",
                 VesselName = "Pad Lab",
+                StartSituation = "Landed",
                 MaxDistanceFromLaunch = 0.3
             };
             rec.Points.Add(new TrajectoryPoint { ut = 10.0, bodyName = "Kerbin" });

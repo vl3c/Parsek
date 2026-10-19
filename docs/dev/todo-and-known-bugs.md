@@ -32,6 +32,23 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Fix.** `CompareLeg` grosses a science leg's observed sum back up through the in-window converter legs (`ComputeConverterScienceFold`): every `StrategyScienceDebit` with `ConversionSource == Converter` adds its `Cost`, every `StrategyScienceCredit` subtracts its `ScienceAwarded`; exchanger debits (their own StrategyInput key) are left out, as at the KSC door. The rows carry no reason key, so each is attributed through the event it rode on: a positive ScienceChanged within the 0.1 s coalesce epsilon and with a compatible recording tag (equal, or either side untagged). It folds only when such an event is counted by this comparison (`IsComparisonObservedEvent`, the same membership test the observed sum now uses) and every such event is; a same-UT credit under another key or outside the comparison's scope makes the row ambiguous and it folds nowhere, so one take never grosses two comparisons up. The timeline-hidden coverage probe applies the same fold over the hidden events. PR #2138's lab handling (the `ScienceLabEarning` leg, `GetPostWalkPrimaryRank`, `AbsorbLabCreditsIntoWindow`) is unchanged; a coalesced subject + lab credit under a converter folds its one take once. Logs (verbose, rate-limited): `Post-walk science window: grossed the observed NET credit 11.875 keyed 'ScienceTransmission' up through 1 in-window strategy converter leg(s) (take=0.625, yield=0) -> 12.5 for ScienceLabEarning id=(none)` and `... left N in-window strategy converter leg(s) out of the '<key>' comparison ...`. Cells: `PostWalkConverterTakeReconcileTests` (13 cases: the LAB-12 lab payout, subject recovery and transmission, the coalesced subject + lab credit, a yield, and the negatives: no take row, an exchanger debit, a take outside the window, after the cutoff, tagged to another recording, the ambiguous two-key UT) plus the LAB-12 replay in `ColdSpaceCenterLoadSeedTests`. Mutation: with the take not added the 5 grossing cells red; with the ambiguity guard off the ambiguous cell reds.
 
+## ~~TERMINAL-SPAWN-TAIL-ORBIT-SURFACE-VELOCITY: an orbiting vessel whose recording ends below Kerbin's inverse-rotation altitude (100 km) is refused its end-of-recording spawn~~ [FILED AND FIXED 2026-10-18 from harness lane LAB-7 (runs `2026-10-17_2308`, `_2318_a2`, and `2026-10-18_0026` on the first fix), branch `claude/terminal-spawn-orbit-frame` (PR #2139). xUnit + one new in-game cell; re-flown green on the second fix: LAB-7 `2026-10-18_0217` (`resolved=True velFrame=rotating residual=0.014`, sma 699737.8 / ecc 0.0103, `SpawnNow`) and LT-1 `2026-10-18_0205`. product]
+
+**Symptom.** LAB-7's lab orbits at 92.5 x 107 km and its recording ended at 92.95 km. Reached by warp, the end spawn read `Tail-derived terminal orbit: ... tailUT=3606.65 sma=596265.8 ecc=0.1622 periAlt=-100447.2`, `source=trajectory-tail`, `CannotSpawnSafely reason=periapsis-below-safe-altitude` and `Held ghost released (cannot spawn safely)`: the vessel never came back. A TimeJump spawn 693 s past the tail in the same run skipped the tail (`rotation-drift-out-of-bounds`), used the stored OrbitSegment (`sma=699745.8 ecc=0.0104`) and spawned.
+
+**Cause.** `TrajectoryPoint.velocity` is the Unity world vector as captured (`FlightRecorder.SampleCurrentVelocity`), and two things about it were treated as known that are not:
+1. Its frame. The unpacked branch (`rb_velocityD + Krakensbane.GetFrameVelocity()`) is SURFACE-RELATIVE while the world frame co-rotates with the body (active vessel below `inverseRotThresholdAltitude`, decompiled `OrbitPhysicsManager.CheckReferenceFrame`; stock adds the frame term back in `OrbitDriver.TrackRigidbody`). LAB-7's tail: recorded 2066.42 + omega x r 202.04 = 2268.46 m/s, the vis-viva speed of the live stock orbit at that radius to 0.01 m/s; read as inertial it gives exactly the logged sma 596265.8 / ecc 0.1622.
+2. Its world axes. The world sits at a yaw about the spin axis (world Y) against the body that depends on session history (`CelestialBody.CBUpdate` freezes `directRotAngle` in the rotating frame and `Planetarium.InverseRotAngle` in the inertial one; neither is recorded), while the position is stored body-fixed and rebuilt with this session's `GetWorldSurfacePosition`. Fitted on run `2026-10-18_0026`'s recorded tail, the recording session's axes sat 257.18 deg from the model's, constant to 1e-4 deg across the four tail pairs. The first fix (PR #2139 commit 1: add omega x r by altitude) corrected only point 1 and flew red: `tailVelFrame=rotating recordedSpeed=2066.42 inertialSpeed=2050.98 sma=589934.1 ecc=0.9996` after the reload (the same unresolved yaw is REFLY-TAIL-SEED-FRAME's flight-path-angle error at 117 km).
+The tail beat the stored orbit because `PopulateTerminalOrbitFromLastSegment` had replaced the live-captured terminal orbit at finalize (`healed stale cached terminal orbit`, epoch 396.89), so `terminal-orbit-newer-than-tail` did not fire.
+
+**Fix.** The spawn tail seed no longer trusts the vector. `RecordedTailVelocityResolver.TryResolve` takes the tail and the coast frame before it IN THE SAME FRAMES LIST (`OrbitSeedResolver.TryFindLatestCoastTrajectoryFrame` pair overload): the chord of their positions, rebuilt in this session, is the surface-relative velocity in this session's axes, and the mean of the two recorded vectors is the same midpoint velocity in the recording's axes. Two readings are fitted, each with the one yaw about Y aligning the XZ azimuths and scored by the full vector residual: rotating (vectors onto the chord) and inertial (onto the chord plus stock `getRFrmVel`, `OrbitReseed.ComputeRotatingFrameVelocityYup`). The better fit within 2 m/s + 0.5% wins; two fits within that tolerance of each other defer to the altitude rule (`IsRecordedVelocityInRotatingFrame`, stock's strict `<`); no fit declines. The tail's own vector is rotated by the yaw (magnitude and spin-axis component kept exactly) and, if rotating, the frame velocity at the tail added. On LAB-7's recorded tail: rotating residual 0.014 m/s against 202 m/s for the other reading, sma 699737.9 / ecc 0.0103 (stock 699745.8 / 0.0104) at any spawn yaw; on its pre-rails frames at 102 km: inertial, residual 0.001. A tail with one frame, a gap outside 1 ms..30 s, no XZ azimuth or no fit is declined (`tail-velocity-single-frame`, `tail-pair-gap-out-of-range`, `tail-velocity-azimuth-undefined`, `tail-velocity-frame-no-fit`, logged as `Tail-derived terminal orbit skipped:`), and the stored segment / terminal orbit seeds answer, as the jump branch did. The tail keeps precedence over a stale segment when it resolves, which is the post-burn case it exists for; preferring the segment outright was not taken because an engine burn shorter than the 1 s thrust debounce, RCS or a decoupler kick leaves no ExoPropulsive section to gate on. Log: `TryFromRecordedTailPair: ... velFrame= altitudeRule= yaw= residual= otherResidual=` and `tailVelFrame= yaw= residual= recordedSpeed= inertialSpeed=` on `Tail-derived terminal orbit:`. No schema change. Cells: `TerminalSpawnTailOrbitRotatingFrameTests` (28: LAB-7's recorded tail at four spawn yaws, the single-vector seed varying with the yaw and refusing at the recording's own yaw, the 102 km frames reading inertial, synthetic tails at six frame x record-yaw x spawn-yaw combinations, the four declines, the tie, the primitives); mutations: dropping the yaw reds 10, swapping the choice 12, dropping the frame velocity 7. `SpawnTerminalOrbitFromTailTests` +2 (the pair walk; never across sections). In-game: `RuntimeTests.TerminalOrbitFromTail_SurfaceRelativeLowOrbitTail_DerivesInertialOrbit` (SpawnTerminalOrbit, LT-1 pin 3 -> 4) records the tail surface-relative in axes yawed 123 deg and checks the resolved yaw, the orbit and SpawnNow against a single-vector control; the two older tail cells now record their tails as yawed two-frame pairs.
+
+Review follow-up: an inertial fit is carried from the pair midpoint to the tail by the spin over half the pair gap (`RecordedTailVelocityResolver.InertialYawDriftRadians`, 0.025 deg at 3 s; cell `SyntheticInertialTail_CarriesTheYawFromTheMidpointToTheTail`, which reds at 9.4 m/s without the term and 18.8 m/s with its sign flipped), and a body that does not rotate passes a NaN period so neither hypothesis adds a frame velocity.
+
+**Still open (same vector, not changed here).** (1) The map-presence tail seed (`TailSeedUse.MapPresence`, LAB-7 drew its ghost on `inc=179.8013`), `VesselSpawner`'s endpoint state-vector repair, `IncompleteBallisticSceneExitFinalizer`'s two reseeds and `GhostMapPresence`'s `FromWorldPosAndRecordedVelocity` sites still use the recorded vector as inertial and in today's axes; the resolver is the tool for each, but each needs its own audit. (2) The playback readers subtract `getRFrmVel` from the recorded vector as if it were inertial: `GhostPlaybackLogic.ComputeSurfaceHorizontalVelocity` (wheel ground speed; its comment says a parked rover records ~175 m/s, which the LAB-7 numbers contradict, so a parked ghost rover may spin its wheels at ~175 m/s) and the reentry FX surface speed; a log check of a parked-rover ghost settles it. (3) The finalize heal discards a live-captured terminal orbit whenever its epoch / mean anomaly differ from the last segment's, which every live capture does. (4) REFLY-TAIL-SEED-FRAME's spawn half is the same yaw and is resolved by this fix where the tail has two frames; its map-presence half is item 1.
+
+---
+
 ## ~~MILESTONE-REWARDS-BOOKED-OUTSIDE-CAREER: in SANDBOX / SCIENCE_SANDBOX a milestone is ledgered with the nominal reward stock never paid, and the science patch writes it into R&D~~ [FILED AND FIXED 2026-10-18 from harness lane LAB-10 (run `2026-10-17_2337`), branch `claude/refly-lab-ledger`. xUnit; not re-flown. product]
 
 **Symptom.** LAB-10 (SCIENCE_SANDBOX, pool 100): during the Re-Fly Parsek spawned the probe tender
@@ -122,6 +139,21 @@ the attempt discard - it is committed history (child of non-baseline bp=<id> ...
 `skippedCommittedHistory=N` on the summary. Cell:
 `ReFlyRevertDialogTests.PruneAttempt_LiveClone_NonBaselineBranchPointChildInCommittedHistory_IsKept`
 (red with the guard disabled).
+
+## RESTORE-CLONE-DISCARD-DROPS-IRREVERSIBLE-CAREER-ACTIONS: a contract completion, milestone or science earned during a discarded committed-tree restore attempt has no ledger row [FILED 2026-10-18 from the PR #2146 review, code read. OPEN, product, low; not reproduced]
+
+While a committed tree is resumed as a clone (`TryTakeCommittedTreeForSpawnedVesselRestore`),
+new game-state events are tagged with the committed recording ids. When the attempt is discarded
+(`DiscardPendingTree`, the drop-site / discard helpers in `RecordingStore`, or a plain reload),
+`LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard` skips every event or science
+subject whose `recordingId` is a committed id (~LedgerOrchestrator.cs:5685 / :5713), so an
+irreversible action from the clone attempt (KSP keeps the contract finished, the science
+banked) is never re-homed to the direct ledger, and the post-cutoff tails are then purged. Older
+than PR #2146, which only made every discard path purge the same tails `DiscardPendingTree`
+already purged. Fix direction: in the re-home step, treat a committed-id event past the armed
+attempt's cutoff for that id as the clone's own and re-home it, before the purge runs.
+
+---
 
 ## REFLY-SESSION-CAREER-SHOWS-THE-REPLACED-FLIGHTS-FUTURE: during a Re-Fly the career pools and the progress tree include the replaced flight's future earnings [FILED 2026-10-18 from harness lanes LAB-10 / LAB-10b (runs `2026-10-17_2337` / `_2341`). OPEN, owner question; behavior is the documented design]
 
@@ -257,6 +289,11 @@ rotation angle per section) so the tail seed is right where it still wins (a sch
 generation bump and fixture re-harvest), and the same-class readers `GhostMapPresence.cs` gap glide
 and the `VesselSpawner` spawn-validation repair.
 
+2026-10-18 (TERMINAL-SPAWN-TAIL-ORBIT-SURFACE-VELOCITY): the SPAWN tail seed now resolves the
+unrecorded yaw (and the surface-relative frame) from the tail and the coast frame before it
+(`RecordedTailVelocityResolver`), no schema change, and declines a tail it cannot resolve. The
+map-presence tail seed and the other readers above are still open.
+
 ---
 
 ## ~~REFLY-MERGE-GHOST-ONLY-NULLS-A-SPAWNED-LEAF~~: a Re-Fly merge marks a leaf that already spawned ghost-only and drops its spawn snapshot [FILED 2026-10-16 from RC-1 `2026-10-16_2324` (green), log read only. CLOSED 2026-10-17, not a bug (branch `claude/career-rewind-ledger-tlmab9`)]
@@ -287,15 +324,31 @@ across a rewind, which matters only if ghost-only is meant as "never spawn".
 
 ---
 
-## CHAIN-TIP-SPAWN-SKIPS-ORBIT-SAFETY-GATE: a chain tip spawns on its terminal orbit without the periapsis safety check [FILED 2026-10-16 from RC-1's first flight, code read. OPEN, product, medium]
+## ~~CHAIN-TIP-SPAWN-SKIPS-ORBIT-SAFETY-GATE: a chain tip spawns on its terminal orbit without the periapsis safety check~~ [FILED 2026-10-16 from RC-1's first flight, code read. FIXED 2026-10-18, branch `chain-tip-orbit-safety`; headless only, not flown]
 
 `VesselGhoster` resolves the tip's terminal orbit (`TryResolveRecordedTerminalOrbitSpawnState`) and
 passes it straight to `SpawnAtPosition`; only the ordinary spawn path calls
 `TryPassTerminalOrbitSpawnSafety` (`VesselSpawner.cs` ~1691). In RC-1 cycle 1 the Station tip
 spawned on the 14 km-periapsis orbit the Interceptor was refused for (REFLY-TAIL-SEED-FRAME).
 
-Fix: run the same safety decision on the chain-tip path, with the chain's blocked / retry state
-as the outcome, and a red test over a sub-atmospheric terminal orbit.
+Fix: both chain-tip spawn paths (`SpawnAtChainTip`, `TrySpawnBlockedChain`) now run
+`VesselGhoster.PassChainTipTerminalOrbitSafety` after resolving a recorded or jump-shifted terminal
+orbit and before `SpawnChainTipWithResolvedState`. It calls the same
+`VesselSpawner.TryPassTerminalOrbitSpawnSafety`, so a deferral or refusal is stamped on the tip
+recording, where the playback policy's deferred-spawn hold and held-ghost retry already read it. An
+entry check (`StopChainTipSpawnForTerminalOrbitVerdict`, after adoption and KSC retirement, as on the
+ordinary path) stops a later attempt on a standing refusal, or on a deferral before its next safe UT,
+without re-running the period scan. A refusal ends the chain's collision block
+(`EndCollisionBlockForNonCollisionFailure`, reason `terminal-orbit-cannot-spawn-safely`), so the
+policy releases the held ghost at once (`ReleaseCannotSpawnSafely`). A deferral keeps the block, and
+the ghost is held until the next safe UT. A refused tip leaves its chain in `activeGhostChains` for
+the scene, as the other chain-tip failures (no snapshot, failed spawn) already do. `ParsekFlight.SpawnVesselOrChainTip`
+logs a held tip at Info instead of `Chain tip spawn failed`. A tip spawned from a trajectory point
+(no orbit) and the walkback spawn are not gated, matching the ordinary path. Not changed: when the
+terminal orbit cannot be resolved, the chain path still falls back to the last point's velocity,
+where the ordinary path refuses (`RejectUnresolvedTerminalOrbitSpawn`). Tests:
+`ChainTipTerminalOrbitSafetyTests`, including the RC-1 14 km periapsis and a source-order wiring cell
+for both paths, which was checked by mutation.
 
 ---
 ## REWIND-TO-LAUNCH-LANDS-IN-THE-LATEST-PERSISTENT-WORLD: a Rewind-to-Launch keeps every surviving vessel in its latest form [FILED 2026-10-16 from EVA-11 `2026-10-16_2256` (the rewind save `parsek_rw_add97f` holds the rover with 16 parts, the rewound game `eva11-rewound` with 15), confirmed by code read. OPEN. product]
@@ -1194,7 +1247,7 @@ Parsek defect (a mission that did not fly is driver-INVALID).
 
 ---
 
-## IDLE-ON-PAD-READS-ONE-SAMPLE-ORBITING-RECORDING-AS-IDLE: a recording with one trajectory sample reads maxDist 0, so the idle-on-pad discard drops it even when the vessel is orbiting [FILED 2026-10-09 from H67's drift (todo H67-AUTOMERGE-DWELL-ENDS-BEFORE-BACKSTOP-SAMPLE), branch `ingame-test-drift`. OPEN, product, low]
+## ~~IDLE-ON-PAD-READS-ONE-SAMPLE-ORBITING-RECORDING-AS-IDLE: a recording with one trajectory sample reads maxDist 0, so the idle-on-pad discard drops it even when the vessel is orbiting~~ [FILED 2026-10-09 from H67's drift (todo H67-AUTOMERGE-DWELL-ENDS-BEFORE-BACKSTOP-SAMPLE), branch `ingame-test-drift`. FIXED 2026-10-18, branch `idle-on-pad-one-sample`; headless only, not flown]
 
 `ParsekFlight.IsTreeIdleOnPad` (`Source/Parsek/ParsekFlight.cs`) returns true when every recording
 in the tree is within 30 m of its launch point (`IsIdleOnPad(Recording)`: `MaxDistanceFromLaunch <
@@ -1208,11 +1261,41 @@ the SPACECENTER OnLoad (`ParsekScenario.cs`, "Idle on pad at scene exit - auto-d
 and the two sibling `IsTreeIdleOnPad` gates) instead of committed. Seen only through the H67
 in-game cell (its dwell was too short); a player would need to start a recording and leave
 the flight within one sample interval, so the loss is a few seconds of trajectory.
-Proposal (not implemented): idle-on-pad should also require evidence of a pad: the recording
-starts at a launch site (`LaunchSiteName` set or `StartSituation` Prelaunch) or its terminal /
-start situation is Landed / Prelaunch, so an orbiting or flying one-sample recording is never
-"idle on pad". Alternatively take one boundary sample at the scene-exit finalize. Either needs
-headless cells beside the existing `IsTreeIdleOnPad` ones (`Bug156Tests`).
+Fix: pad evidence is a TREE-level requirement. `ParsekFlight.IsIdleOnPad(Recording)` is the
+origin/main distance rule again (the 30 m rule and the pad-drop override). `IsTreeIdleOnPad` and
+`IsActiveTreeIdleOnPad` additionally require that AT LEAST ONE recording in the tree shows pad
+evidence: `TreeHasPadEvidenceForIdle` logs the verdict (`tree='...' id=... pad evidence=<reason>`
+or `none`) and uses the pure `TreePadEvidence`, which returns the first recording's
+`PadEvidenceReason`. The check runs after the existing vetoes, the distance walk and the points
+check, so those guards keep their order. The live path reads it after
+`FlushRecorderIntoActiveTreeForSerialization`, which copies the live root's StartSituation and
+LaunchSiteName onto its tree recording. `PadEvidenceReason` checks the launch site first (a normal
+launch recording starts "Flying" with the site set, so a fizzled launch stays idle), then a
+Prelaunch / Landed / Splashed start, then a Landed / Splashed terminal. A one-sample orbiting
+flight with no site and no surface terminal has no evidence and is not discarded. EVA kerbals and
+background-only children carry no launch situation of their own, so they never need it; a pad
+flight with an EVA board tree or destroyed debris stays idle through its root.
+Callers: `IsTreeIdleOnPad` (the Finalized pending-tree auto-discards in `ParsekScenario.cs` at
+scene exit, outside flight and in the deferred merge dialog), `IsActiveTreeIdleOnPad` (via
+`SceneExitInterceptor`), and `ShowPostDestructionTreeMergeDialog`. Follow-up 2026-10-18, branch
+`pad-failure-one-sample` (headless only, not flown): both paths above are now fixed.
+`IsTreePadFailure` additionally requires `TreeHasPadEvidenceForIdle(tree, "IsTreePadFailure")`
+after its existing placed-part / planted-flag vetoes and its per-recording loop, so the
+post-destruction merge dialog keeps a one-sample orbiting tree; and the destroyed-during-split
+branch of `FallbackCommitSplitRecorder` gates both of its discard checks on the pure
+`DecideDestroyedSplitRecordingDiscard(rec)` ("pad failure" / "idle on pad" or null), which needs
+that single recording's own pad evidence, and logs "no pad evidence - committing" when a
+within-threshold recording shows none. Cells: `IdleOnPadPadEvidenceTests` (the orbiting
+one-sample tree, the fizzled launch, the EVA board tree, destroyed debris, no-evidence trees, guard
+order, the pure `TreePadEvidence` and `PadEvidenceReason` truth tables, the log, the source order),
+`PadFailurePadEvidenceTests` (the one-sample orbiting pad-failure tree, the pad tree with destroyed
+debris, the fizzled launch, the pure `DecideDestroyedSplitRecordingDiscard` table, the source
+wiring), `Bug156Tests` (the negative guards now carry a Prelaunch root, so the guard they exist for
+decides), and the fixtures that name a Landed root (`ConverterWorkNotIdleTests`,
+`LabPayoutNotIdleTests`, `RecoveryLabIdleVetoTests`) or an EVA kerbal (`PlacedPartsNotIdleTests`).
+A tree that does not start on the pad (a Re-Fly or switch continuation that starts in flight with
+no launch site) and is destroyed or left within the pad thresholds is now kept for the merge dialog
+instead of discarded; this is intended.
 
 ## ~~RETIRE-ROUTE-ACTIONS-OVERLOAD-BREAKS-INGAME-REFLECTION-PROBE: the Rec-1 redelivery in-game cell failed `Ambiguous match found.` on lanes H38 / H39 / H40 / HV-1~~ [FILED 2026-10-09 from the nightly `Logistics` lanes. FIXED 2026-10-09, branch `ingame-test-drift`; test drift, not a product defect; not re-flown; LIVE-PROVEN 2026-10-16 on main 412d48e: H38 `2026-10-16_2155`, H39 `_2158`, H40 `_2201`, HV-1 `_2204` PASS attempt 1]
 
@@ -5722,7 +5805,7 @@ OPEN as follow-ups: one green flight each for the fourteen lanes and EVA-6..EVA-
 their `retry policy = "once"` can go; `LaunchFromEditor` still answers before stock
 onFlightReady (RR-1 waits on `ListHandles kind=chains`), not touched here.
 
-## RESET-FLIGHT-READY-STATE-LEAVES-RESTORE-ATTEMPT-ARMED: the flight-ready reset drops a committed-restore clone tree but leaves its restore attempt armed [FILED 2026-10-03 from EVA-6 `2026-10-03_1437`, branch `closing-flights`; observed in a harness boot, not traced on a player path]
+## ~~RESET-FLIGHT-READY-STATE-LEAVES-RESTORE-ATTEMPT-ARMED: the flight-ready reset drops a committed-restore clone tree but leaves its restore attempt armed~~ [FILED 2026-10-03 from EVA-6 `2026-10-03_1437`, branch `closing-flights`; FIXED 2026-10-18, headless only, not flown; observed in a harness boot, not traced on a player path]
 
 **Evidence.** Same run as LOADGAME-COMPLETES-BEFORE-ONFLIGHTREADY:
 - 17:38:33.081 `Armed committed-tree restore attempt for 'Kerbal X'
@@ -5746,6 +5829,59 @@ attempt's clone (same tree id), clear the attempt with a reset reason (the
 uses) and log it. Add a pure cell for the "is this the attempt's clone" decision. Trace first
 whether any player path reaches ResetFlightReadyState with a live clone. A revert or quickload
 re-enters FLIGHT through OnFlightReady, so it plausibly does.
+
+**Fix (2026-10-18, headless only, not flown).** `ParsekFlight.ResetFlightReadyState` now calls
+`RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(activeTree?.Id, "flight-ready
+reset dropped the restore clone")` BEFORE `activeTree = null`. The pure cell
+`RecordingStore.DroppedTreeMatchesArmedRestoreAttempt(armedAttemptTreeId, droppedTreeId)`
+answers same-id (null/empty on either side never matches), and only then the existing
+`ClearCommittedTreeRestoreAttempt(reason)` path runs, after one new Info line
+`ClearCommittedTreeRestoreAttemptForDroppedTree: dropped tree=... matches the armed restore
+attempt; clearing it reason=...`. A dropped tree with a different id, a null tree or no armed
+attempt clears nothing. Tests: `ResetFlightReadyStateRestoreAttemptTests` (the four decision
+cells, the clear and no-op log lines, and a file-scrape gate that the clear runs before
+`activeTree = null`). No player path was traced or flown for this fix.
+Follow-up 2026-10-18, branch `restore-attempt-drop-sites`: the same id-matched clear now runs at
+the three other `activeTree` drop sites that drop the tree WITHOUT stashing it as pending, each
+immediately before its `activeTree = null` with a distinct reason -
+`AutoDiscardActiveTreeCore` ("auto-discard dropped the restore clone", so the idle-on-pad
+`SceneExitInterceptor` scene-exit discard and the automation `DiscardTree` verb clear too, and
+callers that already clear simply no-op),
+`DiscardActiveTreeForSuppressedSceneExit` ("suppressed scene exit dropped the restore clone") and
+`StartRecording`'s #271 small-tree cleanup ("start-recording cleanup dropped the restore clone").
+Each is gated by a source-order cell in `ResetFlightReadyStateRestoreAttemptTests` pinning the
+call, the reason literal, the `activeTree?.Id` argument and the order before EVERY
+`activeTree = null;` in the method.
+`FinalizeTreeOnSceneChangeCore` and `ShowPostDestructionTreeMergeDialog` are intentionally left
+alone: both stash the tree as pending first, and the pending-tree commit/discard path owns the
+attempt by design.
+Follow-up 2026-10-18 (same branch, review): the drop-site clear PURGES the attempt's same-id
+post-cutoff game-state event tails first, the same order `DiscardPendingTree` uses, through a
+shared `PurgeCommittedTreeRestoreAttemptEventTails` helper (the clear nulls the cutoff map, so
+a purge after it would find nothing and the clone's suppressed post-restore events would become
+durable on the next save). Gated by two cells in `ResetFlightReadyStateRestoreAttemptTests`:
+the same-id drop purges the post-cutoff tail (keeping the pre-cutoff one) and names the drop
+reason in the `PurgeEventsForRecordingAfterUT` line; a different-id drop purges nothing.
+Follow-up 2026-10-18 (same branch, review round 2): THREE discard paths drop the clone before
+any drop-site id match can run, so their caller-side clear left the suppressed post-cutoff tails
+to become durable on the next save. `ParsekFlight.AutoDiscardNoOpNoSessionCommittedResume`, the
+`isCommittedRestoreClone` branch of `RecordingStore.TryDiscardActiveSwitchSegmentAttempt` (its
+segment-subtree purge only covers the segment's owned ids, never the resumed committed parent's
+recordings) now call the shared `RecordingStore.DiscardCommittedTreeRestoreAttempt(reason)`
+(purge-then-clear, no-op when no attempt is armed; both sites are already scoped to the clone).
+`MapFocusObjectOnSelectPatch.DiscardActiveRecordingAndSwitchTo` calls the id-matched
+`ClearCommittedTreeRestoreAttemptForDroppedTree` with the tree it tears down, so an attempt
+armed for another tree (a parked pending clone) keeps its tails. That helper routes through the
+discard helper too, so there is ONE purge-then-clear path. `CommitTree`'s `ClearCommittedTreeRestoreAttemptForTree`,
+the quickload clear in `ParsekScenario.HydrationRepair` and `DiscardPendingTree`'s
+pending-match-guarded clear keep the bare clear by design (commit keeps the events; those paths
+are gated elsewhere). Tests: `CommittedTreeRestoreAttemptDiscardTests` (two headless cells for
+the helper plus a three-site source gate, comments stripped, each site's reason literal and the
+switch-segment branch position pinned), `SwitchSegmentDiscardScopeTests` (runtime cell driving
+the scoped discard and asserting the committed parent's post-cutoff tail is purged while the
+pre-cutoff one stays) and `VesselSwitchTreeTests.DiscardPendingTree_OtherPendingTree_KeepsArmedAttemptAndItsEventTails`
+(the pending-match guard cell). The now-stale comments at the three sites and in
+`AutoDiscardActiveTreeCore` were rewritten to match.
 
 ## DEPLOYED-SCIENCE-FLOW-LANE-NEEDS-A-HOST: no committed science or career fixture can place a powered Breaking Ground cluster [FILED 2026-09-28, branch `deployables-lanes`]
 

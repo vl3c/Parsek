@@ -170,7 +170,7 @@ namespace Parsek.Tests
         public void IsTreeIdleOnPad_AllIdleRecordings_ReturnsTrue()
         {
             var tree = new RecordingTree { Recordings = new Dictionary<string, Recording>() };
-            var recA = new Recording { MaxDistanceFromLaunch = 5.0 };
+            var recA = new Recording { StartSituation = "Prelaunch", MaxDistanceFromLaunch = 5.0 };
             recA.Points.Add(new TrajectoryPoint());
             var recB = new Recording { MaxDistanceFromLaunch = 10.0 };
             recB.Points.Add(new TrajectoryPoint());
@@ -186,7 +186,7 @@ namespace Parsek.Tests
             // zero points (data-loss). Since at least one recording has trajectory data
             // confirming the vessel stayed near the pad, the tree IS idle.
             var tree = new RecordingTree { Recordings = new Dictionary<string, Recording>() };
-            var recA = new Recording { MaxDistanceFromLaunch = 5.0 };
+            var recA = new Recording { StartSituation = "Prelaunch", MaxDistanceFromLaunch = 5.0 };
             recA.Points.Add(new TrajectoryPoint());
             tree.Recordings["a"] = recA;
             tree.Recordings["b"] = new Recording { MaxDistanceFromLaunch = 0.0 };
@@ -200,7 +200,7 @@ namespace Parsek.Tests
             // have MaxDistanceFromLaunch=0.0 which trivially passes the 30m threshold.
             // Must not be classified as idle-on-pad — it's data loss, not a pad sit.
             var tree = new RecordingTree { Recordings = new Dictionary<string, Recording>() };
-            tree.Recordings["a"] = new Recording { MaxDistanceFromLaunch = 0.0 };
+            tree.Recordings["a"] = new Recording { StartSituation = "Prelaunch", MaxDistanceFromLaunch = 0.0 };
             tree.Recordings["b"] = new Recording { MaxDistanceFromLaunch = 0.0 };
             // Points list is empty (default) — simulating epoch mismatch
             Assert.False(ParsekFlight.IsTreeIdleOnPad(tree));
@@ -210,7 +210,7 @@ namespace Parsek.Tests
         public void IsTreeIdleOnPad_MixedRecordings_ReturnsFalse()
         {
             var tree = new RecordingTree { Recordings = new Dictionary<string, Recording>() };
-            tree.Recordings["a"] = new Recording { MaxDistanceFromLaunch = 5.0 };
+            tree.Recordings["a"] = new Recording { StartSituation = "Prelaunch", MaxDistanceFromLaunch = 5.0 };
             tree.Recordings["b"] = new Recording { MaxDistanceFromLaunch = 100.0 };
             Assert.False(ParsekFlight.IsTreeIdleOnPad(tree));
         }
@@ -238,6 +238,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "root",
                 VesselName = "Kerbal X",
+                StartSituation = "Prelaunch",
                 MaxDistanceFromLaunch = 5000.0
             };
 
@@ -258,7 +259,7 @@ namespace Parsek.Tests
         public void IsTreePadFailure_ToppledPadDropOverride_ReturnsTrue()
         {
             var tree = new RecordingTree { Recordings = new Dictionary<string, Recording>() };
-            var rec = new Recording { MaxDistanceFromLaunch = 35.0 };
+            var rec = new Recording { StartSituation = "Prelaunch", MaxDistanceFromLaunch = 35.0 };
             rec.Points.Add(Pt(100.0, 0.0, 0.0, 10.0));
             rec.Points.Add(Pt(105.0, MetersToLatDegrees(5.0), 0.0, 0.0));
             tree.Recordings["pad-drop"] = rec;

@@ -943,10 +943,11 @@ namespace Parsek.InGameTests
             postBurnTangent = postBurnTangent.normalized;
             double postBurnSpeed = System.Math.Sqrt(kerbin.gravParameter / (postBurnWorldPos - kerbin.position).magnitude);
             Vector3d postBurnVelYup = postBurnTangent * postBurnSpeed;
-            UnityEngine.Vector3 postBurnVel = new UnityEngine.Vector3(
-                (float)postBurnVelYup.x,
-                (float)postBurnVelYup.y,
-                (float)postBurnVelYup.z);
+            // Recorded in a session whose world axes sit 37 deg of yaw away from this one
+            // (an inertial sample: 203 km is above the inverse-rotation altitude).
+            TrajectoryPoint[] postBurnPair = BuildRecordedCoastTailPair(
+                kerbin, postBurnFrameUT, postBurnLat, postBurnLon, postBurnAlt,
+                postBurnVelYup, recordedInRotatingFrame: false, recordFrameYawDegrees: 37.0);
 
             var rec = new Recording { RecordingId = "ingame-tail-derived-orbit" };
             rec.OrbitSegments.Add(new OrbitSegment
@@ -966,21 +967,9 @@ namespace Parsek.InGameTests
             {
                 environment = SegmentEnvironment.ExoBallistic,
                 referenceFrame = ReferenceFrame.Absolute,
-                startUT = postBurnFrameUT,
+                startUT = postBurnPair[0].ut,
                 endUT = postBurnFrameUT,
-                frames = new System.Collections.Generic.List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint
-                    {
-                        ut = postBurnFrameUT,
-                        latitude = postBurnLat,
-                        longitude = postBurnLon,
-                        altitude = postBurnAlt,
-                        rotation = UnityEngine.Quaternion.identity,
-                        velocity = postBurnVel,
-                        bodyName = "Kerbin"
-                    }
-                }
+                frames = new System.Collections.Generic.List<TrajectoryPoint>(postBurnPair)
             };
             rec.TrackSections.Add(coastSection);
 
@@ -1069,6 +1058,163 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "SpawnTerminalOrbit", Scene = GameScenes.FLIGHT,
+            Description = "A low-orbit tail recorded surface-relative in a session with a different world yaw (LAB-7) resolves to the inertial ~93 km orbit and spawns")]
+        public void TerminalOrbitFromTail_SurfaceRelativeLowOrbitTail_DerivesInertialOrbit()
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == "Kerbin");
+            if (kerbin == null)
+            {
+                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies");
+                return;
+            }
+
+            // LAB-7 (runs 2026-10-17_2308, 2026-10-18_0026): an orbiting lab whose recording
+            // ended at 92.95 km, below Kerbin's inverse-rotation altitude, so its tail velocity
+            // is surface-relative; after a reload the world axes also sat at another yaw about
+            // the spin axis. Build that tail: a circular inertial orbit in THIS session's world
+            // axes, recorded as surface-relative vectors in axes yawed by 123 deg.
+            const double tailUT = 3606.65;
+            const double tailAlt = 92950.7;
+            const double tailLat = 0.0;
+            const double tailLon = 143.7565;
+            const double recordFrameYawDegrees = 123.0;
+            if (!kerbin.rotates || !(kerbin.inverseRotThresholdAltitude > tailAlt))
+            {
+                InGameAssert.Skip(
+                    $"needs a rotating Kerbin with inverseRotThresholdAltitude above {tailAlt:F0} m " +
+                    $"(rotates={kerbin.rotates}, threshold={kerbin.inverseRotThresholdAltitude:F0})");
+                return;
+            }
+
+            Vector3d worldPos = kerbin.GetWorldSurfacePosition(tailLat, tailLon, tailAlt);
+            Vector3d radial = (worldPos - kerbin.position).normalized;
+            // Same prograde construction as TerminalOrbitFromTail_DerivesPostBurnCircularOrbit.
+            Vector3d tangent = Vector3d.Cross(radial, new Vector3d(0.0, 1.0, 0.0)).normalized;
+            double radius = (worldPos - kerbin.position).magnitude;
+            double circularSpeed = System.Math.Sqrt(kerbin.gravParameter / radius);
+            Vector3d inertialVel = tangent * circularSpeed;
+            TrajectoryPoint[] pair = BuildRecordedCoastTailPair(
+                kerbin, tailUT, tailLat, tailLon, tailAlt, inertialVel,
+                recordedInRotatingFrame: true, recordFrameYawDegrees: recordFrameYawDegrees);
+            TrajectoryPoint tail = pair[1];
+            Vector3d recordedTailVel = new Vector3d(tail.velocity.x, tail.velocity.y, tail.velocity.z);
+
+            // Negative control: the single-vector reseed (the pre-fix spawn path) cannot be
+            // right - the surface-relative speed alone puts sma ~97 km under the circular radius.
+            Orbit legacy = new Orbit();
+            OrbitReseed.FromLatLonAltAndRecordedVelocity(
+                legacy, kerbin, tail.latitude, tail.longitude, tail.altitude, recordedTailVel, tail.ut);
+            InGameAssert.IsTrue(System.Math.Abs(legacy.semiMajorAxis - radius) > 50000.0,
+                $"control: the single-vector reseed must miss the circular orbit (sma={legacy.semiMajorAxis:F0}, " +
+                $"radius={radius:F0}, |v|={recordedTailVel.magnitude:F2}, circular={circularSpeed:F2})");
+
+            var rec = new Recording { RecordingId = "ingame-tail-surface-relative-low-orbit" };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = pair[0].ut,
+                endUT = tailUT,
+                frames = new System.Collections.Generic.List<TrajectoryPoint>(pair)
+            });
+
+            bool ok = OrbitSeedResolver.TryDeriveTailOrbitSeed(
+                rec, kerbin, tailUT, TailSeedUse.Spawn, out TailDerivedOrbitSeed seed);
+            InGameAssert.IsTrue(ok,
+                $"tail derive should succeed (declineReason={seed.DeclineReason ?? "(null)"})");
+            InGameAssert.IsTrue(seed.VelocityWasRotatingFrame,
+                $"the pair must resolve as surface-relative (residual={seed.VelocityFrameResidual:F3})");
+            InGameAssert.IsTrue(
+                System.Math.Abs(seed.VelocityFrameYawDegrees - recordFrameYawDegrees) < 0.5,
+                $"resolved yaw {seed.VelocityFrameYawDegrees:F3} deg should undo the {recordFrameYawDegrees:F1} deg record-frame yaw");
+
+            double semiMajorAxis = seed.Segment.semiMajorAxis;
+            double eccentricity = seed.Segment.eccentricity;
+            double periAlt = semiMajorAxis * (1.0 - eccentricity) - kerbin.Radius;
+            double apoAlt = semiMajorAxis * (1.0 + eccentricity) - kerbin.Radius;
+            InGameAssert.IsTrue(System.Math.Abs(semiMajorAxis - radius) < 1000.0,
+                $"sma={semiMajorAxis:F1} should be the circular radius {radius:F1}");
+            InGameAssert.IsTrue(eccentricity < 0.005,
+                $"ecc={eccentricity:F4} should be near zero for the circular inertial orbit");
+            InGameAssert.IsTrue(seed.Segment.inclination < 0.5,
+                $"inc={seed.Segment.inclination:F4} should stay prograde equatorial (a yaw left in " +
+                "the velocity tilts or reverses the orbit)");
+
+            var decision = TerminalOrbitSpawnSafety.Evaluate(
+                currentAltitude: tailAlt,
+                atmosphereDepth: kerbin.atmosphereDepth,
+                safetyMargin: TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
+                periapsisAltitude: periAlt,
+                apoapsisAltitude: apoAlt);
+            InGameAssert.AreEqual(
+                TerminalOrbitSpawnSafetyAction.SpawnNow,
+                decision.Action,
+                $"spawn safety for the resolved tail orbit should be SpawnNow, got {decision.Action} " +
+                $"reason={decision.ReasonCode} periAlt={periAlt:F0}");
+
+            ParsekLog.Info("TestRunner",
+                $"TerminalOrbitFromTail_SurfaceRelativeLowOrbitTail_DerivesInertialOrbit: " +
+                $"sma={semiMajorAxis:F1} ecc={eccentricity:F4} inc={seed.Segment.inclination:F4} " +
+                $"periAlt={periAlt:F0} apoAlt={apoAlt:F0} yaw={seed.VelocityFrameYawDegrees:F3} " +
+                $"residual={seed.VelocityFrameResidual:F3} legacySma={legacy.semiMajorAxis:F0} " +
+                $"decision={decision.Action}");
+        }
+
+        /// <summary>
+        /// Builds a two-frame ExoBallistic tail as the recorder would have written it for a
+        /// vessel whose true state at <paramref name="tailUT"/> is the given position and
+        /// INERTIAL velocity in this session's world axes: the frame before it sits
+        /// <paramref name="gapSeconds"/> earlier along the surface-relative velocity, both
+        /// positions go to body-fixed lat/lon/alt, and the recorded vector is the
+        /// surface-relative one (co-rotating world frame) or the inertial one, expressed in
+        /// recording-session world axes yawed by <paramref name="recordFrameYawDegrees"/>
+        /// about the spin axis.
+        /// </summary>
+        private static TrajectoryPoint[] BuildRecordedCoastTailPair(
+            CelestialBody body,
+            double tailUT,
+            double tailLat,
+            double tailLon,
+            double tailAlt,
+            Vector3d inertialVelWorld,
+            bool recordedInRotatingFrame,
+            double recordFrameYawDegrees,
+            double gapSeconds = 1.0)
+        {
+            Vector3d tailWorld = body.GetWorldSurfacePosition(tailLat, tailLon, tailAlt);
+            Vector3d surfaceVel = inertialVelWorld - body.getRFrmVel(tailWorld);
+            Vector3d previousWorld = tailWorld - surfaceVel * gapSeconds;
+            Vector3d recordedThisSession = recordedInRotatingFrame ? surfaceVel : inertialVelWorld;
+            Vector3d recorded = RecordedTailVelocityResolver.RotateAboutY(
+                recordedThisSession, -recordFrameYawDegrees * System.Math.PI / 180.0);
+            UnityEngine.Vector3 recordedVel = new UnityEngine.Vector3(
+                (float)recorded.x, (float)recorded.y, (float)recorded.z);
+            return new[]
+            {
+                new TrajectoryPoint
+                {
+                    ut = tailUT - gapSeconds,
+                    latitude = body.GetLatitude(previousWorld),
+                    longitude = body.GetLongitude(previousWorld),
+                    altitude = body.GetAltitude(previousWorld),
+                    rotation = UnityEngine.Quaternion.identity,
+                    velocity = recordedVel,
+                    bodyName = body.bodyName
+                },
+                new TrajectoryPoint
+                {
+                    ut = tailUT,
+                    latitude = tailLat,
+                    longitude = tailLon,
+                    altitude = tailAlt,
+                    rotation = UnityEngine.Quaternion.identity,
+                    velocity = recordedVel,
+                    bodyName = body.bodyName
+                }
+            };
+        }
+
+        [InGameTest(Category = "SpawnTerminalOrbit", Scene = GameScenes.FLIGHT,
             Description = "Probe-shape tail (highly eccentric ellipse) reseeds correctly — sma must match the analytic 4.5 Mm orbit, not the buggy ~500 k garbage that the bare UpdateFromStateVectors produces")]
         public void TerminalOrbitFromTail_DerivesPostBurnEccentricOrbit()
         {
@@ -1108,8 +1254,13 @@ namespace Parsek.InGameTests
 
             const double tailUT = 453.66214255408767;
             const double tailAlt = 208_283.22164018429;
-            // Verbatim from the captured recording's last absolute coast frame.
-            UnityEngine.Vector3 tailVel = new UnityEngine.Vector3(296.024567f, 3.8434844f, -2806.1167f);
+            // The captured recording's last absolute coast frame, read as an inertial
+            // velocity in THIS session's world axes (the analytic sma / ecc below assume
+            // it), then re-recorded as a two-frame tail in a session yawed by -64 deg.
+            Vector3d tailInertialVel = new Vector3d(296.024567, 3.8434844, -2806.1167);
+            TrajectoryPoint[] tailPair = BuildRecordedCoastTailPair(
+                kerbin, tailUT, -0.020555305204629719, -36.664361532582674, tailAlt,
+                tailInertialVel, recordedInRotatingFrame: false, recordFrameYawDegrees: -64.0);
 
             var rec = new Recording { RecordingId = "ingame-probe-tail-shape" };
             rec.OrbitSegments.Add(new OrbitSegment
@@ -1131,19 +1282,7 @@ namespace Parsek.InGameTests
                 referenceFrame = ReferenceFrame.Absolute,
                 startUT = 444.60214255409591,
                 endUT = tailUT,
-                frames = new System.Collections.Generic.List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint
-                    {
-                        ut = tailUT,
-                        latitude = -0.020555305204629719,
-                        longitude = -36.664361532582674,
-                        altitude = tailAlt,
-                        rotation = UnityEngine.Quaternion.identity,
-                        velocity = tailVel,
-                        bodyName = "Kerbin"
-                    }
-                }
+                frames = new System.Collections.Generic.List<TrajectoryPoint>(tailPair)
             };
             rec.TrackSections.Add(coastSection);
 
