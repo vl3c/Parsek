@@ -60,6 +60,11 @@ _(unreleased - entries accumulate here per commit)_
   when time reached the recording's end (worse after a reload), so its ghost vanished and the real
   vessel never came back. Its final orbit is now worked out from its last recorded positions, so
   it spawns in its real orbit. (TERMINAL-SPAWN-TAIL-ORBIT-SURFACE-VELOCITY)
+- **A ghost on the map now follows the orbit its vessel really flew.** A ghost whose recording
+  ended in orbit could be drawn on the map on a wrong orbit, backwards or stretched, most often
+  for a low orbit under about 100 km. The same fault could pull a looped ghost off its orbit line
+  while it replayed an orbit raise. Both now use the vessel's real orbit.
+  (MAP-TAIL-SEED-RECORDED-VELOCITY-FRAME)
 - **Milestones no longer add science stock never paid in Science and Sandbox games.** Outside
   Career, stock awards nothing for a milestone, but Parsek booked its nominal reward and wrote the
   science into R&D. A Rendezvous in a Science game added 1 science. Milestones are now recorded

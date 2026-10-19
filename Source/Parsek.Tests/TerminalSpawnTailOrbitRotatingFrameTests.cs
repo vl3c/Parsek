@@ -32,15 +32,15 @@ namespace Parsek.Tests
         private const double KerbinAtmosphereDepth = 70000.0;
 
         // The live vessel's stock orbit (KSP.log FinalizeIndividualRecording orbit[...]).
-        private const double Lab7StockSma = 699745.8;
-        private const double Lab7StockEcc = 0.0104;
+        internal const double Lab7StockSma = 699745.8;
+        internal const double Lab7StockEcc = 0.0104;
 
         // LAB-7 run 2026-10-18_0026, the two last frames of the post-off-rails coast
         // (alt ~93 km: co-rotating world frame), verbatim from the .prec.
-        private static readonly TrajectoryPoint Lab7TailPrevious = Point(
+        internal static readonly TrajectoryPoint Lab7TailPrevious = Point(
             3603.6371992490303, 0.035418600818591404, 143.24227504449607, 92975.675679183914,
             -1346.17859f, -3.260317f, 1567.64148f);
-        private static readonly TrajectoryPoint Lab7Tail = Point(
+        internal static readonly TrajectoryPoint Lab7Tail = Point(
             3606.6571992490276, 0.034604062892553709, 143.75824437126903, 92950.6151695021,
             -1360.13708f, -3.27388883f, 1555.66357f);
 
