@@ -152,11 +152,26 @@ namespace Parsek
             return eventCycleIndex != watchedCycleIndex;
         }
 
+        // Unity ECalls throw at JIT time of the method that holds the read (SecurityException on
+        // the Windows test host), so each read sits in its own NoInlining core and the try/catch
+        // lives in the caller's frame.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static float ReadUnityTimeCore()
+        {
+            return Time.time;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static int ReadUnityFrameCountCore()
+        {
+            return Time.frameCount;
+        }
+
         private static float GetRealtimeSafe()
         {
             try
             {
-                return Time.time;
+                return ReadUnityTimeCore();
             }
             catch (System.Security.SecurityException)
             {
@@ -216,7 +231,7 @@ namespace Parsek
         {
             try
             {
-                return Time.frameCount;
+                return ReadUnityFrameCountCore();
             }
             catch (System.Security.SecurityException)
             {
