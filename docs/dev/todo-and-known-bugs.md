@@ -37,9 +37,11 @@ stays on the roster with no ledger origin. Only `ScienceEarning` seals a slot to
 would retire is a loss (crew deaths and bookkeeping, crew-death and vessel-loss reputation,
 building damage); any other row seals it, at Site A, Stash, `CanInvoke` and Site B-1. Rule 2:
 reputation loss swap (keep the replaced flight's penalties when the re-fly lost more). Rule 3:
-session isolation (switch block, awards filed by cause, the deadline clock, the recovered-later
-vessel stripped, Discard and Retry remove the attempt's rows). Rule 5: a dominance check before
-the journal's `Begin` refuses any merge that would lower a balance. Migration: open value-holding
+session isolation (switch block, awards filed by cause, the deadline clock, vessels the committed
+future uses held back as claimed-vessel ghosts, Discard and Retry remove the attempt's rows).
+Rule 5: a dominance check in the merge dialog, before the tree commits, refuses any merge that
+would lower a balance (it reads the attempt's rows from a pure build step split out of
+`FileRecordingCommitRows`, since the shipped code files them only at tree commit). Migration: open value-holding
 slots are concluded on load; existing deficits are not repaired. User guide and CHANGELOG move
 with the implementation, not with the design.
 
@@ -51,8 +53,9 @@ back that the committed timeline recovered later. It runs before the marker exis
 authoritative-reduction recalc (no drawdown guard), and is deliberately durable through Discard.
 Example: 20k, vessel V recovered at UT 1500 for +50k, facility upgrade -65k at UT 1800; a Re-Fly
 of an unrelated split at UT 1000 brings V back and retires the 50k: UT 1800 reads -45k, even if
-the player discards. Fix: the strip removes such a vessel (ghost where its recordings cover it)
-and its recovery rows stay; delete Step 3b. Red-first unit cell first.
+the player discards. Fix: the strip hands such a vessel to the existing claimed-vessel hold
+(hold ghost until its first committed recording, then that recording's ghost) and its recovery
+rows stay; delete Step 3b. Red-first unit cell first.
 
 ## REFLY-SESSION-FAILS-EVERY-DEADLINE-CONTRACT: during a Re-Fly every contract with a deadline reads as expired [FILED 2026-10-19, code read. OPEN, medium; live effect inferred, needs a red-first unit cell]
 
@@ -85,6 +88,20 @@ Retry inherits the previous attempt's rows. The Re-Fly discards revert stock sta
 rewind point or the post-discard recalc (the non-rewind `PreserveIrreversibleLiveGameplayOnDiscard`
 says Re-Fly discards must not re-home), so the rows can be removed. Fix: remove the attempt's rows
 on every discard path, Retry and the load-time zombie discard; untagged session rows stay.
+Exception: an attempt a quickload resumed after its merge (OQ-1) keeps today's untag-and-keep,
+because its rows were committed and may already have been spent (review of the design, worked
+example: +30 science transmitted, merged, a 30-science node bought, F9 to before the merge,
+Discard: removing the row would leave the node unpaid).
+
+## REFLY-RESUMED-MERGED-DISCARD-RESTORES-LOSSES: discarding a Re-Fly that a quickload resumed after its merge brings the replaced flight's losses back [FILED 2026-10-19 from the design review. OPEN, owner question]
+
+Owner ruling OQ-1 makes that discard prune the merge's tombstones (`PruneStagedRowsNamingAttempt`)
+so "the origin is visible again and its crew death counts again". The replaced flight's death
+penalty then returns at its old UT, after later committed spends (a reputation-costing strategy,
+for example) may have relied on the higher reputation. That lowers the ledger, against the
+2026-10-19 rulings. Options: keep the merge's tombstones on that path (the death stays undone
+while the attempt is discarded), or refuse that discard when the restored losses fail the
+dominance check. Unchanged until the owner answers.
 
 ## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. OPEN, needs owner decisions one by one; same invariant as section 2.12]
 
@@ -105,13 +122,15 @@ Coop retirements (a transient dependent's ledger effects, a truncation's tail ro
 shape (`design-coop-async-multiplayer.md` section 7.10). Candidate shapes in the research doc,
 section 7.
 
-## REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE: after a rewind, a vessel whose committed future is a root-lineage or switch-continuation flight stays a real vessel [FILED 2026-10-19, inferred from code. OPEN, medium, physical paradox]
+## REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE: after a plain rewind, a vessel whose committed future is a root-lineage or switch-continuation flight stays a real vessel [FILED 2026-10-19, inferred from code. OPEN, medium, physical paradox]
 
-The strip removes only the split's sibling slots (and, once section 2.12 lands, vessels the
-committed timeline recovers later). A vessel that existed at the rewind point and is flown later
+The strip removes only the split's sibling slots, and the claimed-vessel hold covers only vessels a
+chain claims through a branch point. A vessel that existed at the rewind point and is flown later
 by a committed recording with no claiming branch point stays live in the rewound world, so it can
-be bumped or destroyed before the flight its recording replays. The Re-Fly switch block keeps the
-player from flying it. Design `parsek-rewind-to-separation-design.md` section 10.13.
+be bumped, docked with or destroyed before the flight its recording replays. Section 2.12 of the
+rewind design closes this for a Re-Fly invoke (every vessel a committed recording uses after the
+rewind UT goes to the claimed-vessel hold); a plain Rewind-to-Launch is still open. Design section
+10.13.
 
 ## ~~TERMINAL-ORBIT-HEAL-DISCARDS-LIVE-CAPTURE: finalizing a recording replaces the vessel's live-captured final orbit with the older last orbit segment~~ [FILED AND FIXED 2026-10-19 from the LAB-7 log (run `2026-10-18_0217`), branch `claude/terminal-orbit-heal-keeps-live-capture`. xUnit; re-flown green as LAB-7 `2026-10-19_2019`: `preserved cached terminal orbit ... because it is newer than the last segment ... cachedEpoch=3607.00 segmentEndUT=3594.54`, `tailDecline=terminal-orbit-newer-than-tail`, map ghost `from visible-segment ... sma=699746 ecc=0.010354 inc=0.0895`, spawn on the stock orbit 92500.6 x 106991.0. product]
 
