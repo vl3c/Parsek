@@ -39,6 +39,11 @@ _(unreleased - entries accumulate here per commit)_
   replaying on or near the ground read about 175 m/s of extra speed at Kerbin, so a parked rover
   spun its wheels as if driving, reentry glow misjudged its speed and the watch camera pointed the
   wrong way at liftoff. (GHOST-PLAYBACK-SURFACE-VELOCITY-DOUBLE-ROTATION)
+- **A recording keeps the orbit its vessel really ended on.** When a recording finished, the
+  vessel's live final orbit was swapped for an older one from the recording's last on-rails stretch
+  just because the two were timestamped differently. That older orbit could let a bad estimate
+  through, such as a low-orbit lab drawn on the map plunging into Kerbin. The live orbit now stays.
+  (TERMINAL-ORBIT-HEAL-DISCARDS-LIVE-CAPTURE)
 - **Dropping a restored tree no longer leaves a stale restore marker behind.** When a reset or
   a discard dropped the tree a restore marker pointed at, the marker stayed armed afterwards
   and could hold back recorded events on later saves until another restore replaced it. It is
@@ -59,6 +64,11 @@ _(unreleased - entries accumulate here per commit)_
   when time reached the recording's end (worse after a reload), so its ghost vanished and the real
   vessel never came back. Its final orbit is now worked out from its last recorded positions, so
   it spawns in its real orbit. (TERMINAL-SPAWN-TAIL-ORBIT-SURFACE-VELOCITY)
+- **A ghost on the map now follows the orbit its vessel really flew.** A ghost whose recording
+  ended in orbit could be drawn on the map on a wrong orbit, backwards or stretched, most often
+  for a low orbit under about 100 km. The same fault could pull a looped ghost off its orbit line
+  while it replayed an orbit raise. Both now use the vessel's real orbit.
+  (MAP-TAIL-SEED-RECORDED-VELOCITY-FRAME)
 - **Milestones no longer add science stock never paid in Science and Sandbox games.** Outside
   Career, stock awards nothing for a milestone, but Parsek booked its nominal reward and wrote the
   science into R&D. A Rendezvous in a Science game added 1 science. Milestones are now recorded
