@@ -2483,17 +2483,22 @@ namespace Parsek
 
             Vector3 ghostPos = state.cameraPivot.position;
             Vector3 up = (ghostPos - body.position).normalized;
+            // Only the inertial heading above the surface-heading band adds this term; it is never
+            // subtracted from the recorded vector (see ResolveWatchHeadingVelocity).
             Vector3 bodyFrameVelocity = (Vector3)body.getRFrmVel(ghostPos);
             var (forward, horizonVelocity, headingVelocity,
-                appliedFrameVelocity, source) =
+                headingFrame, source) =
                 ComputeWatchHorizonBasis(
-                    body.atmosphere, body.atmosphereDepth, state.lastInterpolatedAltitude,
-                    up, state.lastInterpolatedVelocity, bodyFrameVelocity,
+                    body.atmosphere, body.atmosphereDepth, body.inverseRotThresholdAltitude,
+                    state.lastInterpolatedAltitude,
+                    up, state.lastInterpolatedSurfaceVelocity,
+                    state.lastInterpolatedSurfaceVelocitySource,
+                    state.lastInterpolatedVelocity, bodyFrameVelocity,
                     state.lastValidHorizonForward);
             state.horizonProxy.rotation = Quaternion.LookRotation(forward, up);
             state.lastValidHorizonForward = forward;
             LogHorizonForwardState(state, up, forward, horizonVelocity,
-                headingVelocity, bodyFrameVelocity, appliedFrameVelocity, source);
+                headingVelocity, bodyFrameVelocity, headingFrame, source);
         }
 
         /// <summary>
@@ -3423,16 +3428,14 @@ namespace Parsek
 
         private void LogHorizonForwardState(GhostPlaybackState state, Vector3 up, Vector3 forward,
             Vector3 horizonVelocity, Vector3 headingVelocity, Vector3 bodyFrameVelocity,
-            Vector3 appliedFrameVelocity, HorizonForwardSource source)
+            string headingFrame, HorizonForwardSource source)
         {
             if (state == null || currentCameraMode != WatchCameraMode.HorizonLocked)
                 return;
 
             Vector3 rawHorizonVelocity = Vector3.ProjectOnPlane(
                 state.lastInterpolatedVelocity, up);
-            string velocityFrame = appliedFrameVelocity.sqrMagnitude > 0.0001f
-                ? "surfaceRelative"
-                : "playback";
+            string velocityFrame = headingFrame ?? HeadingFramePlayback;
 
             string rawAlignment = DescribeHorizonAlignment(forward, rawHorizonVelocity);
             string key = string.Format(CultureInfo.InvariantCulture,
@@ -3447,7 +3450,7 @@ namespace Parsek
             string message = string.Format(CultureInfo.InvariantCulture,
                 "Watch horizon basis: rec=#{0} id={1} cycle={2} mode={3} body={4} alt={5:F0}m " +
                 "velocityFrame={6} source={7} rawAlignment={8} playbackVel={9} bodyVel={10} " +
-                "headingVel={11} horizonVel={12} forward={13}",
+                "headingVel={11} horizonVel={12} forward={13} surfaceVelSource={14}",
                 watchedRecordingIndex,
                 watchedRecordingId ?? "null",
                 watchedOverlapCycleIndex,
@@ -3461,7 +3464,8 @@ namespace Parsek
                 FormatVector3ForLogs(bodyFrameVelocity),
                 FormatVector3ForLogs(headingVelocity),
                 FormatVector3ForLogs(horizonVelocity),
-                FormatVector3ForLogs(forward));
+                FormatVector3ForLogs(forward),
+                GhostSurfaceVelocity.SourceToken(state.lastInterpolatedSurfaceVelocitySource));
 
             if (key != lastLoggedHorizonVectorKey)
             {

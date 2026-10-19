@@ -155,7 +155,16 @@ namespace Parsek
         public PendingGhostVisualBuild pendingVisualBuild; // bug #450 B2: multi-frame snapshot build in progress
         public PendingSpawnLifecycle pendingSpawnLifecycle; // first-spawn / loop / overlap lifecycle event to fire when pending build completes
         public TrajectoryPlaybackFlags pendingSpawnFlags; // persisted with the lifecycle so watch-forced completion still fires the correct event payload
+        // Recorded world vector as sampled: surface-relative below the body's
+        // inverseRotThresholdAltitude, inertial above it, in the recording session's
+        // world axes. Not a ground speed; readers that need one use
+        // lastInterpolatedSurfaceVelocity.
         public Vector3 lastInterpolatedVelocity;
+        // Velocity relative to the body surface, in today's world axes, derived from
+        // body-fixed positions (or a known stationary hold / orbit). Meaningful only
+        // when lastInterpolatedSurfaceVelocitySource != None.
+        public Vector3 lastInterpolatedSurfaceVelocity;
+        public GhostSurfaceVelocitySource lastInterpolatedSurfaceVelocitySource;
         public string lastInterpolatedBodyName;
         public double lastInterpolatedAltitude;
         // Ground-contact gate memo for RoboticVisualMode.WheelGroundSpeed spin. See
@@ -254,9 +263,32 @@ namespace Parsek
         public void SetInterpolated(InterpolationResult r)
         {
             lastInterpolatedVelocity = r.velocity;
+            lastInterpolatedSurfaceVelocity = r.surfaceVelocity;
+            lastInterpolatedSurfaceVelocitySource = r.surfaceVelocitySource;
             lastInterpolatedBodyName = r.bodyName;
             lastInterpolatedAltitude = r.altitude;
         }
+
+        /// <summary>Clears both velocities (recorded and surface) to an unknown zero.</summary>
+        public void ClearInterpolatedVelocities()
+        {
+            lastInterpolatedVelocity = Vector3.zero;
+            lastInterpolatedSurfaceVelocity = Vector3.zero;
+            lastInterpolatedSurfaceVelocitySource = GhostSurfaceVelocitySource.None;
+        }
+    }
+
+    /// <summary>
+    /// Where a ghost's surface velocity came from. None means no ground speed is known
+    /// (single sample, too long a gap, a body change inside the bracket, or a RELATIVE
+    /// section without body-fixed frames); readers treat it as "do not invent motion".
+    /// </summary>
+    internal enum GhostSurfaceVelocitySource : byte
+    {
+        None = 0,
+        Positions = 1,
+        SurfaceHold = 2,
+        Orbit = 3,
     }
 
     internal struct InterpolationResult
@@ -264,6 +296,9 @@ namespace Parsek
         public Vector3 velocity;
         public string bodyName;
         public double altitude;
+        // See GhostPlaybackState.lastInterpolatedSurfaceVelocity.
+        public Vector3 surfaceVelocity;
+        public GhostSurfaceVelocitySource surfaceVelocitySource;
 
         public static readonly InterpolationResult Zero = new InterpolationResult
         {
@@ -277,6 +312,20 @@ namespace Parsek
             velocity = vel;
             bodyName = body;
             altitude = alt;
+            surfaceVelocity = Vector3.zero;
+            surfaceVelocitySource = GhostSurfaceVelocitySource.None;
+        }
+
+        /// <summary>Copy with the surface velocity set; None forces a zero vector.</summary>
+        public InterpolationResult WithSurfaceVelocity(
+            Vector3 surface, GhostSurfaceVelocitySource source)
+        {
+            InterpolationResult copy = this;
+            copy.surfaceVelocitySource = source;
+            copy.surfaceVelocity = source == GhostSurfaceVelocitySource.None
+                ? Vector3.zero
+                : surface;
+            return copy;
         }
     }
 

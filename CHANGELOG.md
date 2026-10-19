@@ -35,6 +35,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Parked ghost rovers no longer spin their wheels, and ghost ground speed reads true.** A ghost
+  replaying on or near the ground read about 175 m/s of extra speed at Kerbin, so a parked rover
+  spun its wheels as if driving, reentry glow misjudged its speed and the watch camera pointed the
+  wrong way at liftoff. (GHOST-PLAYBACK-SURFACE-VELOCITY-DOUBLE-ROTATION)
 - **A recording keeps the orbit its vessel really ended on.** When a recording finished, the
   vessel's live final orbit was swapped for an older one from the recording's last on-rails stretch
   just because the two were timestamped differently. That older orbit could let a bad estimate

@@ -21802,24 +21802,21 @@ namespace Parsek
             bool hasAtmosphere, double atmosphereDepth, double altitude) =>
             WatchModeController.ShouldUseSurfaceRelativeWatchHeading(
                 hasAtmosphere, atmosphereDepth, altitude);
-        internal static Vector3 ComputeSurfaceRelativeVelocity(
-            Vector3 playbackVelocity, Vector3 rotatingFrameVelocity) =>
-            WatchModeController.ComputeSurfaceRelativeVelocity(playbackVelocity, rotatingFrameVelocity);
+        internal static (Vector3 forward, Vector3 horizonVelocity, HorizonForwardSource source)
+            ComputeWatchHorizonForward(Vector3 up, Vector3 headingVelocity, Vector3 lastForward) =>
+            WatchModeController.ComputeWatchHorizonForward(up, headingVelocity, lastForward);
         internal static (Vector3 forward, Vector3 horizonVelocity, Vector3 headingVelocity,
-            HorizonForwardSource source) ComputeWatchHorizonForward(
-                Vector3 up, Vector3 playbackVelocity, Vector3 rotatingFrameVelocity,
-                Vector3 lastForward) =>
-            WatchModeController.ComputeWatchHorizonForward(
-                up, playbackVelocity, rotatingFrameVelocity, lastForward);
-        internal static (Vector3 forward, Vector3 horizonVelocity, Vector3 headingVelocity,
-            Vector3 appliedFrameVelocity, HorizonForwardSource source)
+            string headingFrame, HorizonForwardSource source)
             ComputeWatchHorizonBasis(
-                bool hasAtmosphere, double atmosphereDepth, double altitude,
-                Vector3 up, Vector3 playbackVelocity, Vector3 rotatingFrameVelocity,
+                bool hasAtmosphere, double atmosphereDepth, double inverseRotThresholdAltitude,
+                double altitude,
+                Vector3 up, Vector3 surfaceVelocity, GhostSurfaceVelocitySource surfaceSource,
+                Vector3 playbackVelocity, Vector3 rotatingFrameVelocity,
                 Vector3 lastForward) =>
             WatchModeController.ComputeWatchHorizonBasis(
-                hasAtmosphere, atmosphereDepth, altitude,
-                up, playbackVelocity, rotatingFrameVelocity, lastForward);
+                hasAtmosphere, atmosphereDepth, inverseRotThresholdAltitude, altitude,
+                up, surfaceVelocity, surfaceSource,
+                playbackVelocity, rotatingFrameVelocity, lastForward);
         internal static Vector3 ComputeHorizonForward(Vector3 up, Vector3 velocity, Vector3 lastForward) =>
             WatchModeController.ComputeHorizonForward(up, velocity, lastForward);
         internal static (Quaternion rotation, Vector3 forward) ComputeHorizonRotation(
@@ -23084,7 +23081,8 @@ namespace Parsek
             state.SetInterpolated(new InterpolationResult(
                 Vector3.zero,
                 positioned.body,
-                positioned.altitude));
+                positioned.altitude).WithSurfaceVelocity(
+                    Vector3.zero, GhostSurfaceVelocitySource.SurfaceHold));
         }
 
         void IGhostPositioner.PositionFromOrbit(int index, IPlaybackTrajectory traj,
@@ -23122,13 +23120,15 @@ namespace Parsek
                     ParsekLog.VerboseRateLimited("Playback", logKey, logMessage, 1.0);
                 }
 
+                long orbitTailCacheKey = index * 10000 + Math.Max(0, segmentIndex);
                 PositionGhostFromOrbit(
                     state.ghost,
                     seg,
                     ut,
-                    index * 10000 + Math.Max(0, segmentIndex),
+                    orbitTailCacheKey,
                     traj.RecordingId,
                     traj);
+                SetOrbitTailInterpolated(state, seg, ut, orbitTailCacheKey);
 
                 // Re-aim seam/arrival diagnostic: trace the orbit-only re-aim ghost vs the live bodies so a
                 // teleport at a segment seam or an arrival where the target is NOT is visible in the log.
@@ -23153,6 +23153,32 @@ namespace Parsek
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Orbit-tail playback positions the ghost from an orbit segment and writes no
+        /// interpolation result of its own, so without this the wheel, reentry FX and watch
+        /// readers would keep the last point frame's velocities. Mirrors the orbit-segment
+        /// branch of the point playback: the segment's orbital velocity, and the surface
+        /// velocity derived from it (source Orbit).
+        /// </summary>
+        private void SetOrbitTailInterpolated(
+            GhostPlaybackState state, OrbitSegment seg, double ut, long cacheKey)
+        {
+            if (state?.ghost == null || orbitCache == null
+                || !orbitCache.TryGetValue(cacheKey, out Orbit orbit) || orbit == null)
+                return;
+            CelestialBody body = orbit.referenceBody;
+            if (body == null)
+                return;
+            Vector3d zupVelocity = orbit.getOrbitalVelocityAtUT(ut);
+            Vector3d ghostWorldPos = state.ghost.transform.position;
+            var interp = new InterpolationResult(
+                (Vector3)zupVelocity, seg.bodyName, body.GetAltitude(ghostWorldPos))
+                .WithSurfaceVelocity(
+                    GhostSurfaceVelocity.FromOrbitVelocity(zupVelocity, body.getRFrmVel(ghostWorldPos)),
+                    GhostSurfaceVelocitySource.Orbit);
+            state.SetInterpolated(interp);
         }
 
         // Per-member last re-aim ghost frame, for seam-teleport detection (segment change -> log the jump).
@@ -23581,6 +23607,64 @@ namespace Parsek
                 Vector3.Lerp(before.velocity, after.velocity, t),
                 after.bodyName,
                 TrajectoryMath.InterpolateAltitude(before.altitude, after.altitude, t));
+            // Surface velocity from the same body-fixed bracket the position used (both
+            // endpoints resolved now, so the delta is motion over the surface in today's
+            // axes). A body change inside the bracket has no single surface to measure on.
+            if (ReferenceEquals(bodyBefore, bodyAfter)
+                && GhostSurfaceVelocity.TryFromBracketPositions(
+                    posBefore, posAfter, after.ut - before.ut, out Vector3 surfaceVelocity))
+            {
+                interpResult = interpResult.WithSurfaceVelocity(
+                    surfaceVelocity, GhostSurfaceVelocitySource.Positions);
+            }
+        }
+
+        /// <summary>
+        /// Surface velocity from a RELATIVE section's body-fixed shadow frames at
+        /// <paramref name="ut"/>. RELATIVE <c>frames</c> hold anchor-local metre offsets, never
+        /// body-fixed coordinates, so they are not read here; a section without two
+        /// <c>bodyFixedFrames</c> covering <paramref name="ut"/> leaves the result unchanged
+        /// (surface velocity unknown).
+        /// </summary>
+        private static InterpolationResult WithRelativeSectionSurfaceVelocity(
+            InterpolationResult result, TrackSection section, double ut)
+        {
+            List<TrajectoryPoint> bodyFixed =
+                GhostSurfaceVelocity.SelectRelativeSectionBodyFixedFrames(section);
+            int i = GhostSurfaceVelocity.FindBracketIndex(bodyFixed, ut);
+            if (i < 0)
+                return result;
+            TrajectoryPoint before = bodyFixed[i];
+            TrajectoryPoint after = bodyFixed[i + 1];
+            if (string.IsNullOrEmpty(before.bodyName)
+                || !string.Equals(before.bodyName, after.bodyName, StringComparison.Ordinal))
+                return result;
+            CelestialBody body = FindBodyByNameNoAlloc(before.bodyName);
+            if (body == null)
+                return result;
+            Vector3d posBefore = body.GetWorldSurfacePosition(
+                before.latitude, before.longitude, before.altitude);
+            Vector3d posAfter = body.GetWorldSurfacePosition(
+                after.latitude, after.longitude, after.altitude);
+            if (!GhostSurfaceVelocity.TryFromBracketPositions(
+                    posBefore, posAfter, after.ut - before.ut, out Vector3 surfaceVelocity))
+                return result;
+            return result.WithSurfaceVelocity(surfaceVelocity, GhostSurfaceVelocitySource.Positions);
+        }
+
+        // Runs per frame for every RELATIVE-section ghost: a plain loop, no predicate closure.
+        private static CelestialBody FindBodyByNameNoAlloc(string bodyName)
+        {
+            List<CelestialBody> bodies = FlightGlobals.Bodies;
+            if (bodies == null || string.IsNullOrEmpty(bodyName))
+                return null;
+            for (int i = 0; i < bodies.Count; i++)
+            {
+                CelestialBody candidate = bodies[i];
+                if (candidate != null && candidate.name == bodyName)
+                    return candidate;
+            }
+            return null;
         }
 
         private static double ComputePointHermiteMaxDeviationMeters(Vector3d posBefore, Vector3d posAfter)
@@ -25049,7 +25133,10 @@ namespace Parsek
                 interpResult = new InterpolationResult(
                     (Vector3)orbitVelocity,
                     segment.bodyName,
-                    orbitAltitude);
+                    orbitAltitude).WithSurfaceVelocity(
+                        GhostSurfaceVelocity.FromOrbitVelocity(
+                            orbitVelocity, orbitBody.getRFrmVel(orbitWorldPos)),
+                        GhostSurfaceVelocitySource.Orbit);
 
                 string recId = string.IsNullOrEmpty(recordingId) ? "(null)" : recordingId;
                 ParsekLog.VerboseRateLimited(
@@ -25211,6 +25298,14 @@ namespace Parsek
                 (Vector3)velocity,
                 segment.bodyName,
                 TrajectoryMath.InterpolateAltitude(before.altitude, after.altitude, t));
+            if (hasPointInterpolation
+                && ReferenceEquals(bodyBefore, bodyAfter)
+                && GhostSurfaceVelocity.TryFromBracketPositions(
+                    posBefore, posAfter, after.ut - before.ut, out Vector3 checkpointSurfaceVelocity))
+            {
+                interpResult = interpResult.WithSurfaceVelocity(
+                    checkpointSurfaceVelocity, GhostSurfaceVelocitySource.Positions);
+            }
             return true;
         }
 
@@ -27347,6 +27442,8 @@ namespace Parsek
                         anchorVesselId, rec.RecordingFormatVersion,
                         recIdx, rec.RecordingId, rec.VesselName, retireSignalState,
                         allowActivation, out interpResult);
+                    if (GhostPlaybackEngine.IsInterpolationResultValid(interpResult))
+                        interpResult = WithRelativeSectionSurfaceVelocity(interpResult, section, loopUT);
                     return;
                 }
 
@@ -27705,10 +27802,13 @@ namespace Parsek
                 pointUT = targetUT,
             });
 
-            interpResult = new InterpolationResult(
-                Vector3.Lerp(before.velocity, after.velocity, t),
-                bodyName,
-                alt);
+            interpResult = WithRelativeSectionSurfaceVelocity(
+                new InterpolationResult(
+                    Vector3.Lerp(before.velocity, after.velocity, t),
+                    bodyName,
+                    alt),
+                target.Section,
+                targetUT);
         }
 
         internal const double RecordedRelativeOffsetSpikeNeighborMaxMeters = 5.0;
@@ -28607,10 +28707,20 @@ namespace Parsek
                         PositionGhostFromOrbit(ghost, seg.Value, targetUT, cacheKey, recordingId);
                         Vector3 vel = Vector3.zero;
                         Orbit orbit;
-                        if (orbitCache.TryGetValue(cacheKey, out orbit))
-                            vel = orbit.getOrbitalVelocityAtUT(targetUT);
-                        double segAlt = segBody != null ? segBody.GetAltitude(ghost.transform.position) : 0;
+                        bool hasOrbit = orbitCache.TryGetValue(cacheKey, out orbit);
+                        Vector3d zupVelocity = hasOrbit ? orbit.getOrbitalVelocityAtUT(targetUT) : Vector3d.zero;
+                        if (hasOrbit)
+                            vel = zupVelocity;
+                        Vector3d ghostWorldPos = ghost.transform.position;
+                        double segAlt = segBody != null ? segBody.GetAltitude(ghostWorldPos) : 0;
                         interpResult = new InterpolationResult(vel, seg.Value.bodyName, segAlt);
+                        if (hasOrbit && segBody != null)
+                        {
+                            interpResult = interpResult.WithSurfaceVelocity(
+                                GhostSurfaceVelocity.FromOrbitVelocity(
+                                    zupVelocity, segBody.getRFrmVel(ghostWorldPos)),
+                                GhostSurfaceVelocitySource.Orbit);
+                        }
                         return;
                     }
                 }

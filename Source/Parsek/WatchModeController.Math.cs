@@ -27,29 +27,75 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Converts playback velocity to a body-relative velocity suitable for
-        /// horizon-lock heading decisions. Playback samples are recorded in KSP's
-        /// world/orbital frame, so surface-relative consumers must subtract the
-        /// body's rotating-frame velocity at the ghost position.
+        /// Whether the horizon heading follows the ghost's SURFACE velocity: inside an
+        /// atmosphere, or below the body's inverse-rotation altitude on any body (airless
+        /// included), where the world co-rotates with the body and the ground track is what
+        /// the player sees. Above both the heading is inertial.
         /// </summary>
-        internal static Vector3 ComputeSurfaceRelativeVelocity(
-            Vector3 playbackVelocity, Vector3 rotatingFrameVelocity)
+        internal static bool ShouldUseSurfaceWatchHeading(
+            bool hasAtmosphere, double atmosphereDepth, double inverseRotThresholdAltitude,
+            double altitude)
         {
-            return playbackVelocity - rotatingFrameVelocity;
+            return ShouldUseSurfaceRelativeWatchHeading(hasAtmosphere, atmosphereDepth, altitude)
+                || altitude < inverseRotThresholdAltitude;
+        }
+
+        /// <summary>Log token: heading from the position-derived surface velocity.</summary>
+        internal const string HeadingFrameSurface = "surface";
+        /// <summary>Log token: surface heading with no known surface velocity (heading falls back).</summary>
+        internal const string HeadingFrameSurfaceUnknown = "surfaceUnknown";
+        /// <summary>Log token: above the surface-heading band, inertial = surface + body rotating-frame velocity.</summary>
+        internal const string HeadingFrameInertialFromSurface = "inertialFromSurface";
+        /// <summary>Log token: above the surface-heading band with no known surface velocity, raw playback vector.</summary>
+        internal const string HeadingFramePlayback = "playback";
+
+        /// <summary>
+        /// The velocity horizon-locked watch mode heads along. In atmosphere, or below the body's
+        /// inverse-rotation altitude (so a landed or low ghost on an airless body too), it is the ghost's
+        /// SURFACE velocity (derived from body-fixed positions, so it is right whether the
+        /// recording's world frame was rotating or not); an unknown one is zero and the heading
+        /// falls back to the last forward. The recorded playback vector is never converted by
+        /// subtracting the body's rotating-frame velocity: below the inverse-rotation threshold
+        /// it is already surface-relative, and the subtraction turned a 45 m/s liftoff into
+        /// ~181 m/s heading west.
+        ///
+        /// Above both the heading is INERTIAL: surface + the body's rotating-frame
+        /// velocity at the ghost (stock <c>getRFrmVel</c>), which is in today's world axes;
+        /// with no known surface velocity the raw playback vector is kept.
+        /// </summary>
+        internal static Vector3 ResolveWatchHeadingVelocity(
+            bool hasAtmosphere, double atmosphereDepth, double inverseRotThresholdAltitude,
+            double altitude,
+            Vector3 surfaceVelocity, GhostSurfaceVelocitySource surfaceSource,
+            Vector3 playbackVelocity, Vector3 rotatingFrameVelocity,
+            out string headingFrame)
+        {
+            bool surfaceKnown = surfaceSource != GhostSurfaceVelocitySource.None;
+            if (ShouldUseSurfaceWatchHeading(
+                    hasAtmosphere, atmosphereDepth, inverseRotThresholdAltitude, altitude))
+            {
+                headingFrame = surfaceKnown ? HeadingFrameSurface : HeadingFrameSurfaceUnknown;
+                return surfaceKnown ? surfaceVelocity : Vector3.zero;
+            }
+
+            if (surfaceKnown)
+            {
+                headingFrame = HeadingFrameInertialFromSurface;
+                return surfaceVelocity + rotatingFrameVelocity;
+            }
+
+            headingFrame = HeadingFramePlayback;
+            return playbackVelocity;
         }
 
         /// <summary>
-        /// Computes the forward vector used by horizon-locked watch mode after
-        /// converting playback velocity to the rotating body's surface frame.
-        /// Returns the effective heading velocity and the fallback source for diagnostics/tests.
+        /// Computes the forward vector used by horizon-locked watch mode from an
+        /// already-resolved heading velocity. Returns the projected horizon velocity and
+        /// the fallback source for diagnostics/tests.
         /// </summary>
-        internal static (Vector3 forward, Vector3 horizonVelocity, Vector3 headingVelocity,
-            HorizonForwardSource source) ComputeWatchHorizonForward(
-                Vector3 up, Vector3 playbackVelocity, Vector3 rotatingFrameVelocity,
-                Vector3 lastForward)
+        internal static (Vector3 forward, Vector3 horizonVelocity, HorizonForwardSource source)
+            ComputeWatchHorizonForward(Vector3 up, Vector3 headingVelocity, Vector3 lastForward)
         {
-            Vector3 headingVelocity = ComputeSurfaceRelativeVelocity(
-                playbackVelocity, rotatingFrameVelocity);
             Vector3 horizonVelocity = Vector3.ProjectOnPlane(headingVelocity, up);
             Vector3 forward = horizonVelocity;
             HorizonForwardSource source = HorizonForwardSource.ProjectedVelocity;
@@ -69,7 +115,7 @@ namespace Parsek
                 }
             }
             forward.Normalize();
-            return (forward, horizonVelocity, headingVelocity, source);
+            return (forward, horizonVelocity, source);
         }
 
         /// <summary>
@@ -77,20 +123,22 @@ namespace Parsek
         /// atmospheric decision for whether surface-relative heading should be used.
         /// </summary>
         internal static (Vector3 forward, Vector3 horizonVelocity, Vector3 headingVelocity,
-            Vector3 appliedFrameVelocity, HorizonForwardSource source)
+            string headingFrame, HorizonForwardSource source)
             ComputeWatchHorizonBasis(
-                bool hasAtmosphere, double atmosphereDepth, double altitude,
-                Vector3 up, Vector3 playbackVelocity, Vector3 rotatingFrameVelocity,
+                bool hasAtmosphere, double atmosphereDepth, double inverseRotThresholdAltitude,
+                double altitude,
+                Vector3 up, Vector3 surfaceVelocity, GhostSurfaceVelocitySource surfaceSource,
+                Vector3 playbackVelocity, Vector3 rotatingFrameVelocity,
                 Vector3 lastForward)
         {
-            Vector3 appliedFrameVelocity = ShouldUseSurfaceRelativeWatchHeading(
-                hasAtmosphere, atmosphereDepth, altitude)
-                ? rotatingFrameVelocity
-                : Vector3.zero;
-            var (forward, horizonVelocity, headingVelocity, source) =
-                ComputeWatchHorizonForward(
-                    up, playbackVelocity, appliedFrameVelocity, lastForward);
-            return (forward, horizonVelocity, headingVelocity, appliedFrameVelocity, source);
+            Vector3 headingVelocity = ResolveWatchHeadingVelocity(
+                hasAtmosphere, atmosphereDepth, inverseRotThresholdAltitude, altitude,
+                surfaceVelocity, surfaceSource,
+                playbackVelocity, rotatingFrameVelocity,
+                out string headingFrame);
+            var (forward, horizonVelocity, source) =
+                ComputeWatchHorizonForward(up, headingVelocity, lastForward);
+            return (forward, horizonVelocity, headingVelocity, headingFrame, source);
         }
 
         /// <summary>
@@ -101,8 +149,7 @@ namespace Parsek
         /// </summary>
         internal static Vector3 ComputeHorizonForward(Vector3 up, Vector3 velocity, Vector3 lastForward)
         {
-            var (forward, _, _, _) = ComputeWatchHorizonForward(
-                up, velocity, Vector3.zero, lastForward);
+            var (forward, _, _) = ComputeWatchHorizonForward(up, velocity, lastForward);
             return forward;
         }
 

@@ -713,30 +713,24 @@ namespace Parsek.Tests
         #region ComputeSurfaceHorizontalVelocity
 
         [Fact]
-        public void ComputeSurfaceHorizontalVelocity_ParkedOnARotatingBody_IsZero()
+        public void ComputeSurfaceHorizontalVelocity_ParkedSurfaceVelocity_IsZero()
         {
-            // The trap this subtraction exists for. TrajectoryPoint.velocity is recorded as
-            // rb_velocityD + Krakensbane.GetFrameVelocity() — an ORBITAL velocity. A rover parked on
-            // Kerbin's equator carries ~175 m/s of the planet's own rotation. Feeding that to a wheel
-            // would spin a stationary rover's wheels at highway speed.
+            // The input is the position-derived surface velocity; a parked rover's is zero and
+            // nothing is subtracted from it (see GhostSurfaceVelocityTests for the derivation).
             var up = new Vector3(0f, 1f, 0f);
-            var bodyRotation = new Vector3(175f, 0f, 0f);
 
-            Vector3 horiz = GhostPlaybackLogic.ComputeSurfaceHorizontalVelocity(
-                worldVelocity: bodyRotation, bodyFrameVelocity: bodyRotation, up: up);
+            Vector3 horiz = GhostPlaybackLogic.ComputeSurfaceHorizontalVelocity(Vector3.zero, up);
 
             Assert.True(horiz.magnitude < 1e-4f, $"expected ~0, got {horiz.magnitude}");
         }
 
         [Fact]
-        public void ComputeSurfaceHorizontalVelocity_DrivingOnARotatingBody_LeavesOnlyGroundSpeed()
+        public void ComputeSurfaceHorizontalVelocity_Driving_KeepsTheGroundSpeed()
         {
             var up = new Vector3(0f, 1f, 0f);
-            var bodyRotation = new Vector3(175f, 0f, 0f);
-            // Driving 10 m/s along +z on top of the planet's rotation.
-            var world = bodyRotation + new Vector3(0f, 0f, 10f);
+            var surface = new Vector3(0f, 0f, 10f); // driving 10 m/s along +z
 
-            Vector3 horiz = GhostPlaybackLogic.ComputeSurfaceHorizontalVelocity(world, bodyRotation, up);
+            Vector3 horiz = GhostPlaybackLogic.ComputeSurfaceHorizontalVelocity(surface, up);
 
             Assert.Equal(10.0, (double)horiz.magnitude, 3);
             Assert.Equal(10.0, (double)horiz.z, 3);
@@ -746,10 +740,9 @@ namespace Parsek.Tests
         public void ComputeSurfaceHorizontalVelocity_ClimbAndSink_AreRemoved()
         {
             var up = new Vector3(0f, 1f, 0f);
-            var world = new Vector3(0f, 50f, 0f); // pure vertical
+            var surface = new Vector3(0f, 50f, 0f); // pure vertical
 
-            Vector3 horiz = GhostPlaybackLogic.ComputeSurfaceHorizontalVelocity(
-                world, Vector3.zero, up);
+            Vector3 horiz = GhostPlaybackLogic.ComputeSurfaceHorizontalVelocity(surface, up);
 
             Assert.True(horiz.magnitude < 1e-4f, $"expected ~0, got {horiz.magnitude}");
         }
@@ -1092,10 +1085,9 @@ namespace Parsek.Tests
             // so a rover rolling with no motor input recorded 0 and playback froze the wheels. The
             // derivation has no such dependence: motion alone is enough.
             var up = new Vector3(0f, 1f, 0f);
-            var bodyRotation = new Vector3(175f, 0f, 0f);
-            var world = bodyRotation + new Vector3(0f, 0f, 8f); // coasting at 8 m/s
+            var surface = new Vector3(0f, 0f, 8f); // coasting at 8 m/s
 
-            Vector3 horiz = GhostPlaybackLogic.ComputeSurfaceHorizontalVelocity(world, bodyRotation, up);
+            Vector3 horiz = GhostPlaybackLogic.ComputeSurfaceHorizontalVelocity(surface, up);
             Vector3 roll = GhostPlaybackLogic.ComputeWheelRollForward(new Vector3(1f, 0f, 0f), up);
             float deg = GhostPlaybackLogic.ComputeWheelSpinDeltaDegrees(horiz, roll, 0.4f, 1.0);
 
