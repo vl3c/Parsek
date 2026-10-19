@@ -213,7 +213,7 @@ namespace Parsek.Tests
 
             var (forward, horizonVelocity, headingVelocity, headingFrame, source) =
                 ParsekFlight.ComputeWatchHorizonBasis(
-                    hasAtmosphere: true, atmosphereDepth: 70000, altitude: 10000,
+                    hasAtmosphere: true, atmosphereDepth: 70000, inverseRotThresholdAltitude: 100000, altitude: 10000,
                     up, surfaceVelocity, GhostSurfaceVelocitySource.Positions,
                     playbackVelocity, rotatingFrameVelocity, Vector3.forward);
 
@@ -234,7 +234,7 @@ namespace Parsek.Tests
 
             var (forward, horizonVelocity, headingVelocity, headingFrame, source) =
                 ParsekFlight.ComputeWatchHorizonBasis(
-                    hasAtmosphere: true, atmosphereDepth: 70000, altitude: 10000,
+                    hasAtmosphere: true, atmosphereDepth: 70000, inverseRotThresholdAltitude: 100000, altitude: 10000,
                     up, Vector3.zero, GhostSurfaceVelocitySource.SurfaceHold,
                     new Vector3(175f, 0f, 0f), new Vector3(175f, 0f, 0f), lastForward);
 

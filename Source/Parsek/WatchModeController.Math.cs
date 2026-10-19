@@ -26,17 +26,32 @@ namespace Parsek
             return hasAtmosphere && altitude < atmosphereDepth;
         }
 
+        /// <summary>
+        /// Whether the horizon heading follows the ghost's SURFACE velocity: inside an
+        /// atmosphere, or below the body's inverse-rotation altitude on any body (airless
+        /// included), where the world co-rotates with the body and the ground track is what
+        /// the player sees. Above both the heading is inertial.
+        /// </summary>
+        internal static bool ShouldUseSurfaceWatchHeading(
+            bool hasAtmosphere, double atmosphereDepth, double inverseRotThresholdAltitude,
+            double altitude)
+        {
+            return ShouldUseSurfaceRelativeWatchHeading(hasAtmosphere, atmosphereDepth, altitude)
+                || altitude < inverseRotThresholdAltitude;
+        }
+
         /// <summary>Log token: heading from the position-derived surface velocity.</summary>
         internal const string HeadingFrameSurface = "surface";
-        /// <summary>Log token: in atmosphere with no known surface velocity (heading falls back).</summary>
+        /// <summary>Log token: surface heading with no known surface velocity (heading falls back).</summary>
         internal const string HeadingFrameSurfaceUnknown = "surfaceUnknown";
-        /// <summary>Log token: above atmosphere, inertial = surface + body rotating-frame velocity.</summary>
+        /// <summary>Log token: above the surface-heading band, inertial = surface + body rotating-frame velocity.</summary>
         internal const string HeadingFrameInertialFromSurface = "inertialFromSurface";
-        /// <summary>Log token: above atmosphere with no known surface velocity, raw playback vector.</summary>
+        /// <summary>Log token: above the surface-heading band with no known surface velocity, raw playback vector.</summary>
         internal const string HeadingFramePlayback = "playback";
 
         /// <summary>
-        /// The velocity horizon-locked watch mode heads along. In atmosphere it is the ghost's
+        /// The velocity horizon-locked watch mode heads along. In atmosphere, or below the body's
+        /// inverse-rotation altitude (so a landed or low ghost on an airless body too), it is the ghost's
         /// SURFACE velocity (derived from body-fixed positions, so it is right whether the
         /// recording's world frame was rotating or not); an unknown one is zero and the heading
         /// falls back to the last forward. The recorded playback vector is never converted by
@@ -44,18 +59,20 @@ namespace Parsek
         /// it is already surface-relative, and the subtraction turned a 45 m/s liftoff into
         /// ~181 m/s heading west.
         ///
-        /// Above the atmosphere the heading is INERTIAL: surface + the body's rotating-frame
+        /// Above both the heading is INERTIAL: surface + the body's rotating-frame
         /// velocity at the ghost (stock <c>getRFrmVel</c>), which is in today's world axes;
         /// with no known surface velocity the raw playback vector is kept.
         /// </summary>
         internal static Vector3 ResolveWatchHeadingVelocity(
-            bool hasAtmosphere, double atmosphereDepth, double altitude,
+            bool hasAtmosphere, double atmosphereDepth, double inverseRotThresholdAltitude,
+            double altitude,
             Vector3 surfaceVelocity, GhostSurfaceVelocitySource surfaceSource,
             Vector3 playbackVelocity, Vector3 rotatingFrameVelocity,
             out string headingFrame)
         {
             bool surfaceKnown = surfaceSource != GhostSurfaceVelocitySource.None;
-            if (ShouldUseSurfaceRelativeWatchHeading(hasAtmosphere, atmosphereDepth, altitude))
+            if (ShouldUseSurfaceWatchHeading(
+                    hasAtmosphere, atmosphereDepth, inverseRotThresholdAltitude, altitude))
             {
                 headingFrame = surfaceKnown ? HeadingFrameSurface : HeadingFrameSurfaceUnknown;
                 return surfaceKnown ? surfaceVelocity : Vector3.zero;
@@ -108,13 +125,14 @@ namespace Parsek
         internal static (Vector3 forward, Vector3 horizonVelocity, Vector3 headingVelocity,
             string headingFrame, HorizonForwardSource source)
             ComputeWatchHorizonBasis(
-                bool hasAtmosphere, double atmosphereDepth, double altitude,
+                bool hasAtmosphere, double atmosphereDepth, double inverseRotThresholdAltitude,
+                double altitude,
                 Vector3 up, Vector3 surfaceVelocity, GhostSurfaceVelocitySource surfaceSource,
                 Vector3 playbackVelocity, Vector3 rotatingFrameVelocity,
                 Vector3 lastForward)
         {
             Vector3 headingVelocity = ResolveWatchHeadingVelocity(
-                hasAtmosphere, atmosphereDepth, altitude,
+                hasAtmosphere, atmosphereDepth, inverseRotThresholdAltitude, altitude,
                 surfaceVelocity, surfaceSource,
                 playbackVelocity, rotatingFrameVelocity,
                 out string headingFrame);

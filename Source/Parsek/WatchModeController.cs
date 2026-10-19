@@ -2483,13 +2483,14 @@ namespace Parsek
 
             Vector3 ghostPos = state.cameraPivot.position;
             Vector3 up = (ghostPos - body.position).normalized;
-            // Only the above-atmosphere inertial heading adds this term; it is never
+            // Only the inertial heading above the surface-heading band adds this term; it is never
             // subtracted from the recorded vector (see ResolveWatchHeadingVelocity).
             Vector3 bodyFrameVelocity = (Vector3)body.getRFrmVel(ghostPos);
             var (forward, horizonVelocity, headingVelocity,
                 headingFrame, source) =
                 ComputeWatchHorizonBasis(
-                    body.atmosphere, body.atmosphereDepth, state.lastInterpolatedAltitude,
+                    body.atmosphere, body.atmosphereDepth, body.inverseRotThresholdAltitude,
+                    state.lastInterpolatedAltitude,
                     up, state.lastInterpolatedSurfaceVelocity,
                     state.lastInterpolatedSurfaceVelocitySource,
                     state.lastInterpolatedVelocity, bodyFrameVelocity,

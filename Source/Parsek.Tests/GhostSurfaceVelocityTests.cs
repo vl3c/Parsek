@@ -352,7 +352,7 @@ namespace Parsek.Tests
             Vector3 up = Vector3.up;
             var (forward, horizonVelocity, headingVelocity, headingFrame, source) =
                 ParsekFlight.ComputeWatchHorizonBasis(
-                    hasAtmosphere: true, atmosphereDepth: 70000, altitude: 211,
+                    hasAtmosphere: true, atmosphereDepth: 70000, inverseRotThresholdAltitude: 100000, altitude: 211,
                     up, Gs7RecordedVelocity, GhostSurfaceVelocitySource.Positions,
                     Gs7RecordedVelocity, Gs7BodyFrameVelocity, Vector3.forward);
 
@@ -372,7 +372,7 @@ namespace Parsek.Tests
             Vector3 up = Vector3.up;
             var (forward, horizonVelocity, headingVelocity, headingFrame, source) =
                 ParsekFlight.ComputeWatchHorizonBasis(
-                    hasAtmosphere: true, atmosphereDepth: 70000, altitude: 10000,
+                    hasAtmosphere: true, atmosphereDepth: 70000, inverseRotThresholdAltitude: 100000, altitude: 10000,
                     up, new Vector3(500f, 0f, 0f), GhostSurfaceVelocitySource.None,
                     new Vector3(120f, 0f, 0f), new Vector3(200f, 0f, 0f), Vector3.forward);
 
@@ -388,7 +388,7 @@ namespace Parsek.Tests
             Vector3 up = Vector3.up;
             var (forward, _, headingVelocity, headingFrame, _) =
                 ParsekFlight.ComputeWatchHorizonBasis(
-                    hasAtmosphere: true, atmosphereDepth: 70000, altitude: 90000,
+                    hasAtmosphere: true, atmosphereDepth: 70000, inverseRotThresholdAltitude: 100000, altitude: 120000,
                     up, new Vector3(0f, 0f, 2100f), GhostSurfaceVelocitySource.Positions,
                     new Vector3(-999f, 0f, 0f), new Vector3(0f, 0f, 175f), Vector3.right);
 
@@ -403,13 +403,61 @@ namespace Parsek.Tests
             Vector3 up = Vector3.up;
             var (forward, _, headingVelocity, headingFrame, _) =
                 ParsekFlight.ComputeWatchHorizonBasis(
-                    hasAtmosphere: true, atmosphereDepth: 70000, altitude: 90000,
+                    hasAtmosphere: true, atmosphereDepth: 70000, inverseRotThresholdAltitude: 100000, altitude: 120000,
                     up, Vector3.zero, GhostSurfaceVelocitySource.None,
                     new Vector3(120f, 0f, 0f), new Vector3(200f, 0f, 0f), Vector3.forward);
 
             Assert.Equal(WatchModeController.HeadingFramePlayback, headingFrame);
             Assert.Equal(new Vector3(120f, 0f, 0f), headingVelocity);
             Assert.True(Vector3.Dot(forward, Vector3.right) > 0.99f, "got " + forward);
+        }
+
+        // Airless bodies (review of PR #2152): no atmosphere, but below the body's
+        // inverse-rotation altitude the world co-rotates and the ground track is what matters.
+        // The spin term (about 9 m/s on the Mun) must not swing a rover's heading east.
+        [Fact]
+        public void WatchHorizon_AirlessBelowInverseRotation_DrivingRover_FollowsTheGroundTrack()
+        {
+            Vector3 up = Vector3.up;
+            var (forward, _, headingVelocity, headingFrame, source) =
+                ParsekFlight.ComputeWatchHorizonBasis(
+                    hasAtmosphere: false, atmosphereDepth: 0, inverseRotThresholdAltitude: 15000, altitude: 5,
+                    up, new Vector3(0f, 0f, 3f), GhostSurfaceVelocitySource.Positions,
+                    new Vector3(0f, 0f, 3f), new Vector3(9f, 0f, 0f), Vector3.right);
+
+            Assert.Equal(WatchModeController.HeadingFrameSurface, headingFrame);
+            Assert.Equal(HorizonForwardSource.ProjectedVelocity, source);
+            Assert.Equal(new Vector3(0f, 0f, 3f), headingVelocity);
+            Assert.True(Vector3.Dot(forward, Vector3.forward) > 0.99f, "got " + forward);
+        }
+
+        [Fact]
+        public void WatchHorizon_AirlessBelowInverseRotation_ParkedRover_KeepsLastForward()
+        {
+            Vector3 up = Vector3.up;
+            var (forward, _, _, headingFrame, source) =
+                ParsekFlight.ComputeWatchHorizonBasis(
+                    hasAtmosphere: false, atmosphereDepth: 0, inverseRotThresholdAltitude: 15000, altitude: 5,
+                    up, Vector3.zero, GhostSurfaceVelocitySource.SurfaceHold,
+                    Vector3.zero, new Vector3(9f, 0f, 0f), Vector3.forward);
+
+            Assert.Equal(WatchModeController.HeadingFrameSurface, headingFrame);
+            Assert.Equal(HorizonForwardSource.LastForwardFallback, source);
+            Assert.True(Vector3.Dot(forward, Vector3.forward) > 0.99f, "got " + forward);
+        }
+
+        [Fact]
+        public void WatchHorizon_AirlessAboveInverseRotation_HeadsInertial()
+        {
+            Vector3 up = Vector3.up;
+            var (_, _, headingVelocity, headingFrame, _) =
+                ParsekFlight.ComputeWatchHorizonBasis(
+                    hasAtmosphere: false, atmosphereDepth: 0, inverseRotThresholdAltitude: 15000, altitude: 30000,
+                    up, new Vector3(0f, 0f, 500f), GhostSurfaceVelocitySource.Positions,
+                    Vector3.zero, new Vector3(9f, 0f, 0f), Vector3.right);
+
+            Assert.Equal(WatchModeController.HeadingFrameInertialFromSurface, headingFrame);
+            Assert.Equal(new Vector3(9f, 0f, 500f), headingVelocity);
         }
 
         #endregion
