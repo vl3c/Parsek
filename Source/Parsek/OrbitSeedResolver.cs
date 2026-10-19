@@ -23,8 +23,8 @@ namespace Parsek
         internal string TailFrameSource;
         internal bool UsedHistoricalBodyRotation;
         internal double HistoricalLongitude;
-        // Spawn use only: how the tail pair's velocity frame resolved
-        // (RecordedTailVelocityResolver). Speeds and yaw are NaN when not computed.
+        // How the tail pair's velocity frame resolved (RecordedTailVelocityResolver), in
+        // either use. Speeds and yaw are NaN when not computed.
         internal bool VelocityWasRotatingFrame;
         internal double VelocityFrameYawDegrees;
         internal double VelocityFrameResidual;
@@ -168,6 +168,18 @@ namespace Parsek
                 return false;
             }
 
+            // The recorded vector alone cannot seed the orbit: it may be surface-relative,
+            // and its world axes sit at a yaw about the spin axis that no later session
+            // shares (LAB-7: sma 596266 in the recording session, ecc 0.9996 after a reload,
+            // and a map ghost drawn retrograde at inc 179.8). Both uses resolve frame and
+            // yaw from the pair; a tail that cannot be resolved yields to the stored segment
+            // / terminal orbit seeds.
+            if (!hasPreviousFrame)
+            {
+                seed.DeclineReason = "tail-velocity-single-frame";
+                return false;
+            }
+
             try
             {
                 Orbit reseeded = new Orbit();
@@ -180,57 +192,33 @@ namespace Parsek
                     }
 
                     double initialRotation = ResolveInitialRotation(body);
-                    // The recorded vector is used as-is here: its frame (surface-relative
-                    // below the inverse-rotation altitude) and its world yaw are not
-                    // resolved on this path (todos TERMINAL-SPAWN-TAIL-ORBIT-SURFACE-VELOCITY
-                    // and REFLY-TAIL-SEED-FRAME).
-                    if (!OrbitReseed.TryFromHistoricalLatLonAltAndRecordedVelocity(
-                            reseeded,
-                            body,
-                            candidate.latitude,
-                            candidate.longitude,
-                            candidate.altitude,
-                            recordedVelocity,
-                            candidate.ut,
-                            rotationPeriod,
-                            initialRotation,
-                            out double inertialLongitude,
-                            out string historicalFailureReason))
+                    bool historicalResolved = OrbitReseed.TryFromHistoricalLatLonAltAndRecordedVelocity(
+                        reseeded,
+                        body,
+                        previousFrame,
+                        candidate,
+                        rotationPeriod,
+                        initialRotation,
+                        out OrbitReseed.HistoricalTailPairSeedInputs historical);
+                    CopyResolution(ref seed, historical.Resolution, historicalResolved);
+                    if (!historicalResolved)
                     {
-                        seed.DeclineReason = historicalFailureReason ?? "historical-rotation-unavailable";
+                        seed.DeclineReason = historical.FailureReason ?? RecordedTailVelocityResolver.DeclineNoFit;
                         return false;
                     }
 
                     seed.UsedHistoricalBodyRotation = true;
-                    seed.HistoricalLongitude = inertialLongitude;
+                    seed.HistoricalLongitude = historical.InertialLongitude;
                 }
                 else
                 {
-                    // The recorded vector alone cannot seed the orbit: it may be
-                    // surface-relative, and its world axes sit at a yaw about the spin axis
-                    // that this session does not share (LAB-7: sma 596266 in the recording
-                    // session, ecc 0.9996 after a reload). Resolve both from the pair; a
-                    // tail that cannot be resolved yields to the stored segment / terminal
-                    // orbit seeds.
-                    if (!hasPreviousFrame)
-                    {
-                        seed.DeclineReason = "tail-velocity-single-frame";
-                        return false;
-                    }
-
                     bool pairResolved = OrbitReseed.TryFromRecordedTailPair(
                         reseeded,
                         body,
                         previousFrame,
                         candidate,
                         out RecordedTailVelocityResolution resolution);
-                    seed.VelocityWasRotatingFrame = resolution.SampleWasRotatingFrame;
-                    seed.VelocityFrameYawDegrees = resolution.YawDegrees;
-                    seed.VelocityFrameResidual = resolution.Residual;
-                    seed.RecordedSpeed = resolution.RecordedSpeed;
-                    seed.InertialSpeed = pairResolved
-                        ? resolution.InertialVelocityYup.magnitude
-                        : double.NaN;
+                    CopyResolution(ref seed, resolution, pairResolved);
                     if (!pairResolved)
                     {
                         seed.DeclineReason = resolution.DeclineReason ?? RecordedTailVelocityResolver.DeclineNoFit;
@@ -266,6 +254,20 @@ namespace Parsek
                 seed.DeclineReason = "exception";
                 return false;
             }
+        }
+
+        private static void CopyResolution(
+            ref TailDerivedOrbitSeed seed,
+            RecordedTailVelocityResolution resolution,
+            bool resolved)
+        {
+            seed.VelocityWasRotatingFrame = resolution.SampleWasRotatingFrame;
+            seed.VelocityFrameYawDegrees = resolution.YawDegrees;
+            seed.VelocityFrameResidual = resolution.Residual;
+            seed.RecordedSpeed = resolution.RecordedSpeed;
+            seed.InertialSpeed = resolved
+                ? resolution.InertialVelocityYup.magnitude
+                : double.NaN;
         }
 
         internal static bool TryFindLatestCoastTrajectoryFrame(

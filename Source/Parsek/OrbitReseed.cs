@@ -17,7 +17,7 @@ namespace Parsek
     /// structurally-valid but physically-wrong orbit elements (sma, periapsis and
     /// apoapsis come out of bands the safety gate rejects).
     ///
-    /// Two helpers because the two natural input shapes differ in their velocity
+    /// Several helpers because the natural input shapes differ in their velocity
     /// frame and the right transform is per-shape, not per-call-site:
     /// <list type="bullet">
     ///   <item><see cref="FromLatLonAltAndRecordedVelocity"/> — body-fixed
@@ -29,6 +29,9 @@ namespace Parsek
     ///   <item><see cref="TryFromRecordedTailPair"/> - two consecutive recorded
     ///     samples whose velocity frame is RESOLVED from the samples themselves
     ///     (see "Recorded velocity frame" below) instead of trusted.</item>
+    ///   <item><see cref="TryFromHistoricalLatLonAltAndRecordedVelocity"/> - the same pair,
+    ///     placed at the tail's historical inertial position (body rotation phase at the
+    ///     tail UT) for the map-presence seeds.</item>
     ///   <item><see cref="FromWorldPosAndZupVelocity"/> — world-absolute Y-up
     ///     position plus a velocity already in Zup-local (e.g. the output of
     ///     <c>Orbit.getOrbitalVelocityAtUT</c>). The velocity is passed through;
@@ -131,20 +134,29 @@ namespace Parsek
             return new StateVectorInputs(bodyRelPos.xzy, velAlreadyZup);
         }
 
-        internal static bool TryComputeHistoricalSurfaceInputs(
+        /// <summary>
+        /// Pure: lift a body-fixed lat/lon/alt into the body's orientation at
+        /// <paramref name="phaseUT"/>: the longitude gains the body's rotation phase
+        /// <c>initialRotation + phaseUT * 360 / rotationPeriod</c> (stock
+        /// <c>CelestialBody.rotationAngle</c>) and the injected lookup (live:
+        /// <c>CelestialBody.GetRelSurfacePosition</c>) maps it to body-relative Y-up axes.
+        /// Unlike <see cref="TrajectoryMath.FrameTransform.LiftToInertial"/> this includes
+        /// <c>initialRotation</c>: the result seeds an absolute orbit with no round trip
+        /// through a lowering step in which that term would cancel.
+        /// </summary>
+        internal static bool TryLiftToHistoricalSurfacePosition(
             double lat,
             double lon,
             double alt,
-            Vector3d recordedVelWorldYup,
-            double recordedUT,
+            double phaseUT,
             double rotationPeriod,
             double initialRotationDeg,
             System.Func<double, double, double, Vector3d> getBodyRelativeSurfacePositionYup,
-            out StateVectorInputs inputs,
+            out Vector3d bodyRelHistoricalYup,
             out double inertialLongitude,
             out string failureReason)
         {
-            inputs = default(StateVectorInputs);
+            bodyRelHistoricalYup = Vector3d.zero;
             inertialLongitude = double.NaN;
             failureReason = null;
 
@@ -153,11 +165,7 @@ namespace Parsek
                 failureReason = "historical-rotation-unavailable";
                 return false;
             }
-            if (!IsFinite(recordedUT)
-                || !IsFinite(lat)
-                || !IsFinite(lon)
-                || !IsFinite(alt)
-                || !IsFinite(recordedVelWorldYup))
+            if (!IsFinite(phaseUT) || !IsFinite(lat) || !IsFinite(lon) || !IsFinite(alt))
             {
                 failureReason = "non-finite-state-vector";
                 return false;
@@ -168,72 +176,180 @@ namespace Parsek
                 return false;
             }
 
-            double phaseDeg = initialRotationDeg + (recordedUT * 360.0) / rotationPeriod;
+            double phaseDeg = initialRotationDeg + (phaseUT * 360.0) / rotationPeriod;
             inertialLongitude = WrapLongitudeDegrees(lon + phaseDeg);
-            Vector3d bodyRelHistoricalYup = getBodyRelativeSurfacePositionYup(lat, inertialLongitude, alt);
+            bodyRelHistoricalYup = getBodyRelativeSurfacePositionYup(lat, inertialLongitude, alt);
             if (!IsFinite(bodyRelHistoricalYup))
             {
                 failureReason = "historical-surface-position-non-finite";
                 return false;
             }
 
-            inputs = new StateVectorInputs(bodyRelHistoricalYup.xzy, recordedVelWorldYup.xzy);
             return true;
         }
 
         /// <summary>
-        /// Pure epoch-split resolver for the gap glide: reconstruct the inertial seed inputs at
-        /// <paramref name="recordedUT"/> (the rotation-phase UT) but report the SEPARATE
-        /// <paramref name="epochUT"/> the orbit must be seeded at (== recordedUT + loop shift).
-        /// Unity-free (the surface lookup is injected) so the recordedUT-position / epochUT-seed
-        /// split is directly testable. The wrapper
-        /// <see cref="TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch"/> calls this then
-        /// applies <paramref name="seedEpochUT"/> to <c>Orbit.UpdateFromStateVectors</c>.
+        /// Outcome of <see cref="TryComputeHistoricalTailPairInputs"/>.
         /// </summary>
-        internal static bool TryComputeHistoricalSurfaceInputsWithEpoch(
-            double lat,
-            double lon,
-            double alt,
-            Vector3d recordedVelWorldYup,
-            double recordedUT,
+        internal struct HistoricalTailPairSeedInputs
+        {
+            // Position and velocity for Orbit.UpdateFromStateVectors (Zup-swizzled).
+            internal StateVectorInputs Inputs;
+            // The tail's longitude lifted by the body rotation phase at the tail UT.
+            internal double InertialLongitude;
+            internal double SeedEpochUT;
+            // The stock reference-frame rule at the tail altitude: the resolver's tie prior.
+            internal bool AltitudeRuleRotating;
+            internal RecordedTailVelocityResolution Resolution;
+            internal string FailureReason;
+        }
+
+        /// <summary>
+        /// Pure core of the map-presence seeds that place a recorded coast sample at its
+        /// HISTORICAL inertial position (the endpoint-tail seed and the orbit-raise gap glide).
+        /// The recorded velocity is not trusted (see the class summary): both samples of the
+        /// pair are lifted into ONE body orientation, the tail's rotation phase, so the chord
+        /// between them is the surface-relative velocity in that frame, and
+        /// <see cref="RecordedTailVelocityResolver.TryResolve"/> fits the recorded vectors'
+        /// frame and world yaw against it. Its inertial velocity is then already expressed in
+        /// the lifted frame the tail position is seeded in. This equals resolving in any other
+        /// body orientation and rotating the result about the spin axis by the angle between
+        /// that orientation's tail position and the lifted one, because the resolver commutes
+        /// with a rotation about Y. The orbit epoch is <paramref name="epochUT"/> (the tail UT,
+        /// or the tail UT plus a loop shift for the gap glide). Unity-free: the surface lookup
+        /// is injected.
+        /// </summary>
+        internal static bool TryComputeHistoricalTailPairInputs(
+            TrajectoryPoint previous,
+            TrajectoryPoint tail,
             double epochUT,
             double rotationPeriod,
             double initialRotationDeg,
+            bool bodyRotates,
+            double inverseRotThresholdAltitude,
             System.Func<double, double, double, Vector3d> getBodyRelativeSurfacePositionYup,
-            out StateVectorInputs inputs,
-            out double inertialLongitude,
-            out double seedEpochUT,
-            out string failureReason)
+            out HistoricalTailPairSeedInputs result)
         {
-            inputs = default(StateVectorInputs);
-            inertialLongitude = double.NaN;
-            seedEpochUT = double.NaN;
-            failureReason = null;
+            Vector3d previousVel = new Vector3d(previous.velocity.x, previous.velocity.y, previous.velocity.z);
+            Vector3d tailVel = new Vector3d(tail.velocity.x, tail.velocity.y, tail.velocity.z);
+            result = new HistoricalTailPairSeedInputs
+            {
+                Inputs = default(StateVectorInputs),
+                InertialLongitude = double.NaN,
+                SeedEpochUT = double.NaN,
+                AltitudeRuleRotating = IsRecordedVelocityInRotatingFrame(
+                    bodyRotates, inverseRotThresholdAltitude, tail.altitude),
+                Resolution = new RecordedTailVelocityResolution
+                {
+                    Resolved = false,
+                    DeclineReason = null,
+                    SampleWasRotatingFrame = false,
+                    YawDegrees = double.NaN,
+                    Residual = double.NaN,
+                    OtherResidual = double.NaN,
+                    RecordedSpeed = IsFinite(tailVel) ? tailVel.magnitude : double.NaN,
+                    InertialVelocityYup = Vector3d.zero
+                },
+                FailureReason = null
+            };
 
             if (!IsFinite(epochUT))
             {
-                failureReason = "non-finite-epoch";
+                result.FailureReason = "non-finite-epoch";
                 return false;
             }
-
-            if (!TryComputeHistoricalSurfaceInputs(
-                    lat,
-                    lon,
-                    alt,
-                    recordedVelWorldYup,
-                    recordedUT,
-                    rotationPeriod,
-                    initialRotationDeg,
-                    getBodyRelativeSurfacePositionYup,
-                    out inputs,
-                    out inertialLongitude,
-                    out failureReason))
+            if (!IsFinite(previous.ut) || !IsFinite(tail.ut)
+                || !IsFinite(previousVel) || !IsFinite(tailVel))
             {
+                result.FailureReason = "non-finite-state-vector";
                 return false;
             }
 
-            seedEpochUT = epochUT;
+            // Both samples at the TAIL's phase: one body orientation, so their chord is a
+            // body-fixed (surface-relative) displacement, which is what the resolver models.
+            if (!TryLiftToHistoricalSurfacePosition(
+                    tail.latitude, tail.longitude, tail.altitude, tail.ut,
+                    rotationPeriod, initialRotationDeg, getBodyRelativeSurfacePositionYup,
+                    out Vector3d tailPosYup, out double inertialLongitude, out string liftFailure)
+                || !TryLiftToHistoricalSurfacePosition(
+                    previous.latitude, previous.longitude, previous.altitude, tail.ut,
+                    rotationPeriod, initialRotationDeg, getBodyRelativeSurfacePositionYup,
+                    out Vector3d previousPosYup, out _, out liftFailure))
+            {
+                result.FailureReason = liftFailure;
+                return false;
+            }
+            result.InertialLongitude = inertialLongitude;
+
+            bool resolved = RecordedTailVelocityResolver.TryResolve(
+                previousPosYup,
+                previous.ut,
+                previousVel,
+                tailPosYup,
+                tail.ut,
+                tailVel,
+                bodyRotates ? rotationPeriod : double.NaN,
+                result.AltitudeRuleRotating,
+                out RecordedTailVelocityResolution resolution);
+            result.Resolution = resolution;
+            if (!resolved)
+            {
+                result.FailureReason = resolution.DeclineReason ?? RecordedTailVelocityResolver.DeclineNoFit;
+                return false;
+            }
+
+            result.Inputs = new StateVectorInputs(tailPosYup.xzy, resolution.InertialVelocityYup.xzy);
+            result.SeedEpochUT = epochUT;
             return true;
+        }
+
+        /// <summary>
+        /// Pure: the Verbose line <see cref="TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch"/>
+        /// writes. The accepted prefix
+        /// <c>TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch: body=</c> is a required
+        /// log token of harness lanes V20M / V20T, so a decline writes a different prefix
+        /// (<c>... declined: body=</c>) that cannot satisfy it.
+        /// </summary>
+        internal static string FormatHistoricalTailPairSeedLine(
+            string bodyName,
+            TrajectoryPoint previous,
+            TrajectoryPoint tail,
+            double epochUT,
+            bool accepted,
+            HistoricalTailPairSeedInputs result,
+            double semiMajorAxis,
+            double eccentricity,
+            double inclination)
+        {
+            RecordedTailVelocityResolution r = result.Resolution;
+            return string.Format(CultureInfo.InvariantCulture,
+                "TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch{0}: body={1} recordedUT={2:F2} " +
+                "epochUT={3:F2} loopShift={4:F2} lat={5:F4} lon={6:F4} inertialLon={7:F4} alt={8:F1} " +
+                "|vel|={9:F2} prevUT={10:F2} resolved={11} decline={12} velFrame={13} altitudeRule={14} " +
+                "yaw={15:F3}deg residual={16:F3} otherResidual={17:F3} |inertialVel|={18:F2} " +
+                "sma={19:F1} ecc={20:F6} inc={21:F4}",
+                accepted ? "" : " declined",
+                bodyName ?? "(null)",
+                tail.ut,
+                epochUT,
+                epochUT - tail.ut,
+                tail.latitude,
+                tail.longitude,
+                result.InertialLongitude,
+                tail.altitude,
+                r.RecordedSpeed,
+                previous.ut,
+                accepted,
+                result.FailureReason ?? "(none)",
+                r.Resolved ? (r.SampleWasRotatingFrame ? "rotating" : "inertial") : "(unresolved)",
+                result.AltitudeRuleRotating ? "rotating" : "inertial",
+                r.YawDegrees,
+                r.Residual,
+                r.OtherResidual,
+                r.Resolved ? r.InertialVelocityYup.magnitude : double.NaN,
+                semiMajorAxis,
+                eccentricity,
+                inclination);
         }
 
         /// <summary>
@@ -426,123 +542,95 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Build orbit elements from a historical body-relative surface
-        /// position reconstructed at <paramref name="ut"/> and a recorder-frame
-        /// Y-up world velocity. The orbit epoch is seeded at <paramref name="ut"/>
-        /// (no loop shift); for the loop-shifted gap-glide variant use
+        /// Build orbit elements at <paramref name="tail"/>'s UT from the tail sample and the
+        /// coast sample before it, placed at the tail's HISTORICAL inertial position (the
+        /// body rotation phase at the tail UT), with the velocity frame and world yaw
+        /// resolved from the pair (<see cref="TryComputeHistoricalTailPairInputs"/>). The
+        /// orbit epoch is the tail UT; for the loop-shifted gap glide use
         /// <see cref="TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch"/>.
         /// </summary>
         internal static bool TryFromHistoricalLatLonAltAndRecordedVelocity(
             Orbit dst,
             CelestialBody body,
-            double lat,
-            double lon,
-            double alt,
-            Vector3d recordedVelWorldYup,
-            double ut,
+            TrajectoryPoint previous,
+            TrajectoryPoint tail,
             double rotationPeriod,
             double initialRotationDeg,
-            out double inertialLongitude,
-            out string failureReason)
+            out HistoricalTailPairSeedInputs result)
         {
-            // Single-UT overload: reconstruct the inertial position at the recorded
-            // UT and seed the orbit epoch at the SAME UT. Delegating with
-            // epochUT == ut keeps this byte-identical to the original implementation
-            // for its OrbitSeedResolver MapPresence caller.
             return TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch(
                 dst,
                 body,
-                lat,
-                lon,
-                alt,
-                recordedVelWorldYup,
-                ut,
-                ut,
+                previous,
+                tail,
+                tail.ut,
                 rotationPeriod,
                 initialRotationDeg,
-                out inertialLongitude,
-                out failureReason);
+                out result);
         }
 
         /// <summary>
-        /// Build orbit elements from a historical body-relative surface position
-        /// reconstructed at <paramref name="recordedUT"/> (the rotation-phase UT),
-        /// but seed the orbit EPOCH at a SEPARATE <paramref name="epochUT"/>.
+        /// As <see cref="TryFromHistoricalLatLonAltAndRecordedVelocity"/>, but the orbit EPOCH
+        /// is the separate <paramref name="epochUT"/>: the orbit-raise gap glide places the
+        /// sample at its recorded inertial position (rotation phase at the recorded UT) and
+        /// seeds at <c>recordedUT + loopEpochShiftSeconds == liveUT</c> so the loop phase is
+        /// kept. Leaves <paramref name="dst"/> untouched and returns false on a decline
+        /// (<see cref="HistoricalTailPairSeedInputs.FailureReason"/>); both outcomes are
+        /// logged (<see cref="FormatHistoricalTailPairSeedLine"/>).
         /// </summary>
-        /// <remarks>
-        /// The orbit-raise gap glide reconstructs the recorded inertial POSITION at
-        /// the point's recorded UT (so it is consistent with the surrounding inertial
-        /// orbit segments rather than rotated by live body rotation), but must seed
-        /// the orbit epoch at <c>recordedUT + loopEpochShiftSeconds == liveUT</c> so
-        /// the loop phase is preserved exactly as the body-fixed
-        /// <see cref="FromWorldPosAndRecordedVelocity"/>(ut + shift) call does. The
-        /// velocity is a frame no-op pass-through (<c>.xzy</c> only); the POSITION is
-        /// the only term whose frame changes (body-fixed surface position lifted into
-        /// the inertial frame via the recorded rotation phase). Unlike
-        /// <see cref="TrajectoryMath.FrameTransform.LiftToInertial"/> this DOES include
-        /// <c>initialRotation</c> (that helper omits it because it round-trips through
-        /// LowerFromInertialToWorld where the term cancels; here there is no round-trip,
-        /// the single ABSOLUTE seed needs the full rotation phase).
-        /// </remarks>
         internal static bool TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch(
             Orbit dst,
             CelestialBody body,
-            double lat,
-            double lon,
-            double alt,
-            Vector3d recordedVelWorldYup,
-            double recordedUT,
+            TrajectoryPoint previous,
+            TrajectoryPoint tail,
             double epochUT,
             double rotationPeriod,
             double initialRotationDeg,
-            out double inertialLongitude,
-            out string failureReason)
+            out HistoricalTailPairSeedInputs result)
         {
             if (dst == null || body == null)
             {
-                inertialLongitude = double.NaN;
-                failureReason = "null-input";
+                result = new HistoricalTailPairSeedInputs
+                {
+                    InertialLongitude = double.NaN,
+                    SeedEpochUT = double.NaN,
+                    FailureReason = "null-input"
+                };
                 return false;
             }
 
-            if (!TryComputeHistoricalSurfaceInputsWithEpoch(
-                    lat,
-                    lon,
-                    alt,
-                    recordedVelWorldYup,
-                    recordedUT,
-                    epochUT,
-                    rotationPeriod,
-                    initialRotationDeg,
-                    (historicalLat, historicalLon, historicalAlt) =>
-                        body.GetRelSurfacePosition(historicalLat, historicalLon, historicalAlt),
-                    out StateVectorInputs inputs,
-                    out inertialLongitude,
-                    out double seedEpochUT,
-                    out failureReason))
+            bool ok = TryComputeHistoricalTailPairInputs(
+                previous,
+                tail,
+                epochUT,
+                rotationPeriod,
+                initialRotationDeg,
+                body.rotates,
+                body.inverseRotThresholdAltitude,
+                (historicalLat, historicalLon, historicalAlt) =>
+                    body.GetRelSurfacePosition(historicalLat, historicalLon, historicalAlt),
+                out result);
+            if (ok)
             {
-                return false;
+                dst.UpdateFromStateVectors(
+                    result.Inputs.PositionForUpdate,
+                    result.Inputs.VelocityForUpdate,
+                    body,
+                    result.SeedEpochUT);
             }
 
-            dst.UpdateFromStateVectors(
-                inputs.PositionForUpdate,
-                inputs.VelocityForUpdate,
-                body,
-                seedEpochUT);
             ParsekLog.Verbose("OrbitReseed",
-                string.Format(CultureInfo.InvariantCulture,
-                    "TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch: body={0} recordedUT={1:F2} " +
-                    "epochUT={2:F2} loopShift={3:F2} lat={4:F4} lon={5:F4} inertialLon={6:F4} alt={7:F1} |vel|={8:F2}",
-                    body?.name ?? "(null)",
-                    recordedUT,
+                FormatHistoricalTailPairSeedLine(
+                    body.name,
+                    previous,
+                    tail,
                     epochUT,
-                    epochUT - recordedUT,
-                    lat,
-                    lon,
-                    inertialLongitude,
-                    alt,
-                    recordedVelWorldYup.magnitude));
-            return true;
+                    ok,
+                    result,
+                    ok ? dst.semiMajorAxis : double.NaN,
+                    ok ? dst.eccentricity : double.NaN,
+                    ok ? dst.inclination : double.NaN));
+            return ok;
         }
 
         /// <summary>
