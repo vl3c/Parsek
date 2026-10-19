@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~TERMINAL-ORBIT-HEAL-DISCARDS-LIVE-CAPTURE: finalizing a recording replaces the vessel's live-captured final orbit with the older last orbit segment~~ [FILED AND FIXED 2026-10-19 from the LAB-7 log (run `2026-10-18_0217`), branch `claude/terminal-orbit-heal-keeps-live-capture`. xUnit; not yet re-flown. product]
+## ~~TERMINAL-ORBIT-HEAL-DISCARDS-LIVE-CAPTURE: finalizing a recording replaces the vessel's live-captured final orbit with the older last orbit segment~~ [FILED AND FIXED 2026-10-19 from the LAB-7 log (run `2026-10-18_0217`), branch `claude/terminal-orbit-heal-keeps-live-capture`. xUnit; re-flown green as LAB-7 `2026-10-19_2019`: `preserved cached terminal orbit ... because it is newer than the last segment ... cachedEpoch=3607.00 segmentEndUT=3594.54`, `tailDecline=terminal-orbit-newer-than-tail`, map ghost `from visible-segment ... sma=699746 ecc=0.010354 inc=0.0895`, spawn on the stock orbit 92500.6 x 106991.0. product]
 
 **Symptom.** LAB-7's lab was captured at finalize as `FinalizeIndividualRecording ... orbit[sma=699745.8 ecc=0.0104]` (UT 3607), then `PopulateTerminalOrbitFromLastSegment: healed stale cached terminal orbit ... previousSma=699745.8 newSma=699745.8`, leaving `termOrbit[epoch=396.87 ...]`. Same orbit, older epoch: with the epoch before the recorded tail (3606.67), the `terminal-orbit-newer-than-tail` gate in `OrbitSeedResolver` no longer declined the tail seed, so the map ghost was built from the raw tail (`sma=596266 ecc=0.9566 inc=179.8014`). After a burn past the last on-rails segment, the heal would also swap the post-burn orbit for the pre-burn one.
 
