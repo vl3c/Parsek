@@ -2639,6 +2639,12 @@ namespace Parsek
                 return false;
             }
 
+            // The flush above copied the live root's StartSituation / LaunchSiteName onto
+            // its tree recording (FlushRecorderIntoActiveTreeForSerialization), so the
+            // evidence check sees the live state.
+            if (!TreeHasPadEvidenceForIdle(activeTree, "IsActiveTreeIdleOnPad"))
+                return false;
+
             ParsekLog.Verbose("Flight",
                 $"IsActiveTreeIdleOnPad: all {activeTree.Recordings.Count} recordings " +
                 "within 30m - idle on pad");
@@ -3021,17 +3027,21 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Reverts a no-op no-session committed-restore resume: clears the
-        /// committed-tree restore attempt and tears the live clone down via
-        /// <see cref="AutoDiscardActiveTreeCore"/> (in-memory only — deletes no
+        /// Reverts a no-op no-session committed-restore resume: discards the
+        /// committed-tree restore attempt (purging its same-id post-cutoff event
+        /// tails, then clearing it, so the clone's suppressed events cannot become
+        /// durable after the clear) and tears the live clone down via
+        /// <see cref="AutoDiscardActiveTreeCore"/> (in-memory only - deletes no
         /// files, never touches <c>committedTrees</c>), so the committed original
         /// survives and the clone is never serialized active. The session path's
-        /// restore-attempt clear is done by the scoped discard; here there is no
-        /// session/segment to scoped-discard, so the clear is explicit.
+        /// restore-attempt discard is done by the scoped discard; here there is no
+        /// session/segment to scoped-discard, so it is explicit. After this call
+        /// the drop-site clear in AutoDiscardActiveTreeCore no-ops (the attempt is
+        /// already gone).
         /// </summary>
         internal void AutoDiscardNoOpNoSessionCommittedResume(string reason)
         {
-            RecordingStore.ClearCommittedTreeRestoreAttempt(
+            RecordingStore.DiscardCommittedTreeRestoreAttempt(
                 "noop-no-session-committed-resume-revert");
             AutoDiscardActiveTreeWithMessage(
                 reason: reason,
@@ -3119,9 +3129,11 @@ namespace Parsek
             // drops them while the recalc below would re-list an externally-accepted
             // contract as active (KSP keeps it finished -> dual-listing + duplicate
             // reward). Re-home the irreversible bits to the direct ledger first. Collect
-            // ids BEFORE activeTree is nulled. This core does not purge the store events
-            // (pre-existing orphan behavior, left unchanged); the direct ledger actions
-            // are the truth and the orphaned tagged events are not recalc inputs.
+            // ids BEFORE activeTree is nulled. This core does not purge the tree's own
+            // store events (orphans; the direct ledger actions are the truth and the
+            // orphaned tagged events are not recalc inputs). The one purge here is the
+            // drop-site clear below, which removes a committed-restore attempt's same-id
+            // post-cutoff tails only.
             if (activeTree?.Recordings != null && activeTree.Recordings.Count > 0)
             {
                 var rehomeIds = new HashSet<string>(StringComparer.Ordinal);
@@ -3170,6 +3182,17 @@ namespace Parsek
                 Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
                 backgroundRecorder = null;
             }
+
+            // This teardown drops the tree WITHOUT stashing it as pending, so its armed
+            // committed-tree restore attempt must go with it: while the attempt outlives
+            // its clone every OnSave defers the pending-event milestone flush, and its
+            // same-id post-cutoff event tails must be purged with it or they become
+            // durable on the next save. The helper purges first, then clears, and is
+            // id-matched: it no-ops when a caller already discarded the attempt (the
+            // no-op revert, the switch-segment discard, the pre-switch dialog discard)
+            // or when the tree is another attempt's clone.
+            RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+                activeTree?.Id, "auto-discard dropped the restore clone");
             activeTree = null;
 
             // A discarded active tree must not leave an armed switch-segment
@@ -3390,6 +3413,11 @@ namespace Parsek
                 backgroundRecorder = null;
             }
 
+            // Discarded without a pending stash, so the armed committed-tree restore
+            // attempt must be cleared with the tree (id-matched, reads the id before the
+            // null below): a stale attempt keeps deferring the OnSave milestone flush.
+            RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+                activeTree?.Id, "suppressed scene exit dropped the restore clone");
             activeTree = null;
             if (logRecorderState)
                 RecorderStateLog.RecState("FinalizeTreeOnSceneChange:suppressed-post", CaptureRecorderState());
@@ -7383,21 +7411,43 @@ namespace Parsek
             TagSegmentPhaseIfMissing(rec, FlightGlobals.ActiveVessel);
 
             // Destroyed vessels: discard pad failures or idle-on-pad, otherwise commit directly.
+            // Both discards require pad evidence on the recording itself (this branch handles
+            // a single recording): a one-sample recording has duration 0 and maxDist 0, so the
+            // thresholds alone would discard an orbiting recording destroyed within one
+            // sample interval.
             if (rec.VesselDestroyed)
             {
                 double dur = rec.EndUT - rec.StartUT;
                 double maxDist = rec.MaxDistanceFromLaunch;
-                if (IsPadFailure(rec))
+                string discardReason = DecideDestroyedSplitRecordingDiscard(rec);
+                if (discardReason == "pad failure")
                 {
                     ParsekLog.Info("Flight",
                         $"Vessel destroyed during split — pad failure ({dur:F1}s, {maxDist:F0}m), discarding");
                     return;
                 }
-                if (IsIdleOnPad(rec))
+                if (discardReason == "idle on pad")
                 {
                     ParsekLog.Info("Flight",
                         $"Vessel destroyed during split — idle on pad (maxDist={maxDist:F1}m), discarding");
                     return;
+                }
+                if (discardReason == null)
+                {
+                    // Log WHY this destroyed recording commits, once, from values the
+                    // decision already produced: HasPadEvidence is the decision's own
+                    // gate (no thresholds recomputed here), so evidence with a null
+                    // decision means the thresholds did not match.
+                    bool hasPadEvidence = HasPadEvidence(rec);
+                    string commitWhy = hasPadEvidence
+                        ? "outside pad thresholds - committing"
+                        : "no pad evidence - committing";
+                    string commitReason = hasPadEvidence
+                        ? "outside-pad-thresholds"
+                        : "no-pad-evidence";
+                    ParsekLog.Info("Flight",
+                        $"Vessel destroyed during split - {rec.RecordingId} ({dur:F1}s, {maxDist:F0}m) " +
+                        $"{commitWhy} reason={commitReason}");
                 }
             }
 
@@ -13089,7 +13139,11 @@ namespace Parsek
                 backgroundRecorder = null;
             }
 
-            // Clear tree state on flight ready (revert resets everything)
+            // Clear tree state on flight ready (revert resets everything). When this tree
+            // is the armed committed-restore attempt's clone (same tree id), the attempt is
+            // cleared with it, so no stale attempt outlives the tree it guarded.
+            RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+                activeTree?.Id, "flight-ready reset dropped the restore clone");
             activeTree = null;
 
             // Clear split event detection state
@@ -14255,6 +14309,13 @@ namespace Parsek
                     backgroundRecorder.Shutdown();
                     Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
                     backgroundRecorder = null;
+                    // The failed start drops this tree (the single-node tree created
+                    // above, or a pre-existing one-recording tree) without stashing it as
+                    // pending, so its armed committed-tree restore attempt must be
+                    // cleared with it; the clear is id-matched and reads the id here,
+                    // before the null.
+                    RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+                        activeTree?.Id, "start-recording cleanup dropped the restore clone");
                     activeTree = null;
                     ParsekLog.Info("Flight", "Cleaned up single-node tree after StartRecording failure");
                 }
@@ -19258,6 +19319,14 @@ namespace Parsek
                         ParsekLog.Info("Flight",
                             $"Chain tip spawn blocked by collision: #{index} \"{rec.VesselName}\" — chain stays active");
                     }
+                    else if (TerminalOrbitSpawnSafety.HasActiveHold(rec))
+                    {
+                        ParsekLog.InfoRateLimited("Flight",
+                            "chain-tip-orbit-safety|" + (rec.RecordingId ?? "(none)"),
+                            $"Chain tip spawn held by terminal orbit safety: #{index} \"{rec.VesselName}\" " +
+                            $"cannotSpawnSafely={rec.TerminalSpawnCannotSpawnSafely} " +
+                            $"reason={rec.TerminalSpawnSafetyReasonCode ?? "(none)"}");
+                    }
                     else
                     {
                         ParsekLog.Warn("Flight",
@@ -21182,7 +21251,9 @@ namespace Parsek
         /// <summary>
         /// Recording-aware idle-on-pad check. Extends the legacy 3D max-distance rule
         /// with a pad-drop override so local collapse or topple noise does not
-        /// promote a pad-local failure into merge UI.
+        /// promote a pad-local failure into merge UI. Pad evidence is a tree-level
+        /// requirement (<see cref="TreePadEvidence"/>), not a per-recording one: EVA
+        /// kerbals and background-only children carry no launch situation of their own.
         /// </summary>
         internal static bool IsIdleOnPad(Recording rec)
         {
@@ -21191,6 +21262,108 @@ namespace Parsek
 
             return IsIdleOnPad(rec.MaxDistanceFromLaunch)
                 || HasPadLocalizedMotionOverride(rec);
+        }
+        /// <summary>
+        /// Pure decision: the pad evidence a recording shows, or null when it shows none.
+        /// The launch site is checked first and wins over any start situation: a normal
+        /// launch recording starts airborne ("Flying") with a site, because the auto-record
+        /// trigger fires when the vessel leaves PRELAUNCH, so a fizzled launch that never
+        /// left the pad is still an idle-on-pad recording. Otherwise the evidence is a
+        /// Prelaunch / Landed / Splashed start, then a Landed / Splashed terminal. An
+        /// orbiting or flying start with no site and no surface terminal shows no evidence
+        /// (the one-sample orbiting case). Returns the first matching reason: "launch-site",
+        /// "start-prelaunch", "start-landed", "start-splashed", "terminal-landed" or
+        /// "terminal-splashed".
+        /// </summary>
+        internal static string PadEvidenceReason(string startSituation, string launchSiteName, TerminalState? terminal)
+        {
+            if (!string.IsNullOrEmpty(launchSiteName))
+                return "launch-site";
+            if (string.Equals(startSituation, "Prelaunch", StringComparison.OrdinalIgnoreCase))
+                return "start-prelaunch";
+            if (string.Equals(startSituation, "Landed", StringComparison.OrdinalIgnoreCase))
+                return "start-landed";
+            if (string.Equals(startSituation, "Splashed", StringComparison.OrdinalIgnoreCase))
+                return "start-splashed";
+            if (terminal == TerminalState.Landed)
+                return "terminal-landed";
+            if (terminal == TerminalState.Splashed)
+                return "terminal-splashed";
+            return null;
+        }
+
+        /// <summary>
+        /// Pure decision: true when <see cref="PadEvidenceReason(string, string, TerminalState?)"/> finds evidence.
+        /// </summary>
+        internal static bool HasPadEvidence(string startSituation, string launchSiteName, TerminalState? terminal)
+        {
+            return PadEvidenceReason(startSituation, launchSiteName, terminal) != null;
+        }
+
+        /// <summary>
+        /// Pure decision: true when the recording's own start / site / terminal fields show pad evidence.
+        /// </summary>
+        internal static bool HasPadEvidence(Recording rec)
+        {
+            return rec != null
+                && HasPadEvidence(rec.StartSituation, rec.LaunchSiteName, rec.TerminalStateValue);
+        }
+
+        /// <summary>
+        /// Pure decision: the pad evidence of a flight's recordings, or null when none shows
+        /// any. The first recording (in enumeration order) with evidence supplies the reason.
+        /// Null entries are skipped.
+        /// </summary>
+        internal static string TreePadEvidence(IEnumerable<Recording> recordings)
+        {
+            if (recordings == null)
+                return null;
+
+            foreach (Recording rec in recordings)
+            {
+                if (rec == null)
+                    continue;
+                string reason = PadEvidenceReason(rec.StartSituation, rec.LaunchSiteName, rec.TerminalStateValue);
+                if (reason != null)
+                    return reason;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Tree-level pad-evidence gate shared by <see cref="IsTreeIdleOnPad(RecordingTree)"/>
+        /// and <see cref="IsActiveTreeIdleOnPad"/>. Logs the verdict (tree, reason or "none")
+        /// and returns true when at least one recording shows pad evidence.
+        /// </summary>
+        internal static bool TreeHasPadEvidenceForIdle(RecordingTree tree, string caller)
+        {
+            string reason = TreePadEvidence(tree?.Recordings?.Values);
+            ParsekLog.Verbose("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "{0}: tree='{1}' id={2} pad evidence={3}",
+                    caller, tree?.TreeName ?? "<unnamed>", tree?.Id ?? "(none)", reason ?? "none"));
+            return reason != null;
+        }
+
+        /// <summary>
+        /// Pure decision for the destroyed-during-split single-recording path
+        /// (<c>FallbackCommitSplitRecorder</c>): "pad failure" or "idle on pad" when the
+        /// recording is within the pad thresholds AND shows pad evidence, else null. The pad
+        /// rules stay tree-level wherever a tree is available (EVA and debris children carry
+        /// no launch situation); this branch handles one recording, so the recording's own
+        /// evidence is the gate. A one-sample recording has duration 0 and maxDist 0, so
+        /// without the evidence check an orbiting recording destroyed within one sample
+        /// interval is discarded.
+        /// </summary>
+        internal static string DecideDestroyedSplitRecordingDiscard(Recording rec)
+        {
+            if (rec == null || !HasPadEvidence(rec))
+                return null;
+            if (IsPadFailure(rec))
+                return "pad failure";
+            if (IsIdleOnPad(rec))
+                return "idle on pad";
+            return null;
         }
 
         private static bool HasPadLocalizedMotionOverride(Recording rec)
@@ -21313,8 +21486,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns true if every recording in the tree qualifies as a pad failure.
-        /// A tree with any non-pad-failure recording is not discarded.
+        /// Returns true if every recording in the tree qualifies as a pad failure AND the
+        /// tree shows pad evidence. A tree with any non-pad-failure recording is not
+        /// discarded. The evidence gate matters because a one-sample recording has duration 0
+        /// and MaxDistanceFromLaunch 0 by construction, so the thresholds alone would read an
+        /// orbiting tree destroyed within one sample interval as a pad failure.
         /// </summary>
         internal static bool IsTreePadFailure(RecordingTree tree)
         {
@@ -21330,7 +21506,7 @@ namespace Parsek
                 if (!IsPadFailure(rec))
                     return false;
             }
-            return true;
+            return TreeHasPadEvidenceForIdle(tree, "IsTreePadFailure");
         }
 
         /// <summary>
@@ -21535,7 +21711,8 @@ namespace Parsek
 
         /// <summary>
         /// Returns true if every recording in the tree is idle-on-pad (never moved
-        /// more than 30m from launch). A tree with any non-idle recording is not discarded.
+        /// more than 30m from launch, and shows pad evidence per <see cref="IsIdleOnPad(Recording)"/>).
+        /// A tree with any non-idle recording is not discarded.
         /// </summary>
         internal static bool IsTreeIdleOnPad(RecordingTree tree)
         {
@@ -21572,6 +21749,8 @@ namespace Parsek
                     "cannot determine idle, returning false");
                 return false;
             }
+            if (!TreeHasPadEvidenceForIdle(tree, "IsTreeIdleOnPad"))
+                return false;
             ParsekLog.Verbose("Flight",
                 $"IsTreeIdleOnPad: all {tree.Recordings.Count} recordings within 30m — idle on pad");
             return true;

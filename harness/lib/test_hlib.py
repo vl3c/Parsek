@@ -7295,7 +7295,7 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
             "RevertVesselStrip": 1,
             "RewindSaves": 1,
             "SpawnCollision": 2,
-            "SpawnTerminalOrbit": 3,
+            "SpawnTerminalOrbit": 4,
             "Spawner": 2,
             "StockWarpLimits": 1,
             "SwitchIntentPatch": 3,

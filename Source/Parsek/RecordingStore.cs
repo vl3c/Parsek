@@ -2428,14 +2428,73 @@ namespace Parsek
             committedTreeRestoreAttemptEventCutoffs = null;
         }
 
-        private static void ClearCommittedTreeRestoreAttemptForTree(string treeId, string reason)
+        /// <summary>
+        /// Discards the armed committed-tree restore attempt as a whole: purges the
+        /// attempt's same-id post-cutoff game-state event tails FIRST (see
+        /// <see cref="PurgeCommittedTreeRestoreAttemptEventTails"/> - the clear nulls
+        /// the cutoff map), then clears it. No-op when no attempt is armed.
+        /// Discard paths whose caller drops the attempt's clone tree before any
+        /// drop-site id match can run (the no-op no-session resume revert, the
+        /// switch-segment scoped discard, the pre-switch dialog discard) must call
+        /// THIS, not the bare clear: the caller-side clear leaves the clone's
+        /// suppressed post-cutoff events to become durable on the next save.
+        /// </summary>
+        internal static void DiscardCommittedTreeRestoreAttempt(string reason)
         {
             if (string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId))
                 return;
-            if (!string.Equals(committedTreeRestoreAttemptTreeId, treeId, StringComparison.Ordinal))
+
+            PurgeCommittedTreeRestoreAttemptEventTails(reason ?? "<none>");
+            ClearCommittedTreeRestoreAttempt(reason);
+        }
+
+        private static void ClearCommittedTreeRestoreAttemptForTree(string treeId, string reason)
+        {
+            if (!DroppedTreeMatchesArmedRestoreAttempt(committedTreeRestoreAttemptTreeId, treeId))
                 return;
 
             ClearCommittedTreeRestoreAttempt(reason);
+        }
+
+        /// <summary>
+        /// Pure: true when a tree a scene reset is about to drop is the clone the armed
+        /// committed-tree restore attempt guards (same tree id), so the attempt must be
+        /// cleared with it. An attempt armed for a different tree id stays armed; a null
+        /// or empty id on either side never clears.
+        /// </summary>
+        internal static bool DroppedTreeMatchesArmedRestoreAttempt(
+            string armedAttemptTreeId, string droppedTreeId)
+        {
+            if (string.IsNullOrEmpty(armedAttemptTreeId) || string.IsNullOrEmpty(droppedTreeId))
+                return false;
+
+            return string.Equals(armedAttemptTreeId, droppedTreeId, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Clears the armed committed-tree restore attempt when <paramref name="droppedTreeId"/>
+        /// is its clone, so a reset that drops the clone tree (for example
+        /// <c>ParsekFlight.ResetFlightReadyState</c>) leaves no stale attempt armed: while it
+        /// stays armed every OnSave defers the pending-event milestone flush and the next arm
+        /// logs a replacing-stale-context warn. The attempt's same-id post-cutoff event tails
+        /// are purged FIRST through <see cref="DiscardCommittedTreeRestoreAttempt"/> (the same
+        /// purge-then-clear order DiscardPendingTree uses), because the clear nulls the cutoff
+        /// map and the clone's abandoned post-restore events must not become durable on the
+        /// next save. An attempt for another tree id, or no attempt at all, is left untouched.
+        /// Returns true when an attempt was cleared.
+        /// </summary>
+        internal static bool ClearCommittedTreeRestoreAttemptForDroppedTree(
+            string droppedTreeId, string reason)
+        {
+            if (!DroppedTreeMatchesArmedRestoreAttempt(
+                    committedTreeRestoreAttemptTreeId, droppedTreeId))
+                return false;
+
+            ParsekLog.Info("RecordingStore",
+                $"ClearCommittedTreeRestoreAttemptForDroppedTree: dropped tree={droppedTreeId} " +
+                $"matches the armed restore attempt; clearing it reason={reason ?? "<none>"}");
+            DiscardCommittedTreeRestoreAttempt(reason);
+            return true;
         }
 
         /// <summary>
@@ -2669,10 +2728,19 @@ namespace Parsek
                     StringComparison.Ordinal);
         }
 
-        private static int PurgeCommittedTreeRestoreAttemptEventTailsForPendingDiscard()
+        /// <summary>
+        /// Purges the armed attempt's same-id post-cutoff game-state event tails - the events
+        /// <see cref="ShouldSuppressCommittedTreeRestoreAttemptEventPersistence"/> keeps off
+        /// disk while the attempt is armed - keyed by the cutoff map built at arm time. Call
+        /// BEFORE <see cref="ClearCommittedTreeRestoreAttempt"/>: the clear nulls that map.
+        /// <paramref name="contextLabel"/> is the per-recording reason GameStateStore logs,
+        /// <paramref name="warnLabel"/> prefixes the summary line (emitted only when
+        /// something was purged). Returns the number of events purged.
+        /// </summary>
+        private static int PurgeCommittedTreeRestoreAttemptEventTails(
+            string contextLabel, string warnLabel = null)
         {
-            if (!PendingTreeMatchesCommittedTreeRestoreAttempt()
-                || committedTreeRestoreAttemptEventCutoffs == null
+            if (committedTreeRestoreAttemptEventCutoffs == null
                 || committedTreeRestoreAttemptEventCutoffs.Count == 0)
             {
                 return 0;
@@ -2684,18 +2752,32 @@ namespace Parsek
                 purged += GameStateStore.PurgeEventsForRecordingAfterUT(
                     kvp.Key,
                     kvp.Value,
-                    $"DiscardPendingTree committed-spawned-vessel attempt '{pendingTree.TreeName}'");
+                    contextLabel);
             }
 
             if (purged > 0)
             {
                 ParsekLog.Warn("RecordingStore",
-                    $"DiscardPendingTree: purged {purged} same-id game-state event tail(s) " +
+                    $"{warnLabel ?? contextLabel}: purged {purged} same-id game-state event tail(s) " +
                     $"for committed-tree restore attempt tree={committedTreeRestoreAttemptTreeId} " +
                     $"armedReason={committedTreeRestoreAttemptReason ?? "<none>"}");
             }
 
             return purged;
+        }
+
+        private static int PurgeCommittedTreeRestoreAttemptEventTailsForPendingDiscard()
+        {
+            if (!PendingTreeMatchesCommittedTreeRestoreAttempt()
+                || committedTreeRestoreAttemptEventCutoffs == null
+                || committedTreeRestoreAttemptEventCutoffs.Count == 0)
+            {
+                return 0;
+            }
+
+            return PurgeCommittedTreeRestoreAttemptEventTails(
+                $"DiscardPendingTree committed-spawned-vessel attempt '{pendingTree.TreeName}'",
+                "DiscardPendingTree");
         }
 
         /// <summary>
@@ -3257,7 +3339,7 @@ namespace Parsek
                     droppedPending = true;
                 }
 
-                ClearCommittedTreeRestoreAttempt(
+                DiscardCommittedTreeRestoreAttempt(
                     "switch-segment-scoped-discard committed-restore-clone");
                 // Pending science was already scoped-removed for this segment subtree by
                 // PreserveIrreversibleLiveGameplayOnDiscard(ownedIds) above. Do NOT

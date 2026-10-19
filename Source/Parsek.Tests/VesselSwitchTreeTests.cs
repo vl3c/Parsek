@@ -617,6 +617,46 @@ namespace Parsek.Tests
                 rec => ReferenceEquals(rec, restoredTip));
         }
 
+        // Fails if: DiscardPendingTree purges the armed attempt's same-id event tails
+        // (or clears the attempt) while discarding a DIFFERENT tree's pending copy.
+        // Both steps are gated on the pending-match guard: purging for an attempt that
+        // stays armed destroys state its suppression contract is still hiding from
+        // every save, and clearing another tree's attempt would drop the guard the
+        // clone teardowns rely on. The sibling cell above pins the matching case
+        // (purge + clear DO happen); this one pins the non-matching case.
+        [Fact]
+        public void DiscardPendingTree_OtherPendingTree_KeepsArmedAttemptAndItsEventTails()
+        {
+            var attemptTree = MakeTree("rec_attempt");
+            attemptTree.Id = "tree_attempt_other";
+            attemptTree.RootRecordingId = "rec_attempt";
+            RecordingStore.ArmCommittedTreeRestoreAttempt(attemptTree, "test-arm");
+            Assert.True(RecordingStore.HasCommittedTreeRestoreAttemptForTesting);
+
+            var attemptTail = MakeEvent(
+                GameStateEventType.TechResearched,
+                "attempt-tail",
+                250.0,
+                "rec_attempt");
+            GameStateStore.AddEvent(ref attemptTail);
+            Assert.True(
+                RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
+                    attemptTail));
+
+            var pendingTree = MakeTree("rec_pending");
+            pendingTree.Id = "tree_pending_not_the_attempt";
+            RecordingStore.StashPendingTree(pendingTree);
+
+            RecordingStore.DiscardPendingTree();
+
+            Assert.False(RecordingStore.HasPendingTree);
+            // The attempt belongs to ANOTHER tree: neither its suppressed tail nor its
+            // arm may go with this discard.
+            Assert.Contains(GameStateStore.Events, e => e.key == "attempt-tail");
+            Assert.True(
+                RecordingStore.IsCommittedTreeRestoreAttemptTree("tree_attempt_other"));
+        }
+
         [Fact]
         public void CommittedTreeRestoreAttemptEventPersistenceFilter_OnlySuppressesPostCommitTail()
         {

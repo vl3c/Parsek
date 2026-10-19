@@ -35,6 +35,37 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Dropping a restored tree no longer leaves a stale restore marker behind.** When a reset or
+  a discard dropped the tree a restore marker pointed at, the marker stayed armed afterwards
+  and could hold back recorded events on later saves until another restore replaced it. It is
+  now cleared with the tree, and the events recorded during the dropped flight are thrown away
+  with it. (RESET-FLIGHT-READY-STATE-LEAVES-RESTORE-ATTEMPT-ARMED)
+- **A recording started in orbit is no longer thrown away as "idle on pad".** Leaving a flight,
+  or losing the ship, within seconds of starting its recording could discard it as if the ship
+  never left the pad. Parsek now needs proof of a pad (a launch site, a landed or prelaunch
+  start, or a landing) before it calls a flight idle or a launchpad failure.
+  (IDLE-ON-PAD-READS-ONE-SAMPLE-ORBITING-RECORDING-AS-IDLE)
+- **A vessel claimed by a later mission no longer appears on an orbit that dips into the air.**
+  When time reached the end of such a chain, its final vessel spawned on its recorded orbit
+  without the periapsis check every other spawn gets, so it could appear on an orbit that would
+  drag it down. It now waits for a safe point, or ends as a ghost without spawning, like any
+  other vessel. (CHAIN-TIP-SPAWN-SKIPS-ORBIT-SAFETY-GATE)
+- **A vessel in a low orbit now reappears at the end of its recording.** A ship orbiting Kerbin
+  below about 100 km, whose recording ended there, was judged to be falling into the atmosphere
+  when time reached the recording's end (worse after a reload), so its ghost vanished and the real
+  vessel never came back. Its final orbit is now worked out from its last recorded positions, so
+  it spawns in its real orbit. (TERMINAL-SPAWN-TAIL-ORBIT-SURFACE-VELOCITY)
+- **Milestones no longer add science stock never paid in Science and Sandbox games.** Outside
+  Career, stock awards nothing for a milestone, but Parsek booked its nominal reward and wrote the
+  science into R&D. A Rendezvous in a Science game added 1 science. Milestones are now recorded
+  with no reward outside Career. (MILESTONE-REWARDS-BOOKED-OUTSIDE-CAREER)
+- **Merging a Re-Fly no longer logs a false science error for the replaced flight.** A science
+  credit of the flight being replaced was checked against the live event list after its event
+  had already been tidied away, and reported missing just before the merge retired it.
+  (REFLY-MERGE-RECONCILES-PRUNED-CAPTURE-OF-SUPERSEDED-ROW)
+- **Discard Re-fly from the Esc menu deletes the discarded attempt's files.** The attempt's
+  recording files stayed in the save folder after the discard (they were set aside on the next
+  load). They are now deleted with the attempt. (ESC-DISCARD-REFLY-LEAVES-ATTEMPT-SIDECARS)
 - **A ghost now replays what you did after flying a spawned vessel again.** When you took over a
   vessel Parsek had spawned and drove or mined with it, that flight was added to the old
   recording, whose ghost did not know the vessel's new parts, so the ghost never moved its wheels
@@ -53,6 +84,11 @@ _(unreleased - entries accumulate here per commit)_
   moved 30 m was thrown away on leaving as "idle on the pad" even when its Mobile Processing Lab
   had transmitted science, or when you recovered it with science stored in the lab. Both now
   count as real work, like running a drill. (IDLE-ON-PAD-DISCARDS-LAB-PAYOUT-FLIGHT)
+- **Recovering a vessel with lab science no longer logs a false science warning.** When one
+  recovery paid both the vessel's science and its lab's stored science, Parsek compared only the
+  first against the game's total and logged a warning and an error, though your science was
+  right. Lab science sent beside an experiment had the same problem.
+  (LAB-RECOVERY-RECONCILE-COALESCED-FALSE-MISMATCH)
 - **A vessel that appears after a time jump no longer mines through the jump.** When a jump
   passed the end of a recording, the vessel spawned at the end and stock caught up its drills and
   ISRU for the whole jumped span, so a rover arrived with ore it never mined. It now arrives
