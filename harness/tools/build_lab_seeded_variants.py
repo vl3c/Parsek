@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the committed `lab-pad-seeded` and `lab-lko-seeded` fixtures BY CONSTRUCTION.
+"""Build the committed `lab-pad-seeded`, `lab-lko-seeded` and `lab-lko-relay` fixtures BY CONSTRUCTION.
 
 WHY THESE FIXTURES EXIST. The science-lab lanes need the LABX Orbital Lab's Mobile
 Processing Lab already holding data and science, in two places a short flight cannot
@@ -84,6 +84,20 @@ WHAT IS COPIED AND WHAT IS DERIVED.
   (15) and the Materials Bay (22) are refused for capacity. Starting research hits the
   500 cap almost at once.
 
+  `lab-lko-relay` (LAB-11, a transmit whose only link home is a ghost relay). The vessel
+  stays ORBITING, the lab carries `lab-pad-seeded`'s seed (all sixteen subjects,
+  dataStored = 204, storedScience = 12.5, research off), and the save gets one CommNet
+  parameter edit: `CommNetParams.enableGroundStations = False`. Decompiled
+  CommNetHome.CreateNode (KSP 1.12.5): with that parameter off, every home that is not
+  `isKSC` is removed (a non-permanent ground station always, a permanent launch-site home
+  whenever `AllowOtherLaunchSites` is False, which the base's DIFFICULTY block says), so
+  the KSC is the only home. In this ~100 km orbit the KSC sees the lab only within about 31
+  degrees of longitude (occlusionMultiplierAtm = 1 in the base: the occluder is Kerbin's
+  full radius), so for most of each orbit the lab has no path home at all, and the LAB-11
+  injection preset (`ghost-commnet-lab`) adds the one ghost relay that bridges it
+  (SyntheticRecordingTests.GhostCommNetLabPreset, pinned by
+  GhostCommNetLabLaneGeometryTests).
+
   EDITED IN EACH SAVE: the `Title` and `Description`.
 
 `--check` re-derives and compares every file of both fixtures against the committed bytes;
@@ -113,17 +127,22 @@ LF = "\n"
 EDITED = ("persistent.sfs",)
 PAD = "lab-pad-seeded"
 LKO = "lab-lko-seeded"
-VARIANTS = (PAD, LKO)
+RELAY = "lab-lko-relay"
+VARIANTS = (PAD, LKO, RELAY)
 
 VESSEL_NAME = "LABX Orbital Lab"
 BASE_TITLE = "lab-lko-science (SCIENCE_SANDBOX)"
 BASE_DESCRIPTION = "Parsek autotest fixture (synthetic, file-constructed)."
-TITLES = {PAD: "lab-pad-seeded (SCIENCE_SANDBOX)", LKO: "lab-lko-seeded (SCIENCE_SANDBOX)"}
+TITLES = {PAD: "lab-pad-seeded (SCIENCE_SANDBOX)", LKO: "lab-lko-seeded (SCIENCE_SANDBOX)",
+          RELAY: "lab-lko-relay (SCIENCE_SANDBOX)"}
 DESCRIPTIONS = {
     PAD: ("Parsek autotest fixture (file-constructed: the LABX Orbital Lab upper stage "
           "PRELAUNCH on the launch pad, its lab seeded with data and science)."),
     LKO: ("Parsek autotest fixture (file-constructed: the LABX Orbital Lab in low Kerbin "
           "orbit, its lab's data and science just under their caps)."),
+    RELAY: ("Parsek autotest fixture (file-constructed: the LABX Orbital Lab in low Kerbin "
+            "orbit, its lab holding 12.5 science, CommNet ground stations off so the KSC "
+            "is the only home)."),
 }
 
 # Stock caps (ConfigCache Large_Crewed_Lab) every seeded value stays strictly below.
@@ -171,7 +190,12 @@ assert sum(v for _s, v in LKO_SUBJECTS) == LKO_STOCK_SUM
 SEED = {
     PAD: {"dataStored": "204", "storedScience": "12.5", "subjects": PAD_SUBJECTS},
     LKO: {"dataStored": "740", "storedScience": "499", "subjects": LKO_SUBJECTS},
+    RELAY: {"dataStored": "204", "storedScience": "12.5", "subjects": PAD_SUBJECTS},
 }
+
+# The one save-level CommNet edit of `lab-lko-relay` (inside CommNetParams).
+GROUND_STATIONS_ON = "\t\t\tenableGroundStations = True"
+GROUND_STATIONS_OFF = "\t\t\tenableGroundStations = False"
 
 # Pad placement: VESSEL keys copied verbatim from the template's PRELAUNCH vessel.
 PAD_COPIED_KEYS = ("sit", "landed", "landedAt", "displaylandedAt", "lat", "lon", "nrm",
@@ -324,6 +348,13 @@ def build_sfs(variant: str) -> str:
         ut = float(ut_line[0].split(" = ")[1])
         vessel = place_on_pad(vessel, tlines[tblocks[0][0]:tblocks[0][1]], ut)
     lines[v_start:v_end] = vessel
+    if variant == RELAY:
+        hits = [i for i, l in enumerate(lines) if l == GROUND_STATIONS_ON]
+        assert len(hits) == 1, "the base's enableGroundStations = True lines: %d" % len(hits)
+        cn = [i for i, l in enumerate(lines) if l == "\t\tCommNetParams"]
+        assert len(cn) == 1 and cn[0] < hits[0] < _block_end(lines, cn[0]), \
+            "enableGroundStations must sit inside CommNetParams"
+        lines[hits[0]] = GROUND_STATIONS_OFF
     assert "\t\tactiveVessel = 0" in lines, "the lab stays the active vessel"
     lines[lines.index("\tTitle = " + BASE_TITLE)] = "\tTitle = " + TITLES[variant]
     lines[lines.index("\tDescription = " + BASE_DESCRIPTION)] = \

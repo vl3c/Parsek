@@ -875,6 +875,46 @@ this orbit the Thermometer (lab value 5) and PresMat (8) still fit and the Goo (
 Materials Bay (22) are refused for capacity. Research off. Hosts the lab-cap lanes.
 Drift-gated with `lab-pad-seeded`.
 
+## lab-lko-seeded-transmit (GAME Mode = SCIENCE_SANDBOX, 1 VESSEL ORBITING, derived from lab-lko-science)
+
+`harness/tools/build_lab_lko_transmit.py`: `lab-lko-science` with ONE vessel edit, the lab's
+`storedScience = 0` -> `12.5` (the pad variant's value: a transmit pays 12.50 at once, 12 Mits
+in six 16-S packets, 72 EC). `dataStored` stays 0 and `EXPERIMENT_DATA` stays empty, so every
+subject is storable. The probe tender stays joined above the pod by its two PreAttached
+Clamp-O-Tron Jr ports: its first `PartAction button=undock` is the Re-Fly separation (a
+JointBreak split with cause UNDOCK and two controllable sides, so a Rewind Point). Research
+off. Hosts LAB-10 / LAB-10b / LAB-13. In this orbit the KSC ground station sees the vessel from
+about UT 2105 to 2480 (the first pass after the fixture's UT 355.8), so the lanes transmit
+inside that window. Drift-gated by `--check` and `harness/lib/test_lab_lko_transmit.py`.
+
+## lab-pad-career (GAME Mode = CAREER, 1 VESSEL PRELAUNCH, derived from strategy-career + lab-pad-seeded)
+
+The LAB-12 host (a lab transmit under a science-taking strategy). `harness/tools/build_lab_pad_career.py`
+runs `build_career_pad_craft`'s splice shape over `strategy-career` (funds 500,000, reputation 25,
+every facility at level 0, an EMPTY `STRATEGIES` node): its empty `FLIGHTSTATE` replaced by
+`lab-pad-seeded`'s verbatim (the LABX Orbital Lab PRELAUNCH on the pad, its lab at 12.5 science /
+204 data, the Communotron 16-S; save UT 355.83), Valentina's and Bob's roster rows replaced by the
+donor's `Assigned` ones, the donor's inert ParsekScenario node inserted, the R&D `Tech` children
+replaced by the donor's (`start` plus the craft's 29 nodes) and `sci` seeded to 400. Patents
+Licensing (`PatentsLicensingCfg`) at the seam's factor 0.05 costs 263.25 science and nothing else;
+Administration level 0 gives exactly one strategy slot (decompiled `GetActiveStrategyLimit`). The
+strategy is NOT active in the save: the lane activates it through `KscAction activate-strategy`, so
+Parsek sees a player activation. Everything else is `strategy-career`'s, ProgressTracking included.
+Drift-gated by `--check` and `harness/lib/test_lab_pad_career.py`.
+
+## lab-lko-relay (GAME Mode = SCIENCE_SANDBOX, 1 VESSEL ORBITING, derived from lab-lko-science)
+
+Same builder: `lab-lko-science`'s orbiting vessel (about 107 x 92 km, inclination 0.09 deg)
+with `lab-pad-seeded`'s lab (`dataStored = 204`, the sixteen subjects, `storedScience = 12.5`,
+research off), plus ONE save-level edit: `CommNetParams.enableGroundStations = False`. Stock
+(decompiled `CommNetHome.CreateNode`) then removes every home that is not the KSC (the base
+has `AllowOtherLaunchSites = False`), and with `occlusionMultiplierAtm = 1` the KSC sees the
+lab only within about 31 degrees of longitude, so for most of each ~2,150 s synodic pass the
+lab has no path home at all. The LAB-11 injection preset `ghost-commnet-lab` adds the one
+committed relay recording (a Kerbin-synchronous RA-100 relay 50 deg west of the KSC) whose
+ghost bridges it; the windows are derived and pinned by `GhostCommNetLabLaneGeometryTests`.
+Drift-gated with `lab-pad-seeded`.
+
 ## fresh-science (GAME Mode = SCIENCE_SANDBOX)
 
 Science pool only: `ResearchAndDevelopment sci = 100`, no Funding / Reputation /

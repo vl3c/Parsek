@@ -1,0 +1,228 @@
+schema = 1
+id = "LAB-2-lab-experiments-processed"
+tier = "operator"
+# THE SCIENCE-LAB PROGRAM, lane LAB-2 (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
+# "LAB-2 experiments into the lab").
+# FLOWN 2026-10-17_2052 PASS (attempt 1, 103 s, automation DLL d0695b37): live-proven; operator.
+#
+# HOST: `lab-lko-science` (harness/tools/build_lab_lko_science.py): SCIENCE_SANDBOX, the LABX
+# Orbital Lab (persistentId 2200110055) ORBITING Kerbin at about 107 x 92 km, so InSpaceLow,
+# with Valentina in the Mk1 pod (the vessel is controllable, every experiment's
+# usageReqMaskInternal = 1) and Bob, a Scientist, in the Large.Crewed.Lab (the lab is manned).
+# The lab loads with dataStored = 0, storedScience = 0, no EXPERIMENT_DATA and Research off.
+# Fixture UT 355.8, so the first wait targets UT 385.
+#
+# THE STORY. Run each of the craft's four experiments with the seam's `experiment` button
+# (`ModuleScienceExperiment.DeployExperiment`), wait for stock's results page, press the
+# page's "process in lab" (`labprocess`) and read the lab back (`inspect`): the lab must store
+# the stock lab value of each datum. Then run the thermometer AGAIN (it is rerunnable, and
+# its InSpaceLow subject is the one the lab already holds) and process it: the lab must refuse
+# it and keep its data. Then hold the barometer's datum UNPROCESSED through a commit, a
+# SaveGame and a LoadGame, and process it after the load: stock never saves
+# `ScienceData.labValue`, so before the labprocess fix (PR #2135) this stored 0 and burned the
+# subject's lab slot. Processing is not science income, so nothing may book science.
+#
+# FIRST FLIGHT 2026-10-17_2045 (PARSEK-FAIL on these windows only; every product behaviour was
+# right): the live stock lab values in this orbit are thermometer 5, Goo 15, Science Jr 22,
+# barometer 8 (labRoute=page x3, review x1 after the reload), so dataStored reads 5, 20, 42,
+# 42 after the refused duplicate and across the save/load, then 50. The windows below were
+# derived from a mis-modelled formula (10/12/31/15) and are re-pinned to the exact live values.
+# EXPECTED SUBJECTS AND VALUES (stock 1.12.5, decompiled `UpdatePageLabValue`, lab cfg
+# ContextBonus 0.25; not landed, so no SurfaceBonus and no homeworld multiplier; Kerbin
+# InSpaceLow multiplier 1; every biomeMask lacks the space bits, so each subject is global):
+#   temperatureScan@KerbinInSpaceLow    (sensorThermometer)  8 x 1.25 = 10
+#   mysteryGoo@KerbinInSpaceLow         (GooExperiment)     10 x 1.25 = 12.5 -> 12 (banker's)
+#   mobileMaterialsLab@KerbinInSpaceLow (science.module)    25 x 1.25 = 31.25 -> 31
+#   barometerScan@KerbinInSpaceLow      (sensorBarometer)   12 x 1.25 = 15
+# Cumulative dataStored: 10, 22, 53, then 53 after the refused duplicate and across the
+# save/load, then 68 after the post-load barometer. These are BELIEF until the reading run:
+# each press pins `labValue=` positive only and each lab reading pins a window around the
+# cumulative value (wide enough for the barometer's in-space subject being something else,
+# narrow enough that a 0.1x homeworld multiplier or a 0 store reds). Re-pin exactly after
+# the first green flight.
+#
+# THE DUPLICATE. `ModuleScienceLab.IsStorable` refuses a subject already in ExperimentData,
+# and stock's `ScienceLabSearch` then reports ALL_RESEARCHED (labs=1, manned=1, space=1,
+# notResearched=0, idle=1). The seam runs that search BEFORE the send, so the second
+# thermometer press answers REJECTED `partaction-lab-unavailable` with
+# `labError=ALL_RESEARCHED:...` and leaves the datum in the experiment (`exp:data=1`). The
+# lab readings either side of it must carry the SAME dataStored (a backreference contract).
+#
+# THE COMMIT. StopRecording, CommitTree and RC-6's second StopRecording (CommitTree re-takes
+# the committed tree for the still-active vessel), then `inspect expectSnapshot=true` compares
+# the live lab with the committed recording's END snapshot (dataStored, storedScience and the
+# EXPERIMENT_DATA subject set): a spawn of this recording would carry the lab's processed data.
+#
+# THE LEDGER. Processing pays nothing: no `ScienceLabCredited` anywhere in the lane (there is
+# no transmission and no recovery), and no `Game state: ScienceChanged` inside the two
+# processing windows (MissionMark-bounded, so a load-time line outside them cannot red the
+# lane on noise).
+#
+# NOT HERE: the F9-with-a-live-recorder shape (LoadGame refuses `recording-active`; the seam
+# has no `allowLiveRecorder=quickload`, plan Q6). The post-commit save/load above covers the
+# unsaved-labValue regression without a live recorder.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse - no flown lane boots lab-lko-science
+# yet; LAB-3 processes the same four experiments as its own prefix and could absorb this
+# lane's prefix later, but its warp story is separate. (2) no idle waits - every wait is an
+# explicit-UT `WarpToUT maxRate=1`, the first sized for the post-load settle (about 29 s of
+# margin over the fixture UT), the rest 6 s each for stock's results page (the seam doc: a
+# labprocess inside dialogDelay races stock's delayed reviewData). (3) no dwells. (4) no
+# burns. (5) no coast. (6) fail fast - a refused press is a step failure at once; retry
+# `once` because the first flight is not yet known to be deterministic. (7) count window -
+# one recording, pinned {1,1}. (8) tier - operator until the reading run; promote by the
+# measured p50 (expected under 5 min). (9) flight_efficiency.py after the first green flight.
+#
+# WHAT A FIRST FLIGHT CAN FALSIFY: the four lab values (a different barometer subject, a
+# ContextBonus that does not apply), the page route (`labRoute=page` expected after each
+# wait; `review` is also accepted), the ALL_RESEARCHED token on the duplicate, the
+# end-snapshot equality (a `snapshotMatch=false` is a Parsek finding: the recording's end
+# snapshot does not carry the lab's data), the post-load press (`lab-value-zero` would mean
+# the review route builds a zero-valued page from a loaded datum), and the UT margins.
+description = "LAB-2: in a crewed science lab in low Kerbin orbit, the thermometer, barometer, Mystery Goo and Science Jr results are processed into the lab at their stock lab values while recording, a second thermometer result for the same subject is refused with the lab unchanged, the committed recording's end snapshot matches the lab, a datum held through a save and load still processes at a positive value, and processing books no science."
+instanceProfile = "stock-minimal"
+tags = ["science-lab", "science", "LAB-2", "flown"]
+
+[fixture]
+saveTemplate = "fixtures/saves/lab-lko-science"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "StartRecording",                                                          expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab2-recording-live" },                expect = "OK" },
+  # 1. Thermometer: run, wait for the results page, process, read the lab (10).
+  { cmd = "PartAction",     args = { button = "experiment", part = "sensorThermometer" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "385", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "sensorThermometer" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # 2. Mystery Goo (22).
+  { cmd = "PartAction",     args = { button = "experiment", part = "GooExperiment" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "391", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "GooExperiment" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # 3. Science Jr (53).
+  { cmd = "PartAction",     args = { button = "experiment", part = "science.module" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "397", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "science.module" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # 4. The duplicate: the thermometer again, same subject; the lab refuses it (still 53).
+  { cmd = "PartAction",     args = { button = "experiment", part = "sensorThermometer" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "403", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "sensorThermometer" }, expect = "REJECTED" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "sensorThermometer" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # 5. The barometer: run and wait, but hold its datum unprocessed through the save/load.
+  { cmd = "PartAction",     args = { button = "experiment", part = "sensorBarometer" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "409", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "inspect", part = "sensorBarometer" }, expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab2-processed" },                     expect = "OK" },
+  # 6. Commit, then the lab against the committed recording's end snapshot.
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "CommitTree",                                                              expect = "OK", budget = 120 },
+  # CommitTree re-takes the committed tree for the still-active vessel; stop it (RC-6).
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab2-committed-${c0.count}-${c0.rec0}" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab", expectSnapshot = "true", rec = "${c0.rec0}" }, expect = "OK" },
+  # 7. Save, reload, read the lab (still 53), process the held barometer datum (68).
+  { cmd = "SaveGame",       args = { name = "lab2-processed" },                      expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "lab2-processed" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab2-reloaded" },                      expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "sensorBarometer" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "sensorBarometer" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab2-post-load-processed" },           expect = "OK" },
+  { cmd = "SaveGame",                                                                expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["science"]
+D14 = ["kerbin", "science-mode", "scene-flight", "warp-1x"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  # The baseline: an empty lab.
+  "partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*dataStored=0\\.00[;']",
+  # Each experiment ran (the stock DeployExperiment event).
+  "partaction applied button=experiment pid=2200110055 part='sensorThermometer' ",
+  "partaction applied button=experiment pid=2200110055 part='GooExperiment' ",
+  "partaction applied button=experiment pid=2200110055 part='science\\.module' ",
+  "partaction applied button=experiment pid=2200110055 part='sensorBarometer' ",
+  # Each process sent a positive lab value (the seam refuses a zero one before the send).
+  "partaction applied button=labprocess pid=2200110055 part='sensorThermometer' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=[1-9][0-9]*\\.[0-9]{2}",
+  "partaction applied button=labprocess pid=2200110055 part='GooExperiment' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=[1-9][0-9]*\\.[0-9]{2}",
+  "partaction applied button=labprocess pid=2200110055 part='science\\.module' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=[1-9][0-9]*\\.[0-9]{2}",
+  # The lab readings in order: 10 (7-13), 22 (18-27), 53 (45-61), each after its own press.
+  "(?s)labprocess pid=2200110055 part='sensorThermometer' (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*dataStored=5\\.00[;']",
+  "(?s)labprocess pid=2200110055 part='GooExperiment' (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*dataStored=20\\.00[;']",
+  "(?s)labprocess pid=2200110055 part='science\\.module' (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*dataStored=42\\.00[;']",
+  # The duplicate: refused by stock's lab search as already researched, before any send.
+  "partaction rejected reason=partaction-lab-unavailable button=labprocess pid=2200110055 part='sensorThermometer' [^\\r\\n]*subject='temperatureScan@KerbinInSpaceLow' [^\\r\\n]*labError=ALL_RESEARCHED:labs=1,manned=1,space=1,notResearched=0,idle=1 ",
+  # ... the datum stays in the thermometer ...
+  "(?s)partaction rejected reason=partaction-lab-unavailable (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='sensorThermometer' [^\\r\\n]*state='[^'\\r\\n]*exp:data=1",
+  # ... and the lab reading after it carries the same dataStored as the one before it.
+  "(?s)partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*dataStored=([0-9]+\\.[0-9]{2})[;'](?:(?!partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab').)*?partaction rejected reason=partaction-lab-unavailable [^\\r\\n]*part='sensorThermometer'(?:(?!partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab').)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*dataStored=\\1[;']",
+  # The barometer holds its datum, unprocessed, into the commit.
+  "partaction applied button=inspect pid=2200110055 part='sensorBarometer' [^\\r\\n]*state='[^'\\r\\n]*exp:data=1",
+  # The commit: one recording, and its end snapshot carries the lab's data.
+  "committree committed=true",
+  "MISSIONMARK label=lab2-committed-1-[0-9a-f]{32} ",
+  "partaction snapshot complete rec=[0-9a-f]{32} parts=1 compared=1 [^\\r\\n]*snapshotMatch=true ",
+  "partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*snapshotMatch=true",
+  # After the reload: the lab's data persisted (the same dataStored as the duplicate's reading,
+  # the last lab reading before the save), ...
+  "(?s)partaction rejected reason=partaction-lab-unavailable (?:(?!partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab').)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*dataStored=([0-9]+\\.[0-9]{2})[;'](?:(?!MISSIONMARK label=lab2-reloaded ).)*?MISSIONMARK label=lab2-reloaded (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*dataStored=\\1[;']",
+  # ... the loaded barometer datum still holds data, ...
+  "(?s)MISSIONMARK label=lab2-reloaded (?:(?!MISSIONMARK label=lab2-post-load-processed ).)*?partaction applied button=inspect pid=2200110055 part='sensorBarometer' [^\\r\\n]*state='[^'\\r\\n]*exp:data=1",
+  # ... and it processes at a positive value through the review route (no page after a load),
+  "(?s)MISSIONMARK label=lab2-reloaded (?:(?!MISSIONMARK label=lab2-post-load-processed ).)*?partaction applied button=labprocess pid=2200110055 part='sensorBarometer' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=review labValue=[1-9][0-9]*\\.[0-9]{2}",
+  # ... and the lab ends at about 68 (60-76).
+  "(?s)labprocess pid=2200110055 part='sensorBarometer' (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*dataStored=50\\.00[;']",
+  # Processing books no science: nothing moves the R&D pool inside either processing window.
+  "(?s)MISSIONMARK label=lab2-recording-live (?:(?!Game state: ScienceChanged).)*?MISSIONMARK label=lab2-processed ",
+  "(?s)MISSIONMARK label=lab2-reloaded (?:(?!Game state: ScienceChanged).)*?MISSIONMARK label=lab2-post-load-processed ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The one deliberate refusal is the duplicate thermometer; any other refusal is a failure.
+  "partaction rejected (?!reason=partaction-lab-unavailable button=labprocess pid=2200110055 part='sensorThermometer' [^\\r\\n]*labError=ALL_RESEARCHED:)",
+  "partaction-lab-value-zero",
+  "partaction error ",
+  # No transmission and no recovery happen here, so no lab credit may reach the ledger.
+  "ScienceLabCredited",
+  "snapshotMatch=false",
+  "Exploded!!",
+]
+
+[runtime]
+# Two LoadGame steps (up to 300 s each, about 90 s typical), about 55 s of 1x game time,
+# a commit and two saves.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

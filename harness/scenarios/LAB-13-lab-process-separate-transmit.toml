@@ -1,0 +1,195 @@
+schema = 1
+id = "LAB-13-lab-process-separate-transmit"
+tier = "operator"
+# THE SCIENCE-LAB PROGRAM, lane LAB-13 (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
+# "LAB-13 dock and undock"), REDUCED to what the craft can drive. NEVER FLOWN: its first flight
+# is a READING run, so it is `operator` and tagged `pending-flight` until that run pins the
+# measured values.
+#
+# WHY REDUCED. The plan's lane is a TRUE dock / undock pair: re-dock the probe tender to the
+# lab after its first separation, process an experiment into the lab while docked, undock
+# (onVesselsUndocking, an Undock branch), transmit. The re-dock is not drivable on this craft:
+#   - the seam has no dock verb (the M-A2 verb table: no Dock / DockWith; docking in the corpus
+#     is flown by the kRPC missions `bdock_dock_transfer` / `bdock_second_dock` / `d5_redock`,
+#     whose DOCK phase is MechJeb's docking autopilot);
+#   - MechJeb's docking autopilot translates on RCS, and neither side carries any: the LABX
+#     Orbital Lab's parts are the pod, the lab, an RW-L wheel, batteries, RTGs, the Poodle and
+#     the experiments (no RCS block, no monopropellant; `build_lab_orbit_craft.EXPECTED_PARTS`),
+#     and the tender is an OKTO, a Z-200 and a Jr port with no engine at all (craft note A12);
+#   - the tender leaves the pre-attached joint with the port's ejection impulse (Decouple() adds
+#     +/- undockEjectionForce / 2 to both parts) and drifts apart at a fraction of a m/s, while
+#     a Jr port re-acquires only inside its acquire range, so it can never drift back.
+#   A drivable true pair needs a craft revision (RCS and monopropellant on the lab, or a tender
+#   with RCS) plus a LABX-1 re-flight and re-harvest, or an RCS-equipped partner forged from the
+#   bdock fixtures (the plan's own "docking variant" fixture, which does not exist).
+#
+# WHAT THIS LANE DRIVES INSTEAD, on the joined craft that exists. While the tender is still
+# joined (the two editor-joined Clamp-O-Tron Jr ports, PreAttached), the lab and the tender are
+# ONE vessel, exactly the state the plan's "process while docked" step needs: labprocess targets
+# the active vessel, which is the joined vessel. Then the FIRST separation of the pair (the
+# port's Undock on a PreAttached pair -> Decouple() -> Part.decouple(): a JointBreak split with
+# cause UNDOCK, never onVesselsUndocking; see LAB-10's header), and a transmit from the lab after
+# it. The claims: the processed data and the stored science stay with the LAB (pid 2200110055,
+# the root side) and not with the tender; one credit, tagged to the lab's recording, which in
+# Parsek's breakup-continuous model is the SAME recording the lab carried before the separation
+# (the tender gets a new controlled-child recording); the split is one JointBreak with cause
+# UNDOCK and a Rewind Point (two controllable sides), and NOT an Undock branch; the committed lab
+# recording's end snapshot carries the lab's contents.
+#
+# HOST: `lab-lko-seeded-transmit` (harness/tools/build_lab_lko_transmit.py): the LABX Orbital Lab
+# ORBITING, the tender joined, the lab holding 12.5 science and no data (every subject storable;
+# the Thermometer's InSpaceLow lab value is 5, LAB-2 measured). Fixture UT 355.8.
+#
+# THE TRANSMIT WINDOW: the KSC ground station sees the vessel from about UT 2105 to 2480 (LAB-10's
+# arithmetic); the press is at UT 2280.
+#
+# WHAT IS GATED ON BELIEF (reading-run pins): the undock folding to one candidate; the split shape
+# and the RP; the link inside the computed window; `runningScience=112.5`; the recordings count 2.
+#
+# FAST-LANE CHECKLIST: (1) reuse - LAB-10's separation and transmit with the process before the
+# split and an in-flight commit; kept separate so a LAB-10 red (the Re-Fly) does not hide this
+# lane's simpler claim. (2) explicit-UT waits only. (3)-(5) none. (6) retry `once`. (7) count
+# {2,2}. (8) operator until green (expected about 4 min). (9) flight_efficiency.py after green.
+#
+# WHAT A FIRST FLIGHT CAN FALSIFY: the labprocess on the joined vessel; the undock press; the data
+# or science leaving with the tender (the lab reading after the split); the credit's tag (a new
+# lab recording at the split would carry a different id); a true-undock event firing for a
+# PreAttached pair; the end-snapshot match.
+description = "LAB-13 (reduced: no re-dock is drivable without RCS): in low Kerbin orbit, a thermometer reading is processed into the science lab while the probe tender is still joined (one vessel), then the tender separates (the pre-attached port's Undock: one JointBreak split with cause UNDOCK and a Rewind Point, not an Undock branch); the lab keeps its data and science, transmits 12.5 at the KSC pass with exactly one credit tagged to the lab's own continuing recording, and the committed recording's end snapshot matches the lab."
+instanceProfile = "stock-minimal"
+tags = ["science-lab", "science", "transmit", "docking-port", "separation", "rails-warp",
+        "LAB-13", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/lab-lko-seeded-transmit"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "StartRecording", label = "sr",                                            expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  # 1. JOINED: run the Thermometer and process it into the lab (the joined vessel is active).
+  { cmd = "MissionMark",    args = { label = "lab13-joined" },                       expect = "OK" },
+  { cmd = "PartAction",     args = { button = "experiment", part = "sensorThermometer" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "372", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "sensorThermometer" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # 2. SEPARATE the tender (the pre-attached pair's first Undock).
+  { cmd = "MissionMark",    args = { label = "lab13-undock" },                       expect = "OK" },
+  { cmd = "PartAction",     args = { button = "undock" }, label = "und",             expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "384", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "lab13-split" },                        expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "sensorThermometer" }, expect = "OK" },
+  # 3. TRANSMIT from the lab at the KSC pass.
+  { cmd = "WarpToUT",       args = { ut = "2270", maxRate = "50" },                  expect = "OK", budget = 540 },
+  { cmd = "WarpToUT",       args = { ut = "2280", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "lab13-t-before" },                     expect = "OK" },
+  { cmd = "PartAction",     args = { button = "labtransmit", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "2292", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "lab13-t-after" },                      expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # 4. Commit in flight, then the lab against the lab recording's end snapshot.
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "CommitTree",                                                              expect = "OK", budget = 120 },
+  # CommitTree re-takes the committed tree for the still-active vessel; stop it (RC-6).
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab", expectSnapshot = "true", rec = "${sr.recordingId}" }, expect = "OK" },
+  { cmd = "SaveGame",                                                                expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+# controlled-decoupled-child <- `ProcessBreakupEvent: controlled child created: pid=<tender>`
+D5  = ["controlled-decoupled-child"]
+D8  = ["science"]
+D14 = ["kerbin", "science-mode", "scene-flight", "warp-1x", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# DERIVED 2: the lab's recording (continuing through the separation) and the tender's.
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  "partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=0\\.00;Research:active=0'",
+  # --- 1. JOINED: processed into the lab on the one joined vessel ---
+  "(?s)MISSIONMARK label=lab13-joined (?:(?!MISSIONMARK label=lab13-undock ).)*?partaction applied button=experiment pid=2200110055 part='sensorThermometer' ",
+  "(?s)MISSIONMARK label=lab13-joined (?:(?!MISSIONMARK label=lab13-undock ).)*?partaction applied button=labprocess pid=2200110055 part='sensorThermometer' [^\\r\\n]*event=OnSendToLab [^\\r\\n]*vessels=1->1 [^\\r\\n]* labRoute=(?:page|review) labValue=[1-9][0-9]*\\.[0-9]{2}",
+  "(?s)labprocess pid=2200110055 part='sensorThermometer' (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=5\\.00;",
+  # --- 2. THE SEPARATION (LAB-10's tokens) ---
+  "(?s)MISSIONMARK label=lab13-undock (?:(?!partaction applied button=).)*?partaction applied button=undock pid=2200110055 part='dockingPort3' partId=[0-9]+ event=Undock newPid=[1-9][0-9]* newName='[^'\\r\\n]*' vessels=1->2 activePid=2200110055 ",
+  "Armed pre-attached Undock intent: portPid=[0-9]+ otherPid=[0-9]+ ut=",
+  "=> UNDOCK \\(consumed\\)",
+  "OnPartDeCouple: pre-attached docking-port undock part='dockingPort3' pid=[0-9]+ vesselPid=2200110055 => split cause UNDOCK",
+  "SEPARATION emitted: ut=[0-9.]+ type=JointBreak splitCause=UNDOCK decouplerPartId=[0-9]+ controlledChildren=1 debris=0 ",
+  "(?s)partaction applied button=undock [^\\r\\n]*newPid=([0-9]+) .*?ProcessBreakupEvent: controlled child created: pid=\\1, name='[^'\\r\\n]*', recId=[0-9a-f]{32}, alive=True, bgRecorder=True",
+  "(?s)partaction applied button=undock [^\\r\\n]*newPid=([0-9]+) .*?Controllable split children: \\[(?:2200110055,\\1|\\1,2200110055)\\] \\(orig=2200110055, checked=2, unresolved=0\\)",
+  "(?s)Controllable split children: \\[[0-9,]+\\] \\(orig=2200110055, .*?RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 focusSlot=0 ut=[0-9.]+.*?RewindPoint slot capture: rp=\\1 populated=2/2 disabled=0",
+  # The data and the science stayed with the LAB (still pid 2200110055), the datum left the
+  # thermometer when it was processed.
+  "(?s)MISSIONMARK label=lab13-split (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=5\\.00;",
+  "(?s)MISSIONMARK label=lab13-split (?:(?!MISSIONMARK ).)*?partaction applied button=inspect pid=2200110055 part='sensorThermometer' [^\\r\\n]*state='[^'\\r\\n]*exp:data=0",
+  # --- 3. THE TRANSMIT: one credit, tagged to the lab's continuing recording ---
+  "(?s)startrecording recordingId=([0-9a-f]{32}) already=false(?:(?!MISSIONMARK label=lab13-t-after ).)*?MISSIONMARK label=lab13-t-before (?:(?!MISSIONMARK label=lab13-t-after ).)*?Game state: ScienceLabCredited \\+12\\.50 reason='ScienceTransmission' vessel='LABX Orbital Lab' ut=[0-9.]+ recordingId='\\1'",
+  "(?s)MISSIONMARK label=lab13-t-before (?:(?!MISSIONMARK label=lab13-t-after ).)*?Game state: ScienceChanged \\+12\\.5 \\(ScienceTransmission\\)[^0-9\\r\\n]+112\\.5(?![0-9])",
+  # The lab keeps the fraction and all its data.
+  "(?s)MISSIONMARK label=lab13-t-after (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.50 dataStored=5\\.00;",
+  # --- 4. THE COMMIT ---
+  "committree committed=true",
+  "CommitTree promoted rec=[0-9a-f]{32} vessel='[^'\\r\\n]*' slot=1 rp=rp_[0-9a-f]{32} reason=stableLeafUnconcluded to CommittedProvisional",
+  "CommitTree: promoted 1 normal staging RP\\(s\\)",
+  "(?s)startrecording recordingId=([0-9a-f]{32}) already=false.*?MISSIONMARK label=lab13-t-after .*?LabEarning: credit=12\\.5, method=Transmitted, runningScience=112\\.5, recordingId=\\1(?![0-9a-f])",
+  # The lab recording's end snapshot carries the lab's contents.
+  "(?s)startrecording recordingId=([0-9a-f]{32}) already=false.*?partaction snapshot complete rec=\\1 parts=1 compared=1 [^\\r\\n]*snapshotMatch=true ",
+  "partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*snapshotMatch=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  "partaction error ",
+  "partaction-lab-value-zero",
+  "warptout refused",
+  # Two controllable sides, and a pre-attached pair never raises the true-undock path.
+  "Single-controllable split: no RP",
+  "OnVesselsUndocking:entry",
+  "Tree branch created: type=Undock",
+  # Exactly one lab credit, inside the transmit window.
+  "(?s)(?:Game state: ScienceLabCredited .*?){2}",
+  "(?s)\\A(?:(?!MISSIONMARK label=lab13-t-before ).)*?Game state: ScienceLabCredited",
+  "(?s)MISSIONMARK label=lab13-t-after .*?Game state: ScienceLabCredited",
+  # Processing books no science.
+  "(?s)MISSIONMARK label=lab13-joined (?:(?!MISSIONMARK label=lab13-t-before ).)*?Game state: ScienceChanged",
+  "snapshotMatch=false",
+  "Lab payout net of a strategy take",
+  "Exploded!!",
+]
+
+# REPORT-ONLY until the reading run: the separation's point is kept (the commit opens the
+# tender's slot as a stable leaf), nothing superseded or tombstoned.
+[expectations.rewind]
+gating        = false
+rewindPoints  = { min = 1, max = 1 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+# One LoadGame (up to 300 s), one rails warp of about 1,900 s at the 50x cap (about 40 s), about
+# 50 s of 1x game time, the commit and a save.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

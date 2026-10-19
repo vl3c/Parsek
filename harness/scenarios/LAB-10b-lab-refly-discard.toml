@@ -1,0 +1,278 @@
+schema = 1
+id = "LAB-10b-lab-refly-discard"
+tier = "operator"
+# THE SCIENCE-LAB PROGRAM, lane LAB-10b (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
+# "LAB-10 Re-Fly, supersede and Discard Re-fly", the DISCARD half; the merge half is LAB-10).
+# Still `operator` / `pending-flight`: the reading run below found a product defect.
+#
+# READING RUN `2026-10-17_2341` (automation DLL = main 9a483c4a5, PR #2138 included): PARSEK-FAIL
+# on two mismatches; every other token matched (the purge `live=3`, `ledgerTagsCleared=0`, no
+# re-home, no tombstone, `slotListed=true`, the point kept).
+#   (1) SPEC PREMISE, re-pinned: the pool after the rewind is the committed 112.5, not 100 (the
+#       Re-Fly invoke walks the whole ledger, act A's future credit included: `PatchScience:
+#       100.0 -> 112.5` before `Invocation complete`), so the attempt's transmit lands on 125.0.
+#       See LAB-10's header, finding 1, and todo REFLY-SESSION-CAREER-SHOWS-THE-REPLACED-
+#       FLIGHTS-FUTURE (owner question).
+#   (2) PRODUCT, kept red: `recordings.count 3 > max 2`. The third `.prec` is the discarded
+#       attempt's own sidecar (`rec_...`): the Esc Discard pruned the committed original
+#       instead of the live clone that holds the fork (`PruneActiveReFlyAttemptOwnedTopology ...
+#       deletedFiles=0`; todo ESC-DISCARD-REFLY-LEAVES-ATTEMPT-SIDECARS, PR #2140). The {2,2}
+#       window stays and turns green only on a DLL carrying PR #2140.
+#
+# HOST AND ACT A: LAB-10's, verbatim (`lab-lko-seeded-transmit`; record, separate the probe
+# tender with the pre-attached port's Undock at UT ~368, the JointBreak / UNDOCK split and its
+# Rewind Point with the lab as the focus slot 0, transmit the lab's 12.5 at the KSC pass at UT
+# 2280, the scene exit auto-commits the tree and books the credit on the lab's recording, then
+# SaveGame persistent). See LAB-10's header for the stock and Parsek mechanics and the KSC
+# window arithmetic.
+#
+# THE STORY AFTER ACT A. Fly the lab again, Stash its slot, re-fly it from the separation (the
+# lab back at 12.50, the pool patched to the committed 112.5), rails-warp to the pass and transmit
+# again: a second credit `+12.50` tagged to the Re-Fly's provisional (`rec_...`), stock landing on
+# 125.0. Then the player changes their mind:
+# Esc > Revert Flight > Revert to Launch > Discard Re-Fly (`ReFlyRevert choice=discard
+# target=launch`, QL-5's verb and route through the stock menus and Parsek's dialog).
+#
+# WHAT A DISCARD RE-FLY DOES WITH THE ATTEMPT'S LAB CREDIT (read from the code, 2026-10-18).
+# `RevertInterceptor.DiscardReFlyHandler` -> `MergeDialog.PruneActiveReFlyAttemptOwnedTopology`
+# purges the attempt's tagged store events (`PurgeEventsForRecordings (RevertInterceptor:
+# DiscardReFly ...): live=N`, the ScienceLabCredited and ScienceChanged events among them),
+# clears the ledger tag of any row the attempt owned (`ClearRecordingTagForRecordings`: the
+# attempt's credit is an EVENT, never converted, so none) and loads the rewind point's game,
+# which carries the pool from BEFORE either transmit. It does NOT run
+# `LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard`: that method's own contract
+# says "Re-fly / rewind discards must NOT call this: they revert KSP via a quicksave reload, so
+# preserving would diverge the other way" (its only callers are the non-rewind discard cores in
+# RecordingStore / ParsekFlight). So the plan's "the original credit is kept as a direct
+# earning (the rehome rule)" does not apply here: the ORIGINAL credit is not discarded at all
+# (it is committed history on the lab's recording, untouched: no merge, no tombstone), and the
+# ATTEMPT's credit is dropped with the attempt, not re-homed. This lane pins THAT.
+#
+# THE LEDGER WITNESSES. Act A's commit books the original credit (`LabEarning: credit=12.5,
+# method=Transmitted, runningScience=112.5, recordingId=<lab>`). The attempt's credit must never
+# reach a ledger walk (`LabEarning ... recordingId=<rec_...>` forbidden anywhere), never be
+# re-homed (`PreserveIrreversibleLiveGameplayOnDiscard (...): re-homed` forbidden), never keep an
+# untagged row (`ClearRecordingTagForRecordings: cleared=[1-9]` forbidden), and nothing is
+# tombstoned. The Space Center lands at the rewind point's UT (~368, before the original credit's
+# UT 2280), so its recalc walks only to that UT (`RecalculateAndPatchForCurrentTimelineUT`) and
+# the original credit, a committed-future row there, is not walked after the discard: the lane
+# has no positive post-discard witness for it (see "NOT HERE"). No PatchScience may ever target
+# 125 (both credits counted).
+#
+# THE SLOT. The stashed lab slot must still be offered after the discard: QL-5's read-back
+# `reflyrevert complete ... rpKept=true slot=<lab> slotListed=true`, the rewind point kept (the
+# tender slot is open too, so `unfinishedFlights=2` is expected; the gate is `[1-9]`).
+#
+# WHAT IS GATED ON BELIEF (reading-run pins): everything LAB-10's act A gates; `live=N` with N >=
+# 1 on the purge (the two attempt events); `slotListed=true` (the stash surviving the discard's
+# in-session hand-off: the RP list comes from memory for a tree committed in memory); the
+# recordings count 2 (the lab and the tender; the attempt's sidecar is deleted: measured 3 on the
+# reading run, the product defect above).
+#
+# NOT HERE: a positive witness that the ORIGINAL credit is still booked after the discard. It
+# needs a ledger walk past UT 2280 from the rewound clock (fly the lab again and warp past the
+# pass, then a scene change), and in that world the real lab still holds its 12.5 at UT ~368
+# while the committed timeline says it transmitted at 2280: what a player sees when he reaches
+# the pass again is its own question (a second transmit there would pay twice) and is left to a
+# later lane. LedgerGroundTruth (unproven in SCIENCE_SANDBOX).
+#
+# FAST-LANE CHECKLIST: as LAB-10 (shared act A, explicit-UT warps, retry `once`, count {2,2},
+# operator until green, expected about 7 min).
+#
+# WHAT A FIRST FLIGHT CAN FALSIFY: act A (as LAB-10); the stash and the rewind; the pool reset at
+# the rewind; the purge count; a ledger walk or a row naming the attempt; a re-home line; the
+# slot read-back (`slotListed=false` with `rpKept=true` would mean the discard lost the stash).
+description = "LAB-10b: an orbiting science lab separates its probe tender (a Rewind Point) and transmits 12.5 science tagged to its own recording, committed; the player stashes and re-flies the lab's slot, transmits again in the replacement flight, then picks Discard Re-Fly from the Esc menu: the attempt's tagged lab credit is purged with the attempt, never re-homed, walked or kept as an untagged row, nothing is tombstoned, the original credit stays committed, and the stashed slot and its rewind point stay offered."
+instanceProfile = "stock-minimal"
+tags = ["science-lab", "science", "transmit", "refly", "rewind", "discard-refly", "revert-dialog",
+        "unfinished-flights", "stash", "docking-port", "scene-exit", "rails-warp", "LAB-10b",
+        "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/lab-lko-seeded-transmit"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                              expect = "OK" },
+  { cmd = "DiscardTree",                                                                expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # ---- ACT A (LAB-10's): record, separate the tender, transmit at the KSC pass, commit ----
+  { cmd = "StartRecording",                                                             expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                             expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "368", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "lab10b-undock" },                      expect = "OK" },
+  { cmd = "PartAction",        args = { button = "undock" }, label = "und",             expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "380", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "lab10b-split" },                       expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "2270", maxRate = "50" },                  expect = "OK", budget = 540 },
+  { cmd = "WarpToUT",          args = { ut = "2280", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "lab10b-t1-before" },                   expect = "OK" },
+  { cmd = "PartAction",        args = { button = "labtransmit", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "2292", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "lab10b-t1-after" },                    expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  { cmd = "SaveGame",          args = { name = "persistent" },                          expect = "OK", budget = 120 },
+  # ---- ACT B: fly the lab, stash its slot, re-fly it, transmit again ----
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent", focusPid = "2200110055" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "StopRecording",                                                              expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles",     expect = "OK" },
+  { cmd = "StashSlot",         args = { rp = "${handles.rp0}", slot = "0" },            expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "0" },            expect = "OK", budget = 300 },
+  { cmd = "ListHandles",       args = { kind = "chains" },                              expect = "OK" },
+  { cmd = "RecordingState",    args = { awaitRecorderLive = "refly" },                  expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "lab10b-refly-start" },                 expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "2240", maxRate = "50" },                  expect = "OK", budget = 540 },
+  { cmd = "WarpToUT",          args = { ut = "2250", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "lab10b-refly-t-before" },              expect = "OK" },
+  { cmd = "PartAction",        args = { button = "labtransmit", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "2262", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "lab10b-refly-t-after" },               expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # ---- THE DISCARD: Esc > Revert Flight > Revert to Launch > Discard Re-Fly ----
+  { cmd = "ReFlyRevert",       args = { choice = "discard", target = "launch" },        expect = "OK", budget = 300 },
+  { cmd = "MissionMark",       args = { label = "lab10b-discarded" },                   expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "after",       expect = "OK" },
+  { cmd = "RecordingState",                                                             expect = "OK" },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[dimensionsCovered]
+# Every value is backed by a REQUIRED token below.
+#   commit-scene-exit / auto-merge  <- `full-fidelity auto-commit (scene-exit...)` + exittospacecenter
+#   controlled-decoupled-child      <- `ProcessBreakupEvent: controlled child created: pid=<tender>`
+#   rewind-to-separation            <- StartInvoke + Invocation complete
+#   unfinished-flights-stash        <- `Stashed slot=0 ...` + `reflyrevert complete ... slotListed=true`
+#   revert-during-refly-dialog      <- `Revert dialog shown` + `reflyrevert pressed dialog button='Discard Re-Fly'`
+D1  = ["commit-scene-exit", "auto-merge"]
+D5  = ["controlled-decoupled-child"]
+D8  = ["science"]
+D9  = ["rewind-to-separation", "unfinished-flights-stash", "revert-during-refly-dialog"]
+D14 = ["kerbin", "science-mode", "scene-flight", "scene-ksc", "warp-1x", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# DERIVED 2: the lab's recording and the tender's; the attempt's sidecar is deleted by the
+# discard. The reading run measured 3 (the attempt's leftover sidecar, ESC-DISCARD-REFLY-LEAVES-
+# ATTEMPT-SIDECARS): kept at {2,2} on purpose, red until PR #2140 ships.
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  "partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=0\\.00;Research:active=0'",
+  # --- ACT A: THE SEPARATION (LAB-10's tokens) ---
+  "(?s)MISSIONMARK label=lab10b-undock (?:(?!partaction applied button=).)*?partaction applied button=undock pid=2200110055 part='dockingPort3' partId=[0-9]+ event=Undock newPid=[1-9][0-9]* newName='[^'\\r\\n]*' vessels=1->2 activePid=2200110055 ",
+  "=> UNDOCK \\(consumed\\)",
+  "SEPARATION emitted: ut=[0-9.]+ type=JointBreak splitCause=UNDOCK decouplerPartId=[0-9]+ controlledChildren=1 debris=0 ",
+  "(?s)partaction applied button=undock [^\\r\\n]*newPid=([0-9]+) .*?ProcessBreakupEvent: controlled child created: pid=\\1, name='[^'\\r\\n]*', recId=[0-9a-f]{32}, alive=True, bgRecorder=True",
+  "(?s)Controllable split children: \\[[0-9,]+\\] \\(orig=2200110055, .*?RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 focusSlot=0 ut=[0-9.]+.*?RewindPoint slot capture: rp=\\1 populated=2/2 disabled=0",
+  # --- ACT A: THE TRANSMIT AND THE COMMIT ---
+  "(?s)startrecording recordingId=([0-9a-f]{32}) already=false(?:(?!MISSIONMARK label=lab10b-t1-after ).)*?MISSIONMARK label=lab10b-t1-before (?:(?!MISSIONMARK label=lab10b-t1-after ).)*?Game state: ScienceLabCredited \\+12\\.50 reason='ScienceTransmission' vessel='LABX Orbital Lab' ut=[0-9.]+ recordingId='\\1'",
+  "(?s)MISSIONMARK label=lab10b-t1-before (?:(?!MISSIONMARK label=lab10b-t1-after ).)*?Game state: ScienceChanged \\+12\\.5 \\(ScienceTransmission\\)[^0-9\\r\\n]+112\\.5(?![0-9])",
+  "(?s)MISSIONMARK label=lab10b-t1-after (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.50 dataStored=0\\.00;",
+  "full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='LABX Orbital Lab' recordings=2 ",
+  "CommitTree: promoted 1 normal staging RP\\(s\\)",
+  # The commit books the ORIGINAL credit on the lab's recording (it stays committed history).
+  "(?s)startrecording recordingId=([0-9a-f]{32}) already=false.*?exittospacecenter start .*?LabEarning: credit=12\\.5, method=Transmitted, runningScience=112\\.5, recordingId=\\1(?![0-9a-f])",
+  # --- ACT B: STASH, RE-FLY, TRANSMIT AGAIN ---
+  "Stashed slot=0 rec=\\S+ bp=\\S+ rp=rp_[0-9a-f]{32} tip=\\S+ tipMergeState=CommittedProvisional tipDemoted=True terminal=Orbiting reaperBlocked=True",
+  "stashslot complete rp=rp_[0-9a-f]{32} slot=0 tip=\\S+ tipMergeState=Immutable->CommittedProvisional stashed=true unfinishedFlight=true unfinishedRow=\\S+",
+  "IsUnfinishedFlight=true rec=\\S+ reason=stashedStableLeaf slot=0 ",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_[0-9a-f]{32} slot=0",
+  "Invocation complete: sess=\\S+ rp=rp_[0-9a-f]{32} slot=0 activePid=2200110055",
+  # The invoke's full-ledger walk patches the rewind point's 100 to the committed 112.5.
+  "(?s)Re-Fly \\(Rewind-to-Separation\\) StartInvoke: (?:(?!Invocation complete: ).)*?\\[KspStatePatcher\\] PatchScience: 100\\.0 -> 112\\.5 \\(delta=12\\.5, target=112\\.5\\)(?:(?!Invocation complete: ).)*?Invocation complete: ",
+  "recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true",
+  "(?s)MISSIONMARK label=lab10b-refly-start (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=0\\.00;",
+  # The attempt's credit: 12.50 tagged to the Re-Fly's provisional, stock landing on 125.0.
+  "(?s)MISSIONMARK label=lab10b-refly-t-before (?:(?!MISSIONMARK label=lab10b-refly-t-after ).)*?Game state: ScienceLabCredited \\+12\\.50 reason='ScienceTransmission' vessel='LABX Orbital Lab' ut=[0-9.]+ recordingId='rec_[0-9a-f]{32}'",
+  "(?s)MISSIONMARK label=lab10b-refly-t-before (?:(?!MISSIONMARK label=lab10b-refly-t-after ).)*?Game state: ScienceChanged \\+12\\.5 \\(ScienceTransmission\\)[^0-9\\r\\n]+125(?:\\.0)?(?![0-9])",
+  "(?s)MISSIONMARK label=lab10b-refly-t-after (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.50 dataStored=0\\.00;",
+  # --- THE DISCARD (QL-5's tokens; the verb's slot= is the slot origin, the lab's recording) ---
+  "(?s)startrecording recordingId=([0-9a-f]{32}) already=false.*?reflyrevert start choice=discard target=launch sess=\\S+ rp=rp_[0-9a-f]{32} slot=\\1 ",
+  "reflyrevert pressed revert-option button='[^']*' target=launch launchOffered=true",
+  "Revert dialog shown sess=\\S+ target=Launch",
+  "reflyrevert pressed dialog button='Discard Re-Fly' choice=discard",
+  # The attempt's tagged events (its lab credit among them) are purged with it ...
+  "PurgeEventsForRecordings \\(RevertInterceptor:DiscardReFly sess=\\S+\\): live=[1-9][0-9]*, ",
+  "PruneActiveReFlyAttemptOwnedTopology callSite=RevertInterceptor:DiscardReFly sess=\\S+ tree=\\S+ attemptIds=[1-9][0-9]* [^\\r\\n]*purgedEvents=[1-9][0-9]* [^\\r\\n]*ledgerTagsCleared=0 ",
+  "Origin RP (?:promoted to persistent|already persistent) rp=rp_[0-9a-f]{32}",
+  "End reason=discardReFly sess=\\S+ target=Launch facility=-- dispatched=true",
+  "Load classified: early=DiscardReFly refined=DiscardReFly scene=SPACECENTER [^\\r\\n]*discardReFly=Launch handoff=present",
+  # ... and the stashed lab slot and its point are still offered.
+  "(?s)startrecording recordingId=([0-9a-f]{32}) already=false.*?reflyrevert complete choice=discard target=launch scene=SPACECENTER sess=\\S+ rp=rp_[0-9a-f]{32} rpKept=true slot=\\1 slotListed=true unfinishedFlights=[1-9][0-9]* marker=none",
+  "(?s)MISSIONMARK label=lab10b-discarded .*?listhandles kind=rewindpoints count=1 truncated=false",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  "partaction error ",
+  "warptout refused",
+  "exittospacecenter rejected",
+  "invokerewind refused",
+  "stashslot refused",
+  "stashslot readback-failed",
+  "reflyrevert rejected",
+  "reflyrevert error",
+  "Single-controllable split: no RP",
+  "OnVesselsUndocking:entry",
+  "Tree branch created: type=Undock",
+  "IsUnfinishedFlight=false rec=\\S+ reason=recordingAction:",
+  "listhandles kind=chains .* evaluated=false",
+  # QL-5's carry and point-loss readings.
+  "In-session load found no staged-list handoff",
+  "DiscardReFly load intent dropped as stale",
+  "Reaped rp=",
+  "Purged rp=",
+  "Deleted rewind quicksave rp=",
+  # A discard is not a merge: no split, no tombstone.
+  "Split origin \\S+ at UT=",
+  "Tombstoned [1-9][0-9]* career actions",
+  # A Re-Fly discard reverts KSP with the rewind point's game, so it never re-homes ...
+  "PreserveIrreversibleLiveGameplayOnDiscard \\([^)\\r\\n]*\\): re-homed",
+  # ... never keeps an attempt-owned row untagged ...
+  "ClearRecordingTagForRecordings: cleared=[1-9]",
+  # ... and the attempt's credit never reaches a ledger walk, before or after the discard.
+  "(?s)Game state: ScienceLabCredited [^\\r\\n]*recordingId='(rec_[0-9a-f]{32})'.*?LabEarning: credit=[^\\r\\n]*recordingId=\\1(?![0-9a-f])",
+  # Exactly two lab credits: the committed one and the attempt's.
+  "(?s)(?:Game state: ScienceLabCredited .*?){3}",
+  "(?s)\\A(?:(?!MISSIONMARK label=lab10b-t1-before ).)*?Game state: ScienceLabCredited",
+  "(?s)MISSIONMARK label=lab10b-t1-after (?:(?!MISSIONMARK label=lab10b-refly-t-before ).)*?Game state: ScienceLabCredited",
+  "(?s)MISSIONMARK label=lab10b-refly-t-after .*?Game state: ScienceLabCredited",
+  # Both credits are never counted together.
+  "LabEarning: credit=[^\\r\\n]*runningScience=125, ",
+  "PatchScience: [^\\r\\n]*target=125\\.0\\)",
+  "Lab payout net of a strategy take",
+  "Exploded!!",
+]
+
+# REPORT-ONLY until the reading run: the point survives, nothing is superseded or tombstoned.
+[expectations.rewind]
+gating        = false
+rewindPoints  = { min = 1, max = 1 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+# LAB-10's act A and act B (two LoadGame steps, two ~1,900 s rails warps at 50x, the stash and
+# the rewind) and the ReFlyRevert (a deferred verb, up to 300 s, then the Space Center load).
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

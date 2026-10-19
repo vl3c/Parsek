@@ -286,6 +286,19 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # another UT. No RP. Consumer:
                                         # CN-3-ghost-commnet-timeline-warp.
                                         "ghost-commnet-timeline",
+                                        # ghost-commnet-lab: ONE committed
+                                        # single-recording tree on
+                                        # lab-lko-relay (ground stations
+                                        # off): an RC-L01 + RA-100 relay on
+                                        # a Kerbin-synchronous orbit 50 deg
+                                        # west of the KSC, the only path
+                                        # home of the orbiting science lab
+                                        # in the lane's window. `--filter
+                                        # InjectGhostCommNetLab`; the
+                                        # injector refuses a target save at
+                                        # another UT. No RP. Consumer:
+                                        # LAB-11-lab-transmit-ghost-relay.
+                                        "ghost-commnet-lab",
                                         # overlap-cap: ONE committed
                                         # single-recording tree on
                                         # pad-runway-pair, a 120 s ghost-only

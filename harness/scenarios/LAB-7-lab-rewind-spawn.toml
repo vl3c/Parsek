@@ -1,0 +1,333 @@
+schema = 1
+id = "LAB-7-lab-rewind-spawn"
+tier = "operator"
+# THE SCIENCE-LAB PROGRAM, lane LAB-7 (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
+# "LAB-7 rewind, ghost, spawn"). FIRST FLIGHTS `2026-10-17_2308` / `_2318_a2` INVALID
+# (driver-arg) on BOTH attempts, from a PRODUCT DEFECT the warp branch ran into (below): the lab
+# never spawned at its recording's end, so `ListHandles` answered `rec0spawnedPid=0` and every
+# later step that named the spawn (`LoadGame focusPid=0`, `PartAction pid=0`, ...) was refused.
+# Restructured so the defect reads PARSEK-FAIL instead of driver-INVALID; not re-flown.
+#
+# THE PRODUCT DEFECT (stays red here on purpose). In the warp branch the end-of-recording spawn
+# was deferred by the warp and then refused: `Tail-derived terminal orbit: ... tailUT=3606.65
+# sma=596265.8 ecc=0.1622 periAlt=-100447.2 apoAlt=92978.8`, `TryBuildRecordedTerminalOrbitForSpawn:
+# ... source=trajectory-tail`, `Terminal spawn safety decision: ... decision=CannotSpawnSafely
+# reason=periapsis-below-safe-altitude ... periapsis=-100447.2`, `Held ghost released (cannot spawn
+# safely): ... the ghost ends at EndUT without a spawn`. The recording's stored orbit segment says
+# sma 699,745.8 / ecc 0.0104 (periapsis 92.5 km, apoapsis 107 km), and the jump branch, whose spawn
+# is 693 s past the tail and so skips the tail seed (`rotation-drift-out-of-bounds ... limit=30.00s`),
+# spawned from that segment and was safe (`source=stored-segment`, `decision=SpawnNow`). The tail
+# seed (`OrbitReseed.FromLatLonAltAndRecordedVelocity`) read |vel| 2,066 m/s at 92.95 km where the
+# orbit's inertial speed is about 2,240 m/s, so it looks like a rotating-frame (surface-relative)
+# velocity taken as inertial: the tail point lies below Kerbin's inverse-rotation altitude. Effect
+# for a player: an orbiting vessel whose recording ends below that altitude, reached by warp or
+# 1x within 30 s of its end, never comes back as the real vessel. Kept red by
+# `MISSIONMARK label=lab7-warp-spawned-true-`, the warp-branch snapshot read and a forbidden
+# `decision=CannotSpawnSafely` line, until the spawn path is fixed.
+#
+# HOST: `lab-lko-science` (the LAB-2 / LAB-3 host): SCIENCE_SANDBOX, the LABX Orbital Lab (vessel
+# persistentId 2200110055) ORBITING Kerbin at about 107 x 92 km, Valentina in the Mk1 pod, Bob
+# (Scientist, level 0) in the Large.Crewed.Lab (part persistentId 1700054019, flightID
+# 1270217782), 1,900 EC in full batteries, 8 RTGs. Fixture UT 355.8. The shared-ships overlay
+# gives the save `Settings Probe` for the pad.
+#
+# THE STORY. Record the lab processing its four experiments and researching for 3,200 s of rails
+# warp (it ends the recording STILL researching), commit, and Rewind-to-Launch (MINE-2's route):
+# the rewind lands at the Space Center with the lab stripped and replaying as a ghost, Bob and
+# Valentina reserved to it. A probe launched from the VAB holds FLIGHT (the rewound world has no
+# other vessel and TimeJump is FLIGHT-only), and that pad state is saved. Then two branches, the
+# one that works today FIRST so its checks run:
+#   * JUMP: TimeJump past the end so the lab spawns AFTER the jump; the spawn removes the jumped
+#     span from the snapshot clock (`Converter jump policy (spawn): ... removed=693.0`, owner
+#     ruling 2026-10-17), so flown (LoadGame focusPid of the spawn) it matches the end snapshot at
+#     F4 (diff 0.0002 measured) and in charge, with Research ON and Bob aboard; 3,600 s of rails
+#     warp then show it researching (about +0.045); a six-hour Space Center stay then shows stock's
+#     catch-up on the SPAWNED lab: the whole absence (about +0.27, LAB-6's measured behaviour), the
+#     batteries still full.
+#   * WARP: reload the pad state and warp on the pad past the recording's end; the real lab must
+#     spawn with its end snapshot. This branch reads the spawn only by recording id
+#     (`ReadVesselResources rec=<it> expectSnapshot=true`, which answers OK with `missing=1` when
+#     the spawn did not happen), so the defect above fails the lane's contracts, not its driver.
+# Nothing in the lane earns science, so no lab credit may appear anywhere.
+#
+# THE CATCH-UP PREMISE, CORRECTED. The authored lane expected a catch-up cut to the batteries'
+# 1,900 EC (380 s of research, the batteries drained). LAB-6's first flight measured the opposite:
+# the RTGs' output is part of stock's catch-up, so an unloaded lab catches up the whole absence
+# (one 21,600 s MaxDeltaTime slice) and keeps its batteries full. So a missed spawn-clock shift in
+# the jump branch would add about 693 s of research (+0.0087) with the charge unchanged: the F4
+# `diff=0\.000[0-9]` window is the discriminator, and the charge check only pins "full".
+#
+# THE CONVERTER-RESTORE QUESTION (asked by the plan, answered from source, CONFIRMED by the jump
+# spawn: `Research:active=1`). Parsek has NO spawn-time restore for the lab's
+# `ModuleScienceConverter`: `SpawnedHarvesterRestore` arms only `ModuleResourceHarvester`. None is
+# needed: the end snapshot carries `IsActivated = True` and both kerbals, stock switches research
+# off only with no ScienceSkill crew in the lab part (`ModuleScienceConverter.PostProcess`), and
+# `SwapReservedCrewInFlight` skips a Parsek-spawned vessel. The first flight's jump spawn read
+# `crew=[Valentina Kerman, Bob Kerman]` and `Research:active=1`.
+#
+# THE WATCH. The plan's EnterWatchMode step is not here: watch mode needs the ghost inside the
+# 120 km visual range of the active vessel, and after the rewind the only FLIGHT vessel is the
+# probe on the pad. The lane photographs the spawned lab instead.
+#
+# THE RECORDING IS RE-TAKEN ON EVERY FLY. Each LoadGame focused on a spawned lab re-takes the
+# committed tree (`TryRestoreCommittedTreeForSpawnedActiveVessel ... continues in new segment`);
+# the lane stops and discards that copy each time (StopRecording + DiscardTree), so the committed
+# count stays 1 (the first flight: `lab7-done-1`).
+#
+# MEASURED / EXPECTED VALUES. End of recording (UT 3607): storedScience 0.0402, dataStored
+# 49.9883, charge 1,900. Jump spawn flown at UT 4313: diff 0.0002, charge 1,900 = snapshot.
+# After 3,600 s more: diff about +0.045 (window 0.0350 .. 0.0599). After the Space Center stay:
+# diff about 0.316 (window 0.3000 .. 0.3399), charge full. Warp spawn: snapshot charge, unloaded.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse - MINE-2 / MINE-7 / MINE-9 fly this route for
+# a landed miner; the lab is its own host, and LAB-3's lane ends researching-off. (2) no idle
+# waits - every wait is an explicit-UT WarpToUT; 10 s at 1x after each load covers stock's 1 s
+# post-load hold on converter steps. (3) the research warp is 3,200 s (79 s measured); the pad
+# warp (43 s measured) and the Space Center stay (61 s measured) at up to 1000x. (4) no burns.
+# (5) no coast. (6) fail fast - a refused verb fails its step; retry `once`. (7) count window -
+# one committed recording, pinned {1,1}. (8) tier - operator. (9) flight_efficiency.py after the
+# first green flight.
+#
+# WHAT A RE-FLIGHT CAN FALSIFY: the jump-branch checks (all matched on the first flight, except
+# the moved researching / Space Center readings, which ran on the warp spawn that never came);
+# the full catch-up on a spawned lab; and, once the spawn path is fixed, the warp spawn's
+# snapshot. Until then the lane is PARSEK-FAIL on the warp branch by design.
+description = "LAB-7: a crewed science lab in low Kerbin orbit records four experiments processed and 3,200 s of research, commits still researching and is rewound to launch; with a probe on the pad holding the flight, a time jump past the recording's end spawns the real lab with the jumped span removed from its converter clock, matching its end snapshot with research on and its scientist aboard, still researching afterwards and catching up the whole absence once after a Space Center stay, and a warp past the end must spawn it with its end snapshot too (red today: the end spawn is refused as unsafe from a wrong tail-derived orbit); the crew stay reserved while the ghost plays and no lab science is paid anywhere."
+instanceProfile = "stock-minimal"
+tags = ["science-lab", "science", "converter", "rewind", "real-spawn", "time-jump", "LAB-7", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/lab-lko-science"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "StartRecording",                                                          expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab7-recording-live" },                expect = "OK" },
+  # 1. The four experiments into the lab (50 data).
+  { cmd = "PartAction",     args = { button = "experiment", part = "sensorThermometer" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "370", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "sensorThermometer" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "experiment", part = "GooExperiment" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "376", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "GooExperiment" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "experiment", part = "science.module" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "382", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "science.module" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "experiment", part = "sensorBarometer" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "388", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "sensorBarometer" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # 2. Research on at 1x, then 3,200 s of rails warp; the recording ends researching.
+  { cmd = "MissionMark",    args = { label = "lab7-research-on-before" },            expect = "OK" },
+  { cmd = "PartAction",     args = { button = "startconverter", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "397", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",       args = { ut = "3597", maxRate = "50" },                  expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",       args = { ut = "3607", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # 3. Commit (the crew walk reserves Bob and Valentina), then the lab against the end snapshot.
+  { cmd = "MissionMark",    args = { label = "lab7-commit-before" },                 expect = "OK" },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "CommitTree",                                                              expect = "OK", budget = 120 },
+  # CommitTree re-takes the committed tree for the still-active vessel; stop it (RC-6).
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab7-committed-${c0.count}-${c0.rec0}" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab", expectSnapshot = "true", rec = "${c0.rec0}" }, expect = "OK" },
+  # 4. Rewind-to-Launch: the Space Center, the lab a ghost, the crew reserved.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                        expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "lab7-rewound" },                       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  # A probe on the pad holds FLIGHT in the rewound world; that pad state is saved.
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Settings Probe" },   expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                        expect = "OK", budget = 180 },
+  { cmd = "SaveGame",       args = { name = "lab7-pad" },                            expect = "OK", budget = 120 },
+  # 5. JUMP branch: TimeJump past the end; the lab spawns after the jump.
+  { cmd = "MissionMark",    args = { label = "lab7-jump-before" },                   expect = "OK" },
+  { cmd = "TimeJump",       args = { ut = "4300" },                                  expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",       args = { ut = "4303", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c3",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab7-jump-spawned-${c3.rec0spawned}-${c3.rec0spawnedPid}" }, expect = "OK" },
+  # Fly the spawned lab (the Tracking Station Fly shape), drop the re-taken tree, 10 s at 1x.
+  { cmd = "SaveGame",       args = { name = "lab7-jumped" },                         expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "lab7-jumped", focusPid = "${c3.rec0spawnedPid}" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "4313", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "lab7-jump-spawn-flown" },              expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", pid = "${c3.rec0spawnedPid}", part = "Large.Crewed.Lab", expectSnapshot = "true", rec = "${c0.rec0}" }, expect = "OK" },
+  { cmd = "ReadVesselResources", args = { rec = "${c0.rec0}", resources = "ElectricCharge", expectSnapshot = "true", tolerance = "300" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "lab7-spawned-lab" },                expect = "OK" },
+  # It keeps researching: 3,600 s of rails warp (about 78 s at 50x).
+  { cmd = "WarpToUT",       args = { ut = "7913", maxRate = "50" },                  expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",       args = { ut = "7923", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "lab7-spawn-researched" },              expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", pid = "${c3.rec0spawnedPid}", part = "Large.Crewed.Lab", expectSnapshot = "true", rec = "${c0.rec0}", tolerance = "1" }, expect = "OK" },
+  # A Space Center stay of six hours, then fly it again: one catch-up of the whole absence.
+  { cmd = "MissionMark",    args = { label = "lab7-leaving" },                       expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                       expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",       args = { ut = "29523", maxRate = "1000" },               expect = "OK", budget = 300 },
+  { cmd = "SaveGame",       args = { name = "lab7-ksc" },                            expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "lab7-ksc", focusPid = "${c3.rec0spawnedPid}" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "29533", maxRate = "1" },                  expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "lab7-ksc-back" },                      expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "${c3.rec0spawnedPid}", resources = "ElectricCharge" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", pid = "${c3.rec0spawnedPid}", part = "Large.Crewed.Lab", expectSnapshot = "true", rec = "${c0.rec0}", tolerance = "1" }, expect = "OK" },
+  # 6. WARP branch: back to the pad state, real time past the recording's end; the lab must
+  #    spawn. Read only by recording id (missing=1 is an OK answer), so a missing spawn fails the
+  #    contracts, not the driver.
+  { cmd = "MissionMark",    args = { label = "lab7-warp-branch" },                   expect = "OK" },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "lab7-pad" },       expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab7-warp-before" },                   expect = "OK" },
+  # 1x settle first. Stock TimeWarp flips to physics (LOW) mode on any frame the just-unpacked
+  # pad probe's surface speed exceeds sqrt(GThreshold) and flips back only at 1x; a ladder=auto
+  # warp started inside that window adopts LOW and climbs to 4x, never reaching UT 3695
+  # (2026-10-18 flights 0116 / 0140, warp-timeout on both attempts).
+  { cmd = "WarpToUT",       args = { ut = "352", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",       args = { ut = "3695", maxRate = "1000" },                expect = "OK", budget = 300 },
+  # A few seconds of 1x so a spawn deferred by the warp lands before the read (MINE-6 / MINE-9).
+  { cmd = "WarpToUT",       args = { ut = "3700", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c1",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab7-warp-spawned-${c1.rec0spawned}-${c1.rec0spawnedPid}" }, expect = "OK" },
+  { cmd = "ReadVesselResources", args = { rec = "${c0.rec0}", resources = "ElectricCharge", expectSnapshot = "true", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c4",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab7-done-${c4.count}" },              expect = "OK" },
+  { cmd = "SaveGame",                                                                expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["science"]
+D9  = ["rewind-to-launch", "fast-forward"]
+D14 = ["kerbin", "science-mode", "scene-flight", "scene-ksc", "scene-editor", "warp-1x", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The one committed recording; every fly of a spawned lab re-takes it and the lane discards the
+# copy.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  # The recording: the four processes at the live stock values, 50 data, Research on at 1x.
+  "partaction applied button=labprocess pid=2200110055 part='sensorThermometer' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=5\\.00",
+  "partaction applied button=labprocess pid=2200110055 part='GooExperiment' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=15\\.00",
+  "partaction applied button=labprocess pid=2200110055 part='science\\.module' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=22\\.00",
+  "partaction applied button=labprocess pid=2200110055 part='sensorBarometer' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=8\\.00",
+  "partaction applied button=startconverter pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*event=StartResourceConverter [^\\r\\n]*state='lab:storedScience=0\\.00 dataStored=50\\.00;Research:active=1'",
+  "(?s)MISSIONMARK label=lab7-research-on-before (?:(?!MISSIONMARK label=lab7-commit-before ).)*?Part event: ConverterActivated 'Large\\.Crewed\\.Lab' pid=1700054019 \\(converter\\)",
+  # The recording ends researching, with about 0.04 science.
+  "(?s)warptout complete reachedUT=[0-9.]+ ut=3607 (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.0[3-5] dataStored=49\\.9[0-9];Research:active=1'",
+  # The commit reserves both kerbals, ...
+  "(?s)MISSIONMARK label=lab7-commit-before (?:(?!committree committed=).)*?\\[KerbalsModule\\] Reservation(?: extended)?: 'Bob Kerman' endUT",
+  "(?s)MISSIONMARK label=lab7-commit-before (?:(?!committree committed=).)*?PostWalk summary: reservations=2 ",
+  "committree committed=true",
+  "MISSIONMARK label=lab7-committed-1-[0-9a-f]{32} ",
+  # ... and its END snapshot is the researching lab (the reference for every spawn below).
+  "(?s)MISSIONMARK label=lab7-committed-1-[0-9a-f]{32} (?:(?!MISSIONMARK).)*?partaction snapshot rec=[0-9a-f]{32} partId=1270217782 field=storedScience live=0\\.0[3-5][0-9]{2} snapshot=0\\.0[3-5][0-9]{2} [^\\r\\n]*match=true",
+  "(?s)MISSIONMARK label=lab7-committed-1-[0-9a-f]{32} (?:(?!MISSIONMARK).)*?partaction snapshot complete rec=[0-9a-f]{32} parts=1 compared=1 [^\\r\\n]*snapshotMatch=true ",
+  # Rewind-to-Launch; the crew stay reserved to the replaying recording.
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "(?s)cmd=InvokeRewindToLaunch start(?:(?!MISSIONMARK label=lab7-jump-spawned-).)*?PostWalk summary: reservations=2 ",
+  # The probe holds FLIGHT in the rewound world.
+  "goeditor complete facility=VAB craft=Settings Probe scene=EDITOR parts=1 ship=Settings Probe",
+  "launchfromeditor complete scene=FLIGHT vessel=Settings Probe pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  "savegame name=lab7-pad folder=\\S+ saved=true",
+  # JUMP branch: the jump crosses the end and the lab spawns after it, its snapshot clock moved
+  # past the jumped span (4300 - 3607 = 693 s), Bob aboard.
+  "timejump start target=4300 delta=",
+  "(?s)MISSIONMARK label=lab7-jump-before (?:(?!MISSIONMARK).)*?Converter jump policy \\(spawn\\): (?:RespawnVessel|SpawnAtPosition) vessel=LABX Orbital Lab modules=1 removed=69[0-9]\\.[0-9] spans=1 ut=430[0-9]\\.[0-9]",
+  "(?s)MISSIONMARK label=lab7-jump-before (?:(?!MISSIONMARK).)*?Spawning vessel: \"LABX Orbital Lab\" sit=ORBITING, crew=\\[[^\\]\\r\\n]*Bob Kerman[^\\]\\r\\n]*\\]",
+  "MISSIONMARK label=lab7-jump-spawned-true-[0-9]+ ",
+  # Flown, it matches the end snapshot at F4 (only the seconds at 1x since the jump; a missed
+  # shift would add about 0.0087) ...
+  "(?s)MISSIONMARK label=lab7-jump-spawn-flown (?:(?!MISSIONMARK).)*?partaction snapshot rec=[0-9a-f]{32} partId=[0-9]+ field=storedScience live=0\\.0[3-5][0-9]{2} snapshot=0\\.0[3-5][0-9]{2} diff=0\\.000[0-9] match=true",
+  "(?s)MISSIONMARK label=lab7-jump-spawn-flown (?:(?!MISSIONMARK).)*?partaction snapshot rec=[0-9a-f]{32} partId=[0-9]+ field=experiments live=4 snapshot=4 ",
+  "(?s)MISSIONMARK label=lab7-jump-spawn-flown (?:(?!MISSIONMARK).)*?partaction snapshot complete rec=[0-9a-f]{32} parts=1 compared=1 [^\\r\\n]*snapshotMatch=true ",
+  # ... with Research ON (no Parsek restore exists or is needed: Bob is in the lab) ...
+  "(?s)MISSIONMARK label=lab7-jump-spawn-flown (?:(?!MISSIONMARK).)*?partaction applied button=inspect pid=(?!2200110055 )[0-9]+ part='Large\\.Crewed\\.Lab' [^\\r\\n]*;Research:active=1' [^\\r\\n]*snapshotMatch=true",
+  # ... and its charge matches the snapshot's (full either way; not the discriminator).
+  "(?s)MISSIONMARK label=lab7-jump-spawn-flown (?:(?!MISSIONMARK).)*?readvesselresources snapshot rec=[0-9a-f]{32} pid=[0-9]+ resource=ElectricCharge live=1[0-9]{3}\\.[0-9]{4} snapshot=1[89][0-9]{2}\\.[0-9]{4} diff=-?[0-9]+\\.[0-9]{4} match=true",
+  "(?s)MISSIONMARK label=lab7-jump-spawn-flown (?:(?!MISSIONMARK).)*?readvesselresources complete vessels=1 missing=0 uidCollisions=0 [^\\r\\n]*snapshotMatch=true",
+  # It keeps researching: about +0.045 after 3,600 s more.
+  "(?s)MISSIONMARK label=lab7-spawn-researched (?:(?!MISSIONMARK).)*?partaction snapshot rec=[0-9a-f]{32} partId=[0-9]+ field=storedScience live=0\\.0[6-9][0-9]{2} snapshot=0\\.0[3-5][0-9]{2} diff=0\\.0(?:3[5-9]|4[0-9]|5[0-9])[0-9] ",
+  "(?s)MISSIONMARK label=lab7-spawn-researched (?:(?!MISSIONMARK).)*?partaction applied button=inspect pid=(?!2200110055 )[0-9]+ part='Large\\.Crewed\\.Lab' [^\\r\\n]*;Research:active=1'",
+  # The Space Center stay: one catch-up of the whole absence (about +0.27), the batteries full.
+  "exittospacecenter start scene=FLIGHT autoMerge=(?:true|false) hasActiveTree=false hasPendingTree=false",
+  "(?s)MISSIONMARK label=lab7-ksc-back (?:(?!MISSIONMARK).)*?readvesselresources vessel index=0 rec=- found=true pid=[0-9]+ name='LABX Orbital Lab' loaded=true parts=26 ElectricCharge=1[89][0-9]{2}\\.[0-9]{4}/1900\\.0000",
+  "(?s)MISSIONMARK label=lab7-ksc-back (?:(?!MISSIONMARK).)*?partaction snapshot rec=[0-9a-f]{32} partId=[0-9]+ field=storedScience live=0\\.3[4-7][0-9]{2} snapshot=0\\.0[3-5][0-9]{2} diff=0\\.3[0-3][0-9]{2} ",
+  "(?s)MISSIONMARK label=lab7-ksc-back (?:(?!MISSIONMARK).)*?partaction applied button=inspect pid=(?!2200110055 )[0-9]+ part='Large\\.Crewed\\.Lab' [^\\r\\n]*;Research:active=1'",
+  # WARP branch (RED TODAY, the product defect in the header): the pad state reloaded, a warp
+  # past the end must spawn the real lab with Bob aboard and its end-snapshot charge.
+  "loadgame start save=\\S+ name=lab7-pad scene=FLIGHT requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false",
+  "(?s)MISSIONMARK label=lab7-warp-before (?:(?!MISSIONMARK).)*?Spawning vessel: \"LABX Orbital Lab\" sit=ORBITING, crew=\\[[^\\]\\r\\n]*Bob Kerman[^\\]\\r\\n]*\\]",
+  "MISSIONMARK label=lab7-warp-spawned-true-[0-9]+ ",
+  "(?s)MISSIONMARK label=lab7-warp-spawned-(?:(?!MISSIONMARK).)*?readvesselresources complete vessels=1 missing=0 uidCollisions=0 [^\\r\\n]*snapshotMatch=true",
+  # One committed recording at the end: every re-taken copy was dropped.
+  "MISSIONMARK label=lab7-done-1 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected ",
+  "partaction-lab-value-zero",
+  "partaction error ",
+  "readvesselresources rejected",
+  "invokerewindtolaunch refused",
+  "timejump refused",
+  "loadgame rejected",
+  "Spawn RETIRED",
+  "Spawn ABANDONED",
+  "Spawn FAILED",
+  "uidCollisions=[1-9]",
+  # THE PRODUCT DEFECT: the end spawn refused as unsafe from a wrong tail-derived orbit.
+  "Terminal spawn safety decision: rec=[0-9a-f]{32} idx=[0-9]+ vessel=\"LABX Orbital Lab\" [^\\r\\n]*decision=CannotSpawnSafely",
+  # No crew is stripped from the lab's spawns.
+  "Crew dedup: removed [1-9]",
+  "Removed dead/missing crew",
+  # Nothing earns science: no lab credit and no stock science gain anywhere.
+  "ScienceLabCredited",
+  "Game state: ScienceChanged",
+  "Exploded!!",
+  "IsTreeIdleOnPad: all [0-9]+ recordings",
+  "TrimBoringTail: trimmed 'LABX Orbital Lab'",
+  # The recording never logs research switching off (it ends researching).
+  "(?s)MISSIONMARK label=lab7-recording-live (?:(?!MISSIONMARK label=lab7-commit-before ).)*?Part event: ConverterDeactivated 'Large\\.Crewed\\.Lab'",
+  # The warp spawn is real time (the reload cleared every jumped span): no spawn policy line.
+  "(?s)MISSIONMARK label=lab7-warp-before (?:(?!MISSIONMARK).)*?Converter jump policy \\(spawn\\)",
+  # At most two spawns of the lab in the run (one per branch).
+  "(?s)Spawning vessel: \"LABX Orbital Lab\".*?Spawning vessel: \"LABX Orbital Lab\".*?Spawning vessel: \"LABX Orbital Lab\"",
+]
+
+[runtime]
+# Five LoadGame steps and the rewind (about 7 s each measured, up to 300 s budgeted), about 40 s
+# of 1x game time, 3,200 s and 3,600 s of rails warp at 50x (79 + 87 s measured), the Space Center
+# stay and the pad warp at up to 1000x (61 + 43 s measured), the editor and a launch, a jump.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -8887,6 +8887,100 @@ namespace Parsek.Tests
                 });
         }
 
+        // ----- ghost-commnet-lab (LAB-11): a ghost relay is a live science lab's only path home -----
+        //
+        // The subject of lane LAB-11, on lab-lko-relay (build_lab_seeded_variants.py): the LABX
+        // Orbital Lab ORBITING Kerbin at about 107 x 92 km (inclination 0.09 deg), its lab holding
+        // 12.5 science, and CommNetParams.enableGroundStations = False, so the KSC is the only
+        // home (decompiled CommNetHome.CreateNode; AllowOtherLaunchSites is False). With the
+        // save's occlusionMultiplierAtm = 1 the occluder is Kerbin's full radius and the KSC sees
+        // the lab only within about 31 deg of longitude. ONE committed single-recording tree, the
+        // CN-1 relay shape (GhostCommNetSynchronousRecording): an RC-L01 + RA-100 on a
+        // Kerbin-synchronous equatorial orbit 50 deg WEST of the KSC, which the KSC sees (80 deg
+        // horizon from synchronous height) and which sees the lab whenever the lab is within about
+        // 111 deg of it. It opens 1 s after the save's clock (so the load latches it into replay
+        // scope) and runs 100,000 s, so nothing ends or spawns during the lane. As the lab laps the
+        // KSC eastward (relative rate 0.167 deg/s, synodic 2,152 s) it passes, from the save:
+        // relay-only (until about UT 510), NO path at all (to about 1,345), relay-only (to about
+        // 2,105), then direct. GhostCommNetLabLaneGeometryTests derives those windows with stock's
+        // horizon-culling occluder test and pins both press UTs inside them.
+
+        internal const double LabLkoRelaySaveUT = 355.83153320304433;
+        internal const string LabLkoRelayVesselName = "LABX Orbital Lab";
+        /// <summary>The lab's saved ORBIT node in lab-lko-relay, verbatim (REF 1 = Kerbin).</summary>
+        internal static readonly FixtureOrbitElements LabLkoRelayOrbit = new FixtureOrbitElements
+        {
+            Sma = 699745.8283512796,
+            Ecc = 0.01035403245671126,
+            IncDeg = 0.089524385822714714,
+            LanDeg = 136.74925454430991,
+            ArgPeDeg = 177.84990197070871,
+            MnaRad = 1.7774225278322933,
+            Epoch = 355.83153320304433,
+        };
+        /// <summary>The lab's saved surface longitude, which the Kerbin rotation calibration must reproduce.</summary>
+        internal const double LabLkoRelaySavedLon = -38.347974475418631;
+        internal const string GhostCommNetLabRelayRecordingId = "lab11-relay";
+        internal const string GhostCommNetLabRelayName = "LAB11 Relay";
+        internal const string GhostCommNetLabRelayPart = "RelayAntenna100";
+        /// <summary>The relay's synchronous station, degrees of longitude from the KSC (negative = west).</summary>
+        internal const double GhostCommNetLabRelayLonOffsetDeg = -50.0;
+        internal const double GhostCommNetLabStartOffsetSeconds = 1.0;
+        internal const double GhostCommNetLabWindowSeconds = 100000.0;
+        /// <summary>LAB-11's negative-control press: the lab has NO path home (spec literal).</summary>
+        internal const double GhostCommNetLabControlPressUT = 900.0;
+        /// <summary>LAB-11's window press: the relay ghost is the lab's only path home (spec literal).</summary>
+        internal const double GhostCommNetLabWindowPressUT = 1700.0;
+        /// <summary>How long after a press each window wait runs at 1x (spec literal: press + 15).</summary>
+        internal const double GhostCommNetLabPressWaitSeconds = 15.0;
+
+        /// <summary>The LAB-11 relay recording, clocked off the host save's UT.</summary>
+        internal static RecordingBuilder[] GhostCommNetLabPreset(double baseUT)
+        {
+            double start = baseUT + GhostCommNetLabStartOffsetSeconds;
+            double end = start + GhostCommNetLabWindowSeconds;
+            return new[]
+            {
+                GhostCommNetSynchronousRecording(
+                    GhostCommNetLabRelayRecordingId, GhostCommNetLabRelayName, start, end,
+                    Wrap180(GhostCommNetKscLon + GhostCommNetLabRelayLonOffsetDeg),
+                    pid => VesselSnapshotBuilder.RelaySatellite(GhostCommNetLabRelayName, pid,
+                        relayPart: GhostCommNetLabRelayPart),
+                    pid => VesselSnapshotBuilder.RelaySatellite(GhostCommNetLabRelayName, pid,
+                        relayPart: GhostCommNetLabRelayPart),
+                    TerminalState.Orbiting),
+            };
+        }
+
+        /// <summary>
+        /// Injects ONLY <see cref="GhostCommNetLabPreset"/> (the <c>ghost-commnet-lab</c> preset
+        /// behind <c>LAB-11-lab-transmit-ghost-relay</c>): one committed single-recording tree,
+        /// no RewindPoint sidecar. The windows are derived against lab-lko-relay's lab at that
+        /// save's UT with ground stations off, so any other clock, or a save that still has its
+        /// ground stations, is refused.
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [InjectTargetFact("ghost-commnet-lab-fixture")]
+        public void InjectGhostCommNetLab()
+        {
+            InjectSingleSubjectPreset("ghost-commnet-lab-fixture",
+                (writer, baseUT) =>
+                {
+                    Assert.True(Math.Abs(baseUT - LabLkoRelaySaveUT) < 1e-3,
+                        "ghost-commnet-lab is derived against lab-lko-relay's lab at UT "
+                        + LabLkoRelaySaveUT.ToString("R", CultureInfo.InvariantCulture)
+                        + "; the target save reads UT=" + baseUT.ToString("R", CultureInfo.InvariantCulture));
+                    foreach (RecordingBuilder b in GhostCommNetLabPreset(baseUT))
+                        writer.AddRecordingAsTree(b);
+                },
+                content =>
+                {
+                    Assert.Contains("vesselName = " + GhostCommNetLabRelayName, content);
+                    Assert.Contains("name = " + LabLkoRelayVesselName, content);
+                    Assert.Contains("enableGroundStations = False", content);
+                });
+        }
+
         // ----- ghost-commnet-timeline (CN-3): a relay's timeline through a rails warp -----
         //
         // The subject of lane CN-3, on gloops-airshow (pad vessel, sandbox, save UT 21.16).

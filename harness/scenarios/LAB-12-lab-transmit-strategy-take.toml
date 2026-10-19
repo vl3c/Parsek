@@ -1,0 +1,252 @@
+schema = 1
+id = "LAB-12-lab-transmit-strategy-take"
+tier = "operator"
+# THE SCIENCE-LAB PROGRAM, lane LAB-12 (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
+# "LAB-12 career strategy take"). Operator tier and tagged `pending-flight` until a green flight
+# of THIS shape pins the measured values.
+#
+# UNDER TEST: the gross-not-net rule of the lab credit capture
+# (Patches/ScienceLabCreditCapturePatch.cs) against a LIVE science-taking strategy. The lab
+# credit books the GROSS payout; the strategy's share is booked once, by the query-family door
+# (GameStateRecorder.OnCurrencyModified -> LedgerOrchestrator.OnStrategyCurrencyConversion), as
+# a StrategyScienceDebit plus the funds it yields; the ledger then closes against KSP's own save
+# (LedgerGroundTruth). The unit cell for "strategy take once" exists; this is its live proof.
+#
+# HOST: `lab-pad-career` (harness/tools/build_lab_pad_career.py): `strategy-career` (CAREER,
+# funds 500,000, reputation 25, every facility at level 0, an EMPTY STRATEGIES node) with
+# `lab-pad-seeded`'s FLIGHTSTATE (the LABX Orbital Lab, persistentId 2200110055, PRELAUNCH on
+# the pad, its lab at 12.5 science / 204 data, research off, the Communotron 16-S), the crew's
+# Assigned rows, the craft's tech, and science seeded to 400. Fixture UT 355.83.
+#
+# STOCK, decompiled 1.12.5 and Strategies.cfg:
+#   - Patents Licensing (`PatentsLicensingCfg`, department Finances): no funds or reputation
+#     cost, initialCostScience lerp(135, 2700, factor); its SECOND CurrencyConverter takes
+#     share lerp(0, 1, factor) of the Science input under AffectReasons ScienceTransmission,
+#     VesselRecovery, Progression and pays rate lerp(83.026, 103.783, factor) funds per point.
+#     The seam's `KscAction activate-strategy` writes the slider default, factor 0.05: setup
+#     263.25 science (400 -> 136.75), share 0.05, rate 84.064.
+#   - Administration level 0: GetActiveStrategyLimit = 1 slot, commitment range 0.25.
+#   - ResearchAndDevelopment.AddScience(value, reason) adds the GROSS, then fires
+#     OnCurrencyModifierQuery (the converter mutates the query: science -0.625, funds +52.54)
+#     and OnCurrencyModified, whose R&D handler adds the science effect delta and fires
+#     OnScienceChanged under the SAME reason; Funding adds the funds delta the same way. The
+#     lab's OnTransmissionComplete calls AddScience(storedScience = 12.5, ScienceTransmission),
+#     so the pool moves +11.875 net (136.75 -> 148.625) and the funds +52.54.
+#   - The converter logs `[CurrencyConverter for Patents Licensing]: 0.625 Science taken,
+#     yields <x> Funds` (Debug.Log) on every query it mutates, display queries included, so it
+#     is pinned positively inside the transmit window only, never counted.
+#
+# PARSEK, the lines this lane reads (real formats, L3 / QL-2c / LAB-4 logs):
+#   `kscaction action=activate-strategy target=PatentsLicensingCfg applied=true
+#   manifestKind=strategy-activate observedAfter=factor=0.05 slots=1/1 setupFunds=0
+#   setupSci=263.25 ...`, `Game state: StrategyActivated 'PatentsLicensingCfg' ... setupSci=263.3`,
+#   `Game state: ScienceChanged -263.x (StrategySetup) <U+2192> 136.x`; at the transmit:
+#   `Game state: strategy currency conversion - reason=ScienceTransmission inF=0 dF=52.5..
+#   inS=12.5 dS=-0.625 inR=0 dR=0 legs=2`, `Strategy conversion recorded:
+#   type=StrategyScienceDebit, currency=Science, delta=-0.625, ...` and `type=FundsEarning,
+#   currency=Funds, delta=52.5..`, `Game state: ScienceChanged +11.9 (ScienceTransmission)
+#   <U+2192> 148.6`, the +52.5 funds yield logged only as `Ignored FundsChanged delta=+52.5 below
+#   threshold=100.0` (GameStateRecorder's funds threshold; measured on the first flight),
+#   `Lab payout net of a strategy take: gross=12.5 poolDelta=11.875 reason='ScienceTransmission'`
+#   (Verbose), `Game state: ScienceLabCredited +12.50 reason='ScienceTransmission' ...
+#   recordingId=''` (untagged: nothing records) and `KSC spending recorded:
+#   type=ScienceLabEarning`. Every credit and conversion count anchors on its `Game state:` /
+#   `Strategy conversion recorded:` line (the Emit: / AddEvent: lines repeat the event type).
+#
+# THE STORY. Boot into the Space Center (`LoadGame scene=spacecenter`), activate Patents
+# Licensing through the seam (the hidden Administration screen hosts stock's slot check),
+# SaveGame, then `LoadGame focusPid=` flying the pad lab (no recording: a pad flight records on
+# launch only, so this is the player's natural "transmit from the pad" path). Read the lab
+# (12.50 / 204.00), rails-warp to UT 500 (the KSC phase's game time is not known in advance;
+# 500 leaves well over a minute of margin), settle 5 s at 1x, press Transmit, wait 12 s at 1x,
+# read the lab (0.50), then run the LedgerGroundTruth category: quicksave, independent parse,
+# RecalculateAndPatch, diff (hard on the seeded pools).
+#
+# THE BATCH, predicted not measured: LedgerGroundTruth has 3 FLIGHT declarations. The harness
+# cell and CurrencyTooltipLiveInvariant run (career, singletons up, no live or pending tree);
+# KerbalExperienceReassert self-skips (no crewed recovery, so no KerbalExperience ledger rows):
+# `total=3 passed=2 failed=0 skipped=1`, the L2 / ZF-1 split. Pinned in the never-flown interim
+# form (total exact, the split regexed) beside the harness cell's own `result:` line; pin the
+# split whole off the first flight.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse - L3 owns the in-game strategy matrix;
+# this is the one lab x strategy lane. (2) no idle waits - explicit-UT `WarpToUT` only, 1x for
+# the settle and the transmission. (3) no dwells. (4) no burns. (5) no coast. (6) fail fast -
+# a refused verb is a step failure at once; retry `once`. (7) count window {0,0}: nothing
+# records. (8) tier - operator until a green flight; promote by measured p50 (expected about
+# 4 min). (9) flight_efficiency.py after the first green flight.
+#
+# WHAT A FIRST FLIGHT CAN FALSIFY: (a) the plan's BELIEF that the lab's bare AddScience raises
+# the query: the decompile says it does; a stock gain of +12.5 with no conversion line refutes
+# it and the lane is re-pinned to that (no take on a lab transmission); (b) the activation
+# (a `kscaction refused ... strategy-cannot-activate <stock reason>` names why: slot, science,
+# group); (c) Parsek booking the take twice (a second StrategyScienceDebit, or a net credit
+# 11.88) or not at all, or the funds yield double-counted through the FundsChanged event
+# (LedgerGroundTruth hardFailures); (d) a KSC reconciliation warning for the ScienceLabEarning
+# row whose stock ScienceChanged is the NET amount (not gated here; read the WRN lines); (e) the
+# F1 roundings of 136.75 / 148.625 on the runtime's formatter (regexed both ways where it
+# matters); (f) the batch split.
+#
+# FIRST FLIGHT 2026-10-18_0050 (automation DLL 41a4f2c7 = main 9a483c4a5 + PR #2139):
+# PARSEK-FAIL, on two REAL Parsek defects; every strategy-take contract held. Measured:
+# activation `setupSci=263.25`, `ScienceChanged -263.3 (StrategySetup)` to 136.8; at the
+# transmit stock's `0.625 Science taken, yields 52.5402 Funds`, `strategy currency conversion
+# - reason=ScienceTransmission inF=0 dF=52.540203094482422 inS=12.5 dS=-0.625 inR=0 dR=0
+# legs=2`, the StrategyScienceDebit -0.625 and strategy FundsEarning 52.54 each once,
+# `ScienceChanged +11.9 (ScienceTransmission)` to 148.6, `Lab payout net of a strategy take:
+# gross=12.5 poolDelta=11.875`, one gross `ScienceLabCredited +12.50`, the lab at 0.50. Stock
+# ALSO completed the fresh career's first-science milestone at the transmission
+# (`MilestoneAchieved 'Kerbin/Science'`, `FundsChanged +1600 (Progression)`, enriched
+# funds=1600), now pinned; the converter took no science from it (`0 Science taken`). The
+# funds yield never reaches a `Game state: FundsChanged` line (52.5 is under the 100-funds
+# threshold): the spec's FundsChanged +5x pin was a premise error, replaced by the Ignored line.
+# The two defects, left GATING here on purpose (the lane must red until they are fixed):
+#   DEFECT 1 (seeds). The first load is the Space Center route, a cold load whose
+#   ParsekScenario.OnLoad runs with Planetarium UT read as 0 and BEFORE the R&D and Reputation
+#   modules (saved after ParsekScenario, the order KSP-written careers carry too:
+#   career-earned-pad, career-pad-craft). ParsekScenario.CaptureInitialBaseline ->
+#   GameStateBaseline.CaptureCurrentState records ut=0, funds 500000 and 0 for the null R&D /
+#   Reputation singletons (`Captured baseline at ut=0: tech=0`); TryGetInitialResourceBaseline
+#   accepts it as the career start (|ut| <= InitialResourceBaselineMaxUtSeconds = 1); then
+#   EnsureInitialScienceSeed / EnsureInitialReputationSeed seed 0 / 0 from it unconditionally
+#   (funds survives only through its `baselineFunds != 0.0` guard), and the seeds are
+#   immutable, so the DeferredSeed that reads Science=400, Rep=25 two frames later changes
+#   nothing. LedgerGroundTruth: `sciencePool save=148.625 recon=-251.375 delta=400`,
+#   `reputation save=25 recon=0 delta=25` (every non-seed row correct: -251.375 = 0 - 263.25 +
+#   12.5 - 0.625; funds matched to the cent), and every recalc logs `GUARDED DRAWDOWN clamped`
+#   for science and reputation. The FLIGHT-route career lanes (L2, HC-2, ZF-1, L8, L5) never
+#   hit it: there the baseline UT is the save's (9), not "initial", and the deferred live read
+#   seeds correctly; L3 never hits it because KSP appends a missing ParsekScenario module after
+#   R&D / Reputation.
+#   DEFECT 2 (post-walk reconcile). PostWalkActionReconciler's ScienceLabEarning leg expects
+#   the GROSS ScienceAwarded (12.5) against the observed ScienceChanged, which a converter
+#   strategy leaves NET (11.875), so every lab payout under Patents logs `Earnings
+#   reconciliation (post-walk, sci): ScienceLabEarning ... expected=12.5, observed=11.9 ...
+#   post-walk delta mismatch` (WARN) and `Science reconcile dump (post-walk)` at ERROR. The
+#   KSC-door path already grosses the observed side up through the in-window converter legs
+#   (LedgerOrchestrator `PendingRecentKscScienceCredit: grossed the observed NET credit 11.875
+#   up through the in-window converter legs (take=0.625, yield=0) -> 12.5`); the post-walk
+#   comparison does not.
+description = "LAB-12: in a career with Patents Licensing activated through the Space Center, a science lab on the pad transmits its 12.5 science: Parsek books the gross 12.50 lab credit once, stock's R&D gain is the net 11.875 after the strategy's 5 % take, the take is booked exactly once as a strategy science debit with the funds it yields, and the ledger closes against KSP's own save."
+instanceProfile = "stock-minimal"
+tags = ["science-lab", "science", "transmit", "strategies", "career", "ledger", "ingame-batch", "LAB-12", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/lab-pad-career"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # THE SPACE CENTER: activate Patents Licensing, save.
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "lab12-ksc" },                          expect = "OK" },
+  { cmd = "KscAction",         args = { action = "activate-strategy", strategy = "PatentsLicensingCfg" }, expect = "OK", budget = 60 },
+  { cmd = "SaveGame",          args = { name = "lab12-patents" },                       expect = "OK", budget = 120 },
+  # THE PAD: fly the lab, nothing recording.
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "lab12-patents", focusPid = "2200110055" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                              expect = "OK" },
+  { cmd = "DiscardTree",                                                                expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "lab12-flight" },                       expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "500", maxRate = "50" },                   expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",          args = { ut = "505", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "lab12-t-before" },                     expect = "OK" },
+  { cmd = "PartAction",        args = { button = "labtransmit", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "517", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "lab12-t-after" },                      expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "RunTests",          args = { category = "LedgerGroundTruth" },               expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["science", "funds", "strategies", "ground-truth-harness"]
+D14 = ["kerbin", "career", "scene-flight", "scene-ksc", "warp-1x", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Nothing records: auto-record is off and a pad flight records only on launch.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required = [
+  # --- THE SPACE CENTER: the activation, its setup cost, as a player click ---
+  "kscaction action=activate-strategy target=PatentsLicensingCfg applied=true manifestKind=strategy-activate observedAfter=factor=0\\.05 slots=1/1 setupFunds=0 setupSci=263\\.2[0-9]* setupRep=0 fundsDelta=0 ",
+  "Game state: StrategyActivated 'PatentsLicensingCfg' title='Patents Licensing' dept='[^']*' factor=0\\.05 setupFunds=0 setupSci=263\\.[23] setupRep=0\\.0",
+  "(?s)MISSIONMARK label=lab12-ksc (?:(?!MISSIONMARK label=lab12-flight ).)*?Game state: ScienceChanged -263\\.[23] \\(StrategySetup\\)[^0-9\\r\\n]+136\\.[78](?![0-9])",
+  # --- THE PAD: the lab as seeded ---
+  "(?s)MISSIONMARK label=lab12-flight (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=204\\.00;Research:active=0'",
+  "(?s)MISSIONMARK label=lab12-t-before (?:(?!partaction applied button=).)*?partaction applied button=labtransmit pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*event=TransmitScience [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=204\\.00;",
+  # --- THE TRANSMIT, inside its window ---
+  # Stock's converter takes 5 % of the gross ...
+  "(?s)MISSIONMARK label=lab12-t-before (?:(?!MISSIONMARK label=lab12-t-after ).)*?\\[CurrencyConverter for Patents Licensing\\]: 0\\.625 Science taken, yields 5[0-9.]+ Funds",
+  # ... Parsek's query-family door reads it off the query: science -0.625, funds +52.5x ...
+  "(?s)MISSIONMARK label=lab12-t-before (?:(?!MISSIONMARK label=lab12-t-after ).)*?Game state: strategy currency conversion - reason=ScienceTransmission inF=0 dF=5[0-9]\\.[0-9]+ inS=12\\.5 dS=-0\\.625 inR=0 dR=0 legs=2",
+  # ... and books it ONCE as a strategy science debit plus a strategy funds earning, untagged.
+  "(?s)MISSIONMARK label=lab12-t-before (?:(?!MISSIONMARK label=lab12-t-after ).)*?Strategy conversion recorded: type=StrategyScienceDebit, currency=Science, delta=-0\\.625, UT=[0-9.]+, reason=ScienceTransmission(?:, recordingId=\\(none\\))?\\r?\\n",
+  "(?s)MISSIONMARK label=lab12-t-before (?:(?!MISSIONMARK label=lab12-t-after ).)*?Strategy conversion recorded: type=FundsEarning, currency=Funds, delta=5[0-9]\\.[0-9]+, UT=[0-9.]+, reason=ScienceTransmission(?:, recordingId=\\(none\\))?\\r?\\n",
+  # Stock's R&D gain is the NET 11.875 (136.75 -> 148.625), the funds the yield ...
+  "(?s)MISSIONMARK label=lab12-t-before (?:(?!MISSIONMARK label=lab12-t-after ).)*?Game state: ScienceChanged \\+11\\.[89] \\(ScienceTransmission\\)[^0-9\\r\\n]+148\\.6(?![0-9])",
+  # (the +52.5 funds yield sits under GameStateRecorder's 100-funds threshold, so stock's
+  # FundsChanged for it is logged only as ignored; the ledger row above carries it)
+  "(?s)MISSIONMARK label=lab12-t-before (?:(?!MISSIONMARK label=lab12-t-after ).)*?Ignored FundsChanged delta=\\+5[0-9]\\.[0-9] below threshold=100\\.0",
+  # Stock completes the fresh career's first-science milestone at the same transmission
+  # (measured on the first flight); the converter takes no science from a funds-only award.
+  "(?s)MISSIONMARK label=lab12-t-before (?:(?!MISSIONMARK label=lab12-t-after ).)*?Game state: MilestoneAchieved 'Kerbin/Science'",
+  "(?s)MISSIONMARK label=lab12-t-before (?:(?!MISSIONMARK label=lab12-t-after ).)*?Game state: FundsChanged \\+1600 \\(Progression\\)",
+  # ... the capture sees the pool move by less than the gross ...
+  "(?s)MISSIONMARK label=lab12-t-before (?:(?!MISSIONMARK label=lab12-t-after ).)*?\\[ScienceLabCapture\\] Lab payout net of a strategy take: gross=12\\.5 poolDelta=11\\.87[0-9]* reason='ScienceTransmission'",
+  # ... and books the GROSS 12.50 lab credit, untagged, as a KSC row.
+  "(?s)MISSIONMARK label=lab12-t-before (?:(?!MISSIONMARK label=lab12-t-after ).)*?Game state: ScienceLabCredited \\+12\\.50 reason='ScienceTransmission' vessel='LABX Orbital Lab' ut=[0-9.]+ recordingId=''",
+  "(?s)MISSIONMARK label=lab12-t-before (?:(?!MISSIONMARK label=lab12-t-after ).)*?KSC spending recorded: type=ScienceLabEarning, UT=[0-9.]+, key=ScienceTransmission",
+  # The lab keeps the fraction (the take is out of the pool's gain, never out of the lab).
+  "(?s)MISSIONMARK label=lab12-t-after (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.50 dataStored=204\\.00;",
+  # --- THE LEDGER CLOSES against KSP's own save ---
+  # The never-flown interim pin: total exact, the split regexed (predicted passed=2 skipped=1);
+  # the `result:` line below exists only if the harness cell itself ran rather than skipped.
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "result: hardFailures=0 reportOnly=[0-9]+ facetsCompared=[0-9]+ strict=False",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  "partaction error ",
+  "kscaction refused",
+  "warptout refused",
+  "GUARDED UPLIFT clamped",
+  "GUARDED DRAWDOWN clamped",
+  # Exactly one lab credit, and none before the press.
+  "(?s)(?:Game state: ScienceLabCredited .*?){2}",
+  "(?s)\\A(?:(?!MISSIONMARK label=lab12-t-before ).)*?Game state: ScienceLabCredited",
+  # The credit is the gross, never the net.
+  "Game state: ScienceLabCredited \\+11\\.",
+  # The take is read off the query once, and booked once.
+  "(?s)(?:Game state: strategy currency conversion - reason=ScienceTransmission .*?){2}",
+  "(?s)(?:Strategy conversion recorded: type=StrategyScienceDebit[^\\r\\n]*reason=ScienceTransmission.*?){2}",
+  "(?s)(?:Strategy conversion recorded: type=FundsEarning[^\\r\\n]*reason=ScienceTransmission.*?){2}",
+  # Nothing on a ScienceTransmission reason before the press.
+  "(?s)\\A(?:(?!MISSIONMARK label=lab12-t-before ).)*?\\(ScienceTransmission\\)",
+  "(?s)\\A(?:(?!MISSIONMARK label=lab12-t-before ).)*?reason=ScienceTransmission",
+  # A second stock R&D gain on the transmission (only the zero-delta echo, which Parsek ignores).
+  "(?s)(?:Game state: ScienceChanged \\+[^\\r\\n]*\\(ScienceTransmission\\).*?){2}",
+  "Exploded!!",
+]
+
+[runtime]
+# Two LoadGame steps (up to 300 s each), the hidden Administration screen's defer, about 20 s
+# of 1x game time, one short pad warp, and the LedgerGroundTruth batch (3 cells).
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

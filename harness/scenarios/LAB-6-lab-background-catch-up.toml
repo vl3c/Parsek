@@ -1,0 +1,253 @@
+schema = 1
+id = "LAB-6-lab-background-catch-up"
+tier = "operator"
+# THE SCIENCE-LAB PROGRAM, lane LAB-6 (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
+# "LAB-6 background lab and switch back"). FIRST FLIGHT `2026-10-17_2303` PARSEK-FAIL on the
+# lane's own catch-up premise only (every product behaviour was right); re-pinned to its
+# measured values below, not re-flown.
+#
+# HOST: `lab-lko-science` (the LAB-2 / LAB-3 host): SCIENCE_SANDBOX, the LABX Orbital Lab (vessel
+# persistentId 2200110055) ORBITING Kerbin at about 107 x 92 km, Bob (Scientist, level 0) in the
+# Large.Crewed.Lab (part persistentId 1700054019, flightID 1270217782), 1,900 EC in full
+# batteries, 8 RTGs. Fixture UT 355.8. The shared-ships overlay gives the save `Settings Probe`.
+#
+# THE STORY. Research is running when the player leaves the lab for another vessel and lets six
+# hours of real time pass, then comes back to it. The lab is unloaded while away, so stock runs
+# nothing for it and catches up ONCE when it loads again; Parsek must add nothing (a stock warp
+# is not a Parsek jump, so no `Converter jump policy` line may appear). The other vessel is
+# `Settings Probe` launched from the VAB (GoToEditor + LaunchFromEditor), the six hours a rails
+# `WarpToUT` on the pad, and "coming back" is a save and `LoadGame focusPid=` of the lab (the
+# Tracking Station Fly shape, as MINE-8: `SimulateStockSwitchClick` refuses an unloaded target,
+# and stock's own far Switch-To is a save plus a scene load too). The OKTO tender was not used:
+# its first undock is a PreAttached decouple at about 1 m/s, so over hours it drifts out of the
+# 2.5 km physics range and the switch back would face an unloaded target anyway.
+#
+# THE CATCH-UP IS THE WHOLE ABSENCE (measured on the first flight). The authored premise, a
+# catch-up cut to the 1,900 EC the batteries hold (380 s of research, the batteries drained), was
+# wrong: the RTGs' output is part of stock's catch-up, so the lab came back from 21,603 s away
+# with storedScience 0.2703 (one 21,600 s MaxDeltaTime slice of research at 1.25e-5 per second),
+# dataStored 49.9460 and its batteries still at 1,900 / 1,900. "Once, not twice" is therefore
+# read off the science: a second catch-up of the same absence on a later load would add another
+# 0.27, and the first flight's reload added 0.0001 (10 s at 1x). The charge readings stay as
+# "the batteries stay full" pins; they do not discriminate.
+#
+# HOW STORED SCIENCE IS READ AT F4. The inspect line's `storedScience` is F2. The only F4 lab
+# reader is `inspect expectSnapshot=true rec=<id>`, which prints the live lab beside a committed
+# recording's END snapshot (`partaction snapshot ... field=storedScience live=<F4> snapshot=<F4>
+# diff=<F4>`). So the lane first commits a short REFERENCE recording made while processing the
+# experiments (before Research starts, so its end snapshot holds storedScience 0.0000 and the F4
+# `live=` value is the absolute amount), and reads every later lab state against it with
+# `tolerance=1` (a WIDE tolerance on purpose: the comparison is the instrument, not the gate, and
+# a match keeps the summary at INFO). The recording is a measuring tool; it changes nothing the
+# lab does. After the commit, RC-6's StopRecording and a DiscardTree leave no live tree, so the
+# exit has no merge to make; every later load of the lab re-takes the committed tree
+# (`TryRestoreCommittedTreeForSpawnedActiveVessel ... resumes in place`, LAB-3's log) and the same
+# StopRecording + DiscardTree pair drops it again (MINE-12's shape), so the committed count stays
+# 1 (the first flight: `lab6-done-1`).
+#
+# MEASURED VALUES (first flight). b0 after about 9 s of research: 0.0001. While away the lab's
+# SAVED charge was unchanged (1,900; nothing runs unloaded). b1 after the load and 10 s at 1x:
+# storedScience 0.2703 (window 0.2650 .. 0.2759), dataStored 49.9460, charge 1,900. After 2,800 s
+# of loaded rails research: 0.3054 (window 0.3000 .. 0.3119). After a second save and load:
+# 0.3055 (same window: no second catch-up), charge within 50 of the pre-save reading. The F2
+# equality across the reload is not pinned: 0.3054 sits 0.0004 above the F2 rounding edge, so an
+# F2 backreference would flake; the F4 window is the gate.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse - LAB-5 flies the same pad route for the
+# jumps; a real-time absence and a jump in one flight would mix a full catch-up and a jumped span
+# in one reading, and LAB-7's Space Center stay is a SPAWNED lab's catch-up (a different restore
+# path), so this original-vessel catch-up stays its own lane. (2) no idle waits - every wait is
+# an explicit-UT WarpToUT; 10 s at 1x after each load covers stock's 1 s post-load hold on
+# converter steps. (3) the absence is the plan's six hours at up to 1000x (60.7 s measured); the
+# 2,800 s of loaded research between the loads (70.9 s) keeps the reload's reading apart from the
+# catch-up's. (4) no burns. (5) no coast. (6) fail fast - a refused verb fails its step; retry
+# `once`. (7) count window - the one reference recording, pinned {1,1}. (8) tier - operator until
+# a green flight; promote by the measured p50. (9) flight_efficiency.py after the first green
+# flight.
+#
+# WHAT A RE-FLIGHT CAN FALSIFY: the full catch-up (b1 near 0.0001 means none ran; near 0.54 means
+# two); "nothing runs unloaded" (the pad readings of the lab's saved charge differ); a second
+# catch-up on the reload (b3 about 0.27 above b2, a Parsek finding if the lab's saved clock went
+# stale); the reference-recording instrument; the restore-and-discard cycle on each load (a count
+# of 2 means a resumed copy was committed); research still on throughout.
+description = "LAB-6: a crewed science lab in low Kerbin orbit is researching when the player leaves it for a probe launched from the pad and lets six hours pass; the unloaded lab produces nothing while away (its saved charge unchanged), catches up the whole absence exactly once when it is flown again (about 0.27 science, the batteries still full), keeps researching, and a second save and load of the lab catches up nothing more; Parsek applies no converter jump policy to a stock warp."
+instanceProfile = "stock-minimal"
+tags = ["science-lab", "science", "converter", "scene-editor", "rails-warp", "LAB-6", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/lab-lko-science"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # 1. The REFERENCE recording: the four experiments processed while recording (50 data),
+  #    committed before Research starts, so its end snapshot holds storedScience 0.
+  { cmd = "StartRecording",                                                          expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "PartAction",     args = { button = "experiment", part = "sensorThermometer" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "370", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "sensorThermometer" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "experiment", part = "GooExperiment" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "376", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "GooExperiment" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "experiment", part = "science.module" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "382", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "science.module" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "experiment", part = "sensorBarometer" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "388", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "sensorBarometer" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "CommitTree",                                                              expect = "OK", budget = 120 },
+  # CommitTree re-takes the committed tree for the still-active vessel; stop it (RC-6) and
+  # drop the re-taken copy, so no tree is live when the player leaves.
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab6-reference-${c0.count}-${c0.rec0}" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab", expectSnapshot = "true", rec = "${c0.rec0}" }, expect = "OK" },
+  # 2. Research on at 1x; read the lab at F4 (b0) and the charge (e0).
+  { cmd = "MissionMark",    args = { label = "lab6-research-on-before" },            expect = "OK" },
+  { cmd = "PartAction",     args = { button = "startconverter", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "397", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "lab6-b0" },                            expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab", expectSnapshot = "true", rec = "${c0.rec0}", tolerance = "1" }, expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2200110055", resources = "ElectricCharge" }, label = "e0", expect = "OK" },
+  # 3. Leave the lab for a probe on the pad; six hours of real time pass there.
+  { cmd = "MissionMark",    args = { label = "lab6-leaving" },                       expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                       expect = "OK", budget = 120 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Settings Probe" },   expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                        expect = "OK", budget = 180 },
+  { cmd = "MissionMark",    args = { label = "lab6-away" },                          expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2200110055", resources = "ElectricCharge" }, label = "p0", expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "22000", maxRate = "1000" },               expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "lab6-away-warped" },                   expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2200110055", resources = "ElectricCharge", expect = "ElectricCharge:${p0.ElectricCharge}", tolerance = "0.01" }, expect = "OK" },
+  # 4. Come back to the lab: it loads and catches up once.
+  { cmd = "SaveGame",       args = { name = "lab6-away" },                           expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "lab6-away", focusPid = "2200110055" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "22010", maxRate = "1" },                  expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "lab6-back" },                          expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2200110055", resources = "ElectricCharge" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab", expectSnapshot = "true", rec = "${c0.rec0}", tolerance = "1" }, expect = "OK" },
+  # 5. Research continues loaded (2,800 s, 70.9 s at 50x measured) before the second load.
+  { cmd = "WarpToUT",       args = { ut = "24810", maxRate = "50" },                 expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",       args = { ut = "24820", maxRate = "1" },                  expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "lab6-recharged" },                     expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2200110055", resources = "ElectricCharge" }, label = "e2", expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab", expectSnapshot = "true", rec = "${c0.rec0}", tolerance = "1" }, expect = "OK" },
+  # 6. A second save and load of the lab: no second catch-up.
+  { cmd = "SaveGame",       args = { name = "lab6-back" },                           expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "lab6-back", focusPid = "2200110055" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "24830", maxRate = "1" },                  expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "lab6-reloaded" },                      expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2200110055", resources = "ElectricCharge", expect = "ElectricCharge:${e2.ElectricCharge}", tolerance = "50" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab", expectSnapshot = "true", rec = "${c0.rec0}", tolerance = "1" }, expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c1",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab6-done-${c1.count}" },              expect = "OK" },
+  { cmd = "SaveGame",                                                                expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["science"]
+D14 = ["kerbin", "science-mode", "scene-flight", "scene-ksc", "scene-editor", "warp-1x", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The one reference recording; every later load re-takes it and the lane discards the copy.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  # The reference recording: the four processes at the live stock values, 50 data, committed.
+  "partaction applied button=labprocess pid=2200110055 part='sensorThermometer' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=5\\.00",
+  "partaction applied button=labprocess pid=2200110055 part='GooExperiment' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=15\\.00",
+  "partaction applied button=labprocess pid=2200110055 part='science\\.module' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=22\\.00",
+  "partaction applied button=labprocess pid=2200110055 part='sensorBarometer' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=8\\.00",
+  "committree committed=true",
+  "MISSIONMARK label=lab6-reference-1-[0-9a-f]{32} ",
+  # ... its end snapshot is the instrument's zero: storedScience 0, 50 data, four subjects.
+  "(?s)MISSIONMARK label=lab6-reference-1-[0-9a-f]{32} (?:(?!MISSIONMARK).)*?partaction snapshot rec=[0-9a-f]{32} partId=1270217782 field=storedScience live=0\\.0000 snapshot=0\\.0000 diff=0\\.0000 match=true",
+  "(?s)MISSIONMARK label=lab6-reference-1-[0-9a-f]{32} (?:(?!MISSIONMARK).)*?partaction snapshot rec=[0-9a-f]{32} partId=1270217782 field=experiments live=4 snapshot=4 ",
+  "(?s)MISSIONMARK label=lab6-reference-1-[0-9a-f]{32} (?:(?!MISSIONMARK).)*?partaction snapshot complete rec=[0-9a-f]{32} parts=1 compared=1 [^\\r\\n]*snapshotMatch=true ",
+  # Research on at 1x; b0 about 0.0001, the batteries full.
+  "partaction applied button=startconverter pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*event=StartResourceConverter [^\\r\\n]*state='lab:storedScience=0\\.00 dataStored=50\\.00;Research:active=1'",
+  "(?s)MISSIONMARK label=lab6-b0 (?:(?!MISSIONMARK).)*?partaction snapshot rec=[0-9a-f]{32} partId=1270217782 field=storedScience live=0\\.000[0-3] snapshot=0\\.0000 ",
+  "(?s)MISSIONMARK label=lab6-b0 (?:(?!MISSIONMARK).)*?readvesselresources vessel index=0 rec=- found=true pid=2200110055 name='LABX Orbital Lab' loaded=true parts=26 ElectricCharge=1[89][0-9]{2}\\.[0-9]{4}/1900\\.0000",
+  # Away: out to the Space Center with nothing recording, a probe launched from the VAB, ...
+  "exittospacecenter start scene=FLIGHT autoMerge=(?:true|false) hasActiveTree=false hasPendingTree=false",
+  "goeditor complete facility=VAB craft=Settings Probe scene=EDITOR parts=1 ship=Settings Probe",
+  "launchfromeditor complete scene=FLIGHT vessel=Settings Probe pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  # ... the lab unloaded, its saved charge unchanged by six hours of real warp (nothing runs).
+  "(?s)MISSIONMARK label=lab6-away (?:(?!MISSIONMARK).)*?readvesselresources vessel index=0 rec=- found=true pid=2200110055 name='LABX Orbital Lab' loaded=false parts=26 ElectricCharge=1[89][0-9]{2}\\.[0-9]{4}/1900\\.0000",
+  "warptout complete reachedUT=[0-9.]+ ut=22000 rate=[0-9.]+ maxRate=(?:[5-9][0-9]|[1-9][0-9]{2,})(?:\\.[0-9]+)? ",
+  "(?s)MISSIONMARK label=lab6-away-warped (?:(?!MISSIONMARK).)*?readvesselresources expect resource=ElectricCharge expected=1[89][0-9]{2}\\.[0-9]{4} actual=1[89][0-9]{2}\\.[0-9]{4} diff=-?0\\.00[0-9]{2} tolerance=0\\.0100 match=true",
+  # Back: the lab loads and catches up the whole absence ONCE, the batteries still full ...
+  "loadgame start save=\\S+ name=lab6-away scene=FLIGHT requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false",
+  "(?s)MISSIONMARK label=lab6-back (?:(?!MISSIONMARK).)*?readvesselresources vessel index=0 rec=- found=true pid=2200110055 name='LABX Orbital Lab' loaded=true parts=26 ElectricCharge=1[89][0-9]{2}\\.[0-9]{4}/1900\\.0000",
+  # ... about 21,600 s of research added (0.2703 measured; none would read 0.0001, twice 0.54),
+  # Research still on.
+  "(?s)MISSIONMARK label=lab6-back (?:(?!MISSIONMARK).)*?partaction snapshot rec=[0-9a-f]{32} partId=1270217782 field=storedScience live=0\\.2(?:6[5-9]|7[0-5])[0-9] snapshot=0\\.0000 ",
+  "(?s)MISSIONMARK label=lab6-back (?:(?!MISSIONMARK).)*?partaction snapshot rec=[0-9a-f]{32} partId=1270217782 field=dataStored live=49\\.9[3-6][0-9]{2} snapshot=50\\.0000 ",
+  "(?s)MISSIONMARK label=lab6-back (?:(?!MISSIONMARK).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*activePid=2200110055 [^\\r\\n]*;Research:active=1' [^\\r\\n]*snapshotMatch=true",
+  # 2,800 s of loaded research: b2 about 0.3054 (measured), the batteries full.
+  "(?s)MISSIONMARK label=lab6-recharged (?:(?!MISSIONMARK).)*?readvesselresources vessel index=0 rec=- found=true pid=2200110055 name='LABX Orbital Lab' loaded=true parts=26 ElectricCharge=1[89][0-9]{2}\\.[0-9]{4}/1900\\.0000",
+  "(?s)MISSIONMARK label=lab6-recharged (?:(?!MISSIONMARK).)*?partaction snapshot rec=[0-9a-f]{32} partId=1270217782 field=storedScience live=0\\.(?:30[0-9]|31[01])[0-9] snapshot=0\\.0000 ",
+  # The second load catches up nothing more: the charge holds within 50 EC ...
+  "loadgame start save=\\S+ name=lab6-back scene=FLIGHT requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false",
+  "(?s)MISSIONMARK label=lab6-reloaded (?:(?!MISSIONMARK).)*?readvesselresources expect resource=ElectricCharge expected=1[89][0-9]{2}\\.[0-9]{4} actual=1[89][0-9]{2}\\.[0-9]{4} diff=-?[0-9]+\\.[0-9]{4} tolerance=50\\.0000 match=true",
+  # ... and the science stays in b2's window (0.3055 measured; a second catch-up of the absence
+  # would add about 0.27), still researching.
+  "(?s)MISSIONMARK label=lab6-reloaded (?:(?!MISSIONMARK).)*?partaction snapshot rec=[0-9a-f]{32} partId=1270217782 field=storedScience live=0\\.(?:30[0-9]|31[01])[0-9] snapshot=0\\.0000 ",
+  "(?s)MISSIONMARK label=lab6-reloaded (?:(?!MISSIONMARK).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*activePid=2200110055 [^\\r\\n]*;Research:active=1' [^\\r\\n]*snapshotMatch=true",
+  # Every later load re-took the committed tree and the lane dropped the copy: still one.
+  "MISSIONMARK label=lab6-done-1 ",
+  # Research stores science in the lab; nothing moves the R&D pool.
+  "(?s)MISSIONMARK label=lab6-research-on-before (?:(?!Game state: ScienceChanged).)*?MISSIONMARK label=lab6-done-",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected ",
+  "partaction-lab-value-zero",
+  "partaction error ",
+  "readvesselresources rejected",
+  "ScienceLabCredited",
+  "Exploded!!",
+  # A stock warp is not a Parsek jump: no converter clock is shifted anywhere in this lane.
+  "Converter jump policy \\(",
+  # The reference instrument never mismatches at tolerance 1 (a different subject set would).
+  "snapshotMatch=false",
+  "IsTreeIdleOnPad: all [0-9]+ recordings",
+]
+
+[runtime]
+# Three LoadGame steps (about 7 s each measured), about 40 s of 1x game time, the Space Center,
+# the editor and a launch (about 10 s), six hours of pad warp at up to 1000x (about 25 s), a
+# 2,800 s rails recharge (about 60 s at 50x), three saves.
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

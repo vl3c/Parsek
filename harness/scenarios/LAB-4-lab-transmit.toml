@@ -1,0 +1,288 @@
+schema = 1
+id = "LAB-4-lab-transmit"
+tier = "operator"
+# THE SCIENCE-LAB PROGRAM, lane LAB-4 (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
+# "LAB-4 transmit, twice, and a scene change mid-transmission"). Operator tier and tagged
+# `pending-flight` until a green flight of THIS shape pins the measured values.
+#
+# DEPENDENCY: PR #2136 (`claude/lab-idle-veto`, merged to main 2026-10-17): the phase-A scene
+# exit must log `IsTreeIdleOnPad: not idle - tree has 1 lab payout(s)` and commit the tree. On a
+# DLL without it that pad tree is idle and the exit discards it (`Idle on pad at scene exit`),
+# which reds this lane on purpose.
+#
+# HOST: `lab-pad-seeded` (harness/tools/build_lab_seeded_variants.py): SCIENCE_SANDBOX, science
+# 100, the LABX Orbital Lab (vessel persistentId 2200110055) PRELAUNCH on the KSC pad, its
+# Large.Crewed.Lab seeded with dataStored 204 (all sixteen subjects) and storedScience 12.5,
+# Research off, Valentina in the pod, Bob (Scientist, level 0) in the lab, a Communotron 16-S
+# (SurfAntenna: DIRECT, packetSize 2, packetInterval 0.6, 12 EC per packet) as the only
+# antenna stock can transmit through (the pod and Octo internals cannot), ground stations on.
+# Fixture UT 355.8; the loads settle at about UT 357.4.
+#
+# STOCK (decompiled 1.12.5 ModuleScienceLab): Transmit Science sends
+# ScienceData(floor(storedScience), "sciencelab@Kerbin", triggered) through the best
+# transmitter; it is refused with a screen message only while transmitting, below
+# storedScience 1 and with no transmitter. At transmission complete it calls
+# AddScience(storedScience, ScienceTransmission) and then subtracts only floor(storedScience):
+# the fraction stays in the lab and is paid AGAIN by the next transmit. The decrement lands at
+# completion, never at the press. The seam's `labtransmit` presses the KSPEvent and answers OK
+# either way (it does not read the outcome), so a refused press is proved by its EFFECTS: no
+# credit and an unchanged lab. Parsek (Patches/ScienceLabCreditCapturePatch.cs ->
+# GameStateRecorder.OnScienceLabCredited): `Game state: ScienceLabCredited +<gross F2>
+# reason='ScienceTransmission' vessel='..' ut=.. recordingId='<live recording or empty>'`,
+# beside stock's own pool move `Game state: ScienceChanged +<F1> (ScienceTransmission) <U+2192>
+# <pool F1>` (matched with `[^0-9\r\n]+` across the arrow), in the same frame, stock's first.
+# An untagged credit goes straight to the ledger (`KSC spending recorded: type=
+# ScienceLabEarning, UT=.., key=ScienceTransmission`). Every credit ban anchors on the
+# `Game state: ScienceLabCredited` line: the same credit also writes `Emit:` / `AddEvent:` /
+# MilestoneStore lines naming the event type.
+#
+# THE STORY, three phases on the same craft.
+#   PHASE A, the first transmit and the refused second (recording). From the fresh fixture
+#   load: record, transmit the 12.5 (12 Mits, six 16-S packets, about 5 s to the credit in
+#   flight `2026-10-17_2158`): exactly one credit +12.50 tagged to the recording (backreference
+#   to the `startrecording` id), stock's +12.5 to 112.5, the lab at 0.50. Transmit again at
+#   0.50: stock refuses (below 1), no credit, the lab unchanged. Exit: the tree is NOT idle,
+#   its one lab payout vetoes the discard (PR #2136), and the scene exit auto-commits it
+#   (autoMerge). No credit anywhere before the first press.
+#   PHASE B, the refill and the fraction paid again (no recording). Reload flying the lab
+#   (0.50 persisted), Start Research, rails-warp to UT 20400 at up to 1000x, Stop Research at
+#   1x, read the lab (S2), transmit, read again. The credit equals S2 exactly (the same F2
+#   reading of the same float; research is stopped), so it includes the 0.50 the first
+#   transmit left behind; the lab keeps S2 - 1 (the same two decimals). With no recorder the
+#   credit is untagged and booked at once as a KSC ledger row. Both flights read S2 = 1.52,
+#   dataStored 203.81, stock +1.5 to 114.0.
+#   PHASE C, LAST, a transmission across a scene change (no recording). Research again to
+#   about 1.5 (S3), press Transmit and drive ExitToSpaceCenter on the very next step, reload
+#   flying the lab, wait 18 s at 1x, read the lab. WHEN the cut transmission pays is stock
+#   timing, not Parsek: flight `2026-10-17_2158` saw it pay nothing (the lab kept its science
+#   across the exit), flight `2026-10-17_2210` saw the reloaded transmitter finish sending the
+#   queued data 3.5 s after the reload and pay then (the exit save had captured the queue while
+#   the lab still held the science). Either is accepted; what is gated is the invariant: at
+#   most ONE lab credit from the press to the end, of exactly S3, paired with ONE stock gain
+#   of the same amount (each without the other is a failure), and a final lab reading that
+#   matches the case: S3 when nothing was paid, S3 - 1 when the credit landed.
+#
+# THE RATE (decompiled ModuleScienceConverter.PostProcess, lab cfg researchTime 7,
+# dataProcessingMultiplier 0.5, scienceMultiplier 5, Bob = 1 scientist): science per second =
+# 5 * 0.5 * 1 * dataStored / 1e7 = 5.1e-5 at 204 data. Each refill warps about 19,990 s: +1.02.
+# Windows: S2 1.30 .. 1.70 and dataStored 203.70 .. 203.99 (measured 1.52 / 203.81 twice);
+# S3 = S2 - 1 + 1.02, window 1.30 .. 1.79, dataStored 203.40 .. 203.79 (expected about
+# 1.54 / 203.61). EC: 8 RTGs give 6 EC/s against Research's 5 EC/s.
+#
+# THE UT MARGINS. Phase A: load settles about 357.4, first wait to 372 (the press there worked
+# in both flights), the transmission inside a wait to 384, the refused press inside a wait to
+# 392, the exit at about 392. Phase B: the reload lands about 1.5 s after the exit's save
+# (flights: exit at 409.8, reload at 411.5), so about 393.5; warp target 20400, then 20412.
+# Phase C: warp target 40400, the exit at about 40400.2, the reload about 40402, the 1x wait to
+# 40420 (about 18 s; the 2210 payment came 3.5 s after its reload).
+#
+# THE RECORDING COUNT is 0 by the lane's design (flights 2158 / 2210): phase B reloads the
+# KSC-written save, Parsek resumes the committed phase-A tree from it (committed-after-
+# quicksave), and phase B's DiscardTree step then discards it; phases B and C record nothing.
+#
+# NOT HERE: LedgerGroundTruth (`RunTests category=LedgerGroundTruth` in SCIENCE_SANDBOX is
+# unproven); the strategy take (LAB-12).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse - LAB-9b and LAB-14 share the host but end
+# the flight differently. (2) no idle waits - every wait is an explicit-UT `WarpToUT`, 1x only
+# for the recording, the transmissions and the post-reload window, the refills at rails warp.
+# (3) no dwells. (4) no burns. (5) no coast. (6) fail fast - a refused verb is a step failure
+# at once; retry `once`. (7) count window {0,0} (above). (8) tier - operator until a green
+# flight; promote by the measured p50 (expected about 5 min). (9) flight_efficiency.py after
+# the first green flight.
+#
+# WHAT A FIRST FLIGHT CAN FALSIFY: the phase-A tag and the payout veto (PR #2136); the S3
+# window (the second refill starts from S2 - 1); phase C paying twice (the reloaded transmitter
+# and something else), paying an amount other than S3, a Parsek credit without stock's gain or
+# a stock gain Parsek missed, or a lab reading that disagrees with whether it paid; the UT
+# margins.
+description = "LAB-4: on the KSC pad, a science lab holding 12.5 science transmits through the Communotron 16-S; the first transmit books exactly 12.50 tagged to the live recording beside stock's +12.5, a second transmit below 1 is refused with the lab unchanged, the lab payout keeps the pad recording at the scene exit, after rails-warp research the next transmit pays the whole stored science including the fraction left by the first, and a transmission cut by a scene change is paid at most once, as stock pays it, with the lab reading to match."
+instanceProfile = "stock-minimal"
+tags = ["science-lab", "science", "transmit", "scene-exit", "rails-warp", "LAB-4", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/lab-pad-seeded"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                              expect = "OK" },
+  { cmd = "DiscardTree",                                                                expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  # The scene exits commit the pad tree; without autoMerge they refuse `dialog-required`.
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # PHASE A: record, transmit the 12.5 (12.50 tagged), a refused transmit at 0.50, exit.
+  { cmd = "StartRecording",                                                             expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                             expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "372", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "lab4-t1-before" },                     expect = "OK" },
+  { cmd = "PartAction",        args = { button = "labtransmit", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "384", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "lab4-t1-after" },                      expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "PartAction",        args = { button = "labtransmit", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "392", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "lab4-refused-after" },                 expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  # PHASE B: fly the lab again (no recording); research to about 1.5; transmit it all.
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent", focusPid = "2200110055" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                              expect = "OK" },
+  { cmd = "DiscardTree",                                                                expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "lab4-reloaded-2" },                    expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "PartAction",        args = { button = "startconverter", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "20400", maxRate = "1000" },               expect = "OK", budget = 540 },
+  { cmd = "PartAction",        args = { button = "stopconverter", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "lab4-t2-before" },                     expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "PartAction",        args = { button = "labtransmit", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "20412", maxRate = "1" },                  expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "lab4-t2-after" },                      expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # PHASE C: research to about 1.5 again, transmit, exit on the very next step, reload, wait.
+  { cmd = "PartAction",        args = { button = "startconverter", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "40400", maxRate = "1000" },               expect = "OK", budget = 540 },
+  { cmd = "PartAction",        args = { button = "stopconverter", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "lab4-c-before" },                      expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "lab4-c-press" },                       expect = "OK" },
+  { cmd = "PartAction",        args = { button = "labtransmit", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent", focusPid = "2200110055" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                              expect = "OK" },
+  { cmd = "DiscardTree",                                                                expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "lab4-c-reloaded" },                    expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "40420", maxRate = "1" },                  expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "lab4-c-after" },                       expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[dimensionsCovered]
+D1  = ["commit-scene-exit", "auto-merge"]
+D8  = ["science"]
+D14 = ["kerbin", "science-mode", "scene-flight", "scene-ksc", "warp-1x", "warp-rails"]
+
+# FLIGHTS OF THE PREVIOUS SHAPE (interrupted transmit FIRST, then the two paid transmits):
+# 2026-10-17_2158 - every product behaviour right (the cut transmit paid nothing, idle-discard,
+# +12.50 tagged, the refused press paid nothing, veto + auto-commit, +1.52 with the fraction);
+# PARSEK-FAIL on two pins since fixed (the credit bans matched the same credit's Emit: /
+# AddEvent: / MilestoneStore lines; the recording count is 0, above).
+# 2026-10-17_2210 - the cut transmission COMPLETED 3.5 s AFTER THE RELOAD (+12.50, stock +12.5),
+# so the next "first" transmit found 0.50 and the first-transmit pins failed. Stock timing, not a
+# Parsek defect; hence this shape, with the scene-change transmission last and case-agnostic.
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required = [
+  # The seeded lab, as the fixture builder wrote it.
+  "partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=204\\.00;Research:active=0'",
+  # --- PHASE A: the first transmit ---
+  # The press reads the lab unchanged: the decrement lands at completion, not at the press.
+  "(?s)MISSIONMARK label=lab4-t1-before (?:(?!partaction applied button=).)*?partaction applied button=labtransmit pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*event=TransmitScience [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=204\\.00;",
+  # Exactly one credit of the whole 12.50, tagged to the recording started for it, ...
+  "(?s)startrecording recordingId=([0-9a-f]{32}) already=false(?:(?!MISSIONMARK label=lab4-t1-after ).)*?MISSIONMARK label=lab4-t1-before (?:(?!MISSIONMARK label=lab4-t1-after ).)*?Game state: ScienceLabCredited \\+12\\.50 reason='ScienceTransmission' vessel='LABX Orbital Lab' ut=[0-9.]+ recordingId='\\1'",
+  # ... beside stock's own gain of the same 12.5, 100 -> 112.5, ...
+  "(?s)MISSIONMARK label=lab4-t1-before (?:(?!MISSIONMARK label=lab4-t1-after ).)*?Game state: ScienceChanged \\+12\\.5 \\(ScienceTransmission\\)[^0-9\\r\\n]+112\\.5(?![0-9])",
+  # ... and the lab keeps the fraction (12.5 - floor 12.5).
+  "(?s)MISSIONMARK label=lab4-t1-after (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.50 dataStored=204\\.00;",
+  # The second press at 0.50: stock refuses below 1. The press answers OK, the lab is unchanged
+  # after the wait, and nothing is paid.
+  "(?s)MISSIONMARK label=lab4-t1-after (?:(?!MISSIONMARK label=lab4-refused-after ).)*?partaction applied button=labtransmit pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*event=TransmitScience [^\\r\\n]*state='lab:storedScience=0\\.50 ",
+  "(?s)MISSIONMARK label=lab4-refused-after (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.50 dataStored=204\\.00;",
+  "(?s)MISSIONMARK label=lab4-t1-after (?:(?!Game state: ScienceLabCredited)(?!\\(ScienceTransmission\\)).)*?MISSIONMARK label=lab4-refused-after ",
+  # The exit: the lab payout vetoes idle-on-pad (PR #2136) and the tree auto-commits.
+  "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false ",
+  "(?s)MISSIONMARK label=lab4-refused-after (?:(?!MISSIONMARK label=lab4-reloaded-2 ).)*?(?:IsTreeIdleOnPad|IsActiveTreeIdleOnPad): not idle - tree has 1 lab payout\\(s\\) tree='LABX Orbital Lab'",
+  "(?s)MISSIONMARK label=lab4-refused-after (?:(?!MISSIONMARK label=lab4-reloaded-2 ).)*?full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='LABX Orbital Lab' recordings=1 ",
+  # --- PHASE B: the refill and the second paid transmit ---
+  # The fraction persisted across the exit and the reload; Research is off.
+  "(?s)MISSIONMARK label=lab4-reloaded-2 (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.50 dataStored=204\\.00;Research:active=0'",
+  "(?s)MISSIONMARK label=lab4-reloaded-2 (?:(?!MISSIONMARK ).)*?partaction applied button=startconverter pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*event=StartResourceConverter [^\\r\\n]*Research:active=1",
+  "(?s)MISSIONMARK label=lab4-reloaded-2 (?:(?!MISSIONMARK ).)*?partaction applied button=stopconverter pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*event=StopResourceConverter [^\\r\\n]*Research:active=0",
+  # One stock refill at 204 data: S2 in 1.30 .. 1.70, dataStored 203.70 .. 203.99.
+  "(?s)MISSIONMARK label=lab4-t2-before (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=1\\.(?:[3-6][0-9]|70) dataStored=203\\.[7-9][0-9];Research:active=0'",
+  # The credit is the WHOLE stored amount read just before the press (the 0.50 the first
+  # transmit left, paid again), untagged with no recorder live ...
+  "(?s)MISSIONMARK label=lab4-t2-before (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=([0-9]+\\.[0-9]{2}) (?:(?!MISSIONMARK label=lab4-t2-after ).)*?Game state: ScienceLabCredited \\+\\1 reason='ScienceTransmission' vessel='LABX Orbital Lab' ut=[0-9.]+ recordingId=''",
+  # ... booked at once as a KSC ledger row ...
+  "(?s)MISSIONMARK label=lab4-t2-before (?:(?!MISSIONMARK label=lab4-t2-after ).)*?KSC spending recorded: type=ScienceLabEarning, UT=[0-9.]+, key=ScienceTransmission",
+  # ... beside stock's own gain (1.3 .. 1.7), the pool 112.5 + S2.
+  "(?s)MISSIONMARK label=lab4-t2-before (?:(?!MISSIONMARK label=lab4-t2-after ).)*?Game state: ScienceChanged \\+1\\.[3-7] \\(ScienceTransmission\\)[^0-9\\r\\n]+11[34]\\.[0-9](?![0-9])",
+  # The lab keeps S2 - floor(S2) = S2 - 1: the same two decimals.
+  "(?s)MISSIONMARK label=lab4-t2-before (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=1\\.([0-9]{2}) (?:(?!MISSIONMARK label=lab4-t2-after ).)*?MISSIONMARK label=lab4-t2-after (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.\\1 ",
+  # --- PHASE C: the transmission across a scene change ---
+  # The second refill, from S2 - 1: S3 in 1.30 .. 1.79, dataStored 203.40 .. 203.79.
+  "(?s)MISSIONMARK label=lab4-c-before (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=1\\.[3-7][0-9] dataStored=203\\.[4-7][0-9];Research:active=0'",
+  # The press reads S3 unchanged and the exit is the very next verb.
+  "(?s)MISSIONMARK label=lab4-c-press (?:(?!partaction applied button=).)*?partaction applied button=labtransmit pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*event=TransmitScience [^\\r\\n]*state='lab:storedScience=1\\.[3-7][0-9] (?:(?!recv id=[0-9]+ cmd=(?!ExitToSpaceCenter )).)*?exittospacecenter start ",
+  "(?s)MISSIONMARK label=lab4-c-press .*?exittospacecenter complete scene=SPACECENTER ",
+  # After the reload and the 1x wait the lab reads S3 (nothing paid) or S3 - 1 (paid): the same
+  # two decimals either way. Which one must agree with the credit (forbidden pair below).
+  "(?s)MISSIONMARK label=lab4-c-before (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=1\\.([0-9]{2}) (?:(?!MISSIONMARK label=lab4-c-after ).)*?MISSIONMARK label=lab4-c-reloaded (?:(?!MISSIONMARK label=lab4-c-after ).)*?MISSIONMARK label=lab4-c-after (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=[01]\\.\\1 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  "partaction error ",
+  "warptout refused",
+  "exittospacecenter rejected",
+  # At most three lab credits in the run (phase A, phase B, and at most one in phase C).
+  "(?s)(?:Game state: ScienceLabCredited .*?){4}",
+  # Nothing is paid before the first press.
+  "(?s)\\A(?:(?!MISSIONMARK label=lab4-t1-before ).)*?Game state: ScienceLabCredited",
+  # One credit per transmit window.
+  "(?s)MISSIONMARK label=lab4-t1-before (?:(?!MISSIONMARK label=lab4-t1-after ).)*?Game state: ScienceLabCredited(?:(?!MISSIONMARK label=lab4-t1-after ).)*?Game state: ScienceLabCredited",
+  "(?s)MISSIONMARK label=lab4-t2-before (?:(?!MISSIONMARK label=lab4-t2-after ).)*?Game state: ScienceLabCredited(?:(?!MISSIONMARK label=lab4-t2-after ).)*?Game state: ScienceLabCredited",
+  # No lab credit while no transmission is in flight: the phase-B reload and refill, and the
+  # phase-C refill.
+  "(?s)MISSIONMARK label=lab4-t1-after (?:(?!MISSIONMARK label=lab4-t2-before ).)*?Game state: ScienceLabCredited",
+  "(?s)MISSIONMARK label=lab4-t2-after (?:(?!MISSIONMARK label=lab4-c-press ).)*?Game state: ScienceLabCredited",
+  # PHASE C, from the press to the end: at most one credit and at most one stock gain ...
+  "(?s)MISSIONMARK label=lab4-c-press .*?Game state: ScienceLabCredited .*?Game state: ScienceLabCredited ",
+  "(?s)MISSIONMARK label=lab4-c-press .*?\\(ScienceTransmission\\).*?\\(ScienceTransmission\\)",
+  # ... a credit only of exactly S3 (the reading just before the press) ...
+  "(?s)MISSIONMARK label=lab4-c-before (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=([0-9]+\\.[0-9]{2}) (?:(?!Game state: ScienceLabCredited).)*?Game state: ScienceLabCredited \\+(?!\\1 )",
+  # ... a stock gain only of the same amount (F1 of S3, 1.3 .. 1.8) ...
+  "(?s)MISSIONMARK label=lab4-c-press .*?Game state: ScienceChanged \\+(?!1\\.[3-8] )[^ \\r\\n]* \\(ScienceTransmission\\)",
+  # ... never one without the other (stock's gain logs first, in the same frame) ...
+  "(?s)MISSIONMARK label=lab4-c-press (?:(?!\\(ScienceTransmission\\)).)*?Game state: ScienceLabCredited (?:(?!\\(ScienceTransmission\\)).)*\\Z",
+  "(?s)MISSIONMARK label=lab4-c-press (?:(?!Game state: ScienceLabCredited).)*?\\(ScienceTransmission\\)(?:(?!Game state: ScienceLabCredited).)*\\Z",
+  # ... and a lab reading that matches: paid -> S3 - 1 (0.xx), not paid -> S3 (1.xx) ...
+  "(?s)MISSIONMARK label=lab4-c-press (?:(?!MISSIONMARK label=lab4-c-after ).)*?Game state: ScienceLabCredited (?:(?!MISSIONMARK label=lab4-c-after ).)*?MISSIONMARK label=lab4-c-after (?:(?!partaction applied button=).)*?partaction applied button=inspect [^\\r\\n]*state='lab:storedScience=1\\.",
+  "(?s)MISSIONMARK label=lab4-c-press (?:(?!Game state: ScienceLabCredited)(?!MISSIONMARK label=lab4-c-after ).)*?MISSIONMARK label=lab4-c-after (?:(?!partaction applied button=).)*?partaction applied button=inspect [^\\r\\n]*state='lab:storedScience=0\\.",
+  # ... with nothing paid after that reading (it would be stale).
+  "(?s)MISSIONMARK label=lab4-c-after (?:(?!partaction applied button=).)*?partaction applied button=inspect [^\\r\\n]*\\r?\\n.*?Game state: ScienceLabCredited",
+  # The paying tree is never idle.
+  "(?s)MISSIONMARK label=lab4-refused-after (?:(?!MISSIONMARK label=lab4-reloaded-2 ).)*?Idle on pad[^\\r\\n]*auto-discarding",
+  # The lab never paid less than its stored science (a strategy take would show here).
+  "Lab payout net of a strategy take",
+  "Exploded!!",
+]
+
+[runtime]
+# Three LoadGame steps (up to 300 s each, about 10 s typical after the boot), two scene exits,
+# about 60 s of 1x game time, and two rails warps of about 20,000 s at up to 1000x (about 60 s
+# each in the 2158 / 2210 flights).
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

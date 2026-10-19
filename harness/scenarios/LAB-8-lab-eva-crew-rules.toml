@@ -1,0 +1,231 @@
+schema = 1
+id = "LAB-8-lab-eva-crew-rules"
+tier = "operator"
+# THE SCIENCE-LAB PROGRAM, lane LAB-8 (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
+# "LAB-8 EVA crew rules").
+# FLOWN 2026-10-17_2142 PASS (attempt 1, 267 s, automation DLL d0695b37; the first flight
+# 2026-10-17_2136 failed one mis-pinned EVA-branch contract, re-pinned): live-proven; operator.
+#
+# HOST: `lab-lko-science` (the LAB-2 / LAB-3 host): SCIENCE_SANDBOX, the LABX Orbital Lab
+# (vessel persistentId 2200110055) ORBITING Kerbin at about 107 x 92 km, Valentina in the
+# Mk1 pod (capacity 1, so the pod is full), Bob (Scientist, level 0, the ONLY ScienceSkill
+# crew aboard) in the Large.Crewed.Lab (capacity 2; part persistentId 1700054019, flightID
+# 1270217782). The lab loads empty with Research off. Fixture UT 355.8.
+#
+# THE STORY. Process the four experiments (LAB-2's live values 5 / 15 / 22 / 8 = 50 data),
+# start Research at 1x and rails-warp 3,600 s so the lab holds some science. Then Bob goes
+# EVA FROM THE LAB, comes back aboard, and research must follow the stock crew rule: it stops
+# the moment the lab has no scientist and does NOT resume on its own after the re-board; a
+# fresh Start Research is needed. Parsek must split the tree for the EVA (never a rewind
+# point), merge it back on the board, never record research running while Bob was out, record
+# the restart, and reserve Bob to the mission at the commit.
+#
+# STOCK FACTS (decompiled 1.12.5).
+#   ModuleScienceConverter.PostProcess: with GetScientists() < 1e-9 (no ScienceSkill crew IN
+#   THE LAB PART) and IsActivated, it calls StopResourceConverter() - research is switched
+#   OFF, not paused - and posts a screen message only when the lab is the active vessel.
+#   Nothing in stock starts it again; ModuleScienceLab.IsOperational reads the same crew count.
+#   The lab part has an airlock and a ladder (the `airlock` / `ladder` transforms are in
+#   large_crewed_lab.mu), so the seam's EvaExit (FlightEVA.spawnEVA from the kerbal's own part)
+#   exits from the lab. EvaBoard boards the NEAREST part with an airlock and free capacity
+#   (ParsekTestCommandAddon.SelectBoardablePart): the pod is full, so Bob boards the lab. The
+#   inspect after the restart reads `Research:active=1` after a 1x wait, which also proves the
+#   board put a scientist IN the lab (with none there PostProcess would switch it off again).
+#   With 50 data, 3,600 s of research makes about 0.045 science (1.25e-5 per second).
+#
+# PARSEK FACTS. OnCrewOnEva stops the lab's recorder SYNCHRONOUSLY (inside spawnEVA, before
+# any physics frame) and creates the EVA branch a frame later (DeferredEvaBranch), when the
+# lab's background child is seeded from the live part state. The lab's first FixedUpdate
+# without Bob runs in between, so research is most likely already off when the child is
+# seeded and no `Part event: ConverterDeactivated` is ever logged: the root recording ends
+# with research on, the child starts with it off. That is correct, so this lane does NOT
+# require a deactivation event. What it forbids is the WRONG recording: a lab child seeded
+# with research running (`Seeded already-running converter: 'Large.Crewed.Lab'`) and never
+# closed by a ConverterDeactivated before the board, and any ConverterActivated while Bob is
+# out or between the board and the restart. The EVA is a recording split but never a rewind
+# point (owner ruling 2026-09-27, `[Rewind] Split type=EVA: no Rewind Point`).
+#
+# FIRST FLIGHT 2026-10-17_2136 (PARSEK-FAIL on one contract only): the EVA branch line names
+# the lab vessel as activeChild and Bob's EVA vessel as bgChild (the split fires while the lab
+# is still the active vessel; EVA-lane precedent pins the same shape). Re-pinned to that shape.
+# THE TREE. Root (the lab vessel to the EVA), the lab's background child and Bob's EVA child
+# (the split), and the merged child after the board: 4 recordings, the EVA-3 arithmetic
+# (1 + 2 + 1 per EVA cycle). StopRecording, CommitTree, RC-6's second StopRecording; the
+# commit's crew walk reserves Bob (`[KerbalsModule] Reservation: 'Bob Kerman' ...`, verbose;
+# LAB-2's flight logged that line and `PostWalk summary: reservations=2` inside its commit).
+# No end-snapshot compare here: ListHandles sorts recordings by id, so `rec0` is not the
+# recording that ends at the lab's current state.
+#
+# NOT HERE: Valentina (a non-scientist) moved into the lab with CrewTransfer, the plan's
+# optional cell; EVA data buttons (evacollect / evastore, deferred in the plan).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse - LAB-3 starts research on the same host
+# but its story is a day of warp with Bob aboard; the EVA cycle would make LAB-3's single
+# recording a four-recording tree and blur both lanes' counts, so it stays separate. (2) no
+# idle waits - every wait is an explicit-UT `WarpToUT`; the waits after EvaExit / EvaBoard
+# carry about 25 s of margin over those verbs' completion (EVA-2's full exit-and-board flight
+# took 64 s). (3) the rails warp is 3,600 s (72 s at the 50x cap): enough science (about 0.045)
+# to show it is kept through the EVA cycle at the inspect's F2 resolution, no more. (4) no
+# burns. (5) no coast. (6) fail fast - a refused EVA, board or press fails its step at once;
+# retry `once` until the first flight shows the lane deterministic. (7) count window - pinned
+# {4,4}. (8) tier - operator until the reading run; promote by the measured p50 (expected
+# about 5 min). (9) flight_efficiency.py after the first green flight.
+#
+# WHAT A FIRST FLIGHT CAN FALSIFY: EvaExit from the lab part (`no-airlock` or `eva-refused`
+# would be a driver-INVALID finding about the craft); which part EvaBoard picks (a board into
+# the pod is impossible while it is full, `target-full` would mean the lab took no one); the
+# stock stop (an inspect still reading `Research:active=1` after Bob left); the recording of
+# the EVA cycle (the count, the branch and merge lines, the forbidden running-research seed);
+# the reservation line inside the commit; the UT margins after the EVA verbs.
+description = "LAB-8: in a crewed science lab in low Kerbin orbit, research is running when the lab's only scientist goes EVA from the lab; stock switches research off, it stays off after he boards back into the lab, and a fresh Start Research turns it on; the recording tree carries the EVA split and the board merge, never records research running while he was out, and the commit reserves him to the mission."
+instanceProfile = "stock-minimal"
+tags = ["science-lab", "science", "converter", "eva", "LAB-8", "flown"]
+
+[fixture]
+saveTemplate = "fixtures/saves/lab-lko-science"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "StartRecording",                                                          expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab8-recording-live" },                expect = "OK" },
+  # 1. The four experiments into the lab (50 data).
+  { cmd = "PartAction",     args = { button = "experiment", part = "sensorThermometer" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "385", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "sensorThermometer" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "experiment", part = "GooExperiment" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "391", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "GooExperiment" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "experiment", part = "science.module" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "397", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "science.module" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "experiment", part = "sensorBarometer" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "403", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "labprocess", part = "sensorBarometer" }, expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # 2. Start Research at 1x, then 3,600 s of rails warp (about 72 s at 50x), read.
+  { cmd = "MissionMark",    args = { label = "lab8-research-on-before" },            expect = "OK" },
+  { cmd = "PartAction",     args = { button = "startconverter", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "412", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "lab8-warp-start" },                    expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "4012", maxRate = "50" },                  expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",       args = { ut = "4022", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # 3. Bob, the only scientist, goes EVA from the lab; read the lab (now a background vessel).
+  { cmd = "MissionMark",    args = { label = "lab8-pre-eva" },                       expect = "OK" },
+  { cmd = "EvaExit",        args = { kerbal = "Bob Kerman" },                        expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",       args = { ut = "4050", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "inspect", pid = "2200110055", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab8-eva-research-off" },              expect = "OK" },
+  # 4. Bob boards back (the pod is full, so the lab), research stays off.
+  { cmd = "EvaBoard",       args = { targetPid = "2200110055" },                     expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",       args = { ut = "4080", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab8-boarded-research-off" },          expect = "OK" },
+  # 5. A fresh Start Research turns it on, and it stays on (a scientist is in the lab).
+  { cmd = "MissionMark",    args = { label = "lab8-restart-before" },                expect = "OK" },
+  { cmd = "PartAction",     args = { button = "startconverter", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "4090", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab8-research-restarted" },            expect = "OK" },
+  # 6. Commit (the crew walk reserves Bob).
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "CommitTree",                                                              expect = "OK", budget = 120 },
+  # CommitTree re-takes the committed tree for the still-active vessel; stop it (RC-6).
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "lab8-committed-${c0.count}-${c0.rec0}" }, expect = "OK" },
+  { cmd = "SaveGame",                                                                expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+D5  = ["eva-branch"]
+D14 = ["kerbin", "science-mode", "scene-flight", "warp-1x", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 4, max = 4 }
+
+[expectations.logContracts]
+required = [
+  # The lab fills to 50 data at the live stock values and research starts at 1x.
+  "partaction applied button=labprocess pid=2200110055 part='sensorThermometer' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=5\\.00",
+  "partaction applied button=labprocess pid=2200110055 part='GooExperiment' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=15\\.00",
+  "partaction applied button=labprocess pid=2200110055 part='science\\.module' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=22\\.00",
+  "partaction applied button=labprocess pid=2200110055 part='sensorBarometer' [^\\r\\n]*event=OnSendToLab [^\\r\\n]* labRoute=(?:page|review) labValue=8\\.00",
+  "(?s)labprocess pid=2200110055 part='sensorBarometer' (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.00 dataStored=50\\.00;Research:active=0'",
+  "partaction applied button=startconverter pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*event=StartResourceConverter [^\\r\\n]*state='lab:storedScience=0\\.00 dataStored=50\\.00;Research:active=1'",
+  "(?s)MISSIONMARK label=lab8-research-on-before (?:(?!MISSIONMARK label=lab8-warp-start ).)*?Part event: ConverterActivated 'Large\\.Crewed\\.Lab' pid=1700054019 \\(converter\\)",
+  # After 3,600 s of rails warp: about 0.045 science, still researching.
+  "(?s)MISSIONMARK label=lab8-warp-start (?:(?!MISSIONMARK label=lab8-pre-eva ).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.0[2-7] dataStored=(?:49\\.9[0-9]|50\\.00);Research:active=1'",
+  # Bob goes EVA from the lab: the seam's exit, the EVA branch with the lab as the background
+  # child, and no rewind point for an EVA split.
+  "evaexit start kerbal=Bob Kerman fromPid=2200110055 ",
+  "evaexit complete kerbal=Bob Kerman evaPid=[0-9]+ ",
+  "Tree branch created: type=EVA, [^\\r\\n]*activeChild=[0-9a-f]{32} \\(pid=2200110055\\), bgChild=[0-9a-f]{32} \\(pid=[0-9]+\\)[^\\r\\n]*, evaCrew=Bob Kerman",
+  "\\[Rewind\\] Split type=EVA: no Rewind Point \\(Re-Fly is for vessel separations only\\) bp=[0-9a-f]{32}",
+  # With no scientist in the lab, stock switched research OFF (read from the EVA kerbal, so
+  # the active vessel is not the lab).
+  "(?s)evaexit complete kerbal=Bob Kerman (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*activePid=(?!2200110055 )[0-9]+ [^\\r\\n]*;Research:active=0'",
+  # Bob boards back into the lab vessel and Parsek merges the tree.
+  "evaboard start kerbal=Bob Kerman targetPid=2200110055 ",
+  "evaboard complete kerbal=Bob Kerman boardedPid=2200110055",
+  "Tree board merge completed",
+  # Research stays OFF after the board, with the lab's science and data unchanged since Bob
+  # left (nothing ran while he was out or after he came back).
+  "(?s)evaexit complete kerbal=Bob Kerman (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=(0\\.0[2-7]) dataStored=([0-9]+\\.[0-9]{2});Research:active=0'(?:(?!partaction applied button=).)*?evaboard complete kerbal=Bob Kerman (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*activePid=2200110055 [^\\r\\n]*state='lab:storedScience=\\1 dataStored=\\2;Research:active=0'",
+  # Nothing recorded research starting between the board and the fresh press ...
+  "(?s)evaboard start kerbal=Bob Kerman (?:(?!Part event: ConverterActivated 'Large\\.Crewed\\.Lab').)*?MISSIONMARK label=lab8-restart-before ",
+  # ... the fresh Start Research turns it on, the recorder logs it, and it stays on.
+  "(?s)MISSIONMARK label=lab8-restart-before (?:(?!MISSIONMARK label=lab8-research-restarted ).)*?partaction applied button=startconverter pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*;Research:active=1'",
+  "(?s)MISSIONMARK label=lab8-restart-before (?:(?!MISSIONMARK label=lab8-research-restarted ).)*?Part event: ConverterActivated 'Large\\.Crewed\\.Lab' pid=1700054019 \\(converter\\)",
+  "(?s)MISSIONMARK label=lab8-restart-before (?:(?!MISSIONMARK label=lab8-research-restarted ).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*;Research:active=1'",
+  # The commit reserves Bob (and Valentina) to the mission.
+  "(?s)MISSIONMARK label=lab8-research-restarted (?:(?!committree committed=).)*?\\[KerbalsModule\\] Reservation(?: extended)?: 'Bob Kerman' endUT",
+  "(?s)MISSIONMARK label=lab8-research-restarted (?:(?!committree committed=).)*?PostWalk summary: reservations=2 ",
+  "committree committed=true",
+  "MISSIONMARK label=lab8-committed-4-[0-9a-f]{32} ",
+  # Nothing moves the R&D pool while recording.
+  "(?s)MISSIONMARK label=lab8-recording-live (?:(?!Game state: ScienceChanged).)*?MISSIONMARK label=lab8-research-restarted ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected ",
+  "partaction-lab-value-zero",
+  "partaction error ",
+  "evaexit refused ",
+  "evaboard refused ",
+  "ScienceLabCredited",
+  "Exploded!!",
+  "RewindPoint begin: rp=",
+  "IsTreeIdleOnPad: all [0-9]+ recordings",
+  "TrimBoringTail: trimmed 'LABX Orbital Lab'",
+  # The lab child seeded as still researching after Bob left and never closed before the
+  # board: the recording would replay research running with no scientist aboard.
+  "(?s)Seeded already-running converter: 'Large\\.Crewed\\.Lab'(?:(?!Part event: ConverterDeactivated 'Large\\.Crewed\\.Lab').)*?evaboard start kerbal=Bob Kerman ",
+  # Research recorded as starting while Bob was out.
+  "(?s)evaexit start kerbal=Bob Kerman (?:(?!evaboard start kerbal=Bob Kerman ).)*?Part event: ConverterActivated 'Large\\.Crewed\\.Lab'",
+]
+
+[runtime]
+# One LoadGame (up to 300 s, about 90 s typical), 3,600 s of rails warp (72 s at 50x), about
+# 90 s of 1x game time across the presses and the EVA cycle, a commit and a save.
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

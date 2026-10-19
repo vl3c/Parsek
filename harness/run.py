@@ -165,6 +165,8 @@ RP_SIDECAR_BY_PRESET = {
     "ghost-commnet-live": None,
     # CN-3's deploy / destroyed / held relays: three committed trees, no RP.
     "ghost-commnet-timeline": None,
+    # LAB-11's one relay recording on lab-lko-relay: one committed tree, no RP.
+    "ghost-commnet-lab": None,
     # OC-1's per-recording overlap-cap loop: one committed tree, no RP.
     "overlap-cap": None,
     # RB-1 / RB-2's resurrection RP: the two-slot tree under rp_rb_root, whose

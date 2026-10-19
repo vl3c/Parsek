@@ -1,0 +1,159 @@
+schema = 1
+id = "LAB-14-lab-recover"
+tier = "operator"
+# THE SCIENCE-LAB PROGRAM, lane LAB-14 (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
+# "LAB-14 recovery", branch A; owner Q3: the pad recovery stands in for a lander, which only
+# adds flight risk). NEVER FLOWN: its first flight is a READING run, so it is `operator` and
+# tagged `pending-flight` until that run pins the measured values.
+#
+# DEPENDENCY: PR #2136 (`claude/lab-idle-veto`, merged to main 2026-10-17, NOT in this branch's
+# DLL until main is merged). Its two lines gate here: the arm-time `In-flight recovery request
+# carries lab science: ... labScience=12.50` and the Space Center idle check's `not idle -
+# recovery pending with lab science 12.50`, plus the commit clearing the lab mark. On a DLL
+# without it the pad tree reads idle and is discarded (`Idle on pad`), which reds this lane on
+# purpose.
+#
+# HOST: `lab-pad-seeded` (harness/tools/build_lab_seeded_variants.py): SCIENCE_SANDBOX, science
+# 100, the LABX Orbital Lab (vessel persistentId 2200110055) PRELAUNCH on the KSC pad (a landed
+# state, so stock's Recover button is offered), its lab seeded with dataStored 204 and
+# storedScience 12.5, Research off. No experiment holds data, so the lab is the recovery's only
+# science. Fixture UT 355.8; the smoke load `2026-10-17_2023` settled at UT 357.4.
+#
+# STOCK (decompiled 1.12.5): the flight Recover button fires OnVesselRecoveryRequested, saves
+# and loads the Space Center, and 8 frames later recovers the vessel there;
+# ModuleScienceLab.RecoverScienceLabs adds the sum of the labs' storedScience with
+# TransactionReasons.VesselRecovery. Parsek: `ParsekScenario.OnVesselRecoveryRequested` arms the
+# in-flight recovery request (reading the live lab science, PR #2136), the scene-exit finalize
+# stamps the recording Recovered, and the Space Center OnLoad runs the idle-on-pad check BEFORE
+# the payout; a recovery with lab science pending vetoes it (owner ruling 2026-10-17), and the
+# scene exit auto-commits the tree (autoMerge), which clears the lab mark. The payout then lands
+# at the Space Center UNTAGGED by design (`recordingId=''`): the recording is already committed,
+# so the credit is booked at once as a KSC ledger row (`KSC spending recorded: type=
+# ScienceLabEarning, ..., key=VesselRecovery`), beside stock's own `ScienceChanged +12.5
+# (VesselRecovery) -> 112.5`.
+#
+# THE STORY. Record 14 s at 1x on the pad (a pad recording, so only the lab's pending recovery
+# can keep it), press the stock Recover button through the seam (`Recover pid=`), let the Space
+# Center load and the recovery run, then save, reload that save at the Space Center and quit.
+# Exactly one VesselRecovery credit of 12.50 in the whole run, none after the reload.
+#
+# NOT HERE: branch B of the plan (a Parsek-spawned lab recovered after a rewind; it needs a
+# rewind-to-launch spawn of a pad recording, and a pad recording's end spawn is a separate
+# behaviour); the lander (deferred for flight risk, owner Q3); the strategy take (LAB-12).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse - LAB-4 and LAB-9b share the host but end
+# the flight differently; a Recover ends the flight, so it is its own lane. (2) no idle waits -
+# one explicit-UT `WarpToUT maxRate=1` of 14 s so the recording is not a pad failure.
+# (3) no dwells. (4) no burns. (5) no coast. (6) fail fast - a refused verb fails its step at
+# once; retry `once` until the first flight shows the lane deterministic. (7) count window -
+# one committed recording, {1,1}. (8) tier - operator until the reading run; promote by the
+# measured p50 (expected under 3 min). (9) flight_efficiency.py after the first green flight.
+#
+# WHAT A FIRST FLIGHT CAN FALSIFY: the Recover gate on a PRELAUNCH pad craft
+# (`recover-button-locked` / `recover-not-clear-to-save`); the arm-time lab reading (12.50);
+# the veto and the commit (PR #2136); the order (the idle check must run before the payout,
+# which the veto line naming 12.50 proves); the payout amount and its untagged KSC row; the
+# reload (a second credit or a second stock gain means a replay paid the lab again).
+description = "LAB-14: on the KSC pad, a recording science lab holding 12.5 science is recovered with the stock Recover button; the recovery request carries the lab's 12.50, that pending lab payout keeps the pad recording at the Space Center, the recording commits, and stock's recovery pays exactly one untagged 12.50 lab credit booked at the Space Center beside its own +12.5, with no second credit after a reload."
+instanceProfile = "stock-minimal"
+tags = ["science-lab", "science", "recovery", "scene-exit", "LAB-14", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/lab-pad-seeded"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  # The recovery's Space Center load commits the live tree; without autoMerge the Recover verb
+  # refuses `dialog-required`.
+  { cmd = "SetSetting",     args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "StartRecording",                                                          expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "372", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "lab14-recover-before" },               expect = "OK" },
+  { cmd = "Recover",        args = { pid = "2200110055" },                           expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "lab14-recovered" },                    expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "lab14-recovered" },                     expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "lab14-recovered", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "lab14-reloaded" },                     expect = "OK" },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+D1  = ["commit-scene-exit", "auto-merge"]
+D8  = ["science"]
+D14 = ["kerbin", "science-mode", "scene-flight", "scene-ksc", "warp-1x"]
+
+# FIRST FLIGHT 2026-10-17_2203: the recovery pays TWO stock gains, +10.0 vessel-recovery science
+# (recovery@KerbinOrbited: the harvested vessel has orbited) then +12.5 from the lab, 100 -> 110 -> 122.5,
+# so the pool pin is 122.5 and two VesselRecovery gains are expected. The same flight found a real
+# Parsek defect (todo LAB-RECOVERY-RECONCILE-COALESCED-FALSE-MISMATCH): the post-walk reconciler
+# reported the coalesced 22.5 against the 10.0 recovery action at ERROR. The ERROR ban stays.
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The one pad recording, committed Recovered at the Space Center.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  # The seeded lab.
+  "partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=204\\.00;Research:active=0'",
+  # The stock button press, and the request armed with the live recording bound ...
+  "recover pressed pid=2200110055 vessel=LABX Orbital Lab situation=PRELAUNCH ut=",
+  "(?s)startrecording recordingId=([0-9a-f]{32}) already=false.*?In-flight recovery requested: vessel='LABX Orbital Lab' pid=2200110055 guid=[0-9a-f]{32} boundRec=\\1 ut=",
+  # ... carrying the lab's science (PR #2136).
+  "In-flight recovery request carries lab science: vessel='LABX Orbital Lab' pid=2200110055 labScience=12\\.50 ",
+  # The scene-exit finalize stamps the recording Recovered.
+  "In-flight recovery: recording '[0-9a-f]{32}' vessel='LABX Orbital Lab' pid=2200110055 terminal [A-Za-z<>]+ -> Recovered ",
+  # The Space Center idle check runs BEFORE the payout and is vetoed by the pending lab science
+  # (PR #2136); the tree auto-commits and the commit clears the lab mark.
+  "(?s)MISSIONMARK label=lab14-recover-before (?:(?!Game state: ScienceLabCredited).)*?(?:IsTreeIdleOnPad|IsActiveTreeIdleOnPad): not idle - recovery pending with lab science 12\\.50 tree='LABX Orbital Lab'",
+  "(?s)MISSIONMARK label=lab14-recover-before (?:(?!Game state: ScienceLabCredited).)*?full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='LABX Orbital Lab' recordings=1 ",
+  "In-flight recovery: cleared 1 lab mark\\(s\\) context=commit remaining=0",
+  # Stock's recovery pays the lab: one untagged credit of 12.50, booked at the Space Center, ...
+  "(?s)MISSIONMARK label=lab14-recover-before (?:(?!MISSIONMARK label=lab14-reloaded ).)*?Game state: ScienceLabCredited \\+12\\.50 reason='VesselRecovery' vessel='LABX Orbital Lab' ut=[0-9.]+ recordingId=''",
+  "(?s)MISSIONMARK label=lab14-recover-before (?:(?!MISSIONMARK label=lab14-reloaded ).)*?KSC spending recorded: type=ScienceLabEarning, UT=[0-9.]+, key=VesselRecovery",
+  # ... beside stock's own gain, 100 -> 112.5.
+  "(?s)MISSIONMARK label=lab14-recover-before (?:(?!MISSIONMARK label=lab14-reloaded ).)*?Game state: ScienceChanged \\+12\\.5 \\(VesselRecovery\\)[^0-9\\r\\n]+122\\.5(?![0-9])",
+  "recover complete pid=2200110055 vessel=LABX Orbital Lab scene=SPACECENTER elapsed=",
+  "MISSIONMARK label=lab14-reloaded ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  "warptout refused",
+  "recover rejected",
+  "recover error",
+  # A tree kept only by the pending lab recovery is never discarded idle.
+  "Idle on pad[^\\r\\n]*auto-discarding",
+  # Exactly one lab credit, and one stock recovery gain, in the whole run.
+  "(?s)(?:Game state: ScienceLabCredited .*?){2}",
+  "(?s)(?:Game state: ScienceChanged [^\\r\\n]*\\(VesselRecovery\\).*?){3}",
+  # No transmission happens here.
+  "reason='ScienceTransmission'",
+  # Nothing after the reload pays the lab again.
+  "(?s)MISSIONMARK label=lab14-reloaded .*?Game state: ScienceLabCredited",
+  "Lab payout net of a strategy take",
+  "Exploded!!",
+]
+
+[runtime]
+# Two LoadGame steps (up to 300 s each), the Recover's Space Center load (up to 120 s), a save,
+# about 15 s of 1x game time.
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

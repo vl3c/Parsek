@@ -1,4 +1,4 @@
-"""Fixture gates for `lab-pad-seeded` and `lab-lko-seeded` (the seeded science-lab hosts).
+"""Fixture gates for `lab-pad-seeded`, `lab-lko-seeded` and `lab-lko-relay` (the seeded science-lab hosts).
 
 Both are DERIVED by `harness/tools/build_lab_seeded_variants.py` from the committed
 `lab-lko-science`, so a change to it must re-run the builder. These cells pin what the lab
@@ -7,7 +7,8 @@ an EXPERIMENT_DATA list of distinct stock subject ids, research off, the crew wh
 craft seats them, and every other line of the vessel the base's. Pad: the vessel is
 PRELAUNCH on the LaunchPad with every pad-dependent key the template's (Revert to Launch
 needs PRELAUNCH at load). LKO: the vessel is the base's, ORBITING, with the four InSpaceLow
-subjects left storable.
+subjects left storable. Relay: the base's orbiting vessel with the pad's lab seed, and the
+one save-level edit `enableGroundStations = False` inside CommNetParams.
 
 Stdlib only; ASCII only; no em dashes.
 """
@@ -189,6 +190,49 @@ class LabLkoSeededTests(_Base):
         self.assertEqual(len(mine), len(self.base_vessel))
         self.assertEqual(sorted(a.strip() for a, _c in diff),
                          ["dataStored = 740", "storedScience = 499"])
+
+
+class LabLkoRelayTests(_Base):
+    VARIANT = "lab-lko-relay"
+
+    def test_shared(self):
+        self._shared()
+        self._research_off()
+
+    def test_lab_holds_the_pads_seed(self):
+        entries = self._seed_holds("204", "12.5", 16)
+        self.assertEqual([e.split(" = ")[1] for e in entries],
+                         [s for s, _v in self.b.PAD_SUBJECTS])
+
+    def test_the_vessel_is_the_base_but_for_the_lab(self):
+        self.assertEqual(self.b._value(self.vessel, "sit"), "ORBITING")
+        mine = [l for l in self.vessel if not l.startswith("\t\t\t\t\t\texperiment = ")]
+        diff = [(a, c) for a, c in zip(mine, self.base_vessel) if a != c]
+        self.assertEqual(len(mine), len(self.base_vessel))
+        self.assertEqual(sorted(a.strip() for a, _c in diff),
+                         ["dataStored = 204", "storedScience = 12.5"])
+
+    def test_ground_stations_off_and_nothing_else_in_commnet_changed(self):
+        base = _lines(self.b.BASE_NAME)
+        cn = self.lines.index("\t\tCommNetParams")
+        end = self.b._block_end(self.lines, cn)
+        block = self.lines[cn:end]
+        self.assertIn("\t\t\tenableGroundStations = False", block)
+        self.assertNotIn("\t\t\tenableGroundStations = True", self.lines)
+        # The occluder and range stock reads: Kerbin's full radius, the base's range.
+        self.assertIn("\t\t\tocclusionMultiplierAtm = 1", block)
+        self.assertIn("\t\t\trangeModifier = 0.65", block)
+        self.assertIn("\t\t\tEnableCommNet = True", self.lines)
+        # The only home left without ground stations is the KSC unless other launch
+        # sites are allowed (decompiled CommNetHome.CreateNode).
+        self.assertIn("\t\t\tAllowOtherLaunchSites = False", self.lines)
+        b_cn = base.index("\t\tCommNetParams")
+        b_block = base[b_cn:self.b._block_end(base, b_cn)]
+        changed = [a for a, c in zip(block, b_block) if a != c]
+        self.assertEqual(changed, ["\t\t\tenableGroundStations = False"])
+
+    def test_only_one_vessel_so_no_live_relay_exists(self):
+        self.assertEqual([self.b.VESSEL_NAME], self.names)
 
 
 if __name__ == "__main__":

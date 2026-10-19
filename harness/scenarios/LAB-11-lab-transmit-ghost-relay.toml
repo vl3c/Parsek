@@ -1,0 +1,224 @@
+schema = 1
+id = "LAB-11-lab-transmit-ghost-relay"
+tier = "operator"
+# THE SCIENCE-LAB PROGRAM, lane LAB-11 (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
+# "LAB-11 a ghost relay is the only link"). Operator tier and tagged `pending-flight` until a
+# green flight of THIS shape pins the measured values.
+#
+# FIRST FLIGHT 2026-10-18_0047_a2 PASS (attempt 2; attempt 1 INVALID on an environmental boot
+# stall), automation DLL 41a4f2c7 (main 9a483c4a5 + PR #2139), 169 s wall. Measured: the relay
+# `Registered ghost node: key=lab11-relay ... ut=356.9 window=[356.8,100356.8] ...
+# relay=64999997615.814209 transmit=3249.9998807907104` (RA-100 1e11 and the probe core's 5000
+# times rangeModifier 0.65 in single precision), the warps landing at 894.8 / 899.8 /
+# 1694.8 / 1699.8 (25 s and 31 s wall), the control press paying nothing with the lab at 12.50,
+# the window press paying `ScienceChanged +12.5 (ScienceTransmission) -> 112.5` and
+# `ScienceLabCredited +12.50 ... ut=1704.9 recordingId=''` 4.98 s after the press. The tier and
+# the `pending-flight` tag stay until the status row and tag review move with an armed pin.
+#
+# UNDER TEST: design 15.6, a ghost counts for CommNet as the vessel it replays, here carrying a
+# REAL stock transmission: the science lab's Transmit Science completes, and Parsek books it,
+# only because a ghost relay's GhostCommNetNode is the lab's path home.
+#
+# HOST: `lab-lko-relay` (harness/tools/build_lab_seeded_variants.py): SCIENCE_SANDBOX, science
+# 100, the LABX Orbital Lab (persistentId 2200110055) ORBITING Kerbin at about 107 x 92 km
+# (inclination 0.09 deg), Valentina in the pod, Bob in the lab, its lab seeded with 12.5
+# science / 204 data (research off), a Communotron 16-S (DIRECT) its only antenna stock can
+# transmit through, and CommNetParams.enableGroundStations = False. Decompiled
+# CommNetHome.CreateNode (KSP 1.12.5): with ground stations off every home but the KSC is
+# removed (AllowOtherLaunchSites is False), and with the save's occlusionMultiplierAtm = 1 the
+# occluder is Kerbin's full radius, so the KSC sees the lab only within about 31 deg of
+# longitude. The save holds no other vessel. Fixture UT 355.83.
+#
+# THE PRESET `ghost-commnet-lab` (SyntheticRecordingTests.GhostCommNetLabPreset, fact
+# InjectGhostCommNetLab; the injector refuses any other save clock): ONE committed
+# single-recording tree, `lab11-relay` "LAB11 Relay", an RC-L01 + RA-100 (RELAY 1e11) on a
+# Kerbin-synchronous equatorial orbit 50 deg WEST of the KSC (CN-1's relay shape). It opens 1 s
+# after the save's clock (the load latches it into replay scope) and runs 100,000 s, so it never
+# ends or spawns here. From synchronous height the relay sees the KSC (80 deg horizon) and sees
+# the lab whenever the lab is within about 111 deg of it.
+#
+# THE GEOMETRY IS DERIVED, NOT FLOWN (GhostCommNetLabLaneGeometryTests replicates stock's
+# horizon-culling occluder test, OccluderHorizonCulling.Raycast, over the lab's ORBIT node and
+# CN-1's Kerbin rotation calibration, which reproduces the lab's saved longitude to 0.0004 deg).
+# The lab laps the KSC eastward at 0.167 deg/s (synodic 2,152 s); from the save:
+#   UT  356 ..  510  relay-only (the lab is just past the KSC's horizon, the relay sees it);
+#   UT  510 .. 1345  NO PATH AT ALL (neither the KSC nor the relay sees the lab);
+#   UT 1345 .. 2105  relay-only: the relay ghost is the lab's ONLY path home;
+#   UT 2105 ..       direct to the KSC again.
+# The control press at UT 900 and the window press at UT 1700 each sit more than 300 s inside
+# their windows (the geometry test requires 120 s beyond the settle, the wait and the read),
+# every link at a few percent of its range at most.
+#
+# STOCK (decompiled ModuleScienceLab / ModuleDataTransmitter / ScienceUtil): Transmit Science
+# asks ScienceUtil.GetBestTransmitter(vessel); with CommNet on that is
+# vessel.connection.GetBestTransmitter(), and a transmitter qualifies only while
+# connection.SignalStrength > 0 and ControlPath.IsLastHopHome(). No qualifying transmitter: a
+# screen message and NOTHING ELSE (no queue, no later send). Otherwise the lab sends
+# floor(storedScience) and at transmission complete calls AddScience(storedScience,
+# ScienceTransmission), keeping the fraction (12.5 -> 0.50). The seam's `labtransmit` presses
+# the KSPEvent and answers OK either way, so the refused press is proved by its EFFECTS (no
+# credit, the lab unchanged) and the accepted one by the credit. Parsek
+# (ScienceLabCreditCapturePatch -> GameStateRecorder.OnScienceLabCredited): `Game state:
+# ScienceLabCredited +<gross F2> reason='ScienceTransmission' vessel='..' ut=.. recordingId=''`
+# (untagged: nothing records here) beside stock's `Game state: ScienceChanged +<F1>
+# (ScienceTransmission) <U+2192> <pool F1>`, booked at once as a KSC row (`KSC spending
+# recorded: type=ScienceLabEarning`). Every credit ban anchors on the `Game state:
+# ScienceLabCredited` line (the same credit also writes Emit: / AddEvent: / MilestoneStore
+# lines naming the event type).
+#
+# THE STORY. Load, read the seeded lab, settle at 1x to UT 380 (the ghost node registers at the
+# load; the lab is in the brief relay-only span, which nothing here uses). CONTROL: rails-warp to
+# UT 895, settle 5 s at 1x so CommNet rebuilds after the warp, press Transmit at UT 900, wait
+# 15 s at 1x, read the lab: no credit, no stock gain, 12.50 kept. WINDOW: rails-warp to UT 1695,
+# settle, press at UT 1700, wait 15 s, read: exactly one credit of 12.50 beside stock's +12.5 to
+# 112.5, the lab at 0.50. The ghost node is registered, stays registered and never goes dark
+# across both presses.
+#
+# WHAT IS NOT READ, AND WHY. The seam has no CommNet reading (the plan's S3 `inspect
+# comm:connected= home= hops= viaGhost=` is not built), so the lane cannot print the lab's path
+# itself. What carries the proof instead: (1) the negative control, whose refusal shows the
+# ground stations really are off and no other path exists (with them on, the far side's
+# stations would link the lab at UT 900 and it would pay there); (2) the geometry cell, which
+# pins the KSC below the lab's horizon at the window press with margin, so the only node that
+# differs between the two presses is the relay ghost coming into view; (3) the ghost node's own
+# registration and per-tick summary. The smallest addition that would make the path itself
+# observable is S3 on PartAction inspect (the GhostCommNetLive cells' hop walk reused); it is
+# deliberately NOT added here.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse - no flown lane boots lab-lko-relay; the
+# transmit contracts are LAB-4's. (2) no idle waits - every wait is an explicit-UT `WarpToUT`,
+# 1x only for the settles, the presses and the transmissions, the two approaches at the 50x
+# rails cap LAB-2 / LAB-3 measured at this altitude (about 11 s and 16 s wall). (3) no dwells.
+# (4) no burns. (5) no coast. (6) fail fast - a refused verb is a step failure at once; retry
+# `once`. (7) count window: one committed recording, the injected relay, pinned {1,1}. (8) tier -
+# operator until a green flight; promote by the measured p50 (expected about 3 min). (9)
+# flight_efficiency.py after the first green flight.
+#
+# WHAT A FIRST FLIGHT CAN FALSIFY: (a) a credit at the CONTROL press: a path home the
+# derivation does not know (ground stations not off, a second KSC home, an occluder smaller than
+# Kerbin) - driver-side, re-derive before anything; (b) NO credit at the WINDOW press with the
+# relay registered and never dark: the ghost relay does not carry a real transmission
+# (PARSEK-FAIL, design 15.6), unless the KSC-relay or lab-relay leg is occluded or out of range
+# against the derivation (re-check the geometry cell's inputs first: the relay's station, the
+# KSC home's position, stock's range model at rangeModifier 0.65); (c) the relay never
+# registering (`No ghost node for key=lab11-relay ...`, a replay-scope or derivation finding,
+# its reason in the line); (d) a stale CommNet state after the rails warp (the 5 s settles are
+# there for it); (e) the transmission's duration (12 Mits at 16-S packets, about 4 s in LAB-4).
+description = "LAB-11: a science lab in low Kerbin orbit with CommNet ground stations off, so the KSC is its only home, and one injected ghost relay on a synchronous orbit west of the KSC; with neither the KSC nor the relay in view a Transmit Science is refused with nothing booked and the lab unchanged, and later, with the KSC still below the horizon and the relay ghost the only path home, the transmit completes and books exactly one 12.50 credit beside stock's +12.5."
+instanceProfile = "stock-minimal"
+tags = ["science-lab", "science", "transmit", "ghost-commnet", "commnet-relay", "injected-recordings", "rails-warp", "LAB-11", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/lab-lko-relay"
+injectedRecordings = "ghost-commnet-lab"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                              expect = "OK" },
+  { cmd = "DiscardTree",                                                                expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # Settle at 1x after the load (the relay's node registers in these frames).
+  { cmd = "WarpToUT",          args = { ut = "380", maxRate = "1" },                    expect = "OK", budget = 120 },
+  # CONTROL: no path home at all. Must match SyntheticRecordingTests.GhostCommNetLabControlPressUT
+  # (GhostCommNetLabLaneGeometryTests).
+  { cmd = "WarpToUT",          args = { ut = "895", maxRate = "50" },                   expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",          args = { ut = "900", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "lab11-control-before" },               expect = "OK" },
+  { cmd = "PartAction",        args = { button = "labtransmit", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "915", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "lab11-control-after" },                expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # WINDOW: the relay ghost is the only path home. Must match
+  # SyntheticRecordingTests.GhostCommNetLabWindowPressUT.
+  { cmd = "WarpToUT",          args = { ut = "1695", maxRate = "50" },                  expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",          args = { ut = "1700", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "lab11-window-before" },                expect = "OK" },
+  { cmd = "PartAction",        args = { button = "labtransmit", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "1715", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "lab11-window-after" },                 expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[dimensionsCovered]
+D6  = ["commnet-relay"]
+D8  = ["science"]
+D14 = ["kerbin", "science-mode", "scene-flight", "warp-1x", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The injected relay recording, committed; nothing records in the lane.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  # The seeded lab, as the fixture builder wrote it.
+  "partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=204\\.00;Research:active=0'",
+  # The relay ghost: CommNet on in FLIGHT, the RA-100 derived from the snapshot, the node
+  # registered in its window before the control press, a relay of positive power (RA-100 1e11
+  # x rangeModifier 0.65 = 65000000000 expected; regexed until measured).
+  "\\[GhostCommNet\\] Stock CommNet available in scene FLIGHT: ghost CommNet nodes enabled",
+  "\\[GhostCommNet\\] Derived antennas: key=lab11-relay vessel=\"LAB11 Relay\" source=vessel-snapshot [^\\r\\n]*relayAntennas=1 [^\\r\\n]*capable=True",
+  "(?s)\\[GhostCommNet\\] Registered ghost node: key=lab11-relay node=ParsekGhost:lab11-relay vessel=\"LAB11 Relay\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,[0-9.]+\\] hold=False dark=False relay=[1-9][0-9.E+]* transmit=[0-9.E+]+ [^\\r\\n]*(?:(?!Removed ghost node: key=lab11-relay ).)*?MISSIONMARK label=lab11-control-before ",
+  # --- CONTROL: no path home at all ---
+  # The press reads the lab unchanged ...
+  "(?s)MISSIONMARK label=lab11-control-before (?:(?!partaction applied button=).)*?partaction applied button=labtransmit pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*event=TransmitScience [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=204\\.00;",
+  # ... nothing is paid inside the control window ...
+  "(?s)MISSIONMARK label=lab11-control-before (?:(?!Game state: ScienceLabCredited)(?!\\(ScienceTransmission\\)).)*?MISSIONMARK label=lab11-control-after ",
+  # ... and the lab keeps its science (stock refused: no transmitter has a path home).
+  "(?s)MISSIONMARK label=lab11-control-after (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=204\\.00;Research:active=0'",
+  # --- WINDOW: the relay ghost is the only path home ---
+  # The ghost node is still serving the network through the press (the 5 s real-time tick
+  # summary, verbose; the 15 s wait at 1x spans at least two).
+  "(?s)MISSIONMARK label=lab11-window-before (?:(?!MISSIONMARK label=lab11-window-after ).)*?\\[GhostCommNet\\] Ghost CommNet tick \\(FLIGHT\\): candidates=[1-9][0-9]* eligible=1 [^\\r\\n]* registered=1 ",
+  "(?s)MISSIONMARK label=lab11-window-before (?:(?!partaction applied button=).)*?partaction applied button=labtransmit pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*event=TransmitScience [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=204\\.00;",
+  # Exactly one credit of the whole 12.50, untagged (nothing records), ...
+  "(?s)MISSIONMARK label=lab11-window-before (?:(?!MISSIONMARK label=lab11-window-after ).)*?Game state: ScienceLabCredited \\+12\\.50 reason='ScienceTransmission' vessel='LABX Orbital Lab' ut=[0-9.]+ recordingId=''",
+  # ... beside stock's own gain of the same 12.5, 100 -> 112.5, ...
+  "(?s)MISSIONMARK label=lab11-window-before (?:(?!MISSIONMARK label=lab11-window-after ).)*?Game state: ScienceChanged \\+12\\.5 \\(ScienceTransmission\\)[^0-9\\r\\n]+112\\.5(?![0-9])",
+  # ... booked at once as a KSC ledger row ...
+  "(?s)MISSIONMARK label=lab11-window-before (?:(?!MISSIONMARK label=lab11-window-after ).)*?KSC spending recorded: type=ScienceLabEarning, UT=[0-9.]+, key=ScienceTransmission",
+  # ... and the lab keeps the fraction.
+  "(?s)MISSIONMARK label=lab11-window-after (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.50 dataStored=204\\.00;",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  "partaction error ",
+  "warptout refused",
+  # At most one lab credit in the run, and none before the window press.
+  "(?s)(?:Game state: ScienceLabCredited .*?){2}",
+  "(?s)\\A(?:(?!MISSIONMARK label=lab11-window-before ).)*?Game state: ScienceLabCredited",
+  # No stock transmission gain before the window press either (a credit Parsek missed).
+  "(?s)\\A(?:(?!MISSIONMARK label=lab11-window-before ).)*?\\(ScienceTransmission\\)",
+  # The relay ghost never goes dark, never loses its node mid-lane, and is never excluded for
+  # a reason other than not yet being in its window.
+  "Ghost node dark this rebuild: key=lab11-relay ",
+  "Removed ghost node: key=lab11-relay [^\\r\\n]*reason=(?!ParsekFlight destroyed)",
+  "No ghost node for key=lab11-relay vessel=\"[^\"]*\": (?!before-window)",
+  "Ghost node pre-update threw",
+  "DriveGhostCommNet threw",
+  # Nothing spawns: the relay's window runs 100,000 s.
+  "Spawning vessel: \"LAB11 Relay\"",
+  # The lab never paid less than its stored science (no strategy in SCIENCE_SANDBOX).
+  "Lab payout net of a strategy take",
+  "Exploded!!",
+]
+
+[runtime]
+# One LoadGame (up to 300 s, about 90 s typical), about 60 s of 1x game time, two rails
+# approaches at the 50x cap (about 520 s and 780 s of game time, 11 s and 16 s wall).
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
