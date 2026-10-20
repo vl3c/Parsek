@@ -210,7 +210,10 @@ required = [
   # GROUP 2 - THE IN-FLIGHT SAVE, BEFORE THE COMMIT (the premise of the committed-copy rule).
   "savegame name=ql7-in-flight folder=.+ saved=true[\\s\\S]*exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
   "Silent full-fidelity auto-commit \\(scene-exit\\): tree='GS1 Auto-Chute Booster' recordings=[1-9][0-9]*",
-  "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=stableLeafUnconcluded to CommittedProvisional",
+  # The reason follows how far the background booster has fallen at the commit: still under its
+  # chutes (stableLeafUnconcluded) or already stamped Destroyed from its predicted impact
+  # (crashed). Either is an Unfinished Flight; the promotion is what this lane needs.
+  "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=(stableLeafUnconcluded|crashed) to CommittedProvisional",
   # GROUP 3 - THE RE-FLY MERGES AFTER THE SAVE (RF-1's and QL-3's).
   "listhandles kind=rewindpoints count=1 truncated=false",
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",

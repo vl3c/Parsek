@@ -90,8 +90,9 @@ required = [
   "startrecording recordingId=[0-9a-f]+ already=false",
   "discardtree sidecar-reap: treeRecordings=1 knownAfterDiscard=0 reaped=1 failed=0\\b",
   "discardtree discarded=true",
-  # The reap keeps the bytes: the hashed head is filed as a version (Verbose).
-  "discardtree sidecar-reap: [\\s\\S]*Retained head as version: ",
+  # The reap keeps the bytes: the hashed head is filed as a version (Verbose, logged
+  # per file before the reap summary line).
+  "Retained head as version: Parsek[\\\\/]Recordings[\\\\/]\\S+\\.prec\\b",
   "loadgame start save=\\S+ name=quicksave scene=FLIGHT [^\\r\\n]* playerLoad=true",
   # THE F9 IS A SAVE-FILE LOAD (design 4.1).
   "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave route=Focusable",
