@@ -44,6 +44,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Loading an older save restores that save's career data.** Loading a save from the main menu
+  now brings back the funds, science, contracts and milestones Parsek kept for that save, instead
+  of the newest data from another save in the same folder. Each save carries its own copy; saves
+  from older versions load as before. (COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE)
+
 - **A contract accepted right after hiring a kerbal stays accepted.** Hiring a kerbal and then
   accepting a contract in quick succession at the Space Center could undo the accept: the
   contract disappeared from the active list while its advance stayed paid.

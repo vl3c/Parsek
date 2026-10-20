@@ -236,8 +236,8 @@ load Cold, as today. The helper:
   `currentFlightLaunchUT`, `ScheduleActiveTreeRestoreOnFlightReady`,
   `pendingActiveTreeResumeRewindSave`, `pendingFreshRecordingAfterDiscard`,
   `mergeDialogPending`, `budgetDeductionApplied`, `lastSceneChangeRequestedUT`;
-- drops `InSessionStagedStateHandoff` (`DropSaveFileLoad`), `DiscardReFlyLoadIntent` and the
-  quickload resume context.
+- drops `DiscardReFlyLoadIntent` and the quickload resume context. `InSessionStagedStateHandoff`
+  is not touched here: step A already drops it on every cold load (reason `cold-load`).
 
 It does NOT null the committed-list notification events (the batch reset does; the new scene's
 controllers subscribe to them) and does not touch settings.
@@ -279,8 +279,13 @@ exactly the events the filter removed, tagged with the attempt's tree id. On loa
 restored to the in-memory event list (never to the file, never into a milestone) only when the
 restored active tree is that same attempt (`TryRestoreActiveTreeNode` re-arms the attempt for
 that tree id); otherwise they are dropped with a Verbose line. The #866 invariant is unchanged:
-the events become durable only through the attempt's merge. VERIFY V8 in the plan reads the
-restore path that re-arms the attempt; a unit cell pins both branches.
+the events become durable only through the attempt's merge. The node also carries the contract
+snapshots of the held-back contract accepts. A unit cell pins both branches.
+
+VERIFY V8 outcome (Phase 1): no load path re-arms a restore attempt today
+(`ArmCommittedTreeRestoreAttempt` is called only from `ParsekFlight`), so a cold load always
+drops `ATTEMPT_EVENTS` with a Verbose line, which is today's behavior. Whether a save-file load
+of a save made inside an attempt re-arms it is open question 3 (Phase 2).
 
 - **Load.** The cold branch reads each store from `GAME_STATE` when present (replacing
   `LoadExternalFiles`' reads: `GameStateStore.LoadEventFile`, `LoadBaselines`,
@@ -740,3 +745,9 @@ existing `QL-*` lane with its log contract moved from the old machinery's lines 
 2. Whether the Tracking Station Fly and the far vessel switch (`FlightDriver.StartAndFocusVessel`
    after a `persistent` save) ever fire `onGameStatePostLoad` in practice; decompiled code says
    no, the first lane log confirms (VERIFY V1).
+3. A save written inside a committed-tree restore attempt (a switch or Fly segment): on a
+   save-file load the restored active tree is the attempt's clone, but nothing re-arms the
+   attempt, so its held-back events (`ATTEMPT_EVENTS`) are dropped. Phase 2 decides whether the
+   cold active-tree restore re-arms the attempt for that tree (then the events come back) or the
+   loaded flight records as a plain active tree (then dropping them is correct). Lane QL-13
+   candidate.

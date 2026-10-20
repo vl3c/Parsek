@@ -3334,7 +3334,7 @@ is gone.
 
 ---
 
-## COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE: a cold load into an older mid-flight quicksave keeps the abandoned future's events and ledger rows [FILED 2026-10-06 from the PR #2021 review, verified by code read. OPEN, product; not yet reproduced; fix designed 2026-10-20 as Phase 1.3 of QUICKLOAD-RESTORES-THE-SAVE-EXACTLY (the save carries its own ledger and events)]
+## ~~COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE: a cold load into an older mid-flight quicksave keeps the abandoned future's events and ledger rows~~ [FILED 2026-10-06 from the PR #2021 review, verified by code read. Was open, product. FIXED 2026-10-20 on branch `claude/project-thread-hvhou8` as Phase 1 of QUICKLOAD-RESTORES-THE-SAVE-EXACTLY: every save carries its ledger, events, milestones, baselines and pending science in a `GAME_STATE` node of the Parsek scenario, a cold load reads them from it (older saves fall back to the files), and every cold load first resets the save-scoped session state (`ParsekScenario.ResetSaveScopedSessionState`, inventory gate `SaveScopedSessionResetTests`), so the once-per-folder store guards no longer keep another save's events. The route twin closes with it: the save's route rows come from its own ledger. xUnit `GameStateSaveNodeTests`; no lane yet (Phase 2 adds the load lanes). product]
 
 The cold-path twin of QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT and
 QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS. Both external files are written at every OnSave, so a
