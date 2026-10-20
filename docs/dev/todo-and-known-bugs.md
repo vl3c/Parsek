@@ -142,6 +142,15 @@ earnings in its pools, so the drawdown guard keeps them. Both need an invalid or
 next to a live attempt, which normal play rarely produces. Fix: carry a "zombie attempt discarded"
 signal from the sweep into the next walk.
 
+## ~~REFLY-RETRY-LEAVES-ATTEMPT-SIDECARS: a Re-Fly Retry left the abandoned attempt's sidecar files in the save~~ [FILED 2026-10-20 from the RF-L4 flight on V's PC. FIXED on branch claude/project-thread-vy0m14]
+
+RF-L4 read three recordings in the produced save where two were expected: the third was the first
+attempt's provisional. The Retry's load drops that attempt as a zombie in `LoadTimeSweep`, which
+removed it from memory and (since section 2.12) its ledger rows, but never deleted its `.prec` /
+`.craft` sidecars. Fix: the zombie discard calls `RecordingStore.DeleteRecordingFiles` for each
+zombie (a never-committed recording, so nothing else reads its files) and the sweep summary counts
+`deletedFiles=`. Test: `LoadTimeSweepTests.DiscardSet_ZombieProvisional_DeletesItsSidecarsAndKeepsTheOrigins`.
+
 ## QUICKLOAD-RESTORES-THE-SAVE-EXACTLY: an in-session load keeps Parsek state from after the save that the save itself does not have [FILED 2026-10-19 from the owner ruling and a code audit at 2f9256d. OPEN, needs design; scope ruled 2026-10-19: drop everything after the save]
 
 Owner ruling (V, 2026-10-19): "a quick/load should work exactly as a quickload - restoring the

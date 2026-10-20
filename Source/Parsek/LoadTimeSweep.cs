@@ -1460,6 +1460,7 @@ namespace Parsek
             LedgerRowsRemovedByLastRun = 0;
             if (discard == null || discard.Count == 0) return 0;
             int removed = 0;
+            int deletedFiles = 0;
             var discardedIds = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < discard.Count; i++)
             {
@@ -1522,6 +1523,10 @@ namespace Parsek
                         $"removedFromPendingTree={fromPendingTree} " +
                         $"removedFromActiveTree={fromActiveTree}");
                     removed++;
+                    // A zombie never committed, so nothing else reads its sidecars; a Retry
+                    // otherwise leaves the first attempt's files in the save.
+                    if (RecordingStore.DeleteRecordingFiles(rec))
+                        deletedFiles++;
                 }
                 else
                 {
@@ -1534,7 +1539,8 @@ namespace Parsek
             LedgerRowsRemovedByLastRun = Ledger.RemoveActionsForRecordings(discardedIds, "LoadTimeSweep:zombie");
             ParsekLog.Info(RewindTag,
                 $"Zombies discarded={removed.ToString(CultureInfo.InvariantCulture)} " +
-                $"ledgerRowsRemoved={LedgerRowsRemovedByLastRun.ToString(CultureInfo.InvariantCulture)}");
+                $"ledgerRowsRemoved={LedgerRowsRemovedByLastRun.ToString(CultureInfo.InvariantCulture)} " +
+                $"deletedFiles={deletedFiles.ToString(CultureInfo.InvariantCulture)}");
             return removed;
         }
 
