@@ -145,6 +145,11 @@ namespace Parsek
         {
             recoveryOwner = RecoveryEventOwner.NoOwner("not-consulted");
             string tag = ResolveCurrentRecordingTag();
+            // Design section 2.12 Rule 3: inside a vessel recovery during a Re-Fly session,
+            // the event is filed under the recovered vessel's own session recording.
+            string causeTag;
+            if (ReFlyAwardTagging.TryResolveCauseTag(RecoveryDispatchScope.CurrentPersistentId, tag, out causeTag))
+                tag = causeTag;
             if (string.IsNullOrEmpty(evt.recordingId))
             {
                 if (string.IsNullOrEmpty(tag))
@@ -212,6 +217,11 @@ namespace Parsek
         internal static string ResolveStrategyConversionRecordingTag(string reason, double ut)
         {
             string tag = ResolveCurrentRecordingTag();
+            // Same cause tag as Emit, so the conversion follows its award inside a recovery
+            // during a Re-Fly session.
+            string causeTag;
+            if (ReFlyAwardTagging.TryResolveCauseTag(RecoveryDispatchScope.CurrentPersistentId, tag, out causeTag))
+                tag = causeTag;
             if (!string.IsNullOrEmpty(tag))
                 return tag;
 
@@ -1208,6 +1218,14 @@ namespace Parsek
             {
                 latestScienceChangeCapture = default(RecentScienceChangeCapture);
             }
+            // Design section 2.12 Rule 3: during a Re-Fly session the subject is filed under
+            // the vessel that transmitted or recovered it (its session recording), not the
+            // live one. The live tag above still decides the capture match.
+            string causeTag;
+            if (vesselPersistentId != 0u
+                && ReFlyAwardTagging.TryResolveCauseTag(vesselPersistentId, subjectRecordingId, out causeTag))
+                subjectRecordingId = causeTag;
+
             // Keep a matched capture alive for the rest of the current stock reward burst.
             // Vessel recovery and other multi-subject payouts can fire several
             // OnScienceReceived callbacks after one ScienceChanged capture.

@@ -38,6 +38,15 @@ namespace Parsek
     /// split off, a vessel the player switched to) is a bound recorder and is left alone.
     /// Outside FLIGHT the live tag is always kept: a KSC action is never the attempt's.
     /// </para>
+    ///
+    /// <para>
+    /// Design section 2.12 Rule 3 (awards filed by cause): during a session, an event that
+    /// names a vessel (a science subject's transmitting or recovered vessel, a lab payout's
+    /// lab vessel, the vessel an open <see cref="RecoveryDispatchScope"/> recovers) is tagged
+    /// to that vessel's recording in the session tree (<see cref="ResolveByCause"/>, reason
+    /// <c>cause-vessel</c>), with the same origin-to-provisional substitution. An event that
+    /// names no vessel, or a vessel with no recording in the session, keeps the live path.
+    /// </para>
     /// </summary>
     internal static class ReFlyAwardTagging
     {
@@ -49,6 +58,7 @@ namespace Parsek
         internal const string ReasonUnboundEmpty = "unbound-empty-tag";
         internal const string ReasonUnboundOrigin = "unbound-origin-tag";
         internal const string ReasonUnboundSupersedeTarget = "unbound-supersede-target-tag";
+        internal const string ReasonCauseVessel = "cause-vessel";
 
         /// <summary>Test seam for the scene probe; null in production.</summary>
         internal static Func<bool> InFlightProviderForTesting;
@@ -126,6 +136,96 @@ namespace Parsek
                         marker.OriginChildRecordingId ?? "<none>"));
             }
             return decision.Tag ?? "";
+        }
+
+        /// <summary>
+        /// Pure: the recording of vessel <paramref name="pid"/> in the session tree, or null
+        /// when the tree has none. The active recording when it flies that vessel, else the
+        /// tree's background map entry, else an open vessel-line end of that pid.
+        /// </summary>
+        internal static string ResolveSessionRecordingForVessel(RecordingTree tree, uint pid)
+        {
+            if (tree == null || tree.Recordings == null || pid == 0u)
+                return null;
+            Recording rec;
+            if (!string.IsNullOrEmpty(tree.ActiveRecordingId)
+                && tree.Recordings.TryGetValue(tree.ActiveRecordingId, out rec)
+                && rec != null && rec.VesselPersistentId == pid)
+                return rec.RecordingId;
+            string bgId;
+            if (tree.BackgroundMap != null
+                && tree.BackgroundMap.TryGetValue(pid, out bgId)
+                && !string.IsNullOrEmpty(bgId)
+                && tree.Recordings.ContainsKey(bgId))
+                return bgId;
+            string found = null;
+            foreach (var kv in tree.Recordings)
+            {
+                Recording r = kv.Value;
+                if (r == null || r.VesselPersistentId != pid || r.TerminalStateValue != null) continue;
+                if (!tree.IsVesselLineEnd(r)) continue;
+                if (found == null || string.CompareOrdinal(r.RecordingId, found) < 0)
+                    found = r.RecordingId;
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// Pure, design section 2.12 Rule 3 (awards filed by cause): during a live session in
+        /// FLIGHT, an event that names vessel <paramref name="causePid"/> is tagged to that
+        /// vessel's recording in the session tree, passed through <see cref="Resolve"/> so a
+        /// cause recording that is the superseded origin still lands on the provisional.
+        /// Returns a decision with a null <see cref="ReFlyAwardTagDecision.Tag"/> when the
+        /// cause does not decide (no session, not in flight, no vessel named, or a vessel
+        /// with no recording in the session); the caller then keeps the live-tag path.
+        /// </summary>
+        internal static ReFlyAwardTagDecision ResolveByCause(
+            uint causePid, bool inFlight, ReFlySessionMarker marker, RecordingTree tree)
+        {
+            if (marker == null)
+                return new ReFlyAwardTagDecision { Reason = ReasonNoMarker };
+            if (!inFlight)
+                return new ReFlyAwardTagDecision { Reason = ReasonNotInFlight };
+            string causeTag = ResolveSessionRecordingForVessel(tree, causePid);
+            if (string.IsNullOrEmpty(causeTag))
+                return new ReFlyAwardTagDecision { Reason = "cause-vessel-not-in-session" };
+            ReFlyAwardTagDecision decision = Resolve(causeTag, inFlight, marker);
+            if (!decision.Substituted)
+                decision.Reason = ReasonCauseVessel;
+            return decision;
+        }
+
+        /// <summary>
+        /// Live wrapper over <see cref="ResolveByCause"/>: true with the cause tag when a live
+        /// Re-Fly session files the event under the vessel it names; false otherwise (the
+        /// caller keeps its live-tag path, which is unchanged outside a session).
+        /// </summary>
+        internal static bool TryResolveCauseTag(uint causePid, string liveTag, out string tag)
+        {
+            tag = null;
+            if (causePid == 0u)
+                return false;
+            ReFlySwitchGate.LiveSession session = ReFlySwitchGate.ResolveLiveSession();
+            if (session.Marker == null)
+                return false;
+            ReFlyAwardTagDecision decision = ResolveByCause(causePid, IsInFlight(), session.Marker, session.Tree);
+            if (string.IsNullOrEmpty(decision.Tag))
+                return false;
+            tag = decision.Tag;
+            if (!string.Equals(tag, liveTag ?? "", StringComparison.Ordinal))
+            {
+                ParsekLog.InfoRateLimited("GameStateRecorder",
+                    "refly-cause-award-tag-" + (session.Marker.SessionId ?? "") + "-" + causePid.ToString(CultureInfo.InvariantCulture),
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Re-Fly award tag: outcome=tagged-by-cause reason={0} sess={1} causePid={2} " +
+                        "tag={3} liveTag='{4}'",
+                        decision.Reason,
+                        session.Marker.SessionId ?? "<no-id>",
+                        causePid,
+                        tag,
+                        liveTag ?? ""));
+            }
+            return true;
         }
 
         private static bool IsInFlight()

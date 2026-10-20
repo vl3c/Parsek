@@ -49,7 +49,8 @@ namespace Parsek.Patches
                 string vesselName = __instance != null && __instance.vessel != null
                     ? Recording.ResolveLocalizedName(__instance.vessel.vesselName)
                     : null;
-                ScienceLabCreditCapture.Report(__state, "ScienceTransmission", vesselName);
+                ScienceLabCreditCapture.Report(__state, "ScienceTransmission", vesselName,
+                    __instance != null && __instance.vessel != null ? __instance.vessel.persistentId : 0u);
             }
             catch (Exception ex)
             {
@@ -80,7 +81,8 @@ namespace Parsek.Patches
                 string vesselName = protoVessel != null
                     ? Recording.ResolveLocalizedName(protoVessel.vesselName)
                     : null;
-                ScienceLabCreditCapture.Report(__state, "VesselRecovery", vesselName);
+                ScienceLabCreditCapture.Report(__state, "VesselRecovery", vesselName,
+                    protoVessel != null ? protoVessel.persistentId : 0u);
             }
             catch (Exception ex)
             {
@@ -191,7 +193,7 @@ namespace Parsek.Patches
         /// Reports the lab's gross payout. The event carries the pool before the call and
         /// that pool plus the gross, so its delta is the credit before any strategy take.
         /// </summary>
-        internal static void Report(CallState state, string reasonKey, string vesselName)
+        internal static void Report(CallState state, string reasonKey, string vesselName, uint vesselPersistentId = 0u)
         {
             float after = ReadPool();
             if (!IsCredit(state.PoolBefore, after, state.Gross))
@@ -202,7 +204,7 @@ namespace Parsek.Patches
                     $"poolDelta={(after - state.PoolBefore).ToString("R", System.Globalization.CultureInfo.InvariantCulture)} reason='{reasonKey}'");
             GameStateRecorder.OnScienceLabCredited(
                 Planetarium.GetUniversalTime(), state.PoolBefore, state.PoolBefore + state.Gross,
-                reasonKey, vesselName);
+                reasonKey, vesselName, vesselPersistentId);
         }
     }
 }

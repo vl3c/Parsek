@@ -92,6 +92,14 @@ namespace Parsek
         internal static bool IsOpen => frames.Count > 0;
 
         /// <summary>
+        /// The persistentId of the vessel whose recovery the innermost open scope covers, or 0
+        /// when no scope is open: the vessel a recovery event names (design section 2.12 Rule 3,
+        /// awards filed by cause).
+        /// </summary>
+        internal static uint CurrentPersistentId =>
+            frames.Count > 0 ? frames[frames.Count - 1].PersistentId : 0u;
+
+        /// <summary>
         /// Pure: why a recovery dispatch opens no scope, or null to open one. A ghost map
         /// vessel, a rewind strip and Parsek's own crew-suppressed housekeeping recoveries are
         /// not a recovery of a recorded flight, and a nameless vessel cannot be matched.
