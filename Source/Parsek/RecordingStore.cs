@@ -1142,6 +1142,8 @@ namespace Parsek
 
             int promoted = 0;
             int tipsPromoted = 0;
+            List<GameAction> pendingRows = null;
+            bool pendingRowsBuilt = false;
             foreach (var rec in tree.Recordings.Values)
             {
                 if (rec == null) continue;
@@ -1165,9 +1167,17 @@ namespace Parsek
                     continue;
 
                 var slot = rp.ChildSlots[slotListIndex];
+                if (!pendingRowsBuilt)
+                {
+                    pendingRows = BuildPendingCommitRowsForPromotion(tree);
+                    pendingRowsBuilt = true;
+                }
                 string qualifyReason;
-                if (!UnfinishedFlightClassifier.TryQualify(
-                        rec, slot, rp, out qualifyReason, tree))
+                bool qualifies;
+                using (SupersedeCommit.UsePendingCommitRows(pendingRows))
+                    qualifies = UnfinishedFlightClassifier.TryQualify(
+                        rec, slot, rp, out qualifyReason, tree);
+                if (!qualifies)
                 {
                     ParsekLog.Verbose("UnfinishedFlights",
                         $"CommitTree: RP child rec={rec.RecordingId ?? "<no-id>"} " +
@@ -1230,6 +1240,31 @@ namespace Parsek
 
             if (promoted > 0 || tipsPromoted > 0)
                 BumpStateVersion();
+        }
+
+        /// <summary>
+        /// The rows <c>LedgerOrchestrator.NotifyLedgerTreeCommitted</c> will file for
+        /// <paramref name="tree"/> (its pure preview), so promotion reads the same retire
+        /// set the slot has once they land. Null when the build fails: promotion then
+        /// reads the ledger alone, and the load-time value-seal sweep concludes the slot.
+        /// </summary>
+        private static List<GameAction> BuildPendingCommitRowsForPromotion(RecordingTree tree)
+        {
+            try
+            {
+                var preview = LedgerOrchestrator.BuildTreeCommitRowsPreview(tree);
+                ParsekLog.Verbose("UnfinishedFlights",
+                    $"CommitTree: promotion reads pending commit rows tree={tree?.Id ?? "<no-id>"} " +
+                    $"rows={(preview?.Rows.Count ?? 0).ToString(CultureInfo.InvariantCulture)}");
+                return preview?.Rows;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("UnfinishedFlights",
+                    $"CommitTree: pending commit row build failed tree={tree?.Id ?? "<no-id>"} " +
+                    $"({ex.GetType().Name}: {ex.Message}); promotion reads the ledger alone");
+                return null;
+            }
         }
 
         private static BranchPoint FindBranchPointById(RecordingTree tree, string branchPointId)

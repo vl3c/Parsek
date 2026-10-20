@@ -608,7 +608,11 @@ trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 11, max = 11 }
 branchPoints   = { JointBreak = { min = 4 } }
-terminalStates = { Destroyed = { min = 8 }, SubOrbital = { min = 1 } }
+# 2026-10-20: the SubOrbital floor is dropped. The one SubOrbital was the re-flown crewed
+# top stack's fork; since the design 2.12 reshape the lane re-flies the probe (slot 1), whose
+# fork is concluded with no terminal (`2026-10-20_1505`: Destroyed 10 plus one unterminated
+# fork), so the floor described the old subject.
+terminalStates = { Destroyed = { min = 8 } }
 
 [runtime]
 # Budget arithmetic (M-A5 S8). run.py waits max(step_budget, 600) + 60 for a DEFERRED

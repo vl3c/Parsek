@@ -101,7 +101,9 @@ required = [
   "VesselRecovery funds patched: vessel='Jumping Flea' amount=4558",
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke",
   # Design 2.12 Rule 3: the Flea is HELD, not retired (Phase 3 literals, NOT YET FLOWN).
-  "Strip heldForCommittedFuture v=2905720181 rec=\\S+ firstUT=[0-9.]+ evidence=recovery sess=\\S+",
+  # The evidence names the first claim found: the Flea's committed recording starts after
+  # the cutoff, so it reads `flies` (2026-10-20 flights); a recovery-first claim reads `recovery`.
+  "Strip heldForCommittedFuture v=2905720181 rec=\\S+ firstUT=[0-9.]+ evidence=(?:flies|recovery) sess=\\S+",
   "Resurrected vessel hold: survivors=[0-9]+ held=[1-9][0-9]* notLive=[0-9]+ alreadyHeld=[0-9]+ matchedWithoutFuture=[0-9]+ cutoffUT=[0-9.]+",
   "Ghosting vessel: pid=2905720181 name=",
   "Claimed vessel hold ghost shown: pid=2905720181 [^\\r\\n]*chain=0[^\\r\\n]*from=despawn",

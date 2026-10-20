@@ -420,6 +420,7 @@ namespace Parsek
             if (closure != null)
                 ids.UnionWith(closure);
             ids.Add(tip.RecordingId);
+            AddSpanningStretchAncestorClosure(ids, tip, slotMarker);
 
             AddMatchingChainRecordingIds(ids, tip, RecordingStore.CommittedRecordings);
             var trees = RecordingStore.CommittedTrees;
@@ -435,6 +436,66 @@ namespace Parsek
             if (carvedOut == 0)
                 return ids;
             return new HashSet<string>(kept, StringComparer.Ordinal);
+        }
+
+        private static IReadOnlyList<GameAction> pendingCommitRows;
+
+        /// <summary>
+        /// Scopes <see cref="RetireSetHoldsSealingRow"/> to also read
+        /// <paramref name="rows"/>, the rows a tree commit files right after it promotes
+        /// its Unfinished Flights (<c>RecordingStore.ApplyRewindProvisionalMergeStates</c>
+        /// runs inside <c>CommitTree</c>, before <c>NotifyLedgerTreeCommitted</c>). Without
+        /// it Site A would promote a slot whose own new rows seal it (RF-9). Dispose
+        /// restores the previous scope.
+        /// </summary>
+        internal static IDisposable UsePendingCommitRows(IReadOnlyList<GameAction> rows)
+        {
+            var scope = new PendingCommitRowsScope(pendingCommitRows);
+            pendingCommitRows = rows;
+            return scope;
+        }
+
+        private sealed class PendingCommitRowsScope : IDisposable
+        {
+            private readonly IReadOnlyList<GameAction> previous;
+            private bool disposed;
+
+            internal PendingCommitRowsScope(IReadOnlyList<GameAction> previous)
+            {
+                this.previous = previous;
+            }
+
+            public void Dispose()
+            {
+                if (disposed) return;
+                disposed = true;
+                pendingCommitRows = previous;
+            }
+        }
+
+        /// <summary>
+        /// When the merge's splitter would cut an earlier segment of the walked vessel
+        /// rather than <paramref name="root"/> (<see cref="RecordingTreeSplitter.FindSpanningOwnVesselStretchAncestor"/>:
+        /// the tree-branching parent that flew through the separation, then put a crew
+        /// member out), the merge's closure grows from that segment's post-rewind TIP.
+        /// Adds the forward closure of the unsplit segment; <see cref="BuildRetireSet"/>'s
+        /// rewind cutoff keeps only its rows after the split, the ones the splitter moves
+        /// onto the TIP and the merge retires (RF-20: a spacewalk milestone on the parent).
+        /// </summary>
+        private static void AddSpanningStretchAncestorClosure(
+            HashSet<string> ids, Recording root, ReFlySessionMarker marker)
+        {
+            if (ids == null || root == null || marker == null) return;
+            double rewindUT = marker.RewindPointUT;
+            if (double.IsNaN(rewindUT) || double.IsInfinity(rewindUT) || rewindUT <= 0.0) return;
+            Recording spanning = RecordingTreeSplitter.FindSpanningOwnVesselStretchAncestor(
+                root, marker, rewindUT, EffectiveState.PidPeerStartUtEpsilonSeconds);
+            if (spanning == null || string.IsNullOrEmpty(spanning.RecordingId)) return;
+            HashSet<string> extra = EffectiveState.BuildSubtreeClosureUncached(
+                marker, spanning.RecordingId);
+            if (extra != null)
+                ids.UnionWith(extra);
+            ids.Add(spanning.RecordingId);
         }
 
         /// <summary>
@@ -501,8 +562,13 @@ namespace Parsek
             if (marker == null)
                 return new List<GameAction>();
             string closureRoot = marker.SupersedeTargetId ?? marker.OriginChildRecordingId;
-            IReadOnlyCollection<string> subtree =
+            var subtree = new HashSet<string>(StringComparer.Ordinal);
+            IReadOnlyCollection<string> rootClosure =
                 EffectiveState.ComputeSubtreeClosureInternal(marker, closureRoot);
+            if (rootClosure != null)
+                subtree.UnionWith(rootClosure);
+            AddSpanningStretchAncestorClosure(
+                subtree, EffectiveState.FindCommittedRecordingByIdRaw(closureRoot), marker);
             int carvedOut;
             List<string> kept = RemovePreRewindCarveOuts(subtree, marker, out carvedOut);
             var closure = new HashSet<string>(StringComparer.Ordinal);
@@ -670,8 +736,13 @@ namespace Parsek
                 + WorldActionCacheKeySeparator + (live?.SessionId ?? string.Empty)
                 + WorldActionCacheKeySeparator + (live?.ActiveReFlyRecordingId ?? string.Empty);
 
+            // Rows a tree commit is about to file read as already filed, uncached (the
+            // ledger has not moved, so a cached verdict would not see them).
+            IReadOnlyList<GameAction> pendingRows = pendingCommitRows;
+            bool readPending = pendingRows != null && pendingRows.Count > 0;
+
             WorldActionSafetyCacheEntry cached;
-            if (TryGetCachedWorldActionSafetyVerdict(cacheKey, scenario, out cached))
+            if (!readPending && TryGetCachedWorldActionSafetyVerdict(cacheKey, scenario, out cached))
             {
                 summary = cached.ActionSummary;
                 return cached.HasAction;
@@ -682,14 +753,15 @@ namespace Parsek
             int closureCount;
             List<GameAction> sealing = CollectRetireSetSealingRows(
                 tip, slot?.OriginChildRecordingId, rp?.RewindPointId, cutoff,
-                extraActions: null, out retireSetCount, out closureCount);
+                extraActions: readPending ? pendingRows : null, out retireSetCount, out closureCount);
 
             var entry = new WorldActionSafetyCacheEntry
             {
                 HasAction = sealing.Count > 0,
                 ActionSummary = sealing.Count > 0 ? FormatRetireSetRowSummary(PickNamedSealingRow(sealing)) : null,
             };
-            CacheWorldActionSafetyVerdict(cacheKey, scenario, entry);
+            if (!readPending)
+                CacheWorldActionSafetyVerdict(cacheKey, scenario, entry);
 
             var ic = CultureInfo.InvariantCulture;
             string identity = "retire-set|" + (rp?.RewindPointId ?? "<no-rp>") + "|"

@@ -163,6 +163,25 @@ event UT; an unreadable clock keeps the event UT). Tests:
 `OnKscSpending_DeferredRecalc_CutsAtTheClockWhenItMovedPastTheEvent`,
 `ResolveDeferredLiveEventUT_TakesTheClockOnlyWhenItIsAhead`.
 
+## ~~REFLY-GATE-MISSES-SPANNING-STRETCH-ANCESTOR: a sealing row on the walked vessel's spanning parent did not seal the slot~~ [FILED 2026-10-20 from the RF-20 flight on V's PC. FIXED on branch claude/project-thread-vy0m14]
+
+RF-20 stashed and re-flew an EVA slot whose Spacewalk milestone (UT 469.4, after the rewind
+point at 420.63) was filed on the pod segment that flew through the separation and put Jeb out.
+The value gate walked only the forward closure of the slot's tip (the post-board segment), but
+the merge's splitter cuts that spanning parent and retires its post-rewind rows. Fix:
+`ComputeRetireClosure` and `BuildMergeRetireSet` add the forward closure of
+`RecordingTreeSplitter.FindSpanningOwnVesselStretchAncestor`; the rewind cutoff keeps only its
+rows after the split. Tests: `ReFlyThroughEvaTests.ValueGate_RowOnTheSpanningStretchAncestor*`.
+
+## ~~REFLY-SITE-A-PROMOTES-BEFORE-ROWS-FILED: CommitTree promoted a slot its own new rows seal~~ [FILED 2026-10-20 from the RF-9 flight on V's PC. FIXED on branch claude/project-thread-vy0m14]
+
+`ApplyRewindProvisionalMergeStates` runs inside `CommitTree`, before `NotifyLedgerTreeCommitted`
+files the tree's rows, so Site A read an empty retire set and promoted RF-9's top stack although
+its ReachedSpace milestones seal it; the load sweep concluded the slot at the next load. Fix:
+promotion builds the tree's pending rows once (`BuildTreeCommitRowsPreview`) and reads them
+through `SupersedeCommit.UsePendingCommitRows` (uncached). A failed build falls back to the ledger
+alone with a Warn. Test: `TreeCommitTests.CommitTree_DestroyedChildWhosePendingRowsSeal_IsNotPromoted`.
+
 ## QUICKLOAD-RESTORES-THE-SAVE-EXACTLY: an in-session load keeps Parsek state from after the save that the save itself does not have [FILED 2026-10-19 from the owner ruling and a code audit at 2f9256d. OPEN, needs design; scope ruled 2026-10-19: drop everything after the save]
 
 Owner ruling (V, 2026-10-19): "a quick/load should work exactly as a quickload - restoring the
