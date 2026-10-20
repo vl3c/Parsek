@@ -270,8 +270,13 @@ required  = [
   "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
   "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*Save-scoped session state reset: reason=save-file ",
   "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
-  "outcome=retired-empty-provisional",
-  "AppendRelations outcome=refused-unflown-provisional",
+  # THE CONCLUSION ROUTE NOW DEPENDS ON THE RESUME (flown 2026-10-20, `2026-10-20_2205`). The
+  # cold F9 resumes the recorder through the quickload resume, not the Re-Fly post-load settle
+  # hold, so it can sample before AnswerMergeDialog drives the merge: that run flushed 1 point
+  # and concluded the FLOWN way (`Added 1 supersede relations for subtree rooted at
+  # wp-booster-a`, dominance pass). Either route is a clean conclusion of the session the F9
+  # restored; the marker surviving the cold load is the claim (forbidden `Marker invalid` below).
+  "(?:outcome=retired-empty-provisional[\\s\\S]*AppendRelations outcome=refused-unflown-provisional|Added [1-9][0-9]* supersede relations for subtree rooted at wp-booster-a\\b)",
   # THE CLEAN-CONCLUSION TOKEN. S4.2 (via the batch) ended `outcome=concluded-no-supersede`;
   # this lane's merge of the surviving world-preservation tree ends `End reason=merged`
   # (measured run `2026-09-02_1141`: `TryCommitReFlySupersede -> MergeJournalOrchestrator`
