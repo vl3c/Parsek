@@ -5,37 +5,51 @@ id = "QL-1-ksc-actions-then-earlier-quicksave"
 # Space Center AFTER a quicksave, then that quicksave loaded at the Space Center. The
 # first lane that loads a save back in time with KSC purchases in the abandoned stretch.
 #
-# AS RULED (owner ruling D2, research QL-R2, LoadReconcilePolicy's
-# UntaggedLedgerRowsAfterCutoff cell "a quickload keeps untagged KSC rows"): the KSC rows
-# are committed history and stay in the ledger as committed FUTURE, at their own UTs. So
-# the load must NOT refund them by dropping them, and must NOT charge them early either:
-#   - right after the load, stock holds the quicksave's career (the node unresearched, the
-#     Tracking Station at level 0, Verhat an applicant, the survey Offered) and the pools
-#     read the quicksave's values (the current-UT cutoff keeps the four rows out);
-#   - each stock control is blocked by its kept row (KB-3's refusals: a repeat would
-#     charge the action twice when the clock reaches the row);
-#   - when the Space Center clock reaches the rows (`CareerLedgerClockCursor`, never flown
-#     before this lane) each action applies exactly once: the node researched, Verhat
-#     hired, the survey Active, and the end pools equal the seed plus each action ONCE
-#     (the ledger oracle, below).
+# RESHAPED 2026-10-20 FOR THE OWNER RULING OF 2026-10-19 ("a quickload also undoes Space
+# Center purchases made after the quicksave", design parsek-rewind-to-separation-design.md
+# section 2.12 Rule 3; plan docs/dev/plans/refly-ledger-safety-implementation.md Phase 2
+# step 3, which flips LoadReconcilePolicy's UntaggedLedgerRowsAfterCutoff cell for
+# QuickloadFlight / InSessionOther from Keep to a retire). NOT FLOWN in this shape. The
+# lane used to pin ruling D2 / QL-R2 (the KSC rows stay as committed future, each control
+# is refused `blocked-committed`, and the rows apply when the clock crosses them); that
+# ruling is reversed, so the expectation flips:
+#   - the load retires the four untagged Space Center rows dated after the save
+#     (`[LoadPolicy] Untagged rows after the save retired: kind=<k> saveUT= clockUT=
+#     retired=<n> ...` and `[Ledger] RetireAbandonedFutureActions: removed <n> action(s)
+#     reason=quickload-untagged-after-save`, Phase 2's literals);
+#   - stock is back at the quicksave (the node unresearched, the Tracking Station at level
+#     0, Verhat an applicant, the survey Offered), and NOTHING blocks the four controls:
+#     the player may buy each again, and each applies at once (applied=true), charged once;
+#   - no clock crossing ever happens (there is no committed future left to cross), so the
+#     old UT 1300 warp is dropped (fast-lane item 2).
 #
 # FLOW (career-earned-ksc, vessel-less, save clock UT 409.56):
-#   F5 at the Space Center (`SaveGame name=quicksave`), wait to UT 1000 so the actions sit
-#   about 590 s after the save, research basicRocketry, upgrade the Tracking Station, hire
-#   Verhat Kerman, accept the survey 90e4faaf, then load the quicksave at the Space Center
-#   (`LoadGame name=quicksave scene=spacecenter`, the TC-1 `Quickload` stand-in QL-2
-#   uses). Press the four controls (each refused, the blocked dialog dismissed), wait to
-#   UT 1300 (the clock crosses the rows), press research / hire / accept again (each
-#   refused because it is already done), quit.
+#   F5 at the Space Center (`SaveGame name=quicksave`), wait to UT 1000, research
+#   basicRocketry, upgrade the Tracking Station, hire Verhat Kerman, accept the survey
+#   90e4faaf, then load the quicksave at the Space Center (`LoadGame name=quicksave
+#   scene=spacecenter`, the TC-1 `Quickload` stand-in QL-2 uses). Press the four controls
+#   again: each applies. Quit.
 #
-# POOLS. The ledger oracle is valid across this load BECAUSE of the ruling: the
-# abandoned stretch holds only KSC rows, which are kept and re-applied, so the end save
-# is the seed plus each declared action once. A refund-on-load or a double charge reds
-# it. (hlib refuses a ledger block beside InvokeRewind / InvokeRewindToLaunch /
-# AnswerMergeDialog, not beside LoadGame.)
+# POOLS. The ledger oracle is unchanged and still valid: the first four actions are gone
+# with the load, the second four are the ones the end save carries, so the end save is the
+# seed plus each declared action ONCE. A kept row (the old ruling) reds the four repeat
+# presses (`blocked-committed`); a kept row that also let the repeat through would charge
+# twice and red the oracle. (hlib refuses a ledger block beside InvokeRewind /
+# InvokeRewindToLaunch / AnswerMergeDialog, not beside LoadGame.)
+#
+# GATED ON BELIEF (a first flight can falsify): the load is classified InSessionOther (or
+# QuickloadFlight; both kinds retire); `retired=` counts at least the four rows (a facility
+# upgrade or a hire may book a second row, so the count is a floor); the hire's cost after
+# the load is the same 62113 (the hired count is the save's again).
+#
+# FAST-LANE CHECKLIST: (1) reuse - this IS the plan's "quickload past a Space Center
+# purchase" lane, so no new spec carries it; (2) explicit-UT warp, the one left; (3)-(5)
+# n/a (no dwell, burn or coast); (6) retry `once`, deterministic; (7) counts n/a;
+# (8) nightly stays (about 3 min measured on the old shape, now shorter);
+# (9) flight_efficiency.py after the first green flight.
 # =====================================================================================
 tier = "nightly"
-description = "QL-1: career actions at the Space Center after a quicksave (research, facility upgrade, hire, contract accept), then the quicksave loaded at the Space Center. The rows stay as committed future: the four stock controls are blocked with nothing charged, and once the clock reaches the rows each action applies exactly once."
+description = "QL-1: career actions at the Space Center after a quicksave (research, facility upgrade, hire, contract accept), then the quicksave loaded at the Space Center. The load undoes the purchases (owner ruling 2026-10-19): the four rows dated after the save are retired, stock is back at the save, and the player can buy each again, charged once."
 instanceProfile = "stock-minimal"
 tags = ["QL-1", "timeline-ops", "quickload", "ledger", "career", "action-blocking"]
 
@@ -60,24 +74,14 @@ steps = [
   { cmd = "KscAction", args = { action = "hire-kerbal", kerbal = "Verhat Kerman" },                               expect = "OK", budget = 60 },
   { cmd = "KscAction", args = { action = "accept-contract", contract = "90e4faaf-2029-4c6b-8bc1-40226bb0fc27" },  expect = "OK", budget = 60 },
 
-  # ---- back in time ----
+  # ---- back in time: the purchases are undone ----
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "quicksave", scene = "spacecenter" }, expect = "OK", budget = 300 },
 
-  # ---- the kept rows block each control; nothing is charged ----
-  { cmd = "KscAction", args = { action = "research-node", node = "basicRocketry" },                               expect = "REJECTED", budget = 60 },
-  { cmd = "UiAction",  args = { op = "dismiss", popup = "actionblocked", press = "OK" },                          expect = "OK" },
-  { cmd = "KscAction", args = { action = "upgrade-facility", facility = "SpaceCenter/TrackingStation" },          expect = "REJECTED", budget = 60 },
-  { cmd = "UiAction",  args = { op = "dismiss", popup = "actionblocked", press = "OK" },                          expect = "OK" },
-  { cmd = "KscAction", args = { action = "hire-kerbal", kerbal = "Verhat Kerman" },                               expect = "REJECTED", budget = 60 },
-  { cmd = "UiAction",  args = { op = "dismiss", popup = "actionblocked", press = "OK" },                          expect = "OK" },
-  { cmd = "KscAction", args = { action = "accept-contract", contract = "90e4faaf-2029-4c6b-8bc1-40226bb0fc27" },  expect = "REJECTED", budget = 60 },
-  { cmd = "UiAction",  args = { op = "dismiss", popup = "actionblocked", press = "OK" },                          expect = "OK" },
-
-  # ---- the clock reaches the rows: each applies once ----
-  { cmd = "WarpToUT",  args = { ut = "1300", maxRate = "100" },                                                   expect = "OK", budget = 120 },
-  { cmd = "KscAction", args = { action = "research-node", node = "basicRocketry" },                               expect = "REJECTED", budget = 60 },
-  { cmd = "KscAction", args = { action = "hire-kerbal", kerbal = "Verhat Kerman" },                               expect = "REJECTED", budget = 60 },
-  { cmd = "KscAction", args = { action = "accept-contract", contract = "90e4faaf-2029-4c6b-8bc1-40226bb0fc27" },  expect = "REJECTED", budget = 60 },
+  # ---- nothing is blocked: each action applies again, charged once ----
+  { cmd = "KscAction", args = { action = "research-node", node = "basicRocketry" },                               expect = "OK", budget = 60 },
+  { cmd = "KscAction", args = { action = "upgrade-facility", facility = "SpaceCenter/TrackingStation" },          expect = "OK", budget = 60 },
+  { cmd = "KscAction", args = { action = "hire-kerbal", kerbal = "Verhat Kerman" },                               expect = "OK", budget = 60 },
+  { cmd = "KscAction", args = { action = "accept-contract", contract = "90e4faaf-2029-4c6b-8bc1-40226bb0fc27" },  expect = "OK", budget = 60 },
   { cmd = "FlushAndQuit", expect = "OK" },
 ]
 
@@ -100,48 +104,30 @@ required = [
   "kscaction action=hire-kerbal target=Verhat Kerman applied=true",
   "kscaction action=accept-contract target=90e4faaf-2029-4c6b-8bc1-40226bb0fc27 applied=true",
   "loadgame start save=\\S+ name=quicksave ",
-  # ---- the load kept the rows as committed future and cut the walk at the loaded clock ----
-  "OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff=True [^\\r\\n]*hasFutureLedgerActions=True",
-  # R&D loads after Parsek's module, so the load patch is repeated once it has: the 5
-  # science the kept research row spends is held back like the kept funds.
-  "loadgame start save=\\S+ name=quicksave [\\s\\S]*OnLoad: in-session ledger re-patch after the currency modules loaded [^\\r\\n]*useCutoff=True",
-  "loadgame start save=\\S+ name=quicksave [\\s\\S]*PatchScience: 111\\.6 -> 106\\.6",
-  # ---- each control refused by its kept row, stock state back to the quicksave, nothing charged ----
-  "kscaction research-node not applied: target=basicRocketry stateBefore=Unavailable stateAfter=Unavailable fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0",
-  "kscaction refused action=research-node reason=blocked-committed target=basicRocketry",
-  "kscaction upgrade-facility not applied: target=SpaceCenter/TrackingStation levelBefore=0 levelAfter=0 fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0",
-  "kscaction refused action=upgrade-facility reason=blocked-committed target=SpaceCenter/TrackingStation",
-  "kscaction hire-kerbal not applied: target=Verhat_Kerman typeBefore=Applicant typeAfter=Applicant fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0",
-  "kscaction refused action=hire-kerbal reason=blocked-committed target=Verhat Kerman",
-  "kscaction accept-contract not applied: target=90e4faaf-2029-4c6b-8bc1-40226bb0fc27 stateBefore=Offered stateAfter=Offered fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0",
-  "kscaction refused action=accept-contract reason=blocked-committed target=90e4faaf-2029-4c6b-8bc1-40226bb0fc27",
-  "\\A(?:[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false){4}",
-  # ---- the clock reaches the rows: each applies once, past the drawdown guard ----
-  "Clock-crossing reached committed-future rows: crossed=[1-9]",
-  "PatchFunds: clock-crossing applies the reached rows",
-  "PatchScience: clock-crossing applies the reached rows",
-  "Committed hire applied: 'Verhat Kerman' Applicant -> Crew",
-  "PatchContracts: replaced 1 Offered copy\\(ies\\) of contractId='90e4faaf-2029-4c6b-8bc1-40226bb0fc27'",
-  # ---- after the clock crosses the rows: each action is already done ----
-  "kscaction refused action=accept-contract reason=blocked-committed [\\s\\S]*kscaction refused action=research-node reason=node-already-unlocked target=basicRocketry",
-  "kscaction refused action=accept-contract reason=blocked-committed [\\s\\S]*kscaction refused action=hire-kerbal reason=kerbal-not-applicant target=Verhat Kerman",
-  "kscaction refused action=accept-contract reason=blocked-committed [\\s\\S]*kscaction refused action=accept-contract reason=contract-not-offered target=90e4faaf-2029-4c6b-8bc1-40226bb0fc27",
+  # ---- the load retires the untagged rows dated after the save (Phase 2's literals) ----
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*\\[LoadPolicy\\] Untagged rows after the save retired: kind=(?:InSessionOther|QuickloadFlight) saveUT=\\S+ clockUT=\\S+ retired=(?:[4-9]|[1-9][0-9]+) ",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*RetireAbandonedFutureActions: removed (?:[4-9]|[1-9][0-9]+) action\\(s\\) reason=quickload-untagged-after-save",
+  # ---- after the load each control applies again (stock back at the save) ----
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*kscaction action=research-node target=basicRocketry applied=true",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*kscaction action=upgrade-facility target=SpaceCenter/TrackingStation applied=true",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*kscaction action=hire-kerbal target=Verhat Kerman applied=true",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*kscaction action=accept-contract target=90e4faaf-2029-4c6b-8bc1-40226bb0fc27 applied=true",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
-  # After the load (the first actions legitimately pass these backstops at UT 1000): no
-  # backstop let a repeat through, no crossed row was clamped as a missing channel, and
-  # stock never listed the survey twice.
-  "loadgame start save=\\S+ name=quicksave [\\s\\S]*Allowing tech research: 'basicRocketry'",
-  "loadgame start save=\\S+ name=quicksave [\\s\\S]*Allowing facility upgrade: 'SpaceCenter/TrackingStation'",
-  "loadgame start save=\\S+ name=quicksave [\\s\\S]*allowing accept for guid=90e4faaf-2029-4c6b-8bc1-40226bb0fc27",
+  # The old ruling (D2 / QL-R2): a kept row blocking a control, or held back as future.
+  "kscaction refused action=\\S+ reason=blocked-committed",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*Clock-crossing reached committed-future rows",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*PatchScience: 111\\.6 -> 106\\.6",
+  # Nothing is refused after the load, by a backstop or by stock state.
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*kscaction refused ",
   "loadgame start save=\\S+ name=quicksave [\\s\\S]*GUARDED (UPLIFT|DRAWDOWN) clamped",
   "loadgame start save=\\S+ name=quicksave [\\s\\S]*An item with the same key has already been added",
 ]
 
 # The ledger oracle: seed (the staged fixture) plus each declared action ONCE, diffed HARD
-# against the final save. Valid across the back-in-time load only because the ruling keeps
-# the KSC rows and re-applies them when the clock reaches them (header).
+# against the final save. Valid across the back-in-time load because the load retires the
+# first four rows and the end save carries only the repeat presses (header).
 [expectations.ledger]
 seedFrom     = "template"
 tolerances   = "default"
@@ -179,8 +165,8 @@ rec3CarveOut = false
 
 [runtime]
 # Budget arithmetic (M-A5 S8): each deferred verb waits max(step budget, 600) + 60 = 660 s
-# at worst. Two LoadGames and two WarpToUTs are deferred (2640); SaveGame (120), eleven
-# KscActions (660) and the light verbs add theirs. 3600 clears it.
+# at worst. Two LoadGames and one WarpToUT are deferred (1980); SaveGame (120), eight
+# KscActions (480) and the light verbs add theirs. 3600 clears it.
 budgetSeconds = 3600
 
 [retry]
