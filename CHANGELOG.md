@@ -10,6 +10,15 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **A Re-Fly can no longer lower your career.** Re-Fly is offered only for a flight that earned
+  nothing after its separation, so a merge never takes back funds, science, reputation or a
+  milestone. During a Re-Fly you fly only that vessel and its own EVA crew; a merge that would still
+  lower a balance or kill a kerbal a later flight needs is refused, and Discard restores the career
+  exactly. (REFLY-MERGE-RETIRES-VALUE-LATER-SPENDING-USED)
+- **A quickload undoes Space Center actions taken after the quicksave.** Tech bought, buildings
+  upgraded, crew hired and contracts taken after the quicksave are gone after the quickload, as in
+  stock. Committed future the quicksave already knew about stays.
+  (REFLY-RESUMED-MERGED-DISCARD-RESTORES-LOSSES)
 - **Renaming a vessel in the Recordings tab renames the whole vessel.** Every recording of that
   vessel, its ghost on the map and in the Tracking Station, and every Parsek window now show the
   new name. EVA rows and very old recordings keep their names. (GC-7)
