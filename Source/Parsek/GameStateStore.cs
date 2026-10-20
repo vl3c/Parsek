@@ -1313,6 +1313,7 @@ namespace Parsek
         internal const string EventsNodeName = "PARSEK_GAME_STATE";
         internal const string AttemptEventsNodeName = "ATTEMPT_EVENTS";
         internal const string AttemptTreeIdKey = "attemptTreeId";
+        internal const string AttemptArmReasonKey = "attemptArmReason";
         internal const string BaselineNodeName = "PARSEK_BASELINE";
 
         /// <summary>
@@ -1324,8 +1325,9 @@ namespace Parsek
             internal ConfigNode Root;
             /// <summary>
             /// The events (and their contract snapshots) the #866 filter removed from
-            /// <see cref="Root"/>, tagged with the attempt's tree id. Null when no
-            /// committed-tree restore attempt is live.
+            /// <see cref="Root"/>, tagged with the attempt's tree id and arm reason. Built
+            /// whenever a committed-tree restore attempt is live, also with no event held
+            /// back, so a cold load of the save can re-arm the attempt; null otherwise.
             /// </summary>
             internal ConfigNode AttemptEvents;
             internal int SavedEvents;
@@ -1340,9 +1342,10 @@ namespace Parsek
         /// keeps memory-only (#866, <see cref="RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence"/>)
         /// and the contract snapshots of their accepts are left out of the root and put in
         /// <see cref="EventsNodeBuild.AttemptEvents"/> instead, tagged with
-        /// <paramref name="attemptTreeId"/>; that node is built only when an attempt is live.
+        /// <paramref name="attemptTreeId"/> and <paramref name="attemptArmReason"/>; that node
+        /// is built whenever an attempt is live, even when it holds no event.
         /// </summary>
-        internal static EventsNodeBuild BuildEventsNode(string attemptTreeId)
+        internal static EventsNodeBuild BuildEventsNode(string attemptTreeId, string attemptArmReason = null)
         {
             // Events are stored in insertion (capture) order, not UT order.
             // After reverts, events from an abandoned future branch precede
@@ -1356,6 +1359,8 @@ namespace Parsek
             {
                 attemptNode = new ConfigNode(AttemptEventsNodeName);
                 attemptNode.AddValue(AttemptTreeIdKey, attemptTreeId);
+                if (!string.IsNullOrEmpty(attemptArmReason))
+                    attemptNode.AddValue(AttemptArmReasonKey, attemptArmReason);
             }
 
             HashSet<string> skippedContractAcceptGuids = null;
@@ -1404,7 +1409,9 @@ namespace Parsek
 
         internal static bool SaveEventFile()
         {
-            return WriteEventsNode(BuildEventsNode(RecordingStore.CommittedTreeRestoreAttemptTreeId));
+            return WriteEventsNode(BuildEventsNode(
+                RecordingStore.CommittedTreeRestoreAttemptTreeId,
+                RecordingStore.CommittedTreeRestoreAttemptReason));
         }
 
         /// <summary>Writes a built events node to the external events file (the mirror).</summary>

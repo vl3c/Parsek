@@ -235,6 +235,30 @@ purge only unlist, the grep gate `grep-audit-parsek-file-deletes.ps1` pins the d
 Both found-while-designing defects above are fixed by it. F9 and the pause-menu Load still take
 the in-session path until Phase 2.
 
+Phase 2, design open question 3 (2026-10-20, xUnit only): a cold load of a save written inside a
+committed-tree restore attempt re-arms the attempt from the save's committed copy (the save's
+`ATTEMPT_EVENTS` now always names the attempt's tree id and arm reason), keeps that copy
+committed, skips the splice, and restores the held-back events, so an earning made inside a
+resumed spawned-vessel flight survives F5 / F9 and reaches the ledger at the merge. Lane QL-13 to
+add. Residue filed as ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE.
+
+## ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE: F5 inside a committed-tree restore attempt that resumed its recording in place loses the attempt's held-back earnings on F9 [FILED 2026-10-20 while closing design-load-restores-the-save.md open question 3. OPEN]
+
+When the flight-ready committed-tree restore resumes a committed recording in place (the live
+vessel's parts are covered by the recording's snapshot, so no new segment is made) and the
+recorder has written to it, `PlanActiveTreeSidecarSaves` skips the whole active-tree node at
+every `OnSave` (the #866 committed-restore overlap skip). The save then holds the committed tree,
+the `ATTEMPT_EVENTS` and no active tree. On F9 (a cold load) nothing is restored as active, so the
+attempt is not re-armed and the save's held-back events are dropped
+(`dropped the save's ATTEMPT_EVENTS ... reason=DropAttemptNotArmed`); the flight-ready restore
+then arms a fresh attempt for the spawned vessel. An earning made between the resume and the F5
+never reaches the ledger, while KSP's own funds at the F5 include it. The trajectory flown
+between the resume and the F5 is not in the save either. Fix direction: hold the save's
+`ATTEMPT_EVENTS` past OnLoad when the save has a committed copy and no active node for that tree,
+and restore them when `TryTakeCommittedTreeForSpawnedVesselRestore` arms the same tree id in
+that flight (drop them otherwise), or write the attempt's trajectory into the save so the
+active node is never skipped. Seen in code only; no lane yet.
+
 ## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. OPEN, needs owner decisions one by one; same invariant as section 2.12]
 
 Each breaks "the committed timeline pays for every committed spend at every UT" without Re-Fly:

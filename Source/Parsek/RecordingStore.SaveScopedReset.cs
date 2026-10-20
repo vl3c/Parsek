@@ -7,6 +7,9 @@ namespace Parsek
         /// <summary>The tree id of the live committed-tree restore attempt, or null.</summary>
         internal static string CommittedTreeRestoreAttemptTreeId => committedTreeRestoreAttemptTreeId;
 
+        /// <summary>The arm reason of the live committed-tree restore attempt, or null.</summary>
+        internal static string CommittedTreeRestoreAttemptReason => committedTreeRestoreAttemptReason;
+
         /// <summary>
         /// Production reset for a cold load (<c>ParsekScenario.ResetSaveScopedSessionState</c>,
         /// design-load-restores-the-save.md section 4.2). Forgets the save-scoped session

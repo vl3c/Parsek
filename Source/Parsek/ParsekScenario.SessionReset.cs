@@ -19,7 +19,9 @@ namespace Parsek
         private static int coldLoadsThisProcess;
 
         // The save's GAME_STATE/ATTEMPT_EVENTS node read by the cold branch, held until the
-        // cold active-tree restore has run (ApplySaveAttemptEventsAfterActiveTreeRestore).
+        // cold active-tree restore has run: the restore re-arms the attempt it names
+        // (TryRearmSaveAttemptForRestoredTree), then ApplySaveAttemptEventsAfterActiveTreeRestore
+        // consumes it.
         private static ConfigNode pendingSaveAttemptEvents;
 
         /// <summary>
@@ -283,6 +285,106 @@ namespace Parsek
 
         internal const string BaselinesNodeName = "BASELINES";
         internal const string LedgerNodeName = "LEDGER";
+
+        /// <summary>Outcome of <see cref="DecideSaveAttemptRearm"/>.</summary>
+        internal enum SaveAttemptRearmDecision
+        {
+            NoAttemptInSave,
+            NotColdLoad,
+            OtherTree,
+            NoCommittedCopy,
+            Rearm,
+        }
+
+        /// <summary>
+        /// Pure: whether the cold active-tree restore re-arms the committed-tree restore attempt
+        /// the save's <c>ATTEMPT_EVENTS</c> names. Only a Cold load (the reset dropped memory's
+        /// attempt; every other load keeps memory's), only for the restored active tree the
+        /// attempt was armed for, and only when the save also holds that tree's committed copy:
+        /// the attempt's cutoffs come from it, exactly as at the original arm. Without the
+        /// committed copy the attempt cannot be reconstructed and its events are dropped.
+        /// </summary>
+        internal static SaveAttemptRearmDecision DecideSaveAttemptRearm(
+            EarlyLoadKind earlyLoadKind, string savedAttemptTreeId, string restoredTreeId,
+            bool committedCopyInSave)
+        {
+            if (string.IsNullOrEmpty(savedAttemptTreeId))
+                return SaveAttemptRearmDecision.NoAttemptInSave;
+            if (earlyLoadKind != EarlyLoadKind.Cold)
+                return SaveAttemptRearmDecision.NotColdLoad;
+            if (!string.Equals(savedAttemptTreeId, restoredTreeId, StringComparison.Ordinal))
+                return SaveAttemptRearmDecision.OtherTree;
+            if (!committedCopyInSave)
+                return SaveAttemptRearmDecision.NoCommittedCopy;
+            return SaveAttemptRearmDecision.Rearm;
+        }
+
+        internal const string SaveAttemptRearmReasonPrefix = "cold load re-armed it from the save; armed by: ";
+
+        /// <summary>
+        /// Pure: the arm reason of a re-armed attempt. Names the cold-load restore and keeps the
+        /// original arm reason the save recorded; a reason already re-armed by an earlier cold
+        /// load is not wrapped again, so F5 / F9 cycles do not grow it.
+        /// </summary>
+        internal static string BuildSaveAttemptRearmReason(string savedArmReason)
+        {
+            string original = string.IsNullOrEmpty(savedArmReason) ? "<unrecorded>" : savedArmReason;
+            while (original.StartsWith(SaveAttemptRearmReasonPrefix, StringComparison.Ordinal))
+                original = original.Substring(SaveAttemptRearmReasonPrefix.Length);
+            if (original.Length == 0)
+                original = "<unrecorded>";
+            return SaveAttemptRearmReasonPrefix + original;
+        }
+
+        /// <summary>
+        /// Runs inside <see cref="TryRestoreActiveTreeNode"/> once the saved active tree is
+        /// known to be restored, before the splice and the detach of its committed copy. When
+        /// <see cref="DecideSaveAttemptRearm"/> says so, arms the committed-tree restore attempt
+        /// from the save's committed copy of the tree (the same input the original arm in
+        /// <c>ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore</c> had), so the restored
+        /// tree is the live attempt again: <see cref="ApplySaveAttemptEventsAfterActiveTreeRestore"/>
+        /// then puts its held-back events back, and the caller keeps the committed copy committed
+        /// as a live attempt does. Returns true when the attempt was armed.
+        /// </summary>
+        internal static bool TryRearmSaveAttemptForRestoredTree(
+            RecordingTree tree, EarlyLoadKind earlyLoadKind)
+        {
+            ConfigNode attempt = pendingSaveAttemptEvents;
+            string savedId = attempt?.GetValue(GameStateStore.AttemptTreeIdKey);
+            if (string.IsNullOrEmpty(savedId))
+                return false;
+
+            string savedReason = attempt.GetValue(GameStateStore.AttemptArmReasonKey);
+            int heldEvents = attempt.GetNodes("GAME_STATE_EVENT").Length;
+            RecordingTree committedCopy = tree != null ? FindCommittedTreeById(tree.Id, exclude: tree) : null;
+            SaveAttemptRearmDecision decision = DecideSaveAttemptRearm(
+                earlyLoadKind, savedId, tree?.Id, committedCopy != null);
+            if (decision != SaveAttemptRearmDecision.Rearm)
+            {
+                ParsekLog.Verbose("Scenario",
+                    "OnLoad: did not re-arm the save's committed-tree restore attempt: attemptTreeId=" + savedId
+                    + " restoredTree=" + (tree?.Id ?? "<none>")
+                    + " decision=" + decision
+                    + " loadKind=" + earlyLoadKind
+                    + " heldEvents=" + heldEvents.ToString(CultureInfo.InvariantCulture)
+                    + (decision == SaveAttemptRearmDecision.NoCommittedCopy
+                        ? " - the save holds no committed copy of the tree, so the attempt cannot be "
+                          + "reconstructed and its held-back events are dropped"
+                        : ""));
+                return false;
+            }
+
+            string reason = BuildSaveAttemptRearmReason(savedReason);
+            RecordingStore.ArmCommittedTreeRestoreAttempt(committedCopy, reason);
+            ParsekLog.Info("Scenario",
+                "OnLoad: re-armed the save's committed-tree restore attempt for tree '"
+                + (tree.TreeName ?? "<unnamed>") + "' id=" + tree.Id
+                + " from the save's committed copy (committedRecordings="
+                + (committedCopy.Recordings?.Count ?? 0).ToString(CultureInfo.InvariantCulture)
+                + " heldEvents=" + heldEvents.ToString(CultureInfo.InvariantCulture)
+                + " savedArmReason=" + (savedReason ?? "<none>") + ")");
+            return true;
+        }
 
         /// <summary>Outcome of <see cref="DecideSaveAttemptEventsRestore"/>.</summary>
         internal enum SaveAttemptEventsDisposition

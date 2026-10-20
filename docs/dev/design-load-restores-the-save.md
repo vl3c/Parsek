@@ -265,7 +265,7 @@ GAME_STATE
     PARSEK_MILESTONES { ... }   // MilestoneStore, after the OnSave flush
     BASELINES { PARSEK_BASELINE { ... }* }
     PENDING_SCIENCE { SUBJECT { ... }* }   // GameStateRecorder.PendingScienceSubjects
-    ATTEMPT_EVENTS { attemptTreeId = <id>  GAME_STATE_EVENT* }   // see below
+    ATTEMPT_EVENTS { attemptTreeId = <id>  attemptArmReason = <reason>  GAME_STATE_EVENT* }   // see below
 }
 ```
 
@@ -275,17 +275,41 @@ file and the milestone flush is deferred (#866, `ShouldDeferPendingEventMileston
 they stay memory-only until the player merges, so a cold load can never make an unmerged
 attempt's events durable. An F5 inside such an attempt followed by an F9 must bring those
 events back, because the save's active tree IS that attempt. `ATTEMPT_EVENTS` therefore carries
-exactly the events the filter removed, tagged with the attempt's tree id. On load they are
-restored to the in-memory event list (never to the file, never into a milestone) only when the
-restored active tree is that same attempt (`TryRestoreActiveTreeNode` re-arms the attempt for
-that tree id); otherwise they are dropped with a Verbose line. The #866 invariant is unchanged:
-the events become durable only through the attempt's merge. The node also carries the contract
-snapshots of the held-back contract accepts. A unit cell pins both branches.
+exactly the events the filter removed, tagged with the attempt's tree id and arm reason; it is
+written at every `OnSave` while an attempt is live, also when no event was held back, so the
+save always names the attempt. On load they are restored to the in-memory event list (never to
+the file, never into a milestone) only when the restored active tree is that same attempt and
+the attempt is armed again for it; otherwise they are dropped with a Verbose line. The #866
+invariant is unchanged: the events become durable only through the attempt's merge. The node
+also carries the contract snapshots of the held-back contract accepts. Unit cells pin both
+branches.
 
-VERIFY V8 outcome (Phase 1): no load path re-arms a restore attempt today
-(`ArmCommittedTreeRestoreAttempt` is called only from `ParsekFlight`), so a cold load always
-drops `ATTEMPT_EVENTS` with a Verbose line, which is today's behavior. Whether a save-file load
-of a save made inside an attempt re-arms it is open question 3 (Phase 2).
+VERIFY V8 outcome (Phase 2, open question 3 closed): the cold active-tree restore re-arms the
+attempt. In `TryRestoreActiveTreeNode`, on a Cold load whose save names an attempt for the
+restored tree id, `TryRearmSaveAttemptForRestoredTree` arms it from the save's committed copy of
+that tree (just loaded by `LoadRecordingTrees`), the same input the original arm in
+`TryTakeCommittedTreeForSpawnedVesselRestore` had, so the recording ids and event cutoffs are
+the original ones; the reason reads `cold load re-armed it from the save; armed by: <original>`
+(not wrapped again on later cycles). For a re-armed attempt the restore then skips the splice
+and the detach: both trees come from the same `OnSave` and the clone descends from the committed
+copy, so the splice has nothing newer to bring in, while its same-id refresh would overwrite the
+attempt's own edits (a resumed spawn's segment link) and mark the members dirty; and the
+committed original stays committed, as in a live attempt, so a later Discard drops only the
+clone and a Merge replaces the original. `ApplySaveAttemptEventsAfterActiveTreeRestore` then
+restores the events. Nothing later on the cold path clears the attempt: the committed-copy rule
+and its clear apply to in-session loads only, the session reset runs before the restore, the
+reapers and sweeps do not read it, and `ParsekFlight.ResetFlightReadyState` runs on the new
+scene's controller with no active tree, so its id-matched clear is a no-op; the flight-ready
+Quickload restore pops the tree into the recorder as before. A save that names an attempt but
+holds no committed copy of its tree does not re-arm (the attempt cannot be reconstructed) and
+drops the events with a Verbose line. Limit: an attempt that resumed a committed recording in
+place and had written to it is not in the save at all, because the overlap skip in
+`PlanActiveTreeSidecarSaves` leaves the active-tree node out of every save while such a member
+is dirty; that load restores no active tree, the flight-ready committed-tree restore arms a
+fresh attempt, and the save's held-back events are dropped
+(`ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE`). Lane QL-13 (to add): inside a spawned-vessel resume
+that continues in a new segment, earn something, F5, F9, merge: the earning is in the ledger
+once.
 
 - **Load.** The cold branch reads each store from `GAME_STATE` when present (replacing
   `LoadExternalFiles`' reads: `GameStateStore.LoadEventFile`, `LoadBaselines`,
@@ -572,8 +596,9 @@ today. The auto-commit of the stashed flight runs as today.
 5. **F9 while the merge dialog is open.** The dialog belongs to the scene being destroyed; the
    reset clears `mergeDialogPending` and the pending tree.
 6. **A committed-tree restore attempt (switch segment) live at F9.** Its events are memory only by
-   design (#866 filter, ParsekScenario.cs:2699); the save never had them. The save's own attempt
-   state, if any, restores as on a KSP restart today.
+   design (#866 filter); memory's attempt is dropped by the reset. When the save itself was
+   written inside an attempt, the cold restore re-arms that attempt and brings back its
+   held-back events (4.3, V8 outcome).
 7. **A save written by an older build.** No `GAME_STATE` node: files fallback. No hashes: epoch
    rule. No `saveStamp`: the canary stays silent. Behavior equals today's cold load, except that
    the collection now keeps files other saves reference.
@@ -702,8 +727,11 @@ cache cannot be stale). Not part of this design until measured.
   (also when memory's hash for it is wrong); an existing identical target drops the incoming
   file; a byte-identical rewrite retains nothing; `DeleteExisting` retains; rollback still
   restores the head; a filing failure leaves `.incoming.` for the collector.
-- `ATTEMPT_EVENTS`: written only for a live restore attempt; restored only when the restored
-  active tree is that attempt; never written to the events file or flushed to a milestone.
+- `ATTEMPT_EVENTS`: written for every live restore attempt (also with no event held back, with
+  its tree id and arm reason); the cold restore re-arms the attempt from the save's committed
+  copy and keeps that copy committed; restored only when the restored active tree is that
+  attempt; dropped when the save holds no committed copy; never written to the events file or
+  flushed to a milestone.
 - The canary: silent on `StockRevert`, Warn on a foreign stamp for `InSessionOther`.
 - The harness `LoadGame` verb fires the event only with `playerLoad=true`.
 - Reference scan over hand-written referrers (nested nodes, a `RECORDING` outside the Parsek
@@ -745,9 +773,7 @@ existing `QL-*` lane with its log contract moved from the old machinery's lines 
 2. Whether the Tracking Station Fly and the far vessel switch (`FlightDriver.StartAndFocusVessel`
    after a `persistent` save) ever fire `onGameStatePostLoad` in practice; decompiled code says
    no, the first lane log confirms (VERIFY V1).
-3. A save written inside a committed-tree restore attempt (a switch or Fly segment): on a
-   save-file load the restored active tree is the attempt's clone, but nothing re-arms the
-   attempt, so its held-back events (`ATTEMPT_EVENTS`) are dropped. Phase 2 decides whether the
-   cold active-tree restore re-arms the attempt for that tree (then the events come back) or the
-   loaded flight records as a plain active tree (then dropping them is correct). Lane QL-13
-   candidate.
+3. ~~A save written inside a committed-tree restore attempt: does a save-file load re-arm it?~~
+   Closed (Phase 2): the cold active-tree restore re-arms the attempt from the save's committed
+   copy and its held-back events come back; see the V8 outcome in 4.3, including the
+   resumed-in-place limit. Lane QL-13.

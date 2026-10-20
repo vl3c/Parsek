@@ -44,6 +44,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A quicksave made while flying an already-recorded vessel again keeps what you earned.**
+  Loading such a quicksave now picks the resumed flight up exactly as it was saved, including the
+  rewards earned since you took the vessel over, which reach your career when you merge the
+  flight. Before, the load dropped them. (QUICKLOAD-RESTORES-THE-SAVE-EXACTLY)
+
 - **Loading an older save no longer moves away the recordings of a newer save.** Parsek keeps
   every recording version and rewind file that any save in the folder still names, and removes
   them only once no save uses them, so switching between saves of one career never loses a

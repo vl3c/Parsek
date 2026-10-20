@@ -103,7 +103,9 @@ namespace Parsek.Tests
             var baselines = new ConfigNode(ParsekScenario.BaselinesNodeName);
             foreach (var b in GameStateStore.Baselines)
                 baselines.AddNode(GameStateStore.BuildBaselineNode(b));
-            var eventsBuild = GameStateStore.BuildEventsNode(RecordingStore.CommittedTreeRestoreAttemptTreeId);
+            var eventsBuild = GameStateStore.BuildEventsNode(
+                RecordingStore.CommittedTreeRestoreAttemptTreeId,
+                RecordingStore.CommittedTreeRestoreAttemptReason);
             ConfigNode gameState = ParsekScenario.BuildGameStateNode(
                 Ledger.BuildSaveNode(), eventsBuild.Root, MilestoneStore.BuildMilestonesNode(), baselines,
                 GameStateRecorder.BuildPendingScienceNode(GameStateRecorder.PendingScienceSubjects),
@@ -408,8 +410,9 @@ namespace Parsek.Tests
         }
 
         // catches: the save's attempt events restored to memory when the attempt is not armed
-        // again (V8: no cold restore path re-arms it today), which would make them durable on
-        // the next save (no filter) outside the attempt's merge.
+        // again (the cold restore re-arms it only for its own restored tree with a committed
+        // copy, ColdLoadRestoreAttemptRearmTests), which would make them durable on the next
+        // save (no filter) outside the attempt's merge.
         [Fact]
         public void AttemptEvents_AttemptNotArmedAfterLoad_Dropped()
         {

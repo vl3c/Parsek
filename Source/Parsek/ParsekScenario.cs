@@ -2728,7 +2728,9 @@ namespace Parsek
             // Each game-state node is built once, written to its external file (kept as a
             // mirror for the offline tools) and carried in the save's GAME_STATE node, which a
             // cold load reads (design-load-restores-the-save.md 4.3).
-            var eventsBuild = GameStateStore.BuildEventsNode(RecordingStore.CommittedTreeRestoreAttemptTreeId);
+            var eventsBuild = GameStateStore.BuildEventsNode(
+                RecordingStore.CommittedTreeRestoreAttemptTreeId,
+                RecordingStore.CommittedTreeRestoreAttemptReason);
             GameStateStore.WriteEventsNode(eventsBuild);
             node.AddValue("gameStateEventCount", GameStateStore.EventCount);
 
@@ -2781,7 +2783,8 @@ namespace Parsek
                 $"OnSave: wrote external game-state files and the GAME_STATE node (events={GameStateStore.EventCount}, " +
                 $"milestones={MilestoneStore.MilestoneCount}, baselines={GameStateStore.BaselineCount}, " +
                 $"ledgerRows={Ledger.Actions.Count}, pendingScience={GameStateRecorder.PendingScienceSubjects.Count}, " +
-                $"attemptEvents={(eventsBuild.AttemptEvents != null ? eventsBuild.SkippedAttemptEvents : 0)})");
+                $"attemptEvents={(eventsBuild.AttemptEvents != null ? eventsBuild.SkippedAttemptEvents : 0)}, " +
+                $"attemptTree={RecordingStore.CommittedTreeRestoreAttemptTreeId ?? "<none>"})");
         }
 
         /// <summary>
@@ -6560,8 +6563,20 @@ namespace Parsek
                 // state, ChildBranchPointId) ARE refreshed for the active recording — that is
                 // the whole point of the P1 fix, since the active id IS most likely the stale
                 // post-split first half from the RP's frozen .sfs.
-                int splicedFromCommitted = SpliceMissingCommittedRecordingsIntoLoadedTree(
-                    tree, tree.ActiveRecordingId);
+                //
+                // A cold load of a save written while a committed-tree restore attempt was live
+                // (the tree is the attempt's copy-on-write clone; the save names it in
+                // GAME_STATE/ATTEMPT_EVENTS) re-arms the attempt from the save's committed copy,
+                // so the clone resumes as the live attempt it was. Both trees come from the same
+                // OnSave and the clone descends from the committed copy, so the splice has
+                // nothing newer to bring in; its same-id refresh would instead overwrite the
+                // attempt's own edits (a segment's parent link) with the committed shape and mark
+                // the members dirty, which the re-armed attempt's overlap skip would then keep
+                // out of every later save. Both the splice and the detach are skipped.
+                bool saveAttemptRearmed = TryRearmSaveAttemptForRestoredTree(tree, earlyLoadKind);
+                int splicedFromCommitted = saveAttemptRearmed
+                    ? 0
+                    : SpliceMissingCommittedRecordingsIntoLoadedTree(tree, tree.ActiveRecordingId);
                 if (RepairMissingContiguousChainPredecessors(tree, "TryRestoreActiveTreeNode") > 0)
                     tree.RebuildBackgroundMap();
                 // A tree written before a split moved its parent links names the head for
@@ -6580,10 +6595,20 @@ namespace Parsek
                     committedCopyAction == CommittedCopyRestoreAction.ResumeFromQuicksave
                         ? CollectCommittedCopyRecordingIds(tree)
                         : null;
-                bool committedCopyDetached = RecordingStore.RemoveCommittedTreeById(
-                    tree.Id,
-                    logContext: "TryRestoreActiveTreeNode");
-                if (!committedCopyDetached)
+                // A re-armed attempt keeps its committed original committed, as a live attempt
+                // does: a later Discard drops only the clone, and a Merge replaces the original.
+                bool committedCopyDetached = !saveAttemptRearmed
+                    && RecordingStore.RemoveCommittedTreeById(
+                        tree.Id,
+                        logContext: "TryRestoreActiveTreeNode");
+                if (saveAttemptRearmed)
+                {
+                    ParsekLog.Info("Scenario",
+                        $"TryRestoreActiveTreeNode: kept the committed copy of tree '{tree.TreeName}' " +
+                        $"(id={tree.Id}) committed and skipped the splice: the restored tree is the " +
+                        "re-armed restore attempt's clone");
+                }
+                else if (!committedCopyDetached)
                 {
                     ParsekLog.Verbose("Scenario",
                         $"TryRestoreActiveTreeNode: no committed copy of tree '{tree.TreeName}' " +

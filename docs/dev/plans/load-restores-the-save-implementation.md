@@ -248,6 +248,11 @@ names the symbol, and every VERIFY is confirmed against the code before the step
      back, F9: `Sidecar version resolved ... source=version promoted=True`, the trajectory ends
      at the F5 UT.
    - QL-12 `quickload-brings-back-sealed-rewind-point` (S9).
+   - QL-13 `quickload-inside-resumed-spawn-keeps-earning` (design 4.3 V8, open question 3): fly a
+     committed spawned vessel (the resume continues in a new segment), earn something (a
+     contract completion or a milestone) so the attempt holds it back, F5, F9, merge. The
+     earning is in the ledger exactly once (`re-armed the save's committed-tree restore attempt`,
+     `restored the save's ATTEMPT_EVENTS into memory only`).
 8. Docs: user guide lines 401-404 rewritten (one paragraph: "Loading a save, with F9 or the Load
    menu, puts Parsek back exactly as that save was ..."), CHANGELOG, the rewind design's line-137
    paragraph, the section 2.12 Rule 3 note, 6.14's OQ-1 paragraph and 6.16's handoff paragraph
