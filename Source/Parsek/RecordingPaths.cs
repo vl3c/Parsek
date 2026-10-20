@@ -224,6 +224,17 @@ namespace Parsek
 
         internal static string EnsureGameStateDirectory()
         {
+            // Test seam (null in the game): the game-state writers resolve their file paths
+            // through ResolveSaveScopedPath, which honours the override, so the directory they
+            // ensure must come from the same root.
+            string overrideRoot = SaveRootOverrideForTesting;
+            if (!string.IsNullOrEmpty(overrideRoot))
+            {
+                string overrideDir = Path.GetFullPath(Path.Combine(overrideRoot, "Parsek", "GameState"));
+                Directory.CreateDirectory(overrideDir);
+                return overrideDir;
+            }
+
             if (!TryGetSaveContext(
                     "EnsureGameStateDirectory",
                     "ensure-gamestate-missing-context",

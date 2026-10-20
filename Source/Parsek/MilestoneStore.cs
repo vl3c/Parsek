@@ -324,8 +324,32 @@ namespace Parsek
 
         #region File I/O
 
+        internal const string MilestonesNodeName = "PARSEK_MILESTONES";
+
         internal static bool SaveMilestoneFile()
         {
+            return WriteMilestonesNode(BuildMilestonesNode());
+        }
+
+        /// <summary>Builds the <c>PARSEK_MILESTONES</c> node (file and save node).</summary>
+        internal static ConfigNode BuildMilestonesNode()
+        {
+            var rootNode = new ConfigNode(MilestonesNodeName);
+            rootNode.AddValue("version", 1);
+
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                ConfigNode milestoneNode = rootNode.AddNode("MILESTONE");
+                milestones[i].SerializeInto(milestoneNode);
+            }
+            return rootNode;
+        }
+
+        /// <summary>Writes a built milestones node to the external milestones file (the mirror).</summary>
+        internal static bool WriteMilestonesNode(ConfigNode rootNode)
+        {
+            if (rootNode == null)
+                return false;
             string path = RecordingPaths.ResolveSaveScopedPath(
                 RecordingPaths.BuildMilestonesRelativePath());
             if (path == null)
@@ -337,15 +361,6 @@ namespace Parsek
             try
             {
                 RecordingPaths.EnsureGameStateDirectory();
-
-                var rootNode = new ConfigNode("PARSEK_MILESTONES");
-                rootNode.AddValue("version", 1);
-
-                for (int i = 0; i < milestones.Count; i++)
-                {
-                    ConfigNode milestoneNode = rootNode.AddNode("MILESTONE");
-                    milestones[i].SerializeInto(milestoneNode);
-                }
 
                 SafeWriteConfigNode(rootNode, path);
 
@@ -361,22 +376,8 @@ namespace Parsek
 
         internal static bool LoadMilestoneFile()
         {
-            string currentSave = HighLogic.SaveFolder;
-            if (currentSave != lastSaveFolder)
-            {
-                initialLoadDone = false;
-                lastSaveFolder = currentSave;
-                ParsekLog.Verbose("MilestoneStore", $"Save folder changed to '{currentSave}' — resetting milestone load state");
-            }
-
-            if (initialLoadDone)
-            {
-                ParsekLog.Verbose("MilestoneStore", "LoadMilestoneFile: already loaded, skipping");
+            if (!BeginMilestoneLoad("LoadMilestoneFile"))
                 return true;
-            }
-
-            initialLoadDone = true;
-            milestones.Clear();
 
             string path = RecordingPaths.ResolveSaveScopedPath(
                 RecordingPaths.BuildMilestonesRelativePath());
@@ -396,27 +397,76 @@ namespace Parsek
                     return false;
                 }
 
-                ConfigNode[] milestoneNodes = rootNode.GetNodes("MILESTONE");
-                if (milestoneNodes != null)
-                {
-                    for (int i = 0; i < milestoneNodes.Length; i++)
-                        milestones.Add(Milestone.DeserializeFrom(milestoneNodes[i]));
-                }
-
-                ParsekLog.Info("MilestoneStore", $"Loaded {milestones.Count} milestones from {path}");
-                for (int i = 0; i < milestones.Count; i++)
-                {
-                    ParsekLog.Verbose("MilestoneStore",
-                        $"  milestone[{i}]: id={ShortId(milestones[i].MilestoneId)}, " +
-                        $"epoch={milestones[i].Epoch}, events={milestones[i].Events.Count}, " +
-                        $"committed={milestones[i].Committed}, lastReplayedIdx={milestones[i].LastReplayedEventIndex}");
-                }
+                ParseMilestonesNode(rootNode, path);
                 return true;
             }
             catch (Exception ex)
             {
                 ParsekLog.Warn("MilestoneStore", $"Failed to load milestones: {ex.Message}");
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// Loads the milestones from a save's <c>GAME_STATE/PARSEK_MILESTONES</c> node instead
+        /// of the external file, and marks the once-per-folder load done.
+        /// </summary>
+        internal static bool LoadMilestonesFromSaveNode(ConfigNode milestonesNode)
+        {
+            if (milestonesNode == null)
+                return false;
+
+            initialLoadDone = false;
+            BeginMilestoneLoad("LoadMilestonesFromSaveNode");
+            try
+            {
+                ParseMilestonesNode(milestonesNode, "the save's GAME_STATE node");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("MilestoneStore", $"Failed to load milestones from the save node: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool BeginMilestoneLoad(string site)
+        {
+            string currentSave = HighLogic.SaveFolder;
+            if (currentSave != lastSaveFolder)
+            {
+                initialLoadDone = false;
+                lastSaveFolder = currentSave;
+                ParsekLog.Verbose("MilestoneStore", $"Save folder changed to '{currentSave}' — resetting milestone load state");
+            }
+
+            if (initialLoadDone)
+            {
+                ParsekLog.Verbose("MilestoneStore", $"{site}: already loaded, skipping");
+                return false;
+            }
+
+            initialLoadDone = true;
+            milestones.Clear();
+            return true;
+        }
+
+        private static void ParseMilestonesNode(ConfigNode rootNode, string sourceLabel)
+        {
+            ConfigNode[] milestoneNodes = rootNode.GetNodes("MILESTONE");
+            if (milestoneNodes != null)
+            {
+                for (int i = 0; i < milestoneNodes.Length; i++)
+                    milestones.Add(Milestone.DeserializeFrom(milestoneNodes[i]));
+            }
+
+            ParsekLog.Info("MilestoneStore", $"Loaded {milestones.Count} milestones from {sourceLabel}");
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                ParsekLog.Verbose("MilestoneStore",
+                    $"  milestone[{i}]: id={ShortId(milestones[i].MilestoneId)}, " +
+                    $"epoch={milestones[i].Epoch}, events={milestones[i].Events.Count}, " +
+                    $"committed={milestones[i].Committed}, lastReplayedIdx={milestones[i].LastReplayedEventIndex}");
             }
         }
 

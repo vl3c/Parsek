@@ -5180,14 +5180,16 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Called on save. Persist ledger to file.
+        /// Called on save. Persist ledger to file. <paramref name="prebuiltNode"/> is the
+        /// <c>LEDGER</c> node OnSave built once for both the file and the save's
+        /// <c>GAME_STATE</c> node; null builds a fresh one.
         /// </summary>
-        internal static void OnSave()
+        internal static void OnSave(ConfigNode prebuiltNode = null)
         {
             string path = Ledger.GetLedgerPath();
             if (!string.IsNullOrEmpty(path))
             {
-                Ledger.SaveToFile(path);
+                Ledger.WriteSaveNode(prebuiltNode ?? Ledger.BuildSaveNode(), path);
                 ParsekLog.Verbose(Tag, $"OnSave: ledger saved to '{path}'");
             }
             else
@@ -5197,9 +5199,12 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Called on load. Load ledger from file.
+        /// Called on a cold load. Loads the ledger from the save's <c>GAME_STATE/LEDGER</c>
+        /// node when <paramref name="saveLedgerNode"/> is given, else from the ledger file,
+        /// then runs the legacy repairs against the already loaded events (same order on
+        /// both sources).
         /// </summary>
-        internal static void OnLoad()
+        internal static void OnLoad(ConfigNode saveLedgerNode = null)
         {
             Initialize();
 
@@ -5211,27 +5216,36 @@ namespace Parsek
             repSeedDone = false;
             legacyFacilityUpgradeEstimateDone = false;
 
-            string path = Ledger.GetLedgerPath();
-            if (!string.IsNullOrEmpty(path))
+            string source;
+            if (saveLedgerNode != null)
             {
-                Ledger.LoadFromFile(path);
-                int repairedLegacyPartPurchaseEvents =
-                    GameStateStore.RepairLegacyPartPurchaseEventsForCurrentSemantics();
-                int repairedLegacyPartPurchaseActions =
-                    RepairLegacyPartPurchaseActionsOnLoad(GameStateStore.Events, Ledger.Actions);
-                if (repairedLegacyPartPurchaseEvents > 0 || repairedLegacyPartPurchaseActions > 0)
-                {
-                    ParsekLog.Info(Tag,
-                        $"OnLoad: repaired legacy R&D part-purchase rows " +
-                        $"(events={repairedLegacyPartPurchaseEvents}, actions={repairedLegacyPartPurchaseActions})");
-                }
-                RepairZeroCostFacilityUpgradeActionsOnLoad(GameStateStore.Events, Ledger.Actions);
-                ParsekLog.Verbose(Tag, $"OnLoad: ledger loaded from '{path}'");
+                Ledger.LoadFromNode(saveLedgerNode);
+                source = "the save's GAME_STATE node";
             }
             else
             {
-                ParsekLog.Warn(Tag, "OnLoad: could not resolve ledger path — starting with empty ledger");
+                string path = Ledger.GetLedgerPath();
+                if (string.IsNullOrEmpty(path))
+                {
+                    ParsekLog.Warn(Tag, "OnLoad: could not resolve ledger path — starting with empty ledger");
+                    return;
+                }
+                Ledger.LoadFromFile(path);
+                source = "'" + path + "'";
             }
+
+            int repairedLegacyPartPurchaseEvents =
+                GameStateStore.RepairLegacyPartPurchaseEventsForCurrentSemantics();
+            int repairedLegacyPartPurchaseActions =
+                RepairLegacyPartPurchaseActionsOnLoad(GameStateStore.Events, Ledger.Actions);
+            if (repairedLegacyPartPurchaseEvents > 0 || repairedLegacyPartPurchaseActions > 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"OnLoad: repaired legacy R&D part-purchase rows " +
+                    $"(events={repairedLegacyPartPurchaseEvents}, actions={repairedLegacyPartPurchaseActions})");
+            }
+            RepairZeroCostFacilityUpgradeActionsOnLoad(GameStateStore.Events, Ledger.Actions);
+            ParsekLog.Verbose(Tag, $"OnLoad: ledger loaded from {source}");
         }
 
         internal static int RepairLegacyPartPurchaseActionsOnLoad(

@@ -2685,13 +2685,22 @@ namespace Parsek
             // Persist group hierarchy and hidden groups
             GroupHierarchyStore.SaveInto(node);
 
-            // Save game state events to external file
-            GameStateStore.SaveEventFile();
+            // Each game-state node is built once, written to its external file (kept as a
+            // mirror for the offline tools) and carried in the save's GAME_STATE node, which a
+            // cold load reads (design-load-restores-the-save.md 4.3).
+            var eventsBuild = GameStateStore.BuildEventsNode(RecordingStore.CommittedTreeRestoreAttemptTreeId);
+            GameStateStore.WriteEventsNode(eventsBuild);
             node.AddValue("gameStateEventCount", GameStateStore.EventCount);
 
-            // Save any pending baselines
+            var baselinesNode = new ConfigNode(BaselinesNodeName);
             foreach (var baseline in GameStateStore.Baselines)
-                GameStateStore.SaveBaseline(baseline);
+            {
+                ConfigNode baselineNode = GameStateStore.BuildBaselineNode(baseline);
+                if (baselineNode == null)
+                    continue;
+                GameStateStore.WriteBaselineNode(baseline, baselineNode);
+                baselinesNode.AddNode(baselineNode);
+            }
 
             // Flush any uncaptured game state events into a milestone before saving.
             // Handles events that happened without a recording commit (e.g. tech
@@ -2715,13 +2724,24 @@ namespace Parsek
             }
 
             // Save milestones to external file + mutable state to .sfs
-            MilestoneStore.SaveMilestoneFile();
+            ConfigNode milestonesNode = MilestoneStore.BuildMilestonesNode();
+            MilestoneStore.WriteMilestonesNode(milestonesNode);
             MilestoneStore.SaveMutableState(node);
 
             // Save ledger to external file
-            LedgerOrchestrator.OnSave();
+            ConfigNode ledgerNode = Ledger.BuildSaveNode();
+            LedgerOrchestrator.OnSave(ledgerNode);
+
+            node.RemoveNodes(GameStateNodeName);
+            node.AddNode(BuildGameStateNode(
+                ledgerNode, eventsBuild.Root, milestonesNode, baselinesNode,
+                GameStateRecorder.BuildPendingScienceNode(GameStateRecorder.PendingScienceSubjects),
+                eventsBuild.AttemptEvents));
             ParsekLog.Verbose("Scenario",
-                $"OnSave: wrote external game-state files (events={GameStateStore.EventCount}, milestones={MilestoneStore.MilestoneCount})");
+                $"OnSave: wrote external game-state files and the GAME_STATE node (events={GameStateStore.EventCount}, " +
+                $"milestones={MilestoneStore.MilestoneCount}, baselines={GameStateStore.BaselineCount}, " +
+                $"ledgerRows={Ledger.Actions.Count}, pendingScience={GameStateRecorder.PendingScienceSubjects.Count}, " +
+                $"attemptEvents={(eventsBuild.AttemptEvents != null ? eventsBuild.SkippedAttemptEvents : 0)})");
         }
 
         /// <summary>
@@ -3841,7 +3861,7 @@ namespace Parsek
                 loadPhase = "game-state-recorder";
                 stateRecorder?.Unsubscribe();
                 if (!initialLoadDone)
-                    LoadExternalFiles();
+                    LoadExternalFiles(node);
                 stateRecorder = new GameStateRecorder();
                 stateRecorder.SeedFacilityCacheFromCurrentState();
                 stateRecorder.Subscribe();
@@ -4733,6 +4753,10 @@ namespace Parsek
                         $"OnLoad: cold-start active tree detected (state={RecordingStore.PendingTreeStateValue}) — " +
                         $"deferred to OnFlightReady as {ScheduleActiveTreeRestoreOnFlightReady}");
                 }
+                // The save's restore-attempt events (memory only) follow the active tree they
+                // belong to; dropped otherwise (design 4.3, #866).
+                loadPhase = "cold-attempt-events";
+                ApplySaveAttemptEventsAfterActiveTreeRestore();
                 bool coldActiveTreeRestoredFromSave =
                     RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
                     || RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch;
@@ -5620,20 +5644,16 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Loads external data files (game state events, baselines, milestones, ledger)
-        /// and cleans up stale rewind temp files. Only called on initial load (not
-        /// revert/scene change).
+        /// Loads the game state (events, baselines, milestones, ledger, pending science) from
+        /// the save's GAME_STATE node, or from the external files for a save without one, and
+        /// cleans up stale rewind temp files. Only called on initial load (not revert/scene
+        /// change).
         /// </summary>
-        private static void LoadExternalFiles()
+        private static void LoadExternalFiles(ConfigNode node)
         {
-            ParsekLog.Verbose("Scenario", "OnLoad: initial load — loading external files");
-            GameStateStore.LoadEventFile();
-            GameStateStore.LoadBaselines();
-            MilestoneStore.LoadMilestoneFile();
-
-            // Load ledger from external file (skip during rewind — in-memory ledger is source of truth)
-            if (!RewindContext.IsRewinding)
-                LedgerOrchestrator.OnLoad();
+            ParsekLog.Verbose("Scenario", "OnLoad: initial load - loading game state");
+            // The ledger is skipped during a rewind (the in-memory ledger is the source of truth).
+            LoadGameStateFromNodeOrFiles(node);
 
             // Clean up stale parsek_rw_*.sfs temp files left by a crash during rewind
             try
