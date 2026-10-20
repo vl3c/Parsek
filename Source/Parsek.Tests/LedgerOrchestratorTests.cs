@@ -3858,6 +3858,52 @@ namespace Parsek.Tests
             }
         }
 
+        // QL-1: a contract accepted the frame after a hire is already in stock. The hire's
+        // deferred recalc must cut at the clock, not at the hire's UT, or the accept reads
+        // as future and PatchContracts removes the just-accepted contract.
+        [Fact]
+        public void OnKscSpending_DeferredRecalc_CutsAtTheClockWhenItMovedPastTheEvent()
+        {
+            Action deferred = null;
+            LedgerOrchestrator.DeferOneFrameForTesting = a => deferred = a;
+            LedgerOrchestrator.NowUtProviderForTesting = () => 600.5;
+            try
+            {
+                LedgerOrchestrator.OnKscSpending(new GameStateEvent
+                {
+                    ut = 600.0,
+                    eventType = GameStateEventType.CrewHired,
+                    key = "Verhat Kerman",
+                    detail = "trait=Pilot;cost=62113"
+                });
+                Assert.NotNull(deferred);
+
+                deferred();
+
+                Assert.Contains(logLines, l =>
+                    l.Contains("Deferred live-event recalc: reason=ksc-spending eventUT=600 nowUT=600.5"));
+                Assert.Contains(logLines, l =>
+                    l.Contains("Live-event recalc decision: reason=ksc-spending eventUT=600.5"));
+            }
+            finally
+            {
+                LedgerOrchestrator.DeferOneFrameForTesting = null;
+                LedgerOrchestrator.NowUtProviderForTesting = null;
+            }
+        }
+
+        [Theory]
+        [InlineData(410.14, 410.16, 410.16)]
+        [InlineData(410.14, 410.14, 410.14)]
+        [InlineData(410.14, 300.0, 410.14)]
+        [InlineData(410.14, double.NaN, 410.14)]
+        [InlineData(410.14, double.PositiveInfinity, 410.14)]
+        public void ResolveDeferredLiveEventUT_TakesTheClockOnlyWhenItIsAhead(
+            double eventUt, double nowUt, double expected)
+        {
+            Assert.Equal(expected, LedgerOrchestrator.ResolveDeferredLiveEventUT(eventUt, nowUt, "test"));
+        }
+
         // A non-milestone row still recalculates inline through the same host-aware path -
         // the deferral must not leak onto the rest of the door.
         [Fact]

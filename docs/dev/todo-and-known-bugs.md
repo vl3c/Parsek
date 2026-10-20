@@ -151,6 +151,18 @@ removed it from memory and (since section 2.12) its ledger rows, but never delet
 zombie (a never-committed recording, so nothing else reads its files) and the sweep summary counts
 `deletedFiles=`. Test: `LoadTimeSweepTests.DiscardSet_ZombieProvisional_DeletesItsSidecarsAndKeepsTheOrigins`.
 
+## ~~KSC-DEFERRED-RECALC-STALE-CUTOFF: a deferred KSC recalc cut the walk at its own event UT and patched later KSC rows back out of stock~~ [FILED 2026-10-20 from the QL-1 flight on V's PC. FIXED on branch claude/project-thread-vy0m14]
+
+`OnKscSpending` defers the recalc one frame for a hire or a milestone row. QL-1 hired at UT 410.14
+and accepted a contract at 410.16 before that frame ran; the deferred recalc then cut at 410.14, read
+the accept and its advance as future, and `PatchContracts` removed the just-accepted contract (the
+funds drawdown guard clamped the advance). Latent on main: the old QL-1 shape refused the repeat
+presses, so they never ran back to back. Fix: the deferred closures cut at
+`LedgerOrchestrator.ResolveDeferredLiveEventUT` (the clock when it moved past the event, else the
+event UT; an unreadable clock keeps the event UT). Tests:
+`OnKscSpending_DeferredRecalc_CutsAtTheClockWhenItMovedPastTheEvent`,
+`ResolveDeferredLiveEventUT_TakesTheClockOnlyWhenItIsAhead`.
+
 ## QUICKLOAD-RESTORES-THE-SAVE-EXACTLY: an in-session load keeps Parsek state from after the save that the save itself does not have [FILED 2026-10-19 from the owner ruling and a code audit at 2f9256d. OPEN, needs design; scope ruled 2026-10-19: drop everything after the save]
 
 Owner ruling (V, 2026-10-19): "a quick/load should work exactly as a quickload - restoring the

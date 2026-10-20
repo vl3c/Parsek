@@ -5358,7 +5358,9 @@ namespace Parsek
                 deferHost(() =>
                 {
                     ReconcileKscAction(GameStateStore.Events, Ledger.Actions, deferredAction, deferredUt);
-                    RecalculateAndPatchForLiveTimelineEvent(deferredUt, "ksc-spending");
+                    RecalculateAndPatchForLiveTimelineEvent(
+                        ResolveDeferredLiveEventUT(deferredUt, TryReadNowUTForDeferredRecalc(), "ksc-spending"),
+                        "ksc-spending");
                 });
                 return;
             }
@@ -5514,11 +5516,45 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     $"OnKscSpending: deferring the recalc one frame for {type} - " +
                     "the reward is applied after this handler returns");
-                deferHost(() => RecalculateAndPatchForLiveTimelineEvent(deferredUt, reason));
+                deferHost(() => RecalculateAndPatchForLiveTimelineEvent(
+                    ResolveDeferredLiveEventUT(deferredUt, TryReadNowUTForDeferredRecalc(), reason),
+                    reason));
             }
             else
             {
                 RecalculateAndPatchForLiveTimelineEvent(eventUt, reason);
+            }
+        }
+
+        /// <summary>
+        /// The cutoff a deferred KSC recalc walks to: the event's UT, or the clock when it
+        /// has moved past the event before the deferred frame ran. Rows filed in between
+        /// (a contract accepted the frame after a hire) are already in stock; cutting at the
+        /// stale event UT would read them as future and patch them back out of stock
+        /// (QL-1: a just-accepted contract removed by PatchContracts). A clock behind the
+        /// event (a rewind) or unreadable keeps the event UT.
+        /// </summary>
+        internal static double ResolveDeferredLiveEventUT(double eventUt, double nowUt, string reason)
+        {
+            if (double.IsNaN(nowUt) || double.IsInfinity(nowUt) || !(nowUt > eventUt))
+                return eventUt;
+            ParsekLog.Verbose(Tag,
+                $"Deferred live-event recalc: reason={reason ?? "(none)"} " +
+                $"eventUT={eventUt.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"nowUT={nowUt.ToString("R", CultureInfo.InvariantCulture)} -> cutoff at now");
+            return nowUt;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double TryReadNowUTForDeferredRecalc()
+        {
+            try
+            {
+                return GetNowUT();
+            }
+            catch (Exception)
+            {
+                return double.NaN;
             }
         }
 

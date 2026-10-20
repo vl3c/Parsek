@@ -44,6 +44,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A contract accepted right after hiring a kerbal stays accepted.** Hiring a kerbal and then
+  accepting a contract in quick succession at the Space Center could undo the accept: the
+  contract disappeared from the active list while its advance stayed paid.
+  (KSC-DEFERRED-RECALC-STALE-CUTOFF)
 - **Parked ghost rovers no longer spin their wheels, and ghost ground speed reads true.** A ghost
   replaying on or near the ground read about 175 m/s of extra speed at Kerbin, so a parked rover
   spun its wheels as if driving, reentry glow misjudged its speed and the watch camera pointed the
