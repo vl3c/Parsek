@@ -703,6 +703,48 @@ namespace Parsek.Tests
             Assert.Equal(LossSwapVariant.A, v.Variant);
         }
 
+        // catches: a throw in the row build / retire set / closure walk escaping the
+        // check, which aborts the merge dialog so no Discard is offered.
+        [Fact]
+        public void EvaluateForMerge_ThrowOutsideTheWalk_RefusesWithDiscardOnly()
+        {
+            var pending = InstallLiveFixture();
+            ReFlyMergeDominance.PreviewBuilderForTesting = t =>
+                throw new InvalidOperationException("injected preview failure");
+
+            List<GameAction> rows;
+            var v = ReFlyMergeDominance.EvaluateForMerge(pending, "dialog-open", out rows);
+
+            Assert.True(v.Applicable);
+            Assert.False(v.Pass);
+            Assert.Equal("error", v.Pool);
+            Assert.NotNull(rows);
+            Assert.Empty(rows);
+            Assert.NotNull(ReFlyMergeDominance.DescribeRefusal(v));
+            Assert.Contains(logLines, l => l.Contains("[WARN][LedgerSwap]")
+                && l.Contains("Merge dominance check threw (dialog-open)")
+                && l.Contains("injected preview failure"));
+            Assert.Contains(logLines, l => l.Contains("Merge dominance check sess=sess_dom result=refuse reason=error"));
+        }
+
+        [Fact]
+        public void MergeCommit_DominanceThrows_LeavesTheTreePendingAndReShowsTheDialog()
+        {
+            var pending = InstallLiveFixture();
+            RecordingStore.StashPendingTree(pending);
+            ReFlyMergeDominance.PreviewBuilderForTesting = t =>
+                throw new InvalidOperationException("injected preview failure");
+            RecordingTree reShown = null;
+            MergeDialog.ReShowRefusedMergeDialogForTesting = t => reShown = t;
+
+            MergeDialog.MergeCommit(pending, new Dictionary<string, bool>(), 0,
+                refreshQuicksaveAfterCommit: false, reShowDialogOnRefusal: true);
+
+            Assert.Same(pending, RecordingStore.PendingTree);
+            Assert.Same(pending, reShown);
+            Assert.NotNull(ParsekScenario.Instance.ActiveReFlySessionMarker);
+        }
+
         [Fact]
         public void MergeCommit_DominanceRefused_LeavesTheTreePendingAndTheLedgerUntouched()
         {

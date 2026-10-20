@@ -100,9 +100,13 @@ namespace Parsek
         /// <summary>The walk the check runs (seam for tests).</summary>
         internal static Func<List<GameAction>, RecalculationEngine.IsolatedBalanceWalk> WalkerForTesting;
 
+        /// <summary>The pending tree's row build the live wrapper runs (seam for tests).</summary>
+        internal static Func<RecordingTree, LedgerOrchestrator.TreeCommitRowPreview> PreviewBuilderForTesting;
+
         internal static void ResetForTesting()
         {
             WalkerForTesting = null;
+            PreviewBuilderForTesting = null;
         }
 
         private static RecalculationEngine.IsolatedBalanceWalk Walk(List<GameAction> actions)
@@ -619,10 +623,48 @@ namespace Parsek
                 return ReFlyMergeDominanceVerdict.NotApplicable();
             }
 
+            // The whole check runs inside one try: a throw in the row build, the retire set
+            // or the closure walk fails closed to "refuse, Discard only" instead of aborting
+            // the merge dialog (which would offer no Discard at all).
+            ReFlyMergeDominanceVerdict v;
+            int closureCount = 0;
+            try
+            {
+                v = EvaluateLiveCore(tree, marker, context, attemptRows, out closureCount);
+            }
+            catch (Exception ex)
+            {
+                // Fail closed: a check that cannot run cannot prove the merge safe. Discard
+                // stays offered.
+                attemptRows.Clear();
+                ParsekLog.Warn(Tag,
+                    $"Merge dominance check threw ({context ?? "<none>"}) sess={marker.SessionId ?? "<no-id>"}: " +
+                    $"{ex.GetType().Name}: {ex.Message} - refusing the merge");
+                v = new ReFlyMergeDominanceVerdict
+                {
+                    Applicable = true,
+                    Pass = false,
+                    SessionId = marker.SessionId,
+                    Pool = "error",
+                };
+            }
+
+            LogVerdict(v, context, closureCount);
+            return v;
+        }
+
+        /// <summary>The live inputs and the pure check, for <see cref="EvaluateForMerge"/>
+        /// (which owns the fail-closed catch). Fills <paramref name="attemptRows"/>.</summary>
+        private static ReFlyMergeDominanceVerdict EvaluateLiveCore(
+            RecordingTree tree, ReFlySessionMarker marker, string context,
+            List<GameAction> attemptRows, out int closureCount)
+        {
             var attemptIds = CollectAttemptRecordingIds(tree, marker);
             LedgerOrchestrator.Initialize();
-            LedgerOrchestrator.TreeCommitRowPreview preview =
-                LedgerOrchestrator.BuildTreeCommitRowsPreview(tree);
+            var previewBuilder = PreviewBuilderForTesting;
+            LedgerOrchestrator.TreeCommitRowPreview preview = previewBuilder != null
+                ? previewBuilder(tree)
+                : LedgerOrchestrator.BuildTreeCommitRowsPreview(tree);
             for (int i = 0; i < preview.Rows.Count; i++)
             {
                 var r = preview.Rows[i];
@@ -632,7 +674,6 @@ namespace Parsek
 
             // The merge retires nothing when AppendRelations will refuse the attempt; the
             // check then keeps the replaced side in L' instead of assuming it retired.
-            int closureCount;
             List<GameAction> retire = SupersedeCommit.BuildMergeRetireSet(marker, attemptIds, out closureCount);
             string noRetireReason;
             bool retiresNothing = SupersedeCommit.MergeWouldRetireNothing(marker, tree, out noRetireReason);
@@ -669,29 +710,7 @@ namespace Parsek
                 RespawnSecondsForRecording = respawn,
             };
 
-            ReFlyMergeDominanceVerdict v;
-            try
-            {
-                v = Evaluate(inputs);
-            }
-            catch (Exception ex)
-            {
-                // Fail closed: a check that cannot run cannot prove the merge safe. Discard
-                // stays offered.
-                ParsekLog.Warn(Tag,
-                    $"Merge dominance check threw ({context ?? "<none>"}) sess={marker.SessionId ?? "<no-id>"}: " +
-                    $"{ex.GetType().Name}: {ex.Message} - refusing the merge");
-                v = new ReFlyMergeDominanceVerdict
-                {
-                    Applicable = true,
-                    Pass = false,
-                    SessionId = marker.SessionId,
-                    Pool = "error",
-                };
-            }
-
-            LogVerdict(v, context, closureCount);
-            return v;
+            return Evaluate(inputs);
         }
 
         /// <summary>
