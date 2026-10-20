@@ -496,7 +496,7 @@ dialog's Discard, MergeDialog.ReFlyDiscard.cs:122) overwrite `quicksave.sfs` so 
 bring the merged or discarded flight back. Under the rule they move the player's F9 point to the
 merge or discard moment. With exact restore an F9 to the real F5 moment is consistent, so both
 stop writing `quicksave.sfs`; the discard keeps refreshing `persistent.sfs`, which is the game's
-own current state. OWNER DECISION PENDING (card posted 2026-10-20, recommended: stop).
+own current state. Owner decision 2026-10-20: stop (F9 brings back the player's own F5).
 
 ### 4.7 Where each piece of state comes from on a save-file load
 
@@ -706,7 +706,7 @@ cache cannot be stale). Not part of this design until measured.
 - `[RecordingStore] Sidecar retained: rec=<id> kind=<k> hash=<h> reason=<rewrite|delete> outcome=<filed|identical-exists|same-as-head|left-incoming>` (Verbose; batch summary per OnSave / flush).
 - `[RecordingStore] Sidecar version read without promote: rec=<id> kind=<k> hash=<h> reason=<multiple-owners|promote-failed>` (Info), and `... annotation cache dropped: rec=<id> reason=version-read` (Verbose).
 - `[FileCollector] Collection: referrers=<n> scanned=<n> cached=<n> versionsDeleted=<n> headsQuarantined=<n> rewindPointFilesDeleted=<n> rewindSavesDeleted=<n> bytesFreed=<n> ms=<n>` (Info), and `... skipped reason=<unreadable-referrer path=...|journal-open|rewind|...>` (Warn for unreadable, Verbose otherwise).
-- `[MergeDialog] Quicksave not refreshed after <merge|discard> (the player's F5 point is kept)` (Verbose), if 4.6 is confirmed.
+- `[MergeDialog] Quicksave not refreshed after <merge|discard> (the player's F5 point is kept)` (Verbose).
 
 ---
 
@@ -739,7 +739,7 @@ cache cannot be stale). Not part of this design until measured.
   `resumeRewindSave` counted) and the collection decision table (4.5), including
   `parsek_career_start.sfs` and an unknown `Parsek/Saves` name never collected.
 - The delete-site grep gate (4.5) red on a planted delete under `Parsek/Recordings`.
-- The quicksave refresh no longer writes `quicksave.sfs` (if 4.6 is confirmed).
+- The quicksave refresh no longer writes `quicksave.sfs`.
 - `LoadReconcilePolicyTests`: the Cold column's known-gap cells flip to Save; the QuickloadFlight
   column documented unreachable.
 
@@ -769,7 +769,7 @@ existing `QL-*` lane with its log contract moved from the old machinery's lines 
 
 ## 14. Open questions
 
-1. 4.6, the quicksave refresh: owner decision pending (card 2026-10-20).
+1. ~~4.6, the quicksave refresh~~: decided 2026-10-20, Parsek stops writing quicksave.sfs.
 2. Whether the Tracking Station Fly and the far vessel switch (`FlightDriver.StartAndFocusVessel`
    after a `persistent` save) ever fire `onGameStatePostLoad` in practice; decompiled code says
    no, the first lane log confirms (VERIFY V1).

@@ -10,6 +10,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **Loading a save puts Parsek back exactly as that save was.** F9 and the Load menu now restore
+  the save's committed flights, career ledger, Re-Fly merges, Unfinished Flights, names, groups and
+  missions. Flights committed after the save are gone, and a flight in progress at the save resumes
+  with its recording. Parsek no longer rewrites your quicksave when you merge or discard.
+  (QUICKLOAD-RESTORES-THE-SAVE-EXACTLY)
 - **A Re-Fly can no longer lower your career.** Re-Fly is offered only for a flight that earned
   nothing after its separation, so a merge never takes back funds, science, reputation or a
   milestone. During a Re-Fly you fly only that vessel and its own EVA crew; a merge that would still

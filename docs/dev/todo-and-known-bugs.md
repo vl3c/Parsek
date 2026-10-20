@@ -232,8 +232,16 @@ COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE); recordings carry `prec
 resolves and promotes the version its save names; `ParsekFileCollector` is the only remover of
 Parsek files (`RecordingStore.CleanOrphanFiles` is gone, the rewind point reaper and the discard
 purge only unlist, the grep gate `grep-audit-parsek-file-deletes.ps1` pins the delete sites).
-Both found-while-designing defects above are fixed by it. F9 and the pause-menu Load still take
-the in-session path until Phase 2.
+Both found-while-designing defects above are fixed by it.
+
+Phase 2 implemented 2026-10-20 on the same branch: a save-file load (F9, pause-menu Load, the
+harness `LoadGame playerLoad=true`) classifies Cold in every scene (`coldReason=save-file`) and
+reconciles at the save's own UT; a `saveStamp` canary Warns on an unannounced in-session read of
+an older save; Parsek no longer rewrites quicksave.sfs on merge or discard (owner decision
+2026-10-20); a cold load of a save made inside a committed-tree restore attempt re-arms it from
+the save's committed copy so the held-back earnings survive. Remaining: fly the reshaped and new
+`QL-*` lanes (QL-1..QL-12, QL-13 planned) on the owner's PC; Phase 3 (deleting the in-session
+quickload machinery nothing reaches) as a separate PR.
 
 Phase 2, design open question 3 (2026-10-20, xUnit only): a cold load of a save written inside a
 committed-tree restore attempt re-arms the attempt from the save's committed copy (the save's

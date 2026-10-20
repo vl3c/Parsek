@@ -227,7 +227,7 @@ names the symbol, and every VERIFY is confirmed against the code before the step
    semantics. The arg joins the verb's closed-arg table and the hlib mirror that pins it.
    - VERIFY: list the specs that `LoadGame` mid-run to mean "the player loaded"; those (the QL
      lanes) gain `playerLoad=true` in step 7, every other use stays as it is.
-5. The quicksave refresh (design 4.6), only if the owner confirms: `RefreshQuicksaveAfterMerge`
+5. The quicksave refresh (design 4.6, owner confirmed 2026-10-20): `RefreshQuicksaveAfterMerge`
    is no longer called; `RefreshSaveAndQuicksaveAfterDiscard` refreshes `persistent.sfs` only.
    Update the QL-6 header note that relies on the discard rewriting `quicksave.sfs`.
 6. Policy table: document the `QuickloadFlight` column as unreached by stock F9 (reason text);
