@@ -44,21 +44,22 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Low or fast ghosts on the map, and their end spawns, keep the right orbit.** A map ghost
+  replaying an ascent or descent, a kerbal or stage spawned at the end of its recording in orbit,
+  and the predicted crash point of an unfinished flight could be off by the planet's spin (about
+  175 m/s at Kerbin), or point the wrong way after a reload. (REMAINING-RECORDED-VELOCITY-SEEDS)
 - **A quicksave made while flying an already-recorded vessel again keeps what you earned.**
   Loading such a quicksave now picks the resumed flight up exactly as it was saved, including the
   rewards earned since you took the vessel over, which reach your career when you merge the
   flight. Before, the load dropped them. (QUICKLOAD-RESTORES-THE-SAVE-EXACTLY)
-
 - **Loading an older save no longer moves away the recordings of a newer save.** Parsek keeps
   every recording version and rewind file that any save in the folder still names, and removes
   them only once no save uses them, so switching between saves of one career never loses a
   flight's data. (QUICKLOAD-RESTORES-THE-SAVE-EXACTLY)
-
 - **Loading an older save restores that save's career data.** Loading a save from the main menu
   now brings back the funds, science, contracts and milestones Parsek kept for that save, instead
   of the newest data from another save in the same folder. Each save carries its own copy; saves
   from older versions load as before. (COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE)
-
 - **A contract accepted right after hiring a kerbal stays accepted.** Hiring a kerbal and then
   accepting a contract in quick succession at the Space Center could undo the accept: the
   contract disappeared from the active list while its advance stayed paid.

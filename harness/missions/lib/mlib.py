@@ -1259,6 +1259,19 @@ ACTION_SWITCH_TO_NEAREST_NAMED_VESSEL = "switch_to_nearest_named_vessel"  # text
 # it. NEAREST because the half a split just ejected sits metres away and carries
 # the same craft name as every other copy of the craft in orbit.
 ACTION_TARGET_NEAREST_NAMED_VESSEL = "target_nearest_named_vessel"  # text = vessel name
+# d5_redock's separated start (`startSeparated`, LAB-13b): `sc.active_vessel = <the
+# nearest loaded vessel other than the active one whose name is NOT `text`>`. A plain
+# kRPC switch, like SWITCH_TO_NEAREST_NAMED_VESSEL. BY EXCLUSION because the half a
+# split just ejected is named by stock at the split (" Probe" / " Debris" appended),
+# so the lane knows only the name of the half it must NOT fly. The pick is
+# `pick_nearest_other`.
+ACTION_SWITCH_TO_NEAREST_OTHER_VESSEL = "switch_to_nearest_other_vessel"  # text = name to skip
+# d5_redock's separated start: `v.parts.controlling = <a docking port's part>` on the
+# ACTIVE vessel (the Ready port first, `pick_ready_port_index`). MechJeb's docking
+# autopilot aligns the vessel's control reference with the target port, so a craft
+# whose only command part faces AWAY from its port (the LABX probe tender: an OKTO
+# above a downward Jr port) must be controlled from the port to dock at all.
+ACTION_CONTROL_FROM_DOCKING_PORT = "control_from_docking_port"  # value = None
 
 # THE ACTIONS THAT NEED NO ACTIVE VESSEL, and the SINGLE authority on which those
 # are. `KrpcMissionControl.perform` resolves `sc.active_vessel` for the whole
@@ -18828,18 +18841,42 @@ def evaluate_sdock_assertions(frames, params: SDockParams, phases_reached=(),
 # The dock is the whole point: both halves are members of the active tree when
 # it lands, so Parsek's merge has TWO parents. The machine never reads that; the
 # spec's log contract does.
+#
+# SEPARATED START (`startSeparated = true`, LAB-13b; default off, so every other
+# lane flies the machine above unchanged). The spec's seam steps have already
+# split the pair, the active vessel is the half named craft_name (the one that
+# cannot translate), and the other half carries the RCS:
+#
+#   RD-START    -> after start_settle_seconds, the active vessel's port reads
+#                  separated (not Docked / Docking / PreAttached, and read) with a
+#                  readable part count; switch to the nearest loaded vessel NOT
+#                  named craft_name
+#   RD-SWITCH   -> the active part count moved off the start baseline (the switch
+#                  took); control the new active vessel from its docking port
+#   RD-BACKOFF  -> RD-TARGET -> DOCK -> RD-SETTLE -> RD-TERMINAL as above: the
+#                  target is the nearest vessel named craft_name, the half the
+#                  machine just left
+#
+# RD-UNDOCK is never entered: the separation is the spec's, not the mission's.
 # ---------------------------------------------------------------------------
 
 RDOCK_START = "RD-START"
 RDOCK_UNDOCK = "RD-UNDOCK"
+RDOCK_SWITCH = "RD-SWITCH"
 RDOCK_BACKOFF = "RD-BACKOFF"
 RDOCK_TARGET = "RD-TARGET"
 RDOCK_SETTLE = "RD-SETTLE"
 RDOCK_TERMINAL = "RD-TERMINAL"
 # The delegated phase keeps B-DOCK's own name, so its flake reasons read the same.
 RDOCK_PHASES: Tuple[str, ...] = (
-    RDOCK_START, RDOCK_UNDOCK, RDOCK_BACKOFF, RDOCK_TARGET, BDOCK_DOCK,
+    RDOCK_START, RDOCK_UNDOCK, RDOCK_SWITCH, RDOCK_BACKOFF, RDOCK_TARGET, BDOCK_DOCK,
     RDOCK_SETTLE, RDOCK_TERMINAL)
+# The port states that do NOT read as separated at a separated start: a mated port
+# (kRPC folds PreAttached into Docked; the normalized spelling is kept in case a
+# reader passes stock's own) and a capture in progress. "" is unread, never
+# separated.
+RDOCK_NOT_SEPARATED_STATES: Tuple[str, ...] = (
+    DOCKING_STATE_DOCKED, DOCKING_STATE_DOCKING, "PreAttached")
 
 
 @dataclass(frozen=True)
@@ -18859,6 +18896,10 @@ class RDockParams:
     backoff_seconds: float = 20.0
     target_timeout: float = 60.0
     settle_seconds: float = 10.0
+    # The separated start (see the block comment). False flies the undock machine.
+    start_separated: bool = False
+    # RD-SWITCH give-up: the switch to the other half must show within this window.
+    switch_timeout: float = 60.0
 
 
 def rdock_params_from_dict(params: Dict) -> RDockParams:
@@ -18872,6 +18913,8 @@ def rdock_params_from_dict(params: Dict) -> RDockParams:
         backoff_seconds=float(params.get("backoffSeconds", 20)),
         target_timeout=float(params.get("targetTimeoutSeconds", 60)),
         settle_seconds=float(params.get("settleSeconds", 10)),
+        start_separated=bool(params.get("startSeparated", False)),
+        switch_timeout=float(params.get("switchTimeoutSeconds", 60)),
     )
 
 
@@ -18895,6 +18938,10 @@ class RDockState:
     undock_baseline_part_count: int = 0
     undock_confirmed: bool = False
     redock_confirmed: bool = False
+    # Separated-start evidence.
+    started_separated: bool = False
+    switch_baseline_part_count: int = 0
+    switch_confirmed: bool = False
 
 
 def rdock_initial_state(params: RDockParams) -> RDockState:
@@ -18926,6 +18973,36 @@ def rdock_decide(state: RDockState,
     if state.done:
         return state, []
     p = state.params
+
+    if state.phase == RDOCK_START and p.start_separated:
+        if not _is_finite(state.phase_entry_ut) and _is_finite(snapshot.ut):
+            state = replace(state, phase_entry_ut=snapshot.ut)
+        separated = (bool(snapshot.docking_state)
+                     and snapshot.docking_state not in RDOCK_NOT_SEPARATED_STATES)
+        settled = _rdock_elapsed(state, snapshot) >= p.start_settle_seconds
+        if separated and snapshot.part_count > 0 and settled:
+            return (_rdock_enter(state, RDOCK_SWITCH, snapshot.ut,
+                                 started_separated=True,
+                                 switch_baseline_part_count=snapshot.part_count),
+                    [Action(ACTION_SWITCH_TO_NEAREST_OTHER_VESSEL, text=p.craft_name)])
+        if _rdock_elapsed(state, snapshot) > p.start_timeout:
+            return _rdock_flake(state, (
+                "the booted vessel never read a separated port with a readable part "
+                "count (docking_state=%r part_count=%d)"
+                % (snapshot.docking_state, snapshot.part_count))), []
+        return state, []
+
+    if state.phase == RDOCK_SWITCH:
+        if snapshot.part_count > 0 and snapshot.part_count != state.switch_baseline_part_count:
+            return (_rdock_enter(state, RDOCK_BACKOFF, snapshot.ut, switch_confirmed=True),
+                    [Action(ACTION_CONTROL_FROM_DOCKING_PORT)])
+        if _rdock_elapsed(state, snapshot) > p.switch_timeout:
+            return _rdock_flake(state, (
+                "no switch to the other half observed (part_count=%d baseline=%d; "
+                "no loaded vessel beside the active one, or every one is named %r)"
+                % (snapshot.part_count, state.switch_baseline_part_count,
+                   p.craft_name))), []
+        return state, []
 
     if state.phase == RDOCK_START:
         if not _is_finite(state.phase_entry_ut) and _is_finite(snapshot.ut):
@@ -19016,9 +19093,25 @@ def evaluate_rdock_assertions(frames, params: RDockParams, phases_reached=(),
     - ``startedDocked``  the booted vessel read a Docked port (the fixture shape).
     - ``undocked``       the split was observed (count up, port not Docked).
     - ``redocked``       DOCK completed on B-DOCK's corroborated Docked read.
+
+    A separated start (``params.start_separated``) replaces the first two with
+    ``startedSeparated`` (the booted vessel read a separated port) and
+    ``switched`` (the switch to the other half was observed).
     """
-    del frames, params
+    del frames
     phases = tuple(phases_reached or ())
+    if params is not None and params.start_separated:
+        started = bool(getattr(state, "started_separated", False))
+        switched = bool(getattr(state, "switch_confirmed", False))
+        redocked = bool(getattr(state, "redock_confirmed", False))
+        return [
+            AssertionOutcome("startedSeparated", started, started,
+                             {"required": RDOCK_SWITCH}),
+            AssertionOutcome("switched", (RDOCK_BACKOFF in phases) and switched, switched,
+                             {"required": RDOCK_BACKOFF}),
+            AssertionOutcome("redocked", (RDOCK_SETTLE in phases) and redocked, redocked,
+                             {"required": RDOCK_SETTLE}),
+        ]
     started = bool(getattr(state, "started_docked", False))
     undocked = bool(getattr(state, "undock_confirmed", False))
     redocked = bool(getattr(state, "redock_confirmed", False))
@@ -25218,6 +25311,25 @@ def pick_nearest_named(candidates: Sequence[Tuple[str, float, bool]],
     best_d = float("inf")
     for i, (n, d, is_active) in enumerate(candidates or ()):
         if is_active or str(n) != str(name) or not _is_finite(d):
+            continue
+        if float(d) < best_d:
+            best, best_d = i, float(d)
+    return best
+
+
+def pick_nearest_other(candidates: Sequence[Tuple[str, float, bool]],
+                       skip_name: str) -> Optional[int]:
+    """Index of the candidate ``(vessel_name, distance_m, is_active)`` that
+    ACTION_SWITCH_TO_NEAREST_OTHER_VESSEL switches to: not the active vessel, NOT
+    named ``skip_name`` (an empty ``skip_name`` skips no name), with the smallest
+    FINITE distance. None when there is none. An unreadable (NaN) distance is never
+    nearest, exactly as in `pick_nearest_named`."""
+    best = None
+    best_d = float("inf")
+    for i, (n, d, is_active) in enumerate(candidates or ()):
+        if is_active or not _is_finite(d):
+            continue
+        if str(skip_name) and str(n) == str(skip_name):
             continue
         if float(d) < best_d:
             best, best_d = i, float(d)

@@ -754,6 +754,12 @@ neither the lab nor the OKTO tender has any). The lane processes while the tende
 joined, separates it (a PreAttached decouple, not `onVesselsUndocking`) and transmits. A
 true dock / undock pair needs an RCS craft revision or the docking-variant fixture above.
 
+AUTHORED 2026-10-20 as `LAB-13b-lab-dock-undock` (LAB-13 kept as is): the fixture
+`lab-lko-tender-rcs` adds RCS blocks and monopropellant to the tender only (the LABX craft
+is untouched), and `d5_redock`'s new `startSeparated` mode re-docks the two halves after the
+seam separates them. The lane then processes while truly docked, undocks through stock
+`Part.Undock` and transmits. Never flown.
+
 ## Build order
 
 1. Step 0 (other worktrees): the labprocess fix, the antenna re-fly and re-harvest, `inspect

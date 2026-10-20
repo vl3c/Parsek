@@ -199,7 +199,8 @@ namespace Parsek
                         candidate,
                         rotationPeriod,
                         initialRotation,
-                        out OrbitReseed.HistoricalTailPairSeedInputs historical);
+                        out OrbitReseed.HistoricalTailPairSeedInputs historical,
+                        traj?.RecordingId);
                     CopyResolution(ref seed, historical.Resolution, historicalResolved);
                     if (!historicalResolved)
                     {

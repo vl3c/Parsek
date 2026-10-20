@@ -7,6 +7,11 @@ just ejected and hard-docks the two halves back together. The undock leaves the
 other half recording in the background of the SAME tree, so the dock is a merge of
 two members of one tree - Parsek's two-parent Dock branch point.
 
+With ``startSeparated = true`` (LAB-13b) it boots on a pair the spec's own seam
+steps already split: it switches from the active half (named ``craftName``) to the
+nearest other loaded vessel, controls that one from its docking port, targets the
+nearest ``craftName`` and docks; the undock phase is never entered.
+
 A THIN shell: every decision is the pure ``mlib.rdock_decide`` (which delegates the
 DOCK phase to ``mlib.bdock_decide``) and ``mlib.evaluate_rdock_assertions``; the
 connect / flight / result write are the shared ``mission_runner`` runtime.

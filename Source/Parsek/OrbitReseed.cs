@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 using UnityEngine;
 
@@ -32,6 +33,11 @@ namespace Parsek
     ///   <item><see cref="TryFromHistoricalLatLonAltAndRecordedVelocity"/> - the same pair,
     ///     placed at the tail's historical inertial position (body rotation phase at the
     ///     tail UT) for the map-presence seeds.</item>
+    ///   <item><see cref="ResolveRecordedSampleSeedVelocity"/> - one recorded sample's velocity
+    ///     resolved into this session's axes from it and its neighbour, for seeds whose
+    ///     position is rebuilt in this session (state-vector map ghosts, spawner state-vector
+    ///     seeds); <see cref="ResolveSameSessionRecordedVelocity"/> for seeds that run in the
+    ///     recording's own session (the scene-exit finalizer).</item>
     ///   <item><see cref="FromWorldPosAndZupVelocity"/> — world-absolute Y-up
     ///     position plus a velocity already in Zup-local (e.g. the output of
     ///     <c>Orbit.getOrbitalVelocityAtUT</c>). The velocity is passed through;
@@ -304,6 +310,371 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: the inertial velocity of ONE sample of a recorded pair, in the frame the
+        /// positions are given in, with the vector's frame and world yaw resolved by
+        /// <see cref="RecordedTailVelocityResolver.TryResolve"/> rather than trusted.
+        /// <paramref name="sampleIsTail"/> picks the sample whose recorded vector is carried:
+        /// the resolver's yaw belongs to the tail, so an inertial reading carries the earlier
+        /// sample's vector by the spin over the whole pair gap further
+        /// (<see cref="RecordedTailVelocityResolver.InertialYawDriftRadians"/>). A rotating
+        /// reading adds the frame velocity at <paramref name="seedPosYup"/>, the body-relative
+        /// position the caller seeds at (the sample's own position, or a spawn position
+        /// derived from it). False, with the resolver's decline reason, when the pair cannot
+        /// be resolved.
+        /// </summary>
+        internal static bool TryResolveRecordedPairVelocityAtSample(
+            TrajectoryPoint previous,
+            TrajectoryPoint tail,
+            bool sampleIsTail,
+            Vector3d previousPosYup,
+            Vector3d tailPosYup,
+            Vector3d seedPosYup,
+            double rotationPeriod,
+            bool bodyRotates,
+            double inverseRotThresholdAltitude,
+            out RecordedTailVelocityResolution resolution,
+            out Vector3d inertialVelYup)
+        {
+            inertialVelYup = Vector3d.zero;
+            Vector3d previousVel = new Vector3d(previous.velocity.x, previous.velocity.y, previous.velocity.z);
+            Vector3d tailVel = new Vector3d(tail.velocity.x, tail.velocity.y, tail.velocity.z);
+            double period = bodyRotates ? rotationPeriod : double.NaN;
+            bool altitudeRuleRotating = IsRecordedVelocityInRotatingFrame(
+                bodyRotates, inverseRotThresholdAltitude, tail.altitude);
+
+            if (!RecordedTailVelocityResolver.TryResolve(
+                    previousPosYup,
+                    previous.ut,
+                    previousVel,
+                    tailPosYup,
+                    tail.ut,
+                    tailVel,
+                    period,
+                    altitudeRuleRotating,
+                    out resolution))
+            {
+                return false;
+            }
+
+            if (!IsFinite(seedPosYup))
+            {
+                resolution.Resolved = false;
+                resolution.DeclineReason = RecordedTailVelocityResolver.DeclineNonFinite;
+                return false;
+            }
+
+            double yaw = resolution.YawDegrees * (System.Math.PI / 180.0);
+            if (!sampleIsTail && !resolution.SampleWasRotatingFrame)
+                yaw += RecordedTailVelocityResolver.InertialYawDriftRadians(period, tail.ut - previous.ut);
+
+            Vector3d sampleVel = sampleIsTail ? tailVel : previousVel;
+            Vector3d rotated = RecordedTailVelocityResolver.RotateAboutY(sampleVel, yaw);
+            inertialVelYup = resolution.SampleWasRotatingFrame
+                ? rotated + ComputeRotatingFrameVelocityYup(seedPosYup, period)
+                : rotated;
+            return true;
+        }
+
+        internal const string SeedVelocitySourcePair = "pair-resolved";
+        internal const string SeedVelocitySourceRecorded = "recorded-unresolved";
+        internal const string SeedVelocitySourceAltitudeRule = "altitude-rule";
+        internal const string DeclinePairRelativeSection = "pair-relative-section";
+
+        /// <summary>
+        /// Outcome of <see cref="ResolveRecordedSampleSeedVelocity"/> and
+        /// <see cref="ResolveSameSessionRecordedVelocity"/>.
+        /// </summary>
+        internal struct RecordedSampleSeedVelocity
+        {
+            // The Y-up velocity to seed with: the resolved inertial vector, or the recorded
+            // one when the site declined (Source tells which).
+            internal Vector3d VelocityYup;
+            internal Vector3d RecordedVelocityYup;
+            internal string Source;
+            internal string DeclineReason;
+            internal bool SampleWasRotatingFrame;
+            internal bool AltitudeRuleRotating;
+            internal double PairPreviousUT;
+            internal RecordedTailVelocityResolution Resolution;
+        }
+
+        /// <summary>
+        /// Pure: the two samples of <paramref name="points"/> a single recorded sample's
+        /// velocity frame is resolved from: <see cref="GhostMapPresence.TrySelectGapGlidePair"/>
+        /// (the sample and its same-section, same-body neighbour, preferring the one before
+        /// it), refused when the sample's track section is Relative, whose lat/lon/alt fields
+        /// are anchor-local metres rather than body-fixed coordinates. The sample must be an
+        /// element of <paramref name="points"/> (an interpolated point is not found).
+        /// </summary>
+        internal static bool TrySelectBodyFixedVelocityPair(
+            List<TrajectoryPoint> points,
+            List<TrackSection> sections,
+            TrajectoryPoint sample,
+            out TrajectoryPoint previous,
+            out TrajectoryPoint tail,
+            out bool sampleIsTail,
+            out string declineReason)
+        {
+            previous = default(TrajectoryPoint);
+            tail = default(TrajectoryPoint);
+            sampleIsTail = false;
+            if (sections != null && sections.Count > 0)
+            {
+                int sectionIndex = TrajectoryMath.FindTrackSectionForUT(sections, sample.ut);
+                if (sectionIndex >= 0 && sections[sectionIndex].referenceFrame == ReferenceFrame.Relative)
+                {
+                    declineReason = DeclinePairRelativeSection;
+                    return false;
+                }
+            }
+
+            if (!GhostMapPresence.TrySelectGapGlidePair(
+                    points, sections, sample, out previous, out tail, out declineReason))
+            {
+                return false;
+            }
+
+            sampleIsTail = tail.ut == sample.ut;
+            return true;
+        }
+
+        /// <summary>
+        /// Pure core of the state-vector seeds that pair a recorded sample's velocity with a
+        /// position rebuilt in THIS session (map state-vector ghosts, the spawner's endpoint
+        /// state-vector repair and its no-override <c>SpawnAtPosition</c> callers). The
+        /// recorded vector's frame and world yaw are resolved from the sample and its
+        /// neighbour (<see cref="TrySelectBodyFixedVelocityPair"/>,
+        /// <see cref="TryResolveRecordedPairVelocityAtSample"/>), both positions from the
+        /// injected lookup (live: <c>GetWorldSurfacePosition - body.position</c>, this
+        /// session's axes). The world yaw of a single sample is unknowable from that sample
+        /// once the session has changed, so with no pair, a Relative section or no fit the
+        /// recorded vector is returned unchanged (<see cref="SeedVelocitySourceRecorded"/>),
+        /// which is what every such site seeded before.
+        /// </summary>
+        internal static RecordedSampleSeedVelocity ResolveRecordedSampleSeedVelocity(
+            List<TrajectoryPoint> points,
+            List<TrackSection> sections,
+            TrajectoryPoint sample,
+            Vector3d seedPosYup,
+            System.Func<double, double, double, Vector3d> getBodyRelativeSurfacePositionYup,
+            double rotationPeriod,
+            bool bodyRotates,
+            double inverseRotThresholdAltitude)
+        {
+            Vector3d recorded = new Vector3d(sample.velocity.x, sample.velocity.y, sample.velocity.z);
+            var result = new RecordedSampleSeedVelocity
+            {
+                VelocityYup = recorded,
+                RecordedVelocityYup = recorded,
+                Source = SeedVelocitySourceRecorded,
+                DeclineReason = null,
+                SampleWasRotatingFrame = false,
+                AltitudeRuleRotating = IsRecordedVelocityInRotatingFrame(
+                    bodyRotates, inverseRotThresholdAltitude, sample.altitude),
+                PairPreviousUT = double.NaN,
+                Resolution = new RecordedTailVelocityResolution
+                {
+                    YawDegrees = double.NaN,
+                    Residual = double.NaN,
+                    OtherResidual = double.NaN,
+                    RecordedSpeed = recorded.magnitude
+                }
+            };
+
+            if (getBodyRelativeSurfacePositionYup == null)
+            {
+                result.DeclineReason = "surface-position-unavailable";
+                return result;
+            }
+            if (!TrySelectBodyFixedVelocityPair(
+                    points, sections, sample,
+                    out TrajectoryPoint previous, out TrajectoryPoint tail, out bool sampleIsTail,
+                    out string pairReason))
+            {
+                result.DeclineReason = pairReason;
+                return result;
+            }
+            result.PairPreviousUT = previous.ut;
+
+            Vector3d previousPos = getBodyRelativeSurfacePositionYup(
+                previous.latitude, previous.longitude, previous.altitude);
+            Vector3d tailPos = getBodyRelativeSurfacePositionYup(
+                tail.latitude, tail.longitude, tail.altitude);
+            bool resolved = TryResolveRecordedPairVelocityAtSample(
+                previous,
+                tail,
+                sampleIsTail,
+                previousPos,
+                tailPos,
+                seedPosYup,
+                rotationPeriod,
+                bodyRotates,
+                inverseRotThresholdAltitude,
+                out RecordedTailVelocityResolution resolution,
+                out Vector3d inertialVel);
+            result.Resolution = resolution;
+            if (!resolved)
+            {
+                result.DeclineReason = resolution.DeclineReason ?? RecordedTailVelocityResolver.DeclineNoFit;
+                return result;
+            }
+
+            result.VelocityYup = inertialVel;
+            result.Source = SeedVelocitySourcePair;
+            result.SampleWasRotatingFrame = resolution.SampleWasRotatingFrame;
+            return result;
+        }
+
+        /// <summary>
+        /// Pure core of the seeds that run in the SAME session as the recording they read
+        /// (the scene-exit finalizer's predicted-tail reseed and its recovery start): the
+        /// world yaw between the recorded vector and this session's rebuilt position is zero
+        /// there, so only the frame is unknown. With a usable pair
+        /// (<paramref name="previous"/>, same list and body) the resolver decides it from the
+        /// data, which also catches a vessel recorded inertial below the threshold because
+        /// the ACTIVE vessel was above it; otherwise the stock altitude rule
+        /// (<see cref="IsRecordedVelocityInRotatingFrame"/>) decides: below the
+        /// inverse-rotation altitude the vector is surface-relative and the frame velocity at
+        /// <paramref name="samplePosYup"/> is added.
+        /// </summary>
+        internal static RecordedSampleSeedVelocity ResolveSameSessionRecordedVelocity(
+            TrajectoryPoint? previous,
+            TrajectoryPoint sample,
+            Vector3d previousPosYup,
+            Vector3d samplePosYup,
+            double rotationPeriod,
+            bool bodyRotates,
+            double inverseRotThresholdAltitude,
+            TrajectoryPoint? next = null,
+            Vector3d nextPosYup = default(Vector3d))
+        {
+            Vector3d recorded = new Vector3d(sample.velocity.x, sample.velocity.y, sample.velocity.z);
+            bool altitudeRuleRotating = IsRecordedVelocityInRotatingFrame(
+                bodyRotates, inverseRotThresholdAltitude, sample.altitude);
+            var result = new RecordedSampleSeedVelocity
+            {
+                VelocityYup = recorded,
+                RecordedVelocityYup = recorded,
+                Source = SeedVelocitySourceAltitudeRule,
+                DeclineReason = null,
+                SampleWasRotatingFrame = altitudeRuleRotating,
+                AltitudeRuleRotating = altitudeRuleRotating,
+                PairPreviousUT = double.NaN,
+                Resolution = new RecordedTailVelocityResolution
+                {
+                    YawDegrees = double.NaN,
+                    Residual = double.NaN,
+                    OtherResidual = double.NaN,
+                    RecordedSpeed = recorded.magnitude
+                }
+            };
+
+            if (previous.HasValue)
+            {
+                result.PairPreviousUT = previous.Value.ut;
+                if (TryResolveRecordedPairVelocityAtSample(
+                        previous.Value,
+                        sample,
+                        sampleIsTail: true,
+                        previousPosYup,
+                        samplePosYup,
+                        samplePosYup,
+                        rotationPeriod,
+                        bodyRotates,
+                        inverseRotThresholdAltitude,
+                        out RecordedTailVelocityResolution resolution,
+                        out Vector3d inertialVel))
+                {
+                    result.Resolution = resolution;
+                    result.VelocityYup = inertialVel;
+                    result.Source = SeedVelocitySourcePair;
+                    result.SampleWasRotatingFrame = resolution.SampleWasRotatingFrame;
+                    return result;
+                }
+
+                result.Resolution = resolution;
+                result.DeclineReason = resolution.DeclineReason ?? RecordedTailVelocityResolver.DeclineNoFit;
+            }
+            else
+            {
+                result.DeclineReason = "pair-single-sample";
+            }
+
+            // No usable sample before: pair forward with the one after, seeding the EARLIER
+            // sample. An inertial reading below the threshold (a background or packed vessel)
+            // would otherwise get the spin added by the altitude rule.
+            if (next.HasValue)
+            {
+                if (TryResolveRecordedPairVelocityAtSample(
+                        sample,
+                        next.Value,
+                        sampleIsTail: false,
+                        samplePosYup,
+                        nextPosYup,
+                        samplePosYup,
+                        rotationPeriod,
+                        bodyRotates,
+                        inverseRotThresholdAltitude,
+                        out RecordedTailVelocityResolution nextResolution,
+                        out Vector3d nextInertialVel))
+                {
+                    result.Resolution = nextResolution;
+                    result.VelocityYup = nextInertialVel;
+                    result.Source = SeedVelocitySourcePair;
+                    result.SampleWasRotatingFrame = nextResolution.SampleWasRotatingFrame;
+                    result.PairPreviousUT = sample.ut;
+                    result.DeclineReason = null;
+                    return result;
+                }
+            }
+
+            if (altitudeRuleRotating)
+            {
+                result.VelocityYup = recorded + ComputeRotatingFrameVelocityYup(
+                    samplePosYup, bodyRotates ? rotationPeriod : double.NaN);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Pure: the invariant-culture Verbose line describing a resolved or declined seed
+        /// velocity (<see cref="RecordedSampleSeedVelocity"/>).
+        /// </summary>
+        internal static string FormatRecordedSampleSeedVelocityLine(
+            string prefix,
+            string site,
+            string recordingId,
+            string bodyName,
+            TrajectoryPoint sample,
+            RecordedSampleSeedVelocity v)
+        {
+            RecordedTailVelocityResolution r = v.Resolution;
+            string velFrame = v.Source == SeedVelocitySourceRecorded
+                ? "(unresolved)"
+                : (v.SampleWasRotatingFrame ? "rotating" : "inertial");
+            return string.Format(CultureInfo.InvariantCulture,
+                "{0}: site={1} rec={2} body={3} sampleUT={4:F2} prevUT={5:F2} alt={6:F1} source={7} " +
+                "decline={8} velFrame={9} altitudeRule={10} yaw={11:F3}deg residual={12:F3} " +
+                "otherResidual={13:F3} |recordedVel|={14:F2} |seedVel|={15:F2}",
+                prefix ?? "(null)",
+                site ?? "(null)",
+                recordingId ?? "(null)",
+                bodyName ?? "(null)",
+                sample.ut,
+                v.PairPreviousUT,
+                sample.altitude,
+                v.Source ?? "(null)",
+                v.DeclineReason ?? "(none)",
+                velFrame,
+                v.AltitudeRuleRotating ? "rotating" : "inertial",
+                r.YawDegrees,
+                r.Residual,
+                r.OtherResidual,
+                v.RecordedVelocityYup.magnitude,
+                v.VelocityYup.magnitude);
+        }
+
+        /// <summary>
         /// Pure: the Verbose line <see cref="TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch"/>
         /// writes. The accepted prefix
         /// <c>TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch: body=</c> is a required
@@ -401,6 +772,91 @@ namespace Parsek
                     bodyRelPos.magnitude,
                     body != null ? body.position.magnitude : 0.0,
                     recordedVelWorldYup.magnitude));
+        }
+
+        /// <summary>
+        /// Unity wrapper over <see cref="ResolveRecordedSampleSeedVelocity"/>: positions are
+        /// rebuilt with this session's <c>GetWorldSurfacePosition</c>, so the returned
+        /// velocity is in the same world axes as <paramref name="seedWorldPosYup"/> (a
+        /// world-absolute Y-up position the caller seeds at).
+        /// </summary>
+        internal static RecordedSampleSeedVelocity ResolveRecordedSampleSeedVelocityInSession(
+            CelestialBody body,
+            List<TrajectoryPoint> points,
+            List<TrackSection> sections,
+            TrajectoryPoint sample,
+            Vector3d seedWorldPosYup)
+        {
+            if (body == null)
+            {
+                return ResolveRecordedSampleSeedVelocity(
+                    points, sections, sample, Vector3d.zero, null, double.NaN, false, double.NaN);
+            }
+
+            Vector3d bodyPos = body.position;
+            return ResolveRecordedSampleSeedVelocity(
+                points,
+                sections,
+                sample,
+                seedWorldPosYup - bodyPos,
+                (lat, lon, alt) => body.GetWorldSurfacePosition(lat, lon, alt) - bodyPos,
+                body.rotationPeriod,
+                body.rotates,
+                body.inverseRotThresholdAltitude);
+        }
+
+        /// <summary>
+        /// Build orbit elements at <paramref name="sample"/>'s UT from a recorded sample
+        /// whose recording ran in THIS session (the scene-exit finalizer), with the velocity
+        /// frame resolved by <see cref="ResolveSameSessionRecordedVelocity"/>: from the pair
+        /// when <paramref name="previous"/> resolves, else by the stock altitude rule.
+        /// Position as <see cref="FromLatLonAltAndRecordedVelocity"/>.
+        /// </summary>
+        internal static RecordedSampleSeedVelocity FromLatLonAltAndSameSessionRecordedVelocity(
+            Orbit dst,
+            CelestialBody body,
+            TrajectoryPoint? previous,
+            TrajectoryPoint sample,
+            string context,
+            string recordingId,
+            TrajectoryPoint? next = null)
+        {
+            Vector3d samplePos = body.GetWorldSurfacePosition(
+                sample.latitude, sample.longitude, sample.altitude) - body.position;
+            Vector3d previousPos = previous.HasValue
+                ? body.GetWorldSurfacePosition(
+                    previous.Value.latitude, previous.Value.longitude, previous.Value.altitude) - body.position
+                : Vector3d.zero;
+            Vector3d nextPos = next.HasValue
+                ? body.GetWorldSurfacePosition(
+                    next.Value.latitude, next.Value.longitude, next.Value.altitude) - body.position
+                : Vector3d.zero;
+            RecordedSampleSeedVelocity v = ResolveSameSessionRecordedVelocity(
+                previous,
+                sample,
+                previousPos,
+                samplePos,
+                body.rotationPeriod,
+                body.rotates,
+                body.inverseRotThresholdAltitude,
+                next,
+                nextPos);
+
+            dst.UpdateFromStateVectors(samplePos.xzy, v.VelocityYup.xzy, body, sample.ut);
+            // The scene-exit finalizer also runs from the finalization cache refresh, so the
+            // same sample can be reseeded on every refresh tick.
+            ParsekLog.VerboseRateLimited("OrbitReseed",
+                string.Format(CultureInfo.InvariantCulture,
+                    "same-session-velocity-{0}-{1}-{2:F2}", context ?? "(null)", recordingId ?? "(null)", sample.ut),
+                FormatRecordedSampleSeedVelocityLine(
+                    "FromLatLonAltAndSameSessionRecordedVelocity",
+                    context,
+                    recordingId,
+                    body.name,
+                    sample,
+                    v),
+                30.0);
+            return v;
         }
 
         /// <summary>
@@ -556,7 +1012,8 @@ namespace Parsek
             TrajectoryPoint tail,
             double rotationPeriod,
             double initialRotationDeg,
-            out HistoricalTailPairSeedInputs result)
+            out HistoricalTailPairSeedInputs result,
+            string recordingId = null)
         {
             return TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch(
                 dst,
@@ -566,7 +1023,8 @@ namespace Parsek
                 tail.ut,
                 rotationPeriod,
                 initialRotationDeg,
-                out result);
+                out result,
+                recordingId);
         }
 
         /// <summary>
@@ -586,7 +1044,8 @@ namespace Parsek
             double epochUT,
             double rotationPeriod,
             double initialRotationDeg,
-            out HistoricalTailPairSeedInputs result)
+            out HistoricalTailPairSeedInputs result,
+            string recordingId = null)
         {
             if (dst == null || body == null)
             {
@@ -619,7 +1078,11 @@ namespace Parsek
                     result.SeedEpochUT);
             }
 
-            ParsekLog.Verbose("OrbitReseed",
+            LogHistoricalTailPairSeedLine(
+                ok,
+                recordingId,
+                body.name,
+                result.FailureReason,
                 FormatHistoricalTailPairSeedLine(
                     body.name,
                     previous,
@@ -631,6 +1094,49 @@ namespace Parsek
                     ok ? dst.eccentricity : double.NaN,
                     ok ? dst.inclination : double.NaN));
             return ok;
+        }
+
+        internal const double HistoricalTailPairDeclineLogIntervalSeconds = 5.0;
+
+        /// <summary>
+        /// Pure: the rate-limit key of a declined historical tail-pair seed line, per
+        /// recording (the body when no recording id is known) and decline reason, so a
+        /// changed reason still prints at once.
+        /// </summary>
+        internal static string HistoricalTailPairDeclineRateKey(
+            string recordingId,
+            string bodyName,
+            string failureReason)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "historical-tail-pair-declined-{0}-{1}",
+                string.IsNullOrEmpty(recordingId) ? "body:" + (bodyName ?? "(null)") : recordingId,
+                failureReason ?? "(none)");
+        }
+
+        /// <summary>
+        /// Writes the <see cref="FormatHistoricalTailPairSeedLine"/> line. An accepted seed is
+        /// plain Verbose (harness lanes V20M / V20T count its prefix); a decline is rate-limited
+        /// (<see cref="HistoricalTailPairDeclineRateKey"/>) because the gap glide re-seeds every
+        /// frame and the tracking-station refresh at 4 Hz, so a standing decline would flood.
+        /// </summary>
+        internal static void LogHistoricalTailPairSeedLine(
+            bool accepted,
+            string recordingId,
+            string bodyName,
+            string failureReason,
+            string line)
+        {
+            if (accepted)
+            {
+                ParsekLog.Verbose("OrbitReseed", line);
+                return;
+            }
+
+            ParsekLog.VerboseRateLimited("OrbitReseed",
+                HistoricalTailPairDeclineRateKey(recordingId, bodyName, failureReason),
+                line,
+                HistoricalTailPairDeclineLogIntervalSeconds);
         }
 
         /// <summary>

@@ -328,10 +328,20 @@ namespace Parsek
                 }
                 else
                 {
-                    spawnVelocity = new Vector3d(
-                        tipPoint.Value.velocity.x,
-                        tipPoint.Value.velocity.y,
-                        tipPoint.Value.velocity.z);
+                    spawnVelocity = VesselSpawner.ResolveNoOverrideSpawnVelocity(
+                        tipRecording,
+                        tipPoint,
+                        new Vector3d(
+                            tipPoint.Value.velocity.x,
+                            tipPoint.Value.velocity.y,
+                            tipPoint.Value.velocity.z),
+                        spawnBody,
+                        spawnLat,
+                        spawnLon,
+                        spawnAlt,
+                        orbitOverride: null,
+                        site: "chain-tip",
+                        logContext: tipId);
                 }
 
                 if (!PassChainTipTerminalOrbitSafety(
@@ -573,6 +583,20 @@ namespace Parsek
                             tipPoint.Value.velocity.y,
                             tipPoint.Value.velocity.z)
                         : Vector3d.zero;
+                    if (haveResolvedSpawnPosition)
+                    {
+                        spawnVelocity = VesselSpawner.ResolveNoOverrideSpawnVelocity(
+                            tipRecording,
+                            tipPoint,
+                            spawnVelocity,
+                            spawnBody,
+                            spawnLat,
+                            spawnLon,
+                            spawnAlt,
+                            orbitOverride: null,
+                            site: "chain-tip-blocked",
+                            logContext: tipId);
+                    }
                 }
 
                 if (haveResolvedSpawnPosition
@@ -1086,6 +1110,17 @@ namespace Parsek
                 walkPt.velocity.z);
             if (walkbackSpawnBody == null)
                 walkbackSpawnBody = VesselSpawner.ResolveSpawnRotationBody(tipRecording, walkPt);
+            spawnVelocity = VesselSpawner.ResolveNoOverrideSpawnVelocity(
+                tipRecording,
+                walkPt,
+                spawnVelocity,
+                walkbackSpawnBody,
+                walkPt.latitude,
+                walkPt.longitude,
+                walkPt.altitude,
+                orbitOverride: null,
+                site: "walkback-chain-tip",
+                logContext: tipRecording.RecordingId ?? tipRecording.VesselName);
             uint walkbackPid = SpawnChainTipWithResolvedState(
                 tipRecording,
                 vesselSnapshot,

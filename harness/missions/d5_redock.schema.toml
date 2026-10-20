@@ -61,3 +61,19 @@ max = 1000
 required = false
 type = "number"
 min = 0.0
+
+# SEPARATED START (LAB-13b). Default false: the mission boots a Docked pair and
+# undocks it. True: the spec's seam steps already split the pair; the mission
+# switches from the active half (named craftName) to the nearest other loaded
+# vessel, controls it from its docking port, targets the nearest craftName and
+# runs the DOCK phase. RD-UNDOCK is never entered.
+[params.startSeparated]
+required = false
+type = "bool"
+
+# RD-SWITCH give-up (separated start only): the switch must show in the active
+# part count within this window.
+[params.switchTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0

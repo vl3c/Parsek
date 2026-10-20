@@ -947,6 +947,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # lab-lko-seeded-transmit is lab-lko-science with 12.5 science in the lab, by
         # harness/tools/build_lab_lko_transmit.py, so it carries the same node.
         "lab-lko-seeded-transmit": True,
+        # lab-lko-tender-rcs is lab-lko-seeded-transmit with RCS blocks and monopropellant
+        # tanks on the probe tender (harness/tools/build_lab_lko_tender_rcs.py, the LAB-13b
+        # host), so it carries the same node.
+        "lab-lko-tender-rcs": True,
         # lab-lko-relay is lab-lko-seeded's orbit with lab-pad-seeded's lab and CommNet
         # ground stations off (same builder, the LAB-11 host), so it carries the node too.
         "lab-lko-relay": True,
