@@ -5,9 +5,10 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Bug #292: GamePersistence.SaveGame("quicksave", ...) is invoked from
-    /// RecordingStore.RefreshQuicksaveAfterMerge after a user-initiated tree merge,
-    /// so subsequent F9 quickloads include the new recording IDs added by the merge.
+    /// The save-refresh seams of RecordingStore. RefreshQuicksaveAfterMerge (bug #292) is
+    /// no longer called by the merge dialog (design-load-restores-the-save.md 4.6) but stays
+    /// until the Phase 3 deletion; RefreshSaveAndQuicksaveAfterDiscard refreshes
+    /// persistent.sfs only and never writes the player's quicksave.sfs.
     /// </summary>
     [Collection("Sequential")]
     public class QuicksaveRefreshTests : IDisposable
@@ -116,6 +117,32 @@ namespace Parsek.Tests
             RecordingStore.RefreshQuicksaveAfterMerge("test", 1);
 
             Assert.Equal(1, callCount);
+        }
+
+        /// <summary>
+        /// Design 4.6: a player discard refreshes the game's current save and keeps the
+        /// player's F5 point, saying so in one Verbose line.
+        /// </summary>
+        [Fact]
+        public void RefreshSaveAndQuicksaveAfterDiscard_WritesPersistentOnly_KeepsTheQuicksave()
+        {
+            RecordingStore.SaveGameForTesting = (saveName, saveFolder, mode) =>
+            {
+                saveCalls.Add((saveName, saveFolder, mode));
+                return "fake-ok";
+            };
+
+            RecordingStore.RefreshSaveAndQuicksaveAfterDiscard("discard reason", 3);
+
+            Assert.Single(saveCalls);
+            Assert.Equal("persistent", saveCalls[0].saveName);
+            Assert.Equal(SaveMode.OVERWRITE, saveCalls[0].mode);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Quicksave]") && l.Contains("Refreshed persistent.sfs after discard reason"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Quicksave]")
+                && l.Contains("Quicksave not refreshed after discard (the player's F5 point is kept): reason=discard reason"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Refreshed quicksave.sfs"));
         }
     }
 }

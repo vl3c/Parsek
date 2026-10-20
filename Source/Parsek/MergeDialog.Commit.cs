@@ -131,25 +131,18 @@ namespace Parsek
             ReFlyMergeCommitResult reFlyResult =
                 TryCommitReFlySupersede(activeReFlyTargetHint, playerRequestedSeal, lossSwapVariant);
 
-            // #292 + rewind-staging follow-up: refresh quicksave only after the
-            // re-fly staged commit has either completed or been bypassed.
-            // Interrupted re-fly commits intentionally skip the refresh so F9
-            // cannot resurrect a half-committed session from a stale snapshot.
-            //
-            // refreshQuicksaveAfterCommit=false is passed by the silent
-            // auto-commit path (ParsekScenario.AutoCommitPendingTreeOutsideFlight),
-            // which runs INSIDE ParsekScenario.OnLoad: a GamePersistence.SaveGame
-            // there would re-enter every ScenarioModule.OnSave mid-load (the
-            // "never SaveGame from inside OnLoad" rule) and would snapshot before
-            // the OnLoad ledger recalc. The commit is still durable via the next
-            // normal OnSave, matching the old ghost-only auto-commit which never
-            // refreshed the quicksave either. See
-            // docs/dev/plans/silent-full-fidelity-autocommit.md.
+            // The merge does not write quicksave.sfs (design-load-restores-the-save.md
+            // 4.6): a save-file load restores the save exactly, so an F9 to the player's
+            // own F5 moment is consistent and that F5 point is kept. The Verbose line
+            // names the dialog merges that used to refresh it; the silent auto-commit
+            // (refreshQuicksaveAfterCommit=false, inside OnLoad) and an interrupted
+            // Re-Fly commit never did.
             if (refreshQuicksaveAfterCommit
                 && reFlyResult != ReFlyMergeCommitResult.Interrupted)
             {
-                RecordingStore.RefreshQuicksaveAfterMerge(
-                    "merge dialog Tree Merge", tree.Recordings.Count);
+                ParsekLog.Verbose("MergeDialog",
+                    "Quicksave not refreshed after merge (the player's F5 point is kept): " +
+                    $"tree='{tree.TreeName}' recordings={tree.Recordings.Count}");
             }
 
             // Switch/Fly segment merge hook: when an active session is armed
