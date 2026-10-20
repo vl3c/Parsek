@@ -106,6 +106,42 @@ quickload also undoes Space Center purchases made after the quicksave". Fix: the
 resume retires untagged Space Center rows after the save UT (the QL-R2 cell flips); rewinds keep
 ruling D2. This also closes O1 of LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY.
 
+## REFLY-WALK-DEADLINE-EXPIRES-CONTRACT-WITHOUT-PENALTY: a committed-future row past an active contract's deadline ends the contract in the walk with no penalty [FILED 2026-10-20, deferred by the section 2.12 phase agents, not re-verified. OPEN, medium]
+
+Section 2.12 Rule 3 judges deadlines at the session clock (`ContractsModule.PrePass`), but
+`ContractsModule.ProcessAction` also runs `CheckDeadlines(action.UT)` on every walked row. When a
+committed row lies past an active contract's deadline while the clock is still before it, the walk
+marks the contract `DeadlineExpired` (slot freed) and no fail row follows, so no penalty is
+charged and the contract leaves the walk's active set early. Same shape in the dominance walks
+(both sides alike, so no false refuse). Fix: judge the walk-time expiry against the same deadline
+clock, or synthesize the penalty with it. Red-first unit cell first.
+
+## REFLY-INVOKE-HOLDS-NOT-REDRAWN-AFTER-RELOAD: the vessels a Re-Fly invoke holds back for the committed future are held in memory only [FILED 2026-10-20, deferred by the section 2.12 phase agents, not re-verified. OPEN, medium]
+
+The invoke hands a vessel the committed future flies or recovers to the claimed-vessel hold, but
+the hold set lives in memory, so after a scene reload inside the session (F9, a scene change) the
+hold ghosts are not redrawn. Fix: persist the session's invoke holds with the marker, or re-derive
+them on load from the rewind point and the committed recordings.
+
+## REFLY-HOLD-FEED-MISSES-DOCK-AND-BOARD: a vessel the committed future only changes (docks with, boards) is not held back at invoke [FILED 2026-10-20, deferred by the section 2.12 phase agents, not re-verified. OPEN, medium]
+
+Section 2.12 Rule 3 holds a vessel a committed recording "flies, changes or recovers" after the
+rewind UT. The invoke's claimed-hold feed covers flies and recovers; a dock or board onto the
+vessel is covered only where the existing ghost-chain claim already claims it. A vessel a later
+committed flight docks with can stay live during the session, so the attempt can change it.
+Fix: feed the dock / board targets of committed recordings after the rewind UT into the hold.
+
+## REFLY-COLD-LOAD-ZOMBIE-KEEPS-ATTEMPT-POOLS: a cold load that sweeps a zombie Re-Fly attempt can keep what the attempt earned in the stock pools [FILED 2026-10-20 from the section 2.12 review fix-up, code read. OPEN, low]
+
+The merge-dialog Discard and the in-session load's second walk after the zombie sweep now patch
+the pools back as an authoritative reduction (`reFlyDiscard`). Two zombie cases still run a
+guarded walk: a cold load (the sweep runs after `OnKspLoad`, and the deferred seed recalc has no
+marker), and an in-session load whose zombie filed no ledger rows (the second walk runs only when
+`LoadTimeSweep.LedgerRowsRemovedByLastRun > 0`). A save written mid-session carries the attempt's
+earnings in its pools, so the drawdown guard keeps them. Both need an invalid or missing marker
+next to a live attempt, which normal play rarely produces. Fix: carry a "zombie attempt discarded"
+signal from the sweep into the next walk.
+
 ## QUICKLOAD-RESTORES-THE-SAVE-EXACTLY: an in-session load keeps Parsek state from after the save that the save itself does not have [FILED 2026-10-19 from the owner ruling and a code audit at 2f9256d. OPEN, needs design; scope ruled 2026-10-19: drop everything after the save]
 
 Owner ruling (V, 2026-10-19): "a quick/load should work exactly as a quickload - restoring the
