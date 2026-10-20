@@ -50,7 +50,7 @@ namespace Parsek.Tests
             KspStatePatcher.SuppressUnityCallsForTesting = true;
             ResetAll();
             RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
-            RewindPointReaper.DeleteQuicksaveForTesting = rpId =>
+            RewindPointReaper.ReleaseQuicksaveForTesting = rpId =>
             {
                 deletedRpIds.Add(rpId);
                 return true;

@@ -48,7 +48,7 @@ namespace Parsek.Tests
             // File delete is a test-only stub that records the rp id and
             // always reports success. Tests that want the failure path
             // override this in the body.
-            RewindPointReaper.DeleteQuicksaveForTesting = rpId =>
+            RewindPointReaper.ReleaseQuicksaveForTesting = rpId =>
             {
                 deletedRpIds.Add(rpId);
                 return true;
@@ -710,10 +710,10 @@ namespace Parsek.Tests
             Assert.Equal(new[] { "rp_1" }, deletedRpIds);
         }
 
-        // ---------- File delete -------------------------------------------
+        // ---------- File release ------------------------------------------
 
         [Fact]
-        public void Reap_DeletesQuicksaveFile_IfExists()
+        public void Reap_ReleasesQuicksaveFile()
         {
             var bp = Bp("bp_1", "rp_1");
             InstallTree("tree_1",
@@ -725,7 +725,7 @@ namespace Parsek.Tests
 
             bool hookCalled = false;
             string seenRpId = null;
-            RewindPointReaper.DeleteQuicksaveForTesting = id =>
+            RewindPointReaper.ReleaseQuicksaveForTesting = id =>
             {
                 hookCalled = true;
                 seenRpId = id;
@@ -740,7 +740,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Reap_FileDeleteFails_LogsWarn_StillReapsEntry()
+        public void Reap_ReleaseFails_LogsWarn_StillReapsEntry()
         {
             var bp = Bp("bp_1", "rp_1");
             InstallTree("tree_1",
@@ -751,7 +751,7 @@ namespace Parsek.Tests
             var scenario = InstallScenario(new List<RewindPoint> { rp });
 
             // Simulate a locked file / IO failure.
-            RewindPointReaper.DeleteQuicksaveForTesting = id =>
+            RewindPointReaper.ReleaseQuicksaveForTesting = id =>
             {
                 throw new System.IO.IOException("simulated locked file");
             };
@@ -765,25 +765,22 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Rewind]")
-                && l.Contains("quicksave delete hook threw")
+                && l.Contains("quicksave release hook threw")
                 && l.Contains("rp=rp_1"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Rewind]")
                 && l.Contains("ReapOrphanedRPs:")
-                && l.Contains("fileDeleteFail=1"));
+                && l.Contains("fileReleaseFail=1"));
         }
 
         /// <summary>
-        /// Coverage cell C-rewind-refly-011-01. Every other cell in this class stubs
-        /// <c>DeleteQuicksaveForTesting</c>, so the real file-system limb of
-        /// TryDeleteQuicksaveFile - resolve, existence check, File.Delete - has never
-        /// been driven. Dropping the delete leaks a quicksave per reaped RP; deleting
-        /// a mis-resolved path destroys an unrelated save file. This cell drives the
-        /// real limb against a temp directory with a sibling file as the blast-radius
-        /// witness.
+        /// Coverage cell C-rewind-refly-011-01, reshaped by design-load-restores-the-save.md
+        /// 4.5: the real release limb (no hook) unlists only. The reaped point's file and its
+        /// sibling both stay on disk; ParsekFileCollector deletes the file once no save lists
+        /// the point.
         /// </summary>
         [Fact]
-        public void TryDeleteQuicksaveFile_ExistingResolvedFile_DeletesIt()
+        public void ReleaseQuicksaveFile_ExistingResolvedFile_LeavesItForCollection()
         {
             string tempDir = System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(),
@@ -792,9 +789,7 @@ namespace Parsek.Tests
 
             try
             {
-                // The fixture installs a recording stub; the real limb only runs when
-                // the hook is absent.
-                RewindPointReaper.DeleteQuicksaveForTesting = null;
+                RewindPointReaper.ReleaseQuicksaveForTesting = null;
                 RewindPointReaper.ResolveQuicksaveAbsolutePathForTesting =
                     id => System.IO.Path.Combine(tempDir, id + ".sfs");
 
@@ -805,15 +800,14 @@ namespace Parsek.Tests
 
                 var rp = Rp("rp_1", "bp_1", sessionProvisional: false, Slot(0, "rec_a"));
 
-                Assert.True(RewindPointReaper.TryDeleteQuicksaveFile(rp));
+                Assert.True(RewindPointReaper.ReleaseQuicksaveFile(rp));
 
-                Assert.False(System.IO.File.Exists(target));
-                Assert.True(System.IO.File.Exists(sibling));
+                Assert.Equal("target quicksave", System.IO.File.ReadAllText(target));
                 Assert.Equal("sibling quicksave", System.IO.File.ReadAllText(sibling));
 
                 Assert.Contains(logLines, l =>
                     l.Contains("[Rewind]")
-                    && l.Contains("Deleted rewind quicksave")
+                    && l.Contains("Rewind quicksave released for collection")
                     && l.Contains("rp=rp_1"));
             }
             finally

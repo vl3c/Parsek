@@ -534,7 +534,7 @@ namespace Parsek.Tests
         {
             // Hard contract: the fix lives at the discard sites and deletes only ids
             // that were IN the discarded set. If this class ever grows a directory
-            // walk it becomes a second, unguarded sweeper next to CleanOrphanFiles.
+            // walk it becomes a second, unguarded sweeper next to ParsekFileCollector.
             string source = ReadProjectSource("DiscardSidecarReap.cs");
             Assert.DoesNotContain("Directory.GetFiles", source);
             Assert.DoesNotContain("Directory.EnumerateFiles", source);
@@ -546,12 +546,13 @@ namespace Parsek.Tests
         public void SweeperZeroKnownGuard_StaysUntouchedByThisFix()
         {
             // Pin: the sweeper's zero-known safety guard is deliberately NOT relaxed.
+            // The sweeper is ParsekFileCollector now (design-load-restores-the-save.md 4.5).
             // (Its behavior is asserted end-to-end by
             // OrphanCleanupSafetyGuardTests.CleanOrphanFiles_RefusesDeletion_*; this
             // cell pins that the guard text still exists after the discard-site fix.)
-            string source = ReadProjectSource("RecordingStore.OrphanCleanup.cs");
+            string source = ReadProjectSource("ParsekFileCollector.cs");
             Assert.Matches(new Regex(
-                @"knownIds\.Count\s*==\s*0", RegexOptions.Multiline), source);
+                @"memoryRecordingIds\s*==\s*0", RegexOptions.Multiline), source);
         }
 
         [Fact]

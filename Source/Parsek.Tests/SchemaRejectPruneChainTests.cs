@@ -26,7 +26,7 @@ namespace Parsek.Tests
     /// or drops the WHOLE tree when the rejected recording was the root;</item>
     /// <item>the next save writes the tree without it, so a reload is a fixed
     /// point;</item>
-    /// <item><see cref="RecordingStore.CleanOrphanFiles"/> later moves the dropped
+    /// <item><see cref="ParsekFileCollector"/> later moves the dropped
     /// recording's now-unreferenced sidecars into the quarantine folder (never
     /// deletes them).</item>
     /// </list>
@@ -246,7 +246,7 @@ namespace Parsek.Tests
 
             Assert.True(File.Exists(PrecPath(MidId)));
             logLines.Clear();
-            RecordingStore.CleanOrphanFiles();
+            ParsekFileCollector.Run("test");
 
             string quarantineDir = Path.Combine(recordingsDir, RecordingStore.OrphanQuarantineDirName);
             Assert.False(File.Exists(PrecPath(MidId)));

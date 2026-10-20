@@ -369,7 +369,7 @@ namespace Parsek.Tests
             HashSet<string> validIds = ParsekScenario.BuildValidRecordingIdsForKspLoad();
             Assert.Contains("rec_active_conflict", validIds);
             Assert.Contains("rec_pending_conflict", validIds);
-            RecordingStore.CleanOrphanFiles();
+            ParsekFileCollector.Run("test");
             Assert.True(File.Exists(pendingPrec));
             Assert.False(File.Exists(orphanPrec));
 
@@ -459,7 +459,7 @@ namespace Parsek.Tests
             var pending = MakeTree("tree_pending_keep", "Pending Keep", "rec_pending_keep");
             RecordingStore.RestorePendingTreeFromSave(pending);
 
-            RecordingStore.CleanOrphanFiles();
+            ParsekFileCollector.Run("test");
 
             Assert.True(File.Exists(keepPrec));
             Assert.False(File.Exists(orphanPrec));

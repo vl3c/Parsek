@@ -6,7 +6,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Tests for bug #290 fix: CleanOrphanFiles must include pending tree
+    /// Tests for bug #290 fix: ParsekFileCollector must include pending tree
     /// recording IDs so that active-tree branch recordings (debris, EVA)
     /// are not deleted as orphans on cold-start resume.
     /// </summary>
@@ -59,7 +59,7 @@ namespace Parsek.Tests
         public void IncludesPendingTreeRecordingIds()
         {
             // Simulate cold-start: TryRestoreActiveTreeNode stashes active tree
-            // into pending slot BEFORE CleanOrphanFiles runs
+            // into pending slot BEFORE ParsekFileCollector runs
             var tree = new RecordingTree
             {
                 Id = "active-tree",
@@ -268,7 +268,7 @@ namespace Parsek.Tests
             // pending source: the save's pending tree preserved while an active-tree
             // restore owns the pending-Limbo slot. Those recordings are in no committed
             // list and not in pendingTree, so dropping this contribution makes
-            // CleanOrphanFiles quarantine their live sidecars mid-restore.
+            // ParsekFileCollector quarantine their live sidecars mid-restore.
             var saved = new RecordingTree { Id = "saved-tree", TreeName = "SavedShip" };
             saved.Recordings["saved-root"] = new Recording
             {
@@ -327,7 +327,7 @@ namespace Parsek.Tests
             WriteTextFile(readme, "keep-me");
 
             logLines.Clear();
-            RecordingStore.CleanOrphanFiles();
+            ParsekFileCollector.Run("test");
 
             Assert.True(File.Exists(keepPrec));
             Assert.True(File.Exists(keepVessel));
@@ -347,8 +347,8 @@ namespace Parsek.Tests
                 recordingsDir, RecordingStore.OrphanQuarantineDirName, "orphan-readable.prec.txt")));
             Assert.True(File.Exists(readme));
             Assert.Contains(logLines, l =>
-                l.Contains("quarantined 1 orphaned recording file(s)")
-                && l.Contains("deleted 4 transient sidecar artifact(s)"));
+                l.Contains("[FileCollector]") && l.Contains("headsQuarantined=1")
+                && l.Contains("transientDeleted=4"));
         }
 
         private string CreateRecordingsDir(string label)

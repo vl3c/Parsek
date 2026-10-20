@@ -749,7 +749,7 @@ namespace Parsek.Tests
                 new List<BranchPoint> { bp });
             var zombieRp = Rp("rp_dead", "bp_1", sessionProvisional: true,
                 creatingSessionId: "sess_dead", slots: new[] { Slot(0, "rec_origin") });
-            RewindPointReaper.DeleteQuicksaveForTesting = id =>
+            RewindPointReaper.ReleaseQuicksaveForTesting = id =>
             {
                 deletedRpIds.Add(id);
                 return true;
@@ -885,7 +885,7 @@ namespace Parsek.Tests
                 new List<BranchPoint> { bp });
             var zombieRp = Rp("rp_dead", "bp_1", sessionProvisional: true,
                 creatingSessionId: "sess_dead", slots: new[] { Slot(0, "rec_origin") });
-            RewindPointReaper.DeleteQuicksaveForTesting = id =>
+            RewindPointReaper.ReleaseQuicksaveForTesting = id =>
             {
                 deletedRpIds.Add(id);
                 return true;
@@ -922,7 +922,7 @@ namespace Parsek.Tests
                 slots: new[] { Slot(0, "rec_origin") });
             var marker = Marker("sess_1", "tree_1", "rec_active_fork", "rec_origin", "rp_1");
             marker.InPlaceContinuation = true;
-            RewindPointReaper.DeleteQuicksaveForTesting = id =>
+            RewindPointReaper.ReleaseQuicksaveForTesting = id =>
             {
                 deletedRpIds.Add(id);
                 return true;

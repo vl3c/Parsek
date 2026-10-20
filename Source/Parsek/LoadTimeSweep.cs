@@ -1566,7 +1566,7 @@ namespace Parsek
                 if (rp == null) continue;
                 if (rp.RewindPointId == null || !ids.Contains(rp.RewindPointId)) continue;
 
-                RewindPointReaper.TryDeleteQuicksaveFile(rp);
+                RewindPointReaper.ReleaseQuicksaveFile(rp);
                 scenario.RewindPoints.RemoveAt(i);
                 RecordingsTableUI.ClearRewindSlotCanInvokeLogState(rp.RewindPointId);
                 RewindPointReaper.ClearBranchPointBackref(rp);

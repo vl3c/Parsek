@@ -2447,7 +2447,7 @@ namespace Parsek
         /// and the live active tree (the s11 evidence case — the zombie was
         /// reachable only from <see cref="ParsekFlight.ActiveTreeForSerialization"/>).
         /// Sidecar files on disk are also removed so a future
-        /// <c>CleanOrphanFiles</c> pass does not warn about them.
+        /// <c>ParsekFileCollector</c> pass does not warn about them.
         /// </para>
         ///
         /// <para>

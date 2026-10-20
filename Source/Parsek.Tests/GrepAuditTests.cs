@@ -62,6 +62,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GrepAudit_OnlyTheCollectorDeletesParsekFiles()
+        {
+            RunGrepAuditScript("grep-audit-parsek-file-deletes.ps1", RunManagedParsekFileDeletesAudit);
+        }
+
+        [Fact]
+        public void ParsekFileDeletes_PlantedDeleteUnderRecordings_IsRed()
+        {
+            // The gate's own red: a delete planted in an unlisted file, and a second delete
+            // planted in a pinned file (its count moves), both fail; the unplanted tree passes.
+            string repoRoot = ResolveRepoRoot();
+            string[] allowlist = File.ReadAllLines(
+                Path.Combine(repoRoot, "scripts", "parsek-file-deletes-allowlist.txt"));
+            var files = LoadParsekSourceFiles(repoRoot);
+            Assert.Empty(ParsekFileDeleteViolations(allowlist, files));
+
+            var planted = new Dictionary<string, string[]>(files, StringComparer.OrdinalIgnoreCase);
+            planted["Source/Parsek/MissionStore.cs"] = new[]
+            {
+                "string p = RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildTrajectoryRelativePath(id));",
+                "File.Delete(p);",
+            };
+            var unlisted = ParsekFileDeleteViolations(allowlist, planted);
+            Assert.Contains(unlisted, v => v.StartsWith("Source/Parsek/MissionStore.cs:2:", StringComparison.Ordinal));
+
+            var pinned = new Dictionary<string, string[]>(files, StringComparer.OrdinalIgnoreCase);
+            var recorder = new List<string>(pinned["Source/Parsek/FlightRecorder.cs"]);
+            recorder.Add("System.IO.File.Delete(RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildRewindSaveRelativePath(name)));");
+            pinned["Source/Parsek/FlightRecorder.cs"] = recorder.ToArray();
+            var moved = ParsekFileDeleteViolations(allowlist, pinned);
+            Assert.Contains(moved, v => v.Contains("Source/Parsek/FlightRecorder.cs: pinned 2"));
+        }
+
+        [Fact]
         public void GrepAudit_GuiMockWriteSetIsUiOnly()
         {
             RunGrepAuditScript("grep-audit-gui-mock-writeset.ps1", RunManagedGuiMockWriteSetAudit);
@@ -287,6 +321,123 @@ namespace Parsek.Tests
                     + "pin from HighLogic.Awake is PER-THREAD, so code on any other thread formats ParsekLog "
                     + "output under the OS culture. See the InvariantCulture rule under 'KSP API & code "
                     + "gotchas' in .claude/CLAUDE.md.");
+        }
+
+        internal static readonly string[] ParsekFileDeleteTokens =
+        {
+            "File.Delete(",
+            "File.Move(",
+            "File.Replace(",
+            "Directory.Delete(",
+        };
+
+        private static Dictionary<string, string[]> LoadParsekSourceFiles(string repoRoot)
+        {
+            string sourceRoot = Path.Combine(repoRoot, "Source", "Parsek");
+            Assert.True(Directory.Exists(sourceRoot), "source root not found: " + sourceRoot);
+            string repoRootNorm = repoRoot.Replace('\\', '/');
+            var files = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+            foreach (string path in Directory.EnumerateFiles(sourceRoot, "*.cs", SearchOption.AllDirectories))
+            {
+                string rel = path.Replace('\\', '/');
+                if (rel.StartsWith(repoRootNorm, StringComparison.OrdinalIgnoreCase))
+                    rel = rel.Substring(repoRootNorm.Length).TrimStart('/');
+                files[rel] = File.ReadAllLines(path);
+            }
+            return files;
+        }
+
+        /// <summary>
+        /// Managed mirror of <c>scripts/grep-audit-parsek-file-deletes.ps1</c>, pure over the
+        /// allowlist lines and the (repo-relative path, raw lines) set: an unlisted file with a
+        /// hit, a pinned file whose count differs, and a pinned entry with no hits are
+        /// violations. Owner entries and directory prefixes allow any count.
+        /// </summary>
+        internal static List<string> ParsekFileDeleteViolations(
+            IEnumerable<string> allowlistLines, IDictionary<string, string[]> files)
+        {
+            var owners = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var pins = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var prefixes = new List<string>();
+            var violations = new List<string>();
+            foreach (string rawLine in allowlistLines)
+            {
+                string entry = rawLine.Trim();
+                if (entry.Length == 0 || entry.StartsWith("#", StringComparison.Ordinal))
+                    continue;
+                string[] parts = entry.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                string path = parts[0].Replace('\\', '/');
+                if (parts.Length > 2)
+                {
+                    violations.Add("bad allowlist entry: " + entry);
+                    continue;
+                }
+                if (path.EndsWith("/", StringComparison.Ordinal))
+                    prefixes.Add(path);
+                else if (parts.Length == 2)
+                {
+                    if (int.TryParse(parts[1], out int n)) pins[path] = n;
+                    else violations.Add("bad allowlist count: " + entry);
+                }
+                else
+                    owners.Add(path);
+            }
+
+            var filesWithHits = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kvp in files.OrderBy(k => k.Key, StringComparer.Ordinal))
+            {
+                string rel = kvp.Key;
+                var hits = new List<string>();
+                string[] lines = kvp.Value;
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    foreach (string token in ParsekFileDeleteTokens)
+                    {
+                        if (lines[i].IndexOf(token, StringComparison.Ordinal) >= 0)
+                        {
+                            hits.Add(string.Format("{0}:{1}: {2}", rel, i + 1, lines[i].Trim()));
+                            break;
+                        }
+                    }
+                }
+                if (hits.Count == 0)
+                    continue;
+                filesWithHits.Add(rel);
+                if (owners.Contains(rel) || prefixes.Any(p => rel.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                if (pins.TryGetValue(rel, out int pin))
+                {
+                    if (pin != hits.Count)
+                    {
+                        violations.Add(string.Format(
+                            "{0}: pinned {1} delete-family hit(s), found {2}", rel, pin, hits.Count));
+                        violations.AddRange(hits.Select(h => "  " + h));
+                    }
+                    continue;
+                }
+                violations.AddRange(hits);
+            }
+
+            foreach (var kvp in pins)
+            {
+                if (!filesWithHits.Contains(kvp.Key))
+                    violations.Add(string.Format(
+                        "{0}: pinned {1} delete-family hit(s), found 0 (stale entry)", kvp.Key, kvp.Value));
+            }
+            return violations;
+        }
+
+        private static void RunManagedParsekFileDeletesAudit(string repoRoot)
+        {
+            string allowlistPath = Path.Combine(repoRoot, "scripts", "parsek-file-deletes-allowlist.txt");
+            Assert.True(File.Exists(allowlistPath), "allowlist not found: " + allowlistPath);
+            var files = LoadParsekSourceFiles(repoRoot);
+            var violations = ParsekFileDeleteViolations(File.ReadAllLines(allowlistPath), files);
+            Assert.True(violations.Count == 0,
+                "managed Parsek-file delete audit failed. Only ParsekFileCollector deletes files under "
+                    + "Parsek/Recordings, Parsek/RewindPoints or Parsek/Saves (design-load-restores-the-save.md "
+                    + "4.5); route the delete through the collector, or re-read the site and update its pin.\n"
+                    + string.Join("\n", violations));
         }
 
         // Shared allowlist-audit walk mirroring both scripts' semantics: scan
