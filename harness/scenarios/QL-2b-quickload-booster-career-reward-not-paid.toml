@@ -1,5 +1,18 @@
 schema = 1
 id = "QL-2b-quickload-booster-career-reward-not-paid"
+# RESHAPED 2026-10-20 FOR "LOAD RESTORES THE SAVE" PHASE 2 (design
+# docs/dev/design-load-restores-the-save.md 4.1 / 4.3 / 5 S1 / 8; plan Phase 2 step 7). NOT
+# FLOWN in this shape. The F9 carries `playerLoad=true`, a Cold save-file load. Nothing is
+# purged, spliced, pruned or retired any more: the quicksave was written before the EVA, so
+# its GAME_STATE node holds no SurfaceEVA event and no milestone row, its tree has no EVA
+# branch, and the in-flight commit (with the clone the recorder resumed on the EVA kerbal)
+# is dropped by the session reset. The F5 sidecar bytes resolve from `_versions` (CommitTree's
+# flush replaced the heads) and are promoted; the resume reconcile skips by policy
+# (kind=Cold). OUTCOME unchanged: the milestone is never credited after the F9 (the control
+# still credits the pre-F5 FirstLaunch), no funds uplift, no EVA kerbal in the replay, and
+# the booster is recorded again and commits Landed. THE MECHANISM UNDER TEST below describes
+# the in-session route this lane flew before Phase 2; kept as history, this block is
+# authoritative.
 # =====================================================================================
 # QL-2b: AN F9 BACK INTO A FLIGHT COMMITTED IN FLIGHT AFTER THE F5 RE-RECORDS THE
 # BOOSTER AND DOES NOT PAY A REWARD EARNED IN THE ABANDONED FUTURE. The whole manual F9
@@ -136,7 +149,7 @@ id = "QL-2b-quickload-booster-career-reward-not-paid"
 # until a reading run.
 # =====================================================================================
 tier = "nightly"
-description = "QL-2b: QL-4's in-flight F9 in a career. GS-1's two-stage hop in career-gs1-two-stage-pad: F5 with the booster under canopy, fly on, Valentina EVAs onto Kerbin's surface (stock pays the SurfaceEVA milestone, booked to the pod's recording at the in-flight commit), then F9 back into the quicksave. The reconcile purges the tagged events and retires the milestone row, no later recalc credits it or patches its funds back, the abandoned EVA branch is pruned, and the booster is recorded again and commits Landed."
+description = "QL-2b: QL-4's in-flight F9 in a career. GS-1's two-stage hop in career-gs1-two-stage-pad: F5 with the booster under canopy, fly on, Valentina EVAs onto Kerbin's surface (stock pays the SurfaceEVA milestone, booked to the pod's recording at the in-flight commit), then the player's F9 back into the quicksave, a Cold save-file load. The save's own ledger has no milestone row and its tree no EVA branch, no recalc credits the milestone or patches its funds back, and the booster is recorded again and commits Landed."
 instanceProfile = "stock-minimal"
 tags = ["QL-2b", "TA-2", "TA-3", "TA-4", "quickload", "timeline-ops", "career", "GS1",
         "staging", "controlled-child", "eva", "milestone", "ledger", "in-flight-commit",
@@ -173,9 +186,9 @@ steps = [
   { cmd = "CommitTree",                                                                expect = "OK", budget = 120 },
   # CommitTree auto-resumes a recorder on the still-active vessel (here the EVA kerbal).
   { cmd = "StopRecording",                                                             expect = "OK" },
-  # THE F9, in FLIGHT (refined load kind QuickloadFlight). No live recorder, so the
-  # dispatch `recording-active` guard admits it.
-  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave" },        expect = "OK", budget = 300 },
+  # THE F9, in FLIGHT: the player's load of the quicksave (playerLoad=true), a Cold
+  # save-file load. No live recorder, so the dispatch `recording-active` guard admits it.
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
   # inert-wait: frames only, no game time. RestoreActiveTreeFromPending runs from
   # OnFlightReady and may wait for the active vessel; read the background map after it.
   { cmd = "RecordingState",                                                            expect = "OK" },
@@ -277,44 +290,29 @@ required = [
   # The abandoned future's booster ending: committed while still under canopy.
   "FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='GS1 Auto-Chute Booster Probe' points=[1-9][0-9]* orbitSegs=0 terminal=SubOrbital",
 
-  # GROUP 3 - THE F9 REACHES THE QUICKLOAD RESUME (QL-4's route).
-  "loadgame start save=\\S+ name=quicksave scene=FLIGHT requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false",
-  "Load classified: early=InSession refined=QuickloadFlight scene=FLIGHT initialLoadDone=true rewinding=false reFlyInvoke=false discardReFly=none",
-  "\\[Scenario\\] Quickload committed-copy restore: tree='GS1 Auto-Chute Booster' id=\\S+ route=in-flight action=ResumeFromQuicksave reason=committed-after-quicksave ",
-  # The committed copy's EVA children reach the loaded tree (spliced) before the detach.
-  "SpliceMissingCommittedRecordings: tree 'GS1 Auto-Chute Booster' \\(id=\\S+\\) loadedBefore=[0-9]+ committed=[0-9]+ after=[0-9]+ splicedRecordings=[0-9]+ refreshedRecordings=[1-9][0-9]* ",
-  "TryRestoreActiveTreeNode: removed committed tree 'GS1 Auto-Chute Booster' \\(id=\\S+, [1-9][0-9]* recording\\(s\\)\\)",
-  "OnLoad: pending-Limbo tree 'GS1 Auto-Chute Booster' deferred to OnFlightReady for quickload-resume",
-  # The resume trim prunes the abandoned EVA branch: its children and its branch point.
-  "Quickload tree trim: tree='GS1 Auto-Chute Booster' cutoffUT=[0-9.]+ trimmedRecordings=[0-9]+/[0-9]+ prunedFutureRecordings=[1-9][0-9]* prunedBranchPoints=[1-9][0-9]* ",
-  "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide",
+  # GROUP 3 - THE F9 IS A SAVE-FILE LOAD (design 4.1).
+  "loadgame start save=\\S+ name=quicksave scene=FLIGHT requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false playerLoad=true",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave route=Focusable",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*\\[LoadPolicy\\] Save-file load intent armed: nodeUT=[0-9.]+ scene=FLIGHT",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
+  "loadgame player-load: firing [\\s\\S]*Sidecar version resolved: rec=[0-9a-f]{32} kind=prec hash=[0-9a-f]{16} source=version promoted=True",
+  # No committed copy in the save, nothing spliced from or detached out of one.
+  "loadgame player-load: firing [\\s\\S]*Quickload committed-copy restore skipped: tree='GS1 Auto-Chute Booster' id=\\S+ reason=no-committed-copy staleMembers=0",
+  "OnLoad: cold-start active tree detected \\(state=Limbo\\) . deferred to OnFlightReady as Quickload",
+  "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide [^\\r\\n]*\\bloadKind=Cold\\b",
   "RestoreActiveTreeFromPending: resumed recording tree 'GS1 Auto-Chute Booster' activeRec='[0-9a-f]{32}'",
 
   # =================================================================================
-  # THE GATE - THE ABANDONED REWARD IS PURGED AND RETIRED
-  # (ParsekScenario.TrimAndReconcileForQuickloadResume, ParsekScenario.Trim.cs):
-  #   `[Scenario] Quickload abandoned-future reconcile: tree='<n>' kind=<LoadKind>
-  #   scope=<scope> cutoffUT=<R> loadedUT=<R> trimmed=N pruned=N endStatesCleared=N
-  #   eventsPurged=N ledgerRowsRetired=N (afterCutoff=N kerbalAssignment=N
-  #   prunedRecording=N) skippedCommitted=N skippedQuicksaveHistory=N ... quicksaveFacts=..`
-  # (PR #2049 appends ` mergeStatesReset=N`; every field is read through a lookahead and
-  # nothing anchors at the line end.) Pinned: an in-flight F9 (QuickloadFlight, TreeWide),
-  # the EVA branch pruned (pruned >= 1), the booster's ending cleared (endStatesCleared
-  # >= 1), the TAGGED events purged (eventsPurged >= 1: the sandbox QL-4 family read 0,
-  # and QL-2's payout is captured untagged at the Space Center, so this is TA-2's first
-  # live purge), and the milestone row retired AS AFTER-CUTOFF (the sandbox lanes read
-  # afterCutoff=0), nothing skipped as still committed.
-  "\\[Scenario\\] Quickload abandoned-future reconcile: tree='GS1 Auto-Chute Booster' (?=.*\\bkind=QuickloadFlight\\b)(?=.*\\bscope=TreeWide\\b)(?=.*\\bpruned=[1-9][0-9]*\\b)(?=.*\\bendStatesCleared=[1-9][0-9]*\\b)(?=.*\\beventsPurged=[1-9][0-9]*\\b)(?=.*\\bledgerRowsRetired=[1-9][0-9]* \\(afterCutoff=[1-9][0-9]* )(?=.*\\bskippedCommitted=0\\b)",
-  # GameStateStore.PurgeEventsForRecordingAfterUT (the pod's events after the cutoff) or,
-  # if a split re-tagged them, PurgeEventsForRecordings (a pruned recording's).
-  "PurgeEventsForRecording(?:AfterUT \\(quickload-abandoned-future\\): rec=[0-9a-f]{32} cutoffUT=\\S+ live=(?:[1-9][0-9]*, milestone=[0-9]+|0, milestone=[1-9])|s \\(quickload-abandoned-future\\): live=[1-9])",
-  "RetireAbandonedFutureActions: removed [1-9][0-9]* action\\(s\\) reason=quickload-abandoned-future total=[0-9]+",
-  # The booster's leaked SubOrbital is the ending cleared (QL-4's per-recording line).
-  "Quickload abandoned-future end state cleared: rec=[0-9a-f]{32} previousTerminal=SubOrbital preTrimEndUT=\\S+",
-  # THE CONTROL that makes the forbidden walk tokens below mean something: the ledger IS
-  # walked after the retire (the reconcile's own recalc and the exit commit's), and the
-  # walk still credits the pre-F5 FirstLaunch milestone of the same pod recording.
-  "RetireAbandonedFutureActions: removed [1-9][0-9]* action\\(s\\) reason=quickload-abandoned-future[\\s\\S]*Credited milestone 'FirstLaunch' at UT=[0-9.]+ \\(recording=[0-9a-f]{32}, ",
+  # THE GATE - THE ABANDONED REWARD IS NOT IN THE SAVE. The ledger, events and milestones
+  # are the quicksave's GAME_STATE (the f9 block's `ledgerRows=` line), written before the
+  # EVA; the resume reconcile has nothing to do and skips by policy.
+  "\\[Scenario\\] Quickload abandoned-future reconcile skipped: tree='GS1 Auto-Chute Booster' kind=Cold scope=TreeWide reason=policy",
+  # THE CONTROL that makes the forbidden walk tokens below mean something: the save's ledger
+  # IS walked after the load (the cold load's recalc and the exit commit's), and the walk
+  # still credits the pre-F5 FirstLaunch milestone of the pod recording.
+  "loadgame player-load: firing [\\s\\S]*OnLoad game state from save node: [\\s\\S]*Credited milestone 'FirstLaunch' at UT=[0-9.]+ \\(recording=[0-9a-f]{32}, ",
   # END GATE
   # =================================================================================
 
@@ -329,25 +327,31 @@ required = [
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
+  # THE OLD IN-SESSION MACHINERY (design 8), unreachable on a save-file load: no splice
+  # from, or detach of, a committed copy, no reconcile purge or retire.
+  "loadgame player-load: firing [\\s\\S]*Load classified: early=InSession refined=QuickloadFlight",
+  "Quickload committed-copy restore: tree='GS1 Auto-Chute Booster'",
+  "loadgame player-load: firing [\\s\\S]*SpliceMissingCommittedRecordings: tree 'GS1 Auto-Chute Booster' [^\\r\\n]*(?:splicedRecordings=[1-9]|refreshedRecordings=[1-9])",
+  "loadgame player-load: firing [\\s\\S]*TryRestoreActiveTreeNode: removed committed tree 'GS1 Auto-Chute Booster'",
+  "\\[Scenario\\] Quickload abandoned-future reconcile: tree='GS1 Auto-Chute Booster'",
+  "RetireAbandonedFutureActions: removed [1-9][0-9]* action\\(s\\) reason=quickload-",
+  "PurgeEventsForRecording(?:AfterUT|s) \\(quickload-abandoned-future\\)",
   # The F9 must reach the resume (QL-4 / QL-4b's defect shapes).
   "dropped entire tree 'GS1 Auto-Chute Booster'",
   "TryRestoreActiveTreeNode: skipped active tree 'GS1 Auto-Chute Booster'",
   "Quickload resume prep skipped",
-  "Quickload committed-copy restore: tree='GS1 Auto-Chute Booster' id=\\S+ route=\\S+ action=Unchanged",
   "keeping in-memory pending tree 'GS1 Auto-Chute Booster'",
-  "Quickload abandoned-future reconcile skipped: tree='GS1 Auto-Chute Booster'",
   # THE BOOSTER LEAK, three ways (QL-4's pre-fix readings).
   "RestoreActiveTreeFromPending: attached BackgroundRecorder for tree 'GS1 Auto-Chute Booster' \\(0 background entry\\(ies\\)\\)",
   "listhandles kind=active count=0 truncated=false",
   "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='GS1 Auto-Chute Booster Probe' points=[0-9]+ orbitSegs=0 terminal=SubOrbital",
   # THE ABANDONED EVA MUST NOT REACH THE REPLAY: no kerbal recording at the final commit.
   "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='Valentina Kerman'",
-  # THE REWARD MUST NOT BE PAID AGAIN. From the retire on, no walk credits the milestone
-  # or counts its funds (the walk lines between the F9 and the retire still read the old
-  # ledger, so these anchor on the retire line, which precedes the reconcile's recalc).
-  "RetireAbandonedFutureActions: removed [0-9]+ action\\(s\\) reason=quickload-abandoned-future[\\s\\S]*Credited milestone 'Kerbin/SurfaceEVA'",
-  "RetireAbandonedFutureActions: removed [0-9]+ action\\(s\\) reason=quickload-abandoned-future[\\s\\S]*Milestone funds: \\+[0-9.]+, actionId=\\S+, milestoneId=Kerbin/SurfaceEVA,",
-  "RetireAbandonedFutureActions: removed [0-9]+ action\\(s\\) reason=quickload-abandoned-future[\\s\\S]*GUARDED (?:UPLIFT|DRAWDOWN) clamped resource=Funds",
+  # THE REWARD MUST NOT BE PAID AGAIN. From the save's ledger read on, no walk credits the
+  # milestone or counts its funds, and nothing clamps the funds pool.
+  "loadgame player-load: firing [\\s\\S]*OnLoad game state from save node: [\\s\\S]*Credited milestone 'Kerbin/SurfaceEVA'",
+  "loadgame player-load: firing [\\s\\S]*OnLoad game state from save node: [\\s\\S]*Milestone funds: \\+[0-9.]+, actionId=\\S+, milestoneId=Kerbin/SurfaceEVA,",
+  "loadgame player-load: firing [\\s\\S]*OnLoad game state from save node: [\\s\\S]*GUARDED (?:UPLIFT|DRAWDOWN) clamped resource=Funds",
   # After the F9 nothing books the milestone again, re-marks the stock node, or lifts the
   # funds pool off the quicksave's (a positive delta is the abandoned reward paid).
   "loadgame start save=\\S+ name=quicksave [\\s\\S]*Game state: MilestoneAchieved 'Kerbin/SurfaceEVA'",
