@@ -487,7 +487,25 @@ namespace Parsek.Tests
             Assert.True(File.Exists(head), "expected kept: " + head);
             Assert.True(File.Exists(version), "expected kept: " + version);
             Assert.True(File.Exists(rp), "expected kept: " + rp);
-            Assert.Contains(logLines, l => l.Contains("[FileCollector]") && l.Contains("REFUSING to delete"));
+            Assert.Contains(logLines, l => l.Contains("[WARN][FileCollector]") && l.Contains("REFUSING to delete"));
+        }
+
+        [Fact]
+        public void Collect_EmptyMemory_ReferrerNamesTheHead_RunsWithoutWarn_AndKeepsTheHead()
+        {
+            // An F9 (a cold load) to a save made before any flight was recorded: memory holds
+            // no recording, but persistent.sfs names the head on disk. Not lost tree state.
+            string dir = NewSaveDir("empty-memory");
+            Write(dir, "persistent.sfs", ParsekScenarioText(RecordingNode("r1")));
+            string head = Write(dir, "Parsek/Recordings/r1.prec");
+
+            var result = ParsekFileCollector.Run("test", null);
+
+            Assert.True(result.Ran);
+            Assert.Null(result.SkipReason);
+            Assert.True(File.Exists(head), "expected kept: " + head);
+            Assert.Equal(0, result.HeadsQuarantined);
+            Assert.DoesNotContain(logLines, l => l.Contains("[WARN][FileCollector]"));
         }
 
         [Fact]

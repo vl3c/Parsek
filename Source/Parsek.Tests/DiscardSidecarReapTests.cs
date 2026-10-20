@@ -550,9 +550,11 @@ namespace Parsek.Tests
             // (Its behavior is asserted end-to-end by
             // OrphanCleanupSafetyGuardTests.CleanOrphanFiles_RefusesDeletion_*; this
             // cell pins that the guard text still exists after the discard-site fix.)
+            // The guard reads the union of every referrer's ids and memory's, so a load of a
+            // save made before any flight was recorded (memory empty) is not refused.
             string source = ReadProjectSource("ParsekFileCollector.cs");
             Assert.Matches(new Regex(
-                @"memoryRecordingIds\s*==\s*0", RegexOptions.Multiline), source);
+                @"references\.RecordingIds\.Count\s*==\s*0", RegexOptions.Multiline), source);
         }
 
         [Fact]

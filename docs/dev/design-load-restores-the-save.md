@@ -397,11 +397,13 @@ reading:
 3. Otherwise `_versions/<id>.<hash><suffix>` exists: read it. Then promote it to head when exactly
    one node of the loaded save names this recording id (a recording named by both the active and
    a committed tree, or by two pending slots, is read from the version and not promoted, logged).
-   A promote is file moves only: the current head is hashed and moved to
-   `_versions/<id>.<headHash><suffix>` (deleted instead when that target exists, identical bytes),
-   then the version moves into the head position. Every promoted head again matches the save the
-   game is running from, so the offline tools read the right file. A promote that fails leaves
-   the recording reading from the version path, logged.
+   A promote is one commit batch over all of the recording's version-sourced kinds: each version
+   is copied to a staged file, the copy replaces the head, and the current head is hashed and
+   moved to `_versions/<id>.<headHash><suffix>` (deleted instead when that target exists,
+   identical bytes). Only after every kind committed are the version files deleted, so a failure
+   anywhere, the batch's own rollback included, never consumes a version. Every promoted head
+   again matches the save the game is running from, so the offline tools read the right file. A
+   promote that fails leaves the recording reading from the version path, logged.
 4. Neither exists: the same failure today's stale or missing sidecar produces
    (`stale-sidecar-epoch` / `trajectory-missing`), with a reason naming the hash.
 
@@ -447,6 +449,12 @@ directories outside an allowlist naming the collector, the commit batch and the 
 read recordings from memory, never through the rewind file's own node (VERIFY V5 in the plan).
 `Backup/*.sfs` are referrers so a player who restores one of KSP's backup quicksaves finds its
 files. A `.sfs` with no `ParsekScenario` node is a valid referrer that names nothing.
+
+**Nothing names any recording.** When the reference set holds no recording id at all (no referrer
+and no memory recording) while heads exist on disk, the run touches nothing and Warns
+(`reason=zero-known-ids`): that is the "load lost its tree state" fingerprint. Memory alone is no
+test, since a load of a save made before any flight was recorded holds no recording while the
+save names its heads.
 
 **Unreadable referrers fail closed.** A referrer that cannot be opened (locked, I/O error) or
 whose Parsek node cannot be scanned (truncated mid-node, unbalanced braces) stops the whole

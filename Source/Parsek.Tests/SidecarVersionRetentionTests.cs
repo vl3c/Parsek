@@ -431,6 +431,86 @@ namespace Parsek.Tests
                 && l.Contains("reason=promote-failed"));
         }
 
+        /// <summary>
+        /// Writes <paramref name="bytes"/> as the retained version of one kind and returns
+        /// its resolution (the save names that hash, the head holds other bytes or nothing).
+        /// </summary>
+        private SidecarResolution WriteVersion(string id, SidecarKind kind, byte[] bytes, string headPath)
+        {
+            string hash = SidecarContentHash.Compute(bytes);
+            Directory.CreateDirectory(versionsDir);
+            File.WriteAllBytes(Path.Combine(versionsDir, SidecarVersions.VersionFileName(id, hash, kind)), bytes);
+            SidecarResolution r = SidecarVersionResolution.Resolve(headPath, id, kind, hash);
+            Assert.Equal(SidecarResolveSource.Version, r.Source);
+            return r;
+        }
+
+        [Fact]
+        public void TryPromote_LaterChangeFails_KeepsVersionBytesAtTheReadPath_AndTheOldHead()
+        {
+            byte[] a = System.Text.Encoding.ASCII.GetBytes("head bytes A");
+            byte[] b = System.Text.Encoding.ASCII.GetBytes("version bytes B");
+            byte[] d = System.Text.Encoding.ASCII.GetBytes("vessel version bytes D");
+            File.WriteAllBytes(PrecPath("pf1"), a);
+            SidecarResolution prec = WriteVersion("pf1", SidecarKind.Prec, b, PrecPath("pf1"));
+            // The vessel head path is a directory, so the second change throws.
+            Directory.CreateDirectory(VesselPath("pf1"));
+            SidecarResolution vessel = WriteVersion("pf1", SidecarKind.Vessel, d, VesselPath("pf1"));
+
+            Assert.False(SidecarVersionResolution.TryPromote(
+                "pf1", new List<SidecarResolution> { prec, vessel }, out string failure));
+            Assert.NotNull(failure);
+
+            // Not promoted: the recording reads the version paths, which still hold B and D.
+            Assert.Equal(prec.VersionPath, prec.ReadPath);
+            Assert.Equal(b, File.ReadAllBytes(prec.ReadPath));
+            Assert.Equal(d, File.ReadAllBytes(vessel.ReadPath));
+            // The old head is still retained in the head position.
+            Assert.Equal(a, File.ReadAllBytes(PrecPath("pf1")));
+            Assert.True(Directory.Exists(VesselPath("pf1")));
+        }
+
+        [Fact]
+        public void TryPromote_NoHead_LaterChangeFails_KeepsVersionBytes_AndCreatesNoHead()
+        {
+            byte[] b = System.Text.Encoding.ASCII.GetBytes("version bytes B");
+            byte[] d = System.Text.Encoding.ASCII.GetBytes("vessel version bytes D");
+            SidecarResolution prec = WriteVersion("pf2", SidecarKind.Prec, b, PrecPath("pf2"));
+            Directory.CreateDirectory(VesselPath("pf2"));
+            SidecarResolution vessel = WriteVersion("pf2", SidecarKind.Vessel, d, VesselPath("pf2"));
+
+            Assert.False(SidecarVersionResolution.TryPromote(
+                "pf2", new List<SidecarResolution> { prec, vessel }, out string _));
+
+            Assert.Equal(b, File.ReadAllBytes(prec.ReadPath));
+            Assert.Equal(d, File.ReadAllBytes(vessel.ReadPath));
+            Assert.False(File.Exists(PrecPath("pf2")));
+        }
+
+        [Fact]
+        public void TryPromote_Success_MovesEveryVersionToHead_AndRetainsTheOldHead()
+        {
+            byte[] a = System.Text.Encoding.ASCII.GetBytes("head bytes A");
+            byte[] b = System.Text.Encoding.ASCII.GetBytes("version bytes B");
+            byte[] d = System.Text.Encoding.ASCII.GetBytes("vessel version bytes D");
+            File.WriteAllBytes(PrecPath("pf3"), a);
+            SidecarResolution prec = WriteVersion("pf3", SidecarKind.Prec, b, PrecPath("pf3"));
+            SidecarResolution vessel = WriteVersion("pf3", SidecarKind.Vessel, d, VesselPath("pf3"));
+
+            Assert.True(SidecarVersionResolution.TryPromote(
+                "pf3", new List<SidecarResolution> { prec, vessel }, out string _));
+
+            Assert.Equal(b, File.ReadAllBytes(PrecPath("pf3")));
+            Assert.Equal(d, File.ReadAllBytes(VesselPath("pf3")));
+            Assert.False(File.Exists(prec.VersionPath));
+            Assert.False(File.Exists(vessel.VersionPath));
+            Assert.True(File.Exists(Path.Combine(versionsDir,
+                SidecarVersions.VersionFileName("pf3", SidecarContentHash.Compute(a), SidecarKind.Prec))));
+            // Nothing transient is left behind.
+            Assert.DoesNotContain(Directory.GetFiles(recordingsDir), f => f.Contains(".stage."));
+            Assert.DoesNotContain(VersionFiles(), f => f.Contains(SidecarVersions.IncomingMarker));
+        }
+
         [Fact]
         public void ColdLoad_NamedHashMissingEverywhere_FailsAndKeepsNamedHash()
         {

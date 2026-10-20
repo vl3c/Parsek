@@ -173,7 +173,6 @@ namespace Parsek
 
             // 2. Memory.
             SaveReferences memory = BuildMemoryReferences(scenario);
-            int memoryRecordingIds = memory.RecordingIds.Count;
             references.UnionWith(memory);
             var extra = ExtraMemoryReferencesForTesting;
             if (extra != null)
@@ -182,17 +181,19 @@ namespace Parsek
             string recordingsDir = Path.Combine(saveDir, "Parsek", "Recordings");
             string versionsDir = Path.Combine(recordingsDir, SidecarVersions.VersionsDirName);
 
-            // Second guard (the old CleanOrphanFiles refusal): memory names no recording but
-            // heads exist. That is the "load lost its tree state" fingerprint; touch nothing.
-            if (memoryRecordingIds == 0)
+            // Second guard (the old CleanOrphanFiles refusal): neither memory nor any save file
+            // names a recording but heads exist. That is the "load lost its tree state"
+            // fingerprint; touch nothing. Memory alone is no test: a load of a save made
+            // before any flight was recorded holds 0 recordings while the save names its heads.
+            if (references.RecordingIds.Count == 0)
             {
                 int diskIds = CountHeadIds(recordingsDir, out int fileCount);
                 if (diskIds > 0)
                 {
                     result.SkipReason = "zero-known-ids";
                     ParsekLog.Warn(Tag,
-                        $"Collection skipped reason=zero-known-ids: REFUSING to delete - memory reports " +
-                        $"0 known recording IDs but disk has {diskIds} sidecar-shaped recording ID(s) " +
+                        $"Collection skipped reason=zero-known-ids: REFUSING to delete - memory and every save " +
+                        $"file report 0 known recording IDs but disk has {diskIds} sidecar-shaped recording ID(s) " +
                         $"({fileCount} file(s) total). This usually means the scenario load lost its tree " +
                         $"state. Files preserved so the save can be restored from quicksave.sfs or a backup.");
                     return result;

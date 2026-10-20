@@ -462,9 +462,14 @@ namespace Parsek
 
         /// <summary>
         /// Promotes every version-sourced sidecar of one recording to head in ONE commit
-        /// batch: each current head is retained under its own hash (dropped when that
-        /// version already exists) and the version moves into the head position. On any
-        /// failure the batch rolls back and the caller keeps reading from the version paths.
+        /// batch: each version is COPIED to a staged file next to its head, the batch moves
+        /// the copies into the head positions (each current head retained under its own hash,
+        /// dropped when that version already exists), and only after the whole batch
+        /// committed are the version files deleted. The version files are never an input the
+        /// batch consumes, so a failure at any step (copy, replace, rollback) leaves every
+        /// version where the caller reads it (design 4.4: a promote that fails leaves the
+        /// recording reading from the version path), and the rollback restores each old head
+        /// from its backup as for any other sidecar write.
         /// </summary>
         internal static bool TryPromote(string recordingId, List<SidecarResolution> versions, out string failure)
         {
@@ -472,31 +477,46 @@ namespace Parsek
             if (versions == null || versions.Count == 0)
                 return true;
 
+            Func<bool> suppress = () => RecordingStore.SuppressLogging;
             var changes = new List<SidecarFileCommitBatch.StagedChange>(versions.Count);
-            for (int i = 0; i < versions.Count; i++)
-            {
-                SidecarResolution r = versions[i];
-                changes.Add(new SidecarFileCommitBatch.StagedChange
-                {
-                    FinalPath = r.HeadPath,
-                    StagedPath = r.VersionPath,
-                    StagedHash = r.NamedHash,
-                    PreserveStagedOnFailure = true,
-                    RetainKind = r.Kind,
-                    RetainRecordingId = recordingId,
-                });
-            }
-
             try
             {
-                SidecarFileCommitBatch.Apply(changes, () => RecordingStore.SuppressLogging);
-                return true;
+                for (int i = 0; i < versions.Count; i++)
+                {
+                    SidecarResolution r = versions[i];
+                    string versionPath = r.VersionPath;
+                    SidecarFileCommitBatch.StagedChange change = SidecarFileCommitBatch.StageRetainedWrite(
+                        staged => File.Copy(versionPath, staged), r.HeadPath, recordingId, r.Kind);
+                    change.StagedHash = r.NamedHash;
+                    changes.Add(change);
+                }
+
+                SidecarFileCommitBatch.Apply(changes, suppress);
             }
             catch (Exception ex)
             {
+                // Apply already removed its staged copies; this covers a copy that failed
+                // part-way through staging, before Apply ran.
+                SidecarFileCommitBatch.CleanupStagedArtifacts(changes, suppress);
                 failure = ex.GetType().Name + ":" + ex.Message;
                 return false;
             }
+
+            // Every head now holds its version's bytes: the version files are duplicates.
+            // A leftover one is harmless (resolution reads the head first and the collector
+            // judges the version like any other), so a failed delete is only logged.
+            for (int i = 0; i < versions.Count; i++)
+            {
+                SidecarResolution r = versions[i];
+                if (!SidecarFileCommitBatch.TryDeleteUnretained(r.VersionPath, suppress, out string deleteFailure)
+                    && !RecordingStore.SuppressLogging)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"Sidecar version left after promote: rec={recordingId} " +
+                        $"kind={SidecarVersions.Label(r.Kind)} hash={r.NamedHash} ex={deleteFailure}");
+                }
+            }
+            return true;
         }
     }
 }

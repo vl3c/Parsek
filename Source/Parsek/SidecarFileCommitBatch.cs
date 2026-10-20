@@ -24,10 +24,6 @@ namespace Parsek
             // when the caller did not supply it; read back by the caller after Apply.
             public string StagedHash;
 
-            // The staged file is not a scratch file (a version being promoted to head): a
-            // failed batch must leave it in place.
-            public bool PreserveStagedOnFailure;
-
             internal bool IsRetained =>
                 RetainKind != SidecarKind.None && !string.IsNullOrEmpty(RetainRecordingId);
         }
@@ -104,8 +100,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Deletes one non-hashed file (a readable mirror, a <c>.pann</c>) through a one-change
-        /// batch. Returns false when the delete threw; the file is then still there.
+        /// Deletes one file whose bytes need no retention (a readable mirror, a <c>.pann</c>, a
+        /// version just promoted to head) through a one-change batch. Returns false when the delete threw; the file is then still there.
         /// </summary>
         internal static bool TryDeleteUnretained(string path, Func<bool> suppressLogging, out string failure)
         {
@@ -281,8 +277,6 @@ namespace Parsek
             {
                 for (int i = 0; i < changes.Count; i++)
                 {
-                    if (changes[i] != null && changes[i].PreserveStagedOnFailure)
-                        continue;
                     string stagedPath = changes[i]?.StagedPath;
                     RecordCleanupFailure(failures, DeleteTransientArtifact(stagedPath));
                     RecordCleanupFailure(
