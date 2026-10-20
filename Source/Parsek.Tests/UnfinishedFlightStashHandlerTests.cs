@@ -205,7 +205,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryStash_RecordingScopedFundsEarningAction_Stashes()
+        public void TryStash_RecordingScopedFundsEarningAction_RefusedByTheValueGate()
         {
             var landed = Rec("rec_landed", TerminalState.Landed);
             RecordingStore.AddRecordingWithTreeForTesting(landed, "tree_1");
@@ -229,17 +229,10 @@ namespace Parsek.Tests
 
             bool ok = UnfinishedFlightStashHandler.TryStash(landed, out string reason);
 
-            Assert.True(ok);
-            Assert.Null(reason);
-            Assert.True(rp.ChildSlots[1].Stashed);
-            Assert.Equal("2026-04-29T08:09:10.0000000Z", rp.ChildSlots[1].StashedRealTime);
-            Assert.NotEqual(versionBefore, scenario.SupersedeStateVersion);
-            Assert.Contains(logLines, l =>
-                l.Contains("[UnfinishedFlights]")
-                && l.Contains("Stashed slot=1")
-                && l.Contains("rec=rec_landed"));
-            Assert.DoesNotContain(logLines, l =>
-                l.Contains("reason=recordingAction:FundsEarning:act_funds"));
+            Assert.False(ok);
+            Assert.Equal("recordingAction:FundsEarning:act_funds", reason);
+            Assert.False(rp.ChildSlots[1].Stashed);
+            Assert.Equal(versionBefore, scenario.SupersedeStateVersion);
         }
 
         [Fact]
@@ -279,13 +272,9 @@ namespace Parsek.Tests
                 && l.Contains("reason=recordingAction:ScienceEarning:act_sci"));
         }
 
-        // Negative twin of TryStash_RecordingScopedScienceEarningAction_...
-        // After the v0.9.x tightening, ScienceSpending (a KSC-scene tech-unlock)
-        // no longer counts as a retry-blocking action, so a Landed slot carrying
-        // only a tagged ScienceSpending row stays stashable. Mirrors the
-        // FundsEarning Stashes test above.
+        // Design section 2.12 Rule 1: a flight-tagged spend is a sealing row too.
         [Fact]
-        public void TryStash_RecordingScopedScienceSpendingAction_Stashes()
+        public void TryStash_RecordingScopedScienceSpendingAction_RefusedByTheValueGate()
         {
             var landed = Rec("rec_landed", TerminalState.Landed);
             RecordingStore.AddRecordingWithTreeForTesting(landed, "tree_1");
@@ -309,13 +298,10 @@ namespace Parsek.Tests
 
             bool ok = UnfinishedFlightStashHandler.TryStash(landed, out string reason);
 
-            Assert.True(ok);
-            Assert.Null(reason);
-            Assert.True(rp.ChildSlots[1].Stashed);
-            Assert.Equal("2026-04-29T08:09:10.0000000Z", rp.ChildSlots[1].StashedRealTime);
-            Assert.NotEqual(versionBefore, scenario.SupersedeStateVersion);
-            Assert.DoesNotContain(logLines, l =>
-                l.Contains("reason=recordingAction:ScienceSpending"));
+            Assert.False(ok);
+            Assert.Equal("recordingAction:ScienceSpending:act_sci_spend", reason);
+            Assert.False(rp.ChildSlots[1].Stashed);
+            Assert.Equal(versionBefore, scenario.SupersedeStateVersion);
         }
 
         [Fact]

@@ -62,13 +62,24 @@ namespace Parsek
         /// the .sfs every frame.
         /// </summary>
         internal static bool CanInvoke(RewindPoint rp, out string reason)
+            => CanInvoke(rp, null, out reason);
+
+        /// <summary>
+        /// <see cref="CanInvoke(RewindPoint, out string)"/> for one slot of the rewind
+        /// point. With <paramref name="selected"/> set it also re-checks the design
+        /// section 2.12 Rule 1 value gate (precondition 7, design section 6.8): a slot
+        /// whose retire set holds a sealing row is refused with
+        /// <c>recordingAction:Type:ActionId</c>, so a ledger that changed after the
+        /// Unfinished Flights row was drawn cannot slip through.
+        /// </summary>
+        internal static bool CanInvoke(RewindPoint rp, ChildSlot selected, out string reason)
         {
-            bool canInvoke = EvaluateCanInvoke(rp, out reason);
+            bool canInvoke = EvaluateCanInvoke(rp, selected, out reason);
             LogCanInvokeDecision(rp, canInvoke, reason);
             return canInvoke;
         }
 
-        private static bool EvaluateCanInvoke(RewindPoint rp, out string reason)
+        private static bool EvaluateCanInvoke(RewindPoint rp, ChildSlot selected, out string reason)
         {
             if (rp == null)
             {
@@ -128,6 +139,13 @@ namespace Parsek
                 return false;
             }
 
+            string sealingSummary;
+            if (SlotRetireSetHoldsSealingRow(rp, selected, out sealingSummary))
+            {
+                reason = UnfinishedFlightClassifier.RecordingActionReasonPrefix + sealingSummary;
+                return false;
+            }
+
             // Deep-parse PartLoader precondition (cached per RP).
             if (!PreconditionCache.IsValid(rp))
             {
@@ -144,6 +162,31 @@ namespace Parsek
 
             reason = null;
             return true;
+        }
+
+        /// <summary>
+        /// Precondition 7 (design section 2.12 Rule 1): the selected slot's retire set,
+        /// rooted at its current effective tip, holds a sealing row. No slot (the
+        /// rewind-point-only overload) skips the check.
+        /// </summary>
+        private static bool SlotRetireSetHoldsSealingRow(
+            RewindPoint rp, ChildSlot selected, out string summary)
+        {
+            summary = null;
+            if (rp == null || selected == null)
+                return false;
+            Recording tip = SupersedeCommit.ResolveRetireSetTip(null, selected);
+            if (tip == null)
+            {
+                ParsekLog.VerboseRateLimited(InvokeTag,
+                    "caninvoke-retire-no-tip|" + (rp.RewindPointId ?? "<no-id>") + "|"
+                        + selected.SlotIndex.ToString(CultureInfo.InvariantCulture),
+                    $"CanInvoke: value gate skipped rp={rp.RewindPointId ?? "<no-id>"} " +
+                    $"slot={selected.SlotIndex.ToString(CultureInfo.InvariantCulture)} " +
+                    $"origin={selected.OriginChildRecordingId ?? "<none>"} reason=tip-unresolved");
+                return false;
+            }
+            return SupersedeCommit.RetireSetHoldsSealingRow(tip, rp, selected, out summary);
         }
 
         /// <summary>
@@ -744,7 +787,9 @@ namespace Parsek
 
             return
                 "The world goes back to how it stood at this rewind point. Your "
-                + PatchedCareerFacetsSummary + " are carried forward. Anything outside "
+                + PatchedCareerFacetsSummary + " are carried forward. This flight "
+                + "earned nothing after its separation, so a merge takes nothing back: "
+                + "it only adds what the new flight earns. Anything outside "
                 + "those goes back with the clock: kerbal experience earned since then, "
                 + "resource-survey unlocks, contract waypoint progress, and "
                 + "deployed-science gathered since then.\n\n"
@@ -898,7 +943,7 @@ namespace Parsek
             // every safety gate and leave the RewindInvokeContext half-set
             // on top of invalid state. Tests cover each individual gate via
             // `CanInvoke`; this call is the integration point.
-            if (!CanInvoke(rp, out string canInvokeReason))
+            if (!CanInvoke(rp, selected, out string canInvokeReason))
             {
                 ParsekLog.Warn(InvokeTag,
                     $"StartInvoke: precondition failed after dialog confirm — {canInvokeReason} " +

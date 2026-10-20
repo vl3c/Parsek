@@ -11,7 +11,8 @@ namespace Parsek
     /// trigger auto-seal of the slot, plus the player-attributable
     /// reason(s). Mirrors a subset of the production classifier in
     /// <see cref="SupersedeCommit"/>: detects the cases reachable from
-    /// the recording's own state - <c>Ledger.Actions</c> for science,
+    /// the recording's own state - the design section 2.12 value gate
+    /// (<see cref="SupersedeCommit.CollectReFlyAttemptSealingRows"/>) for career rows,
     /// tree topology for structural mutations, the recording's
     /// <c>TerminalStateValue</c> AND (when available) the live
     /// <see cref="Vessel.Situations"/> for stable / hard-safety
@@ -26,7 +27,7 @@ namespace Parsek
     /// </summary>
     internal enum ReFlyAutoSealReason
     {
-        EarnedScience,         // any retry-blocking ScienceEarning row in the lineage
+        EarnedScience,         // a sealing science row with no transmit / recover method (lab, strategy, legacy)
         TransmittedScience,    // ScienceMethod.Transmitted
         RecoveredScience,      // ScienceMethod.Recovered
         Undocked,              // BranchPointType.Undock
@@ -39,6 +40,7 @@ namespace Parsek
         Landed,                // LANDED situation (live) or TerminalState.Landed (recorded) -> stableTerminalFocusSlot
         SplashedDown,          // SPLASHED situation (live) or TerminalState.Splashed (recorded) -> stableTerminalFocusSlot
         StableOrbit,           // ORBITING situation && PeR > atmosphere (live) or TerminalState.Orbiting (recorded) -> stableTerminalFocusSlot
+        ChangedCareer,         // any other sealing row of the retire set (design section 2.12): funds, reputation, milestones, contracts, crew
     }
 
     /// <summary>
@@ -117,6 +119,7 @@ namespace Parsek
                 case ReFlyAutoSealReason.Landed:             return "landed";
                 case ReFlyAutoSealReason.SplashedDown:       return "splashed down";
                 case ReFlyAutoSealReason.StableOrbit:        return "reached a stable orbit";
+                case ReFlyAutoSealReason.ChangedCareer:      return "changed your career (funds, reputation, contracts, milestones or crew)";
                 default:                                     return reason.ToString();
             }
         }
@@ -134,10 +137,13 @@ namespace Parsek
         /// scenario parameter is needed here. Tests set the singleton via
         /// <c>ParsekScenario.SetInstanceForTesting</c>.</para>
         /// </summary>
+        /// <param name="attemptRows">The attempt's ledger rows not yet filed to
+        /// <c>Ledger.Actions</c>; null reads only what the ledger already holds.</param>
         internal static ReFlyAutoSealPreviewResult Preview(
             Recording liveProvisional,
             ReFlySessionMarker marker,
-            Vessel liveActiveVessel)
+            Vessel liveActiveVessel,
+            IReadOnlyList<GameAction> attemptRows = null)
         {
             // Null guards mirror the production gate's early-returns at
             // SupersedeCommit.HasReFlySessionStructuralMutation:683-688.
@@ -152,15 +158,13 @@ namespace Parsek
 
             var reasons = new List<ReFlyAutoSealReason>();
 
-            // Earned-science check mirrors SupersedeCommit's
-            // IsRetryBlockingRecordingAction (:1257-1290) which calls
-            // IsWorldStateChangingRecordingAction (:1231-1255). Today only
-            // ScienceEarning rows are retry-blocking, but other action
-            // types are still walked through the same exclusion gates so
-            // future retry-blocking action types pick up automatically.
-            HashSet<string> lineageRecordingIds =
-                SupersedeCommit.CollectRecordingIdsForSafetyGate(liveProvisional);
-            CollectScienceReasons(lineageRecordingIds, reasons);
+            // Design section 2.12 Rule 1: the same value gate Site B-1 reads (the
+            // attempt's own retire set), so every sealing row the merge will seal on
+            // is previewed, not only science.
+            CollectSealingRowReasons(
+                SupersedeCommit.CollectReFlyAttemptSealingRows(
+                    marker, liveProvisional, attemptRows),
+                reasons);
 
             // Structural-mutation check via the typed accessor extracted
             // alongside HasReFlySessionStructuralMutation.
@@ -220,50 +224,54 @@ namespace Parsek
             };
         }
 
-        private static void CollectScienceReasons(
-            HashSet<string> lineageRecordingIds,
+        /// <summary>
+        /// Maps the attempt's sealing rows to preview reasons: science rows by their
+        /// method (transmitted / recovered / other), every other sealing row to
+        /// <see cref="ReFlyAutoSealReason.ChangedCareer"/>.
+        /// </summary>
+        internal static void CollectSealingRowReasons(
+            IReadOnlyList<GameAction> sealingRows,
             List<ReFlyAutoSealReason> reasons)
         {
-            if (lineageRecordingIds == null || lineageRecordingIds.Count == 0)
+            if (sealingRows == null || sealingRows.Count == 0)
                 return;
-            var actions = Ledger.Actions;
-            if (actions == null) return;
 
             bool sawTransmitted = false;
             bool sawRecovered = false;
-            bool sawUnknownMethod = false;
-            for (int i = 0; i < actions.Count; i++)
+            bool sawOtherScience = false;
+            bool sawCareer = false;
+            for (int i = 0; i < sealingRows.Count; i++)
             {
-                var action = actions[i];
+                var action = sealingRows[i];
                 if (action == null) continue;
-                if (action.Type != GameActionType.ScienceEarning) continue;
-                // Mirror IsRetryBlockingRecordingAction: deployed-experiment science
-                // never seals a slot (operator ruling 2026-09-26).
-                if (GameStateRecorder.IsDeployedScienceSubjectId(action.SubjectId)) continue;
-                if (string.IsNullOrEmpty(action.RecordingId)) continue;
-                if (!lineageRecordingIds.Contains(action.RecordingId)) continue;
-
-                // Mirror the production filter: skip tombstone-eligible
-                // (e.g. paired with kerbal death penalty) actions.
-                if (TombstoneEligibility.IsEligible(action)) continue;
-                if (TombstoneEligibility.TryPairBundledRepPenalty(
-                        action, actions, out _))
-                    continue;
-
-                if (action.Method == ScienceMethod.Transmitted)
-                    sawTransmitted = true;
-                else if (action.Method == ScienceMethod.Recovered)
-                    sawRecovered = true;
-                else
-                    sawUnknownMethod = true;
+                switch (action.Type)
+                {
+                    case GameActionType.ScienceEarning:
+                        if (action.Method == ScienceMethod.Transmitted)
+                            sawTransmitted = true;
+                        else if (action.Method == ScienceMethod.Recovered)
+                            sawRecovered = true;
+                        else
+                            sawOtherScience = true;
+                        break;
+                    case GameActionType.ScienceLabEarning:
+                    case GameActionType.StrategyScienceCredit:
+                        sawOtherScience = true;
+                        break;
+                    default:
+                        sawCareer = true;
+                        break;
+                }
             }
 
             if (sawTransmitted)
                 AddIfMissing(reasons, ReFlyAutoSealReason.TransmittedScience);
             if (sawRecovered)
                 AddIfMissing(reasons, ReFlyAutoSealReason.RecoveredScience);
-            if (sawUnknownMethod)
+            if (sawOtherScience)
                 AddIfMissing(reasons, ReFlyAutoSealReason.EarnedScience);
+            if (sawCareer)
+                AddIfMissing(reasons, ReFlyAutoSealReason.ChangedCareer);
         }
 
         private static bool IsLiveVesselReFlyTarget(
@@ -421,7 +429,7 @@ namespace Parsek
         /// stable and the player gets the full picture.
         ///
         /// <list type="number">
-        ///   <item><description>Science group: TransmittedScience, RecoveredScience, EarnedScience</description></item>
+        ///   <item><description>Value group: TransmittedScience, RecoveredScience, EarnedScience, ChangedCareer</description></item>
         ///   <item><description>Structural group: Undocked, KerbalEva, PartBrokeOff, VesselBrokeUp</description></item>
         ///   <item><description>Terminal group: DockedWithAnother, VesselRecovered, KerbalBoarded, Landed, SplashedDown, StableOrbit</description></item>
         /// </list>
@@ -438,6 +446,7 @@ namespace Parsek
                 case ReFlyAutoSealReason.TransmittedScience: return 100;
                 case ReFlyAutoSealReason.RecoveredScience:   return 110;
                 case ReFlyAutoSealReason.EarnedScience:      return 120;
+                case ReFlyAutoSealReason.ChangedCareer:      return 130;
                 case ReFlyAutoSealReason.Undocked:           return 200;
                 case ReFlyAutoSealReason.KerbalEva:          return 210;
                 case ReFlyAutoSealReason.PartBrokeOff:       return 220;

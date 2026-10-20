@@ -331,7 +331,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsRetryBlockingRecordingAction_DeployedScienceNeverSealsAReFlySlot()
+        public void RetireSet_DeployedScienceIsNeitherRetiredNorSealing()
         {
             var deployed = new GameAction
             {
@@ -351,8 +351,15 @@ namespace Parsek.Tests
             };
             var actions = new List<GameAction> { deployed, ordinary };
 
-            Assert.False(SupersedeCommit.IsRetryBlockingRecordingAction(deployed, actions));
-            Assert.True(SupersedeCommit.IsRetryBlockingRecordingAction(ordinary, actions));
+            SupersedeCommit.RetireSetScan scan = SupersedeCommit.BuildRetireSet(
+                new HashSet<string> { "rec-refly" }, double.NaN, actions,
+                new List<string>(), logDecisions: false);
+
+            Assert.True(SupersedeCommit.IsDeployedStationScienceCredit(deployed));
+            Assert.Equal(1, scan.DeployedScienceExcluded);
+            Assert.DoesNotContain(deployed, scan.Rows);
+            Assert.Contains(ordinary, scan.Rows);
+            Assert.False(SupersedeCommit.IsLossRow(ordinary));
         }
     }
 }

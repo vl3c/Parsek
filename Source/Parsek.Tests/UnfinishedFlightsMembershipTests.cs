@@ -199,58 +199,51 @@ namespace Parsek.Tests
         // that cannot reach the gate with a flight tag in practice) no longer
         // retires a Destroyed crash from Unfinished Flights, so the slot stays
         // retryable.
-        [Fact]
-        public void DestroyedWithRecordingScopedScienceSpendingAction_IsMember()
+        // Design section 2.12 Rule 1 (Site A): a crashed flight whose retire set holds a
+        // sealing row (a gain, a contract outcome, a flight-tagged spend) is not offered.
+        public static IEnumerable<object[]> CrashedFlightSealingRows()
         {
-            var rec = Rec("rec_A", MergeState.CommittedProvisional, TerminalState.Destroyed,
-                parentBranchPointId: "bp_1", treeId: "tree_1");
-            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
-            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_A") });
-            Ledger.AddAction(RecordingScopedAction(
-                GameActionType.ScienceSpending,
-                "rec_A",
-                "act_sci_spend_crash"));
-
-            ParsekLog.ResetRateLimitsForTesting();
-            logLines.Clear();
-            var members = UnfinishedFlightsGroup.ComputeMembers();
-
-            Assert.Single(members);
-            Assert.Equal("rec_A", members[0].RecordingId);
-            Assert.DoesNotContain(logLines, l =>
-                l.Contains("reason=recordingAction:ScienceSpending"));
+            yield return new object[] { GameActionType.ScienceSpending, "act_sci_spend_crash" };
+            yield return new object[] { GameActionType.FundsEarning, "act_funds_crash" };
+            yield return new object[] { GameActionType.MilestoneAchievement, "act_milestone_crash" };
+            yield return new object[] { GameActionType.ContractComplete, "act_contract_done_crash" };
+            yield return new object[] { GameActionType.ContractFail, "act_contract_fail_crash" };
         }
 
-        [Fact]
-        public void DestroyedWithRecordingScopedMilestoneAction_IsMember()
+        [Theory]
+        [MemberData(nameof(CrashedFlightSealingRows))]
+        public void DestroyedWithRecordingScopedSealingRow_NotMember_ReasonNamesTheRow(
+            GameActionType type, string actionId)
         {
             var rec = Rec("rec_A", MergeState.CommittedProvisional, TerminalState.Destroyed,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_A") });
-            Ledger.AddAction(new GameAction
-            {
-                ActionId = "act_milestone_crash",
-                Type = GameActionType.MilestoneAchievement,
-                RecordingId = "rec_A",
-                UT = 12.0,
-                MilestoneId = "RecordsAltitude",
-                MilestoneFundsAwarded = 960.0f,
-                MilestoneRepAwarded = 1.0f,
-            });
+            Ledger.AddAction(RecordingScopedAction(type, "rec_A", actionId));
 
             ParsekLog.ResetRateLimitsForTesting();
             logLines.Clear();
             var members = UnfinishedFlightsGroup.ComputeMembers();
 
-            Assert.Single(members);
-            Assert.Equal("rec_A", members[0].RecordingId);
+            Assert.Empty(members);
             Assert.Contains(logLines, l =>
                 l.Contains("[UnfinishedFlights]")
                 && l.Contains("rec=rec_A")
-                && l.Contains("reason=crashed"));
-            Assert.DoesNotContain(logLines, l =>
-                l.Contains("reason=recordingAction:MilestoneAchievement:act_milestone_crash"));
+                && l.Contains("reason=recordingAction:" + type + ":" + actionId));
+        }
+
+        [Fact]
+        public void DestroyedWithNoLedgerRows_IsMember()
+        {
+            var rec = Rec("rec_A", MergeState.CommittedProvisional, TerminalState.Destroyed,
+                parentBranchPointId: "bp_1", treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_A") });
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Single(members);
+            Assert.Equal("rec_A", members[0].RecordingId);
         }
 
         [Fact]

@@ -255,6 +255,7 @@ namespace Parsek
             }
             int missingQuicksaveRps = SweepMissingRewindPointQuicksaves(scenario);
             LegacyEvaRewindPointSweepResult legacyEvaRps = SweepLegacyEvaRewindPoints(scenario);
+            SweepValueSealedSlots(scenario);
 
             // ----------------------------------------------------------------
             // Step 8.6 (#688 follow-up): defensive backstop for orphan
@@ -408,6 +409,95 @@ namespace Parsek
             }
 
             return cleaned;
+        }
+
+        internal struct ValueSealedSlotSweepResult
+        {
+            public int Found;
+            public int Sealed;
+            public int KeptLiveSession;
+            public int RewindPointsReaped;
+        }
+
+        /// <summary>
+        /// Migration for design section 2.12 Rule 1 (forward-only): concludes (flips
+        /// Immutable) the open tip of every slot whose retire set holds a sealing row,
+        /// stashed slots included, so the slot leaves Unfinished Flights and its rewind
+        /// point can be reaped. A slot of the live Re-Fly session's rewind point is
+        /// counted but left open (never seal a slot out from under a running session; a
+        /// later load concludes it). Tombstones already written and deficits already in
+        /// the save are not repaired. Idempotent: a concluded tip is Immutable, so a
+        /// second pass finds nothing. Logs one summary line.
+        /// </summary>
+        internal static ValueSealedSlotSweepResult SweepValueSealedSlots(ParsekScenario scenario)
+        {
+            var result = new ValueSealedSlotSweepResult();
+            if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
+            {
+                LogValueSealedSlotSummary(result);
+                return result;
+            }
+
+            string markerRewindPointId = scenario.ActiveReFlySessionMarker?.RewindPointId;
+            IReadOnlyList<RecordingSupersedeRelation> supersedes =
+                scenario.RecordingSupersedes
+                ?? (IReadOnlyList<RecordingSupersedeRelation>)Array.Empty<RecordingSupersedeRelation>();
+            var ic = CultureInfo.InvariantCulture;
+            for (int i = 0; i < scenario.RewindPoints.Count; i++)
+            {
+                var rp = scenario.RewindPoints[i];
+                if (rp?.ChildSlots == null) continue;
+                for (int s = 0; s < rp.ChildSlots.Count; s++)
+                {
+                    var slot = rp.ChildSlots[s];
+                    if (slot == null) continue;
+                    string tipId = slot.EffectiveRecordingId(supersedes);
+                    Recording tip = EffectiveState.FindCommittedRecordingByIdRaw(tipId);
+                    if (tip == null || tip.MergeState != MergeState.CommittedProvisional)
+                        continue;
+                    string summary;
+                    if (!SupersedeCommit.RetireSetHoldsSealingRow(tip, rp, slot, out summary))
+                        continue;
+
+                    result.Found++;
+                    if (!string.IsNullOrEmpty(markerRewindPointId)
+                        && string.Equals(rp.RewindPointId, markerRewindPointId, StringComparison.Ordinal))
+                    {
+                        result.KeptLiveSession++;
+                        ParsekLog.Info(SweepTag,
+                            $"Value-sealed slot kept open for the live Re-Fly session rp={rp.RewindPointId} " +
+                            $"slot={s.ToString(ic)} tip={tipId} row=recordingAction:{summary} " +
+                            $"sess={scenario.ActiveReFlySessionMarker?.SessionId ?? "<no-sess>"}");
+                        continue;
+                    }
+
+                    tip.MergeState = MergeState.Immutable;
+                    tip.FilesDirty = true;
+                    result.Sealed++;
+                    if (result.Sealed <= SupersedeCommit.PreRewindKeepLogCap)
+                    {
+                        ParsekLog.Verbose(SweepTag,
+                            $"Value-sealed slot concluded rp={rp.RewindPointId} slot={s.ToString(ic)} " +
+                            $"tip={tipId} row=recordingAction:{summary} -> Immutable (section 2.12 Rule 1)");
+                    }
+                }
+            }
+
+            // The reaper reads the tip MergeState directly; Run's step 10 bumps the
+            // supersede / tombstone versions once for the whole sweep.
+            if (result.Sealed > 0)
+                result.RewindPointsReaped = RewindPointReaper.ReapOrphanedRPs();
+            LogValueSealedSlotSummary(result);
+            return result;
+        }
+
+        private static void LogValueSealedSlotSummary(ValueSealedSlotSweepResult result)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            ParsekLog.Info(SweepTag,
+                $"[LoadSweep] Value-sealed slots (section 2.12): found={result.Found.ToString(ic)} " +
+                $"sealed={result.Sealed.ToString(ic)} keptLiveSession={result.KeptLiveSession.ToString(ic)} " +
+                $"rpsReaped={result.RewindPointsReaped.ToString(ic)}");
         }
 
         /// <summary>What the load-time sweep does with one Rewind Point under the EVA ruling.</summary>

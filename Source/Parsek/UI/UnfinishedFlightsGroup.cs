@@ -40,7 +40,7 @@ namespace Parsek
         public const string GroupName = "STASH";
 
         public const string Tooltip =
-            "Vessels and kerbals you may want to re-fly - crashed, abandoned in orbit, stranded on a surface. Fly takes control at the separation moment; Seal closes the slot for good.";
+            "Crashed or stranded flights to re-fly from their separation. Only flights that earned nothing after it are listed. Fly takes control at the separation; Seal closes the slot for good.";
 
         /// <summary>
         /// True iff <paramref name="name"/> equals the virtual group name.

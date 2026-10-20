@@ -248,6 +248,23 @@ namespace Parsek.Tests
             }
         }
 
+        // catches: the Unfinished Flights group hover (design section 6.26 / 2.12 Rule 1)
+        // growing past the single-line Recordings strip. It is a const in
+        // UnfinishedFlightsGroup.cs handed to the group header at runtime, so the
+        // RecordingsTableUI literal scan cannot see it.
+        [Fact]
+        public void UnfinishedFlightsGroupTooltip_FitsTheRecordingsStrip()
+        {
+            int budget = BudgetChars(1355f, TooltipEchoBox.SingleLine);
+            string tip = UnfinishedFlightsGroup.Tooltip;
+            Assert.DoesNotContain("\n", tip);
+            Assert.Contains("earned nothing", tip);
+            Assert.True(tip.Length <= budget,
+                string.Format("UnfinishedFlightsGroup.Tooltip is {0} chars, over the {1}-char "
+                    + "single-line Recordings help-strip budget: \"{2}\"",
+                    tip.Length, budget, tip));
+        }
+
         // catches: the future-RP Re-Fly refusal growing past the narrower of the two
         // windows whose disabled Fly button shows it as its tooltip (Timeline at 820 px,
         // single line; the Recordings table is wider). It is a runtime reason, not a

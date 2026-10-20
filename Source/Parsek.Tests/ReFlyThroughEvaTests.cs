@@ -408,7 +408,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Classifier_AutomaticConsequenceOnTheKerbal_StaysRetryable()
+        public void Classifier_MilestoneEarnedOnTheKerbal_SealsTheSlot()
         {
             var tree = Install(ReFlyThroughEvaVariant.Reboard);
             var rp = ReFlyThroughEvaFixture.BuildRewindPoint();
@@ -420,6 +420,26 @@ namespace Parsek.Tests
                 RecordingId = ReFlyThroughEvaFixture.KerbalId,
                 UT = 210.0,
                 MilestoneId = "Kerbin/FlagPlant",
+            });
+
+            Assert.False(QualifyUpper(tree, rp, out string reason));
+            Assert.Equal("recordingAction:MilestoneAchievement:act_eva_milestone", reason);
+        }
+
+        [Fact]
+        public void Classifier_LossRowOnTheKerbal_StaysRetryable()
+        {
+            var tree = Install(ReFlyThroughEvaVariant.Reboard);
+            var rp = ReFlyThroughEvaFixture.BuildRewindPoint();
+            InstallScenario(rp);
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_eva_rep_loss",
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = ReFlyThroughEvaFixture.KerbalId,
+                UT = 210.0,
+                RepPenaltySource = ReputationPenaltySource.Other,
+                NominalPenalty = 5f,
             });
 
             Assert.True(QualifyUpper(tree, rp, out string reason), reason);

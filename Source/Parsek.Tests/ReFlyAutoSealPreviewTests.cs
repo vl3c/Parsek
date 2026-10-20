@@ -211,7 +211,7 @@ namespace Parsek.Tests
         {
             // Operator ruling 2026-09-26: ground-station science never seals a slot, even
             // on a row an older build tagged to the provisional. Mirrors
-            // SupersedeCommit.IsRetryBlockingRecordingAction.
+            // SupersedeCommit.BuildRetireSet (deployed science is in no retire set).
             var rec = MakeRecording();
             var marker = MakeMarker();
             MakeScenario(marker);
@@ -293,14 +293,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Preview_NonScienceActionTaggedOnProvisional_NoReason()
+        public void Preview_NonScienceGainTaggedOnProvisional_ChangedCareerReason()
         {
             var rec = MakeRecording();
             var marker = MakeMarker();
             MakeScenario(marker);
-            // FundsEarning is world-state-changing but not retry-blocking
-            // (filtered by IsRetryBlockingRecordingAction at SupersedeCommit.cs:1289).
-            // The preview filters non-ScienceEarning types by the same logic.
             Ledger.AddAction(new GameAction
             {
                 Type = GameActionType.FundsEarning,
@@ -312,7 +309,8 @@ namespace Parsek.Tests
 
             var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
 
-            Assert.False(result.WillAutoSeal);
+            Assert.True(result.WillAutoSeal);
+            Assert.Equal(new[] { ReFlyAutoSealReason.ChangedCareer }, result.Reasons);
         }
 
         [Fact]

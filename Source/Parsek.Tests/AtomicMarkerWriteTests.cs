@@ -217,7 +217,9 @@ namespace Parsek.Tests
 
             string prelude = invokerSrc.Substring(bodyStart, sessionIdAssign - bodyStart);
 
-            Assert.Contains("CanInvoke(rp, out", prelude);
+            // Design 2.12 Rule 1: the confirm-time re-check names the slot, so the
+            // value gate (a sealing row filed after the row was drawn) is re-read too.
+            Assert.Contains("CanInvoke(rp, selected, out", prelude);
             Assert.Contains("precondition failed after dialog confirm", prelude);
         }
 

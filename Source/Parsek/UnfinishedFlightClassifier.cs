@@ -345,7 +345,7 @@ namespace Parsek
             if (terminal.Value == TerminalState.Destroyed)
             {
                 if (TryRejectRecordingScopedWorldAction(
-                    safetyRec, recId, out reason, WithBranchSide("terminal=Destroyed", branchSide)))
+                    safetyRec, rp, slot, recId, out reason, WithBranchSide("terminal=Destroyed", branchSide)))
                     return false;
 
                 reason = "crashed";
@@ -386,7 +386,7 @@ namespace Parsek
                         $"slot={overrideSlotListIndex} focusSlot={rp.FocusSlotIndex} focusSlotOverride={focusSlotOverride.Value} terminal={terminal.Value}",
                         branchSide);
                     if (TryRejectRecordingScopedWorldAction(
-                        safetyRec, recId, out reason, overrideDetail))
+                        safetyRec, rp, slot, recId, out reason, overrideDetail))
                         return false;
 
                     reason = "stableTerminalFocusSlot";
@@ -403,7 +403,7 @@ namespace Parsek
                     $"slot={stashedSlotListIndex} focusSlot={focusSlotIndex} terminal={terminal.Value} stashedRealTime={slot.StashedRealTime ?? "<none>"}",
                     branchSide);
                 if (TryRejectRecordingScopedWorldAction(
-                    safetyRec, recId, out reason, detail))
+                    safetyRec, rp, slot, recId, out reason, detail))
                     return false;
 
                 reason = "stashedStableLeaf";
@@ -472,7 +472,7 @@ namespace Parsek
                     $"slot={slotListIndex} focusSlot={focusSlotLogValue} terminal={terminal.Value}",
                     branchSide);
                 if (TryRejectRecordingScopedWorldAction(
-                    safetyRec, recId, out reason, detail))
+                    safetyRec, rp, slot, recId, out reason, detail))
                     return false;
 
                 reason = "stableLeafUnconcluded";
@@ -516,8 +516,15 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Site A of design section 2.12 Rule 1: a slot whose retire set holds a
+        /// sealing row (anything the flight gained, a contract outcome, a flight-tagged
+        /// spend) is not an Unfinished Flight, reason <c>recordingAction:Type:ActionId</c>.
+        /// </summary>
         private static bool TryRejectRecordingScopedWorldAction(
             Recording rec,
+            RewindPoint rp,
+            ChildSlot slot,
             string recId,
             out string reason,
             string detail)
@@ -527,8 +534,8 @@ namespace Parsek
                 return false;
 
             string actionSummary;
-            if (!SupersedeCommit.TryFindRetryBlockingWorldAction(
-                    rec, out actionSummary))
+            if (!SupersedeCommit.RetireSetHoldsSealingRow(
+                    rec, rp, slot, out actionSummary))
                 return false;
 
             reason = RecordingActionReasonPrefix + actionSummary;
@@ -633,7 +640,7 @@ namespace Parsek
             }
 
             string actionSummary;
-            if (SupersedeCommit.TryFindRetryBlockingWorldAction(rec, out actionSummary))
+            if (SupersedeCommit.RetireSetHoldsSealingRow(rec, rp, slot, out actionSummary))
             {
                 reason = RecordingActionReasonPrefix + actionSummary;
                 rp = null;

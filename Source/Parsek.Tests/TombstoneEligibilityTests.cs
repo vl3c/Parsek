@@ -322,14 +322,15 @@ namespace Parsek.Tests
         {
             // Design section 2.8: the death bundle stays RETRYABLE. Without the source
             // arm above, the producer's row would fall through to `return true` and a
-            // crew death would start strict-blocking and retry-blocking auto-seal - a
-            // behaviour change the new row must not smuggle in.
+            // crew death would start strict-blocking; under section 2.12 both rows are
+            // loss rows, so neither seals the slot.
             var death = Kerbal("rec_1", KerbalEndState.Dead, ut: 1060.0);
             var rep = Rep("rec_1", ReputationPenaltySource.KerbalDeath, ut: 1115.0);
             var slice = new List<GameAction> { death, rep };
 
             Assert.False(SupersedeCommit.IsWorldStateChangingRecordingAction(rep, slice));
-            Assert.False(SupersedeCommit.IsRetryBlockingRecordingAction(rep, slice));
+            Assert.True(SupersedeCommit.IsLossRow(rep));
+            Assert.True(SupersedeCommit.IsLossRow(death));
 
             // And the unpaired case is unchanged: an ordinary penalty with no death on
             // the recording still blocks.

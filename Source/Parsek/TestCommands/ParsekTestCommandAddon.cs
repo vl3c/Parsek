@@ -2722,7 +2722,7 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            if (!RewindInvoker.CanInvoke(rp, out string reason))
+            if (!RewindInvoker.CanInvoke(rp, selected, out string reason))
             {
                 string msg = TestCommandInvokeRewind.GateRefusalMsg(reason);
                 ParsekLog.Warn(Tag, $"invokerewind refused: {msg}");

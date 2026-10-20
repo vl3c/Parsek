@@ -214,10 +214,10 @@ namespace Parsek
                 // (rec missing from the pending tree AND the committed list -
                 // FindReFlyRecording returned null). Preview's null-guard
                 // would also collapse to NoSeal but skipping the call avoids
-                // a CollectRecordingIdsForSafetyGate walk on a null. Live
+                // a retire-set closure walk on a null. Live
                 // vessel may legitimately be null in Space Center / Tracking
                 // Station fallback - Preview tolerates it (skips the live-
-                // terminal reasons; science + structural reasons still fire).
+                // terminal reasons; sealing-row + structural reasons still fire).
                 ReFlyAutoSealPreviewResult preview = reFlyRec != null
                     ? ReFlyAutoSealPreviewer.Preview(
                         reFlyRec, marker, FlightGlobals.ActiveVessel)

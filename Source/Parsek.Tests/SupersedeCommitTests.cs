@@ -119,36 +119,36 @@ namespace Parsek.Tests
 
         public static IEnumerable<object[]> RetryBlockingRecordingActionCases()
         {
-            // Columns: GameActionType, retryBlocking (Re-Fly/STASH gate), strictBlocking
-            // (legacy ledger-safety gate; preserved for non-retry callers).
+            // Columns: GameActionType, retryBlocking (the design section 2.12 value gate
+            // read by Re-Fly / STASH), strictBlocking (the world-state gate kept for
+            // non-retry callers).
             //
-            // Retry-blocking is now narrowed to ScienceEarning only — see
-            // SupersedeCommit.IsRetryBlockingRecordingAction. Every KSC-scene
-            // "player action" still passes the strict gate (so audit/reconciliation
-            // call sites observe them) but does NOT auto-seal a Re-Fly retry,
-            // because in practice it cannot reach the gate with a flight tag and,
-            // for the one rollout-adoption case that does (FundsSpending(VesselBuild)),
-            // the cost is paid once and survives revert/retag.
+            // The value gate seals on every row of the retire set that is not a loss
+            // row: a gain, a contract outcome, a flight-tagged spend. The fixture row
+            // (RecordingScopedAction) carries ReputationPenaltySource.Other and
+            // KerbalEndState.Recovered, so ReputationPenalty is a loss row (vessel loss)
+            // and KerbalAssignment is a sealing row (a recovery). FacilityDestruction is
+            // a loss row. Seeds and route rows are never in a retire set.
             yield return new object[] { GameActionType.ScienceEarning, true, true };
-            yield return new object[] { GameActionType.ScienceSpending, false, true };
-            yield return new object[] { GameActionType.FundsEarning, false, true };
-            yield return new object[] { GameActionType.FundsSpending, false, true };
-            yield return new object[] { GameActionType.MilestoneAchievement, false, true };
-            yield return new object[] { GameActionType.ContractAccept, false, true };
-            yield return new object[] { GameActionType.ContractComplete, false, true };
-            yield return new object[] { GameActionType.ContractFail, false, true };
-            yield return new object[] { GameActionType.ContractCancel, false, true };
-            yield return new object[] { GameActionType.ReputationEarning, false, true };
+            yield return new object[] { GameActionType.ScienceSpending, true, true };
+            yield return new object[] { GameActionType.FundsEarning, true, true };
+            yield return new object[] { GameActionType.FundsSpending, true, true };
+            yield return new object[] { GameActionType.MilestoneAchievement, true, true };
+            yield return new object[] { GameActionType.ContractAccept, true, true };
+            yield return new object[] { GameActionType.ContractComplete, true, true };
+            yield return new object[] { GameActionType.ContractFail, true, true };
+            yield return new object[] { GameActionType.ContractCancel, true, true };
+            yield return new object[] { GameActionType.ReputationEarning, true, true };
             yield return new object[] { GameActionType.ReputationPenalty, false, true };
-            yield return new object[] { GameActionType.KerbalAssignment, false, true };
-            yield return new object[] { GameActionType.KerbalHire, false, true };
-            yield return new object[] { GameActionType.KerbalRescue, false, true };
-            yield return new object[] { GameActionType.KerbalStandIn, false, true };
-            yield return new object[] { GameActionType.FacilityUpgrade, false, true };
+            yield return new object[] { GameActionType.KerbalAssignment, true, true };
+            yield return new object[] { GameActionType.KerbalHire, true, true };
+            yield return new object[] { GameActionType.KerbalRescue, true, true };
+            yield return new object[] { GameActionType.KerbalStandIn, true, true };
+            yield return new object[] { GameActionType.FacilityUpgrade, true, true };
             yield return new object[] { GameActionType.FacilityDestruction, false, true };
-            yield return new object[] { GameActionType.FacilityRepair, false, true };
-            yield return new object[] { GameActionType.StrategyActivate, false, true };
-            yield return new object[] { GameActionType.StrategyDeactivate, false, true };
+            yield return new object[] { GameActionType.FacilityRepair, true, true };
+            yield return new object[] { GameActionType.StrategyActivate, true, true };
+            yield return new object[] { GameActionType.StrategyDeactivate, true, true };
             yield return new object[] { GameActionType.FundsInitial, false, false };
             yield return new object[] { GameActionType.ScienceInitial, false, false };
             yield return new object[] { GameActionType.ReputationInitial, false, false };
@@ -182,36 +182,36 @@ namespace Parsek.Tests
             // KerbalExperience (P9a): a recorded archive of career-log entries. It
             // mutates no world state a retry would have to undo - the roster re-assert
             // is monotone and re-derives from the surviving ELS on every recalc - so it
-            // neither strict-blocks nor retry-blocks an auto-seal.
-            yield return new object[] { GameActionType.KerbalExperience, false, false };
+            // does not strict-block; the value gate seals on it (a gain).
+            yield return new object[] { GameActionType.KerbalExperience, true, false };
             // StrategyScienceDebit (STRATEGY-SCIENCE-CONVERSION-LEAK): a ledger-only
-            // science debit from a stock currency-exchange strategy. Neither gate blocks.
-            // Retry: IsRetryBlockingRecordingAction is ScienceEarning-only, so it was
-            // never retry-blocking. Strict: an EXPLICIT exclusion arm in
+            // science debit from a stock currency-exchange strategy. The value gate seals
+            // on it (a flight-tagged exchange, design section 2.12). Strict: an EXPLICIT
+            // exclusion arm in
             // IsWorldStateChangingRecordingAction (a new type would otherwise fall
             // through to `return true`) - the merge itself already retires these rows via
             // IsSupersedeTombstoneEligible, so a strict block would only refuse a merge
             // over a row that same merge is about to tombstone.
-            yield return new object[] { GameActionType.StrategyScienceDebit, false, false };
+            yield return new object[] { GameActionType.StrategyScienceDebit, true, false };
             // StrategyScienceCredit: the OUTPUT direction of the same query-family
-            // door, and the same answer on both gates for the same two reasons.
-            yield return new object[] { GameActionType.StrategyScienceCredit, false, false };
+            // door, the same strict answer; the value gate seals.
+            yield return new object[] { GameActionType.StrategyScienceCredit, true, false };
             // KerbalRecovered (KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL): a record
             // that stock returned the kerbal; the walk re-derives the bounded hold from the
             // surviving ELS and the merge retires the row via IsSupersedeTombstoneEligible.
-            // Neither gate blocks.
-            yield return new object[] { GameActionType.KerbalRecovered, false, false };
+            // The strict gate does not block; the value gate seals.
+            yield return new object[] { GameActionType.KerbalRecovered, true, false };
             // VesselRecovered (SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX):
             // a record that the player recovered the owner's vessel; no pool moves and the
-            // merge retires it via IsSupersedeTombstoneEligible. Neither gate blocks.
-            yield return new object[] { GameActionType.VesselRecovered, false, false };
+            // merge retires it via IsSupersedeTombstoneEligible. The strict gate does not block; the value gate seals.
+            yield return new object[] { GameActionType.VesselRecovered, true, false };
             // ResourceScanUnlocked (RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED): a record of a scan
             // stock already applied; the merge retires it via IsSupersedeTombstoneEligible
-            // and the rewind quicksave predates the scan. Neither gate blocks.
-            yield return new object[] { GameActionType.ResourceScanUnlocked, false, false };
+            // and the rewind quicksave predates the scan. The strict gate does not block; the value gate seals.
+            yield return new object[] { GameActionType.ResourceScanUnlocked, true, false };
             // ScienceLabEarning (LAB-SCIENCE-NEVER-LEDGERED): the lab's subject-less credit;
-            // the merge retires it via IsSupersedeTombstoneEligible. Neither gate blocks.
-            yield return new object[] { GameActionType.ScienceLabEarning, false, false };
+            // the merge retires it via IsSupersedeTombstoneEligible. The strict gate does not block; the value gate seals.
+            yield return new object[] { GameActionType.ScienceLabEarning, true, false };
         }
 
         [Fact]
@@ -1512,7 +1512,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void OrbitingNonFocusStableLeaf_OriginOnlyMarkerTarget_WithScienceEarningAction_AutoSeals()
+        public void OrbitingNonFocusStableLeaf_OriginOnlyMarkerTarget_SealsOnTheReFlysOwnRowNotTheReplacedFlights()
         {
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
@@ -1544,6 +1544,10 @@ namespace Parsek.Tests
                 GameActionType.ScienceEarning,
                 "rec_origin",
                 "act_sci_earn_origin"));
+            Ledger.AddAction(RecordingScopedAction(
+                GameActionType.FundsEarning,
+                "rec_provisional",
+                "act_funds_refly"));
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
@@ -1552,9 +1556,9 @@ namespace Parsek.Tests
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
                 && l.Contains("slot=1")
-                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci_earn_origin")
+                && l.Contains("classifierReason=recordingAction:FundsEarning:act_funds_refly")
                 && l.Contains("autoSeal=True")
-                && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci_earn_origin"));
+                && l.Contains("autoSealReason=recordingAction:FundsEarning:act_funds_refly"));
         }
 
         [Fact]
@@ -1616,7 +1620,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void OrbitingNonFocusStableLeaf_WithPriorSupersedeLineageScienceEarningAction_AutoSeals()
+        public void OrbitingNonFocusStableLeaf_WithPriorSupersedeLineage_SealsOnTheReFlysOwnRowNotTheReplacedFlights()
         {
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
@@ -1652,6 +1656,10 @@ namespace Parsek.Tests
                 GameActionType.ScienceEarning,
                 "rec_origin",
                 "act_sci_earn_origin"));
+            Ledger.AddAction(RecordingScopedAction(
+                GameActionType.FundsEarning,
+                "rec_provisional",
+                "act_funds_refly"));
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
@@ -1659,9 +1667,9 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
-                && l.Contains("classifierReason=recordingAction:ScienceEarning:act_sci_earn_origin")
+                && l.Contains("classifierReason=recordingAction:FundsEarning:act_funds_refly")
                 && l.Contains("autoSeal=True")
-                && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci_earn_origin"));
+                && l.Contains("autoSealReason=recordingAction:FundsEarning:act_funds_refly"));
         }
 
         [Fact]
@@ -1837,7 +1845,7 @@ namespace Parsek.Tests
 
         [Theory]
         [MemberData(nameof(RetryBlockingRecordingActionCases))]
-        public void TryFindRetryBlockingWorldAction_ReportsOnlyScienceEarning(
+        public void TryFindRetryBlockingWorldAction_SealsOnEverySealingRowOfTheRetireSet(
             GameActionType type,
             bool retryBlocking,
             bool strictBlocking)
@@ -1863,9 +1871,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryFindRetryBlockingWorldAction_SkipsAutomaticActionsAndReportsScienceEarning()
+        public void TryFindRetryBlockingWorldAction_SkipsLossRowsAndReportsTheFirstSealingRow()
         {
             var rec = Rec("rec_mixed_actions", "tree_1");
+            Ledger.AddAction(RecordingScopedAction(
+                GameActionType.ReputationPenalty,
+                rec.RecordingId,
+                "act_rep_loss"));
             Ledger.AddAction(RecordingScopedAction(
                 GameActionType.FundsEarning,
                 rec.RecordingId,
@@ -1877,10 +1889,10 @@ namespace Parsek.Tests
 
             string summary;
             Assert.True(SupersedeCommit.TryFindRecordingScopedWorldAction(rec, out summary));
-            Assert.Equal("FundsEarning:act_funds_earn", summary);
+            Assert.Equal("ReputationPenalty:act_rep_loss", summary);
 
             Assert.True(SupersedeCommit.TryFindRetryBlockingWorldAction(rec, out summary));
-            Assert.Equal("ScienceEarning:act_sci_earn", summary);
+            Assert.Equal("FundsEarning:act_funds_earn", summary);
         }
 
         [Fact]
@@ -1929,13 +1941,10 @@ namespace Parsek.Tests
                 && l.Contains("autoSealReason=recordingAction:ScienceEarning:act_sci_earn"));
         }
 
-        // Negative twin of the ScienceEarning case above. After the v0.9.x
-        // tightening (auto-seal limited to intentional player actions taken on
-        // the vessel), ScienceSpending — a KSC-scene tech-unlock — no longer
-        // closes a Destroyed retry slot, even when it carries a flight-tagged
-        // RecordingId.
+        // Design section 2.12 Rule 1: a flight-tagged spend is a sealing row, so a
+        // re-fly that crashed again but carries one seals the slot.
         [Fact]
-        public void DestroyedTerminal_WithRecordingScopedScienceSpendingAction_StaysRetryable()
+        public void DestroyedTerminal_WithRecordingScopedScienceSpendingAction_Seals()
         {
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
@@ -1971,7 +1980,12 @@ namespace Parsek.Tests
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
-            Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("mergeState=Immutable")
+                && l.Contains("classifierReason=recordingAction:ScienceSpending:act_sci_spend")
+                && l.Contains("autoSeal=True"));
         }
 
         [Fact]
@@ -2069,7 +2083,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DestroyedTerminal_WithRecordingScopedMilestoneAction_KeepsOpen()
+        public void DestroyedTerminal_WithRecordingScopedMilestoneAction_Seals()
         {
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
@@ -2111,12 +2125,12 @@ namespace Parsek.Tests
 
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
-            Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
-                && l.Contains("mergeState=CommittedProvisional")
-                && l.Contains("classifierReason=crashed")
-                && l.Contains("autoSeal=False"));
+                && l.Contains("mergeState=Immutable")
+                && l.Contains("classifierReason=recordingAction:MilestoneAchievement:act_milestone")
+                && l.Contains("autoSeal=True"));
         }
 
         [Fact]
