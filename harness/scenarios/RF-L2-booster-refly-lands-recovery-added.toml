@@ -1,0 +1,215 @@
+schema = 1
+id = "RF-L2-booster-refly-lands-recovery-added"
+tier = "operator"
+# THE RE-FLY LEDGER-SAFETY PROGRAM (design docs/parsek-rewind-to-separation-design.md section
+# 2.12, owner rulings 2026-10-19), lane L2: THE PURPOSE OF RE-FLY SURVIVES. "A booster that
+# crashed in the background earned nothing, so it stays re-flyable, and landing it adds its
+# recovery as a new earning." AUTHORED 2026-10-20, NEVER FLOWN.
+#
+# THE STORY, in a CAREER. GS-1's two-stage hop on `career-gs1-two-stage-pad` (QL-2b's host
+# and mission, `gs1_auto_chute_booster_career`, QL-2b's parameters verbatim): the pod lands
+# with Valentina, the probe booster is still under its canopy at the scene exit, and the exit
+# auto-commits the tree. Every career row the flight earned (FirstLaunch, the altitude
+# records) is tagged to the ACTIVE recording, the pod's, so the booster slot's retire set
+# holds nothing: Rule 1 leaves it open (`stableLeafUnconcluded`, RF-1's verdict on the
+# sandbox twin), and the load-time sweep seals nothing. The player re-flies the booster
+# (InvokeRewind slot 1), lets it come down under its chute, merges, exits to the Space
+# Center and recovers it from the Tracking Station: the recovery is a NEW earning
+# (`VesselRecovery funds patched: vessel='GS1 Auto-Chute Booster Probe' amount=N`) and
+# nothing the committed career holds is taken back (no tombstone, no retire, the pod's
+# FirstLaunch milestone still credited after the merge).
+#
+# WHAT IT DOES NOT PIN: the dominance check and the loss swap (Rules 2 and 5:
+# `[LedgerSwap] Merge dominance check sess=<s> result=pass ...`, `Loss swap sess=<s>
+# variant=A ...`). No phase implements them yet; a required token on a literal no DLL can
+# print would red a first flight for nothing, so they are listed as gaps in the PR body and
+# join this lane when the code lands.
+#
+# THE BOOSTER'S PID. The InvokeRewind payload's `activePid` is the selected slot's ROOT PART
+# persistentId, not the vessel's, so the lane reads the vessel pid off a PartAction inspect of
+# the booster's probe core (`probeCoreOcto2.v2`, the fixture craft's one probe part) right
+# after the rewind, labelled `bst`, and recovers `${bst.pid}`.
+#
+# WHAT IS GATED ON BELIEF (reading-run pins): the booster in the rewind point's quicksave
+# keeps its staged parachute (the RP is captured one frame after the split; on the original
+# flight the booster descends under canopy, QL-2b / QL-4 measured), so the re-fly lands it
+# (QL-4 measured touchdown near UT 247 on the same profile; the warp goes to UT 400); the
+# merge auto-seals the slot on its Landed ending (section 4.9; the reason is regexed); the
+# Tracking Station recovery of a Landed probe pays funds in this career (stock pays part
+# value times the distance factor; near KSC that is most of the craft cost).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse - QL-2b's host and mission and RF-4's
+# act 2 chain; (2) one explicit-UT WarpToUT (the descent), phys ladder at 2x (CA-1's cap);
+# (3) no dwells; (4) no burns; (5) no coast beyond the descent; (6) a refused verb fails its
+# step at once, retry `once`; (7) count window {3,8} (pod, booster, the re-fly's own
+# recording, plus optimizer splits) until the reading run pins it; (8) operator until green,
+# expected about 10 min; (9) flight_efficiency.py after the first green flight.
+#
+# WHAT A FIRST FLIGHT CAN FALSIFY: a `recordingAction:` verdict on the booster slot (a row
+# filed under the booster in act A, which Rule 3's filing-by-cause would explain); a Fly
+# REJECTED; the booster crashing in the re-fly (no Landed seal, no recovery); a Tombstoned or
+# RetireAbandonedFutureActions line; a recovery that pays nothing.
+description = "RF-L2 (design 2.12, the purpose of Re-Fly survives): GS-1's two-stage hop in a career commits with the booster still under canopy and its slot open (it earned nothing); the player re-flies the booster, lands it, merges, and recovers it from the Tracking Station: the recovery is a new funds earning, nothing committed is taken back, and the pod's milestones stay credited."
+instanceProfile = "stock-minimal"
+tags = ["RF-L2", "refly-ledger-safety", "refly", "rewind", "career", "GS1", "staging",
+        "controlled-child", "recover", "tracking-station", "funds", "scene-exit",
+        "auto-merge", "runtime-handles", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/career-gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "gs1_auto_chute_booster_career"
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" },  expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  # LOAD-BEARING: the classifier verdicts and the Credited-milestone walk line are Verbose.
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  # ---- ACT 1: the hop; the pod lands, the booster is under canopy at the exit ----
+  { phase = "mission",                                                                  expect = "MISSION-OK", budget = 900 },
+  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  # SAVE BEFORE THE RELOAD (RF-4's / RF-20's order): the tree commits on arrival.
+  { cmd = "SaveGame",          args = { name = "persistent" },                          expect = "OK" },
+  # ---- ACT 2: re-fly the booster slot ----
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # InvokeRewind REJECTs `recording-active`.
+  { cmd = "StopRecording",                                                              expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles",     expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "1" },            expect = "OK", budget = 300 },
+  # THE FLIGHT-READY WAIT (REFLY-LANES-JUMP-BEFORE-FLIGHT-READY, RF-3's order).
+  { cmd = "ListHandles",       args = { kind = "chains" },                              expect = "OK" },
+  { cmd = "RecordingState",    args = { awaitRecorderLive = "refly" },                  expect = "OK" },
+  # The booster's VESSEL pid, for the recovery below.
+  { cmd = "PartAction",        args = { button = "inspect", part = "probeCoreOcto2.v2" }, label = "bst", expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "rfl2-descent" },                       expect = "OK" },
+  # The descent under canopy (QL-4 measured touchdown near UT 247). CA-1's ladder and cap.
+  { cmd = "WarpToUT",          args = { ut = "400", maxRate = "2", ladder = "phys" },   expect = "OK", budget = 540 },
+  { cmd = "PartAction",        args = { button = "inspect", part = "probeCoreOcto2.v2" }, expect = "OK" },
+  # ---- THE MERGE ----
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                             expect = "OK", budget = 240 },
+  { cmd = "MissionMark",       args = { label = "rfl2-merged" },                        expect = "OK" },
+  { cmd = "RecordingState",                                                             expect = "OK" },
+  # ---- ACT 3: recover the landed booster from the Tracking Station ----
+  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  { cmd = "TrackingStationRecover", args = { pid = "${bst.pid}" },                      expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "rfl2-recovered" },                     expect = "OK" },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[driver.missionParams]
+# QL-2b's values VERBATIM (the craft is gs1-two-stage-pad's VESSEL node byte for byte).
+throttle = 1.0
+stagingApoapsisMeters = 700
+stagingMaxAltMeters = 1500
+apoapsisWindowMeters = { min = 600, max = 1600 }
+stageSettleFrames = 2
+chuteArmMaxRateMps = 30
+chuteFullDeployAltMeters = 600
+landedSituations = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds = 90
+coastTimeoutSeconds = 120
+stageTimeoutSeconds = 60
+descentTimeoutSeconds = 300
+siblingVesselName = "GS1 Auto-Chute Booster Probe"
+siblingAirborneAtExit = true
+siblingDownTimeoutSeconds = 240
+
+[dimensionsCovered]
+# Every value is backed by a REQUIRED token below.
+#   commit-scene-exit / auto-merge <- `Silent full-fidelity auto-commit (scene-exit)` + exit start
+#   controlled-decoupled-child     <- `ProcessBreakupEvent: controlled child created`
+#   rewind-to-separation           <- StartInvoke slot=1 + Invocation complete
+#   refly-gate                     <- StartInvoke (the gate's positive branch on an open slot)
+#   supersede-relation             <- `Added N supersede relations`
+#   load-time-sweep                <- `Value-sealed slots (section 2.12): ... sealed=0`
+#   funds                          <- `VesselRecovery funds patched: ... amount=N`
+D1  = ["commit-scene-exit", "auto-merge"]
+D5  = ["controlled-decoupled-child"]
+D8  = ["funds"]
+D9  = ["rewind-to-separation", "refly-gate", "supersede-relation", "load-time-sweep"]
+D14 = ["kerbin", "career", "scene-flight", "scene-ksc", "scene-ts"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# DERIVED, wide until the reading run: the pod, the booster, the re-fly's own recording, plus
+# any optimizer split (RF-1's sandbox twin measured a surface-graze split summary).
+count = { min = 3, max = 8 }
+
+[expectations.logContracts]
+required = [
+  # --- ACT 1: the split, the point, the commit (RF-1's tokens on the career twin) ---
+  "Recording started",
+  "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+  "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
+  "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
+  "RewindPoint slot capture: rp=\\S+ populated=2/2 disabled=0",
+  "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]*",
+  # The booster earned nothing, so Rule 1 leaves its slot open.
+  "IsUnfinishedFlight=true rec=\\S+ reason=stableLeafUnconcluded slot=1 focusSlot=0 terminal=SubOrbital",
+  "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=stableLeafUnconcluded to CommittedProvisional",
+  "Value-sealed slots \\(section 2\\.12\\): found=[0-9]+ sealed=0",
+  # --- ACT 2: the re-fly ---
+  "listhandles kind=rewindpoints count=1 truncated=false",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_[0-9a-f]{32} slot=1",
+  "Invocation complete: sess=\\S+ rp=rp_[0-9a-f]{32} slot=1 ",
+  "recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true",
+  # The booster is the active vessel of the session.
+  "partaction applied button=inspect pid=([0-9]+) part='probeCoreOcto2\\.v2' [^\\r\\n]*activePid=\\1 ",
+  "(?s)MISSIONMARK label=rfl2-descent .*?warptout complete",
+  # --- THE MERGE: rows written, the slot concluded on its Landed ending ---
+  "Added [1-9][0-9]* supersede relations for subtree rooted at",
+  "Auto-sealed re-fly slot=1 rec=\\S+ rp=rp_[0-9a-f]{32} mergeState=Immutable terminal=Landed reason=classifierClosed:\\S+",
+  "End reason=merged sess=",
+  "answermergedialog complete choice=merge result=committed",
+  # Nothing committed was taken back: the pod's FirstLaunch is still credited after the merge.
+  "(?s)answermergedialog complete choice=merge result=committed.*?Credited milestone 'FirstLaunch' at UT=[0-9.]+ \\(recording=[0-9a-f]{32}, ",
+  # --- ACT 3: the recovery is a new earning ---
+  "(?s)partaction applied button=inspect pid=([0-9]+) part='probeCoreOcto2\\.v2' .*?tsrecover complete pid=\\1 vessel=GS1 Auto-Chute Booster Probe scene=SPACECENTER ",
+  "Vessel recovered recorded: vessel='GS1 Auto-Chute Booster Probe' pid=[0-9]+ recoveryUT=[0-9.]+ recordingId=\\S+ terminal=Landed ",
+  "(?s)MISSIONMARK label=rfl2-merged .*?VesselRecovery funds patched: vessel='GS1 Auto-Chute Booster Probe' amount=[1-9][0-9]*",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewind refused",
+  "partaction rejected",
+  "warptout refused",
+  "tsrecover rejected",
+  # The booster slot holds no sealing row.
+  "IsUnfinishedFlight=false rec=\\S+ reason=recordingAction:[^\\r\\n]*slot=1 ",
+  # Nothing is taken back: no tombstone, no retire of a committed row.
+  "Tombstoned [1-9][0-9]* career actions",
+  "RetireAbandonedFutureActions: removed [1-9]",
+  "Resurrected-recovery retirement:",
+  # The merge never refuses on this flight.
+  "outcome=refused-unflown-provisional",
+]
+
+# REPORT-ONLY until the reading run: supersede rows written, nothing tombstoned; the point
+# reaps once both slots are closed (the pod's focus slot and the sealed booster slot), so the
+# point count is left open.
+[expectations.rewind]
+gating        = false
+rewindPoints  = { min = 0, max = 1 }
+supersedeRows = { min = 1 }
+tombstones    = { max = 0 }
+
+[runtime]
+# LoadGame x2 (660 each), mission 900, ExitToSpaceCenter x2 (180 each), SaveGame 120,
+# InvokeRewind 660, WarpToUT 540, AnswerMergeDialog 300, TrackingStationRecover 180, and
+# about 15 inert steps at 120: sum about 6,300 s.
+budgetSeconds = 6600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

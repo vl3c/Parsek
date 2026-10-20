@@ -1,0 +1,110 @@
+schema = 1
+id = "RF-L3-refly-switch-refused"
+tier = "operator"
+# THE RE-FLY LEDGER-SAFETY PROGRAM (design docs/parsek-rewind-to-separation-design.md section
+# 2.12, owner rulings 2026-10-19), lane L3: A SWITCH DURING A RE-FLY IS REFUSED AND LOGGED
+# (Rule 3, session isolation). AUTHORED 2026-10-20, NEVER FLOWN.
+#
+# "During a re-fly the player can fly only the re-flown vessel and its own crew on EVA;
+# switching to any other vessel is blocked." The block runs in every player switch path
+# (`[` / `]`, map Switch-To, map focus Fly, Tracking Station Fly, the KSC marker Fly) through
+# `ReFlySwitchGate`, which logs `[ReFlySession] Switch refused sess=<s> path=<p> target=<pid>
+# reason=<r>` (path mapSwitchTo / tsFly / kscMarkerFly / vesselCycle, reason
+# notSessionVessel / targetUnknown). The seam's `SimulateStockSwitchClick site=map` calls
+# `SetActiveVessel` directly, so it runs the same gate with the same path token and refusal
+# line and answers REJECTED `refly-switch-refused:notSessionVessel`.
+#
+# THE HOST: S4.3's (`gloops-airshow` with the `refly-world-preservation` preset injected).
+# The preset's rewind point quicksave carries an UNRELATED FLEET that the post-load strip
+# leaves alone (S4.2 proves it survives): `WP Orbital Station` in orbit is the switch target,
+# a live vessel the session does not own. S4.3's chain: TimeJump past the slot window,
+# InvokeRewind rp_wp_root slot 1 (the crashed booster), then the switch click, then the
+# merge dialog's Discard (S4.3's own exit, so the save is left as it was).
+#
+# WHAT IS GATED ON BELIEF (Phase 3's literals, NOT YET FLOWN): the station resolving as a
+# live vessel in FlightGlobals after the strip (S4.2's preservation proof says it is there);
+# the refusal reason `notSessionVessel` (not `targetUnknown`: the station is a known,
+# unrelated vessel); the click resolving the station before the in-bubble rule (the gate
+# runs before the switch is attempted, so an unloaded orbital target still reaches it).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse - S4.3's host and chain plus one verb;
+# (2) one TimeJump, no warps; (3) no dwells; (4) no burns; (5) no coast; (6) the refusal is
+# synchronous, retry `once`; (7) count window {1,} as S4.3; (8) operator until green,
+# expected about 4 min; (9) flight_efficiency.py after the first green flight.
+#
+# WHAT A FIRST FLIGHT CAN FALSIFY: an OK switch (the gate missing on the seam path, or the
+# station counted as a session vessel); `target-not-found` (the strip removed the station,
+# S4.2's defect class); a refusal with reason `targetUnknown`.
+description = "RF-L3 (design 2.12 Rule 3): during a Re-Fly of the world-preservation fixture's crashed booster slot, a map Switch-To click on the unrelated orbital station the rewind point kept is refused and logged (Switch refused path=mapSwitchTo reason=notSessionVessel), the active vessel stays the re-flown one, and the attempt is then discarded from the merge dialog."
+instanceProfile = "stock-minimal"
+tags = ["RF-L3", "refly-ledger-safety", "rewind", "refly", "switch", "session-isolation",
+        "discard", "injected-recordings", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "refly-world-preservation"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "TimeJump",          args = { deltaSeconds = "61.0" },                    expect = "OK", budget = 120 },
+  { cmd = "InvokeRewind",      args = { rp = "rp_wp_root", slot = "1" },            expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "rfl3-switch" },                    expect = "OK" },
+  # THE SWITCH: a map Switch-To on the unrelated station, refused by the session gate.
+  { cmd = "SimulateStockSwitchClick", args = { site = "map", vessel = "WP Orbital Station" }, expect = "REJECTED", budget = 60 },
+  { cmd = "MissionMark",       args = { label = "rfl3-refused" },                   expect = "OK" },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "AnswerMergeDialog", args = { choice = "discard" },                       expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                           expect = "OK" },
+]
+
+[dimensionsCovered]
+# rewind-to-separation <- StartInvoke + Invocation complete (S4.3's tokens).
+D9  = ["rewind-to-separation"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1 }
+
+[expectations.logContracts]
+required = [
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_wp_root slot=1",
+  "Invocation complete",
+  # The session gate's own line (ReFlySwitchGate.FormatRefusal, design 2.12 Rule 3) ...
+  "(?s)MISSIONMARK label=rfl3-switch (?:(?!MISSIONMARK label=rfl3-refused ).)*?Switch refused sess=\\S+ path=mapSwitchTo target=[0-9]+ reason=notSessionVessel",
+  # ... and the seam verb's refusal, naming the same target.
+  "(?s)Switch refused sess=\\S+ path=mapSwitchTo target=([0-9]+) reason=notSessionVessel.*?switchclick refused reason=refly-switch-refused:notSessionVessel targetPid=\\1(?![0-9])",
+  # The session survives the refused click and ends by the merge dialog's Discard (S4.3).
+  "End reason=discardReFlyAttemptFromMergeDialog",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "subscriber threw",
+  # The click never arms an intent or switches.
+  "(?s)MISSIONMARK label=rfl3-switch .*?switchclick armed intent",
+  "(?s)MISSIONMARK label=rfl3-switch .*?switchclick complete",
+  # The station is known to the session's world; it is not an unknown target.
+  "Switch refused sess=\\S+ path=\\S+ target=[0-9]+ reason=targetUnknown",
+  "switchclick rejected reason=target-not-found",
+  # A refused switch never reaches the pre-switch Merge / Discard dialog.
+  "ShowPreSwitchDecisionDialog",
+]
+
+[runtime]
+# S4.3's 2460 plus one 60 s verb and two inert steps.
+budgetSeconds = 2700
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
