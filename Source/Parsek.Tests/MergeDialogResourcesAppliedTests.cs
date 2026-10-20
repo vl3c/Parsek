@@ -469,6 +469,112 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MergeDiscard_ReFlyPath_PatchesTheCareerBackAsAnAuthoritativeReduction()
+        {
+            const string treeId = "tree-refly-discard-authoritative";
+            const string sessionId = "sess-refly-discard-authoritative";
+            const string rpId = "rp_merge_dialog";
+
+            LedgerOrchestrator.Initialize();
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 25000f
+            });
+
+            var origin = MakeRecording("rec-origin-authoritative", treeId, 100.0, 200.0);
+            origin.MergeState = MergeState.Immutable;
+            var provisional = MakeRecording("rec-refly-attempt-authoritative", treeId, 200.0, 260.0);
+            provisional.MergeState = MergeState.NotCommitted;
+            provisional.CreatingSessionId = sessionId;
+            provisional.ProvisionalForRpId = rpId;
+            provisional.SupersedeTargetId = origin.RecordingId;
+
+            var committedTree = MakeTree(treeId, origin.RecordingId, origin);
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            RecordingStore.AddCommittedInternal(origin);
+            RecordingStore.AddProvisional(provisional);
+            var pendingTree = MakeTree(treeId, provisional.RecordingId, origin, provisional);
+            RecordingStore.StashPendingTree(pendingTree);
+
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "attempt-funds-earning",
+                UT = 230.0,
+                Type = GameActionType.FundsEarning,
+                RecordingId = provisional.RecordingId,
+                FundsAwarded = 4000f
+            });
+
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+                ActiveReFlySessionMarker = MakeMarker(
+                    sessionId, treeId, provisional.RecordingId, origin.RecordingId),
+            };
+            scenario.ActiveReFlySessionMarker.SupersedeTargetId = origin.RecordingId;
+            ParsekScenario.SetInstanceForTesting(scenario);
+            logLines.Clear();
+
+            MergeDialog.MergeDiscard(pendingTree);
+
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.DoesNotContain(Ledger.Actions, a => a.ActionId == "attempt-funds-earning");
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("drawdown-guard authoritativeReduction=True")
+                && l.Contains("reFlyDiscard=True"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") && l.Contains("drawdown-guard authoritativeReduction=False"));
+        }
+
+        [Fact]
+        public void ZombieSweepRecalc_InSessionLoad_IsAnAuthoritativeReduction()
+        {
+            LedgerOrchestrator.Initialize();
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 25000f
+            });
+
+            ParsekScenario.RecalculateLedgerForInSessionLoad(
+                isRevert: false, loadedScene: GameScenes.SPACECENTER, planetariumReady: true,
+                loadedUT: 150.0, reFlyDiscard: true);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("drawdown-guard authoritativeReduction=True")
+                && l.Contains("reFlyDiscard=True"));
+        }
+
+        [Fact]
+        public void MergeDiscard_OrdinaryTree_RecalcIsNotAnAuthoritativeReduction()
+        {
+            LedgerOrchestrator.Initialize();
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 25000f
+            });
+            var rec = MakeRecording("rec-discard-plain", "tree-discard-plain", 100.0, 200.0);
+            var tree = MakeTree("tree-discard-plain", "rec-discard-plain", rec);
+            RecordingStore.StashPendingTree(tree);
+
+            MergeDialog.MergeDiscard(tree);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("drawdown-guard authoritativeReduction=False")
+                && l.Contains("reFlyDiscard=False"));
+        }
+
+        [Fact]
         public void MergeDiscard_ReFlyPath_RestoresSanitizedTreeWhenCommittedCopyDetached()
         {
             const string treeId = "tree-refly-detached-discard";

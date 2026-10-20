@@ -647,7 +647,7 @@ namespace Parsek.Tests.Logistics
             Assert.True(dispatchIdx >= 0, "RecalculateLedgerForInSessionLoad not found");
             string dispatch = SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', dispatchIdx));
             Assert.Contains("LedgerOrchestrator.HasActionsAfterUT(loadedUT)", dispatch);
-            Assert.Contains("LedgerOrchestrator.RecalculateAndPatch();", dispatch);
+            Assert.Contains("LedgerOrchestrator.RecalculateAndPatch(reFlyDiscard: reFlyDiscard);", dispatch);
             Assert.True(first < coldRoutes, "the hook sits in the in-session branch, not on the cold path");
 
             Assert.Contains("Logistics.RouteLoadReconcile.ReconcileAtInSessionLoad( refinedLoadKind, "

@@ -394,8 +394,15 @@ namespace Parsek
             return true;
         }
 
-        internal static bool IsAwaitingStockPayoutForTesting(string recordingId) =>
+        /// <summary>
+        /// Read-only twin of <see cref="TryConsumeAwaitingStockPayout"/>: the commit row
+        /// build reads the mark and the append step consumes it.
+        /// </summary>
+        internal static bool IsAwaitingStockPayout(string recordingId) =>
             !string.IsNullOrEmpty(recordingId) && awaitingStockPayout.Contains(recordingId);
+
+        internal static bool IsAwaitingStockPayoutForTesting(string recordingId) =>
+            IsAwaitingStockPayout(recordingId);
 
         internal static void MarkAwaitingStockPayoutForTesting(string recordingId) =>
             awaitingStockPayout.Add(recordingId);

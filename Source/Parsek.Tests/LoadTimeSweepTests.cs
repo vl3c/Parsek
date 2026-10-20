@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Xunit;
 
@@ -767,6 +768,101 @@ namespace Parsek.Tests
                 l.Contains("[Rewind]") && l.Contains("Zombie discarded rec=rec_zombie"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Rewind]") && l.Contains("Purged session-prov rp=rp_dead"));
+        }
+
+        [Fact]
+        public void DiscardSet_ZombieProvisional_RemovesItsLedgerRows()
+        {
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_zombie", MergeState.NotCommitted, sessionId: "sess_dead",
+                        supersedeTarget: "rec_origin"),
+                    Rec("rec_origin", MergeState.CommittedProvisional),
+                },
+                new List<BranchPoint> { Bp("bp_1") });
+            InstallScenario(rps: new List<RewindPoint>(), marker: null);
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_zombie", UT = 10.0, Type = GameActionType.FundsEarning,
+                FundsAwarded = 500f, RecordingId = "rec_zombie",
+            });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_origin", UT = 5.0, Type = GameActionType.FundsEarning,
+                FundsAwarded = 100f, RecordingId = "rec_origin",
+            });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_ksc", UT = 12.0, Type = GameActionType.FundsSpending, FundsSpent = 50f,
+            });
+
+            LoadTimeSweep.Run();
+
+            Assert.Equal(new[] { "act_origin", "act_ksc" }, Ledger.Actions.Select(a => a.ActionId));
+            Assert.Equal(1, LoadTimeSweep.LedgerRowsRemovedByLastRun);
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO][Rewind]") && l.Contains("Zombies discarded=1 ledgerRowsRemoved=1 deletedFiles=1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO][Ledger]") && l.Contains("RemoveActionsForRecordings: removed=1")
+                && l.Contains("callSite=LoadTimeSweep:zombie"));
+        }
+
+        [Fact]
+        public void DiscardSet_ZombieProvisional_DeletesItsSidecarsAndKeepsTheOrigins()
+        {
+            // A Retry leaves the abandoned attempt as a zombie; its sidecars must not
+            // outlive it in the save (RF-L4 counted them as a third recording).
+            string root = Path.Combine(
+                Path.GetTempPath(), "parsek-lts-zombie-files-" + Guid.NewGuid().ToString("N"));
+            string dir = Path.Combine(root, "Parsek", "Recordings");
+            Directory.CreateDirectory(dir);
+            try
+            {
+                RecordingPaths.SaveRootOverrideForTesting = root;
+                File.WriteAllText(Path.Combine(dir, "rec_zombie.prec"), "x");
+                File.WriteAllText(Path.Combine(dir, "rec_zombie_vessel.craft"), "x");
+                File.WriteAllText(Path.Combine(dir, "rec_origin.prec"), "x");
+                InstallTree("tree_1",
+                    new List<Recording>
+                    {
+                        Rec("rec_zombie", MergeState.NotCommitted, sessionId: "sess_dead",
+                            supersedeTarget: "rec_origin"),
+                        Rec("rec_origin", MergeState.CommittedProvisional),
+                    },
+                    new List<BranchPoint> { Bp("bp_1") });
+                InstallScenario(rps: new List<RewindPoint>(), marker: null);
+
+                LoadTimeSweep.Run();
+
+                Assert.False(File.Exists(Path.Combine(dir, "rec_zombie.prec")));
+                Assert.False(File.Exists(Path.Combine(dir, "rec_zombie_vessel.craft")));
+                Assert.True(File.Exists(Path.Combine(dir, "rec_origin.prec")));
+                Assert.Contains(logLines, l =>
+                    l.Contains("[INFO][Rewind]") && l.Contains("Zombies discarded=1")
+                    && l.Contains("deletedFiles=1"));
+            }
+            finally
+            {
+                RecordingPaths.SaveRootOverrideForTesting = null;
+                try { Directory.Delete(root, true); } catch (IOException) { }
+            }
+        }
+
+        [Fact]
+        public void NoZombie_RemovesNoLedgerRow()
+        {
+            InstallScenario(rps: new List<RewindPoint>(), marker: null);
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_keep", UT = 10.0, Type = GameActionType.FundsEarning,
+                FundsAwarded = 500f, RecordingId = "rec_live",
+            });
+
+            LoadTimeSweep.Run();
+
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(0, LoadTimeSweep.LedgerRowsRemovedByLastRun);
         }
 
         [Fact]

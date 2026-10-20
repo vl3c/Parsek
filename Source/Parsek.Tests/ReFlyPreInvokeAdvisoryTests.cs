@@ -247,6 +247,19 @@ namespace Parsek.Tests
             Assert.Contains("deployed-science", body);
         }
 
+        // catches: the career paragraph dropping the design 2.12 Rule 1 promise. Only a
+        // flight whose retire set holds no sealing row reaches this dialog, so the
+        // merge takes nothing back and only adds what the new flight earns.
+        [Fact]
+        public void ComposeAdvisoryBody_SaysTheMergeTakesNothingBack()
+        {
+            string body = RewindInvoker.ComposeReFlyAdvisoryBody(new List<string>());
+
+            Assert.Contains("This flight earned nothing after its separation", body);
+            Assert.Contains("a merge takes nothing back", body);
+            Assert.Contains("only adds what the new flight earns", body);
+        }
+
         [Fact]
         public void ComposeAdvisoryBody_StatesThatRecoveredCraftComeBackAndGiveTheirRewardsUp()
         {

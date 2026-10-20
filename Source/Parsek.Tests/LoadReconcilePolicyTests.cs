@@ -237,10 +237,16 @@ namespace Parsek.Tests
                 LoadReconcilePolicy.Decide(LoadKind.QuickloadFlight, LoadStateCategory.PendingScience).Action);
             // Not wired (isRevert can be true on a ReFlyStart / DiscardReFly load), but the
             // revert prune is the only Prune in the column.
+            // ParsekScenario.RetireUntaggedRowsAfterSaveAtInSessionLoad runs only on the
+            // ReconcileAtCutoff cells: a quickload in flight and every other in-session load undo
+            // the untagged rows made after the save (owner ruling 2026-10-19); rewinds, the Re-Fly
+            // loads and a cold load do not.
             foreach (LoadKind kind in AllKinds())
             {
                 var action = LoadReconcilePolicy.Decide(kind, LoadStateCategory.UntaggedLedgerRowsAfterCutoff).Action;
                 Assert.Equal(kind == LoadKind.StockRevert, action == LoadReconcileAction.Prune);
+                Assert.Equal(kind == LoadKind.QuickloadFlight || kind == LoadKind.InSessionOther,
+                    action == LoadReconcileAction.ReconcileAtCutoff);
             }
         }
 

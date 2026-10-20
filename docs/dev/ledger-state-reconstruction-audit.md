@@ -302,7 +302,8 @@ samples, `HasInterestingChanges` gate), driven from `LedgerOrchestrator.cs:2386`
    fail-closed, only deferred - the guard is cleared in `RewindInvoker.cs`'s `finally` while
    the ReFly marker keeps `authoritativeReduction=true`, so the next unguarded recalc
    (`ParsekScenario.cs`, `ParsekFlight.cs`) writes the identical target; (b) it would break a
-   DESIGNED rewind - Step 3b `RetireResurrectedVesselRecoveryRows` tombstones the recovery
+   DESIGNED rewind - Step 3b `RetireResurrectedVesselRecoveryRows` (retired 2026-10-20 by rewind
+   design section 2.12 Rule 3: the invoke now holds such a vessel and tombstones nothing) tombstoned the recovery
    rows of vessels the rewind resurrects, so after any post-RP spend the CORRECT target is
    below both witnesses and the guard flags it (unit-pinned by
    `RewindReadbackGuardTests.Resolve_Step3bResurrectedRecoveryRetirementAfterPostRpSpend_FlaggedByDesign`);

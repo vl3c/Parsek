@@ -2340,6 +2340,7 @@ namespace Parsek
             ClearClaimedVesselHoldGhosts("scene-teardown");
             vesselGhoster?.CleanupAll();
             vesselGhoster = null;
+            reFlyInvokeHolds.Clear();
             activeGhostChains = null;
 
             // Remove ghost map ProtoVessels on scene teardown
@@ -13128,6 +13129,7 @@ namespace Parsek
             ClearClaimedVesselHoldGhosts("flight-ready-reset");
             vesselGhoster?.CleanupAll();
             vesselGhoster = null;
+            reFlyInvokeHolds.Clear();
             activeGhostChains = null;
 
 

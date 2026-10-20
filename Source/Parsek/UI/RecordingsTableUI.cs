@@ -4520,7 +4520,7 @@ namespace Parsek
                 return false;
             }
 
-            bool canInvoke = RewindInvoker.CanInvoke(rp, out reason);
+            bool canInvoke = RewindInvoker.CanInvoke(rp, slot, out reason);
             LogRewindSlotCanInvokeDecision(rp, slotListIndex, canInvoke, reason, slot);
             return canInvoke;
         }

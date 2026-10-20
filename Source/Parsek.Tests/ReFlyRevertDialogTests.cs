@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Linq;
 using System.Runtime.Serialization;
 using Xunit;
 
@@ -465,31 +466,33 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DiscardReFly_ClearsPendingScience_AndReHomesAttemptLedgerTags()
+        public void DiscardReFly_ClearsPendingScience_AndRemovesAttemptLedgerRows()
         {
-            // ESC-DISCARD-REFLY-KEEPS-PENDING-SCIENCE-AND-LEDGER-TAGS: the Esc-menu Discard
-            // runs the same session-state half and tag re-home as the merge-dialog Discard.
             var marker = MakeMarker();
             var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
             AddProvisional(marker.SessionId);
             InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
             InstallQuicksaveExistsOverride(true);
             WireDiscardSeams();
+            var preInvoke = LedgerFingerprint();
             var (attemptRow, otherRow) = SeedAttemptScienceAndLedger();
+            preInvoke.Add(Fingerprint(otherRow));
 
             RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
 
             Assert.Empty(GameStateRecorder.PendingScienceSubjects);
-            // The row and its career effect stay; only the attribution to the deleted
-            // recording goes, so it cannot later scope a tombstone onto a real payout.
-            Assert.Contains(attemptRow, Ledger.Actions);
-            Assert.Null(attemptRow.RecordingId);
-            Assert.Equal(1200f, attemptRow.FundsAwarded);
+            Assert.DoesNotContain(attemptRow, Ledger.Actions);
             Assert.Equal(OtherCommittedRecId, otherRow.RecordingId);
+            Assert.Equal(preInvoke.OrderBy(f => f, StringComparer.Ordinal), LedgerFingerprint().OrderBy(f => f, StringComparer.Ordinal));
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]")
                 && l.Contains("PruneActiveReFlyAttemptOwnedTopology")
-                && l.Contains("ledgerTagsCleared=1"));
+                && l.Contains("ledgerRowsRemoved=1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO][Ledger]")
+                && l.Contains("RemoveActionsForRecordings: removed=1")
+                && l.Contains("callSite=RevertInterceptor:DiscardReFly"));
+            Assert.DoesNotContain(logLines, l => l.Contains("ClearRecordingTagForRecordings"));
             Assert.Contains(logLines, l =>
                 l.Contains("[ReFlySession]")
                 && l.Contains("Discarded session end: pendingScienceCleared=2")
@@ -497,7 +500,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DiscardReFly_UnresolvableRp_StillClearsPendingScienceAndAttemptTags()
+        public void DiscardReFly_UnresolvableRp_StillClearsPendingScienceAndAttemptRows()
         {
             var marker = MakeMarker(rpId: "rp_missing_p12");
             AddProvisional(marker.SessionId);
@@ -510,9 +513,17 @@ namespace Parsek.Tests
 
             Assert.Equal(0, caps.SceneCalls);
             Assert.Empty(GameStateRecorder.PendingScienceSubjects);
-            Assert.Null(attemptRow.RecordingId);
+            Assert.DoesNotContain(attemptRow, Ledger.Actions);
+            Assert.Contains(otherRow, Ledger.Actions);
             Assert.Equal(OtherCommittedRecId, otherRow.RecordingId);
         }
+
+        private static List<string> LedgerFingerprint()
+            => Ledger.Actions.Select(Fingerprint).ToList();
+
+        private static string Fingerprint(GameAction a)
+            => a.ActionId + "|" + a.Type + "|" + (a.RecordingId ?? "") + "|"
+                + a.FundsAwarded.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
 
         [Fact]
         public void DiscardReFly_WithSceneHook_DoesNotArmSceneExitCommitSuppression()
@@ -1923,14 +1934,13 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// ESC-DISCARD-REFLY-KEEPS-PENDING-SCIENCE-AND-LEDGER-TAGS, tree branch: with the
-        /// marker's tree registered, PruneActiveReFlyAttemptOwnedTopology takes its tree branch
-        /// (not the no-tree fallback) and re-homes the ledger tags of EVERY attempt-owned
-        /// recording, including untagged attempt debris the fallback cannot see. A row of the
-        /// committed origin keeps its tag.
+        /// Tree branch: with the marker's tree registered, PruneActiveReFlyAttemptOwnedTopology
+        /// takes its tree branch (not the no-tree fallback) and removes the ledger rows of EVERY
+        /// attempt-owned recording, including attempt debris the fallback cannot see (rewind
+        /// design section 2.12 Rule 3). A row of the committed origin stays.
         /// </summary>
         [Fact]
-        public void DiscardReFly_CommittedTreeBranch_ReHomesLedgerTagsOfEveryAttemptRecording()
+        public void DiscardReFly_CommittedTreeBranch_RemovesLedgerRowsOfEveryAttemptRecording()
         {
             const string treeId = "tree-esc-tags";
             const string sessionId = "sess-esc-tags";
@@ -2043,13 +2053,12 @@ namespace Parsek.Tests
                 l.Contains("PruneActiveReFlyAttemptOwnedTopology: no in-memory tree found"));
             Assert.False(committedTree.Recordings.ContainsKey(attemptDebrisId));
 
-            // Every attempt row keeps its payout and loses the deleted recording's tag;
-            // the debris row is reachable only through the tree branch's attempt set.
-            Assert.Null(forkRow.RecordingId);
-            Assert.Null(debrisRow.RecordingId);
-            Assert.Equal(250f, debrisRow.FundsAwarded);
-            Assert.Contains(debrisRow, Ledger.Actions);
+            Assert.DoesNotContain(forkRow, Ledger.Actions);
+            Assert.DoesNotContain(debrisRow, Ledger.Actions);
+            Assert.Contains(originRow, Ledger.Actions);
             Assert.Equal(originId, originRow.RecordingId);
+            Assert.Contains(logLines, l => l.Contains("PruneActiveReFlyAttemptOwnedTopology")
+                && l.Contains("ledgerRowsRemoved=2"));
         }
     }
 }

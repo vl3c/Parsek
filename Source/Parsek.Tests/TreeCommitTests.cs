@@ -715,6 +715,66 @@ namespace Parsek.Tests
                 RecordingStore.CommittedRecordings);
         }
 
+        // RF-9: the tree's rows reach the ledger only after CommitTree promotes its
+        // Unfinished Flights. A crashed child that reached a milestone after the split is
+        // sealed by that row, so promotion must read the rows the commit is about to file.
+        [Fact]
+        public void CommitTree_DestroyedChildWhosePendingRowsSeal_IsNotPromoted()
+        {
+            var logLines = new List<string>();
+            GameStateStore.ResetForTesting();
+            Ledger.ResetForTesting();
+            LedgerOrchestrator.ResetForTesting();
+            EffectiveState.ResetCachesForTesting();
+            SupersedeCommit.ResetWorldActionSafetyCacheForTesting();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                var tree = MakeTreeWithBranch("rewind_tree_sealed");
+                tree.BranchPoints[0].RewindPointId = "rp_stage";
+                tree.Recordings["child1"].TerminalStateValue = TerminalState.Orbiting;
+                var child2 = tree.Recordings["child2"];
+                child2.VesselName = "Kerbal X Probe";
+                child2.TerminalStateValue = TerminalState.Destroyed;
+                child2.ExplicitStartUT = 17050.0;
+                child2.ExplicitEndUT = 17100.0;
+                var rp = new RewindPoint
+                {
+                    RewindPointId = "rp_stage",
+                    BranchPointId = "bp1",
+                    UT = 17050.0,
+                    SessionProvisional = true,
+                    ChildSlots = new List<ChildSlot> { Slot(0, "child1"), Slot(1, "child2") }
+                };
+                InstallScenarioWithRps(rp);
+                var e = new GameStateEvent
+                {
+                    ut = 17080.0,
+                    eventType = GameStateEventType.MilestoneAchieved,
+                    key = "Kerbin/Science",
+                    detail = GameStateRecorder.BuildMilestoneDetail(800.0, 1.0f, 0.0),
+                    recordingId = "child2",
+                };
+                GameStateStore.AddEvent(ref e);
+
+                RecordingStore.CommitTree(tree);
+
+                Assert.Equal(MergeState.Immutable, child2.MergeState);
+                Assert.Contains(logLines, l => l.Contains("[UnfinishedFlights]")
+                    && l.Contains("promotion reads pending commit rows"));
+                Assert.DoesNotContain(logLines, l => l.Contains("CommitTree promoted rec=child2"));
+            }
+            finally
+            {
+                GameStateStore.ResetForTesting();
+                Ledger.ResetForTesting();
+                LedgerOrchestrator.ResetForTesting();
+                SupersedeCommit.ResetWorldActionSafetyCacheForTesting();
+            }
+        }
+
         [Fact]
         public void CommitTree_DestroyedChildUnderRewindPointWithoutSlot_RemainsImmutable()
         {

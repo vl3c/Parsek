@@ -512,6 +512,29 @@ namespace Parsek
             Recording rec,
             System.Collections.Generic.IReadOnlyList<GameAction> actions)
         {
+            RolloutAdoptionContext recordingContext;
+            GameAction candidate = FindRolloutAdoptionCandidate(
+                recordingId, startUT, rec, actions, out recordingContext);
+            if (candidate == null)
+                return null;
+            ApplyRolloutAdoption(candidate, recordingId, startUT, recordingContext);
+            return candidate;
+        }
+
+        /// <summary>
+        /// The read half of <see cref="TryAdoptRolloutAction(string, double, Recording, System.Collections.Generic.IReadOnlyList{GameAction})"/>:
+        /// the unclaimed rollout row the recording would adopt, left unchanged. The commit
+        /// row build (design section 2.12 Rule 5) reads this so the merge dialog's
+        /// dominance check can build a tree's rows before the tree commits.
+        /// </summary>
+        internal static GameAction FindRolloutAdoptionCandidate(
+            string recordingId,
+            double startUT,
+            Recording rec,
+            System.Collections.Generic.IReadOnlyList<GameAction> actions,
+            out RolloutAdoptionContext recordingContext)
+        {
+            recordingContext = default(RolloutAdoptionContext);
             if (string.IsNullOrEmpty(recordingId)) return null;
             if (rec == null)
             {
@@ -520,7 +543,7 @@ namespace Parsek
                 return null;
             }
 
-            RolloutAdoptionContext recordingContext = CreateRolloutAdoptionContext(rec);
+            recordingContext = CreateRolloutAdoptionContext(rec);
             if (!CanMatchRolloutAdoptionContext(recordingContext))
             {
                 ParsekLog.Verbose(Tag,
@@ -545,30 +568,6 @@ namespace Parsek
                 if (startUT - a.UT > LedgerOrchestrator.RolloutAdoptionWindowSeconds) continue;
                 if (!RolloutAdoptionContextsMatch(ParseRolloutAdoptionContext(a.DedupKey), recordingContext))
                     continue;
-
-                string oldDedup = a.DedupKey;
-                a.RecordingId = recordingId;
-                a.DedupKey = null;
-
-                // MUST bump, for the same reason the duplicate-swap above does and for
-                // the same reason RecordingTreeSplitter's Step9 retag bumps explicitly.
-                // Adoption changes which RECORDING an existing row belongs to, and the
-                // consumers that answer per-recording questions cache against
-                // Ledger.StateVersion: SupersedeCommit's world-action safety cache keys
-                // on it (worldActionSafetyCacheLedgerVersion), so an unbumped adoption
-                // leaves the safety gate answering "no world action" for a recording
-                // that has just acquired one; EffectiveState.ComputeELS caches on the
-                // same version. Same stale-cache class as
-                // LEDGER-TRUNCATE-LEAVES-A-STALE-ELS-CACHE, which the L3 reading run
-                // 2026-08-18_2136 measured live.
-                Ledger.BumpStateVersion();
-
-                ParsekLog.Info(Tag,
-                    $"TryAdoptRolloutAction: recording '{recordingId}' adopted rollout action " +
-                    $"(UT={a.UT:F1}, cost={a.FundsSpent:F0}, oldDedupKey={oldDedup}, " +
-                    $"startUT={startUT:F1}, lag={startUT - a.UT:F1}s, " +
-                    $"context={FormatRolloutAdoptionContext(recordingContext)}, " +
-                    $"stateVersion={Ledger.StateVersion.ToString(CultureInfo.InvariantCulture)})");
                 return a;
             }
 
@@ -577,6 +576,42 @@ namespace Parsek
                 $"before startUT={startUT:F1} for recording '{recordingId}' " +
                 $"with context {FormatRolloutAdoptionContext(recordingContext)}");
             return null;
+        }
+
+        /// <summary>
+        /// The write half: tags <paramref name="a"/> (a row
+        /// <see cref="FindRolloutAdoptionCandidate"/> returned) to the recording.
+        /// </summary>
+        internal static void ApplyRolloutAdoption(
+            GameAction a,
+            string recordingId,
+            double startUT,
+            RolloutAdoptionContext recordingContext)
+        {
+            if (a == null) return;
+            string oldDedup = a.DedupKey;
+            a.RecordingId = recordingId;
+            a.DedupKey = null;
+
+            // MUST bump, for the same reason the duplicate-swap above does and for
+            // the same reason RecordingTreeSplitter's Step9 retag bumps explicitly.
+            // Adoption changes which RECORDING an existing row belongs to, and the
+            // consumers that answer per-recording questions cache against
+            // Ledger.StateVersion: SupersedeCommit's world-action safety cache keys
+            // on it (worldActionSafetyCacheLedgerVersion), so an unbumped adoption
+            // leaves the safety gate answering "no world action" for a recording
+            // that has just acquired one; EffectiveState.ComputeELS caches on the
+            // same version. Same stale-cache class as
+            // LEDGER-TRUNCATE-LEAVES-A-STALE-ELS-CACHE, which the L3 reading run
+            // 2026-08-18_2136 measured live.
+            Ledger.BumpStateVersion();
+
+            ParsekLog.Info(Tag,
+                $"TryAdoptRolloutAction: recording '{recordingId}' adopted rollout action " +
+                $"(UT={a.UT:F1}, cost={a.FundsSpent:F0}, oldDedupKey={oldDedup}, " +
+                $"startUT={startUT:F1}, lag={startUT - a.UT:F1}s, " +
+                $"context={FormatRolloutAdoptionContext(recordingContext)}, " +
+                $"stateVersion={Ledger.StateVersion.ToString(CultureInfo.InvariantCulture)})");
         }
 
         internal static bool CanRecordingAdoptRolloutAction(Recording rec)

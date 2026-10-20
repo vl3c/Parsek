@@ -21582,7 +21582,7 @@ namespace Parsek.InGameTests
         private static void RemoveCommittedOverlayFixture(string recordingId, Recording recording)
         {
             if (!string.IsNullOrEmpty(recordingId))
-                Ledger.RemoveActionsForRecording(recordingId);
+                Ledger.RemoveActionsForRecordings(new[] { recordingId }, "overlay-fixture-cleanup");
             if (recording != null)
                 RecordingStore.RemoveCommittedInternal(recording);
         }

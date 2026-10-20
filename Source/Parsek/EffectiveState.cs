@@ -2303,280 +2303,297 @@ namespace Parsek
                     return suppressionCache;
                 }
 
-                var result = new HashSet<string>(StringComparer.Ordinal);
-                result.Add(rootOverride);
-
-                // Build a recording-id -> Recording lookup so the walk is O(N)
-                // rather than O(N^2) per committed recording.
-                var source = RecordingStore.CommittedRecordings;
-                var recById = new Dictionary<string, Recording>(StringComparer.Ordinal);
-                for (int i = 0; i < source.Count; i++)
-                {
-                    var r = source[i];
-                    if (r != null && !string.IsNullOrEmpty(r.RecordingId))
-                        recById[r.RecordingId] = r;
-                }
-
-                // The live session's OWN recordings are never supersede sources
-                // (design section 1.5 / 6.3). The fork itself is fenced by the
-                // NotCommitted guards below, but what the recorder created from it
-                // during the session - the vessel continuation after an EVA or a
-                // switch, the EVA kerbal, the re-boarded vessel - is ordinary
-                // Immutable data carrying the re-flown vessel's pid and starting
-                // after the rewind point, so the pid-peer expansion would admit it
-                // and the merge would supersede the new flight with its own head.
-                // Every walk below reads candidates through recById, so removing
-                // them here fences every expansion at once.
-                HashSet<string> sessionOwned = CollectActiveSessionOwnedRecordingIds(
-                    marker, rootOverride, recById);
-                int sessionOwnedExcluded = 0;
-                if (sessionOwned != null)
-                {
-                    foreach (string ownedId in sessionOwned)
-                        if (recById.Remove(ownedId)) sessionOwnedExcluded++;
-                }
-
-                // BranchPoint lookup via RewindPoint-persisted branch points is not
-                // available directly; BranchPoints are referenced from Recording.
-                // The closure walks committed recordings and inspects each's
-                // ChildBranchPointId, which — after Phase 1 — is expected to be a
-                // weak-link id to the tree's BranchPoint node.
-                // Phase 2 implementation: BranchPoints live on RecordingTree; look
-                // them up via each recording's tree.
-                //
-                // Same-PID-only BP-children gate (bug fix-refly-suppress-side-off,
-                // 2026-04-27): the BP-children walk only enqueues children whose
-                // VesselPersistentId matches the dequeued recording's
-                // VesselPersistentId. The re-fly only re-records the SAME-PID
-                // linear continuation (e.g. upper-stage U after staging is the
-                // same PID as the pre-staging vessel). Side-off branches
-                // (different PID — e.g. lower stage L after a Decouple BP) are
-                // separate physical vessels with their own ChainId / lineage and
-                // are NOT being re-flown by this session. Including them in the
-                // closure suppressed every previous side-off ghost during a re-fly
-                // (visible symptom: the previous L booster vanished from flight,
-                // map view, and ghost playback while re-flying U). The new flight
-                // will produce its OWN side-off recordings if it stages, and
-                // those will supersede the old ones at that future moment via
-                // the standard supersede-row path. PID 0 (legacy / unset) on
-                // EITHER side falls back to the prior wide-walk behavior — when
-                // one PID is unknown we cannot tell side-off from same-vessel
-                // continuation, so we admit the child rather than silently
-                // dropping a possibly-legitimate continuation from the closure
-                // (and from supersede / tombstone generation). Only the fully
-                // known asymmetric case (both PIDs nonzero and different) is
-                // confidently a side-off.
-                //
-                // Cross-chain same-PID peers (different ChainId, same PID) are
-                // still picked up by EnqueuePidPeerSiblings. Same-chain segments
-                // (HEAD/TIP from SplitAtSection) are still picked up by
-                // EnqueueChainSiblings — those are by-construction same physical
-                // vessel and the chain identity guarantees the same PID.
-                var queue = new Queue<string>();
-                queue.Enqueue(rootOverride);
-
-                int mixedParentHalts = 0;
-                int childrenAdded = 0;
-                int siblingsAdded = 0;
-                int pidPeersAdded = 0;
-                int sideOffSkips = 0;
-                int debrisAdded = 0;
-                int debrisAnchorOnlySkips = 0;
-                int evaKerbalsAdded = 0;
-                int sameVesselBoardsAdded = 0;
-                int placedPartsAdded = 0;
-
-                // Own-vessel stretch seeding (owner ruling 2026-09-27). The merge-time
-                // root is the marker's SupersedeTargetId, which the slot walk resolves
-                // to the vessel's REAL tip - past the vessel's own EVA / same-vessel
-                // Board / switch-continuation branch points. The forward walk from that
-                // tip alone would miss the vessel segments (and the EVA crew hanging off
-                // them) between the rewind point and the tip, so seed the closure with
-                // the stretch walked BACKWARD from the root. The backward walk stops at
-                // the slot origin, and before any recording that starts strictly before
-                // the rewind UT (the splitter owns that pre-rewind history).
-                int stretchSeedsAdded = SeedOwnVesselStretch(
-                    marker, rootOverride, recById, result, queue);
-
-                while (queue.Count > 0)
-                {
-                    string currentId = queue.Dequeue();
-                    if (!recById.TryGetValue(currentId, out var currentRec))
-                        continue;
-
-                    // Chain-sibling expansion: merge-time SplitAtSection
-                    // splits one live recording into ChainId-linked siblings
-                    // where the HEAD keeps the parent-branch-point link
-                    // (and `ChildBranchPointId = null`) while the TIP carries
-                    // the terminal state (and the moved `ChildBranchPointId`).
-                    // Walking only via `ChildBranchPointId` would dequeue the
-                    // HEAD, hit the early-return below, and never enqueue the
-                    // TIP — leaving a stale orphan after re-fly merge. Run
-                    // chain expansion on every dequeued member, BEFORE the
-                    // null-`ChildBranchPointId` early-return, so a HEAD with
-                    // no BP descendants still propagates to its siblings.
-                    EnqueueChainSiblings(
-                        currentRec, recById, queue, result, marker, ref siblingsAdded);
-
-                    // Cross-chain same-PID peer expansion: in-place re-fly that
-                    // crosses staging spawns sibling chains for the SAME physical
-                    // vessel (same VesselPersistentId) but in DIFFERENT ChainIds.
-                    // Example from KSP.log 2026-04-26: origin f3f1f2e6 (chain
-                    // 301a95f0) re-flew the probe; staging produced new chain
-                    // 0a83aee0 (correctly picked up by EnqueueChainSiblings) AND
-                    // a destroyed sibling 29f1d9a8 in chain 73e8a066 (PID
-                    // 2450432355 == origin's PID). Without this walk the
-                    // destroyed sibling never enters the closure, AppendRelations
-                    // sees subtreeCount=2 with both members chain-skipped, and
-                    // 0 supersede rows are written → the destroyed run stays
-                    // visible in mission list / ghost playback. Gated on
-                    // StartUT > marker.InvokedUT so pre-rewind PID history is
-                    // not collapsed into the closure.
-                    EnqueuePidPeerSiblings(
-                        currentRec, recById, queue, result, marker, ref pidPeersAdded);
-
-                    // Debris-children expansion (v12 `Recording.ParentAnchorRecordingId`):
-                    // foreground split BPs do not register a back-pointer through
-                    // `Recording.ChildBranchPointId` on the parent (that field
-                    // is single-slot and a multi-staging / destroyed parent
-                    // commonly has many split BPs), and even when it is set the
-                    // same-PID gate below would cull every debris row because
-                    // debris is born as a fresh KSP-assigned VesselPersistentId.
-                    // Use the v12 direct ownership link to admit debris children
-                    // whose ParentBranchPointId resolves to a Breakup BP (crash)
-                    // OR a JointBreak BP (intentional decouple) that this
-                    // recording owns — the topology side of the dual-purpose
-                    // ParentAnchorRecordingId field. Anchor-only matches
-                    // (background splits where the field is re-pointed to the
-                    // parent continuation as a sampling anchor) are gated out
-                    // here and left to the existing same-PID side-off filter.
-                    EnqueueDebrisChildren(
-                        currentRec, recById, queue, result,
-                        ref debrisAdded, ref debrisAnchorOnlySkips);
-
-                    // Ground parts an EVA kerbal in the closure placed, and foreign
-                    // vessels whose inventory he changed, hang off a kerbal side branch
-                    // (GroundPartPlaced / InventoryTransfer) the still recording kerbal does
-                    // NOT reference through ChildBranchPointId, so they are found by parent
-                    // id (RecordingStore.EnqueueParentedBranchChildren's pattern).
-                    EnqueueGroundPartPlacedChildrenForClosure(
-                        currentRec, recById, queue, result, ref placedPartsAdded);
-
-                    if (string.IsNullOrEmpty(currentRec.ChildBranchPointId))
-                        continue;
-
-                    // Look up the BranchPoint via the tree the recording belongs to.
-                    BranchPoint bp = LookupBranchPoint(currentRec.TreeId, currentRec.ChildBranchPointId);
-                    if (bp == null) continue;
-                    if (bp.ChildRecordingIds == null) continue;
-
-                    for (int ci = 0; ci < bp.ChildRecordingIds.Count; ci++)
-                    {
-                        string childId = bp.ChildRecordingIds[ci];
-                        if (string.IsNullOrEmpty(childId)) continue;
-                        if (result.Contains(childId)) continue;
-                        // A child fenced out as the live session's own recording (see
-                        // CollectActiveSessionOwnedRecordingIds) is absent from recById
-                        // but still named here; never admit it.
-                        if (sessionOwned != null && sessionOwned.Contains(childId))
-                            continue;
-
-                        // Any BranchPoint with a parent outside the suppressed set halts the walk
-                        // (dock/board merges are the common case but this is type-agnostic per design §3.3).
-                        if (HasOutsideParent(bp, result))
-                        {
-                            mixedParentHalts++;
-                            ParsekLog.Verbose("ReFlySession",
-                                $"SessionSuppressedSubtree: mixed-parent halt at bp={bp.Id} type={bp.Type} " +
-                                $"child={childId} parents=[{string.Join(",", bp.ParentRecordingIds ?? new List<string>())}]");
-                            continue;
-                        }
-
-                        // Same-PID-only gate: skip side-off branches (different
-                        // VesselPersistentId from the current dequeued recording).
-                        // See block comment above for the design rationale.
-                        // Gate is bypassed whenever EITHER side's PID is 0
-                        // (unknown / unset — legacy data or freshly seeded
-                        // pre-PID records). With one side unknown we can't
-                        // tell side-off from same-vessel continuation, so we
-                        // preserve the prior wide-walk behavior and admit the
-                        // child. The fully-known case (both PIDs nonzero and
-                        // different) is the only one we can confidently call a
-                        // side-off.
-                        recById.TryGetValue(childId, out var childRec);
-
-                        // Own-EVA crew admission (owner ruling 2026-09-27): a kerbal who
-                        // stepped out of the re-flown vessel after the rewind point was
-                        // aboard it at the rewind point, so his EVA is part of the history
-                        // the re-fly rewrites. The same-PID gate below would cull him as a
-                        // side-off; admit him here instead.
-                        string evaAdmitReason;
-                        if (IsOwnEvaKerbalClosureChild(
-                                bp, currentRec, childRec, marker, out evaAdmitReason))
-                        {
-                            result.Add(childId);
-                            evaKerbalsAdded++;
-                            queue.Enqueue(childId);
-                            ParsekLog.Verbose("ReFlySession",
-                                $"SessionSuppressedSubtree: admitted own-EVA kerbal child={childId} " +
-                                $"crew={childRec.EvaCrewName} vessel={currentRec.RecordingId} bp={bp.Id}");
-                            continue;
-                        }
-
-                        // A Board that re-merges the vessel with its own EVA crew: the merged
-                        // child carries the VESSEL's pid, so when the kerbal parent is the
-                        // one dequeued (its turn can come after the vessel's) the same-PID
-                        // gate must compare against the vessel parent, not the kerbal.
-                        if (bp.Type == BranchPointType.Board
-                            && childRec != null
-                            && childRec.VesselPersistentId != 0
-                            && childRec.VesselPersistentId != currentRec.VesselPersistentId
-                            && HasClosureParentWithPid(bp, result, recById, childRec.VesselPersistentId))
-                        {
-                            result.Add(childId);
-                            sameVesselBoardsAdded++;
-                            queue.Enqueue(childId);
-                            ParsekLog.Verbose("ReFlySession",
-                                $"SessionSuppressedSubtree: admitted same-vessel board child={childId} " +
-                                $"childPid={childRec.VesselPersistentId} via={currentRec.RecordingId} bp={bp.Id}");
-                            continue;
-                        }
-
-                        if (childRec != null
-                            && currentRec.VesselPersistentId != 0
-                            && childRec.VesselPersistentId != 0
-                            && childRec.VesselPersistentId != currentRec.VesselPersistentId)
-                        {
-                            sideOffSkips++;
-                            ParsekLog.Verbose("ReFlySession",
-                                $"SessionSuppressedSubtree: skipped side-off child={childId} " +
-                                $"childPid={childRec.VesselPersistentId} parent={currentRec.RecordingId} " +
-                                $"parentPid={currentRec.VesselPersistentId} bp={bp.Id} type={bp.Type}");
-                            continue;
-                        }
-
-                        result.Add(childId);
-                        childrenAdded++;
-                        queue.Enqueue(childId);
-                    }
-                }
-
-                suppressionCache = result;
+                HashSet<string> built = BuildSubtreeClosureUncached(marker, rootOverride);
+                suppressionCache = built;
                 suppressionCacheMarkerIdentity = marker;
                 suppressionCacheStoreVersion = storeVersion;
                 suppressionCacheRootOverride = rootOverride;
-
-                ParsekLog.Verbose("ReFlySession",
-                    $"SessionSuppressedSubtree: {result.Count} recording(s) closed from root={rootOverride} " +
-                    $"(childrenAdded={childrenAdded} siblingsAdded={siblingsAdded} pidPeersAdded={pidPeersAdded} " +
-                    $"debrisAdded={debrisAdded} debrisAnchorOnlySkips={debrisAnchorOnlySkips} " +
-                    $"mixedParentHalts={mixedParentHalts} sideOffSkips={sideOffSkips} " +
-                    $"stretchSeeds={stretchSeedsAdded} evaKerbalsAdded={evaKerbalsAdded} " +
-                    $"sameVesselBoards={sameVesselBoardsAdded} placedPartsAdded={placedPartsAdded} " +
-                    $"sessionOwnedExcluded={sessionOwnedExcluded})");
-
                 return suppressionCache;
             }
+        }
+
+        /// <summary>
+        /// The merge closure walk behind <see cref="ComputeSubtreeClosureInternal"/>,
+        /// without touching the single-entry suppression cache. Used by callers that
+        /// evaluate a closure for a marker other than the live session's (the
+        /// design section 2.12 retire-set gate builds a slot-scoped marker per slot),
+        /// so the live session's cached closure is never evicted by a gate read.
+        /// Returns a fresh set; null on a null marker or an empty root.
+        /// </summary>
+        internal static HashSet<string> BuildSubtreeClosureUncached(
+            ReFlySessionMarker marker, string rootOverride)
+        {
+            if (marker == null || string.IsNullOrEmpty(rootOverride))
+                return null;
+
+            var result = new HashSet<string>(StringComparer.Ordinal);
+            result.Add(rootOverride);
+
+            // Build a recording-id -> Recording lookup so the walk is O(N)
+            // rather than O(N^2) per committed recording.
+            var source = RecordingStore.CommittedRecordings;
+            var recById = new Dictionary<string, Recording>(StringComparer.Ordinal);
+            for (int i = 0; i < source.Count; i++)
+            {
+                var r = source[i];
+                if (r != null && !string.IsNullOrEmpty(r.RecordingId))
+                    recById[r.RecordingId] = r;
+            }
+
+            // The live session's OWN recordings are never supersede sources
+            // (design section 1.5 / 6.3). The fork itself is fenced by the
+            // NotCommitted guards below, but what the recorder created from it
+            // during the session - the vessel continuation after an EVA or a
+            // switch, the EVA kerbal, the re-boarded vessel - is ordinary
+            // Immutable data carrying the re-flown vessel's pid and starting
+            // after the rewind point, so the pid-peer expansion would admit it
+            // and the merge would supersede the new flight with its own head.
+            // Every walk below reads candidates through recById, so removing
+            // them here fences every expansion at once.
+            HashSet<string> sessionOwned = CollectActiveSessionOwnedRecordingIds(
+                marker, rootOverride, recById);
+            int sessionOwnedExcluded = 0;
+            if (sessionOwned != null)
+            {
+                foreach (string ownedId in sessionOwned)
+                    if (recById.Remove(ownedId)) sessionOwnedExcluded++;
+            }
+
+            // BranchPoint lookup via RewindPoint-persisted branch points is not
+            // available directly; BranchPoints are referenced from Recording.
+            // The closure walks committed recordings and inspects each's
+            // ChildBranchPointId, which — after Phase 1 — is expected to be a
+            // weak-link id to the tree's BranchPoint node.
+            // Phase 2 implementation: BranchPoints live on RecordingTree; look
+            // them up via each recording's tree.
+            //
+            // Same-PID-only BP-children gate (bug fix-refly-suppress-side-off,
+            // 2026-04-27): the BP-children walk only enqueues children whose
+            // VesselPersistentId matches the dequeued recording's
+            // VesselPersistentId. The re-fly only re-records the SAME-PID
+            // linear continuation (e.g. upper-stage U after staging is the
+            // same PID as the pre-staging vessel). Side-off branches
+            // (different PID — e.g. lower stage L after a Decouple BP) are
+            // separate physical vessels with their own ChainId / lineage and
+            // are NOT being re-flown by this session. Including them in the
+            // closure suppressed every previous side-off ghost during a re-fly
+            // (visible symptom: the previous L booster vanished from flight,
+            // map view, and ghost playback while re-flying U). The new flight
+            // will produce its OWN side-off recordings if it stages, and
+            // those will supersede the old ones at that future moment via
+            // the standard supersede-row path. PID 0 (legacy / unset) on
+            // EITHER side falls back to the prior wide-walk behavior — when
+            // one PID is unknown we cannot tell side-off from same-vessel
+            // continuation, so we admit the child rather than silently
+            // dropping a possibly-legitimate continuation from the closure
+            // (and from supersede / tombstone generation). Only the fully
+            // known asymmetric case (both PIDs nonzero and different) is
+            // confidently a side-off.
+            //
+            // Cross-chain same-PID peers (different ChainId, same PID) are
+            // still picked up by EnqueuePidPeerSiblings. Same-chain segments
+            // (HEAD/TIP from SplitAtSection) are still picked up by
+            // EnqueueChainSiblings — those are by-construction same physical
+            // vessel and the chain identity guarantees the same PID.
+            var queue = new Queue<string>();
+            queue.Enqueue(rootOverride);
+
+            int mixedParentHalts = 0;
+            int childrenAdded = 0;
+            int siblingsAdded = 0;
+            int pidPeersAdded = 0;
+            int sideOffSkips = 0;
+            int debrisAdded = 0;
+            int debrisAnchorOnlySkips = 0;
+            int evaKerbalsAdded = 0;
+            int sameVesselBoardsAdded = 0;
+            int placedPartsAdded = 0;
+
+            // Own-vessel stretch seeding (owner ruling 2026-09-27). The merge-time
+            // root is the marker's SupersedeTargetId, which the slot walk resolves
+            // to the vessel's REAL tip - past the vessel's own EVA / same-vessel
+            // Board / switch-continuation branch points. The forward walk from that
+            // tip alone would miss the vessel segments (and the EVA crew hanging off
+            // them) between the rewind point and the tip, so seed the closure with
+            // the stretch walked BACKWARD from the root. The backward walk stops at
+            // the slot origin, and before any recording that starts strictly before
+            // the rewind UT (the splitter owns that pre-rewind history).
+            int stretchSeedsAdded = SeedOwnVesselStretch(
+                marker, rootOverride, recById, result, queue);
+
+            while (queue.Count > 0)
+            {
+                string currentId = queue.Dequeue();
+                if (!recById.TryGetValue(currentId, out var currentRec))
+                    continue;
+
+                // Chain-sibling expansion: merge-time SplitAtSection
+                // splits one live recording into ChainId-linked siblings
+                // where the HEAD keeps the parent-branch-point link
+                // (and `ChildBranchPointId = null`) while the TIP carries
+                // the terminal state (and the moved `ChildBranchPointId`).
+                // Walking only via `ChildBranchPointId` would dequeue the
+                // HEAD, hit the early-return below, and never enqueue the
+                // TIP — leaving a stale orphan after re-fly merge. Run
+                // chain expansion on every dequeued member, BEFORE the
+                // null-`ChildBranchPointId` early-return, so a HEAD with
+                // no BP descendants still propagates to its siblings.
+                EnqueueChainSiblings(
+                    currentRec, recById, queue, result, marker, ref siblingsAdded);
+
+                // Cross-chain same-PID peer expansion: in-place re-fly that
+                // crosses staging spawns sibling chains for the SAME physical
+                // vessel (same VesselPersistentId) but in DIFFERENT ChainIds.
+                // Example from KSP.log 2026-04-26: origin f3f1f2e6 (chain
+                // 301a95f0) re-flew the probe; staging produced new chain
+                // 0a83aee0 (correctly picked up by EnqueueChainSiblings) AND
+                // a destroyed sibling 29f1d9a8 in chain 73e8a066 (PID
+                // 2450432355 == origin's PID). Without this walk the
+                // destroyed sibling never enters the closure, AppendRelations
+                // sees subtreeCount=2 with both members chain-skipped, and
+                // 0 supersede rows are written → the destroyed run stays
+                // visible in mission list / ghost playback. Gated on
+                // StartUT > marker.InvokedUT so pre-rewind PID history is
+                // not collapsed into the closure.
+                EnqueuePidPeerSiblings(
+                    currentRec, recById, queue, result, marker, ref pidPeersAdded);
+
+                // Debris-children expansion (v12 `Recording.ParentAnchorRecordingId`):
+                // foreground split BPs do not register a back-pointer through
+                // `Recording.ChildBranchPointId` on the parent (that field
+                // is single-slot and a multi-staging / destroyed parent
+                // commonly has many split BPs), and even when it is set the
+                // same-PID gate below would cull every debris row because
+                // debris is born as a fresh KSP-assigned VesselPersistentId.
+                // Use the v12 direct ownership link to admit debris children
+                // whose ParentBranchPointId resolves to a Breakup BP (crash)
+                // OR a JointBreak BP (intentional decouple) that this
+                // recording owns — the topology side of the dual-purpose
+                // ParentAnchorRecordingId field. Anchor-only matches
+                // (background splits where the field is re-pointed to the
+                // parent continuation as a sampling anchor) are gated out
+                // here and left to the existing same-PID side-off filter.
+                EnqueueDebrisChildren(
+                    currentRec, recById, queue, result,
+                    ref debrisAdded, ref debrisAnchorOnlySkips);
+
+                // Ground parts an EVA kerbal in the closure placed, and foreign
+                // vessels whose inventory he changed, hang off a kerbal side branch
+                // (GroundPartPlaced / InventoryTransfer) the still recording kerbal does
+                // NOT reference through ChildBranchPointId, so they are found by parent
+                // id (RecordingStore.EnqueueParentedBranchChildren's pattern).
+                EnqueueGroundPartPlacedChildrenForClosure(
+                    currentRec, recById, queue, result, ref placedPartsAdded);
+
+                if (string.IsNullOrEmpty(currentRec.ChildBranchPointId))
+                    continue;
+
+                // Look up the BranchPoint via the tree the recording belongs to.
+                BranchPoint bp = LookupBranchPoint(currentRec.TreeId, currentRec.ChildBranchPointId);
+                if (bp == null) continue;
+                if (bp.ChildRecordingIds == null) continue;
+
+                for (int ci = 0; ci < bp.ChildRecordingIds.Count; ci++)
+                {
+                    string childId = bp.ChildRecordingIds[ci];
+                    if (string.IsNullOrEmpty(childId)) continue;
+                    if (result.Contains(childId)) continue;
+                    // A child fenced out as the live session's own recording (see
+                    // CollectActiveSessionOwnedRecordingIds) is absent from recById
+                    // but still named here; never admit it.
+                    if (sessionOwned != null && sessionOwned.Contains(childId))
+                        continue;
+
+                    // Any BranchPoint with a parent outside the suppressed set halts the walk
+                    // (dock/board merges are the common case but this is type-agnostic per design §3.3).
+                    if (HasOutsideParent(bp, result))
+                    {
+                        mixedParentHalts++;
+                        ParsekLog.Verbose("ReFlySession",
+                            $"SessionSuppressedSubtree: mixed-parent halt at bp={bp.Id} type={bp.Type} " +
+                            $"child={childId} parents=[{string.Join(",", bp.ParentRecordingIds ?? new List<string>())}]");
+                        continue;
+                    }
+
+                    // Same-PID-only gate: skip side-off branches (different
+                    // VesselPersistentId from the current dequeued recording).
+                    // See block comment above for the design rationale.
+                    // Gate is bypassed whenever EITHER side's PID is 0
+                    // (unknown / unset — legacy data or freshly seeded
+                    // pre-PID records). With one side unknown we can't
+                    // tell side-off from same-vessel continuation, so we
+                    // preserve the prior wide-walk behavior and admit the
+                    // child. The fully-known case (both PIDs nonzero and
+                    // different) is the only one we can confidently call a
+                    // side-off.
+                    recById.TryGetValue(childId, out var childRec);
+
+                    // Own-EVA crew admission (owner ruling 2026-09-27): a kerbal who
+                    // stepped out of the re-flown vessel after the rewind point was
+                    // aboard it at the rewind point, so his EVA is part of the history
+                    // the re-fly rewrites. The same-PID gate below would cull him as a
+                    // side-off; admit him here instead.
+                    string evaAdmitReason;
+                    if (IsOwnEvaKerbalClosureChild(
+                            bp, currentRec, childRec, marker, out evaAdmitReason))
+                    {
+                        result.Add(childId);
+                        evaKerbalsAdded++;
+                        queue.Enqueue(childId);
+                        ParsekLog.Verbose("ReFlySession",
+                            $"SessionSuppressedSubtree: admitted own-EVA kerbal child={childId} " +
+                            $"crew={childRec.EvaCrewName} vessel={currentRec.RecordingId} bp={bp.Id}");
+                        continue;
+                    }
+
+                    // A Board that re-merges the vessel with its own EVA crew: the merged
+                    // child carries the VESSEL's pid, so when the kerbal parent is the
+                    // one dequeued (its turn can come after the vessel's) the same-PID
+                    // gate must compare against the vessel parent, not the kerbal.
+                    if (bp.Type == BranchPointType.Board
+                        && childRec != null
+                        && childRec.VesselPersistentId != 0
+                        && childRec.VesselPersistentId != currentRec.VesselPersistentId
+                        && HasClosureParentWithPid(bp, result, recById, childRec.VesselPersistentId))
+                    {
+                        result.Add(childId);
+                        sameVesselBoardsAdded++;
+                        queue.Enqueue(childId);
+                        ParsekLog.Verbose("ReFlySession",
+                            $"SessionSuppressedSubtree: admitted same-vessel board child={childId} " +
+                            $"childPid={childRec.VesselPersistentId} via={currentRec.RecordingId} bp={bp.Id}");
+                        continue;
+                    }
+
+                    if (childRec != null
+                        && currentRec.VesselPersistentId != 0
+                        && childRec.VesselPersistentId != 0
+                        && childRec.VesselPersistentId != currentRec.VesselPersistentId)
+                    {
+                        sideOffSkips++;
+                        ParsekLog.Verbose("ReFlySession",
+                            $"SessionSuppressedSubtree: skipped side-off child={childId} " +
+                            $"childPid={childRec.VesselPersistentId} parent={currentRec.RecordingId} " +
+                            $"parentPid={currentRec.VesselPersistentId} bp={bp.Id} type={bp.Type}");
+                        continue;
+                    }
+
+                    result.Add(childId);
+                    childrenAdded++;
+                    queue.Enqueue(childId);
+                }
+            }
+
+            ParsekLog.Verbose("ReFlySession",
+                $"SessionSuppressedSubtree: {result.Count} recording(s) closed from root={rootOverride} " +
+                $"(childrenAdded={childrenAdded} siblingsAdded={siblingsAdded} pidPeersAdded={pidPeersAdded} " +
+                $"debrisAdded={debrisAdded} debrisAnchorOnlySkips={debrisAnchorOnlySkips} " +
+                $"mixedParentHalts={mixedParentHalts} sideOffSkips={sideOffSkips} " +
+                $"stretchSeeds={stretchSeedsAdded} evaKerbalsAdded={evaKerbalsAdded} " +
+                $"sameVesselBoards={sameVesselBoardsAdded} placedPartsAdded={placedPartsAdded} " +
+                $"sessionOwnedExcluded={sessionOwnedExcluded})");
+
+            return result;
         }
 
         private static BranchPoint LookupBranchPoint(string treeId, string branchPointId)

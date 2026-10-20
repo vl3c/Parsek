@@ -1119,6 +1119,21 @@ Retired foreign recordings' files are NOT deleted locally (history stays
 browsable; disk cost accepted for v1; checkpoints bound the shared-folder
 cost).
 
+**Ledger safety (owner rulings 2026-10-19).** A retirement may never lower a
+balance anywhere on the timeline: a retired credit may already have paid for a
+later committed spend, on the owner's machine or a peer's. For re-fly this
+holds by construction: `parsek-rewind-to-separation-design.md` section 2.12
+lets a slot be re-flown only when every row its merge retires is a loss, so a
+re-fly retirement an importer applies can only raise the importer's balances,
+and the owner's dominance check ran over the owner's timeline before export.
+The other retirement kinds here (a transient dependent's ledger effects, a
+truncation's tail rows, rewind-retired subtrees) can still retire credit and
+are covered by todo `LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY`; the coop design
+must answer it before those kinds ship. Note the importer's timeline also holds
+peer spends the owner's dominance check never saw, so the import-side check is
+the importer's own (the same Invariant LS over the importer's ledger), not the
+owner's verdict.
+
 ### 7.11 The economy contract
 
 Foundations (all deterministic, all walk-level):

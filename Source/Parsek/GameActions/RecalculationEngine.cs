@@ -141,7 +141,14 @@ namespace Parsek
         /// by definition. Used by the rewind path to prevent post-rewind re-credit of events
         /// that occurred after the rewind target. When null, no filtering is applied.
         /// </param>
-        internal static void Recalculate(List<GameAction> actions, double? utCutoff = null)
+        /// <param name="deadlineClockUT">
+        /// Optional instant contract deadlines are judged against, separate from the walk
+        /// cutoff. The Re-Fly invoke walk passes a <c>double.MaxValue</c> cutoff (the whole
+        /// committed career) with the live UT here. When null, the cutoff (or the last
+        /// action's UT) is the deadline clock, as before.
+        /// </param>
+        internal static void Recalculate(
+            List<GameAction> actions, double? utCutoff = null, double? deadlineClockUT = null)
         {
             if (actions == null)
             {
@@ -188,7 +195,7 @@ namespace Parsek
                     ComputeProjectionHorizon(actions)).Sorted;
             }
 
-            WalkResult walk = RunWalk(effective, utCutoff);
+            WalkResult walk = RunWalk(effective, utCutoff, deadlineClockUT);
 
             if (utCutoff.HasValue)
                 ApplyProjectedAvailability(projectedTimeline, utCutoff.Value);
@@ -280,6 +287,84 @@ namespace Parsek
             {
                 RestoreDerivedFields(saved);
             }
+        }
+
+        /// <summary>One balance sample of <see cref="WalkBalancesOnClones"/>: the running
+        /// funds, science and reputation right after the action at <see cref="UT"/>.</summary>
+        internal struct LedgerBalanceSample
+        {
+            internal double UT;
+            internal double Funds;
+            internal double Science;
+            internal double Reputation;
+        }
+
+        /// <summary>What <see cref="WalkBalancesOnClones"/> measured.</summary>
+        internal sealed class IsolatedBalanceWalk
+        {
+            internal readonly List<LedgerBalanceSample> Samples = new List<LedgerBalanceSample>();
+            /// <summary>Per input row (by ActionId): the Affordable flag the walk set.</summary>
+            internal readonly Dictionary<string, bool> AffordableByActionId =
+                new Dictionary<string, bool>(StringComparer.Ordinal);
+            /// <summary>Per input row (by ActionId): the Effective flag the walk set.</summary>
+            internal readonly Dictionary<string, bool> EffectiveByActionId =
+                new Dictionary<string, bool>(StringComparer.Ordinal);
+        }
+
+        /// <summary>
+        /// A full walk of <paramref name="actions"/> (no cutoff, as the live recalculation
+        /// walks) over CLONES of the registered modules, sampling the running funds,
+        /// science and reputation after every dispatched action, and reading back each
+        /// input row's Affordable / Effective flags. Nothing registered changes, no state
+        /// is patched, the action-derived fields the walk rewrites are restored, and the
+        /// walk logs nothing. The Re-Fly merge dominance check (design section 2.12 Rule 5)
+        /// compares two of these, so it passes the same <paramref name="deadlineClockUT"/> to
+        /// both: contract deadlines are judged at that instant, not at each list's last action.
+        /// </summary>
+        internal static IsolatedBalanceWalk WalkBalancesOnClones(
+            List<GameAction> actions, double? deadlineClockUT = null)
+        {
+            var result = new IsolatedBalanceWalk();
+            if (actions == null) return result;
+            var all = CopyNonNullActions(actions);
+            var saved = SnapshotDerivedFields(all);
+            try
+            {
+                using (ParsekLog.SuppressScope())
+                {
+                    var first = CreateProjectionModules(firstTierModules);
+                    var strategy = CreateProjectionModule(strategyTransform);
+                    var second = CreateProjectionModules(secondTierModules);
+                    var facilities = CreateProjectionModule(facilitiesModule);
+                    var funds = FindModule<FundsModule>(second) ?? FindModule<FundsModule>(first);
+                    var science = FindModule<ScienceModule>(first) ?? FindModule<ScienceModule>(second);
+                    var reputation = FindModule<ReputationModule>(second) ?? FindModule<ReputationModule>(first);
+
+                    RunWalk(all, null, first, strategy, second, facilities, deadlineClockUT, afterAction: action =>
+                    {
+                        result.Samples.Add(new LedgerBalanceSample
+                        {
+                            UT = action.UT,
+                            Funds = funds != null ? funds.GetRunningBalance() : 0.0,
+                            Science = science != null ? science.GetRunningScience() : 0.0,
+                            Reputation = reputation != null ? reputation.GetRunningRep() : 0.0,
+                        });
+                    });
+
+                    for (int i = 0; i < all.Count; i++)
+                    {
+                        var a = all[i];
+                        if (string.IsNullOrEmpty(a.ActionId)) continue;
+                        result.AffordableByActionId[a.ActionId] = a.Affordable;
+                        result.EffectiveByActionId[a.ActionId] = a.Effective;
+                    }
+                }
+            }
+            finally
+            {
+                RestoreDerivedFields(saved);
+            }
+            return result;
         }
 
         private static T FindModule<T>(List<IResourceModule> modules) where T : class, IResourceModule
@@ -511,7 +596,8 @@ namespace Parsek
             internal int DeltaActions;
         }
 
-        private static WalkResult RunWalk(List<GameAction> actions, double? walkNowUT)
+        private static WalkResult RunWalk(
+            List<GameAction> actions, double? walkNowUT, double? deadlineClockUT)
         {
             return RunWalk(
                 actions,
@@ -519,7 +605,8 @@ namespace Parsek
                 firstTierModules,
                 strategyTransform,
                 secondTierModules,
-                facilitiesModule);
+                facilitiesModule,
+                deadlineClockUT);
         }
 
         private static WalkResult RunProjectionWalk(List<GameAction> actions, double projectionNowUT)
@@ -547,7 +634,9 @@ namespace Parsek
             List<IResourceModule> firstTier,
             IResourceModule strategy,
             List<IResourceModule> secondTier,
-            IResourceModule facilities)
+            IResourceModule facilities,
+            double? deadlineClockUT = null,
+            Action<GameAction> afterAction = null)
         {
             // 1. Sort — stable sort preserving insertion order for equal keys
             var sorted = SortActions(actions);
@@ -565,7 +654,8 @@ namespace Parsek
             // the cutoff itself. Without this, a filtered action list could have its
             // "last UT" land before a deadline, letting deadline-expired contracts
             // slip through the rewind without the synthetic ContractFail.
-            bool prePassMutated = PrePassAllModules(sorted, walkNowUT, firstTier, strategy, secondTier, facilities);
+            bool prePassMutated = PrePassAllModules(
+                sorted, walkNowUT, deadlineClockUT, firstTier, strategy, secondTier, facilities);
             if (prePassMutated)
                 sorted = SortActions(sorted);
             else
@@ -608,6 +698,8 @@ namespace Parsek
                     facilities.ProcessAction(action);
                     facilitiesDispatches++;
                 }
+
+                afterAction?.Invoke(action);
             }
 
             // 4. Post-walk: let modules finalize derived state.
@@ -842,6 +934,7 @@ namespace Parsek
         private static bool PrePassAllModules(
             List<GameAction> sorted,
             double? walkNowUT,
+            double? deadlineClockUT,
             List<IResourceModule> firstTier,
             IResourceModule strategy,
             List<IResourceModule> secondTier,
@@ -850,18 +943,31 @@ namespace Parsek
             bool mutated = false;
 
             for (int i = 0; i < firstTier.Count; i++)
-                mutated |= firstTier[i].PrePass(sorted, walkNowUT);
+                mutated |= PrePassModule(firstTier[i], sorted, walkNowUT, deadlineClockUT);
 
             if (strategy != null)
-                mutated |= strategy.PrePass(sorted, walkNowUT);
+                mutated |= PrePassModule(strategy, sorted, walkNowUT, deadlineClockUT);
 
             for (int i = 0; i < secondTier.Count; i++)
-                mutated |= secondTier[i].PrePass(sorted, walkNowUT);
+                mutated |= PrePassModule(secondTier[i], sorted, walkNowUT, deadlineClockUT);
 
             if (facilities != null)
-                mutated |= facilities.PrePass(sorted, walkNowUT);
+                mutated |= PrePassModule(facilities, sorted, walkNowUT, deadlineClockUT);
 
             return mutated;
+        }
+
+        /// <summary>
+        /// Only the contracts module judges deadlines, so only it receives the separate
+        /// deadline clock; every other module keeps the walk cutoff as its "now".
+        /// </summary>
+        private static bool PrePassModule(
+            IResourceModule module, List<GameAction> sorted, double? walkNowUT, double? deadlineClockUT)
+        {
+            var contracts = module as ContractsModule;
+            if (contracts != null && deadlineClockUT.HasValue)
+                return contracts.PrePass(sorted, walkNowUT, deadlineClockUT);
+            return module.PrePass(sorted, walkNowUT);
         }
 
         private static void PostWalkAllModules(

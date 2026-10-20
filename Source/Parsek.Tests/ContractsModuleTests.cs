@@ -807,6 +807,61 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PrePass_SessionClockBeforeDeadline_HorizonPastIt_NoSyntheticFail()
+        {
+            var actions = new List<GameAction>
+            {
+                MakeAccept("c1", ut: 100, deadlineUT: 500f),
+                new GameAction { Type = GameActionType.FundsEarning, UT = 900, FundsAwarded = 1000f }
+            };
+            actions[0].FundsPenalty = 8000f;
+            actions[0].RepPenalty = 3f;
+
+            bool mutated = module.PrePass(actions, double.MaxValue, 300.0);
+
+            Assert.False(mutated);
+            Assert.Equal(2, actions.Count);
+            Assert.DoesNotContain(logLines, l => l.Contains("synthetic ContractFail"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("no expired deadline") && l.Contains("source=clock"));
+        }
+
+        [Fact]
+        public void PrePass_SessionClockPastDeadline_InjectsFailWithClockSource()
+        {
+            var actions = new List<GameAction>
+            {
+                MakeAccept("c1", ut: 100, deadlineUT: 500f)
+            };
+
+            bool mutated = module.PrePass(actions, double.MaxValue, 600.0);
+
+            Assert.True(mutated);
+            Assert.Equal(2, actions.Count);
+            Assert.Equal(GameActionType.ContractFail, actions[1].Type);
+            Assert.Contains(logLines, l =>
+                l.Contains("injected synthetic ContractFail") && l.Contains("source=clock"));
+        }
+
+        [Theory]
+        [InlineData(400.0, 300.0, 900.0, 300.0, "clock")]
+        [InlineData(400.0, null, 900.0, 400.0, "cutoff")]
+        [InlineData(null, null, 900.0, 900.0, "lastActionUT")]
+        [InlineData(double.MaxValue, null, 900.0, 900.0, "lastActionUT")]
+        [InlineData(double.MaxValue, double.MaxValue, 900.0, 900.0, "lastActionUT")]
+        [InlineData(double.PositiveInfinity, double.NaN, 900.0, 900.0, "lastActionUT")]
+        [InlineData(double.MaxValue, 250.0, 900.0, 250.0, "clock")]
+        public void ResolveDeadlineClockUT_TruthTable(
+            double? walkNowUT, double? clockUT, double lastActionUT, double expectedUT, string expectedSource)
+        {
+            string source;
+            double ut = ContractsModule.ResolveDeadlineClockUT(walkNowUT, clockUT, lastActionUT, out source);
+
+            Assert.Equal(expectedUT, ut);
+            Assert.Equal(expectedSource, source);
+        }
+
+        [Fact]
         public void PrePass_NoInjectionWhenResolved()
         {
             // Contract accepted at UT=100 with deadline at UT=500,

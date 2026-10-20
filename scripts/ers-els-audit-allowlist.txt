@@ -202,6 +202,12 @@ Source/Parsek/MergeDialog.Commit.cs
 # write itself bumps TombstoneStateVersion so downstream ELS consumers
 # see the retirement on their next call.
 Source/Parsek/SupersedeCommit.cs
+# SupersedeCommit.RetireSet.cs is the same partial class: BuildRetireSet is
+# the one retire-set builder CommitTombstones writes from, and the section
+# 2.12 Rule 1 value gate reads the same raw ledger (minus the tombstone ids
+# it collects itself) and the raw committed list for the tip's chain
+# members, so the gate sees exactly the rows a merge would tombstone.
+Source/Parsek/SupersedeCommit.RetireSet.cs
 
 # --- Phase 10 ERS-exempt files ---
 # MergeJournalOrchestrator.RunFinisher's rollback path scans the RAW
@@ -284,9 +290,9 @@ Source/Parsek/Rendering/AnchorPropagator.cs
 
 # ReFlyAutoSealPreviewer.Preview is the read-only auto-seal preview the
 # pre-transition Re-Fly merge dialog uses to customize body copy
-# (transmitted science / undocked / docked etc.). It walks Ledger.Actions
-# directly to mirror SupersedeCommit.IsRetryBlockingRecordingAction's
-# filter (which is the canonical retry-blocker gate). Routing through
+# (transmitted science / undocked / docked etc.). It reads the attempt's
+# sealing rows through SupersedeCommit.CollectReFlyAttemptSealingRows (the
+# section 2.12 Rule 1 value gate over the raw ledger). Routing through
 # ELS would hide actions that production seals on - the preview must
 # match production's view of the raw ledger to avoid surfacing different
 # reasons than the post-finalize classifier will. No mutation; no scenario

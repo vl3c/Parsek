@@ -56,7 +56,7 @@ namespace Parsek
     /// is preserved unchanged.
     /// </para>
     /// </summary>
-    internal static class SupersedeCommit
+    internal static partial class SupersedeCommit
     {
         /// <summary>
         /// Reason a recording was excluded from <see cref="AppendRelations"/>'s
@@ -101,6 +101,7 @@ namespace Parsek
         private static int worldActionSafetyCacheLedgerVersion = int.MinValue;
         private static int worldActionSafetyCacheStoreVersion = int.MinValue;
         private static int worldActionSafetyCacheSupersedeVersion = int.MinValue;
+        private static int worldActionSafetyCacheTombstoneVersion = int.MinValue;
 
         /// <summary>
         /// Idempotent: appends supersede relations for every id in the
@@ -335,15 +336,9 @@ namespace Parsek
             // map-presence scoping while the active session is live; the
             // write-set filter is the commit-time policy decision.
             var preRewindCarveOutIds = new HashSet<string>(StringComparer.Ordinal);
-            Dictionary<string, Recording> recById = null;
-            // Pass 4 follow-up micro-optimization: pre-resolve TIP once so
-            // IsPreRewindCarveOut's chain-head case skips its per-call O(N)
-            // store scan. TIP id is constant across every iteration (it's
-            // marker.SupersedeTargetId), so a one-shot lookup at the top
-            // amortizes correctly for any subtree size.
-            Recording tipForCarveOut = !string.IsNullOrEmpty(marker.SupersedeTargetId)
-                ? FindCommittedRecordingByIdForCarveOut(marker.SupersedeTargetId)
-                : null;
+            // The same filter the design section 2.12 retire set and the journal's
+            // RebuildSubtree apply, so the gate, the merge and the resume read one set.
+            var carveOutFilter = new PreRewindCarveOutFilter(marker);
 
             int added = 0;
             int skippedExisting = 0;
@@ -399,23 +394,13 @@ namespace Parsek
                     }
                     // Pre-rewind carve-out is filtered LAST so the existing
                     // skip-counter contracts (self-link / extra-self-link /
-                    // existing-relation) keep their meaning. Build the
-                    // id->Recording index lazily; most batches are tiny and
-                    // the closure already filtered out null entries.
-                    //
-                    // A `TryGetValue` miss (closure id not in
-                    // `CommittedRecordings` — defensive, the closure walk
-                    // builds itself from the same store) short-circuits the
-                    // `&&` and falls through to row-write. That preserves the
-                    // pre-fix default ("write the row") for the anomalous
-                    // case where the row's Recording is gone but its id is
-                    // still in the closure.
-                    if (recById == null)
-                        recById = BuildCommittedRecordingIndex();
+                    // existing-relation) keep their meaning. A closure id not
+                    // in `CommittedRecordings` (defensive, the closure walk
+                    // builds itself from the same store) is never carved out
+                    // and falls through to row-write, the pre-fix default.
                     Recording rec;
                     PreRewindCarveOutReason carveOutReason;
-                    if (recById.TryGetValue(oldId, out rec)
-                        && IsPreRewindCarveOut(rec, marker, tipForCarveOut, out carveOutReason))
+                    if (carveOutFilter.IsCarvedOut(oldId, out rec, out carveOutReason))
                     {
                         skippedPreRewindCarveOut++;
                         preRewindCarveOutIds.Add(oldId);
@@ -692,6 +677,74 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// The pre-rewind carve-out (<see cref="IsPreRewindCarveOut(Recording, ReFlySessionMarker, Recording, out PreRewindCarveOutReason)"/>)
+        /// over the ids of one closure walk, resolving each id against
+        /// <see cref="RecordingStore.CommittedRecordings"/> (first entry wins) and the
+        /// marker's supersede target once. One instance per walk. Shared by
+        /// <see cref="AppendRelations(ReFlySessionMarker, Recording, ParsekScenario, IReadOnlyCollection{string})"/>
+        /// (whose returned subtree is what <see cref="CommitTombstones"/> retires), the merge
+        /// journal's tombstone-resume rebuild, and the design section 2.12 retire set
+        /// (<see cref="ComputeRetireClosure"/>, <see cref="BuildMergeRetireSet"/>), so the
+        /// value gate, the dominance check and the merge read one set. An id that is not a
+        /// committed recording is never carved out.
+        /// </summary>
+        internal sealed class PreRewindCarveOutFilter
+        {
+            private readonly ReFlySessionMarker marker;
+            private Dictionary<string, Recording> recById;
+            private Recording tip;
+
+            internal PreRewindCarveOutFilter(ReFlySessionMarker marker)
+            {
+                this.marker = marker;
+            }
+
+            internal bool IsCarvedOut(string recordingId, out Recording rec,
+                out PreRewindCarveOutReason reason)
+            {
+                rec = null;
+                reason = PreRewindCarveOutReason.None;
+                if (marker == null || string.IsNullOrEmpty(recordingId))
+                    return false;
+                if (recById == null)
+                {
+                    recById = BuildCommittedRecordingIndex();
+                    if (!string.IsNullOrEmpty(marker.SupersedeTargetId))
+                        recById.TryGetValue(marker.SupersedeTargetId, out tip);
+                }
+                return recById.TryGetValue(recordingId, out rec)
+                    && IsPreRewindCarveOut(rec, marker, tip, out reason);
+            }
+        }
+
+        /// <summary>
+        /// <paramref name="ids"/> minus the pre-rewind carve-outs of
+        /// <paramref name="marker"/> (<see cref="PreRewindCarveOutFilter"/>), in input order;
+        /// <paramref name="carvedOut"/> counts the ids removed. Null or empty ids are dropped.
+        /// </summary>
+        internal static List<string> RemovePreRewindCarveOuts(
+            IEnumerable<string> ids, ReFlySessionMarker marker, out int carvedOut)
+        {
+            carvedOut = 0;
+            var kept = new List<string>();
+            if (ids == null) return kept;
+            var filter = new PreRewindCarveOutFilter(marker);
+            foreach (string id in ids)
+            {
+                if (string.IsNullOrEmpty(id)) continue;
+                Recording rec;
+                PreRewindCarveOutReason reason;
+                if (filter.IsCarvedOut(id, out rec, out reason))
+                {
+                    carvedOut++;
+                    continue;
+                }
+                kept.Add(id);
+            }
+            return kept;
         }
 
         /// <summary>
@@ -1209,7 +1262,7 @@ namespace Parsek
 
                 ReFlyCloseReason closeReason;
                 bool keepSlotOpen = ShouldKeepReFlySlotOpenAfterMerge(
-                    provisional, marker, classifierQualifies, classifierReason,
+                    provisional, marker, rp, slot, classifierQualifies, classifierReason,
                     out closeReason);
                 result.NewState = keepSlotOpen
                     ? MergeState.CommittedProvisional
@@ -1288,6 +1341,8 @@ namespace Parsek
         private static bool ShouldKeepReFlySlotOpenAfterMerge(
             Recording rec,
             ReFlySessionMarker marker,
+            RewindPoint rp,
+            ChildSlot slot,
             bool classifierQualifies,
             string classifierReason,
             out ReFlyCloseReason closeReason)
@@ -1307,8 +1362,12 @@ namespace Parsek
                 return false;
             }
 
+            // Design section 2.12 Rule 1 / Site B-1: after the merge the re-fly is the
+            // slot's tip, so its own retire set decides. A re-fly that gained anything
+            // seals the slot whatever its terminal; one that only lost (crashed again,
+            // earning nothing) falls through and keeps the crash retry open.
             string actionSummary;
-            if (TryFindRetryBlockingWorldAction(rec, out actionSummary))
+            if (RetireSetHoldsSealingRow(rec, rp, slot, out actionSummary))
             {
                 closeReason = new ReFlyCloseReason
                 {
@@ -1799,34 +1858,15 @@ namespace Parsek
                     StringComparison.Ordinal);
         }
 
-        // Strict mode intentionally stays available as the tested ledger-safety
-        // contract below retry mode. STASH/Re-Fly retry callers should use
-        // TryFindRetryBlockingWorldAction so automatic consequence rows do not
-        // close terminal-failure retries by themselves.
+        // Strict mode stays available as the tested world-state contract. Re-Fly
+        // eligibility reads the design section 2.12 value gate instead
+        // (TryFindRetryBlockingWorldAction / RetireSetHoldsSealingRow).
         internal static bool TryFindRecordingScopedWorldAction(
             Recording rec,
             out string actionSummary)
         {
-            return TryFindRecordingScopedWorldAction(
-                rec, retryBlockingOnly: false, out actionSummary);
-        }
-
-        internal static bool TryFindRetryBlockingWorldAction(
-            Recording rec,
-            out string actionSummary)
-        {
-            return TryFindRecordingScopedWorldAction(
-                rec, retryBlockingOnly: true, out actionSummary);
-        }
-
-        private static bool TryFindRecordingScopedWorldAction(
-            Recording rec,
-            bool retryBlockingOnly,
-            out string actionSummary)
-        {
             actionSummary = null;
-            string cacheKey = BuildWorldActionSafetyCacheKey(
-                rec, retryBlockingOnly);
+            string cacheKey = BuildWorldActionSafetyCacheKey(rec);
             if (cacheKey == null)
                 return false;
 
@@ -1839,16 +1879,46 @@ namespace Parsek
                 return cached.HasAction;
             }
 
-            var computed = ComputeRecordingScopedWorldAction(
-                rec, retryBlockingOnly);
+            var computed = ComputeRecordingScopedWorldAction(rec);
             CacheWorldActionSafetyVerdict(cacheKey, scenario, computed);
             actionSummary = computed.ActionSummary;
             return computed.HasAction;
         }
 
-        private static WorldActionSafetyCacheEntry ComputeRecordingScopedWorldAction(
+        /// <summary>
+        /// Design section 2.12 Rule 1 for a caller that holds only a recording: resolves
+        /// the recording's rewind-point slot and reads
+        /// <see cref="RetireSetHoldsSealingRow(Recording, RewindPoint, ChildSlot, out string)"/>.
+        /// A recording with no resolvable slot is gated over its own retire set with no
+        /// rewind cutoff (every row it carries counts).
+        /// </summary>
+        internal static bool TryFindRetryBlockingWorldAction(
             Recording rec,
-            bool retryBlockingOnly)
+            out string actionSummary)
+        {
+            actionSummary = null;
+            if (rec == null)
+                return false;
+            RewindPoint rp;
+            int slotListIndex;
+            ChildSlot slot = null;
+            if (UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                    rec, out rp, out slotListIndex)
+                && rp?.ChildSlots != null
+                && slotListIndex >= 0
+                && slotListIndex < rp.ChildSlots.Count)
+            {
+                slot = rp.ChildSlots[slotListIndex];
+            }
+            else
+            {
+                rp = null;
+            }
+            return RetireSetHoldsSealingRow(rec, rp, slot, out actionSummary);
+        }
+
+        private static WorldActionSafetyCacheEntry ComputeRecordingScopedWorldAction(
+            Recording rec)
         {
             var result = new WorldActionSafetyCacheEntry();
             var recordingIds = CollectRecordingIdsForSafetyGate(rec);
@@ -1863,10 +1933,7 @@ namespace Parsek
                     continue;
                 if (!recordingIds.Contains(action.RecordingId))
                     continue;
-                bool hasAction = retryBlockingOnly
-                    ? IsRetryBlockingRecordingAction(action, actions)
-                    : IsWorldStateChangingRecordingAction(action, actions);
-                if (!hasAction)
+                if (!IsWorldStateChangingRecordingAction(action, actions))
                     continue;
 
                 result.HasAction = true;
@@ -1910,6 +1977,7 @@ namespace Parsek
                 worldActionSafetyCacheLedgerVersion = int.MinValue;
                 worldActionSafetyCacheStoreVersion = int.MinValue;
                 worldActionSafetyCacheSupersedeVersion = int.MinValue;
+                worldActionSafetyCacheTombstoneVersion = int.MinValue;
             }
         }
 
@@ -1919,10 +1987,16 @@ namespace Parsek
             int supersedeVersion = !object.ReferenceEquals(null, scenario)
                 ? scenario.SupersedeStateVersion
                 : 0;
+            // The retire set skips already-tombstoned rows, so a tombstone write
+            // changes the value gate's answer (design section 2.12).
+            int tombstoneVersion = !object.ReferenceEquals(null, scenario)
+                ? scenario.TombstoneStateVersion
+                : 0;
             if (ReferenceEquals(worldActionSafetyCacheScenarioIdentity, scenario)
                 && worldActionSafetyCacheLedgerVersion == Ledger.StateVersion
                 && worldActionSafetyCacheStoreVersion == RecordingStore.StateVersion
-                && worldActionSafetyCacheSupersedeVersion == supersedeVersion)
+                && worldActionSafetyCacheSupersedeVersion == supersedeVersion
+                && worldActionSafetyCacheTombstoneVersion == tombstoneVersion)
                 return;
 
             worldActionSafetyCache.Clear();
@@ -1930,17 +2004,15 @@ namespace Parsek
             worldActionSafetyCacheLedgerVersion = Ledger.StateVersion;
             worldActionSafetyCacheStoreVersion = RecordingStore.StateVersion;
             worldActionSafetyCacheSupersedeVersion = supersedeVersion;
+            worldActionSafetyCacheTombstoneVersion = tombstoneVersion;
         }
 
-        private static string BuildWorldActionSafetyCacheKey(
-            Recording rec,
-            bool retryBlockingOnly)
+        private static string BuildWorldActionSafetyCacheKey(Recording rec)
         {
             if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
                 return null;
 
-            string mode = retryBlockingOnly ? "retry" : "strict";
-            return mode
+            return "strict"
                 + WorldActionCacheKeySeparator
                 + rec.RecordingId
                 + WorldActionCacheKeySeparator
@@ -2165,9 +2237,8 @@ namespace Parsek
                 // RETIRES these rows - IsSupersedeTombstoneEligible returns true for the
                 // type - so there is nothing left for a strict block to protect; blocking
                 // would only refuse a merge over a row the same merge is about to
-                // tombstone. Consistency note: IsRetryBlockingRecordingAction is
-                // ScienceEarning-only, so it already answered false for this type both
-                // before and after this arm; only the strict gate changes.
+                // tombstone. Re-Fly eligibility does not read this predicate: the
+                // design section 2.12 value gate counts the row as a sealing row.
                 case GameActionType.StrategyScienceDebit:
                 // StrategyScienceCredit: the same argument in the OUTPUT direction.
                 case GameActionType.StrategyScienceCredit:
@@ -2194,47 +2265,6 @@ namespace Parsek
                 return false;
 
             return true;
-        }
-
-        internal static bool IsRetryBlockingRecordingAction(
-            GameAction action,
-            IReadOnlyList<GameAction> sameTimelineActions)
-        {
-            if (!IsWorldStateChangingRecordingAction(action, sameTimelineActions))
-                return false;
-
-            // Retry-blocking auto-seal fires only on intentional player actions taken
-            // on the vessel that produce sticky world-state effects. ScienceEarning
-            // (Crew Report / EVA Report / Surface Sample / Transmit / Recover) is the
-            // only ledger row in this category — every other GameActionType is either
-            //
-            //   - an automatic game consequence (MilestoneAchievement,
-            //     ContractComplete/Fail, FundsEarning, ReputationEarning/Penalty,
-            //     KerbalAssignment/Rescue/StandIn, FacilityDestruction) — denylisted
-            //     by IsWorldStateChangingRecordingAction or by exclusion here;
-            //
-            //   - a KSC-scene player action (ContractAccept/Cancel, KerbalHire,
-            //     FacilityUpgrade/Repair, StrategyActivate/Deactivate,
-            //     ScienceSpending) that cannot reach this gate with a flight-recording
-            //     tag because GameStateRecorder.Emit only stamps a tag in FLIGHT
-            //     scene with a live recorder; or
-            //
-            //   - a paid-once setup row (FundsSpending(VesselBuild) adopted to the
-            //     recording via TryAdoptRolloutAction) whose effect survives a
-            //     revert/retag without re-charging the player, so sealing on it
-            //     would punish retries for spending the player already accepted.
-            //
-            // Structural mutations (decouple / stage / undock / EVA / joint break)
-            // and hard safety terminals (Recovered / Docked / Boarded) seal via
-            // their own dedicated gates (HasReFlySessionStructuralMutation +
-            // IsHardSafetyTerminal), not through this predicate.
-            //
-            // Deployed-experiment science (operator ruling 2026-09-26) is a ground
-            // station's output, not a player action on the re-flown vessel. The capture
-            // writes it untagged so it never reaches this gate; the subject check also
-            // keeps a row an older build tagged from sealing a slot.
-            return action.Type == GameActionType.ScienceEarning
-                && !GameStateRecorder.IsDeployedScienceSubjectId(action.SubjectId);
         }
 
         // Auto-seal-after-safety-close is now encoded entirely in the
@@ -2487,7 +2517,8 @@ namespace Parsek
             string retiringRecordingId,
             double mergeUT,
             string nowIso,
-            ParsekScenario scenario)
+            ParsekScenario scenario,
+            LossSwapVariant lossSwapVariant = LossSwapVariant.A)
         {
             // ReferenceEquals to bypass Unity's Object == null override (test
             // fixtures install plain-CLR ParsekScenario instances without a
@@ -2505,7 +2536,11 @@ namespace Parsek
 
             // No subtree means nothing to retire, but still bump the tombstone
             // state version so cache invalidation is unconditional at merge time.
-            if (subtreeIds == null || subtreeIds.Count == 0)
+            // Variant B goes on with the empty set: the re-fly's own ReputationPenalty
+            // loss rows are tombstoned whatever the replaced side retires, which is what
+            // the design section 2.12 dominance check modeled.
+            if ((subtreeIds == null || subtreeIds.Count == 0)
+                && lossSwapVariant != LossSwapVariant.B)
             {
                 ParsekLog.Info(LedgerSwapTag,
                     "Tombstoned 0 career actions (Contract=0, Milestone=0, Facility=0, " +
@@ -2518,7 +2553,9 @@ namespace Parsek
                 return;
             }
 
-            // Pre-index existing tombstones by ActionId for O(1) idempotence.
+            // Steps 2-5 (scope filter, pre-rewind keep, already-tombstoned skip,
+            // eligibility) live in BuildRetireSet so the section 2.12 value gate reads
+            // exactly the rows this merge writes.
             var alreadyTombstoned = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < scenario.LedgerTombstones.Count; i++)
             {
@@ -2527,129 +2564,12 @@ namespace Parsek
                 alreadyTombstoned.Add(t.ActionId);
             }
 
-            // Group actions in the subtree scope by RecordingId so the rep-
-            // bundling rule can scan a bounded slice per candidate. Materialize
-            // the subtree into a HashSet so InSupersedeScope gets O(1) lookup
-            // and the ICollection<string> contract is met.
-            //
-            // TOMBSTONE-SCOPE-HAS-NO-UT-GUARD: subtree containment is an
-            // ATTRIBUTION key, not a timeline key. A payout earned before the
-            // rewind point belongs to the half of the flight this merge KEEPS,
-            // even when the recording it is tagged to lands in the superseded
-            // subtree (the origin child brackets its own pre-rewind UTs, and the
-            // splitter only carves HEAD out when the origin genuinely spans the
-            // rewind UT). Screening here rather than inside InSupersedeScope keeps
-            // the two concerns separately testable and the skip separately counted.
             double rewindCutoffUT = ComputeTombstoneRewindCutoffUT(marker);
-            int preRewindKept = 0;
-            // TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START: death rows that
-            // boarded BEFORE the cutoff but died at or after it. The guard screens them
-            // by EndUT, so they stay in scope; counted so the log shows the clause
-            // deciding rather than leaving it to be inferred from a missing keep line.
-            int deathIntervalsInScopeByEndUT = 0;
-            // DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT: KerbalDeath rep penalties
-            // whose side of the cutoff their paired death decided against their own UT
-            // (the same key the split retag moved them by).
-            int deathPenaltiesScreenedByDeath = 0;
-
-            var subtreeSet = new HashSet<string>(subtreeIds, StringComparer.Ordinal);
-            var actions = Ledger.Actions;
-            var sliceByRecording = new Dictionary<string, List<GameAction>>(StringComparer.Ordinal);
-            for (int i = 0; i < actions.Count; i++)
-            {
-                var a = actions[i];
-                if (a == null) continue;
-                if (!TombstoneAttributionHelper.InSupersedeScope(a, subtreeSet))
-                    continue;
-                double deathFloatStep;
-                if (TombstoneAttributionHelper.IsDeathEndUTWithinFloatStepOfCutoff(
-                        a, rewindCutoffUT, out deathFloatStep))
-                {
-                    // TOMBSTONE-ENDUT-SCREEN-LOW-LIMITS (1), accepted 2026-09-23: the float
-                    // EndUT cannot place this death on either side of the cutoff, so the
-                    // screen below may be deciding on rounding. Warn, not Info: it is a
-                    // real ambiguity in a career-state outcome, and the log validator
-                    // flags only a redundant WARN prefix, never a plain Warn.
-                    ParsekLog.Warn(LedgerSwapTag,
-                        $"PreRewindTombstoneGuard: death endUT within one float step of the cutoff " +
-                        $"action={a.ActionId ?? "<no-id>"} kerbal={a.KerbalName ?? "<none>"} " +
-                        $"rec={a.RecordingId} " +
-                        $"endUT={((double)a.EndUT).ToString("R", CultureInfo.InvariantCulture)} " +
-                        $"cutoffUT={rewindCutoffUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                        $"floatStep={deathFloatStep.ToString("R", CultureInfo.InvariantCulture)} " +
-                        $"-> {(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, rewindCutoffUT, actions) ? "kept" : "in scope")} " +
-                        "(the screen may be deciding on float rounding)");
-                }
-                bool preRewind = TombstoneAttributionHelper.IsPreRewindAttributedAction(a, rewindCutoffUT, actions);
-                if (!double.IsNaN(rewindCutoffUT)
-                    && TombstoneAttributionHelper.IsKerbalDeathRepPenalty(a)
-                    && !double.IsNaN(a.UT)
-                    && preRewind != (a.UT < rewindCutoffUT))
-                {
-                    deathPenaltiesScreenedByDeath++;
-                    if (deathPenaltiesScreenedByDeath <= PreRewindKeepLogCap)
-                    {
-                        ParsekLog.Verbose(LedgerSwapTag,
-                            $"PreRewindTombstoneGuard: KerbalDeath rep penalty screened by its paired death " +
-                            $"action={a.ActionId ?? "<no-id>"} rec={a.RecordingId} " +
-                            $"ut={a.UT.ToString("R", CultureInfo.InvariantCulture)} " +
-                            $"attributionUT={TombstoneAttributionHelper.ComputeAttributionUT(a, actions).ToString("R", CultureInfo.InvariantCulture)} " +
-                            $"cutoffUT={rewindCutoffUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                            $"-> {(preRewind ? "kept" : "in scope")}");
-                    }
-                }
-                if (preRewind)
-                {
-                    preRewindKept++;
-                    // Per-row identity is logged rather than only summarised because
-                    // WHICH payout the guard saved is the whole forensic question when
-                    // a career reconciles differently than expected — a bare count
-                    // cannot answer it. The batch convention's bound is honoured with
-                    // an explicit cap instead of an assumption about how many rows a
-                    // subtree can hold; the summary line below is always complete.
-                    if (preRewindKept <= PreRewindKeepLogCap)
-                    {
-                        ParsekLog.Verbose(LedgerSwapTag,
-                            $"PreRewindTombstoneGuard: keep action={a.ActionId ?? "<no-id>"} " +
-                            $"type={a.Type} rec={a.RecordingId} " +
-                            $"ut={a.UT.ToString("R", CultureInfo.InvariantCulture)} " +
-                            $"attributionUT={TombstoneAttributionHelper.ComputeAttributionUT(a, actions).ToString("R", CultureInfo.InvariantCulture)} " +
-                            $"cutoffUT={rewindCutoffUT.ToString("R", CultureInfo.InvariantCulture)}");
-                    }
-                    else if (preRewindKept == PreRewindKeepLogCap + 1)
-                    {
-                        ParsekLog.Verbose(LedgerSwapTag,
-                            $"PreRewindTombstoneGuard: further per-row keeps suppressed " +
-                            $"(cap={PreRewindKeepLogCap.ToString(CultureInfo.InvariantCulture)}); " +
-                            $"see the summary line for the total");
-                    }
-                    continue;
-                }
-                if (!double.IsNaN(rewindCutoffUT)
-                    && TombstoneAttributionHelper.IsDeathEncodingInterval(a)
-                    && a.UT < rewindCutoffUT)
-                {
-                    deathIntervalsInScopeByEndUT++;
-                    if (deathIntervalsInScopeByEndUT <= PreRewindKeepLogCap)
-                    {
-                        ParsekLog.Verbose(LedgerSwapTag,
-                            $"PreRewindTombstoneGuard: death interval screened by endUT " +
-                            $"action={a.ActionId ?? "<no-id>"} kerbal={a.KerbalName ?? "<none>"} " +
-                            $"rec={a.RecordingId} " +
-                            $"startUT={a.UT.ToString("R", CultureInfo.InvariantCulture)} " +
-                            $"endUT={((double)a.EndUT).ToString("R", CultureInfo.InvariantCulture)} " +
-                            $"cutoffUT={rewindCutoffUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                            $"-> in scope");
-                    }
-                }
-                List<GameAction> slice;
-                if (!sliceByRecording.TryGetValue(a.RecordingId, out slice))
-                {
-                    slice = new List<GameAction>();
-                    sliceByRecording[a.RecordingId] = slice;
-                }
-                slice.Add(a);
-            }
+            RetireSetScan scan = BuildRetireSet(
+                subtreeIds, rewindCutoffUT, Ledger.Actions, alreadyTombstoned, logDecisions: true);
+            int preRewindKept = scan.PreRewindKept;
+            int deathIntervalsInScopeByEndUT = scan.DeathIntervalsInScopeByEndUT;
+            int deathPenaltiesScreenedByDeath = scan.DeathPenaltiesScreenedByDeath;
 
             int contractCount = 0;
             int milestoneCount = 0;
@@ -2661,81 +2581,90 @@ namespace Parsek
             int reputationCount = 0;
             int kerbalCount = 0;
             int otherCount = 0;
-            int seedExcluded = 0;
-            int rolloutExcluded = 0;
-            int otherExcluded = 0;
+            int seedExcluded = scan.SeedExcluded;
+            int rolloutExcluded = scan.RolloutExcluded;
+            int otherExcluded = scan.OtherExcluded;
             var tombstonedRosterActions = new List<GameAction>();
             HashSet<string> tombstonedScienceSpendingNodeIds = null;
 
-            foreach (var kv in sliceByRecording)
+            // Design section 2.12 Rule 2: Variant B keeps the replaced flight's
+            // ReputationPenalty loss rows and tombstones the re-fly's own instead.
+            bool variantB = lossSwapVariant == LossSwapVariant.B;
+            int keptReplacedRepLoss = 0;
+            var rowsToTombstone = new List<GameAction>(scan.Rows.Count);
+            for (int i = 0; i < scan.Rows.Count; i++)
             {
-                var slice = kv.Value;
-                for (int i = 0; i < slice.Count; i++)
+                var a = scan.Rows[i];
+                if (variantB && IsReputationLossRow(a))
                 {
-                    var a = slice[i];
-                    if (string.IsNullOrEmpty(a.ActionId))
-                    {
-                        // Shouldn't happen post-Phase-1 (every action gets an
-                        // ActionId at construction / legacy hash on load) but
-                        // tolerate defensively; can't tombstone without an id.
-                        continue;
-                    }
-                    if (alreadyTombstoned.Contains(a.ActionId))
-                    {
-                        ParsekLog.Verbose(LedgerSwapTag,
-                            $"Skip: action '{a.ActionId}' already tombstoned (idempotent re-entry)");
-                        continue;
-                    }
-
-                    bool eligible = TombstoneEligibility.IsSupersedeTombstoneEligible(a);
-
-                    if (!eligible)
-                    {
-                        CountExcludedByType(a,
-                            ref seedExcluded,
-                            ref rolloutExcluded,
-                            ref otherExcluded);
-                        continue;
-                    }
-
-                    CountTombstonedByType(a.Type,
-                        ref contractCount,
-                        ref milestoneCount,
-                        ref facilityCount,
-                        ref strategyCount,
-                        ref scienceSpendingCount,
-                        ref scienceCount,
-                        ref fundsCount,
-                        ref reputationCount,
-                        ref kerbalCount,
-                        ref otherCount);
-                    if (a.Type == GameActionType.ScienceSpending &&
-                        !string.IsNullOrEmpty(a.NodeId))
-                    {
-                        if (tombstonedScienceSpendingNodeIds == null)
-                            tombstonedScienceSpendingNodeIds = new HashSet<string>(
-                                StringComparer.Ordinal);
-                        tombstonedScienceSpendingNodeIds.Add(a.NodeId);
-                    }
-                    string rosterKerbalName;
-                    if (KerbalsModule.TryGetRosterCreatedKerbalName(a, out rosterKerbalName))
-                        tombstonedRosterActions.Add(a);
-
-                    var tomb = new LedgerTombstone
-                    {
-                        TombstoneId = "tomb_" + Guid.NewGuid().ToString("N"),
-                        ActionId = a.ActionId,
-                        RetiringRecordingId = retiringRecordingId,
-                        UT = mergeUT,
-                        CreatedRealTime = nowIso,
-                    };
-                    scenario.LedgerTombstones.Add(tomb);
-                    alreadyTombstoned.Add(a.ActionId);
-
-                    ParsekLog.Verbose(LedgerSwapTag,
-                        $"tomb={tomb.TombstoneId} action={a.ActionId} type={a.Type} " +
-                        $"rec={a.RecordingId} ut={a.UT.ToString("R", CultureInfo.InvariantCulture)}");
+                    keptReplacedRepLoss++;
+                    continue;
                 }
+                rowsToTombstone.Add(a);
+            }
+            int tombstonedAttemptRepLoss = 0;
+            if (variantB)
+            {
+                List<GameAction> attemptRepLoss = CollectReFlyAttemptReputationLossRows(
+                    CollectCommittedReFlyAttemptRecordingIds(marker));
+                for (int i = 0; i < attemptRepLoss.Count; i++)
+                {
+                    var a = attemptRepLoss[i];
+                    if (string.IsNullOrEmpty(a.ActionId) || alreadyTombstoned.Contains(a.ActionId))
+                        continue;
+                    rowsToTombstone.Add(a);
+                    tombstonedAttemptRepLoss++;
+                }
+            }
+
+            for (int i = 0; i < rowsToTombstone.Count; i++)
+            {
+                var a = rowsToTombstone[i];
+                CountTombstonedByType(a.Type,
+                    ref contractCount,
+                    ref milestoneCount,
+                    ref facilityCount,
+                    ref strategyCount,
+                    ref scienceSpendingCount,
+                    ref scienceCount,
+                    ref fundsCount,
+                    ref reputationCount,
+                    ref kerbalCount,
+                    ref otherCount);
+                if (a.Type == GameActionType.ScienceSpending &&
+                    !string.IsNullOrEmpty(a.NodeId))
+                {
+                    if (tombstonedScienceSpendingNodeIds == null)
+                        tombstonedScienceSpendingNodeIds = new HashSet<string>(
+                            StringComparer.Ordinal);
+                    tombstonedScienceSpendingNodeIds.Add(a.NodeId);
+                }
+                string rosterKerbalName;
+                if (KerbalsModule.TryGetRosterCreatedKerbalName(a, out rosterKerbalName))
+                    tombstonedRosterActions.Add(a);
+
+                var tomb = new LedgerTombstone
+                {
+                    TombstoneId = "tomb_" + Guid.NewGuid().ToString("N"),
+                    ActionId = a.ActionId,
+                    RetiringRecordingId = retiringRecordingId,
+                    UT = mergeUT,
+                    CreatedRealTime = nowIso,
+                };
+                scenario.LedgerTombstones.Add(tomb);
+
+                ParsekLog.Verbose(LedgerSwapTag,
+                    $"tomb={tomb.TombstoneId} action={a.ActionId} type={a.Type} " +
+                    $"rec={a.RecordingId} ut={a.UT.ToString("R", CultureInfo.InvariantCulture)}");
+            }
+
+            if (variantB)
+            {
+                ParsekLog.Info(LedgerSwapTag,
+                    $"Loss swap variant B applied sess={marker?.SessionId ?? "<no-sess>"} " +
+                    $"keptReplacedRepLoss={keptReplacedRepLoss.ToString(CultureInfo.InvariantCulture)} " +
+                    $"tombstonedAttemptRepLoss={tombstonedAttemptRepLoss.ToString(CultureInfo.InvariantCulture)} " +
+                    $"retiring={retiringRecordingId ?? "<none>"}");
             }
 
             int tombstoned = contractCount + milestoneCount + facilityCount + strategyCount
@@ -3246,7 +3175,8 @@ namespace Parsek
         /// </para>
         /// </summary>
         internal static bool ConcludeRetiredProvisional(
-            ReFlySessionMarker marker, Recording retired, string retireReason)
+            ReFlySessionMarker marker, Recording retired, string retireReason,
+            LossSwapVariant lossSwapVariant = LossSwapVariant.A)
         {
             if (marker == null || retired == null)
             {
@@ -3317,7 +3247,7 @@ namespace Parsek
 
             double ut = SafeNow();
             string nowIso = DateTime.UtcNow.ToString("o");
-            CommitTombstones(marker, subtree, retiredId, ut, nowIso, scenario);
+            CommitTombstones(marker, subtree, retiredId, ut, nowIso, scenario, lossSwapVariant);
             int tombstonesWritten = scenario.LedgerTombstones.Count - tombstonesBefore;
 
             // Retire-time tag re-home. The provisional is being retired and will not exist

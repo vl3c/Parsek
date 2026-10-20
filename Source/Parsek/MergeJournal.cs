@@ -50,6 +50,14 @@ namespace Parsek
         /// <summary>Wall-clock timestamp at which the staged-commit began (ISO 8601 UTC; design §5.8).</summary>
         public string StartedRealTime;
 
+        /// <summary>
+        /// Design section 2.12 Rule 2: the loss-swap variant the merge dialog's dominance
+        /// check chose for this merge, persisted before <see cref="Phases.Begin"/>'s durable
+        /// save so a finisher that resumes the merge tombstones the same rows. Key
+        /// <c>lossSwapVariant</c>; absent reads <see cref="LossSwapVariant.A"/>.
+        /// </summary>
+        public LossSwapVariant LossSwapVariant = LossSwapVariant.A;
+
         /// <summary>Transient cross-block thread inside CompleteFromPostDurable only. DO NOT add to SaveInto/LoadFrom; every other field on MergeJournal is persisted, this is the exception.</summary>
         internal IReadOnlyCollection<string> RecoveredSubtreeIds;
 
@@ -164,6 +172,9 @@ namespace Parsek
             node.AddValue("startedUT", StartedUT.ToString("R", ic));
             if (!string.IsNullOrEmpty(StartedRealTime))
                 node.AddValue("startedRealTime", StartedRealTime);
+            // Omitted when A (design section 5.10): A is what an absent key reads.
+            if (LossSwapVariant != LossSwapVariant.A)
+                node.AddValue("lossSwapVariant", LossSwapVariant.ToString());
         }
 
         public static MergeJournal LoadFrom(ConfigNode node)
@@ -190,6 +201,22 @@ namespace Parsek
                 j.StartedUT = ut;
 
             j.StartedRealTime = node.GetValue("startedRealTime");
+
+            // Absent (a journal written before the key existed) reads A, the variant
+            // every merge wrote before section 2.12 Rule 2.
+            string variant = node.GetValue("lossSwapVariant");
+            LossSwapVariant parsed;
+            if (!string.IsNullOrEmpty(variant)
+                && Enum.TryParse(variant, false, out parsed)
+                && Enum.IsDefined(typeof(LossSwapVariant), parsed))
+                j.LossSwapVariant = parsed;
+            else
+            {
+                if (!string.IsNullOrEmpty(variant))
+                    ParsekLog.Warn("MergeJournal",
+                        $"LoadFrom: unknown lossSwapVariant='{variant}' sess={j.SessionId ?? "<no-id>"} - reading A");
+                j.LossSwapVariant = LossSwapVariant.A;
+            }
 
             return j;
         }

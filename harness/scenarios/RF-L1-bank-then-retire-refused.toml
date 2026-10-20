@@ -1,0 +1,237 @@
+schema = 1
+id = "RF-L1-bank-then-retire-refused"
+tier = "operator"
+# THE RE-FLY LEDGER-SAFETY PROGRAM (design docs/parsek-rewind-to-separation-design.md section
+# 2.12, owner rulings 2026-10-19), lane L1: THE BANK-THEN-RETIRE EXPLOIT IS CLOSED (design
+# section 7.79). AUTHORED 2026-10-20, NEVER FLOWN.
+#
+# THE EXPLOIT, as the shipped scope allowed it: a flight earns, the player commits it and
+# spends the earning at the Space Center, then comes back to re-fly the flight, and the merge
+# tombstones the earning while the purchase it paid for stays: the pool ends below what the
+# purchase assumed (a negative balance, or a node researched with science that no longer
+# exists). Under Rule 1 the earning is a SEALING row in the slot's retire set, so the slot is
+# never offered: the Stash press and the Fly press are both refused with
+# `recordingAction:ScienceLabEarning:<ActionId>`, nothing is rewound, nothing is tombstoned,
+# and the purchase stays paid.
+#
+# HOST AND ACT A: LAB-10's, verbatim (`lab-lko-seeded-transmit`; the tender's pre-attached
+# undock authors a Rewind Point with the lab as the focus slot 0, the lab transmits its 12.5 at
+# the KSC pass, tagged to its own recording, the scene exit auto-commits; science 100 ->
+# 112.5). See LAB-10's header for the stock and Parsek mechanics.
+# ACT B (THE BANK): at the Space Center, research `aviation` (cost 45, not in the fixture's
+# researched list; KscAction research-node does not check parent nodes), 112.5 -> 67.5, and
+# save. The spend happens while the earning is committed history.
+# ACT C (THE RETIRE ATTEMPT): LAB-10's act B. Fly the lab again (focusPid), Stash: ERROR
+# `stash-refused recordingAction:ScienceLabEarning:act_<32 hex>`; Fly (InvokeRewind):
+# REJECTED `refly-gate recordingAction:ScienceLabEarning:act_<32 hex>`, the same row.
+#
+# WHY A SEPARATE LANE FROM LAB-10: LAB-10 pins the refusal; this lane pins that a purchase made
+# against the banked earning is never unpaid by it: no walk after the spend ever targets the
+# pool without the earning (55 = 100 - 45) or below zero. The spend is inside the base pool
+# (no unresearched node of this fixture costs between 100 and 112.5), so the lane proves the
+# exploit's door is shut, not the deficit itself; the deficit arithmetic is the headless
+# cell's job (design 7.79's red-first test).
+#
+# WHAT IS GATED ON BELIEF: everything LAB-10's act A gates (measured on `2026-10-17_2337`);
+# the research press from the Space Center the exit lands in (L1 / QL-1 measured the verb);
+# the two refusal reasons (Phase 1's literals: the stash resolver and CanInvoke both return
+# `recordingAction:<Type>:<ActionId>`).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse - LAB-10's host and act A, one verb more;
+# (2) explicit-UT warps only; (3) no dwells; (4) no burns; (5) one rails warp to the KSC pass;
+# (6) the refusals are synchronous, retry `once`; (7) count {2,2}; (8) operator until green,
+# expected about 7 min; (9) flight_efficiency.py after the first green flight.
+#
+# WHAT A FIRST FLIGHT CAN FALSIFY: a stash or Fly OK (the gate missing); a refusal naming
+# another row; any StartInvoke / Tombstoned line; a PatchScience to 55 or below zero.
+description = "RF-L1 (design 2.12 Rule 1, section 7.79): the bank-then-retire exploit is closed. An orbiting science lab separates its tender (a Rewind Point) and transmits 12.5 science tagged to its own recording, committed; the player spends science on a tech node at the Space Center, then comes back to re-fly the lab: Stash and Fly are both refused naming the lab earning, nothing is rewound or tombstoned, and no walk ever takes the earning out from under the purchase."
+instanceProfile = "stock-minimal"
+tags = ["RF-L1", "refly-ledger-safety", "science-lab", "science", "transmit", "refly",
+        "refly-gate", "value-gate", "ksc-action", "research", "stash", "scene-exit",
+        "rails-warp", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/lab-lko-seeded-transmit"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                              expect = "OK" },
+  { cmd = "DiscardTree",                                                                expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # The scene exit commits the tree; without autoMerge it refuses `dialog-required`.
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  # LOAD-BEARING: the intent, classifier, LabEarning and tomb= lines are Verbose.
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  # ---- ACT A: record, separate the tender, transmit at the KSC pass, commit ----
+  { cmd = "StartRecording",                                                             expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                             expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "368", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "rfl1-undock" },                       expect = "OK" },
+  { cmd = "PartAction",        args = { button = "undock" }, label = "und",             expect = "OK" },
+  # The coalescer's 0.5 s window and the rewind point's deferred quicksave, at 1x.
+  { cmd = "WarpToUT",          args = { ut = "380", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "rfl1-split" },                        expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "2270", maxRate = "50" },                  expect = "OK", budget = 540 },
+  { cmd = "WarpToUT",          args = { ut = "2280", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "rfl1-t1-before" },                    expect = "OK" },
+  { cmd = "PartAction",        args = { button = "labtransmit", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "2292", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "rfl1-t1-after" },                     expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  # LOAD-BEARING (RF-20 run 1): the commit lands on arrival, after the exit's own save.
+  { cmd = "SaveGame",          args = { name = "persistent" },                          expect = "OK", budget = 120 },
+  # ---- ACT B: THE BANK - spend at the Space Center while the earning is committed ----
+  # Aviation (45) is not in the fixture's researched list; KscAction does not check parents.
+  { cmd = "MissionMark",       args = { label = "rfl1-spend" },                         expect = "OK" },
+  { cmd = "KscAction",         args = { action = "research-node", node = "aviation" },  expect = "OK", budget = 60 },
+  { cmd = "SaveGame",          args = { name = "persistent" },                          expect = "OK", budget = 120 },
+  # ---- ACT C: THE RETIRE ATTEMPT - fly the lab, press Stash and Fly: both refused ----
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent", focusPid = "2200110055" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  # InvokeRewind REJECTs `recording-active` before it reaches the gate under test.
+  { cmd = "StopRecording",                                                              expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles",     expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "rfl1-gate" },                         expect = "OK" },
+  # Slot 0 is the lab: RewindPointAuthor lists the surviving parent first (RF-20 measured).
+  { cmd = "StashSlot",         args = { rp = "${handles.rp0}", slot = "0" },            expect = "ERROR" },
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "0" },            expect = "REJECTED", budget = 60 },
+  { cmd = "MissionMark",       args = { label = "rfl1-refused" },                      expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "after",       expect = "OK" },
+  { cmd = "PartAction",        args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "RecordingState",                                                             expect = "OK" },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[dimensionsCovered]
+# Every value is backed by a REQUIRED token below.
+#   commit-scene-exit / auto-merge  <- `full-fidelity auto-commit (scene-exit...)` + exittospacecenter
+#   controlled-decoupled-child      <- `ProcessBreakupEvent: controlled child created: pid=<tender>`
+#   refly-gate                      <- `invokerewind refused: refly-gate recordingAction:ScienceLabEarning:`
+#   load-time-sweep                 <- `Value-sealed slots (section 2.12): found=... sealed=...`
+D1  = ["commit-scene-exit", "auto-merge"]
+D5  = ["controlled-decoupled-child"]
+D8  = ["science"]
+D9  = ["refly-gate", "load-time-sweep"]
+D14 = ["kerbin", "science-mode", "scene-flight", "scene-ksc", "warp-1x", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The lab's recording and the tender's; nothing is split or re-flown. A reading-run pin.
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  # The seeded lab, as the builder wrote it.
+  "partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=0\\.00;Research:active=0'",
+  # --- ACT A: THE SEPARATION ---
+  # One press undocks the one pre-attached pair: the lab keeps pid 2200110055 and the focus.
+  "(?s)MISSIONMARK label=rfl1-undock (?:(?!partaction applied button=).)*?partaction applied button=undock pid=2200110055 part='dockingPort3' partId=[0-9]+ event=Undock newPid=[1-9][0-9]* newName='[^'\\r\\n]*' vessels=1->2 activePid=2200110055 ",
+  # The click intent is armed and consumed as an UNDOCK, not a staging decouple ...
+  "Armed pre-attached Undock intent: portPid=[0-9]+ otherPid=[0-9]+ ut=",
+  "=> UNDOCK \\(consumed\\)",
+  "OnPartDeCouple: pre-attached docking-port undock part='dockingPort3' pid=[0-9]+ vesselPid=2200110055 => split cause UNDOCK",
+  # ... the coalescer emits one JointBreak with cause UNDOCK and one controlled child ...
+  "SEPARATION emitted: ut=[0-9.]+ type=JointBreak splitCause=UNDOCK decouplerPartId=[0-9]+ controlledChildren=1 debris=0 ",
+  # ... the tender (the press's newPid) gets its own controlled-child recording, both sides
+  # read controllable, and the Rewind Point is authored with the lab as the focus slot.
+  "(?s)partaction applied button=undock [^\\r\\n]*newPid=([0-9]+) .*?ProcessBreakupEvent: controlled child created: pid=\\1, name='[^'\\r\\n]*', recId=[0-9a-f]{32}, alive=True, bgRecorder=True",
+  "(?s)partaction applied button=undock [^\\r\\n]*newPid=([0-9]+) .*?Controllable split children: \\[(?:2200110055,\\1|\\1,2200110055)\\] \\(orig=2200110055, checked=2, unresolved=0\\)",
+  "(?s)Controllable split children: \\[[0-9,]+\\] \\(orig=2200110055, .*?RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 focusSlot=0 ut=[0-9.]+.*?RewindPoint slot capture: rp=\\1 populated=2/2 disabled=0",
+  # The lab after the separation: same pid, the 12.5 still aboard.
+  "(?s)MISSIONMARK label=rfl1-split (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=0\\.00;",
+  # --- ACT A: THE TRANSMIT ---
+  # Exactly the whole 12.50, tagged to the LAB'S recording (it kept the startrecording id) ...
+  "(?s)startrecording recordingId=([0-9a-f]{32}) already=false(?:(?!MISSIONMARK label=rfl1-t1-after ).)*?MISSIONMARK label=rfl1-t1-before (?:(?!MISSIONMARK label=rfl1-t1-after ).)*?Game state: ScienceLabCredited \\+12\\.50 reason='ScienceTransmission' vessel='LABX Orbital Lab' ut=[0-9.]+ recordingId='\\1'",
+  # ... beside stock's own +12.5, 100 -> 112.5, and the lab keeps the fraction.
+  "(?s)MISSIONMARK label=rfl1-t1-before (?:(?!MISSIONMARK label=rfl1-t1-after ).)*?Game state: ScienceChanged \\+12\\.5 \\(ScienceTransmission\\)[^0-9\\r\\n]+112\\.5(?![0-9])",
+  "(?s)MISSIONMARK label=rfl1-t1-after (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.50 dataStored=0\\.00;",
+  # --- ACT A: THE COMMIT ---
+  "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+  "full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='LABX Orbital Lab' recordings=2 ",
+  # The lab slot is the focus leaf ending Orbiting (closed); the tender slot opens.
+  "(?s)startrecording recordingId=([0-9a-f]{32}) already=false.*?IsUnfinishedFlight=false rec=\\1 reason=stableTerminalFocusSlot slot=0 focusSlot=0 terminal=Orbiting",
+  "CommitTree promoted rec=[0-9a-f]{32} vessel='[^'\\r\\n]*' slot=1 rp=rp_[0-9a-f]{32} reason=stableLeafUnconcluded to CommittedProvisional",
+  "CommitTree: promoted 1 normal staging RP\\(s\\)",
+  # The commit books the first credit as a ledger row on the lab's recording.
+  "(?s)startrecording recordingId=([0-9a-f]{32}) already=false.*?exittospacecenter start .*?LabEarning: credit=12\\.5, method=Transmitted, runningScience=112\\.5, recordingId=\\1(?![0-9a-f])",
+  "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
+  # --- ACT B: THE SPEND, against the career that holds the committed earning ---
+  "(?s)MISSIONMARK label=rfl1-spend (?:(?!loadgame start ).)*?kscaction action=research-node target=aviation applied=true",
+  "(?s)MISSIONMARK label=rfl1-spend (?:(?!loadgame start ).)*?Game state: TechResearched",
+  # --- ACT C: THE VALUE GATE (design 2.12 Rule 1) ---
+  "listhandles kind=rewindpoints count=1 truncated=false",
+  # The migration sweep runs on every load and prints one summary (Info).
+  "Value-sealed slots \\(section 2\\.12\\): found=[0-9]+ sealed=[0-9]+",
+  "stashslot start rp=rp_[0-9a-f]{32} slot=0",
+  # The Stash press is refused naming the lab earning (handler reason, verbatim) ...
+  # The gate names the FIRST sealing row of the retire set. The transmit also books the
+  # zero-award Kerbin/Science MilestoneAchievement at the same UT, filed before the lab row
+  # (flight 2026-10-20_1448), and a milestone is a sealing row (once-ever credit), so either
+  # type may be named; the backreference below still pins Stash and Fly to the same row.
+  "(?s)MISSIONMARK label=rfl1-gate (?:(?!MISSIONMARK label=rfl1-refused ).)*?stashslot refused rp=rp_[0-9a-f]{32} slot=0 tip=\\S+ msg=stash-refused recordingAction:(?:ScienceLabEarning|MilestoneAchievement):act_[0-9a-f]{32}",
+  # ... and so is the Fly press, with the same reason (CanInvoke precondition 7).
+  "(?s)MISSIONMARK label=rfl1-gate (?:(?!MISSIONMARK label=rfl1-refused ).)*?invokerewind refused: refly-gate recordingAction:(?:ScienceLabEarning|MilestoneAchievement):act_[0-9a-f]{32}",
+  # Both name the SAME row: the one act A's transmit booked (and the purchase spent from).
+  "(?s)stashslot refused [^\\r\\n]*recordingAction:((?:ScienceLabEarning|MilestoneAchievement):act_[0-9a-f]{32}).*?invokerewind refused: refly-gate recordingAction:\\1(?![0-9a-f])",
+  # The point survives (the tender slot holds no earning), the lab keeps the fraction.
+  "(?s)MISSIONMARK label=rfl1-refused .*?listhandles kind=rewindpoints count=1 truncated=false",
+  "(?s)MISSIONMARK label=rfl1-refused (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.50 dataStored=0\\.00;",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  "partaction error ",
+  "warptout refused",
+  "exittospacecenter rejected",
+  "stashslot readback-failed",
+  "Single-controllable split: no RP",
+  "OnVesselsUndocking:entry",
+  "Tree branch created: type=Undock",
+  # Nothing is stashed, rewound, split or tombstoned.
+  "Stashed slot=0 ",
+  "StartInvoke: sess=",
+  "Invocation complete: sess=",
+  "Split origin [0-9a-f]{32} at UT=",
+  "Tombstoned [1-9][0-9]* career actions",
+  "Reaped rp=",
+  # The refusal names the lab earning, never another row type.
+  "(?:stash-refused|refly-gate) recordingAction:(?!(?:ScienceLabEarning|MilestoneAchievement):)",
+  # Exactly one lab credit, inside its window.
+  "(?s)(?:Game state: ScienceLabCredited .*?){2}",
+  "(?s)\\A(?:(?!MISSIONMARK label=rfl1-t1-before ).)*?Game state: ScienceLabCredited",
+  # The earning stays banked and the purchase stays paid: no walk after the spend ever
+  # targets the pool WITHOUT the earning (100 - 45 = 55) or below zero.
+  "(?s)MISSIONMARK label=rfl1-spend .*?PatchScience: [^\\r\\n]*target=(?:55\\.0|-[0-9.]+)\\)",
+  "kscaction refused ",
+  "Exploded!!",
+]
+
+# REPORT-ONLY until the reading run: the point survives, no supersede row, no tombstone.
+[expectations.rewind]
+gating        = false
+rewindPoints  = { min = 1, max = 1 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+# Two LoadGame steps (up to 300 s each; about 7-90 s measured on the LAB lanes), one rails warp
+# of about 1,900 s at the 50x cap (about 40 s), about 40 s of 1x game time, one scene exit, a
+# second save, the research press and two synchronous refusals. Sum of the step budgets plus
+# the inert steps: about 2,300 s.
+budgetSeconds = 2700
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

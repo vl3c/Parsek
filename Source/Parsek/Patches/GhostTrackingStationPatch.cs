@@ -623,6 +623,17 @@ namespace Parsek.Patches
     {
         static bool Prefix(SpaceTracking __instance, Vessel v)
         {
+            if (v != null
+                && !GhostMapPresence.IsGhostMapVessel(v.persistentId)
+                && ReFlySwitchGate.IsRefused(v.persistentId, ReFlySwitchGate.PathTrackingStationFly))
+            {
+                // Design section 2.12 Rule 3: a refused Fly does nothing. Skipping the
+                // original skips its save + scene load, so release the input lock the
+                // selection set, exactly as the ghost block below does.
+                Traverse.Create(__instance).Method("OnDialogDismiss").GetValue();
+                return false;
+            }
+
             if (v == null || !GhostMapPresence.IsGhostMapVessel(v.persistentId))
                 return true;
 
@@ -685,6 +696,12 @@ namespace Parsek.Patches
             // so this guard is what actually prevents an intent from arming on
             // a ghost-blocked Fly click.
             if (v == null || GhostMapPresence.IsGhostMapVessel(v.persistentId))
+                return;
+
+            // Re-Fly switch-block mirror: GhostTrackingFlyPatch refuses this Fly during a
+            // Re-Fly session (and logs it); the scene transition will not happen, so do not
+            // strip ghosts or arm an intent. Sibling Prefixes still run after a false.
+            if (ReFlySwitchGate.IsRefused(v.persistentId, ReFlySwitchGate.PathTrackingStationFly, log: false))
                 return;
 
             // BUG #1 root-cause fix: stock SpaceTracking.FlyVessel identifies the

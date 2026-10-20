@@ -197,6 +197,7 @@ namespace Parsek
             string message;
             bool timelineActionPermanent = true;
             bool isReFlyDialog = false;
+            bool mergeRefused = false;
             string mergeLabel = BuildTimelineActionButtonLabel(timelineActionPermanent);
             string title = BuildTimelineActionDialogTitle(timelineActionPermanent);
             if (!object.ReferenceEquals(null, reFlyScenario)
@@ -214,13 +215,19 @@ namespace Parsek
                 // (rec missing from the pending tree AND the committed list -
                 // FindReFlyRecording returned null). Preview's null-guard
                 // would also collapse to NoSeal but skipping the call avoids
-                // a CollectRecordingIdsForSafetyGate walk on a null. Live
+                // a retire-set closure walk on a null. Live
                 // vessel may legitimately be null in Space Center / Tracking
                 // Station fallback - Preview tolerates it (skips the live-
-                // terminal reasons; science + structural reasons still fire).
+                // terminal reasons; sealing-row + structural reasons still fire).
+                // Design section 2.12 Rule 5: the dominance check decides whether the
+                // merge is offered; its build-step rows feed the auto-seal preview.
+                List<GameAction> attemptRows;
+                ReFlyMergeDominanceVerdict dominance =
+                    ReFlyMergeDominance.EvaluateForMerge(tree, "dialog-open", out attemptRows);
+                mergeRefused = dominance.Applicable && !dominance.Pass;
                 ReFlyAutoSealPreviewResult preview = reFlyRec != null
                     ? ReFlyAutoSealPreviewer.Preview(
-                        reFlyRec, marker, FlightGlobals.ActiveVessel)
+                        reFlyRec, marker, FlightGlobals.ActiveVessel, attemptRows)
                     : ReFlyAutoSealPreviewResult.NoSeal();
                 string labelSource;
                 timelineActionPermanent =
@@ -230,7 +237,8 @@ namespace Parsek
                     timelineActionPermanent, isReFlyAttempt: true);
                 title = BuildTimelineActionDialogTitle(timelineActionPermanent);
                 message = BuildReFlyDialogBody(
-                    vesselLabel, reFlyDuration, preview, timelineActionPermanent);
+                    vesselLabel, reFlyDuration, preview, timelineActionPermanent,
+                    mergeRefused ? ReFlyMergeDominance.DescribeRefusal(dominance) : null);
 
                 ParsekLog.Info("MergeDialog",
                     $"Re-Fly auto-seal preview (post-transition): " +
@@ -269,34 +277,54 @@ namespace Parsek
             // player can close the slot here instead of making a separate
             // trip to the Recordings window: Commit (don't seal) keeps it
             // open, Merge & Seal commits and seals it now.
-            DialogGUIButton[] buttons = (isReFlyDialog && !timelineActionPermanent)
-                ? new[]
+            DialogGUIButton[] buttons;
+            if (mergeRefused)
+            {
+                // Design section 2.12 Rule 5: a refused merge is not offered; Discard
+                // never is refused.
+                buttons = new[]
                 {
-                    new DialogGUIButton(mergeLabel, () =>
-                    {
-                        MergeCommit(tree, capturedDecisions, capturedSpawnCount);
-                    }),
-                    new DialogGUIButton(BuildReFlyMergeAndSealButtonLabel(), () =>
-                    {
-                        MergeCommit(tree, capturedDecisions, capturedSpawnCount,
-                            playerRequestedSeal: true);
-                    }),
                     new DialogGUIButton("Discard", () =>
                     {
                         MergeDiscard(tree);
                     })
-                }
-                : new[]
+                };
+            }
+            else if (isReFlyDialog && !timelineActionPermanent)
+            {
+                buttons = new[]
                 {
                     new DialogGUIButton(mergeLabel, () =>
                     {
-                        MergeCommit(tree, capturedDecisions, capturedSpawnCount);
+                        MergeCommit(tree, capturedDecisions, capturedSpawnCount,
+                            reShowDialogOnRefusal: true);
+                    }),
+                    new DialogGUIButton(BuildReFlyMergeAndSealButtonLabel(), () =>
+                    {
+                        MergeCommit(tree, capturedDecisions, capturedSpawnCount,
+                            playerRequestedSeal: true, reShowDialogOnRefusal: true);
                     }),
                     new DialogGUIButton("Discard", () =>
                     {
                         MergeDiscard(tree);
                     })
                 };
+            }
+            else
+            {
+                buttons = new[]
+                {
+                    new DialogGUIButton(mergeLabel, () =>
+                    {
+                        MergeCommit(tree, capturedDecisions, capturedSpawnCount,
+                            reShowDialogOnRefusal: true);
+                    }),
+                    new DialogGUIButton("Discard", () =>
+                    {
+                        MergeDiscard(tree);
+                    })
+                };
+            }
 
             // Order matters: DismissPopup may invoke the previous popup's
             // OnDismiss handler, which clears the lock armed by LockInput.
@@ -372,6 +400,7 @@ namespace Parsek
             string mergeLabel;
             string discardLabel;
             bool isReFlyDialog = false;
+            bool mergeRefused = false;
             bool timelineActionPermanent = true;
             if (labels == MergeDialogButtonLabels.ReFlyAttempt)
             {
@@ -392,8 +421,15 @@ namespace Parsek
                 // could in theory flip; the production classifier
                 // re-classifies at finalize, so a transient flicker only
                 // affects the dialog wording, not the seal verdict).
+                // Design section 2.12 Rule 5: the dominance check decides whether the
+                // merge is offered (re-run on the finalized tree at the click); its
+                // build-step rows feed the auto-seal preview.
+                List<GameAction> attemptRows;
+                ReFlyMergeDominanceVerdict dominance =
+                    ReFlyMergeDominance.EvaluateForMerge(liveTree, "dialog-open", out attemptRows);
+                mergeRefused = dominance.Applicable && !dominance.Pass;
                 var preview = ReFlyAutoSealPreviewer.Preview(
-                    reFlyRec, marker, FlightGlobals.ActiveVessel);
+                    reFlyRec, marker, FlightGlobals.ActiveVessel, attemptRows);
                 string labelSource;
                 timelineActionPermanent =
                     DetermineReFlyTimelineActionIsPermanent(
@@ -401,7 +437,8 @@ namespace Parsek
                 mergeLabel = BuildTimelineActionButtonLabel(
                     timelineActionPermanent, isReFlyAttempt: true);
                 message = BuildReFlyDialogBody(
-                    vesselLabel, reFlyDuration, preview, timelineActionPermanent);
+                    vesselLabel, reFlyDuration, preview, timelineActionPermanent,
+                    mergeRefused ? ReFlyMergeDominance.DescribeRefusal(dominance) : null);
 
                 ParsekLog.Info("MergeDialog",
                     $"Re-Fly auto-seal preview: willSeal={preview.WillAutoSeal} " +
@@ -447,7 +484,19 @@ namespace Parsek
             // Recordings-window trip. Journal-active keeps the single forced
             // merge button (Discard is gated for merge-journal safety).
             DialogGUIButton[] buttons;
-            if (journalActive)
+            if (mergeRefused && !journalActive)
+            {
+                // Design section 2.12 Rule 5: a refused merge is not offered; Discard
+                // never is refused.
+                buttons = new[]
+                {
+                    new DialogGUIButton(discardLabel, () => RunPreTransitionAction(
+                        isMerge: false,
+                        preCommitFinalize: preCommitFinalize,
+                        postChoice: postChoice)),
+                };
+            }
+            else if (journalActive)
             {
                 buttons = new[]
                 {
@@ -899,7 +948,8 @@ namespace Parsek
             bool actionCompleted;
             if (isMerge)
             {
-                MergeCommit(pending, decisions, spawnCount, playerRequestedSeal);
+                MergeCommit(pending, decisions, spawnCount, playerRequestedSeal,
+                    reShowDialogOnRefusal: true);
                 // CommitPendingTree nulls RecordingStore.PendingTree on success.
                 actionCompleted = (RecordingStore.PendingTree == null);
             }

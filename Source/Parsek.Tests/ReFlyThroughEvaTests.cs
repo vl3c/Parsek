@@ -408,7 +408,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Classifier_AutomaticConsequenceOnTheKerbal_StaysRetryable()
+        public void Classifier_MilestoneEarnedOnTheKerbal_SealsTheSlot()
         {
             var tree = Install(ReFlyThroughEvaVariant.Reboard);
             var rp = ReFlyThroughEvaFixture.BuildRewindPoint();
@@ -420,6 +420,26 @@ namespace Parsek.Tests
                 RecordingId = ReFlyThroughEvaFixture.KerbalId,
                 UT = 210.0,
                 MilestoneId = "Kerbin/FlagPlant",
+            });
+
+            Assert.False(QualifyUpper(tree, rp, out string reason));
+            Assert.Equal("recordingAction:MilestoneAchievement:act_eva_milestone", reason);
+        }
+
+        [Fact]
+        public void Classifier_LossRowOnTheKerbal_StaysRetryable()
+        {
+            var tree = Install(ReFlyThroughEvaVariant.Reboard);
+            var rp = ReFlyThroughEvaFixture.BuildRewindPoint();
+            InstallScenario(rp);
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_eva_rep_loss",
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = ReFlyThroughEvaFixture.KerbalId,
+                UT = 210.0,
+                RepPenaltySource = ReputationPenaltySource.Other,
+                NominalPenalty = 5f,
             });
 
             Assert.True(QualifyUpper(tree, rp, out string reason), reason);
@@ -746,6 +766,51 @@ namespace Parsek.Tests
                 marker, ReFlyThroughEvaFixture.UpperAfterBoardId);
             Assert.Contains(ReFlyThroughEvaFixture.UpperAfterEvaId, closure);
             Assert.DoesNotContain(ReFlyThroughEvaFixture.RootId, closure);
+        }
+
+        // RF-20: a milestone filed on the tree-branching parent after the rewind point is
+        // on the walked stretch. The merge splits that parent and retires the row, so the
+        // value gate must read it although the slot's tip (the post-board segment) does
+        // not reach the parent by its own closure.
+        [Fact]
+        public void ValueGate_RowOnTheSpanningStretchAncestorAfterTheRewind_SealsTheSlot()
+        {
+            var tree = Install(ReFlyThroughEvaVariant.Reboard, treeBranchingParent: true);
+            Recording root = tree.Recordings[ReFlyThroughEvaFixture.RootId];
+            MakeSplittable(root, ReFlyThroughEvaFixture.LaunchUT,
+                ReFlyThroughEvaFixture.SplitUT, ReFlyThroughEvaFixture.EvaUT);
+            RewindPoint rp = ReFlyThroughEvaFixture.BuildRewindPoint(upperIsTreeBranchingParent: true);
+            InstallScenario(rp);
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_spacewalk", UT = ReFlyThroughEvaFixture.EvaUT - 1.0,
+                Type = GameActionType.MilestoneAchievement, RecordingId = ReFlyThroughEvaFixture.RootId,
+                MilestoneId = "Kerbin/Spacewalk", MilestoneFundsAwarded = 1000f,
+            });
+
+            string summary;
+            Assert.True(SupersedeCommit.RetireSetHoldsSealingRow(root, rp, UpperSlot(rp), out summary));
+            Assert.Equal("MilestoneAchievement:act_spacewalk", summary);
+        }
+
+        [Fact]
+        public void ValueGate_RowOnTheSpanningStretchAncestorBeforeTheRewind_DoesNotSeal()
+        {
+            var tree = Install(ReFlyThroughEvaVariant.Reboard, treeBranchingParent: true);
+            Recording root = tree.Recordings[ReFlyThroughEvaFixture.RootId];
+            MakeSplittable(root, ReFlyThroughEvaFixture.LaunchUT,
+                ReFlyThroughEvaFixture.SplitUT, ReFlyThroughEvaFixture.EvaUT);
+            RewindPoint rp = ReFlyThroughEvaFixture.BuildRewindPoint(upperIsTreeBranchingParent: true);
+            InstallScenario(rp);
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_launch", UT = ReFlyThroughEvaFixture.SplitUT - 10.0,
+                Type = GameActionType.MilestoneAchievement, RecordingId = ReFlyThroughEvaFixture.RootId,
+                MilestoneId = "Kerbin/Launch", MilestoneFundsAwarded = 1000f,
+            });
+
+            string summary;
+            Assert.False(SupersedeCommit.RetireSetHoldsSealingRow(root, rp, UpperSlot(rp), out summary));
         }
 
         private static void MakeSplittable(Recording rec, double startUT, double midUT, double endUT)

@@ -681,7 +681,8 @@ namespace Parsek
                         + "ParsekScenario.TrimAndReconcileForQuickloadResume -> Ledger.RetireAbandonedFutureActions "
                         + "removes the trimmed set's recording-tagged rows that happened after the resume UT, every row "
                         + "of a pruned recording and the KerbalAssignment row of a recording whose end state it cleared "
-                        + "(owner ruling OQ-2; untagged KSC rows, route rows, seeds and committed history stay: a "
+                        + "(owner ruling OQ-2; untagged rows are the OnLoad untagged-rows-after-save retire's, and route "
+                        + "rows, seeds and committed history stay: a "
                         + "recording still committed, or one the quicksave already shows as history, "
                         + "IsCommittedHistoryAtQuicksave, which the trim leaves whole)");
             }
@@ -747,8 +748,15 @@ namespace Parsek
                         + "for the reverted flight's tagged strategy conversion rows");
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
-                    return Today(LoadReconcileAction.Keep,
-                        "a quickload keeps untagged KSC rows (QL-R2, designed)");
+                    return Today(LoadReconcileAction.ReconcileAtCutoff,
+                        "ParsekScenario.OnLoad -> RetireUntaggedRowsAfterSaveAtInSessionLoad, after the route reconcile and "
+                        + "before the recalculation: Ledger.RetireAbandonedFutureActions removes every untagged row (Space "
+                        + "Center purchases, upgrades, hires, contract actions, launch-pad rows) dated after the loaded save's "
+                        + "UT and no later than the clock before the load (ResolvePreLoadClockUT), except the rows the "
+                        + "save's UNTAGGED_FUTURE_ROWS id list names (they already existed at the save, a D2 row the clock "
+                        + "has since passed; a save without the list falls back to the window alone), so a load back in time "
+                        + "undoes them (owner ruling 2026-10-19, reversing QL-R2 for loads; rewinds keep D2) and a forward "
+                        + "or same-instant scene change touches nothing; seeds never, route rows are the route reconcile's");
             }
             throw UnknownKind(kind);
         }

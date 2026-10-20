@@ -10110,8 +10110,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
         # THE REWIND READ-BACK GUARD PAIR, 2026-09-27.
-        "RB-1-rewind-readback-divergence.toml": "tier=operator on the calibration-discipline shape, NOT debt: the first live FLAGGED DIVERGENCE (a Step-3b resurrected-recovery retirement after a post-RP hire, on the rewind-readback preset over career-science-pad with the L3 Flea flight). Owed: only the ordinary promotion call",
-        "RB-2-rewind-readback-within-range.toml": "tier=operator on the calibration-discipline shape, NOT debt: RB-1's control (the same flight and retirement with no post-RP spend, so the guard must read within-expected-range). Owed: only the ordinary promotion call",
+        "RB-1-rewind-readback-divergence.toml": "tier=operator on the calibration-discipline shape, NOT debt: flew the first live FLAGGED DIVERGENCE (a Step-3b resurrected-recovery retirement after a post-RP hire, on the rewind-readback preset over career-science-pad with the L3 Flea flight); RESHAPED 2026-10-20 for design 2.12 Rule 3 (Step 3b replaced by the claimed-vessel hold, the guard now reads within-expected-range), NOT RE-FLOWN. Owed: the re-flight, then the ordinary promotion call",
+        "RB-2-rewind-readback-within-range.toml": "tier=operator on the calibration-discipline shape, NOT debt: RB-1's control (the same flight with no post-RP spend, so the guard must read within-expected-range); RESHAPED 2026-10-20 for design 2.12 Rule 3 (the resurrected Flea is held, not retired), NOT RE-FLOWN. Owed: the re-flight, then the ordinary promotion call",
         # THE D17 PERSISTENT-ROTATION LANE, 2026-09-26.
         "MC-5-persistent-rotation.toml": "tier=operator on the calibration-discipline shape, NOT debt: the D17 `persistent-rotation` host (the pinned PersistentRotationUpgraded on modded-compat, the SpinVessel verb, a loop replay of the spin-forward segment). Reading `2026-09-26_1849`, armed re-flight `_1853` PASS attempt 1 with ghostLifecycle GATING, offline negative control red on every seeded fault; D17 claimed. Owed: only the ordinary promotion call (MC-3's nightly slot beside it)",
         # THE D17 MAKING-HISTORY LANE, 2026-09-25.
@@ -10370,7 +10370,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "whose promoted recording crosses an environment boundary the optimizer "
             "splits on); reds on a pre-#1658 DLL BY DESIGN. Claim-gap wave armed "
             "re-flight 2026-09-10_2050 PASS: D4 env-body-split + seven coveredBy-only "
-            "cells claimed; D4 seed-event-split claimed 2026-09-11 after control _0151",
+            "cells claimed; D4 seed-event-split claimed 2026-09-11 after control _0151. "
+            "RESHAPED 2026-10-20 for design 2.12 Rule 1 (slot 0's milestones seal it; "
+            "the re-fly moves to the probe slot 1, rewind block disarmed), NOT RE-FLOWN",
         "RF-11-both-slots-in-sequence.toml":
             "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
             "FLOWN. The lane RF-2 was commissioned as, now that "
@@ -10458,8 +10460,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "StashSlot promotion: RF-18's split + EVA + re-board, then StashSlot opens "
             "the pod stack's stable focus slot and InvokeRewind + merge re-fly it. "
             "Reading 2026-09-27_1832, confirmation 2026-09-27_1838 PASS, offline "
-            "negative control red. Discharged: arming the report-only rewind + "
-            "structure blocks is the step left, a human call",
+            "negative control red. RESHAPED 2026-10-20 for design 2.12 Rule 1 (the "
+            "TIP's milestone seals the slot: StashSlot and InvokeRewind refused, no "
+            "merge), NOT RE-FLOWN; the rewind block is disarmed. Owes the re-flight",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",
@@ -10651,10 +10654,16 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Science-lab Re-Fly with a lab transmit in the replaced branch, merged, on
         # lab-lko-seeded-transmit (the probe tender's pre-attached undock is the separation);
         # operator by the same reading-run discipline.
-        "LAB-10-lab-refly-supersede.toml": "operator by the reading-run discipline; AUTHORED 2026-10-18, NEVER FLOWN (the tender's pre-attached undock authors a Rewind Point with the lab as focus slot 0, a 12.50 transmit tagged to the lab's recording at the KSC pass, the scene-exit commit, StashSlot on the lab's stable slot, InvokeRewind, a second 12.50 transmit tagged to the provisional, and the merge splitting the lab's recording at the rewind, tombstoning the first credit (Science=1) and leaving the replacement's as the one walked lab earning, on lab-lko-seeded-transmit); the undock fold, the split and RP shape, the KSC-window link, runningScience=112.5 and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        "LAB-10-lab-refly-supersede.toml": "operator by the reading-run discipline; AUTHORED 2026-10-18 as the merge half, RESHAPED 2026-10-20 into the NEGATIVE lane of design 2.12 Rule 1, NEVER FLOWN in that shape (act A unchanged: the tender's pre-attached undock authors a Rewind Point with the lab as focus slot 0 and a 12.50 transmit is tagged to the lab's recording; then StashSlot is refused and InvokeRewind is REJECTED with recordingAction:ScienceLabEarning:<ActionId>, nothing rewound or tombstoned, on lab-lko-seeded-transmit); the refusal reasons and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
         # The Discard Re-fly half of LAB-10 on the same host and act A; operator by the same
         # reading-run discipline.
-        "LAB-10b-lab-refly-discard.toml": "operator by the reading-run discipline; AUTHORED 2026-10-18, NEVER FLOWN (LAB-10's act A, then StashSlot, InvokeRewind and a second 12.50 transmit tagged to the provisional, then Esc > Revert to Launch > Discard Re-Fly: the attempt's tagged events purged, its credit never re-homed, walked or kept as an untagged row, nothing tombstoned, the original credit committed on the lab's recording, the stashed slot and its point still offered, on lab-lko-seeded-transmit); the purge count, slotListed and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        "LAB-10b-lab-refly-discard.toml": "operator by the reading-run discipline; AUTHORED 2026-10-18, RESHAPED 2026-10-20 for design 2.12 (act A no longer transmits, so the lab's slot holds no sealing row), NEVER FLOWN in that shape (LAB-10's act A minus the transmit, then StashSlot, InvokeRewind and a 12.50 transmit tagged to the provisional, then Esc > Revert to Launch > Discard Re-Fly: the attempt's events purged and rows removed (ledgerRowsRemoved), nothing re-homed, walked or tombstoned, the pool back at 100, the stashed slot and its point still offered, on lab-lko-seeded-transmit); the purge count, slotListed and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        # THE RE-FLY LEDGER-SAFETY PROGRAM (design 2.12, owner rulings 2026-10-19), authored
+        # 2026-10-20 with the reshapes above; operator by the same reading-run discipline.
+        "RF-L1-bank-then-retire-refused.toml": "operator by the reading-run discipline; AUTHORED 2026-10-20, NEVER FLOWN (design 2.12 section 7.79: LAB-10's act A, a research-node spend at the Space Center against the committed lab earning, then StashSlot refused and InvokeRewind REJECTED naming the earning, and no walk ever takes it out from under the purchase, on lab-lko-seeded-transmit); the refusal reasons and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        "RF-L2-booster-refly-lands-recovery-added.toml": "operator by the reading-run discipline; AUTHORED 2026-10-20, NEVER FLOWN (design 2.12, the purpose of Re-Fly survives: GS-1's hop in career-gs1-two-stage-pad commits with the booster under canopy and its slot open, the booster is re-flown, lands, merges and is recovered from the Tracking Station: a new funds earning, nothing tombstoned); the landing under the RP's staged chute, the seal reason and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        "RF-L3-refly-switch-refused.toml": "operator by the reading-run discipline; AUTHORED 2026-10-20, NEVER FLOWN (design 2.12 Rule 3: S4.3's Re-Fly of the world-preservation booster slot, a map Switch-To click on the unrelated station the rewind point kept is REJECTED refly-switch-refused:notSessionVessel and logged Switch refused path=mapSwitchTo, then the merge dialog's Discard); the refusal reason is re-pinned off the first flight, then the tier is promoted by its measured p50",
+        "RF-L4-refly-retry-after-earning-restores-ledger.toml": "operator by the reading-run discipline; AUTHORED 2026-10-20, NEVER FLOWN (design 2.12 Rule 3: LAB-10b's chain with a Retry from Rewind Point between the attempt's transmit and the Discard Re-Fly; the retried attempt's own transmit must land on 112.5, not 125, on lab-lko-seeded-transmit); the retry repair line, the pool witness and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
         # Science-lab process-while-joined, tender separation and transmit (LAB-13 reduced: no
         # re-dock is drivable without RCS); operator by the same reading-run discipline.
         "LAB-13-lab-process-separate-transmit.toml": "operator by the reading-run discipline; AUTHORED 2026-10-18, NEVER FLOWN (a thermometer processed into the lab while the probe tender is still joined, the tender's pre-attached undock as one JointBreak / UNDOCK split with a Rewind Point and no Undock branch, the lab keeping its 5.00 data and 12.50 science, one 12.50 credit at the KSC pass tagged to the lab's continuing recording, the in-flight commit's end snapshot matching, on lab-lko-seeded-transmit); the undock fold, the split shape, the link window and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
@@ -11627,11 +11636,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # checking - one catches a bad re-harvest, the other a load that
                        # mutates committed state.
                        "RF-10-fixed-tip-loads-open.toml",
-                       # RF-9: `rewind` armed 2026-09-09 off its two reading runs. The
-                       # windows were RE-PINNED from run 1 (tombstones 0 -> {min 1}) and
-                       # then landed unchanged on run 2, which is the same two-sample
-                       # standard; negative control inverted tombstones to {max = 0},
-                       # the exact window the reading run refuted.
+                       # RF-9: `rewind` armed 2026-09-09 off its two reading runs (the
+                       # windows were RE-PINNED from run 1, tombstones 0 -> {min 1}), and
+                       # DISARMED 2026-10-20 by the design 2.12 reshape (the re-flown slot
+                       # is now the crewless probe, tombstones {max 0}); the entry stays for
+                       # the still-armed structure block below.
                        # RF-9 `recordings.structure`: armed 2026-09-29 (branch `arm-batch2`)
                        # off `2026-09-29_1538`, after the SaveGame-before-reload fix and the
                        # 12 -> 8 transient-seed re-pin; 9 of 9 bounds inverted offline.

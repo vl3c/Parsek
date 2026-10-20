@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -1820,6 +1821,164 @@ namespace Parsek.Tests
             Assert.Same(before, Assert.Single(RecordingStore.CommittedTrees, t => t.Id == TreeId));
             Assert.Equal(new[] { "rel_x" }, scenario.RecordingSupersedes.Select(r => r.RelationId));
             Assert.DoesNotContain(logLines, l => l.Contains("RestoreSanitizedPendingTreeIfDetached: restored committed tree"));
+        }
+
+        // =====================================================================
+        // Rewind design section 2.12 Rule 3: Discard and Retry restore the ledger exactly
+        // =====================================================================
+
+        private static List<string> LedgerFingerprint()
+            => Ledger.Actions
+                .Where(a => !RecalculationEngine.IsSeedType(a.Type))
+                .Select(a => a.ActionId + "|" + a.Type + "|" + (a.RecordingId ?? "")
+                    + "|" + a.FundsAwarded.ToString("R", CultureInfo.InvariantCulture)
+                    + "|" + a.ScienceAwarded.ToString("R", CultureInfo.InvariantCulture)
+                    + "|" + a.Cost.ToString("R", CultureInfo.InvariantCulture))
+                .OrderBy(f => f, StringComparer.Ordinal)
+                .ToList();
+
+        private static void AddAttemptRows(string attemptId)
+        {
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_attempt_funds", UT = 56.0, Type = GameActionType.FundsEarning,
+                FundsAwarded = 1200f, RecordingId = attemptId,
+            });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_attempt_science", UT = 57.0, Type = GameActionType.ScienceEarning,
+                ScienceAwarded = 30f, RecordingId = attemptId,
+            });
+        }
+
+        [Theory]
+        [InlineData("esc-menu")]
+        [InlineData("merge-dialog")]
+        [InlineData("rewind-end")]
+        public void DiscardOfResumedMergedSession_LeavesTheLedgerAsItWasBeforeTheInvocation(string path)
+        {
+            var resumed = BuildResumedMergedSession();
+            var preInvoke = LedgerFingerprint();
+            AddAttemptRows(ForkId);
+
+            if (path == "esc-menu")
+            {
+                WireDiscardSeams();
+                RevertInterceptor.DiscardReFlyHandler(resumed.Marker, RevertTarget.Launch, EditorFacility.VAB);
+            }
+            else if (path == "merge-dialog")
+            {
+                MergeDialog.MergeDiscard(resumed.Tree);
+            }
+            else
+            {
+                Assert.True(MergeDialog.TryDiscardLiveReFlySessionForRewind(null, "Rewind", out _, out _));
+            }
+            EffectiveState.ResetCachesForTesting();
+
+            Assert.Null(resumed.Scenario.ActiveReFlySessionMarker);
+            Assert.Equal(preInvoke, LedgerFingerprint());
+            Assert.True(ElsHas(DeathActionId), "the replaced flight's crew death counts again, as in L");
+            Assert.Contains(logLines, l => l.Contains("[INFO][Ledger]")
+                && l.Contains("RemoveActionsForRecordings: removed=2"));
+            Assert.DoesNotContain(logLines, l => l.Contains("ClearRecordingTagForRecordings"));
+        }
+
+        [Fact]
+        public void RetryOfResumedMergedSession_ReinvokeInheritsNoAttemptRow()
+        {
+            var resumed = BuildResumedMergedSession();
+            var preInvoke = LedgerFingerprint();
+            AddAttemptRows(ForkId);
+            List<string> atReinvoke = null;
+            RevertInterceptor.RewindInvokeStartForTesting = (rp, slot) => atReinvoke = LedgerFingerprint();
+
+            RevertInterceptor.RetryHandler(resumed.Marker, RevertTarget.Launch);
+
+            Assert.Equal(preInvoke, atReinvoke);
+            Assert.Contains(logLines, l => l.Contains("[INFO][MergeDialog]")
+                && l.Contains("RepairSessionBeforeRetry callSite=RetryHandler")
+                && l.Contains("ledgerRowsRemoved=2"));
+        }
+
+        [Fact]
+        public void RetryOfFreshSession_ReinvokeInheritsNoAttemptRow()
+        {
+            InstallCommittedTree(TreeId, new[] { "rp_t" }, Rec(OriginId, 50.0, MergeState.Immutable));
+            var provisional = Provisional(Rec("rec_provisional", 55.0, MergeState.NotCommitted), SessionS, "rp_t", OriginId);
+            RecordingStore.AddProvisional(provisional);
+            var marker = Marker(SessionS, "rec_provisional", OriginId, "rp_t");
+            Memory(s =>
+            {
+                s.RewindPoints.Add(Rp("rp_t"));
+                s.ActiveReFlySessionMarker = marker;
+            });
+            AddDeathAction();
+            var preInvoke = LedgerFingerprint();
+            AddAttemptRows("rec_provisional");
+            List<string> atReinvoke = null;
+            RevertInterceptor.RewindInvokeStartForTesting = (rp, slot) => atReinvoke = LedgerFingerprint();
+
+            RevertInterceptor.RetryHandler(marker, RevertTarget.Launch);
+
+            Assert.Equal(preInvoke, atReinvoke);
+            Assert.Contains(logLines, l => l.Contains("RepairSessionBeforeRetry callSite=RetryHandler")
+                && l.Contains("ledgerRowsRemoved=2"));
+        }
+
+        private static double MinRunningScience(IEnumerable<GameAction> rows)
+        {
+            double balance = 0.0;
+            double min = 0.0;
+            foreach (var a in rows.OrderBy(r => r.UT))
+            {
+                if (a.Type == GameActionType.ScienceInitial) balance += a.InitialScience;
+                else if (a.Type == GameActionType.ScienceEarning) balance += a.ScienceAwarded;
+                else if (a.Type == GameActionType.ScienceSpending) balance -= a.Cost;
+                min = Math.Min(min, balance);
+            }
+            return min;
+        }
+
+        /// <summary>
+        /// The worked example of todo REFLY-RESUMED-MERGED-DISCARD-RESTORES-LOSSES: the attempt
+        /// earns 30 science during the session (before the quicksave) and merges; a 30-science node
+        /// is bought at the Space Center after the merge; the quicksave is loaded from the Space
+        /// Center and the resumed attempt discarded. The load undoes the purchase, the discard
+        /// removes the science, and the ledger is back to L with science never below zero.
+        /// </summary>
+        [Fact]
+        public void WorkedExample_QuickloadUndoesTheNodeBought_DiscardRemovesTheScience_NeverBelowZero()
+        {
+            var resumed = BuildResumedMergedSession();
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_seed_science", UT = 0.0, Type = GameActionType.ScienceInitial, InitialScience = 0f,
+            });
+            var preInvoke = LedgerFingerprint();
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_attempt_science", UT = 57.0, Type = GameActionType.ScienceEarning,
+                ScienceAwarded = 30f, RecordingId = ForkId,
+            });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_node", UT = 80.0, Type = GameActionType.ScienceSpending,
+                NodeId = "basicRocketry", Cost = 30f,
+            });
+            Assert.True(MinRunningScience(Ledger.Actions.Where(a => a.RecordingId != ForkId)) < 0.0,
+                "premise: removing the attempt's science while the purchase stays would go below zero");
+
+            int retired = ParsekScenario.RetireUntaggedRowsAfterSaveAtInSessionLoad(
+                LoadKind.InSessionOther, saveUT: 60.0, preLoadClockUT: 90.0);
+            WireDiscardSeams();
+            RevertInterceptor.DiscardReFlyHandler(resumed.Marker, RevertTarget.Launch, EditorFacility.VAB);
+
+            Assert.Equal(1, retired);
+            Assert.DoesNotContain(Ledger.Actions, a => a.ActionId == "act_node");
+            Assert.DoesNotContain(Ledger.Actions, a => a.ActionId == "act_attempt_science");
+            Assert.Equal(preInvoke, LedgerFingerprint());
+            Assert.True(MinRunningScience(Ledger.Actions) >= 0.0);
         }
 
         /// <summary>
