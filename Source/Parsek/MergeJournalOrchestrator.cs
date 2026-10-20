@@ -166,6 +166,16 @@ namespace Parsek
         /// resumes the merge from the last checkpoint.
         /// </summary>
         internal static bool RunMerge(ReFlySessionMarker marker, Recording provisional)
+            => RunMerge(marker, provisional, LossSwapVariant.A);
+
+        /// <summary>
+        /// <see cref="RunMerge(ReFlySessionMarker, Recording)"/> with the loss-swap
+        /// variant the merge dialog's dominance check chose (design section 2.12 Rule 2).
+        /// The variant is written onto the journal before the Begin durable save, so a
+        /// finisher that resumes this merge tombstones the same rows.
+        /// </summary>
+        internal static bool RunMerge(
+            ReFlySessionMarker marker, Recording provisional, LossSwapVariant lossSwapVariant)
         {
             if (marker == null)
             {
@@ -207,10 +217,11 @@ namespace Parsek
                 Phase = MergeJournal.Phases.Begin,
                 StartedUT = startedUT,
                 StartedRealTime = startedRealTime,
+                LossSwapVariant = lossSwapVariant,
             };
             scenario.ActiveMergeJournal = journal;
             ParsekLog.Info(Tag,
-                $"sess={sessionId} phase={MergeJournal.Phases.Begin}");
+                $"sess={sessionId} phase={MergeJournal.Phases.Begin} lossSwapVariant={lossSwapVariant}");
             DurableSave("begin", persistSynchronously: true);
             MaybeInject(Phase.Begin);
 
@@ -262,7 +273,8 @@ namespace Parsek
 
             // Step 3: tombstone scan (§6.6 step 4).
             string nowIso = startedRealTime;
-            SupersedeCommit.CommitTombstones(marker, subtree, provisionalId, startedUT, nowIso, scenario);
+            SupersedeCommit.CommitTombstones(marker, subtree, provisionalId, startedUT, nowIso, scenario,
+                lossSwapVariant);
             AdvancePhase(scenario, MergeJournal.Phases.Tombstone);
             MaybeInject(Phase.Tombstone);
 
@@ -563,7 +575,8 @@ namespace Parsek
                     provisionalId,
                     SafeNow(),
                     DateTime.UtcNow.ToString("o"),
-                    scenario);
+                    scenario,
+                    journal.LossSwapVariant);
                 AdvancePhase(scenario, MergeJournal.Phases.Finalize);
                 stepsDriven++;
             }

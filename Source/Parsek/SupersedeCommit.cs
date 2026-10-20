@@ -2465,7 +2465,8 @@ namespace Parsek
             string retiringRecordingId,
             double mergeUT,
             string nowIso,
-            ParsekScenario scenario)
+            ParsekScenario scenario,
+            LossSwapVariant lossSwapVariant = LossSwapVariant.A)
         {
             // ReferenceEquals to bypass Unity's Object == null override (test
             // fixtures install plain-CLR ParsekScenario instances without a
@@ -2530,9 +2531,39 @@ namespace Parsek
             var tombstonedRosterActions = new List<GameAction>();
             HashSet<string> tombstonedScienceSpendingNodeIds = null;
 
+            // Design section 2.12 Rule 2: Variant B keeps the replaced flight's
+            // ReputationPenalty loss rows and tombstones the re-fly's own instead.
+            bool variantB = lossSwapVariant == LossSwapVariant.B;
+            int keptReplacedRepLoss = 0;
+            var rowsToTombstone = new List<GameAction>(scan.Rows.Count);
             for (int i = 0; i < scan.Rows.Count; i++)
             {
                 var a = scan.Rows[i];
+                if (variantB && IsReputationLossRow(a))
+                {
+                    keptReplacedRepLoss++;
+                    continue;
+                }
+                rowsToTombstone.Add(a);
+            }
+            int tombstonedAttemptRepLoss = 0;
+            if (variantB)
+            {
+                List<GameAction> attemptRepLoss = CollectReFlyAttemptReputationLossRows(
+                    CollectCommittedReFlyAttemptRecordingIds(marker));
+                for (int i = 0; i < attemptRepLoss.Count; i++)
+                {
+                    var a = attemptRepLoss[i];
+                    if (string.IsNullOrEmpty(a.ActionId) || alreadyTombstoned.Contains(a.ActionId))
+                        continue;
+                    rowsToTombstone.Add(a);
+                    tombstonedAttemptRepLoss++;
+                }
+            }
+
+            for (int i = 0; i < rowsToTombstone.Count; i++)
+            {
+                var a = rowsToTombstone[i];
                 CountTombstonedByType(a.Type,
                     ref contractCount,
                     ref milestoneCount,
@@ -2569,6 +2600,15 @@ namespace Parsek
                 ParsekLog.Verbose(LedgerSwapTag,
                     $"tomb={tomb.TombstoneId} action={a.ActionId} type={a.Type} " +
                     $"rec={a.RecordingId} ut={a.UT.ToString("R", CultureInfo.InvariantCulture)}");
+            }
+
+            if (variantB)
+            {
+                ParsekLog.Info(LedgerSwapTag,
+                    $"Loss swap variant B applied sess={marker?.SessionId ?? "<no-sess>"} " +
+                    $"keptReplacedRepLoss={keptReplacedRepLoss.ToString(CultureInfo.InvariantCulture)} " +
+                    $"tombstonedAttemptRepLoss={tombstonedAttemptRepLoss.ToString(CultureInfo.InvariantCulture)} " +
+                    $"retiring={retiringRecordingId ?? "<none>"}");
             }
 
             int tombstoned = contractCount + milestoneCount + facilityCount + strategyCount

@@ -4,6 +4,10 @@ namespace Parsek
 {
     public static partial class MergeDialog
     {
+        /// <summary>Test seam: replaces the dialog re-show after a click-time dominance
+        /// refusal (the real one spawns a PopupDialog).</summary>
+        internal static System.Action<RecordingTree> ReShowRefusedMergeDialogForTesting;
+
         // ================================================================
         // Tree commit / discard — extracted from the dialog button lambdas
         // so that unit tests can exercise the post-button work directly
@@ -31,13 +35,18 @@ namespace Parsek
         /// effective tip to <see cref="MergeState.Immutable"/>. The
         /// "Commit (don't seal)" button leaves it <c>false</c>, so the tip
         /// stays <see cref="MergeState.CommittedProvisional"/> (open).
+        /// During a Re-Fly session the merge dominance check (design section 2.12
+        /// Rule 5) runs first; a refusal commits nothing and, when
+        /// <paramref name="reShowDialogOnRefusal"/> is set (the dialog buttons), shows
+        /// the merge dialog again with Discard only.
         /// </summary>
         internal static void MergeCommit(
             RecordingTree tree,
             Dictionary<string, bool> decisions,
             int spawnCount,
             bool playerRequestedSeal = false,
-            bool refreshQuicksaveAfterCommit = true)
+            bool refreshQuicksaveAfterCommit = true,
+            bool reShowDialogOnRefusal = false)
         {
             if (tree == null)
             {
@@ -64,6 +73,26 @@ namespace Parsek
                 ClearPendingFlag("merge-commit-tree-mismatch refused");
                 return;
             }
+
+            // Design section 2.12 Rule 5: the dominance check runs again at the click,
+            // before anything commits. A refusal leaves the tree pending and the session
+            // live; Discard stays offered (the re-shown dialog offers nothing else).
+            List<GameAction> clickAttemptRows;
+            ReFlyMergeDominanceVerdict dominance =
+                ReFlyMergeDominance.EvaluateForMerge(tree, "merge-click", out clickAttemptRows);
+            if (dominance.Applicable && !dominance.Pass)
+            {
+                ParsekLog.Info("MergeDialog",
+                    $"Merge refused by the dominance check sess={dominance.SessionId ?? "<no-id>"} " +
+                    $"tree='{tree.TreeName}' pool={dominance.Pool ?? "<none>"} " +
+                    $"world={dominance.WorldKind ?? "<none>"}:{dominance.WorldId ?? "<none>"} - " +
+                    $"tree stays pending, Discard stays offered (reShow={reShowDialogOnRefusal})");
+                ClearPendingFlag("merge-dominance refused");
+                if (reShowDialogOnRefusal)
+                    ReShowRefusedMergeDialog(tree);
+                return;
+            }
+            LossSwapVariant lossSwapVariant = ResolveMergeLossSwapVariant(dominance);
 
             var scenarioForAdoption = ParsekScenario.Instance;
             string activeReFlyTargetId =
@@ -100,7 +129,7 @@ namespace Parsek
             // OnTreeCommitted (so downstream chain evaluators see the
             // superseded subtree hidden from ERS).
             ReFlyMergeCommitResult reFlyResult =
-                TryCommitReFlySupersede(activeReFlyTargetHint, playerRequestedSeal);
+                TryCommitReFlySupersede(activeReFlyTargetHint, playerRequestedSeal, lossSwapVariant);
 
             // #292 + rewind-staging follow-up: refresh quicksave only after the
             // re-fly staged commit has either completed or been bypassed.
@@ -168,11 +197,45 @@ namespace Parsek
         /// is unchanged.
         /// </summary>
         internal static ReFlyMergeCommitResult TryCommitReFlySupersede()
-            => TryCommitReFlySupersede(null, playerRequestedSeal: false);
+            => TryCommitReFlySupersede(null, playerRequestedSeal: false, LossSwapVariant.A);
+
+        /// <summary>
+        /// The loss-swap variant the merge writes (design section 2.12 Rule 2): the click
+        /// check's choice; with no applicable check (no session, or a merge journal already
+        /// running), the running journal's variant, else A.
+        /// </summary>
+        internal static LossSwapVariant ResolveMergeLossSwapVariant(ReFlyMergeDominanceVerdict dominance)
+        {
+            if (dominance != null && dominance.Applicable)
+                return dominance.Variant;
+            var scenario = ParsekScenario.Instance;
+            if (!object.ReferenceEquals(null, scenario) && scenario.ActiveMergeJournal != null)
+                return scenario.ActiveMergeJournal.LossSwapVariant;
+            return LossSwapVariant.A;
+        }
+
+        /// <summary>Shows the post-transition merge dialog again after a click-time
+        /// refusal, so the player sees why and keeps Discard.</summary>
+        private static void ReShowRefusedMergeDialog(RecordingTree tree)
+        {
+            try
+            {
+                var seam = ReShowRefusedMergeDialogForTesting;
+                if (seam != null) seam(tree);
+                else ShowTreeDialog(tree);
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("MergeDialog",
+                    $"ReShowRefusedMergeDialog: {ex.GetType().Name}: {ex.Message} - " +
+                    "tree stays pending for the next merge dialog");
+            }
+        }
 
         private static ReFlyMergeCommitResult TryCommitReFlySupersede(
             RecordingIdentityHint activeReFlyTargetHint,
-            bool playerRequestedSeal)
+            bool playerRequestedSeal,
+            LossSwapVariant lossSwapVariant)
         {
             var scenario = ParsekScenario.Instance;
             if (object.ReferenceEquals(null, scenario))
@@ -238,7 +301,7 @@ namespace Parsek
             bool ok;
             try
             {
-                ok = MergeJournalOrchestrator.RunMerge(marker, provisional);
+                ok = MergeJournalOrchestrator.RunMerge(marker, provisional, lossSwapVariant);
             }
             catch (System.Exception ex)
             {

@@ -15,7 +15,7 @@ namespace Parsek
     ///
     /// Replaces the old ResourceApplicator + ActionReplay system.
     /// </summary>
-    internal static class LedgerOrchestrator
+    internal static partial class LedgerOrchestrator
     {
         internal const string Tag = "LedgerOrchestrator";
 
@@ -357,83 +357,35 @@ namespace Parsek
             // recovery-payout branch the cost rows below take.
             InFlightRecoveryRequest.ClearLabRecoveryMarks(new[] { recordingId }, "commit");
 
-            // 1. Convert GameStateStore events to GameActions
-            var events = GameStateStore.Events;
-            var actions = GameStateEventConverter.ConvertEvents(events, recordingId, startUT, endUT);
+            // What the build step reads, prepared on the COMMITTED recording and the
+            // career: the recording's crew end states are populated in place (they are
+            // persisted with it), and the reputation seed is ensured before any row of this
+            // commit exists, so the death-penalty producer knows where the seed came from
+            // and the seed's refusal branch cannot see this commit's own fresh rows.
+            var rec = FindRecordingById(recordingId);
+            if (NeedsCrewEndStatePopulation(rec))
+                KerbalsModule.PopulateCrewEndStates(rec);
+            ReputationSeedOrigin repSeedOrigin =
+                ResolveCommitReputationSeedOrigin(recordingId, repSeedOriginOverride);
 
-            // 2. Convert pending science subjects.
-            // When called from NotifyLedgerTreeCommitted, an override list is passed —
-            // non-null means "use this exact routed subset". When the override is null
-            // (the single-recording commit path ParsekFlight.FallbackCommitSplitRecorder),
-            // fall back to the static list.
+            // Steps 1-3e: the pure row build (design section 2.12 Rule 5). The merge
+            // dialog's dominance check runs the same build over a pending tree.
             IReadOnlyList<PendingScienceSubject> pendingSource =
                 pendingScienceOverride ?? GameStateRecorder.PendingScienceSubjects;
-            var scienceActions = GameStateEventConverter.ConvertScienceSubjects(
-                pendingSource, recordingId, startUT, endUT);
-            actions.AddRange(scienceActions);
+            var events = GameStateStore.Events;
+            RecordingCommitRowBuild build = BuildRecordingCommitRows(
+                rec, recordingId, startUT, endUT, events, pendingSource, Ledger.Actions,
+                repSeedOrigin);
 
-            // 3. Inject vessel build cost and recovery funds from recording data
-            var costActions = CreateVesselCostActions(recordingId, startUT, endUT);
-            actions.AddRange(costActions);
-
-            // 3b. Populate crew end states before action creation so KerbalEndStateField is correct
-            var recForEndStates = FindRecordingById(recordingId);
-            if (NeedsCrewEndStatePopulation(recForEndStates))
-                KerbalsModule.PopulateCrewEndStates(recForEndStates);
-
-            // 3c. Generate KerbalAssignment actions from vessel crew data
-            var kerbalActions = CreateKerbalAssignmentActions(recordingId, startUT, endUT);
-            actions.AddRange(kerbalActions);
-
-            // 3c-post. Ensure the ReputationInitial seed BEFORE the death-penalty
-            // producer runs. The recalc at step 6 would otherwise be the first ensure,
-            // which is too late twice over: the producer could not tell a seed that will
-            // be read off the live pool (and therefore already carries the death) from
-            // one that predates the flight, and the seed's refusal branch would see this
-            // commit's own fresh KerbalDeath row and decline the live pool because of it.
-            //
-            // A NotYetCaptured batch override (or none) is re-established here rather
-            // than reused: it names no seed, only the expectation of one, and an earlier
-            // recording of the same batch can have created the seed in its own step-6
-            // recalc since. Re-running the ensure then reads PreExisting off that seed -
-            // or lands in the refusal branch itself and flips the earlier rows - instead
-            // of stamping this recording's death inside a value that never contained it.
-            // See the repSeedOriginOverride docstring.
-            ReputationSeedOrigin repSeedOrigin =
-                repSeedOriginOverride.HasValue
-                && repSeedOriginOverride.Value != ReputationSeedOrigin.NotYetCaptured
-                    ? repSeedOriginOverride.Value
-                    : EnsureReputationSeedForCommit();
-            if (repSeedOriginOverride.HasValue && repSeedOrigin != repSeedOriginOverride.Value)
-            {
-                ParsekLog.Info(Tag,
-                    $"Reputation seed origin re-established for recording '{recordingId}': " +
-                    $"batch override {repSeedOriginOverride.Value} no longer describes the " +
-                    $"ledger, this commit reads {repSeedOrigin}");
-            }
-
-            // 3d. The reputation penalty stock already applied for a crew death on this
-            // recording (one row per vessel loss, magnitude read off the captured
-            // VesselLoss event - never synthesized). Separate producer: see the method's
-            // docstring for why it must not ride inside CreateKerbalAssignmentActions.
-            var deathRepActions = CreateKerbalDeathRepPenaltyActions(
-                recordingId, startUT, endUT, repSeedOrigin);
-            actions.AddRange(deathRepActions);
-
-            // 3e. THE INSIDE-SEED STAMP, for every OTHER reputation-changing row this
-            // commit is about to file. Steps 1-3d produced them from the recording's
-            // captured events, so they are under exactly the production-order rule the
-            // death row is: whatever the seed was, or will be, read from had already
-            // taken their hit too. Measured on 2026-09-09_1815_CL-4-refly-crew-standin -
-            // a +1 'Progression' milestone raised the live pool to 0.999999464, the seed
-            // was taken at that value, the walk applied the milestone row again, and
-            // PatchReputation wrote 1.00 -> 2.00 into the career. The death row stamps
-            // itself in 3d with the same answer, so this pass finds it already stamped.
-            StampReputationRowsAgainstSeed(actions, repSeedOrigin, "recording=" + recordingId);
+            // The build's two deferred writes: the rollout row it found is adopted onto
+            // this recording, and the pending stock-payout mark it read is consumed.
+            ApplyRecordingCommitBuildClaims(build, startUT);
 
             // 4. Deduplicate: remove actions already in the ledger from KSC real-time writes.
             // KSC events (tech, facility, hire, milestone) written via OnKscSpending may overlap
             // with the recording's time range. Compare by type + UT + key to avoid double-adding.
+            var actions = build.Actions;
+            var scienceActions = build.ScienceActions;
             int beforeDedup = actions.Count;
             actions = DeduplicateAgainstLedger(actions);
             int dedupRemoved = beforeDedup - actions.Count;
@@ -456,8 +408,8 @@ namespace Parsek
 
             ParsekLog.Info(Tag,
                 $"Committed recording '{recordingId}': {actions.Count} actions added to ledger " +
-                $"(events={events.Count}, science={scienceActions.Count}, cost={costActions.Count}, " +
-                $"kerbals={kerbalActions.Count}, dedup={dedupRemoved}, startUT={startUT:F1}, endUT={endUT:F1})");
+                $"(events={events.Count}, science={scienceActions.Count}, cost={build.CostCount}, " +
+                $"kerbals={build.KerbalCount}, dedup={dedupRemoved}, startUT={startUT:F1}, endUT={endUT:F1})");
 
             return new FiledRecordingCommit
             {
@@ -467,6 +419,263 @@ namespace Parsek
                 Events = events,
                 Actions = actions,
             };
+        }
+
+        /// <summary>
+        /// Step 3c-post of a recording commit: the reputation seed origin this commit's
+        /// rows are stamped against. A definite batch override is used as passed; a null
+        /// or <see cref="ReputationSeedOrigin.NotYetCaptured"/> one is re-established here
+        /// (see the repSeedOriginOverride docstring on <see cref="OnRecordingCommitted"/>).
+        /// Ensures (and may write) the seed.
+        /// </summary>
+        private static ReputationSeedOrigin ResolveCommitReputationSeedOrigin(
+            string recordingId, ReputationSeedOrigin? repSeedOriginOverride)
+        {
+            // A NotYetCaptured batch override (or none) is re-established here rather
+            // than reused: it names no seed, only the expectation of one, and an earlier
+            // recording of the same batch can have created the seed in its own step-6
+            // recalc since. Re-running the ensure then reads PreExisting off that seed -
+            // or lands in the refusal branch itself and flips the earlier rows - instead
+            // of stamping this recording's death inside a value that never contained it.
+            ReputationSeedOrigin repSeedOrigin =
+                repSeedOriginOverride.HasValue
+                && repSeedOriginOverride.Value != ReputationSeedOrigin.NotYetCaptured
+                    ? repSeedOriginOverride.Value
+                    : EnsureReputationSeedForCommit();
+            if (repSeedOriginOverride.HasValue && repSeedOrigin != repSeedOriginOverride.Value)
+            {
+                ParsekLog.Info(Tag,
+                    $"Reputation seed origin re-established for recording '{recordingId}': " +
+                    $"batch override {repSeedOriginOverride.Value} no longer describes the " +
+                    $"ledger, this commit reads {repSeedOrigin}");
+            }
+            return repSeedOrigin;
+        }
+
+        /// <summary>
+        /// The rows one recording's commit files, built without writing anything (design
+        /// section 2.12 Rule 5): no ledger row is added or changed, no seed is written, the
+        /// recording is not touched (crew end states it still lacks are computed on a
+        /// copy) and nothing is walked or patched. The two writes a commit makes on the
+        /// way are returned as claims for <see cref="ApplyRecordingCommitBuildClaims"/>.
+        /// </summary>
+        internal sealed class RecordingCommitRowBuild
+        {
+            internal string RecordingId;
+            /// <summary>Every row in filing order, before the dedup against the ledger.</summary>
+            internal List<GameAction> Actions = new List<GameAction>();
+            internal List<GameAction> ScienceActions = new List<GameAction>();
+            internal int CostCount;
+            internal int KerbalCount;
+            /// <summary>The unclaimed rollout row the commit adopts onto the recording, or null.</summary>
+            internal GameAction RolloutAdoptionCandidate;
+            internal LedgerRolloutAdoption.RolloutAdoptionContext RolloutAdoptionContext;
+            /// <summary>True when the recovery branch read the pending stock-payout mark.</summary>
+            internal bool ConsumesAwaitingStockPayout;
+            /// <summary>The recording the crew rows were read from: the recording itself, or a
+            /// copy carrying the crew end states it did not yet have.</summary>
+            internal Recording CrewSource;
+        }
+
+        /// <summary>
+        /// Steps 1-3e of a recording commit as a pure build: convert the recording's
+        /// captured <paramref name="events"/>, its <paramref name="pendingScience"/>, the
+        /// vessel build cost and recovery, the crew assignments and the kerbal-death
+        /// reputation penalty, and stamp the reputation rows against
+        /// <paramref name="repSeedOrigin"/> (an explicit input: the build never ensures
+        /// the seed). <paramref name="rec"/> may be null (no cost or crew rows, as a commit
+        /// of an unknown id files today). <paramref name="ledgerActions"/> is read only, for
+        /// the rollout row the recording would adopt.
+        /// </summary>
+        internal static RecordingCommitRowBuild BuildRecordingCommitRows(
+            Recording rec,
+            string recordingId,
+            double startUT,
+            double endUT,
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<PendingScienceSubject> pendingScience,
+            IReadOnlyList<GameAction> ledgerActions,
+            ReputationSeedOrigin repSeedOrigin)
+        {
+            var build = new RecordingCommitRowBuild { RecordingId = recordingId };
+
+            // 1. Convert GameStateStore events to GameActions
+            var actions = GameStateEventConverter.ConvertEvents(events, recordingId, startUT, endUT);
+
+            // 2. Convert pending science subjects (the caller passes the routed subset of a
+            // tree commit, or the static list on the single-recording path).
+            var scienceActions = GameStateEventConverter.ConvertScienceSubjects(
+                pendingScience, recordingId, startUT, endUT);
+            actions.AddRange(scienceActions);
+            build.ScienceActions = scienceActions;
+
+            // 3. Vessel build cost and recovery funds from recording data
+            GameAction adoptionCandidate;
+            LedgerRolloutAdoption.RolloutAdoptionContext adoptionContext;
+            bool consumesPayout;
+            var costActions = BuildVesselCostActions(
+                rec, recordingId, startUT, endUT, ledgerActions,
+                out adoptionCandidate, out adoptionContext, out consumesPayout);
+            actions.AddRange(costActions);
+            build.CostCount = costActions.Count;
+            build.RolloutAdoptionCandidate = adoptionCandidate;
+            build.RolloutAdoptionContext = adoptionContext;
+            build.ConsumesAwaitingStockPayout = consumesPayout;
+
+            // 3b. Crew end states the recording does not carry yet are computed on a copy.
+            Recording crewSource = rec;
+            if (NeedsCrewEndStatePopulation(rec))
+            {
+                crewSource = Recording.DeepClone(rec);
+                KerbalsModule.PopulateCrewEndStates(crewSource);
+            }
+            build.CrewSource = crewSource;
+
+            // 3c. KerbalAssignment actions from vessel crew data
+            var kerbalActions = BuildKerbalAssignmentActions(crewSource, recordingId, startUT, endUT);
+            actions.AddRange(kerbalActions);
+            build.KerbalCount = kerbalActions.Count;
+
+            // 3d. The reputation penalty stock already applied for a crew death on this
+            // recording (one row per vessel loss, magnitude read off the captured
+            // VesselLoss event - never synthesized). Separate producer: see the method's
+            // docstring for why it must not ride inside CreateKerbalAssignmentActions.
+            var deathRepActions = BuildKerbalDeathRepPenaltyActions(
+                crewSource, recordingId, startUT, endUT, repSeedOrigin);
+            actions.AddRange(deathRepActions);
+
+            // 3e. THE INSIDE-SEED STAMP, for every OTHER reputation-changing row this
+            // commit is about to file. Steps 1-3d produced them from the recording's
+            // captured events, so they are under exactly the production-order rule the
+            // death row is: whatever the seed was, or will be, read from had already
+            // taken their hit too. Measured on 2026-09-09_1815_CL-4-refly-crew-standin -
+            // a +1 'Progression' milestone raised the live pool to 0.999999464, the seed
+            // was taken at that value, the walk applied the milestone row again, and
+            // PatchReputation wrote 1.00 -> 2.00 into the career. The death row stamps
+            // itself in 3d with the same answer, so this pass finds it already stamped.
+            StampReputationRowsAgainstSeed(actions, repSeedOrigin, "recording=" + recordingId);
+
+            build.Actions = actions;
+            return build;
+        }
+
+        /// <summary>
+        /// What a tree commit would file, built without committing (design section 2.12
+        /// Rule 5): <see cref="Rows"/> holds every row of every recording of the tree in
+        /// filing order, after the same dedup the commit applies (against the ledger and
+        /// the rows the tree filed before), and <see cref="CrewSources"/> the recording (or
+        /// crew-populated copy) each recording's crew rows were read from.
+        /// </summary>
+        internal sealed class TreeCommitRowPreview
+        {
+            internal readonly List<GameAction> Rows = new List<GameAction>();
+            internal readonly Dictionary<string, Recording> CrewSources =
+                new Dictionary<string, Recording>(StringComparer.Ordinal);
+            internal int RecordingCount;
+            internal int BuiltCount;
+            internal int DedupRemoved;
+        }
+
+        /// <summary>
+        /// The pure row build of <see cref="NotifyLedgerTreeCommitted"/> over a tree that
+        /// is not committed yet (the merge dialog's pending or live tree): the same chain
+        /// gap closure, Re-Fly attempt window, pending-science routing and per-recording
+        /// <see cref="BuildRecordingCommitRows"/>, with the reputation seed origin read
+        /// (never ensured: <see cref="PeekReputationSeedOriginForPreview"/>). Writes no
+        /// ledger row, no seed, no recording, no pending-science or payout state. The
+        /// commit-time optimizer split that runs between this preview and the real filing
+        /// moves rows between the halves of a recording but changes no amount and no UT.
+        /// </summary>
+        internal static TreeCommitRowPreview BuildTreeCommitRowsPreview(RecordingTree tree)
+        {
+            var preview = new TreeCommitRowPreview();
+            if (tree == null || tree.Recordings == null)
+                return preview;
+
+            var chainEndUTs = BuildChainEndUtMap(tree);
+            var pendingSnapshot = GameStateRecorder.PendingScienceSubjects.Count == 0
+                ? EmptyPendingScience
+                : (IReadOnlyList<PendingScienceSubject>)
+                    new List<PendingScienceSubject>(GameStateRecorder.PendingScienceSubjects);
+            var pendingByRecording = BuildTreePendingScienceRouting(tree, chainEndUTs, pendingSnapshot);
+            ReputationSeedOrigin repSeedOrigin = PeekReputationSeedOriginForPreview();
+            var events = GameStateStore.Events;
+            var ledger = Ledger.Actions;
+            var seen = new List<GameAction>(ledger.Count + 16);
+            seen.AddRange(ledger);
+
+            using (ParsekLog.SuppressScope())
+            {
+                foreach (var rec in tree.Recordings.Values)
+                {
+                    if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                        continue;
+                    preview.RecordingCount++;
+                    double startUT = AdjustStartUtForChainGap(rec, rec.StartUT, chainEndUTs);
+                    startUT = AdjustStartUtForReFlyProvisional(rec, startUT, ResolveRewindPointUt);
+                    double endUT = rec.EndUT;
+
+                    IReadOnlyList<PendingScienceSubject> perRecordingPending;
+                    if (!pendingByRecording.TryGetValue(rec.RecordingId, out perRecordingPending))
+                        perRecordingPending = EmptyPendingScience;
+
+                    RecordingCommitRowBuild build = BuildRecordingCommitRows(
+                        rec, rec.RecordingId, startUT, endUT, events, perRecordingPending,
+                        ledger, repSeedOrigin);
+                    preview.CrewSources[rec.RecordingId] = build.CrewSource ?? rec;
+                    preview.BuiltCount += build.Actions.Count;
+                    var kept = DeduplicateAgainst(seen, build.Actions);
+                    preview.DedupRemoved += build.Actions.Count - kept.Count;
+                    preview.Rows.AddRange(kept);
+                    seen.AddRange(kept);
+                }
+            }
+
+            var ic = CultureInfo.InvariantCulture;
+            ParsekLog.Verbose(Tag,
+                $"BuildTreeCommitRowsPreview: tree='{tree.TreeName}' " +
+                $"recordings={preview.RecordingCount.ToString(ic)} built={preview.BuiltCount.ToString(ic)} " +
+                $"dedup={preview.DedupRemoved.ToString(ic)} rows={preview.Rows.Count.ToString(ic)} " +
+                $"repSeedOrigin={repSeedOrigin}");
+            return preview;
+        }
+
+        /// <summary>
+        /// The reputation seed origin a commit preview stamps its rows against, read
+        /// without ensuring the seed: <see cref="ReputationSeedOrigin.PreExisting"/> when
+        /// the ledger already holds a <see cref="GameActionType.ReputationInitial"/> row,
+        /// else <see cref="ReputationSeedOrigin.CreatedThisCommitFromCareerBaseline"/>. The
+        /// preview writes no seed, so the ledger it is compared against walks from no seed
+        /// either; stamping the preview's rows inside a seed that does not exist would hide
+        /// them from that walk. Both values leave every row outside the seed.
+        /// </summary>
+        internal static ReputationSeedOrigin PeekReputationSeedOriginForPreview()
+        {
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                if (actions[i] != null && actions[i].Type == GameActionType.ReputationInitial)
+                    return ReputationSeedOrigin.PreExisting;
+            }
+            return ReputationSeedOrigin.CreatedThisCommitFromCareerBaseline;
+        }
+
+        /// <summary>
+        /// The append step's two deferred writes from a <see cref="RecordingCommitRowBuild"/>:
+        /// adopt the rollout row the build found onto the recording, and consume the
+        /// pending stock-payout mark the build read.
+        /// </summary>
+        private static void ApplyRecordingCommitBuildClaims(RecordingCommitRowBuild build, double startUT)
+        {
+            if (build == null) return;
+            if (build.RolloutAdoptionCandidate != null)
+            {
+                LedgerRolloutAdoption.ApplyRolloutAdoption(
+                    build.RolloutAdoptionCandidate, build.RecordingId, startUT,
+                    build.RolloutAdoptionContext);
+            }
+            if (build.ConsumesAwaitingStockPayout)
+                InFlightRecoveryRequest.TryConsumeAwaitingStockPayout(build.RecordingId);
         }
 
         /// <summary>
@@ -1220,7 +1429,17 @@ namespace Parsek
         /// </summary>
         internal static List<GameAction> DeduplicateAgainstLedger(List<GameAction> candidates)
         {
-            var existing = Ledger.Actions;
+            return DeduplicateAgainst(Ledger.Actions, candidates);
+        }
+
+        /// <summary>
+        /// <see cref="DeduplicateAgainstLedger"/> against an explicit row list: the commit
+        /// row preview dedups each recording against the ledger plus the rows the same
+        /// tree commit filed before it, without adding anything.
+        /// </summary>
+        internal static List<GameAction> DeduplicateAgainst(
+            IReadOnlyList<GameAction> existing, List<GameAction> candidates)
+        {
             if (existing.Count == 0 && !HasScienceCaptureIdentityCandidate(candidates))
                 return candidates;
 
@@ -1530,9 +1749,44 @@ namespace Parsek
         /// <returns>List of 0–2 actions (build cost and/or recovery).</returns>
         internal static List<GameAction> CreateVesselCostActions(string recordingId, double startUT, double endUT)
         {
-            var result = new List<GameAction>();
-
             var rec = FindRecordingById(recordingId);
+            GameAction adoptionCandidate;
+            LedgerRolloutAdoption.RolloutAdoptionContext adoptionContext;
+            bool consumesPayout;
+            var result = BuildVesselCostActions(
+                rec, recordingId, startUT, endUT, Ledger.Actions,
+                out adoptionCandidate, out adoptionContext, out consumesPayout);
+            if (adoptionCandidate != null)
+                LedgerRolloutAdoption.ApplyRolloutAdoption(
+                    adoptionCandidate, recordingId, startUT, adoptionContext);
+            if (consumesPayout)
+                InFlightRecoveryRequest.TryConsumeAwaitingStockPayout(recordingId);
+            return result;
+        }
+
+        /// <summary>
+        /// The read-only body of <see cref="CreateVesselCostActions"/>: the build cost and
+        /// recovery rows of <paramref name="rec"/>, plus the rollout row the recording
+        /// would adopt (<paramref name="adoptionCandidate"/>, unchanged) and whether the
+        /// recovery branch read a pending stock-payout mark
+        /// (<paramref name="consumesAwaitingStockPayout"/>, left in place). The caller
+        /// applies both.
+        /// </summary>
+        internal static List<GameAction> BuildVesselCostActions(
+            Recording rec,
+            string recordingId,
+            double startUT,
+            double endUT,
+            IReadOnlyList<GameAction> ledgerActions,
+            out GameAction adoptionCandidate,
+            out LedgerRolloutAdoption.RolloutAdoptionContext adoptionContext,
+            out bool consumesAwaitingStockPayout)
+        {
+            var result = new List<GameAction>();
+            adoptionCandidate = null;
+            adoptionContext = default(LedgerRolloutAdoption.RolloutAdoptionContext);
+            consumesAwaitingStockPayout = false;
+
             if (rec == null)
             {
                 ParsekLog.Verbose(Tag,
@@ -1552,8 +1806,15 @@ namespace Parsek
             double firstFunds = rec.Points[0].funds;
             double buildCost = rec.PreLaunchFunds - firstFunds;
 
-            AddVesselBuildCostActions(result, recordingId, startUT, rec, firstFunds, buildCost);
-            AddVesselRecoveryCostActions(result, recordingId, endUT, rec);
+            // #445: adoption gate, see AddVesselBuildCostActions.
+            if (CanRecordingAdoptRolloutAction(rec))
+            {
+                adoptionCandidate = LedgerRolloutAdoption.FindRolloutAdoptionCandidate(
+                    recordingId, startUT, rec, ledgerActions, out adoptionContext);
+            }
+
+            AddVesselBuildCostActions(result, recordingId, startUT, rec, firstFunds, buildCost, adoptionCandidate);
+            consumesAwaitingStockPayout = AddVesselRecoveryCostActions(result, recordingId, endUT, rec);
 
             return result;
         }
@@ -1564,7 +1825,8 @@ namespace Parsek
             double startUT,
             Recording rec,
             double firstFunds,
-            double buildCost)
+            double buildCost,
+            GameAction adopted)
         {
             // #445: KSP fires TransactionReasons.VesselRollout BEFORE PreLaunchFunds is
             // captured (rollout deducts at editor->launchpad transition; CapturePreLaunchResources
@@ -1578,10 +1840,7 @@ namespace Parsek
             // (or later in ascent) would incorrectly steal the launch cost onto a mid-flight
             // recording, and deleting that recording would wrongly remove the real vessel
             // build cost from the ledger.
-            var adopted = CanRecordingAdoptRolloutAction(rec)
-                ? TryAdoptRolloutAction(recordingId, startUT, rec)
-                : null;
-
+            // The caller found the row (FindRolloutAdoptionCandidate) and adopts it.
             if (buildCost > 0)
             {
                 if (adopted != null)
@@ -1616,12 +1875,15 @@ namespace Parsek
             }
         }
 
-        private static void AddVesselRecoveryCostActions(
+        /// <returns>True when the recovery branch read the pending stock-payout mark the
+        /// caller then consumes.</returns>
+        private static bool AddVesselRecoveryCostActions(
             List<GameAction> result,
             string recordingId,
             double endUT,
             Recording rec)
         {
+            bool readsAwaitingPayout = false;
             // Recovery funds: prefer the paired FundsChanged(VesselRecovery) event near
             // the recording end UT. This covers recoveries that happen after the last
             // recorded point but before commit outside FLIGHT (e.g. post-flight KSC
@@ -1666,8 +1928,9 @@ namespace Parsek
                             $"has non-positive delta {pairedRecoveryAmount.ToString("F1", CultureInfo.InvariantCulture)} — skipping");
                     }
                 }
-                else if (InFlightRecoveryRequest.TryConsumeAwaitingStockPayout(recordingId))
+                else if (InFlightRecoveryRequest.IsAwaitingStockPayout(recordingId))
                 {
+                    readsAwaitingPayout = true;
                     // Stamped Recovered by the in-flight Recover request: stock pays at the
                     // Space Center AFTER this commit, and the #444 path
                     // (OnVesselRecoveryFunds) writes that payout when onVesselRecovered
@@ -1700,6 +1963,7 @@ namespace Parsek
                     }
                 }
             }
+            return readsAwaitingPayout;
         }
 
         /// <summary>
@@ -1711,13 +1975,25 @@ namespace Parsek
         internal static List<GameAction> CreateKerbalAssignmentActions(
             string recordingId, double startUT, double endUT)
         {
-            var result = new List<GameAction>();
-
             var rec = FindRecordingById(recordingId);
-            if (rec == null) return result;
+            if (rec == null) return new List<GameAction>();
 
             if (NeedsCrewEndStatePopulation(rec))
                 KerbalsModule.PopulateCrewEndStates(rec);
+
+            return BuildKerbalAssignmentActions(rec, recordingId, startUT, endUT);
+        }
+
+        /// <summary>
+        /// The read-only body of <see cref="CreateKerbalAssignmentActions"/>: reads
+        /// <paramref name="rec"/>'s crew and crew end states as they are (the caller
+        /// populates the end states, on the recording or on a copy).
+        /// </summary>
+        internal static List<GameAction> BuildKerbalAssignmentActions(
+            Recording rec, string recordingId, double startUT, double endUT)
+        {
+            var result = new List<GameAction>();
+            if (rec == null) return result;
 
             // Extract crew from vessel snapshot (same source KerbalsModule.ProcessAction uses)
             var crew = ExtractCrewFromRecording(rec);
@@ -1787,13 +2063,25 @@ namespace Parsek
             string recordingId, double startUT, double endUT,
             ReputationSeedOrigin repSeedOrigin)
         {
-            var result = new List<GameAction>();
-
             var rec = FindRecordingById(recordingId);
-            if (rec == null) return result;
+            if (rec == null) return new List<GameAction>();
 
             if (NeedsCrewEndStatePopulation(rec))
                 KerbalsModule.PopulateCrewEndStates(rec);
+
+            return BuildKerbalDeathRepPenaltyActions(rec, recordingId, startUT, endUT, repSeedOrigin);
+        }
+
+        /// <summary>
+        /// The read-only body of <see cref="CreateKerbalDeathRepPenaltyActions"/>: reads
+        /// <paramref name="rec"/>'s crew end states as they are.
+        /// </summary>
+        internal static List<GameAction> BuildKerbalDeathRepPenaltyActions(
+            Recording rec, string recordingId, double startUT, double endUT,
+            ReputationSeedOrigin repSeedOrigin)
+        {
+            var result = new List<GameAction>();
+            if (rec == null) return result;
 
             var crew = ExtractCrewFromRecording(rec);
             if (crew == null || crew.Count == 0) return result;

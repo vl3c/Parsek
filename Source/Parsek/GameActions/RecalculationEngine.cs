@@ -289,6 +289,82 @@ namespace Parsek
             }
         }
 
+        /// <summary>One balance sample of <see cref="WalkBalancesOnClones"/>: the running
+        /// funds, science and reputation right after the action at <see cref="UT"/>.</summary>
+        internal struct LedgerBalanceSample
+        {
+            internal double UT;
+            internal double Funds;
+            internal double Science;
+            internal double Reputation;
+        }
+
+        /// <summary>What <see cref="WalkBalancesOnClones"/> measured.</summary>
+        internal sealed class IsolatedBalanceWalk
+        {
+            internal readonly List<LedgerBalanceSample> Samples = new List<LedgerBalanceSample>();
+            /// <summary>Per input row (by ActionId): the Affordable flag the walk set.</summary>
+            internal readonly Dictionary<string, bool> AffordableByActionId =
+                new Dictionary<string, bool>(StringComparer.Ordinal);
+            /// <summary>Per input row (by ActionId): the Effective flag the walk set.</summary>
+            internal readonly Dictionary<string, bool> EffectiveByActionId =
+                new Dictionary<string, bool>(StringComparer.Ordinal);
+        }
+
+        /// <summary>
+        /// A full walk of <paramref name="actions"/> (no cutoff, as the live recalculation
+        /// walks) over CLONES of the registered modules, sampling the running funds,
+        /// science and reputation after every dispatched action, and reading back each
+        /// input row's Affordable / Effective flags. Nothing registered changes, no state
+        /// is patched, the action-derived fields the walk rewrites are restored, and the
+        /// walk logs nothing. The Re-Fly merge dominance check (design section 2.12 Rule 5)
+        /// compares two of these.
+        /// </summary>
+        internal static IsolatedBalanceWalk WalkBalancesOnClones(List<GameAction> actions)
+        {
+            var result = new IsolatedBalanceWalk();
+            if (actions == null) return result;
+            var all = CopyNonNullActions(actions);
+            var saved = SnapshotDerivedFields(all);
+            try
+            {
+                using (ParsekLog.SuppressScope())
+                {
+                    var first = CreateProjectionModules(firstTierModules);
+                    var strategy = CreateProjectionModule(strategyTransform);
+                    var second = CreateProjectionModules(secondTierModules);
+                    var facilities = CreateProjectionModule(facilitiesModule);
+                    var funds = FindModule<FundsModule>(second) ?? FindModule<FundsModule>(first);
+                    var science = FindModule<ScienceModule>(first) ?? FindModule<ScienceModule>(second);
+                    var reputation = FindModule<ReputationModule>(second) ?? FindModule<ReputationModule>(first);
+
+                    RunWalk(all, null, first, strategy, second, facilities, afterAction: action =>
+                    {
+                        result.Samples.Add(new LedgerBalanceSample
+                        {
+                            UT = action.UT,
+                            Funds = funds != null ? funds.GetRunningBalance() : 0.0,
+                            Science = science != null ? science.GetRunningScience() : 0.0,
+                            Reputation = reputation != null ? reputation.GetRunningRep() : 0.0,
+                        });
+                    });
+
+                    for (int i = 0; i < all.Count; i++)
+                    {
+                        var a = all[i];
+                        if (string.IsNullOrEmpty(a.ActionId)) continue;
+                        result.AffordableByActionId[a.ActionId] = a.Affordable;
+                        result.EffectiveByActionId[a.ActionId] = a.Effective;
+                    }
+                }
+            }
+            finally
+            {
+                RestoreDerivedFields(saved);
+            }
+            return result;
+        }
+
         private static T FindModule<T>(List<IResourceModule> modules) where T : class, IResourceModule
         {
             for (int i = 0; i < modules.Count; i++)
@@ -557,7 +633,8 @@ namespace Parsek
             IResourceModule strategy,
             List<IResourceModule> secondTier,
             IResourceModule facilities,
-            double? deadlineClockUT = null)
+            double? deadlineClockUT = null,
+            Action<GameAction> afterAction = null)
         {
             // 1. Sort — stable sort preserving insertion order for equal keys
             var sorted = SortActions(actions);
@@ -619,6 +696,8 @@ namespace Parsek
                     facilities.ProcessAction(action);
                     facilitiesDispatches++;
                 }
+
+                afterAction?.Invoke(action);
             }
 
             // 4. Post-walk: let modules finalize derived state.
