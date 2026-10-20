@@ -1,5 +1,9 @@
 schema = 1
 id = "QL-5d-retry-refly-after-quickload"
+# RE-PINNED 2026-10-20 FOR DESIGN SECTION 2.12 RULE 3 (Discard and Retry remove the attempt's
+# ledger rows), NOT RE-FLOWN: the RepairSessionBeforeRetry line gains `ledgerRowsRemoved=N`
+# between `stagedRowsPruned=` and `restoredCommittedTree=`; the token accepts any N (this
+# session's attempt earned nothing on the synthetic B9 preset). Nothing else moves.
 # =====================================================================================
 # QL-5d: AN F5 / F9 INSIDE A RE-FLY, THEN ESC, THEN RETRY FROM REWIND POINT: THE RETRIED
 # RE-FLY STARTS WITH THE FLIGHT'S TREE STILL COMMITTED. QL-5c's flight with the attempt
@@ -49,7 +53,7 @@ id = "QL-5d-retry-refly-after-quickload"
 #     unordered token would be satisfied by the first InvokeRewind alone.)
 #   - `RestoreSanitizedPendingTreeIfDetached: restored committed tree ... recordings=N` and
 #     `RepairSessionBeforeRetry callSite=RetryHandler ... treeState=detached-restored-copy
-#     attemptIds=N stagedRowsPruned=0 restoredCommittedTree=true`, between
+#     attemptIds=N stagedRowsPruned=0 ledgerRowsRemoved=N restoredCommittedTree=true`, between
 #     `End reason=retry` and the retried StartInvoke: the fix ran, in RetryHandler's order.
 #   - The retried bundle captured a tree (`Captured: recs=N trees=N`, N >= 1 after the retry's
 #     StartInvoke): before the fix it read `trees=0` on this host.
@@ -152,7 +156,7 @@ required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation comple
              "reflyrevert pressed dialog button='Retry from Rewind Point' choice=retry",
              "End reason=retry sess=\\S+ rp=rp_b9_root slot=1 target=Launch",
              # THE FIX (MergeDialog.RepairSessionBeforeRetry), in RetryHandler's order.
-             "End reason=retry sess=\\S+ rp=rp_b9_root[\\s\\S]*RestoreSanitizedPendingTreeIfDetached: restored committed tree tree=\\S+ recordings=(?:[3-9]|[1-9][0-9]+) prunedAttemptRecordings=[1-9][0-9]* [\\s\\S]*RepairSessionBeforeRetry callSite=RetryHandler sess=\\S+ tree=\\S+ treeState=detached-restored-copy attemptIds=[1-9][0-9]* stagedRowsPruned=0 restoredCommittedTree=true[\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_b9_root slot=1\\.",
+             "End reason=retry sess=\\S+ rp=rp_b9_root[\\s\\S]*RestoreSanitizedPendingTreeIfDetached: restored committed tree tree=\\S+ recordings=(?:[3-9]|[1-9][0-9]+) prunedAttemptRecordings=[1-9][0-9]* [\\s\\S]*RepairSessionBeforeRetry callSite=RetryHandler sess=\\S+ tree=\\S+ treeState=detached-restored-copy attemptIds=[1-9][0-9]* stagedRowsPruned=0 ledgerRowsRemoved=[0-9]+ restoredCommittedTree=true[\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_b9_root slot=1\\.",
              # The retried bundle carried the restored tree (trees=0 before the fix on this host).
              "End reason=retry sess=\\S+ rp=rp_b9_root[\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_b9_root slot=1\\.[\\s\\S]*Captured: recs=[1-9][0-9]* trees=[1-9][0-9]* ",
              "End reason=retry sess=\\S+ rp=rp_b9_root[\\s\\S]*Load classified: early=ReFlyStart refined=ReFlyStart scene=FLIGHT [^\\r\\n]*reFlyInvoke=true",

@@ -191,8 +191,30 @@ id = "RF-9-atmosphere-exit-split-stays-open"
 # `Decoupled` + `Destroyed` pair), the probe split printing its one Mainsail shroud seed
 # on both.
 # =====================================================================================
+# =====================================================================================
+# RESHAPED 2026-10-20 FOR DESIGN SECTION 2.12 RULE 1 (owner ruling 2026-10-19, "a Re-Fly may
+# take back only what was lost"), NOT RE-FLOWN. Slot 0, the crewed top stack, coasts OUT
+# through 70 km on this profile: stock awards ReachedSpace and the altitude records there,
+# AFTER the core discard that authored the RewindPoint, and those MilestoneAchievement rows
+# are tagged to the active recording, the top stack's. They sit in slot 0's retire set and
+# are not loss rows, so they SEAL it: the classifier's Destroyed branch now answers
+# `IsUnfinishedFlight=false ... reason=recordingAction:<Type>:<ActionId> terminal=Destroyed`
+# (the world-action seal runs ahead of `crashed`), slot 0 is never promoted, and the Fly
+# press on it is REJECTED `refly-gate recordingAction:...` (CanInvoke precondition 7). The
+# measured pair before the ruling (`2026-09-08_2250`: slot 0 `reason=crashed`, run 1's
+# tombstones=8 from the crew deaths the re-fly took back) is exactly what the ruling forbids:
+# the top stack's earnings would have been taken back with them.
+# THE LANE'S SUBJECT SURVIVES ON SLOT 1. Every flight measured the PROBE half promoted AND
+# split too (`f392943c` / `fb3c2c02` / `73a90ae8`, slot 1, `reason=crashed`, split at the same
+# boundary), and the probe earned nothing (awards go to the active recording). So the
+# promotion token moves to `slot=1`, `ReapOrphanedRPs: reaped=0 remaining=1` still says the
+# slot stayed open ACROSS ITS OWN SPLIT, and the re-fly runs through slot 1 after slot 0 is
+# refused. With a crewless subject nothing dies in the superseded subtree, so the rewind
+# block's tombstones window moves from `{min = 1}` to `{max = 0}` and the block is DISARMED
+# until a re-flight; the structure census is unchanged (8 + 2 splits + 1 fork = 11).
+# =====================================================================================
 tier = "operator"
-description = "The sealing defect's shape flown live: the Kerbal X's probe-cored core is discarded INSIDE the atmosphere (authoring a RewindPoint), the crewed top stack then coasts OUT through 70 km and the scene exits while it is still climbing - so the committed focus recording spans an Atmospheric -> ExoBallistic boundary, the optimizer splits it, and the promoted slot must stay open across that split and be re-flyable."
+description = "The sealing defect's shape flown live: the Kerbal X's probe-cored core is discarded INSIDE the atmosphere (authoring a RewindPoint), the crewed top stack then coasts OUT through 70 km and the scene exits while it is still climbing - so both halves' committed recordings span an Atmospheric -> ExoBallistic boundary and the optimizer splits them. The top stack earned milestones after the split, so its slot is sealed and refused (design 2.12 Rule 1); the probe's promoted slot must stay open across its own split and be re-flyable."
 instanceProfile = "stock-minimal"
 tags = ["RF-9", "rewind", "refly", "unfinished-flights", "continuation", "staging",
         "scene-exit", "optimizer-split", "runtime-handles", "reading-run"]
@@ -248,7 +270,9 @@ steps = [
   { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" },  expect = "OK" },
   { cmd = "StopRecording",                                                               expect = "OK" },
   { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles",      expect = "OK" },
-  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "0" },             expect = "OK", budget = 300 },
+  # Design 2.12 Rule 1: the top stack's slot holds its milestones and is refused.
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "0" },             expect = "REJECTED", budget = 60 },
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "1" },             expect = "OK", budget = 300 },
   { cmd = "AnswerMergeDialog", args = { choice = "merge" },                              expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                              expect = "OK" },
   { cmd = "FlushAndQuit",                                                                expect = "OK" },
@@ -314,7 +338,9 @@ recordedSpanWindowSeconds = { min = 60.0, max = 650.0 }
 #    slot REJECTs `refly-gate`), so it witnesses the gate's positive branch.
 #  - D9 `unfinished-flights-stash` <- `IsUnfinishedFlight=true ... reason=crashed
 #    terminal=Destroyed` (3) + `CommitTree promoted ... slot=0 ... to
-#    CommittedProvisional` (1).
+#    CommittedProvisional` (1). Since the 2026-10-20 reshape the promotion is slot=1 and
+#    `refly-gate` is also backed by the slot-0 `invokerewind refused: refly-gate
+#    recordingAction:` token (the gate's NEGATIVE branch).
 #  - D1 `auto-record-launch` <- `Recording started` (5). The pattern is generic; the
 #    cell comes from the lane shape (no StartRecording step, `autoRecordOnLaunch=true`).
 #    The run's Verbose `Auto-record started (first staging on pad, stage=6)` is
@@ -433,10 +459,14 @@ required  = ["Recording started",
              "Split candidate \\(PersistedPhaseChange\\): rec=\\S+ sec=[0-9]+ splitUT=[0-9.]+ prev=Atmospheric next=ExoBallistic",
              "SplitAtSection: split",
              "IsUnfinishedFlight=true rec=\\S+ reason=(?:crashed terminal=Destroyed|stableLeafUnconcluded slot=[0-9]+ focusSlot=[0-9]+ terminal=SubOrbital)",
-             "CommitTree promoted rec=\\S+ vessel='.+' slot=0 rp=\\S+ reason=\\S+ to CommittedProvisional",
+             "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=\\S+ to CommittedProvisional",
+             # Design 2.12 Rule 1: slot 0's post-split milestones seal it, at the classifier
+             # (ahead of `crashed`) and at the Fly press (CanInvoke precondition 7).
+             "IsUnfinishedFlight=false rec=\\S+ reason=recordingAction:[A-Za-z]+:act_[0-9a-f]{32} terminal=Destroyed",
+             "invokerewind refused: refly-gate recordingAction:[A-Za-z]+:act_[0-9a-f]{32}",
              "ReapOrphanedRPs: reaped=0 remaining=1",
              "listhandles kind=rewindpoints count=1 truncated=false",
-             "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
+             "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32} slot=1",
              "Invocation complete",
              "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
              "Restored: recs=.* pendingScience=",
@@ -455,6 +485,9 @@ required  = ["Recording started",
 # the second is pinned on a fragment rather than on the whole sentence.
 forbidden = ["\\[Parsek\\]\\[ERROR\\]",
              "reason=sealedTipClosed",
+             # The top stack's slot is never promoted, the refusal never names a loss row.
+             "CommitTree promoted rec=\\S+ vessel='.+' slot=0 ",
+             "refly-gate recordingAction:(?:KerbalAssignment|ReputationPenalty|FacilityDestruction):",
              "not re-deriving MergeState",
              "Reaped rp="]
 
@@ -547,11 +580,14 @@ expected = ["ShroudJettisoned:liquidEngineMainsail.v2"]
 # RE-FLIGHT that precedes it is `2026-09-08_2354`, PASS attempt 1, `saveParse
 # status=PASS gating=True armed=['rewind']` with `supersedeRows=2 tombstones=8
 # rewindPoints=1`.
+# DISARMED 2026-10-20 by the design 2.12 reshape (header): the re-flown slot is now the
+# crewless probe, so the superseded subtree holds no death and the tombstones window flips to
+# `{max = 0}`. Re-arm through the full S4.1 cycle after the first re-flight.
 [expectations.rewind]
-gating        = true
+gating        = false
 rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { min = 1 }
-tombstones    = { min = 1 }
+tombstones    = { max = 0 }
 
 # REPORT-ONLY. The terminals were left OPEN until the reading run because which of
 # Destroyed / SubOrbital the top stack stamps is what decides the group-4 alternation.

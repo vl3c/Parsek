@@ -90,10 +90,30 @@ id = "RB-1-rewind-readback-divergence"
 # from the prediction above (eBefore 479245, not 474445); R = 4558 exactly. The
 # expectedFail block is removed and D9 `read-back-guard` is claimed here.
 # -------------------------------------------------------------------------------------
+# RESHAPED 2026-10-20 FOR DESIGN SECTION 2.12 RULE 3 (owner ruling 2026-10-19), NOT RE-FLOWN.
+# Step 3b (RetireResurrectedVesselRecoveryRows) is GONE: a resurrected vessel whose committed
+# recording claims it later (a recovery, or trajectory after the cutoff) is now HELD instead -
+# despawned at the invoke, shown as a claimed-hold ghost until its first claim UT, and its
+# committed recovery rows STAY BANKED (no tombstone at the invoke). The invoke feed logs under
+# [Rewind] one `Strip heldForCommittedFuture v=<pid> rec=<id> firstUT=<F1>
+# evidence=<recovery|flies> sess=<sess>` per held vessel (design section 6.9 step 5) and one `Resurrected vessel hold:
+# survivors=<n> held=<m> notLive=<k> alreadyHeld=<a> matchedWithoutFuture=<j> cutoffUT=<F1>`
+# summary; `Resurrected-recovery retirement:` no longer prints at all. The Flea's despawn is the
+# existing VesselGhoster `Ghosting vessel: pid=<pid> name=<n> ...` line and its hold ghost the
+# existing `[ClaimedHold] Claimed vessel hold ghost shown: pid=<pid> ... chain=0 ...
+# from=despawn` (chain=0 marks an invoke hold). Matching is still positive launch identity.
+# CONSEQUENCE FOR THIS LANE: with R no longer retired, target = eRp + E + R - S = eBefore, so
+# the funds target never drops below the floor min(eBefore, eRp): the guard reads
+# within-expected-range and FLAGGED DIVERGENCE is now FORBIDDEN. The guard's designed cause
+# (a retirement that outweighs post-RP earnings) has no producer left on this host; RB-1 keeps
+# its id and now pins "a resurrected-and-held vessel plus a post-RP spend does NOT flag", the
+# hire's spend being S. The guard's FLAG half has no live witness after this reshape (see the
+# gap list; the headless RewindReadbackGuard cells keep it).
+# -------------------------------------------------------------------------------------
 tier = "operator"
-description = "Rewind read-back guard, first live flag: fly and recover career-science-pad's Flea after an injected RP, hire a kerbal, re-fly the RP's crashed slot; Step 3b retires the resurrected Flea's recovery and the funds target drops below min(pre-rewind, RP) -> FLAGGED DIVERGENCE resource=funds."
+description = "Rewind read-back guard with a held vessel (design 2.12 Rule 3): fly and recover career-science-pad's Flea after an injected RP, hire a kerbal, re-fly the RP's crashed slot; the resurrected Flea is held as a claimed-hold ghost, its recovery rows stay banked, and the funds target stays at the pre-rewind pool, so the guard reads within-expected-range and never flags."
 instanceProfile = "stock-minimal"
-tags = ["RB-1", "rewind", "refly", "read-back-guard", "career", "ledger", "flown"]
+tags = ["RB-1", "rewind", "refly", "read-back-guard", "claimed-hold", "career", "ledger", "pending-flight"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/career-science-pad"
@@ -136,9 +156,9 @@ recoverMinFundsGain = 1.0
 recoverTimeoutSeconds = 180
 
 [dimensionsCovered]
-# D9 `read-back-guard` is claimed off the REQUIRED `FLAGGED DIVERGENCE resource=funds`
-# token: the first live flag of the guard's designed cause (R7a / CL-3 claim it off the
-# within-range and restore legs).
+# D9 `read-back-guard` is claimed off the REQUIRED `armed rewind read-back guard` and
+# `within-expected-range resource=funds` tokens (R7a / CL-3 claim it the same way). Until the
+# 2026-10-20 reshape it was claimed off the guard's first live FLAG, which design 2.12 removes.
 D9  = ["rewind-to-separation", "read-back-guard"]
 D14 = ["kerbin", "career", "scene-flight", "scene-ksc"]
 
@@ -150,14 +170,20 @@ required = [
   "VesselRecovery funds patched: vessel='Jumping Flea' amount=4558",
   "kscaction action=hire-kerbal .* applied=true",
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke",
-  "Resurrected-recovery retirement: rec=\\S+ pid=2905720181 anchorUT=[0-9.]+ fallbackAnchor=False actions=[1-9]",
+  # Design 2.12 Rule 3: the Flea is HELD, not retired (Phase 3 literals, NOT YET FLOWN).
+  "Strip heldForCommittedFuture v=2905720181 rec=\\S+ firstUT=[0-9.]+ evidence=recovery sess=\\S+",
+  "Resurrected vessel hold: survivors=[0-9]+ held=[1-9][0-9]* notLive=[0-9]+ alreadyHeld=[0-9]+ matchedWithoutFuture=[0-9]+ cutoffUT=[0-9.]+",
+  "Ghosting vessel: pid=2905720181 name=",
+  "Claimed vessel hold ghost shown: pid=2905720181 [^\\r\\n]*chain=0[^\\r\\n]*from=despawn",
   "armed rewind read-back guard: eBeforeFunds=[0-9.]+ eRpFunds=[0-9.]+ ",
-  "FLAGGED DIVERGENCE resource=funds eBefore=[0-9.]+ eRp=[0-9.]+ floor=[0-9.]+ target=[0-9.]+ delta=-[0-9.]+ tolerance=1 ",
+  "within-expected-range resource=funds eBefore=[0-9.]+ eRp=[0-9.]+ floor=[0-9.]+ target=[0-9.]+ delta=[0-9.]+ tolerance=1",
   "Invocation complete",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
-  "within-expected-range resource=funds",
+  # Step 3b is removed: nothing is retired at the invoke, the recovery rows stay banked.
+  "Resurrected-recovery retirement:",
+  "FLAGGED DIVERGENCE",
 ]
 
 [runtime]
