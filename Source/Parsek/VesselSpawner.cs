@@ -1821,7 +1821,17 @@ namespace Parsek
 
                     Vector3d velocity = useRecordedTerminalOrbit
                         ? orbitalSpawnVelocity
-                        : new Vector3d(lastPt.velocity.x, lastPt.velocity.y, lastPt.velocity.z);
+                        : ResolveNoOverrideSpawnVelocity(
+                            rec,
+                            lastPt,
+                            new Vector3d(lastPt.velocity.x, lastPt.velocity.y, lastPt.velocity.z),
+                            body,
+                            spawnLat,
+                            spawnLon,
+                            spawnAlt,
+                            orbitalSpawnOrbit,
+                            "spawn-at-position",
+                            logContext);
                     Quaternion? surfaceRelativeRotationArg = null;
                     if (!useRecordedTerminalOrbit
                         && (isEva || isBreakupContinuous)
@@ -5514,8 +5524,20 @@ namespace Parsek
             {
                 OverrideSnapshotPosition(snapshot, endpointLat, endpointLon, endpointAlt, -1, logContext ?? rec.VesselName);
 
-                if (TryResolveEndpointStateVector(rec, endpointBodyName, out Vector3d velocity))
+                if (TryResolveEndpointStateVector(rec, endpointBodyName, out TrajectoryPoint endpointPoint))
                 {
+                    // The orbit is seeded at currentUT from the endpoint rebuilt in this
+                    // session's axes, so the recorded vector's frame and yaw are resolved
+                    // into those same axes first.
+                    Vector3d velocity = ResolveRecordedSpawnVelocity(
+                        rec,
+                        endpointPoint,
+                        body,
+                        endpointLat,
+                        endpointLon,
+                        endpointAlt,
+                        "endpoint-state-vector-repair",
+                        logContext);
                     Orbit orbit = new Orbit();
                     OrbitReseed.FromLatLonAltAndRecordedVelocity(
                         orbit,
@@ -5545,18 +5567,121 @@ namespace Parsek
         private static bool TryResolveEndpointStateVector(
             Recording rec,
             string endpointBodyName,
-            out Vector3d velocity)
+            out TrajectoryPoint point)
         {
-            velocity = Vector3d.zero;
+            point = default(TrajectoryPoint);
             if (rec?.Points == null || rec.Points.Count == 0 || string.IsNullOrEmpty(endpointBodyName))
                 return false;
 
-            TrajectoryPoint point = rec.Points[rec.Points.Count - 1];
+            point = rec.Points[rec.Points.Count - 1];
             if (!string.Equals(point.bodyName, endpointBodyName, StringComparison.Ordinal))
                 return false;
 
-            velocity = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
-            return IsFinite(velocity);
+            return IsFinite(new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z));
+        }
+
+        /// <summary>
+        /// Pure: does a no-override <see cref="SpawnAtPosition"/> spawn of this terminal
+        /// state seed its orbit from the recorded velocity? Only an Orbiting endpoint is
+        /// airborne among the spawnable terminals
+        /// (<see cref="GhostPlaybackLogic.IsSpawnableTerminal"/>); a Landed or Splashed spawn
+        /// is placed by its lat/lon/alt and keeps the recorded vector it always used.
+        /// </summary>
+        internal static bool ShouldResolveRecordedSpawnVelocity(TerminalState? terminalState)
+        {
+            return terminalState == TerminalState.Orbiting;
+        }
+
+        /// <summary>
+        /// Pure: whether a no-override spawn resolves its recorded velocity. An orbit override
+        /// (the velocity then sets only the situation speed), no sample, no body, no recording
+        /// or a terminal that is not airborne keeps the recorded vector.
+        /// </summary>
+        internal static bool ShouldResolveNoOverrideSpawnVelocity(
+            bool hasOrbitOverride,
+            bool hasSample,
+            bool hasBody,
+            bool hasRecording,
+            TerminalState? terminalState)
+        {
+            return !hasOrbitOverride
+                && hasSample
+                && hasBody
+                && hasRecording
+                && ShouldResolveRecordedSpawnVelocity(terminalState);
+        }
+
+        /// <summary>
+        /// The velocity a no-override <see cref="SpawnAtPosition"/> call seeds with, for the
+        /// callers that pass a recorded <c>TrajectoryPoint.velocity</c> (EVA, breakup and
+        /// Orbiting spawns with no recorded terminal orbit). Returns
+        /// <paramref name="recordedVelocity"/> unchanged when an orbit override is supplied
+        /// (the velocity then sets only the situation speed), there is no sample, or the
+        /// terminal is not airborne (<see cref="ShouldResolveRecordedSpawnVelocity"/>);
+        /// otherwise resolves it as <see cref="ResolveRecordedSpawnVelocity"/>.
+        /// </summary>
+        internal static Vector3d ResolveNoOverrideSpawnVelocity(
+            Recording rec,
+            TrajectoryPoint? sample,
+            Vector3d recordedVelocity,
+            CelestialBody body,
+            double spawnLat,
+            double spawnLon,
+            double spawnAlt,
+            Orbit orbitOverride,
+            string site,
+            string logContext)
+        {
+            if (!ShouldResolveNoOverrideSpawnVelocity(
+                    orbitOverride != null,
+                    sample.HasValue,
+                    body != null,
+                    rec != null,
+                    rec?.TerminalStateValue))
+            {
+                return recordedVelocity;
+            }
+
+            return ResolveRecordedSpawnVelocity(
+                rec, sample.Value, body, spawnLat, spawnLon, spawnAlt, site, logContext);
+        }
+
+        /// <summary>
+        /// The recorded <paramref name="sample"/>'s velocity in THIS session's world axes, as
+        /// an inertial vector at the spawn position: frame and yaw resolved from the sample and
+        /// its same-section neighbour in <c>rec.Points</c>
+        /// (<see cref="OrbitReseed.ResolveRecordedSampleSeedVelocityInSession"/>). A single
+        /// sample, an interpolated (walkback) point, a Relative section or an unresolved pair
+        /// keeps the recorded vector, which is what these spawns seeded before; the Verbose
+        /// line names the outcome.
+        /// </summary>
+        internal static Vector3d ResolveRecordedSpawnVelocity(
+            Recording rec,
+            TrajectoryPoint sample,
+            CelestialBody body,
+            double spawnLat,
+            double spawnLon,
+            double spawnAlt,
+            string site,
+            string logContext)
+        {
+            Vector3d seedWorldPos = body.GetWorldSurfacePosition(spawnLat, spawnLon, spawnAlt);
+            OrbitReseed.RecordedSampleSeedVelocity v = OrbitReseed.ResolveRecordedSampleSeedVelocityInSession(
+                body,
+                rec?.Points,
+                rec?.TrackSections,
+                sample,
+                seedWorldPos);
+            ParsekLog.Verbose("Spawner",
+                OrbitReseed.FormatRecordedSampleSeedVelocityLine(
+                    "Recorded spawn velocity",
+                    site,
+                    rec?.RecordingId,
+                    body.name,
+                    sample,
+                    v)
+                + " context=" + (logContext ?? "(null)"));
+            return v.VelocityYup;
         }
 
         private static void SaveOrbitToNode(Orbit orbit, ConfigNode node, CelestialBody body)

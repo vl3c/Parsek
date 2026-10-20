@@ -2108,10 +2108,20 @@ namespace Parsek
                 }
                 else
                 {
-                    spawnVelocity = new Vector3d(
-                        lastPt.Value.velocity.x,
-                        lastPt.Value.velocity.y,
-                        lastPt.Value.velocity.z);
+                    spawnVelocity = VesselSpawner.ResolveNoOverrideSpawnVelocity(
+                        rec,
+                        lastPt,
+                        new Vector3d(
+                            lastPt.Value.velocity.x,
+                            lastPt.Value.velocity.y,
+                            lastPt.Value.velocity.z),
+                        body,
+                        spawnLat,
+                        spawnLon,
+                        spawnAlt,
+                        orbitOverride: null,
+                        site: "ksc-spawn-at-position",
+                        logContext: rec.VesselName);
                 }
 
                 // De-overlap landed deliveries (#duplicate-stack): multiple committed

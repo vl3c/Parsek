@@ -7912,6 +7912,59 @@ namespace Parsek
             public uint AnchorPid;         // 0 unless Branch == "relative"
         }
 
+        /// <summary>
+        /// The velocity a state-vector map ghost is seeded with. The recorded vector is a
+        /// world vector in the recording session's axes, surface-relative below the body's
+        /// inverse-rotation altitude, while the seed position is rebuilt in THIS session's
+        /// axes, so the frame and yaw are resolved from the sample and its same-section
+        /// neighbour (<see cref="OrbitReseed.ResolveRecordedSampleSeedVelocityInSession"/>).
+        /// A Relative or body-fixed-primary branch, a single sample or an unresolved pair
+        /// keeps the recorded vector, the seed this site always used; the line names which.
+        /// </summary>
+        private static Vector3d ResolveStateVectorSeedVelocity(
+            IPlaybackTrajectory traj,
+            TrajectoryPoint point,
+            CelestialBody body,
+            StateVectorWorldFrame resolution,
+            string site,
+            int recordingIndex,
+            bool rateLimit)
+        {
+            OrbitReseed.RecordedSampleSeedVelocity v = OrbitReseed.ResolveRecordedSampleSeedVelocityInSession(
+                body,
+                traj?.Points,
+                traj?.TrackSections,
+                point,
+                resolution.WorldPos);
+            // The update path runs per ghost per reseed tick: build the line, its key and the
+            // closure only when verbose logging is on.
+            if (!ParsekLog.IsVerboseEnabled)
+                return v.VelocityYup;
+            System.Func<string> line = () => OrbitReseed.FormatRecordedSampleSeedVelocityLine(
+                    "State-vector seed velocity",
+                    site,
+                    traj?.RecordingId,
+                    body?.name,
+                    point,
+                    v)
+                + string.Format(ic, " recIndex={0} branch={1}", recordingIndex, resolution.Branch ?? "(null)");
+            if (rateLimit)
+            {
+                // The update runs per ghost per reseed tick: one line per recording, outcome
+                // and decline reason, so a changed outcome still prints at once.
+                ParsekLog.VerboseRateLimited(Tag,
+                    "sv-seed-velocity-" + site + "-" + (traj?.RecordingId ?? "(null)")
+                        + "-" + v.Source + "-" + (v.DeclineReason ?? "(none)"),
+                    line,
+                    5.0);
+            }
+            else
+            {
+                ParsekLog.Verbose(Tag, line());
+            }
+            return v.VelocityYup;
+        }
+
         internal static bool ShouldRetryStateVectorCreationAfterResolutionMiss(
             StateVectorWorldFrame resolution)
         {
@@ -8373,7 +8426,8 @@ namespace Parsek
             }
 
             Vector3d worldPos = resolution.WorldPos;
-            Vector3d vel = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
+            Vector3d vel = ResolveStateVectorSeedVelocity(
+                traj, point, body, resolution, "create", recordingIndex, rateLimit: false);
 
             Orbit orbit = new Orbit();
             OrbitReseed.FromWorldPosAndRecordedVelocity(orbit, body, worldPos, vel, ut);
@@ -8617,7 +8671,6 @@ namespace Parsek
             }
 
             Vector3d worldPos = resolution.WorldPos;
-            Vector3d vel = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
 
             // Orbit-raise gap glide: reconstruct the recorded INERTIAL position. The body-fixed
             // FromWorldPosAndRecordedVelocity seed below resolves the gap point via
@@ -8662,7 +8715,8 @@ namespace Parsek
                             gapTail.ut + loopEpochShiftSeconds,
                             gapRotationPeriod,
                             gapInitialRotation,
-                            out OrbitReseed.HistoricalTailPairSeedInputs gapSeed))
+                            out OrbitReseed.HistoricalTailPairSeedInputs gapSeed,
+                            traj?.RecordingId))
                     {
                         inertialPathFired = true;
                         inertialLonForLog = gapSeed.InertialLongitude;
@@ -8748,6 +8802,8 @@ namespace Parsek
             // reason and as the safety fallback when the inertial reconstruction declined.
             if (!inertialPathFired)
             {
+                Vector3d vel = ResolveStateVectorSeedVelocity(
+                    traj, point, body, resolution, "update", recordingIndex, rateLimit: true);
                 OrbitReseed.FromWorldPosAndRecordedVelocity(
                     vessel.orbitDriver.orbit,
                     body,
@@ -12895,7 +12951,8 @@ namespace Parsek
                 return null;
 
             Vector3d worldPos = resolution.WorldPos;
-            Vector3d vel = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
+            Vector3d vel = ResolveStateVectorSeedVelocity(
+                traj, point, body, resolution, "overlap", -1, rateLimit: true);
 
             // Seed at the SHIFTED epoch (live UT), mirroring the per-index state-vector path so stock
             // propagation at the live clock lands the icon on the effUT-recorded world position.

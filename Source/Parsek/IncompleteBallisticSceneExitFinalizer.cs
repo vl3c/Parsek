@@ -505,7 +505,16 @@ namespace Parsek
                 if (TryReseedFirstPredictedTailSegmentFromRecordedAnchor(
                         recording,
                         appendedSegments,
-                        TryBuildReseededPredictedTailSegmentFromRecordedAnchor,
+                        (TrajectoryPoint anchor, OrbitSegment original, out OrbitSegment reseeded,
+                            out double rawOffset, out double residualOffset, out string buildReason) =>
+                            TryBuildReseededPredictedTailSegmentFromRecordedAnchor(
+                                recording,
+                                anchor,
+                                original,
+                                out reseeded,
+                                out rawOffset,
+                                out residualOffset,
+                                out buildReason),
                         out PredictedTailReseedDiagnostics reseedDiagnostics))
                 {
                     ParsekLog.Info("Extrapolator",
@@ -812,6 +821,7 @@ namespace Parsek
                         !IsParentEvaStructuralRecoverySource(recordedPointSource);
                     bool recoveryBuilt = recoveryEligible
                         && TryBuildRecoveryStartStateFromRecordedPoint(
+                            recording,
                             recordedPoint,
                             bodies,
                             out recoveryStartState,
@@ -1701,6 +1711,139 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Pure: the sample before <paramref name="point"/> in the recording list that holds it,
+        /// searched in the shape the anchor and surface-point searches read (Absolute section
+        /// <c>frames</c>, Relative section <c>bodyFixedFrames</c>, or the flat <c>Points</c>
+        /// when there are no sections). Only a predecessor in the SAME list, on the same body
+        /// and strictly earlier counts: a section seam can be a frame or session seam a
+        /// velocity pair must not straddle.
+        /// </summary>
+        internal static bool TryFindRecordedPointPredecessor(
+            Recording recording,
+            TrajectoryPoint point,
+            out TrajectoryPoint previous)
+        {
+            previous = default(TrajectoryPoint);
+            if (recording == null)
+                return false;
+
+            if (recording.TrackSections != null && recording.TrackSections.Count > 0)
+            {
+                for (int i = 0; i < recording.TrackSections.Count; i++)
+                {
+                    TrackSection section = recording.TrackSections[i];
+                    IList<TrajectoryPoint> list = section.referenceFrame == ReferenceFrame.Absolute
+                        ? section.frames
+                        : section.referenceFrame == ReferenceFrame.Relative
+                            ? section.bodyFixedFrames
+                            : null;
+                    if (TryFindPredecessorInList(list, point, out previous))
+                        return true;
+                }
+                return false;
+            }
+
+            return TryFindPredecessorInList(recording.Points, point, out previous);
+        }
+
+        /// <summary>
+        /// Pure: the sample after <paramref name="point"/> in the same recording list, on the
+        /// same body and strictly later; the mirror of
+        /// <see cref="TryFindRecordedPointPredecessor"/>, used when the point opens its list.
+        /// </summary>
+        internal static bool TryFindRecordedPointSuccessor(
+            Recording recording,
+            TrajectoryPoint point,
+            out TrajectoryPoint next)
+        {
+            next = default(TrajectoryPoint);
+            if (recording == null)
+                return false;
+
+            if (recording.TrackSections != null && recording.TrackSections.Count > 0)
+            {
+                for (int i = 0; i < recording.TrackSections.Count; i++)
+                {
+                    TrackSection section = recording.TrackSections[i];
+                    IList<TrajectoryPoint> list = section.referenceFrame == ReferenceFrame.Absolute
+                        ? section.frames
+                        : section.referenceFrame == ReferenceFrame.Relative
+                            ? section.bodyFixedFrames
+                            : null;
+                    if (TryFindSuccessorInList(list, point, out next))
+                        return true;
+                }
+                return false;
+            }
+
+            return TryFindSuccessorInList(recording.Points, point, out next);
+        }
+
+        private static bool TryFindSuccessorInList(
+            IList<TrajectoryPoint> points,
+            TrajectoryPoint point,
+            out TrajectoryPoint next)
+        {
+            next = default(TrajectoryPoint);
+            if (points == null)
+                return false;
+
+            for (int i = 0; i + 1 < points.Count; i++)
+            {
+                TrajectoryPoint candidate = points[i];
+                if (candidate.ut != point.ut
+                    || candidate.latitude != point.latitude
+                    || candidate.longitude != point.longitude
+                    || candidate.altitude != point.altitude)
+                {
+                    continue;
+                }
+
+                TrajectoryPoint after = points[i + 1];
+                if (after.ut > point.ut
+                    && string.Equals(after.bodyName, point.bodyName, StringComparison.Ordinal))
+                {
+                    next = after;
+                    return true;
+                }
+                return false;
+            }
+            return false;
+        }
+
+        private static bool TryFindPredecessorInList(
+            IList<TrajectoryPoint> points,
+            TrajectoryPoint point,
+            out TrajectoryPoint previous)
+        {
+            previous = default(TrajectoryPoint);
+            if (points == null)
+                return false;
+
+            for (int i = 1; i < points.Count; i++)
+            {
+                TrajectoryPoint candidate = points[i];
+                if (candidate.ut != point.ut
+                    || candidate.latitude != point.latitude
+                    || candidate.longitude != point.longitude
+                    || candidate.altitude != point.altitude)
+                {
+                    continue;
+                }
+
+                TrajectoryPoint before = points[i - 1];
+                if (before.ut < point.ut
+                    && string.Equals(before.bodyName, point.bodyName, StringComparison.Ordinal))
+                {
+                    previous = before;
+                    return true;
+                }
+                return false;
+            }
+            return false;
+        }
+
         private static bool IsFiniteRecordedTailAnchor(TrajectoryPoint point)
         {
             return IsFinite(point.ut)
@@ -1714,6 +1857,7 @@ namespace Parsek
         }
 
         private static bool TryBuildReseededPredictedTailSegmentFromRecordedAnchor(
+            Recording recording,
             TrajectoryPoint anchorPoint,
             OrbitSegment originalSegment,
             out OrbitSegment reseededSegment,
@@ -1771,15 +1915,21 @@ namespace Parsek
                 if (IsFinite(originalWorld))
                     rawOffsetMeters = Magnitude(anchorWorld - originalWorld);
 
+                // Same session as the recording: only the vector's frame is unknown
+                // (surface-relative below the inverse-rotation altitude).
                 Orbit reseededOrbit = new Orbit();
-                OrbitReseed.FromLatLonAltAndRecordedVelocity(
+                OrbitReseed.FromLatLonAltAndSameSessionRecordedVelocity(
                     reseededOrbit,
                     body,
-                    anchorPoint.latitude,
-                    anchorPoint.longitude,
-                    anchorPoint.altitude,
-                    anchorVelocity,
-                    anchorPoint.ut);
+                    TryFindRecordedPointPredecessor(recording, anchorPoint, out TrajectoryPoint anchorPrevious)
+                        ? (TrajectoryPoint?)anchorPrevious
+                        : null,
+                    anchorPoint,
+                    "predicted-tail-reseed",
+                    recording?.RecordingId,
+                    TryFindRecordedPointSuccessor(recording, anchorPoint, out TrajectoryPoint anchorNext)
+                        ? (TrajectoryPoint?)anchorNext
+                        : null);
 
                 reseededSegment = originalSegment;
                 reseededSegment.inclination = reseededOrbit.inclination;
@@ -2473,15 +2623,18 @@ namespace Parsek
         // poison the extrapolator with origin-collapsed coordinates (the
         // destroyed-vessel `NullSolver` fingerprint) but the recording itself
         // still carries a fresh body-fixed sample with a real recorded
-        // velocity. The recorder stores `TrajectoryPoint.velocity` in Y-up
-        // body-relative inertial axes (see OrbitReseed docstring), so the
+        // velocity. `TrajectoryPoint.velocity` is a Y-up world vector that is
+        // surface-relative below the inverse-rotation altitude (see OrbitReseed's
+        // class summary); its frame is resolved before the reseed
+        // (`OrbitReseed.FromLatLonAltAndSameSessionRecordedVelocity`), so the
         // resulting reseeded orbit + propagated start state lives in the same
         // frame the extrapolator's working path (`TryBuildStartStateFromSegment`)
-        // produces — letting the same downstream extrapolation loop integrate
+        // produces - letting the same downstream extrapolation loop integrate
         // it through atmosphere / terrain instead of mis-classifying as
         // sub-surface and bailing into the recording's stale `SubOrbital`
         // verdict.
         private static bool TryBuildRecoveryStartStateFromRecordedPoint(
+            Recording recording,
             TrajectoryPoint point,
             IReadOnlyDictionary<string, ExtrapolationBody> bodies,
             out BallisticStateVector startState,
@@ -2549,15 +2702,21 @@ namespace Parsek
 
             try
             {
+                // Same session as the recording: only the vector's frame is unknown
+                // (surface-relative below the inverse-rotation altitude).
                 Orbit reseededOrbit = new Orbit();
-                OrbitReseed.FromLatLonAltAndRecordedVelocity(
+                OrbitReseed.FromLatLonAltAndSameSessionRecordedVelocity(
                     reseededOrbit,
                     body,
-                    point.latitude,
-                    point.longitude,
-                    point.altitude,
-                    recordedVel,
-                    point.ut);
+                    TryFindRecordedPointPredecessor(recording, point, out TrajectoryPoint pointPrevious)
+                        ? (TrajectoryPoint?)pointPrevious
+                        : null,
+                    point,
+                    "recovery-start",
+                    recording?.RecordingId,
+                    TryFindRecordedPointSuccessor(recording, point, out TrajectoryPoint pointNext)
+                        ? (TrajectoryPoint?)pointNext
+                        : null);
 
                 OrbitSegment segment = new OrbitSegment
                 {
