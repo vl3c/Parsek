@@ -4940,6 +4940,16 @@ namespace Parsek
             return v.HasValue ? v.Value.ToString("R", IC) : "none";
         }
 
+        /// <summary>
+        /// Production reset for a cold load (<c>ParsekScenario.ResetSaveScopedSessionState</c>):
+        /// the last-patched pool readings and the per-session clamp toast latches.
+        /// </summary>
+        internal static void ResetForSaveLoad()
+        {
+            ForgetLastPoolPatches();
+            ResetDrawdownGuardSessionLatches();
+        }
+
         internal static void ResetForTesting()
         {
             SuppressUnityCallsForTesting = false;

@@ -335,12 +335,9 @@ namespace Parsek.Tests
                     }
                 }
 
-            Assert.Equal(
-                new[]
-                {
-                    LoadReconcilePolicy.GapColdLoadAbandonedFuture,
-                }.OrderBy(s => s, StringComparer.Ordinal),
-                ids.OrderBy(s => s, StringComparer.Ordinal));
+            // COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE is fixed: a cold load reads
+            // the save's own GAME_STATE node, so no cell is a known gap any more.
+            Assert.Empty(ids);
 
             // No gap on a kind whose state another mechanism owns (the rewind carry, the bundle).
             foreach (LoadStateCategory category in AllCategories())
@@ -348,20 +345,39 @@ namespace Parsek.Tests
                 foreach (LoadKind owned in new[] { LoadKind.PlainRewind, LoadKind.ReFlyStart })
                     Assert.False(LoadReconcilePolicy.Decide(owned, category).IsKnownGap, owned + " x " + category);
             }
+        }
 
-            // Cold is gapped only on the abandoned-future categories its own todo entry names.
-            foreach (LoadStateCategory category in AllCategories())
+        [Fact]
+        public void Cold_GameStateCellsReadTheSaveNode()
+        {
+            // Plan 1.3 step 3: the cold load reads the save's GAME_STATE node (the external
+            // files only for a save without it), after the session reset forgets memory.
+            foreach (LoadStateCategory category in new[]
+                {
+                    LoadStateCategory.AbandonedFutureEvents,
+                    LoadStateCategory.AbandonedFutureLedgerRows,
+                    LoadStateCategory.PendingScience,
+                    LoadStateCategory.Milestones,
+                })
             {
                 var cold = LoadReconcilePolicy.Decide(LoadKind.Cold, category);
-                bool expected = category == LoadStateCategory.AbandonedFutureEvents
-                    || category == LoadStateCategory.AbandonedFutureLedgerRows;
-                Assert.Equal(expected, cold.IsKnownGap);
-                if (expected)
-                {
-                    Assert.Equal(LoadReconcilePolicy.GapColdLoadAbandonedFuture, cold.KnownGapTodoId);
-                    Assert.Contains(LoadReconcilePolicy.GapColdLoadAbandonedFuture, cold.Reason);
-                }
+                Assert.Equal(LoadReconcileAction.Save, cold.Action);
+                Assert.False(cold.IsKnownGap, "Cold x " + category);
+                Assert.Contains("LoadGameStateFromNodeOrFiles", cold.Reason);
+                Assert.Contains("ResetSaveScopedSessionState", cold.Reason);
             }
+
+            var routes = LoadReconcilePolicy.Decide(LoadKind.Cold, LoadStateCategory.Routes);
+            Assert.Equal(LoadReconcileAction.Save, routes.Action);
+            Assert.Contains("GAME_STATE/LEDGER", routes.Reason);
+            Assert.Contains("GAME_STATE/PARSEK_GAME_STATE",
+                LoadReconcilePolicy.Decide(LoadKind.Cold, LoadStateCategory.AbandonedFutureEvents).Reason);
+            Assert.Contains("GAME_STATE/LEDGER",
+                LoadReconcilePolicy.Decide(LoadKind.Cold, LoadStateCategory.AbandonedFutureLedgerRows).Reason);
+            Assert.Contains("GAME_STATE/PENDING_SCIENCE",
+                LoadReconcilePolicy.Decide(LoadKind.Cold, LoadStateCategory.PendingScience).Reason);
+            Assert.Contains("GAME_STATE/PARSEK_MILESTONES",
+                LoadReconcilePolicy.Decide(LoadKind.Cold, LoadStateCategory.Milestones).Reason);
         }
 
         [Fact]
@@ -421,7 +437,6 @@ namespace Parsek.Tests
                     if (decision.IsKnownGap)
                         ids.Add(decision.KnownGapTodoId);
                 }
-            Assert.NotEmpty(ids);
 
             foreach (string id in ids)
             {

@@ -198,8 +198,6 @@ namespace Parsek
     /// </summary>
     internal static class LoadReconcilePolicy
     {
-        internal const string GapColdLoadAbandonedFuture = "COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE";
-
         internal const string LogTag = "LoadPolicy";
 
         /// <summary>
@@ -617,6 +615,11 @@ namespace Parsek
             "not reachable: TryRestoreActiveTreeNode returns early while rewinding, so no quickload trim is armed";
         private const string ResumeTrimOnlyCutsTrajectories =
             "the quickload resume trim (ParsekScenario.TrimRecordingTreePastUT) cuts trajectories only";
+        private const string ColdSessionReset =
+            "ParsekScenario.ResetSaveScopedSessionState forgets the store and its once-per-folder guard; ";
+        private const string ColdGameStateReader = "ParsekScenario.LoadGameStateFromNodeOrFiles";
+        private const string ColdFilesFallback =
+            "a save without the node (an older build) reads the external file as last written";
         private const string ResumeReconcileSkips =
             "ParsekScenario.TrimAndReconcileForQuickloadResume runs the trim but skips this category on this kind";
 
@@ -625,10 +628,10 @@ namespace Parsek
             switch (kind)
             {
                 case LoadKind.Cold:
-                    return Gap(LoadReconcileAction.Keep, GapColdLoadAbandonedFuture,
-                        "GameStateStore.LoadEventFile reads the external file as last written, on the first cold load "
-                        + "of a save folder only (memory after); " + ResumeTrimOnlyCutsTrajectories
-                        + " (COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE; the in-session fix does not cover it)");
+                    return Today(LoadReconcileAction.Save,
+                        ColdSessionReset + "GameStateStore.LoadEventsFromSaveNode reads the save's own "
+                        + "GAME_STATE/PARSEK_GAME_STATE node (" + ColdGameStateReader + "), so the events are the save's; "
+                        + ColdFilesFallback + "; " + ResumeReconcileSkips);
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.Keep, RewindResumesNothing);
                 case LoadKind.ReFlyStart:
@@ -659,12 +662,10 @@ namespace Parsek
             switch (kind)
             {
                 case LoadKind.Cold:
-                    return Gap(LoadReconcileAction.Keep, GapColdLoadAbandonedFuture,
-                        "LedgerOrchestrator.OnLoad reads the ledger file as last written; the cold active-tree restore runs "
-                        + "before OnKspLoad, so Ledger.Reconcile counts the restored tree's ids as known "
-                        + "(RecordingStore.BuildKnownRecordingIds) and keeps its earnings at any UT and its spendings in "
-                        + "FLIGHT / SPACECENTER (COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE; the in-session "
-                        + "fix does not cover it)");
+                    return Today(LoadReconcileAction.Save,
+                        ColdSessionReset + "LedgerOrchestrator.OnLoad reads the save's own GAME_STATE/LEDGER node ("
+                        + ColdGameStateReader + "), so the restored tree's rows are the rows of the save's moment; "
+                        + ColdFilesFallback + "; " + ResumeReconcileSkips);
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.Keep, RewindResumesNothing);
                 case LoadKind.ReFlyStart:
@@ -766,9 +767,9 @@ namespace Parsek
             switch (kind)
             {
                 case LoadKind.Cold:
-                    return Today(LoadReconcileAction.Keep,
-                        "cleared wholesale only when DiscardStalePendingState discards a stale pending tree "
-                        + "(RecordingStore.DiscardPendingTree abandon path)");
+                    return Today(LoadReconcileAction.Save,
+                        ColdSessionReset + "the cold branch restores GAME_STATE/PENDING_SCIENCE ("
+                        + ColdGameStateReader + "); a save without the node has none");
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.Keep, "the rewind branch does not touch it");
                 case LoadKind.ReFlyStart:
@@ -795,7 +796,9 @@ namespace Parsek
             switch (kind)
             {
                 case LoadKind.Cold:
-                    return Today(LoadReconcileAction.Save, "RouteStore.LoadRoutesFrom + RevalidateSources on the cold path");
+                    return Today(LoadReconcileAction.Save,
+                        "RouteStore.LoadRoutesFrom + RevalidateSources on the cold path, against the save's own ledger "
+                        + "rows (GAME_STATE/LEDGER, " + ColdGameStateReader + ")");
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.ReconcileAtCutoff,
                         "ParsekScenario.HandleRewindOnLoad -> RouteLoadReconcile.ReconcileAtGoBackRewind: "
@@ -918,7 +921,8 @@ namespace Parsek
             {
                 case LoadKind.Cold:
                     return Today(LoadReconcileAction.Save,
-                        "MilestoneStore.LoadMilestoneFile (first cold load of a save folder) + RestoreMutableState(node)");
+                        ColdSessionReset + "MilestoneStore.LoadMilestonesFromSaveNode reads GAME_STATE/PARSEK_MILESTONES ("
+                        + ColdGameStateReader + "; " + ColdFilesFallback + ") + RestoreMutableState(node)");
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.Save,
                         "list kept in memory; ParsekScenario.HandleRewindOnLoad -> MilestoneStore.RestoreMutableState(node, resetUnmatched: true)");

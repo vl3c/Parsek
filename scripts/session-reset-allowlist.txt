@@ -1,0 +1,67 @@
+# Static fields of the seven save-scoped classes that ParsekScenario.ResetSaveScopedSessionState
+# deliberately leaves alone (design-load-restores-the-save.md section 4.2). Every other static field
+# of RecordingStore, GameStateStore, MilestoneStore, GameStateRecorder, LedgerOrchestrator,
+# KspStatePatcher and ParsekScenario must be reset by that helper; SaveScopedSessionResetTests
+# proves each one (set, reset, read) and fails on a field that is on neither side.
+# Format: one `Type.field reason` per line; auto-property backing fields use the property name.
+RecordingStore.ApplicationIsPlayingForTesting test seam
+RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting test seam
+RecordingStore.CommittedRecordingInserted committed-list notification event; the new scene's controllers subscribe to it, never nulled
+RecordingStore.CommittedRecordingRemoved committed-list notification event; the new scene's controllers subscribe to it, never nulled
+RecordingStore.CommittedRecordingRemoving committed-list notification event; the new scene's controllers subscribe to it, never nulled
+RecordingStore.RecordingPlaybackEnabledChanged UI notification event subscription, not save state
+RecordingStore.committedRecordings cleared by the cold branch's ClearCommittedInternal with notifications, then filled from the save
+RecordingStore.committedTrees cleared by the cold branch (ClearCommittedInternal, LoadRecordingTrees), then filled from the save
+RecordingStore.CurrentUniversalTimeForRewindRetirementOverrideForTesting test seam
+RecordingStore.LegacyRecordingFileSuffixes constant table
+RecordingStore.RecordingFileSuffixes constant table
+RecordingStore.SaveGameForTesting test seam
+RecordingStore.SkipSidecarCurrencyCheckForTesting test seam
+RecordingStore.StateVersion monotonic change counter; readers compare it for change, so it never goes back
+RecordingStore.SuppressLogging test logging switch
+RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting test seam
+GameStateStore.SuppressLogging test logging switch
+GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting test seam
+GameStateRecorder.HasActiveUncommittedTreeProviderForTesting test seam
+GameStateRecorder.HasLiveRecorderProviderForTesting test seam
+GameStateRecorder.ScienceGainMultiplierProviderForTesting test seam
+GameStateRecorder.TagResolverForTesting test seam
+GameStateRecorder.IsReplayingActions scoped SuppressionGuard flag, restored by its own Dispose
+GameStateRecorder.SuppressCrewEvents scoped SuppressionGuard flag, restored by its own Dispose
+GameStateRecorder.SuppressResourceEvents scoped SuppressionGuard flag, restored by its own Dispose
+LedgerOrchestrator.clockAdvanceRecalcInProgress scoped in-progress flag of one clock-advance recalculation (try/finally)
+LedgerOrchestrator.CurrencyPoolProbeForTesting test seam
+LedgerOrchestrator.DeferOneFrameForTesting test seam
+LedgerOrchestrator.emittedReconcileWarnKeys log rate limiter (once per play session)
+LedgerOrchestrator.emittedScienceReconcileDumpKeys log rate limiter (once per play session)
+LedgerOrchestrator.EmptyPendingScience constant empty list
+LedgerOrchestrator.ExpectedCurrencySingletonsForTesting test seam
+LedgerOrchestrator.FacilityCostTableProbeForTesting test seam
+LedgerOrchestrator.fundsTrackedOverrideForTesting test seam
+LedgerOrchestrator.NowUtProviderForTesting test seam
+LedgerOrchestrator.OneShotReconcileSkipLogIntervalSeconds constant
+LedgerOrchestrator.OnKspLoadAfterOldSaveEventReconcileForTesting test seam
+LedgerOrchestrator.OnRecordingCommittedFaultInjector test seam
+LedgerOrchestrator.OnRecordingCommittedPostSciencePersistFaultInjector test seam
+LedgerOrchestrator.OnTimelineDataChanged UI subscription (timeline invalidation callback), not save state
+LedgerOrchestrator.ProgressSeedProbeForTesting test seam
+LedgerOrchestrator.repTrackedOverrideForTesting test seam
+LedgerOrchestrator.scienceTrackedOverrideForTesting test seam
+KspStatePatcher.ActiveClockCrossing scoped: set around one clock-advance patch (try/finally), null otherwise
+KspStatePatcher.AllowNegativeCurrencyProviderForTesting test seam
+KspStatePatcher.IC constant culture
+KspStatePatcher.PartPurchaseLiveUtProviderForTesting test seam
+KspStatePatcher.protoTechNodesReflectionWarnEmitted once-per-process latch of a reflection-failure Warn
+KspStatePatcher.ResourceScanLiveUtProviderForTesting test seam
+KspStatePatcher.scienceSubjectsReflectionWarnEmitted once-per-process latch of a reflection-failure Warn
+KspStatePatcher.SuppressUnityCallsForTesting test seam
+ParsekScenario.CrashReconcileInProgress batch crash-reconcile marker that spans the cold load it triggers
+ParsekScenario.cachedAutoMerge settings cache
+ParsekScenario.coldLoadsThisProcess process lifetime count of cold loads (names the boot load)
+ParsekScenario.CurrentTimelineUTProviderForTesting test seam
+ParsekScenario.initialLoadDone the cold-branch selector: false when the reset runs, set true by the cold branch
+ParsekScenario.lastOnSaveScene scene of the last OnSave; read only by the in-session branch's FLIGHT to FLIGHT check
+ParsekScenario.lastSaveFolder folder-change detector owned by DetectSaveFolderChange, which runs before the reset
+ParsekScenario.onLoadInProgress OnLoad's own in-progress flag, true while the reset runs
+ParsekScenario.PersistentSavePathOverrideForTesting test seam
+ParsekScenario.s_instance the live scenario instance (a process object, not save state)

@@ -43,7 +43,7 @@ namespace Parsek.Tests
             int listCarry = IndexOrFail(body, "RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad(");
             int stepA = IndexOrFail(body, StepA);
             int rewindBranch = IndexOrFail(body, "HandleRewindOnLoad(node, recordings);");
-            int externalFiles = IndexOrFail(body, "LoadExternalFiles();");
+            int externalFiles = IndexOrFail(body, "LoadExternalFiles(node);");
 
             Assert.True(describe < stepA && early < stepA,
                 "in-session handoff gate: the load is classified (and the handoff's presence read for the "

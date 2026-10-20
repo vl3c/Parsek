@@ -1310,8 +1310,109 @@ namespace Parsek
 
         #region File I/O
 
+        internal const string EventsNodeName = "PARSEK_GAME_STATE";
+        internal const string AttemptEventsNodeName = "ATTEMPT_EVENTS";
+        internal const string AttemptTreeIdKey = "attemptTreeId";
+        internal const string BaselineNodeName = "PARSEK_BASELINE";
+
+        /// <summary>
+        /// The events node <see cref="BuildEventsNode"/> built once per OnSave, with the
+        /// restore-attempt events the #866 filter kept off it.
+        /// </summary>
+        internal sealed class EventsNodeBuild
+        {
+            internal ConfigNode Root;
+            /// <summary>
+            /// The events (and their contract snapshots) the #866 filter removed from
+            /// <see cref="Root"/>, tagged with the attempt's tree id. Null when no
+            /// committed-tree restore attempt is live.
+            /// </summary>
+            internal ConfigNode AttemptEvents;
+            internal int SavedEvents;
+            internal int SkippedAttemptEvents;
+            internal int SavedSnapshots;
+            internal int SkippedSnapshots;
+        }
+
+        /// <summary>
+        /// Builds the <c>PARSEK_GAME_STATE</c> node the events file and the save's
+        /// <c>GAME_STATE</c> node both carry. Events a live committed-tree restore attempt
+        /// keeps memory-only (#866, <see cref="RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence"/>)
+        /// and the contract snapshots of their accepts are left out of the root and put in
+        /// <see cref="EventsNodeBuild.AttemptEvents"/> instead, tagged with
+        /// <paramref name="attemptTreeId"/>; that node is built only when an attempt is live.
+        /// </summary>
+        internal static EventsNodeBuild BuildEventsNode(string attemptTreeId)
+        {
+            // Events are stored in insertion (capture) order, not UT order.
+            // After reverts, events from an abandoned future branch precede
+            // events from the new branch - UT-sorting would interleave them
+            // and corrupt facility/building cache seeding.
+            var build = new EventsNodeBuild();
+            var rootNode = new ConfigNode(EventsNodeName);
+            rootNode.AddValue("version", 1);
+            ConfigNode attemptNode = null;
+            if (!string.IsNullOrEmpty(attemptTreeId))
+            {
+                attemptNode = new ConfigNode(AttemptEventsNodeName);
+                attemptNode.AddValue(AttemptTreeIdKey, attemptTreeId);
+            }
+
+            HashSet<string> skippedContractAcceptGuids = null;
+            foreach (var e in events)
+            {
+                if (RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(e))
+                {
+                    build.SkippedAttemptEvents++;
+                    if (e.eventType == GameStateEventType.ContractAccepted
+                        && !string.IsNullOrEmpty(e.key))
+                    {
+                        if (skippedContractAcceptGuids == null)
+                            skippedContractAcceptGuids = new HashSet<string>();
+                        skippedContractAcceptGuids.Add(e.key);
+                    }
+                    if (attemptNode != null)
+                        e.SerializeInto(attemptNode.AddNode("GAME_STATE_EVENT"));
+                    continue;
+                }
+
+                ConfigNode eventNode = rootNode.AddNode("GAME_STATE_EVENT");
+                e.SerializeInto(eventNode);
+                build.SavedEvents++;
+            }
+
+            foreach (var snap in contractSnapshots)
+            {
+                if (skippedContractAcceptGuids != null
+                    && skippedContractAcceptGuids.Contains(snap.contractGuid))
+                {
+                    build.SkippedSnapshots++;
+                    if (attemptNode != null)
+                        snap.SerializeInto(attemptNode);
+                    continue;
+                }
+
+                snap.SerializeInto(rootNode);
+                build.SavedSnapshots++;
+            }
+
+            SerializeScienceSubjectsInto(rootNode);
+            build.Root = rootNode;
+            build.AttemptEvents = attemptNode;
+            return build;
+        }
+
         internal static bool SaveEventFile()
         {
+            return WriteEventsNode(BuildEventsNode(RecordingStore.CommittedTreeRestoreAttemptTreeId));
+        }
+
+        /// <summary>Writes a built events node to the external events file (the mirror).</summary>
+        internal static bool WriteEventsNode(EventsNodeBuild build)
+        {
+            if (build == null || build.Root == null)
+                return false;
+
             string path = RecordingPaths.ResolveSaveScopedPath(
                 RecordingPaths.BuildGameStateEventsRelativePath());
             if (path == null)
@@ -1329,63 +1430,15 @@ namespace Parsek
                     return false;
                 }
 
-                // Events are stored in insertion (capture) order, not UT order.
-                // After reverts, events from an abandoned future branch precede
-                // events from the new branch — UT-sorting would interleave them
-                // and corrupt facility/building cache seeding.
-
-                var rootNode = new ConfigNode("PARSEK_GAME_STATE");
-                rootNode.AddValue("version", 1);
-
-                int savedEvents = 0;
-                int skippedCommittedRestoreAttemptEvents = 0;
-                HashSet<string> skippedContractAcceptGuids = null;
-                foreach (var e in events)
-                {
-                    if (RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(e))
-                    {
-                        skippedCommittedRestoreAttemptEvents++;
-                        if (e.eventType == GameStateEventType.ContractAccepted
-                            && !string.IsNullOrEmpty(e.key))
-                        {
-                            if (skippedContractAcceptGuids == null)
-                                skippedContractAcceptGuids = new HashSet<string>();
-                            skippedContractAcceptGuids.Add(e.key);
-                        }
-                        continue;
-                    }
-
-                    ConfigNode eventNode = rootNode.AddNode("GAME_STATE_EVENT");
-                    e.SerializeInto(eventNode);
-                    savedEvents++;
-                }
-
-                int savedSnapshots = 0;
-                int skippedSnapshots = 0;
-                foreach (var snap in contractSnapshots)
-                {
-                    if (skippedContractAcceptGuids != null
-                        && skippedContractAcceptGuids.Contains(snap.contractGuid))
-                    {
-                        skippedSnapshots++;
-                        continue;
-                    }
-
-                    snap.SerializeInto(rootNode);
-                    savedSnapshots++;
-                }
-
-                SerializeScienceSubjectsInto(rootNode);
-
-                SafeWriteConfigNode(rootNode, path);
+                SafeWriteConfigNode(build.Root, path);
 
                 ParsekLog.Info("GameStateStore",
-                    $"Saved {savedEvents}/{events.Count} game state events, " +
-                    $"{savedSnapshots}/{contractSnapshots.Count} contract snapshots, " +
+                    $"Saved {build.SavedEvents}/{events.Count} game state events, " +
+                    $"{build.SavedSnapshots}/{contractSnapshots.Count} contract snapshots, " +
                     $"{committedScienceSubjects.Count} science subjects to {path}" +
-                    (skippedCommittedRestoreAttemptEvents > 0
-                        ? $" (skippedCommittedRestoreAttemptEvents={skippedCommittedRestoreAttemptEvents}, " +
-                          $"skippedSnapshots={skippedSnapshots})"
+                    (build.SkippedAttemptEvents > 0
+                        ? $" (skippedCommittedRestoreAttemptEvents={build.SkippedAttemptEvents}, " +
+                          $"skippedSnapshots={build.SkippedSnapshots})"
                         : ""));
                 return true;
             }
@@ -1398,29 +1451,8 @@ namespace Parsek
 
         internal static bool LoadEventFile()
         {
-            string currentSave = HighLogic.SaveFolder;
-            if (currentSave != lastSaveFolder)
-            {
-                initialLoadDone = false;
-                lastSaveFolder = currentSave;
-                ParsekLog.Verbose("GameStateStore", $"Save folder changed to '{currentSave}' — resetting event load state");
-            }
-
-            if (initialLoadDone)
-            {
-                ParsekLog.Verbose("GameStateStore", "LoadEventFile: already loaded, skipping");
+            if (!BeginEventLoad("LoadEventFile"))
                 return true;
-            }
-
-            initialLoadDone = true;
-            int prevEvents = events.Count;
-            int prevSnapshots = contractSnapshots.Count;
-            events.Clear();
-            contractSnapshots.Clear();
-            committedScienceSubjects.Clear();
-            originalScienceValues.Clear();
-            ParsekLog.Verbose("GameStateStore",
-                $"LoadEventFile: cleared prior state ({prevEvents} events, {prevSnapshots} snapshots) before loading");
 
             string path = RecordingPaths.ResolveSaveScopedPath(
                 RecordingPaths.BuildGameStateEventsRelativePath());
@@ -1440,50 +1472,7 @@ namespace Parsek
                     return false;
                 }
 
-                int version = 1;
-                string versionStr = rootNode.GetValue("version");
-                if (!string.IsNullOrEmpty(versionStr) && !int.TryParse(versionStr, out version))
-                {
-                    ParsekLog.Warn("GameStateStore", $"Invalid game state events version '{versionStr}'");
-                    version = 1;
-                }
-                if (version != 1)
-                {
-                    ParsekLog.Warn("GameStateStore", $"Unsupported game state events version={version} (expected 1)");
-                }
-
-                // ConfigNode.Load returns the file contents directly
-                ConfigNode[] eventNodes = rootNode.GetNodes("GAME_STATE_EVENT");
-                if (eventNodes != null)
-                {
-                    foreach (var en in eventNodes)
-                        events.Add(GameStateEvent.DeserializeFrom(en));
-                }
-
-                int migratedPartPurchases =
-                    GameStateEvent.NormalizeLegacyPartPurchaseCostsForLoad(events, "events.pgse");
-
-                ConfigNode[] snapNodes = rootNode.GetNodes("CONTRACT_SNAPSHOT");
-                if (snapNodes != null)
-                {
-                    foreach (var sn in snapNodes)
-                        contractSnapshots.Add(ContractSnapshot.DeserializeFrom(sn));
-                }
-
-                DeserializeScienceSubjectsFrom(rootNode);
-
-                ParsekLog.Info("GameStateStore",
-                    $"Loaded {events.Count} game state events, {contractSnapshots.Count} contract snapshots, " +
-                    $"{committedScienceSubjects.Count} science subjects from {path} " +
-                    $"(partPurchaseCompatMigrations={migratedPartPurchases})");
-
-                // Log event type distribution for diagnostics
-                if (events.Count > 0)
-                {
-                    string distribution = BuildEventTypeDistribution(events);
-                    ParsekLog.Verbose("GameStateStore", $"Event type distribution: {distribution}");
-                }
-
+                ParseEventsNode(rootNode, path, "events.pgse");
                 return true;
             }
             catch (Exception ex)
@@ -1493,9 +1482,152 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Loads the events, contract snapshots and science subjects from a save's
+        /// <c>GAME_STATE/PARSEK_GAME_STATE</c> node instead of the external file. Same
+        /// parse and version handling as <see cref="LoadEventFile"/>; marks the
+        /// once-per-folder load done so a later file read in this session does not
+        /// replace what the save restored.
+        /// </summary>
+        internal static bool LoadEventsFromSaveNode(ConfigNode eventsNode)
+        {
+            if (eventsNode == null)
+                return false;
+
+            initialLoadDone = false;
+            BeginEventLoad("LoadEventsFromSaveNode");
+            try
+            {
+                ParseEventsNode(eventsNode, "the save's GAME_STATE node", "GAME_STATE/PARSEK_GAME_STATE");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("GameStateStore", $"Failed to load game state events from the save node: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// The once-per-folder guard of the event load: returns false (skip) when this
+        /// folder's events are already loaded, otherwise clears the store and returns true.
+        /// </summary>
+        private static bool BeginEventLoad(string site)
+        {
+            string currentSave = HighLogic.SaveFolder;
+            if (currentSave != lastSaveFolder)
+            {
+                initialLoadDone = false;
+                lastSaveFolder = currentSave;
+                ParsekLog.Verbose("GameStateStore", $"Save folder changed to '{currentSave}' — resetting event load state");
+            }
+
+            if (initialLoadDone)
+            {
+                ParsekLog.Verbose("GameStateStore", $"{site}: already loaded, skipping");
+                return false;
+            }
+
+            initialLoadDone = true;
+            int prevEvents = events.Count;
+            int prevSnapshots = contractSnapshots.Count;
+            events.Clear();
+            contractSnapshots.Clear();
+            committedScienceSubjects.Clear();
+            originalScienceValues.Clear();
+            ParsekLog.Verbose("GameStateStore",
+                $"{site}: cleared prior state ({prevEvents} events, {prevSnapshots} snapshots) before loading");
+            return true;
+        }
+
+        private static void ParseEventsNode(ConfigNode rootNode, string sourceLabel, string migrationLabel)
+        {
+            int version = 1;
+            string versionStr = rootNode.GetValue("version");
+            if (!string.IsNullOrEmpty(versionStr) && !int.TryParse(versionStr, out version))
+            {
+                ParsekLog.Warn("GameStateStore", $"Invalid game state events version '{versionStr}'");
+                version = 1;
+            }
+            if (version != 1)
+            {
+                ParsekLog.Warn("GameStateStore", $"Unsupported game state events version={version} (expected 1)");
+            }
+
+            // ConfigNode.Load returns the file contents directly
+            ConfigNode[] eventNodes = rootNode.GetNodes("GAME_STATE_EVENT");
+            if (eventNodes != null)
+            {
+                foreach (var en in eventNodes)
+                    events.Add(GameStateEvent.DeserializeFrom(en));
+            }
+
+            int migratedPartPurchases =
+                GameStateEvent.NormalizeLegacyPartPurchaseCostsForLoad(events, migrationLabel);
+
+            ConfigNode[] snapNodes = rootNode.GetNodes("CONTRACT_SNAPSHOT");
+            if (snapNodes != null)
+            {
+                foreach (var sn in snapNodes)
+                    contractSnapshots.Add(ContractSnapshot.DeserializeFrom(sn));
+            }
+
+            DeserializeScienceSubjectsFrom(rootNode);
+
+            ParsekLog.Info("GameStateStore",
+                $"Loaded {events.Count} game state events, {contractSnapshots.Count} contract snapshots, " +
+                $"{committedScienceSubjects.Count} science subjects from {sourceLabel} " +
+                $"(partPurchaseCompatMigrations={migratedPartPurchases})");
+
+            // Log event type distribution for diagnostics
+            if (events.Count > 0)
+            {
+                string distribution = BuildEventTypeDistribution(events);
+                ParsekLog.Verbose("GameStateStore", $"Event type distribution: {distribution}");
+            }
+        }
+
+        /// <summary>
+        /// Appends the events and contract snapshots of a save's <c>ATTEMPT_EVENTS</c> node to
+        /// memory only (never the file, never a milestone: the live attempt keeps filtering
+        /// them on every save, #866). Returns the number of events appended.
+        /// </summary>
+        internal static int RestoreAttemptEventsToMemory(ConfigNode attemptNode)
+        {
+            if (attemptNode == null)
+                return 0;
+            int restored = 0;
+            ConfigNode[] eventNodes = attemptNode.GetNodes("GAME_STATE_EVENT");
+            for (int i = 0; i < eventNodes.Length; i++)
+            {
+                events.Add(GameStateEvent.DeserializeFrom(eventNodes[i]));
+                restored++;
+            }
+            ConfigNode[] snapNodes = attemptNode.GetNodes("CONTRACT_SNAPSHOT");
+            for (int i = 0; i < snapNodes.Length; i++)
+                contractSnapshots.Add(ContractSnapshot.DeserializeFrom(snapNodes[i]));
+            return restored;
+        }
+
         internal static bool SaveBaseline(GameStateBaseline baseline)
         {
             if (baseline == null) return false;
+            return WriteBaselineNode(baseline, BuildBaselineNode(baseline));
+        }
+
+        /// <summary>Builds the <c>PARSEK_BASELINE</c> node of one baseline (file and save node).</summary>
+        internal static ConfigNode BuildBaselineNode(GameStateBaseline baseline)
+        {
+            if (baseline == null) return null;
+            var rootNode = new ConfigNode(BaselineNodeName);
+            baseline.SerializeInto(rootNode);
+            return rootNode;
+        }
+
+        /// <summary>Writes a built baseline node to its external per-UT file (the mirror).</summary>
+        internal static bool WriteBaselineNode(GameStateBaseline baseline, ConfigNode rootNode)
+        {
+            if (baseline == null || rootNode == null) return false;
 
             string relativePath = RecordingPaths.BuildBaselineRelativePath(baseline.ut);
             string path = RecordingPaths.ResolveSaveScopedPath(relativePath);
@@ -1513,9 +1645,6 @@ namespace Parsek
                     ParsekLog.Warn("GameStateStore", "EnsureGameStateDirectory returned null during SaveBaseline");
                     return false;
                 }
-
-                var rootNode = new ConfigNode("PARSEK_BASELINE");
-                baseline.SerializeInto(rootNode);
 
                 SafeWriteConfigNode(rootNode, path);
 
@@ -1578,6 +1707,31 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Loads the baselines from a save's <c>GAME_STATE/BASELINES</c> node (one
+        /// <c>PARSEK_BASELINE</c> child per baseline) instead of the per-UT files.
+        /// </summary>
+        internal static bool LoadBaselinesFromSaveNode(ConfigNode baselinesNode)
+        {
+            baselines.Clear();
+            if (baselinesNode == null)
+                return false;
+            try
+            {
+                ConfigNode[] nodes = baselinesNode.GetNodes(BaselineNodeName);
+                for (int i = 0; i < nodes.Length; i++)
+                    baselines.Add(GameStateBaseline.DeserializeFrom(nodes[i]));
+                baselines.Sort((a, b) => a.ut.CompareTo(b.ut));
+                ParsekLog.Info("GameStateStore", $"Loaded {baselines.Count} baselines from the save's GAME_STATE node");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("GameStateStore", $"Failed to load baselines from the save node: {ex.Message}");
+                return false;
+            }
+        }
+
         private static void SafeWriteConfigNode(ConfigNode node, string path)
         {
             FileIOUtils.SafeWriteConfigNode(node, path, "GameStateStore");
@@ -1612,6 +1766,18 @@ namespace Parsek
 
         internal static void ResetForTesting()
         {
+            ResetForSaveLoad();
+        }
+
+        /// <summary>
+        /// Production reset for a cold load (<c>ParsekScenario.ResetSaveScopedSessionState</c>):
+        /// forgets every event, snapshot, baseline and science subject and the
+        /// once-per-folder load guard, so the cold branch reloads them from the save (or
+        /// the files). Returns the number of events dropped.
+        /// </summary>
+        internal static int ResetForSaveLoad()
+        {
+            int dropped = events.Count;
             events.Clear();
             contractSnapshots.Clear();
             baselines.Clear();
@@ -1619,6 +1785,7 @@ namespace Parsek
             originalScienceValues.Clear();
             initialLoadDone = false;
             lastSaveFolder = null;
+            return dropped;
         }
 
         /// <summary>
