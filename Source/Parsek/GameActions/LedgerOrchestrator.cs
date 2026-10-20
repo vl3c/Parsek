@@ -2299,10 +2299,18 @@ namespace Parsek
         /// walk cutoff (the Re-Fly invoke walk: cutoff <c>double.MaxValue</c>, clock = the
         /// live UT). Null keeps the cutoff as the deadline clock.
         /// </param>
+        /// <param name="reFlyDiscard">
+        /// True only for the recalculation that follows a Re-Fly discard which already removed
+        /// the attempt's rows and ended the session (rewind design section 2.12 Rule 3): the
+        /// stock pools still carry what the attempt earned or spent, and the patch must take
+        /// them back to the ledger's values, so it is an authoritative reduction although the
+        /// marker is already gone.
+        /// </param>
         internal static void RecalculateAndPatch(
             double? utCutoff = null,
             bool suppressSuspiciousDrawdownWarnings = false,
-            double? deadlineClockUT = null)
+            double? deadlineClockUT = null,
+            bool reFlyDiscard = false)
         {
             RecalculateAndPatchCore(
                 utCutoff,
@@ -2310,7 +2318,8 @@ namespace Parsek
                 authoritativeRepeatableRecordState: utCutoff.HasValue,
                 techPatchCutoff: utCutoff,
                 suppressSuspiciousDrawdownWarnings: suppressSuspiciousDrawdownWarnings,
-                deadlineClockUT: deadlineClockUT);
+                deadlineClockUT: deadlineClockUT,
+                reFlyDiscard: reFlyDiscard);
         }
 
         /// <summary>
@@ -2322,7 +2331,8 @@ namespace Parsek
         /// </summary>
         internal static void RecalculateAndPatchForCurrentTimelineUT(
             double utCutoff,
-            string reason = null)
+            string reason = null,
+            bool reFlyDiscard = false)
         {
             if (!string.IsNullOrEmpty(reason))
             {
@@ -2335,7 +2345,8 @@ namespace Parsek
                 bypassPatchDeferral: false,
                 authoritativeRepeatableRecordState: false,
                 techPatchCutoff: utCutoff,
-                suppressSuspiciousDrawdownWarnings: true);
+                suppressSuspiciousDrawdownWarnings: true,
+                reFlyDiscard: reFlyDiscard);
         }
 
         /// <summary>
@@ -2362,9 +2373,12 @@ namespace Parsek
             RunAsClockAdvance(() => RecalculateAndPatchForCurrentTimelineUT(utCutoff, "time-jump"));
         }
 
+        /// <param name="reFlyDiscard">See <see cref="RecalculateAndPatch(double?, bool, double?, bool)"/>:
+        /// set only by a Re-Fly discard path, after it removed the attempt's rows.</param>
         internal static void RecalculateAndPatchForCurrentTimelineIfFutureActions(
             double currentUT,
-            string reason)
+            string reason,
+            bool reFlyDiscard = false)
         {
             string safeReason = string.IsNullOrEmpty(reason) ? "current-timeline" : reason;
             // BUG-F guard: never cut off at a non-positive (not-yet-initialized) clock value.
@@ -2375,7 +2389,7 @@ namespace Parsek
             bool hasFutureActions = currentUtReady && HasActionsAfterUT(currentUT);
             if (hasFutureActions)
             {
-                RecalculateAndPatchForCurrentTimelineUT(currentUT, safeReason);
+                RecalculateAndPatchForCurrentTimelineUT(currentUT, safeReason, reFlyDiscard);
                 return;
             }
 
@@ -2383,7 +2397,7 @@ namespace Parsek
                 "Current-timeline recalc: full replay (cutoffUT=null) — reason=" + safeReason +
                 " currentUT=" + currentUT.ToString("R", CultureInfo.InvariantCulture) +
                 " currentUtReady=" + currentUtReady);
-            RecalculateAndPatch();
+            RecalculateAndPatch(reFlyDiscard: reFlyDiscard);
         }
 
         /// <summary>
@@ -3737,6 +3751,21 @@ namespace Parsek
                 || tombstonePath || rewindResourceAdjustmentInProgress;
         }
 
+        /// <summary>
+        /// The five time-travel signals plus <paramref name="reFlyDiscard"/>: the recalculation
+        /// right after a Re-Fly discard removed the attempt's rows and cleared the marker
+        /// (rewind design section 2.12 Rule 3, Discard restores <c>L</c>). Without it the guard
+        /// would floor the pools up to the live values, keeping what the discarded attempt earned.
+        /// </summary>
+        internal static bool IsAuthoritativeReduction(
+            bool isRewinding, bool hasReFlyMarker, bool hasMergeJournal,
+            bool tombstonePath, bool rewindResourceAdjustmentInProgress, bool reFlyDiscard)
+        {
+            return reFlyDiscard
+                || IsAuthoritativeReduction(isRewinding, hasReFlyMarker, hasMergeJournal,
+                    tombstonePath, rewindResourceAdjustmentInProgress);
+        }
+
         private static void RecalculateAndPatchCore(
             double? utCutoff,
             bool bypassPatchDeferral,
@@ -3745,7 +3774,8 @@ namespace Parsek
             bool excludeTombstonedTechFromBaseline = false,
             bool suppressSuspiciousDrawdownWarnings = false,
             bool tombstonePath = false,
-            double? deadlineClockUT = null)
+            double? deadlineClockUT = null,
+            bool reFlyDiscard = false)
         {
             Initialize();
 
@@ -3828,7 +3858,8 @@ namespace Parsek
                     ParsekScenario.Instance?.ActiveReFlySessionMarker != null,
                     ParsekScenario.Instance?.ActiveMergeJournal != null,
                     tombstonePath,
-                    RewindContext.RewindResourceAdjustmentInProgress);
+                    RewindContext.RewindResourceAdjustmentInProgress,
+                    reFlyDiscard);
                 ParsekLog.Verbose(Tag,
                     "RecalculateAndPatch: drawdown-guard authoritativeReduction=" +
                     authoritativeReduction +
@@ -3836,7 +3867,8 @@ namespace Parsek
                     $"reFlyMarker={ParsekScenario.Instance?.ActiveReFlySessionMarker != null}, " +
                     $"mergeJournal={ParsekScenario.Instance?.ActiveMergeJournal != null}, " +
                     $"tombstone={tombstonePath}, " +
-                    $"rewindResAdjust={RewindContext.RewindResourceAdjustmentInProgress})");
+                    $"rewindResAdjust={RewindContext.RewindResourceAdjustmentInProgress}, " +
+                    $"reFlyDiscard={reFlyDiscard})");
 
                 KspStatePatcher.ClockCrossing clockCrossing =
                     clockAdvanceRecalcInProgress

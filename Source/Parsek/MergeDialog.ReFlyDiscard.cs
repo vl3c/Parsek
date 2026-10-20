@@ -565,9 +565,13 @@ namespace Parsek
 
             EndDiscardedReFlySession(scenario, sessionId, "MergeDialog:discard-refly-attempt");
 
+            // The marker is gone, so the guard needs the explicit signal: the stock pools
+            // still hold what the attempt earned or spent, and the patch takes them back to
+            // the ledger as it stood before the invocation (rewind design section 2.12 Rule 3).
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
                 ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(),
-                "merge-dialog-discard-refly");
+                "merge-dialog-discard-refly",
+                reFlyDiscard: true);
             ClearPendingFlag();
             bool durableSaved = SaveDiscardedReFlyStateDurably(sessionId);
 

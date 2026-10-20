@@ -242,6 +242,7 @@ namespace Parsek.Tests
             int next = IndexOrFail(body, "RunTestBatchCrashReconcile();");
             Assert.True(recalc < sweep && sweep < check && check < again && again < next,
                 "load-reconcile gate: the in-session branch recalculates again when the sweep removed zombie rows");
+            Assert.Contains("reFlyDiscard: true", body.Substring(again, next - again));
 
             string sweepBody = Collapse(ReadParsekSourcePrepared("LoadTimeSweep.cs"));
             Assert.Equal(1, Occurrences(sweepBody, "Ledger.RemoveActionsForRecordings("));

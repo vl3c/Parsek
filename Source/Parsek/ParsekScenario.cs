@@ -773,9 +773,12 @@ namespace Parsek
         /// </summary>
         /// <param name="planetariumUT">The Planetarium reading, logged beside the clock the
         /// walk used so a stale reading stays visible; NaN when not read.</param>
+        /// <param name="reFlyDiscard">True for the walk after the load-time sweep removed a
+        /// zombie Re-Fly attempt's ledger rows: the patch takes the pools back to the ledger
+        /// as an authoritative reduction (rewind design section 2.12 Rule 3).</param>
         internal static bool RecalculateLedgerForInSessionLoad(
             bool isRevert, GameScenes loadedScene, bool planetariumReady, double loadedUT,
-            double planetariumUT = double.NaN)
+            double planetariumUT = double.NaN, bool reFlyDiscard = false)
         {
             // The load replaced the live pools with the save's: rows that were ahead of the
             // clock at an earlier patch say nothing about what this save charged.
@@ -812,11 +815,15 @@ namespace Parsek
                 ParsekLog.Info("Scenario",
                     $"OnLoad: post-rewind scene-load recalc using current-UT cutoff {loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
                     "to keep future funds/contracts filtered until replay catches up");
-                RecalculateAndPatchForPostRewindFlightLoad(loadedUT);
+                if (reFlyDiscard)
+                    LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(
+                        loadedUT, "post-rewind-load", reFlyDiscard: true);
+                else
+                    RecalculateAndPatchForPostRewindFlightLoad(loadedUT);
             }
             else
             {
-                LedgerOrchestrator.RecalculateAndPatch();
+                LedgerOrchestrator.RecalculateAndPatch(reFlyDiscard: reFlyDiscard);
             }
             return useCurrentUtCutoffForPostRewindFlightLoad;
         }
@@ -4597,7 +4604,8 @@ namespace Parsek
                         RecalculateLedgerForInSessionLoad(
                             isRevert, HighLogic.LoadedScene, !double.IsNaN(ledgerClockUT),
                             inSessionLedgerCutoffUT,
-                            planetariumReady ? loadedUT : double.NaN);
+                            planetariumReady ? loadedUT : double.NaN,
+                            reFlyDiscard: true);
                     }
 
                     loadPhase = "test-batch-reconcile";
