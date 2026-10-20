@@ -36,11 +36,13 @@ id = "QL-11-quickload-after-scene-change-resolves-version"
 #   (b) the F9 resolves that recording's trajectory from `_versions` with hash H and
 #       promotes it (`Sidecar version resolved: rec=<id> kind=prec hash=H source=version
 #       promoted=True`);
-#   (c) the resume prep names the same recording, loadKind=Cold, treeTrimmed=False (the
-#       trajectory ends at the F5; a head read would end at UT 50 and trim);
+#   (c) the resume prep names the same recording, loadKind=Cold, and preTrimEndUT at the F5
+#       (UT ~40; a head read would end at UT ~50). treeTrimmed is no discriminator: the resume
+#       stamps the live recording's open end (NaN) to the cutoff, which counts as a trim
+#       (flown 2026-10-20: treeTrimmed=True with preTrimEndUT=40.02 < cutoffUT=40.30);
 #   (d) the recorder resumes and the tree commits.
 #   Forbidden: an epoch mismatch, a hydration failure, an in-session classification,
-#   treeTrimmed=True after the F9.
+#   a resume prep after the F9 whose trajectory ends past UT 41.
 #
 # FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
 #   1 reuse: QL-6's prefix (record to UT 40, F5) is shared, but QL-6 discards before the F9
@@ -113,9 +115,9 @@ required = [
   # the F9 resolves (same recording, same hash) and promotes.
   "startrecording recordingId=([0-9a-f]+) [\\s\\S]*savegame name=quicksave folder=[^\\r\\n]*(?:(?!savegame name=persistent)[\\s\\S])*Sidecar retained: rec=\\1 kind=prec hash=([0-9a-f]+) reason=rewrite outcome=(?:filed|identical-exists)(?:(?!Sidecar retained: rec=\\1 kind=prec )[\\s\\S])*savegame name=persistent folder=[\\s\\S]*loadgame player-load: firing [\\s\\S]*Sidecar version resolved: rec=\\1 kind=prec hash=\\2 source=version promoted=True",
   "loadgame player-load: firing [\\s\\S]*Sidecar version resolution summary: reason=cold-onload [^\\r\\n]*\\bversion=[1-9][0-9]* promoted=[1-9][0-9]* [^\\r\\n]*\\bunresolved=0 ",
-  # (c) The restored trajectory ends at the F5: the resume trims nothing.
+  # (c) The restored trajectory ends at the F5 (UT ~40), not at the later head (UT ~50).
   "OnLoad: cold-start active tree detected \\(state=Limbo\\) . deferred to OnFlightReady as Quickload",
-  "startrecording recordingId=([0-9a-f]+) [\\s\\S]*loadgame player-load: firing [\\s\\S]*Quickload resume prep: activeRec='\\1' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide [^\\r\\n]*\\bloadKind=Cold [^\\r\\n]*\\btreeTrimmed=False\\b",
+  "startrecording recordingId=([0-9a-f]+) [\\s\\S]*loadgame player-load: firing [\\s\\S]*Quickload resume prep: activeRec='\\1' cutoffUT=[0-9.]+ preTrimEndUT=(?:39|40)\\.[0-9]+ trimScope=TreeWide [^\\r\\n]*\\bloadKind=Cold ",
   # (d) The recorder resumes the tree and it commits.
   "loadgame player-load: firing [\\s\\S]*RestoreActiveTreeFromPending: resumed recording tree '[^']*' activeRec='[0-9a-f]{32}'",
   "loadgame player-load: firing [\\s\\S]*recordingstate recording=true ",
@@ -129,7 +131,7 @@ forbidden = [
   "loadgame player-load: firing (?:(?!Load classified: )[\\s\\S])*Load classified: early=InSession",
   # The hash replaces the epoch rule; the F5 bytes, not the later head, are read.
   "loadgame player-load: firing [\\s\\S]*Sidecar epoch mismatch",
-  "loadgame player-load: firing [\\s\\S]*Quickload resume prep: [^\\r\\n]*\\btreeTrimmed=True\\b",
+  "loadgame player-load: firing [\\s\\S]*Quickload resume prep: [^\\r\\n]*\\bpreTrimEndUT=(?:4[1-9]|[5-9][0-9]|[1-9][0-9]{2,})\\.",
   "TryRestoreActiveTreeNode: skipped active tree",
   "Quickload resume prep skipped",
 ]

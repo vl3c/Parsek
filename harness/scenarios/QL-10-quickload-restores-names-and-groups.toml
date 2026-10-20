@@ -67,6 +67,7 @@ steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },  expect = "OK" },
   { cmd = "UiAction",   args = { op = "complexity", mode = "advanced" },     expect = "OK" },
+  { cmd = "UiAction",   args = { op = "open", window = "main" },             expect = "OK" },
   { cmd = "UiAction",   args = { op = "open", window = "missions" },         expect = "OK" },
   { cmd = "UiAction",   args = { op = "rect", window = "missions", x = "0", y = "8", w = "1355", h = "700" }, expect = "OK" },
   { cmd = "UiAction",   args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
@@ -78,6 +79,7 @@ steps = [
   { cmd = "UiAction",   args = { op = "edit", window = "missions", field = "groupname", key = "Kerbal X #3", draft = "QL10 Group", commit = "true" }, expect = "OK" },
   # ACT 3: THE F9 at the Space Center, the player's load (playerLoad=true).
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "quicksave", scene = "spacecenter", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "UiAction",   args = { op = "open", window = "main" },             expect = "OK" },
   { cmd = "UiAction",   args = { op = "open", window = "missions" },         expect = "OK" },
   { cmd = "UiAction",   args = { op = "rect", window = "missions", x = "0", y = "8", w = "1355", h = "700" }, expect = "OK" },
   { cmd = "UiAction",   args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
