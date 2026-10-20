@@ -166,17 +166,21 @@ namespace Parsek
             var newRows = inputs.NewRows ?? (IReadOnlyList<GameAction>)new List<GameAction>();
 
             // Rule 1 re-check: the retire set holds only loss rows.
+            var sealingRows = new List<GameAction>();
             for (int i = 0; i < retire.Count; i++)
             {
                 if (retire[i] != null && !SupersedeCommit.IsLossRow(retire[i]))
-                {
-                    v.RetireSetCount = retire.Count;
-                    v.Pass = false;
-                    v.Pool = "sealing";
-                    v.UT = retire[i].UT;
-                    v.SealingRow = SupersedeCommit.FormatRetireSetRowSummary(retire[i]);
-                    return v;
-                }
+                    sealingRows.Add(retire[i]);
+            }
+            if (sealingRows.Count > 0)
+            {
+                GameAction named = SupersedeCommit.PickNamedSealingRow(sealingRows);
+                v.RetireSetCount = retire.Count;
+                v.Pass = false;
+                v.Pool = "sealing";
+                v.UT = named.UT;
+                v.SealingRow = SupersedeCommit.FormatRetireSetRowSummary(named);
+                return v;
             }
             if (inputs.RetiresNothing)
                 retire = new List<GameAction>();

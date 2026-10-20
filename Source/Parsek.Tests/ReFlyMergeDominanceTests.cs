@@ -471,6 +471,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Evaluate_BareMilestoneAheadOfAnEarning_NamesTheEarning()
+        {
+            var els = Seeds();
+            var bare = new GameAction
+            {
+                ActionId = "ms_bare", Type = GameActionType.MilestoneAchievement, UT = 300.0,
+                RecordingId = OldRec, MilestoneId = "Kerbin/Science",
+            };
+            var earning = new GameAction
+            {
+                ActionId = "fund_old", Type = GameActionType.FundsEarning, UT = 300.0,
+                RecordingId = OldRec, FundsAwarded = 500f,
+            };
+            els.Add(bare);
+            els.Add(earning);
+
+            var v = ReFlyMergeDominance.Evaluate(
+                Inputs(els, null, new List<GameAction> { bare, earning }));
+
+            Assert.False(v.Pass);
+            Assert.Equal("sealing", v.Pool);
+            Assert.Equal("FundsEarning:fund_old", v.SealingRow);
+        }
+
+        [Fact]
         public void LogVerdict_WritesTheDesignedLineShapes()
         {
             ReFlyMergeDominance.LogVerdict(new ReFlyMergeDominanceVerdict

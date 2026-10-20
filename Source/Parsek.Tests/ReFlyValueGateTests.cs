@@ -473,6 +473,57 @@ namespace Parsek.Tests
                 && l.Contains("-> sealed by FundsEarning:act_gain"));
         }
 
+        private static GameAction Milestone(string id, string rec, double ut, float funds)
+        {
+            return new GameAction
+            {
+                ActionId = id, UT = ut, Type = GameActionType.MilestoneAchievement,
+                RecordingId = rec, MilestoneId = "Kerbin/Science", MilestoneFundsAwarded = funds,
+            };
+        }
+
+        [Fact]
+        public void Gate_ZeroAwardMilestoneFirst_StillSeals_ButNamesTheRowWithValue()
+        {
+            // RF-L1 / LAB-10: a first-reached milestone with no award sorts ahead of
+            // the lab earning at the same UT. Both seal; the refusal names the earning.
+            RewindPoint rp; ChildSlot slot; Recording origin;
+            InstallOpenSlot(out rp, out slot, out origin);
+            Ledger.AddAction(Milestone("act_ms", "rec_a", 120.0, 0f));
+            Ledger.AddAction(Funds("act_gain", "rec_a", 120.0));
+
+            string summary;
+            Assert.True(SupersedeCommit.RetireSetHoldsSealingRow(origin, rp, slot, out summary));
+            Assert.Equal("FundsEarning:act_gain", summary);
+            Assert.Contains(logLines, l => l.Contains("RetireSet gate")
+                && l.Contains("sealingRows=2") && l.Contains("-> sealed by FundsEarning:act_gain"));
+        }
+
+        [Fact]
+        public void Gate_ZeroAwardMilestoneAlone_Seals_AndIsNamed()
+        {
+            // No exception for milestones: a first-reached milestone seals even with no award.
+            RewindPoint rp; ChildSlot slot; Recording origin;
+            InstallOpenSlot(out rp, out slot, out origin);
+            Ledger.AddAction(Milestone("act_ms", "rec_a", 120.0, 0f));
+
+            string summary;
+            Assert.True(SupersedeCommit.RetireSetHoldsSealingRow(origin, rp, slot, out summary));
+            Assert.Equal("MilestoneAchievement:act_ms", summary);
+        }
+
+        [Fact]
+        public void PickNamedSealingRow_PrefersTheFirstRowThatIsNotABareMilestone()
+        {
+            var bare = Milestone("act_bare", "rec_a", 1.0, 0f);
+            var paid = Milestone("act_paid", "rec_a", 2.0, 500f);
+            var funds = Funds("act_funds", "rec_a", 3.0);
+            Assert.Null(SupersedeCommit.PickNamedSealingRow(new List<GameAction>()));
+            Assert.Same(paid, SupersedeCommit.PickNamedSealingRow(new List<GameAction> { bare, paid, funds }));
+            Assert.Same(funds, SupersedeCommit.PickNamedSealingRow(new List<GameAction> { bare, funds }));
+            Assert.Same(bare, SupersedeCommit.PickNamedSealingRow(new List<GameAction> { bare }));
+        }
+
         [Fact]
         public void Gate_RowOnAChainSiblingOfTheTip_Seals()
         {

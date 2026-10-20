@@ -296,6 +296,32 @@ namespace Parsek
             return double.NaN;
         }
 
+        /// <summary>
+        /// The sealing row a refusal names: the first one that is not a zero-award
+        /// milestone, else the first. Every row in the list seals equally; this only
+        /// picks the one the player recognises (a first-reached milestone with no
+        /// award sorts ahead of a lab earning at the same UT).
+        /// </summary>
+        internal static GameAction PickNamedSealingRow(IReadOnlyList<GameAction> sealing)
+        {
+            if (sealing == null || sealing.Count == 0) return null;
+            for (int i = 0; i < sealing.Count; i++)
+            {
+                if (sealing[i] != null && !IsZeroAwardMilestone(sealing[i]))
+                    return sealing[i];
+            }
+            return sealing[0];
+        }
+
+        internal static bool IsZeroAwardMilestone(GameAction action)
+        {
+            return action != null
+                && action.Type == GameActionType.MilestoneAchievement
+                && action.MilestoneFundsAwarded == 0f
+                && action.MilestoneRepAwarded == 0f
+                && action.MilestoneScienceAwarded == 0f;
+        }
+
         /// <summary>Summary of a sealing row: <c>Type:ActionId</c>.</summary>
         internal static string FormatRetireSetRowSummary(GameAction action)
         {
@@ -661,7 +687,7 @@ namespace Parsek
             var entry = new WorldActionSafetyCacheEntry
             {
                 HasAction = sealing.Count > 0,
-                ActionSummary = sealing.Count > 0 ? FormatRetireSetRowSummary(sealing[0]) : null,
+                ActionSummary = sealing.Count > 0 ? FormatRetireSetRowSummary(PickNamedSealingRow(sealing)) : null,
             };
             CacheWorldActionSafetyVerdict(cacheKey, scenario, entry);
 
@@ -714,7 +740,7 @@ namespace Parsek
                 $"rec={provisional.RecordingId ?? "<no-id>"} closure={closureCount.ToString(ic)} " +
                 $"extraRows={(attemptRows?.Count ?? 0).ToString(ic)} " +
                 $"retireSet={retireSetCount.ToString(ic)} sealingRows={sealing.Count.ToString(ic)}" +
-                (sealing.Count > 0 ? " first=" + FormatRetireSetRowSummary(sealing[0]) : string.Empty));
+                (sealing.Count > 0 ? " named=" + FormatRetireSetRowSummary(PickNamedSealingRow(sealing)) : string.Empty));
             return sealing;
         }
     }
