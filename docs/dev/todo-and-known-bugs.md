@@ -182,7 +182,7 @@ promotion builds the tree's pending rows once (`BuildTreeCommitRowsPreview`) and
 through `SupersedeCommit.UsePendingCommitRows` (uncached). A failed build falls back to the ledger
 alone with a Warn. Test: `TreeCommitTests.CommitTree_DestroyedChildWhosePendingRowsSeal_IsNotPromoted`.
 
-## QUICKLOAD-RESTORES-THE-SAVE-EXACTLY: an in-session load keeps Parsek state from after the save that the save itself does not have [FILED 2026-10-19 from the owner ruling and a code audit at 2f9256d. OPEN, needs design; scope ruled 2026-10-19: drop everything after the save]
+## QUICKLOAD-RESTORES-THE-SAVE-EXACTLY: an in-session load keeps Parsek state from after the save that the save itself does not have [FILED 2026-10-19 from the owner ruling and a code audit at 2f9256d. OPEN, DESIGNED 2026-10-20 (`docs/dev/design-load-restores-the-save.md`, plan `docs/dev/plans/load-restores-the-save-implementation.md`); scope ruled 2026-10-19: drop everything after the save]
 
 Owner ruling (V, 2026-10-19): "a quick/load should work exactly as a quickload - restoring the
 state of the game exactly to what it was at the moment of the quicksave / save". Today an F9 or a
@@ -211,6 +211,19 @@ undoes the tech it was built with is a paradox. Direction: an in-session load re
 from the save the way a cold load does, keeping only what the save cannot hold; separate work
 after the Re-Fly ledger plan. Audit table:
 `docs/dev/plans/refly-ledger-safety-implementation.md` appendix.
+
+Design (2026-10-20): a load of a save file (stock fires `GameEvents.onGameStatePostLoad` on F9,
+the pause-menu Load and the main-menu Load, and on reverts, which stay excluded) becomes a Cold
+load after one session reset. For a cold load to be exact, every save becomes complete: its
+ledger, events, milestones, baselines and pending science go into a `GAME_STATE` node of the
+Parsek scenario node (the external files stay as mirrors), each recording names its sidecars by
+content hash, a sidecar a write or delete replaces is kept under `Parsek/Recordings/_versions/`,
+and files are deleted only by a collection over every save file in the folder. Found while
+designing: a cold load of an older save today moves the sidecars of every newer save's
+recordings into `_quarantine` (`RecordingStore.CleanOrphanFiles`), and drops a committed tree
+whose root sidecar was rewritten after the save (stale epoch); both are fixed by the same
+storage change. Phases: 1 complete saves and safe files, 2 the classification switch and the
+`QL-*` lanes, 3 deleting the in-session quickload machinery nothing reaches any more.
 
 ## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. OPEN, needs owner decisions one by one; same invariant as section 2.12]
 
@@ -3321,7 +3334,7 @@ is gone.
 
 ---
 
-## COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE: a cold load into an older mid-flight quicksave keeps the abandoned future's events and ledger rows [FILED 2026-10-06 from the PR #2021 review, verified by code read. OPEN, product; not yet reproduced]
+## COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE: a cold load into an older mid-flight quicksave keeps the abandoned future's events and ledger rows [FILED 2026-10-06 from the PR #2021 review, verified by code read. OPEN, product; not yet reproduced; fix designed 2026-10-20 as Phase 1.3 of QUICKLOAD-RESTORES-THE-SAVE-EXACTLY (the save carries its own ledger and events)]
 
 The cold-path twin of QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT and
 QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS. Both external files are written at every OnSave, so a
