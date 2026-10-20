@@ -225,6 +225,16 @@ whose root sidecar was rewritten after the save (stale epoch); both are fixed by
 storage change. Phases: 1 complete saves and safe files, 2 the classification switch and the
 `QL-*` lanes, 3 deleting the in-session quickload machinery nothing reaches any more.
 
+Phase 1 implemented 2026-10-20 on branch `claude/project-thread-hvhou8` (xUnit only, no lane
+yet): every cold load resets the save-scoped session state; saves carry `GAME_STATE` (fixing
+COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE); recordings carry `precHash` /
+`vesselHash` / `ghostHash`, a replaced or deleted sidecar is filed under `_versions`, a cold load
+resolves and promotes the version its save names; `ParsekFileCollector` is the only remover of
+Parsek files (`RecordingStore.CleanOrphanFiles` is gone, the rewind point reaper and the discard
+purge only unlist, the grep gate `grep-audit-parsek-file-deletes.ps1` pins the delete sites).
+Both found-while-designing defects above are fixed by it. F9 and the pause-menu Load still take
+the in-session path until Phase 2.
+
 ## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. OPEN, needs owner decisions one by one; same invariant as section 2.12]
 
 Each breaks "the committed timeline pays for every committed spend at every UT" without Re-Fly:

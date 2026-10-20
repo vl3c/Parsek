@@ -138,10 +138,10 @@ UT 1000). They launch "Mun Lander", land it, return, and the flight auto-commits
 |---|---|
 | Save-file load | A load KSP performs from a `.sfs` file through stock's player-facing load paths: F9 (`QuickSaveLoad.quickLoad`), the Space Center or flight pause-menu Load (`KSCPauseMenu`, `QuickSaveLoad`'s load dialog), the main-menu Load and Resume (`MainMenu`). Stock fires `GameEvents.onGameStatePostLoad` on every one of them and on no other load except a revert. |
 | Scene-change load | An `OnLoad` that reads the node the immediately preceding `OnSave` wrote (Space Center to VAB, flight to Space Center, a vessel-switch reload, Tracking Station Fly). Memory and the save agree. |
-| Referrer | A save file whose contents keep files alive: every `*.sfs` directly in `saves/<folder>/` and in `saves/<folder>/Backup/`. Parsek's own `Parsek/RewindPoints/*.sfs` and `Parsek/Saves/*.sfs` are not referrers (section 4.5). |
+| Referrer | A save file whose contents keep files alive: every `*.sfs` directly in `saves/<folder>/` (including Parsek's transient save-root copies, which only errs toward keeping) and in `saves/<folder>/Backup/`. Parsek's own `Parsek/RewindPoints/*.sfs` and `Parsek/Saves/*.sfs` are not referrers (section 4.5). |
 | Content hash | A hash of a sidecar file's bytes, written into the save next to the recording that uses it. |
-| Head | `Parsek/Recordings/<id>.<ext>`: the file the current code reads and writes, unchanged from today. |
-| Retained version | A replaced head kept as `Parsek/Recordings/_versions/<id>.<hash>.<ext>`. |
+| Head | `Parsek/Recordings/<id><suffix>` (suffix `.prec`, `_vessel.craft`, `_ghost.craft`, ...): the file the current code reads and writes, unchanged from today. |
+| Retained version | A replaced head kept as `Parsek/Recordings/_versions/<id>.<hash><suffix>`. |
 | Collection | The pass that deletes retained versions and Parsek-owned files no referrer and no in-memory state references. |
 
 ---
@@ -339,11 +339,11 @@ recording that hydrated from that head.
 `.bak.<guid>` backup (the `File.Replace` backup argument, or `File.Move` for a delete) and deletes
 the backup after a successful batch (`CleanupCommittedBackups`). For the three hashed kinds:
 
-1. The backup path becomes `_versions/<id>.<ext>.incoming.<guid>`: same directory tree, so the
+1. The backup path becomes `_versions/<id><suffix>.incoming.<guid>`: same directory tree, so the
    replace is still a rename, and a rollback restores from it exactly as today.
 2. After the batch commits, each backup is hashed from its own bytes (always; memory's idea of
    the head's hash is not trusted here, because a head can be rewritten under the same epoch,
-   RecordingStore.Optimization.cs:442) and renamed to `_versions/<id>.<hash>.<ext>`.
+   RecordingStore.Optimization.cs:442) and renamed to `_versions/<id>.<hash><suffix>`.
 3. If that target already exists, it holds the same bytes (same id, same hash), so the incoming
    backup is deleted instead. If the hash equals the new head's hash (a byte-identical rewrite),
    the backup is deleted too.
@@ -370,11 +370,11 @@ reading:
 1. The save names no hash (older build): read the head with today's epoch rule
    (`ShouldSkipStaleSidecar`).
 2. The head's bytes hash to the named hash: read the head.
-3. Otherwise `_versions/<id>.<hash>.<ext>` exists: read it. Then promote it to head when exactly
+3. Otherwise `_versions/<id>.<hash><suffix>` exists: read it. Then promote it to head when exactly
    one node of the loaded save names this recording id (a recording named by both the active and
    a committed tree, or by two pending slots, is read from the version and not promoted, logged).
    A promote is file moves only: the current head is hashed and moved to
-   `_versions/<id>.<headHash>.<ext>` (deleted instead when that target exists, identical bytes),
+   `_versions/<id>.<headHash><suffix>` (deleted instead when that target exists, identical bytes),
    then the version moves into the head position. Every promoted head again matches the save the
    game is running from, so the offline tools read the right file. A promote that fails leaves
    the recording reading from the version path, logged.
@@ -435,9 +435,9 @@ once per process.
 
 | File | Collected when |
 |---|---|
-| `_versions/<id>.<hash>.<ext>` | no referrer and no memory recording names `(id, hash)` |
-| `_versions/<id>.<ext>.incoming.<guid>` | always filed first: hashed and renamed (4.4), then judged as above |
-| head `<id>.<ext>` (all kinds) | no referrer and no memory names `id`; moved to `_quarantine` as today, never deleted outright |
+| `_versions/<id>.<hash><suffix>` | no referrer and no memory recording names `(id, hash)` |
+| `_versions/<id><suffix>.incoming.<guid>` | always filed first: hashed and renamed (4.4), then judged as above |
+| head `<id><suffix>` (all kinds) | no referrer and no memory names `id`; moved to `_quarantine` as today, never deleted outright |
 | `Parsek/RewindPoints/<rp>.sfs` | no referrer's and no memory's `REWIND_POINTS` lists `rp` |
 | `Parsek/Saves/parsek_rw_<id>.sfs` | no referrer and no memory names it as `rewindSave` or `resumeRewindSave` |
 | any other `Parsek/Saves/*.sfs` (`parsek_career_start.sfs`, unknown names) | never |
@@ -644,9 +644,9 @@ and the lane set. A scene-change load and a revert still use the handoff and the
 - Old build, new save: ignores the new keys; reads heads, which are current for the save the
   game last ran.
 - No migration pass. The first `OnSave` of a session on the new build writes the node and the
-  hashes for every recording it serializes that hydrated from its head (hashes of heads that were
-  not rewritten are computed from the head bytes at that save, once per recording per process,
-  then cached; a recording whose hydration failed writes back the hash its save named, or none).
+  hashes for every recording it serializes that hydrated from its head (the hash is taken from
+  the bytes hydration read, so it costs no extra read; a recording whose hydration failed writes
+  back the hash its save named, or none).
 
 ---
 
@@ -658,7 +658,7 @@ and the lane set. A scene-change load and a revert still use the handoff and the
 | Hashing on write | per sidecar write | one SHA-1 over bytes already in memory |
 | Filing the replaced head | per hashed sidecar rewrite | one read + SHA-1 of the backup, one rename |
 | Hashing on load | per sidecar read | one SHA-1 over bytes already read |
-| Hashing heads not written this process | first OnSave after load, per recording without a hash | one read + hash, then cached |
+| Hashing heads not written this process | at hydration (the bytes are already read) | no extra read |
 | Reference scan | each collection | changed referrers only; a line scan |
 | `GAME_STATE` node | every OnSave and load | 0.3% - 8% of the save |
 

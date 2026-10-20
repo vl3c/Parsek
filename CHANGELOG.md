@@ -44,6 +44,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Loading an older save no longer moves away the recordings of a newer save.** Parsek keeps
+  every recording version and rewind file that any save in the folder still names, and removes
+  them only once no save uses them, so switching between saves of one career never loses a
+  flight's data. (QUICKLOAD-RESTORES-THE-SAVE-EXACTLY)
+
 - **Loading an older save restores that save's career data.** Loading a save from the main menu
   now brings back the funds, science, contracts and milestones Parsek kept for that save, instead
   of the newest data from another save in the same folder. Each save carries its own copy; saves

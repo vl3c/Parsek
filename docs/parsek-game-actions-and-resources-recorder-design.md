@@ -403,6 +403,8 @@ saves/
 
 The ledger file contains all game actions across all resource modules — science earnings, science spendings, fund transactions, milestones, contracts, kerbal events, facility upgrades. One file, one source of truth for recalculation.
 
+**The save carries its own copy** (2026-10-20, `docs/dev/design-load-restores-the-save.md` 4.3): every OnSave also writes the ledger, the game-state events, the milestones, the baselines and the pending science into a `GAME_STATE` node of the Parsek scenario node, and a cold load reads them from there, so loading an older save gets that save's ledger rather than the last one written. The `Parsek/GameState/*` files stay as a mirror of the latest save (offline tools and the fallback for a save written before the node existed).
+
 ### 4.2 Data flow
 
 **During flight:** KSP callbacks (e.g. `OnScienceReceived`) fire as events happen. Event data is captured by `GameStateRecorder` into `GameStateStore` (in-memory). The ledger file is not touched during flight.

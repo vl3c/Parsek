@@ -1,6 +1,6 @@
 # Load restores the save: implementation plan
 
-Status: PLAN (2026-10-20), not started. Branch `claude/project-thread-hvhou8`.
+Status: Phase 1 implemented 2026-10-20 (xUnit only); Phase 2 next. Branch `claude/project-thread-hvhou8`.
 Design authority: `docs/dev/design-load-restores-the-save.md` (wins over this plan where they
 disagree; fix the plan, not the code, when they do). Todo: `QUICKLOAD-RESTORES-THE-SAVE-EXACTLY`;
 also closes `COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE`.
@@ -67,10 +67,10 @@ names the symbol, and every VERIFY is confirmed against the code before the step
    - VERIFY: whether each writer has the bytes in memory or streams to the staged file. If it
      streams, hash the staged file before the commit (one read of a just-written file).
 4. Retention (design 4.4 steps 1-4): `StagedChange` gains `RetainKind` (prec / vessel / ghost /
-   none). For a retained kind the backup path is `_versions/<id>.<ext>.incoming.<guid>` (created
+   none). For a retained kind the backup path is `_versions/<id><suffix>.incoming.<guid>` (created
    on demand; still a same-volume rename, so `File.Replace` and the rollback work as today).
    After the batch commits, `CleanupCommittedBackups` hashes each incoming backup from its own
-   bytes, never from memory's value, and renames it to `_versions/<id>.<hash>.<ext>`; an existing
+   bytes, never from memory's value, and renames it to `_versions/<id>.<hash><suffix>`; an existing
    target (identical bytes) or a hash equal to the new head's drops the incoming file instead. A
    failure leaves the `.incoming.` file, logged, for the collector to file. `DeleteExisting`
    changes for hashed kinds go through the same steps.
@@ -95,7 +95,7 @@ names the symbol, and every VERIFY is confirmed against the code before the step
    check (`ShouldSkipStaleSidecar` keeps its job for hashless saves and for every other kind).
    - Promote only when exactly one node of the loaded save names the recording id (count ids
      over the committed, active and pending tree nodes before hydrating). Promote = hash the head,
-     move it to `_versions/<id>.<headHash>.<ext>` (delete it when that target exists, identical
+     move it to `_versions/<id>.<headHash><suffix>` (delete it when that target exists, identical
      bytes), move the version into the head position; both moves through one batch so a failure
      rolls back and the recording reads from the version path.
    - A recording read from a version (promoted or not) deletes its `.pann` and lets the
@@ -105,8 +105,8 @@ names the symbol, and every VERIFY is confirmed against the code before the step
      the path once, before the probe, so both opens read the same file. The `.craft` files are
      PSN0 binaries read through `SnapshotSidecarCodec.TryLoad`: hash the raw file bytes before
      decoding (read the bytes once and decode from memory if the codec allows it).
-6. OnSave: a recording that hydrated from its head but has no hash for a kind (a save from an
-   older build) gets the head's hash computed once and cached on the recording. A recording whose
+6. A recording that hydrated from its head but whose save named no hash (a save from an older
+   build) takes the hash of the bytes hydration read (done: hashes are taken at read time). A recording whose
    hydration failed writes back the hash its save named, or none.
 7. Tests (temp directory, `RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting`-style
    override): resolution table; retention on rewrite, on delete, none on identical bytes; rollback;
