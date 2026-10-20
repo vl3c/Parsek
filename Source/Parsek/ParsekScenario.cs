@@ -4570,6 +4570,10 @@ namespace Parsek
                     loadPhase = "load-time-sweep";
                     LoadTimeSweep.Run();
                     RefreshPendingQuickloadTrimScope();
+
+                    loadPhase = "checkpoint-double-cover-retire";
+                    RetireCheckpointDoubleCoverOnLoad();
+
                     // The sweep runs after this branch's ledger recalculation: when it removed a
                     // zombie attempt's ledger rows (rewind design section 2.12 Rule 3), walk the
                     // ledger again so the patched career no longer carries them.
@@ -4584,9 +4588,6 @@ namespace Parsek
                             inSessionLedgerCutoffUT,
                             planetariumReady ? loadedUT : double.NaN);
                     }
-
-                    loadPhase = "checkpoint-double-cover-retire";
-                    RetireCheckpointDoubleCoverOnLoad();
 
                     loadPhase = "test-batch-reconcile";
                     RunTestBatchCrashReconcile();

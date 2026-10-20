@@ -217,7 +217,7 @@ namespace Parsek.Tests
             int sweep = IndexOrFail(body, "LoadTimeSweep.Run();");
             int check = IndexOrFail(body, "LoadTimeSweep.LedgerRowsRemovedByLastRun > 0");
             int again = body.IndexOf("RecalculateLedgerForInSessionLoad(", recalc + 1, StringComparison.Ordinal);
-            int next = IndexOrFail(body, "RetireCheckpointDoubleCoverOnLoad();");
+            int next = IndexOrFail(body, "RunTestBatchCrashReconcile();");
             Assert.True(recalc < sweep && sweep < check && check < again && again < next,
                 "load-reconcile gate: the in-session branch recalculates again when the sweep removed zombie rows");
 
