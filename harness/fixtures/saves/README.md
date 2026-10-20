@@ -887,6 +887,19 @@ off. Hosts LAB-10 / LAB-10b / LAB-13. In this orbit the KSC ground station sees 
 about UT 2105 to 2480 (the first pass after the fixture's UT 355.8), so the lanes transmit
 inside that window. Drift-gated by `--check` and `harness/lib/test_lab_lko_transmit.py`.
 
+## lab-lko-tender-rcs (GAME Mode = SCIENCE_SANDBOX, 1 VESSEL ORBITING, derived from lab-lko-seeded-transmit)
+
+`harness/tools/build_lab_lko_tender_rcs.py`: `lab-lko-seeded-transmit` with six parts appended
+on the probe tender's OKTO, so MechJeb's docking autopilot can fly the tender: four RCSBlock.v2
+(a 4-way symmetry ring) and two full radialRCSTank (20 MonoPropellant each, a 2-way pair, so
+the centre of mass stays on the stack axis), their part texts copied from `bdock-recorded` and
+`miner-rover-full` at build time, with fresh cid / uid / persistentId. The one other vessel edit
+is the RCS action group `True` -> `False` (the blocks spend no monopropellant while the pair is joined; the d5_redock mission turns RCS on for the tender alone).
+The LABX craft file is untouched and both parts are already researched (`advFlightControl`).
+Hosts LAB-13b (separate, re-dock, process while docked, true undock, transmit). The KSC window
+is the base's (about UT 2105 to 2480). Drift-gated by `--check` and
+`harness/lib/test_lab_lko_tender_rcs.py`.
+
 ## lab-pad-career (GAME Mode = CAREER, 1 VESSEL PRELAUNCH, derived from strategy-career + lab-pad-seeded)
 
 The LAB-12 host (a lab transmit under a science-taking strategy). `harness/tools/build_lab_pad_career.py`

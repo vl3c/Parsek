@@ -104,3 +104,8 @@
 # rewind need, and it carries no converter and no crew of its own.
 "lab-lko-sandbox" = ["DD1 Duna Direct Probe", "Duna Rocket", "GS1 Auto-Chute Booster", "Kerbal X", "LABX Orbital Lab", "Logi Cargo Rig"]
 "lab-lko-science" = ["LABX Orbital Lab", "Settings Probe"]
+# `lab-lko-tender-rcs` (build_lab_lko_tender_rcs.py, the LAB-13b host) launches
+# nothing: its d5_redock mission names the lab VESSEL in `craftName` to tell the two
+# halves apart after the split. The row keeps the craft file a launching reader of
+# that param would resolve, exactly as `bdock-second-dock-recorded` does for SD-1.
+"lab-lko-tender-rcs" = ["LABX Orbital Lab"]
