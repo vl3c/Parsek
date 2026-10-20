@@ -196,8 +196,16 @@ namespace Parsek
                 if (IsAttemptRow(a, attemptIds)) attemptRows.Add(a);
                 else baseline.Add(a);
             }
+            // A build-step row of a recording outside the attempt (the replaced flight's own
+            // rows when the ledger never filed them) is read as if it were already filed: it
+            // sits on both sides unless the retire set takes it out of L'.
             for (int i = 0; i < newRows.Count; i++)
-                if (newRows[i] != null) attemptRows.Add(newRows[i]);
+            {
+                var a = newRows[i];
+                if (a == null) continue;
+                if (IsAttemptRow(a, attemptIds)) attemptRows.Add(a);
+                else baseline.Add(a);
+            }
             v.AttemptRowCount = attemptRows.Count;
 
             var retireIds = new HashSet<string>(StringComparer.Ordinal);
@@ -711,7 +719,8 @@ namespace Parsek
 
             // The merge retires nothing when AppendRelations will refuse the attempt; the
             // check then keeps the replaced side in L' instead of assuming it retired.
-            List<GameAction> retire = SupersedeCommit.BuildMergeRetireSet(marker, attemptIds, out closureCount);
+            List<GameAction> retire = SupersedeCommit.BuildMergeRetireSet(
+                marker, attemptIds, out closureCount, preview.Rows);
             string noRetireReason;
             bool retiresNothing = SupersedeCommit.MergeWouldRetireNothing(
                 marker, tree, out noRetireReason, terminalPendingFinalize: treeAwaitsFinalize);

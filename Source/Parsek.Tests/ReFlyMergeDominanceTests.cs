@@ -769,6 +769,35 @@ namespace Parsek.Tests
             Assert.Equal(0, retiresNothing.RetireSetCount);
         }
 
+        // catches: a replaced-flight row the ledger never filed (the build step files it at
+        // the commit, then the merge tombstones it) read as the attempt's own new loss, so a
+        // re-fly that saved the crew was refused on reputation (QL-3).
+        [Fact]
+        public void Evaluate_UnfiledReplacedFlightLossInTheRetireSet_Passes()
+        {
+            var els = Seeds();
+            var oldLoss = RepLoss("rep_old_unfiled", OldRec, 300.0, 9f);
+            var inputs = Inputs(els, new List<GameAction> { oldLoss }, new List<GameAction> { oldLoss });
+
+            var v = ReFlyMergeDominance.Evaluate(inputs);
+
+            Assert.True(v.Pass);
+            Assert.Equal(LossSwapVariant.A, v.Variant);
+            Assert.Equal(0, v.AttemptRowCount);
+        }
+
+        [Fact]
+        public void Evaluate_UnfiledRowOutsideTheAttemptAndTheRetireSet_SitsOnBothSides()
+        {
+            var els = Seeds();
+            var otherLoss = RepLoss("rep_other_unfiled", LaterRec, 300.0, 9f);
+
+            var v = ReFlyMergeDominance.Evaluate(
+                Inputs(els, new List<GameAction> { otherLoss }, null));
+
+            Assert.True(v.Pass);
+        }
+
         [Fact]
         public void EvaluateForMerge_FlownAttempt_ModelsTheRetireSet_AndPicksVariantA()
         {

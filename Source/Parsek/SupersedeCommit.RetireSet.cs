@@ -552,11 +552,16 @@ namespace Parsek
         /// AppendRelations drops them) and <paramref name="attemptRecordingIds"/>, through
         /// <see cref="BuildRetireSet"/> over the raw ledger and the existing tombstones,
         /// exactly as <see cref="CommitTombstones"/> builds it. Uncached, logs nothing.
+        /// <paramref name="extraActions"/> are the rows the tree commit files before the
+        /// tombstones are built (the build step's preview); they are read as if they were
+        /// already in the ledger, so a replaced-flight row the ledger never filed is retired
+        /// here as the merge retires it.
         /// </summary>
         internal static List<GameAction> BuildMergeRetireSet(
             ReFlySessionMarker marker,
             ICollection<string> attemptRecordingIds,
-            out int closureCount)
+            out int closureCount,
+            IReadOnlyList<GameAction> extraActions = null)
         {
             closureCount = 0;
             if (marker == null)
@@ -578,8 +583,16 @@ namespace Parsek
                 closure.Add(kept[i]);
             }
             closureCount = closure.Count;
+            IReadOnlyList<GameAction> actions = Ledger.Actions;
+            if (extraActions != null && extraActions.Count > 0)
+            {
+                var combined = new List<GameAction>(actions.Count + extraActions.Count);
+                combined.AddRange(actions);
+                combined.AddRange(extraActions);
+                actions = combined;
+            }
             RetireSetScan scan = BuildRetireSet(
-                closure, ComputeTombstoneRewindCutoffUT(marker), Ledger.Actions,
+                closure, ComputeTombstoneRewindCutoffUT(marker), actions,
                 CollectTombstonedActionIds(), logDecisions: false);
             return scan.Rows;
         }
