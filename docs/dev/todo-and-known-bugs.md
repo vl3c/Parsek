@@ -16,6 +16,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REFLY-STARTED-FROM-A-RESUMED-VESSEL-IS-NEVER-SAVED: an F5 during a Re-Fly started while flying a resumed committed vessel does not save the Re-Fly~~ [FILED 2026-10-20 from harness lane CI-3 on V's PC (PR #2155 head 1abd1b4). Was open, high: with save-file loads cold (PR #2155) the F9 cleared the Re-Fly marker. FIXED 2026-10-20 on branch `claude/project-thread-hvhou8` (PR #2155). xUnit; CI-3 re-fly pending. product]
+
+Flying a committed vessel Parsek spawned resumes its tree as a copy-on-write clone and arms a
+committed-tree restore attempt (`TryTakeCommittedTreeForSpawnedVesselRestore`). Starting a Re-Fly
+from there replaced the flight but left the static attempt armed for the whole session, so every
+save marked the session tree's committed recordings as restore overlaps and skipped the active tree
+(`outcome=both-or-neither`). The F5 held the marker but not the provisional; a save-file F9 then
+cleared the marker (`Marker invalid field=ActiveReFlyRecordingId`). Before PR #2155 the F9 was an
+in-session load and memory hid the gap; a cold boot of such a save lost the session the same way.
+Fix: `RewindInvoker.ConsumePostLoad` discards the abandoned flight's attempt (purge then clear) after
+the bundle restore, before the strip (`DiscardRestoreAttemptOfAbandonedFlight`).
+
 ## ~~REFLY-DIALOG-READS-UNFINALIZED-ATTEMPT-AS-UNFLOWN: the leaving-flight Re-Fly dialog refuses Merge for an attempt that lost value~~ [FILED 2026-10-20 from harness lane QL-3 on V's PC (PR #2155 head c6f80ab). Was open, high; regression from PR #2151, never shipped. FIXED 2026-10-20 on branch `claude/project-thread-hvhou8` (PR #2155). xUnit; QL-3 re-fly pending; the seam half is open. product]
 
 The "Re-Fly attempt - leaving flight" dialog runs the dominance check on the live tree before

@@ -1214,6 +1214,10 @@ namespace Parsek
                     "ConsumePostLoad: no captured bundle — skipping reconciliation");
             }
 
+            // The pre-rewind flight is gone with the scene: drop a copy-on-write restore
+            // attempt it armed (CI-3), after the bundle restore so its purge sticks.
+            DiscardRestoreAttemptOfAbandonedFlight(sessionId);
+
             // Steps 2-5: Strip + Activate + AtomicMarkerWrite + LedgerRecalc.
             // These need FlightGlobals.Vessels populated. During an async
             // SPACECENTER→FLIGHT scene change, ParsekScenario.OnLoad (and
@@ -1254,6 +1258,30 @@ namespace Parsek
                     tempPath,
                     readinessPids);
             }
+        }
+
+        /// <summary>
+        /// Discards a committed-tree restore attempt still armed when a Re-Fly's rewind point
+        /// has loaded. The attempt guards the copy-on-write clone of the flight that was live
+        /// before the rewind (<c>ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore</c>);
+        /// the rewind replaced that flight, but the attempt is static and outlives the scene.
+        /// Left armed it would mark the session tree's committed recordings as restore
+        /// overlaps, so every save during the session skips the active tree (both-or-neither)
+        /// and a save-file load of such a save loses the Re-Fly (CI-3). The clone's post-cutoff
+        /// event tails are purged with it, as on every other discard of the clone. No-op when
+        /// nothing is armed. Returns true when an attempt was discarded.
+        /// </summary>
+        internal static bool DiscardRestoreAttemptOfAbandonedFlight(string sessionId)
+        {
+            string armedTreeId = RecordingStore.CommittedTreeRestoreAttemptTreeId;
+            if (string.IsNullOrEmpty(armedTreeId))
+                return false;
+            ParsekLog.Info(InvokeTag,
+                $"ConsumePostLoad: discarding the committed-tree restore attempt of the pre-rewind " +
+                $"flight tree={armedTreeId} sess={sessionId ?? "<none>"}");
+            RecordingStore.DiscardCommittedTreeRestoreAttempt(
+                "refly-start: pre-rewind flight abandoned");
+            return true;
         }
 
         private static void RunStripActivateMarker(
