@@ -194,8 +194,9 @@ namespace Parsek
                     ParsekLog.Warn(Tag,
                         $"Collection skipped reason=zero-known-ids: REFUSING to delete - memory and every save " +
                         $"file report 0 known recording IDs but disk has {diskIds} sidecar-shaped recording ID(s) " +
-                        $"({fileCount} file(s) total). This usually means the scenario load lost its tree " +
-                        $"state. Files preserved so the save can be restored from quicksave.sfs or a backup.");
+                        $"({fileCount} file(s) total). Either every save predates every recording on disk (a save " +
+                        $"made before the first committed flight was loaded) or the scenario load lost its tree " +
+                        $"state. Files preserved; a later collection that sees a named recording reaps them.");
                     return result;
                 }
             }

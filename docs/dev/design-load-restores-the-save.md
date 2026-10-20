@@ -454,7 +454,10 @@ files. A `.sfs` with no `ParsekScenario` node is a valid referrer that names not
 and no memory recording) while heads exist on disk, the run touches nothing and Warns
 (`reason=zero-known-ids`): that is the "load lost its tree state" fingerprint. Memory alone is no
 test, since a load of a save made before any flight was recorded holds no recording while the
-save names its heads.
+save names its heads. The guard also fires on an ordinary shape it cannot tell apart from that
+fault: loading a save made before the first committed flight, when no other save names a
+recording (QL-8 flew it). The flight's files then stay on disk until a later collection sees a
+named recording; keeping them is the safe direction.
 
 **Unreadable referrers fail closed.** A referrer that cannot be opened (locked, I/O error) or
 whose Parsek node cannot be scanned (truncated mid-node, unbalanced braces) stops the whole

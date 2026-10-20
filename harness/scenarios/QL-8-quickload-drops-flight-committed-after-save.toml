@@ -147,8 +147,11 @@ required = [
   # (c) The ledger: the save node's row count after the F9 is the one the F5 wrote (the
   # last OnSave before the quicksave's completion line is the F5's own).
   "OnSave: wrote external game-state files and the GAME_STATE node \\(events=[0-9]+, milestones=[0-9]+, baselines=[0-9]+, ledgerRows=([0-9]+),(?:(?!OnSave: wrote external)[\\s\\S])*savegame name=quicksave folder=[\\s\\S]*loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!OnLoad game state from save node)[\\s\\S])*OnLoad game state from save node: ledgerRows=\\1 ",
-  # (d) The cold collection after the F9 ran over the save folder's referrers, clean.
-  "loadgame player-load: firing [\\s\\S]*Collection: referrers=[1-9][0-9]* [^\\r\\n]*\\bfailures=0 [^\\r\\n]*reason=cold-load",
+  # (d) The cold collection after the F9 deletes nothing. The quicksave predates the only flight
+  # and the F9 rewrites persistent.sfs, so no save and no memory names a recording while the
+  # flight's head is on disk: the zero-known-ids guard keeps the files (design 4.5; flown
+  # 2026-10-20, the earlier "referrers>=1 ... failures=0" pin assumed a referrer still named it).
+  "loadgame player-load: firing [\\s\\S]*Collection skipped reason=zero-known-ids: REFUSING to delete",
   # END GATE
   # =================================================================================
 ]
