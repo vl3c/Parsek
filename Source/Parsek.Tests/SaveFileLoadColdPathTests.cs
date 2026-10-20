@@ -76,6 +76,23 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Canary_QuietForAnAnnouncedInSessionLoad_OnceOnly()
+        {
+            var older = new ConfigNode("SCENARIO");
+            ParsekScenario.WriteSaveStamp(older);
+            ParsekScenario.WriteSaveStamp(new ConfigNode("SCENARIO"));
+
+            ParsekScenario.AnnounceInSessionSaveLoad("harness-loadgame");
+            Assert.False(ParsekScenario.CheckLoadedSaveStamp(older, LoadKind.InSessionOther));
+            Assert.DoesNotContain(logLines, l => l.Contains("[WARN][LoadPolicy]"));
+            Assert.Contains(logLines, l => l.Contains("read an older save on purpose (source=harness-loadgame)"));
+
+            // One-shot: the next unannounced foreign read warns again.
+            Assert.True(ParsekScenario.CheckLoadedSaveStamp(older, LoadKind.InSessionOther));
+            Assert.Contains(logLines, l => l.Contains("[WARN][LoadPolicy]"));
+        }
+
+        [Fact]
         public void Canary_SkipsAStockRevertAndEveryNonInSessionKind()
         {
             var older = new ConfigNode("SCENARIO");

@@ -107,6 +107,7 @@ namespace Parsek
             lastRestoredQuicksaveTreeFacts = null;
             ClearQuickloadResumeDetach();
             pendingSaveAttemptEvents = null;
+            announcedInSessionSaveLoadSource = null;
         }
 
         // The stamp the last OnSave of this process wrote (the canary's reference). Process
@@ -134,10 +135,18 @@ namespace Parsek
         /// </summary>
         internal static bool CheckLoadedSaveStamp(ConfigNode node, LoadKind refined)
         {
+            string announcedSource = ConsumeAnnouncedInSessionSaveLoad();
             if (!LoadReconcilePolicy.ShouldCheckSaveStamp(refined))
                 return false;
             string loaded = node?.GetValue(LoadReconcilePolicy.SaveStampKey);
             string last = lastWrittenSaveStamp;
+            if (announcedSource != null && LoadReconcilePolicy.IsForeignSaveStamp(loaded, last))
+            {
+                ParsekLog.Verbose(LoadReconcilePolicy.LogTag,
+                    "saveStamp check: refined=" + refined + " read an older save on purpose (source="
+                    + announcedSource + "); not reported");
+                return false;
+            }
             if (!LoadReconcilePolicy.IsForeignSaveStamp(loaded, last))
             {
                 ParsekLog.Verbose(LoadReconcilePolicy.LogTag,
@@ -153,6 +162,29 @@ namespace Parsek
             ParsekLog.Warn(LoadReconcilePolicy.LogTag,
                 LoadReconcilePolicy.FormatForeignSaveStampWarning(refined, scene, loaded, last));
             return true;
+        }
+
+        // A Parsek-side loader that deliberately reads a save in-session (the harness LoadGame
+        // verb without playerLoad=true) announces itself here so the canary does not report it.
+        // One-shot: consumed by the next canary check, whatever that load classifies as.
+        private static string announcedInSessionSaveLoadSource;
+
+        /// <summary>
+        /// Notes that the next OnLoad deliberately reads a save in-session through a known
+        /// non-stock loader, so the saveStamp canary stays quiet for it.
+        /// </summary>
+        internal static void AnnounceInSessionSaveLoad(string source)
+        {
+            announcedInSessionSaveLoadSource = string.IsNullOrEmpty(source) ? "<unnamed>" : source;
+            ParsekLog.Verbose(LoadReconcilePolicy.LogTag,
+                "In-session save load announced: source=" + announcedInSessionSaveLoadSource);
+        }
+
+        private static string ConsumeAnnouncedInSessionSaveLoad()
+        {
+            string source = announcedInSessionSaveLoadSource;
+            announcedInSessionSaveLoadSource = null;
+            return source;
         }
 
         internal static string LastWrittenSaveStampForTesting
