@@ -61,11 +61,11 @@ id = "QL-3-quickload-before-refly-merge"
 # rebuilt both from the save, which has neither: the original crashed pod played back next to
 # its re-fly and the death counted again.
 #
-# WHY A NAMED SAVE AND NOT `quicksave`: every merge-dialog merge overwrites quicksave.sfs with
-# the post-merge game (`MergeDialog.MergeCommit` -> `RecordingStore.RefreshQuicksaveAfterMerge`,
-# `refreshQuicksaveAfterCommit` defaults true), so after `AnswerMergeDialog merge` the slot
-# named `quicksave` already holds the merge's rows and could not tell a fixed build from a
-# pre-fix one. The lane saves to `ql3-before-refly`, which nothing but this lane writes (the
+# WHY A NAMED SAVE AND NOT `quicksave`: before the load-restores-the-save Phase 2, every
+# merge-dialog merge overwrote quicksave.sfs with the post-merge game, so the slot named
+# `quicksave` could not tell a fixed build from a pre-fix one; the merge no longer writes it
+# (design 4.6), but the named slot keeps the lane independent of that. The lane saves to
+# `ql3-before-refly`, which nothing but this lane writes (the
 # named-slot pattern of EVA-9 and EVA-10); that is the player's "load a save from before the
 # Re-Fly" from the Load menu.
 #

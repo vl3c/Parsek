@@ -2133,6 +2133,11 @@ namespace Parsek.TestCommands
             ParsekLog.Info(Tag,
                 $"loadgame start save={save ?? string.Empty} name={name ?? string.Empty} scene={HighLogic.LoadedScene} requestedScene={requestedScene} allowLiveRecorder={ArgOrNull(cmd, "allowLiveRecorder") ?? "(none)"} recorderLive={(ParsekFlight.HasLiveRecorderForTagging() ? "true" : "false")} playerLoad={(playerLoad ? "true" : "false")}");
 
+            // A fixture load (no playerLoad=true) reads a save in-session on purpose; announce it
+            // so the saveStamp canary does not report it as an unannounced load.
+            if (!playerLoad)
+                ParsekScenario.AnnounceInSessionSaveLoad("harness-loadgame");
+
             Game game;
             try
             {
