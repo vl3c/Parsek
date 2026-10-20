@@ -191,6 +191,131 @@ namespace Parsek
         private static bool LoadRecordingFilesFromPathsInternal(
             Recording rec, string precPath, string vesselPath, string ghostPath)
         {
+            // A hash is never laundered (design-load-restores-the-save.md 4.4): a recording
+            // whose hydration fails keeps the hashes its save named, so the next save names
+            // the same bytes again and a later load can still find them.
+            string namedPrecHash = rec.PrecHash;
+            string namedVesselHash = rec.VesselSnapshotHash;
+            string namedGhostHash = rec.GhostSnapshotHash;
+            bool ok = LoadRecordingFilesResolved(
+                rec, precPath, vesselPath, ghostPath, SidecarVersionResolution.IsActive);
+            if (!ok)
+            {
+                rec.PrecHash = namedPrecHash;
+                rec.VesselSnapshotHash = namedVesselHash;
+                rec.GhostSnapshotHash = namedGhostHash;
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// Cold-load version resolution for the three hashed sidecars (design 4.4 steps 1-4).
+        /// Rewrites the three read paths in place; promotes version-sourced sidecars to head
+        /// when exactly one node of the loaded save names the recording. Returns a failure
+        /// reason when a named hash cannot be found (null otherwise).
+        /// </summary>
+        private static string ResolveSidecarPathsForColdLoad(
+            Recording rec,
+            ref string precPath, ref string vesselPath, ref string ghostPath,
+            out SidecarResolution precResolution)
+        {
+            string id = rec.RecordingId;
+            precResolution = SidecarVersionResolution.Resolve(precPath, id, SidecarKind.Prec, rec.PrecHash);
+            SidecarResolution vesselResolution =
+                SidecarVersionResolution.Resolve(vesselPath, id, SidecarKind.Vessel, rec.VesselSnapshotHash);
+            SidecarResolution ghostResolution =
+                SidecarVersionResolution.Resolve(ghostPath, id, SidecarKind.Ghost, rec.GhostSnapshotHash);
+            var all = new[] { precResolution, vesselResolution, ghostResolution };
+
+            var versions = new List<SidecarResolution>(3);
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i].Source == SidecarResolveSource.Version)
+                    versions.Add(all[i]);
+            }
+
+            if (versions.Count > 0)
+            {
+                int owners = SidecarVersionResolution.OwnerCount(id);
+                string notPromotedReason = null;
+                if (owners != 1)
+                {
+                    notPromotedReason = "multiple-owners";
+                }
+                else if (!SidecarVersionResolution.TryPromote(id, versions, out string promoteFailure))
+                {
+                    notPromotedReason = "promote-failed";
+                    ParsekLog.Warn("RecordingStore",
+                        $"Sidecar version promote failed rec={id} ex={promoteFailure}");
+                }
+
+                for (int i = 0; i < all.Length; i++)
+                {
+                    if (all[i].Source != SidecarResolveSource.Version)
+                        continue;
+                    if (notPromotedReason == null)
+                    {
+                        all[i].Promoted = true;
+                    }
+                    else
+                    {
+                        ParsekLog.Info("RecordingStore",
+                            $"Sidecar version read without promote: rec={id} " +
+                            $"kind={SidecarVersions.Label(all[i].Kind)} hash={all[i].NamedHash} " +
+                            $"reason={notPromotedReason} owners={owners}");
+                    }
+                }
+            }
+
+            precResolution = all[0];
+            for (int i = 0; i < all.Length; i++)
+                SidecarVersionResolution.NoteResolved(rec, all[i]);
+
+            precPath = all[0].ReadPath;
+            vesselPath = all[1].ReadPath;
+            ghostPath = all[2].ReadPath;
+
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i].Source != SidecarResolveSource.Unresolved)
+                    continue;
+                bool isPrec = all[i].Kind == SidecarKind.Prec;
+                // A missing snapshot head is today's "missing snapshot" (not a failure); a
+                // missing trajectory or any head holding other bytes is today's stale or
+                // missing sidecar, with the hash in the log.
+                if (!isPrec && !all[i].HeadExists)
+                    continue;
+                string reason = all[i].HeadExists ? "stale-sidecar-epoch" : "trajectory-missing";
+                ParsekLog.Warn("RecordingStore",
+                    $"Sidecar version unresolved: rec={id} kind={SidecarVersions.Label(all[i].Kind)} " +
+                    $"hash={all[i].NamedHash} headExists={all[i].HeadExists} reason={reason} " +
+                    "- neither the head nor a retained version holds the bytes the save names");
+                return reason;
+            }
+            return null;
+        }
+
+        private static bool LoadRecordingFilesResolved(
+            Recording rec, string precPath, string vesselPath, string ghostPath, bool resolveVersions)
+        {
+            SidecarResolution precResolution = default(SidecarResolution);
+            if (resolveVersions)
+            {
+                rec.SidecarVersionsResolved = true;
+                string unresolvedReason = ResolveSidecarPathsForColdLoad(
+                    rec, ref precPath, ref vesselPath, ref ghostPath, out precResolution);
+                if (unresolvedReason != null)
+                {
+                    MarkSidecarLoadFailure(rec, unresolvedReason);
+                    return false;
+                }
+            }
+            bool precHashResolved = resolveVersions
+                && (precResolution.Source == SidecarResolveSource.Head
+                    || precResolution.Source == SidecarResolveSource.Version);
+            bool precReadFromVersion = resolveVersions
+                && precResolution.Source == SidecarResolveSource.Version;
+
             // Load .prec trajectory file
             // ConfigNode.Save writes the node's contents (values + children),
             // and ConfigNode.Load returns a node containing those contents directly.
@@ -279,13 +404,18 @@ namespace Parsek
                 return false;
             }
 
-            // Bug #270: validate sidecar epoch
-            if (ShouldSkipStaleSidecar(rec, probe.SidecarEpoch))
+            // Bug #270: validate sidecar epoch. On a Cold load a named hash that resolved
+            // replaces the epoch comparison: it is the stronger proof, and it also catches a
+            // same-epoch rewrite the epoch rule accepts.
+            if (!precHashResolved && ShouldSkipStaleSidecar(rec, probe.SidecarEpoch))
             {
                 MarkSidecarLoadFailure(rec, "stale-sidecar-epoch");
                 return false;
             }
 
+            // The probe and the full read open the same resolved path; hash the file the
+            // full read consumes (single-threaded, nothing writes it in between).
+            string precReadHash = precHashResolved ? rec.PrecHash : SidecarContentHash.ComputeFile(precPath);
             RecordingStore.DeserializeTrajectorySidecar(precPath, probe, rec);
 
             // Phase 1 smoothing pipeline (design doc §17.3.1, §18 row 1).
@@ -308,7 +438,19 @@ namespace Parsek
                     // regenerable, never blocks .prec hydration).
                     try
                     {
-                        Parsek.Rendering.SmoothingPipeline.LoadOrCompute(rec, pannPath);
+                        if (precReadFromVersion)
+                        {
+                            // The .pann is keyed by the sidecar epoch, which a retained version
+                            // can share with the head: recompute from the trajectory just read.
+                            ParsekLog.Verbose("RecordingStore",
+                                $"Sidecar version read: annotation cache dropped: rec={rec.RecordingId} reason=version-read");
+                            Parsek.Rendering.SectionAnnotationStore.RemoveRecording(rec.RecordingId);
+                            Parsek.Rendering.SmoothingPipeline.PersistAfterCommit(rec, pannPath);
+                        }
+                        else
+                        {
+                            Parsek.Rendering.SmoothingPipeline.LoadOrCompute(rec, pannPath);
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -362,6 +504,15 @@ namespace Parsek
                 return false;
             }
 
+            // Memory now holds these bytes: record their hashes. A resolved hash is already
+            // the named one; a head read under the epoch rule (no hash, or a non-Cold load)
+            // is hashed from the file just read.
+            rec.PrecHash = precReadHash;
+            rec.VesselSnapshotHash = HashOfLoadedSnapshot(
+                snapshotSummary.VesselState, vesselPath, rec.VesselSnapshotHash, resolveVersions);
+            rec.GhostSnapshotHash = HashOfLoadedSnapshot(
+                snapshotSummary.GhostState, ghostPath, rec.GhostSnapshotHash, resolveVersions);
+
             if (!RecordingStore.SuppressLogging)
             {
                 ParsekLog.Verbose("RecordingStore",
@@ -370,6 +521,16 @@ namespace Parsek
             }
 
             return true;
+        }
+
+        private static string HashOfLoadedSnapshot(
+            RecordingStore.SnapshotSidecarLoadState state, string path, string currentHash, bool resolved)
+        {
+            if (state != RecordingStore.SnapshotSidecarLoadState.Loaded || string.IsNullOrEmpty(path))
+                return currentHash;
+            if (resolved && !string.IsNullOrEmpty(currentHash))
+                return currentHash;
+            return SidecarContentHash.ComputeFile(path);
         }
 
         internal static bool IsAcceptableSidecarVersionLag(int probeFormatVersion, int recordingFormatVersion)
@@ -554,7 +715,8 @@ namespace Parsek
             // transition, or outside KSP in tests). That can be transient, so do
             // NOT poison the cache; let a later call retry once context exists.
             if (string.IsNullOrEmpty(vesselPath)) return false;
-            if (!File.Exists(vesselPath))
+            vesselPath = ResolveLazyVesselSnapshotPath(rec, vesselPath);
+            if (string.IsNullOrEmpty(vesselPath) || !File.Exists(vesselPath))
             {
                 rec.VesselSnapshotHydrationFailed = true;
                 return false;
@@ -565,6 +727,18 @@ namespace Parsek
             if (loadOk && probe.Supported && node != null)
             {
                 rec.VesselSnapshot = node;
+                // Memory holds these bytes now; a resolved hash already names them.
+                if (!rec.SidecarVersionsResolved || string.IsNullOrEmpty(rec.VesselSnapshotHash))
+                {
+                    try { rec.VesselSnapshotHash = SidecarContentHash.ComputeFile(vesselPath); }
+                    catch (Exception ex)
+                    {
+                        if (!RecordingStore.SuppressLogging)
+                            ParsekLog.Warn("RecordingStore",
+                                $"Re-hydrate vessel snapshot: hash read failed {FormatSidecarContext(rec)} " +
+                                $"ex={FormatExceptionForSidecarLog(ex)}");
+                    }
+                }
                 if (!RecordingStore.SuppressLogging)
                     ParsekLog.Info("RecordingStore",
                         $"Re-hydrated vessel snapshot from sidecar for spawn {FormatSidecarContext(rec)} " +
@@ -598,6 +772,21 @@ namespace Parsek
             string vesselPath = RecordingPaths.ResolveSaveScopedPath(
                 RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
             return TryHydrateVesselSnapshotFromPath(rec, vesselPath);
+        }
+
+        /// <summary>
+        /// The path a lazy vessel-snapshot hydration reads: a recording hydrated inside a
+        /// Cold load follows the version its save named (head when the head matches, the
+        /// retained version otherwise, nothing when neither holds it); every other
+        /// recording reads the head, as today.
+        /// </summary>
+        internal static string ResolveLazyVesselSnapshotPath(Recording rec, string headPath)
+        {
+            if (rec == null || !rec.SidecarVersionsResolved || string.IsNullOrEmpty(rec.VesselSnapshotHash))
+                return headPath;
+            SidecarResolution r = SidecarVersionResolution.Resolve(
+                headPath, rec.RecordingId, SidecarKind.Vessel, rec.VesselSnapshotHash);
+            return r.ReadPath;
         }
 
         private static RecordingStore.SnapshotSidecarLoadState TryLoadSnapshotSidecarIfPresent(
@@ -1163,11 +1352,21 @@ namespace Parsek
                 if (incrementEpoch)
                     rec.SidecarEpoch++;
 
-                changes.Add(SidecarFileCommitBatch.StageWrite(path => RecordingStore.WriteTrajectorySidecar(path, rec, rec.SidecarEpoch), precPath));
+                // Hashed kinds (design-load-restores-the-save.md 4.4): the replaced head is
+                // retained as a version, and memory takes the hash of the bytes written.
+                SidecarFileCommitBatch.StagedChange precChange = SidecarFileCommitBatch.StageRetainedWrite(
+                    path => RecordingStore.WriteTrajectorySidecar(path, rec, rec.SidecarEpoch),
+                    precPath, rec.RecordingId, SidecarKind.Prec);
+                changes.Add(precChange);
 
+                SidecarFileCommitBatch.StagedChange vesselChange = null;
+                SidecarFileCommitBatch.StagedChange ghostChange = null;
                 if (rec.VesselSnapshot != null)
                 {
-                    changes.Add(SidecarFileCommitBatch.StageWrite(path => WriteSnapshotSidecar(path, rec.VesselSnapshot), vesselPath));
+                    vesselChange = SidecarFileCommitBatch.StageRetainedWrite(
+                        path => WriteSnapshotSidecar(path, rec.VesselSnapshot),
+                        vesselPath, rec.RecordingId, SidecarKind.Vessel);
+                    changes.Add(vesselChange);
                     wroteVesselSnapshot = true;
                 }
 
@@ -1186,7 +1385,10 @@ namespace Parsek
                     }
                     else
                     {
-                        changes.Add(SidecarFileCommitBatch.StageWrite(path => WriteSnapshotSidecar(path, rec.GhostVisualSnapshot), ghostPath));
+                        ghostChange = SidecarFileCommitBatch.StageRetainedWrite(
+                            path => WriteSnapshotSidecar(path, rec.GhostVisualSnapshot),
+                            ghostPath, rec.RecordingId, SidecarKind.Ghost);
+                        changes.Add(ghostChange);
                         wroteGhostSnapshot = true;
                     }
                 }
@@ -1194,15 +1396,22 @@ namespace Parsek
                     !string.IsNullOrEmpty(ghostPath) &&
                     File.Exists(ghostPath))
                 {
-                    changes.Add(new SidecarFileCommitBatch.StagedChange
-                    {
-                        FinalPath = ghostPath,
-                        DeleteExisting = true
-                    });
+                    changes.Add(SidecarFileCommitBatch.RetainedDelete(
+                        ghostPath, rec.RecordingId, SidecarKind.Ghost));
                     deletedStaleGhostSnapshot = true;
                 }
 
                 SidecarFileCommitBatch.Apply(changes, () => RecordingStore.SuppressLogging);
+
+                // Memory now holds exactly the bytes just written. A kind not written this
+                // time keeps its hash: its head is still the file memory last wrote or read.
+                rec.PrecHash = precChange.StagedHash;
+                if (vesselChange != null)
+                    rec.VesselSnapshotHash = vesselChange.StagedHash;
+                if (ghostChange != null)
+                    rec.GhostSnapshotHash = ghostChange.StagedHash;
+                else if (deletedStaleGhostSnapshot)
+                    rec.GhostSnapshotHash = null;
 
                 // Phase 1 smoothing pipeline (design doc §17.3.1, §18 row 1).
                 // Persist .pann AFTER the trajectory commit batch applies
@@ -1513,17 +1722,12 @@ namespace Parsek
                 if (string.IsNullOrEmpty(finalPath) || !File.Exists(finalPath))
                     continue;
 
-                try
+                if (!SidecarFileCommitBatch.TryDeleteUnretained(
+                        finalPath, () => RecordingStore.SuppressLogging, out string failure)
+                    && !RecordingStore.SuppressLogging)
                 {
-                    File.Delete(finalPath);
-                }
-                catch (Exception ex)
-                {
-                    if (!RecordingStore.SuppressLogging)
-                    {
-                        ParsekLog.Warn("RecordingStore",
-                            $"Readable sidecar mirror invalidate failed for {Path.GetFileName(finalPath)}: {ex.Message}");
-                    }
+                    ParsekLog.Warn("RecordingStore",
+                        $"Readable sidecar mirror invalidate failed for {Path.GetFileName(finalPath)}: {failure}");
                 }
             }
         }

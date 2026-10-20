@@ -476,12 +476,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Reap_AlsoUnlinksTheQuickloadResumeSave_ButNeverARewindPointQuicksave()
+        public void Reap_LeavesTheQuickloadResumeSaveForCollection_AndNeverTouchesARewindPointQuicksave()
         {
-            // DeleteRecordingFiles' eighth limb: the per-recording quickload-resume save
-            // at Parsek/Saves/<RewindSaveFileName>.sfs. The Rewind-to-Separation
-            // quicksaves under Parsek/RewindPoints/ use a different path builder and
-            // belong to RewindPointReaper - this reap must leave them strictly alone.
+            // The per-recording quickload-resume save at Parsek/Saves/<RewindSaveFileName>.sfs
+            // is no longer unlinked by the reap: another save in the folder may still name it,
+            // so it is left for ParsekFileCollector, which deletes it only once no save and no
+            // memory list names it. The Rewind-to-Separation quicksaves under
+            // Parsek/RewindPoints/ are strictly untouched as well.
             string dir = CreateRecordingsDir("rewindsave");
             StageSidecars(dir, "rec-with-save");
             StageRewindSave("resume-rec-with-save");
@@ -489,7 +490,7 @@ namespace Parsek.Tests
 
             // No deleter override here: the REAL RecordingStore.DeleteRecordingFiles
             // runs, with its save-root resolution pointed at the staged temp save.
-            // Every unlink below is production's, including the eighth limb.
+            // Every unlink below is production's.
             RecordingPaths.SaveRootOverrideForTesting = lastSaveRoot;
 
             var rec = Rec("rec-with-save");
@@ -501,7 +502,7 @@ namespace Parsek.Tests
 
             Assert.Equal(1, outcome.Reaped);
             Assert.Equal(0, CountSidecars(dir, "rec-with-save"));
-            Assert.False(File.Exists(RewindSavePath("resume-rec-with-save")));
+            Assert.True(File.Exists(RewindSavePath("resume-rec-with-save")));
             Assert.True(File.Exists(rpQuicksave));
         }
 
@@ -533,7 +534,7 @@ namespace Parsek.Tests
         {
             // Hard contract: the fix lives at the discard sites and deletes only ids
             // that were IN the discarded set. If this class ever grows a directory
-            // walk it becomes a second, unguarded sweeper next to CleanOrphanFiles.
+            // walk it becomes a second, unguarded sweeper next to ParsekFileCollector.
             string source = ReadProjectSource("DiscardSidecarReap.cs");
             Assert.DoesNotContain("Directory.GetFiles", source);
             Assert.DoesNotContain("Directory.EnumerateFiles", source);
@@ -545,12 +546,13 @@ namespace Parsek.Tests
         public void SweeperZeroKnownGuard_StaysUntouchedByThisFix()
         {
             // Pin: the sweeper's zero-known safety guard is deliberately NOT relaxed.
+            // The sweeper is ParsekFileCollector now (design-load-restores-the-save.md 4.5).
             // (Its behavior is asserted end-to-end by
             // OrphanCleanupSafetyGuardTests.CleanOrphanFiles_RefusesDeletion_*; this
             // cell pins that the guard text still exists after the discard-site fix.)
-            string source = ReadProjectSource("RecordingStore.OrphanCleanup.cs");
+            string source = ReadProjectSource("ParsekFileCollector.cs");
             Assert.Matches(new Regex(
-                @"knownIds\.Count\s*==\s*0", RegexOptions.Multiline), source);
+                @"memoryRecordingIds\s*==\s*0", RegexOptions.Multiline), source);
         }
 
         [Fact]

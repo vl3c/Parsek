@@ -27,7 +27,7 @@ namespace Parsek.Tests
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
             RewindPointReaper.ResetTestOverrides();
-            RewindPointReaper.DeleteQuicksaveForTesting = _ => true;
+            RewindPointReaper.ReleaseQuicksaveForTesting = _ => true;
         }
 
         public void Dispose()

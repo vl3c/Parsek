@@ -3827,7 +3827,7 @@ namespace Parsek
         ///
         /// Event-store staleness after revert is handled by the recording-id visibility
         /// filter: tagged events stay hidden until a matching quickload restores the
-        /// active tree. <see cref="CleanOrphanFiles"/> at the next cold-start reclaims
+        /// active tree. <see cref="ParsekFileCollector"/> at the next cold-start reclaims
         /// sidecars no quicksave still references.
         ///
         /// Contrast with <see cref="DiscardPendingTree"/>, which runs the #431 purge +

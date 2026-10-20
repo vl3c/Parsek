@@ -199,7 +199,7 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual(1, scenario.RewindPoints.Count,
                     "RP should remain until the last open CP slot is sealed");
 
-                RewindPointReaper.DeleteQuicksaveForTesting = id =>
+                RewindPointReaper.ReleaseQuicksaveForTesting = id =>
                 {
                     deleteHookCalled = string.Equals(id, rpId, StringComparison.Ordinal);
                     return true;

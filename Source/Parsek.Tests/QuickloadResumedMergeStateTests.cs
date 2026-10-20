@@ -36,7 +36,7 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             KspStatePatcher.SuppressUnityCallsForTesting = true;
             RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
-            RewindPointReaper.DeleteQuicksaveForTesting = rpId =>
+            RewindPointReaper.ReleaseQuicksaveForTesting = rpId =>
             {
                 deletedRpIds.Add(rpId);
                 return true;

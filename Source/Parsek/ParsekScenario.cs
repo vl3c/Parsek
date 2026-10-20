@@ -1661,7 +1661,7 @@ namespace Parsek
 
         /// <summary>
         /// Load-fault data-loss guard (the OnSave-side partner of
-        /// <see cref="RecordingStore.CleanOrphanFiles"/>'s refuse-to-delete guard). Fires
+        /// <see cref="ParsekFileCollector"/>'s refuse-to-delete guard). Fires
         /// ONLY on the "scenario load lost its tree state" fingerprint: an INCOMPLETE cold
         /// load (<c>initialLoadDone == false</c>) left the COMMITTED store empty while the
         /// recordings directory still holds stranded sidecar bulk data. All three conditions
@@ -1731,7 +1731,7 @@ namespace Parsek
                 ParsekLog.Warn("Scenario",
                     $"OnSave load-fault guard: writing 0 committed RECORDING_TREE nodes after an incomplete load; disk "
                     + $"has {strandedIds.Count} stranded sidecar recording ID(s) but the on-disk save has no committed "
-                    + "tree metadata to preserve. Sidecars are preserved by CleanOrphanFiles; recover the trees from "
+                    + "tree metadata to preserve. Sidecars are preserved by the file collector; recover the trees from "
                     + "quicksave.sfs or a backup.");
             }
         }
@@ -4648,6 +4648,11 @@ namespace Parsek
                     loadPhase = "rewind-point-reap";
                     RewindPointReaper.ReapOrphanedRPs();
 
+                    // Memory's lists are final: collect files no save and no memory names
+                    // (design-load-restores-the-save.md 4.5; rate-limited in-session).
+                    loadPhase = "file-collection";
+                    ParsekFileCollector.RunAtLoad(earlyLoadKind, coldBranch: false, scenario: this);
+
                     loadPhase = "vessel-names-apply";
                     VesselNameStore.RunSpawnLinkBackfill(isRevert ? "onload-tail:revert" : "onload-tail:scene-change");
                     VesselNameStore.ApplyAll(isRevert ? "onload-tail:revert" : "onload-tail:scene-change",
@@ -4659,6 +4664,9 @@ namespace Parsek
 
                 loadPhase = "cold-start";
                 initialLoadDone = true;
+                // Recording hydration from here to the end of this OnLoad reads the sidecar
+                // versions the save names (design-load-restores-the-save.md 4.4).
+                SidecarVersionResolution.BeginColdLoad(node);
 
                 // A game load ends any window in which an in-game batch's persistent.sfs
                 // restore was still the intended final state of a save (the batch's own
@@ -4782,10 +4790,6 @@ namespace Parsek
                         $"OnLoad: cold-start pending tree detected (state={RecordingStore.PendingTreeStateValue}) — " +
                         pendingRestoreDisposition);
                 }
-
-                // Clean orphaned sidecar files (recordings deleted in previous sessions)
-                loadPhase = "orphan-sidecar-cleanup";
-                RecordingStore.CleanOrphanFiles();
 
                 // Restore milestone mutable state (LastReplayedEventIndex) from .sfs
                 loadPhase = "milestones";
@@ -5036,6 +5040,11 @@ namespace Parsek
                 loadPhase = "rewind-point-reap";
                 RewindPointReaper.ReapOrphanedRPs();
 
+                // Memory's lists are final: collect files no save and no memory names
+                // (design-load-restores-the-save.md 4.5).
+                loadPhase = "file-collection";
+                ParsekFileCollector.RunAtLoad(earlyLoadKind, coldBranch: true, scenario: this);
+
                 // After hydration repair and the journal finisher: re-apply every vessel name
                 // decision to the recordings this load produced (design 7.4 / 7.6).
                 loadPhase = "vessel-names-apply";
@@ -5053,6 +5062,7 @@ namespace Parsek
             finally
             {
                 onLoadInProgress = false;
+                SidecarVersionResolution.End("cold-onload");
                 KerbalLoadRepairDiagnostics.Reset();
                 // Always capture timing exactly once, even on exception.
                 loadedRecordingCount = SafeCommittedRecordingCount();

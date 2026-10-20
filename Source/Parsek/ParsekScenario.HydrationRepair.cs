@@ -1039,6 +1039,7 @@ namespace Parsek
             loadedRec.SpawnSuppressedByRewindReason = sourceClone.SpawnSuppressedByRewindReason;
             loadedRec.SpawnSuppressedByRewindUT = sourceClone.SpawnSuppressedByRewindUT;
             loadedRec.SidecarEpoch = sourceClone.SidecarEpoch;
+            SidecarVersions.CopyHashes(loadedRec, sourceClone);
             loadedRec.SidecarEpochAdvancePending =
                 loadedRec.SidecarEpochAdvancePending || sourceClone.SidecarEpochAdvancePending;
             RecordingStore.ClearSidecarLoadFailure(loadedRec);
@@ -1237,6 +1238,7 @@ namespace Parsek
             target.SpawnSuppressedByRewindUT = sourceClone.SpawnSuppressedByRewindUT;
             target.FilesDirty = false;
             target.SidecarEpoch = sourceClone.SidecarEpoch;
+            SidecarVersions.CopyHashes(target, sourceClone);
             target.SidecarEpochAdvancePending = sourceClone.SidecarEpochAdvancePending;
             RecordingStore.ClearSidecarLoadFailure(target);
 

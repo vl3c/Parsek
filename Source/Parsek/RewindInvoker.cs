@@ -2447,7 +2447,7 @@ namespace Parsek
         /// and the live active tree (the s11 evidence case — the zombie was
         /// reachable only from <see cref="ParsekFlight.ActiveTreeForSerialization"/>).
         /// Sidecar files on disk are also removed so a future
-        /// <c>CleanOrphanFiles</c> pass does not warn about them.
+        /// <c>ParsekFileCollector</c> pass does not warn about them.
         /// </para>
         ///
         /// <para>
@@ -3066,6 +3066,17 @@ namespace Parsek
                 ? Math.Max(currentEpoch, probe.SidecarEpoch)
                 : probe.SidecarEpoch;
             string newValue = targetEpoch.ToString(CultureInfo.InvariantCulture);
+
+            // The node now points at the current heads by epoch; its content hashes name the
+            // rewind point's older bytes. Strip them so any load of this temp save reads the
+            // heads under the epoch rule instead of resolving the older versions
+            // (design-load-restores-the-save.md 4.5, VERIFY V5).
+            int hashesStripped = StripSidecarHashes(recordingNode);
+            if (hashesStripped > 0)
+            {
+                ParsekLog.Verbose(InvokeTag,
+                    $"Re-Fly temp save sidecar hashes stripped: rec={recordingId} count={hashesStripped}");
+            }
             if (!string.Equals(oldValue, newValue, StringComparison.Ordinal))
             {
                 SetOrAddValue(recordingNode, "sidecarEpoch", newValue);
@@ -3074,6 +3085,19 @@ namespace Parsek
                     $"Re-Fly sidecar epoch refreshed: rec={recordingId} old={oldValue ?? "<missing>"} " +
                     $"new={newValue} path='{precPath}'");
             }
+        }
+
+        internal static int StripSidecarHashes(ConfigNode recordingNode)
+        {
+            if (recordingNode == null) return 0;
+            int stripped = 0;
+            foreach (string key in new[] { "precHash", "vesselHash", "ghostHash" })
+            {
+                if (!recordingNode.HasValue(key)) continue;
+                recordingNode.RemoveValues(key);
+                stripped++;
+            }
+            return stripped;
         }
 
         /// <summary>

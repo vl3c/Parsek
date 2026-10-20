@@ -29,7 +29,7 @@ namespace Parsek.Tests
             UnfinishedFlightSealHandler.ResetForTesting();
             UnfinishedFlightSealHandler.UtcNowForTesting =
                 () => new DateTime(2026, 4, 28, 12, 34, 56, DateTimeKind.Utc);
-            RewindPointReaper.DeleteQuicksaveForTesting = _ => true;
+            RewindPointReaper.ReleaseQuicksaveForTesting = _ => true;
         }
 
         public void Dispose()
@@ -238,7 +238,7 @@ namespace Parsek.Tests
                 saveHookObservedSeal = true;
                 return true;
             };
-            RewindPointReaper.DeleteQuicksaveForTesting = rpId =>
+            RewindPointReaper.ReleaseQuicksaveForTesting = rpId =>
             {
                 Assert.Equal("rp_1", rpId);
                 Assert.Equal(MergeState.Immutable, rec.MergeState);
@@ -285,7 +285,7 @@ namespace Parsek.Tests
             bool deleteHookCalled = false;
 
             UnfinishedFlightSealHandler.SavePersistentForTesting = () => false;
-            RewindPointReaper.DeleteQuicksaveForTesting = _ =>
+            RewindPointReaper.ReleaseQuicksaveForTesting = _ =>
             {
                 deleteHookCalled = true;
                 return true;
