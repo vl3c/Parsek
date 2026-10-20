@@ -491,6 +491,89 @@ namespace Parsek.Tests
             Assert.Equal("ScienceEarning:act_sib", summary);
         }
 
+        private static Recording WithPoints(Recording rec, double startUT, double endUT)
+        {
+            rec.Points.Add(new TrajectoryPoint { ut = startUT });
+            rec.Points.Add(new TrajectoryPoint { ut = endUT });
+            return rec;
+        }
+
+        /// <summary>The reviewer's repro: origin rec_a (50..200) spans the rewind point at
+        /// 100; debris rec_d split off rec_a at 80 under a JointBreak rec_a owns, and a
+        /// FundsEarning at 150 is tagged to the debris. Returns the slot.</summary>
+        private ChildSlot InstallPreRewindDebrisSlot(out RewindPoint rp, out Recording origin)
+        {
+            origin = WithPoints(Rec("rec_a", MergeState.CommittedProvisional), 50.0, 200.0);
+            var debris = WithPoints(Rec("rec_d", MergeState.Immutable), 80.0, 160.0);
+            debris.IsDebris = true;
+            debris.ParentAnchorRecordingId = "rec_a";
+            debris.ParentBranchPointId = "bp_debris";
+            InstallTree("tree_1", origin, debris);
+            RecordingStore.CommittedTrees[0].BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp_debris",
+                Type = BranchPointType.JointBreak,
+                UT = 80.0,
+                ParentRecordingIds = new List<string> { "rec_a" },
+                ChildRecordingIds = new List<string> { "rec_d" },
+            });
+            var slot = Slot(0, "rec_a");
+            rp = Rp("rp_1", RpUT, slot);
+            Ledger.AddAction(Funds("act_debris_gain", "rec_d", 150.0));
+            return slot;
+        }
+
+        // catches: the gate reading a pre-rewind debris row the merge never tombstones
+        // (AppendRelations carves pre-rewind debris out of the returned subtree).
+        [Fact]
+        public void Gate_RowOnPreRewindDebris_DoesNotSeal_TheMergeWouldNotRetireIt()
+        {
+            RewindPoint rp; Recording origin;
+            ChildSlot slot = InstallPreRewindDebrisSlot(out rp, out origin);
+            InstallScenario(null, rp);
+
+            string summary;
+            Assert.False(SupersedeCommit.RetireSetHoldsSealingRow(origin, rp, slot, out summary));
+            Assert.Null(summary);
+            HashSet<string> closure = SupersedeCommit.ComputeRetireClosure(
+                origin, "rec_a", "rp_1", RpUT);
+            Assert.DoesNotContain("rec_d", closure);
+        }
+
+        // catches: the gate closure and the merge's tombstone subtree being two sets.
+        [Fact]
+        public void GateClosure_EqualsTheSubtreeAppendRelationsHandsCommitTombstones()
+        {
+            RewindPoint rp; Recording origin;
+            ChildSlot slot = InstallPreRewindDebrisSlot(out rp, out origin);
+            HashSet<string> gateClosure = SupersedeCommit.ComputeRetireClosure(
+                origin, "rec_a", "rp_1", RpUT);
+
+            var fork = WithPoints(Rec("rec_fork", MergeState.NotCommitted), 100.0, 300.0);
+            fork.CreatingSessionId = "sess_1";
+            fork.ProvisionalForRpId = "rp_1";
+            fork.SupersedeTargetId = "rec_a";
+            RecordingStore.AddProvisional(fork);
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1", TreeId = "tree_1", ActiveReFlyRecordingId = "rec_fork",
+                OriginChildRecordingId = "rec_a", SupersedeTargetId = "rec_a",
+                RewindPointId = "rp_1", RewindPointUT = RpUT, InvokedUT = RpUT,
+            };
+            var scenario = InstallScenario(marker, rp);
+
+            int closureCount;
+            List<GameAction> mergeRetire = SupersedeCommit.BuildMergeRetireSet(
+                marker, new HashSet<string> { "rec_fork" }, out closureCount);
+            IReadOnlyCollection<string> mergeSubtree =
+                SupersedeCommit.AppendRelations(marker, fork, scenario);
+
+            Assert.Equal(new SortedSet<string>(mergeSubtree), new SortedSet<string>(gateClosure));
+            Assert.Equal(new[] { "rec_a" }, mergeSubtree.OrderBy(x => x).ToArray());
+            Assert.DoesNotContain(mergeRetire, a => a.ActionId == "act_debris_gain");
+            Assert.Equal(1, closureCount);
+        }
+
         [Fact]
         public void Gate_RowOnAnUnrelatedRecording_DoesNotSeal()
         {

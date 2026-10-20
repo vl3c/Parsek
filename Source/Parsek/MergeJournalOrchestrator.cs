@@ -1099,69 +1099,24 @@ namespace Parsek
 
             // Pass 2 review User-H1: AppendRelations filters the closure
             // walk's chain-sibling enqueue of HEAD (and pre-rewind debris)
-            // out of the returned subtree via SupersedeCommit.IsPreRewindCarveOut
-            // (see SupersedeCommit.cs:376-386). On a fresh-load resume entering
+            // out of the returned subtree via SupersedeCommit.PreRewindCarveOutFilter.
+            // On a fresh-load resume entering
             // CompleteFromPostDurable at Tombstone, RecoveredSubtreeIds is null
             // (transient, never persisted) and this fallback recomputes from
             // scratch — without the same filter, the wider unfiltered subtree
             // would reach CommitTombstones and falsely tombstone HEAD's
             // pre-rewind ledger actions for any tombstone-eligible action
-            // type that lands during the launch portion. Mirror the
-            // AppendRelations filter here.
-            var filtered = new List<string>(subtree.Count);
-            int recordingsScanned = 0;
-            int carveOutSkipped = 0;
-            Dictionary<string, Recording> recById = null;
-            // Pass 4 follow-up micro-optimization (matches AppendRelations):
-            // pre-resolve TIP once so the chain-head case in
-            // IsPreRewindCarveOut skips its per-call O(N) store scan. TIP id
-            // is constant across every iteration of this loop.
-            Recording tipForCarveOut = null;
-            bool tipResolved = false;
-            foreach (var id in subtree)
-            {
-                if (string.IsNullOrEmpty(id)) continue;
-                recordingsScanned++;
-                if (recById == null)
-                    recById = BuildRecordingIdIndex();
-                if (!tipResolved)
-                {
-                    if (!string.IsNullOrEmpty(marker.SupersedeTargetId))
-                        recById.TryGetValue(marker.SupersedeTargetId, out tipForCarveOut);
-                    tipResolved = true;
-                }
-                Recording rec;
-                if (recById.TryGetValue(id, out rec)
-                    && SupersedeCommit.IsPreRewindCarveOut(rec, marker, tipForCarveOut, out _))
-                {
-                    carveOutSkipped++;
-                    ParsekLog.Verbose(Tag,
-                        $"RebuildSubtree: filtered pre-rewind carve-out {id} from " +
-                        $"tombstone-resume subtree (matches AppendRelations write-set filter)");
-                    continue;
-                }
-                filtered.Add(id);
-            }
+            // type that lands during the launch portion. The same filter
+            // runs here.
+            int carveOutSkipped;
+            List<string> filtered = SupersedeCommit.RemovePreRewindCarveOuts(
+                subtree, marker, out carveOutSkipped);
+            int recordingsScanned = filtered.Count + carveOutSkipped;
             ParsekLog.Verbose(Tag,
                 $"RebuildSubtree: scanned={recordingsScanned.ToString(CultureInfo.InvariantCulture)} " +
                 $"carveOutSkipped={carveOutSkipped.ToString(CultureInfo.InvariantCulture)} " +
                 $"finalCount={filtered.Count.ToString(CultureInfo.InvariantCulture)}");
             return filtered;
-        }
-
-        private static Dictionary<string, Recording> BuildRecordingIdIndex()
-        {
-            var index = new Dictionary<string, Recording>(StringComparer.Ordinal);
-            var recordings = RecordingStore.CommittedRecordings;
-            if (recordings == null) return index;
-            for (int i = 0; i < recordings.Count; i++)
-            {
-                var rec = recordings[i];
-                if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
-                if (!index.ContainsKey(rec.RecordingId))
-                    index.Add(rec.RecordingId, rec);
-            }
-            return index;
         }
     }
 }

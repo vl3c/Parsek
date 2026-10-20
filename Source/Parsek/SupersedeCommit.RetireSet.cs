@@ -344,7 +344,11 @@ namespace Parsek
         /// merge fences them, unless <paramref name="tip"/> IS the live attempt. The
         /// tip's own chain members are added regardless of merge state: the attempt's
         /// optimizer halves are NotCommitted until the merge flips them, yet a later
-        /// merge into the slot would read them as committed chain siblings.
+        /// merge into the slot would read them as committed chain siblings. Last, the
+        /// pre-rewind carve-outs AppendRelations keeps out of the tombstone subtree
+        /// (pre-rewind debris, the pre-rewind chain head) are removed through the same
+        /// <see cref="PreRewindCarveOutFilter"/>, so the gate never reads a row the merge
+        /// would not retire.
         /// </summary>
         internal static HashSet<string> ComputeRetireClosure(
             Recording tip,
@@ -399,7 +403,12 @@ namespace Parsek
                 if (tree?.Recordings == null) continue;
                 AddMatchingChainRecordingIds(ids, tip, tree.Recordings.Values);
             }
-            return ids;
+
+            int carvedOut;
+            List<string> kept = RemovePreRewindCarveOuts(ids, slotMarker, out carvedOut);
+            if (carvedOut == 0)
+                return ids;
+            return new HashSet<string>(kept, StringComparer.Ordinal);
         }
 
         /// <summary>
@@ -452,7 +461,8 @@ namespace Parsek
         /// The retire set a Re-Fly merge would tombstone if it ran now (design section
         /// 2.12, Rule 5's input): the closure <see cref="AppendRelations(ReFlySessionMarker, Recording, ParsekScenario)"/>
         /// computes from the marker (rooted at its supersede target, else its origin child),
-        /// minus <paramref name="attemptRecordingIds"/>, through
+        /// minus its pre-rewind carve-outs (<see cref="PreRewindCarveOutFilter"/>, as
+        /// AppendRelations drops them) and <paramref name="attemptRecordingIds"/>, through
         /// <see cref="BuildRetireSet"/> over the raw ledger and the existing tombstones,
         /// exactly as <see cref="CommitTombstones"/> builds it. Uncached, logs nothing.
         /// </summary>
@@ -467,15 +477,13 @@ namespace Parsek
             string closureRoot = marker.SupersedeTargetId ?? marker.OriginChildRecordingId;
             IReadOnlyCollection<string> subtree =
                 EffectiveState.ComputeSubtreeClosureInternal(marker, closureRoot);
+            int carvedOut;
+            List<string> kept = RemovePreRewindCarveOuts(subtree, marker, out carvedOut);
             var closure = new HashSet<string>(StringComparer.Ordinal);
-            if (subtree != null)
+            for (int i = 0; i < kept.Count; i++)
             {
-                foreach (string id in subtree)
-                {
-                    if (string.IsNullOrEmpty(id)) continue;
-                    if (attemptRecordingIds != null && attemptRecordingIds.Contains(id)) continue;
-                    closure.Add(id);
-                }
+                if (attemptRecordingIds != null && attemptRecordingIds.Contains(kept[i])) continue;
+                closure.Add(kept[i]);
             }
             closureCount = closure.Count;
             RetireSetScan scan = BuildRetireSet(

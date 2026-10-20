@@ -336,15 +336,9 @@ namespace Parsek
             // map-presence scoping while the active session is live; the
             // write-set filter is the commit-time policy decision.
             var preRewindCarveOutIds = new HashSet<string>(StringComparer.Ordinal);
-            Dictionary<string, Recording> recById = null;
-            // Pass 4 follow-up micro-optimization: pre-resolve TIP once so
-            // IsPreRewindCarveOut's chain-head case skips its per-call O(N)
-            // store scan. TIP id is constant across every iteration (it's
-            // marker.SupersedeTargetId), so a one-shot lookup at the top
-            // amortizes correctly for any subtree size.
-            Recording tipForCarveOut = !string.IsNullOrEmpty(marker.SupersedeTargetId)
-                ? FindCommittedRecordingByIdForCarveOut(marker.SupersedeTargetId)
-                : null;
+            // The same filter the design section 2.12 retire set and the journal's
+            // RebuildSubtree apply, so the gate, the merge and the resume read one set.
+            var carveOutFilter = new PreRewindCarveOutFilter(marker);
 
             int added = 0;
             int skippedExisting = 0;
@@ -400,23 +394,13 @@ namespace Parsek
                     }
                     // Pre-rewind carve-out is filtered LAST so the existing
                     // skip-counter contracts (self-link / extra-self-link /
-                    // existing-relation) keep their meaning. Build the
-                    // id->Recording index lazily; most batches are tiny and
-                    // the closure already filtered out null entries.
-                    //
-                    // A `TryGetValue` miss (closure id not in
-                    // `CommittedRecordings` — defensive, the closure walk
-                    // builds itself from the same store) short-circuits the
-                    // `&&` and falls through to row-write. That preserves the
-                    // pre-fix default ("write the row") for the anomalous
-                    // case where the row's Recording is gone but its id is
-                    // still in the closure.
-                    if (recById == null)
-                        recById = BuildCommittedRecordingIndex();
+                    // existing-relation) keep their meaning. A closure id not
+                    // in `CommittedRecordings` (defensive, the closure walk
+                    // builds itself from the same store) is never carved out
+                    // and falls through to row-write, the pre-fix default.
                     Recording rec;
                     PreRewindCarveOutReason carveOutReason;
-                    if (recById.TryGetValue(oldId, out rec)
-                        && IsPreRewindCarveOut(rec, marker, tipForCarveOut, out carveOutReason))
+                    if (carveOutFilter.IsCarvedOut(oldId, out rec, out carveOutReason))
                     {
                         skippedPreRewindCarveOut++;
                         preRewindCarveOutIds.Add(oldId);
@@ -693,6 +677,74 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// The pre-rewind carve-out (<see cref="IsPreRewindCarveOut(Recording, ReFlySessionMarker, Recording, out PreRewindCarveOutReason)"/>)
+        /// over the ids of one closure walk, resolving each id against
+        /// <see cref="RecordingStore.CommittedRecordings"/> (first entry wins) and the
+        /// marker's supersede target once. One instance per walk. Shared by
+        /// <see cref="AppendRelations(ReFlySessionMarker, Recording, ParsekScenario, IReadOnlyCollection{string})"/>
+        /// (whose returned subtree is what <see cref="CommitTombstones"/> retires), the merge
+        /// journal's tombstone-resume rebuild, and the design section 2.12 retire set
+        /// (<see cref="ComputeRetireClosure"/>, <see cref="BuildMergeRetireSet"/>), so the
+        /// value gate, the dominance check and the merge read one set. An id that is not a
+        /// committed recording is never carved out.
+        /// </summary>
+        internal sealed class PreRewindCarveOutFilter
+        {
+            private readonly ReFlySessionMarker marker;
+            private Dictionary<string, Recording> recById;
+            private Recording tip;
+
+            internal PreRewindCarveOutFilter(ReFlySessionMarker marker)
+            {
+                this.marker = marker;
+            }
+
+            internal bool IsCarvedOut(string recordingId, out Recording rec,
+                out PreRewindCarveOutReason reason)
+            {
+                rec = null;
+                reason = PreRewindCarveOutReason.None;
+                if (marker == null || string.IsNullOrEmpty(recordingId))
+                    return false;
+                if (recById == null)
+                {
+                    recById = BuildCommittedRecordingIndex();
+                    if (!string.IsNullOrEmpty(marker.SupersedeTargetId))
+                        recById.TryGetValue(marker.SupersedeTargetId, out tip);
+                }
+                return recById.TryGetValue(recordingId, out rec)
+                    && IsPreRewindCarveOut(rec, marker, tip, out reason);
+            }
+        }
+
+        /// <summary>
+        /// <paramref name="ids"/> minus the pre-rewind carve-outs of
+        /// <paramref name="marker"/> (<see cref="PreRewindCarveOutFilter"/>), in input order;
+        /// <paramref name="carvedOut"/> counts the ids removed. Null or empty ids are dropped.
+        /// </summary>
+        internal static List<string> RemovePreRewindCarveOuts(
+            IEnumerable<string> ids, ReFlySessionMarker marker, out int carvedOut)
+        {
+            carvedOut = 0;
+            var kept = new List<string>();
+            if (ids == null) return kept;
+            var filter = new PreRewindCarveOutFilter(marker);
+            foreach (string id in ids)
+            {
+                if (string.IsNullOrEmpty(id)) continue;
+                Recording rec;
+                PreRewindCarveOutReason reason;
+                if (filter.IsCarvedOut(id, out rec, out reason))
+                {
+                    carvedOut++;
+                    continue;
+                }
+                kept.Add(id);
+            }
+            return kept;
         }
 
         /// <summary>
