@@ -7,22 +7,23 @@ namespace Parsek
     public static partial class RecordingStore
     {
         /// <summary>
-        /// Unlinks a recording's whole on-disk footprint: the seven sidecar files
-        /// (<c>.prec</c>, <c>.pann</c>, <c>_vessel.craft</c>, <c>_ghost.craft</c> and the
-        /// three readable mirrors) PLUS, when the recording carries one, its
-        /// per-recording quickload-resume save at <c>Parsek/Saves/&lt;name&gt;.sfs</c>
-        /// (distinct from the Rewind-to-Separation quicksaves under
-        /// <c>Parsek/RewindPoints/</c>, which have their own builder and reaper).
+        /// Removes a recording's on-disk footprint from the head positions
+        /// (design-load-restores-the-save.md 4.4 / 4.5). The three hashed sidecars
+        /// (<c>.prec</c>, <c>_vessel.craft</c>, <c>_ghost.craft</c>) are RETAINED: each head goes
+        /// through a <see cref="SidecarFileCommitBatch"/> delete that files its bytes under
+        /// <c>_versions/&lt;id&gt;.&lt;hash&gt;&lt;suffix&gt;</c>, because some save file may still name
+        /// them; the collector removes a version once no save names it. The non-hashed kinds
+        /// (<c>.pann</c> and the three readable mirrors) are deleted. The recording's
+        /// quickload-resume save under <c>Parsek/Saves/</c> is left for the collector too.
         ///
         /// <para>Returns <c>true</c> when every limb it attempted completed - i.e.
-        /// nothing was left behind. Returns <c>false</c> when the recording was
+        /// no head was left behind. Returns <c>false</c> when the recording was
         /// unusable (null / invalid id) or when at least one file could not be
-        /// unlinked (locked by KSP or an antivirus); each such failure also logs its
-        /// own Warn from <see cref="DeleteFileIfExists"/>. Per-file failures are still
-        /// swallowed rather than thrown, so a partial delete never aborts a caller's
-        /// teardown - the return value exists so callers that report a batch summary
-        /// (<see cref="DiscardSidecarReap"/>) can count truthfully instead of assuming
-        /// success. Callers that do not report may ignore it.</para>
+        /// moved (locked by KSP or an antivirus); each such failure also logs its
+        /// own Warn. Per-file failures are swallowed rather than thrown, so a partial
+        /// delete never aborts a caller's teardown - the return value exists so callers
+        /// that report a batch summary (<see cref="DiscardSidecarReap"/>) can count
+        /// truthfully instead of assuming success. Callers that do not report may ignore it.</para>
         /// </summary>
         internal static bool DeleteRecordingFiles(Recording rec)
         {
@@ -41,9 +42,12 @@ namespace Parsek
                 $"DeleteRecordingFiles: id={rec.RecordingId} vessel='{rec.VesselName}' rewindSave={rec.RewindSaveFileName ?? "(none)"}");
 
             bool allDeleted = true;
-            allDeleted &= DeleteFileIfExists(RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
-            allDeleted &= DeleteFileIfExists(RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
-            allDeleted &= DeleteFileIfExists(RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
+            allDeleted &= RetainHeadIfExists(
+                RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId), rec.RecordingId, SidecarKind.Prec);
+            allDeleted &= RetainHeadIfExists(
+                RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId), rec.RecordingId, SidecarKind.Vessel);
+            allDeleted &= RetainHeadIfExists(
+                RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId), rec.RecordingId, SidecarKind.Ghost);
             // .pann annotation sidecar (design doc §17.3.1): regenerable cache,
             // but a stale file left behind after a recording is deleted could
             // be mis-cached against a future same-id recovery. Belongs in the
@@ -54,34 +58,69 @@ namespace Parsek
             allDeleted &= DeleteFileIfExists(RecordingPaths.BuildReadableGhostSnapshotMirrorRelativePath(rec.RecordingId));
 
             if (!string.IsNullOrEmpty(rec.RewindSaveFileName))
-                allDeleted &= DeleteFileIfExists(RecordingPaths.BuildRewindSaveRelativePath(rec.RewindSaveFileName));
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    $"DeleteRecordingFiles: rewind save '{rec.RewindSaveFileName}' left for collection " +
+                    "(deleted once no save names it)");
+            }
 
             return allDeleted;
         }
 
         /// <summary>
-        /// Unlinks one save-scoped file. Returns false ONLY when the delete threw (the
-        /// file is still there); a file that does not exist, or a path that cannot be
-        /// resolved because there is no save context, counts as nothing-left-behind and
-        /// returns true.
+        /// Moves one hashed head into <c>_versions</c> through a retained delete. Returns false
+        /// ONLY when the move threw (the head is still there); a missing file or an unresolved
+        /// save context counts as nothing-left-behind.
         /// </summary>
-        private static bool DeleteFileIfExists(string relativePath)
+        private static bool RetainHeadIfExists(string relativePath, string recordingId, SidecarKind kind)
         {
             try
             {
                 string absolutePath = RecordingPaths.ResolveSaveScopedPath(relativePath);
-                if (!string.IsNullOrEmpty(absolutePath) && File.Exists(absolutePath))
-                {
-                    File.Delete(absolutePath);
-                    ParsekLog.Verbose("RecordingStore", $"Deleted file: {relativePath}");
-                }
+                if (string.IsNullOrEmpty(absolutePath) || !File.Exists(absolutePath))
+                    return true;
+                SidecarFileCommitBatch.Apply(
+                    new List<SidecarFileCommitBatch.StagedChange>
+                    {
+                        SidecarFileCommitBatch.RetainedDelete(absolutePath, recordingId, kind)
+                    },
+                    () => SuppressLogging);
+                ParsekLog.Verbose("RecordingStore", $"Retained head as version: {relativePath}");
                 return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("RecordingStore", $"Failed to retain head '{relativePath}': {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Deletes one non-hashed save-scoped file. Returns false ONLY when the delete threw
+        /// (the file is still there); a file that does not exist, or a path that cannot be
+        /// resolved because there is no save context, counts as nothing-left-behind.
+        /// </summary>
+        private static bool DeleteFileIfExists(string relativePath)
+        {
+            string absolutePath;
+            try
+            {
+                absolutePath = RecordingPaths.ResolveSaveScopedPath(relativePath);
             }
             catch (Exception ex)
             {
                 ParsekLog.Warn("RecordingStore", $"Failed to delete file '{relativePath}': {ex.Message}");
                 return false;
             }
+            if (string.IsNullOrEmpty(absolutePath) || !File.Exists(absolutePath))
+                return true;
+            if (!SidecarFileCommitBatch.TryDeleteUnretained(absolutePath, () => SuppressLogging, out string failure))
+            {
+                ParsekLog.Warn("RecordingStore", $"Failed to delete file '{relativePath}': {failure}");
+                return false;
+            }
+            ParsekLog.Verbose("RecordingStore", $"Deleted file: {relativePath}");
+            return true;
         }
 
         /// <summary>

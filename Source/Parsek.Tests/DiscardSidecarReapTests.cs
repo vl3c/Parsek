@@ -476,12 +476,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Reap_AlsoUnlinksTheQuickloadResumeSave_ButNeverARewindPointQuicksave()
+        public void Reap_LeavesTheQuickloadResumeSaveForCollection_AndNeverTouchesARewindPointQuicksave()
         {
-            // DeleteRecordingFiles' eighth limb: the per-recording quickload-resume save
-            // at Parsek/Saves/<RewindSaveFileName>.sfs. The Rewind-to-Separation
-            // quicksaves under Parsek/RewindPoints/ use a different path builder and
-            // belong to RewindPointReaper - this reap must leave them strictly alone.
+            // The per-recording quickload-resume save at Parsek/Saves/<RewindSaveFileName>.sfs
+            // is no longer unlinked by the reap: another save in the folder may still name it,
+            // so it is left for ParsekFileCollector, which deletes it only once no save and no
+            // memory list names it. The Rewind-to-Separation quicksaves under
+            // Parsek/RewindPoints/ are strictly untouched as well.
             string dir = CreateRecordingsDir("rewindsave");
             StageSidecars(dir, "rec-with-save");
             StageRewindSave("resume-rec-with-save");
@@ -489,7 +490,7 @@ namespace Parsek.Tests
 
             // No deleter override here: the REAL RecordingStore.DeleteRecordingFiles
             // runs, with its save-root resolution pointed at the staged temp save.
-            // Every unlink below is production's, including the eighth limb.
+            // Every unlink below is production's.
             RecordingPaths.SaveRootOverrideForTesting = lastSaveRoot;
 
             var rec = Rec("rec-with-save");
@@ -501,7 +502,7 @@ namespace Parsek.Tests
 
             Assert.Equal(1, outcome.Reaped);
             Assert.Equal(0, CountSidecars(dir, "rec-with-save"));
-            Assert.False(File.Exists(RewindSavePath("resume-rec-with-save")));
+            Assert.True(File.Exists(RewindSavePath("resume-rec-with-save")));
             Assert.True(File.Exists(rpQuicksave));
         }
 

@@ -4628,6 +4628,9 @@ namespace Parsek
 
                 loadPhase = "cold-start";
                 initialLoadDone = true;
+                // Recording hydration from here to the end of this OnLoad reads the sidecar
+                // versions the save names (design-load-restores-the-save.md 4.4).
+                SidecarVersionResolution.BeginColdLoad(node);
 
                 // A game load ends any window in which an in-game batch's persistent.sfs
                 // restore was still the intended final state of a save (the batch's own
@@ -5018,6 +5021,7 @@ namespace Parsek
             finally
             {
                 onLoadInProgress = false;
+                SidecarVersionResolution.End("cold-onload");
                 KerbalLoadRepairDiagnostics.Reset();
                 // Always capture timing exactly once, even on exception.
                 loadedRecordingCount = SafeCommittedRecordingCount();

@@ -112,6 +112,14 @@ namespace Parsek
             // Sidecar epoch (bug #270): stamped into .prec on write, validated on load
             if (rec.SidecarEpoch > 0)
                 recNode.AddValue("sidecarEpoch", rec.SidecarEpoch.ToString(ic));
+            // Content hashes (design-load-restores-the-save.md 4.4). Sparse and additive: an
+            // older build ignores them, a save without them reads with the epoch rule.
+            if (!string.IsNullOrEmpty(rec.PrecHash))
+                recNode.AddValue("precHash", rec.PrecHash);
+            if (!string.IsNullOrEmpty(rec.VesselSnapshotHash))
+                recNode.AddValue("vesselHash", rec.VesselSnapshotHash);
+            if (!string.IsNullOrEmpty(rec.GhostSnapshotHash))
+                recNode.AddValue("ghostHash", rec.GhostSnapshotHash);
             recNode.AddValue("loopPlayback", rec.LoopPlayback);
             recNode.AddValue("loopIntervalSeconds", rec.LoopIntervalSeconds.ToString("R", ic));
             // Sparse: Sec is the load default, so only a non-Sec unit is written.
@@ -613,6 +621,23 @@ namespace Parsek
         // its current value (returned via the `current` parameter); otherwise
         // return the parsed value. NumberStyles match the original inline calls
         // (Integer for int/uint, Float for double/float). bool has no styles.
+        /// <summary>
+        /// A content hash names exact bytes, so a missing key means "no hash" (the epoch
+        /// rule applies), never "keep whatever the object held". A malformed value is
+        /// dropped with a Warn rather than resolved against.
+        /// </summary>
+        private static string ParseSidecarHash(ConfigNode node, string key, string recordingId)
+        {
+            string s = node.GetValue(key);
+            if (string.IsNullOrEmpty(s))
+                return null;
+            if (SidecarContentHash.IsWellFormed(s))
+                return s;
+            ParsekLog.Warn("Codec",
+                $"LoadRecordingFrom: recording {recordingId ?? "<no-id>"} has malformed {key}='{s}'; ignoring it");
+            return null;
+        }
+
         private static int ParseIntOr(ConfigNode node, string key, int current)
         {
             string s = node.GetValue(key);
@@ -688,6 +713,9 @@ namespace Parsek
 
             // Sidecar epoch (bug #270)
             rec.SidecarEpoch = ParseIntOr(recNode, "sidecarEpoch", rec.SidecarEpoch);
+            rec.PrecHash = ParseSidecarHash(recNode, "precHash", rec.RecordingId);
+            rec.VesselSnapshotHash = ParseSidecarHash(recNode, "vesselHash", rec.RecordingId);
+            rec.GhostSnapshotHash = ParseSidecarHash(recNode, "ghostHash", rec.RecordingId);
 
             rec.LoopPlayback = ParseBoolOr(recNode, "loopPlayback", rec.LoopPlayback);
 
