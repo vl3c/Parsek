@@ -615,7 +615,8 @@ namespace Parsek
             "not reachable: TryRestoreActiveTreeNode returns early while rewinding, so no quickload trim is armed";
         private const string ResumeTrimOnlyCutsTrajectories =
             "the quickload resume trim (ParsekScenario.TrimRecordingTreePastUT) cuts trajectories only";
-        private const string ColdSessionReset = "";
+        private const string ColdSessionReset =
+            "ParsekScenario.ResetSaveScopedSessionState forgets the store and its once-per-folder guard; ";
         private const string ColdGameStateReader = "ParsekScenario.LoadGameStateFromNodeOrFiles";
         private const string ColdFilesFallback =
             "a save without the node (an older build) reads the external file as last written";

@@ -5202,7 +5202,7 @@ namespace Parsek
         /// Called on a cold load. Loads the ledger from the save's <c>GAME_STATE/LEDGER</c>
         /// node when <paramref name="saveLedgerNode"/> is given, else from the ledger file,
         /// then runs the legacy repairs against the already loaded events (same order on
-        /// both sources).
+        /// both sources) and seeds the KSC sequence counter from the loaded rows.
         /// </summary>
         internal static void OnLoad(ConfigNode saveLedgerNode = null)
         {
@@ -5245,8 +5245,35 @@ namespace Parsek
                     $"(events={repairedLegacyPartPurchaseEvents}, actions={repairedLegacyPartPurchaseActions})");
             }
             RepairZeroCostFacilityUpgradeActionsOnLoad(GameStateStore.Events, Ledger.Actions);
+            SeedKscSequenceCounterFromLoadedLedger(Ledger.Actions);
             ParsekLog.Verbose(Tag, $"OnLoad: ledger loaded from {source}");
         }
+
+        /// <summary>
+        /// Puts the KSC sequence counter past every loaded row's <c>Sequence</c>, so a KSC row
+        /// made after a load sorts after a loaded row at the same UT (the recalculation sort is
+        /// UT, earnings first, then sequence). Never moves the counter backwards.
+        /// </summary>
+        internal static void SeedKscSequenceCounterFromLoadedLedger(IReadOnlyList<GameAction> loaded)
+        {
+            int max = 0;
+            if (loaded != null)
+            {
+                for (int i = 0; i < loaded.Count; i++)
+                {
+                    if (loaded[i] != null && loaded[i].Sequence > max)
+                        max = loaded[i].Sequence;
+                }
+            }
+            if (max > kscSequenceCounter)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"OnLoad: KSC sequence counter seeded from the loaded ledger: {kscSequenceCounter.ToString(CultureInfo.InvariantCulture)} -> {max.ToString(CultureInfo.InvariantCulture)}");
+                kscSequenceCounter = max;
+            }
+        }
+
+        internal static int KscSequenceCounterForTesting => kscSequenceCounter;
 
         internal static int RepairLegacyPartPurchaseActionsOnLoad(
             IReadOnlyList<GameStateEvent> events,
@@ -9008,6 +9035,42 @@ namespace Parsek
                 $"effectiveAvailable={effectiveAvailable:F1}, affordable={affordable}, cutoffUT={nowUT:R}");
 
             return affordable;
+        }
+
+        /// <summary>
+        /// Production reset for a cold load (<c>ParsekScenario.ResetSaveScopedSessionState</c>):
+        /// the session statics that describe the loaded save (initialization and its modules,
+        /// seed flags, the KSC sequence counter, the committed-future snapshot, the strategy
+        /// debit baseline, the reservation-release trigger, the pending recovery funds and
+        /// consumed keys). Leaves the test seams, the timeline subscription and the log
+        /// dedup sets alone. The caller re-initializes.
+        /// </summary>
+        internal static void ResetForSaveLoad()
+        {
+            initialized = false;
+            scienceModule = null;
+            milestonesModule = null;
+            contractsModule = null;
+            fundsModule = null;
+            routeModule = null;
+            reputationModule = null;
+            facilitiesModule = null;
+            strategiesModule = null;
+            kerbalsModule = null;
+            RecalculationEngine.ClearModules();
+            legacyFacilityUpgradeEstimateDone = false;
+            fundsSeedDone = false;
+            scienceSeedDone = false;
+            repSeedDone = false;
+            ResetMigrateOldSaveEventsForLoad();
+            unmatchableStrategyScienceDebitBaseline = 0.0;
+            kscSequenceCounter = 0;
+            LedgerRecoveryFundsPairing.ResetForSaveLoad();
+            CommittedFutureIndexCache.Invalidate("save-scoped-reset");
+            lastTriggeredReservationReleaseUT = double.NaN;
+            postWalkCountAfterReservationReleaseTrigger = -1;
+            committedFutureActionIdsAtLastPatch.Clear();
+            committedFutureSnapshotValid = false;
         }
 
         /// <summary>Reset all state for testing.</summary>

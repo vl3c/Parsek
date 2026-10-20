@@ -364,6 +364,7 @@ namespace Parsek.Tests
                 Assert.Equal(LoadReconcileAction.Save, cold.Action);
                 Assert.False(cold.IsKnownGap, "Cold x " + category);
                 Assert.Contains("LoadGameStateFromNodeOrFiles", cold.Reason);
+                Assert.Contains("ResetSaveScopedSessionState", cold.Reason);
             }
 
             var routes = LoadReconcilePolicy.Decide(LoadKind.Cold, LoadStateCategory.Routes);

@@ -3770,6 +3770,7 @@ namespace Parsek
 
                 loadPhase = "hooks";
                 RegisterMainMenuHook();
+                string saveFolderBeforeDetect = lastSaveFolder;
                 DetectSaveFolderChange();
 
                 // Load classification (LoadReconcilePolicy) before the prologue consumes any
@@ -3796,6 +3797,16 @@ namespace Parsek
                     LogLoadClassification(earlyLoadKind, LoadReconcilePolicy.ToLoadKind(earlyLoadKind),
                         classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFlyTarget,
                         classifyHandoff);
+                }
+
+                // Every Cold load starts from nothing: the save (and, for a save written by an
+                // older build, the external files) is the only source of what follows
+                // (design-load-restores-the-save.md 4.2).
+                if (earlyLoadKind == EarlyLoadKind.Cold)
+                {
+                    loadPhase = "save-scoped-reset";
+                    ResetSaveScopedSessionState(ResolveColdLoadReason(
+                        coldLoadsThisProcess, saveFolderBeforeDetect, HighLogic.SaveFolder));
                 }
 
                 if (!RewindContext.IsRewinding)

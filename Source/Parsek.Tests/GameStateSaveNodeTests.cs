@@ -490,16 +490,19 @@ namespace Parsek.Tests
 
             string onLoad = PreparedMethodBody("ParsekScenario.cs", "public override void OnLoad(ConfigNode node)");
             int classify = IndexOrFail(onLoad, "LoadReconcilePolicy.ClassifyEarly(");
+            int reset = IndexOrFail(onLoad, "ResetSaveScopedSessionState(");
             int crew = IndexOrFail(onLoad, "LoadCrewAndGroupState(node);");
             int external2 = IndexOrFail(onLoad, "LoadExternalFiles(node);");
             int coldRestore = IndexOrFail(onLoad, "EarlyLoadKind.Cold, HighLogic.LoadedScene == GameScenes.FLIGHT");
             int attempt = IndexOrFail(onLoad, "ApplySaveAttemptEventsAfterActiveTreeRestore();");
             int pendingRestore = onLoad.IndexOf("TryRestorePendingTreeNode(", coldRestore, StringComparison.Ordinal);
+            Assert.Equal(1, Occurrences(onLoad, "ResetSaveScopedSessionState("));
             Assert.Equal(1, Occurrences(onLoad, "ApplySaveAttemptEventsAfterActiveTreeRestore();"));
-            Assert.True(classify < crew && crew < external2,
-                "the game-state read runs after the classification and LoadCrewAndGroupState");
+            Assert.True(classify < reset && reset < crew && crew < external2,
+                "the session reset runs after the classification and before LoadCrewAndGroupState");
             Assert.True(coldRestore < attempt && attempt < pendingRestore,
                 "the save's attempt events follow the cold active-tree restore");
+            Assert.Contains("if (earlyLoadKind == EarlyLoadKind.Cold)", Collapse(onLoad.Substring(classify, reset - classify)));
         }
 
         private static string PreparedMethodBody(string relPath, string signatureFragment)

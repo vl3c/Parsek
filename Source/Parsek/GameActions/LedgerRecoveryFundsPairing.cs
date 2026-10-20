@@ -36,6 +36,21 @@ namespace Parsek
             pendingRecoveryFunds.Clear();
         }
 
+        /// <summary>
+        /// Production reset for a cold load: drops the unpaired recovery requests and the
+        /// consumed event keys of the previous game state, without the stale-flush Warn.
+        /// </summary>
+        internal static void ResetForSaveLoad()
+        {
+            int pending = pendingRecoveryFunds.Count;
+            int consumed = consumedRecoveryEventKeys.Count;
+            consumedRecoveryEventKeys.Clear();
+            pendingRecoveryFunds.Clear();
+            if (pending > 0 || consumed > 0)
+                ParsekLog.Verbose(Tag,
+                    $"ResetForSaveLoad: dropped pendingRecoveryFunds={pending} consumedKeys={consumed}");
+        }
+
         internal static void ClearConsumedRecoveryEventKeys()
         {
             consumedRecoveryEventKeys.Clear();

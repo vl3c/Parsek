@@ -6,16 +6,117 @@ using Parsek.Logistics;
 namespace Parsek
 {
     /// <summary>
-    /// The save's own game state (design-load-restores-the-save.md section 4.3). [ERS-exempt]: the GAME_STATE
+    /// The save-scoped session reset and the save's own game state
+    /// (design-load-restores-the-save.md sections 4.2 and 4.3). [ERS-exempt]: the GAME_STATE
     /// read logs the raw row count of the ledger it just loaded (I/O, not semantics).
     /// </summary>
     public partial class ParsekScenario
     {
         internal const string GameStateNodeName = "GAME_STATE";
 
+        // Cold loads this process has run; 0 means the next one is the boot load. Process
+        // lifetime by design (allowlisted in scripts/session-reset-allowlist.txt).
+        private static int coldLoadsThisProcess;
+
         // The save's GAME_STATE/ATTEMPT_EVENTS node read by the cold branch, held until the
         // cold active-tree restore has run (ApplySaveAttemptEventsAfterActiveTreeRestore).
         private static ConfigNode pendingSaveAttemptEvents;
+
+        /// <summary>
+        /// Names why a load is Cold, for the reset line. Pure. The first cold load of the
+        /// process is the boot; a load after the main-menu transition finds no previous
+        /// folder; a different folder is a folder change; anything else re-armed the cold
+        /// path in process (the in-game test batch's baseline restore or crash reconcile).
+        /// </summary>
+        internal static string ResolveColdLoadReason(
+            int coldLoadsBefore, string saveFolderBeforeDetect, string currentSaveFolder)
+        {
+            if (coldLoadsBefore <= 0)
+                return "boot";
+            if (saveFolderBeforeDetect == null)
+                return "main-menu";
+            if (!string.Equals(saveFolderBeforeDetect, currentSaveFolder, StringComparison.Ordinal))
+                return "folder-change";
+            return "batch";
+        }
+
+        /// <summary>
+        /// Runs at the top of every Cold <see cref="OnLoad"/>, right after the load is
+        /// classified and before <c>LoadCrewAndGroupState</c>: forgets every piece of
+        /// save-scoped session state so the cold branch rebuilds Parsek from the save (and,
+        /// for a save without a <c>GAME_STATE</c> node, the files). The pending tree is
+        /// dropped from memory only (no discard, no purge, files stay). Settings, test seams,
+        /// log rate limiters and the committed-list notification events are untouched; the
+        /// committed lists are cleared later by the cold branch with notifications.
+        /// </summary>
+        internal static void ResetSaveScopedSessionState(string reason)
+        {
+            int storesReset = 0;
+
+            bool pendingTreeDropped = RecordingStore.ResetSaveScopedStateForLoad(out string pendingSummary);
+            storesReset++;
+            if (pendingTreeDropped)
+            {
+                ParsekLog.Info("Scenario",
+                    "Save-scoped reset dropped the pending tree from memory only (no discard, no purge, "
+                    + "sidecars kept): " + pendingSummary);
+            }
+
+            int droppedEvents = GameStateStore.ResetForSaveLoad();
+            storesReset++;
+            int droppedMilestones = MilestoneStore.ResetForSaveLoad();
+            storesReset++;
+            int droppedPendingScience = GameStateRecorder.ResetForSaveLoad();
+            storesReset++;
+            LedgerOrchestrator.ResetForSaveLoad();
+            LedgerOrchestrator.Initialize();
+            storesReset++;
+            KspStatePatcher.ResetForSaveLoad();
+            storesReset++;
+
+            ResetScenarioSessionStatics();
+            storesReset++;
+
+            DiscardReFlyLoadIntent.Clear("save-scoped-reset");
+            PlaybackScopeTracker.Reset();
+            RouteStore.ClearAllEscrow("save-scoped-reset");
+            storesReset += 3;
+
+            coldLoadsThisProcess++;
+            ParsekLog.Info("Scenario",
+                "Save-scoped session state reset: reason=" + (reason ?? "unspecified")
+                + " pendingTreeDropped=" + (pendingTreeDropped ? "true" : "false")
+                + " storesReset=" + storesReset.ToString(CultureInfo.InvariantCulture)
+                + " droppedEvents=" + droppedEvents.ToString(CultureInfo.InvariantCulture)
+                + " droppedMilestones=" + droppedMilestones.ToString(CultureInfo.InvariantCulture)
+                + " droppedPendingScience=" + droppedPendingScience.ToString(CultureInfo.InvariantCulture));
+        }
+
+        private static void ResetScenarioSessionStatics()
+        {
+            committedTreeStateLoaded = false;
+            budgetDeductionApplied = false;
+            mergeDialogPending = false;
+            currentFlightLaunchUT = double.NaN;
+            vesselSwitchPending = false;
+            vesselSwitchPendingFrame = -1;
+            flightSceneReadyForVesselSwitchFlag = false;
+            lastSceneChangeRequestedUT = -1.0;
+            lastSceneLoadRequestClockUT = double.NaN;
+            ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.None;
+            pendingActiveTreeResumeRewindSave = null;
+            pendingFreshRecordingAfterDiscard = null;
+            pendingQuickloadResumeContext = null;
+            lastRestoredQuicksaveTreeFacts = null;
+            ClearQuickloadResumeDetach();
+            pendingSaveAttemptEvents = null;
+        }
+
+        internal static int ColdLoadsThisProcessForTesting
+        {
+            get => coldLoadsThisProcess;
+            set => coldLoadsThisProcess = value;
+        }
 
         /// <summary>
         /// Builds the save's <c>GAME_STATE</c> node from the nodes OnSave built once for the

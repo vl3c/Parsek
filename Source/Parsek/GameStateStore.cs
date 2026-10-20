@@ -1766,6 +1766,18 @@ namespace Parsek
 
         internal static void ResetForTesting()
         {
+            ResetForSaveLoad();
+        }
+
+        /// <summary>
+        /// Production reset for a cold load (<c>ParsekScenario.ResetSaveScopedSessionState</c>):
+        /// forgets every event, snapshot, baseline and science subject and the
+        /// once-per-folder load guard, so the cold branch reloads them from the save (or
+        /// the files). Returns the number of events dropped.
+        /// </summary>
+        internal static int ResetForSaveLoad()
+        {
+            int dropped = events.Count;
             events.Clear();
             contractSnapshots.Clear();
             baselines.Clear();
@@ -1773,6 +1785,7 @@ namespace Parsek
             originalScienceValues.Clear();
             initialLoadDone = false;
             lastSaveFolder = null;
+            return dropped;
         }
 
         /// <summary>

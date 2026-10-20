@@ -368,6 +368,22 @@ namespace Parsek
             return result;
         }
 
+        /// <summary>
+        /// Production reset for a cold load (<c>ParsekScenario.ResetSaveScopedSessionState</c>):
+        /// pending milestone rewards, the contract-completion dedup, the recovery payout
+        /// contexts and the pending science subjects. Test seams and the scoped suppression
+        /// flags are left alone. Returns the number of pending science subjects dropped.
+        /// </summary>
+        internal static int ResetForSaveLoad()
+        {
+            ClearPendingMilestoneEvents("save-scoped-reset");
+            ClearContractCompletionDedup("save-scoped-reset");
+            RecoveryPayoutContextStore.Clear("save-scoped-reset");
+            int droppedScience = PendingScienceSubjects.Count;
+            PendingScienceSubjects.Clear();
+            return droppedScience;
+        }
+
         internal static void ResetForTesting()
         {
             TagResolverForTesting = null;

@@ -592,9 +592,21 @@ namespace Parsek
 
         internal static void ResetForTesting()
         {
+            ResetForSaveLoad();
+        }
+
+        /// <summary>
+        /// Production reset for a cold load (<c>ParsekScenario.ResetSaveScopedSessionState</c>):
+        /// forgets the milestones and the once-per-folder load guard so the cold branch
+        /// reloads them from the save (or the file). Returns the number dropped.
+        /// </summary>
+        internal static int ResetForSaveLoad()
+        {
+            int dropped = milestones.Count;
             milestones.Clear();
             initialLoadDone = false;
             lastSaveFolder = null;
+            return dropped;
         }
 
         internal static void AddMilestoneForTesting(Milestone m)
