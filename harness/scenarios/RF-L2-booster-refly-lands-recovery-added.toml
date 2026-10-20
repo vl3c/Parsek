@@ -19,11 +19,12 @@ tier = "operator"
 # nothing the committed career holds is taken back (no tombstone, no retire, the pod's
 # FirstLaunch milestone still credited after the merge).
 #
-# WHAT IT DOES NOT PIN: the dominance check and the loss swap (Rules 2 and 5:
-# `[LedgerSwap] Merge dominance check sess=<s> result=pass ...`, `Loss swap sess=<s>
-# variant=A ...`). No phase implements them yet; a required token on a literal no DLL can
-# print would red a first flight for nothing, so they are listed as gaps in the PR body and
-# join this lane when the code lands.
+# THE DOMINANCE CHECK (Rules 2 and 5) is pinned in THE MERGE block: the booster's crash
+# lost nothing, so the check passes and the loss swap takes Variant A
+# (`[LedgerSwap] Merge dominance check sess=<s> result=pass ...`, `Loss swap sess=<s>
+# variant=A ...`; the check logs both at dialog open and again at the Merge click).
+# WHAT IT DOES NOT PIN: a refusal or Variant B (this flight cannot produce either; the
+# xUnit ReFlyMergeDominanceTests / ReFlyLossSwapJournalTests own them).
 #
 # THE BOOSTER'S PID. The InvokeRewind payload's `activePid` is the selected slot's ROOT PART
 # persistentId, not the vessel's, so the lane reads the vessel pid off a PartAction inspect of
@@ -166,6 +167,9 @@ required = [
   "partaction applied button=inspect pid=([0-9]+) part='probeCoreOcto2\\.v2' [^\\r\\n]*activePid=\\1 ",
   "(?s)MISSIONMARK label=rfl2-descent .*?warptout complete",
   # --- THE MERGE: rows written, the slot concluded on its Landed ending ---
+  # Rules 2 and 5: the merge passes the dominance check and keeps Variant A.
+  "Merge dominance check sess=\\S+ result=pass pool=\\S+ ut=\\S+ before=\\S+ after=\\S+ ",
+  "Loss swap sess=\\S+ variant=A repLossOld=\\S+ repLossNew=\\S+",
   "Added [1-9][0-9]* supersede relations for subtree rooted at",
   "Auto-sealed re-fly slot=1 rec=\\S+ rp=rp_[0-9a-f]{32} mergeState=Immutable terminal=Landed reason=classifierClosed:\\S+",
   "End reason=merged sess=",
