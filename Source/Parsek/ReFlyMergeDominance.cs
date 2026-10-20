@@ -634,7 +634,8 @@ namespace Parsek
         /// preview reads them).
         /// </summary>
         internal static ReFlyMergeDominanceVerdict EvaluateForMerge(
-            RecordingTree tree, string context, out List<GameAction> attemptRows)
+            RecordingTree tree, string context, out List<GameAction> attemptRows,
+            bool treeAwaitsFinalize = false)
         {
             attemptRows = new List<GameAction>();
             var scenario = ParsekScenario.Instance;
@@ -666,7 +667,7 @@ namespace Parsek
             int closureCount = 0;
             try
             {
-                v = EvaluateLiveCore(tree, marker, context, attemptRows, out closureCount);
+                v = EvaluateLiveCore(tree, marker, context, attemptRows, out closureCount, treeAwaitsFinalize);
             }
             catch (Exception ex)
             {
@@ -693,7 +694,7 @@ namespace Parsek
         /// (which owns the fail-closed catch). Fills <paramref name="attemptRows"/>.</summary>
         private static ReFlyMergeDominanceVerdict EvaluateLiveCore(
             RecordingTree tree, ReFlySessionMarker marker, string context,
-            List<GameAction> attemptRows, out int closureCount)
+            List<GameAction> attemptRows, out int closureCount, bool treeAwaitsFinalize)
         {
             var attemptIds = CollectAttemptRecordingIds(tree, marker);
             LedgerOrchestrator.Initialize();
@@ -712,7 +713,8 @@ namespace Parsek
             // check then keeps the replaced side in L' instead of assuming it retired.
             List<GameAction> retire = SupersedeCommit.BuildMergeRetireSet(marker, attemptIds, out closureCount);
             string noRetireReason;
-            bool retiresNothing = SupersedeCommit.MergeWouldRetireNothing(marker, tree, out noRetireReason);
+            bool retiresNothing = SupersedeCommit.MergeWouldRetireNothing(
+                marker, tree, out noRetireReason, terminalPendingFinalize: treeAwaitsFinalize);
             if (retiresNothing)
             {
                 ParsekLog.Info(Tag,

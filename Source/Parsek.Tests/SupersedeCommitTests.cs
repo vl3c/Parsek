@@ -4858,5 +4858,46 @@ namespace Parsek.Tests
             Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.PreRewindChainHead, reason);
             Assert.False(SupersedeCommit.IsPreRewindDebris(head, marker));
         }
+
+        // ---------- MergeWouldRetireNothing on the leaving-flight dialog's live tree ----
+
+        private static RecordingTree LiveTreeWithProvisional(Recording provisional)
+        {
+            var tree = new RecordingTree { Id = "tree_live", TreeName = "Test_tree_live" };
+            tree.AddOrReplaceRecording(provisional);
+            return tree;
+        }
+
+        [Fact]
+        public void MergeWouldRetireNothing_NullTerminal_RefusesUnlessTheTerminalIsPendingFinalize()
+        {
+            // The leaving-flight dialog reads the live tree before the scene exit stamps the
+            // active leaf's terminal; a flown provisional must not read as unflown there.
+            var provisional = Rec("rec_prov", "tree_live", state: MergeState.NotCommitted);
+            provisional.Points.Add(new TrajectoryPoint { ut = 10.0 });
+            provisional.Points.Add(new TrajectoryPoint { ut = 20.0 });
+            var tree = LiveTreeWithProvisional(provisional);
+            var marker = Marker("rec_origin", "rec_prov", treeId: "tree_live");
+
+            Assert.True(SupersedeCommit.MergeWouldRetireNothing(marker, tree, out string refused));
+            Assert.Equal("refused-unflown-provisional:null TerminalState", refused);
+
+            Assert.False(SupersedeCommit.MergeWouldRetireNothing(
+                marker, tree, out string pending, terminalPendingFinalize: true));
+            Assert.Equal("terminal-pending-finalize", pending);
+        }
+
+        [Fact]
+        public void MergeWouldRetireNothing_UnflownProvisional_RefusesEvenWhenTheTerminalIsPendingFinalize()
+        {
+            var provisional = Rec("rec_prov", "tree_live", state: MergeState.NotCommitted);
+            var tree = LiveTreeWithProvisional(provisional);
+            var marker = Marker("rec_origin", "rec_prov", treeId: "tree_live");
+
+            Assert.True(SupersedeCommit.MergeWouldRetireNothing(
+                marker, tree, out string reason, terminalPendingFinalize: true));
+            Assert.StartsWith("refused-unflown-provisional:", reason);
+            Assert.DoesNotContain("TerminalState", reason);
+        }
     }
 }

@@ -592,9 +592,16 @@ namespace Parsek
         /// <see cref="ValidateReFlySessionSupersedeSource(Recording, RecordingTree, ReFlySessionMarker, out string, out SlotVesselWalk, out BranchPoint)"/>,
         /// the predicate AppendRelations refuses on (<c>outcome=refused-unflown-provisional</c>),
         /// rejects it, read on the dialog's pending tree. <paramref name="reason"/> names which.
+        /// <para><paramref name="terminalPendingFinalize"/> is true when <paramref name="tree"/>
+        /// is the live tree the leaving-flight dialog reads before the scene exit finalizes it:
+        /// finalize stamps the active leaf's terminal state, so a provisional refused only for
+        /// its missing terminal is modeled as retiring. The payload refusals still stand, and the
+        /// click re-runs the check on the finalized tree, so this never lets an unflown attempt
+        /// through.</para>
         /// </summary>
         internal static bool MergeWouldRetireNothing(
-            ReFlySessionMarker marker, RecordingTree tree, out string reason)
+            ReFlySessionMarker marker, RecordingTree tree, out string reason,
+            bool terminalPendingFinalize = false)
         {
             reason = null;
             if (marker == null)
@@ -620,6 +627,12 @@ namespace Parsek
             if (!ValidateReFlySessionSupersedeSource(
                     provisional, tree, marker, out invalid, out _, out _))
             {
+                if (terminalPendingFinalize
+                    && string.Equals(invalid, "null TerminalState", StringComparison.Ordinal))
+                {
+                    reason = "terminal-pending-finalize";
+                    return false;
+                }
                 reason = "refused-unflown-provisional:" + (invalid ?? "<none>");
                 return true;
             }

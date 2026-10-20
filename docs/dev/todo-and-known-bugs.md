@@ -16,6 +16,17 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REFLY-DIALOG-READS-UNFINALIZED-ATTEMPT-AS-UNFLOWN: the leaving-flight Re-Fly dialog refuses Merge for an attempt that lost value~~ [FILED 2026-10-20 from harness lane QL-3 on V's PC (PR #2155 head c6f80ab). Was open, high; regression from PR #2151, never shipped. FIXED 2026-10-20 on branch `claude/project-thread-hvhou8` (PR #2155). xUnit; QL-3 re-fly pending. product]
+
+The "Re-Fly attempt - leaving flight" dialog runs the dominance check on the live tree before
+the scene exit finalizes it, so the provisional still has no terminal state.
+`SupersedeCommit.MergeWouldRetireNothing` read that as `refused-unflown-provisional:null TerminalState`,
+modeled an empty retire set, and an attempt with any loss (QL-3: -9 reputation) read as lowering a
+balance: the dialog offered Discard only and the merge took the discard path. Fix: the dialog-open
+call passes `treeAwaitsFinalize`, under which a refusal for the missing terminal alone counts as
+retiring (`terminal-pending-finalize`); payload refusals still stand, and the merge click re-runs the
+check on the finalized tree unchanged.
+
 ## ~~REFLY-MERGE-RETIRES-VALUE-LATER-SPENDING-USED: a Re-Fly merge takes back the replaced flight's earnings after the timeline already spent them~~ [FILED 2026-10-19 from the "Re-Fly ledger paradox analysis" thread, code read on main 4503a53. Was open, critical (owner rulings: never lower the ledger, no time-travel paradox); designed in `parsek-rewind-to-separation-design.md` section 2.12, Option 1 confirmed by the owner 2026-10-19, implementation plan `docs/dev/plans/refly-ledger-safety-implementation.md`. FIXED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151, design 2.12 phases 1-4 plus review fixes). xUnit; the reshaped Re-Fly lanes and RF-L1..RF-L4 not flown yet. product]
 
 **What happens.** Since the 2026-05-06 broad tombstone scope (`f4763de1`, `d66626ba`) a Re-Fly
