@@ -1,6 +1,7 @@
 # Re-Fly ledger safety: implementation plan
 
-Status: READY, not started (written 2026-10-19; implementation starts 2026-10-20).
+Status: IMPLEMENTED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151): phases 1-4, a
+clean review's five fixes, and the lanes (RF-L1..RF-L4 new, nine reshaped). Lanes not flown yet.
 Design authority: `docs/parsek-rewind-to-separation-design.md` section 2.12 (wins over this plan
 where they disagree; fix the plan, not the code, when they do). Evidence:
 `docs/dev/research/refly-ledger-paradox-2026-10-19.md`. Todos:

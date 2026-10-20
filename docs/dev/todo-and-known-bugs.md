@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## REFLY-MERGE-RETIRES-VALUE-LATER-SPENDING-USED: a Re-Fly merge takes back the replaced flight's earnings after the timeline already spent them [FILED 2026-10-19 from the "Re-Fly ledger paradox analysis" thread, code read on main 4503a53. OPEN, critical (owner rulings: never lower the ledger, no time-travel paradox); designed in `parsek-rewind-to-separation-design.md` section 2.12, Option 1 confirmed by the owner 2026-10-19, implementation plan `docs/dev/plans/refly-ledger-safety-implementation.md`]
+## ~~REFLY-MERGE-RETIRES-VALUE-LATER-SPENDING-USED: a Re-Fly merge takes back the replaced flight's earnings after the timeline already spent them~~ [FILED 2026-10-19 from the "Re-Fly ledger paradox analysis" thread, code read on main 4503a53. Was open, critical (owner rulings: never lower the ledger, no time-travel paradox); designed in `parsek-rewind-to-separation-design.md` section 2.12, Option 1 confirmed by the owner 2026-10-19, implementation plan `docs/dev/plans/refly-ledger-safety-implementation.md`. FIXED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151, design 2.12 phases 1-4 plus review fixes). xUnit; the reshaped Re-Fly lanes and RF-L1..RF-L4 not flown yet. product]
 
 **What happens.** Since the 2026-05-06 broad tombstone scope (`f4763de1`, `d66626ba`) a Re-Fly
 merge tombstones every eligible row of the replaced flight after the rewind point, gains
@@ -45,7 +45,7 @@ would lower a balance (it reads the attempt's rows from a pure build step split 
 slots are concluded on load; existing deficits are not repaired. User guide and CHANGELOG move
 with the implementation, not with the design.
 
-## REFLY-START-RETIRES-RECOVERY-OF-RESURRECTED-VESSEL: starting a Re-Fly tombstones the recovery rewards of a vessel the player recovered later, and a Discard keeps them retired [FILED 2026-10-19, code read. OPEN, high; fix designed in `parsek-rewind-to-separation-design.md` section 2.12 Rule 3]
+## ~~REFLY-START-RETIRES-RECOVERY-OF-RESURRECTED-VESSEL: starting a Re-Fly tombstones the recovery rewards of a vessel the player recovered later, and a Discard keeps them retired~~ [FILED 2026-10-19, code read. Was open, high; fix designed in `parsek-rewind-to-separation-design.md` section 2.12 Rule 3. FIXED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151, design 2.12 phases 1-4 plus review fixes). xUnit; the reshaped Re-Fly lanes and RF-L1..RF-L4 not flown yet. product]
 
 `RewindInvoker.RetireResurrectedVesselRecoveryRows` ("Step 3b" of `ConsumePostLoad`, around
 RewindInvoker.cs:1357-1384) tombstones the recovery rows of every vessel the rewind point brings
@@ -57,7 +57,7 @@ the player discards. Fix: the strip hands such a vessel to the existing claimed-
 (hold ghost until its first committed recording, then that recording's ghost) and its recovery
 rows stay; delete Step 3b. Red-first unit cell first.
 
-## REFLY-SESSION-FAILS-EVERY-DEADLINE-CONTRACT: during a Re-Fly every contract with a deadline reads as expired [FILED 2026-10-19, code read. OPEN, medium; live effect inferred, needs a red-first unit cell]
+## ~~REFLY-SESSION-FAILS-EVERY-DEADLINE-CONTRACT: during a Re-Fly every contract with a deadline reads as expired~~ [FILED 2026-10-19, code read. Was open, medium; live effect inferred, needs a red-first unit cell. FIXED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151, design 2.12 phases 1-4 plus review fixes). xUnit; the reshaped Re-Fly lanes and RF-L1..RF-L4 not flown yet. product]
 
 The invoke walk calls `RecalculateAndPatch(double.MaxValue)` and `ContractsModule.PrePass` uses the
 walk cutoff as the deadline clock (ContractsModule.cs ~310), so every active deadline contract
@@ -65,7 +65,7 @@ gets a synthetic failure in the session's walk: its penalty shows in the session
 contract leaves stock's active list until the merge walk restores it. Fix: keep the MaxValue
 horizon but pass the current UT as the deadline clock (section 2.12 Rule 3).
 
-## REFLY-SESSION-SWITCH-ESCAPES-THE-ATTEMPT: switching vessels during a Re-Fly files gains outside the attempt, and a far Switch-To can commit the Re-Fly tree as a plain flight [FILED 2026-10-19, code read. OPEN, high; owner ruling 2026-10-19: block switching]
+## ~~REFLY-SESSION-SWITCH-ESCAPES-THE-ATTEMPT: switching vessels during a Re-Fly files gains outside the attempt, and a far Switch-To can commit the Re-Fly tree as a plain flight~~ [FILED 2026-10-19, code read. Was open, high; owner ruling 2026-10-19: block switching. FIXED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151, design 2.12 phases 1-4 plus review fixes). xUnit; the reshaped Re-Fly lanes and RF-L1..RF-L4 not flown yet. product]
 
 Nothing blocks a switch during a session. `[` / `]` attaches the vessel switched to under a
 `Launch` branch point (attempt-owned); a map Switch-To creates a parentless segment (not
@@ -80,7 +80,7 @@ set; end state inferred). Also: design section 6.11 claimed session-born childre
 `CreatingSessionId`; only the provisional does (RewindInvoker.cs:2690), doc fixed. Fix: section
 2.12 Rule 3 (only the re-flown vessel and its own EVA crew can be flown; awards filed by cause).
 
-## REFLY-DISCARD-KEEPS-ATTEMPT-ROWS: a discarded Re-Fly attempt keeps the ledger rows it filed, with their career effect [FILED 2026-10-19, code read. OPEN, high; fix designed in section 2.12 Rule 3]
+## ~~REFLY-DISCARD-KEEPS-ATTEMPT-ROWS: a discarded Re-Fly attempt keeps the ledger rows it filed, with their career effect~~ [FILED 2026-10-19, code read. Was open, high; fix designed in section 2.12 Rule 3. FIXED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151, design 2.12 phases 1-4 plus review fixes). xUnit; the reshaped Re-Fly lanes and RF-L1..RF-L4 not flown yet. product]
 
 Every Re-Fly discard path untags the attempt's rows (`Ledger.ClearRecordingTagForRecordings`,
 MergeDialog.ReFlyDiscard.cs ~612-648) and keeps them, so a discarded attempt still pays out, and
@@ -92,7 +92,7 @@ Discard is never refused (owner ruling 2026-10-19). An attempt a quickload resum
 merge (OQ-1) is unmerged again and follows the same rule; the one open dependency is in
 REFLY-RESUMED-MERGED-DISCARD-RESTORES-LOSSES.
 
-## REFLY-RESUMED-MERGED-DISCARD-RESTORES-LOSSES: discarding a Re-Fly that a quickload resumed after its merge can leave a later Space Center purchase unpaid [FILED 2026-10-19 from the design review. OPEN, ruled 2026-10-19, ships with section 2.12]
+## ~~REFLY-RESUMED-MERGED-DISCARD-RESTORES-LOSSES: discarding a Re-Fly that a quickload resumed after its merge can leave a later Space Center purchase unpaid~~ [FILED 2026-10-19 from the design review. Was open, ruled 2026-10-19, ships with section 2.12. FIXED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151, design 2.12 phases 1-4 plus review fixes). xUnit; the reshaped Re-Fly lanes and RF-L1..RF-L4 not flown yet. product]
 
 Owner rulings 2026-10-19: Discard is never refused, and a quickload takes the whole game state back,
 so an attempt a quickload resumed after its merge is unmerged again. Its discard removes its rows
