@@ -220,6 +220,43 @@ namespace Parsek.TestCommands
             return false;
         }
 
+        /// <summary>The optional <c>playerLoad=</c> arg (design-load-restores-the-save.md 4.1):
+        /// the load is the PLAYER's load of a save file (F9, the pause-menu Load, the main-menu
+        /// Load), so the verb fires <c>GameEvents.onGameStatePostLoad</c> with the loaded game's
+        /// node after <c>GamePersistence.LoadGame</c> succeeds and before the scene request, the
+        /// point stock's <c>QuickSaveLoad</c> fires it. <c>GamePersistence.LoadGame</c> fires
+        /// nothing, so without the arg the verb stays a fixture load (stage, pick a scene, focus a
+        /// vessel) with its old semantics.</summary>
+        internal const string PlayerLoadKey = "playerLoad";
+
+        /// <summary>The ONE accepted <c>playerLoad=</c> wire value.</summary>
+        internal const string PlayerLoadTrueValue = "true";
+
+        /// <summary>Reject reason for a <c>playerLoad=</c> that is not the one accepted value.</summary>
+        internal const string PlayerLoadArgInvalidReason = "player-load-arg-invalid";
+
+        /// <summary>
+        /// Parses the optional <c>playerLoad=</c> arg. FAIL-CLOSED and case-sensitive like
+        /// <see cref="TryParseAllowLiveRecorder"/>: ABSENT is the fixture load, the lowercase
+        /// literal <c>true</c> is the player load, and anything else (an EMPTY value,
+        /// <c>True</c>, <c>false</c>, <c>1</c>) is invalid. A silently ignored opt-in would fly
+        /// the old in-session load while the spec believes it pressed F9, and a lane whose
+        /// subject is the load's classification would then read the wrong path. <c>false</c> is
+        /// not a spelling: omit the arg.
+        /// </summary>
+        internal static bool TryParsePlayerLoad(string raw, out bool playerLoad)
+        {
+            playerLoad = false;
+            if (raw == null)
+                return true;
+            if (raw == PlayerLoadTrueValue)
+            {
+                playerLoad = true;
+                return true;
+            }
+            return false;
+        }
+
         /// <summary>
         /// Parses the optional <c>scene=</c> arg (R12). FAIL-CLOSED and case-sensitive,
         /// exactly like <c>RunTests</c>' <c>isolated=</c>: the value reaches the wire

@@ -1,5 +1,24 @@
 schema = 1
 id = "QL-3-quickload-before-refly-merge"
+# RESHAPED 2026-10-20 FOR "LOAD RESTORES THE SAVE" PHASE 2 (design
+# docs/dev/design-load-restores-the-save.md 4.1 / 4.7 / 5 S4 / 8; plan Phase 2 step 7). NOT
+# FLOWN in this shape. THE EXPECTED OUTCOME FLIPS. The load of `ql3-before-refly` now
+# carries `playerLoad=true`, so it is a Cold save-file load: the session reset forgets
+# memory and every list comes from the named save, which was written before the Re-Fly.
+# A Re-Fly merged after the save is simply not in the save (design 5 S4, 8: the OQ-3 owner
+# partition, step B and the in-session handoff install are unreachable on a save-file load):
+#   - no supersede row and no tombstone after the load: every ERS rebuild after the save's
+#     ledger read skips nothing as superseded, and the ELS rebuild has no tombstone;
+#   - the original crashed pod is visible again (the Space Center ghost breakdown no longer
+#     leaves the Destroyed pod out) and its crew death counts again (the walk keeps a
+#     permanent, death-derived reservation, as the save had it);
+#   - `rp_cl_root` is back: the save lists it, the merge's reaper only unlisted it and its
+#     file stays while a save names it (design 4.5), so the report-only `rewindPoints`
+#     window is 1.
+# The pre-load half (the Re-Fly, the merge's supersede row and tombstone) is unchanged and
+# still required. The token list below is authoritative; the SPEC CHANGED note and the
+# THE MECHANISM UNDER TEST text after it describe the in-session route this lane flew before
+# Phase 2, kept as history.
 # SPEC CHANGED 2026-10-07 (branch `ql-lanes`), NOT RE-FLOWN. Two changes:
 #   1. THE FIXTURE IS PRODUCTION-SHAPED (todo REWIND-CREW-LOSS-FIXTURE-RP-HAS-NO-BRANCH-POINT,
 #      FIXED): the `rewind-crew-loss` tree now carries the split branch point `bp_cl_root`
@@ -115,7 +134,7 @@ id = "QL-3-quickload-before-refly-merge"
 # ParsekTestCommandAddon.LoadGameImpl); the rest are CL-3's.
 # =====================================================================================
 tier = "nightly"
-description = "QL-3: save to a named slot, re-fly the crewed pod of CL-3's crash and merge it, then load that save from before the Re-Fly at the Space Center. The supersede row and the crew-death tombstone stay from the session (not the save's none)."
+description = "QL-3: save to a named slot, re-fly the crewed pod of CL-3's crash and merge it, then the player loads that save from before the Re-Fly at the Space Center (playerLoad=true, a Cold save-file load). The career is the save's: no supersede row, no tombstone, the original crashed pod visible and its crew death counted again, rp_cl_root listed."
 instanceProfile = "stock-minimal"
 tags = ["QL-3", "TA-1", "quickload", "timeline-ops", "rewind", "refly", "merge", "tombstone",
         "crew-loss", "CL3", "D9", "scene-ksc", "reading-run"]
@@ -140,9 +159,9 @@ steps = [
   { phase = "mission",                                                    expect = "MISSION-OK", budget = 600 },
   { cmd = "AnswerMergeDialog", args = { choice = "merge" },               expect = "OK", budget = 240 },
   { cmd = "RecordingState",                                               expect = "OK" },
-  # THE LOAD: the save from before the Re-Fly, booted at the Space Center (refined load kind
-  # InSessionOther).
-  { cmd = "LoadGame",          args = { save = "${runSave}", name = "ql3-before-refly", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  # THE LOAD: the player's load of the save from before the Re-Fly (playerLoad=true), booted
+  # at the Space Center; a Cold save-file load.
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "ql3-before-refly", scene = "spacecenter", playerLoad = "true" }, expect = "OK", budget = 300 },
   { cmd = "RecordingState",                                               expect = "OK" },
   { cmd = "FlushAndQuit",                                                 expect = "OK" },
 ]
@@ -176,49 +195,53 @@ count = { min = 1 }
 
 [expectations.logContracts]
 required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
+             # The merge writes its rows before the load (unchanged).
              "Added [1-9][0-9]* supersede relations for subtree rooted at",
              "Tombstoned [1-9][0-9]* career actions \\(.*Kerbal=[1-9]",
              "loadgame spacecenter route \\(requested\\): resuming to SPACECENTER",
-             "Staged-list handoff captured reason=OnDestroy",
-             "Load classified: early=InSession refined=InSessionOther scene=SPACECENTER initialLoadDone=true rewinding=false reFlyInvoke=false discardReFly=none handoff=present reason=OnDestroy",
-             "In-session staged lists from memory: kind=InSession captured=OnDestroy; supersedes installed=[1-9][0-9]* loadedFromSave=0 restored=[1-9][0-9]* [^\\r\\n]*tombstones installed=[1-9][0-9]* loadedFromSave=0 restored=[1-9][0-9]* ",
-             # Step B (ParsekScenario.ApplyInSessionRewindPointPartition ->
-             # InSessionStagedStateHandoff.MergeRewindPointsByOwner): the merge reaped the
-             # point, the named save still lists it, and the committed tree claims it through
-             # its branch point, so the save's copy is dropped (spec change 2026-10-07).
-             "In-session RP owner partition decisions: rp_cl_root:CommittedOwner:dropped-save-only",
-             # THE REPLACED FLIGHT STAYS HIDDEN after the load (EffectiveState.ComputeERS's
-             # rebuild line; ParsekKSC.Start's eligibility breakdown, where only the supersede
-             # row can leave the structurally eligible Destroyed pod out).
-             "loadgame start save=\\S+ name=ql3-before-refly [\\s\\S]*\\[ERS\\] Rebuilt: [0-9]+ entries from [0-9]+ committed \\(skippedNotCommitted=[0-9]+ skippedSuperseded=[1-9][0-9]* ",
-             "loadgame start save=\\S+ name=ql3-before-refly [\\s\\S]*\\[KSCGhost\\] Eligible breakdown: looping=0 terminal\\([^()\\r\\n]*\\) ineligible\\((?:[^()\\r\\n]*, )?Destroyed=1(?:, [^()\\r\\n]*)?\\)",
-             # THE CREW DEATH STAYS UNDONE after the load: every tombstone in force skips its
-             # action in the ELS (EffectiveState.ComputeELS: the death row and its reputation
-             # penalty), and the crew walk keeps no death-derived (permanent) reservation
-             # (CrewReservationManager's Recomputed line, pinned the way CL-3 pins it).
-             "loadgame start save=\\S+ name=ql3-before-refly [\\s\\S]*\\[ELS\\] Rebuilt: [0-9]+ entries from [0-9]+ actions \\(skippedTombstoned=([1-9][0-9]*) tombstonesTotal=\\1\\)",
-             "loadgame start save=\\S+ name=ql3-before-refly [\\s\\S]*\\[CrewReservations\\] Recomputed [^:\\r\\n]*: [0-9]+ reservations remain \\(permanent=0 "]
+             # THE LOAD IS A SAVE-FILE LOAD (design 4.1). The scene it fires from is the one
+             # the merge left (not pinned).
+             "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql3-before-refly route=NoVesselSpaceCenter",
+             "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql3-before-refly [\\s\\S]*\\[LoadPolicy\\] Save-file load intent armed: nodeUT=[0-9.]+ scene=\\S+",
+             "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql3-before-refly (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=SPACECENTER [^\\r\\n]*\\bcoldReason=save-file\\b",
+             "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql3-before-refly [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+             "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql3-before-refly [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
+             # THE REPLACED FLIGHT IS BACK: the save has no supersede row, so an ERS rebuild
+             # after the save's ledger read skips nothing as superseded (EffectiveState
+             # .ComputeERS), and the Space Center breakdown (ParsekKSC.Start) has the
+             # structurally eligible Destroyed pod in (forbidden below).
+             "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql3-before-refly [\\s\\S]*OnLoad game state from save node: [\\s\\S]*\\[ERS\\] Rebuilt: [0-9]+ entries from [0-9]+ committed \\(skippedNotCommitted=[0-9]+ skippedSuperseded=0 ",
+             "loadgame player-load: firing [\\s\\S]*\\[KSCGhost\\] Eligible breakdown: looping=0 terminal\\(",
+             # THE CREW DEATH COUNTS AGAIN: the save has no tombstone (EffectiveState
+             # .ComputeELS), and the walk keeps the death-derived permanent reservation
+             # (KerbalsModule's PostWalk summary).
+             "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql3-before-refly [\\s\\S]*OnLoad game state from save node: [\\s\\S]*\\[ELS\\] Rebuilt: [0-9]+ entries from [0-9]+ actions \\(skippedTombstoned=0 tombstonesTotal=0\\)",
+             "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql3-before-refly [\\s\\S]*OnLoad game state from save node: [\\s\\S]*\\[KerbalsModule\\] PostWalk summary: reservations=[0-9]+ permanent=[1-9]"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]",
-             "In-session load found no staged-list handoff",
-             # The old fixture shape (no branch point): the point followed the save.
-             "rp_cl_root:FollowSave:",
-             # The death counted again after the load: a death-derived reservation.
-             "loadgame start save=\\S+ name=ql3-before-refly [\\s\\S]*\\[CrewReservations\\] Recomputed [^:\\r\\n]*: [0-9]+ reservations remain \\(permanent=[1-9]",
-             "loadgame start save=\\S+ name=ql3-before-refly [\\s\\S]*\\[KerbalsModule\\] PostWalk summary: reservations=[0-9]+ permanent=[1-9]"]
+             # THE OLD IN-SESSION ROUTE (design 8): no in-session classification, no install
+             # of memory's lists, no owner partition.
+             "loadgame player-load: firing [\\s\\S]*Load classified: early=InSession refined=InSessionOther scene=SPACECENTER",
+             "loadgame player-load: firing [\\s\\S]*In-session staged lists from memory: ",
+             "loadgame player-load: firing [\\s\\S]*In-session RP owner partition decisions: ",
+             # The merge's rows must not survive the load.
+             "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql3-before-refly [\\s\\S]*OnLoad game state from save node: [\\s\\S]*\\[ERS\\] Rebuilt: [^\\r\\n]*skippedSuperseded=[1-9]",
+             "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql3-before-refly [\\s\\S]*OnLoad game state from save node: [\\s\\S]*\\[ELS\\] Rebuilt: [^\\r\\n]*tombstonesTotal=[1-9]",
+             "loadgame player-load: firing [\\s\\S]*\\[KSCGhost\\] Eligible breakdown: [^\\r\\n]*ineligible\\([^()\\r\\n]*Destroyed="]
 
 [expectations.rewind]
 gating        = false
-supersedeRows = { min = 1 }
-tombstones    = { min = 1 }
-# The production prediction: the merge reaped rp_cl_root and the committed tree claims it on
-# the load (the fixture carries the branch point since 2026-10-07; the run before read 1).
-rewindPoints  = { max = 0 }
+# Phase 2 prediction: the end save is the named save's lists (no row, no tombstone of the
+# merge) with rp_cl_root listed again (its file kept while a save names it).
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+rewindPoints  = { min = 1, max = 1 }
 
 [expectations.recordings.structure]
 gating         = false
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
-recordings     = { min = 4 }
+# The corpus's own recordings; the Re-Fly's are not in the save (the run before read 4+).
+recordings     = { min = 3 }
 # The corpus's split branch point (since 2026-10-07; the run before read `branchPoints: {}`).
 branchPoints   = { JointBreak = { min = 1 } }
 

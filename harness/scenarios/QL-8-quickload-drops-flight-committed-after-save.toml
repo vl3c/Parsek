@@ -1,0 +1,177 @@
+schema = 1
+id = "QL-8-quickload-drops-flight-committed-after-save"
+# =====================================================================================
+# QL-8: A LOAD FROM THE SPACE CENTER OF A SAVE TAKEN BEFORE A FLIGHT DROPS THAT FLIGHT.
+# "Load restores the save" Phase 2 (design docs/dev/design-load-restores-the-save.md
+# section 5 scenario S3; plan docs/dev/plans/load-restores-the-save-implementation.md
+# Phase 2 step 7). AUTHORED 2026-10-20, NOT FLOWN.
+#
+# In gameplay terms: at the Space Center the player quicksaves, flies the Jumping Flea
+# off the pad, lands, presses Esc (the flight auto-merges and the game saves on the way
+# out), then quickloads at the Space Center. The quicksave was taken before the flight, so
+# after the load Parsek is exactly as the save was: no committed flight, the save's own
+# ledger, no ghost of the hop. The hop's sidecar files stay on disk (a Backup copy of
+# persistent.sfs may still name them; an unnamed head is quarantined, never deleted).
+#
+# THE ROUTE:
+#   ACT 0  the career pad fixture boots FLIGHT on the pad. Settings, saved into
+#          persistent.sfs, then the Space Center (a plain LoadGame, not a player load).
+#   ACT 1  the committed count read back (0: this career has no committed recording),
+#          then THE F5 at the Space Center (`SaveGame quicksave`). Its OnSave line carries
+#          the save's ledger row count (Verbose; verboseLogging is on).
+#   ACT 2  back to the pad (a plain LoadGame of persistent, FLIGHT route), B1's hop
+#          (QL-2's mission and values verbatim), Esc to the Space Center: the scene-exit
+#          auto-merge commits the hop (committed count >= 1).
+#   ACT 3  THE F9 at the Space Center: `LoadGame quicksave scene=spacecenter
+#          playerLoad=true`, the NoVesselSpaceCenter route (stock F9 at the KSC stays at
+#          the KSC). A Cold save-file load: the reset forgets the hop's commit, the save
+#          node restores the ledger, and the committed count reads 0 again.
+#
+# THE GATE (pinned below):
+#   (a) the f9 block: the fire, the intent, the first classification after it Cold with
+#       coldReason=save-file, the save-scoped reset, the save node read;
+#   (b) the committed count by MissionMark: 0 before the F5, >= 1 after the hop's commit,
+#       0 after the F9 (tied by backreference to the pre-F5 count);
+#   (c) the ledger: the save node's ledgerRows after the F9 equals the ledgerRows the F5's
+#       own OnSave wrote (backreference across the two lines);
+#   (d) the cold collection ran clean after the F9 (failures=0).
+#   Forbidden after the fire: an in-session classification, any commit or auto-commit of
+#   the Jumping Flea, a committed-copy rule line, an engine ghost of the hop.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse: the flight is QL-2's (B1 hop on career-pad-craft), but QL-2's F5 is AFTER the
+#     landing and this lane's must be BEFORE the launch, so it is not a prefix of any host;
+#     a new spec. 2 no idle waits: none (no settle pads; ListHandles answers at once).
+#   3 / 4 / 5 dwells, burns, coasts: not applicable (B1's hop as flown by QL-2 / B1).
+#   6 fail fast: the mission's own timeouts; retry once (a scene-change flake).
+#   7 tight windows: the recording count is {0,3} (hop heads either named by a Backup
+#     referrer, so still top-level, or quarantined); tighten after the first flight.
+#   8 tier: nightly (QL-2's wall, about 6 minutes). 9 flight_efficiency.py after the first
+#     green flight.
+# =====================================================================================
+tier = "nightly"
+description = "QL-8 (S3): at the Space Center quicksave, fly and land the Jumping Flea, Esc (auto-merge), then the player's F9 at the Space Center, a Cold save-file load. The hop's commit is gone (committed count back to the save's 0), the ledger has the save's own row count, and the collection runs clean."
+instanceProfile = "stock-minimal"
+tags = ["QL-8", "quickload", "timeline-ops", "career", "save-file-load", "scene-exit",
+        "auto-merge", "ledger", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/career-pad-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b1_pad_hop_career"
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  # ACT 0: settings into persistent.sfs, then the Space Center.
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "true" },    expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoMerge", value = "true" },             expect = "OK" },
+  # LOAD-BEARING: the OnSave ledger line the gate reads is Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },        expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "persistent" },                            expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  # ACT 1: the committed count before the F5, then THE F5 at the Space Center.
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c0",               expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ql8-f5-committed-${c0.count}" },         expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "quicksave" },                             expect = "OK", budget = 120 },
+  # ACT 2: back to the pad, the hop, Esc (the auto-merge commits it).
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },
+  { phase = "mission",                                                                 expect = "MISSION-OK", budget = 900 },
+  { cmd = "ExitToSpaceCenter",                                                         expect = "OK", budget = 120 },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c1",               expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ql8-committed-${c1.count}" },            expect = "OK" },
+  # ACT 3: THE F9 at the Space Center, the player's load (playerLoad=true).
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave", scene = "spacecenter", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c2",               expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ql8-after-f9-committed-${c2.count}" },   expect = "OK" },
+  { cmd = "FlushAndQuit",                                                              expect = "OK" },
+]
+
+[driver.missionParams]
+# B1-pad-hop's values VERBATIM (QL-2's; the craft is byte-identical).
+throttle                 = 1.0
+apoapsisWindowMeters     = { min = 6000, max = 30000 }
+chuteArmMaxRateMps       = 30
+chuteFullDeployAltMeters = 2500
+landedSituations         = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds     = 90
+coastTimeoutSeconds      = 180
+descentTimeoutSeconds    = 360
+
+[dimensionsCovered]
+# D14 values only (each already covered elsewhere). No D-value names a back-in-time load.
+D14 = ["kerbin", "career", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Top-level heads on disk at the end: the hop's (named by a Backup referrer) or none (all
+# quarantined). Tighten after the first flight.
+count = { min = 0, max = 3 }
+
+# REPORT-ONLY until a reading run. Predicted: the produced save is the quicksave's
+# timeline, so no tree and no committed tree.
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 0, max = 0 }
+committedTrees = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required = [
+  # GROUP 1 - THE F5 AT THE SPACE CENTER, BEFORE THE FLIGHT.
+  "MISSIONMARK label=ql8-f5-committed-0 ut=",
+  "MISSIONMARK label=ql8-f5-committed-[0-9]+ ut=[\\s\\S]*savegame name=quicksave folder=.+ saved=true[\\s\\S]*Recording started",
+
+  # GROUP 2 - THE HOP IS COMMITTED BY THE EXIT.
+  "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='Jumping Flea' recordings=[1-9][0-9]*",
+  "MISSIONMARK label=ql8-committed-[1-9][0-9]* ut=",
+
+  # GROUP 3 - THE F9 AT THE SPACE CENTER IS A SAVE-FILE LOAD (design 4.1).
+  "loadgame start save=\\S+ name=quicksave scene=SPACECENTER requestedScene=SpaceCenter [^\\r\\n]* playerLoad=true",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave route=NoVesselSpaceCenter",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*\\[LoadPolicy\\] Save-file load intent armed: nodeUT=[0-9.]+ scene=SPACECENTER",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=SPACECENTER [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
+
+  # =================================================================================
+  # THE GATE.
+  # (b) The committed count: back to the save's own after the F9.
+  "MISSIONMARK label=ql8-f5-committed-([0-9]+) ut=[\\s\\S]*MISSIONMARK label=ql8-committed-(?!\\1 )[0-9]+ ut=[\\s\\S]*MISSIONMARK label=ql8-after-f9-committed-\\1 ut=",
+  "loadgame player-load: firing [\\s\\S]*listhandles kind=committed count=0 truncated=false",
+  # (c) The ledger: the save node's row count after the F9 is the one the F5 wrote (the
+  # last OnSave before the quicksave's completion line is the F5's own).
+  "OnSave: wrote external game-state files and the GAME_STATE node \\(events=[0-9]+, milestones=[0-9]+, baselines=[0-9]+, ledgerRows=([0-9]+),(?:(?!OnSave: wrote external)[\\s\\S])*savegame name=quicksave folder=[\\s\\S]*loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!OnLoad game state from save node)[\\s\\S])*OnLoad game state from save node: ledgerRows=\\1 ",
+  # (d) The cold collection after the F9 ran over the save folder's referrers, clean.
+  "loadgame player-load: firing [\\s\\S]*Collection: referrers=[1-9][0-9]* [^\\r\\n]*\\bfailures=0 [^\\r\\n]*reason=cold-load",
+  # END GATE
+  # =================================================================================
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # THE OLD IN-SESSION MACHINERY, unreachable on a save-file load (design 8).
+  "loadgame player-load: firing (?:(?!Load classified: )[\\s\\S])*Load classified: early=InSession",
+  "loadgame player-load: firing [\\s\\S]*Quickload committed-copy restore",
+  "loadgame player-load: firing [\\s\\S]*Quickload abandoned-future reconcile: tree=",
+  # The hop is not committed again, and no ghost of it is built after the F9.
+  "loadgame player-load: firing [\\s\\S]*Silent full-fidelity auto-commit \\(scene-exit\\): tree='Jumping Flea'",
+  "loadgame player-load: firing [\\s\\S]*\\[Engine\\] Ghost #[0-9]+ \"Jumping Flea[^\"]*\" spawn(?:ed \\(|-pending notify)",
+  "MISSIONMARK label=ql8-after-f9-committed-[1-9]",
+]
+
+[runtime]
+# Four LoadGame (max(300,600)+60 each = 2640), SetSetting x3 360, two SaveGame 360,
+# mission 900, ExitToSpaceCenter 120, three ListHandles / three MissionMark / FlushAndQuit
+# 420. Expected wall about 6 minutes (boot, three reloads, a ~2 minute hop).
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

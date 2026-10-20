@@ -1,5 +1,11 @@
 schema = 1
 id = "CI-3-chain-rederive-readback"
+# RESHAPED 2026-10-20 FOR "LOAD RESTORES THE SAVE" PHASE 2 (design
+# docs/dev/design-load-restores-the-save.md 4.1 / 4.7; plan Phase 2 step 7). NOT FLOWN in
+# this shape. The round trip's LoadGame carries `playerLoad=true`, a Cold save-file
+# load into FLIGHT: memory is reset and the new flight scene re-derives the chain set from
+# the quicksave alone, which makes the digest equality a stronger re-derivation proof.
+# Every chain token is unchanged; the classification is pinned Cold `coldReason=save-file`.
 tier = "operator"
 # =====================================================================================
 # THE D18 SPAWN-IN-RUN WAVE, PR-B: `ghost-conversion-quicksave` and
@@ -94,7 +100,7 @@ tier = "operator"
 # tell "gone" from "never ran") is why every absence here is paired with a required
 # presence: the readback requires `count=[1-9]` and `evaluated=true` on BOTH captures.
 # =====================================================================================
-description = "D18 spawn-in-run wave, PR-B (LIVE-PROVEN 2026-09-22: readings rp2 `_1951`, rp1 `_1954` / `_1956`, armed `_1957` PASS, negative control `_2000` red on exactly its three seeds): bdock-recorded rewound to rp=${handles.rp1} (the Interceptor separation, UT 693.29; reading run 1 on rp2 measured a 0.02 s spawnUT race) so the walker claims the docking partner and the flight scene GHOSTS the real claimed vessel (ghost-conversion-quicksave), then ListHandles kind=chains before a SaveGame + LoadGame(allowLiveRecorder=refly) and again after with expectDigest=${before.digest}, so the seam proves the chain set was RE-DERIVED identically by a new flight scene (chain-state-rederived), with the save-side ghostChainNodes tripwire at zero."
+description = "D18 spawn-in-run wave, PR-B (LIVE-PROVEN 2026-09-22: readings rp2 `_1951`, rp1 `_1954` / `_1956`, armed `_1957` PASS, negative control `_2000` red on exactly its three seeds): bdock-recorded rewound to rp=${handles.rp1} (the Interceptor separation, UT 693.29; reading run 1 on rp2 measured a 0.02 s spawnUT race) so the walker claims the docking partner and the flight scene GHOSTS the real claimed vessel (ghost-conversion-quicksave), then ListHandles kind=chains before a SaveGame + LoadGame(allowLiveRecorder=refly, playerLoad=true: a Cold save-file load) and again after with expectDigest=${before.digest}, so the seam proves the chain set was RE-DERIVED identically by a new flight scene (chain-state-rederived), with the save-side ghostChainNodes tripwire at zero."
 instanceProfile = "stock-minimal"
 tags = ["CI-3", "chain-interaction", "ghost-chain", "ghost-conversion", "rederive",
         "readback", "rewind", "refly", "quicksave", "R10", "runtime-handles", "kerbin",
@@ -123,7 +129,7 @@ steps = [
   # THE ROUND TRIP (S4.4's F5 + F9 shape): an inert mid-session save, then a real reload
   # through the RF-3/A1 opt-in, which rebuilds the flight scene from the file.
   { cmd = "SaveGame",   args = { name = "quicksave" },                         expect = "OK" },
-  { cmd = "LoadGame",   args = { save = "${runSave}", name = "quicksave", allowLiveRecorder = "refly" }, expect = "OK", budget = 300 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "quicksave", allowLiveRecorder = "refly", playerLoad = "true" }, expect = "OK", budget = 300 },
   # CAPTURE 2, compared BY THE SEAM against capture 1.
   { cmd = "ListHandles", args = { kind = "chains", expectDigest = "${before.digest}" }, label = "after", expect = "OK" },
   { cmd = "AnswerMergeDialog", args = { choice = "merge" },                    expect = "OK", budget = 120 },
@@ -187,7 +193,12 @@ required  = [
   # LINE (the contract is searched over the whole log), so capture 1 is the uncompared one.
   "(?m)listhandles kind=chains count=1 truncated=false evaluated=true digest=6ad6ec1c$",
   "savegame name=quicksave .*saved=true",
-  "loadgame start save=\\S+ name=quicksave .*allowLiveRecorder=refly recorderLive=true",
+  "loadgame start save=\\S+ name=quicksave .*allowLiveRecorder=refly recorderLive=true playerLoad=true",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave route=Focusable",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*\\[LoadPolicy\\] Save-file load intent armed: nodeUT=[0-9.]+ scene=FLIGHT",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
   # After the reload: the ghosted vessel is absent from the quicksave, and the chain is
   # back anyway - re-derived, since nothing else could have supplied it.
   "\\[Ghoster\\] Chain vessel pid=3620499050 not loaded in scene",
@@ -205,6 +216,7 @@ forbidden = [
   # The re-flown vessel must never be the one ghosted.
   "Ghosting vessel: pid=2307686926 ",
   "End reason=treeDiscarded",
+  "loadgame player-load: firing [\\s\\S]*Load classified: early=InSession refined=QuickloadFlight",
 ]
 
 [runtime]

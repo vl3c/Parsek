@@ -1,0 +1,146 @@
+schema = 1
+id = "QL-12-quickload-brings-back-sealed-rewind-point"
+# =====================================================================================
+# QL-12: AN F9 BRINGS BACK A REWIND POINT SEALED AFTER THE SAVE, WITH ITS FILE.
+# "Load restores the save" Phase 2 (design docs/dev/design-load-restores-the-save.md
+# section 5 scenario S9; plan docs/dev/plans/load-restores-the-save-implementation.md
+# Phase 2 step 7). AUTHORED 2026-10-20, NOT FLOWN.
+#
+# In gameplay terms: the player quicksaves while a rewind point has an open Unfinished
+# Flight, then seals that flight (the point has nothing left open, so it is reaped and
+# disappears from the list), then quickloads. The quicksave still lists the point with
+# its slot open, so after the load the point and its open slot are back, and the point's
+# own quicksave file is still on disk: the reap released the file to the collector, and
+# the collector keeps it while quicksave.sfs names it. Without that retention
+# `LoadTimeSweep` would find the file missing and conclude the slot.
+#
+# HOST: QL-5's (`gloops-airshow` + the injected `rewind-b9` corpus). The B9 split
+# `rp_b9_root` has slot 0, the upper stage (Orbiting, Immutable: closed), and slot 1, the
+# crashed booster `b9-booster-a` (Destroyed, CommittedProvisional: the open Unfinished
+# Flight). Sealing slot 1 leaves the point with no open slot, so the seal's reap takes it
+# (`reaperImpact=willReap`, RF-11's measured line for the last slot of a point). The
+# point sits 60 s after the template's UT; the TimeJump of 61 s (QL-5's / S4.1's gate
+# step) puts the F5 after it, as in the design's scenario.
+#
+# THE ROUTE (FLIGHT throughout, no recorder: autoRecordOnLaunch off, as QL-5):
+#   ACT 0  LoadGame persistent, settings, TimeJump 61 s; the rewind points read back
+#          (count 1, rp_b9_root, slot 1 open).
+#   ACT 1  THE F5 (`SaveGame quicksave`).
+#   ACT 2  `SealSlot rp=rp_b9_root slot=1`: the seal persists persistent.sfs, then the
+#          reaper takes the point. The list reads back empty.
+#   ACT 3  THE F9 (`LoadGame quicksave playerLoad=true`, a Cold save-file load into
+#          FLIGHT). The list reads back the point with slot 1 open again.
+#
+# THE GATE (pinned below): the seal and reap lines before the F9; the f9 block; after
+# the F9 the load sweep's `missingQuicksaveRps=0` and the MissionMark readback
+# `ql12-after-f9-1-rp_b9_root-true` (count, id, slot 1 open). Forbidden: the collector
+# deleting the point's file anywhere in the run, an in-session classification.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse: QL-5's prefix (boot, settings, TimeJump, ListHandles) is shared, but QL-5
+#     invokes a Re-Fly where this lane seals; a new spec. 2 no idle waits: none (the
+#     TimeJump is an explicit jump). 3 / 4 / 5 not applicable (no flight).
+#   6 retry once. 7 tight windows: the rewind block pins rewindPoints {1,1} (report-only
+#     until a reading run); count min 1 (the injected corpus). 8 tier nightly (a boot and
+#     one reload, about 2 minutes). 9 flight_efficiency.py after the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "QL-12 (S9): F5 while rp_b9_root has an open slot, seal that slot (the point is reaped and leaves the list), then the player's F9 (a Cold save-file load). The point is back with its slot open, and its quicksave file is still on disk (the load sweep finds no missing file)."
+instanceProfile = "stock-minimal"
+tags = ["QL-12", "quickload", "timeline-ops", "save-file-load", "rewind-point", "seal",
+        "reaper", "collector", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "rewind-b9"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  # ACT 0: boot, settings, past the split.
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },        expect = "OK", budget = 240 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },    expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },         expect = "OK" },
+  { cmd = "TimeJump",       args = { deltaSeconds = "61.0" },                           expect = "OK", budget = 120 },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "r0",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ql12-before-${r0.count}-${r0.rp0}-${r0.rp0slot1open}" }, expect = "OK" },
+  # ACT 1: THE F5.
+  { cmd = "SaveGame",       args = { name = "quicksave" },                              expect = "OK", budget = 120 },
+  # ACT 2: seal the open slot; the point is reaped.
+  { cmd = "SealSlot",       args = { rp = "rp_b9_root", slot = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "r1",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ql12-sealed-${r1.count}" },               expect = "OK" },
+  # ACT 3: THE F9, the player's load.
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "r2",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ql12-after-f9-${r2.count}-${r2.rp0}-${r2.rp0slot1open}" }, expect = "OK" },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rp-disk-reaper", "load-time-sweep"]
+D14 = ["scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The injected B9 corpus (this lane records nothing).
+count = { min = 1 }
+
+# REPORT-ONLY until a reading run. Predicted: the produced save is the quicksave's
+# timeline, so rp_b9_root is listed again.
+[expectations.rewind]
+gating        = false
+rewindPoints  = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  # GROUP 1 - THE POINT IS OPEN AT THE F5.
+  "MISSIONMARK label=ql12-before-1-rp_b9_root-true ut=[\\s\\S]*savegame name=quicksave folder=.+ saved=true",
+
+  # GROUP 2 - THE SEAL AFTER THE F5 REAPS THE POINT AND RELEASES ITS FILE.
+  "savegame name=quicksave folder=[\\s\\S]*Seal persisted to persistent.sfs before RP reap",
+  "savegame name=quicksave folder=[\\s\\S]*Rewind quicksave released for collection rp=rp_b9_root ",
+  "savegame name=quicksave folder=[\\s\\S]*Reaped rp=rp_b9_root bp=\\S+ slots=2",
+  "savegame name=quicksave folder=[\\s\\S]*Sealed slot=[0-9]+ rec=\\S+ bp=\\S+ rp=rp_b9_root tip=\\S+ mergeState=CommittedProvisional->Immutable terminal=\\S+ reaperImpact=willReap reaped=1",
+  "sealslot complete mode=slot rp=rp_b9_root slot=1 tip=\\S+ alreadySealed=False",
+  "MISSIONMARK label=ql12-sealed-0 ut=",
+
+  # GROUP 3 - THE F9 IS A SAVE-FILE LOAD (design 4.1).
+  "loadgame start save=\\S+ name=quicksave scene=FLIGHT [^\\r\\n]* playerLoad=true",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave route=Focusable",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*\\[LoadPolicy\\] Save-file load intent armed: nodeUT=[0-9.]+ scene=FLIGHT",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
+
+  # =================================================================================
+  # THE GATE - THE POINT, ITS OPEN SLOT AND ITS FILE ARE BACK.
+  # The load sweep found every listed point's quicksave on disk.
+  "loadgame player-load: firing [\\s\\S]*\\[LoadSweep\\] Marker valid=[^\\r\\n]*\\bmissingQuicksaveRps=0 ",
+  "MISSIONMARK label=ql12-after-f9-1-rp_b9_root-true ut=",
+  # END GATE
+  # =================================================================================
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "loadgame player-load: firing (?:(?!Load classified: )[\\s\\S])*Load classified: early=InSession",
+  # The point's file collected while the quicksave still names it.
+  "Rewind point file collected: rp=rp_b9_root",
+  "loadgame player-load: firing [\\s\\S]*\\[LoadSweep\\] Marker valid=[^\\r\\n]*\\bmissingQuicksaveRps=[1-9]",
+  "MISSIONMARK label=ql12-after-f9-(?!1-rp_b9_root-true )",
+]
+
+[runtime]
+# Two LoadGame (max(240|300,600)+60 each = 1320), TimeJump 180, SaveGame 180, SealSlot
+# 180, three ListHandles / three MissionMark / two SetSetting / FlushAndQuit at 120.
+# Expected wall about 2 minutes.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
