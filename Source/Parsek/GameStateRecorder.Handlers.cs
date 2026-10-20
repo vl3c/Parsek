@@ -1537,7 +1537,8 @@ namespace Parsek
         /// Suppressed during timeline replay. Internal static for testability.
         /// </summary>
         internal static void OnScienceLabCredited(
-            double ut, float scienceBefore, float scienceAfter, string reasonKey, string vesselName)
+            double ut, float scienceBefore, float scienceAfter, string reasonKey, string vesselName,
+            uint vesselPersistentId = 0u)
         {
             if (IsReplayingActions || SuppressResourceEvents)
             {
@@ -1555,6 +1556,12 @@ namespace Parsek
             }
 
             var evt = BuildScienceLabCreditEvent(ut, scienceBefore, scienceAfter, reasonKey, vesselName);
+            // Design section 2.12 Rule 3: during a Re-Fly session the lab payout is filed
+            // under the lab's own vessel.
+            string causeTag;
+            if (vesselPersistentId != 0u
+                && ReFlyAwardTagging.TryResolveCauseTag(vesselPersistentId, null, out causeTag))
+                evt.recordingId = causeTag;
             Emit(ref evt, "ScienceLabCredited");
 
             ParsekLog.Info("GameStateRecorder",

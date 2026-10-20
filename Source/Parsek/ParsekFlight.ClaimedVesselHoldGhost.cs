@@ -36,6 +36,66 @@ namespace Parsek
         private readonly Dictionary<uint, KeyValuePair<GhostChain, ChainClaimedVessel>> claimedVesselHoldDesiredScratch =
             new Dictionary<uint, KeyValuePair<GhostChain, ChainClaimedVessel>>();
 
+        // Design section 2.12 Rule 3: survivors of a Re-Fly load that a committed recording
+        // flies or recovers after the rewind UT (ReFlyInvokeHold), held without a ghost chain.
+        // Keyed by pid; FirstClaimUT is the first committed use, after which the hold ghost
+        // yields to the committed recording.
+        private readonly Dictionary<uint, ChainClaimedVessel> reFlyInvokeHolds =
+            new Dictionary<uint, ChainClaimedVessel>();
+
+        /// <summary>
+        /// Second feed of the claimed-vessel hold (the first is the ghost-chain walk): ghosts
+        /// each live survivor in <paramref name="entries"/> through <see cref="VesselGhoster"/>
+        /// and holds it until its first committed use. A vessel the chain feed already holds is
+        /// left to it. Releases the end-spawn claim a flying recording of the same launch keeps
+        /// on the despawned pid, so that recording brings the vessel back at its end. Returns
+        /// the entries actually held.
+        /// </summary>
+        internal List<ReFlyInvokeHold.Entry> HoldReFlyInvokeVessels(
+            IList<ReFlyInvokeHold.Entry> entries, out int notLive, out int alreadyHeld)
+        {
+            notLive = 0;
+            alreadyHeld = 0;
+            var held = new List<ReFlyInvokeHold.Entry>();
+            if (entries == null || entries.Count == 0)
+                return held;
+            if (vesselGhoster == null)
+                vesselGhoster = new VesselGhoster();
+
+            for (int i = 0; i < entries.Count; i++)
+            {
+                ReFlyInvokeHold.Entry entry = entries[i];
+                if (entry == null || entry.Pid == 0u) continue;
+                if (vesselGhoster.IsGhosted(entry.Pid))
+                {
+                    alreadyHeld++;
+                    continue;
+                }
+                if (FlightRecorder.FindVesselByPid(entry.Pid) == null || !vesselGhoster.GhostVessel(entry.Pid))
+                {
+                    notLive++;
+                    continue;
+                }
+                reFlyInvokeHolds[entry.Pid] = new ChainClaimedVessel
+                {
+                    Pid = entry.Pid,
+                    LaunchGuid = entry.LaunchGuid,
+                    FirstClaimUT = entry.FirstClaimUT,
+                };
+                for (int r = 0; r < entry.FlyingRecordingIds.Count; r++)
+                {
+                    Recording rec = FindTipRecordingById(entry.FlyingRecordingIds[r]);
+                    VesselGhoster.ReleaseTipSpawnClaimOnGhostedVessel(rec, entry.Pid, "refly-invoke-hold");
+                }
+                held.Add(entry);
+            }
+
+            if (held.Count > 0)
+                GhostPlaybackLogic.SetIsGhostedOverride(
+                    pid => vesselGhoster != null && vesselGhoster.IsGhosted(pid));
+            return held;
+        }
+
         /// <summary>In-game test seam: number of held-back vessels drawn from their despawn snapshot.</summary>
         internal int ClaimedVesselHoldGhostCountForInGameTest
         {
@@ -57,6 +117,7 @@ namespace Parsek
         private void UpdateClaimedVesselHoldGhosts(double currentUT)
         {
             if (claimedVesselHoldGhosts.Count == 0
+                && reFlyInvokeHolds.Count == 0
                 && (activeGhostChains == null || activeGhostChains.Count == 0 || vesselGhoster == null))
                 return;
 
@@ -89,6 +150,24 @@ namespace Parsek
                         claimedVesselHoldDesiredScratch[claim.Pid] =
                             new KeyValuePair<GhostChain, ChainClaimedVessel>(chain, claim);
                     }
+                }
+            }
+
+            if (vesselGhoster != null && reFlyInvokeHolds.Count > 0)
+            {
+                foreach (var kv in reFlyInvokeHolds)
+                {
+                    ChainClaimedVessel claim = kv.Value;
+                    if (claimedVesselHoldDesiredScratch.ContainsKey(claim.Pid))
+                        continue;
+                    var info = vesselGhoster.GetGhostedInfo(claim.Pid);
+                    if (info == null || info.snapshot == null || currentUT >= claim.FirstClaimUT)
+                        continue;
+                    if (ers == null) ers = EffectiveState.ComputeERS();
+                    if (DecideReFlyInvokeHoldHideReason(claim, currentUT, ers) != null)
+                        continue;
+                    claimedVesselHoldDesiredScratch[claim.Pid] =
+                        new KeyValuePair<GhostChain, ChainClaimedVessel>(null, claim);
                 }
             }
 
@@ -150,7 +229,23 @@ namespace Parsek
                     }
                 }
             }
+            ChainClaimedVessel invokeClaim;
+            if (reFlyInvokeHolds.TryGetValue(pid, out invokeClaim))
+                return DecideReFlyInvokeHoldHideReason(invokeClaim, currentUT, EffectiveState.ComputeERS())
+                    ?? "unknown";
             return "chain-inactive";
+        }
+
+        private static string DecideReFlyInvokeHoldHideReason(
+            ChainClaimedVessel claim, double currentUT, IReadOnlyList<Recording> ers)
+        {
+            return ClaimedVesselHoldGhost.DecideHideReason(
+                hasSnapshot: true,
+                chainActive: true,
+                currentUT: currentUT,
+                firstClaimUT: claim.FirstClaimUT,
+                coveredByRecording: ClaimedVesselHoldGhost.CoveredByRecording(
+                    claim.Pid, claim.LaunchGuid, ers, currentUT));
         }
 
         private void DestroyClaimedVesselHoldGhost(ClaimedVesselHoldGhostState s, string reason, double currentUT)
@@ -184,7 +279,7 @@ namespace Parsek
             var s = new ClaimedVesselHoldGhostState
             {
                 pid = claim.Pid,
-                chainPid = chain.OriginalVesselPid,
+                chainPid = chain != null ? chain.OriginalVesselPid : 0u,
                 vesselName = info.vesselName,
                 snapshot = info.snapshot,
                 shownSinceUT = currentUT,

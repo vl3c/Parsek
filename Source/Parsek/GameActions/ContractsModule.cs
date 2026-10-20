@@ -235,9 +235,23 @@ namespace Parsek
         /// action and the cutoff itself still produce a synthetic fail. When no cutoff
         /// is in play, "now" falls back to the last surviving action's UT (the original
         /// heuristic — correct for non-rewind walks where the end of the ledger is
-        /// effectively the current time).
+        /// effectively the current time). A "walk everything" sentinel cutoff is never
+        /// used as "now"; the explicit-clock overload below separates the two.
         /// </remarks>
         public bool PrePass(List<GameAction> actions, double? walkNowUT = null)
+        {
+            return PrePass(actions, walkNowUT, null);
+        }
+
+        /// <summary>
+        /// The pre-pass with an explicit deadline clock. <paramref name="deadlineClockUT"/>,
+        /// when finite, is the instant a deadline is judged against, independent of the
+        /// walk's cutoff: the Re-Fly invoke walk passes <c>double.MaxValue</c> as its cutoff
+        /// (walk the whole committed career) and the live UT as the clock, so a contract
+        /// whose deadline is still ahead of the session is not failed by the horizon
+        /// (design section 2.12 Rule 3).
+        /// </summary>
+        internal bool PrePass(List<GameAction> actions, double? walkNowUT, double? deadlineClockUT)
         {
             if (actions == null || actions.Count == 0)
                 return false;
@@ -307,8 +321,8 @@ namespace Parsek
             //   - Non-rewind path: walkNowUT is null; use the last surviving action's
             //     UT (the original behavior).
             double lastActionUT = actions[actions.Count - 1].UT;
-            double nowUT = walkNowUT ?? lastActionUT;
-            string nowSource = walkNowUT.HasValue ? "cutoff" : "lastActionUT";
+            string nowSource;
+            double nowUT = ResolveDeadlineClockUT(walkNowUT, deadlineClockUT, lastActionUT, out nowSource);
             int injected = 0;
 
             foreach (var kvp in tracked)
@@ -353,6 +367,36 @@ namespace Parsek
             // Signal the engine to re-sort only when we actually injected a synthetic
             // action; a no-injection pre-pass leaves the sorted list intact.
             return injected > 0;
+        }
+
+        /// <summary>
+        /// Pure: the instant the pre-pass judges deadlines against, and its source label.
+        /// A finite <paramref name="deadlineClockUT"/> wins (<c>clock</c>); else a finite
+        /// cutoff that is not a "walk everything" sentinel (<c>cutoff</c>); else the last
+        /// surviving action's UT (<c>lastActionUT</c>). A sentinel cutoff is a horizon,
+        /// never a clock: judging deadlines against it would fail every deadline contract.
+        /// </summary>
+        internal static double ResolveDeadlineClockUT(
+            double? walkNowUT, double? deadlineClockUT, double lastActionUT, out string source)
+        {
+            if (deadlineClockUT.HasValue
+                && !double.IsNaN(deadlineClockUT.Value)
+                && !double.IsInfinity(deadlineClockUT.Value)
+                && !KerbalsModule.IsNoTimeFilterCutoff(deadlineClockUT.Value))
+            {
+                source = "clock";
+                return deadlineClockUT.Value;
+            }
+            if (walkNowUT.HasValue
+                && !double.IsNaN(walkNowUT.Value)
+                && !double.IsInfinity(walkNowUT.Value)
+                && !KerbalsModule.IsNoTimeFilterCutoff(walkNowUT.Value))
+            {
+                source = "cutoff";
+                return walkNowUT.Value;
+            }
+            source = "lastActionUT";
+            return lastActionUT;
         }
 
         /// <inheritdoc/>

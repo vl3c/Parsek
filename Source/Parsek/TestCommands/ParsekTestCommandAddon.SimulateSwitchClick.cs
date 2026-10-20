@@ -121,6 +121,20 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // The Re-Fly switch block (design section 2.12 Rule 3) runs in the map Prefix
+            // before the dialog decision; the verb calls SetActiveVessel directly, so it runs
+            // the same gate here with the same path token and refusal line.
+            string reFlyRefusal;
+            if (ReFlySwitchGate.IsRefused(target.persistentId, ReFlySwitchGate.PathMapSwitchTo,
+                    true, out reFlyRefusal))
+            {
+                string refusedMsg = "refly-switch-refused:" + reFlyRefusal;
+                ParsekLog.Warn(Tag,
+                    $"switchclick refused reason={refusedMsg} targetPid={target.persistentId}");
+                SetExecResult("REJECTED", null, refusedMsg);
+                return;
+            }
+
             // ----- Sample exactly what the Prefix samples -----
             ParsekScenario scenario = ParsekScenario.Instance;
             ParsekFlight flight = ParsekFlight.Instance;

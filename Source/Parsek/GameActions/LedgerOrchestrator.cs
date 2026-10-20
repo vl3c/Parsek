@@ -2006,16 +2006,23 @@ namespace Parsek
         /// cutoff at the call site before <see cref="RewindContext.EndRewind"/> clears
         /// the global.
         /// </param>
+        /// <param name="deadlineClockUT">
+        /// Optional instant contract deadlines are judged against when it differs from the
+        /// walk cutoff (the Re-Fly invoke walk: cutoff <c>double.MaxValue</c>, clock = the
+        /// live UT). Null keeps the cutoff as the deadline clock.
+        /// </param>
         internal static void RecalculateAndPatch(
             double? utCutoff = null,
-            bool suppressSuspiciousDrawdownWarnings = false)
+            bool suppressSuspiciousDrawdownWarnings = false,
+            double? deadlineClockUT = null)
         {
             RecalculateAndPatchCore(
                 utCutoff,
                 bypassPatchDeferral: utCutoff.HasValue,
                 authoritativeRepeatableRecordState: utCutoff.HasValue,
                 techPatchCutoff: utCutoff,
-                suppressSuspiciousDrawdownWarnings: suppressSuspiciousDrawdownWarnings);
+                suppressSuspiciousDrawdownWarnings: suppressSuspiciousDrawdownWarnings,
+                deadlineClockUT: deadlineClockUT);
         }
 
         /// <summary>
@@ -3449,7 +3456,8 @@ namespace Parsek
             double? techPatchCutoff,
             bool excludeTombstonedTechFromBaseline = false,
             bool suppressSuspiciousDrawdownWarnings = false,
-            bool tombstonePath = false)
+            bool tombstonePath = false,
+            double? deadlineClockUT = null)
         {
             Initialize();
 
@@ -3484,7 +3492,7 @@ namespace Parsek
             // release / re-reserve transitions.
             if (utCutoff.HasValue && kerbalsModule != null)
                 kerbalsModule.MarkNextWalkProvisional();
-            RecalculationEngine.Recalculate(actions, utCutoff);
+            RecalculationEngine.Recalculate(actions, utCutoff, deadlineClockUT);
 
             // FacilitiesModule is dispatched after contracts/strategies, so a
             // facility upgrade's final slot limit is only known after the walk.
