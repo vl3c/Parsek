@@ -2,9 +2,11 @@ schema = 1
 id = "LAB-13b-lab-dock-undock"
 tier = "operator"
 # THE SCIENCE-LAB PROGRAM, lane LAB-13 in its TRUE dock / undock form (plan
-# `docs/dev/research/lab-test-program-2026-10-17.md`, "LAB-13 dock and undock"). NEVER FLOWN:
-# its first flight is a READING run, so it is `operator` and tagged `pending-flight` until that
-# run pins the measured values. The reduced `LAB-13-lab-process-separate-transmit` stays as it
+# `docs/dev/research/lab-test-program-2026-10-17.md`, "LAB-13 dock and undock"). LIVE-PROVEN
+# 2026-10-20 on its first flight: `2026-10-20_1844` PASS (wall 240 s), flown from this spec on a
+# DLL of main plus the last orbit-estimate fixes. The re-dock merged the tender into the lab
+# (`dock merge pending (merged=2200110055, absorbed=4283818694)`: the lab stays dominant) and the
+# second press was a true undock (`OnVesselsUndocking ... decision=SplitRecorded`). Operator tier. The reduced `LAB-13-lab-process-separate-transmit` stays as it
 # is (live-proven): it processes while the tender is joined and never re-docks, because
 # neither side of the LABX craft carried RCS.
 #
@@ -79,7 +81,7 @@ tier = "operator"
 description = "LAB-13b (the true dock / undock form of LAB-13): in low Kerbin orbit the RCS-equipped probe tender separates from the science lab (a pre-attached JointBreak split), the d5_redock mission's separated start switches to the tender and MechJeb docks it back (a same-tree two-parent Dock merge), a thermometer reading is processed into the lab while docked, the pair undocks for real (onVesselsUndocking, an Undock branch), and the lab keeps its data and science and transmits 12.5 at the KSC pass with one credit tagged to its post-undock recording, whose end snapshot matches the lab."
 instanceProfile = "stock-minimal"
 tags = ["science-lab", "science", "transmit", "docking-port", "separation", "dock", "undock",
-        "redock", "same-tree", "mechjeb", "rails-warp", "LAB-13", "LAB-13b", "pending-flight"]
+        "redock", "same-tree", "mechjeb", "rails-warp", "LAB-13", "LAB-13b"]
 
 [fixture]
 saveTemplate = "fixtures/saves/lab-lko-tender-rcs"
