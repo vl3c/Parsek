@@ -1442,7 +1442,11 @@ namespace Parsek
                 RewindReadbackGuard.Arm(eBefore, eRp);
                 try
                 {
-                    LedgerOrchestrator.RecalculateAndPatch(double.MaxValue);
+                    // The cutoff is a horizon, not a clock: contract deadlines are judged
+                    // at the session's own UT (design section 2.12 Rule 3), so a deadline
+                    // still ahead of the session does not read as expired.
+                    LedgerOrchestrator.RecalculateAndPatch(
+                        double.MaxValue, deadlineClockUT: retireCutoffUT);
                 }
                 catch (Exception ex)
                 {

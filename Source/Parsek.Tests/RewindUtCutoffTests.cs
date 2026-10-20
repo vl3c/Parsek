@@ -1366,6 +1366,43 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ReFlyInvokeWalk_HorizonCutoffWithSessionClock_DeadlineAheadStaysActive()
+        {
+            AddAll(
+                FundsSeed(10000f),
+                ContractAcceptWithDeadline(100.0, "c-session-deadline",
+                    advance: 200f, deadlineUt: 700f, fundsPenalty: 500f));
+
+            LedgerOrchestrator.RecalculateAndPatch(double.MaxValue, deadlineClockUT: 400.0);
+
+            Assert.Equal(10200.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Equal(1, LedgerOrchestrator.Contracts.GetActiveContractCount());
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Contracts]")
+                && l.Contains("injected synthetic ContractFail")
+                && l.Contains("c-session-deadline"));
+        }
+
+        [Fact]
+        public void ReFlyInvokeWalk_HorizonCutoffWithSessionClock_DeadlinePassedStillFails()
+        {
+            AddAll(
+                FundsSeed(10000f),
+                ContractAcceptWithDeadline(100.0, "c-session-expired",
+                    advance: 200f, deadlineUt: 300f, fundsPenalty: 500f));
+
+            LedgerOrchestrator.RecalculateAndPatch(double.MaxValue, deadlineClockUT: 400.0);
+
+            Assert.Equal(9700.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Equal(0, LedgerOrchestrator.Contracts.GetActiveContractCount());
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]")
+                && l.Contains("injected synthetic ContractFail")
+                && l.Contains("c-session-expired")
+                && l.Contains("source=clock"));
+        }
+
+        [Fact]
         public void NullCutoff_DeadlineSynthPreservesLastActionUtHeuristic()
         {
             // Accept at UT=100 with DeadlineUT=300. A later real action exists at UT=500.

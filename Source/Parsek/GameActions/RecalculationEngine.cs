@@ -141,7 +141,14 @@ namespace Parsek
         /// by definition. Used by the rewind path to prevent post-rewind re-credit of events
         /// that occurred after the rewind target. When null, no filtering is applied.
         /// </param>
-        internal static void Recalculate(List<GameAction> actions, double? utCutoff = null)
+        /// <param name="deadlineClockUT">
+        /// Optional instant contract deadlines are judged against, separate from the walk
+        /// cutoff. The Re-Fly invoke walk passes a <c>double.MaxValue</c> cutoff (the whole
+        /// committed career) with the live UT here. When null, the cutoff (or the last
+        /// action's UT) is the deadline clock, as before.
+        /// </param>
+        internal static void Recalculate(
+            List<GameAction> actions, double? utCutoff = null, double? deadlineClockUT = null)
         {
             if (actions == null)
             {
@@ -188,7 +195,7 @@ namespace Parsek
                     ComputeProjectionHorizon(actions)).Sorted;
             }
 
-            WalkResult walk = RunWalk(effective, utCutoff);
+            WalkResult walk = RunWalk(effective, utCutoff, deadlineClockUT);
 
             if (utCutoff.HasValue)
                 ApplyProjectedAvailability(projectedTimeline, utCutoff.Value);
@@ -511,7 +518,8 @@ namespace Parsek
             internal int DeltaActions;
         }
 
-        private static WalkResult RunWalk(List<GameAction> actions, double? walkNowUT)
+        private static WalkResult RunWalk(
+            List<GameAction> actions, double? walkNowUT, double? deadlineClockUT)
         {
             return RunWalk(
                 actions,
@@ -519,7 +527,8 @@ namespace Parsek
                 firstTierModules,
                 strategyTransform,
                 secondTierModules,
-                facilitiesModule);
+                facilitiesModule,
+                deadlineClockUT);
         }
 
         private static WalkResult RunProjectionWalk(List<GameAction> actions, double projectionNowUT)
@@ -547,7 +556,8 @@ namespace Parsek
             List<IResourceModule> firstTier,
             IResourceModule strategy,
             List<IResourceModule> secondTier,
-            IResourceModule facilities)
+            IResourceModule facilities,
+            double? deadlineClockUT = null)
         {
             // 1. Sort — stable sort preserving insertion order for equal keys
             var sorted = SortActions(actions);
@@ -565,7 +575,8 @@ namespace Parsek
             // the cutoff itself. Without this, a filtered action list could have its
             // "last UT" land before a deadline, letting deadline-expired contracts
             // slip through the rewind without the synthetic ContractFail.
-            bool prePassMutated = PrePassAllModules(sorted, walkNowUT, firstTier, strategy, secondTier, facilities);
+            bool prePassMutated = PrePassAllModules(
+                sorted, walkNowUT, deadlineClockUT, firstTier, strategy, secondTier, facilities);
             if (prePassMutated)
                 sorted = SortActions(sorted);
             else
@@ -842,6 +853,7 @@ namespace Parsek
         private static bool PrePassAllModules(
             List<GameAction> sorted,
             double? walkNowUT,
+            double? deadlineClockUT,
             List<IResourceModule> firstTier,
             IResourceModule strategy,
             List<IResourceModule> secondTier,
@@ -850,18 +862,31 @@ namespace Parsek
             bool mutated = false;
 
             for (int i = 0; i < firstTier.Count; i++)
-                mutated |= firstTier[i].PrePass(sorted, walkNowUT);
+                mutated |= PrePassModule(firstTier[i], sorted, walkNowUT, deadlineClockUT);
 
             if (strategy != null)
-                mutated |= strategy.PrePass(sorted, walkNowUT);
+                mutated |= PrePassModule(strategy, sorted, walkNowUT, deadlineClockUT);
 
             for (int i = 0; i < secondTier.Count; i++)
-                mutated |= secondTier[i].PrePass(sorted, walkNowUT);
+                mutated |= PrePassModule(secondTier[i], sorted, walkNowUT, deadlineClockUT);
 
             if (facilities != null)
-                mutated |= facilities.PrePass(sorted, walkNowUT);
+                mutated |= PrePassModule(facilities, sorted, walkNowUT, deadlineClockUT);
 
             return mutated;
+        }
+
+        /// <summary>
+        /// Only the contracts module judges deadlines, so only it receives the separate
+        /// deadline clock; every other module keeps the walk cutoff as its "now".
+        /// </summary>
+        private static bool PrePassModule(
+            IResourceModule module, List<GameAction> sorted, double? walkNowUT, double? deadlineClockUT)
+        {
+            var contracts = module as ContractsModule;
+            if (contracts != null && deadlineClockUT.HasValue)
+                return contracts.PrePass(sorted, walkNowUT, deadlineClockUT);
+            return module.PrePass(sorted, walkNowUT);
         }
 
         private static void PostWalkAllModules(
