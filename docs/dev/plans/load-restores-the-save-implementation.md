@@ -32,6 +32,9 @@ names the symbol, and every VERIFY is confirmed against the code before the step
      (RecordingStore.cs:4920) nulls the committed-list notification events; the new helper must
      not. List what it clears and copy everything except those events and the committed lists
      themselves (the cold branch's `ClearCommittedInternal` removes those with notifications).
+   - The reset also clears `committedTreeStateLoaded` (the three existing resets at
+     ParsekScenario.cs:5579 / :5736 / :8858 already do), so the cold branch reads the save's
+     committed trees.
    - VERIFY: `LedgerOrchestrator.kscSequenceCounter` (LedgerOrchestrator.cs:91): what a loaded
      ledger expects of it. If later KSC rows must sort after loaded ones, set it from the loaded
      ledger's max `Sequence` at load instead of zero; a cell pins the order of a KSC row made
@@ -58,38 +61,59 @@ names the symbol, and every VERIFY is confirmed against the code before the step
    that copy `SidecarEpoch` (grep the copy list at Recording.cs:1138).
 2. `SidecarContentHash.Compute(byte[])` (pure): SHA-1, first 8 bytes, lower-case hex.
 3. Write side: `RecordingSidecarStore` stages the bytes it writes; after the batch commits, set the
-   recording's hashes from those bytes.
+   recording's hashes from those bytes. Memory's hash is always the hash of bytes memory holds
+   (written or read); a recording whose hydration failed keeps the hash its save named and
+   writes it back unchanged (design 4.4 "never laundered").
    - VERIFY: whether each writer has the bytes in memory or streams to the staged file. If it
      streams, hash the staged file before the commit (one read of a just-written file).
-4. Retention: `SidecarFileCommitBatch` learns the kind and the old hash for each staged change
-   (a new optional field on `StagedChange`: `RetainAsVersion` = target path under `_versions`).
-   `CleanupCommittedBackups` moves those backups to their target instead of deleting them; a
-   rollback restores from the backup as today. `DeleteExisting` changes for hashed kinds carry the
-   same target.
+4. Retention (design 4.4 steps 1-4): `StagedChange` gains `RetainKind` (prec / vessel / ghost /
+   none). For a retained kind the backup path is `_versions/<id>.<ext>.incoming.<guid>` (created
+   on demand; still a same-volume rename, so `File.Replace` and the rollback work as today).
+   After the batch commits, `CleanupCommittedBackups` hashes each incoming backup from its own
+   bytes, never from memory's value, and renames it to `_versions/<id>.<hash>.<ext>`; an existing
+   target (identical bytes) or a hash equal to the new head's drops the incoming file instead. A
+   failure leaves the `.incoming.` file, logged, for the collector to file. `DeleteExisting`
+   changes for hashed kinds go through the same steps.
    - VERIFY: every production path that deletes or replaces a hashed sidecar goes through this
      batch or through `RecordingStore.DeleteRecordingFiles` (RecordingStore.OrphanCleanup.cs:27).
      Known delete sites to check: `RemoveRecordingAt`, the switch-segment discard
      (RecordingStore.cs:3293), the Re-Fly discard (MergeDialog.ReFlyDiscard.cs:1244),
      `RewindInvoker.ReapPriorProvisional` (RewindInvoker.cs:2538), `DiscardSidecarReap`
      (DiscardSidecarReap.cs:251), the zombie sweep (LoadTimeSweep.cs:1528), the optimizer merge's
-     absorbed recording (RecordingStore.Optimization.cs:98). A grep gate
-     (`scripts/grep-audit-sidecar-deletes.ps1` + managed fallback, empty allowlist) fails the
-     suite on any new `File.Delete` / `File.Move` over a `.prec` / `.craft` path outside the
-     batch and `DeleteRecordingFiles`.
-5. Read side: `RecordingPaths.ResolveSidecarForRead(rec, kind)` returns head or version per design
-   4.4 steps 1-4; `LoadRecordingFiles` and `TryHydrateVesselSnapshotFromSidecar` call it. The
-   promote is two `File.Move`s through the same batch so a failure rolls back. When a hash is
-   present it replaces the epoch check (`ShouldSkipStaleSidecar` keeps its job for hashless
-   saves).
-   - VERIFY: `LoadRecordingFilesFromPathsInternal` reads the `.prec` once (hash those bytes, do
-     not read twice); the `.craft` reads go through `ConfigNode.Load(path)`, so hash the file
-     bytes before handing the path over.
-6. OnSave: a recording serialized with an unknown hash for a kind whose head exists gets the
-   head's hash computed once and cached on the recording.
+     absorbed recording (RecordingStore.Optimization.cs:98). The grep gate
+     `scripts/grep-audit-parsek-file-deletes.ps1` (+ managed fallback, run by `GrepAuditTests`)
+     fails the suite on any `File.Delete` / `File.Move` / `File.Replace` / `Directory.Delete`
+     whose path resolves under `Parsek/Recordings`, `Parsek/RewindPoints` or `Parsek/Saves`
+     outside its allowlist (`scripts/parsek-file-deletes-allowlist.txt`: the commit batch, the
+     collector, the test-only batch crash reconcile). It lands in 1.4 once the collector exists;
+     in 1.2 it starts with the sidecar paths only.
+5. Read side: `RecordingPaths.ResolveSidecarForRead(rec, kind, resolveVersions)` returns head or
+   version per design 4.4 steps 1-4. `resolveVersions` is true only inside a Cold `OnLoad`; the
+   recording remembers it (`HydratedFromSaveVersions`) so a later lazy
+   `TryHydrateVesselSnapshotFromSidecar` follows the same rule. Every non-Cold load reads heads
+   with the epoch rule, unchanged. When a hash is present on a Cold load it replaces the epoch
+   check (`ShouldSkipStaleSidecar` keeps its job for hashless saves and for every other kind).
+   - Promote only when exactly one node of the loaded save names the recording id (count ids
+     over the committed, active and pending tree nodes before hydrating). Promote = hash the head,
+     move it to `_versions/<id>.<headHash>.<ext>` (delete it when that target exists, identical
+     bytes), move the version into the head position; both moves through one batch so a failure
+     rolls back and the recording reads from the version path.
+   - A recording read from a version (promoted or not) deletes its `.pann` and lets the
+     annotation pass recompute it (the epoch key cannot tell a same-epoch version from the head).
+   - VERIFY: `LoadRecordingFilesFromPathsInternal` opens the `.prec` twice (the header probe
+     `TryProbeTrajectorySidecar`, then the full read): hash the bytes of the full read; resolve
+     the path once, before the probe, so both opens read the same file. The `.craft` files are
+     PSN0 binaries read through `SnapshotSidecarCodec.TryLoad`: hash the raw file bytes before
+     decoding (read the bytes once and decode from memory if the codec allows it).
+6. OnSave: a recording that hydrated from its head but has no hash for a kind (a save from an
+   older build) gets the head's hash computed once and cached on the recording. A recording whose
+   hydration failed writes back the hash its save named, or none.
 7. Tests (temp directory, `RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting`-style
    override): resolution table; retention on rewrite, on delete, none on identical bytes; rollback;
-   promote; hashless save reads with the epoch rule; the optimizer same-epoch rewrite is caught by
-   the hash.
+   promote; two owners (read, no promote); a non-Cold load (epoch rule, no resolution); `.pann`
+   dropped on a version read; incoming filing with a wrong memory hash, an identical existing
+   target, a filing failure; a failed hydration keeps the named hash; hashless save reads with the
+   epoch rule; the optimizer same-epoch rewrite is caught by the hash.
 
 ### 1.3 The save carries its game state (design 4.3)
 
@@ -98,7 +122,14 @@ names the symbol, and every VERIFY is confirmed against the code before the step
    (MilestoneStore.cs:341), `GameStateStore.SaveBaseline` (GameStateStore.cs:1517). In
    `PersistGameStateAndMilestones` build each node once, write the file, and add the node under
    `GAME_STATE`. Add `PENDING_SCIENCE` from `GameStateRecorder.PendingScienceSubjects`
-   (GameStateRecorder.cs:43).
+   (GameStateRecorder.cs:43), and `ATTEMPT_EVENTS` (design 4.3): exactly the events the #866
+   filter drops from the file, tagged with the restore attempt's tree id, written only while an
+   attempt is live.
+   - VERIFY (V8): which call in `TryRestoreActiveTreeNode` re-arms the committed-tree restore
+     attempt for the restored tree, and that it runs before the events are installed; the
+     `ATTEMPT_EVENTS` restore goes right after it, memory only (never the file, never a
+     milestone flush). A cell pins both branches (same attempt: restored; other or no attempt:
+     dropped).
 2. Split each reader the same way ("parse node" + "read file") and add
    `LoadGameStateFromNodeOrFiles(ConfigNode scenarioNode)` used by the cold branch in place of
    `LoadExternalFiles`' four reads. The `parsek_rw_*.sfs` sweep and `budgetDeductionApplied`
@@ -114,24 +145,31 @@ names the symbol, and every VERIFY is confirmed against the code before the step
    `Save`. The todo entry is struck through with the fix.
 4. Tests: node round trip equals the file round trip for each store (use the committed
    `C1Career` / `C2CareerPostFix` fixture files as inputs); fallback when the node is absent;
-   the restore-attempt event filter applied to the node; the gates (version, generation) on the
-   node path.
+   the restore-attempt event filter applied to the node; `ATTEMPT_EVENTS` written and restored
+   per its two branches; the gates (version, generation) on the node path.
 
 ### 1.4 Collection (design 4.5)
 
 1. `SaveReferenceScanner` (pure, `internal static`): `Scan(TextReader) -> SaveReferences`
-   (recording ids with their hashes, rewind point ids, rewind save names; fails on unbalanced
-   braces). Only values inside the `SCENARIO` node with `name = ParsekScenario`.
+   (recording ids with their hashes, rewind point ids, `rewindSave` and `resumeRewindSave`
+   names; fails on unbalanced braces; a file with no Parsek node names nothing). Only values inside the `SCENARIO` node with `name = ParsekScenario`.
    - VERIFY: the exact key names: `recordingId` (RecordingTreeRecordCodec.cs:15), the hash keys
-     (1.2), `rewindSave` (RecordingTreeRecordCodec.cs:297), the rewind point id key inside
+     (1.2), `rewindSave` (RecordingTreeRecordCodec.cs:297), `resumeRewindSave`
+     (ParsekScenario.cs:2325), the rewind point id key inside
      `REWIND_POINTS/POINT` (`RewindPoint.SaveInto`), and every node that holds `RECORDING`
      children (committed, active, pending trees: ParsekScenario.cs:1619, 2316, 2658).
 2. `ParsekFileCollector.Run(string reason)`: referrers per design 4.5 (`saves/<folder>/*.sfs`,
    `saves/<folder>/Backup/*.sfs`), the per-process `(path, length, mtime)` cache, memory's
-   references, the decision table, fail closed. Replaces the delete / quarantine half of
-   `RecordingStore.CleanOrphanFiles` (keep its zero-known-ids refusal as a second guard) and the
-   file half of `RewindPointReaper.TryDeleteQuicksaveFile` (RewindPointReaper.cs:249) and of the
-   rewind-save delete in `DeleteRecordingFiles`.
+   references (including `pendingActiveTreeResumeRewindSave` and the live recorder's
+   `RewindSaveFileName`), the decision table, fail closed. `Parsek/Saves` collects only
+   `parsek_rw_*.sfs` names (never `parsek_career_start.sfs` or an unknown name). It files any
+   leftover `_versions/*.incoming.*` first. It replaces every delete site in design 4.5's table:
+   the delete / quarantine half of `RecordingStore.CleanOrphanFiles` (keep its zero-known-ids
+   refusal as a second guard), the file half of `RewindPointReaper.TryDeleteQuicksaveFile`
+   (RewindPointReaper.cs:249), `TreeDiscardPurge.TryDeleteQuicksaveFile` (TreeDiscardPurge.cs:381),
+   `FlightRecorder.CleanupOrphanedRewindSave` (FlightRecorder.cs:5428) and the rewind-save
+   delete in `DeleteRecordingFiles`. The grep gate from 1.2.4 extends to `Parsek/RewindPoints`
+   and `Parsek/Saves` here.
    - VERIFY (V5): no rewind or Re-Fly path resolves recording bulk data through a
      `Parsek/RewindPoints/*.sfs` or `Parsek/Saves/*.sfs` node's own hashes. Read
      `RewindInvoker`'s temp-save epoch raise (RewindInvoker.cs:2974-3075): it raises the RP save's
@@ -140,11 +178,13 @@ names the symbol, and every VERIFY is confirmed against the code before the step
      save were ever loaded cold.
    - VERIFY: `LoadTimeSweep`'s missing-RP-file branch (LoadTimeSweep.cs:302-367) and the reaper
      still agree once the reaper no longer deletes files.
-3. Call sites: end of the Cold branch (where `CleanOrphanFiles` runs today,
-   ParsekScenario.cs:4753, moved after the rewind points load if it is not already), and the
-   in-session branch tail, rate-limited (10 min realtime), skipped during rewind / Re-Fly start /
+3. Call sites: the Cold branch right after `LoadTimeSweep.Run` and
+   `RewindPointReaper.ReapOrphanedRPs` (ParsekScenario.cs:4986 / :5002; `CleanOrphanFiles` at
+   :4753 runs earlier today and moves here), and the in-session branch after its sweep and reaper
+   (:4589 / :4618), rate-limited (10 min realtime). Skipped during rewind / Re-Fly start /
    Discard Re-fly / an open journal.
-4. Tests: scanner cells; decision table; fail-closed; cache invalidation on mtime; a two-save
+4. Tests: scanner cells; decision table (including the `Parsek/Saves` name rules); fail-closed
+   on a locked and on a truncated referrer; cache invalidation on mtime; a two-save
    cell (S6) over a temp folder proving "after.sfs"'s heads survive a collection run with
    "before.sfs" loaded.
 
@@ -169,17 +209,24 @@ names the symbol, and every VERIFY is confirmed against the code before the step
    save-file load before the reset. Update `LoadReconcilePolicyTests` truth tables and
    `LoadReconcileWiringGateTests` (classification before `LoadCrewAndGroupState`, the reset right
    after it).
+   - The cold reconcile and recalc of a save-file load run at the save's `flightState` UT
+     (design 4.1 "The clock"). VERIFY which UT the cold branch reads today (the loaded
+     `Planetarium` UT after `Game.Load` vs a live read) and pin it with a wiring cell.
    - VERIFY (V3): on F9 in flight, `ParsekFlight.OnDestroy` and the ghost teardown ran before the
      new scene's `ParsekScenario.OnLoad` (log order in an existing QL lane's KSP.log), so the cold
      branch never runs with live ghosts of the old scene.
    - VERIFY (V7): on a Space Center F9 into a non-flight quicksave, stock writes the quicksave's
      game to `persistent.sfs` and `SpaceCenterMain.Start` reloads it, so the node `OnLoad` reads is
      the quicksave's.
-3. `saveStamp` write in `OnSave` and the in-session canary Warn.
-4. Harness `LoadGame` verb fires `GameEvents.onGameStatePostLoad.Fire(game.config)` after
-   `LoadGame` succeeds, before the scene request (mirrors `QuickSaveLoad.onQuickloadPipelineFinished`).
-   - VERIFY: no lane relies on a mid-run `LoadGame` keeping memory (grep specs for `LoadGame` after
-     the first step); each such lane is listed in step 7.
+3. `saveStamp` write in `OnSave` and the canary Warn, checked after `ClassifyRefined` for
+   `InSessionOther` / `QuickloadFlight` only (a `StockRevert` reads an older snapshot by design).
+4. Harness `LoadGame` verb gains the opt-in arg `playerLoad=true`; with it the verb fires
+   `GameEvents.onGameStatePostLoad.Fire(game.config)` after `LoadGame` succeeds, before the scene
+   request (mirrors `QuickSaveLoad.onQuickloadPipelineFinished`). Without it nothing changes, so
+   lanes that use the verb to stage a fixture, pick a scene or set `focusPid` keep their
+   semantics. The arg joins the verb's closed-arg table and the hlib mirror that pins it.
+   - VERIFY: list the specs that `LoadGame` mid-run to mean "the player loaded"; those (the QL
+     lanes) gain `playerLoad=true` in step 7, every other use stays as it is.
 5. The quicksave refresh (design 4.6), only if the owner confirms: `RefreshQuicksaveAfterMerge`
    is no longer called; `RefreshSaveAndQuicksaveAfterDiscard` refreshes `persistent.sfs` only.
    Update the QL-6 header note that relies on the discard rewriting `quicksave.sfs`.
@@ -224,4 +271,5 @@ V1 (done at design time): in KSP 1.12.5 `onGameStatePostLoad` is fired only by `
 (quickload), `KSCPauseMenu` (load), `MainMenu` (load, resume), `FlightDriver.RevertToLaunch` /
 `RevertToPrelaunch` and mission-mode code; Tracking Station Fly and `StartAndFocusVessel` do not
 fire it. V2: every `OnSave` writes the sidecars of a dirty active-tree recording, so the F5 save
-names the F5 bytes (EnsureRecordingFilesCurrentForSave, ParsekScenario.cs:2095). V3, V5, V7 above.
+names the F5 bytes (EnsureRecordingFilesCurrentForSave, ParsekScenario.cs:2095). V3, V5, V7, V8
+above.
