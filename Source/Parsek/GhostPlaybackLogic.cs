@@ -2143,8 +2143,8 @@ namespace Parsek
             //
             // DELIBERATE ASYMMETRY, do not "fix" by adding a second call to the other scenes: only
             // the flight engine drives wheel spin unconditionally. A KSC-scene ghost never spins its
-            // wheels at all (ParsekKSC never calls SetInterpolated, so lastInterpolatedVelocity
-            // stays zero and TryResolveWheelGroundSpeedInputs declines), and the flight PREVIEW
+            // wheels at all (ParsekKSC never calls SetInterpolated, so the surface velocity
+            // source stays None and TryResolveWheelGroundSpeedInputs declines), and the flight PREVIEW
             // ghost spins only for a recording that carries at least one part event, because a
             // zero-event recording early-returns above before reaching here. Both are acceptable:
             // KSC is a static parked-craft display, and preview is a scrubbing aid, not the replay.
@@ -5154,23 +5154,20 @@ namespace Parsek
         internal const float WheelStationarySpeedMetersPerSecond = 0.05f;
 
         /// <summary>
-        /// Strips the body's rotation and the radial (climb/sink) component out of a ghost's
-        /// recorded world velocity, leaving velocity along the local surface — i.e. ground speed as
-        /// a vector.
+        /// Strips the radial (climb/sink) component out of a ghost's surface velocity, leaving
+        /// velocity along the local surface - i.e. ground speed as a vector. Removing the
+        /// component along <paramref name="up"/> drops vertical motion, so a falling or hovering
+        /// craft does not spin its wheels.
         ///
-        /// Both subtractions are load-bearing. <c>TrajectoryPoint.velocity</c> is recorded as
-        /// <c>rb_velocityD + Krakensbane.GetFrameVelocity()</c>, which is an ORBITAL/world velocity:
-        /// on Kerbin's equator a vessel parked on the pad carries ~175 m/s of the planet's own
-        /// rotation. Feeding that straight to a wheel would spin a stationary rover's wheels at
-        /// highway speed. <paramref name="bodyFrameVelocity"/> is the rotating-frame velocity at the
-        /// ghost's position (stock <c>CelestialBody.getRFrmVel</c>), which is exactly that term.
-        /// Removing the component along <paramref name="up"/> then drops vertical motion, so a
-        /// falling or hovering craft does not spin its wheels.
+        /// The input is the position-derived surface velocity
+        /// (<see cref="GhostPlaybackState.lastInterpolatedSurfaceVelocity"/>), never the recorded
+        /// <c>TrajectoryPoint.velocity</c>: that vector is ALREADY surface-relative for a landed
+        /// or low vessel (the world co-rotates below the body's inverse-rotation threshold), so
+        /// subtracting the body's rotating-frame velocity from it would invent ~175 m/s of ground
+        /// speed on a rover parked at KSC.
         /// </summary>
-        internal static Vector3 ComputeSurfaceHorizontalVelocity(
-            Vector3 worldVelocity, Vector3 bodyFrameVelocity, Vector3 up)
+        internal static Vector3 ComputeSurfaceHorizontalVelocity(Vector3 surfaceVelocity, Vector3 up)
         {
-            Vector3 surfaceVelocity = worldVelocity - bodyFrameVelocity;
             if (up.sqrMagnitude <= 1e-8f)
                 return surfaceVelocity;
 
@@ -5469,7 +5466,7 @@ namespace Parsek
                     if (!wheelInputsResolved)
                     {
                         wheelInputsResolved = true;
-                        // GROUND-CONTACT GATE first, before the body lookup / getRFrmVel work. A
+                        // GROUND-CONTACT GATE first, before the body lookup and ground-speed work. A
                         // rover carried to orbit by a launch vehicle keeps its recorded orbital
                         // velocity (~2100 m/s on a Kerbin parking orbit); ungated, speed/radius
                         // turns that into thousands of degrees per frame and the wheels strobe for
@@ -5638,10 +5635,10 @@ namespace Parsek
         /// (first frame and SOI changes), not per frame. This is the same trade
         /// <c>ComputeAtmosphereFactor</c> already makes against the same cache fields.
         ///
-        /// A zero <c>lastInterpolatedVelocity</c> is a legitimate state on several playback paths
-        /// (it is left at default rather than always written), and it lands on the honest answer
-        /// here: no known ground speed means stationary wheels — quiet, and still an improvement on
-        /// the recorded signal, which showed stationary wheels for every coasting rover.
+        /// The ground speed is <see cref="GhostPlaybackState.lastInterpolatedSurfaceVelocity"/>,
+        /// derived from body-fixed positions. An unknown surface velocity (source None: single
+        /// sample, long gap, a RELATIVE section without body-fixed frames) lands on the honest
+        /// answer here: no known ground speed means stationary wheels.
         /// </summary>
         private static bool TryResolveWheelGroundSpeedInputs(
             GhostPlaybackState state, out Vector3 up, out Vector3 horizontalVelocity)
@@ -5650,10 +5647,6 @@ namespace Parsek
             horizontalVelocity = Vector3.zero;
 
             if (state.ghost == null)
-                return false;
-
-            Vector3 worldVelocity = state.lastInterpolatedVelocity;
-            if (worldVelocity.sqrMagnitude <= 1e-8f)
                 return false;
 
             string bodyName = state.lastInterpolatedBodyName;
@@ -5670,14 +5663,69 @@ namespace Parsek
             if (body == null)
                 return false;
 
-            Vector3d ghostWorldPos = state.ghost.transform.position;
-            up = (Vector3)(ghostWorldPos - body.position);
+            bool usable = TryComputeWheelGroundInputs(
+                state.ghost.transform.position, body.position,
+                state.lastInterpolatedSurfaceVelocity, state.lastInterpolatedSurfaceVelocitySource,
+                out up, out horizontalVelocity);
+            LogWheelGroundSpeed(state, usable, horizontalVelocity);
+            return usable;
+        }
+
+        /// <summary>
+        /// Pure core of <see cref="TryResolveWheelGroundSpeedInputs"/>: the local surface normal
+        /// and the horizontal ground velocity from the ghost and body world positions and the
+        /// ghost's surface velocity. False (wheels hold still) when the surface velocity is
+        /// unknown or the ghost sits at the body centre. A known zero surface velocity (a parked
+        /// rover) returns true with a zero ground velocity, so the wheels hold still for a
+        /// MEASURED reason.
+        /// </summary>
+        internal static bool TryComputeWheelGroundInputs(
+            Vector3d ghostWorldPos, Vector3d bodyWorldPos,
+            Vector3 surfaceVelocity, GhostSurfaceVelocitySource source,
+            out Vector3 up, out Vector3 horizontalVelocity)
+        {
+            up = Vector3.zero;
+            horizontalVelocity = Vector3.zero;
+            if (source == GhostSurfaceVelocitySource.None)
+                return false;
+
+            up = (Vector3)(ghostWorldPos - bodyWorldPos);
             if (up.sqrMagnitude <= 1e-8f)
                 return false;
 
-            Vector3 bodyFrameVelocity = (Vector3)body.getRFrmVel(ghostWorldPos);
-            horizontalVelocity = ComputeSurfaceHorizontalVelocity(worldVelocity, bodyFrameVelocity, up);
+            horizontalVelocity = ComputeSurfaceHorizontalVelocity(surfaceVelocity, up);
             return true;
+        }
+
+        /// <summary>
+        /// Rate-limited per ghost: the ground speed the wheels are driven at and where it came
+        /// from, so a parked rover's ghost can be shown to read ~0 m/s from KSP.log. The key
+        /// carries the source, so a change of source prints at once.
+        /// </summary>
+        private static void LogWheelGroundSpeed(
+            GhostPlaybackState state, bool usable, Vector3 horizontalVelocity)
+        {
+            if (!ParsekLog.IsVerboseEnabled)
+                return;
+            string id = !string.IsNullOrEmpty(state.recordingId)
+                ? state.recordingId
+                : state.vesselName ?? "?";
+            string source = usable
+                ? GhostSurfaceVelocity.SourceToken(state.lastInterpolatedSurfaceVelocitySource)
+                : "none";
+            ParsekLog.VerboseRateLimited("Flight",
+                "wheel-ground-speed-" + id + "-" + source,
+                FormatWheelGroundSpeedLine(state.vesselName, id, horizontalVelocity.magnitude, source),
+                30.0);
+        }
+
+        /// <summary>The wheel ground-speed diagnostic line; invariant formatting.</summary>
+        internal static string FormatWheelGroundSpeedLine(
+            string vesselName, string recordingId, float speedMetersPerSecond, string source)
+        {
+            return "Wheel ground speed for \"" + (vesselName ?? "?") + "\" rec=" + (recordingId ?? "?")
+                + " speed=" + speedMetersPerSecond.ToString("F2", CultureInfo.InvariantCulture)
+                + " source=" + (source ?? "none");
         }
 
         /// <summary>

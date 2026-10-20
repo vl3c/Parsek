@@ -1344,6 +1344,17 @@ namespace Parsek.InGameTests
 
             const double activationUT = 135.7;
             const double tailUT = 453.66214255408767;
+            const double tailAlt = 208_283.22164018429;
+            const double recordFrameYawDegrees = 37.0;
+            // The probe tail of TerminalOrbitFromTail_DerivesPostBurnEccentricOrbit: an inertial
+            // state (208 km is above Kerbin's inverse-rotation altitude) whose analytic orbit is
+            // sma ~4.54 Mm / ecc ~0.82, recorded as a two-frame tail in a session yawed by 37 deg.
+            // The map seed must resolve that yaw before lifting the tail to its historical
+            // inertial position; a raw vector keeps the yaw and changes the orbit.
+            TrajectoryPoint[] tailPair = BuildRecordedCoastTailPair(
+                kerbin, tailUT, -0.020555305204629719, -36.664361532582674, tailAlt,
+                new Vector3d(296.024567, 3.8434844, -2806.1167),
+                recordedInRotatingFrame: false, recordFrameYawDegrees: recordFrameYawDegrees);
             var rec = new Recording
             {
                 RecordingId = "ingame-endpoint-tail-map-presence",
@@ -1356,16 +1367,7 @@ namespace Parsek.InGameTests
                 TerminalOrbitEccentricity = 0.822,
                 EndpointPhase = RecordingEndpointPhase.OrbitSegment,
                 EndpointBodyName = "Kerbin",
-                Points = new System.Collections.Generic.List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint
-                    {
-                        ut = tailUT,
-                        bodyName = "Kerbin",
-                        altitude = 208_283.22164018429,
-                        velocity = new UnityEngine.Vector3(296.024567f, 3.8434844f, -2806.1167f)
-                    }
-                },
+                Points = new System.Collections.Generic.List<TrajectoryPoint>(tailPair),
                 OrbitSegments = new System.Collections.Generic.List<OrbitSegment>
                 {
                     new OrbitSegment
@@ -1390,19 +1392,7 @@ namespace Parsek.InGameTests
                         referenceFrame = ReferenceFrame.Absolute,
                         startUT = 444.60214255409591,
                         endUT = tailUT,
-                        frames = new System.Collections.Generic.List<TrajectoryPoint>
-                        {
-                            new TrajectoryPoint
-                            {
-                                ut = tailUT,
-                                latitude = -0.020555305204629719,
-                                longitude = -36.664361532582674,
-                                altitude = 208_283.22164018429,
-                                rotation = UnityEngine.Quaternion.identity,
-                                velocity = new UnityEngine.Vector3(296.024567f, 3.8434844f, -2806.1167f),
-                                bodyName = "Kerbin"
-                            }
-                        }
+                        frames = new System.Collections.Generic.List<TrajectoryPoint>(tailPair)
                     }
                 }
             };
@@ -1421,6 +1411,15 @@ namespace Parsek.InGameTests
                 $"Test must exercise drift above spawn guard; drift={seed.RotationDriftSeconds:F2}s");
             InGameAssert.IsTrue(seed.Segment.semiMajorAxis > 0.0 && seed.Segment.eccentricity >= 0.0,
                 $"EndpointTail segment should be finite positive orbit data; sma={seed.Segment.semiMajorAxis:F1} ecc={seed.Segment.eccentricity:F4}");
+            InGameAssert.IsTrue(!seed.VelocityWasRotatingFrame,
+                $"a 208 km tail pair must resolve as inertial (residual={seed.VelocityFrameResidual:F3})");
+            // Same analytic orbit as TerminalOrbitFromTail_DerivesPostBurnEccentricOrbit: the
+            // resolved velocity is that state rotated with the position into the lifted frame.
+            InGameAssert.IsTrue(System.Math.Abs(seed.Segment.semiMajorAxis - 4_540_000.0) < 50_000.0,
+                $"sma={seed.Segment.semiMajorAxis:F1} m should be near analytic 4.54 Mm");
+            InGameAssert.IsTrue(seed.Segment.eccentricity > 0.80 && seed.Segment.eccentricity < 0.84,
+                $"ecc={seed.Segment.eccentricity:F4} should be near 0.822; a velocity left at the " +
+                $"{recordFrameYawDegrees:F0} deg record yaw changes the flight-path angle");
 
             int cached = -1;
             GhostMapPresence.TrackingStationGhostSource source =
@@ -1444,7 +1443,8 @@ namespace Parsek.InGameTests
             ParsekLog.Info("TestRunner",
                 $"GhostMapEndpointTail_UsesHistoricalTailSeedAcrossActivationDrift: " +
                 $"drift={seed.RotationDriftSeconds:F2}s sma={seed.Segment.semiMajorAxis:F1} " +
-                $"ecc={seed.Segment.eccentricity:F4} source={source}");
+                $"ecc={seed.Segment.eccentricity:F4} inc={seed.Segment.inclination:F4} " +
+                $"yaw={seed.VelocityFrameYawDegrees:F3} source={source}");
         }
 
         /// <summary>
@@ -1805,7 +1805,6 @@ namespace Parsek.InGameTests
             const double lat = -0.0383;
             const double lon = 49.19;                     // body-fixed longitude as recorded
             const double alt = 131465.0;
-            var recordedVel = new Vector3d(2100.0, 0.0, 0.0);
 
             // The loop replays ~1.002e9 s later (the Kerbin->Duna loop period from the evidence log).
             const double loopShift = 1.002e9;
@@ -1821,14 +1820,25 @@ namespace Parsek.InGameTests
             // (a) The FIX: reconstruct the inertial position at the recorded UT, seed the orbit at the
             // loop-shifted epoch. This is the EXACT call UpdateGhostOrbitFromStateVectors makes for the
             // orbit-raise-gap-points reason on an Absolute branch.
+            // The seed resolves the velocity frame from the glide sample and its neighbour, so
+            // the sample is recorded as a two-frame pair: a ~2.1 km/s prograde inertial state
+            // (131 km is above the inverse-rotation altitude), recorded in a session yawed 20 deg.
+            Vector3d gapWorld = kerbin.GetWorldSurfacePosition(lat, lon, alt);
+            Vector3d gapTangent = Vector3d.Cross(
+                (gapWorld - kerbin.position).normalized, new Vector3d(0.0, 1.0, 0.0)).normalized;
+            TrajectoryPoint[] gapPair = BuildRecordedCoastTailPair(
+                kerbin, recordedUT, lat, lon, alt, gapTangent * 2100.0,
+                recordedInRotatingFrame: false, recordFrameYawDegrees: 20.0);
             var inertialOrbit = new Orbit();
             inertialOrbit.referenceBody = kerbin;
             bool inertialOk = OrbitReseed.TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch(
-                inertialOrbit, kerbin, lat, lon, alt, recordedVel,
-                recordedUT, epochUT, rotationPeriod, initialRotation,
-                out double inertialLon, out string inertialFail);
+                inertialOrbit, kerbin, gapPair[0], gapPair[1],
+                epochUT, rotationPeriod, initialRotation,
+                out OrbitReseed.HistoricalTailPairSeedInputs gapSeed);
+            double inertialLon = gapSeed.InertialLongitude;
             InGameAssert.IsTrue(inertialOk,
-                $"inertial seed must succeed (fail={inertialFail ?? "(null)"})");
+                $"inertial seed must succeed (fail={gapSeed.FailureReason ?? "(null)"})");
+            InGameAssert.ApproxEqual(epochUT, gapSeed.SeedEpochUT, 1e-6);
 
             // Propagate the seeded orbit to liveUT (== epochUT) to confirm the seed yields a finite,
             // physically-valid orbit (no NaN elements). The resulting orbit.pos lives in the
@@ -22323,7 +22333,6 @@ namespace Parsek.InGameTests
             InGameAssert.AreEqual(GhostVisualBuilder.ReentryFireMaxParticles, info.fireParticles.main.maxParticles,
                 "Built reentry fire particle system should use the tuned max-particle cap");
 
-            Vector3 rotatingFrameVelocity = (Vector3)body.getRFrmVel(ghostRoot.transform.position);
             Vector3 desiredSurfaceVelocity = ghostRoot.transform.right * targetSurfaceSpeed;
             var state = new GhostPlaybackState
             {
@@ -22331,7 +22340,9 @@ namespace Parsek.InGameTests
                 reentryFxInfo = info,
                 lastInterpolatedBodyName = body.name,
                 lastInterpolatedAltitude = targetAltitude,
-                lastInterpolatedVelocity = rotatingFrameVelocity + desiredSurfaceVelocity,
+                lastInterpolatedVelocity = desiredSurfaceVelocity,
+                lastInterpolatedSurfaceVelocity = desiredSurfaceVelocity,
+                lastInterpolatedSurfaceVelocitySource = GhostSurfaceVelocitySource.Positions,
             };
 
             var engine = new GhostPlaybackEngine(positioner: null);

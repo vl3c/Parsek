@@ -237,21 +237,24 @@ namespace Parsek.InGameTests
         // ──────────────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// The wheel derivation end to end against a real wheel prefab, including the two things
-        /// only a live scene supplies: the wheel's own spin axis and radius read off the prefab, and
-        /// the body-rotation subtraction through <c>CelestialBody.getRFrmVel</c>.
+        /// The wheel derivation end to end against a real wheel prefab, including the things only a
+        /// live scene supplies: the wheel's own spin axis and radius read off the prefab, and the
+        /// surface normal from the live body.
         ///
         /// Three arms, and the third is the D1 regression:
         ///   * SURFACE section + ground motion -> the servo transform's rotation CHANGES.
-        ///   * SURFACE section + zero velocity -> it does NOT (a parked rover holds still).
+        ///   * SURFACE section + zero SURFACE velocity -> it does NOT (a parked rover holds still).
+        ///     The recorded velocity is deliberately set to the body's rotating-frame velocity here,
+        ///     the value the old reader subtracted: the wheels must read the position-derived
+        ///     surface velocity, never re-derive one from the recorded vector.
         ///   * NON-SURFACE section + orbital velocity -> it does NOT. Ungated, a rover riding a
         ///     launch vehicle spun its wheels at ~2100 m/s for the whole ascent and coast; the old
         ///     recorded signal was accidentally right about that case, so an ungated derivation was
         ///     a NEW artifact.
         ///
-        /// The fixture velocity is BUILT from the live inputs (body rotation at the ghost's position
-        /// plus a known ground speed along the wheel's own roll direction) rather than assumed, so
-        /// the cell measures the same regardless of which craft the batch is flying or where.
+        /// The fixture surface velocity is BUILT from the live inputs (a known ground speed along
+        /// the wheel's own roll direction, source Positions) rather than assumed, so the cell
+        /// measures the same regardless of which craft the batch is flying or where.
         /// </summary>
         [InGameTest(Category = "RecordedSignals", Scene = GameScenes.FLIGHT,
             Description = "Wheel spin follows ground motion, holds still when parked, and holds still off the ground")]
@@ -290,7 +293,7 @@ namespace Parsek.InGameTests
                     return;
                 }
 
-                // Anchor the ghost on the live body so `up` and getRFrmVel are real.
+                // Anchor the ghost on the live body so `up` is real.
                 build.root.transform.position = active.transform.position;
 
                 var state = new GhostPlaybackState
@@ -314,9 +317,8 @@ namespace Parsek.InGameTests
                     "the wheel radius resolved off the prefab must be usable, got " +
                     wheel.wheelRadius.ToString("R"));
 
-                // Build a velocity that is unambiguously GROUND motion: the body's own rotation at
-                // this position (which the derivation must subtract) plus 10 m/s along this wheel's
-                // own roll direction (which it must keep).
+                // Build a surface velocity that is unambiguously GROUND motion: 10 m/s along this
+                // wheel's own roll direction.
                 Vector3d ghostPos = build.root.transform.position;
                 Vector3 up = (Vector3)(ghostPos - body.position);
                 if (up.sqrMagnitude <= 1e-8f)
@@ -334,7 +336,7 @@ namespace Parsek.InGameTests
                     return;
                 }
                 Vector3 bodyFrameVelocity = (Vector3)body.getRFrmVel(ghostPos);
-                Vector3 drivingVelocity = bodyFrameVelocity + rollForward * 10f;
+                Vector3 drivingVelocity = rollForward * 10f;
 
                 state.lastInterpolatedBodyName = body.name;
 
@@ -352,6 +354,8 @@ namespace Parsek.InGameTests
                     FixtureSection(SegmentEnvironment.SurfaceMobile, t0, t0 + 100.0)
                 };
                 state.lastInterpolatedVelocity = drivingVelocity;
+                state.lastInterpolatedSurfaceVelocity = drivingVelocity;
+                state.lastInterpolatedSurfaceVelocitySource = GhostSurfaceVelocitySource.Positions;
                 double drivenDegrees = SpinOneFrame(
                     state, wheel, surfaceSections, t0 + 10.0, frameSeconds, out _, out _);
                 InGameAssert.IsGreaterThan(drivenDegrees, 1.0,
@@ -372,10 +376,13 @@ namespace Parsek.InGameTests
                 // a ~0.1% residual blind spot per arm, categorically tighter than an
                 // angle-epsilon assert but not the exact no-write statement.
                 state.lastInterpolatedVelocity = bodyFrameVelocity;
+                state.lastInterpolatedSurfaceVelocity = Vector3.zero;
+                state.lastInterpolatedSurfaceVelocitySource = GhostSurfaceVelocitySource.Positions;
                 SpinOneFrame(state, wheel, surfaceSections, t0 + 20.0, frameSeconds,
                     out Quaternion parkedBefore, out Quaternion parkedAfter);
                 InGameAssert.IsTrue(parkedBefore == parkedAfter,
-                    "a parked ghost (moving only with the body's own rotation) must not creep; its " +
+                    "a parked ghost (zero surface velocity; recorded vector = the body's rotating-frame " +
+                    "velocity, which must not be re-subtracted) must not creep; its " +
                     "wheel rotation moved from " + parkedBefore + " to " + parkedAfter);
 
                 // ARM 3 — THE D1 REGRESSION. Off the ground, at orbital speed, the wheel must hold
@@ -391,7 +398,9 @@ namespace Parsek.InGameTests
                 {
                     FixtureSection(SegmentEnvironment.ExoBallistic, t0 + 200.0, t0 + 300.0)
                 };
-                state.lastInterpolatedVelocity = bodyFrameVelocity + rollForward * 2100f;
+                state.lastInterpolatedVelocity = rollForward * 2100f;
+                state.lastInterpolatedSurfaceVelocity = rollForward * 2100f;
+                state.lastInterpolatedSurfaceVelocitySource = GhostSurfaceVelocitySource.Positions;
                 SpinOneFrame(state, wheel, orbitSections, t0 + 210.0, frameSeconds,
                     out Quaternion orbitBefore, out Quaternion orbitAfter);
                 InGameAssert.IsTrue(orbitBefore == orbitAfter,

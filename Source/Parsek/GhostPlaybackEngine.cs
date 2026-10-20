@@ -5019,7 +5019,7 @@ namespace Parsek
             // happens to be the first one in atmosphere.
             if (state.reentryFxInfo != null || state.reentryFxPendingBuild)
             {
-                state.lastInterpolatedVelocity = Vector3.zero;
+                state.ClearInterpolatedVelocities();
                 UpdateReentryFx(index, state, traj.VesselName, warpRate);
             }
             // Bug #613 (PR #594 P1): if the loop-endpoint position landed in a
@@ -5082,7 +5082,7 @@ namespace Parsek
                 {
                     state.lastInterpolatedBodyName = bodyName;
                     state.lastInterpolatedAltitude = altitude;
-                    state.lastInterpolatedVelocity = Vector3.zero;
+                    state.ClearInterpolatedVelocities();
                 }
                 return;
             }
@@ -6290,7 +6290,6 @@ namespace Parsek
                 return;
             }
 
-            Vector3 interpolatedVel = state.lastInterpolatedVelocity;
             string bodyName = state.lastInterpolatedBodyName;
             double altitude = state.lastInterpolatedAltitude;
 
@@ -6330,14 +6329,20 @@ namespace Parsek
                 return;
             }
 
-            // Compute surface velocity BEFORE the lazy-build decision so the speed
+            // Resolve surface velocity BEFORE the lazy-build decision so the speed
             // gate can fire. `ReentryPotentialSpeedFloor` (400 m/s ≈ Mach 1.2 at
             // sea-level Kerbin) is shared with `HasReentryPotential` and gates out
             // pad launches where the ghost starts at 0 m/s — without this gate,
             // ghosts whose first playback point is already in-atmosphere (every
             // KSC launch recording) would still pay the full 7 ms build on frame 1,
             // just attributed to mainLoop instead of spawn.
-            Vector3 surfaceVel = interpolatedVel - (Vector3)body.getRFrmVel(state.ghost.transform.position);
+            //
+            // The recorded velocity is surface-relative down here (below the body's
+            // inverse-rotation threshold), so it must not have the body's rotating-frame
+            // velocity subtracted again; the position-derived surface velocity is used
+            // instead, and an unknown one reads as 0 m/s (no FX invented).
+            Vector3 surfaceVel = GhostSurfaceVelocity.Usable(
+                state.lastInterpolatedSurfaceVelocity, state.lastInterpolatedSurfaceVelocitySource);
             float speed = surfaceVel.magnitude;
 
             // Bug #450 B3: lazy-build seam. Reuses the body + atmosphere + altitude
