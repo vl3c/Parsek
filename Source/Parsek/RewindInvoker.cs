@@ -1355,32 +1355,23 @@ namespace Parsek
                         $"Post-strip spawn-state reconcile threw (non-fatal): {ex.Message}");
                 }
 
-                // Step 3b (#15): retire the recovery rewards of every vessel this Re-Fly
-                // just put back in the world. The strip preserved unrelated vessels, so a
-                // craft the player had RECOVERED after the rewind point is now flying again
-                // while its recovery funds/science/crew rows are still banked. The recovery
-                // is proven by the recording's Recovered terminal OR by its post-cutoff
-                // ledger recovery row (RecoveredRecordingEvidence): a recording committed
-                // before its vessel was recovered keeps its situation terminal. Retiring them
-                // here — after the post-strip reconcile, so the surviving identities are
-                // settled, and BEFORE the marker write and the Step-5
-                // RecalculateAndPatch(double.MaxValue) with authoritativeReduction=true, so
-                // the funds/science reduction is not clamp-blocked by the drawdown guard.
-                //
-                // The retirement is DURABLE: Re-Fly discard prunes attempt topology, it does
-                // not reload the pre-invoke world, so the resurrection outlives both merge
-                // and discard and the tombstones must too. (The failed-LoadGame rollback via
-                // TryRestoreBundle restores the pre-invoke tombstone list — correct, because
-                // that path never loaded the world. Post-strip failure paths return without
-                // rollback while the world IS loaded, so tombstones persisting matches it.)
+                // Step 3b (design section 2.12 Rule 3): hand every survivor a committed
+                // recording flies or recovers after the rewind UT to the claimed-vessel hold.
+                // The strip preserved unrelated vessels, so a craft the committed future uses
+                // later (or recovers) is live again; it is despawned and drawn as a hold ghost
+                // until its first committed use, and its committed rows (a later recovery
+                // included) stay. Nothing is tombstoned at invoke: the earlier retirement of
+                // such a vessel's recovery rows ran outside any merge, bypassed the drawdown
+                // guard and outlived a Discard. Runs after the post-strip reconcile, so the
+                // spawn stamps the hold releases are already settled.
                 try
                 {
-                    RetireResurrectedVesselRecoveryRows(selected, retireCutoffUT);
+                    HoldResurrectedVesselsWithCommittedFuture(stripResult, retireCutoffUT, sessionId);
                 }
                 catch (Exception ex)
                 {
                     ParsekLog.Warn(InvokeTag,
-                        $"Resurrected-recovery retirement threw (non-fatal): {ex.Message}");
+                        $"Resurrected vessel hold threw (non-fatal): {ex.Message}");
                 }
 
                 // Step 4: §6.3 step 4 phases 1 + 2 — atomic provisional + marker write.
@@ -1514,142 +1505,66 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Writes the <see cref="LedgerTombstone"/> rows that retire the recovery rewards of
-        /// every vessel this Re-Fly resurrected (#15). Pure classification is delegated to
-        /// <see cref="ResurrectionRetirementEligibility.Classify"/>; this is the live-side
-        /// wrapper that gathers the surviving identities, writes the rows, and logs.
-        ///
-        /// <para>
-        /// <b>Crew note.</b> Retiring a <see cref="GameActionType.KerbalAssignment"/> with end
-        /// state <see cref="KerbalEndState.Recovered"/> also removes the Parsek reservation
-        /// that row implied. That is correct and not a protection gap: the crew are aboard the
-        /// resurrected vessel in the loaded world, so the LIVE roster (Assigned to that
-        /// vessel) is what protects them from here, exactly as it does for any other crew in
-        /// flight.
-        /// </para>
-        ///
-        /// <para>
-        /// [ERS-exempt] Reads the RAW <c>Ledger.Actions</c> and the RAW committed list, for the
-        /// same reason <c>SupersedeCommit.CommitTombstones</c> does: this BUILDS a tombstone
-        /// set, and ELS is defined as "ledger minus tombstones", so reading ELS here would hide
-        /// exactly the rows that need retiring. The committed-list read is a physical
-        /// live-vessel-to-recording identity correlation, not a visibility walk.
-        /// </para>
+        /// Design section 2.12 Rule 3: hands every survivor of the Re-Fly load that a committed
+        /// recording flies or recovers after <paramref name="rewindUT"/> to the claimed-vessel
+        /// hold (<see cref="ReFlyInvokeHold"/>, <c>ParsekFlight.HoldReFlyInvokeVessels</c>).
+        /// The re-flown vessel and the stripped vessels are never held. Logs one line per held
+        /// vessel and one summary.
         /// </summary>
-        internal static void RetireResurrectedVesselRecoveryRows(
-            ChildSlot selected, double retireCutoffUT)
+        internal static void HoldResurrectedVesselsWithCommittedFuture(
+            PostLoadStripResult stripResult, double rewindUT, string sessionId)
         {
-            var scenario = ParsekScenario.Instance;
-            if (object.ReferenceEquals(null, scenario))
-            {
-                ParsekLog.Verbose(InvokeTag,
-                    "Resurrected-recovery retirement: no ParsekScenario instance — skipping");
-                return;
-            }
-
             var flightState = HighLogic.CurrentGame?.flightState;
             if (flightState == null || flightState.protoVessels == null)
             {
-                ParsekLog.Verbose(InvokeTag,
-                    "Resurrected-recovery retirement: no flightState — skipping");
+                ParsekLog.Verbose(InvokeTag, "Resurrected vessel hold: no flightState - skipping");
+                return;
+            }
+            var flight = ParsekFlight.Instance;
+            if (object.ReferenceEquals(null, flight))
+            {
+                ParsekLog.Verbose(InvokeTag, "Resurrected vessel hold: no ParsekFlight instance - skipping");
                 return;
             }
 
-            var survivingIdentities =
-                ParsekScenario.CollectSurvivingVesselIdentities(flightState.protoVessels);
+            var survivors = ParsekScenario.CollectSurvivingVesselIdentities(flightState.protoVessels);
+            var excluded = BuildInvokeHoldExcludedPids(stripResult);
+            int matchedWithoutFuture;
+            List<ReFlyInvokeHold.Entry> entries = ReFlyInvokeHold.Classify(
+                survivors, excluded, RecordingStore.CommittedRecordings, Ledger.Actions,
+                rewindUT, out matchedWithoutFuture);
 
-            var classified = ResurrectionRetirementEligibility.Classify(
-                survivingIdentities,
-                RecordingStore.CommittedRecordings,
-                Ledger.Actions,
-                retireCutoffUT,
-                out int matchedWithoutRecovery);
+            int notLive, alreadyHeld;
+            List<ReFlyInvokeHold.Entry> held = flight.HoldReFlyInvokeVessels(entries, out notLive, out alreadyHeld);
 
             var ic = CultureInfo.InvariantCulture;
-            if (classified.Count == 0)
+            for (int i = 0; i < held.Count; i++)
             {
                 ParsekLog.Info(InvokeTag,
-                    $"Resurrected-recovery retirement: none " +
-                    $"(survivors={survivingIdentities.Count.ToString(ic)} " +
-                    $"matchedWithoutRecovery={matchedWithoutRecovery.ToString(ic)} " +
-                    $"cutoffUT={retireCutoffUT.ToString("F1", ic)})");
-                return;
+                    $"Strip heldForCommittedFuture v={held[i].Pid.ToString(ic)} rec={held[i].RecordingId} " +
+                    $"firstUT={held[i].FirstClaimUT.ToString("F1", ic)} evidence={held[i].Evidence} " +
+                    $"sess={sessionId ?? "<no-id>"}");
             }
-
-            // RetiringRecordingId is the REWOUND origin recording, not the session's
-            // provisional, and the reason that decides it is simply that the provisional does
-            // not exist yet: AtomicMarkerWrite creates it after this point, so there is no id
-            // to write. (Inv7TreeTopology also requires the id to resolve to a real recording,
-            // so a synthetic placeholder would raise a `badlink ... kind=dangling` finding.)
-            //
-            // A discard-durability argument was originally offered alongside it and is
-            // OVERSTATED: TreeDiscardPurge.PurgeLedgerTombstones classifies primarily by the
-            // RETIRED ACTION's owning recording, indexed from Ledger.Actions, and falls back
-            // to RetiringRecordingId only when the target action is no longer in the ledger.
-            // These tombstones target actions owned by the origin recording, which a Re-Fly
-            // discard does not purge, so the primary path already leaves them alone whichever
-            // id is written here. Reason 1 stands on its own.
-            string retiringRecordingId = selected?.OriginChildRecordingId;
-
-            if (scenario.LedgerTombstones == null)
-                scenario.LedgerTombstones = new List<LedgerTombstone>();
-
-            var alreadyTombstoned = new HashSet<string>(StringComparer.Ordinal);
-            for (int i = 0; i < scenario.LedgerTombstones.Count; i++)
-            {
-                var existing = scenario.LedgerTombstones[i];
-                if (existing != null && !string.IsNullOrEmpty(existing.ActionId))
-                    alreadyTombstoned.Add(existing.ActionId);
-            }
-
-            string nowIso = DateTime.UtcNow.ToString("o", ic);
-            double mergeUT = retireCutoffUT;
-            int written = 0;
-            int skippedDuplicate = 0;
-
-            for (int i = 0; i < classified.Count; i++)
-            {
-                var entry = classified[i];
-                for (int a = 0; a < entry.RetiredActionIds.Count; a++)
-                {
-                    string actionId = entry.RetiredActionIds[a];
-                    if (string.IsNullOrEmpty(actionId)) continue;
-                    if (!alreadyTombstoned.Add(actionId))
-                    {
-                        skippedDuplicate++;
-                        continue;
-                    }
-
-                    scenario.LedgerTombstones.Add(new LedgerTombstone
-                    {
-                        TombstoneId = "tomb_" + Guid.NewGuid().ToString("N"),
-                        ActionId = actionId,
-                        RetiringRecordingId = retiringRecordingId,
-                        UT = mergeUT,
-                        CreatedRealTime = nowIso,
-                    });
-                    written++;
-                }
-
-                ParsekLog.Info(InvokeTag,
-                    $"Resurrected-recovery retirement: rec={entry.RecordingId} " +
-                    $"pid={entry.LiveVesselPid.ToString(ic)} " +
-                    $"anchorUT={entry.AnchorUT.ToString("F1", ic)} " +
-                    $"fallbackAnchor={entry.UsedFallbackAnchor} " +
-                    $"actions={entry.RetiredActionIds.Count.ToString(ic)} " +
-                    $"evidence={entry.Evidence}");
-            }
-
-            if (written > 0)
-                scenario.BumpTombstoneStateVersion();
-
             ParsekLog.Info(InvokeTag,
-                $"Resurrected-recovery retirement: recordings={classified.Count.ToString(ic)} " +
-                $"tombstonesWritten={written.ToString(ic)} " +
-                $"alreadyRetired={skippedDuplicate.ToString(ic)} " +
-                $"matchedWithoutRecovery={matchedWithoutRecovery.ToString(ic)} " +
-                $"retiring={retiringRecordingId ?? "<none>"} " +
-                $"cutoffUT={retireCutoffUT.ToString("F1", ic)}");
+                $"Resurrected vessel hold: survivors={survivors.Count.ToString(ic)} " +
+                $"held={held.Count.ToString(ic)} notLive={notLive.ToString(ic)} " +
+                $"alreadyHeld={alreadyHeld.ToString(ic)} " +
+                $"matchedWithoutFuture={matchedWithoutFuture.ToString(ic)} " +
+                $"cutoffUT={rewindUT.ToString("F1", ic)}");
+        }
+
+        /// <summary>Pure: the pids the invoke hold never takes (the re-flown vessel, the stripped vessels).</summary>
+        internal static HashSet<uint> BuildInvokeHoldExcludedPids(PostLoadStripResult stripResult)
+        {
+            var excluded = new HashSet<uint>();
+            if (stripResult.SelectedPid != 0u)
+                excluded.Add(stripResult.SelectedPid);
+            if (stripResult.StrippedPids != null)
+            {
+                for (int i = 0; i < stripResult.StrippedPids.Count; i++)
+                    excluded.Add(stripResult.StrippedPids[i]);
+            }
+            return excluded;
         }
 
         /// <summary>
