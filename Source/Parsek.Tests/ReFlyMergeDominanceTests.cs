@@ -783,11 +783,29 @@ namespace Parsek.Tests
 
             Assert.True(v.Pass);
             Assert.Equal(LossSwapVariant.A, v.Variant);
-            Assert.Equal(0, v.AttemptRowCount);
         }
 
+        // L is the Discard world, where the unfiled row is never filed: retiring it does not
+        // make room for an attempt loss (the merge would still lower reputation by 5).
         [Fact]
-        public void Evaluate_UnfiledRowOutsideTheAttemptAndTheRetireSet_SitsOnBothSides()
+        public void Evaluate_UnfiledReplacedFlightLossRetired_AttemptLossStillRefuses()
+        {
+            var els = Seeds();
+            var oldLoss = RepLoss("rep_old_unfiled", OldRec, 300.0, 9f);
+            var newLoss = RepLoss("rep_new", NewRec, 300.0, 5f);
+            var inputs = Inputs(els, new List<GameAction> { oldLoss, newLoss },
+                new List<GameAction> { oldLoss });
+
+            var v = ReFlyMergeDominance.Evaluate(inputs);
+
+            Assert.False(v.Pass);
+            Assert.Equal("reputation", v.Pool);
+        }
+
+        // The commit files a build-step row of another recording and keeps it; against the
+        // Discard world that is a loss the merge brings, so the check refuses.
+        [Fact]
+        public void Evaluate_UnfiledLossOutsideTheAttemptAndTheRetireSet_Refuses()
         {
             var els = Seeds();
             var otherLoss = RepLoss("rep_other_unfiled", LaterRec, 300.0, 9f);
@@ -795,7 +813,7 @@ namespace Parsek.Tests
             var v = ReFlyMergeDominance.Evaluate(
                 Inputs(els, new List<GameAction> { otherLoss }, null));
 
-            Assert.True(v.Pass);
+            Assert.False(v.Pass);
         }
 
         [Fact]

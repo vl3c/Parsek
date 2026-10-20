@@ -196,16 +196,8 @@ namespace Parsek
                 if (IsAttemptRow(a, attemptIds)) attemptRows.Add(a);
                 else baseline.Add(a);
             }
-            // A build-step row of a recording outside the attempt (the replaced flight's own
-            // rows when the ledger never filed them) is read as if it were already filed: it
-            // sits on both sides unless the retire set takes it out of L'.
             for (int i = 0; i < newRows.Count; i++)
-            {
-                var a = newRows[i];
-                if (a == null) continue;
-                if (IsAttemptRow(a, attemptIds)) attemptRows.Add(a);
-                else baseline.Add(a);
-            }
+                if (newRows[i] != null) attemptRows.Add(newRows[i]);
             v.AttemptRowCount = attemptRows.Count;
 
             var retireIds = new HashSet<string>(StringComparer.Ordinal);
@@ -328,7 +320,8 @@ namespace Parsek
         /// <c>L'</c>: <paramref name="baseline"/> minus the retire set (minus
         /// <paramref name="keptRetireIds"/>, Variant B's kept ReputationPenalty loss rows),
         /// plus <paramref name="attemptRows"/> (minus the attempt's own ReputationPenalty
-        /// loss rows when <paramref name="attemptIdsForDroppedRepLoss"/> is set, Variant B).
+        /// loss rows when <paramref name="attemptIdsForDroppedRepLoss"/> is set, Variant B, and
+        /// minus build-step rows the retire set takes, the same way as the baseline).
         /// </summary>
         internal static List<GameAction> ComposeAfter(
             IReadOnlyList<GameAction> baseline,
@@ -351,6 +344,11 @@ namespace Parsek
             {
                 var a = attemptRows[i];
                 if (a == null) continue;
+                // A build-step row the ledger never filed (the replaced flight's own rows)
+                // that the merge files and then retires: absent from L', as the commit leaves it.
+                if (!string.IsNullOrEmpty(a.ActionId) && retireIds.Contains(a.ActionId)
+                    && (keptRetireIds == null || !keptRetireIds.Contains(a.ActionId)))
+                    continue;
                 if (attemptIdsForDroppedRepLoss != null
                     && IsAttemptRow(a, attemptIdsForDroppedRepLoss)
                     && SupersedeCommit.IsReputationLossRow(a))

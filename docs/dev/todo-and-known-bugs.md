@@ -41,7 +41,8 @@ check on the finalized tree unchanged. Second cause, same lane: the replaced fli
 penalty was not filed in the ledger yet (the tree commit's build step files it, then the merge
 tombstones it), so the check counted it as a new loss of the attempt. Now the retire set also reads
 the build step's rows (`BuildMergeRetireSet` extraActions, as the Rule 1 read already did), and a
-build-step row of a recording outside the attempt sits on both sides of the check unless retired.
+build-step row the retire set takes is left out of `L'`, as the commit leaves it. `L` stays the
+Discard world (the unfiled row is never filed there), so retiring it makes no room for an attempt loss.
 
 Harness gap found on the same run: `AnswerMergeDialog choice=merge` answered `result=committed`
 although the dominance check refused the merge and the dialog fell back to Discard, so the drive
