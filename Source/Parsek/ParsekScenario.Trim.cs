@@ -1208,7 +1208,8 @@ namespace Parsek
         /// commit dedupe uses: a science row is stamped at its recording's end and carries the
         /// capture moment in the single-precision <c>StartUT</c>), or it is the KerbalAssignment summary of a
         /// recording whose end state was cleared (keyed on recording and kerbal with no UT, so
-        /// a stale one would make the re-commit drop the fresh one). Untagged KSC rows are kept.
+        /// a stale one would make the re-commit drop the fresh one). Untagged rows are left to the
+        /// in-session load (<see cref="RetireUntaggedRowsAfterSaveAtInSessionLoad"/>).
         /// </summary>
         internal static AbandonedFutureRowReason ClassifyAbandonedFutureRow(
             GameAction action, AbandonedFuturePlan plan)
@@ -1270,6 +1271,119 @@ namespace Parsek
             prunedRecording = pruned;
             strategyConversion = conversion;
             return removed;
+        }
+
+        /// <summary>Reason the in-session load passes to <see cref="Ledger.RetireAbandonedFutureActions"/>
+        /// for the untagged rows made after the loaded save.</summary>
+        internal const string UntaggedAfterSaveReason = "quickload-untagged-after-save";
+
+        /// <summary>
+        /// Pure: the clock just before an in-session load, the latest usable (finite, positive)
+        /// of the flight scene-change stamp (<paramref name="preChangeUT"/>), the stamp every
+        /// scene request takes (<paramref name="sceneRequestClockUT"/>) and the Planetarium
+        /// reading inside OnLoad (<paramref name="planetariumUT"/>, still the outgoing clock at
+        /// the Space Center and the Tracking Station, the loaded clock in flight). NaN when none
+        /// is usable.
+        /// </summary>
+        internal static double ResolvePreLoadClockUT(
+            double preChangeUT, double sceneRequestClockUT, double planetariumUT)
+        {
+            double best = double.NaN;
+            foreach (double ut in new[] { preChangeUT, sceneRequestClockUT, planetariumUT })
+            {
+                if (double.IsNaN(ut) || double.IsInfinity(ut) || ut <= 0.0)
+                    continue;
+                if (double.IsNaN(best) || ut > best)
+                    best = ut;
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// Pure: whether an in-session load back in time retires <paramref name="action"/> as a
+        /// row made after the loaded save (owner ruling 2026-10-19, "a quickload also undoes Space
+        /// Center purchases made after the quicksave"; rewind design section 2.12 Rule 3). Only an
+        /// untagged row (a Space Center purchase, upgrade, hire or contract action, a launch-pad
+        /// row from before a recording started) dated strictly after <paramref name="saveUT"/> and
+        /// no later than the clock before the load (<paramref name="preLoadClockUT"/>): a row
+        /// past that clock was already in the ledger as committed future before the load (a
+        /// rewind keeps such rows, ruling D2) and is not part of what the player did after the
+        /// save. Never a seed, never a route row (the in-session route reconcile owns those).
+        /// </summary>
+        internal static bool ShouldRetireUntaggedRowAfterSave(
+            GameAction action, double saveUT, double preLoadClockUT)
+        {
+            if (action == null || !string.IsNullOrEmpty(action.RecordingId))
+                return false;
+            if (RecalculationEngine.IsSeedType(action.Type) || !string.IsNullOrEmpty(action.RouteId))
+                return false;
+            return action.UT > saveUT && action.UT <= preLoadClockUT;
+        }
+
+        /// <summary>
+        /// The in-session load's retire of untagged rows made after the loaded save, run from
+        /// <see cref="OnLoad"/> beside the route reconcile and before the ledger recalculation,
+        /// on the load kinds whose <see cref="LoadStateCategory.UntaggedLedgerRowsAfterCutoff"/>
+        /// cell is <see cref="LoadReconcileAction.ReconcileAtCutoff"/> (a quickload in flight and
+        /// every other in-session load: the Space Center or Tracking Station load of an earlier
+        /// save, and the load of a flight quicksave from the Space Center). The window
+        /// (<paramref name="saveUT"/>, <paramref name="preLoadClockUT"/>] is empty on a forward or
+        /// same-instant scene change, so those touch nothing. Removes rows only, never adds one,
+        /// so it is OnLoad-safe. Returns the number retired.
+        /// </summary>
+        internal static int RetireUntaggedRowsAfterSaveAtInSessionLoad(
+            LoadKind kind, double saveUT, double preLoadClockUT)
+        {
+            if (LoadReconcilePolicy.Decide(kind, LoadStateCategory.UntaggedLedgerRowsAfterCutoff).Action
+                != LoadReconcileAction.ReconcileAtCutoff)
+            {
+                ParsekLog.Verbose(LoadReconcilePolicy.LogTag,
+                    $"Untagged rows after the save: not this load's reconcile kind={kind}");
+                return 0;
+            }
+
+            string saveText = saveUT.ToString("R", CultureInfo.InvariantCulture);
+            string clockText = preLoadClockUT.ToString("R", CultureInfo.InvariantCulture);
+            bool saveUsable = !double.IsNaN(saveUT) && !double.IsInfinity(saveUT) && saveUT > 0.0;
+            bool clockUsable = !double.IsNaN(preLoadClockUT) && !double.IsInfinity(preLoadClockUT);
+            if (!saveUsable || !clockUsable || preLoadClockUT <= saveUT)
+            {
+                ParsekLog.Verbose(LoadReconcilePolicy.LogTag,
+                    $"Untagged rows after the save: nothing to retire kind={kind} reason=no-window " +
+                    $"saveUT={saveText} clockUT={clockText}");
+                return 0;
+            }
+
+            int seedsKept = 0;
+            int routeRowsLeft = 0;
+            int retired = Ledger.RetireAbandonedFutureActions(action =>
+            {
+                if (action.UT > saveUT && action.UT <= preLoadClockUT
+                    && string.IsNullOrEmpty(action.RecordingId))
+                {
+                    if (RecalculationEngine.IsSeedType(action.Type))
+                        seedsKept++;
+                    else if (!string.IsNullOrEmpty(action.RouteId))
+                        routeRowsLeft++;
+                }
+                return ShouldRetireUntaggedRowAfterSave(action, saveUT, preLoadClockUT);
+            }, UntaggedAfterSaveReason);
+
+            if (retired > 0)
+            {
+                ParsekLog.Info(LoadReconcilePolicy.LogTag,
+                    $"Untagged rows after the save retired: kind={kind} saveUT={saveText} clockUT={clockText} " +
+                    $"retired={retired.ToString(CultureInfo.InvariantCulture)} " +
+                    $"seedsKept={seedsKept.ToString(CultureInfo.InvariantCulture)} " +
+                    $"routeRowsLeft={routeRowsLeft.ToString(CultureInfo.InvariantCulture)}");
+            }
+            else
+            {
+                ParsekLog.Verbose(LoadReconcilePolicy.LogTag,
+                    $"Untagged rows after the save: nothing to retire kind={kind} reason=empty " +
+                    $"saveUT={saveText} clockUT={clockText}");
+            }
+            return retired;
         }
 
         private static HashSet<string> CollectFutureOnlyRecordingIds(RecordingTree tree, double cutoffUT)

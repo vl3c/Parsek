@@ -215,8 +215,11 @@ namespace Parsek.Tests
             Assert.Equal(1, Occurrences(helper, "PruneStagedRowsNamingAttempt("));
             int collect = IndexOrFail(helper, "CollectReFlyAttemptOwnedRecordingIds(");
             int rows = IndexOrFail(helper, "PruneStagedRowsNamingAttempt(");
+            int ledgerRows = IndexOrFail(helper, "Ledger.RemoveActionsForRecordings(");
             int restore = IndexOrFail(helper, "RestoreSanitizedPendingTreeIfDetached(");
-            Assert.True(collect < rows && rows < restore);
+            Assert.True(collect < rows && rows < ledgerRows && ledgerRows < restore);
+            Assert.Contains("ParsekFlight.Instance?.ActiveTreeForSerialization);",
+                Collapse(retry.Substring(repair, invoke - repair)));
             Assert.Contains("RestoreSanitizedPendingTreeIfDetached( RecordingTree.DeepClone(tree)", Collapse(helper));
         }
 

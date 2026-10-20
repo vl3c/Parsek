@@ -259,29 +259,51 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Removes every action tagged with the given recording id (regardless of type).
-        /// Returns the number of actions removed. Null/empty recordingId is a no-op.
+        /// Removes every action tagged to one of <paramref name="recordingIds"/>, whatever its
+        /// type; a seed row is never removed. The Re-Fly discard paths (Esc-menu Discard Re-fly,
+        /// the merge-dialog Discard, the rewind end, Retry and the load-time zombie sweep) call
+        /// it so an abandoned attempt leaves the ledger exactly as it was before the invocation
+        /// (rewind design section 2.12 Rule 3): the attempt was never committed, so its rows go
+        /// the way a pending-tree discard's uncommitted recordings go. Bumps
+        /// <see cref="StateVersion"/> when anything went and logs one summary line. Returns the
+        /// number removed; a null or empty set is a no-op.
         /// </summary>
-        internal static int RemoveActionsForRecording(string recordingId)
+        internal static int RemoveActionsForRecordings(ICollection<string> recordingIds, string callSite)
         {
-            if (string.IsNullOrEmpty(recordingId))
+            string site = string.IsNullOrEmpty(callSite) ? "<none>" : callSite;
+            if (recordingIds == null || recordingIds.Count == 0)
+            {
+                ParsekLog.Verbose("Ledger",
+                    $"RemoveActionsForRecordings: nothing to remove recordingIds=0 callSite={site} total={actions.Count}");
                 return 0;
+            }
 
             int removed = 0;
             for (int i = actions.Count - 1; i >= 0; i--)
             {
-                if (string.Equals(actions[i].RecordingId, recordingId, StringComparison.Ordinal))
-                {
-                    actions.RemoveAt(i);
-                    removed++;
-                }
+                var action = actions[i];
+                if (action == null || string.IsNullOrEmpty(action.RecordingId))
+                    continue;
+                if (!recordingIds.Contains(action.RecordingId))
+                    continue;
+                if (RecalculationEngine.IsSeedType(action.Type))
+                    continue;
+                actions.RemoveAt(i);
+                removed++;
             }
 
             if (removed > 0)
             {
                 BumpStateVersion();
+                ParsekLog.Info("Ledger",
+                    $"RemoveActionsForRecordings: removed={removed} recordingIds={recordingIds.Count} " +
+                    $"callSite={site} total={actions.Count}");
+            }
+            else
+            {
                 ParsekLog.Verbose("Ledger",
-                    $"RemoveActionsForRecording: recordingId='{recordingId}', removed={removed}, total={actions.Count}");
+                    $"RemoveActionsForRecordings: nothing to remove recordingIds={recordingIds.Count} " +
+                    $"callSite={site} total={actions.Count}");
             }
 
             return removed;
@@ -630,7 +652,9 @@ namespace Parsek
         /// <summary>
         /// Clears <see cref="GameAction.RecordingId"/> on every action tagged to one of
         /// <paramref name="recordingIds"/>, KEEPING the rows. Returns the number cleared.
-        /// Null / empty input is a no-op.
+        /// Null / empty input is a no-op. Called by the conclude path
+        /// (<c>SupersedeCommit.ConcludeRetiredProvisional</c>); the Re-Fly discard paths remove
+        /// the attempt's rows instead (<see cref="RemoveActionsForRecordings"/>).
         /// <para>
         /// This is the retire-time tag re-home. It exists because
         /// <see cref="GameAction.RecordingId"/> is NOT cosmetic: it is the tombstone

@@ -152,10 +152,11 @@ namespace Parsek
         /// session-authored branch points, dangling parent/child id refs,
         /// and stale <c>ActiveRecordingId</c> behind for OnSave to serialise
         /// as committed mission history.
-        /// Also re-homes the attempt's ledger tags
-        /// (<see cref="Ledger.ClearRecordingTagForRecordings"/>), same contract as
-        /// <see cref="DiscardReFlyAttemptRecordingsAndRewindPoints"/>: a payout earned during the
-        /// attempt keeps its row but loses the tag naming a recording this discard deletes.
+        /// Also removes the ledger rows tagged to the attempt's recordings
+        /// (<see cref="Ledger.RemoveActionsForRecordings"/>), same contract as
+        /// <see cref="DiscardReFlyAttemptRecordingsAndRewindPoints"/>: the attempt was never
+        /// committed, so a discard leaves the ledger as it was before the invocation (rewind design
+        /// section 2.12 Rule 3), a resumed merged attempt included.
         /// Caller is responsible for clearing the marker / scenario journal
         /// and any flow-specific cleanup (<see cref="EndDiscardedReFlySession"/>); this helper
         /// handles only the recording/topology side.
@@ -193,7 +194,8 @@ namespace Parsek
                     };
                     summary.AttemptIds = single;
                     summary.RemovedCommitted = RemoveCommittedAttemptRecordings(single);
-                    summary.LedgerTagsCleared = Ledger.ClearRecordingTagForRecordings(single);
+                    summary.LedgerRowsRemoved = Ledger.RemoveActionsForRecordings(
+                        single, callSite ?? "PruneActiveReFlyAttemptOwnedTopology");
                     summary.StagedRows = PruneStagedRowsNamingAttempt(
                         ParsekScenario.Instance, single, callSite ?? "PruneActiveReFlyAttemptOwnedTopology");
                 }
@@ -202,7 +204,7 @@ namespace Parsek
                     $"for treeId={marker.TreeId ?? "<none>"} callSite={callSite ?? "<none>"} " +
                     $"sess={marker.SessionId ?? "<none>"} - falling back to single-id removal " +
                     $"(lost descendant + topology cleanup; removedCommitted={summary.RemovedCommitted} " +
-                    $"ledgerTagsCleared={summary.LedgerTagsCleared})");
+                    $"ledgerRowsRemoved={summary.LedgerRowsRemoved})");
                 return summary;
             }
 
@@ -217,7 +219,8 @@ namespace Parsek
                 summary.AttemptIds, marker);
             summary.TransientCleared = ClearReFlyAttemptTransientFields(
                 tree, marker, summary.AttemptIds);
-            summary.LedgerTagsCleared = Ledger.ClearRecordingTagForRecordings(summary.AttemptIds);
+            summary.LedgerRowsRemoved = Ledger.RemoveActionsForRecordings(
+                summary.AttemptIds, callSite ?? "PruneActiveReFlyAttemptOwnedTopology");
             summary.StagedRows = PruneStagedRowsNamingAttempt(
                 ParsekScenario.Instance, summary.AttemptIds, callSite ?? "PruneActiveReFlyAttemptOwnedTopology");
 
@@ -231,7 +234,7 @@ namespace Parsek
                 $"deletedFiles={summary.DeletedFiles} " +
                 $"prunedCommittedTreeEntries={summary.PrunedCommittedTreeEntries} " +
                 $"transientCleared={summary.TransientCleared} " +
-                $"ledgerTagsCleared={summary.LedgerTagsCleared} " +
+                $"ledgerRowsRemoved={summary.LedgerRowsRemoved} " +
                 $"stagedRowsPruned={summary.StagedRows.Total}");
 
             return summary;
@@ -300,7 +303,7 @@ namespace Parsek
             internal int DeletedFiles;
             internal int PrunedCommittedTreeEntries;
             internal int TransientCleared;
-            internal int LedgerTagsCleared;
+            internal int LedgerRowsRemoved;
             internal StagedRowsPruneResult StagedRows;
         }
 
@@ -352,6 +355,7 @@ namespace Parsek
         {
             internal int AttemptIds;
             internal StagedRowsPruneResult StagedRows;
+            internal int LedgerRowsRemoved;
             internal bool RestoredCommittedTree;
         }
 
@@ -361,7 +365,12 @@ namespace Parsek
         /// A Retry cancels the attempt as a discard does, so the rows a resumed attempt's first
         /// merge wrote (owner ruling OQ-1) go, selected by the session stamp
         /// (<see cref="PruneStagedRowsNamingAttempt"/>; todo
-        /// RETRY-OF-A-RESUMED-MERGED-REFLY-LEAVES-A-ONE-SIDED-ROW). And an F9 during the session
+        /// RETRY-OF-A-RESUMED-MERGED-REFLY-LEAVES-A-ONE-SIDED-ROW), and the ledger rows tagged to
+        /// the attempt's recordings go too (<see cref="Ledger.RemoveActionsForRecordings"/>, rewind
+        /// design section 2.12 Rule 3), so the retried session inherits no row and the bundle the
+        /// re-invoke captures carries the ledger as it was before the first invocation. The ids
+        /// come from the looked-up tree and, when it does not hold the fork, from the live tree
+        /// that does (<see cref="ResolveReFlyAttemptTree"/>). And an F9 during the session
         /// detached the committed copy of its tree (<c>ParsekScenario.TryRestoreActiveTreeNode</c>),
         /// while the bundle carries committed trees only and the rewind point's quicksave holds the
         /// tree as it stood at the split, so with no committed tree under the session's tree id the
@@ -371,7 +380,8 @@ namespace Parsek
         /// restore still pops it, as on every Retry, and a refused re-invoke leaves that shape too.
         /// </summary>
         internal static RetryRepairResult RepairSessionBeforeRetry(
-            ParsekScenario scenario, ReFlySessionMarker marker, string callSite)
+            ParsekScenario scenario, ReFlySessionMarker marker, string callSite,
+            RecordingTree liveActiveTree = null)
         {
             var result = new RetryRepairResult();
             if (marker == null)
@@ -383,8 +393,12 @@ namespace Parsek
 
             RecordingTree tree = RewindInvoker.FindTreeForReFlyFork(marker.TreeId);
             HashSet<string> attemptIds = CollectReFlyAttemptOwnedRecordingIds(tree, marker);
+            RecordingTree attemptTree = ResolveReFlyAttemptTree(marker, liveActiveTree, callSite);
+            if (attemptTree != null && !object.ReferenceEquals(attemptTree, tree))
+                attemptIds.UnionWith(CollectReFlyAttemptOwnedRecordingIds(attemptTree, marker));
             result.AttemptIds = attemptIds.Count;
             result.StagedRows = PruneStagedRowsNamingAttempt(scenario, attemptIds, callSite);
+            result.LedgerRowsRemoved = Ledger.RemoveActionsForRecordings(attemptIds, callSite ?? "RepairSessionBeforeRetry");
 
             string treeState;
             if (tree == null)
@@ -405,7 +419,7 @@ namespace Parsek
             ParsekLog.Info("MergeDialog",
                 $"RepairSessionBeforeRetry callSite={callSite ?? "<none>"} sess={marker.SessionId ?? "<none>"} " +
                 $"tree={marker.TreeId ?? "<none>"} treeState={treeState} attemptIds={result.AttemptIds} " +
-                $"stagedRowsPruned={result.StagedRows.Total} " +
+                $"stagedRowsPruned={result.StagedRows.Total} ledgerRowsRemoved={result.LedgerRowsRemoved} " +
                 $"restoredCommittedTree={(result.RestoredCommittedTree ? "true" : "false")}");
             return result;
         }
@@ -567,7 +581,7 @@ namespace Parsek
                 $"purgedEvents={discard.PurgedEvents}, deletedFiles={discard.DeletedFiles}, " +
                 $"prunedCommittedTreeEntries={discard.PrunedCommittedTreeEntries}, " +
                 $"transientCleared={discard.TransientCleared}, " +
-                $"ledgerTagsCleared={discard.LedgerTagsCleared}, " +
+                $"ledgerRowsRemoved={discard.LedgerRowsRemoved}, " +
                 $"rpPromoted={discard.RpPromoted}, discardedSessionRps={discard.DiscardedSessionRps}, " +
                 $"stagedRowsPruned={discard.StagedRows.Total}, " +
                 $"restoredCommittedTree={discard.RestoredCommittedTree}, durableSaved={durableSaved})");
@@ -593,7 +607,7 @@ namespace Parsek
             internal int DeletedFiles;
             internal int PrunedCommittedTreeEntries;
             internal int TransientCleared;
-            internal int LedgerTagsCleared;
+            internal int LedgerRowsRemoved;
             internal bool RpPromoted;
             internal int DiscardedSessionRps;
             internal bool RestoredCommittedTree;
@@ -605,7 +619,7 @@ namespace Parsek
         /// discard provisional, purge session-provisional RPs), shared by the scene-exit merge
         /// dialog's Discard and <see cref="TryDiscardLiveReFlySessionForRewind"/>. Removes the
         /// attempt-owned recordings (committed list, events, sidecars, committed-tree entries,
-        /// transient fields, ledger tags), promotes the origin RP so its slot stays in Unfinished
+        /// transient fields, ledger rows), promotes the origin RP so its slot stays in Unfinished
         /// Flights, purges the RPs this session authored, and puts a detached committed tree back
         /// sanitized. Leaves the marker alone: <see cref="EndDiscardedReFlySession"/> is the other half.
         /// </summary>
@@ -626,19 +640,10 @@ namespace Parsek
                 result.AttemptIds, marker);
             result.TransientCleared = ClearReFlyAttemptTransientFields(tree, marker, result.AttemptIds);
             result.StagedRows = PruneStagedRowsNamingAttempt(scenario, result.AttemptIds, reason);
-            // Retire-time tag re-home, same contract as
-            // SupersedeCommit.ConcludeRetiredProvisional: this path already purges the
-            // attempt's store events and files but never touched Ledger.Actions, so a payout
-            // earned during the attempt kept a tag pointing at a recording this discard
-            // deletes. RecordingId is the tombstone scoping key
-            // (TombstoneAttributionHelper.InSupersedeScope, no UT guard of its own; the
-            // write-set's pre-rewind screen protects only rows earned before the rewind
-            // point) and FundsEarning /
-            // ScienceEarning are tombstone-eligible, so a stale tag can later scope a
-            // tombstone onto a REAL payout. Clearing keeps the row and its career effect.
-            // Accepted exposure: untagged rows become eligible for PruneOrphanActionsAfterUT,
-            // identical to the exposure the existing discard re-home already accepts.
-            result.LedgerTagsCleared = Ledger.ClearRecordingTagForRecordings(result.AttemptIds);
+            // Rewind design section 2.12 Rule 3: the attempt was never committed, so its rows go
+            // (a resumed merged attempt included); the post-discard recalculation or the reload
+            // that follows walks the ledger as it stood before the invocation.
+            result.LedgerRowsRemoved = Ledger.RemoveActionsForRecordings(result.AttemptIds, reason);
             bool committedTreeDetached = tree != null && !CommittedTreeExists(tree.Id);
             result.RpPromoted = PromoteOriginRewindPointForDiscard(scenario, marker, reason);
             result.DiscardedSessionRps = PurgeDiscardedSessionRewindPoints(scenario, marker);

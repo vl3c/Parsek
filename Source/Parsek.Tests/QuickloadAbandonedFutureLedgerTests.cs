@@ -330,9 +330,8 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TrimAndReconcile_UntaggedKscRowAfterCutoff_Kept()
+        public void TrimAndReconcile_UntaggedKscRowAfterCutoff_LeftToTheInSessionLoadRetire()
         {
-            // D2 / QL-R2: KSC rows carry no recording id and stay committed.
             var tree = MakeTree("ta3_ksc");
             Ledger.AddAction(new GameAction
             {
@@ -345,6 +344,125 @@ namespace Parsek.Tests
 
             var kept = Assert.Single(NonSeedRows());
             Assert.True(string.IsNullOrEmpty(kept.RecordingId));
+        }
+
+        // ============================================================
+        // Owner ruling 2026-10-19: a load back in time undoes the untagged rows made after the save
+        // ============================================================
+
+        private static void AddUntagged(string id, double ut, GameActionType type = GameActionType.FundsSpending)
+        {
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = id, UT = ut, Type = type, FundsSpent = 500f,
+                FundsSpendingSource = FundsSpendingSource.FacilityUpgrade,
+            });
+        }
+
+        [Theory]
+        [InlineData((int)LoadKind.QuickloadFlight)]
+        [InlineData((int)LoadKind.InSessionOther)]
+        public void UntaggedRowsAfterSave_InsideTheWindow_Retired(int kindValue)
+        {
+            var kind = (LoadKind)kindValue;
+            Ledger.AddAction(new GameAction { ActionId = "act_seed", UT = 0.0, Type = GameActionType.FundsInitial, InitialFunds = 25000f });
+            AddUntagged("act_before_save", 150.0);
+            AddUntagged("act_at_save", 200.0);
+            AddUntagged("act_after_save", 300.0);
+            AddUntagged("act_at_clock", 400.0);
+            AddUntagged("act_committed_future", 500.0);
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_tagged", UT = 300.0, Type = GameActionType.FundsEarning, RecordingId = "rec_other",
+            });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_route", UT = 300.0, Type = GameActionType.RouteDispatched, RouteId = "route-1",
+            });
+
+            int retired = ParsekScenario.RetireUntaggedRowsAfterSaveAtInSessionLoad(kind, 200.0, 400.0);
+
+            Assert.Equal(2, retired);
+            Assert.Equal(
+                new[] { "act_seed", "act_before_save", "act_at_save", "act_committed_future", "act_tagged", "act_route" },
+                Ledger.Actions.Select(a => a.ActionId));
+            Assert.Contains(logLines, l => l.Contains("[INFO][LoadPolicy]")
+                && l.Contains("Untagged rows after the save retired: kind=" + kind + " saveUT=200 clockUT=400")
+                && l.Contains("retired=2 seedsKept=0 routeRowsLeft=1"));
+            Assert.Contains(logLines, l => l.Contains("[Ledger]")
+                && l.Contains("RetireAbandonedFutureActions: removed 2 action(s) reason=quickload-untagged-after-save"));
+        }
+
+        [Theory]
+        [InlineData((int)LoadKind.Cold)]
+        [InlineData((int)LoadKind.PlainRewind)]
+        [InlineData((int)LoadKind.ReFlyStart)]
+        [InlineData((int)LoadKind.DiscardReFly)]
+        [InlineData((int)LoadKind.StockRevert)]
+        public void UntaggedRowsAfterSave_OtherLoadKinds_Untouched(int kindValue)
+        {
+            var kind = (LoadKind)kindValue;
+            AddUntagged("act_after_save", 300.0);
+
+            Assert.Equal(0, ParsekScenario.RetireUntaggedRowsAfterSaveAtInSessionLoad(kind, 200.0, 400.0));
+
+            Assert.Single(Ledger.Actions);
+        }
+
+        [Theory]
+        [InlineData(200.0, 200.0)]
+        [InlineData(400.0, 200.0)]
+        [InlineData(double.NaN, 400.0)]
+        [InlineData(200.0, double.NaN)]
+        [InlineData(0.0, 400.0)]
+        public void UntaggedRowsAfterSave_ForwardOrUnknownClock_Untouched(double saveUT, double clockUT)
+        {
+            AddUntagged("act_a", 300.0);
+            AddUntagged("act_b", 200.0);
+
+            Assert.Equal(0, ParsekScenario.RetireUntaggedRowsAfterSaveAtInSessionLoad(
+                LoadKind.InSessionOther, saveUT, clockUT));
+
+            Assert.Equal(2, Ledger.Actions.Count);
+            Assert.Contains(logLines, l => l.Contains("[LoadPolicy]")
+                && l.Contains("Untagged rows after the save: nothing to retire kind=InSessionOther reason=no-window"));
+        }
+
+        [Fact]
+        public void ShouldRetireUntaggedRowAfterSave_Pure()
+        {
+            Assert.True(ParsekScenario.ShouldRetireUntaggedRowAfterSave(
+                new GameAction { UT = 300.0, Type = GameActionType.KerbalHire }, 200.0, 400.0));
+            Assert.True(ParsekScenario.ShouldRetireUntaggedRowAfterSave(
+                new GameAction { UT = 400.0, Type = GameActionType.ContractAccept }, 200.0, 400.0));
+            Assert.False(ParsekScenario.ShouldRetireUntaggedRowAfterSave(
+                new GameAction { UT = 200.0, Type = GameActionType.KerbalHire }, 200.0, 400.0));
+            Assert.False(ParsekScenario.ShouldRetireUntaggedRowAfterSave(
+                new GameAction { UT = 400.5, Type = GameActionType.KerbalHire }, 200.0, 400.0));
+            Assert.False(ParsekScenario.ShouldRetireUntaggedRowAfterSave(
+                new GameAction { UT = 300.0, Type = GameActionType.KerbalHire, RecordingId = "rec" }, 200.0, 400.0));
+            Assert.False(ParsekScenario.ShouldRetireUntaggedRowAfterSave(
+                new GameAction { UT = 300.0, Type = GameActionType.ScienceInitial }, 200.0, 400.0));
+            Assert.False(ParsekScenario.ShouldRetireUntaggedRowAfterSave(
+                new GameAction { UT = 300.0, Type = GameActionType.RouteDispatched, RouteId = "r" }, 200.0, 400.0));
+            Assert.False(ParsekScenario.ShouldRetireUntaggedRowAfterSave(null, 200.0, 400.0));
+        }
+
+        [Theory]
+        [InlineData(500.0, double.NaN, 200.0, 500.0)]
+        [InlineData(-1.0, 1000.1, double.NaN, 1000.1)]
+        [InlineData(-1.0, double.NaN, 1000.1, 1000.1)]
+        [InlineData(-1.0, 300.0, 409.9, 409.9)]
+        [InlineData(-1.0, double.NaN, double.NaN, double.NaN)]
+        [InlineData(0.0, 0.0, double.PositiveInfinity, double.NaN)]
+        public void ResolvePreLoadClockUT_TakesTheLatestUsableReading(
+            double preChangeUT, double sceneRequestUT, double planetariumUT, double expected)
+        {
+            double actual = ParsekScenario.ResolvePreLoadClockUT(preChangeUT, sceneRequestUT, planetariumUT);
+            if (double.IsNaN(expected))
+                Assert.True(double.IsNaN(actual));
+            else
+                Assert.Equal(expected, actual);
         }
 
         [Fact]

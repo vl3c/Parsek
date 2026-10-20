@@ -601,6 +601,65 @@ namespace Parsek.Tests
             Assert.Equal("rec_keep", Ledger.Actions[0].RecordingId);
         }
 
+        [Fact]
+        public void RemoveActionsForRecordings_RemovesOnlyTheSetsRows_KeepsUntaggedOtherAndSeedRows()
+        {
+            Ledger.AddAction(new GameAction { UT = 0.0, Type = GameActionType.ScienceInitial, RecordingId = "rec_attempt_a" });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_a", UT = 150.0, Type = GameActionType.FundsEarning,
+                RecordingId = "rec_attempt_a", FundsAwarded = 100f,
+            });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_b", UT = 151.0, Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_attempt_b", ScienceAwarded = 30f,
+            });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_keep", UT = 152.0, Type = GameActionType.FundsEarning,
+                RecordingId = "rec_keep", FundsAwarded = 300f,
+            });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_ksc", UT = 153.0, Type = GameActionType.ScienceSpending,
+                NodeId = "basicRocketry", Cost = 5f,
+            });
+            int versionBefore = Ledger.StateVersion;
+
+            int removed = Ledger.RemoveActionsForRecordings(
+                new HashSet<string> { "rec_attempt_a", "rec_attempt_b" }, "test-discard");
+
+            Assert.Equal(2, removed);
+            Assert.Equal(new[] { "act_keep", "act_ksc" },
+                Ledger.Actions.Where(a => !RecalculationEngine.IsSeedType(a.Type)).Select(a => a.ActionId));
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.ScienceInitial);
+            Assert.NotEqual(versionBefore, Ledger.StateVersion);
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO][Ledger]")
+                && l.Contains("RemoveActionsForRecordings: removed=2 recordingIds=2 callSite=test-discard"));
+        }
+
+        [Fact]
+        public void RemoveActionsForRecordings_NullEmptyOrUnmatched_RemovesNothingAndKeepsTheVersion()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 150.0, Type = GameActionType.FundsEarning, RecordingId = "rec_keep", FundsAwarded = 100f,
+            });
+            int versionBefore = Ledger.StateVersion;
+            ParsekLog.VerboseOverrideForTesting = true;
+
+            Assert.Equal(0, Ledger.RemoveActionsForRecordings(null, "test"));
+            Assert.Equal(0, Ledger.RemoveActionsForRecordings(new HashSet<string>(), "test"));
+            Assert.Equal(0, Ledger.RemoveActionsForRecordings(new HashSet<string> { "rec_absent" }, null));
+
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(versionBefore, Ledger.StateVersion);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]") && l.Contains("RemoveActionsForRecordings: nothing to remove recordingIds=1 callSite=<none>"));
+        }
+
         // ================================================================
         // RetagActionsForRecordingRewrite (#441 round 2 P2)
         // ================================================================
