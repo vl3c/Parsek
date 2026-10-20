@@ -493,6 +493,48 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Design section 2.12 Rule 5 models the merge as it will run: true when the merge of
+        /// <paramref name="tree"/> would retire nothing on the replaced side, so the dominance
+        /// check must keep the retire set in <c>L'</c>. That is the case when the attempt's
+        /// recording is missing (the merge concludes without a supersede) or when
+        /// <see cref="ValidateReFlySessionSupersedeSource(Recording, RecordingTree, ReFlySessionMarker, out string, out SlotVesselWalk, out BranchPoint)"/>,
+        /// the predicate AppendRelations refuses on (<c>outcome=refused-unflown-provisional</c>),
+        /// rejects it, read on the dialog's pending tree. <paramref name="reason"/> names which.
+        /// </summary>
+        internal static bool MergeWouldRetireNothing(
+            ReFlySessionMarker marker, RecordingTree tree, out string reason)
+        {
+            reason = null;
+            if (marker == null)
+            {
+                reason = "no-marker";
+                return true;
+            }
+            string id = marker.ActiveReFlyRecordingId;
+            Recording provisional = null;
+            if (!string.IsNullOrEmpty(id))
+            {
+                if (tree?.Recordings != null)
+                    tree.Recordings.TryGetValue(id, out provisional);
+                if (provisional == null)
+                    provisional = EffectiveState.FindCommittedRecordingByIdRaw(id);
+            }
+            if (provisional == null)
+            {
+                reason = "provisional-missing";
+                return true;
+            }
+            string invalid;
+            if (!ValidateReFlySessionSupersedeSource(
+                    provisional, tree, marker, out invalid, out _, out _))
+            {
+                reason = "refused-unflown-provisional:" + (invalid ?? "<none>");
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// The recordings of a Re-Fly attempt among the committed recordings (after its tree
         /// commits): stamped with the session (<see cref="MergeDialog.IsCreatedByReFlySession"/>),
         /// plus the marker's active re-fly recording.

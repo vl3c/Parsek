@@ -514,6 +514,8 @@ namespace Parsek.Tests
                 ExplicitEndUT = 300.0,
                 TerminalStateValue = TerminalState.Destroyed,
             };
+            provisional.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            provisional.Points.Add(new TrajectoryPoint { ut = 300.0 });
             var pending = new RecordingTree
             {
                 Id = "tree_1",
@@ -607,6 +609,98 @@ namespace Parsek.Tests
                 && l.Contains("Merge dominance check sess=sess_dom result=pass pool="));
             Assert.Contains(logLines, l => l.Contains("[INFO][LedgerSwap]")
                 && l.Contains("Loss swap sess=sess_dom variant=A "));
+        }
+
+        // catches: the check modeling the retire set as retired while the merge retires
+        // nothing (AppendRelations refuses an unflown attempt), so a Variant A pass would
+        // land the attempt's reputation loss with nothing retired against it.
+        [Fact]
+        public void EvaluateForMerge_UnflownAttempt_ModelsAnEmptyRetireSet_AndPicksVariantB()
+        {
+            KerbalsModule.CrewRespawnPolicyProviderForTesting =
+                (out bool respawns, out double timerSeconds) =>
+                {
+                    respawns = true;
+                    timerSeconds = 100.0;
+                    return true;
+                };
+            var pending = InstallLiveFixture();
+            pending.Recordings["rec_provisional"].Points.Clear();
+            Ledger.AddAction(RepLoss("rep_attempt", "rec_provisional", 260.0, 10f));
+
+            List<GameAction> rows;
+            var v = ReFlyMergeDominance.EvaluateForMerge(pending, "dialog-open", out rows);
+
+            Assert.True(v.Pass);
+            Assert.Equal(0, v.RetireSetCount);
+            Assert.Equal(0.0, v.RepLossOld, 3);
+            Assert.Equal(LossSwapVariant.B, v.Variant);
+            Assert.Contains(logLines, l => l.Contains("[LedgerSwap]")
+                && l.Contains("merge would retire nothing")
+                && l.Contains("refused-unflown-provisional"));
+            Assert.Contains(logLines, l => l.Contains("Merge dominance check sess=sess_dom result=pass")
+                && l.Contains("retireSet=0 "));
+        }
+
+        [Fact]
+        public void Evaluate_RetiresNothing_StillRefusesASealingRowInTheRetireSet()
+        {
+            var els = Seeds();
+            var milestone = new GameAction
+            {
+                ActionId = "ms_old", Type = GameActionType.MilestoneAchievement, UT = 300.0,
+                RecordingId = OldRec, MilestoneId = "FirstOrbit", MilestoneFundsAwarded = 1000f,
+            };
+            els.Add(milestone);
+            var inputs = Inputs(els, null, new List<GameAction> { milestone });
+            inputs.RetiresNothing = true;
+
+            var v = ReFlyMergeDominance.Evaluate(inputs);
+
+            Assert.False(v.Pass);
+            Assert.Equal("sealing", v.Pool);
+        }
+
+        [Fact]
+        public void Evaluate_RetiresNothing_KeepsTheRetireSetInLPrime()
+        {
+            var els = Seeds();
+            var oldLoss = RepLoss("rep_old", OldRec, 300.0, 10f);
+            els.Add(oldLoss);
+            var newLoss = RepLoss("rep_new", NewRec, 300.0, 10f);
+            var inputs = Inputs(els, new List<GameAction> { newLoss }, new List<GameAction> { oldLoss });
+
+            var modeledRetired = ReFlyMergeDominance.Evaluate(inputs);
+            inputs.RetiresNothing = true;
+            var retiresNothing = ReFlyMergeDominance.Evaluate(inputs);
+
+            Assert.Equal(LossSwapVariant.A, modeledRetired.Variant);
+            Assert.Equal(1, modeledRetired.RetireSetCount);
+            Assert.True(retiresNothing.Pass);
+            Assert.Equal(LossSwapVariant.B, retiresNothing.Variant);
+            Assert.Equal(0, retiresNothing.RetireSetCount);
+        }
+
+        [Fact]
+        public void EvaluateForMerge_FlownAttempt_ModelsTheRetireSet_AndPicksVariantA()
+        {
+            KerbalsModule.CrewRespawnPolicyProviderForTesting =
+                (out bool respawns, out double timerSeconds) =>
+                {
+                    respawns = true;
+                    timerSeconds = 100.0;
+                    return true;
+                };
+            var pending = InstallLiveFixture();
+            Ledger.AddAction(RepLoss("rep_attempt", "rec_provisional", 260.0, 10f));
+
+            List<GameAction> rows;
+            var v = ReFlyMergeDominance.EvaluateForMerge(pending, "dialog-open", out rows);
+
+            Assert.True(v.Pass);
+            Assert.Equal(2, v.RetireSetCount);
+            Assert.Equal(10.0, v.RepLossOld, 3);
+            Assert.Equal(LossSwapVariant.A, v.Variant);
         }
 
         [Fact]

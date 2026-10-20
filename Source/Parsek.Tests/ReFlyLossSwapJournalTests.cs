@@ -192,6 +192,40 @@ namespace Parsek.Tests
                 && l.Contains("Loss swap variant B applied"));
         }
 
+        // catches: an empty merge subtree (an unflown attempt AppendRelations refuses)
+        // returning before Variant B, so the re-fly's own reputation loss counted although
+        // the dominance check modeled it dropped.
+        [Fact]
+        public void RunMerge_VariantB_MergeRetiresNothing_StillTombstonesTheReFlysOwnLoss()
+        {
+            var (scenario, provisional) = InstallFixture();
+            provisional.Points.Clear();
+
+            Assert.True(MergeJournalOrchestrator.RunMerge(
+                scenario.ActiveReFlySessionMarker, provisional, LossSwapVariant.B));
+
+            Assert.Contains(logLines, l => l.Contains("outcome=refused-unflown-provisional"));
+            Assert.Empty(scenario.RecordingSupersedes);
+            Assert.DoesNotContain(scenario.LedgerTombstones, t => t.ActionId == "rep_old");
+            var tomb = Assert.Single(scenario.LedgerTombstones, t => t.ActionId == "rep_new");
+            Assert.Equal("rec_provisional", tomb.RetiringRecordingId);
+            Assert.Contains(logLines, l => l.Contains("[LedgerSwap]")
+                && l.Contains("Loss swap variant B applied")
+                && l.Contains("keptReplacedRepLoss=0 tombstonedAttemptRepLoss=1"));
+        }
+
+        [Fact]
+        public void RunMerge_VariantA_MergeRetiresNothing_TombstonesNothing()
+        {
+            var (scenario, provisional) = InstallFixture();
+            provisional.Points.Clear();
+
+            Assert.True(MergeJournalOrchestrator.RunMerge(
+                scenario.ActiveReFlySessionMarker, provisional, LossSwapVariant.A));
+
+            Assert.Empty(scenario.LedgerTombstones);
+        }
+
         [Fact]
         public void CrashBeforeTombstones_JournalReloaded_FinisherReplaysVariantB()
         {

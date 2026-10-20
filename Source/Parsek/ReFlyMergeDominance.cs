@@ -86,6 +86,10 @@ namespace Parsek
             internal IReadOnlyList<GameAction> NewRows;
             /// <summary>The rows the merge would tombstone (Phase 1 retire set).</summary>
             internal IReadOnlyList<GameAction> RetireSet;
+            /// <summary>True when the merge will retire nothing on the replaced side
+            /// (<see cref="SupersedeCommit.MergeWouldRetireNothing"/>): <c>L'</c> keeps the
+            /// retire set. The Rule 1 re-check still reads <see cref="RetireSet"/>.</summary>
+            internal bool RetiresNothing;
             /// <summary>The rewind point's UT: the world clause reads committed rows after it.</summary>
             internal double RewindUT = double.NaN;
             /// <summary>Stock respawn delay for a kerbal who died on a recording, or NaN when
@@ -125,13 +129,13 @@ namespace Parsek
             var els = inputs.Els ?? (IReadOnlyList<GameAction>)new List<GameAction>();
             var retire = inputs.RetireSet ?? (IReadOnlyList<GameAction>)new List<GameAction>();
             var newRows = inputs.NewRows ?? (IReadOnlyList<GameAction>)new List<GameAction>();
-            v.RetireSetCount = retire.Count;
 
             // Rule 1 re-check: the retire set holds only loss rows.
             for (int i = 0; i < retire.Count; i++)
             {
                 if (retire[i] != null && !SupersedeCommit.IsLossRow(retire[i]))
                 {
+                    v.RetireSetCount = retire.Count;
                     v.Pass = false;
                     v.Pool = "sealing";
                     v.UT = retire[i].UT;
@@ -139,6 +143,9 @@ namespace Parsek
                     return v;
                 }
             }
+            if (inputs.RetiresNothing)
+                retire = new List<GameAction>();
+            v.RetireSetCount = retire.Count;
 
             // L and the attempt's rows.
             var baseline = new List<GameAction>(els.Count);
@@ -623,8 +630,19 @@ namespace Parsek
                     attemptRows.Add(r);
             }
 
+            // The merge retires nothing when AppendRelations will refuse the attempt; the
+            // check then keeps the replaced side in L' instead of assuming it retired.
             int closureCount;
             List<GameAction> retire = SupersedeCommit.BuildMergeRetireSet(marker, attemptIds, out closureCount);
+            string noRetireReason;
+            bool retiresNothing = SupersedeCommit.MergeWouldRetireNothing(marker, tree, out noRetireReason);
+            if (retiresNothing)
+            {
+                ParsekLog.Info(Tag,
+                    $"Merge dominance check ({context ?? "<none>"}) sess={marker.SessionId ?? "<no-id>"}: " +
+                    $"merge would retire nothing ({noRetireReason}) - L' keeps the replaced flight's " +
+                    $"{retire.Count.ToString(CultureInfo.InvariantCulture)} retire-set row(s)");
+            }
 
             var crewSources = preview.CrewSources;
             Func<string, double> respawn = recordingId =>
@@ -646,6 +664,7 @@ namespace Parsek
                 AttemptRecordingIds = attemptIds,
                 NewRows = preview.Rows,
                 RetireSet = retire,
+                RetiresNothing = retiresNothing,
                 RewindUT = SupersedeCommit.ComputeTombstoneRewindCutoffUT(marker),
                 RespawnSecondsForRecording = respawn,
             };

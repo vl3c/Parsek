@@ -2536,7 +2536,11 @@ namespace Parsek
 
             // No subtree means nothing to retire, but still bump the tombstone
             // state version so cache invalidation is unconditional at merge time.
-            if (subtreeIds == null || subtreeIds.Count == 0)
+            // Variant B goes on with the empty set: the re-fly's own ReputationPenalty
+            // loss rows are tombstoned whatever the replaced side retires, which is what
+            // the design section 2.12 dominance check modeled.
+            if ((subtreeIds == null || subtreeIds.Count == 0)
+                && lossSwapVariant != LossSwapVariant.B)
             {
                 ParsekLog.Info(LedgerSwapTag,
                     "Tombstoned 0 career actions (Contract=0, Milestone=0, Facility=0, " +
@@ -3171,7 +3175,8 @@ namespace Parsek
         /// </para>
         /// </summary>
         internal static bool ConcludeRetiredProvisional(
-            ReFlySessionMarker marker, Recording retired, string retireReason)
+            ReFlySessionMarker marker, Recording retired, string retireReason,
+            LossSwapVariant lossSwapVariant = LossSwapVariant.A)
         {
             if (marker == null || retired == null)
             {
@@ -3242,7 +3247,7 @@ namespace Parsek
 
             double ut = SafeNow();
             string nowIso = DateTime.UtcNow.ToString("o");
-            CommitTombstones(marker, subtree, retiredId, ut, nowIso, scenario);
+            CommitTombstones(marker, subtree, retiredId, ut, nowIso, scenario, lossSwapVariant);
             int tombstonesWritten = scenario.LedgerTombstones.Count - tombstonesBefore;
 
             // Retire-time tag re-home. The provisional is being retired and will not exist

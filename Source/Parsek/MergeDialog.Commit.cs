@@ -289,7 +289,7 @@ namespace Parsek
             }
             if (provisional == null)
             {
-                return ConcludeMissingProvisional(marker, provisionalId);
+                return ConcludeMissingProvisional(marker, provisionalId, lossSwapVariant);
             }
 
 
@@ -390,7 +390,7 @@ namespace Parsek
         /// </para>
         /// </summary>
         private static ReFlyMergeCommitResult ConcludeMissingProvisional(
-            ReFlySessionMarker marker, string provisionalId)
+            ReFlySessionMarker marker, string provisionalId, LossSwapVariant lossSwapVariant)
         {
             Recording retired;
             string retireReason;
@@ -406,7 +406,8 @@ namespace Parsek
                 marker, provisionalId, haveRetired ? retired : null, retiredValidates);
 
             if (decision.Kind == ReFlyConclusionRouteKind.NoOpConclusion
-                && SupersedeCommit.ConcludeRetiredProvisional(marker, retired, retireReason))
+                && SupersedeCommit.ConcludeRetiredProvisional(
+                    marker, retired, retireReason, lossSwapVariant))
             {
                 ParsekLog.Info("MergeDialog",
                     $"TryCommitReFlySupersede: provisional rec={provisionalId} was retired " +
