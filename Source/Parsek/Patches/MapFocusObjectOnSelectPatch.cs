@@ -168,6 +168,13 @@ namespace Parsek.Patches
                 return true;
             }
 
+            // Design section 2.12 Rule 3: during a Re-Fly session only the re-flown vessel
+            // and its own EVA crew can be flown. The refusal runs before the pre-switch
+            // dialog decision, so that dialog is never reached during a session; skipping
+            // OnSelect leaves the map open and the active vessel unchanged.
+            if (ReFlySwitchGate.IsRefused(vessel.persistentId, ReFlySwitchGate.PathMapSwitchTo))
+                return false;
+
             // Stock will refuse the switch if CanSwitchVesselsFar is off (the
             // OwnedVessel branch is gated on it). Do not arm.
             bool canSwitchVesselsFar = true;

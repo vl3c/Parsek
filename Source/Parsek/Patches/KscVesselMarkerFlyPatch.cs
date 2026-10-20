@@ -26,15 +26,20 @@ namespace Parsek.Patches
     [HarmonyPatch(typeof(KSCVesselMarkers), "FlyVessel", new Type[] { typeof(Vessel) })]
     internal static class KscVesselMarkerFlyPatch
     {
-        static void Prefix(Vessel v)
+        static bool Prefix(Vessel v)
         {
-            if (ParsekGameModeGate.CheckInert("KscVesselMarkerFlyPatch.Prefix")) return; // S9 game-mode gate
+            if (ParsekGameModeGate.CheckInert("KscVesselMarkerFlyPatch.Prefix")) return true; // S9 game-mode gate
             if (v == null)
             {
                 ParsekLog.Warn("SwitchIntentPatch",
                     "KSC marker Fly intent not armed: vessel argument is null");
-                return;
+                return true;
             }
+
+            // Design section 2.12 Rule 3: during a Re-Fly session only the re-flown vessel
+            // and its own EVA crew can be flown; a refused Fly does nothing.
+            if (ReFlySwitchGate.IsRefused(v.persistentId, ReFlySwitchGate.PathKscMarkerFly))
+                return false;
 
             // KSC marker Fly is never used for Parsek ghosts (ghost vessels are not
             // physics-loaded at KSC), but guard defensively in case a future ghost
@@ -44,7 +49,7 @@ namespace Parsek.Patches
             {
                 ParsekLog.Verbose("SwitchIntentPatch",
                     $"KSC marker Fly intent not armed: target is a ghost vessel pid={v.persistentId}");
-                return;
+                return true;
             }
 
             var scenario = ParsekScenario.Instance;
@@ -52,7 +57,7 @@ namespace Parsek.Patches
             {
                 ParsekLog.Warn("SwitchIntentPatch",
                     $"KSC marker Fly intent not armed: ParsekScenario.Instance is null targetPid={v.persistentId}");
-                return;
+                return true;
             }
 
             var marker = new StockActionIntentMarker
@@ -70,6 +75,7 @@ namespace Parsek.Patches
                 $"KSC marker Fly intent armed: intentId={marker.IntentId:D} action={marker.Action} " +
                 $"targetPid={marker.TargetVesselPersistentId} sourceScene={marker.SourceScene} " +
                 $"capturedUT={marker.CapturedUT.ToString("R", CultureInfo.InvariantCulture)}");
+            return true;
         }
     }
 }
