@@ -5593,6 +5593,25 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: whether a no-override spawn resolves its recorded velocity. An orbit override
+        /// (the velocity then sets only the situation speed), no sample, no body, no recording
+        /// or a terminal that is not airborne keeps the recorded vector.
+        /// </summary>
+        internal static bool ShouldResolveNoOverrideSpawnVelocity(
+            bool hasOrbitOverride,
+            bool hasSample,
+            bool hasBody,
+            bool hasRecording,
+            TerminalState? terminalState)
+        {
+            return !hasOrbitOverride
+                && hasSample
+                && hasBody
+                && hasRecording
+                && ShouldResolveRecordedSpawnVelocity(terminalState);
+        }
+
+        /// <summary>
         /// The velocity a no-override <see cref="SpawnAtPosition"/> call seeds with, for the
         /// callers that pass a recorded <c>TrajectoryPoint.velocity</c> (EVA, breakup and
         /// Orbiting spawns with no recorded terminal orbit). Returns
@@ -5613,11 +5632,12 @@ namespace Parsek
             string site,
             string logContext)
         {
-            if (orbitOverride != null
-                || !sample.HasValue
-                || body == null
-                || rec == null
-                || !ShouldResolveRecordedSpawnVelocity(rec.TerminalStateValue))
+            if (!ShouldResolveNoOverrideSpawnVelocity(
+                    orbitOverride != null,
+                    sample.HasValue,
+                    body != null,
+                    rec != null,
+                    rec?.TerminalStateValue))
             {
                 return recordedVelocity;
             }

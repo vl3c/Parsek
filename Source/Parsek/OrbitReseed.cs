@@ -544,7 +544,9 @@ namespace Parsek
             Vector3d samplePosYup,
             double rotationPeriod,
             bool bodyRotates,
-            double inverseRotThresholdAltitude)
+            double inverseRotThresholdAltitude,
+            TrajectoryPoint? next = null,
+            Vector3d nextPosYup = default(Vector3d))
         {
             Vector3d recorded = new Vector3d(sample.velocity.x, sample.velocity.y, sample.velocity.z);
             bool altitudeRuleRotating = IsRecordedVelocityInRotatingFrame(
@@ -596,6 +598,34 @@ namespace Parsek
             else
             {
                 result.DeclineReason = "pair-single-sample";
+            }
+
+            // No usable sample before: pair forward with the one after, seeding the EARLIER
+            // sample. An inertial reading below the threshold (a background or packed vessel)
+            // would otherwise get the spin added by the altitude rule.
+            if (next.HasValue)
+            {
+                if (TryResolveRecordedPairVelocityAtSample(
+                        sample,
+                        next.Value,
+                        sampleIsTail: false,
+                        samplePosYup,
+                        nextPosYup,
+                        samplePosYup,
+                        rotationPeriod,
+                        bodyRotates,
+                        inverseRotThresholdAltitude,
+                        out RecordedTailVelocityResolution nextResolution,
+                        out Vector3d nextInertialVel))
+                {
+                    result.Resolution = nextResolution;
+                    result.VelocityYup = nextInertialVel;
+                    result.Source = SeedVelocitySourcePair;
+                    result.SampleWasRotatingFrame = nextResolution.SampleWasRotatingFrame;
+                    result.PairPreviousUT = sample.ut;
+                    result.DeclineReason = null;
+                    return result;
+                }
             }
 
             if (altitudeRuleRotating)
@@ -788,13 +818,18 @@ namespace Parsek
             TrajectoryPoint? previous,
             TrajectoryPoint sample,
             string context,
-            string recordingId)
+            string recordingId,
+            TrajectoryPoint? next = null)
         {
             Vector3d samplePos = body.GetWorldSurfacePosition(
                 sample.latitude, sample.longitude, sample.altitude) - body.position;
             Vector3d previousPos = previous.HasValue
                 ? body.GetWorldSurfacePosition(
                     previous.Value.latitude, previous.Value.longitude, previous.Value.altitude) - body.position
+                : Vector3d.zero;
+            Vector3d nextPos = next.HasValue
+                ? body.GetWorldSurfacePosition(
+                    next.Value.latitude, next.Value.longitude, next.Value.altitude) - body.position
                 : Vector3d.zero;
             RecordedSampleSeedVelocity v = ResolveSameSessionRecordedVelocity(
                 previous,
@@ -803,7 +838,9 @@ namespace Parsek
                 samplePos,
                 body.rotationPeriod,
                 body.rotates,
-                body.inverseRotThresholdAltitude);
+                body.inverseRotThresholdAltitude,
+                next,
+                nextPos);
 
             dst.UpdateFromStateVectors(samplePos.xzy, v.VelocityYup.xzy, body, sample.ut);
             // The scene-exit finalizer also runs from the finalization cache refresh, so the

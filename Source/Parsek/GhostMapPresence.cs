@@ -7936,6 +7936,10 @@ namespace Parsek
                 traj?.TrackSections,
                 point,
                 resolution.WorldPos);
+            // The update path runs per ghost per reseed tick: build the line, its key and the
+            // closure only when verbose logging is on.
+            if (!ParsekLog.IsVerboseEnabled)
+                return v.VelocityYup;
             System.Func<string> line = () => OrbitReseed.FormatRecordedSampleSeedVelocityLine(
                     "State-vector seed velocity",
                     site,
@@ -7954,7 +7958,7 @@ namespace Parsek
                     line,
                     5.0);
             }
-            else if (ParsekLog.IsVerboseEnabled)
+            else
             {
                 ParsekLog.Verbose(Tag, line());
             }

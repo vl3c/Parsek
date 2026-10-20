@@ -1747,6 +1747,71 @@ namespace Parsek
             return TryFindPredecessorInList(recording.Points, point, out previous);
         }
 
+        /// <summary>
+        /// Pure: the sample after <paramref name="point"/> in the same recording list, on the
+        /// same body and strictly later; the mirror of
+        /// <see cref="TryFindRecordedPointPredecessor"/>, used when the point opens its list.
+        /// </summary>
+        internal static bool TryFindRecordedPointSuccessor(
+            Recording recording,
+            TrajectoryPoint point,
+            out TrajectoryPoint next)
+        {
+            next = default(TrajectoryPoint);
+            if (recording == null)
+                return false;
+
+            if (recording.TrackSections != null && recording.TrackSections.Count > 0)
+            {
+                for (int i = 0; i < recording.TrackSections.Count; i++)
+                {
+                    TrackSection section = recording.TrackSections[i];
+                    IList<TrajectoryPoint> list = section.referenceFrame == ReferenceFrame.Absolute
+                        ? section.frames
+                        : section.referenceFrame == ReferenceFrame.Relative
+                            ? section.bodyFixedFrames
+                            : null;
+                    if (TryFindSuccessorInList(list, point, out next))
+                        return true;
+                }
+                return false;
+            }
+
+            return TryFindSuccessorInList(recording.Points, point, out next);
+        }
+
+        private static bool TryFindSuccessorInList(
+            IList<TrajectoryPoint> points,
+            TrajectoryPoint point,
+            out TrajectoryPoint next)
+        {
+            next = default(TrajectoryPoint);
+            if (points == null)
+                return false;
+
+            for (int i = 0; i + 1 < points.Count; i++)
+            {
+                TrajectoryPoint candidate = points[i];
+                if (candidate.ut != point.ut
+                    || candidate.latitude != point.latitude
+                    || candidate.longitude != point.longitude
+                    || candidate.altitude != point.altitude)
+                {
+                    continue;
+                }
+
+                TrajectoryPoint after = points[i + 1];
+                if (after.ut > point.ut
+                    && string.Equals(after.bodyName, point.bodyName, StringComparison.Ordinal))
+                {
+                    next = after;
+                    return true;
+                }
+                return false;
+            }
+            return false;
+        }
+
         private static bool TryFindPredecessorInList(
             IList<TrajectoryPoint> points,
             TrajectoryPoint point,
@@ -1861,7 +1926,10 @@ namespace Parsek
                         : null,
                     anchorPoint,
                     "predicted-tail-reseed",
-                    recording?.RecordingId);
+                    recording?.RecordingId,
+                    TryFindRecordedPointSuccessor(recording, anchorPoint, out TrajectoryPoint anchorNext)
+                        ? (TrajectoryPoint?)anchorNext
+                        : null);
 
                 reseededSegment = originalSegment;
                 reseededSegment.inclination = reseededOrbit.inclination;
@@ -2645,7 +2713,10 @@ namespace Parsek
                         : null,
                     point,
                     "recovery-start",
-                    recording?.RecordingId);
+                    recording?.RecordingId,
+                    TryFindRecordedPointSuccessor(recording, point, out TrajectoryPoint pointNext)
+                        ? (TrajectoryPoint?)pointNext
+                        : null);
 
                 OrbitSegment segment = new OrbitSegment
                 {

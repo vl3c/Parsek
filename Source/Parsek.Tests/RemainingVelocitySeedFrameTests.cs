@@ -352,6 +352,95 @@ namespace Parsek.Tests
             Assert.False(v.SampleWasRotatingFrame);
         }
 
+        // Review follow-up: a sample that opens its list has no predecessor, so it pairs
+        // FORWARD with the one after it before the altitude rule answers.
+        [Fact]
+        public void BackgroundVesselInertialBelowTheThreshold_NoPredecessor_PairsForward()
+        {
+            Synthetic s = Build(rotating: false, alt: 40000.0, speed: 1800.0, flightPathDeg: -5.0,
+                recordYawDeg: 0.0, spawnYawDeg: 0.0);
+
+            OrbitReseed.RecordedSampleSeedVelocity v = OrbitReseed.ResolveSameSessionRecordedVelocity(
+                null, s.Previous, Vector3d.zero, s.PreviousPos, KerbinRotationPeriod, true,
+                KerbinInverseRotThreshold, s.Tail, s.TailPos);
+            Assert.Equal(OrbitReseed.SeedVelocitySourcePair, v.Source);
+            Assert.True(v.AltitudeRuleRotating);
+            Assert.False(v.SampleWasRotatingFrame);
+            Assert.Null(v.DeclineReason);
+            Assert.InRange((v.VelocityYup - s.PreviousTruthInertial).magnitude, 0.0, 0.5);
+        }
+
+        [Fact]
+        public void Eva4LikeDescent_NoPredecessor_PairsForwardAndResolvesRotating()
+        {
+            Synthetic s = Build(rotating: true, alt: 1666.3, speed: 14.88, flightPathDeg: -88.0,
+                recordYawDeg: 0.0, spawnYawDeg: 0.0);
+
+            OrbitReseed.RecordedSampleSeedVelocity v = OrbitReseed.ResolveSameSessionRecordedVelocity(
+                null, s.Previous, Vector3d.zero, s.PreviousPos, KerbinRotationPeriod, true,
+                KerbinInverseRotThreshold, s.Tail, s.TailPos);
+            Assert.Equal(OrbitReseed.SeedVelocitySourcePair, v.Source);
+            Assert.True(v.SampleWasRotatingFrame);
+            Assert.InRange((v.VelocityYup - s.PreviousTruthInertial).magnitude, 0.0, 0.05);
+        }
+
+        [Fact]
+        public void ForwardPairOutsideTheGapWindow_FallsBackToTheAltitudeRule()
+        {
+            Synthetic s = Build(rotating: true, alt: 1666.3, speed: 14.88, flightPathDeg: -88.0,
+                recordYawDeg: 0.0, spawnYawDeg: 0.0, dt: 40.0);
+
+            OrbitReseed.RecordedSampleSeedVelocity v = OrbitReseed.ResolveSameSessionRecordedVelocity(
+                null, s.Previous, Vector3d.zero, s.PreviousPos, KerbinRotationPeriod, true,
+                KerbinInverseRotThreshold, s.Tail, s.TailPos);
+            Assert.Equal(OrbitReseed.SeedVelocitySourceAltitudeRule, v.Source);
+            Assert.Equal("pair-single-sample", v.DeclineReason);
+            Assert.InRange((v.VelocityYup - s.PreviousTruthInertial).magnitude, 0.0, 1e-3);
+        }
+
+        [Fact]
+        public void RecordedPointSuccessor_StaysInsideOneListAndBody()
+        {
+            TrajectoryPoint a = P(10.0, "Kerbin"), b = P(11.0, "Kerbin"), c = P(12.0, "Mun"), d = P(13.0, "Mun");
+            var rec = new Recording { RecordingId = "succ" };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute, startUT = 10.0, endUT = 11.5,
+                frames = new List<TrajectoryPoint> { a, b }
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative, startUT = 11.5, endUT = 13.5,
+                frames = new List<TrajectoryPoint>(),
+                bodyFixedFrames = new List<TrajectoryPoint> { c, d }
+            });
+
+            Assert.True(IncompleteBallisticSceneExitFinalizer.TryFindRecordedPointSuccessor(rec, a, out TrajectoryPoint after));
+            Assert.Equal(11.0, after.ut);
+            // b closes its list: a successor across the section seam does not count.
+            Assert.False(IncompleteBallisticSceneExitFinalizer.TryFindRecordedPointSuccessor(rec, b, out _));
+            Assert.True(IncompleteBallisticSceneExitFinalizer.TryFindRecordedPointSuccessor(rec, c, out TrajectoryPoint cNext));
+            Assert.Equal(13.0, cNext.ut);
+            Assert.False(IncompleteBallisticSceneExitFinalizer.TryFindRecordedPointSuccessor(rec, d, out _));
+        }
+
+        [Theory]
+        [InlineData(false, true, true, true, TerminalState.Orbiting, true)]
+        [InlineData(true, true, true, true, TerminalState.Orbiting, false)]
+        [InlineData(false, false, true, true, TerminalState.Orbiting, false)]
+        [InlineData(false, true, false, true, TerminalState.Orbiting, false)]
+        [InlineData(false, true, true, false, TerminalState.Orbiting, false)]
+        [InlineData(false, true, true, true, TerminalState.Landed, false)]
+        [InlineData(false, true, true, true, TerminalState.Splashed, false)]
+        public void NoOverrideSpawnVelocity_ResolvesOnlyAnAirborneSampleWithEverythingPresent(
+            bool hasOrbitOverride, bool hasSample, bool hasBody, bool hasRecording,
+            TerminalState terminal, bool expected)
+        {
+            Assert.Equal(expected, VesselSpawner.ShouldResolveNoOverrideSpawnVelocity(
+                hasOrbitOverride, hasSample, hasBody, hasRecording, terminal));
+            Assert.False(VesselSpawner.ShouldResolveNoOverrideSpawnVelocity(false, true, true, true, null));
+        }
+
         // ---------- finalizer predecessor lookup ----------
 
         [Fact]
