@@ -197,11 +197,15 @@ required = [
   "Value-sealed slots \\(section 2\\.12\\): found=[0-9]+ sealed=[0-9]+",
   "stashslot start rp=rp_[0-9a-f]{32} slot=0",
   # The Stash press is refused naming the lab earning (handler reason, verbatim) ...
-  "(?s)MISSIONMARK label=lab10-gate (?:(?!MISSIONMARK label=lab10-refused ).)*?stashslot refused rp=rp_[0-9a-f]{32} slot=0 tip=\\S+ msg=stash-refused recordingAction:ScienceLabEarning:act_[0-9a-f]{32}",
+  # The gate names the FIRST sealing row of the retire set. The transmit also books the
+  # zero-award Kerbin/Science MilestoneAchievement at the same UT, filed before the lab row
+  # (flight 2026-10-20_1448), and a milestone is a sealing row (once-ever credit), so either
+  # type may be named; the backreference below still pins Stash and Fly to the same row.
+  "(?s)MISSIONMARK label=lab10-gate (?:(?!MISSIONMARK label=lab10-refused ).)*?stashslot refused rp=rp_[0-9a-f]{32} slot=0 tip=\\S+ msg=stash-refused recordingAction:(?:ScienceLabEarning|MilestoneAchievement):act_[0-9a-f]{32}",
   # ... and so is the Fly press, with the same reason (CanInvoke precondition 7).
-  "(?s)MISSIONMARK label=lab10-gate (?:(?!MISSIONMARK label=lab10-refused ).)*?invokerewind refused: refly-gate recordingAction:ScienceLabEarning:act_[0-9a-f]{32}",
+  "(?s)MISSIONMARK label=lab10-gate (?:(?!MISSIONMARK label=lab10-refused ).)*?invokerewind refused: refly-gate recordingAction:(?:ScienceLabEarning|MilestoneAchievement):act_[0-9a-f]{32}",
   # Both name the SAME row: the one act A's transmit booked.
-  "(?s)stashslot refused [^\\r\\n]*recordingAction:ScienceLabEarning:(act_[0-9a-f]{32}).*?invokerewind refused: refly-gate recordingAction:ScienceLabEarning:\\1(?![0-9a-f])",
+  "(?s)stashslot refused [^\\r\\n]*recordingAction:((?:ScienceLabEarning|MilestoneAchievement):act_[0-9a-f]{32}).*?invokerewind refused: refly-gate recordingAction:\\1(?![0-9a-f])",
   # The point survives (the tender slot holds no earning), the lab keeps the fraction.
   "(?s)MISSIONMARK label=lab10-refused .*?listhandles kind=rewindpoints count=1 truncated=false",
   "(?s)MISSIONMARK label=lab10-refused (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.50 dataStored=0\\.00;",
@@ -224,7 +228,7 @@ forbidden = [
   "Tombstoned [1-9][0-9]* career actions",
   "Reaped rp=",
   # The refusal names the lab earning, never another row type.
-  "(?:stash-refused|refly-gate) recordingAction:(?!ScienceLabEarning:)",
+  "(?:stash-refused|refly-gate) recordingAction:(?!(?:ScienceLabEarning|MilestoneAchievement):)",
   # Exactly one lab credit, inside its window.
   "(?s)(?:Game state: ScienceLabCredited .*?){2}",
   "(?s)\\A(?:(?!MISSIONMARK label=lab10-t1-before ).)*?Game state: ScienceLabCredited",
