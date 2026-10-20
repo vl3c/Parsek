@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
@@ -446,6 +447,11 @@ namespace Parsek.Tests
             Assert.False(ParsekScenario.ShouldRetireUntaggedRowAfterSave(
                 new GameAction { UT = 300.0, Type = GameActionType.RouteDispatched, RouteId = "r" }, 200.0, 400.0));
             Assert.False(ParsekScenario.ShouldRetireUntaggedRowAfterSave(null, 200.0, 400.0));
+            var known = new HashSet<string> { "act_known" };
+            Assert.False(ParsekScenario.ShouldRetireUntaggedRowAfterSave(
+                new GameAction { ActionId = "act_known", UT = 300.0, Type = GameActionType.KerbalHire }, 200.0, 400.0, known));
+            Assert.True(ParsekScenario.ShouldRetireUntaggedRowAfterSave(
+                new GameAction { ActionId = "act_new", UT = 300.0, Type = GameActionType.KerbalHire }, 200.0, 400.0, known));
         }
 
         [Theory]
@@ -463,6 +469,181 @@ namespace Parsek.Tests
                 Assert.True(double.IsNaN(actual));
             else
                 Assert.Equal(expected, actual);
+        }
+
+        // ---- the exact list: rows that already existed when the save was written ----
+
+        private static ConfigNode SaveNodeAt(double saveClockUT)
+        {
+            var node = new ConfigNode("SCENARIO");
+            ParsekScenario.WriteUntaggedFutureRowsNode(node, saveClockUT, Ledger.Actions);
+            return node;
+        }
+
+        [Fact]
+        public void UntaggedRowsAfterSave_ExactList_RewindLeftRowKnownAtTheSaveSurvives()
+        {
+            // D2: a rewind left a Space Center row at 500 as committed future. The player
+            // quicksaves at 300, plays on to 600 (the row is now in the past), then F9s.
+            AddUntagged("act_rewind_left", 500.0);
+            ConfigNode save = SaveNodeAt(300.0);
+
+            var known = ParsekScenario.ReadUntaggedFutureRowIds(save, 300.0, out string mode);
+            Assert.Equal("exact", mode);
+            int retired = ParsekScenario.RetireUntaggedRowsAfterSaveAtInSessionLoad(
+                LoadKind.QuickloadFlight, 300.0, 600.0, known, mode);
+
+            Assert.Equal(0, retired);
+            Assert.Equal("act_rewind_left", Assert.Single(Ledger.Actions).ActionId);
+            Assert.Contains(logLines, l => l.Contains("[LoadPolicy]")
+                && l.Contains("Untagged rows after the save: nothing to retire kind=QuickloadFlight reason=empty")
+                && l.Contains("keptKnown=1 mode=exact"));
+        }
+
+        [Fact]
+        public void UntaggedRowsAfterSave_ExactList_PurchaseAfterTheSaveStillRetired()
+        {
+            AddUntagged("act_rewind_left", 500.0);
+            AddUntagged("act_before_save", 250.0);
+            ConfigNode save = SaveNodeAt(300.0);
+            // After the save: a purchase at 400, a hire at 550 (inside the rewind-left row's span).
+            AddUntagged("act_purchase", 400.0);
+            AddUntagged("act_hire", 550.0, GameActionType.KerbalHire);
+
+            var known = ParsekScenario.ReadUntaggedFutureRowIds(save, 300.0, out string mode);
+            int retired = ParsekScenario.RetireUntaggedRowsAfterSaveAtInSessionLoad(
+                LoadKind.InSessionOther, 300.0, 600.0, known, mode);
+
+            Assert.Equal(2, retired);
+            Assert.Equal(new[] { "act_rewind_left", "act_before_save" }, Ledger.Actions.Select(a => a.ActionId));
+            Assert.Contains(logLines, l => l.Contains("[INFO][LoadPolicy]")
+                && l.Contains("Untagged rows after the save retired: kind=InSessionOther saveUT=300 clockUT=600")
+                && l.Contains("retired=2 seedsKept=0 routeRowsLeft=0 keptKnown=1 mode=exact"));
+        }
+
+        [Fact]
+        public void UntaggedRowsAfterSave_OldSaveWithoutTheList_FallsBackToTheWindowRule()
+        {
+            AddUntagged("act_rewind_left", 500.0);
+            AddUntagged("act_purchase", 400.0);
+            var oldSave = new ConfigNode("SCENARIO");
+
+            var known = ParsekScenario.ReadUntaggedFutureRowIds(oldSave, 300.0, out string mode);
+            Assert.Null(known);
+            Assert.Equal("window-legacy", mode);
+            int retired = ParsekScenario.RetireUntaggedRowsAfterSaveAtInSessionLoad(
+                LoadKind.QuickloadFlight, 300.0, 600.0, known, mode);
+
+            Assert.Equal(2, retired);
+            Assert.Empty(Ledger.Actions);
+            Assert.Contains(logLines, l => l.Contains("[LoadPolicy]")
+                && l.Contains("Untagged rows after the save: no list in the loaded save")
+                && l.Contains("mode=window-legacy"));
+            Assert.Contains(logLines, l => l.Contains("[INFO][LoadPolicy]")
+                && l.Contains("retired=2 seedsKept=0 routeRowsLeft=0 keptKnown=0 mode=window-legacy"));
+        }
+
+        [Fact]
+        public void UntaggedRowsAfterSave_ListFromAnotherSave_FallsBackToTheWindowRule()
+        {
+            AddUntagged("act_rewind_left", 500.0);
+            ConfigNode save = SaveNodeAt(300.0);
+
+            var known = ParsekScenario.ReadUntaggedFutureRowIds(save, 120.0, out string mode);
+
+            Assert.Null(known);
+            Assert.Equal("window-save-mismatch", mode);
+            Assert.Contains(logLines, l => l.Contains("[INFO][LoadPolicy]")
+                && l.Contains("listSaveUT=300 loadedSaveUT=120")
+                && l.Contains("mode=window-save-mismatch"));
+        }
+
+        [Fact]
+        public void WriteUntaggedFutureRowsNode_ListsOnlyUntaggedNonSeedNonRouteRowsAfterTheSave()
+        {
+            Ledger.AddAction(new GameAction { ActionId = "act_seed", UT = 0.0, Type = GameActionType.FundsInitial, InitialFunds = 25000f });
+            AddUntagged("act_old", 100.0);
+            AddUntagged("act_at_save", 300.0);
+            AddUntagged("act_future_a", 500.0);
+            AddUntagged("act_future_b", 700.0, GameActionType.KerbalHire);
+            Ledger.AddAction(new GameAction { ActionId = "act_tagged", UT = 500.0, Type = GameActionType.FundsEarning, RecordingId = "rec" });
+            Ledger.AddAction(new GameAction { ActionId = "act_route", UT = 500.0, Type = GameActionType.RouteDispatched, RouteId = "r" });
+            Ledger.AddAction(new GameAction { ActionId = "act_late_seed", UT = 500.0, Type = GameActionType.ScienceInitial });
+
+            var node = new ConfigNode("SCENARIO");
+            node.AddNode(ParsekScenario.UntaggedFutureRowsNodeName).AddValue("id", "stale");
+            ParsekScenario.WriteUntaggedFutureRowsNode(node, 300.0, Ledger.Actions);
+
+            ConfigNode list = Assert.Single(node.GetNodes(ParsekScenario.UntaggedFutureRowsNodeName));
+            Assert.Equal("300", list.GetValue("saveUT"));
+            // The save's own instant is listed too (a margin of a second): every listed row
+            // existed when the save was written, so listing one more never retires anything.
+            Assert.Equal(new[] { "act_at_save", "act_future_a", "act_future_b" }, list.GetValues("id"));
+
+            // No clock: every candidate row is listed and the node carries no saveUT.
+            ParsekScenario.WriteUntaggedFutureRowsNode(node, double.NaN, Ledger.Actions);
+            list = Assert.Single(node.GetNodes(ParsekScenario.UntaggedFutureRowsNodeName));
+            Assert.False(list.HasValue("saveUT"));
+            Assert.Equal(new[] { "act_old", "act_at_save", "act_future_a", "act_future_b" }, list.GetValues("id"));
+            var known = ParsekScenario.ReadUntaggedFutureRowIds(node, 300.0, out string mode);
+            Assert.Equal("exact", mode);
+            Assert.Equal(4, known.Count);
+        }
+
+        [Fact]
+        public void WriteUntaggedFutureRowsNode_EmptyListStillWritesTheNode()
+        {
+            AddUntagged("act_old", 100.0);
+            var node = new ConfigNode("SCENARIO");
+
+            ParsekScenario.WriteUntaggedFutureRowsNode(node, 300.0, Ledger.Actions);
+
+            Assert.True(node.HasNode(ParsekScenario.UntaggedFutureRowsNodeName));
+            var known = ParsekScenario.ReadUntaggedFutureRowIds(node, 300.0, out string mode);
+            Assert.Equal("exact", mode);
+            Assert.Empty(known);
+        }
+
+        [Fact]
+        public void UntaggedRowsAfterSave_ActionIdsSurviveTheLedgerFileRoundTrip()
+        {
+            // The ids the save lists must match the ids the ledger carries after a cold load
+            // read it back from its external file (including a default-generated id).
+            var generated = new GameAction
+            {
+                UT = 500.0, Type = GameActionType.FundsSpending, FundsSpent = 500f,
+                FundsSpendingSource = FundsSpendingSource.FacilityUpgrade,
+            };
+            Assert.False(string.IsNullOrEmpty(generated.ActionId));
+            Ledger.AddAction(generated);
+            AddUntagged("act_explicit", 450.0, GameActionType.KerbalHire);
+            ConfigNode save = SaveNodeAt(300.0);
+
+            string dir = Path.Combine(Path.GetTempPath(), "parsek-untagged-ids-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try
+            {
+                string path = Path.Combine(dir, "ledger.pgld");
+                Assert.True(Ledger.SaveToFile(path));
+                Ledger.ResetForTesting();
+                Assert.True(Ledger.LoadFromFile(path));
+
+                Assert.Equal(
+                    new[] { generated.ActionId, "act_explicit" }.OrderBy(x => x, StringComparer.Ordinal),
+                    Ledger.Actions.Select(a => a.ActionId).OrderBy(x => x, StringComparer.Ordinal));
+
+                // A purchase after the save; the reloaded rows the save listed survive the F9.
+                AddUntagged("act_purchase", 400.0);
+                var known = ParsekScenario.ReadUntaggedFutureRowIds(save, 300.0, out string mode);
+                Assert.Equal(1, ParsekScenario.RetireUntaggedRowsAfterSaveAtInSessionLoad(
+                    LoadKind.QuickloadFlight, 300.0, 600.0, known, mode));
+                Assert.DoesNotContain(Ledger.Actions, a => a.ActionId == "act_purchase");
+                Assert.Equal(2, Ledger.Actions.Count);
+            }
+            finally
+            {
+                try { Directory.Delete(dir, true); } catch (Exception) { }
+            }
         }
 
         [Fact]

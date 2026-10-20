@@ -1433,6 +1433,11 @@ namespace Parsek
                 PreserveRecordingStateIfLoadFault(node);
                 savePhase = "game-state";
                 PersistGameStateAndMilestones(node);
+                // The untagged rows dated after this save that the ledger already holds (a
+                // rewind leaves them as committed future, ruling D2): a later in-session load
+                // of this save keeps exactly these and retires the rest of its window.
+                savePhase = "untagged-future-rows";
+                WriteUntaggedFutureRowsNode(node, KerbalsModule.ReadLiveClockUT(), Ledger.Actions);
                 // Rewind-to-Staging Phase 1 (design sections 5.1-5.9). Persistence
                 // only in Phase 1; no behavior wired to these collections yet.
                 savePhase = "refly-state-persist";
@@ -4497,12 +4502,18 @@ namespace Parsek
                     // hires, contract actions, launch-pad rows): a load back in time undoes them
                     // (owner ruling 2026-10-19, LoadReconcilePolicy UntaggedLedgerRowsAfterCutoff).
                     // Before the recalculation so it never walks them; removes rows only.
+                    // The save lists the untagged future rows it already held; those stay. A save
+                    // written before the list existed falls back to the clock window alone.
                     loadPhase = "untagged-rows-after-save";
+                    HashSet<string> untaggedIdsAtSave = ReadUntaggedFutureRowIds(
+                        node, loadedSaveUTForRoutes, out string untaggedListMode);
                     RetireUntaggedRowsAfterSaveAtInSessionLoad(
                         refinedLoadKind,
                         loadedSaveUTForRoutes,
                         ResolvePreLoadClockUT(
-                            preChangeUT, sceneRequestClockUT, planetariumReady ? loadedUT : double.NaN));
+                            preChangeUT, sceneRequestClockUT, planetariumReady ? loadedUT : double.NaN),
+                        untaggedIdsAtSave,
+                        untaggedListMode);
 
                     loadPhase = "ledger-recalculate";
                     // The ledger walks at the LOADED save's clock: inside a Space Center OnLoad

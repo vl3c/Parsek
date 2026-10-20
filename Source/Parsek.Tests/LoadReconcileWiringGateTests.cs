@@ -193,8 +193,14 @@ namespace Parsek.Tests
             Assert.True(refined < routes && routes < retire && retire < recalc,
                 "load-reconcile gate: the untagged-rows retire runs after the route reconcile and before "
                 + "the in-session recalculation");
+            Assert.Contains("HashSet<string> untaggedIdsAtSave = ReadUntaggedFutureRowIds( node, loadedSaveUTForRoutes, "
+                + "out string untaggedListMode);", Collapse(body));
+            int read = IndexOrFail(body, "ReadUntaggedFutureRowIds(");
+            Assert.True(routes < read && read < retire,
+                "load-reconcile gate: the save's id list is read right before the untagged-rows retire");
             Assert.Contains("RetireUntaggedRowsAfterSaveAtInSessionLoad( refinedLoadKind, loadedSaveUTForRoutes, "
-                + "ResolvePreLoadClockUT( preChangeUT, sceneRequestClockUT, planetariumReady ? loadedUT : double.NaN));",
+                + "ResolvePreLoadClockUT( preChangeUT, sceneRequestClockUT, planetariumReady ? loadedUT : double.NaN), "
+                + "untaggedIdsAtSave, untaggedListMode);",
                 Collapse(body));
             Assert.Contains("double sceneRequestClockUT = lastSceneLoadRequestClockUT; "
                 + "lastSceneLoadRequestClockUT = double.NaN;", Collapse(body));
@@ -207,6 +213,22 @@ namespace Parsek.Tests
             Assert.Contains("LoadReconcilePolicy.Decide(kind, LoadStateCategory.UntaggedLedgerRowsAfterCutoff).Action "
                 + "!= LoadReconcileAction.ReconcileAtCutoff", Collapse(helper));
             Assert.Equal(1, Occurrences(helper, "Ledger.RetireAbandonedFutureActions("));
+        }
+
+        [Fact]
+        public void OnSaveWritesTheUntaggedFutureRowIdsAfterTheLedgerFile()
+        {
+            string body = PreparedMethodBody(ScenarioPath, "public override void OnSave(ConfigNode node)");
+            Assert.Equal(1, Occurrences(body, "WriteUntaggedFutureRowsNode("));
+            Assert.Contains("WriteUntaggedFutureRowsNode(node, KerbalsModule.ReadLiveClockUT(), Ledger.Actions);",
+                Collapse(body));
+            int inert = IndexOrFail(body, "WriteInertGameModeNode(node);");
+            int persist = IndexOrFail(body, "PersistGameStateAndMilestones(node);");
+            int write = IndexOrFail(body, "WriteUntaggedFutureRowsNode(");
+            int handler = IndexOrFail(body, "catch (Exception ex)");
+            Assert.True(inert < persist && persist < write && write < handler,
+                "load-reconcile gate: OnSave lists the untagged future row ids after the ledger file is written, "
+                + "inside the save body and never on the inert path");
         }
 
         [Fact]

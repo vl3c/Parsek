@@ -752,7 +752,9 @@ namespace Parsek
                         "ParsekScenario.OnLoad -> RetireUntaggedRowsAfterSaveAtInSessionLoad, after the route reconcile and "
                         + "before the recalculation: Ledger.RetireAbandonedFutureActions removes every untagged row (Space "
                         + "Center purchases, upgrades, hires, contract actions, launch-pad rows) dated after the loaded save's "
-                        + "UT and no later than the clock before the load (ResolvePreLoadClockUT), so a load back in time "
+                        + "UT and no later than the clock before the load (ResolvePreLoadClockUT), except the rows the "
+                        + "save's UNTAGGED_FUTURE_ROWS id list names (they already existed at the save, a D2 row the clock "
+                        + "has since passed; a save without the list falls back to the window alone), so a load back in time "
                         + "undoes them (owner ruling 2026-10-19, reversing QL-R2 for loads; rewinds keep D2) and a forward "
                         + "or same-instant scene change touches nothing; seeds never, route rows are the route reconcile's");
             }

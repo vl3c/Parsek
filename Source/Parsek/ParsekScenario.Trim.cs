@@ -1308,16 +1308,124 @@ namespace Parsek
         /// no later than the clock before the load (<paramref name="preLoadClockUT"/>): a row
         /// past that clock was already in the ledger as committed future before the load (a
         /// rewind keeps such rows, ruling D2) and is not part of what the player did after the
-        /// save. Never a seed, never a route row (the in-session route reconcile owns those).
+        /// save. A row the loaded save lists in <paramref name="knownAtSave"/> already existed
+        /// when the save was written (a D2 row the clock has since passed) and stays; null means
+        /// the save carries no list and the window alone decides. Never a seed, never a route
+        /// row (the in-session route reconcile owns those).
         /// </summary>
         internal static bool ShouldRetireUntaggedRowAfterSave(
-            GameAction action, double saveUT, double preLoadClockUT)
+            GameAction action, double saveUT, double preLoadClockUT, ICollection<string> knownAtSave = null)
+        {
+            if (!IsUntaggedSaveScopedRow(action))
+                return false;
+            if (knownAtSave != null && action.ActionId != null && knownAtSave.Contains(action.ActionId))
+                return false;
+            return action.UT > saveUT && action.UT <= preLoadClockUT;
+        }
+
+        /// <summary>Pure: an untagged, non-seed, non-route ledger row, the set the save's id list
+        /// and the in-session retire both cover.</summary>
+        internal static bool IsUntaggedSaveScopedRow(GameAction action)
         {
             if (action == null || !string.IsNullOrEmpty(action.RecordingId))
                 return false;
-            if (RecalculationEngine.IsSeedType(action.Type) || !string.IsNullOrEmpty(action.RouteId))
-                return false;
-            return action.UT > saveUT && action.UT <= preLoadClockUT;
+            return !RecalculationEngine.IsSeedType(action.Type) && string.IsNullOrEmpty(action.RouteId);
+        }
+
+        /// <summary>Child node of the PARSEK scenario node that lists, by ActionId, the untagged
+        /// rows dated after the save that the ledger already held when the save was written.</summary>
+        internal const string UntaggedFutureRowsNodeName = "UNTAGGED_FUTURE_ROWS";
+
+        /// <summary>Margin below the save clock that the list also covers: listing a row that
+        /// existed at the save never retires anything, so the list errs wide.</summary>
+        internal const double UntaggedFutureRowsListMarginSeconds = 1.0;
+
+        /// <summary>
+        /// Pure over the node: writes <see cref="UntaggedFutureRowsNodeName"/> into the PARSEK
+        /// scenario node, one <c>id</c> value per untagged, non-seed, non-route row of
+        /// <paramref name="actions"/> dated after <paramref name="saveClockUT"/> (less a one-second
+        /// margin; every such row when the clock is unusable), plus the save clock as
+        /// <c>saveUT</c>. Always written, even empty: the node's presence is what tells a later
+        /// in-session load that the list is exact (a save from before the list has none and the
+        /// load falls back to the clock window). These rows already existed when the save was
+        /// written (a rewind left them as committed future, ruling D2), so a load of this save
+        /// keeps them. A scenario-node key, not a recording shape change.
+        /// </summary>
+        internal static int WriteUntaggedFutureRowsNode(
+            ConfigNode scenarioNode, double saveClockUT, IEnumerable<GameAction> actions)
+        {
+            if (scenarioNode == null)
+                return 0;
+            scenarioNode.RemoveNodes(UntaggedFutureRowsNodeName);
+            ConfigNode list = scenarioNode.AddNode(UntaggedFutureRowsNodeName);
+            bool clockUsable = !double.IsNaN(saveClockUT) && !double.IsInfinity(saveClockUT) && saveClockUT > 0.0;
+            if (clockUsable)
+                list.AddValue("saveUT", saveClockUT.ToString("R", CultureInfo.InvariantCulture));
+
+            int count = 0;
+            if (actions != null)
+            {
+                double floorUT = saveClockUT - UntaggedFutureRowsListMarginSeconds;
+                foreach (GameAction action in actions)
+                {
+                    if (!IsUntaggedSaveScopedRow(action) || string.IsNullOrEmpty(action.ActionId))
+                        continue;
+                    if (clockUsable && !(action.UT > floorUT))
+                        continue;
+                    list.AddValue("id", action.ActionId);
+                    count++;
+                }
+            }
+
+            ParsekLog.Verbose(LoadReconcilePolicy.LogTag,
+                $"Untagged future rows listed in the save: count={count.ToString(CultureInfo.InvariantCulture)} " +
+                $"saveUT={saveClockUT.ToString("R", CultureInfo.InvariantCulture)}");
+            return count;
+        }
+
+        /// <summary>
+        /// Reads the loaded save's <see cref="UntaggedFutureRowsNodeName"/> list. Returns the id
+        /// set with <paramref name="mode"/> <c>exact</c>; null with <c>window-legacy</c> when the
+        /// save has no list (written before it existed), or with <c>window-save-mismatch</c> when
+        /// the list's <c>saveUT</c> is not the loaded save's clock (the node came from another
+        /// save), so the in-session retire falls back to the clock window alone.
+        /// </summary>
+        internal static HashSet<string> ReadUntaggedFutureRowIds(
+            ConfigNode scenarioNode, double loadedSaveUT, out string mode)
+        {
+            ConfigNode list = scenarioNode?.GetNode(UntaggedFutureRowsNodeName);
+            if (list == null)
+            {
+                mode = "window-legacy";
+                ParsekLog.Verbose(LoadReconcilePolicy.LogTag,
+                    $"Untagged rows after the save: no list in the loaded save mode={mode}");
+                return null;
+            }
+
+            string savedText = list.GetValue("saveUT");
+            if (!string.IsNullOrEmpty(savedText)
+                && double.TryParse(savedText, NumberStyles.Float, CultureInfo.InvariantCulture, out double listSaveUT)
+                && !double.IsNaN(loadedSaveUT) && !double.IsInfinity(loadedSaveUT)
+                && Math.Abs(listSaveUT - loadedSaveUT) > UntaggedFutureRowsListMarginSeconds)
+            {
+                mode = "window-save-mismatch";
+                ParsekLog.Info(LoadReconcilePolicy.LogTag,
+                    $"Untagged rows after the save: the list belongs to another save " +
+                    $"listSaveUT={listSaveUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"loadedSaveUT={loadedSaveUT.ToString("R", CultureInfo.InvariantCulture)} mode={mode}");
+                return null;
+            }
+
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string id in list.GetValues("id"))
+            {
+                if (!string.IsNullOrEmpty(id))
+                    ids.Add(id);
+            }
+            mode = "exact";
+            ParsekLog.Verbose(LoadReconcilePolicy.LogTag,
+                $"Untagged rows after the save: list read count={ids.Count.ToString(CultureInfo.InvariantCulture)} mode={mode}");
+            return ids;
         }
 
         /// <summary>
@@ -1328,12 +1436,17 @@ namespace Parsek
         /// every other in-session load: the Space Center or Tracking Station load of an earlier
         /// save, and the load of a flight quicksave from the Space Center). The window
         /// (<paramref name="saveUT"/>, <paramref name="preLoadClockUT"/>] is empty on a forward or
-        /// same-instant scene change, so those touch nothing. Removes rows only, never adds one,
-        /// so it is OnLoad-safe. Returns the number retired.
+        /// same-instant scene change, so those touch nothing. Inside the window a row the save's
+        /// id list names (<paramref name="knownAtSave"/>, from <see cref="ReadUntaggedFutureRowIds"/>)
+        /// stays, so the load restores the ledger exactly as the save held it; a save with no list
+        /// passes null and <paramref name="listMode"/> names the fallback. Removes rows only, never
+        /// adds one, so it is OnLoad-safe. Returns the number retired.
         /// </summary>
         internal static int RetireUntaggedRowsAfterSaveAtInSessionLoad(
-            LoadKind kind, double saveUT, double preLoadClockUT)
+            LoadKind kind, double saveUT, double preLoadClockUT,
+            ICollection<string> knownAtSave = null, string listMode = null)
         {
+            string mode = knownAtSave != null ? "exact" : (listMode ?? "window-legacy");
             if (LoadReconcilePolicy.Decide(kind, LoadStateCategory.UntaggedLedgerRowsAfterCutoff).Action
                 != LoadReconcileAction.ReconcileAtCutoff)
             {
@@ -1350,12 +1463,13 @@ namespace Parsek
             {
                 ParsekLog.Verbose(LoadReconcilePolicy.LogTag,
                     $"Untagged rows after the save: nothing to retire kind={kind} reason=no-window " +
-                    $"saveUT={saveText} clockUT={clockText}");
+                    $"saveUT={saveText} clockUT={clockText} mode={mode}");
                 return 0;
             }
 
             int seedsKept = 0;
             int routeRowsLeft = 0;
+            int keptKnown = 0;
             int retired = Ledger.RetireAbandonedFutureActions(action =>
             {
                 if (action.UT > saveUT && action.UT <= preLoadClockUT
@@ -1365,9 +1479,12 @@ namespace Parsek
                         seedsKept++;
                     else if (!string.IsNullOrEmpty(action.RouteId))
                         routeRowsLeft++;
+                    else if (knownAtSave != null && action.ActionId != null && knownAtSave.Contains(action.ActionId))
+                        keptKnown++;
                 }
-                return ShouldRetireUntaggedRowAfterSave(action, saveUT, preLoadClockUT);
+                return ShouldRetireUntaggedRowAfterSave(action, saveUT, preLoadClockUT, knownAtSave);
             }, UntaggedAfterSaveReason);
+            string tail = $"keptKnown={keptKnown.ToString(CultureInfo.InvariantCulture)} mode={mode}";
 
             if (retired > 0)
             {
@@ -1375,13 +1492,13 @@ namespace Parsek
                     $"Untagged rows after the save retired: kind={kind} saveUT={saveText} clockUT={clockText} " +
                     $"retired={retired.ToString(CultureInfo.InvariantCulture)} " +
                     $"seedsKept={seedsKept.ToString(CultureInfo.InvariantCulture)} " +
-                    $"routeRowsLeft={routeRowsLeft.ToString(CultureInfo.InvariantCulture)}");
+                    $"routeRowsLeft={routeRowsLeft.ToString(CultureInfo.InvariantCulture)} {tail}");
             }
             else
             {
                 ParsekLog.Verbose(LoadReconcilePolicy.LogTag,
                     $"Untagged rows after the save: nothing to retire kind={kind} reason=empty " +
-                    $"saveUT={saveText} clockUT={clockText}");
+                    $"saveUT={saveText} clockUT={clockText} {tail}");
             }
             return retired;
         }
