@@ -307,10 +307,13 @@ namespace Parsek
             {
                 scenario.ClearActiveReFlySessionMarker("marker-cleared");
                 // Before StartInvoke captures the reconciliation bundle: drop the rows a
-                // resumed attempt's first merge wrote, and put back a committed copy of the
-                // session's tree when an F9 detached it (the bundle carries committed trees
-                // only). The supersede bump below covers the row removal.
-                MergeDialog.RepairSessionBeforeRetry(scenario, marker, "RetryHandler");
+                // resumed attempt's first merge wrote and the attempt's ledger rows (the
+                // re-invoke's post-load recalculation walks the ledger without them), and put
+                // back a committed copy of the session's tree when an F9 detached it (the
+                // bundle carries committed trees only). The supersede bump below covers the
+                // row removal.
+                MergeDialog.RepairSessionBeforeRetry(
+                    scenario, marker, "RetryHandler", ParsekFlight.Instance?.ActiveTreeForSerialization);
                 // Live variant (route-timeline events): Retry is a player click
                 // in flight; ERS visibility shifts here must stamp route markers.
                 scenario.BumpSupersedeStateVersionLive();

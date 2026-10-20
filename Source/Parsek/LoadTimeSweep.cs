@@ -52,6 +52,7 @@ namespace Parsek
         /// </summary>
         public static void Run()
         {
+            LedgerRowsRemovedByLastRun = 0;
             var scenario = ParsekScenario.Instance;
             if (ReferenceEquals(null, scenario))
             {
@@ -1446,10 +1447,20 @@ namespace Parsek
         // Step 8 helpers: deletion passes.
         // ------------------------------------------------------------------
 
+        /// <summary>
+        /// Ledger rows the last <see cref="Run"/> removed with its zombie recordings (rewind
+        /// design section 2.12 Rule 3). The in-session OnLoad branch runs the sweep after its
+        /// ledger recalculation, so it recalculates again when this is non-zero; the cold branch
+        /// recalculates later (the deferred seed coroutine).
+        /// </summary>
+        internal static int LedgerRowsRemovedByLastRun { get; private set; }
+
         private static int RemoveDiscardRecordings(List<Recording> discard)
         {
+            LedgerRowsRemovedByLastRun = 0;
             if (discard == null || discard.Count == 0) return 0;
             int removed = 0;
+            var discardedIds = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < discard.Count; i++)
             {
                 var rec = discard[i];
@@ -1498,6 +1509,8 @@ namespace Parsek
                 }
 
                 bool ok = fromFlatList || fromCommittedTrees > 0 || fromPendingTree || fromActiveTree;
+                if (!string.IsNullOrEmpty(rec.RecordingId))
+                    discardedIds.Add(rec.RecordingId);
                 if (ok)
                 {
                     ParsekLog.Info(RewindTag,
@@ -1516,8 +1529,12 @@ namespace Parsek
                         $"Zombie recording not found in any collection rec={rec.RecordingId ?? "<no-id>"}");
                 }
             }
+            // A zombie is an abandoned, never-committed Re-Fly attempt: its ledger rows go with
+            // it, like every other Re-Fly discard (rewind design section 2.12 Rule 3).
+            LedgerRowsRemovedByLastRun = Ledger.RemoveActionsForRecordings(discardedIds, "LoadTimeSweep:zombie");
             ParsekLog.Info(RewindTag,
-                $"Zombies discarded={removed.ToString(CultureInfo.InvariantCulture)}");
+                $"Zombies discarded={removed.ToString(CultureInfo.InvariantCulture)} " +
+                $"ledgerRowsRemoved={LedgerRowsRemovedByLastRun.ToString(CultureInfo.InvariantCulture)}");
             return removed;
         }
 

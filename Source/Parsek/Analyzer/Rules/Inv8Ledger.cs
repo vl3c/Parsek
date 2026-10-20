@@ -199,8 +199,9 @@ namespace Parsek.Analyzer.Rules
         // ZOMBIE uncommitted provisional's id onto a career payout (session-aware skip),
         // and the two retire paths -- SupersedeCommit.ConcludeRetiredProvisional and
         // MergeDialog.TryDiscardActiveReFlyAttempt -- deleting a recording without
-        // untagging its rows (retire-time re-home via
-        // Ledger.ClearRecordingTagForRecordings). This rule's job is the EXISTING
+        // untagging its rows (the conclude path now re-homes via
+        // Ledger.ClearRecordingTagForRecordings; every Re-Fly discard removes the
+        // attempt's rows, Ledger.RemoveActionsForRecordings). This rule's job is the EXISTING
         // population already sitting in saves, which neither fix rewrites.
         //
         // SCOPE OF THE DAMAGE, stated carefully because it is easy to get wrong:

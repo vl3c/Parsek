@@ -770,6 +770,60 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DiscardSet_ZombieProvisional_RemovesItsLedgerRows()
+        {
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_zombie", MergeState.NotCommitted, sessionId: "sess_dead",
+                        supersedeTarget: "rec_origin"),
+                    Rec("rec_origin", MergeState.CommittedProvisional),
+                },
+                new List<BranchPoint> { Bp("bp_1") });
+            InstallScenario(rps: new List<RewindPoint>(), marker: null);
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_zombie", UT = 10.0, Type = GameActionType.FundsEarning,
+                FundsAwarded = 500f, RecordingId = "rec_zombie",
+            });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_origin", UT = 5.0, Type = GameActionType.FundsEarning,
+                FundsAwarded = 100f, RecordingId = "rec_origin",
+            });
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_ksc", UT = 12.0, Type = GameActionType.FundsSpending, FundsSpent = 50f,
+            });
+
+            LoadTimeSweep.Run();
+
+            Assert.Equal(new[] { "act_origin", "act_ksc" }, Ledger.Actions.Select(a => a.ActionId));
+            Assert.Equal(1, LoadTimeSweep.LedgerRowsRemovedByLastRun);
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO][Rewind]") && l.Contains("Zombies discarded=1 ledgerRowsRemoved=1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO][Ledger]") && l.Contains("RemoveActionsForRecordings: removed=1")
+                && l.Contains("callSite=LoadTimeSweep:zombie"));
+        }
+
+        [Fact]
+        public void NoZombie_RemovesNoLedgerRow()
+        {
+            InstallScenario(rps: new List<RewindPoint>(), marker: null);
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_keep", UT = 10.0, Type = GameActionType.FundsEarning,
+                FundsAwarded = 500f, RecordingId = "rec_live",
+            });
+
+            LoadTimeSweep.Run();
+
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(0, LoadTimeSweep.LedgerRowsRemovedByLastRun);
+        }
+
+        [Fact]
         public void DiscardSet_ZombieProvisional_AlsoCleansTreeDict()
         {
             // Bug fix-refly-abandon-and-fork-persist §Bug1 structural leak:
