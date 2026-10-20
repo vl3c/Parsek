@@ -175,6 +175,69 @@ namespace Parsek.Tests
             Assert.Equal(9000.0, v.After, 3);
         }
 
+        /// <summary>An active contract with deadline 400 accepted at 50, L's last row at
+        /// 300 (before the deadline), and the attempt's row at 500 (after it).</summary>
+        private static List<GameAction> DeadlineContractL(out List<GameAction> attemptRows)
+        {
+            var els = Seeds();
+            els.Add(new GameAction
+            {
+                ActionId = "accept_c2", Type = GameActionType.ContractAccept, UT = 50.0,
+                ContractId = "c2", DeadlineUT = 400.0, FundsPenalty = 1000f, RepPenalty = 5f,
+            });
+            els.Add(new GameAction
+            {
+                ActionId = "earn_l", Type = GameActionType.FundsEarning, UT = 300.0,
+                RecordingId = LaterRec, FundsAwarded = 100f, FundsSource = FundsEarningSource.Other,
+            });
+            attemptRows = new List<GameAction>
+            {
+                new GameAction
+                {
+                    ActionId = "earn_attempt", Type = GameActionType.FundsEarning, UT = 500.0,
+                    RecordingId = NewRec, FundsAwarded = 100f, FundsSource = FundsEarningSource.Other,
+                },
+            };
+            return els;
+        }
+
+        // catches: each walk judging deadlines at its own last action, so L' alone fails
+        // the contract between L's last UT and the attempt's row (a false refuse).
+        [Fact]
+        public void Evaluate_AttemptRowPastAnActiveDeadline_JudgedAtTheSessionClock_Passes()
+        {
+            List<GameAction> attemptRows;
+            var els = DeadlineContractL(out attemptRows);
+            var inputs = Inputs(els, attemptRows, null);
+            inputs.DeadlineClockUT = 350.0;
+
+            var v = ReFlyMergeDominance.Evaluate(inputs);
+
+            Assert.True(v.Pass);
+        }
+
+        [Fact]
+        public void Evaluate_AttemptRowPastAnActiveDeadline_NoSessionClock_BothWalksShareOneClock()
+        {
+            List<GameAction> attemptRows;
+            var els = DeadlineContractL(out attemptRows);
+
+            var v = ReFlyMergeDominance.Evaluate(Inputs(els, attemptRows, null));
+
+            Assert.True(v.Pass);
+        }
+
+        [Fact]
+        public void ResolveDeadlineClockUT_UsesTheSessionClock_ElseTheLatestRowOfBothLists()
+        {
+            var l = new List<GameAction> { new GameAction { UT = 300.0 } };
+            var a = new List<GameAction> { new GameAction { UT = 500.0 } };
+
+            Assert.Equal(350.0, ReFlyMergeDominance.ResolveDeadlineClockUT(350.0, l, a));
+            Assert.Equal(500.0, ReFlyMergeDominance.ResolveDeadlineClockUT(double.NaN, l, a));
+            Assert.Equal(500.0, ReFlyMergeDominance.ResolveDeadlineClockUT(double.MaxValue, l, a));
+        }
+
         [Fact]
         public void Evaluate_AttemptReachesAMilestoneEarlier_PassesAndTheCreditMovesEarlier()
         {

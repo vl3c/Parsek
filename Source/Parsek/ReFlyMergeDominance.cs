@@ -95,6 +95,9 @@ namespace Parsek
             /// <summary>Stock respawn delay for a kerbal who died on a recording, or NaN when
             /// the death is permanent.</summary>
             internal Func<string, double> RespawnSecondsForRecording;
+            /// <summary>The live session clock both walks judge contract deadlines against
+            /// (<see cref="ResolveDeadlineClockUT"/>); NaN when unknown.</summary>
+            internal double DeadlineClockUT = double.NaN;
         }
 
         /// <summary>The walk the check runs (seam for tests).</summary>
@@ -109,15 +112,43 @@ namespace Parsek
             PreviewBuilderForTesting = null;
         }
 
-        private static RecalculationEngine.IsolatedBalanceWalk Walk(List<GameAction> actions)
+        private static RecalculationEngine.IsolatedBalanceWalk Walk(
+            List<GameAction> actions, double deadlineClockUT)
         {
             var walker = WalkerForTesting;
-            return walker != null ? walker(actions) : RecalculationEngine.WalkBalancesOnClones(actions);
+            return walker != null
+                ? walker(actions)
+                : RecalculationEngine.WalkBalancesOnClones(actions, deadlineClockUT);
         }
 
         // ------------------------------------------------------------------
         // Pure check
         // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The one instant both walks judge contract deadlines against, so <c>L</c> and
+        /// <c>L'</c> cannot differ by a synthetic ContractFail that only the list with the
+        /// later last row synthesizes: <paramref name="sessionClockUT"/> when it is a real
+        /// clock (finite, positive, not the walk-everything sentinel), else the latest row
+        /// UT of both lists. Pure.
+        /// </summary>
+        internal static double ResolveDeadlineClockUT(
+            double sessionClockUT,
+            IReadOnlyList<GameAction> baseline,
+            IReadOnlyList<GameAction> attemptRows)
+        {
+            if (!double.IsNaN(sessionClockUT) && !double.IsInfinity(sessionClockUT)
+                && sessionClockUT > 0.0 && !KerbalsModule.IsNoTimeFilterCutoff(sessionClockUT))
+                return sessionClockUT;
+            double latest = 0.0;
+            if (baseline != null)
+                for (int i = 0; i < baseline.Count; i++)
+                    if (baseline[i] != null && baseline[i].UT > latest) latest = baseline[i].UT;
+            if (attemptRows != null)
+                for (int i = 0; i < attemptRows.Count; i++)
+                    if (attemptRows[i] != null && attemptRows[i].UT > latest) latest = attemptRows[i].UT;
+            return latest;
+        }
 
         /// <summary>
         /// The check over explicit inputs. Logs nothing (the live wrapper writes the two
@@ -185,9 +216,10 @@ namespace Parsek
                     v.RepLossNew += a.NominalPenalty;
             }
 
+            double clock = ResolveDeadlineClockUT(inputs.DeadlineClockUT, baseline, attemptRows);
             List<GameAction> afterA = ComposeAfter(baseline, attemptRows, retireIds, null, null);
-            var walkBefore = Walk(baseline);
-            var walkA = Walk(afterA);
+            var walkBefore = Walk(baseline, clock);
+            var walkA = Walk(afterA, clock);
 
             // Rule 2: A when reputation over L'(A) never drops below L.
             BalanceSeries seriesBefore = BalanceSeries.From(walkBefore);
@@ -201,7 +233,7 @@ namespace Parsek
             {
                 v.Variant = LossSwapVariant.B;
                 after = ComposeAfter(baseline, attemptRows, retireIds, retireRepLossIds, attemptIds);
-                walkAfter = Walk(after);
+                walkAfter = Walk(after, clock);
                 seriesAfter = BalanceSeries.From(walkAfter);
             }
 
@@ -708,6 +740,7 @@ namespace Parsek
                 RetiresNothing = retiresNothing,
                 RewindUT = SupersedeCommit.ComputeTombstoneRewindCutoffUT(marker),
                 RespawnSecondsForRecording = respawn,
+                DeadlineClockUT = ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(),
             };
 
             return Evaluate(inputs);

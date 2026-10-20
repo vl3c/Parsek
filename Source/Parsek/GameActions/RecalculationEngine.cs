@@ -318,9 +318,11 @@ namespace Parsek
         /// input row's Affordable / Effective flags. Nothing registered changes, no state
         /// is patched, the action-derived fields the walk rewrites are restored, and the
         /// walk logs nothing. The Re-Fly merge dominance check (design section 2.12 Rule 5)
-        /// compares two of these.
+        /// compares two of these, so it passes the same <paramref name="deadlineClockUT"/> to
+        /// both: contract deadlines are judged at that instant, not at each list's last action.
         /// </summary>
-        internal static IsolatedBalanceWalk WalkBalancesOnClones(List<GameAction> actions)
+        internal static IsolatedBalanceWalk WalkBalancesOnClones(
+            List<GameAction> actions, double? deadlineClockUT = null)
         {
             var result = new IsolatedBalanceWalk();
             if (actions == null) return result;
@@ -338,7 +340,7 @@ namespace Parsek
                     var science = FindModule<ScienceModule>(first) ?? FindModule<ScienceModule>(second);
                     var reputation = FindModule<ReputationModule>(second) ?? FindModule<ReputationModule>(first);
 
-                    RunWalk(all, null, first, strategy, second, facilities, afterAction: action =>
+                    RunWalk(all, null, first, strategy, second, facilities, deadlineClockUT, afterAction: action =>
                     {
                         result.Samples.Add(new LedgerBalanceSample
                         {
