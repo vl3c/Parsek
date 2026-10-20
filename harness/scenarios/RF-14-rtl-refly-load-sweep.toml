@@ -1,5 +1,12 @@
 schema = 1
 id = "RF-14-rtl-refly-load-sweep"
+# RESHAPED 2026-10-20 FOR "LOAD RESTORES THE SAVE" PHASE 2 (design
+# docs/dev/design-load-restores-the-save.md 4.1 / 4.7; plan Phase 2 step 7). NOT FLOWN in
+# this shape. The F9 of ACT 3 carries `playerLoad=true`, a Cold save-file load into
+# FLIGHT: the session reset forgets memory and the quicksave restores the marker, the
+# provisional and the carried point, so the cold branch's LoadTimeSweep is the one that
+# validates the marker and spares the provisional. Every subject token is unchanged; the
+# classification is now pinned Cold `coldReason=save-file`.
 # =====================================================================================
 # GHOST-REPLAY TIER B ITEM 7: REWIND-TO-LAUNCH x RE-FLY, AND THE LOAD-TIME SWEEP LIVE.
 #
@@ -97,7 +104,7 @@ id = "RF-14-rtl-refly-load-sweep"
 # bytes, not a second product, so it cannot witness a product change between runs.
 # =====================================================================================
 tier = "operator"
-description = "Ghost-replay Tier B item 7, Rewind-to-Launch x Re-Fly: fly GS-4's staged Kerbal X so the core split authors a two-slot RewindPoint, commit, Rewind-to-Launch (the point survives, PR #1788), let the watcher's replay carry the clock past the split, Re-Fly the core's slot off the carried point, then quicksave and quickload in the middle of that re-fly and pin that LoadTimeSweep validated the live marker against the carried point and spared the session's provisional, before the merge concludes it with no zombie left."
+description = "Ghost-replay Tier B item 7, Rewind-to-Launch x Re-Fly: fly GS-4's staged Kerbal X so the core split authors a two-slot RewindPoint, commit, Rewind-to-Launch (the point survives, PR #1788), let the watcher's replay carry the clock past the split, Re-Fly the core's slot off the carried point, then quicksave and quickload (playerLoad=true, a Cold save-file load) in the middle of that re-fly and pin that LoadTimeSweep validated the live marker against the carried point and spared the session's provisional, before the merge concludes it with no zombie left."
 instanceProfile = "stock-minimal"
 tags = ["RF-14", "rewind", "rewind-to-launch", "refly", "load-time-sweep", "quicksave",
         "quickload", "runtime-handles", "kerbin", "sandbox"]
@@ -166,7 +173,7 @@ steps = [
   { cmd = "RecordingState",                                                              expect = "OK" },
   # --- ACT 3: F5 / F9 in the middle of the re-fly ----------------------------------------
   { cmd = "SaveGame",          args = { name = "quicksave" },                            expect = "OK" },
-  { cmd = "LoadGame",          args = { save = "${runSave}", name = "quicksave", allowLiveRecorder = "refly" }, expect = "OK", budget = 300 },
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "quicksave", allowLiveRecorder = "refly", playerLoad = "true" }, expect = "OK", budget = 300 },
   # --- ACT 4: conclude --------------------------------------------------------------------
   { cmd = "AnswerMergeDialog", args = { choice = "merge" },                              expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                              expect = "OK" },
@@ -241,7 +248,13 @@ required = [
   "listhandles kind=rewindpoints count=1 truncated=false",
   "RewindPoints carried across rewind: installed=1 [^\\r\\n]*\\[(rp_[0-9a-f]{32})@[\\s\\S]*?Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=\\1 slot=1[\\s\\S]*?Marker valid sess=\\S+ tree=\\S+ active=\\S+ origin=\\S+ rp=\\1 ",
   "Invocation complete",
-  "loadgame start save=\\S+ name=quicksave [^\\r\\n]*allowLiveRecorder=refly recorderLive=true",
+  "loadgame start save=\\S+ name=quicksave [^\\r\\n]*allowLiveRecorder=refly recorderLive=true playerLoad=true",
+  # The F9 is a save-file load (design 4.1): the sweep below runs on its cold branch.
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave route=Focusable",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*\\[LoadPolicy\\] Save-file load intent armed: nodeUT=[0-9.]+ scene=FLIGHT",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
   "\\[LoadSweep\\] Marker valid=True; spare=1 discarded=0 ",
   # THE SPARED SESSION IS THE ONE THAT KEPT FLYING (backreference): the recorder that
   # resumes after the F9 resumes on the marker's active recording, inside the session the
@@ -256,6 +269,7 @@ forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   # The F9 must not END the session (S4.4's question, answered there: it does not).
   "End reason=treeDiscarded",
+  "loadgame player-load: firing [\\s\\S]*Load classified: early=InSession refined=QuickloadFlight",
   # No marker in this run may fail validation: the only marker is the live session's.
   "Marker invalid field=",
   # NO ZOMBIE ANYWHERE IN THE RUN. Every sweep line must say discarded=0: a nonzero count
