@@ -244,5 +244,53 @@ namespace Parsek.Tests
             Assert.True(PinnedTreeCommitLedger == canonical, "ledger:\n" + canonical);
             Assert.False(InFlightRecoveryRequest.IsAwaitingStockPayoutForTesting(BoosterId));
         }
+
+        [Fact]
+        public void BuildTreeCommitRowsPreview_BuildsTheFiledRowsAndWritesNothing()
+        {
+            var tree = BuildPinTree();
+            CommitTree(tree);
+            LedgerOrchestrator.Initialize();
+            string ledgerBefore = CanonicalLedger(Ledger.Actions);
+            int stateVersionBefore = Ledger.StateVersion;
+
+            var preview = LedgerOrchestrator.BuildTreeCommitRowsPreview(tree);
+
+            Assert.Equal(ledgerBefore, CanonicalLedger(Ledger.Actions));
+            Assert.Equal(stateVersionBefore, Ledger.StateVersion);
+            var rollout = Assert.Single(Ledger.Actions);
+            Assert.Null(rollout.RecordingId);
+            Assert.True(InFlightRecoveryRequest.IsAwaitingStockPayoutForTesting(BoosterId));
+            foreach (var rec in tree.Recordings.Values)
+                Assert.Null(rec.CrewEndStates);
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.ReputationInitial
+                || a.Type == GameActionType.ScienceInitial);
+            Assert.Equal(KerbalEndState.Dead, preview.CrewSources[CapsuleId].CrewEndStates[Bill]);
+
+            // The append step files the same rows, plus the adopted rollout row and the
+            // seeds the preview leaves to the append.
+            string expected = string.Join("", PinnedTreeCommitLedger.Split('\n')
+                .Where(l => l.Length > 0 && !l.StartsWith("ut=99;") && !l.StartsWith("ut=0;"))
+                .Select(l => l + "\n"));
+            Assert.True(expected == CanonicalLedger(preview.Rows), "preview:\n" + CanonicalLedger(preview.Rows));
+
+            LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
+            Assert.True(PinnedTreeCommitLedger == CanonicalLedger(Ledger.Actions));
+        }
+
+        [Fact]
+        public void BuildTreeCommitRowsPreview_RowsAlreadyFiled_AreDeduplicated()
+        {
+            var tree = BuildPinTree();
+            CommitTree(tree);
+            LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
+            InFlightRecoveryRequest.MarkAwaitingStockPayoutForTesting(BoosterId);
+
+            var preview = LedgerOrchestrator.BuildTreeCommitRowsPreview(tree);
+
+            Assert.DoesNotContain(preview.Rows, r => r.Type == GameActionType.MilestoneAchievement);
+            Assert.DoesNotContain(preview.Rows, r => r.Type == GameActionType.ContractComplete);
+            Assert.True(preview.DedupRemoved > 0);
+        }
     }
 }
