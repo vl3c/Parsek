@@ -3235,6 +3235,18 @@ namespace Parsek
                 ledgerRecalcReason);
         }
 
+        /// <summary>
+        /// Pure: true when a scene exit out of flight to a non-flight scene belongs to a save-file
+        /// load stock announced (<see cref="SaveFileLoadIntent"/>) that is not a revert, so the live
+        /// tree is stashed (and later dropped by the cold load's reset) rather than committed.
+        /// A FLIGHT destination already stashes; a revert keeps today's scene-exit handling.
+        /// </summary>
+        internal static bool ShouldStashLiveTreeForSaveFileLoad(
+            GameScenes destination, bool saveFileLoadIntentArmed, bool revertPending)
+        {
+            return destination != GameScenes.FLIGHT && saveFileLoadIntentArmed && !revertPending;
+        }
+
         private void FinalizeTreeOnSceneChangeCore(
             GameScenes scene,
             double commitUT,
@@ -3311,6 +3323,21 @@ namespace Parsek
                     }
                     StashActiveTreeAsPendingLimbo(commitUT);
                 }
+            }
+            else if (ShouldStashLiveTreeForSaveFileLoad(
+                scene, SaveFileLoadIntent.IsArmed, RevertDetector.PendingKind != RevertKind.None))
+            {
+                // A save-file load out of flight into a non-flight save (F9 or the load dialog
+                // into a Space Center quicksave): the next OnLoad is Cold and rebuilds Parsek from
+                // that save (design-load-restores-the-save.md 4.1), so the live flight is the
+                // abandoned future, not a finished one. Stash it as Limbo, as an F9 into a flight
+                // save does; the cold load's session reset drops it from memory only. Committing
+                // it here would run a commit for a flight the load is about to forget.
+                ParsekLog.Info("Flight",
+                    $"FinalizeTreeOnSceneChange: save-file load out of flight (dest={scene}) - stashing the "
+                    + $"live tree '{activeTree.TreeName}' as pending Limbo instead of committing it; the "
+                    + "cold load replaces it from the save");
+                StashActiveTreeAsPendingLimbo(commitUT);
             }
             else if (!ParsekScenario.IsAutoMerge)
             {

@@ -23,21 +23,16 @@ namespace Parsek
         private static ConfigNode pendingSaveAttemptEvents;
 
         /// <summary>
-        /// Names why a load is Cold, for the reset line. Pure. The first cold load of the
-        /// process is the boot; a load after the main-menu transition finds no previous
-        /// folder; a different folder is a folder change; anything else re-armed the cold
-        /// path in process (the in-game test batch's baseline restore or crash reconcile).
+        /// Names why a load that found <c>initialLoadDone</c> false is Cold, for the reset line
+        /// (<see cref="LoadReconcilePolicy.ResolveColdReason"/>; a save-file load is Cold with
+        /// <c>initialLoadDone</c> true and names itself there).
         /// </summary>
         internal static string ResolveColdLoadReason(
             int coldLoadsBefore, string saveFolderBeforeDetect, string currentSaveFolder)
         {
-            if (coldLoadsBefore <= 0)
-                return "boot";
-            if (saveFolderBeforeDetect == null)
-                return "main-menu";
-            if (!string.Equals(saveFolderBeforeDetect, currentSaveFolder, StringComparison.Ordinal))
-                return "folder-change";
-            return "batch";
+            return LoadReconcilePolicy.ResolveColdReason(
+                EarlyLoadKind.Cold, initialLoadDoneAtClassify: false,
+                coldLoadsBefore, saveFolderBeforeDetect, currentSaveFolder);
         }
 
         /// <summary>
@@ -110,6 +105,58 @@ namespace Parsek
             lastRestoredQuicksaveTreeFacts = null;
             ClearQuickloadResumeDetach();
             pendingSaveAttemptEvents = null;
+        }
+
+        // The stamp the last OnSave of this process wrote (the canary's reference). Process
+        // lifetime by design (allowlisted in scripts/session-reset-allowlist.txt): a load never
+        // changes what was last written.
+        private static string lastWrittenSaveStamp;
+
+        /// <summary>
+        /// Writes a fresh <c>saveStamp</c> into the Parsek node and remembers it (design 4.1).
+        /// Returns the stamp.
+        /// </summary>
+        internal static string WriteSaveStamp(ConfigNode node)
+        {
+            string stamp = Guid.NewGuid().ToString("N");
+            if (node != null)
+                node.SetValue(LoadReconcilePolicy.SaveStampKey, stamp, true);
+            lastWrittenSaveStamp = stamp;
+            return stamp;
+        }
+
+        /// <summary>
+        /// The canary, after the refined classification: an InSessionOther / QuickloadFlight load
+        /// whose node carries a stamp other than the last one this process wrote read a save no
+        /// stock path announced. Logs one Warn and returns true; never reclassifies.
+        /// </summary>
+        internal static bool CheckLoadedSaveStamp(ConfigNode node, LoadKind refined)
+        {
+            if (!LoadReconcilePolicy.ShouldCheckSaveStamp(refined))
+                return false;
+            string loaded = node?.GetValue(LoadReconcilePolicy.SaveStampKey);
+            string last = lastWrittenSaveStamp;
+            if (!LoadReconcilePolicy.IsForeignSaveStamp(loaded, last))
+            {
+                ParsekLog.Verbose(LoadReconcilePolicy.LogTag,
+                    "saveStamp check: refined=" + refined
+                    + (string.IsNullOrEmpty(loaded) || string.IsNullOrEmpty(last)
+                        ? " skipped (loaded=" + (loaded ?? "<none>") + " lastWritten=" + (last ?? "<none>") + ")"
+                        : " matches the last save written"));
+                return false;
+            }
+            string scene;
+            try { scene = HighLogic.LoadedScene.ToString(); }
+            catch (Exception) { scene = null; }
+            ParsekLog.Warn(LoadReconcilePolicy.LogTag,
+                LoadReconcilePolicy.FormatForeignSaveStampWarning(refined, scene, loaded, last));
+            return true;
+        }
+
+        internal static string LastWrittenSaveStampForTesting
+        {
+            get => lastWrittenSaveStamp;
+            set => lastWrittenSaveStamp = value;
         }
 
         internal static int ColdLoadsThisProcessForTesting

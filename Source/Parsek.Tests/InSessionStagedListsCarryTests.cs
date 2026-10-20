@@ -1329,7 +1329,7 @@ namespace Parsek.Tests
             HighLogic.LoadedScene = scene;
             bool discard = DiscardReFlyLoadIntent.TryConsume(scene, "test", out _);
             Assert.True(discard);
-            EarlyLoadKind early = LoadReconcilePolicy.ClassifyEarly(true, false, false, discard);
+            EarlyLoadKind early = LoadReconcilePolicy.ClassifyEarly(true, false, false, discard, false, false);
             Assert.Equal(EarlyLoadKind.DiscardReFly, early);
             return Load(memory, saved, early, sweep: true);
         }
