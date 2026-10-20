@@ -10667,6 +10667,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Science-lab process-while-joined, tender separation and transmit (LAB-13 reduced: no
         # re-dock is drivable without RCS); operator by the same reading-run discipline.
         "LAB-13-lab-process-separate-transmit.toml": "operator by the reading-run discipline; AUTHORED 2026-10-18, NEVER FLOWN (a thermometer processed into the lab while the probe tender is still joined, the tender's pre-attached undock as one JointBreak / UNDOCK split with a Rewind Point and no Undock branch, the lab keeping its 5.00 data and 12.50 science, one 12.50 credit at the KSC pass tagged to the lab's continuing recording, the in-flight commit's end snapshot matching, on lab-lko-seeded-transmit); the undock fold, the split shape, the link window and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        # The true dock/undock form of LAB-13, on the RCS-fitted tender of
+        # lab-lko-tender-rcs; operator by the same reading-run discipline.
+        "LAB-13b-lab-dock-undock.toml": "operator by the reading-run discipline; AUTHORED 2026-10-20, NEVER FLOWN (the tender's pre-attached undock as a JointBreak split, a d5_redock startSeparated re-dock merging both halves into one recording, a thermometer processed into the lab while truly docked, a true stock undock as an Undock branch with the lab continuing, one 12.50 credit at the KSC pass tagged to that continuing recording, on lab-lko-tender-rcs); the tender's name after the split, the dominant vessel after the re-dock, the merge and branch pids and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
         # The SIXTH forge, same mechanism again: it stamps b17-duna-pad by
         # launching the committed DD1 Duna Direct Probe (built by construction,
         # build_dd1_craft.py) onto the pad UNCREWED. Flown + harvested

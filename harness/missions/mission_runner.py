@@ -2140,6 +2140,10 @@ class KrpcMissionControl(MissionControl):
             self._switch_to_nearest_named_vessel(sc, v, str(action.text or ""))
         elif kind == mlib.ACTION_TARGET_NEAREST_NAMED_VESSEL:
             self._target_nearest_named_vessel(sc, v, str(action.text or ""))
+        elif kind == mlib.ACTION_SWITCH_TO_NEAREST_OTHER_VESSEL:
+            self._switch_to_nearest_other_vessel(sc, v, str(action.text or ""))
+        elif kind == mlib.ACTION_CONTROL_FROM_DOCKING_PORT:
+            self._control_from_docking_port(v)
         elif kind == mlib.ACTION_BG_SUBJECT_SET_ENGINES_ACTIVE:
             want = bool(action.value)
             set_count = 0
@@ -2957,6 +2961,89 @@ class KrpcMissionControl(MissionControl):
         except Exception as exc:  # noqa: BLE001
             _stdout_sink(mlib.format_mission_log_line(
                 "Warn", "Switch", "switch_to_nearest_named_vessel failed: %s: %s"
+                % (type(exc).__name__, str(exc)[:160])))
+
+    def _switch_to_nearest_other_vessel(self, sc, active, skip_name: str) -> None:
+        """d5_redock separated start: `sc.active_vessel = ` the nearest loaded
+        vessel other than ``active`` NOT named ``skip_name``. Best-effort and
+        logged: a failed switch leaves the active vessel unchanged, which the
+        machine's RD-SWITCH part-count gate then names. The pick is
+        `mlib.pick_nearest_other`."""
+        candidates = []
+        handles = []
+        try:
+            vessels = list(sc.vessels)
+        except Exception as exc:  # noqa: BLE001
+            vessels = []
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Switch", "vessel list read failed: %s: %s"
+                % (type(exc).__name__, str(exc)[:160])))
+        try:
+            frame = active.reference_frame
+        except Exception:  # noqa: BLE001
+            frame = None
+        for other in vessels:
+            try:
+                is_active = other == active
+                other_name = str(other.name)
+                dist = float("nan")
+                if frame is not None and other_name != skip_name and not is_active:
+                    x, y, z = other.position(frame)
+                    dist = (x * x + y * y + z * z) ** 0.5
+            except Exception:  # noqa: BLE001
+                continue
+            candidates.append((other_name, dist, is_active))
+            handles.append(other)
+        idx = mlib.pick_nearest_other(candidates, skip_name)
+        if idx is None:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Switch", "switch_to_nearest_other_vessel: no loaded vessel "
+                "other than %r beside the active one (%d vessel(s) scanned)"
+                % (skip_name, len(candidates))))
+            return
+        try:
+            sc.active_vessel = handles[idx]
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Switch", "switched active vessel to nearest other %r at %.1f m"
+                % (candidates[idx][0], candidates[idx][1])))
+        except Exception as exc:  # noqa: BLE001
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Switch", "switch_to_nearest_other_vessel failed: %s: %s"
+                % (type(exc).__name__, str(exc)[:160])))
+
+    def _control_from_docking_port(self, v) -> None:
+        """d5_redock separated start: control the ACTIVE vessel from its docking
+        port (`Parts.controlling`, settable in kRPC 0.5.4), the Ready port first
+        (`mlib.pick_ready_port_index`). Best-effort and logged: a miss leaves the
+        control point alone, and the DOCK phase's own watchdogs name a docking
+        autopilot that cannot close."""
+        try:
+            ports = list(v.parts.docking_ports)
+        except Exception as exc:  # noqa: BLE001
+            ports = []
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Control", "docking port list read failed: %s: %s"
+                % (type(exc).__name__, str(exc)[:160])))
+        states = []
+        for port in ports:
+            try:
+                states.append(getattr(port.state, "name", ""))
+            except Exception:  # noqa: BLE001
+                states.append("")
+        idx = mlib.pick_ready_port_index(states)
+        if idx is None:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Control", "control_from_docking_port: the active vessel "
+                "has no docking port (%d read)" % len(ports)))
+            return
+        try:
+            v.parts.controlling = ports[idx].part
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Control", "controlling from docking port %d of %d state=%s"
+                % (idx, len(ports), states[idx])))
+        except Exception as exc:  # noqa: BLE001
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Control", "control_from_docking_port failed: %s: %s"
                 % (type(exc).__name__, str(exc)[:160])))
 
     def _find_tank_with_resource(self, vessel, resource: str):
