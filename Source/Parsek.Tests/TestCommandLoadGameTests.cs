@@ -311,6 +311,45 @@ namespace Parsek.Tests
             Assert.False(allow);
         }
 
+        // ----- playerLoad=true (design-load-restores-the-save.md 4.1): the load is the
+        // player's load of a save file, so the applier fires onGameStatePostLoad. The parse is
+        // the allowLiveRecorder= parse verbatim (fail-closed, case-sensitive, absent is the
+        // fixture load); the dispatcher refuses a bad spelling (TestCommandDispatchTests). -----
+
+        [Fact]
+        public void ParsePlayerLoad_Absent_IsTheFixtureLoad()
+        {
+            Assert.True(TestCommandLoadGame.TryParsePlayerLoad(null, out bool playerLoad));
+            Assert.False(playerLoad);
+        }
+
+        [Fact]
+        public void ParsePlayerLoad_AcceptedWireValue()
+        {
+            Assert.Equal("playerLoad", TestCommandLoadGame.PlayerLoadKey);
+            Assert.Equal("true", TestCommandLoadGame.PlayerLoadTrueValue);
+            Assert.True(TestCommandLoadGame.TryParsePlayerLoad("true", out bool playerLoad));
+            Assert.True(playerLoad);
+        }
+
+        [Theory]
+        [InlineData("")]        // present but empty: a typo, not an omission
+        [InlineData(" ")]
+        [InlineData("True")]    // case-sensitive: a TOML bool reaches the wire as True
+        [InlineData("TRUE")]
+        [InlineData("true ")]
+        [InlineData("false")]   // not a spelling: omit the arg
+        [InlineData("1")]
+        [InlineData("yes")]
+        [InlineData("f9")]
+        public void ParsePlayerLoad_RejectsEverythingElse(string raw)
+        {
+            Assert.False(TestCommandLoadGame.TryParsePlayerLoad(raw, out bool playerLoad));
+            // The out value stays at the inert default, so a caller that ignores the bool
+            // never fires the event it mis-spelled.
+            Assert.False(playerLoad);
+        }
+
         [Fact]
         public void Route_RequestedTrackStation_TakesTrackStation_EvenWithFocusableVessel()
         {
