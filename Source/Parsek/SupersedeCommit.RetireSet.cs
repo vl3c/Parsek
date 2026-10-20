@@ -448,6 +448,100 @@ namespace Parsek
             return sealing;
         }
 
+        /// <summary>
+        /// The retire set a Re-Fly merge would tombstone if it ran now (design section
+        /// 2.12, Rule 5's input): the closure <see cref="AppendRelations(ReFlySessionMarker, Recording, ParsekScenario)"/>
+        /// computes from the marker (rooted at its supersede target, else its origin child),
+        /// minus <paramref name="attemptRecordingIds"/>, through
+        /// <see cref="BuildRetireSet"/> over the raw ledger and the existing tombstones,
+        /// exactly as <see cref="CommitTombstones"/> builds it. Uncached, logs nothing.
+        /// </summary>
+        internal static List<GameAction> BuildMergeRetireSet(
+            ReFlySessionMarker marker,
+            ICollection<string> attemptRecordingIds,
+            out int closureCount)
+        {
+            closureCount = 0;
+            if (marker == null)
+                return new List<GameAction>();
+            string closureRoot = marker.SupersedeTargetId ?? marker.OriginChildRecordingId;
+            IReadOnlyCollection<string> subtree =
+                EffectiveState.ComputeSubtreeClosureInternal(marker, closureRoot);
+            var closure = new HashSet<string>(StringComparer.Ordinal);
+            if (subtree != null)
+            {
+                foreach (string id in subtree)
+                {
+                    if (string.IsNullOrEmpty(id)) continue;
+                    if (attemptRecordingIds != null && attemptRecordingIds.Contains(id)) continue;
+                    closure.Add(id);
+                }
+            }
+            closureCount = closure.Count;
+            RetireSetScan scan = BuildRetireSet(
+                closure, ComputeTombstoneRewindCutoffUT(marker), Ledger.Actions,
+                CollectTombstonedActionIds(), logDecisions: false);
+            return scan.Rows;
+        }
+
+        /// <summary>
+        /// The recordings of a Re-Fly attempt among the committed recordings (after its tree
+        /// commits): stamped with the session (<see cref="MergeDialog.IsCreatedByReFlySession"/>),
+        /// plus the marker's active re-fly recording.
+        /// </summary>
+        internal static HashSet<string> CollectCommittedReFlyAttemptRecordingIds(ReFlySessionMarker marker)
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            if (marker == null)
+                return ids;
+            if (!string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+                ids.Add(marker.ActiveReFlyRecordingId);
+            var committed = RecordingStore.CommittedRecordings;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec != null && !string.IsNullOrEmpty(rec.RecordingId)
+                    && MergeDialog.IsCreatedByReFlySession(rec, marker))
+                    ids.Add(rec.RecordingId);
+            }
+            return ids;
+        }
+
+        /// <summary>
+        /// Design section 2.12 Rule 2, Variant B's second half: the attempt's own
+        /// <see cref="GameActionType.ReputationPenalty"/> loss rows (sources KerbalDeath /
+        /// Other) that are not tombstoned yet, in ledger order. The merge tombstones them
+        /// with the attempt as the retiring recording.
+        /// </summary>
+        internal static List<GameAction> CollectReFlyAttemptReputationLossRows(
+            ICollection<string> attemptRecordingIds)
+        {
+            var rows = new List<GameAction>();
+            if (attemptRecordingIds == null || attemptRecordingIds.Count == 0)
+                return rows;
+            var tombstoned = CollectTombstonedActionIds();
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (a == null || string.IsNullOrEmpty(a.RecordingId)) continue;
+                if (!attemptRecordingIds.Contains(a.RecordingId)) continue;
+                if (!IsReputationLossRow(a)) continue;
+                if (!string.IsNullOrEmpty(a.ActionId) && tombstoned.Contains(a.ActionId)) continue;
+                rows.Add(a);
+            }
+            return rows;
+        }
+
+        /// <summary>A <see cref="GameActionType.ReputationPenalty"/> row that is a loss row
+        /// (design section 2.12 Terms): source KerbalDeath or Other.</summary>
+        internal static bool IsReputationLossRow(GameAction action)
+        {
+            return action != null
+                && action.Type == GameActionType.ReputationPenalty
+                && IsLossRow(action);
+        }
+
         private static HashSet<string> CollectTombstonedActionIds()
         {
             var ids = new HashSet<string>(StringComparer.Ordinal);

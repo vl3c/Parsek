@@ -77,10 +77,20 @@ namespace Parsek
             string vesselLabel,
             double reFlyDuration,
             ReFlyAutoSealPreviewResult preview,
-            bool willAutoSeal)
+            bool willAutoSeal,
+            string mergeRefusalReason = null)
         {
             string headline = $"<align=\"center\">{vesselLabel} - " +
                               $"{FormatDuration(reFlyDuration)}</align>\n\n";
+            if (!string.IsNullOrEmpty(mergeRefusalReason))
+            {
+                // Design section 2.12 Rule 5: the dominance check refused the merge, so
+                // the dialog offers Discard only and says why.
+                return headline +
+                    "<align=\"left\"><b>This Re-Fly attempt cannot be merged.</b> " +
+                    mergeRefusalReason + "\n\n" +
+                    "You can still discard this attempt.</align>";
+            }
             if (!willAutoSeal)
             {
                 // Not a sealing terminal: the dialog shows both
