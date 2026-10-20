@@ -224,6 +224,11 @@ class InterbodyRouteSpecFixtureSyncTests(unittest.TestCase):
         "IR-5-mun-route-dispatch-delivery.toml":
             "FLIGHT delivery lane: send-once and a 1x wait in the flight view, never "
             "opens the map, so RouteTrajectoryLineRenderer never runs",
+        # QL-10 (2026-10-20) renames a recording and a group in the Missions window
+        # at the Space Center around a quickload; it never opens the map.
+        "QL-10-quickload-restores-names-and-groups.toml":
+            "KSC-only Missions-window rename lane around a quickload, never opens "
+            "the map, so RouteTrajectoryLineRenderer never runs",
     }
 
     # The two verbs that reach a scene where `RouteTrajectoryLineRenderer` draws.

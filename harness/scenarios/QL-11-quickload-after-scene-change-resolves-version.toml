@@ -1,0 +1,147 @@
+schema = 1
+id = "QL-11-quickload-after-scene-change-resolves-version"
+# =====================================================================================
+# QL-11: AN F9 AFTER A LATER SAVE REWROTE THE SIDECAR READS THE F5'S BYTES.
+# "Load restores the save" Phase 2 (design docs/dev/design-load-restores-the-save.md
+# section 4.4 / 5 scenario S2; plan docs/dev/plans/load-restores-the-save-implementation.md
+# Phase 2 step 7). AUTHORED 2026-10-20, NOT FLOWN.
+#
+# In gameplay terms: the player quicksaves during a recorded flight, visits the Tracking
+# Station and comes back (the scene change saves the game, which rewrites the recording's
+# sidecar with the flight so far), flies on, then quickloads. The quicksave names the
+# sidecar bytes it was written with by hash; those bytes now live in `_versions`, so the
+# load reads them from there and promotes them back to the head. The restored trajectory
+# ends at the F5, so the resume trims nothing, and the recorder resumes the same tree.
+#
+# STAND-IN FOR THE TRACKING STATION TRIP, NAMED: no seam verb leaves FLIGHT for the
+# Tracking Station with the recorder live (LoadGame scene=trackstation is a load, not a
+# scene change). What the trip does to the files is one OnSave of persistent.sfs while the
+# tree is active, which rewrites the active recording's head; `SaveGame persistent` in
+# flight is that same OnSave. QL-4c covers the same resolution with a commit between the
+# F5 and the F9; this lane is the plain shape with none.
+#
+# HOST: QL-6's (gloops-airshow, the pad pod, save clock UT 21.16). The sampler's longest
+# interval (3 s at the Medium preset) puts samples into each 10 s step, so the head does
+# change between the two saves.
+#
+# THE ROUTE:
+#   record to UT 40, F5 (`SaveGame quicksave`); fly to UT 50, `SaveGame persistent` (the
+#   head rewrite; the F5 bytes are filed as a version); stop the recorder (the LoadGame
+#   verb refuses a live recorder); F9 (`LoadGame quicksave playerLoad=true`, a Cold
+#   save-file load into FLIGHT); fly to UT 60; read the recorder; commit.
+#
+# THE GATE (pinned below), all tied to the recording id by backreference:
+#   (a) the F5 bytes are retained: the last `Sidecar retained: rec=<id> kind=prec` before
+#       the persistent save's completion line, reason=rewrite, hash H;
+#   (b) the F9 resolves that recording's trajectory from `_versions` with hash H and
+#       promotes it (`Sidecar version resolved: rec=<id> kind=prec hash=H source=version
+#       promoted=True`);
+#   (c) the resume prep names the same recording, loadKind=Cold, treeTrimmed=False (the
+#       trajectory ends at the F5; a head read would end at UT 50 and trim);
+#   (d) the recorder resumes and the tree commits.
+#   Forbidden: an epoch mismatch, a hydration failure, an in-session classification,
+#   treeTrimmed=True after the F9.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse: QL-6's prefix (record to UT 40, F5) is shared, but QL-6 discards before the F9
+#     and this lane must not; a new spec. 2 no idle waits: every wait is an explicit-UT
+#     WarpToUT at 1x (the recorder must sample through it). 3 / 4 / 5 not applicable.
+#   6 retry once. 7 tight windows: count {1,1} (one recording, committed).
+#   8 tier nightly (QL-6's wall). 9 flight_efficiency.py after the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "QL-11 (S2): F5 during a recorded flight of the pad pod, fly on and save again (the Tracking Station trip's OnSave, which rewrites the recording's head), then the player's F9 (a Cold save-file load). The F5's trajectory bytes resolve from _versions by hash and are promoted, the restored trajectory ends at the F5 so the resume trims nothing, and the recorder resumes and commits."
+instanceProfile = "stock-minimal"
+tags = ["QL-11", "quickload", "timeline-ops", "save-file-load", "sidecar-versions",
+        "live-recording", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },  expect = "OK" },
+  # LOAD-BEARING: `Sidecar retained` and `Sidecar version resolved` are Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging",     value = "true" },   expect = "OK" },
+  { cmd = "StartRecording",                                                           expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "40", maxRate = "1" },                      expect = "OK", budget = 120 },
+  # THE F5.
+  { cmd = "SaveGame",       args = { name = "quicksave" },                            expect = "OK", budget = 120 },
+  # THE SCENE CHANGE'S SAVE: more flight, then the OnSave that rewrites the head.
+  { cmd = "WarpToUT",       args = { ut = "50", maxRate = "1" },                      expect = "OK", budget = 120 },
+  { cmd = "SaveGame",       args = { name = "persistent" },                           expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  # THE F9, the player's load.
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",       args = { ut = "60", maxRate = "1" },                      expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "CommitTree",                                                               expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The resumed tree's one recording, committed.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "savegame name=quicksave folder=.+ saved=true[\\s\\S]*warptout complete[\\s\\S]*savegame name=persistent folder=.+ saved=true",
+
+  # THE F9 IS A SAVE-FILE LOAD (design 4.1).
+  "loadgame start save=\\S+ name=quicksave scene=FLIGHT [^\\r\\n]* playerLoad=true",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave route=Focusable",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*\\[LoadPolicy\\] Save-file load intent armed: nodeUT=[0-9.]+ scene=FLIGHT",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
+
+  # =================================================================================
+  # THE GATE.
+  # (a) + (b) The F5 bytes, filed as a version by the later save's rewrite, are the ones
+  # the F9 resolves (same recording, same hash) and promotes.
+  "startrecording recordingId=([0-9a-f]+) [\\s\\S]*savegame name=quicksave folder=[^\\r\\n]*(?:(?!savegame name=persistent)[\\s\\S])*Sidecar retained: rec=\\1 kind=prec hash=([0-9a-f]+) reason=rewrite outcome=(?:filed|identical-exists)(?:(?!Sidecar retained: rec=\\1 kind=prec )[\\s\\S])*savegame name=persistent folder=[\\s\\S]*loadgame player-load: firing [\\s\\S]*Sidecar version resolved: rec=\\1 kind=prec hash=\\2 source=version promoted=True",
+  "loadgame player-load: firing [\\s\\S]*Sidecar version resolution summary: reason=cold-onload [^\\r\\n]*\\bversion=[1-9][0-9]* promoted=[1-9][0-9]* [^\\r\\n]*\\bunresolved=0 ",
+  # (c) The restored trajectory ends at the F5: the resume trims nothing.
+  "OnLoad: cold-start active tree detected \\(state=Limbo\\) . deferred to OnFlightReady as Quickload",
+  "startrecording recordingId=([0-9a-f]+) [\\s\\S]*loadgame player-load: firing [\\s\\S]*Quickload resume prep: activeRec='\\1' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide [^\\r\\n]*\\bloadKind=Cold [^\\r\\n]*\\btreeTrimmed=False\\b",
+  # (d) The recorder resumes the tree and it commits.
+  "loadgame player-load: firing [\\s\\S]*RestoreActiveTreeFromPending: resumed recording tree '[^']*' activeRec='[0-9a-f]{32}'",
+  "loadgame player-load: firing [\\s\\S]*recordingstate recording=true ",
+  "loadgame player-load: firing [\\s\\S]*committree committed=true",
+  # END GATE
+  # =================================================================================
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "sidecar hydration failure",
+  "loadgame player-load: firing (?:(?!Load classified: )[\\s\\S])*Load classified: early=InSession",
+  # The hash replaces the epoch rule; the F5 bytes, not the later head, are read.
+  "loadgame player-load: firing [\\s\\S]*Sidecar epoch mismatch",
+  "loadgame player-load: firing [\\s\\S]*Quickload resume prep: [^\\r\\n]*\\btreeTrimmed=True\\b",
+  "TryRestoreActiveTreeNode: skipped active tree",
+  "Quickload resume prep skipped",
+]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): every deferred verb waits max(step budget, 600) + 60 =
+# 660 s at worst. Two LoadGames and three WarpToUTs are deferred (3300); StartRecording
+# (180), two SaveGames (240), CommitTree (120) and the fast verbs add their own.
+budgetSeconds = 3900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
