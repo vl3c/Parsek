@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using HarmonyLib;
@@ -73,6 +74,50 @@ namespace Parsek.Tests
             GhostMapPresence.RegisterGhostMapVesselPidForTesting(4242u);
             Assert.True((bool)decide.Invoke(null, new object[] { 4242u }));
             Assert.False((bool)decide.Invoke(null, new object[] { 4243u }));
+        }
+            [Fact]
+        public void CyclePress_DropsGhostMarkers_EvenWithNoReFlySession()
+        {
+            // Stock ignores ForceSetActiveVessel's answer and copies the candidate's controls onto
+            // the active vessel, so a ghost must never reach stock's final step at all.
+            var pids = new List<uint> { 4242u, 7u, 8u };
+            var f = VesselCycleReFlySwitchPatch.FilterCandidates(pids, p => p == 4242u, null);
+            Assert.False(f.LeaveToStock);
+            Assert.Equal(1, f.GhostsDropped);
+            Assert.Equal(new List<int> { 1, 2 }, f.KeptIndices);
+        }
+
+        [Fact]
+        public void CyclePress_NoGhostNoSession_IsLeftToStock()
+        {
+            var f = VesselCycleReFlySwitchPatch.FilterCandidates(new List<uint> { 7u, 8u }, p => false, null);
+            Assert.True(f.LeaveToStock);
+            Assert.Equal(new List<int> { 0, 1 }, f.KeptIndices);
+        }
+
+        [Fact]
+        public void CyclePress_ReFlySession_DropsGhostsAndRefused_NamesFirstRefused()
+        {
+            var pids = new List<uint> { 4242u, 9u, 7u };
+            var f = VesselCycleReFlySwitchPatch.FilterCandidates(pids, p => p == 4242u, p => p == 7u);
+            Assert.Equal(1, f.GhostsDropped);
+            Assert.Equal(1, f.RefusedDropped);
+            Assert.Equal(1, f.FirstRefusedIndex);
+            Assert.Equal(new List<int> { 2 }, f.KeptIndices);
+
+            var onlyGhosts = VesselCycleReFlySwitchPatch.FilterCandidates(
+                new List<uint> { 4242u }, p => true, null);
+            Assert.Empty(onlyGhosts.KeptIndices);
+            Assert.Equal(-1, onlyGhosts.FirstRefusedIndex);
+        }
+
+        [Fact]
+        public void CyclePrefix_FiltersWithTheGhostMapCheck()
+        {
+            string path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                "..", "..", "..", "..", "..", "Source", "Parsek", "Patches", "VesselCycleReFlySwitchPatch.cs");
+            string src = System.IO.File.ReadAllText(path);
+            Assert.Contains("FilterCandidates(candidatePids, GhostMapPresence.IsGhostMapVessel, isAllowed)", src);
         }
     }
 }
