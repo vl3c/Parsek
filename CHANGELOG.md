@@ -53,6 +53,9 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Loading a save no longer stretches a vessel's recording that ended before the save.** A vessel
+  destroyed, or one that split, before the save kept playing as if it lasted until the load moment.
+  Its recording now ends where it really ended. (QUICKLOAD-TRIM-STAMPS-CUTOFF-AS-EARLIER-END)
 - **A station a later flight docks with can't be recovered early.** After a rewind, the Tracking
   Station greys Recover and Delete, and the Space Center greys Recover, on a vessel a recorded later
   flight still docks with, so it can't come back as a duplicate and be paid for twice. (GC-2)

@@ -1601,18 +1601,52 @@ namespace Parsek
         /// </summary>
         internal static int RestoreAttemptEventsToMemory(ConfigNode attemptNode)
         {
+            return RestoreAttemptEventsToMemory(attemptNode, keepEvent: null, out _);
+        }
+
+        /// <summary>
+        /// As <see cref="RestoreAttemptEventsToMemory(ConfigNode)"/>, but appends only the
+        /// events <paramref name="keepEvent"/> accepts (all of them when it is null). A dropped
+        /// event is counted in <paramref name="droppedEvents"/>, and the contract snapshots of
+        /// dropped accepts are dropped with them, so an event the live attempt would not keep
+        /// off the file never reaches memory.
+        /// </summary>
+        internal static int RestoreAttemptEventsToMemory(
+            ConfigNode attemptNode, Func<GameStateEvent, bool> keepEvent, out int droppedEvents)
+        {
+            droppedEvents = 0;
             if (attemptNode == null)
                 return 0;
             int restored = 0;
+            HashSet<string> droppedContractAcceptGuids = null;
             ConfigNode[] eventNodes = attemptNode.GetNodes("GAME_STATE_EVENT");
             for (int i = 0; i < eventNodes.Length; i++)
             {
-                events.Add(GameStateEvent.DeserializeFrom(eventNodes[i]));
+                GameStateEvent e = GameStateEvent.DeserializeFrom(eventNodes[i]);
+                if (keepEvent != null && !keepEvent(e))
+                {
+                    droppedEvents++;
+                    if (e.eventType == GameStateEventType.ContractAccepted
+                        && !string.IsNullOrEmpty(e.key))
+                    {
+                        if (droppedContractAcceptGuids == null)
+                            droppedContractAcceptGuids = new HashSet<string>();
+                        droppedContractAcceptGuids.Add(e.key);
+                    }
+                    continue;
+                }
+                events.Add(e);
                 restored++;
             }
             ConfigNode[] snapNodes = attemptNode.GetNodes("CONTRACT_SNAPSHOT");
             for (int i = 0; i < snapNodes.Length; i++)
-                contractSnapshots.Add(ContractSnapshot.DeserializeFrom(snapNodes[i]));
+            {
+                ContractSnapshot snap = ContractSnapshot.DeserializeFrom(snapNodes[i]);
+                if (droppedContractAcceptGuids != null
+                    && droppedContractAcceptGuids.Contains(snap.contractGuid))
+                    continue;
+                contractSnapshots.Add(snap);
+            }
             return restored;
         }
 

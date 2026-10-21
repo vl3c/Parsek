@@ -24,6 +24,13 @@ namespace Parsek
         // consumes it.
         private static ConfigNode pendingSaveAttemptEvents;
 
+        // The save's ATTEMPT_EVENTS when the save holds the attempt's committed tree but no
+        // active node for it (an attempt that resumed its recording in place: the overlap skip
+        // leaves the active node out of every save while a member is dirty). Held past OnLoad
+        // until the flight's committed-tree restore arms the same tree again
+        // (ResolveHeldSaveAttemptEventsOnArm); the next OnLoad drops it.
+        private static ConfigNode heldSaveAttemptEvents;
+
         /// <summary>
         /// Names why a load that found <c>initialLoadDone</c> false is Cold, for the reset line
         /// (<see cref="LoadReconcilePolicy.ResolveColdReason"/>; a save-file load is Cold with
@@ -122,6 +129,7 @@ namespace Parsek
             lastRestoredQuicksaveTreeFacts = null;
             ClearQuickloadResumeDetach();
             pendingSaveAttemptEvents = null;
+            heldSaveAttemptEvents = null;
             announcedInSessionSaveLoadSource = null;
         }
 
@@ -440,19 +448,28 @@ namespace Parsek
             Restore,
             DropAttemptNotArmed,
             DropActiveTreeDiffers,
+            HoldForFlightRestore,
         }
 
         /// <summary>
         /// Pure: the save's <c>ATTEMPT_EVENTS</c> go back into memory only when the save names
         /// an attempt, that attempt is armed again for the same tree id, and the restored
-        /// active tree is that tree. Every other case drops them, which keeps the #866 rule:
-        /// an unmerged attempt's events become durable only through its merge.
+        /// active tree is that tree. A save with no active tree, no armed attempt and the
+        /// attempt's committed tree loaded is the in-place resume shape: the events are held
+        /// for the flight's own re-arm of that tree (<see cref="ResolveHeldSaveAttemptEventsOnArm"/>).
+        /// Every other case drops them, which keeps the #866 rule: an unmerged attempt's events
+        /// become durable only through its merge.
         /// </summary>
         internal static SaveAttemptEventsDisposition DecideSaveAttemptEventsRestore(
-            string savedAttemptTreeId, string armedAttemptTreeId, string restoredActiveTreeId)
+            string savedAttemptTreeId, string armedAttemptTreeId, string restoredActiveTreeId,
+            bool attemptCommittedTreeLoaded = false)
         {
             if (string.IsNullOrEmpty(savedAttemptTreeId))
                 return SaveAttemptEventsDisposition.NoneInSave;
+            if (string.IsNullOrEmpty(armedAttemptTreeId)
+                && string.IsNullOrEmpty(restoredActiveTreeId)
+                && attemptCommittedTreeLoaded)
+                return SaveAttemptEventsDisposition.HoldForFlightRestore;
             if (!string.Equals(savedAttemptTreeId, armedAttemptTreeId, StringComparison.Ordinal))
                 return SaveAttemptEventsDisposition.DropAttemptNotArmed;
             if (!string.Equals(savedAttemptTreeId, restoredActiveTreeId, StringComparison.Ordinal))
@@ -481,7 +498,19 @@ namespace Parsek
                 ? RecordingStore.PendingTree?.Id
                 : null;
             int count = attempt.GetNodes("GAME_STATE_EVENT").Length;
-            var disposition = DecideSaveAttemptEventsRestore(savedId, armedId, activeId);
+            bool committedTreeLoaded = !string.IsNullOrEmpty(savedId)
+                && FindCommittedTreeById(savedId, exclude: null) != null;
+            var disposition = DecideSaveAttemptEventsRestore(savedId, armedId, activeId, committedTreeLoaded);
+            if (disposition == SaveAttemptEventsDisposition.HoldForFlightRestore)
+            {
+                heldSaveAttemptEvents = attempt;
+                ParsekLog.Info("Scenario",
+                    "OnLoad: held the save's ATTEMPT_EVENTS for the flight's committed-tree restore: attemptTreeId="
+                    + savedId + " events=" + count.ToString(CultureInfo.InvariantCulture)
+                    + " - the save holds the attempt's committed tree and no active tree (an attempt "
+                    + "resumed in place); they go back into memory if the flight re-arms that tree");
+                return 0;
+            }
             if (disposition != SaveAttemptEventsDisposition.Restore)
             {
                 ParsekLog.Verbose("Scenario",
@@ -500,6 +529,84 @@ namespace Parsek
             return restored;
         }
 
+        /// <summary>Outcome of <see cref="DecideHeldSaveAttemptEventsOnArm"/>.</summary>
+        internal enum HeldSaveAttemptEventsDisposition
+        {
+            NoneHeld,
+            Restore,
+            DropOtherTree,
+        }
+
+        /// <summary>
+        /// Pure: held <c>ATTEMPT_EVENTS</c> go back into memory when the flight arms a
+        /// committed-tree restore attempt for the tree they were held back for; any other arm
+        /// drops them.
+        /// </summary>
+        internal static HeldSaveAttemptEventsDisposition DecideHeldSaveAttemptEventsOnArm(
+            string heldAttemptTreeId, string armedTreeId)
+        {
+            if (string.IsNullOrEmpty(heldAttemptTreeId))
+                return HeldSaveAttemptEventsDisposition.NoneHeld;
+            return string.Equals(heldAttemptTreeId, armedTreeId, StringComparison.Ordinal)
+                ? HeldSaveAttemptEventsDisposition.Restore
+                : HeldSaveAttemptEventsDisposition.DropOtherTree;
+        }
+
+        /// <summary>
+        /// Called right after the flight arms a committed-tree restore attempt
+        /// (<c>ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore</c>): restores the held
+        /// <c>ATTEMPT_EVENTS</c> into memory only when they belong to the armed tree, drops them
+        /// otherwise. Consumes the held node either way. Returns the number of events restored.
+        /// </summary>
+        internal static int ResolveHeldSaveAttemptEventsOnArm(string armedTreeId)
+        {
+            ConfigNode held = heldSaveAttemptEvents;
+            heldSaveAttemptEvents = null;
+            string heldId = held?.GetValue(GameStateStore.AttemptTreeIdKey);
+            var disposition = DecideHeldSaveAttemptEventsOnArm(heldId, armedTreeId);
+            if (disposition == HeldSaveAttemptEventsDisposition.NoneHeld)
+                return 0;
+            int count = held.GetNodes("GAME_STATE_EVENT").Length;
+            if (disposition == HeldSaveAttemptEventsDisposition.DropOtherTree)
+            {
+                ParsekLog.Verbose("Scenario",
+                    "Dropped the held ATTEMPT_EVENTS: attemptTreeId=" + heldId
+                    + " events=" + count.ToString(CultureInfo.InvariantCulture)
+                    + " reason=DropOtherTree armedTree=" + (armedTreeId ?? "<none>"));
+                return 0;
+            }
+            // The re-arm builds its cutoffs from the committed copy alone, so an event of a
+            // recording the attempt made after the resume (gone with the save's missing active
+            // tree) is not one it would keep off the file: drop it rather than let the next
+            // save write it outside a merge (#866).
+            int restored = GameStateStore.RestoreAttemptEventsToMemory(
+                held, RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence,
+                out int dropped);
+            ParsekLog.Info("Scenario",
+                "Restored the held ATTEMPT_EVENTS into memory only on the flight's re-arm: attemptTreeId="
+                + heldId + " events=" + restored.ToString(CultureInfo.InvariantCulture)
+                + " droppedNotHeldByTheArm=" + dropped.ToString(CultureInfo.InvariantCulture));
+            return restored;
+        }
+
+        /// <summary>
+        /// Drops held <c>ATTEMPT_EVENTS</c> no re-arm took: a later load starts another
+        /// timeline, so they belong to nothing it restores.
+        /// </summary>
+        internal static void DropHeldSaveAttemptEvents(string reason)
+        {
+            ConfigNode held = heldSaveAttemptEvents;
+            heldSaveAttemptEvents = null;
+            if (held == null)
+                return;
+            ParsekLog.Verbose("Scenario",
+                "Dropped the held ATTEMPT_EVENTS: attemptTreeId="
+                + (held.GetValue(GameStateStore.AttemptTreeIdKey) ?? "<none>")
+                + " events=" + held.GetNodes("GAME_STATE_EVENT").Length.ToString(CultureInfo.InvariantCulture)
+                + " reason=" + (reason ?? "unspecified"));
+        }
+
         internal static bool HasPendingSaveAttemptEventsForTesting => pendingSaveAttemptEvents != null;
+        internal static bool HasHeldSaveAttemptEventsForTesting => heldSaveAttemptEvents != null;
     }
 }

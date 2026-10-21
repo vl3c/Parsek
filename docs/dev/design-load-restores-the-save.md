@@ -313,8 +313,16 @@ holds no committed copy of its tree does not re-arm (the attempt cannot be recon
 drops the events with a Verbose line. Limit: an attempt that resumed a committed recording in
 place and had written to it is not in the save at all, because the overlap skip in
 `PlanActiveTreeSidecarSaves` leaves the active-tree node out of every save while such a member
-is dirty; that load restores no active tree, the flight-ready committed-tree restore arms a
-fresh attempt, and the save's held-back events are dropped
+is dirty; that load restores no active tree, and the flight-ready committed-tree restore arms a
+fresh attempt for the same tree. The save's held-back events are held for that arm: with no
+active tree restored, no attempt armed and the attempt's committed tree loaded,
+`ApplySaveAttemptEventsAfterActiveTreeRestore` holds them (`HoldForFlightRestore`), and
+`TryTakeCommittedTreeForSpawnedVesselRestore` puts them back into memory only when it arms that
+tree id, and then only the events that arm itself keeps off the file (an event of a recording the
+attempt made after the resume is not in the committed copy the arm reads, so it is dropped with its
+accept's contract snapshot rather than written to the next save outside a merge; any other arm
+drops them, and the next OnLoad drops a hold no arm took). The trajectory
+flown between the resume and the save is still not in the save
 (`ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE`). Lane QL-13 (to add): inside a spawned-vessel resume
 that continues in a new segment, earn something, F5, F9, merge: the earning is in the ledger
 once.
