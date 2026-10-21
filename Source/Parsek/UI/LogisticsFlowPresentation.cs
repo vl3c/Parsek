@@ -1,13 +1,14 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using Parsek.Logistics;
 
 namespace Parsek
 {
     /// <summary>
-    /// Pure collection of a route's cargo ledger rows (RouteCargoDebited /
+    /// Pure collection of a route's cargo events (RouteCargoDebited /
     /// RouteCargoPickedUp / RouteCargoDelivered, keyed by RouteCycleId +
-    /// RouteStopIndex) in ONE ELS walk: the delivery-summary rows behind the
+    /// RouteStopIndex) in ONE route-event-log walk: the delivery-summary rows behind the
     /// Logistics detail block's "Last delivered" line, and optionally the full
     /// per-row flow records. All methods are Unity-free and side-effect-free so they
     /// are unit tested directly off the IMGUI path (mirrors
@@ -31,9 +32,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// One route cargo ledger row reduced to the fields the per-cycle flow
+        /// One route cargo event reduced to the fields the per-cycle flow
         /// display needs. Built by <see cref="CollectRows"/> during the shared
-        /// ELS walk.
+        /// event-log walk.
         /// </summary>
         internal readonly struct FlowRow
         {
@@ -71,7 +72,7 @@ namespace Parsek
 
             internal double Ut { get; }
 
-            /// <summary>Ledger sequence; orders same-UT rows (dispatch/debit/pickup/delivery stride).</summary>
+            /// <summary>Event sequence; orders same-UT rows (dispatch/debit/pickup/delivery stride).</summary>
             internal int Sequence { get; }
 
             /// <summary>Actual manifest (positive magnitudes); null/empty when nothing moved.</summary>
@@ -95,19 +96,19 @@ namespace Parsek
         }
 
         /// <summary>
-        /// ONE ledger walk for the route's cargo rows: fills BOTH the existing
+        /// ONE event-log walk for the route's cargo events: fills BOTH the existing
         /// H2/H3 delivery-summary rows (under conditions byte-identical to the
         /// pre-M6 <c>CollectRouteDeliverySummary</c> loop: RouteCargoDelivered
         /// rows matched by RouteId, ordinal) AND the per-cycle flow rows for all
-        /// three route cargo row types. Callers pass the memoized
-        /// <c>EffectiveState.ComputeELS()</c> list (gate-safe, tombstone-filtered);
-        /// this helper never touches the raw ledger. Null <paramref name="els"/>
+        /// three route cargo event types. Callers pass
+        /// <c>RouteEventLog.Events</c>; this helper reads no static store. Null
+        /// <paramref name="els"/>
         /// or null/empty <paramref name="routeId"/> is a no-op; either output
         /// list may be null when the caller only wants the other. Pure: callers
         /// own any logging.
         /// </summary>
         internal static void CollectRows(
-            IReadOnlyList<GameAction> els,
+            IReadOnlyList<RouteEvent> els,
             string routeId,
             List<LogisticsDeliveryPresentation.DeliveryRow> deliveryRows,
             List<FlowRow> flowRows)
@@ -117,12 +118,12 @@ namespace Parsek
 
             for (int i = 0; i < els.Count; i++)
             {
-                GameAction a = els[i];
+                RouteEvent a = els[i];
                 if (a == null) continue;
 
-                bool isDelivered = a.Type == GameActionType.RouteCargoDelivered;
-                bool isDebited = a.Type == GameActionType.RouteCargoDebited;
-                bool isPickedUp = a.Type == GameActionType.RouteCargoPickedUp;
+                bool isDelivered = a.Type == RouteEventType.RouteCargoDelivered;
+                bool isDebited = a.Type == RouteEventType.RouteCargoDebited;
+                bool isPickedUp = a.Type == RouteEventType.RouteCargoPickedUp;
                 if (!isDelivered && !isDebited && !isPickedUp) continue;
                 if (!string.Equals(a.RouteId, routeId, System.StringComparison.Ordinal)) continue;
 

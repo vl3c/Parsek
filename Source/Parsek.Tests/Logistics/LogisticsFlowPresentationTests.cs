@@ -28,10 +28,10 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void CollectRows_OneWalk_DeliverySummaryByteIdenticalToLegacyScan()
         {
-            var els = new List<GameAction>
+            var els = new List<RouteEvent>
             {
                 null,
-                new GameAction { Type = GameActionType.FundsEarning, UT = 10.0 },
+                new RouteEvent { Type = RouteEventType.RouteCargoDelivered, UT = 10.0 },
                 MakeDeliveredAction(RouteId, "cyc-1", 0, 100.0, 3,
                     Manifest(("LiquidFuel", 150.0)), null),
                 MakeDebitedAction(RouteId, "cyc-1", 0, 100.0, 1,
@@ -49,9 +49,9 @@ namespace Parsek.Tests.Logistics
             var legacyRows = new List<LogisticsDeliveryPresentation.DeliveryRow>();
             for (int i = 0; i < els.Count; i++)
             {
-                GameAction a = els[i];
+                RouteEvent a = els[i];
                 if (a == null) continue;
-                if (a.Type != GameActionType.RouteCargoDelivered) continue;
+                if (a.Type != RouteEventType.RouteCargoDelivered) continue;
                 if (!string.Equals(a.RouteId, RouteId, StringComparison.Ordinal)) continue;
                 legacyRows.Add(new LogisticsDeliveryPresentation.DeliveryRow(
                     a.RouteResourceManifest, a.RouteRequestedResourceManifest, a.UT));
@@ -100,7 +100,7 @@ namespace Parsek.Tests.Logistics
             Assert.Empty(deliveryRows);
             Assert.Empty(flowRows);
 
-            var els = new List<GameAction>
+            var els = new List<RouteEvent>
             {
                 MakeDeliveredAction(RouteId, "cyc-1", 0, 100.0, 3,
                     Manifest(("LiquidFuel", 150.0)), null),
@@ -124,7 +124,7 @@ namespace Parsek.Tests.Logistics
                 new InventoryPayloadItem { IdentityHash = "ore-container", Quantity = 2 },
                 new InventoryPayloadItem { IdentityHash = "science-box", Quantity = 1 },
             };
-            var els = new List<GameAction> { pickedUp };
+            var els = new List<RouteEvent> { pickedUp };
 
             var flowRows = new List<LogisticsFlowPresentation.FlowRow>();
             LogisticsFlowPresentation.CollectRows(els, RouteId, null, flowRows);
@@ -159,13 +159,13 @@ namespace Parsek.Tests.Logistics
                 requestedInventoryCount);
         }
 
-        private static GameAction MakeDeliveredAction(
+        private static RouteEvent MakeDeliveredAction(
             string routeId, string cycleId, int stopIndex, double ut, int sequence,
             Dictionary<string, double> actual, Dictionary<string, double> requested)
         {
-            return new GameAction
+            return new RouteEvent
             {
-                Type = GameActionType.RouteCargoDelivered,
+                Type = RouteEventType.RouteCargoDelivered,
                 UT = ut,
                 RouteId = routeId,
                 RouteCycleId = cycleId,
@@ -176,14 +176,14 @@ namespace Parsek.Tests.Logistics
             };
         }
 
-        private static GameAction MakeDebitedAction(
+        private static RouteEvent MakeDebitedAction(
             string routeId, string cycleId, int stopIndex, double ut, int sequence,
             Dictionary<string, double> actual, Dictionary<string, double> requested,
             uint originPid)
         {
-            return new GameAction
+            return new RouteEvent
             {
-                Type = GameActionType.RouteCargoDebited,
+                Type = RouteEventType.RouteCargoDebited,
                 UT = ut,
                 RouteId = routeId,
                 RouteCycleId = cycleId,
@@ -195,14 +195,14 @@ namespace Parsek.Tests.Logistics
             };
         }
 
-        private static GameAction MakePickedUpAction(
+        private static RouteEvent MakePickedUpAction(
             string routeId, string cycleId, int stopIndex, double ut, int sequence,
             Dictionary<string, double> actual, Dictionary<string, double> requested,
             uint endpointPid)
         {
-            return new GameAction
+            return new RouteEvent
             {
-                Type = GameActionType.RouteCargoPickedUp,
+                Type = RouteEventType.RouteCargoPickedUp,
                 UT = ut,
                 RouteId = routeId,
                 RouteCycleId = cycleId,

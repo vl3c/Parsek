@@ -1191,8 +1191,8 @@ Policies:
   queue is independently rolled (7.3 step 4). Canonical cross-save contract
   identity is the v2 problem (section 10).
 - **Routes are owner-local**: routes execute only in the owner's game; their
-  ledger rows share as the owner's actions; foreign route rows import as inert
-  history (`RouteModule` is already observe-only). Route ENDPOINTS must be
+  events share as the owner's actions; foreign route events import as inert
+  history (route events are not ledger rows since 0.10.6). Route ENDPOINTS must be
   own-owned vessels in v1: a foreign spawn is not a valid endpoint (route
   cargo math would mutate a peer's vessel per cycle with no recording, no
   claim, and no arbitration), refused at route creation with the owner

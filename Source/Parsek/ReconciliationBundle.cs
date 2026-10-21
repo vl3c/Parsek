@@ -41,6 +41,14 @@ namespace Parsek
         /// </summary>
         public List<GameAction> Actions;
 
+        /// <summary>
+        /// Snapshot of <see cref="Logistics.RouteEventLog.Events"/>, in order. The route event
+        /// log stays in memory across an in-session load like the route store, so the rewind
+        /// seam restores it itself: <c>Restore(cutoff)</c> keeps the events at or before the
+        /// cutoff (the Rec-1 retire), the rollback overload restores it whole.
+        /// </summary>
+        public List<Logistics.RouteEvent> RouteEvents;
+
         /// <summary>Snapshot of <see cref="ParsekScenario.RewindPoints"/>.</summary>
         public List<RewindPoint> RewindPoints;
 
@@ -113,6 +121,7 @@ namespace Parsek
                 Recordings = new List<Recording>(),
                 Trees = new List<RecordingTree>(),
                 Actions = new List<GameAction>(),
+                RouteEvents = new List<Logistics.RouteEvent>(),
                 RewindPoints = new List<RewindPoint>(),
                 RecordingSupersedes = new List<RecordingSupersedeRelation>(),
                 RecordingRewindRetirements = new List<RecordingRewindRetirement>(),
@@ -174,6 +183,11 @@ namespace Parsek
                     bundle.Actions.Add(actions[i]);
             }
 
+            // Route event log snapshot.
+            var routeEvents = Logistics.RouteEventLog.Events;
+            for (int i = 0; i < routeEvents.Count; i++)
+                bundle.RouteEvents.Add(routeEvents[i]);
+
             // Scenario lists.
             var scenario = ParsekScenario.Instance;
             if (!object.ReferenceEquals(null, scenario))
@@ -208,7 +222,7 @@ namespace Parsek
 
             ParsekLog.Info("ReconciliationBundle",
                 $"Captured: recs={bundle.Recordings.Count} trees={bundle.Trees.Count} " +
-                $"actions={bundle.Actions.Count} " +
+                $"actions={bundle.Actions.Count} routeEvents={bundle.RouteEvents.Count} " +
                 $"rps={bundle.RewindPoints.Count} supersedes={bundle.RecordingSupersedes.Count} " +
                 $"rewindRetirements={bundle.RecordingRewindRetirements.Count} " +
                 $"tombstones={bundle.LedgerTombstones.Count} " +
@@ -231,23 +245,22 @@ namespace Parsek
             => Restore(bundle, double.PositiveInfinity);
 
         /// <summary>
-        /// Restore overload carrying the Rec-1 route-row retire cutoff
+        /// Restore overload carrying the Rec-1 route-event retire cutoff
         /// (<paramref name="dropRouteRowsAfterUT"/>; logistics &lt;-&gt; time-rewind
         /// determinism, plan <c>docs/dev/plans/fix-logistics-rewind-determinism.md</c>).
         /// The SUCCESS post-load path (<c>RewindInvoker.ConsumePostLoad</c>) passes the
         /// POST-LOAD live UT (= the loaded quicksave UT, the boundary the world reverted
-        /// to) so abandoned-future free-standing route rows are dropped to match the
-        /// reverted world; the FAILED-load rollback
-        /// (<c>TryRestoreBundle</c>) and every test / other caller use the parameterless
-        /// overload above (<c>+inf</c> =&gt; retire nothing), so they stay route-blind
-        /// and non-route reconstruction is byte-identical.
+        /// to) so abandoned-future route events are dropped to match the reverted world;
+        /// the FAILED-load rollback (<c>TryRestoreBundle</c>) and every test / other caller
+        /// use the parameterless overload above (<c>+inf</c> =&gt; retire nothing), so they
+        /// stay route-blind.
         /// <para>
         /// The same cutoff also classifies the captured
         /// <see cref="PendingScienceSubjects"/>: entries with
         /// <c>captureUT &gt; cutoff</c> belong to the abandoned future and are
         /// dropped on the SUCCESS path; the parameterless (+inf) rollback
         /// restores the list wholesale. Strict <c>&gt;</c> mirrors the Rec-1
-        /// contract (see <c>RouteLedgerRetire.ShouldRetireRouteActionAtRewind</c>):
+        /// contract (see <c>RouteEventRetire.ShouldRetireAtRewind</c>):
         /// an entry stamped exactly at the cutoff fired at-or-before the state
         /// the loaded quicksave embeds, so its effect is part of the reverted
         /// world and the entry must be kept. Do NOT "fix" this to <c>&gt;=</c>.
@@ -291,39 +304,34 @@ namespace Parsek
                     RecordingStore.AddCommittedTreeInternal(bundle.Trees[i]);
             }
 
-            // Ledger actions. Rec-1: DROP free-standing route rows whose UT > the
-            // rewind cutoff so the preserved ledger matches the reverted world — the
-            // live re-fly then re-emits each cycle, re-charging funds AND re-delivering
-            // cargo exactly once. The parameterless overload passes +inf, so the
-            // failed-load rollback + test callers retire nothing and non-route ledger
-            // reconstruction stays byte-identical. (This restores parity with the
-            // stock-revert path, which already prunes these rows via
-            // Ledger.PruneOrphanActionsAfterUT.)
+            // Ledger actions: restored whole. The ledger holds no route rows (route events
+            // live in RouteEventLog, todo LOGISTICS-WITHOUT-MONEY phase 2).
             Ledger.Clear();
-            // The route half keys on the UT the loaded route copy describes when it lies after
+            if (bundle.Actions != null && bundle.Actions.Count > 0)
+                Ledger.AddActions(bundle.Actions);
+
+            // Route events. Rec-1: DROP the events whose UT > the rewind cutoff so the
+            // restored log matches the reverted world; the live re-fly then re-emits each
+            // cycle, re-delivering cargo exactly once. The parameterless overload passes
+            // +inf, so the failed-load rollback and test callers retire nothing.
+            // The cutoff keys on the UT the loaded route copy describes when it lies after
             // the cutoff (an RP quicksave written inside a go-back rewind's lead-time window is
             // as of that rewind's save); everything else keeps the cutoff.
             double routeCutoffUT = Logistics.RouteLoadReconcile.ResolveLoadedRouteCutoffUT(
                 dropRouteRowsAfterUT, loadedSaveRoutes, loadedSaveUT);
-            // Kept (post-retire) rows, reused below by the route seam's
+            // Kept (post-retire) events, reused below by the route seam's
             // status-derivation + counter-reconstruction pass over kept routes.
-            List<GameAction> keptActions = null;
-            List<GameAction> retiredRouteRows = null;
-            if (bundle.Actions != null && bundle.Actions.Count > 0)
-            {
-                keptActions = Logistics.RouteLedgerRetire.RetireFutureRouteActions(
-                    bundle.Actions, routeCutoffUT, out int routeRowsRetired,
-                    out retiredRouteRows);
-                if (keptActions.Count > 0)
-                    Ledger.AddActions(keptActions);
-                if (routeRowsRetired > 0)
-                    ParsekLog.Info("ReconciliationBundle",
-                        "Restore: retired " + routeRowsRetired.ToString(System.Globalization.CultureInfo.InvariantCulture) +
-                        " free-standing route row(s) with UT > cutoff " +
-                        routeCutoffUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + " (Rec-1)");
-            }
+            List<Logistics.RouteEvent> keptRouteEvents = Logistics.RouteEventRetire.RetireFutureEvents(
+                bundle.RouteEvents, routeCutoffUT, out int routeRowsRetired,
+                out List<Logistics.RouteEvent> retiredRouteRows);
+            Logistics.RouteEventLog.ReplaceAll(keptRouteEvents, "re-fly restore");
+            if (routeRowsRetired > 0)
+                ParsekLog.Info("ReconciliationBundle",
+                    "Restore: retired " + routeRowsRetired.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                    " free-standing route row(s) with UT > cutoff " +
+                    routeCutoffUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + " (Rec-1)");
             // The committed trees were restored above, so the chain tips are the pre-rewind
-            // ones whose snapshots carry these crossings. Called with no rows too: the cutoff
+            // ones whose snapshots carry these crossings. Called with no events too: the cutoff
             // still lowers every tip snapshot's watermark. The rollback (+inf) retires nothing.
             if (!double.IsPositiveInfinity(dropRouteRowsAfterUT))
             {
@@ -352,7 +360,7 @@ namespace Parsek
                     bundle.Routes,
                     bundle.DormantRoutes,
                     routeCutoffUT,
-                    keptActions,
+                    keptRouteEvents,
                     logTag: "ReconciliationBundle",
                     logPrefix: "Restore");
                 // The reconcile resets every kept loop cursor to -1, and the dispatch dedup keys
@@ -464,6 +472,7 @@ namespace Parsek
             ParsekLog.Info("ReconciliationBundle",
                 $"Restored: recs={(bundle.Recordings?.Count ?? 0)} trees={(bundle.Trees?.Count ?? 0)} " +
                 $"actions={(bundle.Actions?.Count ?? 0)} " +
+                $"routeEvents={Logistics.RouteEventLog.Events.Count} " +
                 $"rps={(bundle.RewindPoints?.Count ?? 0)} supersedes={(bundle.RecordingSupersedes?.Count ?? 0)} " +
                 $"rewindRetirements={(bundle.RecordingRewindRetirements?.Count ?? 0)} " +
                 $"tombstones={(bundle.LedgerTombstones?.Count ?? 0)} " +

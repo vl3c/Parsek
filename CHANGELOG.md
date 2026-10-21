@@ -46,6 +46,10 @@ _(unreleased - entries accumulate here per commit)_
   game mode, Career included, and never waits for funds. No route charges for a run or pays back
   a recovery credit; a depot route still takes its cargo from the depot. The Logistics window no
   longer shows a run cost. (LOGISTICS-WITHOUT-MONEY)
+- **Supply route runs are kept with the routes, not in the career history.** A route's runs,
+  pauses and holds are saved beside the route, so the career ledger holds only your committed
+  flights and purchases. Loading an older save shows that save's route runs. Route runs from an
+  older dev save are dropped once at load. (LOGISTICS-WITHOUT-MONEY)
 - **Resource scans are part of your committed career.** An orbital survey or a surface scan is now
   recorded with the flight that made it. After a rewind to before the scan, the scanned body or
   biome unlocks again when the clock reaches the moment it was scanned, like other committed

@@ -303,7 +303,7 @@ whether the M-C1 verb set can drive it TODAY and in which mode a delta is assert
 | 5 | `FacilitiesModule` | `SpaceCenterBuilding.UpgradeFacility` | yes (M-C1 upgrade-facility) | yes | verb defers (CAREER-only, Funding null) | verb defers (CAREER-only) |
 | 6 | `ContractsModule` | `ContractSystem` accept/complete/fail | no (no headless verb) | deferred | deferred | n/a |
 | 7 | `StrategiesModule` | `StrategySystem` activate; conversion as byproduct | no (no verb) | deferred | deferred | n/a |
-| 8 | `RouteModule` | logistics route delivery (no funds since 0.10.6; the Rec-3 carve-out is removed) | no (RouteCommand reserved) | L3+ | L3+ | n/a |
+| 8 | (`RouteModule`, deleted 0.10.6) | none: route events left the ledger for the route event log (todo LOGISTICS-WITHOUT-MONEY) | no (RouteCommand reserved) | n/a | n/a | n/a |
 | 9 | `KerbalsModule` (`Source/Parsek/KerbalsModule.cs`) | hire/dismiss, tombstones | yes (M-C1 hire/dismiss) | yes | verb defers (CAREER-only, Funding null) | verb defers (CAREER-only) |
 
 The drivable-today L1 surface (the "yes" cells) is exactly the four M-C1 sub-actions.

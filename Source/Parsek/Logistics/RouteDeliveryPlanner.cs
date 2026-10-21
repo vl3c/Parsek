@@ -208,7 +208,7 @@ namespace Parsek.Logistics
             bool anyResourceDelivered = false;
             if (stop.DeliveryManifest != null && stop.DeliveryManifest.Count > 0)
             {
-                // Deterministic order: sort by resource name. Avoids hash-set order leaking into ledger rows.
+                // Deterministic order: sort by resource name. Avoids hash-set order leaking into route events.
                 var names = new List<string>(stop.DeliveryManifest.Keys);
                 names.Sort(StringComparer.Ordinal);
                 for (int i = 0; i < names.Count; i++)

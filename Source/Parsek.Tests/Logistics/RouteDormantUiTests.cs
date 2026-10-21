@@ -173,9 +173,9 @@ namespace Parsek.Tests.Logistics
         {
             bool emit = RouteStore.TryDecideAutoLifecycleMarker(
                 RouteStatus.Active, RouteStatus.MissingSourceRecording, 1000.0,
-                out GameActionType type, out string reason);
+                out RouteEventType type, out string reason);
             Assert.True(emit);
-            Assert.Equal(GameActionType.RoutePaused, type);
+            Assert.Equal(RouteEventType.RoutePaused, type);
             Assert.Equal("AutoPause:MissingSourceRecording", reason);
         }
 
@@ -184,9 +184,9 @@ namespace Parsek.Tests.Logistics
         {
             bool emit = RouteStore.TryDecideAutoLifecycleMarker(
                 RouteStatus.Paused, RouteStatus.SourceChanged, 1000.0,
-                out GameActionType type, out string reason);
+                out RouteEventType type, out string reason);
             Assert.True(emit);
-            Assert.Equal(GameActionType.RoutePaused, type);
+            Assert.Equal(RouteEventType.RoutePaused, type);
             Assert.Equal("AutoPause:SourceChanged", reason);
         }
 
@@ -216,9 +216,9 @@ namespace Parsek.Tests.Logistics
         {
             bool emit = RouteStore.TryDecideAutoLifecycleMarker(
                 RouteStatus.MissingSourceRecording, RouteStatus.Active, 1000.0,
-                out GameActionType type, out string reason);
+                out RouteEventType type, out string reason);
             Assert.True(emit);
-            Assert.Equal(GameActionType.RouteResumed, type);
+            Assert.Equal(RouteEventType.RouteResumed, type);
             Assert.Equal("AutoResume:SourcesRestored", reason);
         }
 
@@ -240,9 +240,9 @@ namespace Parsek.Tests.Logistics
         {
             bool emit = RouteStore.TryDecideAutoLifecycleMarker(
                 RouteStatus.MissingSourceRecording, RouteStatus.WaitingForResources, 1000.0,
-                out GameActionType type, out string reason);
+                out RouteEventType type, out string reason);
             Assert.True(emit);
-            Assert.Equal(GameActionType.RouteResumed, type);
+            Assert.Equal(RouteEventType.RouteResumed, type);
             Assert.Equal("AutoResume:SourcesRestored", reason);
         }
 
@@ -284,7 +284,7 @@ namespace Parsek.Tests.Logistics
             int transitioned = RouteStore.RevalidateSources("test-live", 1234.5);
 
             Assert.Equal(1, transitioned);
-            GameAction row = Ledger.Actions.SingleOrDefault(a => a.Type == GameActionType.RoutePaused);
+            RouteEvent row = RouteEventLog.Events.SingleOrDefault(a => a.Type == RouteEventType.RoutePaused);
             Assert.NotNull(row);
             Assert.Equal("AutoPause:MissingSourceRecording", row.RouteEndpointReason);
             Assert.Equal("route-live-missing", row.RouteId);
@@ -308,7 +308,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(1, transitioned);
             Assert.True(RouteStore.TryGetRoute("route-load-missing", out Route route));
             Assert.Equal(RouteStatus.MissingSourceRecording, route.Status);
-            Assert.Empty(Ledger.Actions);
+            Assert.Empty(RouteEventLog.Events);
         }
 
         // catches: a repeated live pass over an already-flipped route stamping
@@ -322,7 +322,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(1, RouteStore.RevalidateSources("test-live", 1000.0));
             Assert.Equal(0, RouteStore.RevalidateSources("test-live-again", 2000.0));
 
-            Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.RoutePaused));
+            Assert.Single(RouteEventLog.Events.Where(a => a.Type == RouteEventType.RoutePaused));
         }
 
         // catches: a live recovery back to Active leaving no resume marker.
@@ -341,11 +341,11 @@ namespace Parsek.Tests.Logistics
 
             Assert.Equal(1, transitioned);
             Assert.Equal(RouteStatus.Active, route.Status);
-            GameAction row = Ledger.Actions.SingleOrDefault(a => a.Type == GameActionType.RouteResumed);
+            RouteEvent row = RouteEventLog.Events.SingleOrDefault(a => a.Type == RouteEventType.RouteResumed);
             Assert.NotNull(row);
             Assert.Equal("AutoResume:SourcesRestored", row.RouteEndpointReason);
             Assert.Equal(5000.0, row.UT);
-            Assert.Empty(Ledger.Actions.Where(a => a.Type == GameActionType.RoutePaused));
+            Assert.Empty(RouteEventLog.Events.Where(a => a.Type == RouteEventType.RoutePaused));
         }
 
         // catches: a recovery that restores the remembered Paused stamping a
@@ -366,7 +366,7 @@ namespace Parsek.Tests.Logistics
 
             Assert.Equal(1, transitioned);
             Assert.Equal(RouteStatus.Paused, route.Status);
-            Assert.Empty(Ledger.Actions);
+            Assert.Empty(RouteEventLog.Events);
         }
 
         // catches: the SupersedeCommit live seam regressing to the silent shape
@@ -383,12 +383,12 @@ namespace Parsek.Tests.Logistics
             scenario.BumpSupersedeStateVersion();
             Assert.True(RouteStore.TryGetRoute("route-bump", out Route route));
             Assert.Equal(RouteStatus.MissingSourceRecording, route.Status);
-            Assert.Empty(Ledger.Actions);
+            Assert.Empty(RouteEventLog.Events);
 
             // Live bump over a fresh flip emits exactly one row.
             RouteStore.AddRoute(BuildRoute("route-bump-2", RouteStatus.Active, MissingSourceRef("rec-gone-2")));
             scenario.BumpSupersedeStateVersion(7777.0);
-            GameAction row = Ledger.Actions.SingleOrDefault(a => a.Type == GameActionType.RoutePaused);
+            RouteEvent row = RouteEventLog.Events.SingleOrDefault(a => a.Type == RouteEventType.RoutePaused);
             Assert.NotNull(row);
             Assert.Equal("route-bump-2", row.RouteId);
             Assert.Equal(7777.0, row.UT);
@@ -411,7 +411,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(1, materialized);
             Assert.True(RouteStore.TryGetRoute("route-dormant", out Route route));
             Assert.Equal(RouteStatus.MissingSourceRecording, route.Status);
-            GameAction row = Ledger.Actions.SingleOrDefault(a => a.Type == GameActionType.RoutePaused);
+            RouteEvent row = RouteEventLog.Events.SingleOrDefault(a => a.Type == RouteEventType.RoutePaused);
             Assert.NotNull(row);
             Assert.Equal("AutoPause:MissingSourceRecording", row.RouteEndpointReason);
             Assert.Equal(200.0, row.UT);
@@ -426,48 +426,48 @@ namespace Parsek.Tests.Logistics
         {
             // Running route with a stale paused row: repair.
             Assert.True(RouteStore.NeedsCatchUpResume(
-                RouteStatus.Active, GameActionType.RoutePaused));
+                RouteStatus.Active, RouteEventType.RoutePaused));
             Assert.True(RouteStore.NeedsCatchUpResume(
-                RouteStatus.WaitingForResources, GameActionType.RoutePaused));
+                RouteStatus.WaitingForResources, RouteEventType.RoutePaused));
             // Latest row already a resume: consistent, no repair.
             Assert.False(RouteStore.NeedsCatchUpResume(
-                RouteStatus.Active, GameActionType.RouteResumed));
+                RouteStatus.Active, RouteEventType.RouteResumed));
             // No lifecycle history at all: nothing to repair.
             Assert.False(RouteStore.NeedsCatchUpResume(RouteStatus.Active, null));
             // Non-running statuses never resume.
             Assert.False(RouteStore.NeedsCatchUpResume(
-                RouteStatus.Paused, GameActionType.RoutePaused));
+                RouteStatus.Paused, RouteEventType.RoutePaused));
             Assert.False(RouteStore.NeedsCatchUpResume(
-                RouteStatus.MissingSourceRecording, GameActionType.RoutePaused));
+                RouteStatus.MissingSourceRecording, RouteEventType.RoutePaused));
         }
 
         [Fact]
         public void BuildLatestLifecycleRowIndex_LatestByUtThenPosition()
         {
-            var actions = new List<GameAction>
+            var actions = new List<RouteEvent>
             {
-                new GameAction { Type = GameActionType.RoutePaused, RouteId = "r1", UT = 100.0 },
-                new GameAction { Type = GameActionType.RouteResumed, RouteId = "r1", UT = 200.0 },
+                new RouteEvent { Type = RouteEventType.RoutePaused, RouteId = "r1", UT = 100.0 },
+                new RouteEvent { Type = RouteEventType.RouteResumed, RouteId = "r1", UT = 200.0 },
                 // Same UT, later position wins (ledger walk order).
-                new GameAction { Type = GameActionType.RouteResumed, RouteId = "r2", UT = 300.0 },
-                new GameAction { Type = GameActionType.RoutePaused, RouteId = "r2", UT = 300.0 },
+                new RouteEvent { Type = RouteEventType.RouteResumed, RouteId = "r2", UT = 300.0 },
+                new RouteEvent { Type = RouteEventType.RoutePaused, RouteId = "r2", UT = 300.0 },
                 // Non-lifecycle rows and null route ids are ignored.
-                new GameAction { Type = GameActionType.RouteDispatched, RouteId = "r1", UT = 999.0 },
-                new GameAction { Type = GameActionType.RoutePaused, RouteId = null, UT = 999.0 },
+                new RouteEvent { Type = RouteEventType.RouteDispatched, RouteId = "r1", UT = 999.0 },
+                new RouteEvent { Type = RouteEventType.RoutePaused, RouteId = null, UT = 999.0 },
             };
 
-            Dictionary<string, GameActionType> latest =
+            Dictionary<string, RouteEventType> latest =
                 RouteStore.BuildLatestLifecycleRowIndex(actions);
 
-            Assert.Equal(GameActionType.RouteResumed, latest["r1"]);
-            Assert.Equal(GameActionType.RoutePaused, latest["r2"]);
+            Assert.Equal(RouteEventType.RouteResumed, latest["r1"]);
+            Assert.Equal(RouteEventType.RoutePaused, latest["r2"]);
             Assert.Equal(2, latest.Count);
             Assert.Empty(RouteStore.BuildLatestLifecycleRowIndex(null));
         }
 
         // catches: the concrete review scenario - a silent (load-context) flip
-        // back to Active after an emitted AutoPause leaves RouteModule's walk
-        // paused forever; the next live pass must repair it.
+        // back to Active after an emitted AutoPause leaves the route event log's
+        // latest lifecycle event paused forever; the next live pass must repair it.
         [Fact]
         public void Revalidate_LivePass_RepairsUnmatchedPausedRow_Idempotently()
         {
@@ -478,9 +478,9 @@ namespace Parsek.Tests.Logistics
             RouteStore.AddRoute(route);
             // The stranded pause marker: an AutoPause row whose matching resume
             // was silenced (simulates the silent-restore flip).
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RoutePaused,
+                Type = RouteEventType.RoutePaused,
                 UT = 1000.0,
                 RouteId = "route-catchup",
                 RouteStopIndex = -1,
@@ -491,7 +491,7 @@ namespace Parsek.Tests.Logistics
             int transitioned = RouteStore.RevalidateSources("test-live", 2000.0);
 
             Assert.Equal(0, transitioned); // healthy route, no status flip
-            GameAction row = Ledger.Actions.SingleOrDefault(a => a.Type == GameActionType.RouteResumed);
+            RouteEvent row = RouteEventLog.Events.SingleOrDefault(a => a.Type == RouteEventType.RouteResumed);
             Assert.NotNull(row);
             Assert.Equal("AutoResume:CatchUp", row.RouteEndpointReason);
             Assert.Equal("route-catchup", row.RouteId);
@@ -503,7 +503,7 @@ namespace Parsek.Tests.Logistics
             // row, so a second live pass emits nothing further.
             int transitioned2 = RouteStore.RevalidateSources("test-live-2", 3000.0);
             Assert.Equal(0, transitioned2);
-            Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.RouteResumed));
+            Assert.Single(RouteEventLog.Events.Where(a => a.Type == RouteEventType.RouteResumed));
         }
 
         // catches: the catch-up net resuming a deliberately-paused route, or
@@ -520,19 +520,19 @@ namespace Parsek.Tests.Logistics
             Route consistent = BuildRoute("route-cu-consistent", RouteStatus.Active, BuildMatchingSourceRef(recB));
             RouteStore.AddRoute(pausedRoute);
             RouteStore.AddRoute(consistent);
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RoutePaused, UT = 1000.0,
+                Type = RouteEventType.RoutePaused, UT = 1000.0,
                 RouteId = "route-cu-paused", RouteStopIndex = -1,
             });
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RoutePaused, UT = 1000.0,
+                Type = RouteEventType.RoutePaused, UT = 1000.0,
                 RouteId = "route-cu-consistent", RouteStopIndex = -1,
             });
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteResumed, UT = 1500.0,
+                Type = RouteEventType.RouteResumed, UT = 1500.0,
                 RouteId = "route-cu-consistent", RouteStopIndex = -1,
             });
 
@@ -540,8 +540,8 @@ namespace Parsek.Tests.Logistics
 
             // Paused route: latest row is RoutePaused but the route IS paused -
             // consistent, no repair. Consistent route: latest is already resumed.
-            Assert.Empty(Ledger.Actions.Where(a =>
-                a.Type == GameActionType.RouteResumed
+            Assert.Empty(RouteEventLog.Events.Where(a =>
+                a.Type == RouteEventType.RouteResumed
                 && a.RouteEndpointReason == "AutoResume:CatchUp"));
         }
 
@@ -574,7 +574,7 @@ namespace Parsek.Tests.Logistics
 
             Assert.True(RouteStore.TryGetRoute("route-live-bump", out Route route));
             Assert.Equal(RouteStatus.MissingSourceRecording, route.Status); // flip happened
-            Assert.Empty(Ledger.Actions); // marker silenced (UT unresolvable headless)
+            Assert.Empty(RouteEventLog.Events); // marker silenced (UT unresolvable headless)
         }
 
         // ------------------------------------------------------------------

@@ -4,8 +4,8 @@
 //
 // THE FIX UNDER PROOF (already implemented; these tests do NOT change it):
 //   At a successful rewind restore, ReconciliationBundle.Restore(bundle, cutoffUT)
-//   drops free-standing route ledger rows with UT > cutoffUT via the pure
-//   Parsek.Logistics.RouteLedgerRetire. So after a rewind the colliding rows are
+//   drops route events with UT > cutoffUT via the pure
+//   Parsek.Logistics.RouteEventRetire. So after a rewind the colliding rows are
 //   gone and the live re-fly re-emits the cycle (re-applying cargo) instead of
 //   being dedup-suppressed. Supply routes carry no money (todo
 //   LOGISTICS-WITHOUT-MONEY), so no step here may move funds.
@@ -30,7 +30,7 @@
 //   - RouteLoopDeliveryFireTests.cs:751-786 (ReplayedCycleId_EmitsNothing: the dedup this
 //                                            test is the INVERSE of)
 //   - ReconciliationBundle.cs:79-166 (Capture full ledger), :174-296 (Restore overloads)
-//   - RouteLedgerRetire.cs (the pure retire the Restore cutoff routes through)
+//   - RouteEventRetire.cs (the pure retire the Restore cutoff routes through)
 
 using System;
 using System.Collections.Generic;
@@ -45,7 +45,7 @@ namespace Parsek.Tests.Logistics
     /// <summary>
     /// Rec-1 end-to-end proof: a rewind drops the abandoned-future free-standing route
     /// rows (via <see cref="ReconciliationBundle.Restore(ReconciliationBundle, double)"/>
-    /// -&gt; <see cref="RouteLedgerRetire.RetireFutureRouteActions"/>), so the live re-fly
+    /// -&gt; <see cref="RouteEventRetire.RetireFutureEvents"/>), so the live re-fly
     /// RE-EMITS each cycle once (no dedup suppression) and the route rows move no
     /// funds. Mirror-image of
     /// <see cref="RouteLoopDeliveryFireTests.ReplayedCycleId_EmitsNothing_NoDoubleCharge"/>:
@@ -141,9 +141,9 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.DeliveryApplierForTesting = (route, currentUT, env) =>
             {
                 string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles).ToString(IC);
-                Ledger.AddAction(new GameAction
+                RouteEventLog.Add(new RouteEvent
                 {
-                    Type = GameActionType.RouteCargoDelivered,
+                    Type = RouteEventType.RouteCargoDelivered,
                     UT = currentUT,
                     RouteId = route.Id,
                     RouteCycleId = cycleId,
@@ -221,9 +221,9 @@ namespace Parsek.Tests.Logistics
             InitialFunds = initialFunds,
         };
 
-        private static GameAction MakeDispatched(double ut, string routeId, string cycleId, int stopIndex = -1) => new GameAction
+        private static RouteEvent MakeDispatched(double ut, string routeId, string cycleId, int stopIndex = -1) => new RouteEvent
         {
-            Type = GameActionType.RouteDispatched,
+            Type = RouteEventType.RouteDispatched,
             UT = ut,
             RouteId = routeId,
             RouteCycleId = cycleId,
@@ -231,9 +231,9 @@ namespace Parsek.Tests.Logistics
             Sequence = 0,
         };
 
-        private static GameAction MakeDebited(double ut, string routeId, string cycleId, int stopIndex = -1) => new GameAction
+        private static RouteEvent MakeDebited(double ut, string routeId, string cycleId, int stopIndex = -1) => new RouteEvent
         {
-            Type = GameActionType.RouteCargoDebited,
+            Type = RouteEventType.RouteCargoDebited,
             UT = ut,
             RouteId = routeId,
             RouteCycleId = cycleId,
@@ -241,9 +241,9 @@ namespace Parsek.Tests.Logistics
             Sequence = 1,
         };
 
-        private static GameAction MakeDelivered(double ut, string routeId, string cycleId, int stopIndex = 0) => new GameAction
+        private static RouteEvent MakeDelivered(double ut, string routeId, string cycleId, int stopIndex = 0) => new RouteEvent
         {
-            Type = GameActionType.RouteCargoDelivered,
+            Type = RouteEventType.RouteCargoDelivered,
             UT = ut,
             RouteId = routeId,
             RouteCycleId = cycleId,
@@ -262,8 +262,8 @@ namespace Parsek.Tests.Logistics
             return module.GetRunningBalance();
         }
 
-        private static int CountActions(GameActionType type, string routeId = null, string cycleId = null) =>
-            Ledger.Actions.Count(a => a.Type == type
+        private static int CountActions(RouteEventType type, string routeId = null, string cycleId = null) =>
+            RouteEventLog.Events.Count(a => a.Type == type
                 && (routeId == null || a.RouteId == routeId)
                 && (cycleId == null || a.RouteCycleId == cycleId));
 
@@ -286,19 +286,19 @@ namespace Parsek.Tests.Logistics
 
             // --- pre-rewind ledger: seed funds + cycle-0 fired at UT 2000 (> cutoff 1500).
             Ledger.AddAction(MakeSeed(0.0, 30000f));
-            Ledger.AddAction(MakeDispatched(2000.0, route.Id, "cycle-0"));
-            Ledger.AddAction(MakeDelivered(2000.0, route.Id, "cycle-0"));
+            RouteEventLog.Add(MakeDispatched(2000.0, route.Id, "cycle-0"));
+            RouteEventLog.Add(MakeDelivered(2000.0, route.Id, "cycle-0"));
             Assert.Equal(30000.0, RecalcRunningBalance());
 
             // Capture holds the FULL pre-rewind ledger (Capture is unchanged).
             var bundle = ReconciliationBundle.Capture();
-            Assert.Equal(2, bundle.Actions.Count(RouteLedgerRetire.IsFreeStandingRouteAction));
+            Assert.Equal(2, bundle.RouteEvents.Count);
 
             // --- the rewind restore with cutoff 1500 DROPS the two future route rows.
             ReconciliationBundle.Restore(bundle, 1500.0);
 
-            Assert.Equal(0, CountActions(GameActionType.RouteDispatched, route.Id, "cycle-0"));
-            Assert.Equal(0, CountActions(GameActionType.RouteCargoDelivered, route.Id, "cycle-0"));
+            Assert.Equal(0, CountActions(RouteEventType.RouteDispatched, route.Id, "cycle-0"));
+            Assert.Equal(0, CountActions(RouteEventType.RouteCargoDelivered, route.Id, "cycle-0"));
             Assert.Equal(30000.0, RecalcRunningBalance());
             Assert.Contains(logLines, l =>
                 l.Contains("[ReconciliationBundle]") && l.Contains("retired 2") && l.Contains("Rec-1"));
@@ -310,9 +310,9 @@ namespace Parsek.Tests.Logistics
 
             // Re-emitted exactly once (NOT dedup-suppressed: this is the inverse of
             // ReplayedCycleId_EmitsNothing), with no debit row and no funds change.
-            Assert.Equal(1, CountActions(GameActionType.RouteDispatched, route.Id, "cycle-0"));
-            Assert.Equal(0, CountActions(GameActionType.RouteCargoDebited, route.Id, "cycle-0"));
-            Assert.Equal(1, CountActions(GameActionType.RouteCargoDelivered, route.Id, "cycle-0"));
+            Assert.Equal(1, CountActions(RouteEventType.RouteDispatched, route.Id, "cycle-0"));
+            Assert.Equal(0, CountActions(RouteEventType.RouteCargoDebited, route.Id, "cycle-0"));
+            Assert.Equal(1, CountActions(RouteEventType.RouteCargoDelivered, route.Id, "cycle-0"));
             Assert.Equal(1, route.CompletedCycles);
             Assert.Equal(30000.0, RecalcRunningBalance());
         }
@@ -331,14 +331,14 @@ namespace Parsek.Tests.Logistics
             // Pre-rewind: cycle-0 fired at UT 2000 (non-KSC: the physical manifest IS
             // the cost).
             Ledger.AddAction(MakeSeed(0.0, 30000f));
-            Ledger.AddAction(MakeDispatched(2000.0, route.Id, "cycle-0"));
-            Ledger.AddAction(MakeDebited(2000.0, route.Id, "cycle-0"));
-            Ledger.AddAction(MakeDelivered(2000.0, route.Id, "cycle-0"));
+            RouteEventLog.Add(MakeDispatched(2000.0, route.Id, "cycle-0"));
+            RouteEventLog.Add(MakeDebited(2000.0, route.Id, "cycle-0"));
+            RouteEventLog.Add(MakeDelivered(2000.0, route.Id, "cycle-0"));
 
             var bundle = ReconciliationBundle.Capture();
             ReconciliationBundle.Restore(bundle, 1500.0); // drop the 3 future route rows
 
-            Assert.Equal(0, CountActions(GameActionType.RouteCargoDebited, route.Id, "cycle-0"));
+            Assert.Equal(0, CountActions(RouteEventType.RouteCargoDebited, route.Id, "cycle-0"));
             Assert.Equal(30000.0, RecalcRunningBalance()); // funds untouched throughout
 
             // Live re-fly: cycle-0 crossing FIRES (non-KSC origin gate passes via env fake).
@@ -359,9 +359,9 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
 
             // Re-emitted once, funds unchanged, CompletedCycles advanced exactly once.
-            Assert.Equal(1, CountActions(GameActionType.RouteDispatched, route.Id, "cycle-0"));
-            Assert.Equal(1, CountActions(GameActionType.RouteCargoDebited, route.Id, "cycle-0"));
-            Assert.Equal(1, CountActions(GameActionType.RouteCargoDelivered, route.Id, "cycle-0"));
+            Assert.Equal(1, CountActions(RouteEventType.RouteDispatched, route.Id, "cycle-0"));
+            Assert.Equal(1, CountActions(RouteEventType.RouteCargoDebited, route.Id, "cycle-0"));
+            Assert.Equal(1, CountActions(RouteEventType.RouteCargoDelivered, route.Id, "cycle-0"));
             Assert.Equal(1, route.CompletedCycles);
             // The re-emitted debit moves no funds.
             Assert.Equal(30000.0, RecalcRunningBalance());
@@ -378,42 +378,42 @@ namespace Parsek.Tests.Logistics
 
             // --- timeline 1: seed + cycle-0 fired at UT 2000.
             Ledger.AddAction(MakeSeed(0.0, 30000f));
-            Ledger.AddAction(MakeDispatched(2000.0, routeId, "cycle-0"));
-            Ledger.AddAction(MakeDebited(2000.0, routeId, "cycle-0"));
-            Ledger.AddAction(MakeDelivered(2000.0, routeId, "cycle-0"));
+            RouteEventLog.Add(MakeDispatched(2000.0, routeId, "cycle-0"));
+            RouteEventLog.Add(MakeDebited(2000.0, routeId, "cycle-0"));
+            RouteEventLog.Add(MakeDelivered(2000.0, routeId, "cycle-0"));
 
             // --- rewind #1 to cutoff 1500: drops cycle-0 (UT 2000 > 1500).
             var bundle1 = ReconciliationBundle.Capture();
             ReconciliationBundle.Restore(bundle1, 1500.0);
-            Assert.Equal(0, Ledger.Actions.Count(RouteLedgerRetire.IsFreeStandingRouteAction));
+            Assert.Equal(0, RouteEventLog.Events.Count);
 
             // --- re-fly emits cycle-0 again, this time landing at UT 1600 (between the
             // two cutoffs). This row survives rewind #2 (cutoff 1800 > ... no: 1600 < 1800
             // so it is kept by rewind #2; the post-1800 rows are what get dropped).
-            Ledger.AddAction(MakeDispatched(1600.0, routeId, "cycle-0"));
-            Ledger.AddAction(MakeDebited(1600.0, routeId, "cycle-0"));
-            Ledger.AddAction(MakeDelivered(1600.0, routeId, "cycle-0"));
+            RouteEventLog.Add(MakeDispatched(1600.0, routeId, "cycle-0"));
+            RouteEventLog.Add(MakeDebited(1600.0, routeId, "cycle-0"));
+            RouteEventLog.Add(MakeDelivered(1600.0, routeId, "cycle-0"));
             // ... plus cycle-1 at UT 1900 (> 1800: this one is the abandoned future of
             // rewind #2).
-            Ledger.AddAction(MakeDispatched(1900.0, routeId, "cycle-1"));
-            Ledger.AddAction(MakeDebited(1900.0, routeId, "cycle-1"));
-            Ledger.AddAction(MakeDelivered(1900.0, routeId, "cycle-1"));
+            RouteEventLog.Add(MakeDispatched(1900.0, routeId, "cycle-1"));
+            RouteEventLog.Add(MakeDebited(1900.0, routeId, "cycle-1"));
+            RouteEventLog.Add(MakeDelivered(1900.0, routeId, "cycle-1"));
 
             // --- rewind #2 captures a ledger the prior rewind already cleaned, then
             // Restore(bundle2, 1800) drops only the UT-1900 cycle-1 rows; UT-1600 cycle-0
             // rows (<= 1800) are kept.
             var bundle2 = ReconciliationBundle.Capture();
             // Capture re-snapshots the LIVE (already-cleaned) ledger: 1 seed + 6 route rows.
-            Assert.Equal(6, bundle2.Actions.Count(RouteLedgerRetire.IsFreeStandingRouteAction));
+            Assert.Equal(6, bundle2.RouteEvents.Count);
             ReconciliationBundle.Restore(bundle2, 1800.0);
 
             // Only the cycle-1 (UT 1900) rows dropped; cycle-0 (UT 1600) kept; no
             // accumulation of the original UT-2000 rows (they were never re-captured).
-            Assert.Equal(3, Ledger.Actions.Count(RouteLedgerRetire.IsFreeStandingRouteAction));
-            Assert.Equal(0, CountActions(GameActionType.RouteDispatched, routeId, "cycle-1"));
-            Assert.Equal(1, CountActions(GameActionType.RouteDispatched, routeId, "cycle-0"));
+            Assert.Equal(3, RouteEventLog.Events.Count);
+            Assert.Equal(0, CountActions(RouteEventType.RouteDispatched, routeId, "cycle-1"));
+            Assert.Equal(1, CountActions(RouteEventType.RouteDispatched, routeId, "cycle-0"));
             // Every surviving route row is at/below the latest cutoff.
-            Assert.All(Ledger.Actions.Where(RouteLedgerRetire.IsFreeStandingRouteAction),
+            Assert.All(RouteEventLog.Events,
                 a => Assert.True(a.UT <= 1800.0));
         }
 
@@ -428,9 +428,9 @@ namespace Parsek.Tests.Logistics
 
             // Pre-rewind: seed + cycle-0 fired at UT 2000.
             Ledger.AddAction(MakeSeed(0.0, 30000f));
-            Ledger.AddAction(MakeDispatched(2000.0, routeId, "cycle-0"));
-            Ledger.AddAction(MakeDebited(2000.0, routeId, "cycle-0"));
-            Ledger.AddAction(MakeDelivered(2000.0, routeId, "cycle-0"));
+            RouteEventLog.Add(MakeDispatched(2000.0, routeId, "cycle-0"));
+            RouteEventLog.Add(MakeDebited(2000.0, routeId, "cycle-0"));
+            RouteEventLog.Add(MakeDelivered(2000.0, routeId, "cycle-0"));
             Assert.Equal(30000.0, RecalcRunningBalance()); // route rows move no funds
 
             var bundle = ReconciliationBundle.Capture();
@@ -438,13 +438,14 @@ namespace Parsek.Tests.Logistics
 
             // The player PAUSES the route so the crossing never re-fires (no re-emit).
             // No cycle-0 row survives, and funds never moved.
-            Assert.Equal(0, CountActions(GameActionType.RouteCargoDebited, routeId, "cycle-0"));
+            Assert.Equal(0, CountActions(RouteEventType.RouteCargoDebited, routeId, "cycle-0"));
             Assert.Equal(30000.0, RecalcRunningBalance());
 
             // And the non-route seed is byte-identically preserved (the retire is
             // route-Type-gated: it can only ever remove route rows).
             Assert.Single(Ledger.Actions);
             Assert.Equal(GameActionType.FundsInitial, Ledger.Actions[0].Type);
+            Assert.Empty(RouteEventLog.Events);
         }
 
         // ==================================================================
@@ -463,21 +464,21 @@ namespace Parsek.Tests.Logistics
             InstallFakeDeliveryApplier();
 
             // Seed a cycle-0 RouteDispatched at UT 2000 (the surviving-rewind collision).
-            Ledger.AddAction(MakeDispatched(2000.0, route.Id, "cycle-0"));
+            RouteEventLog.Add(MakeDispatched(2000.0, route.Id, "cycle-0"));
 
             // With the row PRESENT the crossing replay-skips (dedup) - emits nothing.
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
-            Assert.Equal(1, CountActions(GameActionType.RouteDispatched, route.Id, "cycle-0"));
-            Assert.Equal(0, CountActions(GameActionType.RouteCargoDebited, route.Id, "cycle-0"));
+            Assert.Equal(1, CountActions(RouteEventType.RouteDispatched, route.Id, "cycle-0"));
+            Assert.Equal(0, CountActions(RouteEventType.RouteCargoDebited, route.Id, "cycle-0"));
             // CompletedCycles bumped by the replay backstop so the next cycleId advances.
             Assert.Equal(1, route.CompletedCycles);
             Assert.Contains(logLines, l =>
-                l.Contains("[Route]") && l.Contains("already in ledger") && l.Contains("replay"));
+                l.Contains("[Route]") && l.Contains("already logged") && l.Contains("replay"));
 
             // --- now the rewind retire removes that colliding row.
             var bundle = ReconciliationBundle.Capture();
             ReconciliationBundle.Restore(bundle, 1500.0);
-            Assert.Equal(0, CountActions(GameActionType.RouteDispatched, route.Id, "cycle-0"));
+            Assert.Equal(0, CountActions(RouteEventType.RouteDispatched, route.Id, "cycle-0"));
 
             // Reset the live route's cursor to the at-RP value (reverted via .sfs ROUTES)
             // so the same crossing recomputes cycle-0 and is no longer dedup-blocked.
@@ -489,9 +490,9 @@ namespace Parsek.Tests.Logistics
             // The SAME cycleId + SAME crossing UT now FIRES (a Space Center origin writes
             // dispatch + delivery, no debit row).
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
-            Assert.Equal(1, CountActions(GameActionType.RouteDispatched, route.Id, "cycle-0"));
-            Assert.Equal(0, CountActions(GameActionType.RouteCargoDebited, route.Id, "cycle-0"));
-            Assert.Equal(1, CountActions(GameActionType.RouteCargoDelivered, route.Id, "cycle-0"));
+            Assert.Equal(1, CountActions(RouteEventType.RouteDispatched, route.Id, "cycle-0"));
+            Assert.Equal(0, CountActions(RouteEventType.RouteCargoDebited, route.Id, "cycle-0"));
+            Assert.Equal(1, CountActions(RouteEventType.RouteCargoDelivered, route.Id, "cycle-0"));
             Assert.Equal(1, route.CompletedCycles);
         }
     }

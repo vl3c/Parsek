@@ -3154,7 +3154,7 @@ namespace Parsek
             if (activeTree?.Recordings != null && activeTree.Recordings.Count > 0)
                 Parsek.Logistics.RouteDiscardObservability.ReportDiscardLeakForRecordings(
                     activeTree.Recordings.Values,
-                    Ledger.Actions,
+                    Parsek.Logistics.RouteEventLog.Events,
                     ParsekScenario.IsReFlySessionActiveForQuickloadDiscard(),
                     $"AutoDiscardActiveTreeCore: {reason}");
 

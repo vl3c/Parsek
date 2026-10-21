@@ -80,7 +80,7 @@ namespace Parsek.InGameTests
             string routeId = NewId("lifecycle");
             Route route = BuildMinimalRoute(routeId, createdUT: liveUT, RouteStatus.Active);
 
-            List<GameAction> preLedger = SnapshotLedger();
+            List<RouteEvent> preLedger = SnapshotLedger();
             int baseCount = preLedger.Count;
             var lines = new List<string>();
             Action<string> prevObserver = ParsekLog.TestObserverForTesting;
@@ -100,10 +100,10 @@ namespace Parsek.InGameTests
                     "TryPause returned false for an Active route");
                 InGameAssert.AreEqual(RouteStatus.Paused, route.Status,
                     "TryPause did not transition the route to Paused");
-                GameAction pauseRow = LatestLifecycleRow(routeId, baseCount);
+                RouteEvent pauseRow = LatestLifecycleRow(routeId, baseCount);
                 InGameAssert.IsNotNull(pauseRow,
                     "No lifecycle ledger row appended by TryPause");
-                InGameAssert.AreEqual(GameActionType.RoutePaused, pauseRow.Type,
+                InGameAssert.AreEqual(RouteEventType.RoutePaused, pauseRow.Type,
                     "TryPause row type mismatch");
                 InGameAssert.AreEqual("player-pause", pauseRow.RouteEndpointReason,
                     "TryPause row reason mismatch");
@@ -113,15 +113,15 @@ namespace Parsek.InGameTests
                     $"(utBeforePause={utBeforePause.ToString("R", IC)})");
 
                 // --- Activate: Paused -> Active + a RouteResumed row.
-                int beforeActivate = Ledger.Actions.Count;
+                int beforeActivate = RouteEventLog.Events.Count;
                 InGameAssert.IsTrue(
                     RouteOrchestrator.TryActivate(route, Planetarium.GetUniversalTime()),
                     "TryActivate returned false for a Paused route");
                 InGameAssert.AreEqual(RouteStatus.Active, route.Status,
                     "TryActivate did not transition the route to Active");
-                GameAction resumeRow = LatestLifecycleRow(routeId, beforeActivate);
+                RouteEvent resumeRow = LatestLifecycleRow(routeId, beforeActivate);
                 InGameAssert.IsNotNull(resumeRow, "No lifecycle row appended by TryActivate");
-                InGameAssert.AreEqual(GameActionType.RouteResumed, resumeRow.Type,
+                InGameAssert.AreEqual(RouteEventType.RouteResumed, resumeRow.Type,
                     "TryActivate row type mismatch");
                 InGameAssert.AreEqual("player-activate", resumeRow.RouteEndpointReason,
                     "TryActivate row reason mismatch");
@@ -134,7 +134,7 @@ namespace Parsek.InGameTests
                 // --- Send Once from Paused: arms both one-shot flags, un-pauses to
                 // Active, pulls NextDispatchUT forward, and emits NO ledger row (the
                 // Send Once provenance is stamped on the dispatched row later).
-                int beforeSendOnce = Ledger.Actions.Count;
+                int beforeSendOnce = RouteEventLog.Events.Count;
                 route.NextDispatchUT = liveUT + 99999.0;
                 double sendOnceUT = Planetarium.GetUniversalTime();
                 InGameAssert.IsTrue(RouteOrchestrator.TrySendOneCycleNow(route, sendOnceUT),
@@ -146,13 +146,13 @@ namespace Parsek.InGameTests
                 InGameAssert.IsTrue(route.NextDispatchUT <= sendOnceUT + 0.001,
                     $"Send Once did not pull NextDispatchUT forward " +
                     $"(next={route.NextDispatchUT.ToString("R", IC)} now={sendOnceUT.ToString("R", IC)})");
-                InGameAssert.AreEqual(beforeSendOnce, Ledger.Actions.Count,
+                InGameAssert.AreEqual(beforeSendOnce, RouteEventLog.Events.Count,
                     "Send Once must not emit a ledger row at arm time");
 
                 // --- Pause while armed (not InTransit): the arm is consumed
                 // silently (never-fired one-shot leaves no trace) and the pause
                 // row lands.
-                int beforeFinalPause = Ledger.Actions.Count;
+                int beforeFinalPause = RouteEventLog.Events.Count;
                 InGameAssert.IsTrue(RouteOrchestrator.TryPause(route),
                     "TryPause returned false for the armed route");
                 InGameAssert.IsFalse(route.SendOnceArmed,
@@ -160,9 +160,9 @@ namespace Parsek.InGameTests
                 InGameAssert.IsFalse(route.PauseAfterCurrentCycle,
                     "Pause must clear PauseAfterCurrentCycle");
                 InGameAssert.AreEqual(RouteStatus.Paused, route.Status, "Final pause failed");
-                GameAction finalPauseRow = LatestLifecycleRow(routeId, beforeFinalPause);
+                RouteEvent finalPauseRow = LatestLifecycleRow(routeId, beforeFinalPause);
                 InGameAssert.IsNotNull(finalPauseRow, "No lifecycle row for the final pause");
-                InGameAssert.AreEqual(GameActionType.RoutePaused, finalPauseRow.Type,
+                InGameAssert.AreEqual(RouteEventType.RoutePaused, finalPauseRow.Type,
                     "Final pause row type mismatch");
 
                 // Grep-stable log contract: the production LifecycleMarker lines fired
@@ -178,7 +178,7 @@ namespace Parsek.InGameTests
 
                 ParsekLog.Info("TestRunner",
                     $"RouteRewindTimeline lifecycle: PASS routeId={routeId} " +
-                    $"rows={(Ledger.Actions.Count - baseCount).ToString(IC)} liveUT={liveUT.ToString("R", IC)}");
+                    $"rows={(RouteEventLog.Events.Count - baseCount).ToString(IC)} liveUT={liveUT.ToString("R", IC)}");
             }
             finally
             {
@@ -205,7 +205,7 @@ namespace Parsek.InGameTests
             var lines = new List<string>();
             Action<string> prevObserver = ParsekLog.TestObserverForTesting;
 
-            List<GameAction> preLedger = SnapshotLedger();
+            List<RouteEvent> preLedger = SnapshotLedger();
             SnapshotRouteLists(out List<Route> preCommitted, out List<Route> preDormant);
             var committedRecs = new List<Recording>();
             bool treeAdded = false;
@@ -413,7 +413,7 @@ namespace Parsek.InGameTests
             var lines = new List<string>();
             Action<string> prevObserver = ParsekLog.TestObserverForTesting;
 
-            List<GameAction> preLedger = SnapshotLedger();
+            List<RouteEvent> preLedger = SnapshotLedger();
             SnapshotRouteLists(out List<Route> preCommitted, out List<Route> preDormant);
 
             try
@@ -441,17 +441,17 @@ namespace Parsek.InGameTests
                     new List<Route> { pausedRoute, resumedRoute }, new List<Route>());
 
                 // Kept rows (UT <= cutoff) + one post-cutoff dispatch row to retire.
-                Ledger.AddAction(RouteRow(GameActionType.RouteDispatched, pausedId, cutoffUT - 80.0, "cycle-0"));
-                Ledger.AddAction(RouteRow(GameActionType.RouteCargoDelivered, pausedId, cutoffUT - 79.0, "cycle-0"));
-                Ledger.AddAction(RouteRow(GameActionType.RouteDispatched, pausedId, cutoffUT - 50.0, "cycle-1"));
-                Ledger.AddAction(RouteRow(GameActionType.RoutePaused, pausedId, cutoffUT - 40.0, null, "player-pause"));
+                RouteEventLog.Add(RouteRow(RouteEventType.RouteDispatched, pausedId, cutoffUT - 80.0, "cycle-0"));
+                RouteEventLog.Add(RouteRow(RouteEventType.RouteCargoDelivered, pausedId, cutoffUT - 79.0, "cycle-0"));
+                RouteEventLog.Add(RouteRow(RouteEventType.RouteDispatched, pausedId, cutoffUT - 50.0, "cycle-1"));
+                RouteEventLog.Add(RouteRow(RouteEventType.RoutePaused, pausedId, cutoffUT - 40.0, null, "player-pause"));
                 // AUTO resume AFTER the player pause: must be ignored by derivation.
-                Ledger.AddAction(RouteRow(GameActionType.RouteResumed, pausedId, cutoffUT - 30.0, null, "AutoResume:CatchUp"));
+                RouteEventLog.Add(RouteRow(RouteEventType.RouteResumed, pausedId, cutoffUT - 30.0, null, "AutoResume:CatchUp"));
                 // Post-cutoff row: Rec-1 retire target.
-                Ledger.AddAction(RouteRow(GameActionType.RouteDispatched, pausedId, cutoffUT + 50.0, "cycle-2"));
+                RouteEventLog.Add(RouteRow(RouteEventType.RouteDispatched, pausedId, cutoffUT + 50.0, "cycle-2"));
 
-                Ledger.AddAction(RouteRow(GameActionType.RoutePaused, resumedId, cutoffUT - 70.0, null, "player-pause"));
-                Ledger.AddAction(RouteRow(GameActionType.RouteResumed, resumedId, cutoffUT - 60.0, null, "player-activate"));
+                RouteEventLog.Add(RouteRow(RouteEventType.RoutePaused, resumedId, cutoffUT - 70.0, null, "player-pause"));
+                RouteEventLog.Add(RouteRow(RouteEventType.RouteResumed, resumedId, cutoffUT - 60.0, null, "player-activate"));
 
                 ReconciliationBundle bundle = ReconciliationBundle.Capture();
                 ReconciliationBundle.Restore(bundle, cutoffUT);
@@ -519,7 +519,7 @@ namespace Parsek.InGameTests
 
             var pending = GameStateRecorder.PendingScienceSubjects;
             var preScience = new List<PendingScienceSubject>(pending);
-            List<GameAction> preLedger = SnapshotLedger();
+            List<RouteEvent> preLedger = SnapshotLedger();
             // Store isolation: the finite-cutoff Restore runs the route seam over
             // the captured committed list, and ReconcileStoreAtRewind mutates the
             // Route INSTANCES it keeps (cursor resets, counter reconstruction) -
@@ -590,7 +590,7 @@ namespace Parsek.InGameTests
             var lines = new List<string>();
             Action<string> prevObserver = ParsekLog.TestObserverForTesting;
 
-            List<GameAction> preLedger = SnapshotLedger();
+            List<RouteEvent> preLedger = SnapshotLedger();
             int baseCount = preLedger.Count;
             SnapshotRouteLists(out List<Route> preCommitted, out List<Route> preDormant);
             var committedRecs = new List<Recording>();
@@ -620,16 +620,16 @@ namespace Parsek.InGameTests
                 // --- Vanish one source recording -> AutoPause row at the live UT.
                 removedRec = committedRecs[1];
                 RecordingStore.RemoveCommittedInternal(removedRec);
-                int beforeFlip = Ledger.Actions.Count;
+                int beforeFlip = RouteEventLog.Events.Count;
                 flips = RouteStore.RevalidateSources("ingame-timeline-flip", liveUT);
                 InGameAssert.AreEqual(1, flips, "Missing source did not flip the route");
                 InGameAssert.AreEqual(RouteStatus.MissingSourceRecording, route.Status,
                     $"Route status after source vanish: {route.Status}");
                 InGameAssert.AreEqual(RouteStatus.Active, route.PreMissingStatus,
                     "PreMissingStatus baseline not captured on the into-missing edge");
-                GameAction autoPause = LatestLifecycleRow(routeId, beforeFlip);
+                RouteEvent autoPause = LatestLifecycleRow(routeId, beforeFlip);
                 InGameAssert.IsNotNull(autoPause, "No AutoPause ledger row emitted on the live flip");
-                InGameAssert.AreEqual(GameActionType.RoutePaused, autoPause.Type, "AutoPause row type mismatch");
+                InGameAssert.AreEqual(RouteEventType.RoutePaused, autoPause.Type, "AutoPause row type mismatch");
                 InGameAssert.AreEqual("AutoPause:MissingSourceRecording", autoPause.RouteEndpointReason,
                     "AutoPause row reason mismatch");
 
@@ -637,27 +637,27 @@ namespace Parsek.InGameTests
                 // AutoResume:SourcesRestored row.
                 RecordingStore.AddCommittedInternal(removedRec);
                 removedRec = null;
-                int beforeRecover = Ledger.Actions.Count;
+                int beforeRecover = RouteEventLog.Events.Count;
                 flips = RouteStore.RevalidateSources("ingame-timeline-recover", liveUT);
                 InGameAssert.AreEqual(1, flips, "Source return did not flip the route back");
                 InGameAssert.AreEqual(RouteStatus.Active, route.Status,
                     $"Route did not recover to its pre-missing baseline, got {route.Status}");
-                GameAction autoResume = LatestLifecycleRow(routeId, beforeRecover);
+                RouteEvent autoResume = LatestLifecycleRow(routeId, beforeRecover);
                 InGameAssert.IsNotNull(autoResume, "No AutoResume ledger row emitted on recovery");
-                InGameAssert.AreEqual(GameActionType.RouteResumed, autoResume.Type, "AutoResume row type mismatch");
+                InGameAssert.AreEqual(RouteEventType.RouteResumed, autoResume.Type, "AutoResume row type mismatch");
                 InGameAssert.AreEqual("AutoResume:SourcesRestored", autoResume.RouteEndpointReason,
                     "AutoResume row reason mismatch");
 
                 // --- Catch-up net: fake a silent-flip desync (latest kept lifecycle
                 // row says paused while the route runs Active-family); the next
                 // live no-flip pass must repair it with AutoResume:CatchUp.
-                Ledger.AddAction(RouteRow(GameActionType.RoutePaused, routeId, liveUT, null, "player-pause"));
-                int beforeCatchUp = Ledger.Actions.Count;
+                RouteEventLog.Add(RouteRow(RouteEventType.RoutePaused, routeId, liveUT, null, "player-pause"));
+                int beforeCatchUp = RouteEventLog.Events.Count;
                 flips = RouteStore.RevalidateSources("ingame-timeline-catchup", liveUT);
                 InGameAssert.AreEqual(0, flips, "Catch-up pass unexpectedly flipped the route");
-                GameAction catchUp = LatestLifecycleRow(routeId, beforeCatchUp);
+                RouteEvent catchUp = LatestLifecycleRow(routeId, beforeCatchUp);
                 InGameAssert.IsNotNull(catchUp, "Catch-up net emitted no row for the desynced route");
-                InGameAssert.AreEqual(GameActionType.RouteResumed, catchUp.Type, "Catch-up row type mismatch");
+                InGameAssert.AreEqual(RouteEventType.RouteResumed, catchUp.Type, "Catch-up row type mismatch");
                 InGameAssert.AreEqual("AutoResume:CatchUp", catchUp.RouteEndpointReason,
                     "Catch-up row reason mismatch");
 
@@ -675,7 +675,7 @@ namespace Parsek.InGameTests
 
                 ParsekLog.Info("TestRunner",
                     $"RouteRewindTimeline revalidate: PASS routeId={routeId} " +
-                    $"rows={(Ledger.Actions.Count - baseCount).ToString(IC)}");
+                    $"rows={(RouteEventLog.Events.Count - baseCount).ToString(IC)}");
             }
             finally
             {
@@ -696,7 +696,7 @@ namespace Parsek.InGameTests
         // ==================================================================
 
         [InGameTest(Category = Category,
-            Description = "The go-back rewind exit's two components against the live ledger/store: Ledger.RetireFutureRouteActionsAtRewind retires post-cutoff route rows in place, then the SHARED RouteRewindClassifier.ReconcileStoreAtRewind (the exact HandleRewindOnLoad call shape) dormants post-cutoff routes and reconciles kept ones from the surviving rows")]
+            Description = "The go-back rewind exit's two components against the live route event log and store: RouteEventLog.RetireFutureRouteActionsAtRewind retires post-cutoff route events in place, then the SHARED RouteRewindClassifier.ReconcileStoreAtRewind (the exact HandleRewindOnLoad call shape) dormants post-cutoff routes and reconciles kept ones from the surviving events")]
         public void GoBackSeamComponents_RetireInPlace_ThenSharedStoreReconcile()
         {
             double liveUT = RequireLiveContext(requireScenario: false);
@@ -707,7 +707,7 @@ namespace Parsek.InGameTests
             var lines = new List<string>();
             Action<string> prevObserver = ParsekLog.TestObserverForTesting;
 
-            List<GameAction> preLedger = SnapshotLedger();
+            List<RouteEvent> preLedger = SnapshotLedger();
             SnapshotRouteLists(out List<Route> preCommitted, out List<Route> preDormant);
 
             try
@@ -725,15 +725,15 @@ namespace Parsek.InGameTests
 
                 // Kept rows + two post-cutoff rows (a dispatch and a pause marker)
                 // that the in-place retire must remove.
-                Ledger.AddAction(RouteRow(GameActionType.RouteDispatched, keptId, cutoffUT - 40.0, "cycle-0"));
-                Ledger.AddAction(RouteRow(GameActionType.RouteCargoDelivered, keptId, cutoffUT - 39.0, "cycle-0"));
-                Ledger.AddAction(RouteRow(GameActionType.RoutePaused, keptId, cutoffUT - 20.0, null, "player-pause"));
-                Ledger.AddAction(RouteRow(GameActionType.RouteDispatched, keptId, cutoffUT + 30.0, "cycle-1"));
-                Ledger.AddAction(RouteRow(GameActionType.RouteResumed, keptId, cutoffUT + 40.0, null, "player-activate"));
+                RouteEventLog.Add(RouteRow(RouteEventType.RouteDispatched, keptId, cutoffUT - 40.0, "cycle-0"));
+                RouteEventLog.Add(RouteRow(RouteEventType.RouteCargoDelivered, keptId, cutoffUT - 39.0, "cycle-0"));
+                RouteEventLog.Add(RouteRow(RouteEventType.RoutePaused, keptId, cutoffUT - 20.0, null, "player-pause"));
+                RouteEventLog.Add(RouteRow(RouteEventType.RouteDispatched, keptId, cutoffUT + 30.0, "cycle-1"));
+                RouteEventLog.Add(RouteRow(RouteEventType.RouteResumed, keptId, cutoffUT + 40.0, null, "player-activate"));
 
-                // Component 1: the in-place ledger retire (go-back seam, mirrors
+                // Component 1: the in-place route event retire (go-back seam, mirrors
                 // HandleRewindOnLoad's first route step).
-                int retired = Ledger.RetireFutureRouteActionsAtRewind(cutoffUT, out List<GameAction> keptActions);
+                int retired = RouteEventLog.RetireFutureRouteActionsAtRewind(cutoffUT, out List<RouteEvent> keptActions);
                 InGameAssert.AreEqual(2, retired,
                     $"Expected 2 retired post-cutoff route rows, got {retired.ToString(IC)}");
                 InGameAssert.AreEqual(0, CountRouteRowsAfter(keptId, cutoffUT),
@@ -915,10 +915,10 @@ namespace Parsek.InGameTests
             return route;
         }
 
-        private static GameAction RouteRow(
-            GameActionType type, string routeId, double ut, string cycleId, string reason = null)
+        private static RouteEvent RouteRow(
+            RouteEventType type, string routeId, double ut, string cycleId, string reason = null)
         {
-            return new GameAction
+            return new RouteEvent
             {
                 Type = type,
                 UT = ut,
@@ -970,16 +970,16 @@ namespace Parsek.InGameTests
         /// Latest RoutePaused/RouteResumed ledger row for <paramref name="routeId"/>
         /// appended at or after index <paramref name="fromIndex"/>; null when none.
         /// </summary>
-        private static GameAction LatestLifecycleRow(string routeId, int fromIndex)
+        private static RouteEvent LatestLifecycleRow(string routeId, int fromIndex)
         {
-            var actions = Ledger.Actions;
+            var actions = RouteEventLog.Events;
             if (actions == null) return null;
             for (int i = actions.Count - 1; i >= fromIndex && i >= 0; i--)
             {
-                GameAction a = actions[i];
+                RouteEvent a = actions[i];
                 if (a == null) continue;
                 if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
-                if (a.Type == GameActionType.RoutePaused || a.Type == GameActionType.RouteResumed)
+                if (a.Type == RouteEventType.RoutePaused || a.Type == RouteEventType.RouteResumed)
                     return a;
             }
             return null;
@@ -988,11 +988,11 @@ namespace Parsek.InGameTests
         private static int CountRouteRowsAfter(string routeId, double cutoffUT)
         {
             int count = 0;
-            var actions = Ledger.Actions;
+            var actions = RouteEventLog.Events;
             if (actions == null) return 0;
             for (int i = 0; i < actions.Count; i++)
             {
-                GameAction a = actions[i];
+                RouteEvent a = actions[i];
                 if (a == null) continue;
                 if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
                 if (a.UT > cutoffUT) count++;
@@ -1000,10 +1000,10 @@ namespace Parsek.InGameTests
             return count;
         }
 
-        private static List<GameAction> SnapshotLedger()
+        private static List<RouteEvent> SnapshotLedger()
         {
-            var snapshot = new List<GameAction>();
-            var actions = Ledger.Actions;
+            var snapshot = new List<RouteEvent>();
+            var actions = RouteEventLog.Events;
             if (actions != null)
             {
                 for (int i = 0; i < actions.Count; i++)
@@ -1013,32 +1013,29 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// Restores the live ledger to the pre-test snapshot (Clear + AddActions,
-        /// the verified surfaces). A first-attempt failure would leave a
-        /// partially restored ledger, so one full retry runs before giving up;
-        /// a second failure Warn-logs both counts so the residue is attributable
-        /// in the batch log rather than silent.
+        /// Restores the live route event log to the pre-test snapshot. A first-attempt
+        /// failure would leave a partially restored log, so one full retry runs before
+        /// giving up; a second failure Warn-logs both counts so the residue is
+        /// attributable in the batch log rather than silent.
         /// </summary>
-        private static void RestoreLedger(List<GameAction> snapshot)
+        private static void RestoreLedger(List<RouteEvent> snapshot)
         {
             for (int attempt = 1; attempt <= 2; attempt++)
             {
                 try
                 {
-                    Ledger.Clear();
-                    if (snapshot != null && snapshot.Count > 0)
-                        Ledger.AddActions(snapshot);
+                    RouteEventLog.ReplaceAll(snapshot ?? new List<RouteEvent>(), "route rewind timeline test cleanup");
                     return;
                 }
                 catch (Exception ex)
                 {
                     int liveCount = 0;
-                    try { liveCount = Ledger.Actions != null ? Ledger.Actions.Count : 0; } catch { }
+                    try { liveCount = RouteEventLog.Events.Count; } catch { }
                     ParsekLog.Warn("TestRunner",
-                        $"RouteRewindTimeline cleanup: ledger restore attempt {attempt.ToString(IC)}/2 failed " +
+                        $"RouteRewindTimeline cleanup: route event log restore attempt {attempt.ToString(IC)}/2 failed " +
                         $"({ex.GetType().Name}: {ex.Message}); snapshot={(snapshot?.Count ?? 0).ToString(IC)} " +
                         $"live={liveCount.ToString(IC)}" +
-                        (attempt == 2 ? " - ledger may be partially restored" : "; retrying"));
+                        (attempt == 2 ? " - route event log may be partially restored" : "; retrying"));
                 }
             }
         }

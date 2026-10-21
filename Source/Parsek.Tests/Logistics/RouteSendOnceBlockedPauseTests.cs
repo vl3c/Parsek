@@ -99,9 +99,9 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.DeliveryApplierForTesting = (route, currentUT, env) =>
             {
                 string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles).ToString(IC);
-                Ledger.AddAction(new GameAction
+                RouteEventLog.Add(new RouteEvent
                 {
-                    Type = GameActionType.RouteCargoDelivered,
+                    Type = RouteEventType.RouteCargoDelivered,
                     UT = currentUT,
                     RouteId = route.Id,
                     RouteCycleId = cycleId,
@@ -162,9 +162,9 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.DeliveryRowEmitterForTesting =
                 (route, currentUT, env, cycleId, stopIndex, bumpCompletedCycle) =>
                 {
-                    Ledger.AddAction(new GameAction
+                    RouteEventLog.Add(new RouteEvent
                     {
-                        Type = GameActionType.RouteCargoDelivered,
+                        Type = RouteEventType.RouteCargoDelivered,
                         UT = currentUT,
                         RouteId = route.Id,
                         RouteCycleId = cycleId,
@@ -174,14 +174,14 @@ namespace Parsek.Tests.Logistics
                 };
         }
 
-        private static List<GameAction> Delivered() =>
-            Ledger.Actions.Where(a => a.Type == GameActionType.RouteCargoDelivered).ToList();
+        private static List<RouteEvent> Delivered() =>
+            RouteEventLog.Events.Where(a => a.Type == RouteEventType.RouteCargoDelivered).ToList();
 
-        private static List<GameAction> Dispatched() =>
-            Ledger.Actions.Where(a => a.Type == GameActionType.RouteDispatched).ToList();
+        private static List<RouteEvent> Dispatched() =>
+            RouteEventLog.Events.Where(a => a.Type == RouteEventType.RouteDispatched).ToList();
 
-        private static List<GameAction> PausedMarkers() =>
-            Ledger.Actions.Where(a => a.Type == GameActionType.RoutePaused).ToList();
+        private static List<RouteEvent> PausedMarkers() =>
+            RouteEventLog.Events.Where(a => a.Type == RouteEventType.RoutePaused).ToList();
 
         private static Route Build2StopRoute(
             string id = "route-sendonce-multi",
@@ -281,9 +281,9 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(0, route.CompletedCycles);
             Assert.Equal(0, route.LastObservedLoopCycleIndex);
             // ...NOTHING was emitted beyond the pause marker (no dispatch/debit/delivery)...
-            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteDispatched);
-            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteCargoDebited);
-            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteCargoDelivered);
+            Assert.DoesNotContain(RouteEventLog.Events, a => a.Type == RouteEventType.RouteDispatched);
+            Assert.DoesNotContain(RouteEventLog.Events, a => a.Type == RouteEventType.RouteCargoDebited);
+            Assert.DoesNotContain(RouteEventLog.Events, a => a.Type == RouteEventType.RouteCargoDelivered);
             // ...and the armed pause was honored.
             Assert.Equal(RouteStatus.Paused, route.Status);
             Assert.False(route.PauseAfterCurrentCycle);
@@ -309,7 +309,7 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(1150.0, new DestinationFullEnv());
 
-            var paused = Ledger.Actions.SingleOrDefault(a => a.Type == GameActionType.RoutePaused);
+            var paused = RouteEventLog.Events.SingleOrDefault(a => a.Type == RouteEventType.RoutePaused);
             Assert.NotNull(paused);
             Assert.Equal(route.Id, paused.RouteId);
             Assert.Equal(1150.0, paused.UT);
@@ -356,7 +356,7 @@ namespace Parsek.Tests.Logistics
 
             Assert.Equal(RouteStatus.Paused, route.Status);
             Assert.Equal(0, route.CompletedCycles);
-            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteCargoDelivered);
+            Assert.DoesNotContain(RouteEventLog.Events, a => a.Type == RouteEventType.RouteCargoDelivered);
         }
 
         // NEGATIVE CONTROL: an UNARMED route must keep its pre-fix behavior on a
@@ -376,7 +376,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(1, route.SkippedCycles);
             // The only row is the hold itself (the Route History's Held row): no
             // pause marker, no run.
-            Assert.Equal(GameActionType.RouteHeld, Assert.Single(Ledger.Actions).Type);
+            Assert.Equal(RouteEventType.RouteHeld, Assert.Single(RouteEventLog.Events).Type);
             Assert.Empty(screenMessages);
         }
 
@@ -401,14 +401,14 @@ namespace Parsek.Tests.Logistics
 
             Assert.Equal(1, route.SkippedCycles);
             Assert.Equal(0, route.CompletedCycles);
-            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteDispatched);
-            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteCargoDelivered);
+            Assert.DoesNotContain(RouteEventLog.Events, a => a.Type == RouteEventType.RouteDispatched);
+            Assert.DoesNotContain(RouteEventLog.Events, a => a.Type == RouteEventType.RouteCargoDelivered);
             Assert.Equal(RouteStatus.Paused, route.Status);
             Assert.False(route.PauseAfterCurrentCycle);
             Assert.False(route.SendOnceArmed);
             Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull, route.LastHoldKind);
             Assert.Equal("stored-part:evaScienceKit", route.LastHoldDetail);
-            var paused = Ledger.Actions.SingleOrDefault(a => a.Type == GameActionType.RoutePaused);
+            var paused = RouteEventLog.Events.SingleOrDefault(a => a.Type == RouteEventType.RoutePaused);
             Assert.NotNull(paused);
             Assert.Equal("blocked-then-paused", paused.RouteEndpointReason);
             Assert.Contains(logLines, l => l.Contains("LoopRoute(multi)") && l.Contains("BLOCKED"));
@@ -458,7 +458,7 @@ namespace Parsek.Tests.Logistics
             // ...and NOTHING put it back to Active afterwards (the defect's signature:
             // a Paused->Active transition inside the same pass, or a resume row).
             Assert.DoesNotContain(logLines, l => l.Contains("Paused→Active"));
-            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteResumed);
+            Assert.DoesNotContain(RouteEventLog.Events, a => a.Type == RouteEventType.RouteResumed);
 
             // Exactly one toast, and it does not lie about the landing status.
             string toast = Assert.Single(screenMessages);
@@ -521,14 +521,14 @@ namespace Parsek.Tests.Logistics
             RouteStore.AddRoute(route);
             InstallUnitResolver(BuildMultiUnit());
             InstallRealPathRowEmitter();
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteDispatched, UT = 1150.0, RouteId = route.Id,
+                Type = RouteEventType.RouteDispatched, UT = 1150.0, RouteId = route.Id,
                 RouteCycleId = "cycle-0", RouteStopIndex = 0, Sequence = 0,
             });
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteCargoDelivered, UT = 1150.0, RouteId = route.Id,
+                Type = RouteEventType.RouteCargoDelivered, UT = 1150.0, RouteId = route.Id,
                 RouteCycleId = "cycle-0", RouteStopIndex = 0,
                 Sequence = 0 * RouteOrchestrator.SeqStride + 3,
             });
@@ -551,10 +551,10 @@ namespace Parsek.Tests.Logistics
             // THE B5 ASSERTION: cycle 1 was NOT dispatched or debited on the paused
             // route. Only the pre-seeded cycle-0 dispatch exists.
             Assert.Single(Dispatched());
-            Assert.DoesNotContain(Ledger.Actions,
+            Assert.DoesNotContain(RouteEventLog.Events,
                 a => a.RouteCycleId == "cycle-1"
-                    && (a.Type == GameActionType.RouteDispatched
-                        || a.Type == GameActionType.RouteCargoDebited));
+                    && (a.Type == RouteEventType.RouteDispatched
+                        || a.Type == RouteEventType.RouteCargoDebited));
             Assert.DoesNotContain(Delivered(), d => d.RouteCycleId == "cycle-1");
             Assert.Contains(logLines, l =>
                 l.Contains("LoopRoute(multi)") && l.Contains("left ghost-driving"));

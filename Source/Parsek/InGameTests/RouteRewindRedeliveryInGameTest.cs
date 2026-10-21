@@ -18,14 +18,14 @@ namespace Parsek.InGameTests
     /// so the destination tank re-fills for the cycle
     /// (cycleId <c>cycle-{Completed+Skipped}</c>). Then rewind time to BEFORE the
     /// dispatch. Before the fix the <c>ReconciliationBundle</c> preserved the full
-    /// pre-rewind <c>Ledger.Actions</c> while the live world + the route counters
+    /// pre-rewind <c>RouteEventLog.Events</c> while the live world + the route counters
     /// reverted via the <c>.sfs</c>, so the UT-blind dispatch dedup reproduced the
     /// counter-keyed cycleId and SUPPRESSED the re-flown cycle that would re-apply
     /// the cargo: the goods never re-delivered. The fix
-    /// (<see cref="RouteLedgerRetire.RetireFutureRouteActions"/>, called from the
-    /// Rec-1 <see cref="ReconciliationBundle.Restore(ReconciliationBundle, double)"/>
-    /// overload) DROPS every free-standing route ledger row whose UT &gt; the
-    /// rewind cutoff, so the surviving ledger matches the reverted world and the
+    /// (<c>RouteEventRetire.RetireFutureEvents</c>,
+    /// called from the Rec-1 <see cref="ReconciliationBundle.Restore(ReconciliationBundle, double)"/>
+    /// overload) DROPS every route event whose UT &gt; the rewind cutoff, so the
+    /// surviving route event log matches the reverted world and the
     /// re-fly re-emits each cycle deterministically, re-delivering cargo (once).
     /// Supply routes carry no money, so career funds must not move at any step.</para>
     ///
@@ -120,9 +120,9 @@ namespace Parsek.InGameTests
         private const double TickUT = 2000.0;
 
         // Rewind cutoff: strictly BEFORE the dispatch UT so the cycle's
-        // free-standing route rows (UT == TickUT == 2000) are dropped by
-        // RouteLedgerRetire.ShouldRetireRouteActionAtRewind (a.UT > cutoffUT).
-        // The dispatch row is stamped at the Tick UT, so any cutoff < 2000 drops
+        // route events (UT == TickUT == 2000) are dropped by
+        // RouteEventRetire.ShouldRetireAtRewind (e.UT > cutoffUT).
+        // The dispatch event is stamped at the Tick UT, so any cutoff < 2000 drops
         // it. We use 1500 (mid-span, after the anchor, before the dock) to mirror
         // "rewound to a RewindPoint partway through the transit, before delivery".
         private const double RewindCutoffUT = 1500.0;
@@ -150,7 +150,7 @@ namespace Parsek.InGameTests
             if (resolverField == null)
                 InGameAssert.Skip("PRECONDITION: RouteOrchestrator.LoopUnitResolverForTesting seam missing (upstream loop-fire phase incomplete)");
 
-            // RouteLedgerRetire.RetireFutureRouteActions (the Rec-1 retire helper) is
+            // RouteEventRetire.RetireFutureEvents (the Rec-1 retire helper) is
             // reached only through the Restore(bundle, cutoff) overload below, and both
             // are internal to this assembly, so the compiler already proves the helper
             // exists. It is deliberately NOT probed by name: it is overloaded (the
@@ -226,14 +226,14 @@ namespace Parsek.InGameTests
             bool hasFunding = Funding.Instance != null;
             double fundsBaseline = hasFunding ? Funding.Instance.Funds : 0.0;
 
-            int beforeLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+            int beforeLedgerCount = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
 
             // Full pre-test ledger snapshot so the finally block can restore the live
             // ledger byte-for-byte (the reconciliation Restore rewrites the whole list).
-            preTestLedgerSnapshot = new List<GameAction>();
-            if (Ledger.Actions != null)
-                for (int i = 0; i < Ledger.Actions.Count; i++)
-                    preTestLedgerSnapshot.Add(Ledger.Actions[i]);
+            preTestLedgerSnapshot = new List<RouteEvent>();
+            if (RouteEventLog.Events != null)
+                for (int i = 0; i < RouteEventLog.Events.Count; i++)
+                    preTestLedgerSnapshot.Add(RouteEventLog.Events[i]);
 
             // Source tree committed so ERS carries the route's SourceRefs.
             RecordingTree routeTree = BuildLaunchDockUndockTree(routeTreeId);
@@ -319,7 +319,7 @@ namespace Parsek.InGameTests
                 }
 
                 // 1c. Ledger rows for the cycle (RouteDispatched + RouteCargoDelivered).
-                int afterCycle1LedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+                int afterCycle1LedgerCount = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
                 int cycle1DispatchedRows, cycle1DeliveredRows;
                 CountRouteRows(routeId, beforeLedgerCount, afterCycle1LedgerCount,
                     out cycle1DispatchedRows, out cycle1DeliveredRows);
@@ -361,8 +361,8 @@ namespace Parsek.InGameTests
                 // ============================================================
 
                 // Capture the bundle AFTER cycle 1 — this is exactly what
-                // RewindInvoker.StartInvoke captures pre-load: the full ledger
-                // (including cycle 1's route rows) plus the recording/tree/scenario
+                // RewindInvoker.StartInvoke captures pre-load: the full ledger and
+                // route event log (including cycle 1's route events) plus the recording/tree/scenario
                 // state.
                 ReconciliationBundle bundle = ReconciliationBundle.Capture();
 
@@ -381,14 +381,14 @@ namespace Parsek.InGameTests
                     preRewindRoute.NextDispatchUT = TickUT + Cadence;
                 }
 
-                // The Rec-1 reconciliation restore: drops free-standing route ledger
-                // rows with UT > cutoff (the determinism fix). cutoff < dispatch UT, so
+                // The Rec-1 reconciliation restore: drops route events
+                // with UT > cutoff (the determinism fix). cutoff < dispatch UT, so
                 // cycle 1's RouteDispatched/RouteCargoDelivered rows (UT == 2000) are
                 // dropped. Non-route reconstruction stays byte-identical.
                 ReconciliationBundle.Restore(bundle, RewindCutoffUT);
 
-                // Assert the route rows were actually dropped from the live ledger.
-                int afterRestoreLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+                // Assert the route events were actually dropped from the live log.
+                int afterRestoreLedgerCount = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
                 int postRestoreDispatched, postRestoreDelivered;
                 CountRouteRowsWholeLedger(routeId, RewindCutoffUT,
                     out postRestoreDispatched, out postRestoreDelivered);
@@ -434,7 +434,7 @@ namespace Parsek.InGameTests
                 // cycle-{0} and re-fires: the tank rises AGAIN and a fresh
                 // RouteCargoDelivered row lands.
                 // ============================================================
-                int beforeCycle2LedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+                int beforeCycle2LedgerCount = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
 
                 RouteOrchestrator.Tick(TickUT);
                 yield return null; // settle a frame
@@ -461,7 +461,7 @@ namespace Parsek.InGameTests
                 }
 
                 // 2c. A fresh RouteCargoDelivered row landed for the re-fly cycle.
-                int afterCycle2LedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+                int afterCycle2LedgerCount = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
                 int cycle2DispatchedRows, cycle2DeliveredRows;
                 CountRouteRows(routeId, beforeCycle2LedgerCount, afterCycle2LedgerCount,
                     out cycle2DispatchedRows, out cycle2DeliveredRows);
@@ -591,7 +591,7 @@ namespace Parsek.InGameTests
         /// has already moved past the local-capture point. Verified to compile cleanly
         /// under net472's iterator rewriter.
         /// </summary>
-        private List<GameAction> preTestLedgerSnapshot;
+        private List<RouteEvent> preTestLedgerSnapshot;
 
         /// <summary>
         /// Builds the KSC-origin Active loop route (IsLoopRoute true via the backing
@@ -694,17 +694,17 @@ namespace Parsek.InGameTests
         {
             dispatched = 0;
             delivered = 0;
-            var actions = Ledger.Actions;
+            var actions = RouteEventLog.Events;
             if (actions == null) return;
             int lo = start < 0 ? 0 : start;
             int hi = end > actions.Count ? actions.Count : end;
             for (int i = lo; i < hi; i++)
             {
-                GameAction a = actions[i];
+                RouteEvent a = actions[i];
                 if (a == null) continue;
                 if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
-                if (a.Type == GameActionType.RouteDispatched) dispatched++;
-                else if (a.Type == GameActionType.RouteCargoDelivered) delivered++;
+                if (a.Type == RouteEventType.RouteDispatched) dispatched++;
+                else if (a.Type == RouteEventType.RouteCargoDelivered) delivered++;
             }
         }
 
@@ -719,48 +719,42 @@ namespace Parsek.InGameTests
         {
             dispatched = 0;
             delivered = 0;
-            var actions = Ledger.Actions;
+            var actions = RouteEventLog.Events;
             if (actions == null) return;
             for (int i = 0; i < actions.Count; i++)
             {
-                GameAction a = actions[i];
+                RouteEvent a = actions[i];
                 if (a == null) continue;
                 if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
                 if (a.UT <= cutoffUT) continue;
-                if (a.Type == GameActionType.RouteDispatched) dispatched++;
-                else if (a.Type == GameActionType.RouteCargoDelivered) delivered++;
+                if (a.Type == RouteEventType.RouteDispatched) dispatched++;
+                else if (a.Type == RouteEventType.RouteCargoDelivered) delivered++;
             }
         }
 
         /// <summary>
-        /// Restores the live ledger to its first <paramref name="prefixCount"/>
-        /// actions (the contents captured before the test mutated anything). The
-        /// reconciliation Restore rewrote the whole list, so cleanup re-truncates it.
-        /// Uses the verified Ledger.Clear() + Ledger.AddActions(prefix) static surfaces;
-        /// the caller's finally block resets live career Funds directly to the pre-test
-        /// baseline, so no LedgerOrchestrator.RecalculateAndPatch re-sync is required.
+        /// Restores the live route event log to its first <paramref name="prefixCount"/>
+        /// events (the contents captured before the test mutated anything). The
+        /// reconciliation Restore rewrote the whole log, so cleanup re-truncates it. The
+        /// caller's finally block resets live career Funds directly to the pre-test
+        /// baseline.
         /// </summary>
         private void RestoreLedgerPrefix(int prefixCount)
         {
             // Prefer the explicit pre-test snapshot if one was taken; otherwise
-            // truncate the current live ledger to the recorded prefix length.
+            // truncate the current live log to the recorded prefix length.
             if (preTestLedgerSnapshot != null)
             {
-                Ledger.Clear();
-                if (preTestLedgerSnapshot.Count > 0)
-                    Ledger.AddActions(preTestLedgerSnapshot);
+                RouteEventLog.ReplaceAll(preTestLedgerSnapshot, "rewind redelivery test cleanup");
                 return;
             }
 
-            var actions = Ledger.Actions;
-            if (actions == null) return;
+            var actions = RouteEventLog.Events;
             int keep = prefixCount < 0 ? 0 : (prefixCount > actions.Count ? actions.Count : prefixCount);
-            var prefix = new List<GameAction>(keep);
+            var prefix = new List<RouteEvent>(keep);
             for (int i = 0; i < keep; i++)
                 prefix.Add(actions[i]);
-            Ledger.Clear();
-            if (prefix.Count > 0)
-                Ledger.AddActions(prefix);
+            RouteEventLog.ReplaceAll(prefix, "rewind redelivery test cleanup");
         }
 
         /// <summary>

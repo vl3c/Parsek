@@ -912,7 +912,7 @@ namespace Parsek
         /// <paramref name="onLoadContext"/> (route-timeline events): set by
         /// <see cref="MergeJournalOrchestrator.RunFinisher"/>, which re-drives
         /// this flip FROM <see cref="ParsekScenario.OnLoad"/> after a crash -
-        /// that path must never write route auto-pause/resume ledger rows (on
+        /// that path must never write route auto-pause/resume events (on
         /// the scene-change branch Planetarium can report a stale nonzero UT
         /// during OnLoad; on the cold branch UT is 0). The finisher's flips
         /// therefore stay SILENT: a route flip driven by the recovered merge
@@ -2175,37 +2175,18 @@ namespace Parsek
                 case GameActionType.ReputationInitial:
                     return false;
 
-                // Route skeleton (design doc §6): route actions are emitted by the
-                // scheduler under a RouteId, not produced by a flight recorder. They
-                // are not "world-state changing on a recording" in the sense this
-                // predicate gates — even when a test attaches a synthetic RecordingId
-                // to one, supersede must not strict-block or retry-block on it.
-                // When future dispatch integration ties RouteCargoDelivered effects
-                // to a specific source recording's epoch, revisit this exclusion.
+                // Reserved legacy supply-route ids: supply routes keep their events in the
+                // route event log (Logistics.RouteEventLog), never in the ledger, and an old
+                // save's route rows are dropped at ledger load. The ids stay excluded so a
+                // stray row could never fall through to true and strict-block a supersede.
                 case GameActionType.RouteDispatched:
                 case GameActionType.RouteCargoDebited:
                 case GameActionType.RouteCargoDelivered:
                 case GameActionType.RoutePaused:
                 case GameActionType.RouteEndpointLost:
-                // RouteRecoveryCredited: a legacy route type nothing writes any more
-                // (supply routes carry no money; old rows are dropped at ledger load).
-                // It stays excluded: a removed case would fall through to true.
                 case GameActionType.RouteRecoveryCredited:
-                // RouteCargoPickedUp (logistics M3, design D6): a scheduler-emitted
-                // per-window pickup debit row, not flight-recorder output. A NEW type
-                // does NOT inherit the existing route-rows-return-false above - with
-                // no case it falls through to `return true` and supersede would
-                // strict-block / retry on a pickup row. Its physical effect (cargo
-                // removed from the endpoint at emit) is reverted by the rewind
-                // quicksave, never by this predicate, so supersede must not block on
-                // it.
                 case GameActionType.RouteCargoPickedUp:
-                // RouteResumed (route-timeline events): the durable player-resume
-                // marker, scheduler-emitted like RoutePaused; carries no world
-                // mutation, so supersede must not strict-block or retry-block on it.
                 case GameActionType.RouteResumed:
-                // RouteHeld: a scheduler-emitted record that a route's run was held;
-                // no world mutation, so it must not strict-block or retry-block.
                 case GameActionType.RouteHeld:
                 // KerbalExperience (P9a): a RECORD of career-log entries stock already
                 // archived, not a world mutation this predicate should block on. The

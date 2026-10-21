@@ -205,12 +205,10 @@ ordering is the evaluator's, not the fixture's, so RVR-2 pins `BLOCKED
 kind=DestinationFull` and leaves the detail to a regex until a flight settles it.
 
 THE LEDGER IS NOT A SECOND COPY OF THIS STATE. The save's `Parsek/GameState`
-ledger carries the operator's `RouteDispatched` row for `fd6ee2ff` (it replays as
-`Processed RouteDispatched for route=fd6ee2ff... cycle=1` on every boot), but
-`RouteModule` is OBSERVE-ONLY by contract - its own doc comment reads "A future
-edit MUST NOT mutate vessel cargo from here" - so nothing re-applies the delivery
-at load and the repair is stable. The ledger row is left alone: it is a true
-record of something that happened.
+ledger carries the operator's legacy `RouteDispatched` row for `fd6ee2ff`; since
+route events left the ledger (LOGISTICS-WITHOUT-MONEY phase 2) the ledger load
+drops that row with its one Info summary, and nothing ever re-applied a delivery
+from it, so the repair is stable. The fixture bytes are left alone.
 
 THE ROUTE WINDOW PINS ARE BUILDER-SIDE ON PURPOSE, and STAY so - which is now a
 DIFFERENT statement from the one `build_depot_route_recorded.py` used to make.

@@ -16,9 +16,9 @@ namespace Parsek.Logistics
     /// <c>LiveInventoryPickupWriter</c>). Their only rollback is the
     /// Rewind-to-Separation full-world quicksave. When a route physically fires
     /// INSIDE a segment the player then discards WITHOUT a rewind, that mutation
-    /// persists in the surviving timeline with no rollback path. Route rows move no
-    /// funds (todo LOGISTICS-WITHOUT-MONEY) and the free-standing route rows survive
-    /// the recording-scoped discard purge, so the cargo persists consistently; it is
+    /// persists in the surviving timeline with no rollback path. Route events move no
+    /// funds (todo LOGISTICS-WITHOUT-MONEY) and live in the route event log, which the
+    /// recording-scoped discard purge never touches, so the cargo persists consistently; it is
     /// a discard-INTENT residual, not a free/lost-resources desync — but it is
     /// invisible in the log.</para>
     ///
@@ -35,10 +35,10 @@ namespace Parsek.Logistics
     /// classified revertable by <see cref="RouteRevertSafety.PhysicalMutationRevertable"/>
     /// and reports nothing — the quicksave restore is its rollback path.</para>
     ///
-    /// <para><b>ERS/ELS grep-gate:</b> every method takes the action list + the
-    /// discarded recordings BY PARAMETER (the allowlisted discard core passes the
-    /// ledger action list in), so this file reads neither the static ledger nor the
-    /// committed-recordings store and needs no allowlist entry.</para>
+    /// <para><b>ERS/ELS grep-gate:</b> every method takes the route events + the
+    /// discarded recordings BY PARAMETER (the discard core passes the route event log
+    /// in), so this file reads neither the static ledger nor the committed-recordings
+    /// store and needs no allowlist entry.</para>
     /// </summary>
     internal static class RouteDiscardObservability
     {
@@ -100,15 +100,15 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// Pure decision + summary: counts the physical route mutations
-        /// (<see cref="RouteLedgerRetire.IsPhysicalRouteMutation"/>) among the
-        /// free-standing route rows inside <c>[<paramref name="minUT"/>,
+        /// (<see cref="RouteEventRetire.IsPhysicalRouteMutation"/>) among the
+        /// route events inside <c>[<paramref name="minUT"/>,
         /// <paramref name="maxUT"/>]</c> that a non-rewind discard leaves un-reversed,
         /// and builds a human-readable <paramref name="summary"/>. Returns 0 (and an
         /// empty summary) when the discard is rewind/RP-backed (the quicksave is its
-        /// rollback) or when no physical route row fired in the window. No side effects.
+        /// rollback) or when no physical route event fired in the window. No side effects.
         /// </summary>
         internal static int SummarizePhysicalLeak(
-            IReadOnlyList<GameAction> actions,
+            IReadOnlyList<RouteEvent> events,
             double minUT,
             double maxUT,
             bool rewindOrRpBacked,
@@ -123,8 +123,8 @@ namespace Parsek.Logistics
                     rewindOrRpBacked, inFlightNonRewindSegment: true))
                 return 0;
 
-            List<GameAction> inWindow =
-                RouteLedgerRetire.SelectFreeStandingRouteActionsInWindow(actions, minUT, maxUT);
+            List<RouteEvent> inWindow =
+                RouteEventRetire.SelectInWindow(events, minUT, maxUT);
             if (inWindow.Count == 0)
                 return 0;
 
@@ -132,8 +132,8 @@ namespace Parsek.Logistics
             int leaked = 0;
             for (int i = 0; i < inWindow.Count; i++)
             {
-                GameAction a = inWindow[i];
-                if (!RouteLedgerRetire.IsPhysicalRouteMutation(a))
+                RouteEvent a = inWindow[i];
+                if (!RouteEventRetire.IsPhysicalRouteMutation(a))
                     continue;
 
                 leaked++;
@@ -151,7 +151,7 @@ namespace Parsek.Logistics
             summary = leaked + " route physical mutation(s) fired inside the discarded window ["
                 + minUT.ToString("F1", IC) + ".." + maxUT.ToString("F1", IC)
                 + "] and were not undone by this non-rewind discard: " + sb
-                + " (route rows carry no RecordingId, so this UT window may also include a"
+                + " (route events carry no RecordingId, so this UT window may also include a"
                 + " concurrent committed route; no reverse writer, cargo kept,"
                 + " Rec-3 reverse-on-discard deferred)";
             return leaked;
@@ -160,12 +160,12 @@ namespace Parsek.Logistics
         /// <summary>
         /// The discard-core entry point: computes the discarded window from
         /// <paramref name="discardedRecordings"/>, summarizes the physical route leak,
-        /// and emits ONE <c>Warn</c> when there is one. Returns the leaked-row count
+        /// and emits ONE <c>Warn</c> when there is one. Returns the leaked-event count
         /// (0 = nothing to report). Changes no state.
         /// </summary>
         internal static int ReportDiscardLeakForRecordings(
             IEnumerable<Recording> discardedRecordings,
-            IReadOnlyList<GameAction> ledgerActions,
+            IReadOnlyList<RouteEvent> routeEvents,
             bool rewindOrRpBacked,
             string context)
         {
@@ -173,7 +173,7 @@ namespace Parsek.Logistics
                 return 0;
 
             int leaked = SummarizePhysicalLeak(
-                ledgerActions, minUT, maxUT, rewindOrRpBacked, out string summary);
+                routeEvents, minUT, maxUT, rewindOrRpBacked, out string summary);
             if (leaked > 0)
                 ParsekLog.Warn("Route",
                     "[Rec-3 residual] " + summary + " (context=" + (context ?? "<none>") + ")");
@@ -184,7 +184,7 @@ namespace Parsek.Logistics
         /// Compact one-line manifest description for the leak summary: resource
         /// name=amount pairs and/or an inventory item count.
         /// </summary>
-        private static string DescribeManifest(GameAction a)
+        private static string DescribeManifest(RouteEvent a)
         {
             var sb = new StringBuilder();
             if (a.RouteResourceManifest != null && a.RouteResourceManifest.Count > 0)

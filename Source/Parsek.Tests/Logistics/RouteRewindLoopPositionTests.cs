@@ -94,9 +94,9 @@ namespace Parsek.Tests.Logistics
             {
                 string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles)
                     .ToString(System.Globalization.CultureInfo.InvariantCulture);
-                Ledger.AddAction(new GameAction
+                RouteEventLog.Add(new RouteEvent
                 {
-                    Type = GameActionType.RouteCargoDelivered,
+                    Type = RouteEventType.RouteCargoDelivered,
                     UT = currentUT,
                     RouteId = route.Id,
                     RouteCycleId = cycleId,
@@ -161,9 +161,9 @@ namespace Parsek.Tests.Logistics
             return copy;
         }
 
-        private static List<GameAction> DispatchRows()
+        private static List<RouteEvent> DispatchRows()
         {
-            return Ledger.Actions.Where(a => a.Type == GameActionType.RouteDispatched).ToList();
+            return RouteEventLog.Events.Where(a => a.Type == RouteEventType.RouteDispatched).ToList();
         }
 
         /// <summary>

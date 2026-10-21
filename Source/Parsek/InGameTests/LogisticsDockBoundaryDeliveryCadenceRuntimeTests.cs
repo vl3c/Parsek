@@ -360,7 +360,7 @@ namespace Parsek.InGameTests
                 double headroom0 = maxAmount - preDrain0;
                 double expectedDelta0 = DeliveryAmount < headroom0 ? DeliveryAmount : headroom0;
                 bool tankCanReceive0 = expectedDelta0 > ResourceTolerance;
-                int beforeLedger0 = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+                int beforeLedger0 = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
 
                 ParsekLog.Verbose("TestRunner",
                     $"DockBoundary_D4_InGame (c) cycle0: tick0UT={tick0UT.ToString("R", IC)} " +
@@ -382,9 +382,9 @@ namespace Parsek.InGameTests
                         $"Cycle 0 delivery did not land: expected LF ~= {(preDrain0 + expectedDelta0).ToString("R", IC)}, " +
                         $"was {afterAmount0.ToString("R", IC)}");
 
-                int afterLedger0 = Ledger.Actions != null ? Ledger.Actions.Count : 0;
-                int delivered0 = CountRouteRows(beforeLedger0, afterLedger0, routeId, GameActionType.RouteCargoDelivered);
-                int dispatched0 = CountRouteRows(beforeLedger0, afterLedger0, routeId, GameActionType.RouteDispatched);
+                int afterLedger0 = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
+                int delivered0 = CountRouteRows(beforeLedger0, afterLedger0, routeId, RouteEventType.RouteCargoDelivered);
+                int dispatched0 = CountRouteRows(beforeLedger0, afterLedger0, routeId, RouteEventType.RouteDispatched);
                 InGameAssert.AreEqual(1, delivered0,
                     $"Cycle 0 must deliver EXACTLY once (RouteCargoDelivered rows for this cycle = {delivered0.ToString(IC)})");
                 InGameAssert.AreEqual(1, dispatched0,
@@ -395,7 +395,7 @@ namespace Parsek.InGameTests
                 double headroom1 = maxAmount - preDrain1;
                 double expectedDelta1 = DeliveryAmount < headroom1 ? DeliveryAmount : headroom1;
                 bool tankCanReceive1 = expectedDelta1 > ResourceTolerance;
-                int beforeLedger1 = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+                int beforeLedger1 = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
 
                 ParsekLog.Verbose("TestRunner",
                     $"DockBoundary_D4_InGame (c) cycle1: tick1UT={tick1UT.ToString("R", IC)} " +
@@ -416,9 +416,9 @@ namespace Parsek.InGameTests
                         $"Cycle 1 delivery did not land: expected LF ~= {(preDrain1 + expectedDelta1).ToString("R", IC)}, " +
                         $"was {afterAmount1.ToString("R", IC)}");
 
-                int afterLedger1 = Ledger.Actions != null ? Ledger.Actions.Count : 0;
-                int delivered1 = CountRouteRows(beforeLedger1, afterLedger1, routeId, GameActionType.RouteCargoDelivered);
-                int dispatched1 = CountRouteRows(beforeLedger1, afterLedger1, routeId, GameActionType.RouteDispatched);
+                int afterLedger1 = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
+                int delivered1 = CountRouteRows(beforeLedger1, afterLedger1, routeId, RouteEventType.RouteCargoDelivered);
+                int dispatched1 = CountRouteRows(beforeLedger1, afterLedger1, routeId, RouteEventType.RouteDispatched);
                 InGameAssert.AreEqual(1, delivered1,
                     $"Cycle 1 must deliver EXACTLY once (RouteCargoDelivered rows for this cycle = {delivered1.ToString(IC)})");
                 InGameAssert.AreEqual(1, dispatched1,
@@ -498,13 +498,13 @@ namespace Parsek.InGameTests
         }
 
         // Counts ledger rows of a given type tagged with the route id in [from, to).
-        private static int CountRouteRows(int from, int to, string routeId, GameActionType type)
+        private static int CountRouteRows(int from, int to, string routeId, RouteEventType type)
         {
             int count = 0;
-            if (Ledger.Actions == null) return 0;
-            for (int i = from; i < to && i < Ledger.Actions.Count; i++)
+            if (RouteEventLog.Events == null) return 0;
+            for (int i = from; i < to && i < RouteEventLog.Events.Count; i++)
             {
-                GameAction a = Ledger.Actions[i];
+                RouteEvent a = RouteEventLog.Events[i];
                 if (a == null) continue;
                 if (a.Type != type) continue;
                 if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;

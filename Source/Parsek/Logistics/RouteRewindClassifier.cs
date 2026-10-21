@@ -7,8 +7,8 @@ namespace Parsek.Logistics
     /// <summary>
     /// Timeline-derived pause state for a kept route at a rewind cutoff,
     /// computed by <see cref="RouteRewindClassifier.DeriveTimelineStatus"/>
-    /// from the KEPT (post-Rec-1-retire) <see cref="GameActionType.RoutePaused"/>
-    /// / <see cref="GameActionType.RouteResumed"/> ledger rows.
+    /// from the KEPT (post-Rec-1-retire) <see cref="RouteEventType.RoutePaused"/>
+    /// / <see cref="RouteEventType.RouteResumed"/> route events.
     /// </summary>
     internal enum RouteTimelineStatus
     {
@@ -18,11 +18,11 @@ namespace Parsek.Logistics
         NoMarker = 0,
 
         /// <summary>The latest kept marker at/before the cutoff is
-        /// <see cref="GameActionType.RoutePaused"/>.</summary>
+        /// <see cref="RouteEventType.RoutePaused"/>.</summary>
         Paused = 1,
 
         /// <summary>The latest kept marker at/before the cutoff is
-        /// <see cref="GameActionType.RouteResumed"/>.</summary>
+        /// <see cref="RouteEventType.RouteResumed"/>.</summary>
         Active = 2,
     }
 
@@ -107,7 +107,7 @@ namespace Parsek.Logistics
         /// forward-looking cycle state after a rewind, fixing the stale-cursor
         /// bug (plan section 1): without this, the loop-clock crossing detector
         /// compares against abandoned-future observations and silently swallows
-        /// re-flown cycles whose Rec-1-retired ledger rows then never re-emit.
+        /// re-flown cycles whose Rec-1-retired route events then never re-emit.
         ///
         /// <para>Resets the loop cursors unconditionally (mirrors the
         /// <c>TryActivate</c> reset discipline: -1 means the first post-rewind
@@ -124,7 +124,7 @@ namespace Parsek.Logistics
         /// Active), and holds / partial reports stamped after the cutoff.
         /// <see cref="Route.CompletedCycles"/> / <see cref="Route.SkippedCycles"/>
         /// are NOT touched here: the rewind seam reconstructs them from the
-        /// kept ledger rows via <see cref="ReconstructCycleCounters"/> right
+        /// kept route events via <see cref="ReconstructCycleCounters"/> right
         /// after this reconcile.</para>
         /// </summary>
         /// <returns>True when anything changed (for batch counting).</returns>
@@ -203,7 +203,7 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Reason prefix stamped on AUTO-emitted <see cref="GameActionType.RoutePaused"/>
+        /// Reason prefix stamped on AUTO-emitted <see cref="RouteEventType.RoutePaused"/>
         /// rows (source-validity flips in <c>RouteStore.RevalidateSources</c>;
         /// the emitters live in the dormant-UI slice - the PREFIX string, not
         /// their code, is the stable contract). Auto rows describe source
@@ -222,7 +222,7 @@ namespace Parsek.Logistics
         /// ordinal). A null/empty reason is treated as PLAYER intent for
         /// backward compatibility with legacy rows.
         /// </summary>
-        private static bool IsAutoLifecycleRow(GameAction a)
+        private static bool IsAutoLifecycleRow(RouteEvent a)
         {
             string reason = a.RouteEndpointReason;
             if (string.IsNullOrEmpty(reason))
@@ -233,9 +233,9 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// Derives a KEPT route's timeline-correct pause state at a rewind
-        /// cutoff from the KEPT ledger rows (route-timeline events): the LATEST
-        /// PLAYER-DRIVEN <see cref="GameActionType.RoutePaused"/> /
-        /// <see cref="GameActionType.RouteResumed"/> row for
+        /// cutoff from the KEPT route events (route-timeline events): the LATEST
+        /// PLAYER-DRIVEN <see cref="RouteEventType.RoutePaused"/> /
+        /// <see cref="RouteEventType.RouteResumed"/> row for
         /// <paramref name="routeId"/> wins.
         ///
         /// <para><b>Auto rows are skipped entirely:</b> rows whose reason
@@ -254,7 +254,7 @@ namespace Parsek.Logistics
         /// the post-Rec-1-retire list, so every route-typed row in it already
         /// satisfies UT &lt;= cutoff — no cutoff parameter is needed. Ordering:
         /// higher UT wins; ties at the same UT resolve by higher
-        /// <see cref="GameAction.Sequence"/> (a RouteResumed and a RoutePaused
+        /// <see cref="RouteEvent.Sequence"/> (a RouteResumed and a RoutePaused
         /// at identical UT+Sequence are not producible by the emitters; list
         /// order breaks that degenerate tie). Returns
         /// <see cref="RouteTimelineStatus.NoMarker"/> when the route has no
@@ -262,7 +262,7 @@ namespace Parsek.Logistics
         ///
         /// <para><b>Resume-needs-a-recorded-pause gate:</b> a derived Active
         /// verdict is only returned when at least one kept PLAYER-DRIVEN
-        /// <see cref="GameActionType.RoutePaused"/> row exists for the route
+        /// <see cref="RouteEventType.RoutePaused"/> row exists for the route
         /// (a resume must resume something recorded; auto pause rows do not
         /// satisfy the gate because they are skipped from the scan). Otherwise the resume
         /// row proves the route WAS paused at some marker-less point (a
@@ -277,7 +277,7 @@ namespace Parsek.Logistics
         /// Pure: null lists / null entries tolerated.
         /// </summary>
         internal static RouteTimelineStatus DeriveTimelineStatus(
-            string routeId, IReadOnlyList<GameAction> keptActions)
+            string routeId, IReadOnlyList<RouteEvent> keptActions)
         {
             if (string.IsNullOrEmpty(routeId) || keptActions == null)
                 return RouteTimelineStatus.NoMarker;
@@ -290,24 +290,24 @@ namespace Parsek.Logistics
 
             for (int i = 0; i < keptActions.Count; i++)
             {
-                GameAction a = keptActions[i];
+                RouteEvent a = keptActions[i];
                 if (a == null || !string.Equals(a.RouteId, routeId, StringComparison.Ordinal))
                     continue;
-                if (a.Type != GameActionType.RoutePaused && a.Type != GameActionType.RouteResumed)
+                if (a.Type != RouteEventType.RoutePaused && a.Type != RouteEventType.RouteResumed)
                     continue;
                 // Auto lifecycle rows (source-validity flips) carry no player
                 // intent: skip them BEFORE the pause-row gate and the
                 // latest-marker scan, so the latest PLAYER row wins.
                 if (IsAutoLifecycleRow(a))
                     continue;
-                if (a.Type == GameActionType.RoutePaused)
+                if (a.Type == RouteEventType.RoutePaused)
                     anyPausedRow = true;
                 if (found && (a.UT < bestUT || (a.UT == bestUT && a.Sequence < bestSeq)))
                     continue;
                 found = true;
                 bestUT = a.UT;
                 bestSeq = a.Sequence;
-                best = a.Type == GameActionType.RoutePaused
+                best = a.Type == RouteEventType.RoutePaused
                     ? RouteTimelineStatus.Paused
                     : RouteTimelineStatus.Active;
             }
@@ -416,7 +416,7 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// Parses the cycle ordinal from a <c>cycle-N</c> style
-        /// <see cref="GameAction.RouteCycleId"/>: the numeric suffix after the
+        /// <see cref="RouteEvent.RouteCycleId"/>: the numeric suffix after the
         /// LAST '-'. Returns false for null/empty ids, ids without a dash, or
         /// non-numeric suffixes (unparseable ids are ignored by
         /// <see cref="ReconstructCycleCounters"/>).
@@ -436,10 +436,10 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// Best-effort reconstruction of a KEPT route's cycle counters from the
-        /// kept ledger rows at the rewind seam (fixes the documented cosmetic
+        /// kept route events at the rewind seam (fixes the documented cosmetic
         /// counter-inflation residual). Let <c>maxOrdinal</c> be the highest
         /// ordinal parsed from the route's kept
-        /// <see cref="GameActionType.RouteDispatched"/> rows' cycle ids
+        /// <see cref="RouteEventType.RouteDispatched"/> rows' cycle ids
         /// (unparseable ids ignored). If NO kept dispatch rows exist, both
         /// counters reset to 0. Otherwise the target depends on whether the
         /// route retained a KEPT IN-FLIGHT cycle
@@ -453,7 +453,7 @@ namespace Parsek.Logistics
         /// <c>cycle-{Completed + Skipped}</c>, so the sum must land ON
         /// <c>maxOrdinal</c> or a straddling multi-stop cycle re-fires its
         /// already-delivered window under a NEW id, misses the kept row in the
-        /// per-window ELS dedup, and double-delivers cargo.
+        /// per-window event-log dedup, and double-delivers cargo.
         /// <see cref="Route.CompletedCycles"/> = distinct delivered kept cycle
         /// ids EXCLUDING the in-flight cycle's own id (its kept delivered rows
         /// are earlier windows of an incomplete cycle, not a completed one);
@@ -474,7 +474,7 @@ namespace Parsek.Logistics
         /// Returns true when either counter changed.
         /// </summary>
         internal static bool ReconstructCycleCounters(
-            Route route, IReadOnlyList<GameAction> keptActions)
+            Route route, IReadOnlyList<RouteEvent> keptActions)
         {
             if (route == null)
                 return false;
@@ -488,10 +488,10 @@ namespace Parsek.Logistics
             {
                 for (int i = 0; i < keptActions.Count; i++)
                 {
-                    GameAction a = keptActions[i];
+                    RouteEvent a = keptActions[i];
                     if (a == null || !string.Equals(a.RouteId, route.Id, StringComparison.Ordinal))
                         continue;
-                    if (a.Type == GameActionType.RouteDispatched)
+                    if (a.Type == RouteEventType.RouteDispatched)
                     {
                         anyDispatchRows = true;
                         if (TryParseCycleOrdinal(a.RouteCycleId, out int ord) && ord > maxOrdinal)
@@ -500,7 +500,7 @@ namespace Parsek.Logistics
                             maxOrdinalCycleId = a.RouteCycleId;
                         }
                     }
-                    else if (a.Type == GameActionType.RouteCargoDelivered
+                    else if (a.Type == RouteEventType.RouteCargoDelivered
                         && !string.IsNullOrEmpty(a.RouteCycleId))
                     {
                         if (deliveredCycleIds == null)
@@ -628,7 +628,7 @@ namespace Parsek.Logistics
         /// resolves re-link vs sever). Mutates and returns the same instance.
         ///
         /// <para>Rationale: the abandoned future's counters and anchors
-        /// describe cycles the surviving timeline never ran (their ledger rows
+        /// describe cycles the surviving timeline never ran (their route events
         /// were Rec-1-retired); a stale cursor against a rebased loop clock
         /// silently swallows or mass-fires cycles. Materializing
         /// <see cref="RouteStatus.Paused"/> matches routes-are-created-Paused
@@ -697,11 +697,11 @@ namespace Parsek.Logistics
         /// rewind exits, <c>RestoreLoopPositionFromSave</c> on an in-session load),
         /// which the cursor reset needs to avoid a double fire.</para>
         ///
-        /// <para><b>OnLoad-safe:</b> emits NO ledger actions (only Route
+        /// <para><b>OnLoad-safe:</b> emits NO route events (only Route
         /// instance mutation, escrow drop, list install, and logging), so the
         /// go-back caller can run it inside <c>OnLoad</c>.
-        /// <paramref name="keptActions"/> is the POST-retire ledger list
-        /// (every route row already satisfies UT &lt;= cutoff); null is
+        /// <paramref name="keptActions"/> is the POST-retire route event list
+        /// (every event already satisfies UT &lt;= cutoff); null is
         /// tolerated (treated as empty).
         /// <paramref name="logTag"/>/<paramref name="logPrefix"/> keep each
         /// caller's log lines grep-stable ("ReconciliationBundle"/"Restore"
@@ -711,7 +711,7 @@ namespace Parsek.Logistics
             IReadOnlyList<Route> capturedCommitted,
             IReadOnlyList<Route> capturedDormant,
             double cutoffUT,
-            IReadOnlyList<GameAction> keptActions,
+            IReadOnlyList<RouteEvent> keptActions,
             string logTag,
             string logPrefix)
         {
@@ -750,8 +750,8 @@ namespace Parsek.Logistics
             // flags (they cannot be timestamped, so they never survive
             // time travel), and reconstruct the cycle counters from the
             // kept dispatch/delivery rows.
-            IReadOnlyList<GameAction> keptRows =
-                keptActions ?? (IReadOnlyList<GameAction>)Array.Empty<GameAction>();
+            IReadOnlyList<RouteEvent> keptRows =
+                keptActions ?? (IReadOnlyList<RouteEvent>)Array.Empty<RouteEvent>();
             int derivedPaused = 0;
             int derivedActive = 0;
             int oneShotFlagsCleared = 0;

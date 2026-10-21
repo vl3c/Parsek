@@ -46,13 +46,13 @@ namespace Parsek.Logistics
         internal const double SurfaceProximityRadiusMeters = 500.0;
 
         /// <summary>
-        /// (M4a A3) Per-window <see cref="GameAction.Sequence"/> stride. Under
+        /// (M4a A3) Per-window <see cref="RouteEvent.Sequence"/> stride. Under
         /// Horn A a multi-stop cycle fires N windows under ONE cycleId, so the
         /// fixed intra-window order (RouteDispatched 0 / RouteCargoDebited 1 /
         /// RouteCargoPickedUp 2 / RouteCargoDelivered 3) is NOT unique across
         /// windows. Each window's rows are offset by
         /// <c>stopIndex * SEQ_STRIDE + intraSeq</c> so <c>(UT, Sequence)</c> stays
-        /// a TOTAL order across windows (replay-stability + the ledger dedup
+        /// a TOTAL order across windows (replay-stability + the event-log dedup
         /// equality). Stride 8 (&gt;= 4 to cover the four intra-window types with
         /// headroom). A single-stop route fires only stop 0, so its sequences stay
         /// 0/1/2/3 -- byte-identical to the pre-A3 fixed values.
@@ -137,7 +137,7 @@ namespace Parsek.Logistics
             route.PauseAfterCurrentCycle = true;
             // Route-timeline events: persist the Send Once provenance so (a) the UI
             // "Sending one cycle" state survives save/reload and (b) the dispatched
-            // ledger row is stamped RouteSendOnce, bracketing the one-shot run in
+            // route event is stamped RouteSendOnce, bracketing the one-shot run in
             // the timeline together with the auto-pause row that follows delivery.
             route.SendOnceArmed = true;
 
@@ -198,7 +198,7 @@ namespace Parsek.Logistics
             // loop-route restarts cycle observation: -1 means "no cycle observed
             // yet", so the FIRST post-activate crossing fires. The field persists
             // through the codec so a save/reload mid-cycle does NOT double-fire
-            // (ELS is the backstop). LoopAnchorUT capture-on-activate (plan Phase 5
+            // (the event log is the backstop). LoopAnchorUT capture-on-activate (plan Phase 5
             // task 1: "set route.LoopAnchorUT on activate") is set here for the
             // Paused->Activate path; RouteBuilder seeds it for create-Active. It is
             // the loop clock's phase anchor (RouteBackingMission.BuildMission copies it
@@ -239,7 +239,7 @@ namespace Parsek.Logistics
             // Route-timeline events: the durable resume marker. Recorded explicitly
             // because the next RouteDispatched row can be arbitrarily far away (or
             // never come, on a route that blocks on eligibility after resume).
-            EmitRouteLifecycleMarker(route, currentUT, GameActionType.RouteResumed, "player-activate");
+            EmitRouteLifecycleMarker(route, currentUT, RouteEventType.RouteResumed, "player-activate");
             ParsekLog.Info(Tag,
                 $"TryActivate: route={ShortIdForLog(route)} now Active " +
                 $"nextDispatchUT={route.NextDispatchUT.ToString("R", IC)} " +
@@ -283,7 +283,7 @@ namespace Parsek.Logistics
         /// <summary>
         /// UT-injected pause used by unit tests, and the implementation the
         /// parameterless <see cref="TryPause(Route)"/> delegates to with the live
-        /// UT. <paramref name="currentUT"/> stamps the <see cref="GameActionType.RoutePaused"/>
+        /// UT. <paramref name="currentUT"/> stamps the <see cref="RouteEventType.RoutePaused"/>
         /// marker row.
         /// </summary>
         internal static bool TryPause(Route route, double currentUT)
@@ -329,7 +329,7 @@ namespace Parsek.Logistics
             route.PauseAfterCurrentCycle = false;
             // A pending Send Once one-shot is cleared by an explicit pause. This path
             // still writes its RoutePaused marker below; taking back an undispatched
-            // Send without any ledger row is TryCancelSendOnce.
+            // Send without any route event is TryCancelSendOnce.
             if (route.SendOnceArmed)
             {
                 route.SendOnceArmed = false;
@@ -337,9 +337,9 @@ namespace Parsek.Logistics
                     $"TryPause: route={ShortIdForLog(route)} cleared pending Send Once arm");
             }
             route.TransitionTo(RouteStatus.Paused, "player-pause");
-            // Route-timeline events: record the pause point so the ledger timeline
+            // Route-timeline events: record the pause point so the route event timeline
             // carries the player's pause history (retired at rewind past it).
-            EmitRouteLifecycleMarker(route, currentUT, GameActionType.RoutePaused, "player-pause");
+            EmitRouteLifecycleMarker(route, currentUT, RouteEventType.RoutePaused, "player-pause");
             return true;
         }
 
@@ -348,9 +348,9 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// Player "Cancel" on a Send-armed route whose run has not launched: undoes the
-        /// arm and returns the route to Paused, writing NO ledger row. Arming wrote none
+        /// arm and returns the route to Paused, writing NO route event. Arming wrote none
         /// either (<see cref="TrySendOneCycleNow"/> only flips fields; the dispatch row is
-        /// stamped when the run fires), so a cancelled Send leaves the ledger, and the
+        /// stamped when the run fires), so a cancelled Send leaves the route event log, and the
         /// Route History built from it, exactly as before the arm. The Logistics window
         /// offers Send only on a Paused route, so Paused is the state the arm left.
         /// Refuses (false, Info-logged) a null route, a route with no pending Send arm,
@@ -385,7 +385,7 @@ namespace Parsek.Logistics
             route.TransitionTo(RouteStatus.Paused, SendOnceCancelledReason);
             ParsekLog.Info(Tag,
                 $"TryCancelSendOnce: route={ShortIdForLog(route)} Send arm taken back before launch; " +
-                "route Paused, no ledger row written");
+                "route Paused, no route event written");
             return true;
         }
 
@@ -906,7 +906,7 @@ namespace Parsek.Logistics
             // LastObservedLoopCycleIndex forward to dockCycleIndex (do NOT replay
             // each skipped cycle). A single warp frame that jumps past the recorded
             // dock still fires exactly once for the highest cycle whose dock instant
-            // has passed. ELS (routeId, cycleId) idempotency is the backstop if a
+            // has passed. Event-log (routeId, cycleId) idempotency is the backstop if a
             // save/reload or a double-tick re-fires the same cycleId.
             long jump = dockCycleIndex - route.LastObservedLoopCycleIndex;
             if (jump > 1)
@@ -944,7 +944,7 @@ namespace Parsek.Logistics
                         // D4: a modulo-SKIPPED window advances the marker and
                         // NOTHING else. No SkippedCycles bump (scheduled behavior,
                         // not a failure; cycleId uniqueness is per FIRED cycle
-                        // only), no hold, no ledger rows, no escrow, no
+                        // only), no hold, no route events, no escrow, no
                         // partner-alternation advance.
                         route.LastObservedLoopCycleIndex = dockCycleIndex;
                         skipped++;
@@ -1025,11 +1025,11 @@ namespace Parsek.Logistics
             route.ClearHold("crossing-eligible");
 
             // Confirmed crossing + eligible: emit the FULL cycle (must-fix #1).
-            // Returns false on the ELS-replay backstop (nothing emitted) so the
+            // Returns false on the event-log replay backstop (nothing emitted) so the
             // log line below distinguishes a real fire from a replay no-op.
             bool emitted = EmitLoopCycle(route, currentUT, env, cycleId);
 
-            // Snap forward in BOTH cases (ELS idempotency is the backstop;
+            // Snap forward in BOTH cases (event-log idempotency is the backstop;
             // CompletedCycles was bumped inside EmitLoopCycle -> ApplyDelivery on
             // the fire path, or by the replay branch on the backstop path). Snap to
             // the dock-phase cycle (DEL-2), NOT the raw span-clock cycleIndex, so a
@@ -1042,7 +1042,7 @@ namespace Parsek.Logistics
                 // partner's current cycle so the route holds WaitingForPartner until
                 // the partner completes ANOTHER cycle (strict A->B->A alternation).
                 // Advance ONLY on a genuine fire (emitted true), NOT on the
-                // ELS-replay backstop below (a replay re-presents an already-consumed
+                // event-log replay backstop below (a replay re-presents an already-consumed
                 // cycle - re-advancing would skip a partner cycle).
                 AdvancePartnerAlternationOnDispatch(route, currentUT);
                 dispatched++;
@@ -1057,7 +1057,7 @@ namespace Parsek.Logistics
                 skipped++;
                 ParsekLog.Info(Tag,
                     $"LoopRoute: route {ShortIdForLog(route)} cycle={cycleId} replay backstop " +
-                    "(already in ledger) — emitted nothing; " +
+                    "(already logged) — emitted nothing; " +
                     $"snapped lastObserved={dockCycleIndex.ToString(IC)} completedCycles={route.CompletedCycles.ToString(IC)}");
             }
         }
@@ -1080,14 +1080,14 @@ namespace Parsek.Logistics
         /// dock), so a tick landing between dock A and dock B still fires window B
         /// on the next tick (it would otherwise see the cycle consumed). Warp:
         /// each due window fires ONCE for the highest passed dock cycle and snaps
-        /// forward; the per-stop guard + the dispatch ELS backstop keep it
+        /// forward; the per-stop guard + the dispatch event-log backstop keep it
         /// idempotent.</para>
         ///
         /// <para><b>Dispatch-once / eligibility.</b> Eligibility is checked once
         /// per cycle, the first tick a window of the cycle is due. A blocked cycle
         /// emits nothing, bumps <see cref="Route.SkippedCycles"/>, snaps every
         /// stop + the route marker forward to the cycle, and records the hold. The
-        /// dispatch half is gated by <see cref="IsDispatchAlreadyInLedger"/> on the
+        /// dispatch half is gated by <see cref="IsDispatchAlreadyLogged"/> on the
         /// cycle's first-window stop index, so the second tick (window B's) does NOT
         /// re-dispatch.</para>
         ///
@@ -1127,7 +1127,7 @@ namespace Parsek.Logistics
             // tick" - so a partial-cycle resume (window 0 fired + persisted; the
             // resume tick has only window 1 due) does NOT re-dispatch under a
             // different stop index. The dispatch fires exactly once per cycleId,
-            // guarded by IsDispatchAlreadyInLedger on (cycleId, this carrier index).
+            // guarded by IsDispatchAlreadyLogged on (cycleId, this carrier index).
             const int dispatchCarrierStopIndex = 0;
 
             // max dock UT across the route's stops (the cycle's LAST dock).
@@ -1377,7 +1377,7 @@ namespace Parsek.Logistics
             // stop index (stop 0), so this is true on the SECOND tick of a multi-tick
             // cycle (window B) AND on a partial-cycle resume - the carrier index never
             // drifts to a later due window.
-            bool dispatchAlready = IsDispatchAlreadyInLedger(route.Id, cycleId, dispatchCarrierStopIndex);
+            bool dispatchAlready = IsDispatchAlreadyLogged(route.Id, cycleId, dispatchCarrierStopIndex);
 
             // Eligibility gates the cycle at DISPATCH only (OQ4: all-or-nothing is
             // at the source gate, NOT mid-cycle delivery). Once the cycle is
@@ -1451,7 +1451,7 @@ namespace Parsek.Logistics
 
                 // Dispatch half (once per cycle): origin debit + the
                 // RouteDispatched/RouteCargoDebited pair under the cycle's carrier
-                // stop index. The dispatch ELS guard suppresses a re-dispatch on the
+                // stop index. The dispatch event-log guard suppresses a re-dispatch on the
                 // SECOND tick (window B) / on a save-reload resume.
                 EmitDispatchDebit(route, currentUT, env, cycleId,
                     applyPhysicalOriginDebit: true, dispatchStopIndex: dispatchCarrierStopIndex);
@@ -1478,7 +1478,7 @@ namespace Parsek.Logistics
             }
             else
             {
-                // Cycle already committed (dispatch in the ledger): fire only the due
+                // Cycle already committed (dispatch in the route event log): fire only the due
                 // window(s), no eligibility re-gate. The crossing is eligible by
                 // construction (the cycle dispatched), so clear any stale hold.
                 route.ClearHold("crossing-eligible");
@@ -1495,13 +1495,13 @@ namespace Parsek.Logistics
 
                 ParsekLog.Verbose(Tag,
                     $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} cMin={cMin.ToString(IC)} " +
-                    $"dispatch already in ledger (committed) - firing only the due window(s), no re-gate");
+                    $"dispatch already logged - firing only the due window(s), no re-gate");
             }
 
             // Fire each DUE window of cMin's pickup (+ delivery), in DockUT order.
             // Each window carries its OWN stop index (drives ResolveCycleStop +
             // RouteHas*Manifest via PendingStopIndex, the Sequence stride, and the
-            // per-window delivery ELS guard). No window bumps CompletedCycles — the
+            // per-window delivery event-log guard). No window bumps CompletedCycles — the
             // once-per-cycle bump fires below when the last dock is reached.
             int firedWindows = 0;
             for (int d = 0; d < dueStopIndex.Count; d++)
@@ -1797,7 +1797,7 @@ namespace Parsek.Logistics
             // window's source debit now fires here via EmitPickupHalf (PendingStopIndex
             // is driven to THIS window's stop index by the caller, so ResolveCycleStop
             // resolves THIS stop's PickupManifest), under the windowed C-2 replay key
-            // IsPickupAlreadyInLedger((RouteId, cycleId, stopIndex)) - so a >1
+            // IsPickupAlreadyLogged((RouteId, cycleId, stopIndex)) - so a >1
             // source-debiting (pickup) multi-window run fires each window's source
             // debit at its own dock phase, idempotent per window across reload. The
             // single bidirectional M3a window is byte-behaviour-identical (its single
@@ -1811,7 +1811,7 @@ namespace Parsek.Logistics
             }
 
             // Delivery half (endpoint CREDIT). Skip for a stop with no delivery
-            // manifest (the per-window ELS guard inside ApplyDelivery keys on
+            // manifest (the per-window event-log guard inside ApplyDelivery keys on
             // (routeId, cycleId, stopIndex), so window 0's row never suppresses
             // window 1). bumpCompletedCycle=false for EVERY multi-stop window — the
             // cycle-complete bump is fired once by the caller.
@@ -1849,8 +1849,8 @@ namespace Parsek.Logistics
         /// by what this route reserved. Reserve is the SUMMED amount per pid so it nets
         /// to zero once every pickup window of the cycle releases its own portion.
         ///
-        /// <para>Pure RAM (no ledger row); the per-cycle reserve is idempotent in
-        /// practice because dispatch fires exactly once per cycle (the carrier-stop ELS
+        /// <para>Pure RAM (no route event); the per-cycle reserve is idempotent in
+        /// practice because dispatch fires exactly once per cycle (the carrier-stop event-log
         /// guard), so this runs once per cycle. A delivery-only route reserves nothing.
         /// On an unresolved pickup source the build returns false and nothing is
         /// reserved (the eligibility gate already held the cycle; reserving a partial
@@ -1939,7 +1939,7 @@ namespace Parsek.Logistics
         /// "the reserve is recomputed from pending route state on the next Tick".
         /// After a within-game scene switch (<c>ClearAllEscrow</c>) or a reload
         /// (escrow is RAM-only) lands MID-cycle, the cycle resumes with its dispatch
-        /// already in the ledger, so <see cref="ReserveCycleEscrow(Route, double, IRouteRuntimeEnvironment, string)"/>
+        /// already in the route event log, so <see cref="ReserveCycleEscrow(Route, double, IRouteRuntimeEnvironment, string)"/>
         /// at dispatch does NOT re-run and the un-fired window's hold would be silently
         /// lost - a competing route could then drain the source in the gap (violating
         /// 19.2.5 strand-protection). This re-reserves ONLY the windows of cycle
@@ -2023,7 +2023,7 @@ namespace Parsek.Logistics
         /// escrow is RAM-only). Runs before any route is processed and does not need
         /// the route's loop unit or a due window, so the hold is back before a
         /// competing route can gate on the source in the dispatch-to-window gap.
-        /// Cheap checks first; the ledger read (the cycle's dispatch row, which proves
+        /// Cheap checks first; the event-log read (the cycle's dispatch row, which proves
         /// the cycle is open under <c>cycle-{C+S}</c>) runs only for a route that is in
         /// flight AND holds no escrow. Idempotent through
         /// <see cref="ReEstablishEscrowForUnfiredWindows"/>'s HasEscrow guard.
@@ -2052,7 +2052,7 @@ namespace Parsek.Logistics
                 {
                     string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles).ToString(IC);
                     // 0 = the cycle-stable dispatch carrier stop index ProcessMultiStopCrossings writes.
-                    if (!IsDispatchAlreadyInLedger(route.Id, cycleId, 0))
+                    if (!IsDispatchAlreadyLogged(route.Id, cycleId, 0))
                     {
                         ParsekLog.VerboseRateLimited(Tag, "escrow-prepass-nodispatch-" + route.Id,
                             $"ReEstablishInFlightCycleEscrow: route {ShortIdForLog(route)} cycle={cycleId} " +
@@ -2560,14 +2560,14 @@ namespace Parsek.Logistics
         /// debit + <c>RouteDispatched</c> + a vessel origin's <c>RouteCargoDebited</c>)
         /// FOLLOWED BY the delivery half
         /// (<see cref="ApplyDelivery"/> — <c>RouteCargoDelivered</c>), with NO
-        /// InTransit state. The ledger row UTs are game-time
+        /// InTransit state. The route event UTs are game-time
         /// <paramref name="currentUT"/>.
         ///
         /// <para><b>Why both halves.</b> Calling <see cref="ApplyDelivery"/> alone
-        /// would never debit origin and would trip
-        /// <c>RouteModule.ProcessCargoDelivered</c>'s out-of-order guard
-        /// (DispatchedCycles == 0 -> Warn + return). The dispatch-debit half emits
-        /// <c>RouteDispatched</c> FIRST (Sequence 0) so the ledger walker sees the
+        /// would never debit origin, and the event-log readers (the rewind counter
+        /// reconstruction, Route History) would see a delivery with no dispatch.
+        /// The dispatch-debit half emits
+        /// <c>RouteDispatched</c> FIRST (Sequence 0) so the event-log reader sees the
         /// dispatch before the delivery at the same UT.</para>
         ///
         /// <para><b>cycleId alignment.</b> <see cref="EmitDispatchDebit"/> uses the
@@ -2575,7 +2575,7 @@ namespace Parsek.Logistics
         /// recomputes <c>cycle-{Completed+Skipped}</c> internally, which equals
         /// <paramref name="cycleId"/> because neither half increments those
         /// counters before delivery runs. ApplyDelivery's idempotency guard
-        /// (<see cref="IsDeliveryAlreadyInLedger"/>) and its CompletedCycles bump
+        /// (<see cref="IsDeliveryAlreadyLogged"/>) and its CompletedCycles bump
         /// are reused VERBATIM.</para>
         ///
         /// <para><b>PendingStopIndex.</b> v0 routes are single-stop; ApplyDelivery
@@ -2584,13 +2584,13 @@ namespace Parsek.Logistics
         /// -1 — no InTransit hand-off state is involved.</para>
         ///
         /// <para>Returns <c>true</c> when the full cycle was emitted, <c>false</c>
-        /// on the ELS-replay backstop (nothing emitted) so the caller's log line
+        /// on the event-log replay backstop (nothing emitted) so the caller's log line
         /// stays accurate.</para>
         /// </summary>
         internal static bool EmitLoopCycle(
             Route route, double currentUT, IRouteRuntimeEnvironment env, string cycleId)
         {
-            // ELS idempotency backstop (must-fix #4 + M3 OQ4 re-key).
+            // event-log idempotency backstop (must-fix #4 + M3 OQ4 re-key).
             // LastObservedLoopCycleIndex (persisted via the Phase 1 codec) is the
             // PRIMARY re-fire guard, but a save/reload mid-cycle, a Rewind, or a
             // double-tick can re-present the SAME cycleId. EmitDispatchDebit has no
@@ -2610,25 +2610,25 @@ namespace Parsek.Logistics
             // EmitMultiStopWindow). Its dispatch row carries the v0 sentinel stop
             // index -1, so the re-keyed dispatch guard is checked against -1
             // (byte-identical to pre-A3: one dispatch per cycle, stopIndex -1).
-            if (IsDispatchAlreadyInLedger(route.Id, cycleId, -1))
+            if (IsDispatchAlreadyLogged(route.Id, cycleId, -1))
             {
                 // Mirror ApplyDelivery's replay branch: bump CompletedCycles so the
                 // NEXT cycle's id (cycle-{Completed+Skipped}) advances past this
                 // already-dispatched one. PRESERVE this bump (OQ4): without it a
                 // pickup-only route's next crossing would recompute the same
-                // already-in-ledger cycleId and replay-skip FOREVER (the route would
+                // already-logged cycleId and replay-skip FOREVER (the route would
                 // render but never pick up / deliver again).
                 route.CompletedCycles += 1;
                 ParsekLog.Verbose(Tag,
                     $"EmitLoopCycle: route {ShortIdForLog(route)} cycle={cycleId} " +
-                    $"already in ledger (replay, dispatch-keyed) - emitting nothing, bumped " +
+                    $"already logged (replay, dispatch-keyed) - emitting nothing, bumped " +
                     $"completedCycles={route.CompletedCycles.ToString(IC)}");
                 return false;
             }
 
             // Dispatch + debit half (RouteDispatched Sequence 0, a vessel origin's
             // RouteCargoDebited Sequence 1 and its origin debit). The loop
-            // crossing is the recorded dock phase and sits behind the ELS replay
+            // crossing is the recorded dock phase and sits behind the event-log replay
             // backstop above, so this is the ONLY caller that applies the M1
             // physical origin debit (design D11).
             EmitDispatchDebit(route, currentUT, env, cycleId, applyPhysicalOriginDebit: true);
@@ -2761,13 +2761,12 @@ namespace Parsek.Logistics
         /// endpoint via <see cref="ApplyPickupDebit"/> (the Phase 3 reusable
         /// per-window endpoint debit, routed through the
         /// <see cref="PickupDebitApplierForTesting"/> seam), and emits ONE
-        /// <see cref="GameActionType.RouteCargoPickedUp"/> row carrying the ACTUAL
+        /// <see cref="RouteEventType.RouteCargoPickedUp"/> row carrying the ACTUAL
         /// debited manifest, the requested-on-shortfall manifest, and the endpoint
         /// pid. The row's <c>Sequence</c> is 2 - AFTER <c>RouteDispatched</c> (Seq0)
         /// and <c>RouteCargoDebited</c> (Seq1) emitted by
-        /// <see cref="EmitDispatchDebit"/> - so the ledger walker (and the
-        /// <c>RouteModule</c> out-of-order guard) sees dispatch before the pickup at
-        /// the shared UT. A pickup debits its physical source (D6). Reuses the same loaded-gate-per-vessel capture and
+        /// <see cref="EmitDispatchDebit"/> - so an event-log reader sorting by
+        /// (UT, Sequence) sees dispatch before the pickup at the shared UT. A pickup debits its physical source (D6). Reuses the same loaded-gate-per-vessel capture and
         /// unresolved-at-emit honest-bookkeeping rules as the M1 origin debit (via
         /// <see cref="ApplyPickupDebit"/>).
         /// </summary>
@@ -2788,21 +2787,21 @@ namespace Parsek.Logistics
             int pickupStopIndex = route.PendingStopIndex >= 0 ? route.PendingStopIndex : 0;
 
             // C-2 (defense-in-depth): per-window pickup replay backstop. The pickup
-            // half PHYSICALLY debits the source, so a cursor/ledger desync of the
+            // half PHYSICALLY debits the source, so a cursor/event-log desync of the
             // BLOCKER-1 class (a window re-presented under a frozen cycleId) could
-            // otherwise double-debit a refinery/depot. The dispatch ELS guard +
+            // otherwise double-debit a refinery/depot. The dispatch event-log guard +
             // per-stop LastFiredCycleIndex already prevent normal re-presentation;
             // this row-keyed guard makes a double-debit IMPOSSIBLE even if those are
             // out-flanked. Symmetric with the delivery guard (STEP 1 of
             // ApplyDelivery): if THIS (routeId, cycleId, stopIndex) pickup row is
-            // already in the ELS, emit NOTHING (no second physical debit, no second
+            // already in the event log, emit NOTHING (no second physical debit, no second
             // row). Single-stop / legacy never double-fires (the dispatch backstop),
             // so this never trips for it - byte-identical there.
-            if (IsPickupAlreadyInLedger(route.Id, cycleId, pickupStopIndex))
+            if (IsPickupAlreadyLogged(route.Id, cycleId, pickupStopIndex))
             {
                 ParsekLog.Verbose(Tag,
                     $"PickupHalf: route {ShortIdForLog(route)} cycle={cycleId} " +
-                    $"stop={pickupStopIndex.ToString(IC)} replay detected — already in ledger, " +
+                    $"stop={pickupStopIndex.ToString(IC)} replay detected — already logged, " +
                     "skipping physical debit + row (C-2 backstop)");
                 return;
             }
@@ -2865,9 +2864,9 @@ namespace Parsek.Logistics
             // resource AND the inventory picked-up manifests (D7). Zero actuals in
             // either dimension serialize as no manifest. pickupStopIndex was resolved
             // at the top of this method (the same value the C-2 backstop keyed on).
-            var pickedUpAction = new GameAction
+            var pickedUpAction = new RouteEvent
             {
-                Type = GameActionType.RouteCargoPickedUp,
+                Type = RouteEventType.RouteCargoPickedUp,
                 UT = currentUT,
                 RouteId = route.Id,
                 RouteCycleId = cycleId,
@@ -2885,7 +2884,7 @@ namespace Parsek.Logistics
                     ? pickup.OriginVesselPid
                     : inventoryPickup.EndpointVesselPid,
             };
-            Ledger.AddAction(pickedUpAction);
+            RouteEventLog.Add(pickedUpAction);
 
             ParsekLog.Info(Tag,
                 $"PickupHalf: route {ShortIdForLog(route)} cycle={cycleId} " +
@@ -2905,7 +2904,7 @@ namespace Parsek.Logistics
         /// path consults this). Production leaves it null so
         /// <see cref="EmitLoopCycle"/> calls <see cref="ApplyDelivery"/> verbatim
         /// (which needs a live <c>Vessel</c>). xUnit assigns a fake that emits a
-        /// <see cref="GameActionType.RouteCargoDelivered"/> row + bumps
+        /// <see cref="RouteEventType.RouteCargoDelivered"/> row + bumps
         /// <c>CompletedCycles</c> so the three-row full-cycle fire is verifiable
         /// without Planetarium / Vessel / Funding statics.
         /// </summary>
@@ -2914,10 +2913,10 @@ namespace Parsek.Logistics
         /// <summary>
         /// (M4a A3) Test seam consulted INSIDE the real <see cref="ApplyDelivery"/>,
         /// AFTER its per-window idempotency guard (STEP 1,
-        /// <see cref="IsDeliveryAlreadyInLedger"/>) but BEFORE the live-Vessel
+        /// <see cref="IsDeliveryAlreadyLogged"/>) but BEFORE the live-Vessel
         /// resolution. Production leaves it null (the live delivery path runs). A
         /// multi-window xUnit test assigns a fake that emits a
-        /// <see cref="GameActionType.RouteCargoDelivered"/> row for the passed
+        /// <see cref="RouteEventType.RouteCargoDelivered"/> row for the passed
         /// (cycleId, stopIndex) so window 2's delivery is genuinely emitted through
         /// the REAL guard - a window-2-suppressed regression goes RED instead of
         /// false-green (the failure mode the plain <see cref="DeliveryApplierForTesting"/>
@@ -3193,14 +3192,14 @@ namespace Parsek.Logistics
         /// origin path returns (here <c>OriginVesselPid</c> carries the ENDPOINT
         /// pid). This is the helper the Phase 4 <c>EmitLoopCycle</c>
         /// two-direction applier calls per pickup window; it is NOT wired into
-        /// the loop path yet (Phase 4) and emits NO ledger row (the
+        /// the loop path yet (Phase 4) and emits NO route event (the
         /// <c>RouteCargoPickedUp</c> row + replay re-key are Phase 4).
         ///
         /// <para><b>Unresolved rule (mirrors <see cref="ApplyOriginDebit"/>):</b>
         /// a resolution that returns <c>false</c> OR returns <c>true</c> with a
         /// null vessel counts as UNRESOLVED: Warn, zero actuals, FULL requested
         /// manifest. Loop-path-only in spirit (M1 D11 parity); reversible via
-        /// the rewind quicksave + ELS replay keys when Phase 4 wires it in.</para>
+        /// the rewind quicksave + event-log replay keys when Phase 4 wires it in.</para>
         /// </summary>
         internal static OriginDebitOutcome ApplyPickupDebit(
             RouteEndpoint endpoint,
@@ -3507,15 +3506,15 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// Dispatch happy-path: emit
-        /// <see cref="GameActionType.RouteDispatched"/> (+ a vessel origin's
-        /// <see cref="GameActionType.RouteCargoDebited"/>) ledger rows,
+        /// <see cref="RouteEventType.RouteDispatched"/> (+ a vessel origin's
+        /// <see cref="RouteEventType.RouteCargoDebited"/>) route events,
         /// transition the route to <see cref="RouteStatus.InTransit"/>, and
         /// advance <c>NextDispatchUT</c>. <c>NextEligibilityCheckUT</c> is
         /// cleared because the route is no longer in a wait state.
         /// </summary>
         private static void ApplyDispatch(Route route, double currentUT, IRouteRuntimeEnvironment env)
         {
-            // Cycle id pins the dispatch + debit pair together in the ledger.
+            // Cycle id pins the dispatch + debit pair together in the route event log.
             // Format is "cycle-<N>" where N = total cycles ever started for this
             // route (completed + skipped — both increment past cycles even
             // though SkippedCycles is currently informational only).
@@ -3556,8 +3555,8 @@ namespace Parsek.Logistics
         /// EXTRACTED dispatch-debit body shared by the legacy self-timer path
         /// (<see cref="ApplyDispatch"/>) and the loop-clock path
         /// (<see cref="EmitLoopCycle"/>, plan Phase 4 must-fix #1). Emits the
-        /// <see cref="GameActionType.RouteDispatched"/> row and, for a vessel or
-        /// harvest origin, the <see cref="GameActionType.RouteCargoDebited"/> row
+        /// <see cref="RouteEventType.RouteDispatched"/> row and, for a vessel or
+        /// harvest origin, the <see cref="RouteEventType.RouteCargoDebited"/> row
         /// under the SAME <paramref name="cycleId"/>. A Space Center origin is
         /// free and debits nothing, so it writes no debit row (todo
         /// LOGISTICS-WITHOUT-MONEY). Does NOT mutate route status,
@@ -3566,9 +3565,8 @@ namespace Parsek.Logistics
         /// delivery in the same tick and snaps the cycle index). This is the
         /// origin-debit half that <see cref="ApplyDelivery"/> alone would
         /// SKIP, so the loop path must call BOTH (must-fix #1): calling delivery
-        /// alone never debits origin and trips
-        /// <c>RouteModule.ProcessCargoDelivered</c>'s out-of-order guard
-        /// (DispatchedCycles == 0).
+        /// alone never debits origin and leaves a delivery event with no
+        /// dispatch event for the event-log readers.
         ///
         /// <para><b>Physical origin debit (M1, design D11: LOOP-PATH-ONLY).</b>
         /// When <paramref name="applyPhysicalOriginDebit"/> is <c>true</c> and
@@ -3579,7 +3577,7 @@ namespace Parsek.Logistics
         /// ACTUAL removed amounts plus requested-on-shortfall and the origin
         /// pid. Only <see cref="EmitLoopCycle"/> passes <c>true</c>: the loop
         /// crossing IS the recorded dock phase (spec 19.2.5 rule 2) and sits
-        /// behind the ELS replay backstop. The legacy <see cref="ApplyDispatch"/>
+        /// behind the event-log replay backstop. The legacy <see cref="ApplyDispatch"/>
         /// path passes <c>false</c> - it fires at cycle start (not the dock
         /// phase) and has no replay backstop - keeping its rows byte-identical
         /// to v0 (unconditional <c>CostManifest</c> clone, no physical write).</para>
@@ -3653,9 +3651,9 @@ namespace Parsek.Logistics
             // RouteSendOnce stamp (route-timeline events) marks a cycle armed by
             // the player's Send Once one-shot so the individual run is
             // identifiable in the timeline.
-            var dispatchedAction = new GameAction
+            var dispatchedAction = new RouteEvent
             {
-                Type = GameActionType.RouteDispatched,
+                Type = RouteEventType.RouteDispatched,
                 UT = currentUT,
                 RouteId = route.Id,
                 RouteCycleId = cycleId,
@@ -3669,7 +3667,7 @@ namespace Parsek.Logistics
             // LOGISTICS-WITHOUT-MONEY).
             if (route.IsKscOrigin)
             {
-                Ledger.AddAction(dispatchedAction);
+                RouteEventLog.Add(dispatchedAction);
                 ParsekLog.Info(Tag,
                     $"DispatchDebit: route {ShortIdForLog(route)} cycle={cycleId} " +
                     $"ut={currentUT.ToString("R", IC)} space-center origin: dispatch row only " +
@@ -3686,9 +3684,9 @@ namespace Parsek.Logistics
             // requested-on-shortfall manifest and origin pid; on the legacy
             // path the v0 shape is preserved byte-identical
             // (unconditional CostManifest clone, no requested manifest, pid 0).
-            var debitedAction = new GameAction
+            var debitedAction = new RouteEvent
             {
-                Type = GameActionType.RouteCargoDebited,
+                Type = RouteEventType.RouteCargoDebited,
                 UT = currentUT,
                 RouteId = route.Id,
                 RouteCycleId = cycleId,
@@ -3715,7 +3713,7 @@ namespace Parsek.Logistics
                     : 0u,
             };
 
-            Ledger.AddActions(new[] { dispatchedAction, debitedAction });
+            RouteEventLog.AddRange(new[] { dispatchedAction, debitedAction });
 
             string physicalSuffix = physicalDebitApplied
                 ? $" originPid={originDebit.OriginVesselPid.ToString(IC)}" +
@@ -3789,11 +3787,11 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Emits a route lifecycle marker row (<see cref="GameActionType.RoutePaused"/> /
-        /// <see cref="GameActionType.RouteResumed"/>) so player pause/resume points are
+        /// Emits a route lifecycle marker row (<see cref="RouteEventType.RoutePaused"/> /
+        /// <see cref="RouteEventType.RouteResumed"/>) so player pause/resume points are
         /// recorded in the timeline (route-timeline events). Free-standing like every
-        /// route row; a rewind retires it via <c>RouteLedgerRetire</c> when it is
-        /// stamped after the cutoff. Skips with a Warn when the UT could not be
+        /// route event; a rewind retires it via <see cref="RouteEventRetire"/> when it
+        /// is stamped after the cutoff. Skips with a Warn when the UT could not be
         /// resolved (degenerate off-Unity context): a marker carrying a bogus UT would
         /// survive every rewind cutoff and misplace the event on the timeline. The
         /// guard treats 0 as unresolved too — some UI fallbacks surface 0 instead of
@@ -3801,12 +3799,12 @@ namespace Parsek.Logistics
         /// timeline position (the BUG-F cold-load lesson); no real route can exist
         /// at the very first instant of a save.
         /// <paramref name="emitter"/> is the test seam (mirrors
-        /// <c>ApplyDeliveryContext.LedgerEmitter</c>); null routes to
-        /// <see cref="Ledger.AddAction"/>.
+        /// <c>ApplyDeliveryContext.EventEmitter</c>); null routes to
+        /// <see cref="RouteEventLog.Add"/>.
         /// </summary>
         internal static void EmitRouteLifecycleMarker(
-            Route route, double currentUT, GameActionType type, string reason,
-            int sequence = 0, Action<GameAction> emitter = null)
+            Route route, double currentUT, RouteEventType type, string reason,
+            int sequence = 0, Action<RouteEvent> emitter = null)
         {
             if (currentUT <= 0.0)
             {
@@ -3817,7 +3815,7 @@ namespace Parsek.Logistics
                 return;
             }
 
-            var action = new GameAction
+            var action = new RouteEvent
             {
                 Type = type,
                 UT = currentUT,
@@ -3829,7 +3827,7 @@ namespace Parsek.Logistics
             if (emitter != null)
                 emitter(action);
             else
-                Ledger.AddAction(action);
+                RouteEventLog.Add(action);
 
             ParsekLog.Info(Tag,
                 $"LifecycleMarker: route {ShortIdForLog(route)} type={type} " +
@@ -3838,14 +3836,14 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Writes a <see cref="GameActionType.RouteHeld"/> ledger row for a held run when
+        /// Writes a <see cref="RouteEventType.RouteHeld"/> route event for a held run when
         /// its reason is new to the route's open hold episode (design doc section 6.7).
         /// Called right after <see cref="Route.RecordHold"/> at the three hold sites (the
         /// single-stop and multi-stop loop blocked branches and the legacy wait applier).
         ///
-        /// <para>The "already recorded?" check reads the EFFECTIVE LEDGER
+        /// <para>The "already recorded?" check reads the ROUTE EVENT LOG
         /// (<see cref="IsHoldReasonRecordedInOpenEpisode"/> over
-        /// <see cref="EffectiveState.ComputeELS"/>), never <c>Route.LastHold*</c>: the
+        /// <see cref="RouteEventLog.Events"/>), never <c>Route.LastHold*</c>: the
         /// rewind reconcile clears those fields while the episode's pre-cutoff Held row
         /// survives, and a stock revert never touches them, so a field compare would write
         /// a duplicate row after a rewind and miss a row after a revert. A row is written
@@ -3855,7 +3853,7 @@ namespace Parsek.Logistics
         /// <para>Skips with a rate-limited Warn when the live UT is unresolved (the same
         /// bogus-timeline-position guard as <see cref="EmitRouteLifecycleMarker"/>).
         /// <paramref name="els"/> and <paramref name="emitter"/> are test seams: null reads
-        /// the memoized ELS and appends through <see cref="Ledger.AddAction"/>. Returns true
+        /// the route event log and appends through <see cref="RouteEventLog.Add"/>. Returns true
         /// when a row was written.</para>
         /// </summary>
         internal static bool TryEmitRouteHeldRow(
@@ -3865,8 +3863,8 @@ namespace Parsek.Logistics
             double shortfall,
             double currentUT,
             string cycleId,
-            IReadOnlyList<GameAction> els = null,
-            Action<GameAction> emitter = null)
+            IReadOnlyList<RouteEvent> els = null,
+            Action<RouteEvent> emitter = null)
         {
             if (route == null || string.IsNullOrEmpty(route.Id)
                 || kind == RouteDispatchEvaluator.EligibilityFailureKind.None)
@@ -3883,7 +3881,7 @@ namespace Parsek.Logistics
             detail = HeldRowDetail(route, kind, detail);
 
             if (els == null)
-                els = SafeComputeEls();
+                els = RouteEventLog.Events;
 
             if (IsHoldReasonRecordedInOpenEpisode(els, route.Id, kind, detail))
             {
@@ -3894,9 +3892,9 @@ namespace Parsek.Logistics
                 return false;
             }
 
-            var action = new GameAction
+            var action = new RouteEvent
             {
-                Type = GameActionType.RouteHeld,
+                Type = RouteEventType.RouteHeld,
                 UT = currentUT,
                 RouteId = route.Id,
                 RouteCycleId = cycleId,
@@ -3909,7 +3907,7 @@ namespace Parsek.Logistics
             if (emitter != null)
                 emitter(action);
             else
-                Ledger.AddAction(action);
+                RouteEventLog.Add(action);
 
             ParsekLog.Info(Tag,
                 $"RouteHeld: route {ShortIdForLog(route)} kind={kind} detail={detail ?? "<none>"} " +
@@ -3919,7 +3917,7 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// The detail a <see cref="GameActionType.RouteHeld"/> row carries: the evaluator
+        /// The detail a <see cref="RouteEventType.RouteHeld"/> row carries: the evaluator
         /// token, made STABLE where the token itself is not: a linked-route wait is
         /// <c>partner:&lt;partner route id&gt;</c> (the evaluator token names the partner,
         /// and a rename mid-hold must not read as a new reason). Every other token passes
@@ -3944,30 +3942,30 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// True when <paramref name="els"/> already holds a
-        /// <see cref="GameActionType.RouteHeld"/> row for <paramref name="routeId"/> with
+        /// <see cref="RouteEventType.RouteHeld"/> row for <paramref name="routeId"/> with
         /// this (<paramref name="kind"/>, <paramref name="detail"/>) inside the route's
         /// OPEN hold episode: the route's rows after its latest
-        /// <see cref="GameActionType.RouteDispatched"/> / <see cref="GameActionType.RoutePaused"/> /
-        /// <see cref="GameActionType.RouteResumed"/> / <see cref="GameActionType.RouteEndpointLost"/>
-        /// row, walked in time order with ledger order breaking ties (a same-UT dispatch
+        /// <see cref="RouteEventType.RouteDispatched"/> / <see cref="RouteEventType.RoutePaused"/> /
+        /// <see cref="RouteEventType.RouteResumed"/> / <see cref="RouteEventType.RouteEndpointLost"/>
+        /// row, walked in time order with log order breaking ties (a same-UT dispatch
         /// emitted after a hold closes that hold's episode). Shortfall is not part of the
         /// identity. Pure; the list is passed in.
         /// </summary>
         internal static bool IsHoldReasonRecordedInOpenEpisode(
-            IReadOnlyList<GameAction> els, string routeId,
+            IReadOnlyList<RouteEvent> els, string routeId,
             RouteDispatchEvaluator.EligibilityFailureKind kind, string detail)
         {
             if (els == null || string.IsNullOrEmpty(routeId))
                 return false;
 
-            var rows = new List<KeyValuePair<int, GameAction>>();
+            var rows = new List<KeyValuePair<int, RouteEvent>>();
             for (int i = 0; i < els.Count; i++)
             {
-                GameAction a = els[i];
+                RouteEvent a = els[i];
                 if (a == null || !string.Equals(a.RouteId, routeId, StringComparison.Ordinal))
                     continue;
-                if (a.Type == GameActionType.RouteHeld || IsHoldEpisodeBoundary(a.Type))
-                    rows.Add(new KeyValuePair<int, GameAction>(i, a));
+                if (a.Type == RouteEventType.RouteHeld || IsHoldEpisodeBoundary(a.Type))
+                    rows.Add(new KeyValuePair<int, RouteEvent>(i, a));
             }
             rows.Sort((x, y) =>
             {
@@ -3978,7 +3976,7 @@ namespace Parsek.Logistics
             bool recorded = false;
             for (int i = 0; i < rows.Count; i++)
             {
-                GameAction a = rows[i].Value;
+                RouteEvent a = rows[i].Value;
                 if (IsHoldEpisodeBoundary(a.Type))
                 {
                     recorded = false;
@@ -3993,17 +3991,17 @@ namespace Parsek.Logistics
 
         // The route rows that close a hold episode: a run went out, the route paused or
         // was activated, or it stopped on a lost endpoint.
-        private static bool IsHoldEpisodeBoundary(GameActionType type)
+        private static bool IsHoldEpisodeBoundary(RouteEventType type)
         {
-            return type == GameActionType.RouteDispatched
-                || type == GameActionType.RoutePaused
-                || type == GameActionType.RouteResumed
-                || type == GameActionType.RouteEndpointLost;
+            return type == RouteEventType.RouteDispatched
+                || type == RouteEventType.RoutePaused
+                || type == RouteEventType.RouteResumed
+                || type == RouteEventType.RouteEndpointLost;
         }
 
         /// <summary>
         /// Status reason stamped on the Active -&gt; Paused transition (and on the
-        /// <see cref="GameActionType.RoutePaused"/> lifecycle marker) when an armed
+        /// <see cref="RouteEventType.RoutePaused"/> lifecycle marker) when an armed
         /// <see cref="Route.PauseAfterCurrentCycle"/> is honored on a BLOCKED cycle.
         /// Sibling of the delivered path's <c>delivered-then-paused</c> /
         /// <c>delivered-partial-then-paused</c> and the replay path's
@@ -4027,8 +4025,8 @@ namespace Parsek.Logistics
         internal const string DeliveredPartialThenPausedReason = "delivered-partial-then-paused";
 
         /// <summary>
-        /// Status reason stamped when the armed pause is honored on the ELS REPLAY
-        /// backstop (the delivered row was already in the ledger; nothing new was
+        /// Status reason stamped when the armed pause is honored on the EVENT-LOG REPLAY
+        /// backstop (the delivered row was already in the route event log; nothing new was
         /// emitted, only the pause marker the crash lost).
         /// </summary>
         internal const string DeliveredReplayThenPausedReason = "delivered-replay-then-paused";
@@ -4040,7 +4038,7 @@ namespace Parsek.Logistics
         /// index snapped forward). Mirrors the delivered-path armed tail in
         /// <see cref="ApplyDeliveryFromPlan"/> row-for-row: consume both flags,
         /// transition to <see cref="RouteStatus.Paused"/>, emit the
-        /// <see cref="GameActionType.RoutePaused"/> lifecycle marker, and drop any
+        /// <see cref="RouteEventType.RoutePaused"/> lifecycle marker, and drop any
         /// held escrow (a route going quiet must not strand a reservation).
         ///
         /// <para><b>Why a blocked cycle must honor the arm.</b> Without this the
@@ -4099,7 +4097,7 @@ namespace Parsek.Logistics
             route.TransitionTo(RouteStatus.Paused, BlockedThenPausedReason);
             // Ordering note: the marker lands at Sequence 0, like TryPause's
             // player-pause marker.
-            EmitRouteLifecycleMarker(route, currentUT, GameActionType.RoutePaused, BlockedThenPausedReason);
+            EmitRouteLifecycleMarker(route, currentUT, RouteEventType.RoutePaused, BlockedThenPausedReason);
             // Quiesce transition: the route stops crossing here, so any escrow held
             // from an earlier partially-fired cycle would strand and mis-gate a
             // competing route sharing the source. Idempotent no-op when nothing is held.
@@ -4196,7 +4194,7 @@ namespace Parsek.Logistics
             int lastStopIndex = (route.Stops != null && route.Stops.Count > 0)
                 ? route.Stops.Count - 1 : 0;
             EmitRouteLifecycleMarker(
-                route, currentUT, GameActionType.RoutePaused, reason,
+                route, currentUT, RouteEventType.RoutePaused, reason,
                 lastStopIndex * SeqStride + 4);
             // Quiesce transition (the eighth): a route going quiet must not strand a
             // reservation. Idempotent no-op after the cycle-complete sweep.
@@ -4235,7 +4233,7 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// Endpoint-lost applier. Transitions status, sets the retry timer, and
-        /// emits a <see cref="GameActionType.RouteEndpointLost"/> ledger row so
+        /// emits a <see cref="RouteEventType.RouteEndpointLost"/> route event so
         /// the timeline records the failure. Design §10.1/§10.2 — endpoint loss
         /// is distinct from a player Pause because it may auto-recover via the
         /// surface-proximity fallback on a later tick.
@@ -4260,16 +4258,16 @@ namespace Parsek.Logistics
                 RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost,
                 decision.Reason, 0.0, currentUT);
 
-            var action = new GameAction
+            var action = new RouteEvent
             {
-                Type = GameActionType.RouteEndpointLost,
+                Type = RouteEventType.RouteEndpointLost,
                 UT = currentUT,
                 RouteId = route.Id,
                 RouteStopIndex = -1,
                 Sequence = 0,
                 RouteEndpointReason = decision.Reason,
             };
-            Ledger.AddAction(action);
+            RouteEventLog.Add(action);
 
             ParsekLog.Info(Tag,
                 $"EndpointLost: route {ShortIdForLog(route)} " +
@@ -4317,10 +4315,10 @@ namespace Parsek.Logistics
         /// Apply a pending delivery cycle (item 6 Phase B). Re-resolves the
         /// destination endpoint, builds a capacity probe against the live
         /// vessel (loaded or unloaded), asks the pure planner what to deliver,
-        /// applies the planned resource + inventory writes, emits a <see cref="GameActionType.RouteCargoDelivered"/>
-        /// ledger row, and transitions the route back to
-        /// <see cref="RouteStatus.Active"/>. Idempotent against ledger replay
-        /// via an ELS lookup keyed on <c>(RouteId, RouteCycleId)</c>.
+        /// applies the planned resource + inventory writes, emits a <see cref="RouteEventType.RouteCargoDelivered"/>
+        /// route event, and transitions the route back to
+        /// <see cref="RouteStatus.Active"/>. Idempotent against a replayed cycle
+        /// via an event-log lookup keyed on <c>(RouteId, RouteCycleId)</c>.
         /// </summary>
         private static void ApplyDelivery(Route route, double currentUT, IRouteRuntimeEnvironment env)
         {
@@ -4357,18 +4355,18 @@ namespace Parsek.Logistics
             // stopIndex feed the per-window idempotency guard below.
             int stopIndex = route.PendingStopIndex >= 0 ? route.PendingStopIndex : 0;
 
-            // STEP 1: idempotency guard. If ELS already contains a
+            // STEP 1: idempotency guard. If the event log already contains a
             // RouteCargoDelivered row for (routeId, cycleId, stopIndex), THIS
             // WINDOW was delivered on a previous tick (or recovered after crash);
             // applying again would double-write resources.
             // M4a A3: keyed per-window (stopIndex) so window 0's row does NOT
             // suppress windows 1..N (the RANK-1 hole). This is the orchestrator's
-            // ONLY ELS read — every other consumer routes through ERS.
-            if (IsDeliveryAlreadyInLedger(route.Id, cycleId, stopIndex))
+            // ONLY event-log read — every other consumer routes through ERS.
+            if (IsDeliveryAlreadyLogged(route.Id, cycleId, stopIndex))
             {
                 ParsekLog.Verbose(Tag,
                     $"Delivery: route {ShortIdForLog(route)} cycle={cycleId} " +
-                    $"stop={stopIndex.ToString(IC)} replay detected — already in ledger");
+                    $"stop={stopIndex.ToString(IC)} replay detected — already logged");
                 // M4a A3: the CompletedCycles bump on the replay branch is gated on
                 // bumpCompletedCycle (symmetric with the success path). The legacy
                 // self-timer + single-stop loop pass true (the replayed cycle WAS
@@ -4418,14 +4416,14 @@ namespace Parsek.Logistics
                     route.SendOnceArmed = false;
                     route.TransitionTo(RouteStatus.Paused, DeliveredReplayThenPausedReason);
                     EmitRouteLifecycleMarker(
-                        route, currentUT, GameActionType.RoutePaused,
+                        route, currentUT, RouteEventType.RoutePaused,
                         DeliveredReplayThenPausedReason, stopIndex * SeqStride + 4);
                     RouteStore.DropRouteEscrow(route.Id);
                     // SENDONCE-RESIDUAL-PATHS item 2: the replay backstop used to
                     // consume the arm SILENTLY - and it is the resolution shape
                     // where the player is most likely to click again, because the
                     // run produced no NEW delivery to see. Counts-free by
-                    // construction: the delivered row is already in the ledger and
+                    // construction: the delivered row is already in the route event log and
                     // this branch re-plans nothing, so there are no per-resource
                     // actuals to quote.
                     if (wasSendOnce)
@@ -4550,7 +4548,7 @@ namespace Parsek.Logistics
             // ProtoPartSnapshot. The "writer" delegates are the only place
             // KSP-state mutation happens; ApplyDeliveryFromPlan owns the
             // bookkeeping (actuals, partial detection, status transition,
-            // ledger row construction).
+            // route event construction).
             var liveWriters = new LiveDeliveryWriters(route, destVessel, plan, destinationIsLoaded, destinationScope);
             var ctx = new ApplyDeliveryContext
             {
@@ -4561,7 +4559,7 @@ namespace Parsek.Logistics
                 ResourceActualReader = liveWriters.ReadActualResource,
                 InventoryWriter = liveWriters.WriteInventory,
                 InventoryActualCountReader = liveWriters.ReadInventoryActualCount,
-                LedgerEmitter = Ledger.AddAction,
+                EventEmitter = RouteEventLog.Add,
                 BumpCompletedCycle = bumpCompletedCycle,
             };
             ApplyDeliveryFromPlan(route, plan, ctx);
@@ -4573,7 +4571,7 @@ namespace Parsek.Logistics
         /// wrapper); this method takes a pre-built <see cref="DeliveryPlan"/>
         /// and a context bag of delegates so xUnit can verify the apply
         /// bookkeeping (resource writer invocations,
-        /// ledger row shape, status transition) without instantiating any
+        /// route event shape, status transition) without instantiating any
         /// live KSP objects.
         /// </summary>
         internal static void ApplyDeliveryFromPlan(Route route, DeliveryPlan plan, ApplyDeliveryContext ctx)
@@ -4662,7 +4660,7 @@ namespace Parsek.Logistics
             // delivery offset of the stride-0 block). This is verified
             // behaviour-preserving (recalc-walk-order-equivalent): route rows are
             // non-earning, no resource module reads RouteCargoDelivered, and the
-            // ledger walkers do not assume a contiguous 0..N
+            // event-log readers do not assume a contiguous 0..N
             // (RecalculationEngine.SortActions = OrderBy UT, ThenBy IsEarning, ThenBy
             // Sequence; the dedup equality keys on ActionId / type-specific fields,
             // NOT Sequence). With one RouteCargoDelivered per cycle at its own UT and
@@ -4670,9 +4668,9 @@ namespace Parsek.Logistics
             // delivery seq 3), the 0 -> 3 shift does not change any walk outcome;
             // what matters is total ordering, which holds.
             int deliverySeqBase = ctx.StopIndex >= 0 ? ctx.StopIndex * SeqStride : 0;
-            var action = new GameAction
+            var action = new RouteEvent
             {
-                Type = GameActionType.RouteCargoDelivered,
+                Type = RouteEventType.RouteCargoDelivered,
                 UT = ctx.CurrentUT,
                 RouteId = route.Id,
                 RouteCycleId = ctx.CycleId,
@@ -4681,7 +4679,7 @@ namespace Parsek.Logistics
                 RouteResourceManifest = actualManifest,
                 RouteRequestedResourceManifest = requestedManifest,
             };
-            ctx.LedgerEmitter(action);
+            ctx.EventEmitter(action);
 
             // STEP 8: mutate route state + transition. M4a A3 (Horn A): the
             // CompletedCycles bump is gated on ctx.BumpCompletedCycle so it fires
@@ -4774,8 +4772,8 @@ namespace Parsek.Logistics
                 // after this window's stride block (dispatch +0 / debit +1 / pickup +2 /
                 // delivery +3) so the (UT, Sequence) order reads delivery-then-pause.
                 EmitRouteLifecycleMarker(
-                    route, ctx.CurrentUT, GameActionType.RoutePaused, reason,
-                    deliverySeqBase + 4, ctx.LedgerEmitter);
+                    route, ctx.CurrentUT, RouteEventType.RoutePaused, reason,
+                    deliverySeqBase + 4, ctx.EventEmitter);
                 // M4b escrow-strand fix (PR #1180 clean-review Finding 1): a Send-Once-armed
                 // MULTI-STOP route can pause HERE mid-PARTIAL-cycle (an early window delivered
                 // this tick, a later window still pending), so it never reaches the
@@ -4927,36 +4925,26 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// ELS-based idempotency check (item 6 Phase B). Returns <c>true</c> if
-        /// any non-tombstoned <see cref="GameActionType.RouteCargoDelivered"/>
+        /// Event-log idempotency check (item 6 Phase B). Returns <c>true</c> if
+        /// any <see cref="RouteEventType.RouteCargoDelivered"/>
         /// row already exists for the given <paramref name="routeId"/> +
         /// <paramref name="cycleId"/> pair. This is the orchestrator's only
-        /// raw-ELS read — every other ledger interaction in this file goes
-        /// through <see cref="Ledger.AddAction"/> on the write side.
+        /// event-log read - every other event-log interaction in this file goes
+        /// through <see cref="RouteEventLog.Add"/> on the write side.
         /// </summary>
-        internal static bool IsDeliveryAlreadyInLedger(string routeId, string cycleId, int stopIndex)
+        internal static bool IsDeliveryAlreadyLogged(string routeId, string cycleId, int stopIndex)
         {
             if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(cycleId))
                 return false;
 
-            IReadOnlyList<GameAction> els;
-            try
-            {
-                els = EffectiveState.ComputeELS();
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"IsDeliveryAlreadyInLedger: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as not-in-ledger");
-                return false;
-            }
+            IReadOnlyList<RouteEvent> els = RouteEventLog.Events;
 
             if (els == null) return false;
             for (int i = 0; i < els.Count; i++)
             {
-                GameAction a = els[i];
+                RouteEvent a = els[i];
                 if (a == null) continue;
-                if (a.Type != GameActionType.RouteCargoDelivered) continue;
+                if (a.Type != RouteEventType.RouteCargoDelivered) continue;
                 if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
                 if (!string.Equals(a.RouteCycleId, cycleId, StringComparison.Ordinal)) continue;
                 // M4a A3 (Horn A re-key): a multi-stop cycle fires N delivery
@@ -4972,9 +4960,9 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// DIRECTION-AGNOSTIC per-cycle ELS idempotency check (M3 OQ4, the replay
+        /// DIRECTION-AGNOSTIC per-cycle event-log idempotency check (M3 OQ4, the replay
         /// re-key). Returns <c>true</c> if any non-tombstoned
-        /// <see cref="GameActionType.RouteDispatched"/> row already exists for the
+        /// <see cref="RouteEventType.RouteDispatched"/> row already exists for the
         /// given <paramref name="routeId"/> + <paramref name="cycleId"/> pair.
         ///
         /// <para><b>Why RouteDispatched, not RouteCargoDelivered.</b> Every loop
@@ -4987,32 +4975,22 @@ namespace Parsek.Logistics
         /// Keying on <c>RouteDispatched</c> makes the guard fire for every cycle
         /// shape: deliver-only, pickup-only, and mixed. This is the LOOP-PATH-ONLY
         /// guard; the legacy <see cref="ApplyDelivery"/> path keeps using
-        /// <see cref="IsDeliveryAlreadyInLedger"/> (dead for loop routes, M1 D11).
-        /// Structural mirror of <see cref="IsDeliveryAlreadyInLedger"/>.</para>
+        /// <see cref="IsDeliveryAlreadyLogged"/> (dead for loop routes, M1 D11).
+        /// Structural mirror of <see cref="IsDeliveryAlreadyLogged"/>.</para>
         /// </summary>
-        internal static bool IsDispatchAlreadyInLedger(string routeId, string cycleId, int stopIndex)
+        internal static bool IsDispatchAlreadyLogged(string routeId, string cycleId, int stopIndex)
         {
             if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(cycleId))
                 return false;
 
-            IReadOnlyList<GameAction> els;
-            try
-            {
-                els = EffectiveState.ComputeELS();
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"IsDispatchAlreadyInLedger: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as not-in-ledger");
-                return false;
-            }
+            IReadOnlyList<RouteEvent> els = RouteEventLog.Events;
 
             if (els == null) return false;
             for (int i = 0; i < els.Count; i++)
             {
-                GameAction a = els[i];
+                RouteEvent a = els[i];
                 if (a == null) continue;
-                if (a.Type != GameActionType.RouteDispatched) continue;
+                if (a.Type != RouteEventType.RouteDispatched) continue;
                 if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
                 if (!string.Equals(a.RouteCycleId, cycleId, StringComparison.Ordinal)) continue;
                 // M4a A3 (Horn A re-key): the dispatch half fires exactly ONCE per
@@ -5029,49 +5007,39 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// (C-2, defense-in-depth) Per-window ELS idempotency check for the PICKUP
+        /// (C-2, defense-in-depth) Per-window event-log idempotency check for the PICKUP
         /// half. Returns <c>true</c> if any non-tombstoned
-        /// <see cref="GameActionType.RouteCargoPickedUp"/> row already exists for the
+        /// <see cref="RouteEventType.RouteCargoPickedUp"/> row already exists for the
         /// given <c>(routeId, cycleId, stopIndex)</c> triple.
         ///
         /// <para><b>Why a pickup-specific backstop.</b> The pickup half
         /// (<see cref="EmitPickupHalf"/> -&gt; <see cref="ApplyPickupDebit"/>)
         /// PHYSICALLY debits the source vessel, but unlike the dispatch and delivery
-        /// halves it had NO ledger-level idempotency guard of its own - it relied
+        /// halves it had NO event-log idempotency guard of its own - it relied
         /// entirely on the per-stop <see cref="RouteStop.LastFiredCycleIndex"/>
         /// cursor + the dispatch-keyed backstop to never re-present. The BLOCKER-1
-        /// class of cursor/ledger desync (a frozen cycleId firing a window twice
+        /// class of cursor/event-log desync (a frozen cycleId firing a window twice
         /// under two different live cursors) showed that a cursor-only guard can be
         /// out-flanked. Keying this backstop on the per-window pickup ROW (the same
         /// (RouteId, cycleId, stopIndex) key the delivery guard uses) means even a
         /// future cursor desync can never DOUBLE-DEBIT a physical source: a
         /// second presentation of the same window finds its own
         /// <c>RouteCargoPickedUp</c> row and skips the debit. Structural mirror of
-        /// <see cref="IsDeliveryAlreadyInLedger"/>.</para>
+        /// <see cref="IsDeliveryAlreadyLogged"/>.</para>
         /// </summary>
-        internal static bool IsPickupAlreadyInLedger(string routeId, string cycleId, int stopIndex)
+        internal static bool IsPickupAlreadyLogged(string routeId, string cycleId, int stopIndex)
         {
             if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(cycleId))
                 return false;
 
-            IReadOnlyList<GameAction> els;
-            try
-            {
-                els = EffectiveState.ComputeELS();
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"IsPickupAlreadyInLedger: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as not-in-ledger");
-                return false;
-            }
+            IReadOnlyList<RouteEvent> els = RouteEventLog.Events;
 
             if (els == null) return false;
             for (int i = 0; i < els.Count; i++)
             {
-                GameAction a = els[i];
+                RouteEvent a = els[i];
                 if (a == null) continue;
-                if (a.Type != GameActionType.RouteCargoPickedUp) continue;
+                if (a.Type != RouteEventType.RouteCargoPickedUp) continue;
                 if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
                 if (!string.Equals(a.RouteCycleId, cycleId, StringComparison.Ordinal)) continue;
                 if (a.RouteStopIndex != stopIndex) continue;
@@ -5081,42 +5049,24 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Exception-safe ELS reader: a throw is treated as an empty ledger, so a
-        /// degenerate ledger state never crashes the crossing.
-        /// </summary>
-        private static IReadOnlyList<GameAction> SafeComputeEls()
-        {
-            try
-            {
-                return EffectiveState.ComputeELS();
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"SafeComputeEls: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as empty");
-                return Array.Empty<GameAction>();
-            }
-        }
-
-        /// <summary>
-        /// Emit a <see cref="GameActionType.RouteEndpointLost"/> ledger row from
+        /// Emit a <see cref="RouteEventType.RouteEndpointLost"/> route event from
         /// the delivery applier. Mirrors <see cref="ApplyEndpointLost"/> from
         /// the dispatch side but the reason string is delivery-specific so the
-        /// ledger / UI can distinguish "endpoint lost before dispatch" from
+        /// event log / UI can distinguish "endpoint lost before dispatch" from
         /// "endpoint destroyed mid-transit".
         /// </summary>
         private static void EmitEndpointLostAction(Route route, double currentUT, string reason)
         {
-            var action = new GameAction
+            var action = new RouteEvent
             {
-                Type = GameActionType.RouteEndpointLost,
+                Type = RouteEventType.RouteEndpointLost,
                 UT = currentUT,
                 RouteId = route.Id,
                 RouteStopIndex = -1,
                 Sequence = 0,
                 RouteEndpointReason = reason,
             };
-            Ledger.AddAction(action);
+            RouteEventLog.Add(action);
             ParsekLog.Info(Tag,
                 $"EndpointLost: route {ShortIdForLog(route)} reason={reason ?? "<none>"} (at delivery)");
         }
@@ -5204,7 +5154,7 @@ namespace Parsek.Logistics
         /// Context bag for <see cref="ApplyDeliveryFromPlan"/>. Bundles cycle
         /// identity and the apply-writer delegates so the
         /// test side can inject fakes that record calls without touching
-        /// <c>Vessel</c> / <c>Ledger.AddAction</c>.
+        /// <c>Vessel</c> / <c>RouteEventLog.Add</c>.
         /// </summary>
         internal struct ApplyDeliveryContext
         {
@@ -5215,7 +5165,7 @@ namespace Parsek.Logistics
             public Func<string, double> ResourceActualReader;
             public Action<InventoryPayloadItem, InventorySlotAddress, int> InventoryWriter; // (item, slot-address, units)
             public Func<int> InventoryActualCountReader; // total UNITS stored, not lines
-            public Action<GameAction> LedgerEmitter;
+            public Action<RouteEvent> EventEmitter;
 
             /// <summary>
             /// M4a A3 (Horn A): true when this delivery IS the cycle's completion -

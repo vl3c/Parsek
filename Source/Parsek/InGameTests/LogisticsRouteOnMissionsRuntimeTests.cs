@@ -385,8 +385,8 @@ namespace Parsek.InGameTests
         /// <see cref="RouteLoopClock"/> crossing -> <see cref="RouteOrchestrator.EmitLoopCycle"/>
         /// -> the LIVE <c>ApplyDelivery</c> writer, and asserts that the destination
         /// vessel's <c>LiquidFuel</c> tank actually INCREASED, a
-        /// <see cref="GameActionType.RouteCargoDelivered"/> ledger row was appended
-        /// for the route, and the dispatch-debit pair (<see cref="GameActionType.RouteDispatched"/>)
+        /// <see cref="RouteEventType.RouteCargoDelivered"/> ledger row was appended
+        /// for the route, and the dispatch-debit pair (<see cref="RouteEventType.RouteDispatched"/>)
         /// landed in the same fire.
         ///
         /// <para>This is distinct from <see cref="LogisticsDeliveryRuntimeTests"/>,
@@ -501,7 +501,7 @@ namespace Parsek.InGameTests
                 if (committedRoutes[i] != null)
                     preExistingRoutes.Add(committedRoutes[i]);
 
-            int beforeLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+            int beforeLedgerCount = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
 
             // Source tree committed so ERS carries the route's SourceRefs (the
             // RouteHasValidSourcesInErs eligibility gate is real). The leaf member
@@ -668,17 +668,17 @@ namespace Parsek.InGameTests
 
                 // 3. Ledger rows: the full cycle emitted RouteDispatched (dispatch-debit
                 //    half) AND RouteCargoDelivered (delivery half) for our route id.
-                int afterLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+                int afterLedgerCount = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
                 bool dispatchedFound = false, deliveredFound = false;
-                if (Ledger.Actions != null)
+                if (RouteEventLog.Events != null)
                 {
                     for (int i = beforeLedgerCount; i < afterLedgerCount; i++)
                     {
-                        GameAction a = Ledger.Actions[i];
+                        RouteEvent a = RouteEventLog.Events[i];
                         if (a == null) continue;
                         if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
-                        if (a.Type == GameActionType.RouteDispatched) dispatchedFound = true;
-                        else if (a.Type == GameActionType.RouteCargoDelivered) deliveredFound = true;
+                        if (a.Type == RouteEventType.RouteDispatched) dispatchedFound = true;
+                        else if (a.Type == RouteEventType.RouteCargoDelivered) deliveredFound = true;
                     }
                 }
                 InGameAssert.IsTrue(deliveredFound,

@@ -12,8 +12,8 @@ namespace Parsek.Tests.Logistics
     /// Go-back rewind route reconciliation (preservation-branch audit,
     /// 2026-07-19): the plain Rewind-to-Launch / warp-back OnLoad exit
     /// (<c>ParsekScenario.HandleRewindOnLoad</c>) must run the SAME route
-    /// reconciliation as the Re-Fly seam. Covers the in-place ledger retire
-    /// (<see cref="Ledger.RetireFutureRouteActionsAtRewind"/>), both-exits
+    /// reconciliation as the Re-Fly seam. Covers the in-place route event retire
+    /// (<see cref="RouteEventLog.RetireFutureRouteActionsAtRewind"/>), both-exits
     /// parity for the shared
     /// <see cref="RouteRewindClassifier.ReconcileStoreAtRewind"/> helper
     /// (direct call == <c>ReconciliationBundle.Restore(cutoff)</c> on the
@@ -71,10 +71,10 @@ namespace Parsek.Tests.Logistics
             };
         }
 
-        private static GameAction Marker(
-            string routeId, GameActionType type, double ut, int sequence = 0)
+        private static RouteEvent Marker(
+            string routeId, RouteEventType type, double ut, int sequence = 0)
         {
-            return new GameAction
+            return new RouteEvent
             {
                 Type = type,
                 UT = ut,
@@ -85,11 +85,11 @@ namespace Parsek.Tests.Logistics
             };
         }
 
-        private static GameAction Dispatched(string routeId, string cycleId, double ut)
+        private static RouteEvent Dispatched(string routeId, string cycleId, double ut)
         {
-            return new GameAction
+            return new RouteEvent
             {
-                Type = GameActionType.RouteDispatched,
+                Type = RouteEventType.RouteDispatched,
                 UT = ut,
                 RouteId = routeId,
                 RouteCycleId = cycleId,
@@ -98,11 +98,11 @@ namespace Parsek.Tests.Logistics
             };
         }
 
-        private static GameAction Delivered(string routeId, string cycleId, double ut)
+        private static RouteEvent Delivered(string routeId, string cycleId, double ut)
         {
-            return new GameAction
+            return new RouteEvent
             {
-                Type = GameActionType.RouteCargoDelivered,
+                Type = RouteEventType.RouteCargoDelivered,
                 UT = ut,
                 RouteId = routeId,
                 RouteCycleId = cycleId,
@@ -117,69 +117,69 @@ namespace Parsek.Tests.Logistics
         }
 
         // ------------------------------------------------------------------
-        // Ledger.RetireFutureRouteActionsAtRewind (in-place go-back retire)
+        // RouteEventLog.RetireFutureRouteActionsAtRewind (in-place go-back retire)
         // ------------------------------------------------------------------
 
         [Fact]
-        public void RetireInPlace_DropsOnlyFutureRouteRows_BumpsVersion()
+        public void RetireInPlace_DropsOnlyFutureRouteEvents_LeavesTheLedger_BumpsVersion()
         {
             Ledger.AddAction(NonRoute(100.0));
-            Ledger.AddAction(Dispatched("r", "cycle-0", 200.0));   // kept (<= cutoff)
-            Ledger.AddAction(Dispatched("r", "cycle-1", 700.0));   // retired
-            Ledger.AddAction(Delivered("r", "cycle-1", 710.0));    // retired
-            Ledger.AddAction(NonRoute(800.0));                     // non-route: kept even past cutoff
-            int versionBefore = Ledger.StateVersion;
+            RouteEventLog.Add(Dispatched("r", "cycle-0", 200.0));   // kept (<= cutoff)
+            RouteEventLog.Add(Dispatched("r", "cycle-1", 700.0));   // retired
+            RouteEventLog.Add(Delivered("r", "cycle-1", 710.0));    // retired
+            Ledger.AddAction(NonRoute(800.0));                      // ledger: never touched
+            int versionBefore = RouteEventLog.StateVersion;
+            int ledgerVersionBefore = Ledger.StateVersion;
 
-            int retired = Ledger.RetireFutureRouteActionsAtRewind(
-                500.0, out List<GameAction> kept);
+            int retired = RouteEventLog.RetireFutureRouteActionsAtRewind(
+                500.0, out List<RouteEvent> kept);
 
             Assert.Equal(2, retired);
-            Assert.Equal(3, Ledger.Actions.Count);
-            Assert.DoesNotContain(Ledger.Actions,
-                a => a.Type == GameActionType.RouteDispatched && a.UT > 500.0);
-            Assert.DoesNotContain(Ledger.Actions,
-                a => a.Type == GameActionType.RouteCargoDelivered);
-            // Non-route actions untouched (the determinism invariant): the
-            // go-back path keeps the committed timeline's future rows.
-            Assert.Contains(Ledger.Actions,
-                a => a.Type == GameActionType.FundsEarning && a.UT == 800.0);
-            // Kept list mirrors the surviving ledger for the store reconcile.
-            Assert.Equal(3, kept.Count);
-            Assert.True(Ledger.StateVersion > versionBefore,
-                "in-place retire must bump the ledger StateVersion (ELS cache invalidation)");
+            Assert.Single(RouteEventLog.Events);
+            Assert.Equal("cycle-0", RouteEventLog.Events[0].RouteCycleId);
+            // The ledger is untouched (the determinism invariant): the go-back path keeps
+            // the committed timeline's future rows.
+            Assert.Equal(2, Ledger.Actions.Count);
+            Assert.Equal(ledgerVersionBefore, Ledger.StateVersion);
+            // Kept list mirrors the surviving log for the store reconcile, as a copy.
+            Assert.Single(kept);
+            Assert.NotSame(RouteEventLog.Events, kept);
+            Assert.True(RouteEventLog.StateVersion > versionBefore,
+                "in-place retire must bump the route event log StateVersion");
             Assert.Contains(logLines, l =>
-                l.Contains("[Ledger]") && l.Contains("RetireFutureRouteActionsAtRewind")
-                && l.Contains("removed 2"));
+                l.Contains("[RouteEventLog]") && l.Contains("RetireFutureRouteActionsAtRewind: removed 2 free-standing route"));
         }
 
         [Fact]
-        public void RetireInPlace_NoFutureRouteRows_NoOpNoVersionBump()
+        public void RetireInPlace_NoFutureRouteEvents_NoOpNoVersionBump()
         {
-            Ledger.AddAction(Dispatched("r", "cycle-0", 200.0));
+            RouteEventLog.Add(Dispatched("r", "cycle-0", 200.0));
             Ledger.AddAction(NonRoute(900.0));
-            int versionBefore = Ledger.StateVersion;
+            int versionBefore = RouteEventLog.StateVersion;
 
-            int retired = Ledger.RetireFutureRouteActionsAtRewind(
-                500.0, out List<GameAction> kept);
+            int retired = RouteEventLog.RetireFutureRouteActionsAtRewind(
+                500.0, out List<RouteEvent> kept);
 
             Assert.Equal(0, retired);
-            Assert.Equal(2, Ledger.Actions.Count);
-            Assert.Equal(2, kept.Count);
-            Assert.Equal(versionBefore, Ledger.StateVersion);
+            Assert.Single(RouteEventLog.Events);
+            Assert.Single(kept);
+            Assert.Equal(versionBefore, RouteEventLog.StateVersion);
+            Assert.Contains(logLines, l => l.Contains("[RouteEventLog]")
+                && l.Contains("RetireFutureRouteActionsAtRewind: no free-standing route actions after UT 500"));
         }
 
         [Fact]
-        public void RetireInPlace_BoundaryRowAtCutoff_IsKept()
+        public void RetireInPlace_BoundaryEventAtCutoff_IsKept()
         {
-            // Strict > per the Rec-1 emit-ordering contract: a row stamped
+            // Strict > per the Rec-1 emit-ordering contract: an event stamped
             // exactly at the cutoff has its physical effect in the reverted
             // world, so it must survive.
-            Ledger.AddAction(Dispatched("r", "cycle-0", 500.0));
+            RouteEventLog.Add(Dispatched("r", "cycle-0", 500.0));
 
-            int retired = Ledger.RetireFutureRouteActionsAtRewind(500.0, out _);
+            int retired = RouteEventLog.RetireFutureRouteActionsAtRewind(500.0, out _);
 
             Assert.Equal(0, retired);
-            Assert.Single(Ledger.Actions);
+            Assert.Single(RouteEventLog.Events);
         }
 
         // ------------------------------------------------------------------
@@ -232,14 +232,14 @@ namespace Parsek.Tests.Logistics
                 new List<Route> { pre, post, q },
                 new List<Route> { sleeper });
 
-            Ledger.AddAction(Dispatched("pre", "cycle-0", 200.0));
-            Ledger.AddAction(Delivered("pre", "cycle-0", 210.0));
-            Ledger.AddAction(Dispatched("pre", "cycle-1", 300.0));
-            Ledger.AddAction(Marker("pre", GameActionType.RoutePaused, 400.0));
-            Ledger.AddAction(Marker("pre", GameActionType.RouteResumed, 700.0)); // retired
-            Ledger.AddAction(Marker("q", GameActionType.RoutePaused, 200.0));
-            Ledger.AddAction(Marker("q", GameActionType.RouteResumed, 300.0));
-            Ledger.AddAction(Marker("q", GameActionType.RoutePaused, 800.0));    // retired
+            RouteEventLog.Add(Dispatched("pre", "cycle-0", 200.0));
+            RouteEventLog.Add(Delivered("pre", "cycle-0", 210.0));
+            RouteEventLog.Add(Dispatched("pre", "cycle-1", 300.0));
+            RouteEventLog.Add(Marker("pre", RouteEventType.RoutePaused, 400.0));
+            RouteEventLog.Add(Marker("pre", RouteEventType.RouteResumed, 700.0)); // retired
+            RouteEventLog.Add(Marker("q", RouteEventType.RoutePaused, 200.0));
+            RouteEventLog.Add(Marker("q", RouteEventType.RouteResumed, 300.0));
+            RouteEventLog.Add(Marker("q", RouteEventType.RoutePaused, 800.0));    // retired
             Ledger.AddAction(NonRoute(100.0));
 
             return (pre, post, q, sleeper);
@@ -436,14 +436,14 @@ namespace Parsek.Tests.Logistics
             int end = reconcileSource.IndexOf("\n        }\n", start, StringComparison.Ordinal);
             string helper = reconcileSource.Substring(start, end - start);
             int retireIdx = helper.IndexOf(
-                "Ledger.RetireFutureRouteActionsAtRewind(", StringComparison.Ordinal);
+                "RouteEventLog.RetireFutureRouteActionsAtRewind(", StringComparison.Ordinal);
             int reconcileIdx = helper.IndexOf(
                 "RouteRewindClassifier.ReconcileStoreAtRewind(", StringComparison.Ordinal);
             int restoreIdx = helper.IndexOf(
                 "RestoreLoopPositionAtRewindExit(", StringComparison.Ordinal);
             Assert.True(retireIdx >= 0, "the go-back helper must retire the post-cutoff route rows");
             Assert.True(reconcileIdx > retireIdx,
-                "the shared store reconcile must run AFTER the ledger retire (it consumes the kept rows)");
+                "the shared store reconcile must run AFTER the route event retire (it consumes the kept events)");
             Assert.True(restoreIdx > reconcileIdx,
                 "the loop-position restore must run AFTER the reconcile (which resets the cursors)");
         }

@@ -5,7 +5,7 @@ namespace Parsek.Logistics
     /// current UT, and an <see cref="IRouteRuntimeEnvironment"/>, returns a
     /// <see cref="RouteDispatchDecision"/> describing what the orchestrator
     /// should do. No KSP statics, no mutation — the orchestrator owns the
-    /// physical side effects (ledger rows, debits, transitions).
+    /// physical side effects (route events, debits, transitions).
     ///
     /// <para>ONE deliberate exception to "no logging": the round-trip linking
     /// partner gate (<see cref="PartnerConstraintSatisfied"/>, M4c Phase C1)

@@ -182,7 +182,7 @@ namespace Parsek.InGameTests
             // headroom drain, so restoring it alone already undoes that drain;
             // the helper's own snapshot is restored too for contract symmetry).
             List<Route> preExistingRoutes = SnapshotRoutes();
-            int beforeLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+            int beforeLedgerCount = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
 
             RunOriginDebitCrossing(
                 label: "OriginDebit_Loaded",
@@ -212,7 +212,7 @@ namespace Parsek.InGameTests
                     //    no requested-on-shortfall (full debit), and the no-op
                     //    delivery seam emitted NO delivered row.
                     FindNewRouteRows(beforeLedgerCount, routeId,
-                        out GameAction dispatched, out GameAction debited, out GameAction delivered);
+                        out RouteEvent dispatched, out RouteEvent debited, out RouteEvent delivered);
                     InGameAssert.IsNotNull(dispatched,
                         $"No RouteDispatched ledger row for routeId={routeId}");
                     InGameAssert.IsNotNull(debited,
@@ -306,7 +306,7 @@ namespace Parsek.InGameTests
                 List<Route> preExistingRoutes = SnapshotRoutes();
                 List<KeyValuePair<ProtoPartResourceSnapshot, double>> protoSnapshot =
                     SnapshotProtoLiquidFuel(originVessel);
-                int beforeLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+                int beforeLedgerCount = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
 
                 // The stop delivers the manifest onto the ACTIVE vessel, and the
                 // all-or-nothing DestinationHasCapacity gate holds the whole cycle
@@ -346,7 +346,7 @@ namespace Parsek.InGameTests
                     // 2. Debited row: actuals + origin pid, debit took the
                     //    unloaded path.
                     FindNewRouteRows(beforeLedgerCount, routeId,
-                        out GameAction dispatched, out GameAction debited, out GameAction delivered);
+                        out RouteEvent dispatched, out RouteEvent debited, out RouteEvent delivered);
                     InGameAssert.IsNotNull(dispatched,
                         $"No RouteDispatched ledger row for routeId={routeId}");
                     InGameAssert.IsNotNull(debited,
@@ -602,7 +602,7 @@ namespace Parsek.InGameTests
             string routeId = "ingame-od-empty-id-" + Guid.NewGuid().ToString("N").Substring(0, 8);
 
             List<Route> preExistingRoutes = SnapshotRoutes();
-            int beforeLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+            int beforeLedgerCount = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
 
             // DRAIN the origin: zero every LiquidFuel tank so the production
             // probe reads 0 and the gate names the short resource. Restored
@@ -639,7 +639,7 @@ namespace Parsek.InGameTests
                     // 2. Nothing debited or delivered: no ledger row of any route
                     //    type was appended for this route id.
                     FindNewRouteRows(beforeLedgerCount, routeId,
-                        out GameAction dispatched, out GameAction debited, out GameAction delivered);
+                        out RouteEvent dispatched, out RouteEvent debited, out RouteEvent delivered);
                     InGameAssert.IsNull(dispatched, "Blocked crossing must emit no RouteDispatched row");
                     InGameAssert.IsNull(debited, "Blocked crossing must emit no RouteCargoDebited row");
                     InGameAssert.IsNull(delivered, "Blocked crossing must emit no RouteCargoDelivered row");
@@ -1050,21 +1050,21 @@ namespace Parsek.InGameTests
         /// <paramref name="routeId"/>. Any of the outs may be null.
         /// </summary>
         private static void FindNewRouteRows(int fromIndex, string routeId,
-            out GameAction dispatched, out GameAction debited, out GameAction delivered)
+            out RouteEvent dispatched, out RouteEvent debited, out RouteEvent delivered)
         {
             dispatched = null;
             debited = null;
             delivered = null;
-            var actions = Ledger.Actions;
+            var actions = RouteEventLog.Events;
             if (actions == null) return;
             for (int i = fromIndex; i < actions.Count; i++)
             {
-                GameAction a = actions[i];
+                RouteEvent a = actions[i];
                 if (a == null) continue;
                 if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
-                if (a.Type == GameActionType.RouteDispatched) dispatched = a;
-                else if (a.Type == GameActionType.RouteCargoDebited) debited = a;
-                else if (a.Type == GameActionType.RouteCargoDelivered) delivered = a;
+                if (a.Type == RouteEventType.RouteDispatched) dispatched = a;
+                else if (a.Type == RouteEventType.RouteCargoDebited) debited = a;
+                else if (a.Type == RouteEventType.RouteCargoDelivered) delivered = a;
             }
         }
 

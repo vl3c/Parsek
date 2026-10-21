@@ -117,13 +117,13 @@ namespace Parsek.Tests
         }
 
         private static ReplayedCrossing Replay(double ut, string routeId = "route-a",
-            GameActionType type = GameActionType.RouteCargoDelivered, int stop = 0)
+            RouteEventType type = RouteEventType.RouteCargoDelivered, int stop = 0)
         {
             return new ReplayedCrossing { RouteId = routeId, StopIndex = stop, Type = type, UT = ut };
         }
 
         private static RetiredRouteCargoRow Row(
-            GameActionType type, double ut, string res, double amount,
+            RouteEventType type, double ut, string res, double amount,
             string routeId = "route-a", string cycle = null, uint endpointPid = StationPid,
             string endpointGuid = StationGuid, uint actualPid = 0u, double cutoff = CutoffUT,
             RetiredRouteCargoTipTag tag = null, bool untagged = false)
@@ -162,7 +162,7 @@ namespace Parsek.Tests
             var tanks = new List<SnapshotTank> { Tank(StationPartA, "LiquidFuel", 300, 400) };
 
             ChainTipCargoAdjustment adj = Compute(tanks,
-                Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100));
+                Row(RouteEventType.RouteCargoDelivered, 1300, "LiquidFuel", 100));
 
             Assert.Equal(200.0, adj.Amounts[0], 6);
             Assert.True(adj.Changed);
@@ -184,7 +184,7 @@ namespace Parsek.Tests
             };
 
             ChainTipCargoAdjustment adj = Compute(tanks,
-                Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 80));
+                Row(RouteEventType.RouteCargoDelivered, 1300, "LiquidFuel", 80));
 
             Assert.Equal(0.0, adj.Amounts[0], 6);
             Assert.Equal(0.0, adj.Amounts[1], 6);
@@ -203,7 +203,7 @@ namespace Parsek.Tests
             };
 
             ChainTipCargoAdjustment adj = Compute(tanks,
-                Row(GameActionType.RouteCargoPickedUp, 1400, "Ore", 200));
+                Row(RouteEventType.RouteCargoPickedUp, 1400, "Ore", 200));
 
             Assert.Equal(1000.0, adj.Amounts[0], 6);
             Assert.Equal(50.0, adj.Amounts[1], 6);
@@ -219,7 +219,7 @@ namespace Parsek.Tests
             var tanks = new List<SnapshotTank> { Tank(StationPartA, "LiquidFuel", 100, 400) };
 
             ChainTipCargoAdjustment adj = Compute(tanks,
-                Row(GameActionType.RouteCargoDebited, 1400, "LiquidFuel", 60,
+                Row(RouteEventType.RouteCargoDebited, 1400, "LiquidFuel", 60,
                     endpointPid: 0u, endpointGuid: null, actualPid: StationPid));
 
             Assert.Equal(160.0, adj.Amounts[0], 6);
@@ -232,7 +232,7 @@ namespace Parsek.Tests
             var tanks = new List<SnapshotTank> { Tank(StationPartA, "LiquidFuel", 300, 400) };
 
             ChainTipCargoAdjustment adj = Compute(tanks,
-                Row(GameActionType.RouteCargoDelivered, 1100, "LiquidFuel", 100));
+                Row(RouteEventType.RouteCargoDelivered, 1100, "LiquidFuel", 100));
 
             Assert.Equal(300.0, adj.Amounts[0], 6);
             Assert.False(adj.Changed);
@@ -245,7 +245,7 @@ namespace Parsek.Tests
             var tanks = new List<SnapshotTank> { Tank(StationPartA, "LiquidFuel", 300, 400) };
 
             ChainTipCargoAdjustment adj = Compute(tanks,
-                Row(GameActionType.RouteCargoDelivered, 1800, "LiquidFuel", 100));
+                Row(RouteEventType.RouteCargoDelivered, 1800, "LiquidFuel", 100));
 
             Assert.Equal(300.0, adj.Amounts[0], 6);
             Assert.Equal(1, adj.SkippedAfterCapture);
@@ -257,7 +257,7 @@ namespace Parsek.Tests
             var tanks = new List<SnapshotTank> { Tank(StationPartA, "LiquidFuel", 300, 400) };
 
             ChainTipCargoAdjustment adj = Compute(tanks,
-                Row(GameActionType.RouteCargoDelivered, CaptureUT, "LiquidFuel", 100));
+                Row(RouteEventType.RouteCargoDelivered, CaptureUT, "LiquidFuel", 100));
 
             Assert.Equal(200.0, adj.Amounts[0], 6);
         }
@@ -269,13 +269,13 @@ namespace Parsek.Tests
 
             ChainTipCargoAdjustment adj = Compute(tanks,
                 // another route into another vessel
-                Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100,
+                Row(RouteEventType.RouteCargoDelivered, 1300, "LiquidFuel", 100,
                     routeId: "route-b", endpointPid: 999u, endpointGuid: OtherGuid),
                 // the station's baked pid on a different launch
-                Row(GameActionType.RouteCargoDelivered, 1310, "LiquidFuel", 100,
+                Row(RouteEventType.RouteCargoDelivered, 1310, "LiquidFuel", 100,
                     routeId: "route-c", endpointGuid: OtherGuid),
                 // a pickup the writer resolved on another vessel
-                Row(GameActionType.RouteCargoPickedUp, 1320, "LiquidFuel", 100,
+                Row(RouteEventType.RouteCargoPickedUp, 1320, "LiquidFuel", 100,
                     routeId: "route-d", endpointPid: 0u, endpointGuid: null, actualPid: 999u));
 
             Assert.Equal(300.0, adj.Amounts[0], 6);
@@ -289,7 +289,7 @@ namespace Parsek.Tests
             var tanks = new List<SnapshotTank> { Tank(StationPartA, "LiquidFuel", 300, 400) };
 
             ChainTipCargoAdjustment adj = Compute(tanks,
-                Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100, endpointGuid: null));
+                Row(RouteEventType.RouteCargoDelivered, 1300, "LiquidFuel", 100, endpointGuid: null));
 
             Assert.Equal(200.0, adj.Amounts[0], 6);
         }
@@ -302,11 +302,11 @@ namespace Parsek.Tests
             var tanks = new List<SnapshotTank> { Tank(StationPartA, "LiquidFuel", 300, 400) };
 
             ChainTipCargoAdjustment adj = Compute(tanks,
-                Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100,
+                Row(RouteEventType.RouteCargoDelivered, 1300, "LiquidFuel", 100,
                     tag: StationTag(treeId: "tree-other")),
-                Row(GameActionType.RouteCargoDelivered, 1310, "LiquidFuel", 100,
+                Row(RouteEventType.RouteCargoDelivered, 1310, "LiquidFuel", 100,
                     tag: StationTag(recordingId: "station-cont")),
-                Row(GameActionType.RouteCargoDelivered, 1320, "LiquidFuel", 100,
+                Row(RouteEventType.RouteCargoDelivered, 1320, "LiquidFuel", 100,
                     tag: StationTag(fingerprint: "fp-replaced")));
 
             Assert.Equal(300.0, adj.Amounts[0], 6);
@@ -342,7 +342,7 @@ namespace Parsek.Tests
         public void CrossingTheCurrentTimelinePerformedAgain_IsUntouched()
         {
             var tanks = new List<SnapshotTank> { Tank(StationPartA, "LiquidFuel", 300, 400) };
-            RetiredRouteCargoRow row = Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100);
+            RetiredRouteCargoRow row = Row(RouteEventType.RouteCargoDelivered, 1300, "LiquidFuel", 100);
 
             ChainTipCargoAdjustment adj = ChainTipRouteCargo.ComputeAdjustment(
                 tanks, new[] { row }, StationTip(), new[] { Replay(1300) });
@@ -361,8 +361,8 @@ namespace Parsek.Tests
             ChainTipCargoAdjustment adj = ChainTipRouteCargo.ComputeAdjustment(tanks,
                 new[]
                 {
-                    Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100, cycle: "cycle-3"),
-                    Row(GameActionType.RouteCargoDelivered, 1400, "LiquidFuel", 60, cycle: "cycle-4")
+                    Row(RouteEventType.RouteCargoDelivered, 1300, "LiquidFuel", 100, cycle: "cycle-3"),
+                    Row(RouteEventType.RouteCargoDelivered, 1400, "LiquidFuel", 60, cycle: "cycle-4")
                 },
                 StationTip(), new[] { Replay(1300.7) });
 
@@ -377,13 +377,13 @@ namespace Parsek.Tests
             var tanks = new List<SnapshotTank> { Tank(StationPartA, "LiquidFuel", 300, 400) };
 
             ChainTipCargoAdjustment adj = ChainTipRouteCargo.ComputeAdjustment(tanks,
-                new[] { Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100) },
+                new[] { Row(RouteEventType.RouteCargoDelivered, 1300, "LiquidFuel", 100) },
                 StationTip(),
                 new[]
                 {
                     Replay(1300, routeId: "route-b"),
                     Replay(1300, stop: 1),
-                    Replay(1300, type: GameActionType.RouteCargoPickedUp),
+                    Replay(1300, type: RouteEventType.RouteCargoPickedUp),
                     Replay(1100),          // at or before the cutoff: kept history
                     Replay(1800)           // after the snapshot capture
                 });
@@ -401,8 +401,8 @@ namespace Parsek.Tests
             ChainTipCargoAdjustment adj = ChainTipRouteCargo.ComputeAdjustment(tanks,
                 new[]
                 {
-                    Row(GameActionType.RouteCargoDelivered, 1400, "LiquidFuel", 60, cycle: "cycle-4"),
-                    Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100, cycle: "cycle-3")
+                    Row(RouteEventType.RouteCargoDelivered, 1400, "LiquidFuel", 60, cycle: "cycle-4"),
+                    Row(RouteEventType.RouteCargoDelivered, 1300, "LiquidFuel", 100, cycle: "cycle-3")
                 },
                 StationTip(), new[] { Replay(1300.7) });
 
@@ -418,8 +418,8 @@ namespace Parsek.Tests
             ChainTipCargoAdjustment adj = ChainTipRouteCargo.ComputeAdjustment(tanks,
                 new[]
                 {
-                    Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100, cycle: "cycle-3"),
-                    Row(GameActionType.RouteCargoDelivered, 1301, "LiquidFuel", 100, cycle: "cycle-4")
+                    Row(RouteEventType.RouteCargoDelivered, 1300, "LiquidFuel", 100, cycle: "cycle-3"),
+                    Row(RouteEventType.RouteCargoDelivered, 1301, "LiquidFuel", 100, cycle: "cycle-4")
                 },
                 StationTip(), new[] { Replay(1300.5) });
 
@@ -438,7 +438,7 @@ namespace Parsek.Tests
             };
 
             ChainTipCargoAdjustment adj = Compute(tanks,
-                Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100));
+                Row(RouteEventType.RouteCargoDelivered, 1300, "LiquidFuel", 100));
 
             Assert.Equal(0.0, adj.Amounts[1], 6);
             Assert.Equal(160.0, adj.Amounts[0], 6);
@@ -450,8 +450,8 @@ namespace Parsek.Tests
             var tanks = new List<SnapshotTank> { Tank(StationPartA, "LiquidFuel", 300, 400) };
 
             ChainTipCargoAdjustment adj = Compute(tanks,
-                Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100, routeId: "route-a"),
-                Row(GameActionType.RouteCargoDelivered, 1350, "LiquidFuel", 50, routeId: "route-b"));
+                Row(RouteEventType.RouteCargoDelivered, 1300, "LiquidFuel", 100, routeId: "route-a"),
+                Row(RouteEventType.RouteCargoDelivered, 1350, "LiquidFuel", 50, routeId: "route-b"));
 
             Assert.Equal(150.0, adj.Amounts[0], 6);
             Assert.Equal(2, adj.Entries.Count);
@@ -462,9 +462,9 @@ namespace Parsek.Tests
         [Fact]
         public void TagForChainTips_KeepsOnlyRowsATipSnapshotCarries()
         {
-            var inWindow = Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100, untagged: true);
-            var afterCapture = Row(GameActionType.RouteCargoDelivered, 1800, "LiquidFuel", 100, untagged: true);
-            var otherVessel = Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100,
+            var inWindow = Row(RouteEventType.RouteCargoDelivered, 1300, "LiquidFuel", 100, untagged: true);
+            var afterCapture = Row(RouteEventType.RouteCargoDelivered, 1800, "LiquidFuel", 100, untagged: true);
+            var otherVessel = Row(RouteEventType.RouteCargoDelivered, 1300, "LiquidFuel", 100,
                 routeId: "route-b", endpointPid: 999u, endpointGuid: OtherGuid, untagged: true);
 
             List<RetiredRouteCargoRow> kept = ChainTipRouteCargo.TagForChainTips(
@@ -483,8 +483,8 @@ namespace Parsek.Tests
         {
             // A row created after an earlier retire at 1250 belongs to a timeline that branched
             // after the snapshot was captured, so the snapshot cannot hold it.
-            var below = Row(GameActionType.RouteCargoDelivered, 1240, "LiquidFuel", 100, cutoff: 1210, untagged: true);
-            var above = Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100, cutoff: 1210, untagged: true);
+            var below = Row(RouteEventType.RouteCargoDelivered, 1240, "LiquidFuel", 100, cutoff: 1210, untagged: true);
+            var above = Row(RouteEventType.RouteCargoDelivered, 1300, "LiquidFuel", 100, cutoff: 1210, untagged: true);
 
             List<RetiredRouteCargoRow> kept = ChainTipRouteCargo.TagForChainTips(
                 new[] { below, above }, new[] { StationTip() }, _ => 1250.0);
@@ -496,11 +496,11 @@ namespace Parsek.Tests
 
         #region Stash
 
-        private static GameAction DeliveredAction(string routeId, string cycleId, double ut, string res, double amount)
+        private static RouteEvent DeliveredAction(string routeId, string cycleId, double ut, string res, double amount)
         {
-            return new GameAction
+            return new RouteEvent
             {
-                Type = GameActionType.RouteCargoDelivered,
+                Type = RouteEventType.RouteCargoDelivered,
                 UT = ut,
                 RouteId = routeId,
                 RouteCycleId = cycleId,
@@ -510,11 +510,11 @@ namespace Parsek.Tests
             };
         }
 
-        private static GameAction DispatchedAction(string routeId, string cycleId, double ut)
+        private static RouteEvent DispatchedAction(string routeId, string cycleId, double ut)
         {
-            return new GameAction
+            return new RouteEvent
             {
-                Type = GameActionType.RouteDispatched,
+                Type = RouteEventType.RouteDispatched,
                 UT = ut,
                 RouteId = routeId,
                 RouteCycleId = cycleId,
@@ -526,11 +526,11 @@ namespace Parsek.Tests
         [Fact]
         public void Merge_SameRowAgain_FoldsItsTags_AnotherRowOfTheCycleStaysApart()
         {
-            RetiredRouteCargoRow first = Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100, cycle: "cycle-3");
-            RetiredRouteCargoRow again = Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100,
+            RetiredRouteCargoRow first = Row(RouteEventType.RouteCargoDelivered, 1300, "LiquidFuel", 100, cycle: "cycle-3");
+            RetiredRouteCargoRow again = Row(RouteEventType.RouteCargoDelivered, 1300, "LiquidFuel", 100,
                 cycle: "cycle-3", tag: StationTag(recordingId: "station-cont", fingerprint: "fp-cont"));
             // Same cycle id, another crossing (cycle ids are rebuilt at every rewind).
-            RetiredRouteCargoRow sameIdOtherCrossing = Row(GameActionType.RouteCargoDelivered, 1400, "LiquidFuel", 100,
+            RetiredRouteCargoRow sameIdOtherCrossing = Row(RouteEventType.RouteCargoDelivered, 1400, "LiquidFuel", 100,
                 cycle: "cycle-3");
 
             Assert.Equal(1, RetiredRouteCargoStore.Merge(new[] { first }, out int merged0));
@@ -547,10 +547,10 @@ namespace Parsek.Tests
         public void BuildRow_TakesTheEndpointFromTheRouteStop_AndSkipsRowsThatMovedNoResource()
         {
             Route route = StationRoute("route-a");
-            GameAction delivered = DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100);
-            var emptyDebit = new GameAction
+            RouteEvent delivered = DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100);
+            var emptyDebit = new RouteEvent
             {
-                Type = GameActionType.RouteCargoDebited,
+                Type = RouteEventType.RouteCargoDebited,
                 UT = 1300,
                 RouteId = "route-a",
                 RouteCycleId = "cycle-1"
@@ -567,26 +567,32 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Stash_RoundTripsThroughTheLedgerFile_AndAnEmptyStashWritesNoNode()
+        public void Stash_RoundTripsThroughTheRouteStoreNode_AndAnEmptyStashWritesNoNode()
         {
             tempDir = Path.Combine(Path.GetTempPath(), "parsek-chaintipcargo-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
             string path = Path.Combine(tempDir, "ledger.pgld");
 
-            Assert.True(Ledger.SaveToFile(path));
-            Assert.DoesNotContain(RetiredRouteCargoStore.NodeName, File.ReadAllText(path));
+            var parsek = new ConfigNode("SCENARIO");
+            RouteStore.SaveRoutesTo(parsek);
+            Assert.Null(parsek.GetNode(RetiredRouteCargoStore.NodeName));
 
-            RetiredRouteCargoRow row = Row(GameActionType.RouteCargoPickedUp, 1300.25, "Ore", 12.5,
+            RetiredRouteCargoRow row = Row(RouteEventType.RouteCargoPickedUp, 1300.25, "Ore", 12.5,
                 cycle: "cycle-7", actualPid: StationPid);
             RetiredRouteCargoStore.Merge(new[] { row }, out _);
             RetiredRouteCargoStore.LowerWatermark(StationTag(chainId: "chain-9"), 1250.5, null);
+            parsek = new ConfigNode("SCENARIO");
+            RouteStore.SaveRoutesTo(parsek);
+            Assert.Single(parsek.GetNodes(RetiredRouteCargoStore.NodeName));
+            // The stash moved out of the ledger file: it persists with the routes.
             Assert.True(Ledger.SaveToFile(path));
+            Assert.DoesNotContain(RetiredRouteCargoStore.NodeName, File.ReadAllText(path));
 
             RetiredRouteCargoStore.ResetForTesting();
-            Assert.True(Ledger.LoadFromFile(path));
+            RouteStore.LoadRoutesFrom(parsek);
 
             RetiredRouteCargoRow back = Assert.Single(RetiredRouteCargoStore.Rows);
-            Assert.Equal(GameActionType.RouteCargoPickedUp, back.Type);
+            Assert.Equal(RouteEventType.RouteCargoPickedUp, back.Type);
             Assert.Equal(1300.25, back.UT);
             Assert.Equal(CutoffUT, back.CutoffUT);
             Assert.Equal("route-a", back.RouteId);
@@ -609,7 +615,7 @@ namespace Parsek.Tests
         [Fact]
         public void LedgerClear_KeepsTheStash()
         {
-            RetiredRouteCargoStore.Merge(new[] { Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 1) }, out _);
+            RetiredRouteCargoStore.Merge(new[] { Row(RouteEventType.RouteCargoDelivered, 1300, "LiquidFuel", 1) }, out _);
 
             Ledger.Clear();
 
@@ -750,13 +756,13 @@ namespace Parsek.Tests
         {
             RouteStore.AddRoute(StationRoute("route-a"));
             RouteStore.AddRoute(StationRoute("route-b", 999u, OtherGuid));
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-0", 1100, "LiquidFuel", 100)); // kept
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100)); // in the tip
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-2", 1800, "LiquidFuel", 100)); // after capture
-            Ledger.AddAction(DeliveredAction("route-b", "cycle-1", 1400, "LiquidFuel", 100)); // other vessel
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-0", 1100, "LiquidFuel", 100)); // kept
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100)); // in the tip
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-2", 1800, "LiquidFuel", 100)); // after capture
+            RouteEventLog.Add(DeliveredAction("route-b", "cycle-1", 1400, "LiquidFuel", 100)); // other vessel
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteDispatched,
+                Type = RouteEventType.RouteDispatched,
                 UT = 1290,
                 RouteId = "route-a",
                 RouteCycleId = "cycle-1",
@@ -787,7 +793,7 @@ namespace Parsek.Tests
             CommitDockUndockTree();
             SeedRouteHistory();
 
-            int retired = Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            int retired = RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
 
             Assert.Equal(4, retired);
             AssertOnlyTheTipsDeliveryStashed();
@@ -814,7 +820,7 @@ namespace Parsek.Tests
             // a tip committed later is captured after the rewind.
             SeedRouteHistory();
 
-            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
 
             Assert.Empty(RetiredRouteCargoStore.Rows);
         }
@@ -848,7 +854,7 @@ namespace Parsek.Tests
             InstallKerbin();
             Recording tip = CommitDockUndockTree();
             SeedRouteHistory();
-            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
 
             ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(tip, 1750.0, "chain-tip-test");
 
@@ -895,7 +901,7 @@ namespace Parsek.Tests
             InstallKerbin();
             Recording tip = CommitDockUndockTree();
             SeedRouteHistory();
-            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
             ConfigNode first = VesselSpawner.BuildValidatedRespawnSnapshot(tip, 1750.0, "tip-spawn");
             Assert.Equal(200.0, LiquidFuelOf(first, StationPartA), 6);
 
@@ -914,7 +920,7 @@ namespace Parsek.Tests
             InstallKerbin();
             Recording tip = CommitDockUndockTree();
             SeedRouteHistory();
-            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
 
             RecordingTree tree = RecordingStore.CommittedTrees[0];
             var fork = MakeRecording("rec_refly", StationPid, StationGuid, 1600, 1720,
@@ -942,14 +948,14 @@ namespace Parsek.Tests
             Recording tip = CommitDockUndockTree();
             Route route = StationRoute("route-a");
             RouteStore.AddRoute(route);
-            Ledger.AddAction(DispatchedAction("route-a", "cycle-0", 1000));
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-0", 1000, "LiquidFuel", 100));
-            Ledger.AddAction(DispatchedAction("route-a", "cycle-1", 1100));
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1100, "LiquidFuel", 100));
-            Ledger.AddAction(DispatchedAction("route-a", "cycle-3", 1300));
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-3", 1300, "LiquidFuel", 100));
+            RouteEventLog.Add(DispatchedAction("route-a", "cycle-0", 1000));
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-0", 1000, "LiquidFuel", 100));
+            RouteEventLog.Add(DispatchedAction("route-a", "cycle-1", 1100));
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-1", 1100, "LiquidFuel", 100));
+            RouteEventLog.Add(DispatchedAction("route-a", "cycle-3", 1300));
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-3", 1300, "LiquidFuel", 100));
 
-            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out List<GameAction> kept);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out List<RouteEvent> kept);
             RouteRewindClassifier.ReconcileStoreAtRewind(
                 new List<Route>(RouteStore.CommittedRoutes), new List<Route>(RouteStore.DormantRoutes),
                 CutoffUT, kept, logTag: "Rewind", logPrefix: "test go-back");
@@ -957,8 +963,8 @@ namespace Parsek.Tests
             string replayCycle = "cycle-" + (reconciled.CompletedCycles + reconciled.SkippedCycles)
                 .ToString(CultureInfo.InvariantCulture);
             Assert.Equal("cycle-2", replayCycle);
-            Ledger.AddAction(DispatchedAction("route-a", replayCycle, 1300.6));
-            Ledger.AddAction(DeliveredAction("route-a", replayCycle, 1300.6, "LiquidFuel", 100));
+            RouteEventLog.Add(DispatchedAction("route-a", replayCycle, 1300.6));
+            RouteEventLog.Add(DeliveredAction("route-a", replayCycle, 1300.6, "LiquidFuel", 100));
 
             ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(tip, 1750.0, "ksc-end-spawn");
 
@@ -980,8 +986,8 @@ namespace Parsek.Tests
             RouteLoadReconcileOutcome outcome = RouteLoadReconcile.ReconcileAtInSessionLoad(
                 LoadKind.InSessionOther, 1000.0, 1000.0, new List<Route>());
             Assert.Equal(RouteLoadReconcileOutcome.SkippedNothingAfterCutoff, outcome);
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-0", 1300, "LiquidFuel", 100));
-            Ledger.RetireFutureRouteActionsAtRewind(1250.0, out _);
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-0", 1300, "LiquidFuel", 100));
+            RouteEventLog.RetireFutureRouteActionsAtRewind(1250.0, out _);
 
             ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(tip, 1750.0, "after-f9");
 
@@ -998,9 +1004,9 @@ namespace Parsek.Tests
             Recording tip = CommitDockUndockTree();
             RouteStore.AddRoute(StationRoute("route-a"));
 
-            Assert.Equal(0, Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _));
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-0", 1300, "LiquidFuel", 100));
-            Ledger.RetireFutureRouteActionsAtRewind(1250.0, out _);
+            Assert.Equal(0, RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _));
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-0", 1300, "LiquidFuel", 100));
+            RouteEventLog.RetireFutureRouteActionsAtRewind(1250.0, out _);
 
             ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(tip, 1750.0, "after-empty-retire");
 
@@ -1017,10 +1023,10 @@ namespace Parsek.Tests
             InstallKerbin();
             Recording tip = CommitDockUndockTree();
             SeedRouteHistory();
-            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-7", 1300.4, "LiquidFuel", 100));
+            RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-7", 1300.4, "LiquidFuel", 100));
 
-            Ledger.RetireFutureRouteActionsAtRewind(1250.0, out _);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(1250.0, out _);
             ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(tip, 1750.0, "second-rewind");
 
             Assert.NotNull(copy);
@@ -1035,7 +1041,7 @@ namespace Parsek.Tests
             InstallKerbin();
             Recording tip = CommitDockUndockTree();
             SeedRouteHistory();
-            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
 
             RecordingTree tree = RecordingStore.CommittedTrees[0];
             var tail = MakeRecording("station-tip-2", StationPid, StationGuid, 1650, CaptureUT,
@@ -1063,7 +1069,7 @@ namespace Parsek.Tests
             InstallKerbin();
             Recording tip = CommitDockUndockTree();
             SeedRouteHistory();
-            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
             foreach (ConfigNode part in tip.VesselSnapshot.GetNodes("PART"))
             {
                 if (part.GetValue("persistentId") == StationPartA.ToString(CultureInfo.InvariantCulture))
@@ -1082,7 +1088,7 @@ namespace Parsek.Tests
             InstallKerbin();
             CommitDockUndockTree();
             SeedRouteHistory();
-            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
             Recording transportHalf = RecordingStore.CommittedTrees[0].Recordings["tr-half"];
 
             ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(transportHalf, 1850.0, "not-a-tip");
@@ -1099,8 +1105,8 @@ namespace Parsek.Tests
             InstallKerbin();
             Recording tip = CommitDockUndockTree();
             SeedRouteHistory();
-            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1305, "LiquidFuel", 100));
+            RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-1", 1305, "LiquidFuel", 100));
 
             ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(tip, 1750.0, "replayed");
 
@@ -1113,7 +1119,7 @@ namespace Parsek.Tests
         {
             Recording tip = CommitDockUndockTree();
             SeedRouteHistory();
-            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
 
             ConfigNode first = tip.VesselSnapshot.CreateCopy();
             ChainTipRouteCargo.ApplyToSpawnCopy(first, tip, "attempt-1");
@@ -1252,11 +1258,11 @@ namespace Parsek.Tests
             InstallKerbin();
             Recording leaf = CommitStationLeaf();
             RouteStore.AddRoute(StationRoute("route-a"));
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-0", 1100, "LiquidFuel", 100));
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-2", 1800, "LiquidFuel", 100));
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-0", 1100, "LiquidFuel", 100));
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-2", 1800, "LiquidFuel", 100));
 
-            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
 
             RetiredRouteCargoRow row = Assert.Single(RetiredRouteCargoStore.Rows);
             Assert.Equal(1300.0, row.UT);
@@ -1290,15 +1296,15 @@ namespace Parsek.Tests
             MakeTrimmable(leaf, interestingUT: 1400.0, step: 25.0);
             RecordingStore.AddRecordingWithTreeForTesting(leaf);
             RouteStore.AddRoute(StationRoute("route-a"));
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-2", 1600, "LiquidFuel", 100));
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-2", 1600, "LiquidFuel", 100));
 
             RecordingStore.RunOptimizationPass();
             Assert.True(leaf.EndUT < 1450.0, "the tail was not trimmed: endUT=" + leaf.EndUT.ToString("R", CultureInfo.InvariantCulture));
             double spawnUT = leaf.EndUT;
             DropOrbitAfterTheTrim(leaf);
 
-            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
 
             Assert.Equal(new[] { 1300.0, 1600.0 }, RetiredRouteCargoStore.Rows.Select(r => r.UT).OrderBy(u => u).ToArray());
             Assert.All(RetiredRouteCargoStore.Rows, r => Assert.Equal(CaptureUT, Assert.Single(r.Tips).CaptureUT));
@@ -1310,7 +1316,7 @@ namespace Parsek.Tests
 
             // The route performs the 1600 crossing again into the spawned station (paid once,
             // delivered once). Were the spawn to come after that replay, the copy would keep it.
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1600.3, "LiquidFuel", 100));
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-1", 1600.3, "LiquidFuel", 100));
             ConfigNode afterReplay = VesselSpawner.BuildValidatedRespawnSnapshot(leaf, 1650.0, "after-replay");
             Assert.Equal(200.0, LiquidFuelOf(afterReplay, StationPartA), 6);
         }
@@ -1325,13 +1331,13 @@ namespace Parsek.Tests
             MakeTrimmable(tip, interestingUT: 1620.0, step: 10.0);
             RecordingStore.AddRecordingWithTreeForTesting(tip);
             SeedRouteHistory();
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-3", 1650, "LiquidFuel", 100));
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-3", 1650, "LiquidFuel", 100));
 
             RecordingStore.RunOptimizationPass();
             Assert.True(tip.EndUT < 1645.0, "the tail was not trimmed: endUT=" + tip.EndUT.ToString("R", CultureInfo.InvariantCulture));
             DropOrbitAfterTheTrim(tip);
 
-            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
             ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(tip, tip.EndUT, "trimmed-tip-spawn");
 
             Assert.NotNull(copy);
@@ -1344,9 +1350,9 @@ namespace Parsek.Tests
             InstallKerbin();
             Recording other = CommitStationLeaf(pid: 888u);
             RouteStore.AddRoute(StationRoute("route-a"));
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
 
-            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
             ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(other, 1750.0, "not-an-endpoint");
 
             Assert.Empty(RetiredRouteCargoStore.Rows);
@@ -1361,9 +1367,9 @@ namespace Parsek.Tests
             InstallKerbin();
             Recording relaunch = CommitStationLeaf(recordingGuid: OtherGuid);
             RouteStore.AddRoute(StationRoute("route-a"));
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
 
-            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
             ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(relaunch, 1750.0, "other-launch");
 
             Assert.Empty(RetiredRouteCargoStore.Rows);
@@ -1378,9 +1384,9 @@ namespace Parsek.Tests
             InstallKerbin();
             Recording leaf = CommitStationLeaf(recordingGuid: null);
             RouteStore.AddRoute(StationRoute("route-a", guid: null));
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
 
-            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
             ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(leaf, 1750.0, "bare-pid");
 
             Assert.Empty(RetiredRouteCargoStore.Rows);
@@ -1395,9 +1401,9 @@ namespace Parsek.Tests
             Route route = StationRoute("route-a", guid: null);
             route.Stops[0].Endpoint.RootPartUId = StationRootUid;
             RouteStore.AddRoute(route);
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
 
-            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
             ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(leaf, 1750.0, "root-part");
 
             RetiredRouteCargoRow row = Assert.Single(RetiredRouteCargoStore.Rows);
@@ -1411,9 +1417,9 @@ namespace Parsek.Tests
             InstallKerbin();
             Recording leaf = CommitStationLeaf();
             RouteStore.AddRoute(StationRoute("route-a"));
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
-            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-5", 1301.0, "LiquidFuel", 100));
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
+            RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-5", 1301.0, "LiquidFuel", 100));
 
             ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(leaf, 1750.0, "leaf-replayed");
 
@@ -1427,11 +1433,11 @@ namespace Parsek.Tests
             InstallKerbin();
             Recording leaf = CommitStationLeaf();
             RouteStore.AddRoute(StationRoute("route-a"));
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
-            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
-            Ledger.AddAction(DeliveredAction("route-a", "cycle-4", 1300.4, "LiquidFuel", 100));
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
+            RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            RouteEventLog.Add(DeliveredAction("route-a", "cycle-4", 1300.4, "LiquidFuel", 100));
 
-            Ledger.RetireFutureRouteActionsAtRewind(1250.0, out _);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(1250.0, out _);
             ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(leaf, 1750.0, "leaf-second-rewind");
 
             Assert.NotNull(copy);
@@ -1446,7 +1452,7 @@ namespace Parsek.Tests
             InstallKerbin();
             Recording tip = CommitDockUndockTree();
             SeedRouteHistory();
-            Ledger.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(CutoffUT, out _);
 
             ConfigNode copy = VesselSpawner.BuildValidatedRespawnSnapshot(tip, 1750.0, "tip-once");
 
@@ -1480,7 +1486,7 @@ namespace Parsek.Tests
         [Fact]
         public void LeafRowAddressing_UsesThePositiveRule_TheChainTipKeepsItsOwn()
         {
-            RetiredRouteCargoRow unknownGuid = Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100,
+            RetiredRouteCargoRow unknownGuid = Row(RouteEventType.RouteCargoDelivered, 1300, "LiquidFuel", 100,
                 endpointGuid: null);
             var leaf = new ChainTipCargoIdentity { IsChainTip = false };
             leaf.PositiveVessels.Add(new CargoVesselIdentity { Pid = StationPid, LaunchGuid = StationGuid });
@@ -1488,7 +1494,7 @@ namespace Parsek.Tests
             Assert.False(ChainTipRouteCargo.RowAddressesTip(unknownGuid, leaf));
             Assert.True(ChainTipRouteCargo.RowAddressesTip(unknownGuid, StationTip()));
             Assert.True(ChainTipRouteCargo.RowAddressesTip(
-                Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100), leaf));
+                Row(RouteEventType.RouteCargoDelivered, 1300, "LiquidFuel", 100), leaf));
         }
 
         [Fact]
@@ -1503,13 +1509,14 @@ namespace Parsek.Tests
             Assert.False(RetiredRouteCargoStore.NoteSnapshotCapture(LeafTreeId, "station-leaf", null, 1650.0));
             Assert.Equal(1700.0, RetiredRouteCargoStore.CaptureUTOf(LeafTreeId, "fp-1"));
             Assert.True(double.IsNaN(RetiredRouteCargoStore.CaptureUTOf(LeafTreeId, "fp-2")));
-            RetiredRouteCargoRow row = Row(GameActionType.RouteCargoDelivered, 1300, "LiquidFuel", 100);
+            RetiredRouteCargoRow row = Row(RouteEventType.RouteCargoDelivered, 1300, "LiquidFuel", 100);
             row.EndpointRootPartUId = StationRootUid;
             RetiredRouteCargoStore.Merge(new[] { row }, out _);
 
-            Assert.True(Ledger.SaveToFile(path));
+            var parsek = new ConfigNode("SCENARIO");
+            RouteStore.SaveRoutesTo(parsek);
             RetiredRouteCargoStore.ResetForTesting();
-            Assert.True(Ledger.LoadFromFile(path));
+            RouteStore.LoadRoutesFrom(parsek);
 
             Assert.Equal(1700.0, RetiredRouteCargoStore.CaptureUTOf(LeafTreeId, "fp-1"));
             Assert.Single(RetiredRouteCargoStore.Captures);

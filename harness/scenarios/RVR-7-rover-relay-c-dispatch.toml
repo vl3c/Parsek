@@ -426,8 +426,8 @@ count = { min = 10, max = 10 }
 #          SkippedCycles}` and a freshly created route has both at zero, which RVR-2's
 #          flight measured directly (its first cycle printed `cycle=cycle-0`).
 #
-# TOKEN 11 THE ROUTE STORE IS EMPTY ON THE WAY IN, from `RouteModule`'s recalculation
-#          epilogue (`PostWalk: routes={0}, paused=...`). It fires on OnLoad - unlike
+# TOKEN 11 THE ROUTE STORE IS EMPTY ON THE WAY IN, from the route event log's walk
+#          summary (`PostWalk: routes={0}, paused=...`, `RouteEventLog.LogWalkSummary`). It fires on OnLoad - unlike
 #          `DeriveCandidates`, which does not - and the fixture already carries
 #          `verboseLogging = True`, with step 5 re-asserting it. It is the before-picture
 #          the admission is measured against, and together with the

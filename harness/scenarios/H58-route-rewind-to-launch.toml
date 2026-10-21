@@ -149,9 +149,9 @@ tier = "nightly"
 #     (P3) ARMED ONE-SHOTS DO NOT SURVIVE. `PauseAfterCurrentCycle` and `SendOnceArmed`
 #          are cleared UNCONDITIONALLY on every kept route, because the flags carry no
 #          timestamp and a phantom arm cannot be traced.
-#     (P4) Free-standing route ledger rows with `UT > cutoff` are RETIRED IN PLACE by
-#          `Ledger.RetireFutureRouteActionsAtRewind` (the go-back path preserves the
-#          in-memory ledger, so without the retire the Rec-1 rows would survive).
+#     (P4) Route events with `UT > cutoff` are RETIRED IN PLACE by
+#          `RouteEventLog.RetireFutureRouteActionsAtRewind` (the go-back path preserves the
+#          in-memory route event log, so without the retire the Rec-1 events would survive).
 #     (P5) For THIS lane's route specifically - created live over tree B, activated,
 #          paused, activated again, then Send-Once armed, all of it BEFORE any rewind
 #          cutoff a Rewind-to-Launch of that same session could produce - the kept-route
@@ -200,7 +200,9 @@ tier = "nightly"
 #     seam (`ReconciliationBundle.Restore(cutoff)`) and the plain go-back rewind
 #     (`ParsekScenario.HandleRewindOnLoad`, which additionally retires the abandoned-future
 #     free-standing route ledger rows in place via `Ledger.RetireFutureRouteActionsAtRewind`
-#     at the `RewindAdjustedUT` cutoff)".
+#     at the `RewindAdjustedUT` cutoff)". Since LOGISTICS-WITHOUT-MONEY phase 2 that retire
+#     is `RouteEventLog.RetireFutureRouteActionsAtRewind` over the route event log; the log
+#     line it writes is unchanged.
 #   docs/parsek-logistics-supply-routes-design.md:905 - the pause/resume timeline rows:
 #     `player-pause` / `player-activate` reasons, the `AutoPause:` / `AutoResume:` prefixes,
 #     and "All rows are retired at a rewind whose cutoff precedes them".
@@ -387,7 +389,7 @@ steps = [
 # its own header names what it cannot reach - "the REAL HandleRewindOnLoad go-back scene
 # load". That is exactly what flight 2 drove: a real `RecordingStore.InitiateRewind`, a
 # real KSP scene reload into SPACECENTER, and `ParsekScenario.HandleRewindOnLoad`'s own
-# `Ledger.RetireFutureRouteActionsAtRewind` + `RouteRewindClassifier.ReconcileStoreAtRewind`
+# `RouteEventLog.RetireFutureRouteActionsAtRewind` + `RouteRewindClassifier.ReconcileStoreAtRewind`
 # pass over the live `RouteStore`. H6 KEEPS the cell as the synthetic declarer; this is
 # the FLOWN one, and the two are complementary rather than duplicate.
 # WHAT GATES IT, so the claim is not a sentence: the three reconcile tokens below are

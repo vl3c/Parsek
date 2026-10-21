@@ -235,9 +235,9 @@ namespace Parsek.InGameTests
                 RouteOrchestrator.DeliveryRowEmitterForTesting =
                     (r, rowUT, e, cycleId, stopIndex, bumpCompletedCycle) =>
                     {
-                        Ledger.AddAction(new GameAction
+                        RouteEventLog.Add(new RouteEvent
                         {
-                            Type = GameActionType.RouteCargoDelivered,
+                            Type = RouteEventType.RouteCargoDelivered,
                             UT = rowUT,
                             RouteId = r.Id,
                             RouteCycleId = cycleId,
@@ -277,7 +277,7 @@ namespace Parsek.InGameTests
                 RouteOrchestrator.Tick(anchor + 0.5 * dockOffset, env);
                 InGameAssert.AreEqual(0, deliveredCycleIds.Count,
                     "P2b firing: a mid-transit tick (before the dock phase) must not deliver");
-                InGameAssert.AreEqual(0, CountRouteLedgerRows(route.Id, GameActionType.RouteDispatched),
+                InGameAssert.AreEqual(0, CountRouteLedgerRows(route.Id, RouteEventType.RouteDispatched),
                     "P2b firing: a mid-transit tick must not dispatch");
 
                 // CYCLE 0: tick just past the dock phase (anchor + dockOffset).
@@ -287,7 +287,7 @@ namespace Parsek.InGameTests
                 RouteOrchestrator.Tick(fire0UT, env);
                 InGameAssert.AreEqual(1, deliveredCycleIds.Count,
                     "P2b firing: the cycle-0 dock-phase tick must fire exactly one delivery");
-                InGameAssert.AreEqual(1, CountRouteLedgerRows(route.Id, GameActionType.RouteDispatched),
+                InGameAssert.AreEqual(1, CountRouteLedgerRows(route.Id, RouteEventType.RouteDispatched),
                     "P2b firing: cycle 0 must dispatch exactly once");
                 InGameAssert.AreEqual(1, originDebits,
                     "P2b firing: cycle 0 must debit the depot-A origin exactly once (the M1 docked-origin debit)");
@@ -303,7 +303,7 @@ namespace Parsek.InGameTests
                 RouteOrchestrator.Tick(fire1UT, env);
                 InGameAssert.AreEqual(2, deliveredCycleIds.Count,
                     "P2b firing: the cycle-1 dock-phase tick (one cadence later) must fire the second delivery");
-                InGameAssert.AreEqual(2, CountRouteLedgerRows(route.Id, GameActionType.RouteDispatched),
+                InGameAssert.AreEqual(2, CountRouteLedgerRows(route.Id, RouteEventType.RouteDispatched),
                     "P2b firing: cycle 1 must dispatch exactly once more");
                 InGameAssert.AreEqual(2, originDebits,
                     "P2b firing: cycle 1 must debit the depot-A origin exactly once more");
@@ -504,14 +504,14 @@ namespace Parsek.InGameTests
 
         // Counts ledger rows of a given type tagged with the route id (whole-ledger
         // scan; the synthetic route id is unique per run).
-        private static int CountRouteLedgerRows(string routeId, GameActionType type)
+        private static int CountRouteLedgerRows(string routeId, RouteEventType type)
         {
             int count = 0;
-            var actions = Ledger.Actions;
+            var actions = RouteEventLog.Events;
             if (actions == null) return 0;
             for (int i = 0; i < actions.Count; i++)
             {
-                GameAction a = actions[i];
+                RouteEvent a = actions[i];
                 if (a != null && a.Type == type
                     && string.Equals(a.RouteId, routeId, StringComparison.Ordinal))
                     count++;
@@ -519,25 +519,15 @@ namespace Parsek.InGameTests
             return count;
         }
 
-        // Drops EVERY ledger row tagged with the synthetic route id (dispatch,
-        // debit, delivered - all of them), restoring the live career ledger.
-        // Walks back-to-front so RemoveActionAt indices stay valid as rows drop.
+        // Drops EVERY route event tagged with the synthetic route id (dispatch,
+        // debit, delivered - all of them), restoring the live route event log.
         private static void RemoveTestLedgerRows(string routeId)
         {
-            var actions = Ledger.Actions;
-            if (actions == null) return;
-            int removed = 0;
-            for (int i = actions.Count - 1; i >= 0; i--)
-            {
-                GameAction a = actions[i];
-                if (a != null && string.Equals(a.RouteId, routeId, StringComparison.Ordinal))
-                {
-                    Ledger.RemoveActionAt(i);
-                    removed++;
-                }
-            }
+            int removed = RouteEventLog.RemoveWhere(
+                a => string.Equals(a.RouteId, routeId, StringComparison.Ordinal),
+                "shuttle test cleanup");
             ParsekLog.Verbose("TestRunner",
-                $"Shuttle_P2b_InGame cleanup: removed {removed.ToString(IC)} ledger row(s) for route {routeId}");
+                $"Shuttle_P2b_InGame cleanup: removed {removed.ToString(IC)} route event(s) for route {routeId}");
         }
 
         private static int FindCommittedIndex(IReadOnlyList<Recording> committed, string recordingId)

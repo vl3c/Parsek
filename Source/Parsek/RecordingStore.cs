@@ -3042,7 +3042,7 @@ namespace Parsek
                 }
                 Parsek.Logistics.RouteDiscardObservability.ReportDiscardLeakForRecordings(
                     discardedRecs,
-                    Ledger.Actions,
+                    Parsek.Logistics.RouteEventLog.Events,
                     ParsekScenario.IsReFlySessionActiveForQuickloadDiscard(),
                     $"DiscardPendingTree '{pendingTree.TreeName}'");
             }
@@ -3257,7 +3257,7 @@ namespace Parsek
                 }
                 Parsek.Logistics.RouteDiscardObservability.ReportDiscardLeakForRecordings(
                     discardedRecs,
-                    Ledger.Actions,
+                    Parsek.Logistics.RouteEventLog.Events,
                     ParsekScenario.IsReFlySessionActiveForQuickloadDiscard(),
                     $"SwitchSegment scoped discard sess={sessionIdStr}");
             }

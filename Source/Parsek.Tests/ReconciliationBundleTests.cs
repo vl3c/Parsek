@@ -248,66 +248,76 @@ namespace Parsek.Tests
             Assert.Equal("a1", Ledger.Actions[0].ActionId);
         }
 
-        // ---- Rec-1: route-row retire on the SUCCESS restore path ----
+        // ---- Rec-1: route-event retire on the SUCCESS restore path ----
         // (logistics<->time-rewind determinism; plan
-        //  docs/dev/plans/fix-logistics-rewind-determinism.md)
+        //  docs/dev/plans/fix-logistics-rewind-determinism.md). Route events live in
+        // the route event log, which the bundle captures beside the ledger.
 
-        private static GameAction MakeRouteAction(string actionId, double ut, GameActionType type)
+        private static Parsek.Logistics.RouteEvent MakeRouteEvent(
+            string cycleId, double ut, Parsek.Logistics.RouteEventType type)
         {
-            return new GameAction
+            return new Parsek.Logistics.RouteEvent
             {
-                ActionId = actionId,
                 Type = type,
                 UT = ut,
                 RouteId = "route-1",
+                RouteCycleId = cycleId,
             };
         }
 
         [Fact]
-        public void Restore_WithRouteCutoff_DropsFutureRouteRows_KeepsPastAndNonRoute()
+        public void Restore_WithRouteCutoff_RetiresFutureRouteEvents_KeepsPastAndLedger()
         {
             MakeScenario();
-            // non-route future row (kept regardless of UT), past route row (<= cutoff, kept),
-            // three future route rows (> cutoff, dropped).
+            // A future ledger row (kept regardless of UT: the ledger is restored whole), a
+            // past route event (<= cutoff, kept) and three future route events (> cutoff, retired).
             Ledger.AddAction(MakeAction("nonroute-future", 3000.0)); // FundsEarning
-            Ledger.AddAction(MakeRouteAction("route-past", 2000.0, GameActionType.RouteCargoDebited));
-            Ledger.AddAction(MakeRouteAction("route-disp", 3000.0, GameActionType.RouteDispatched));
-            Ledger.AddAction(MakeRouteAction("route-deliv", 3000.0, GameActionType.RouteCargoDelivered));
-            Ledger.AddAction(MakeRouteAction("route-credit", 3500.0, GameActionType.RouteRecoveryCredited));
+            Parsek.Logistics.RouteEventLog.Add(MakeRouteEvent("past", 2000.0, Parsek.Logistics.RouteEventType.RouteCargoDebited));
+            Parsek.Logistics.RouteEventLog.Add(MakeRouteEvent("disp", 3000.0, Parsek.Logistics.RouteEventType.RouteDispatched));
+            Parsek.Logistics.RouteEventLog.Add(MakeRouteEvent("deliv", 3000.0, Parsek.Logistics.RouteEventType.RouteCargoDelivered));
+            Parsek.Logistics.RouteEventLog.Add(MakeRouteEvent("held", 3500.0, Parsek.Logistics.RouteEventType.RouteHeld));
 
             var bundle = ReconciliationBundle.Capture();
-            // Capture is UNCHANGED: the bundle holds all five rows (so the failed-load
-            // rollback can restore them intact).
-            Assert.Equal(5, bundle.Actions.Count);
+            // Capture is a whole copy: the failed-load rollback can restore every event.
+            Assert.Single(bundle.Actions);
+            Assert.Equal(4, bundle.RouteEvents.Count);
+            Assert.Contains(logLines, l => l.Contains("[ReconciliationBundle]")
+                && l.Contains("Captured:") && l.Contains("routeEvents=4"));
 
+            // The post-load world: a stray event written after the capture is replaced, not merged.
             Ledger.Clear();
+            Parsek.Logistics.RouteEventLog.Add(MakeRouteEvent("stray", 1000.0, Parsek.Logistics.RouteEventType.RoutePaused));
             ReconciliationBundle.Restore(bundle, 2500.0);
 
-            // Three future route rows dropped; the non-route future row + the past route row kept.
-            Assert.Equal(2, Ledger.Actions.Count);
-            Assert.Contains(Ledger.Actions, a => a.ActionId == "nonroute-future");
-            Assert.Contains(Ledger.Actions, a => a.ActionId == "route-past");
-            Assert.DoesNotContain(Ledger.Actions, a => a.ActionId == "route-disp");
-            Assert.DoesNotContain(Ledger.Actions, a => a.ActionId == "route-deliv");
-            Assert.DoesNotContain(Ledger.Actions, a => a.ActionId == "route-credit");
+            Assert.Single(Ledger.Actions);
+            Assert.Equal("nonroute-future", Ledger.Actions[0].ActionId);
+            var events = Parsek.Logistics.RouteEventLog.Events;
+            Assert.Single(events);
+            Assert.Equal("past", events[0].RouteCycleId);
+            Assert.Contains(logLines, l => l.Contains("[ReconciliationBundle]")
+                && l.Contains("Restore: retired 3 free-standing route row(s) with UT > cutoff 2500 (Rec-1)"));
         }
 
         [Fact]
-        public void Restore_Parameterless_KeepsAllRouteRows_RollbackContract()
+        public void Restore_Parameterless_KeepsAllRouteEvents_RollbackContract()
         {
             MakeScenario();
-            Ledger.AddAction(MakeRouteAction("route-disp", 3000.0, GameActionType.RouteDispatched));
+            Parsek.Logistics.RouteEventLog.Add(MakeRouteEvent("disp", 3000.0, Parsek.Logistics.RouteEventType.RouteDispatched));
             Ledger.AddAction(MakeAction("nonroute", 10.0));
 
             var bundle = ReconciliationBundle.Capture();
             Ledger.Clear();
+            Parsek.Logistics.RouteEventLog.ReplaceAll(new List<Parsek.Logistics.RouteEvent>(), "test");
             // Parameterless overload = +inf cutoff = retire NOTHING (the failed-load
             // rollback contract: the player stays in the pre-rewind world, so the
-            // pre-rewind route rows must be restored intact).
+            // pre-rewind route events must be restored intact).
             ReconciliationBundle.Restore(bundle);
 
-            Assert.Equal(2, Ledger.Actions.Count);
-            Assert.Contains(Ledger.Actions, a => a.ActionId == "route-disp");
+            Assert.Single(Ledger.Actions);
+            var events = Parsek.Logistics.RouteEventLog.Events;
+            Assert.Single(events);
+            Assert.Equal("disp", events[0].RouteCycleId);
+            Assert.DoesNotContain(logLines, l => l.Contains("free-standing route row(s)"));
         }
 
         // ---- Re-fly pending-science reconciliation (preservation-branch audit,
