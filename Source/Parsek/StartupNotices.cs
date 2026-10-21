@@ -34,7 +34,7 @@ namespace Parsek
         private static readonly (string[] prefixes, string feature)[] FeatureRules =
         {
             (new[] { "SwitchIntent", "MapFocusObject", "KscVesselMarkerFly" }, "vessel switch recording"),
-            (new[] { "Ghost", "FlightStateGhostBudget", "SunLateUpdateGuard" }, "ghost vessels"),
+            (new[] { "Ghost", "FlightStateGhostBudget", "SunLateUpdateGuard", "ClaimedVesselDisposal" }, "ghost vessels"),
             (new[] { "Tech", "RnD", "RDTech", "PartListTooltip" }, "tech tree reservations"),
             (new[] { "Facility" }, "facility upgrade reservations"),
             (new[] { "Contract", "MissionControl" }, "contract reservations"),
