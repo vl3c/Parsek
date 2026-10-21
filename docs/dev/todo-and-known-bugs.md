@@ -16,6 +16,30 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MINE-7-RESTORE-PIN-ASSUMES-DRILLS-OFF: MINE-7 pins the spawned-drill restore line to "restored=4 alreadyOn=0", but the drills can come back on by themselves [FILED 2026-10-21 from MINE-7 `2026-10-21_1604` (PARSEK-FAIL, expectations), flown for PR #2163. OPEN, low. harness]
+
+**Symptom.** The lane's required line `Spawned harvester restore: vessel=Mining Rover RC pid=[0-9]+ restored=4 alreadyOn=0 missing=0` did not match: KSP.log had `restored=0 alreadyOn=4 missing=0` 2 s after `Unpacking Mining Rover RC` (`restore armed ... harvesters=4` before it). Mining and every resource check passed; every other verifier passed. The green `2026-10-17_1506_a2` run logged `restored=4 alreadyOn=0`.
+
+**Cause (inferred).** SPAWNED-DRILLS-SWITCH-OFF's restore runs once the vessel is loaded, off rails and landed; whether stock's `PrepareRecipe` impact check has already turned the drills off by then depends on the frame the raycast lands. The pin asserts one branch of a race the product handles both ways.
+
+**Fix.** Pin the outcome, not the branch: `restored=[0-4] alreadyOn=[0-4] missing=0` with restored + alreadyOn = 4 (regex alternation of the five pairs), keeping the drills-active resource assertions as the proof.
+
+## RVR-21-START-SPEED-ABOVE-STATIONARY: RVR-21 needs the rover to start recording below 0.1 m/s, and a boot that leaves it drifting at 0.12 m/s starts SurfaceMobile [FILED 2026-10-21 from RVR-21 `2026-10-21_1626` (PARSEK-FAIL, expectations), flown for PR #2163. OPEN, low. harness]
+
+**Symptom.** The required `Environment transition: SurfaceStationary -> SurfaceMobile at UT=... (debounce=3.0s)` line never printed (zero transition lines). `drivevessel start: ... srfSpeed=0.12`, `Hysteresis initialized: initial=SurfaceMobile`. The drive worked (`outcome=moved ... maxSrfSpeed=23.11 pathMeters=109.4`); every other verifier passed. The green `2026-10-15_1539` run and its negative control `_1544` started at 0.10 and 0.05 m/s.
+
+**Cause.** `EnvironmentDetector` classifies a landed vessel above 0.1 m/s as SurfaceMobile, so the start state depends on the rover's settle speed after the boot.
+
+**Fix.** Settle before `StartRecording` (a wait until `srfSpeed < 0.05`, failing fast past a bound), so the lane always starts SurfaceStationary.
+
+## L2-AFTER-QUIT-STOCK-NRE: L2-ledger-groundtruth-career's armed `unityExceptions maxTotal = 0` counts two stock NullReferenceExceptions thrown after Parsek's quit [FILED 2026-10-21 from L2 `2026-10-21_1640` (PARSEK-FAIL, unityExceptions), flown for PR #2163. OPEN, low. harness]
+
+**Symptom.** `unityExceptions status=FAIL gating=True total=2 ... parsekFrames=0 parsekThrowSite=0 parsekCaller=0 afterQuit=2`: both are `Exception handling event onPlanetariumTargetChange in class KnowledgeBase: NullReferenceException at KSP.UI.Screens.KbApp_PlanetResources.ActivateApp ... PlanetariumCamera:OnVesselDestroy / Vessel:OnDestroy()`, after `flushandquit: Application.Quit`. The ledger oracle passed (hardDivergences=0) and every other verifier passed.
+
+**Cause.** Stock scene teardown noise during shutdown; the armed gate counts after-quit exceptions with no Parsek frame.
+
+**Fix.** Decide in `hlib.evaluate_unity_exceptions` whether an armed `maxTotal` counts `afterQuit` exceptions with no Parsek frame (exclude them, or allow this stock signature), with a unit cell for each side.
+
 ## ~~REFLY-MERGE-RETIRES-VALUE-LATER-SPENDING-USED: a Re-Fly merge takes back the replaced flight's earnings after the timeline already spent them~~ [FILED 2026-10-19 from the "Re-Fly ledger paradox analysis" thread, code read on main 4503a53. Was open, critical (owner rulings: never lower the ledger, no time-travel paradox); designed in `parsek-rewind-to-separation-design.md` section 2.12, Option 1 confirmed by the owner 2026-10-19, implementation plan `docs/dev/plans/refly-ledger-safety-implementation.md`. FIXED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151, design 2.12 phases 1-4 plus review fixes). xUnit; the reshaped Re-Fly lanes and RF-L1..RF-L4 not flown yet. product]
 
 **What happens.** Since the 2026-05-06 broad tombstone scope (`f4763de1`, `d66626ba`) a Re-Fly
@@ -307,7 +331,11 @@ holds none, so a second load drops nothing. `RouteCodec` ignores `kscDispatchFun
 pending-credit keys and never writes them; `WaitingForFunds` reads as `Active`; a FundsShort hold
 still loads and renders a generic line. `Route.CreationTreeRecordingIds` kept. Harness: RVR-4,
 RVR-17, GUI-23, the `rover-route-career` fixture and builder, `[fixture.career]` and the oracle's
-Rec-3 route-funds carve-out retired; IR-5's dispatch token re-pinned. Not flown.
+Rec-3 route-funds carve-out retired; IR-5's dispatch token re-pinned. Flown 2026-10-21 at 98a0aae, 59 lanes (47 route / Logistics, 12
+ledger): 56 PASS, 3 PARSEK-FAIL unrelated to the change (MINE-7-RESTORE-PIN-ASSUMES-DRILLS-OFF,
+RVR-21-START-SPEED-ABOVE-STATIONARY, L2-AFTER-QUIT-STOCK-NRE). Gap: `RouteRewindRedeliveryInGameTest`'s
+funds-flat assertion ran on no lane (its four hosts H38 / H39 / H40 / RVR-6 are Sandbox and skip it);
+proving it needs a Logistics isolated lane on a career save (not authored).
 
 ## ~~ROUTE-DISPATCH-IGNORES-RESERVATIONS: a route dispatch checks the raw funds counter, so it can spend money a committed purchase needs~~ [FILED 2026-10-21 from the O4 analysis. Was open, small; owner ruling: ship now, ahead of LOGISTICS-WITHOUT-MONEY. FIXED 2026-10-21 on branch `claude/project-thread-q165qu`. xUnit only. product. SUPERSEDED the same day by LOGISTICS-WITHOUT-MONEY phase 1, which deletes the route funds gate this fix made reservation-aware, with `RouteDispatchReservationGateTests`.]
 
