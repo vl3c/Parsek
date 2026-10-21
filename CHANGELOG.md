@@ -10,10 +10,6 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
-- **Flying a committed vessel again starts a new segment.** Its committed recording is no longer
-  extended in place; the new flying becomes its own segment under it, as for a respawned vessel.
-  An F5 and F9 during that flight now keep the path you flew, and Discard drops only the new part.
-  (ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE)
 - **Loading a save puts Parsek back exactly as that save was.** F9 and the Load menu now restore
   the save's committed flights, career ledger, Re-Fly merges, Unfinished Flights, names, groups and
   missions. Flights committed after the save are gone, and a flight in progress at the save resumes
