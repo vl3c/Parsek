@@ -54,35 +54,18 @@ Production (about 30 files, roughly -2,000 / +150 lines):
    `LedgerOrchestrator.ActionTouchesFundsBudget`, `SupersedeCommit` exclusions and `RouteModule`'s two
    money observers.
 
-Old saves (the shape decisions; each needs a test):
-- One-time conversion at load, before the first recalculation: every legacy route money row becomes
-  an ordinary Space Center funds row with the same UT, amount and ActionId. A `RouteRecoveryCredited`
-  row becomes a funds earning; a `RouteCargoDebited` row with a non-zero `RouteKscFundsCost` (a
-  Space Center charge) becomes a funds spending. A vessel-origin `RouteCargoDebited` row (cost 0) is a
-  physical row and stays a route row until phase 2. The funds at every UT are unchanged by the
-  conversion (test: recalculate one legacy Career ledger before and after; the totals match).
-- After conversion those rows follow every rule an ordinary Space Center funds row follows, and no
-  route rule: a go-back rewind keeps them (D2), an F9 to an older save drops the ones after it (the
-  quickload rule), a stock revert treats them like any untagged row (the open O2 item). Accepted cost:
-  a rewind to before the upgrade keeps a legacy cycle's charge while the rewind restores its cargo,
-  once, for cycles flown before this change.
-- The conversion runs when a ledger still holds type 24 / 28 money rows, so it is idempotent: a
-  converted ledger has none. With PR #2155 an F9 loads the save's own ledger, which converts again
-  from that save's state, never on top of an earlier conversion.
-- A legacy owed credit (a save written between a dispatch and its next crossing) is paid by the same
-  conversion as a funds earning at the marker's dispatch UT, once per route. Amount: the route's latest
-  legacy `RouteRecoveryCredited` amount (the credit is a constant per route by design); only when the
-  marker's `RouteDispatched` row is in the ledger (today's orphan guard); none when the route has no
-  earlier credit row (logged). The marker keys are never read after the conversion, so
-  `RouteLoadReconcile.RestoreLoopPositionFromSave` stops copying them.
-- With the rows converted, the funds code needs no route arms: step 6 removes them in the same PR.
-  `routeKscFundsCost` is still READ by the conversion and never written again; enum ids 24 and 28 stay
-  defined (deleting them would read old rows as `Type = 0`, `ScienceEarning`) and stay excluded in
-  `SupersedeCommit.IsWorldStateChangingRecordingAction` (a removed case falls through to true).
-- `status = WaitingForFunds` reads as `Active`; `lastHoldKind = FundsShort` and old `RouteHeld` rows
-  with that kind keep loading (keep the enum member or map it on read).
-- Codec keys `kscDispatchFundsCost`, `pendingRecoveryCreditCycleId`, `pendingRecoveryCreditDispatchUT`:
-  stop writing; read only by the conversion.
+Old saves. The mod has not launched publicly, so backward compatibility is not a goal (V, 2026-10-21:
+"we have not launched the mod in public so we don't care much about backwards compatibility"):
+- Legacy route money rows (`RouteRecoveryCredited`, and `RouteCargoDebited` with a non-zero
+  `RouteKscFundsCost`) are dropped at ledger load with one summary log line. An old dev save's funds
+  may shift once; accepted. A vessel-origin `RouteCargoDebited` row (cost 0) is a physical row and
+  stays a route row until phase 2.
+- Enum ids 24 and 28 stay defined, so old rows do not read as `Type = 0` (`ScienceEarning`) before
+  they are dropped, and stay excluded in `SupersedeCommit.IsWorldStateChangingRecordingAction` (a
+  removed case falls through to true).
+- The pending-credit marker keys, `kscDispatchFundsCost` and `routeKscFundsCost` are ignored on read
+  and never written; `RouteLoadReconcile.RestoreLoopPositionFromSave` stops copying the marker.
+- `status = WaitingForFunds` reads as `Active`; a `FundsShort` hold kind keeps loading.
 
 Tests: delete the money-only files (RouteRecoveryCreditTests, RouteRunCostCalculatorTests,
 RouteFundsCalculatorTests, RouteRecoveryLandingHarnessTests, LogisticsCostPresentationTests,
@@ -117,8 +100,8 @@ quickload reads the save's own log.
 - Delete `RouteModule`, the route fields and codec of `GameAction` (ids stay reserved), the route arms
   of TimelineBuilder, `ParsekScenario.Trim`, `SupersedeCommit`, `LedgerLoadMigration`, and the
   `RouteOrchestrator` entry in the ERS/ELS allowlist.
-- Old saves: a one-time load step moves the remaining ledger route rows (none of them money after
-  phase 1's conversion) into the route logs.
+- Old saves: no migration (same reason as phase 1); route rows left in an old ledger are dropped at
+  load with a summary log line.
 Rough size: +1,000 / -1,500 production lines, about 3,000 test lines touched, about 75 files.
 
 ## Settled by the rulings
