@@ -236,8 +236,8 @@ namespace Parsek
         /// copy: a committed-tree restore attempt armed for this tree (the copy-on-write clone the
         /// recorder resumed after an in-flight commit) has nothing left to protect - the clone was
         /// dropped for the quicksave's tree and its committed original is no longer committed.
-        /// Left armed, it would keep every later OnSave from writing the resumed tree (the
-        /// committed-restore overlap skip in <see cref="PlanActiveTreeSidecarSaves"/>).
+        /// Left armed, it would keep holding back the resumed tree's events as if a merge of
+        /// the dropped clone could still bring them in.
         /// </summary>
         private static void ClearCommittedTreeRestoreAttemptAfterDetach(RecordingTree tree)
         {

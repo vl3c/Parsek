@@ -159,9 +159,8 @@ namespace Parsek.Tests
         }
 
         // catches: a restore attempt armed by the flight that was live before a Re-Fly's
-        // rewind staying armed through the session (CI-3). Every save during the session
-        // then skips the active tree on the committed-restore overlap, so a save-file load
-        // of such a save finds no provisional and clears the Re-Fly marker.
+        // rewind staying armed through the session (CI-3): every save during the session
+        // would treat the session's committed recordings as that stale attempt's members.
         [Fact]
         public void ReFlyStart_DiscardsTheRestoreAttemptOfThePreRewindFlight()
         {

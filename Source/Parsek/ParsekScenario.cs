@@ -1603,7 +1603,7 @@ namespace Parsek
                 bool treeFilesCurrent = true;
                 foreach (var rec in tree.Recordings.Values)
                 {
-                    if (!EnsureRecordingFilesCurrentForSave(rec, "committed tree"))
+                    if (!EnsureRecordingFilesCurrentForSave(rec, CommittedTreeKind))
                         treeFilesCurrent = false;
                     treeRecCount++;
                     treeTotalPoints += rec.Points.Count;
@@ -2153,7 +2153,9 @@ namespace Parsek
             return null;
         }
 
-        private static bool EnsureRecordingFilesCurrentForSave(Recording rec, string treeKind)
+        internal const string CommittedTreeKind = "committed tree";
+
+        internal static bool EnsureRecordingFilesCurrentForSave(Recording rec, string treeKind)
         {
             if (rec == null)
                 return false;
@@ -2163,6 +2165,18 @@ namespace Parsek
 
             string currentReason;
             bool filesCurrent = RecordingStore.AreRecordingFilesCurrentForSave(rec, out currentReason);
+            // A committed recording a restore attempt resumed in place: the attempt's save
+            // wrote the head and kept these bytes as their hashed version. Current as named,
+            // never rewritten from here (that would advance its epoch before any merge).
+            if (!filesCurrent && !rec.FilesDirty && !rec.SidecarEpochAdvancePending
+                && string.Equals(treeKind, CommittedTreeKind, StringComparison.Ordinal)
+                && RecordingStore.AreRecordingFilesCurrentThroughNamedVersions(rec, out string versionReason))
+            {
+                ParsekLog.Verbose("Scenario",
+                    $"OnSave: committed recording '{rec.VesselName ?? "<unnamed>"}' id={rec.RecordingId ?? "<none>"} " +
+                    $"is current through its named sidecar version(s) (head: {currentReason ?? "<none>"}); not rewritten");
+                return true;
+            }
             // SidecarEpochAdvancePending: an out-of-band flush rewrote the content under a
             // preserved epoch; the skip-when-current fast path would keep that epoch
             // forever, so this save rewrites with the epoch advanced (the .sfs written
@@ -2500,7 +2514,7 @@ namespace Parsek
             internal int RecordingCount;
             internal int DirtyCount;
             internal int SkippedDegradedCount;
-            internal int SkippedCommittedRestoreOverlapCount;
+            internal int CommittedRestoreOverlapCount;
 
             /// <summary>
             /// False when at least one recording was skipped by the classify pass. The
@@ -2513,10 +2527,9 @@ namespace Parsek
         /// <summary>
         /// CLASSIFY pass for <see cref="SaveActiveTreeIfAny"/>: decides, for every
         /// recording in the active tree and WITHOUT writing anything, whether its
-        /// sidecar may be written. Two skips exist, both pure functions of recording
-        /// state — a committed-restore overlap that is not marker-owned (merge-consent
-        /// guard) and a hydration-failed recording with an empty trajectory payload.
-        /// Either skip means the whole active-tree node is skipped, so the caller must
+        /// sidecar may be written. One skip exists, a pure function of recording
+        /// state: a hydration-failed recording with an empty trajectory payload.
+        /// It means the whole active-tree node is skipped, so the caller must
         /// abandon every deferred sidecar write rather than orphan the ones it had
         /// already flushed. <c>internal static</c> for direct testability.
         /// </summary>
@@ -2532,17 +2545,20 @@ namespace Parsek
                 if (wasDirty)
                 {
                     plan.DirtyCount++;
+                    // A restore attempt's member that shares its id with the committed copy
+                    // (a committed recording resumed in place) is written like any other: the
+                    // write retains the committed bytes as a hashed version, the committed
+                    // copy's node keeps naming them, and its save reads them there
+                    // (RecordingStore.AreRecordingFilesCurrentThroughNamedVersions), so the
+                    // committed history is unchanged until a merge replaces it.
                     if (RecordingStore.IsCommittedTreeRestoreAttemptRecordingId(rec.RecordingId)
                         && !RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId(rec.RecordingId))
                     {
-                        plan.SkippedCommittedRestoreOverlapCount++;
-                        ParsekLog.Warn("Scenario",
-                            $"SaveActiveTreeIfAny: skipped dirty sidecar save for committed-restore overlap " +
-                            $"recording '{rec.RecordingId ?? "<no-id>"}' in active tree '{activeTree.TreeName}' " +
-                            "to avoid mutating committed history before merge consent");
-                        plan.AllRecordingsWritable = false;
-                        plan.RecordingCount++;
-                        continue;
+                        plan.CommittedRestoreOverlapCount++;
+                        ParsekLog.Verbose("Scenario",
+                            $"SaveActiveTreeIfAny: writing restore-attempt recording '{rec.RecordingId ?? "<no-id>"}' " +
+                            $"in active tree '{activeTree.TreeName}' over its committed copy's id " +
+                            "(the committed bytes stay as their hashed version)");
                     }
 
                     // Switch-segment narrowing (segment-scoped-switch-fly-autorecord
@@ -2659,8 +2675,8 @@ namespace Parsek
             int activeSavedCount = 0;
             int activeSaveFailedCount = 0;
             int activeSkippedDegradedCount = sidecarPlan.SkippedDegradedCount;
-            int activeSkippedCommittedRestoreOverlapCount =
-                sidecarPlan.SkippedCommittedRestoreOverlapCount;
+            int activeCommittedRestoreOverlapCount =
+                sidecarPlan.CommittedRestoreOverlapCount;
             bool activeFilesCurrent = sidecarPlan.AllRecordingsWritable;
 
             // Single emit point for the per-save summary so the skip path and the
@@ -2673,7 +2689,7 @@ namespace Parsek
                     $"SaveActiveTreeIfAny: iterated {activeRecCount} recording(s), " +
                     $"{activeDirtyCount} dirty, {activeSavedCount} saved, {activeSaveFailedCount} failed, " +
                     $"{activeSkippedDegradedCount} skippedDegraded, " +
-                    $"{activeSkippedCommittedRestoreOverlapCount} skippedCommittedRestoreOverlap");
+                    $"{activeCommittedRestoreOverlapCount} committedRestoreOverlap");
             }
 
             if (!activeFilesCurrent)
@@ -6641,8 +6657,8 @@ namespace Parsek
                 // OnSave and the clone descends from the committed copy, so the splice has
                 // nothing newer to bring in; its same-id refresh would instead overwrite the
                 // attempt's own edits (a segment's parent link) with the committed shape and mark
-                // the members dirty, which the re-armed attempt's overlap skip would then keep
-                // out of every later save. Both the splice and the detach are skipped.
+                // the members dirty, so the next save would write the committed shape over the
+                // attempt's own sidecars. Both the splice and the detach are skipped.
                 bool saveAttemptRearmed = TryRearmSaveAttemptForRestoredTree(tree, earlyLoadKind);
                 int splicedFromCommitted = saveAttemptRearmed
                     ? 0
