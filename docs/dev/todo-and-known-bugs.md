@@ -234,7 +234,9 @@ shape (`design-coop-async-multiplayer.md` section 7.10). Candidate shapes in the
 section 7.
 
 **Rulings (V, 2026-10-21, ledger rulings interview; record: project file
-`decisions/open-decisions.md` L1-L4).**
+`decisions/open-decisions.md` L1-L4; design: game-actions design section 3.13, with pointers from
+its funds, reputation, contracts, facilities and stock-screen sections, rewind design section 2.12
+and logistics design section 10.6).**
 
 - **General rule for funds, science and reputation (O6, O7).** (1) An outcome the committed
   timeline already holds cannot be changed earlier. (2) Known obligations are reserved up front:
@@ -303,8 +305,9 @@ the station or base to get supplies"). The rule now:
 - `RetiredRouteCargoStore` stays: a later committed recording's snapshot can still carry cargo from
   a refunded cycle.
 - A quickload / load needs none of this: it restores exactly the rows the save holds.
-Next: rewrite logistics design 10.6 to this rule (refund row shape and its cycle list, how the live
-loop skips a gain cycle's slot, the straddling credit dedup), then a plan.
+The rule is in logistics design 10.6 (owner rulings block). Next: the design detail there (refund row
+shape and its cycle list, how the dedup and the live loop skip a refunded or gain cycle, the
+straddling credit dedup), then a plan.
 
 ## ~~ROUTE-DISPATCH-IGNORES-RESERVATIONS: a route dispatch checks the raw funds counter, so it can spend money a committed purchase needs~~ [FILED 2026-10-21 from the O4 analysis. Was open, small; owner ruling: ship now, ahead of ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES. FIXED 2026-10-21 on branch `claude/project-thread-q165qu`. xUnit only. product]
 

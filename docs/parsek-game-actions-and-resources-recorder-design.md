@@ -53,7 +53,7 @@ Parsek prevents time-travel paradoxes through three complementary layers, all wo
 
 **Layer 1: No-delete invariant.** Recordings can only be added to the timeline, never removed. Total earnable resources never decrease. Existing spendings that were valid when committed cannot become invalid. Re-Fly is the one operation that rewrites past events; it keeps this layer by only ever retiring losses (`parsek-rewind-to-separation-design.md` section 2.12).
 
-**Layer 2: Spending reservation.** Committed spendings — past, present, and future — are reserved against the resource cashflow. New spendings (vessel builds, tech nodes, facility upgrades, kerbal hires) are blocked if they would create a deficit at any point on the timeline. Applies to science and funds.
+**Layer 2: Spending reservation.** Committed spendings — past, present, and future — are reserved against the resource cashflow. New spendings (vessel builds, tech nodes, facility upgrades, kerbal hires) are blocked if they would create a deficit at any point on the timeline. Applies to science and funds. The owner rulings of 2026-10-21 extend it to reputation and to every open contract's fail penalties, and stop a loss nobody could reserve at the reserved floor, with the rest carried as a debt (section 3.13, not yet built).
 
 **Layer 3: UT=0 reservation and stock-control blocks.** Kerbal identity is locked from the start of time. Kerbals used in any recording are reserved as a continuous block - no gaps, no reuse until all recordings resolve. Contract and strategy slots are not reserved from UT=0: Mission Control and the Administration building refuse an accept or activation that would leave a committed one without a slot (sections 10.2, 13.3, 14). This prevents duplicate kerbals, slot overflow, and resource diversion conflicts.
 
@@ -147,7 +147,7 @@ These principles govern every design decision in the game actions system. They a
 
 5. **Prevention, not detection.** Every constraint works by making paradoxes structurally impossible, not by detecting them after the fact.
 
-6. **Spending reservation locks resources globally.** Committed spendings (past and future) are reserved against projected cashflow. The player can only add new spendings if the projected minimum balance covers them.
+6. **Spending reservation locks resources globally.** Committed spendings (past and future) are reserved against projected cashflow. The player can only add new spendings if the projected minimum balance covers them. Open contracts' fail penalties are reserved too, a committed outcome cannot be moved earlier, and a loss that cannot be reserved stops at the reserved floor (section 3.13, owner rulings 2026-10-21).
 
 7. **Identity reservation locks from UT=0.** Kerbals are reserved from the start of time as continuous blocks. No gaps, no reuse until resolved. Contract and strategy slots are checked against the committed timeline at the stock control instead (sections 10.2, 13.3).
 
@@ -218,7 +218,7 @@ The **reservation system** (sections 6.5 and 7.6) covers this gap: committed spe
 
 **STASH / Re-Fly interaction:** Re-Fly supersede keeps old ledger rows physically append-only but may tombstone reviewed, recording-scoped career actions from the superseded subtree so they leave ELS. Superseded recording events remain in `Ledger.Actions` for audit/recovery, while recalculation consumes only the post-tombstone ELS and patches stock KSP state for removed science, contracts, facilities, and safe roster-created kerbals. Null-scoped KSC/system rows, initial seeds, already-paid rollout costs, and unknown future action types remain preserved until reviewed.
 
-Tombstoning a credit is exactly the retroactive invalidation this section rules out: the credit may already have paid for a later committed spend, which the recalculation then charges into a negative balance (funds) or refuses (a tech node never unlocked). From 2026-05-06 (the broad tombstone scope) until the 2026-10-19 rulings the Re-Fly path did this. The rulings (`parsek-rewind-to-separation-design.md` section 2.12, designed, not yet implemented) restore this section's invariant for Re-Fly: a slot can be re-flown only when every row its merge would retire is a loss (crew deaths and bookkeeping, crew-death and vessel-loss reputation, building damage); any gain, contract outcome or flight-tagged spend seals the slot. A merge therefore only ever raises a balance, and a dominance check before the merge refuses any that would not. Other operations that still retire committed credit (a quickload trim that keeps later KSC spends, revert-to-launch pruning, a recording that fails to load, route credits after a rewind) are tracked as todo `LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY`.
+Tombstoning a credit is exactly the retroactive invalidation this section rules out: the credit may already have paid for a later committed spend, which the recalculation then charges into a negative balance (funds) or refuses (a tech node never unlocked). From 2026-05-06 (the broad tombstone scope) until the 2026-10-19 rulings the Re-Fly path did this. The rulings (`parsek-rewind-to-separation-design.md` section 2.12, designed, not yet implemented) restore this section's invariant for Re-Fly: a slot can be re-flown only when every row its merge would retire is a loss (crew deaths and bookkeeping, crew-death and vessel-loss reputation, building damage); any gain, contract outcome or flight-tagged spend seals the slot. A merge therefore only ever raises a balance, and a dominance check before the merge refuses any that would not. Other operations that still retire committed credit (a quickload trim that keeps later KSC spends, revert-to-launch pruning, a recording that fails to load, route credits after a rewind) are tracked as todo `LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY`; the owner ruled every one of them on 2026-10-21 (section 3.13).
 
 ### 3.6 Recalculation triggers
 
@@ -325,7 +325,7 @@ This applies to:
 - **Science**: available science is the minimum projected science balance from the current UT through future science earnings and spendings. Future science earnings cannot make more science spendable now than the current balance, but they can cover later committed tech unlocks before those unlocks happen.
 - **Funds**: available funds are the minimum projected fund balance from the current UT through future fund earnings and spendings (vessel builds, facility upgrades, hires, etc.). Future earnings cannot inflate current spendability above the current balance, but they can cover later committed fund spendings before those spendings happen.
 
-**Reputation does NOT need a spending reservation.** Reputation can go negative without blocking any player action (unlike funds or science, where negative balance prevents launching or unlocking). The only reputation spending that requires a minimum balance is strategy activation, which stock gates on the live reputation itself (`Strategy.CanBeActivated`); Parsek's strategy block (section 13.3) refuses only activations that conflict with committed strategy rows, not every activation while a strategy is on the timeline. Contract decline and failure penalties always apply regardless of current rep level.
+**Reputation gets a reservation too (owner rulings 2026-10-21, section 3.13, not yet built).** As built, reputation has none: it can go negative without blocking any player action (unlike funds or science, where a negative balance prevents launching or unlocking). The only reputation spending that requires a minimum balance is strategy activation, which stock gates on the live reputation itself (`Strategy.CanBeActivated`); Parsek's strategy block (section 13.3) refuses only activations that conflict with committed strategy rows, not every activation while a strategy is on the timeline, and contract decline and failure penalties always apply regardless of the current reputation. The rulings reserve the reputation that committed costs still need and every open contract's reputation penalty, grey a Mission Control click that would dig into that reservation, and stop any other reputation loss at the reserved floor, carrying the rest as a debt.
 
 The reservation pattern is analogous to the kerbal reservation system — future committed events lock resources retroactively.
 
@@ -333,7 +333,7 @@ The reservation pattern is analogous to the kerbal reservation system — future
 
 **The reservation system protects against new spendings.** Even though existing spendings stay valid, the player could attempt to add new spendings (tech nodes, facility upgrades) at a UT where the running balance cannot support them alongside existing future cashflow. The reservation blocks this.
 
-Together, the two mechanisms keep new player spendings from making science or funds negative anywhere on the committed timeline. Reputation can go negative by design (penalties are unconditional).
+Together, the two mechanisms keep new player spendings from making science or funds negative anywhere on the committed timeline. As built, reputation can still go negative (penalties are unconditional); section 3.13 extends the protection to it and to losses a new flight adds after a rewind.
 
 ### 3.10 Three layers of paradox prevention
 
@@ -341,7 +341,7 @@ Parsek prevents time-travel paradoxes through three complementary design layers:
 
 **Layer 1: No-delete invariant.** Recordings can only be added to the timeline, never removed. This guarantees that total earnable resources never decrease. Existing spendings that were valid when committed cannot become invalid — there is no scenario in normal play where an earlier-valid spending becomes unaffordable due to a new recording being added. Re-Fly, the only operation that rewrites past events, keeps the layer by retiring losses only and refusing any merge that would lower a balance (section 3.5, `parsek-rewind-to-separation-design.md` section 2.12).
 
-**Layer 2: Spending reservation.** Committed spendings — past, present, and future — are reserved against projected cashflow. The player can only add new spendings (vessel builds, tech nodes, facility upgrades, kerbal hires) if the projected balance never dips negative. This prevents the player from creating new deficits after rewinding to an earlier UT. Applies to science and funds.
+**Layer 2: Spending reservation.** Committed spendings — past, present, and future — are reserved against projected cashflow. The player can only add new spendings (vessel builds, tech nodes, facility upgrades, kerbal hires) if the projected balance never dips negative. This prevents the player from creating new deficits after rewinding to an earlier UT. Applies to science and funds; the 2026-10-21 rulings extend it to reputation and to open contracts' fail penalties, and add the reserved floor with a debt for losses nobody can reserve (section 3.13).
 
 **Layer 3: UT=0 reservation and stock-control blocks.** Kerbal identity is locked from the start of time when committed anywhere on the timeline. Kerbals used in a recording are reserved from UT=0 as a continuous block - no gaps, no reuse until all recordings resolve. Contract slots are NOT reserved from UT=0: Mission Control refuses an accept that would leave a committed future accept without a slot (section 10.2). Strategies are NOT reserved from UT=0 either: the Administration building refuses an activation the committed timeline makes later, an activation that leaves no slot for a committed activation, and a player deactivation while a committed row for that strategy is still ahead (section 13.3). This prevents duplicate kerbals, slot overflow, and resource diversion conflicts that could cascade into downstream paradoxes.
 
@@ -365,7 +365,7 @@ Each resource type is an independent module with its own earning/spending rules.
 | Career | Strategies | Ongoing resource conversion rates | — |
 | Career | Routes | Recovery credit observed (funds via FundsModule) | Dispatch/cargo debit (future integration) |
 
-The **Routes** module (`RouteModule`, second-tier, registered after `FundsModule`) tracks logistics supply routes across the walk: per-route dispatched cycles, delivered stops, pause state, and endpoint-resolution failures. It is observe-only today. It reads the route action stream (`RouteDispatched`, `RouteCargoDelivered`, `RouteRecoveryCredited`) fed by the engine and does not itself mutate stock funds/cargo (the recovery credit's funds effect is applied by `FundsModule`; RouteModule only observes the row). Affordability gating, KSC dispatch charging, cargo debit, and endpoint resolution are future integration work; the second-tier slot after `FundsModule` is locked in so RouteModule can later read `GameAction.Affordable` to gate KSC-origin dispatch. The route system (logistics milestones M1-M6) has its own design spec: see `docs/parsek-logistics-supply-routes-design.md`.
+The **Routes** module (`RouteModule`, second-tier, registered after `FundsModule`) tracks logistics supply routes across the walk: per-route dispatched cycles, delivered stops, pause state, and endpoint-resolution failures. It is observe-only today. It reads the route action stream (`RouteDispatched`, `RouteCargoDelivered`, `RouteRecoveryCredited`) fed by the engine and does not itself mutate stock funds/cargo (the recovery credit's funds effect is applied by `FundsModule`; RouteModule only observes the row). Affordability gating, KSC dispatch charging, cargo debit, and endpoint resolution are future integration work; the second-tier slot after `FundsModule` is locked in so RouteModule can later read `GameAction.Affordable` to gate KSC-origin dispatch. As built 2026-10-21, the KSC dispatch funds gate already reads the reservation-aware amount (`LedgerOrchestrator.CanAffordFundsSpending`) alongside the live counter (logistics design section 8, step 4). The route system (logistics milestones M1-M6) has its own design spec: see `docs/parsek-logistics-supply-routes-design.md`.
 
 ### 3.12 Module documentation template
 
@@ -379,6 +379,28 @@ Each resource module chapter should follow this structure when fully designed:
 6. **Verified scenarios** — worked examples showing correct behavior under normal play and edge cases (retroactive commits, rewinds, paradox prevention).
 7. **Edge cases** — known tricky situations and how the system handles them.
 8. **Open questions** — unresolved design decisions for future work.
+
+### 3.13 The committed-value rule (owner rulings 2026-10-21)
+
+**Status: ruled 2026-10-21 (ledger rulings interview, todo `LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY`); not yet built except where marked.** This section is the authority for the rule; the module sections point here.
+
+The goal: no committed purchase is ever left unpaid, and no pool (funds, science, reputation) drops below what committed costs still need. Layer 1 (section 3.10) protects committed spends against operations that remove rows; this rule also protects them against losses a new flight adds after a rewind, and extends Layer 2 to reputation. It has four parts, applied to funds, science and reputation alike:
+
+1. **Committed outcomes do not move earlier.** An outcome the committed timeline already holds cannot be changed before its UT. A new flight cannot fail a contract whose completion, failure or cancellation is committed: stock's fail is refused and logged. Completing it earlier stays allowed, because that only moves the reward earlier (the same direction as Re-Fly Rule 4, rewind design section 2.12). This extends ruling D7 (Cancel greyed for such a contract, section 14.4) from the button to in-flight fails.
+2. **Known obligations are reserved up front.** Committed costs (section 3.9) and the fail penalties of every open contract (funds, reputation and science), from its accept to its outcome. Spendable funds therefore read lower in normal play too; the existing Reserved tooltip shows the amount.
+3. **A click that digs into a reservation is greyed.** It uses the stock-control annotation pattern (section 14.2): the stock button greyed, the reason on its stock tooltip, a Harmony backstop on the stock method. This covers Mission Control Accept (the reservation it adds), Cancel (its penalty) and Decline (its reputation cost) when they would leave a later committed purchase or strategy cost unpaid, and every funds purchase and launch cost: the funds check is enforced, no longer advisory (O7; `LedgerOrchestrator.CanAffordFundsSpending` has no caller before a stock purchase today, todo GUI-P15-D7-TWO-SAFETY-GATES-THAT-EXIST-AND-ARE-NEVER-ARMED). A launch is refused only for its cost, the way stock refuses an unaffordable one.
+4. **Any other loss stops at the reserved floor; the rest is a debt.** A loss nobody can reserve ahead (a crew-death or vessel-loss reputation hit, a committed repair that a new destruction made chargeable) applies only down to the amount reserved for committed costs still ahead. The part below the floor is held as a debt and charged from the first room above the floor: the reservation releasing at the committed cost's UT, or later gains. The debt is derived in the walk from existing rows, so no new state is saved; at most one line of wording in the existing tooltip mentions it.
+
+**Flights are never blocked for their risk.** "Of course we should not block flights of launches" (V). The debt is the player's risk to take: "we need a way to let the player make decisions about risks of rewinding and doing new launches, so I pick debt".
+
+**Cases that need no rule of their own.** Deadline expiry: the committed timeline already holds the same fail at the same UT and penalty (section 8.6). Strategy converter debits: they divert a share of the earning or penalty that causes them, and follow that case. Killing a kerbal a committed flight uses: the crew reservation keeps him out of new flights (section 11). A building a new flight destroys: its repair is a Space Center click covered by part 3 and the facility blocks of section 14.4, and a committed repair made chargeable falls under part 4.
+
+**What the other operations keep** (same interview):
+- A stock revert removes only the rows the reverted flight wrote; every committed row stays, including the committed-future rows a rewind left (ruling D2). As built, `Ledger.PruneOrphanActionsAfterUT` removes every untagged row after the launch UT.
+- A recording that fails to load, for any reason, keeps its ledger rows: it loses its ghost and playback, never its rows (extends the GC-3 ruling from schema rejects to every load failure). As built, `Ledger.Reconcile` prunes the rows of a recording missing from the loaded set (section 4.3).
+- Supply routes at a rewind keep their committed rows and refund the later cycles; a cycle that made money stays history (logistics design section 10.6, todo `ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES`).
+- A Re-Fly session keeps showing the replaced flight's losses until the merge retires them (rewind design section 2.12).
+- A quickload or load restores the save exactly; `docs/dev/design-load-restores-the-save.md` owns it.
 
 ---
 
@@ -429,6 +451,8 @@ When KSP loads a save, the ScenarioModule provides the ledger file reference and
 4. **Recalculation** runs on the pruned dataset.
 
 After reconciliation, the ledger file reflects the loaded save's state. The pruned entries are lost (the sidecar files still have the raw earning data as a passive backup, but Parsek never reads from them to restore ledger state).
+
+**Owner ruling 2026-10-21 (section 3.13, not yet built):** a recording the loaded save names but that fails to load, for any reason, still counts as present for step 2. It loses its ghost and playback, never its rows.
 
 ### 4.4 Why not ScenarioModule or sidecar-only
 
@@ -923,6 +947,8 @@ The key insight: future committed spendings reserve current funds only to the ex
 
 **At KSC spending time:** the ledger checks `availableFunds(currentUT) >= cost` before allowing facility upgrades, kerbal hires, or other KSC purchases.
 
+**Owner rulings 2026-10-21 (section 3.13, not yet built):** the reservation also holds every open contract's funds fail penalty from its accept to its outcome; the KSC check above is enforced at the stock control (greyed with the reason, backstop refusal), launch costs included, instead of advisory; and a funds loss nobody could reserve stops at the reserved floor, with the rest carried as a debt. Already built (2026-10-21): a KSC supply-route dispatch gates on the reservation-aware amount as well as the live counter (logistics design section 8, step 4).
+
 ### 15.7 Why available can appear low or zero at early UTs
 
 After committing multiple recordings, the future cashflow may need some or all of the funds available at an early UT. This is not a bug: each spending was individually valid when committed. But viewed from an earlier UT, a future spending before the future earnings that cover it can reserve current headroom.
@@ -1227,6 +1253,8 @@ This is expected and harmless. There is no ledger-enforced invariant that depend
 
 The no-delete invariant still holds in a weaker sense: rep-affecting events are never removed from the timeline (only added), so the set of inputs to the curve is monotonically growing. But the output of the curve (final rep) is not monotonically stable — it can shift slightly with each retroactive commit.
 
+**Reserved floor and debt (owner rulings 2026-10-21, section 3.13, not yet built).** The rulings add the invariant the paragraph above says does not exist: reputation does not drop below what committed costs still need. The walk reserves the reputation a committed strategy activation costs and every open contract's reputation penalty. A loss that would take reputation below that floor (a crew death, a vessel loss) applies only down to it; the rest is a debt the walk charges from the first room above the floor, when the reservation releases at the committed cost's UT or later gains arrive. The debt is re-derived from the existing rows on every walk, so nothing new is saved. V: "reputation just can't go lower than what is reserved, no matter what happens".
+
 ### 12.9 ~~Open questions~~ Resolved
 
 - **Exact curve formula:** RESOLVED. Extracted from decompiled `Reputation` class. Uses `addReputation_granular` with Hermite spline AnimationCurve. 5-key addition curve (gain ~2x at rep=-1000, ~1x at rep=0, ~0x at rep=+1000) and 4-key subtraction curve (loss ~0x at rep=-1000, ~1x at rep=0, ~2x at rep=+1000). Implemented in `ReputationModule.ApplyReputationCurve` with the exact keyframes. See `docs/dev/plans/game-actions-spike-findings.md` for full keyframe data.
@@ -1514,6 +1542,8 @@ During fast-forward, the deadline crossing is visual only — the actual failure
 Contract advance payments are fund earnings — they increase the balance on accept. Contract rewards are fund earnings on completion. Contract penalties are fund losses on failure/cancel.
 
 All of these participate in the funds reservation system (section 7.6). The advance payment increases available funds at the accept UT. Future rewards are not counted until the recording that completes the contract is committed (earnings are recording-associated).
+
+**Committed outcomes and open penalties (owner rulings 2026-10-21, section 3.13, not yet built).** (1) A contract whose completion, failure or cancellation is committed cannot be failed before that outcome: stock's fail is refused and logged. Completing it earlier stays allowed. This extends D7 (section 14.4) from the Cancel button to in-flight fails. (2) An open contract's fail penalties (funds, reputation, science) are reserved from its accept to its outcome. (3) Accept, Cancel and Decline are greyed with the reason when the reservation they add, or the penalty they charge, would leave a later committed purchase or strategy cost unpaid. A deadline expiry needs nothing more: the committed timeline holds the same synthetic fail at the same UT (section 8.6).
 
 ### 8.8 KSP state patching
 
@@ -2059,7 +2089,7 @@ All three action types participate in the unified funds walk:
 
 - **Upgrade**: deducts funds at the upgrade UT (a downgrade row the same way, at its UT).
 - **Repair**: deducts funds at the repair UT.
-- **Destruction**: no direct funds cost (the destruction itself is free — the cost comes from the subsequent repair).
+- **Destruction**: no direct funds cost (the destruction itself is free — the cost comes from the subsequent repair). A new flight's destruction that makes a committed repair chargeable needs no rule of its own: the repair cost falls under the reserved floor and debt of section 3.13 (owner ruling 2026-10-21).
 
 ### 10.4 Visual state management
 
@@ -2291,6 +2321,8 @@ Kerbal holds themselves are the derived reservations of `KerbalsModule` (section
 | KSC facility menu | Upgrade and Rebuild (stock's Left Ctrl "Rebuild lvl N", a paid downgrade) of a facility while a later committed level change of it, an upgrade or a Rebuild, is ahead: levels are absolute, so an earlier level change would rewrite the recorded one (owner ruling 2026-10-07; lifts after the last one). Repair of a building whose current destruction a committed repair already covers, and Upgrade and Rebuild of its facility while that repair is ahead: both level changes run stock's free `ResetStructures` repair first, so they would repair the building now and rewrite the recorded repair | Greyed Upgrade / Rebuild / Repair with a tooltip (Rebuild only while stock shows it); the reason in the menu's description, one line per distinct reason. A level change alone reads `Upgraded to level 2 on ...` or `Rebuilt to level 1 on ...`, a covering repair alone `Repaired on ...`; mixed rows are each named with their own participle, earliest first |
 | VAB / SPH crew dialog | Seating a kerbal the timeline reserves, has lost, or retired as a stand-in (`KerbalsModule.ShouldFilterFromCrewDialog`) | The kerbal is listed, not hidden, with stock's inactive-crew look, the status in place of his trait (`Reserved until Y1, D07`) and stock's locked-with-reason tooltip |
 | Flight | EVA or crew transfer of a kerbal a committed flight holds, aboard a vessel that does not continue a committed flight; stands down during a Re-Fly session (`StockUiFlightCrewDecoration.IsMoveRefused`) | Greyed EVA on the portrait (reason in stock's EVA tooltip); greyed EVA / Transfer in the hatch dialog, with the status on the row's name label |
+
+**Ruled 2026-10-21, not yet built (section 3.13):** Mission Control also greys Accept, Cancel and Decline when the reservation or penalty would leave a later committed cost unpaid, and every funds purchase and launch cost is greyed when it would spend reserved money.
 
 The part-purchase and strategy blocks have a state half too: `KspStatePatcher.PatchPurchasedParts` marks a committed purchase purchased when the clock reaches it (no second charge), and the strategy patch makes stock's active set follow the ledger (section 13.7).
 
