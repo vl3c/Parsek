@@ -1016,6 +1016,12 @@ namespace Parsek
             return ghostMapVesselPids.Contains(persistentId);
         }
 
+        /// <summary>Test seam: marks a pid as a ghost map vessel (cleared by ResetForTesting).</summary>
+        internal static void RegisterGhostMapVesselPidForTesting(uint persistentId)
+        {
+            ghostMapVesselPids.Add(persistentId);
+        }
+
         /// <summary>
         /// Display-name prefix stamped onto every Parsek-authored ghost map
         /// ProtoVessel. Presentation only - <see cref="IsGhostMapVessel"/> is the
