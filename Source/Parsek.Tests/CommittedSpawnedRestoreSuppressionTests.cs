@@ -225,6 +225,25 @@ namespace Parsek.Tests
 
         // ----- Source gates: the wiring the pure cells cannot see -----
 
+        // catches: a resumed committed flight recording into the committed recording itself
+        // again whenever its parts are covered. That recording shares its id with the
+        // committed copy, so no save can write it before the merge, and an F5 / F9 loses the
+        // flying since the resume (todo ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE).
+        [Fact]
+        public void TryRestore_AlwaysContinuesInANewSegment_NeverGatedOnPartCoverage()
+        {
+            string src = ReadStripped("Source", "Parsek", "ParsekFlight.cs");
+            string body = ExtractMethodBody(src, "private bool TryRestoreCommittedTreeForSpawnedActiveVessel(bool callerBuildsOwnSegment = false)");
+
+            int guardIdx = body.IndexOf("if (!callerBuildsOwnSegment)", StringComparison.Ordinal);
+            int segmentIdx = body.IndexOf("continuedInSegment = TryContinueRestoredSpawnInNewSegment(", StringComparison.Ordinal);
+            int inPlaceIdx = body.IndexOf("if (!continuedInSegment)", StringComparison.Ordinal);
+            Assert.True(guardIdx >= 0 && segmentIdx > guardIdx && inPlaceIdx > segmentIdx,
+                "TryRestoreCommittedTreeForSpawnedActiveVessel must try the new segment first and "
+                + "resume in place only when the segment could not be attached.");
+            Assert.DoesNotContain("coverage.Covered", body);
+        }
+
         [Fact]
         public void TryRestore_ChecksSuppressionBeforeTakingTheCommittedTree()
         {

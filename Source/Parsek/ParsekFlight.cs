@@ -4407,11 +4407,11 @@ namespace Parsek
 
         /// <summary>
         /// Takes back the committed tree of the active vessel when a committed recording
-        /// matches it (copy-on-write clone) and binds a recorder. When the target recording's
-        /// snapshot does not hold the live vessel's part persistentIds (a Parsek spawn
-        /// regenerates them), the flight continues in a new switch-continuation segment under
-        /// the target instead of recording into it, because ghost playback resolves part events
-        /// against the recording's own snapshot. <paramref name="callerBuildsOwnSegment"/> is
+        /// matches it (copy-on-write clone) and binds a recorder. The flight continues in a new
+        /// switch-continuation segment under the target instead of recording into it, so the
+        /// committed recording is never written before a merge and every save can hold the
+        /// flying since the resume; it records into the target only when the segment cannot be
+        /// attached. <paramref name="callerBuildsOwnSegment"/> is
         /// true only for <see cref="TryRouteCommittedSpawnedClone"/>, which attaches its own
         /// segment right after this returns.
         /// </summary>
@@ -4480,22 +4480,16 @@ namespace Parsek
                 backgroundRecorder?.OnVesselRemovedFromBackground(activeVesselPid);
             if (!callerBuildsOwnSegment)
             {
+                // Always a new segment, never the committed recording itself: a recording
+                // resumed in place shares its id with the committed copy, so no save can write
+                // it before the merge (the #866 overlap skip in PlanActiveTreeSidecarSaves)
+                // and an F5 / F9 would lose the flying since the resume. The coverage is kept
+                // for the log; uncovered parts were the original reason for a segment.
                 activeTree.Recordings.TryGetValue(targetRecordingId, out Recording targetRec);
                 ResumedPartCoverage coverage = ResumedSpawnPartCoverage.Evaluate(
                     targetRec, CollectLivePartPersistentIds(activeVessel));
-                if (coverage.Covered)
-                {
-                    ParsekLog.Verbose("Flight",
-                        $"TryRestoreCommittedTreeForSpawnedActiveVessel: rec={targetRecordingId} " +
-                        $"pid={activeVesselPid} resumes in place (parts {coverage.Reason}, " +
-                        $"livePids={coverage.LivePartCount} snapshotPids={coverage.SnapshotPartCount} " +
-                        $"snapshot={coverage.SnapshotSource})");
-                }
-                else
-                {
-                    continuedInSegment = TryContinueRestoredSpawnInNewSegment(
-                        targetRecordingId, activeVessel, action, coverage, out restored);
-                }
+                continuedInSegment = TryContinueRestoredSpawnInNewSegment(
+                    targetRecordingId, activeVessel, action, coverage, out restored);
             }
 
             if (!continuedInSegment)
@@ -4596,14 +4590,15 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The restore matched a committed recording whose snapshot does not hold the live
-        /// vessel's part persistentIds (a Parsek spawn regenerated them). Recording into it
-        /// would write part events its ghost cannot resolve, so attach a new
+        /// The restore matched a committed recording. Recording into it would write the
+        /// committed recording itself, which no save may do before a merge, and, when its
+        /// snapshot does not hold the live vessel's part persistentIds (a Parsek spawn
+        /// regenerated them), part events its ghost cannot resolve. So attach a new
         /// switch-continuation segment under it (the plan's step 4 for flying a committed
         /// spawned vessel), bind the recorder to the segment and arm a session for it, which
         /// gives the segment scoped Discard and the scene-exit no-op auto-discard. Returns
-        /// false (nothing changed, the caller resumes in place as before) when the segment
-        /// cannot be attached; <paramref name="restored"/> reports the recorder bind.
+        /// false (nothing changed, the caller resumes in place) when the segment cannot be
+        /// attached; <paramref name="restored"/> reports the recorder bind.
         /// </summary>
         private bool TryContinueRestoredSpawnInNewSegment(
             string targetRecordingId,

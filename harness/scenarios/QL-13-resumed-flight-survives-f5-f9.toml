@@ -1,0 +1,128 @@
+schema = 1
+id = "QL-13-resumed-flight-survives-f5-f9"
+tier = "nightly"
+# QL-13: A COMMITTED VESSEL FLOWN AGAIN, THEN F5 AND F9. The live proof of todo
+# ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE (owner ruling 2026-10-21: a resumed flight always
+# continues in a new segment).
+#
+# THE DEFECT. Flying a committed vessel again used to resume its committed recording IN PLACE
+# when the live parts matched its snapshot. That recording shares its id with the committed
+# copy, so every save skipped the whole live tree (`skipped dirty sidecar save for
+# committed-restore overlap`): an F5 held no live tree, and the F9 re-took the committed copy
+# from scratch, losing the path flown between the resume and the F5.
+#
+# THE FIX. The resume always attaches a new switch-continuation segment under the committed
+# recording (`Resumed spawn continues in a new segment`), whose own id every save writes. The F9
+# re-arms the attempt from the save and the recorder resumes in that same segment.
+#
+# HOST: `lab-lko-science` (LAB-6's host): the LABX Orbital Lab (pid 2200110055) orbiting Kerbin,
+# fixture UT 355.8. Orbit coast only; nothing else is needed to have a path to lose.
+#
+# THE ROUTE.
+#   record     LAB-6's opening (StopRecording + DiscardTree of the fixture's own tree), record
+#              the lab to UT 600, CommitTree. CommitTree re-takes the committed tree for the
+#              still-active vessel (LAB-6, H58), which is the resume under test.
+#   resumed    coast to 900 in the segment, note the active recording, F5 (`quicksave`).
+#   abandoned  coast to 1200, then F9 (`playerLoad=true`, a Cold save-file load).
+#   after      note the active recording again (the SAME segment), coast to 1300, commit, then
+#              StopRecording + DiscardTree of the next re-take (LAB-6's shape), so the
+#              committed set is the reference recording plus the one segment.
+#
+# THE GATES: the segment line names the reference recording and the lab; the active recording
+# before the F5 is that segment and is the active recording again after the F9; the F9 re-arms
+# the attempt from the save; the resumed recorder holds points at once (the path before the F5
+# came back); no overlap skip, no refused segment, no ERROR; two committed recordings.
+#
+# STATUS: AUTHORED 2026-10-21 (branch `claude/project-thread-hvhou8`), NOT FLOWN.
+description = "QL-13: a committed orbiting lab is flown again; the resume continues in a new segment, an F5 at UT 900 saves that segment, an F9 after 300 s of abandoned future resumes the same segment with its path, and the final commit holds the reference recording plus the segment."
+instanceProfile = "stock-minimal"
+tags = ["QL-13", "quickload", "resume", "switch-segment", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/lab-lko-science"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+
+  # ---- the reference recording, committed; CommitTree's re-take is the resume ----
+  { cmd = "StartRecording",                                                          expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "600" },                                   expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "CommitTree",                                                              expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "ql13-resumed" },                       expect = "OK" },
+
+  # ---- fly on in the segment, then F5 ----
+  { cmd = "WarpToUT",       args = { ut = "900" },                                   expect = "OK", budget = 120 },
+  { cmd = "ListHandles",    args = { kind = "active" }, label = "a0",                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ql13-before-f5-${a0.activeRec}" },     expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "quicksave" },                           expect = "OK", budget = 120 },
+
+  # ---- the abandoned future, then F9 ----
+  { cmd = "WarpToUT",       args = { ut = "1200" },                                  expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "ql13-f9" },                            expect = "OK" },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "active" }, label = "a1",                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ql13-after-f9-${a1.activeRec}" },      expect = "OK" },
+
+  # ---- fly on, merge, drop the next re-take ----
+  { cmd = "WarpToUT",       args = { ut = "1300" },                                  expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "CommitTree",                                                              expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c1",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ql13-done-${c1.count}" },              expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "persistent" },                          expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "science-mode", "scene-flight", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The reference recording and the resumed segment.
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  "committree committed=true",
+  # The resume is a new segment under the reference recording, on the lab.
+  "MISSIONMARK label=ql13-resumed [\\s\\S]*Resumed spawn continues in a new segment: rec=[0-9a-f]{32} segment=[0-9a-f-]{36} vessel='LABX Orbital Lab' pid=2200110055 ",
+  # Before the F5 the active recording is that segment ...
+  "Resumed spawn continues in a new segment: rec=[0-9a-f]{32} segment=([0-9a-f-]{36}) [\\s\\S]*MISSIONMARK label=ql13-before-f5-\\1 ",
+  # ... the F9 re-arms the attempt from the save ...
+  "MISSIONMARK label=ql13-f9 [\\s\\S]*OnLoad: re-armed the save's committed-tree restore attempt for tree '",
+  # ... the recorder resumes with the path before the F5 already in it ...
+  "MISSIONMARK label=ql13-f9 [\\s\\S]*recordingstate recording=true tree=\\S+ points=[1-9]",
+  # ... and the same segment is the active recording again.
+  "MISSIONMARK label=ql13-before-f5-([0-9a-f-]{36}) [\\s\\S]*MISSIONMARK label=ql13-after-f9-\\1 ",
+  "MISSIONMARK label=ql13-done-2 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "skipped dirty sidecar save for committed-restore overlap",
+  "Resumed spawn segment refused",
+]
+
+[runtime]
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
