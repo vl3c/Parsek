@@ -311,6 +311,14 @@ fresh attempt, and the save's held-back events are dropped
 that continues in a new segment, earn something, F5, F9, merge: the earning is in the ledger
 once.
 
+A save taken during a live Re-Fly session holds the session tree twice, as an ordinary session
+has it in memory: the committed original and the live tree with the same id. A load of that save
+keeps both: `TryRestoreActiveTreeNode` skips the detach when the save's Re-Fly marker names the
+restored tree and its active Re-Fly recording (`IsResumedReFlySessionTree`), so ghost chains,
+which read committed trees only, still hold back the vessels the session claims (lane CI-3). A
+session merged after the save is the committed-copy rule's resume instead: its copy detaches and
+step B's row rule applies (section 6.16 of the rewind design).
+
 - **Load.** The cold branch reads each store from `GAME_STATE` when present (replacing
   `LoadExternalFiles`' reads: `GameStateStore.LoadEventFile`, `LoadBaselines`,
   `MilestoneStore.LoadMilestoneFile`, `LedgerOrchestrator.OnLoad` -> `Ledger.LoadFromFile`), with

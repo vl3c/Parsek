@@ -6427,6 +6427,22 @@ namespace Parsek
         /// committed-copy rule (<see cref="DecideCommittedCopyRestore"/>) applies to a plain
         /// in-session load into FLIGHT only.
         /// </summary>
+        /// <summary>
+        /// Pure: true when <paramref name="tree"/>, the active tree a load restores, is the live
+        /// Re-Fly session's tree: the marker names its id and its active Re-Fly recording is a
+        /// member (the field <c>LoadTimeSweep</c> validates the marker on). Such a load keeps
+        /// the committed copy committed beside it, the shape the session had before the save.
+        /// </summary>
+        internal static bool IsResumedReFlySessionTree(ReFlySessionMarker marker, RecordingTree tree)
+        {
+            if (marker == null || tree == null || tree.Recordings == null)
+                return false;
+            if (string.IsNullOrEmpty(marker.TreeId) || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+                return false;
+            return string.Equals(marker.TreeId, tree.Id, StringComparison.Ordinal)
+                && tree.Recordings.ContainsKey(marker.ActiveReFlyRecordingId);
+        }
+
         internal static bool TryRestoreActiveTreeNode(
             ConfigNode node,
             EarlyLoadKind earlyLoadKind = EarlyLoadKind.InSession,
@@ -6597,10 +6613,26 @@ namespace Parsek
                         : null;
                 // A re-armed attempt keeps its committed original committed, as a live attempt
                 // does: a later Discard drops only the clone, and a Merge replaces the original.
+                // A Re-Fly session the save resumes keeps it too: a session runs with the
+                // committed original beside its live tree (the Re-Fly start's bundle restore puts
+                // it back), so ghost chains still hold back the vessels it claims (CI-3). A
+                // session merged after the save is a resume from the quicksave instead: its
+                // committed copy detaches and its rows follow the save.
+                bool reFlySessionResumed =
+                    committedCopyAction != CommittedCopyRestoreAction.ResumeFromQuicksave
+                    && IsResumedReFlySessionTree(Instance?.ActiveReFlySessionMarker, tree);
                 bool committedCopyDetached = !saveAttemptRearmed
+                    && !reFlySessionResumed
                     && RecordingStore.RemoveCommittedTreeById(
                         tree.Id,
                         logContext: "TryRestoreActiveTreeNode");
+                if (reFlySessionResumed && !saveAttemptRearmed)
+                {
+                    ParsekLog.Info("Scenario",
+                        $"TryRestoreActiveTreeNode: kept the committed copy of tree '{tree.TreeName}' " +
+                        $"(id={tree.Id}) committed: the restored tree is the live Re-Fly session " +
+                        $"sess={Instance?.ActiveReFlySessionMarker?.SessionId ?? "<no-id>"}");
+                }
                 if (saveAttemptRearmed)
                 {
                     ParsekLog.Info("Scenario",
@@ -6608,7 +6640,7 @@ namespace Parsek
                         $"(id={tree.Id}) committed and skipped the splice: the restored tree is the " +
                         "re-armed restore attempt's clone");
                 }
-                else if (!committedCopyDetached)
+                else if (!committedCopyDetached && !reFlySessionResumed)
                 {
                     ParsekLog.Verbose("Scenario",
                         $"TryRestoreActiveTreeNode: no committed copy of tree '{tree.TreeName}' " +

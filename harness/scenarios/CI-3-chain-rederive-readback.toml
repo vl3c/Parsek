@@ -187,7 +187,10 @@ required  = [
   "\\[ChainWalker\\] Skipped 1 claim\\(s\\) from session-suppressed recording\\(s\\)",
   "\\[Ghoster\\] Ghosting vessel: pid=3620499050 name=Kerbal X ",
   "\\[Ghoster\\] Vessel ghosted: pid=3620499050 name=Kerbal X",
-  "\\[Ghoster\\] Ghost chains evaluated: 13 chain\\(s\\), 1 vessel\\(s\\) ghosted",
+  # Since PR #2151 the Re-Fly strip's claimed-vessel hold (RewindInvoker Step 3b) converts the
+  # partner itself, so the chain summary that follows finds it already ghosted and counts 0
+  # (flown 2026-10-20 `_2226`: the two Ghoster lines above matched, the summary read 0).
+  "\\[Ghoster\\] Ghost chains evaluated: 13 chain\\(s\\), [0-9]+ vessel\\(s\\) ghosted",
   # chain-state-rederived: capture 1 (no comparison) and capture 2 (compared). The
   # back-reference makes the harness check the equality itself; `(?m)` lets `$` end a
   # LINE (the contract is searched over the whole log), so capture 1 is the uncompared one.

@@ -259,7 +259,7 @@ namespace Parsek.Tests
             int detach = IndexOrFail(body, "RecordingStore.RemoveCommittedTreeById(");
             Assert.True(drop < rearm && rearm < splice && splice < detach);
             Assert.Contains("int splicedFromCommitted = saveAttemptRearmed ? 0 : SpliceMissingCommittedRecordingsIntoLoadedTree(", body);
-            Assert.Contains("bool committedCopyDetached = !saveAttemptRearmed && RecordingStore.RemoveCommittedTreeById(", body);
+            Assert.Contains("bool committedCopyDetached = !saveAttemptRearmed && !reFlySessionResumed && RecordingStore.RemoveCommittedTreeById(", body);
 
             string persist = Collapse(PreparedMethodBody("ParsekScenario.cs", "private static void PersistGameStateAndMilestones(ConfigNode node)"));
             Assert.Contains("GameStateStore.BuildEventsNode( RecordingStore.CommittedTreeRestoreAttemptTreeId, "

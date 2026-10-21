@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~REFLY-STARTED-FROM-A-RESUMED-VESSEL-IS-NEVER-SAVED: an F5 during a Re-Fly started while flying a resumed committed vessel does not save the Re-Fly~~ [FILED 2026-10-20 from harness lane CI-3 on V's PC (PR #2155 head 1abd1b4). Was open, high: with save-file loads cold (PR #2155) the F9 cleared the Re-Fly marker. PARTLY FIXED 2026-10-20 on branch `claude/project-thread-hvhou8` (PR #2155): the session survives the F9; the chain readback is open. product]
+## ~~REFLY-STARTED-FROM-A-RESUMED-VESSEL-IS-NEVER-SAVED: an F5 during a Re-Fly started while flying a resumed committed vessel does not save the Re-Fly~~ [FILED 2026-10-20 from harness lane CI-3 on V's PC (PR #2155 head 1abd1b4). Was open, high: with save-file loads cold (PR #2155) the F9 cleared the Re-Fly marker. FIXED 2026-10-21 on branch `claude/project-thread-hvhou8` (PR #2155): the session survives the F9 and keeps its committed original. xUnit; CI-3 re-fly pending. product]
 
 Flying a committed vessel Parsek spawned resumes its tree as a copy-on-write clone and arms a
 committed-tree restore attempt (`TryTakeCommittedTreeForSpawnedVesselRestore`). Starting a Re-Fly
@@ -28,16 +28,16 @@ in-session load and memory hid the gap; a cold boot of such a save lost the sess
 Fix: `RewindInvoker.ConsumePostLoad` discards the abandoned flight's attempt (purge then clear) after
 the bundle restore, before the strip (`DiscardRestoreAttemptOfAbandonedFlight`).
 
-Still open (CI-3 flown on 32c497b, `2026-10-20_2226`): the session now survives the F9, but the
-chain readback differs. Before the F5 `Ghost chains evaluated: 13 chain(s), 0 vessel(s) ghosted`
-(the 2026-10-15 pass ghosted 1); after the F9 `6 chain(s)` and `listhandles kind=chains count=0
-... match=false`. Reading so far (code, not yet the log): `TryRestoreActiveTreeNode` detaches the
-committed copy of a restored active tree with the same id (`RemoveCommittedTreeById`), and ghost
-chains derive from `CommittedTrees` only, so a save that holds the session tree drops the committed
-original's chains on any load of it, in-session or cold. The 2026-10-15 pass held only because the
-F5 never saved the session tree (this bug). To decide: which shape a resumed Re-Fly session should
-have (the committed original beside the live tree, as a fresh session has, or detached), and why the
-pre-F5 ghost count fell to 0.
+Second cause (CI-3 flown on 32c497b, `2026-10-20_2226`): with the session saved, the F9 read back
+6 chains instead of 13 (`listhandles kind=chains count=0 ... match=false`). `TryRestoreActiveTreeNode`
+detached the committed copy of the restored session tree (`RemoveCommittedTreeById`), and ghost
+chains derive from `CommittedTrees` only, so the committed original's chains went with it. A fresh
+session keeps that original committed beside its live tree (the bundle restore puts it back). Fix:
+the restore keeps the committed copy when the save's marker names the restored tree and its active
+Re-Fly recording (`ParsekScenario.IsResumedReFlySessionTree`), except on the committed-copy rule's
+resume (a session merged after the save), whose copy still detaches for step B's row rule. The
+ghosted count before the F5 is 0 because PR #2151's Re-Fly start holds the claimed vessels
+(`HoldResurrectedVesselsWithCommittedFuture`); the lane now pins the chain count only.
 
 ## ~~REFLY-DIALOG-READS-UNFINALIZED-ATTEMPT-AS-UNFLOWN: the leaving-flight Re-Fly dialog refuses Merge for an attempt that lost value~~ [FILED 2026-10-20 from harness lane QL-3 on V's PC (PR #2155 head c6f80ab). Was open, high; regression from PR #2151, never shipped. FIXED 2026-10-20 on branch `claude/project-thread-hvhou8` (PR #2155). xUnit; QL-3 re-fly pending; the seam half is open. product]
 
