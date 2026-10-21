@@ -317,7 +317,7 @@ committed, skips the splice, and restores the held-back events, so an earning ma
 resumed spawned-vessel flight survives F5 / F9 and reaches the ledger at the merge. Residue filed
 as ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE, since fixed. Lane QL-13.
 
-## ~~ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE: F5 inside a committed-tree restore attempt that resumed its recording in place loses the attempt's held-back earnings on F9~~ [FILED 2026-10-20 while closing design-load-restores-the-save.md open question 3. Was open. FIXED 2026-10-21 (the held-back earnings, PR #2164; the trajectory, owner ruling 2026-10-21) on branch `claude/project-thread-hvhou8`. xUnit; lane QL-13 authored, not yet flown]
+## ~~ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE: F5 inside a committed-tree restore attempt that resumed its recording in place loses the attempt's held-back earnings on F9~~ [FILED 2026-10-20 while closing design-load-restores-the-save.md open question 3. Was open. FIXED 2026-10-21 (the held-back earnings, PR #2164; the trajectory, owner ruling 2026-10-21) on branch `claude/project-thread-hvhou8`. xUnit; lane QL-13 LIVE-PROVEN `2026-10-21_2058`]
 
 When the flight-ready committed-tree restore resumes a committed recording in place (the live
 vessel's parts are covered by the recording's snapshot, so no new segment is made) and the

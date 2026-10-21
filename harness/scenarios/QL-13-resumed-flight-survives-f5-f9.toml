@@ -39,7 +39,8 @@ tier = "nightly"
 # STATUS: AUTHORED 2026-10-21 (branch `claude/project-thread-hvhou8`). First flights
 # `2026-10-21_2030` / `_2032_a2` INVALID driver-verdict-mismatch: the F9 was refused with the
 # recorder live (`reject ... cmd=LoadGame reason=recording-active`); the F5 already logged
-# `writing restore-attempt recording`. StopRecording added before the F9.
+# `writing restore-attempt recording`. StopRecording added before the F9; LIVE-PROVEN
+# `2026-10-21_2058` PASS attempt 1.
 description = "QL-13: a committed orbiting lab is flown again and resumes its recording in place; an F5 at UT 900 writes the resumed recording beside the committed copy's hashed version, an F9 after 300 s of abandoned future reads both, resumes the same recording, and the final commit holds that one recording."
 instanceProfile = "stock-minimal"
 tags = ["QL-13", "quickload", "resume", "sidecar-versions", "reading-run"]
