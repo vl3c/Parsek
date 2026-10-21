@@ -398,7 +398,7 @@ The goal: no committed purchase is ever left unpaid, and no pool (funds, science
 **What the other operations keep** (same interview):
 - A stock revert removes only the rows the reverted flight wrote; every committed row stays, including the committed-future rows a rewind left (ruling D2). As built, `Ledger.PruneOrphanActionsAfterUT` removes every untagged row after the launch UT.
 - A recording that fails to load, for any reason, keeps its ledger rows: it loses its ghost and playback, never its rows (extends the GC-3 ruling from schema rejects to every load failure). As built, `Ledger.Reconcile` prunes the rows of a recording missing from the loaded set (section 4.3).
-- Supply routes at a rewind keep their committed cycle rows and refund the later cycles; a cycle that made money stays history (logistics design section 10.6, todo `ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES`).
+- Supply routes are a real-time system, the one exception to ruling D2: every load back in time, a revert included, retires the route rows after its cutoff and the clock re-decides those cycles (as built). Route money can only be a cost, so that retire only ever raises funds: a cycle's recovery credit is capped at its own dispatch cost and settles at dispatch (not yet built; logistics design section 10.6, todo `ROUTE-MONEY-COST-ONLY`).
 - A Re-Fly session keeps showing the replaced flight's losses until the merge retires them (rewind design section 2.12).
 - A quickload or load restores the save exactly; `docs/dev/design-load-restores-the-save.md` owns it.
 
