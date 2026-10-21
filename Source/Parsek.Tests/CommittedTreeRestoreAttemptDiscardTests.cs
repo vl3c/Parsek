@@ -158,6 +158,48 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("PurgeEventsForRecordingAfterUT"));
         }
 
+        // catches: a restore attempt armed by the flight that was live before a Re-Fly's
+        // rewind staying armed through the session (CI-3). Every save during the session
+        // then skips the active tree on the committed-restore overlap, so a save-file load
+        // of such a save finds no provisional and clears the Re-Fly marker.
+        [Fact]
+        public void ReFlyStart_DiscardsTheRestoreAttemptOfThePreRewindFlight()
+        {
+            RecordingTree tree = TreeWithRecording(CloneTreeId, "rec-clone", endUT: 200.0);
+            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, ArmReason);
+            GameStateEvent postCutoff = MakeGameStateEvent("tail-post", ut: 250.0,
+                recordingId: "rec-clone");
+            GameStateStore.AddEvent(ref postCutoff);
+
+            Assert.True(RewindInvoker.DiscardRestoreAttemptOfAbandonedFlight("sess_t"));
+
+            Assert.False(RecordingStore.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
+            Assert.False(RecordingStore.IsCommittedTreeRestoreAttemptRecordingId("rec-clone"));
+            Assert.DoesNotContain(GameStateStore.Events, e => e.key == "tail-post");
+            Assert.Contains(logLines, l => l.Contains("[Rewind]")
+                && l.Contains("discarding the committed-tree restore attempt of the pre-rewind flight")
+                && l.Contains("tree=" + CloneTreeId) && l.Contains("sess=sess_t"));
+
+            Assert.False(RewindInvoker.DiscardRestoreAttemptOfAbandonedFlight("sess_t"));
+        }
+
+        // catches: the discard moving before the bundle restore (which would put the
+        // purged tails back) or after the strip / activate / marker write.
+        [Fact]
+        public void ConsumePostLoad_DiscardsTheAttempt_AfterTheBundleRestore_BeforeTheStrip()
+        {
+            string body = ExtractMethodBody(
+                ReadStrippedParsekSource("RewindInvoker.cs"),
+                "internal static void ConsumePostLoad(");
+            int restore = body.IndexOf("ReconciliationBundle.Restore(", StringComparison.Ordinal);
+            int discard = body.IndexOf("DiscardRestoreAttemptOfAbandonedFlight(", StringComparison.Ordinal);
+            int strip = body.IndexOf("RunStripActivateMarker(", StringComparison.Ordinal);
+            Assert.True(restore >= 0 && discard >= 0 && strip >= 0,
+                $"restore={restore} discard={discard} strip={strip}");
+            Assert.True(restore < discard && discard < strip,
+                $"restore={restore} discard={discard} strip={strip}");
+        }
+
         // ===== wiring: the three caller-side discard sites use the helper ===========
         //
         // These sites drop the clone tree themselves (no drop-site id match runs for

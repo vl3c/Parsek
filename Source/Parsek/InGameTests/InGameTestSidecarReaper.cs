@@ -20,7 +20,7 @@ namespace Parsek.InGameTests
     /// in <c>saves/&lt;save&gt;/Parsek/Recordings/</c> after a green test - invisible
     /// in the save's <c>persistent.sfs</c> (which carries no RECORDING node for them)
     /// and permanent, because once those ids are absent from the known-ids set
-    /// <c>CleanOrphanFiles</c> keeps them as "maybe a recovery candidate".</para>
+    /// <c>ParsekFileCollector</c> keeps them as "maybe a recovery candidate".</para>
     ///
     /// <para><b>Found live 2026-07-26</b> by the M1-mission-loop-unit harness scenario,
     /// whose <c>recordings.count = {0,0}</c> pin red'd on five <c>mmis8-xdock-*</c>

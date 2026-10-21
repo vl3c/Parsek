@@ -4683,10 +4683,14 @@ namespace Parsek
             // Convert existing GameStateStore events into GameActions.
             // Done AFTER the existing-ledger reconcile, then immediately reconciled so
             // future rows from the old event store cannot bypass maxUT on first load.
-            if (Ledger.Actions.Count == 0 && validRecordingIds != null && validRecordingIds.Count > 0)
+            // GC-3: recordings of trees kept inert (another schema generation) are known to the
+            // reconcile above, but they neither trigger the migration nor feed it: an inert
+            // tree is never interpreted, and a save holding only inert trees is not an old save.
+            HashSet<string> migrationRecordingIds = ExcludeInertRecordingIds(validRecordingIds);
+            if (Ledger.Actions.Count == 0 && migrationRecordingIds != null && migrationRecordingIds.Count > 0)
             {
                 int beforeOldSaveMigration = Ledger.Actions.Count;
-                MigrateOldSaveEvents(validRecordingIds);
+                MigrateOldSaveEvents(migrationRecordingIds);
                 if (Ledger.Actions.Count != beforeOldSaveMigration)
                 {
                     Ledger.Reconcile(
@@ -4772,6 +4776,32 @@ namespace Parsek
         /// Migration for old saves: converts existing GameStateStore events from committed
         /// recordings into GameActions and adds them to the ledger.
         /// </summary>
+        /// <summary>
+        /// The ids of <paramref name="validRecordingIds"/> that do not belong to a committed tree
+        /// kept inert (<see cref="InertRecordingTrees"/>). Returns the same set when none do.
+        /// </summary>
+        internal static HashSet<string> ExcludeInertRecordingIds(HashSet<string> validRecordingIds)
+        {
+            if (validRecordingIds == null || InertRecordingTrees.Count == 0)
+                return validRecordingIds;
+            var kept = new HashSet<string>(StringComparer.Ordinal);
+            int excluded = 0;
+            foreach (string id in validRecordingIds)
+            {
+                if (InertRecordingTrees.ContainsRecordingId(id))
+                    excluded++;
+                else
+                    kept.Add(id);
+            }
+            if (excluded > 0)
+                ParsekLog.Verbose(Tag,
+                    "OnKspLoad: old-save migration scope excludes " +
+                    excluded.ToString(CultureInfo.InvariantCulture) +
+                    " recording id(s) of inert trees; remaining=" +
+                    kept.Count.ToString(CultureInfo.InvariantCulture));
+            return kept;
+        }
+
         private static void MigrateOldSaveEvents(HashSet<string> validRecordingIds)
         {
             LedgerLoadMigration.MigrateOldSaveEvents(validRecordingIds);
@@ -5172,14 +5202,16 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Called on save. Persist ledger to file.
+        /// Called on save. Persist ledger to file. <paramref name="prebuiltNode"/> is the
+        /// <c>LEDGER</c> node OnSave built once for both the file and the save's
+        /// <c>GAME_STATE</c> node; null builds a fresh one.
         /// </summary>
-        internal static void OnSave()
+        internal static void OnSave(ConfigNode prebuiltNode = null)
         {
             string path = Ledger.GetLedgerPath();
             if (!string.IsNullOrEmpty(path))
             {
-                Ledger.SaveToFile(path);
+                Ledger.WriteSaveNode(prebuiltNode ?? Ledger.BuildSaveNode(), path);
                 ParsekLog.Verbose(Tag, $"OnSave: ledger saved to '{path}'");
             }
             else
@@ -5189,9 +5221,12 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Called on load. Load ledger from file.
+        /// Called on a cold load. Loads the ledger from the save's <c>GAME_STATE/LEDGER</c>
+        /// node when <paramref name="saveLedgerNode"/> is given, else from the ledger file,
+        /// then runs the legacy repairs against the already loaded events (same order on
+        /// both sources) and seeds the KSC sequence counter from the loaded rows.
         /// </summary>
-        internal static void OnLoad()
+        internal static void OnLoad(ConfigNode saveLedgerNode = null)
         {
             Initialize();
 
@@ -5203,28 +5238,64 @@ namespace Parsek
             repSeedDone = false;
             legacyFacilityUpgradeEstimateDone = false;
 
-            string path = Ledger.GetLedgerPath();
-            if (!string.IsNullOrEmpty(path))
+            string source;
+            if (saveLedgerNode != null)
             {
-                Ledger.LoadFromFile(path);
-                int repairedLegacyPartPurchaseEvents =
-                    GameStateStore.RepairLegacyPartPurchaseEventsForCurrentSemantics();
-                int repairedLegacyPartPurchaseActions =
-                    RepairLegacyPartPurchaseActionsOnLoad(GameStateStore.Events, Ledger.Actions);
-                if (repairedLegacyPartPurchaseEvents > 0 || repairedLegacyPartPurchaseActions > 0)
-                {
-                    ParsekLog.Info(Tag,
-                        $"OnLoad: repaired legacy R&D part-purchase rows " +
-                        $"(events={repairedLegacyPartPurchaseEvents}, actions={repairedLegacyPartPurchaseActions})");
-                }
-                RepairZeroCostFacilityUpgradeActionsOnLoad(GameStateStore.Events, Ledger.Actions);
-                ParsekLog.Verbose(Tag, $"OnLoad: ledger loaded from '{path}'");
+                Ledger.LoadFromNode(saveLedgerNode);
+                source = "the save's GAME_STATE node";
             }
             else
             {
-                ParsekLog.Warn(Tag, "OnLoad: could not resolve ledger path — starting with empty ledger");
+                string path = Ledger.GetLedgerPath();
+                if (string.IsNullOrEmpty(path))
+                {
+                    ParsekLog.Warn(Tag, "OnLoad: could not resolve ledger path — starting with empty ledger");
+                    return;
+                }
+                Ledger.LoadFromFile(path);
+                source = "'" + path + "'";
+            }
+
+            int repairedLegacyPartPurchaseEvents =
+                GameStateStore.RepairLegacyPartPurchaseEventsForCurrentSemantics();
+            int repairedLegacyPartPurchaseActions =
+                RepairLegacyPartPurchaseActionsOnLoad(GameStateStore.Events, Ledger.Actions);
+            if (repairedLegacyPartPurchaseEvents > 0 || repairedLegacyPartPurchaseActions > 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"OnLoad: repaired legacy R&D part-purchase rows " +
+                    $"(events={repairedLegacyPartPurchaseEvents}, actions={repairedLegacyPartPurchaseActions})");
+            }
+            RepairZeroCostFacilityUpgradeActionsOnLoad(GameStateStore.Events, Ledger.Actions);
+            SeedKscSequenceCounterFromLoadedLedger(Ledger.Actions);
+            ParsekLog.Verbose(Tag, $"OnLoad: ledger loaded from {source}");
+        }
+
+        /// <summary>
+        /// Puts the KSC sequence counter past every loaded row's <c>Sequence</c>, so a KSC row
+        /// made after a load sorts after a loaded row at the same UT (the recalculation sort is
+        /// UT, earnings first, then sequence). Never moves the counter backwards.
+        /// </summary>
+        internal static void SeedKscSequenceCounterFromLoadedLedger(IReadOnlyList<GameAction> loaded)
+        {
+            int max = 0;
+            if (loaded != null)
+            {
+                for (int i = 0; i < loaded.Count; i++)
+                {
+                    if (loaded[i] != null && loaded[i].Sequence > max)
+                        max = loaded[i].Sequence;
+                }
+            }
+            if (max > kscSequenceCounter)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"OnLoad: KSC sequence counter seeded from the loaded ledger: {kscSequenceCounter.ToString(CultureInfo.InvariantCulture)} -> {max.ToString(CultureInfo.InvariantCulture)}");
+                kscSequenceCounter = max;
             }
         }
+
+        internal static int KscSequenceCounterForTesting => kscSequenceCounter;
 
         internal static int RepairLegacyPartPurchaseActionsOnLoad(
             IReadOnlyList<GameStateEvent> events,
@@ -8986,6 +9057,42 @@ namespace Parsek
                 $"effectiveAvailable={effectiveAvailable:F1}, affordable={affordable}, cutoffUT={nowUT:R}");
 
             return affordable;
+        }
+
+        /// <summary>
+        /// Production reset for a cold load (<c>ParsekScenario.ResetSaveScopedSessionState</c>):
+        /// the session statics that describe the loaded save (initialization and its modules,
+        /// seed flags, the KSC sequence counter, the committed-future snapshot, the strategy
+        /// debit baseline, the reservation-release trigger, the pending recovery funds and
+        /// consumed keys). Leaves the test seams, the timeline subscription and the log
+        /// dedup sets alone. The caller re-initializes.
+        /// </summary>
+        internal static void ResetForSaveLoad()
+        {
+            initialized = false;
+            scienceModule = null;
+            milestonesModule = null;
+            contractsModule = null;
+            fundsModule = null;
+            routeModule = null;
+            reputationModule = null;
+            facilitiesModule = null;
+            strategiesModule = null;
+            kerbalsModule = null;
+            RecalculationEngine.ClearModules();
+            legacyFacilityUpgradeEstimateDone = false;
+            fundsSeedDone = false;
+            scienceSeedDone = false;
+            repSeedDone = false;
+            ResetMigrateOldSaveEventsForLoad();
+            unmatchableStrategyScienceDebitBaseline = 0.0;
+            kscSequenceCounter = 0;
+            LedgerRecoveryFundsPairing.ResetForSaveLoad();
+            CommittedFutureIndexCache.Invalidate("save-scoped-reset");
+            lastTriggeredReservationReleaseUT = double.NaN;
+            postWalkCountAfterReservationReleaseTrigger = -1;
+            committedFutureActionIdsAtLastPatch.Clear();
+            committedFutureSnapshotValid = false;
         }
 
         /// <summary>Reset all state for testing.</summary>

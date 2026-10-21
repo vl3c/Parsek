@@ -320,7 +320,8 @@ namespace Parsek
         /// <c>L'</c>: <paramref name="baseline"/> minus the retire set (minus
         /// <paramref name="keptRetireIds"/>, Variant B's kept ReputationPenalty loss rows),
         /// plus <paramref name="attemptRows"/> (minus the attempt's own ReputationPenalty
-        /// loss rows when <paramref name="attemptIdsForDroppedRepLoss"/> is set, Variant B).
+        /// loss rows when <paramref name="attemptIdsForDroppedRepLoss"/> is set, Variant B, and
+        /// minus build-step rows the retire set takes, the same way as the baseline).
         /// </summary>
         internal static List<GameAction> ComposeAfter(
             IReadOnlyList<GameAction> baseline,
@@ -343,6 +344,11 @@ namespace Parsek
             {
                 var a = attemptRows[i];
                 if (a == null) continue;
+                // A build-step row the ledger never filed (the replaced flight's own rows)
+                // that the merge files and then retires: absent from L', as the commit leaves it.
+                if (!string.IsNullOrEmpty(a.ActionId) && retireIds.Contains(a.ActionId)
+                    && (keptRetireIds == null || !keptRetireIds.Contains(a.ActionId)))
+                    continue;
                 if (attemptIdsForDroppedRepLoss != null
                     && IsAttemptRow(a, attemptIdsForDroppedRepLoss)
                     && SupersedeCommit.IsReputationLossRow(a))
@@ -634,7 +640,8 @@ namespace Parsek
         /// preview reads them).
         /// </summary>
         internal static ReFlyMergeDominanceVerdict EvaluateForMerge(
-            RecordingTree tree, string context, out List<GameAction> attemptRows)
+            RecordingTree tree, string context, out List<GameAction> attemptRows,
+            bool treeAwaitsFinalize = false)
         {
             attemptRows = new List<GameAction>();
             var scenario = ParsekScenario.Instance;
@@ -666,7 +673,7 @@ namespace Parsek
             int closureCount = 0;
             try
             {
-                v = EvaluateLiveCore(tree, marker, context, attemptRows, out closureCount);
+                v = EvaluateLiveCore(tree, marker, context, attemptRows, out closureCount, treeAwaitsFinalize);
             }
             catch (Exception ex)
             {
@@ -693,7 +700,7 @@ namespace Parsek
         /// (which owns the fail-closed catch). Fills <paramref name="attemptRows"/>.</summary>
         private static ReFlyMergeDominanceVerdict EvaluateLiveCore(
             RecordingTree tree, ReFlySessionMarker marker, string context,
-            List<GameAction> attemptRows, out int closureCount)
+            List<GameAction> attemptRows, out int closureCount, bool treeAwaitsFinalize)
         {
             var attemptIds = CollectAttemptRecordingIds(tree, marker);
             LedgerOrchestrator.Initialize();
@@ -710,9 +717,11 @@ namespace Parsek
 
             // The merge retires nothing when AppendRelations will refuse the attempt; the
             // check then keeps the replaced side in L' instead of assuming it retired.
-            List<GameAction> retire = SupersedeCommit.BuildMergeRetireSet(marker, attemptIds, out closureCount);
+            List<GameAction> retire = SupersedeCommit.BuildMergeRetireSet(
+                marker, attemptIds, out closureCount, preview.Rows);
             string noRetireReason;
-            bool retiresNothing = SupersedeCommit.MergeWouldRetireNothing(marker, tree, out noRetireReason);
+            bool retiresNothing = SupersedeCommit.MergeWouldRetireNothing(
+                marker, tree, out noRetireReason, terminalPendingFinalize: treeAwaitsFinalize);
             if (retiresNothing)
             {
                 ParsekLog.Info(Tag,

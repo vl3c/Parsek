@@ -17,7 +17,7 @@ namespace Parsek
     /// the shared discard core <c>ParsekFlight.AutoDiscardActiveTreeCore</c> is
     /// in-memory-only BY DESIGN. A discard that empties the store therefore strands
     /// those files PERMANENTLY: once their ids are absent from
-    /// <c>RecordingStore.BuildKnownRecordingIds()</c>, <c>CleanOrphanFiles</c>' zero-known
+    /// <c>RecordingStore.BuildKnownRecordingIds()</c>, <c>ParsekFileCollector</c>' zero-known
     /// safety guard (correctly) refuses to touch the directory at all, so nothing ever
     /// reclaims them. The harness-side twin of this leak was fixed for the S0.5
     /// <c>DiscardTree</c> test-command verb; this class is the same fix, promoted to a
@@ -26,7 +26,7 @@ namespace Parsek
     /// <para><b>Explicit ids only.</b> This is NEVER a directory sweep. It deletes only
     /// the sidecar set of recordings the caller captured from the tree it is tearing
     /// down, and only after the teardown, so the store's own known-id set is the
-    /// authority on what survives. The sweeper (<c>CleanOrphanFiles</c>) and its
+    /// authority on what survives. The sweeper (<c>ParsekFileCollector</c>) and its
     /// zero-known guard are untouched.</para>
     ///
     /// <para><b>Two guards, both mandatory.</b>

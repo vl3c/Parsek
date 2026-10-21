@@ -1,6 +1,16 @@
 schema = 1
 id = "LAB-9a-lab-quickload-mid-research"
 tier = "operator"
+# RESHAPED 2026-10-20 FOR "LOAD RESTORES THE SAVE" PHASE 2 (design
+# docs/dev/design-load-restores-the-save.md 4.1 / 4.7 / 5 S3 / 8). NOT FLOWN in this shape.
+# The F9 carries `playerLoad=true`, a Cold save-file load from the Space Center into FLIGHT
+# (QL-4b's reshaped route): the session reset forgets the committed tree, the quicksave holds
+# the tree as its active tree only (no committed copy to rule on or detach), its sidecars
+# resolve from `_versions` (the exit commit rewrote the heads), and the resume reconcile
+# skips by policy (kind=Cold) because the save's own ledger has nothing after the save. The
+# lab readings, the equality and the no-income gates are unchanged. Where the text below
+# names the committed-copy restore or the reconcile retiring the future, it describes the
+# in-session route flown before Phase 2; this block is authoritative.
 # THE SCIENCE-LAB PROGRAM, lane LAB-9a (plan `docs/dev/research/lab-test-program-2026-10-17.md`,
 # "LAB-9a F9 mid-research"). FIRST FLIGHT `2026-10-17_2328` PARSEK-FAIL on one spec premise
 # only: the resume pin read `listhandles kind=active count=` as "recordings resumed", but for
@@ -63,7 +73,7 @@ tier = "operator"
 # lab: the abandoned research kept, a catch-up of the abandoned span, or an emptied lab); the
 # reconcile line's shape on a lab flight (`afterCutoff=0`); the recordings count after the
 # second commit (pinned {1,2} until read).
-description = "LAB-9a: a crewed science lab in low Kerbin orbit is researching (about 0.05 science) while recording when the player quicksaves, researches half a Kerbin day more (about 0.19), leaves to the Space Center and quickloads: the flight resumes from the quicksave with the lab's stored science and data exactly as saved and research still on, the abandoned half day gone, the resume reconcile retiring the abandoned future with no ledger row dated after the save, and no lab science paid anywhere."
+description = "LAB-9a: a crewed science lab in low Kerbin orbit is researching (about 0.05 science) while recording when the player quicksaves, researches half a Kerbin day more (about 0.19), leaves to the Space Center and quickloads (playerLoad=true, a Cold save-file load): the flight resumes from the quicksave with the lab's stored science and data exactly as saved and research still on, the abandoned half day gone, the career the save's own (no ledger row dated after the save), and no lab science paid anywhere."
 instanceProfile = "stock-minimal"
 tags = ["science-lab", "science", "converter", "quickload", "scene-exit", "LAB-9a", "pending-flight"]
 
@@ -117,7 +127,7 @@ steps = [
   # 5. THE F9 from the Space Center (the scene exit auto-commits the tree first).
   { cmd = "MissionMark",    args = { label = "lab9a-leaving" },                      expect = "OK" },
   { cmd = "ExitToSpaceCenter",                                                       expect = "OK", budget = 120 },
-  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave" },      expect = "OK", budget = 300 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
   { cmd = "MissionMark",    args = { label = "lab9a-f9-loaded" },                    expect = "OK" },
   # 10 s at 1x: the resume (OnFlightReady) and stock's post-load hold, then read (q2 == q0).
   { cmd = "WarpToUT",       args = { ut = "4407", maxRate = "1" },                   expect = "OK", budget = 120 },
@@ -160,17 +170,21 @@ required = [
   "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
   "(?s)MISSIONMARK label=lab9a-leaving (?:(?!loadgame start).)*?Silent full-fidelity auto-commit \\(scene-exit\\): tree='LABX Orbital Lab' recordings=[1-9][0-9]*",
   "exittospacecenter complete scene=SPACECENTER game-loaded=true",
-  # THE F9 from the Space Center reaches the quickload resume (QL-4b's route).
-  "loadgame start save=\\S+ name=quicksave scene=SPACECENTER requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false",
-  "Load classified: early=InSession refined=(?:QuickloadFlight|InSessionOther) scene=FLIGHT initialLoadDone=true rewinding=false reFlyInvoke=false discardReFly=none",
-  "\\[Scenario\\] Quickload committed-copy restore: tree='LABX Orbital Lab' id=\\S+ route=space-center action=ResumeFromQuicksave reason=committed-after-quicksave ",
-  "TryRestoreActiveTreeNode: removed committed tree 'LABX Orbital Lab' \\(id=\\S+, [1-9][0-9]* recording\\(s\\)\\)",
-  "OnLoad: pending-Limbo tree 'LABX Orbital Lab' deferred to OnFlightReady for quickload-resume",
-  "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide",
+  # THE F9 from the Space Center is a save-file load (QL-4b's reshaped route, design 4.1).
+  "loadgame start save=\\S+ name=quicksave scene=SPACECENTER requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false playerLoad=true",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave route=Focusable",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*\\[LoadPolicy\\] Save-file load intent armed: nodeUT=[0-9.]+ scene=SPACECENTER",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
+  "loadgame player-load: firing [\\s\\S]*Sidecar version resolved: rec=[0-9a-f]{32} kind=prec hash=[0-9a-f]{16} source=version promoted=True",
+  "loadgame player-load: firing [\\s\\S]*Quickload committed-copy restore skipped: tree='LABX Orbital Lab' id=\\S+ reason=no-committed-copy staleMembers=0",
+  "OnLoad: cold-start active tree detected \\(state=Limbo\\) . deferred to OnFlightReady as Quickload",
+  "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide [^\\r\\n]*\\bloadKind=Cold\\b",
   # The F9 resumed the quicksave's tree on the lab at the quicksave's clock.
   "(?s)loadgame start save=\\S+ name=quicksave .*?RestoreActiveTreeFromPending: resumed recording tree 'LABX Orbital Lab' activeRec='[0-9a-f]{32}' vessel='LABX Orbital Lab' pid=2200110055 at UT=439[0-9]\\.[0-9]",
-  # The reconcile retires the abandoned future; no ledger row is dated after the cutoff.
-  "\\[Scenario\\] Quickload abandoned-future reconcile: tree='LABX Orbital Lab' (?=[^\\r\\n]*\\bscope=TreeWide\\b)(?=[^\\r\\n]*\\bledgerRowsRetired=[0-9]+ \\(afterCutoff=0 )(?=[^\\r\\n]*\\bskippedCommitted=0\\b)",
+  # The save's own ledger has nothing after the save: the resume reconcile skips by policy.
+  "\\[Scenario\\] Quickload abandoned-future reconcile skipped: tree='LABX Orbital Lab' kind=Cold scope=TreeWide reason=policy",
   # THE EQUALITY: the lab after the F9 reads exactly as before the F5 (q2 == q0), researching.
   "(?s)partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=([0-9]+\\.[0-9]{2}) dataStored=([0-9]+\\.[0-9]{2});Research:active=1'(?:(?!partaction applied button=).)*?MISSIONMARK label=lab9a-f5 .*?MISSIONMARK label=lab9a-f9-loaded (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*activePid=2200110055 [^\\r\\n]*state='lab:storedScience=\\1 dataStored=\\2;Research:active=1'",
   # ... and the abandoned half day is gone (q2 is back in the pre-F5 window).
@@ -194,8 +208,11 @@ forbidden = [
   "TrimBoringTail: trimmed 'LABX Orbital Lab'",
   # The F9 must take the resume route, not keep or drop the tree.
   "Quickload resume prep skipped",
-  "Quickload committed-copy restore: tree='LABX Orbital Lab' id=\\S+ route=\\S+ action=Unchanged",
-  "Quickload abandoned-future reconcile skipped: tree='LABX Orbital Lab'",
+  # The old in-session route (design 8): no committed-copy rule, detach or reconcile.
+  "loadgame player-load: firing [\\s\\S]*Load classified: early=InSession refined=(?:QuickloadFlight|InSessionOther) scene=FLIGHT",
+  "Quickload committed-copy restore: tree='LABX Orbital Lab'",
+  "loadgame player-load: firing [\\s\\S]*TryRestoreActiveTreeNode: removed committed tree 'LABX Orbital Lab'",
+  "\\[Scenario\\] Quickload abandoned-future reconcile: tree='LABX Orbital Lab'",
   "dropped entire tree 'LABX Orbital Lab'",
   "keeping in-memory pending tree 'LABX Orbital Lab'",
 ]

@@ -3827,7 +3827,7 @@ namespace Parsek
         ///
         /// Event-store staleness after revert is handled by the recording-id visibility
         /// filter: tagged events stay hidden until a matching quickload restores the
-        /// active tree. <see cref="CleanOrphanFiles"/> at the next cold-start reclaims
+        /// active tree. <see cref="ParsekFileCollector"/> at the next cold-start reclaims
         /// sidecars no quicksave still references.
         ///
         /// Contrast with <see cref="DiscardPendingTree"/>, which runs the #431 purge +
@@ -4543,6 +4543,8 @@ namespace Parsek
         internal static System.Func<string, string, SaveMode, string> SaveGameForTesting;
 
         /// <summary>
+        /// No longer called (design-load-restores-the-save.md 4.6: a merge keeps the
+        /// player's F5 point); kept until the Phase 3 deletion.
         /// Bug #292: refresh quicksave.sfs after a user-initiated tree merge so subsequent
         /// F9 quickloads see the merge result. Without this, F9 loads a stale quicksave
         /// from before the merge and silently drops the new recording IDs the merge added.
@@ -4599,10 +4601,12 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Refreshes persistent.sfs and quicksave.sfs after an explicit pending-tree
-        /// discard when the discarded tree had already been serialized as
-        /// <c>isPending=True</c>. This removes stale pending metadata from save files
-        /// without committing the discarded tree.
+        /// Refreshes persistent.sfs after an explicit pending-tree discard when the
+        /// discarded tree had already been serialized as <c>isPending=True</c>. This
+        /// removes stale pending metadata from the game's current save without committing
+        /// the discarded tree. quicksave.sfs is the player's F5 point and is not written
+        /// (design-load-restores-the-save.md 4.6): a save-file load restores the save
+        /// exactly, so an F9 to it is consistent.
         /// </summary>
         internal static void RefreshSaveAndQuicksaveAfterDiscard(
             string reason,
@@ -4627,13 +4631,13 @@ namespace Parsek
             }
 
             RefreshSaveAfterDiscard(saveFn, "persistent", "persistent.sfs", reason, discardedRecordingCount);
-            RefreshSaveAfterDiscard(saveFn, "quicksave", "quicksave.sfs", reason, discardedRecordingCount);
+            ParsekLog.Verbose("Quicksave",
+                $"Quicksave not refreshed after discard (the player's F5 point is kept): reason={reason}");
         }
 
         /// <summary>
-        /// <see cref="RefreshSaveAndQuicksaveAfterDiscard"/> without the quicksave: for an
-        /// AUTOMATIC discard, where overwriting the player's quicksave.sfs with no player
-        /// action would destroy their F5 point. Same scene / game guards.
+        /// The persistent.sfs refresh for an AUTOMATIC discard. Same scene / game guards as
+        /// <see cref="RefreshSaveAndQuicksaveAfterDiscard"/>, without its Verbose line.
         /// </summary>
         internal static void RefreshPersistentSaveAfterDiscard(
             string reason,
@@ -4896,14 +4900,17 @@ namespace Parsek
                     bool hasPending = pendingTree != null;
                     bool hasSavedPendingDuringActiveRestore =
                         savedPendingTreeDuringActiveRestore != null;
+                    int inertTreeCount = InertRecordingTrees.Count;
                     if (recCount > 0
                         || treeCount > 0
+                        || inertTreeCount > 0
                         || hasPending
                         || hasSavedPendingDuringActiveRestore)
                     {
                         string msg =
                             $"ResetForTesting blocked: refusing to wipe live save data " +
                             $"(committedRecordings={recCount}, committedTrees={treeCount}, " +
+                            $"inertTrees={inertTreeCount}, " +
                             $"hasPendingTree={hasPending}, " +
                             $"hasSavedPendingDuringActiveRestore={hasSavedPendingDuringActiveRestore}). " +
                             $"The in-game test runner shares " +
@@ -4919,6 +4926,7 @@ namespace Parsek
 
             committedRecordings.Clear();
             committedTrees.Clear();
+            InertRecordingTrees.ResetForTesting();
             BumpStateVersion();
             ResetCommittedListNotificationsForTesting();
             RecordingGroupStore.ResetForTesting();

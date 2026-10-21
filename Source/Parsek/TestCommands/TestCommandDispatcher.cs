@@ -768,6 +768,13 @@ namespace Parsek.TestCommands
                             Arg(parsed, "allowLiveRecorder"), out allowLiveRecorderReFly))
                         return DispatchResult.Reject(
                             TestCommandLoadGame.AllowLiveRecorderArgInvalidReason);
+                    // playerLoad= (design-load-restores-the-save.md 4.1): parsed before the
+                    // state terms, so a typo is an arg refusal on the first step and is never
+                    // masked by recording-active / load-in-flight. It relaxes no guard.
+                    if (!TestCommandLoadGame.TryParsePlayerLoad(
+                            Arg(parsed, TestCommandLoadGame.PlayerLoadKey), out _))
+                        return DispatchResult.Reject(
+                            TestCommandLoadGame.PlayerLoadArgInvalidReason);
                     if (state.Recording
                         && !(allowLiveRecorderReFly && state.ActiveReFlyMarker))
                         return DispatchResult.Reject("recording-active");

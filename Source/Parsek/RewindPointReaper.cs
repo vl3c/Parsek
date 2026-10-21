@@ -52,20 +52,18 @@ namespace Parsek
 
         /// <summary>
         /// Test seam: when non-null, replaces
-        /// <see cref="TryDeleteQuicksaveFile"/> with an injected predicate.
-        /// Returns true on "file deleted / file absent" (reap continues),
-        /// false on "I/O failure" (reap continues + logs a Warn — the
-        /// scenario entry is still removed so the state is bounded).
-        /// Production code leaves this null and the reaper performs a
-        /// real <see cref="File.Delete"/>.
+        /// <see cref="ReleaseQuicksaveFile"/> with an injected predicate that
+        /// observes which points were released. Returning false counts as a
+        /// release failure in the summary (the scenario entry is still removed).
+        /// Production code leaves this null; the release never touches the file.
         /// </summary>
-        internal static Func<string, bool> DeleteQuicksaveForTesting;
+        internal static Func<string, bool> ReleaseQuicksaveForTesting;
         internal static Func<string, string> ResolveQuicksaveAbsolutePathForTesting;
 
         /// <summary>Clears all test seams. Called from test class Dispose.</summary>
         internal static void ResetTestOverrides()
         {
-            DeleteQuicksaveForTesting = null;
+            ReleaseQuicksaveForTesting = null;
             ResolveQuicksaveAbsolutePathForTesting = null;
         }
 
@@ -102,6 +100,7 @@ namespace Parsek
             // while iterating.
             var toReap = new List<RewindPoint>();
             var toReapIndices = new List<int>();
+            int keptInert = 0;
             for (int i = 0; i < rps.Count; i++)
             {
                 var rp = rps[i];
@@ -115,9 +114,20 @@ namespace Parsek
                     continue;
                 }
                 if (!IsReapEligible(rp, supersedes))
+                {
+                    if (NamesInertRecording(rp, supersedes))
+                        keptInert++;
                     continue;
+                }
                 toReap.Add(rp);
                 toReapIndices.Add(i);
+            }
+
+            if (keptInert > 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"ReapOrphanedRPs: kept {keptInert.ToString(CultureInfo.InvariantCulture)} rewind point(s) " +
+                    "naming inert recordings (committed trees from a different recording schema generation)");
             }
 
             if (toReap.Count == 0)
@@ -127,8 +137,8 @@ namespace Parsek
                 return 0;
             }
 
-            int fileDeleteOk = 0;
-            int fileDeleteFail = 0;
+            int fileReleaseOk = 0;
+            int fileReleaseFail = 0;
             int contractSnapshotsPurged = 0;
             int bpBackrefCleared = 0;
 
@@ -139,11 +149,11 @@ namespace Parsek
                 var rp = toReap[k];
                 int idx = toReapIndices[k];
 
-                // 1. Delete quicksave file (best-effort).
-                if (TryDeleteQuicksaveFile(rp))
-                    fileDeleteOk++;
+                // 1. Release the quicksave file to the collector.
+                if (ReleaseQuicksaveFile(rp))
+                    fileReleaseOk++;
                 else
-                    fileDeleteFail++;
+                    fileReleaseFail++;
 
                 // 2. Remove scenario entry.
                 rps.RemoveAt(idx);
@@ -168,8 +178,8 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"ReapOrphanedRPs: reaped={toReap.Count.ToString(CultureInfo.InvariantCulture)} " +
                 $"remaining={rps.Count.ToString(CultureInfo.InvariantCulture)} " +
-                $"fileDeleteOk={fileDeleteOk.ToString(CultureInfo.InvariantCulture)} " +
-                $"fileDeleteFail={fileDeleteFail.ToString(CultureInfo.InvariantCulture)} " +
+                $"fileReleaseOk={fileReleaseOk.ToString(CultureInfo.InvariantCulture)} " +
+                $"fileReleaseFail={fileReleaseFail.ToString(CultureInfo.InvariantCulture)} " +
                 $"bpBackrefCleared={bpBackrefCleared.ToString(CultureInfo.InvariantCulture)} " +
                 $"contractSnapshotsPurged={contractSnapshotsPurged.ToString(CultureInfo.InvariantCulture)}");
 
@@ -187,8 +197,10 @@ namespace Parsek
         /// MergeState (collapse-seal-into-mergestate plan). A slot whose
         /// OriginChildRecordingId is null/blank, or whose effective tip cannot
         /// be resolved to a committed recording (orphan), is treated as closed
-        /// (there is no recording that could still be re-flown). An RP with no
-        /// slots at all is eligible.
+        /// (there is no recording that could still be re-flown), EXCEPT a tip that
+        /// belongs to a committed tree kept inert (<see cref="InertRecordingTrees"/>,
+        /// GC-3): that slot reads OPEN, so the point and its quicksave stay for the
+        /// Parsek build that can load the tree. An RP with no slots at all is eligible.
         /// </summary>
         internal static bool IsReapEligible(
             RewindPoint rp, IReadOnlyList<RecordingSupersedeRelation> supersedes)
@@ -213,6 +225,10 @@ namespace Parsek
                 var rec = FindRecordingById(effectiveId);
                 if (rec == null)
                 {
+                    // A recording of an inert tree is not an orphan: it is kept
+                    // unchanged for the Parsek build that wrote it -> open.
+                    if (InertRecordingTrees.ContainsRecordingId(effectiveId))
+                        return false;
                     // Orphan recording id (tree was discarded mid-session,
                     // or the save dropped the recording). No re-fly target
                     // survives -> closed.
@@ -228,6 +244,27 @@ namespace Parsek
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// True when a slot of <paramref name="rp"/> resolves to a recording of a committed tree
+        /// kept inert (the reason <see cref="IsReapEligible"/> kept it). Diagnostics only.
+        /// </summary>
+        internal static bool NamesInertRecording(
+            RewindPoint rp, IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (rp?.ChildSlots == null || InertRecordingTrees.Count == 0)
+                return false;
+            for (int s = 0; s < rp.ChildSlots.Count; s++)
+            {
+                var slot = rp.ChildSlots[s];
+                if (slot == null) continue;
+                string effectiveId = slot.EffectiveRecordingId(supersedes);
+                if (InertRecordingTrees.ContainsRecordingId(effectiveId)
+                    && FindRecordingById(effectiveId) == null)
+                    return true;
+            }
+            return false;
         }
 
         private static Recording FindRecordingById(string recordingId)
@@ -246,9 +283,15 @@ namespace Parsek
             return EffectiveState.FindCommittedRecordingByIdRaw(recordingId);
         }
 
-        internal static bool TryDeleteQuicksaveFile(RewindPoint rp)
+        /// <summary>
+        /// Releases a reaped point's quicksave file. The reaper only unlists the point; the file
+        /// stays until <see cref="ParsekFileCollector"/> finds that no save file and no memory
+        /// list names the point any more (design-load-restores-the-save.md 4.5), because an
+        /// older save may still list it and offer its rewind.
+        /// </summary>
+        internal static bool ReleaseQuicksaveFile(RewindPoint rp)
         {
-            var hook = DeleteQuicksaveForTesting;
+            var hook = ReleaseQuicksaveForTesting;
             if (hook != null)
             {
                 try
@@ -258,49 +301,16 @@ namespace Parsek
                 catch (Exception ex)
                 {
                     ParsekLog.Warn(Tag,
-                        $"RewindPoint quicksave delete hook threw for rp={rp?.RewindPointId ?? "<no-id>"}: " +
+                        $"RewindPoint quicksave release hook threw for rp={rp?.RewindPointId ?? "<no-id>"}: " +
                         $"{ex.GetType().Name}: {ex.Message}");
                     return false;
                 }
             }
 
-            if (rp == null || string.IsNullOrEmpty(rp.RewindPointId))
-            {
-                ParsekLog.Verbose(Tag,
-                    "TryDeleteQuicksaveFile: no rewindPointId — nothing to delete");
-                return true;
-            }
-
-            string absolute = ResolveQuicksaveAbsolutePath(rp.RewindPointId);
-            if (string.IsNullOrEmpty(absolute))
-            {
-                ParsekLog.Verbose(Tag,
-                    $"TryDeleteQuicksaveFile: could not resolve save root for rp={rp.RewindPointId} — skipping delete");
-                return true;
-            }
-
-            try
-            {
-                if (File.Exists(absolute))
-                {
-                    File.Delete(absolute);
-                    ParsekLog.Verbose(Tag,
-                        $"Deleted rewind quicksave rp={rp.RewindPointId} path={absolute}");
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag,
-                        $"Rewind quicksave already absent rp={rp.RewindPointId} path={absolute}");
-                }
-                return true;
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Warn(Tag,
-                    $"Failed to delete rewind quicksave rp={rp.RewindPointId} path={absolute}: " +
-                    $"{ex.GetType().Name}: {ex.Message}");
-                return false;
-            }
+            ParsekLog.Verbose(Tag,
+                $"Rewind quicksave released for collection rp={rp?.RewindPointId ?? "<no-id>"} " +
+                "(deleted once no save lists the point)");
+            return true;
         }
 
         internal static string ResolveQuicksaveAbsolutePath(string rewindPointId)

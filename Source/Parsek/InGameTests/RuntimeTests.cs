@@ -16331,7 +16331,7 @@ namespace Parsek.InGameTests
         // RecordingStore.CommitTree, which flushes SaveRecordingFiles (.prec / .pann /
         // .prec.txt) for every recording in it. This removal is memory-only, so without
         // the reap below those sidecars stay in saves/<save>/Parsek/Recordings/ forever
-        // (CleanOrphanFiles preserves ids it no longer knows). Same leak class the
+        // (ParsekFileCollector preserves ids it no longer knows). Same leak class the
         // M1-mission-loop-unit harness scenario caught live on 2026-07-26 against
         // CrossTreeDockLoopUnitInGameTest. Ids are collected BEFORE the removal and
         // reaped AFTER it, so the reaper's known-ids guard reads the post-removal store.

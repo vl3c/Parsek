@@ -5422,28 +5422,18 @@ namespace Parsek
         /// (which writes to root saves dir), then moves to Parsek/Saves/ subdirectory.
         /// </summary>
         /// <summary>
-        /// Deletes any orphaned rewind save file from a previous aborted recording.
-        /// Clears RewindSaveFileName if an orphan was found.
+        /// Releases the rewind save of a previous aborted recording before a new one is
+        /// captured. The file is not deleted here: a save written meanwhile may still name it,
+        /// so <see cref="ParsekFileCollector"/> deletes it once nothing names it
+        /// (design-load-restores-the-save.md 4.5). Clears <see cref="RewindSaveFileName"/>.
         /// </summary>
         private void CleanupOrphanedRewindSave()
         {
             if (string.IsNullOrEmpty(RewindSaveFileName))
                 return;
 
-            try
-            {
-                string oldPath = RecordingPaths.ResolveSaveScopedPath(
-                    RecordingPaths.BuildRewindSaveRelativePath(RewindSaveFileName));
-                if (!string.IsNullOrEmpty(oldPath) && System.IO.File.Exists(oldPath))
-                    System.IO.File.Delete(oldPath);
-                ParsekLog.Info("Recorder",
-                    $"Deleted orphaned rewind save: {RewindSaveFileName}");
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Warn("Recorder",
-                    $"Failed to delete orphaned rewind save: {ex.Message}");
-            }
+            ParsekLog.Info("Recorder",
+                $"Released orphaned rewind save for collection: {RewindSaveFileName}");
             RewindSaveFileName = null;
         }
 

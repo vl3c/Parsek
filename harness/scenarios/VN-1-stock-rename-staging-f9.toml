@@ -1,5 +1,16 @@
 schema = 1
 id = "VN-1-stock-rename-staging-f9"
+# RESHAPED 2026-10-20 FOR "LOAD RESTORES THE SAVE" PHASE 2 (design
+# docs/dev/design-load-restores-the-save.md 4.1 / 4.7 / 8, which reverses names ruling 5
+# (design-vessel-and-mission-names.md 7.6) for save-file loads). NOT FLOWN in this shape.
+# THE F9 OUTCOME FLIPS for check (d): the F9 carries `playerLoad=true`, a Cold save-file
+# load, and the vessel-name decisions come from the quicksave (VesselNameStore.Load), which
+# was written before the Bravo rename. So the pod reloads as "VN1 Alpha" and STAYS "VN1
+# Alpha": nothing writes "VN1 Bravo" back (forbidden), the commit after the F9 finalizes
+# the pod's legs under "VN1 Alpha", and the Parsek rename of check (c) reads
+# `'VN1 Alpha' -> 'VN1 Charlie'`. Checks (g), (a), (b) and (c) and the final names (pod
+# "VN1 Charlie", booster "VN1 Alpha Probe") are unchanged. Where the text below says the
+# F9 writes Bravo back, it describes the in-session shape flown before Phase 2.
 # =====================================================================================
 # VN-1: VESSEL NAMES, THE STOCK RENAME ON A RECORDED FLIGHT (design
 # docs/dev/design-vessel-and-mission-names.md 15.3, todo GC-7). AUTHORED 2026-10-11 on
@@ -57,7 +68,7 @@ id = "VN-1-stock-rename-staging-f9"
 # step to another committed row of the pod's identity).
 # =====================================================================================
 tier = "nightly"
-description = "VN-1: on GS-1's two-stage hop recorded from the pad, a stock rename dialog accept renames the recorded launch leg; staging names the booster by stock (VN1 Alpha Probe) and that name stays; a second stock rename after landing renames every leg of the pod's identity including the launch leg; an F9 to a quicksave from before it writes the name back to the reloaded pod; a Parsek recording rename after an in-flight commit writes through to the live pod. Runs the VesselNames in-game category on the recorded pad vessel."
+description = "VN-1: on GS-1's two-stage hop recorded from the pad, a stock rename dialog accept renames the recorded launch leg; staging names the booster by stock (VN1 Alpha Probe) and that name stays; a second stock rename after landing renames every leg of the pod's identity including the launch leg; the player's F9 (playerLoad=true, a Cold save-file load) to a quicksave from before it restores the save's names, so the pod stays VN1 Alpha; a Parsek recording rename after an in-flight commit writes through to the live pod. Runs the VesselNames in-game category on the recorded pad vessel."
 instanceProfile = "stock-minimal"
 tags = ["VN-1", "vessel-names", "GC-7", "rename", "staging", "quickload", "in-flight-commit",
         "ingame-batch", "GS1", "reading-run"]
@@ -96,7 +107,7 @@ steps = [
   { cmd = "WarpToUT",       args = { ut = "260", maxRate = "1" },                      expect = "OK", budget = 120 },
   # (d) F9 in FLIGHT. The LoadGame seam refuses a live recorder.
   { cmd = "StopRecording",                                                             expect = "OK" },
-  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave" },        expect = "OK", budget = 300 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
   # Settle (QL-4's measured count): RestoreActiveTreeFromPending runs from OnFlightReady.
   { cmd = "RecordingState",                                                            expect = "OK" },
   { cmd = "RecordingState",                                                            expect = "OK" },
@@ -188,25 +199,28 @@ required = [
   "Vessel name decision recorded: identity=\\S+ 'VN1 Alpha' -> 'VN1 Bravo' source=StockDialog seq=[0-9]+ legs=[1-9][0-9]* ",
   "Apply pass \\(stock-rename\\): identities=[0-9]+ withDecision=[0-9]+ newlyCovered=[0-9]+ newlyUncovered=[0-9]+ legsRenamed=[1-9][0-9]* ",
 
-  # (d) The F9 reloads the pod under the quicksave's "VN1 Alpha"; a post-load pass writes
-  # the decision back (the proto form at the OnLoad tail, the Vessel form on the first host
-  # tick; either one).
+  # (d) The F9 is a save-file load: the save's names, so the pod reloads as and stays
+  # "VN1 Alpha" (no write-back, forbidden below).
   "savegame name=quicksave folder=.+ saved=true",
-  "Load classified: early=InSession refined=QuickloadFlight scene=FLIGHT",
-  "loadgame start save=\\S+ name=quicksave [\\s\\S]*Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ 'VN1 Alpha' -> 'VN1 Bravo' ",
+  "loadgame start save=\\S+ name=quicksave scene=FLIGHT [^\\r\\n]* playerLoad=true",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave route=Focusable",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*\\[LoadPolicy\\] Save-file load intent armed: nodeUT=[0-9.]+ scene=FLIGHT",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
 
-  # (a) + (b) The commit after the F9: every leg of the pod's identity finalizes under
-  # "VN1 Bravo", the booster's legs under stock's "VN1 Alpha Probe".
+  # (a) + (b) The commit after the F9: every leg of the pod's identity finalizes under the
+  # save's "VN1 Alpha", the booster's legs under stock's "VN1 Alpha Probe".
   "committree committed=true",
-  "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='VN1 Bravo' points=",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='VN1 Alpha' points=",
   "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='VN1 Alpha Probe' points=",
 
   # (c) The Parsek rename of the committed row writes through to the live pod, which
-  # carries "VN1 Bravo" at that moment (the F9 outcome).
-  "\\[UI\\] Recording 'VN1 Bravo' renamed to 'VN1 Charlie' identity=\\S+ legs=[1-9][0-9]*",
-  "Vessel name decision recorded: identity=\\S+ 'VN1 Bravo' -> 'VN1 Charlie' source=ParsekRename ",
+  # carries the save's "VN1 Alpha" at that moment (the F9 outcome).
+  "\\[UI\\] Recording 'VN1 Alpha' renamed to 'VN1 Charlie' identity=\\S+ legs=[1-9][0-9]*",
+  "Vessel name decision recorded: identity=\\S+ 'VN1 Alpha' -> 'VN1 Charlie' source=ParsekRename ",
   "Apply pass \\(parsek-rename\\): identities=[0-9]+ withDecision=[0-9]+ newlyCovered=[0-9]+ newlyUncovered=[0-9]+ legsRenamed=[1-9][0-9]* ",
-  "Write-through applied: vessel pid=[0-9]+ guid=[0-9a-f]+ 'VN1 Bravo' -> 'VN1 Charlie' loaded=true namingPart=\\S+ reason=parsek-rename",
+  "Write-through applied: vessel pid=[0-9]+ guid=[0-9a-f]+ 'VN1 Alpha' -> 'VN1 Charlie' loaded=true namingPart=\\S+ reason=parsek-rename",
   "uiaction edit window=missions field=recordingname key=[0-9a-f]+ draft=VN1 Charlie committed=true ",
 ]
 forbidden = [
@@ -214,12 +228,14 @@ forbidden = [
   "renamevessel rejected",
   "renamevessel error",
   "Parsek rename refused",
-  # The F9 is not a revert: it keeps every rename (ruling 5).
+  # The F9 is not a revert (no revert undo); it reads the save's names (design 8).
   "Revert undo: dropped",
+  "loadgame player-load: firing [\\s\\S]*Load classified: early=InSession refined=QuickloadFlight",
+  "loadgame player-load: firing [\\s\\S]*Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ '[^'\\r\\n]*' -> 'VN1 Bravo' ",
   # Nothing writes an earlier name back over a later decision.
   "Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ '[^'\\r\\n]*' -> '(?:VN1 Alpha|GS1 Auto-Chute Booster)' ",
   # The commit after the F9 finalizes no leg under a replaced name.
-  "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='(?:VN1 Alpha|GS1 Auto-Chute Booster)' points=",
+  "loadgame start save=\\S+ name=quicksave [\\s\\S]*FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='(?:VN1 Bravo|GS1 Auto-Chute Booster)' points=",
   "Quickload resume prep skipped",
 ]
 

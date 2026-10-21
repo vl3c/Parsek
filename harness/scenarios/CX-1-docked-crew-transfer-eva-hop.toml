@@ -1,5 +1,15 @@
 schema = 1
 id = "CX-1-docked-crew-transfer-eva-hop"
+# RESHAPED 2026-10-20 FOR "LOAD RESTORES THE SAVE" PHASE 2 (design
+# docs/dev/design-load-restores-the-save.md 4.1 / 4.7 / 5 S3 / 8). NOT FLOWN in this shape.
+# The F9 of step (g) carries `playerLoad=true`, a Cold save-file load. The crew checks
+# (a)-(f) all happen before it and are unchanged. What moves is (g): the two commits were
+# made after the F5, so they are not in the quicksave and the F9 drops them (QL-R2 is
+# reversed for save-file loads, design 8); "the two commits stay committed history" in
+# the text below is the in-session shape flown before Phase 2. The recordings count is a
+# window until a reading run: 39 on the old shape; predicted 30 to 31 now (the fixture's
+# 30 plus whatever the scene-entry promotion wrote before the F5), with the abandoned
+# heads quarantined by the cold load's collection when no save names them.
 # =====================================================================================
 # CX-1: CREW ACROSS VESSELS (coverage audit 2026-10-16 item 3; branch
 # `claude/crew-across-vessels-db6ycy`). LIVE-PROVEN 2026-10-17 on its first flight
@@ -47,7 +57,7 @@ id = "CX-1-docked-crew-transfer-eva-hop"
 # flight; (8) nightly at 66 s wall.
 # =====================================================================================
 tier = "nightly"
-description = "Crew across vessels on bdock-second-dock-recorded: a stock crew transfer moves Valentina between the two pods of the docked Station + Kerbal X pair, an F5, the undock, a commit, then two EVA hops between the halves (Bob boards the committed Kerbal X half; Valentina boards the Station back), a second commit and the F9. Witnesses the cross-tree dock hand-off of the host's own trees (PR #2126) and the board hand-off of the follow-up fix."
+description = "Crew across vessels on bdock-second-dock-recorded: a stock crew transfer moves Valentina between the two pods of the docked Station + Kerbal X pair, an F5, the undock, a commit, then two EVA hops between the halves (Bob boards the committed Kerbal X half; Valentina boards the Station back), a second commit and the player's F9 (playerLoad=true, a Cold save-file load that drops both commits made after the F5). Witnesses the cross-tree dock hand-off of the host's own trees (PR #2126) and the board hand-off of the follow-up fix."
 instanceProfile = "stock-minimal"
 tags = ["CX-1", "crew", "crew-transfer", "eva", "board", "undock", "dock", "quickload",
         "cross-tree", "reservation", "kerbin", "sandbox"]
@@ -91,7 +101,7 @@ steps = [
   { cmd = "CommitTree",   expect = "OK", budget = 120 },
   { cmd = "StopRecording", expect = "OK" },
   { cmd = "ListHandles",  args = { kind = "committed" }, label = "c1", expect = "OK" },
-  { cmd = "LoadGame",     args = { save = "${runSave}", name = "quicksave" }, expect = "OK", budget = 300 },
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
   { cmd = "RecordingState", expect = "OK" },
   { cmd = "ListHandles",  args = { kind = "committed" }, label = "c2", expect = "OK" },
   { cmd = "FlushAndQuit", expect = "OK" },
@@ -107,9 +117,9 @@ allowedAnomalies = []
 
 [expectations.recordings]
 # The fixture's recordings plus the flight's: the two undock children, the two EVA recordings,
-# each EVA's vessel continuation and the two board children. Pinned exactly from the
-# 2026-10-17_0648 flight.
-count = { min = 39, max = 39 }
+# each EVA's vessel continuation and the two board children: 39, pinned exactly from the
+# 2026-10-17_0648 flight. Phase 2 (header): a window until the reading run re-pins it.
+count = { min = 30, max = 39 }
 
 [expectations.logContracts]
 required = [
@@ -133,8 +143,12 @@ required = [
   # (f) Hop 2 lands on the Station.
   "evaboard complete kerbal=Valentina Kerman boardedPid=3620499050",
 
-  # (g) The F9 is an in-flight quickload.
-  "Load classified: early=InSession refined=QuickloadFlight scene=FLIGHT initialLoadDone=true rewinding=false reFlyInvoke=false discardReFly=none",
+  # (g) The F9 is a save-file load (design 4.1).
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave route=Focusable",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*\\[LoadPolicy\\] Save-file load intent armed: nodeUT=[0-9.]+ scene=FLIGHT",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -144,6 +158,7 @@ forbidden = [
   "partaction error",
   "evaboard refused",
   "evaexit refused",
+  "loadgame player-load: firing [\\s\\S]*Load classified: early=InSession refined=QuickloadFlight",
 ]
 
 [runtime]

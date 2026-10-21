@@ -154,9 +154,147 @@ namespace Parsek.Tests
             Assert.Contains("bool classifyReFlyInvoke = RewindInvokeContext.Pending;", flat);
             Assert.Contains("DiscardReFlyLoadIntent.TryConsume( HighLogic.LoadedScene,", flat);
             Assert.Contains("LoadReconcilePolicy.ClassifyEarly( classifyInitialLoadDone, classifyRewinding, "
-                + "classifyReFlyInvoke, classifyDiscardReFly)", flat);
+                + "classifyReFlyInvoke, classifyDiscardReFly, classifySaveFileLoad, classifyRevertPending)", flat);
             Assert.Contains("LoadReconcilePolicy.ClassifyRefined( earlyLoadKind, isRevert, isFlightToFlight, "
                 + "utWentBackwards)", flat);
+        }
+
+        // ---- the save-file load (design-load-restores-the-save.md 4.1) ----
+
+        [Fact]
+        public void OnLoadConsumesTheSaveFileIntentOnceAndClassifiesASaveFileLoadCold()
+        {
+            string body = PreparedMethodBody(ScenarioPath, "public override void OnLoad(ConfigNode node)");
+            string flat = Collapse(body);
+
+            // One consume per OnLoad, whatever the load classifies as, and the revert detector
+            // read (never consumed) before the classification.
+            Assert.Equal(1, Occurrences(body, "SaveFileLoadIntent.TryConsume("));
+            Assert.Equal(1, Occurrences(body, "RevertDetector.PendingKind"));
+            Assert.Equal(1, Occurrences(body, "RevertDetector.Consume("));
+            Assert.Contains("bool classifyRevertPending = RevertDetector.PendingKind != RevertKind.None;", flat);
+            Assert.Contains("bool classifySaveFileLoad = SaveFileLoadIntent.TryConsume( "
+                + "UnityEngine.Time.realtimeSinceStartup, UnityEngine.Time.frameCount,", flat);
+
+            int detect = IndexOrFail(body, "DetectSaveFolderChange();");
+            int pendingKind = IndexOrFail(body, "RevertDetector.PendingKind");
+            int consume = IndexOrFail(body, "SaveFileLoadIntent.TryConsume(");
+            int early = IndexOrFail(body, "LoadReconcilePolicy.ClassifyEarly(");
+            int reason = IndexOrFail(body, "LoadReconcilePolicy.ResolveColdReason(");
+            int coldGate = IndexOrFail(body, "if (coldReason == LoadReconcilePolicy.ColdReasonSaveFile)");
+            int notDone = body.IndexOf("initialLoadDone = false;", coldGate, StringComparison.Ordinal);
+            int drop = IndexOrFail(body, "InSessionStagedStateHandoff.Drop(InSessionStagedStateHandoff.DropSaveFileLoad);");
+            int reset = IndexOrFail(body, "ResetSaveScopedSessionState(coldReason);");
+            int crew = IndexOrFail(body, "LoadCrewAndGroupState(node);");
+            int stepA = IndexOrFail(body, "ApplyInSessionStagedStateHandoffStepA(earlyLoadKind);");
+            int inSessionBranch = IndexOrFail(body, "if (initialLoadDone)");
+            int revertConsume = IndexOrFail(body, "RevertDetector.Consume(");
+
+            Assert.True(detect < pendingKind && detect < consume && pendingKind < early && consume < early,
+                "save-file load gate: the intent and the revert detector are read after DetectSaveFolderChange "
+                + "and before ClassifyEarly");
+            Assert.True(early < reason && reason < coldGate,
+                "save-file load gate: the cold reason is resolved from the classification");
+            Assert.True(coldGate < notDone && notDone < drop && drop < reset,
+                "save-file load gate: a save-file load sets initialLoadDone false and drops the in-session handoff "
+                + "before the session reset");
+            Assert.True(reset < crew && crew < stepA && stepA < inSessionBranch,
+                "save-file load gate: the reset runs before LoadCrewAndGroupState, and initialLoadDone is false "
+                + "before the in-session branch decides, so the cold branch runs");
+            Assert.True(inSessionBranch < revertConsume,
+                "save-file load gate: only the in-session branch consumes the revert detector");
+
+            // The classification line carries the cold reason and the intent facts.
+            Assert.Contains("var classification = new LoadClassificationFacts( classifyInitialLoadDone, "
+                + "classifyRewinding, classifyReFlyInvoke, classifyDiscardReFlyTarget, classifyHandoff, coldReason, "
+                + "classifySaveFileLoad, classifyRevertPending, classifySaveFileLoad ? saveFileIntentAgeFrames : -1, "
+                + "classifySaveFileLoad ? saveFileIntentNodeUT : double.NaN);", flat);
+            Assert.Equal(2, Occurrences(body, "LogLoadClassification("));
+
+            // The inert early return clears the intent; the main-menu transition clears it.
+            int inert = IndexOrFail(body, "ParsekGameModeGate.CheckInert(");
+            int inertClear = IndexOrFail(body, "SaveFileLoadIntent.Clear(");
+            Assert.True(inert < inertClear && inertClear < consume);
+            string mainMenu = PreparedMethodBody(ScenarioPath, "private void OnMainMenuTransition(GameScenes newScene)");
+            Assert.Equal(1, Occurrences(mainMenu, "SaveFileLoadIntent.Clear("));
+            int menuGate = IndexOrFail(mainMenu, "if (newScene == GameScenes.MAINMENU)");
+            Assert.True(menuGate < mainMenu.IndexOf("SaveFileLoadIntent.Clear(", StringComparison.Ordinal));
+
+            // Exactly one production consumer of the intent.
+            var consumers = new List<string>();
+            foreach (string path in Directory.GetFiles(ParsekSourceRoot(), "*.cs", SearchOption.AllDirectories))
+            {
+                string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+                if (Occurrences(prepared, "SaveFileLoadIntent.TryConsume(") > 0)
+                    consumers.Add(Path.GetFileName(path));
+            }
+            Assert.Equal(new[] { ScenarioPath }, consumers);
+        }
+
+        [Fact]
+        public void SaveStampCanaryRunsAfterTheRefinedClassificationAndOnSaveStampsEverySave()
+        {
+            string body = PreparedMethodBody(ScenarioPath, "public override void OnLoad(ConfigNode node)");
+            Assert.Equal(1, Occurrences(body, "CheckLoadedSaveStamp("));
+            Assert.Contains("CheckLoadedSaveStamp(node, refinedLoadKind);", Collapse(body));
+            int refined = IndexOrFail(body, "LoadReconcilePolicy.ClassifyRefined(");
+            int canary = IndexOrFail(body, "CheckLoadedSaveStamp(");
+            int quickloadDiscard = IndexOrFail(body, "DiscardStashedOnQuickload(");
+            Assert.True(refined < canary && canary < quickloadDiscard,
+                "canary gate: the stamp check follows ClassifyRefined, inside the in-session branch");
+
+            string save = PreparedMethodBody(ScenarioPath, "public override void OnSave(ConfigNode node)");
+            Assert.Equal(1, Occurrences(save, "WriteSaveStamp(node);"));
+            int inert = IndexOrFail(save, "WriteInertGameModeNode(node);");
+            int stamp = IndexOrFail(save, "WriteSaveStamp(node);");
+            int handler = IndexOrFail(save, "catch (Exception ex)");
+            Assert.True(inert < stamp && stamp < handler,
+                "canary gate: every non-inert OnSave stamps the node inside the save body");
+        }
+
+        [Fact]
+        public void ColdBranchRunsAtTheLoadedSavesClock()
+        {
+            // Design 4.1 "The clock": the cold reconcile and recalc read the loaded save's
+            // flightState UT through ResolveColdLoadClockUT, never a bare Planetarium read
+            // (stock Game.Load runs the scenario OnLoad before FlightState.Load sets the clock).
+            string body = PreparedMethodBody(ScenarioPath, "public override void OnLoad(ConfigNode node)");
+            int coldStart = IndexOrFail(body, "initialLoadDone = true;");
+            string cold = body.Substring(coldStart);
+            string flat = Collapse(cold);
+
+            Assert.Equal(1, Occurrences(cold, "ResolveColdLoadClockUT("));
+            Assert.Contains("double coldClockUT = ResolveColdLoadClockUT(coldLoadedSaveUT, coldPlanetariumUT);", flat);
+            Assert.Contains("double coldLoadedSaveUT = ReadLoadedFlightStateUTRaw();", flat);
+            Assert.Contains("double reconcileUT = coldClockUT;", flat);
+            Assert.Contains("LedgerOrchestrator.OnKspLoad( validIds, reconcileUT,", flat);
+            Assert.Contains("double reconcileUtForLoops = coldClockUT;", flat);
+            Assert.Contains("double loadUT = coldClockUT;", flat);
+            Assert.Contains("double currentUT = coldClockUT;", flat);
+            // The only Planetarium read left in the cold branch feeds the resolver.
+            Assert.Equal(1, Occurrences(cold, "Planetarium.GetUniversalTime()"));
+            int read = IndexOrFail(cold, "Planetarium.GetUniversalTime()");
+            int resolve = IndexOrFail(cold, "ResolveColdLoadClockUT(");
+            int kspLoad = IndexOrFail(cold, "LedgerOrchestrator.OnKspLoad(");
+            Assert.True(read < resolve && resolve < kspLoad);
+        }
+
+        [Fact]
+        public void FlightSceneExitOfASaveFileLoadStashesTheLiveTree()
+        {
+            string core = PreparedMethodBody("ParsekFlight.cs", "private void FinalizeTreeOnSceneChangeCore(");
+            string flat = Collapse(core);
+            Assert.Contains("else if (ShouldStashLiveTreeForSaveFileLoad( scene, SaveFileLoadIntent.IsArmed, "
+                + "RevertDetector.PendingKind != RevertKind.None))", flat);
+            int flight = IndexOrFail(core, "if (scene == GameScenes.FLIGHT)");
+            int saveFile = IndexOrFail(core, "ShouldStashLiveTreeForSaveFileLoad(");
+            int autoMergeOff = IndexOrFail(core, "else if (!ParsekScenario.IsAutoMerge)");
+            int commit = IndexOrFail(core, "CommitTreeSceneExit(commitUT, scene);");
+            Assert.True(flight < saveFile && saveFile < autoMergeOff && autoMergeOff < commit,
+                "scene-exit gate: a save-file load out of flight is decided before either commit branch");
+            int stash = core.IndexOf("StashActiveTreeAsPendingLimbo(commitUT);", saveFile, StringComparison.Ordinal);
+            Assert.True(stash > saveFile && stash < autoMergeOff,
+                "scene-exit gate: the save-file branch stashes the live tree as Limbo");
         }
 
         [Fact]

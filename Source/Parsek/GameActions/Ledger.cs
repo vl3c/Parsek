@@ -835,6 +835,30 @@ namespace Parsek
         // ================================================================
 
         /// <summary>
+        /// Builds the <c>LEDGER</c> node the ledger file and the save's <c>GAME_STATE</c> node
+        /// both carry: version, recording schema generation, every action, the pre-ledger
+        /// progress seed and the retired route cargo.
+        /// </summary>
+        internal static ConfigNode BuildSaveNode()
+        {
+            var root = new ConfigNode(RootNodeName);
+            root.AddValue(VersionKey, CurrentLedgerVersion.ToString(CultureInfo.InvariantCulture));
+            root.AddValue(SchemaGenerationKey,
+                RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture));
+
+            for (int i = 0; i < actions.Count; i++)
+            {
+                actions[i].SerializeInto(root);
+            }
+
+            // Additive child node: a build that predates it reads only GAME_ACTION
+            // nodes, so the ledger version does not change.
+            progressSeed.SerializeInto(root);
+            Logistics.RetiredRouteCargoStore.SerializeInto(root);
+            return root;
+        }
+
+        /// <summary>
         /// Serializes all in-memory actions to a ConfigNode file using safe-write (.tmp + rename).
         /// Returns true on success.
         /// </summary>
@@ -848,21 +872,26 @@ namespace Parsek
 
             try
             {
-                var root = new ConfigNode(RootNodeName);
-                root.AddValue(VersionKey, CurrentLedgerVersion.ToString(CultureInfo.InvariantCulture));
-                root.AddValue(SchemaGenerationKey,
-                    RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture));
+                return WriteSaveNode(BuildSaveNode(), path);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Ledger", $"Failed to save ledger to '{path}': {ex.Message}");
+                return false;
+            }
+        }
 
-                for (int i = 0; i < actions.Count; i++)
-                {
-                    actions[i].SerializeInto(root);
-                }
+        /// <summary>Writes a built <c>LEDGER</c> node to the ledger file (the mirror).</summary>
+        internal static bool WriteSaveNode(ConfigNode root, string path)
+        {
+            if (root == null || string.IsNullOrEmpty(path))
+            {
+                ParsekLog.Warn("Ledger", "WriteSaveNode called with a null node or an empty path");
+                return false;
+            }
 
-                // Additive child node: a build that predates it reads only GAME_ACTION
-                // nodes, so the ledger version does not change.
-                progressSeed.SerializeInto(root);
-                Logistics.RetiredRouteCargoStore.SerializeInto(root);
-
+            try
+            {
                 SafeWriteConfigNode(root, path);
 
                 ParsekLog.Verbose("Ledger",
@@ -876,6 +905,14 @@ namespace Parsek
             }
         }
 
+        private static void ClearForFailedLoad()
+        {
+            actions.Clear();
+            progressSeed = PreLedgerProgressSeed.NotCaptured;
+            Logistics.RetiredRouteCargoStore.Clear();
+            BumpStateVersion();
+        }
+
         /// <summary>
         /// Deserializes all actions from a ConfigNode file, replacing the in-memory list.
         /// Returns true on success. On failure, the in-memory list is cleared.
@@ -885,10 +922,7 @@ namespace Parsek
             if (string.IsNullOrEmpty(path))
             {
                 ParsekLog.Warn("Ledger", "LoadFromFile called with null/empty path");
-                actions.Clear();
-                progressSeed = PreLedgerProgressSeed.NotCaptured;
-                Logistics.RetiredRouteCargoStore.Clear();
-                BumpStateVersion();
+                ClearForFailedLoad();
                 return false;
             }
 
@@ -899,10 +933,7 @@ namespace Parsek
             if (!File.Exists(path))
             {
                 ParsekLog.Verbose("Ledger", $"Ledger file not found at '{path}', starting with empty ledger");
-                actions.Clear();
-                progressSeed = PreLedgerProgressSeed.NotCaptured;
-                Logistics.RetiredRouteCargoStore.Clear();
-                BumpStateVersion();
+                ClearForFailedLoad();
                 return true;
             }
 
@@ -914,118 +945,148 @@ namespace Parsek
                 if (loaded == null)
                 {
                     ParsekLog.Warn("Ledger", $"ConfigNode.Load returned null for '{path}', corrupt file?");
-                    actions.Clear();
-                    progressSeed = PreLedgerProgressSeed.NotCaptured;
-                    Logistics.RetiredRouteCargoStore.Clear();
-                    BumpStateVersion();
+                    ClearForFailedLoad();
                     return false;
                 }
 
-                string versionStr = loaded.GetValue(VersionKey);
-                string schemaGenerationStr = loaded.GetValue(SchemaGenerationKey);
-                int version = 0;
-                int schemaGeneration = 0;
-                bool versionOk = versionStr != null
-                    && int.TryParse(versionStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out version)
-                    && version == CurrentLedgerVersion;
-                bool generationOk = schemaGenerationStr != null
-                    && int.TryParse(schemaGenerationStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out schemaGeneration)
-                    && schemaGeneration == RecordingStore.CurrentRecordingSchemaGeneration;
-
-                if (!versionOk || !generationOk)
-                {
-                    ParsekLog.Warn("Ledger",
-                        $"Ledger file '{path}' has unsupported schema: " +
-                        $"version='{versionStr ?? "(missing)"}' expected={CurrentLedgerVersion.ToString(CultureInfo.InvariantCulture)} " +
-                        $"recordingSchemaGeneration='{schemaGenerationStr ?? "(missing)"}' " +
-                        $"expectedGeneration={RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture)}; " +
-                        "starting with empty ledger");
-                    actions.Clear();
-                    progressSeed = PreLedgerProgressSeed.NotCaptured;
-                    Logistics.RetiredRouteCargoStore.Clear();
-                    BumpStateVersion();
-                    return false;
-                }
-
-                // Deserialize actions
-                var newActions = new List<GameAction>();
-                ConfigNode[] actionNodes = loaded.GetNodes(ActionNodeName);
-                int parseErrors = 0;
-                int droppedRouteCredits = 0;
-                int droppedRouteCharges = 0;
-                ResetContractDeadlineMigrationTally();
-
-                for (int i = 0; i < actionNodes.Length; i++)
-                {
-                    try
-                    {
-                        // Supply routes carry no money (todo LOGISTICS-WITHOUT-MONEY): an
-                        // old save's route money rows are dropped here, before any
-                        // recalculation can read them.
-                        if (LedgerLoadMigration.IsLegacyRouteMoneyNode(actionNodes[i], out bool isCredit))
-                        {
-                            if (isCredit) droppedRouteCredits++;
-                            else droppedRouteCharges++;
-                            continue;
-                        }
-                        var action = GameAction.DeserializeFrom(actionNodes[i]);
-                        newActions.Add(action);
-                    }
-                    catch (Exception ex)
-                    {
-                        parseErrors++;
-                        ParsekLog.Warn("Ledger",
-                            $"Failed to deserialize action at index {i}: {ex.Message}");
-                    }
-                }
-
-                actions = newActions;
-                progressSeed = PreLedgerProgressSeed.LoadFrom(loaded, out int seedMalformed);
-                Logistics.RetiredRouteCargoStore.LoadFrom(loaded);
-                BumpStateVersion();
-                ParsekLog.Verbose("Ledger",
-                    $"Loaded ledger from '{path}': version={version}, actions={actions.Count}, " +
-                    $"parseErrors={parseErrors}");
-                if (droppedRouteCredits + droppedRouteCharges > 0)
-                {
-                    ParsekLog.Info("Ledger",
-                        $"Dropped {(droppedRouteCredits + droppedRouteCharges).ToString(CultureInfo.InvariantCulture)} " +
-                        "legacy supply-route money rows at load " +
-                        $"(recoveryCredits={droppedRouteCredits.ToString(CultureInfo.InvariantCulture)} " +
-                        $"spaceCenterCharges={droppedRouteCharges.ToString(CultureInfo.InvariantCulture)}); " +
-                        "supply routes carry no money");
-                }
-                if (seedMalformed > 0)
-                {
-                    ParsekLog.Warn("Ledger",
-                        $"Pre-ledger progress seed in '{path}' had " +
-                        $"{seedMalformed.ToString(CultureInfo.InvariantCulture)} unreadable entries (dropped); " +
-                        $"seed={progressSeed.FormatSummary()}");
-                }
-                else
-                {
-                    ParsekLog.Verbose("Ledger",
-                        $"Loaded pre-ledger progress seed: {progressSeed.FormatSummary()}");
-                }
-                // Rewind-to-Staging Phase 1 (design section 9): emit the one-shot
-                // legacy ActionId migration log if any actions were rehydrated on load.
-                EmitLegacyActionIdMigrationLogOnce();
-                // CONTRACT-DEADLINE-CAPTURED-AS-DURATION: one batch summary per load
-                // naming how many ContractAccept rows carried an absolute deadline, how
-                // many were migrated from the legacy duration key, and how many carried
-                // none.
-                EmitContractDeadlineMigrationSummary(path);
-                return true;
+                return LoadFromNodeCore(loaded, "Ledger file '" + path + "'", path);
             }
             catch (Exception ex)
             {
                 ParsekLog.Warn("Ledger", $"Failed to load ledger from '{path}': {ex.Message}");
-                actions.Clear();
-                progressSeed = PreLedgerProgressSeed.NotCaptured;
-                Logistics.RetiredRouteCargoStore.Clear();
-                BumpStateVersion();
+                ClearForFailedLoad();
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Replaces the in-memory ledger with a save's <c>GAME_STATE/LEDGER</c> node, with the
+        /// same version and recording-schema-generation gates as <see cref="LoadFromFile"/>
+        /// (a mismatch starts with an empty ledger). Returns true on success.
+        /// </summary>
+        internal static bool LoadFromNode(ConfigNode ledgerNode)
+        {
+            if (ledgerNode == null)
+            {
+                ParsekLog.Warn("Ledger", "LoadFromNode called with a null node");
+                ClearForFailedLoad();
+                return false;
+            }
+
+            try
+            {
+                return LoadFromNodeCore(ledgerNode, "Ledger node in the save's GAME_STATE", "GAME_STATE/LEDGER");
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Ledger", $"Failed to load ledger from the save's GAME_STATE node: {ex.Message}");
+                ClearForFailedLoad();
+                return false;
+            }
+        }
+
+        private static bool LoadFromNodeCore(ConfigNode loaded, string sourceDescription, string sourceLabel)
+        {
+            string versionStr = loaded.GetValue(VersionKey);
+            string schemaGenerationStr = loaded.GetValue(SchemaGenerationKey);
+            int version = 0;
+            int schemaGeneration = 0;
+            bool versionOk = versionStr != null
+                && int.TryParse(versionStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out version)
+                && version == CurrentLedgerVersion;
+            bool generationCurrent = schemaGenerationStr != null
+                && int.TryParse(schemaGenerationStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out schemaGeneration)
+                && schemaGeneration == RecordingStore.CurrentRecordingSchemaGeneration;
+
+            if (!versionOk)
+            {
+                ParsekLog.Warn("Ledger",
+                    $"{sourceDescription} has unsupported schema: " +
+                    $"version='{versionStr ?? "(missing)"}' expected={CurrentLedgerVersion.ToString(CultureInfo.InvariantCulture)}; " +
+                    "starting with empty ledger");
+                ClearForFailedLoad();
+                return false;
+            }
+
+            // The ledger's format is its version. A row carries no recording schema, so a ledger
+            // stamped with another recording schema generation loads (owner ruling 2026-10-21,
+            // GC3-LEDGER-GENERATION-GATE-DROPS-ROWS); rows of recordings that did not load are kept
+            // by the reconcile when their trees are held inert (InertRecordingTrees).
+            if (!generationCurrent)
+                ParsekLog.Info("Ledger",
+                    $"{sourceDescription} carries recording schema generation '{schemaGenerationStr ?? "(missing)"}' " +
+                    $"(current={RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture)}); " +
+                    "ledger version matches, loaded anyway");
+
+            // Deserialize actions
+            var newActions = new List<GameAction>();
+            ConfigNode[] actionNodes = loaded.GetNodes(ActionNodeName);
+            int parseErrors = 0;
+            int droppedRouteCredits = 0;
+            int droppedRouteCharges = 0;
+            ResetContractDeadlineMigrationTally();
+
+            for (int i = 0; i < actionNodes.Length; i++)
+            {
+                try
+                {
+                    // Supply routes carry no money (todo LOGISTICS-WITHOUT-MONEY): an
+                    // old save's route money rows are dropped here, before any
+                    // recalculation can read them.
+                    if (LedgerLoadMigration.IsLegacyRouteMoneyNode(actionNodes[i], out bool isCredit))
+                    {
+                        if (isCredit) droppedRouteCredits++;
+                        else droppedRouteCharges++;
+                        continue;
+                    }
+                    var action = GameAction.DeserializeFrom(actionNodes[i]);
+                    newActions.Add(action);
+                }
+                catch (Exception ex)
+                {
+                    parseErrors++;
+                    ParsekLog.Warn("Ledger",
+                        $"Failed to deserialize action at index {i}: {ex.Message}");
+                }
+            }
+
+            actions = newActions;
+            progressSeed = PreLedgerProgressSeed.LoadFrom(loaded, out int seedMalformed);
+            Logistics.RetiredRouteCargoStore.LoadFrom(loaded);
+            BumpStateVersion();
+            ParsekLog.Verbose("Ledger",
+                $"Loaded ledger from '{sourceLabel}': version={version}, actions={actions.Count}, " +
+                $"parseErrors={parseErrors}");
+            if (droppedRouteCredits + droppedRouteCharges > 0)
+            {
+                ParsekLog.Info("Ledger",
+                    $"Dropped {(droppedRouteCredits + droppedRouteCharges).ToString(CultureInfo.InvariantCulture)} " +
+                    "legacy supply-route money rows at load " +
+                    $"(recoveryCredits={droppedRouteCredits.ToString(CultureInfo.InvariantCulture)} " +
+                    $"spaceCenterCharges={droppedRouteCharges.ToString(CultureInfo.InvariantCulture)}); " +
+                    "supply routes carry no money");
+            }
+            if (seedMalformed > 0)
+            {
+                ParsekLog.Warn("Ledger",
+                    $"Pre-ledger progress seed in '{sourceLabel}' had " +
+                    $"{seedMalformed.ToString(CultureInfo.InvariantCulture)} unreadable entries (dropped); " +
+                    $"seed={progressSeed.FormatSummary()}");
+            }
+            else
+            {
+                ParsekLog.Verbose("Ledger",
+                    $"Loaded pre-ledger progress seed: {progressSeed.FormatSummary()}");
+            }
+            // Rewind-to-Staging Phase 1 (design section 9): emit the one-shot
+            // legacy ActionId migration log if any actions were rehydrated on load.
+            EmitLegacyActionIdMigrationLogOnce();
+            // CONTRACT-DEADLINE-CAPTURED-AS-DURATION: one batch summary per load
+            // naming how many ContractAccept rows carried an absolute deadline, how
+            // many were migrated from the legacy duration key, and how many carried
+            // none.
+            EmitContractDeadlineMigrationSummary(sourceLabel);
+            return true;
         }
 
         // ================================================================

@@ -287,7 +287,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MergeDiscard_SerializedPendingTree_RefreshesSaveAndQuicksaveWithoutCommitting()
+        public void MergeDiscard_SerializedPendingTree_RefreshesPersistentOnlyWithoutCommitting()
         {
             var rec = MakeRecording(
                 "rec-serialized-discard", "tree-serialized-discard", 100.0, 200.0);
@@ -307,6 +307,7 @@ namespace Parsek.Tests
                 Assert.Equal(SaveMode.OVERWRITE, mode);
                 return "ok";
             };
+            ParsekLog.VerboseOverrideForTesting = true;
 
             bool result = MergeDialog.MergeDiscardRanToCompletion(tree);
 
@@ -314,15 +315,18 @@ namespace Parsek.Tests
             Assert.False(RecordingStore.HasPendingTree);
             Assert.Empty(RecordingStore.CommittedTrees);
             Assert.Empty(RecordingStore.CommittedRecordings);
-            Assert.Equal(new[] { "persistent", "quicksave" }, saveCalls);
+            // design-load-restores-the-save.md 4.6: the game's current save is refreshed,
+            // the player's quicksave.sfs (their F5 point) is not written.
+            Assert.Equal(new[] { "persistent" }, saveCalls);
             Assert.Contains(logLines, l =>
                 l.Contains("[Quicksave]")
                 && l.Contains("Refreshed persistent.sfs after merge dialog Tree Discard")
                 && l.Contains("discarded tree had 1 recording IDs"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Refreshed quicksave.sfs"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Quicksave]")
-                && l.Contains("Refreshed quicksave.sfs after merge dialog Tree Discard")
-                && l.Contains("discarded tree had 1 recording IDs"));
+                && l.Contains("Quicksave not refreshed after discard (the player's F5 point is kept)")
+                && l.Contains("reason=merge dialog Tree Discard"));
         }
 
         [Fact]
@@ -679,7 +683,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MergeCommit_ReFlyPath_RefreshesQuicksaveAfterMarkerClears()
+        public void MergeCommit_ReFlyPath_DoesNotWriteTheQuicksave()
         {
             var origin = MakeRecording("rec-origin", "tree-refly", 100.0, 200.0);
             var provisional = MakeRecording("rec-provisional", "tree-refly", 100.0, 220.0);
@@ -701,17 +705,13 @@ namespace Parsek.Tests
             ParsekScenario.SetInstanceForTesting(scenario);
 
             MergeJournalOrchestrator.DurableSaveForTesting = _ => { };
-            bool quicksaveObserved = false;
+            int quicksaveCalls = 0;
             RecordingStore.SaveGameForTesting = (saveName, saveFolder, mode) =>
             {
-                if (saveName == "quicksave")
-                {
-                    Assert.Null(scenario.ActiveReFlySessionMarker);
-                    Assert.Equal(MergeState.Immutable, provisional.MergeState);
-                    quicksaveObserved = true;
-                }
+                if (saveName == "quicksave") quicksaveCalls++;
                 return "ok";
             };
+            ParsekLog.VerboseOverrideForTesting = true;
 
             MergeDialog.MergeCommit(
                 tree,
@@ -722,8 +722,15 @@ namespace Parsek.Tests
                 },
                 spawnCount: 0);
 
-            Assert.True(quicksaveObserved);
+            // design-load-restores-the-save.md 4.6: the merge keeps the player's F5 point.
+            Assert.Equal(0, quicksaveCalls);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Null(scenario.ActiveMergeJournal);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("Quicksave not refreshed after merge (the player's F5 point is kept)")
+                && l.Contains("tree='"));
         }
 
         [Fact]
@@ -774,6 +781,7 @@ namespace Parsek.Tests
             }
 
             Assert.Equal(0, quicksaveCalls);
+            Assert.DoesNotContain(logLines, l => l.Contains("Quicksave not refreshed after merge"));
             Assert.NotNull(scenario.ActiveMergeJournal);
             Assert.Equal(MergeJournal.Phases.Finalize, scenario.ActiveMergeJournal.Phase);
         }

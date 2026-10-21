@@ -1,5 +1,19 @@
 schema = 1
 id = "QL-4-quickload-booster-terminal"
+# RESHAPED 2026-10-20 FOR "LOAD RESTORES THE SAVE" PHASE 2 (design
+# docs/dev/design-load-restores-the-save.md 4.1 / 5 S1 / 8; plan Phase 2 step 7). NOT FLOWN
+# in this shape. The F9 now carries `playerLoad=true`, so the seam fires stock's
+# onGameStatePostLoad like the player's F9 and the load is a SAVE-FILE load: classified
+# `Cold` with `coldReason=save-file`, the session reset forgets memory (the committed copy
+# CommitTree made after the F5 is not in the save, so it is simply gone), and the cold
+# branch restores the save's active tree with the sidecar bytes the save names (CommitTree's
+# flush replaced the heads; the F5 bytes resolve from `_versions` and are promoted). The
+# booster had no ending at the F5, so it is back in the background map without any
+# reconcile. The OUTCOME is unchanged (bg=1, the booster lands and commits Landed); the
+# MECHANISM tokens move: no same-id refresh, no detach, no abandoned-future reconcile (its
+# skip line names kind=Cold reason=policy), and the TA-4 fix block becomes forbidden. The
+# mechanism paragraphs below describe the in-session route this lane flew before Phase 2;
+# they are kept as history, this block is authoritative.
 # READING RUN 2026-10-07 (branch `f9-verify`, automation DLL sha256 prefix bd97e6a7):
 # attempt 1 PARSEK-FAIL on two PREMISE misses, not a product defect. Every F9 token
 # fired (the committed-copy restore line, the detach, the abandoned-future reconcile
@@ -152,7 +166,7 @@ id = "QL-4-quickload-booster-terminal"
 # saveParse blocks are REPORT-ONLY until a reading run.
 # =====================================================================================
 tier = "nightly"
-description = "QL-4: TA-4 live proof. GS-1's two-stage hop ends with the pod landed and the probe booster still under canopy; quicksave, fly on, commit in flight (the booster commits SubOrbital), then F9 back into the quicksave. The resumed tree must not keep the abandoned future's booster terminal: the booster is re-registered with the background recorder, is recorded down to the ground and commits Landed."
+description = "QL-4: GS-1's two-stage hop ends with the pod landed and the probe booster still under canopy; quicksave, fly on, commit in flight (the booster commits SubOrbital), then the player's F9 back into the quicksave, a Cold save-file load. The save is restored exactly: the commit is gone, the F5 sidecar bytes resolve from their retained versions, the booster is back in the background map with no ending, is recorded down to the ground and commits Landed."
 instanceProfile = "stock-minimal"
 tags = ["QL-4", "TA-4", "quickload", "timeline-ops", "GS1", "staging", "controlled-child",
         "in-flight-commit", "scene-exit", "auto-merge", "reading-run"]
@@ -185,9 +199,10 @@ steps = [
   { cmd = "CommitTree",                                                                expect = "OK", budget = 120 },
   # CommitTree auto-resumes a recorder on the still-active vessel (H58 flight 1).
   { cmd = "StopRecording",                                                             expect = "OK" },
-  # THE F9, in FLIGHT (refined load kind QuickloadFlight). No live recorder, so the
-  # dispatch `recording-active` guard admits it.
-  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave" },        expect = "OK", budget = 300 },
+  # THE F9, in FLIGHT: the player's load of the quicksave (playerLoad=true fires stock's
+  # onGameStatePostLoad), a Cold save-file load. No live recorder, so the dispatch
+  # `recording-active` guard admits it.
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
   # Settle: RestoreActiveTreeFromPending runs from OnFlightReady and may wait for the
   # active vessel; read the background map only after it has run.
   { cmd = "RecordingState",                                                            expect = "OK" },
@@ -283,18 +298,33 @@ required = [
   "FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='GS1 Auto-Chute Booster Probe' points=[1-9][0-9]* orbitSegs=0 terminal=SubOrbital",
   "committree committed=true",
 
-  # GROUP 3 - THE F9 REACHES THE QUICKLOAD RESUME (existing wording, PR #2021 for the
-  # classification line; RF-LANES-RELOAD-A-PRE-COMMIT-SAVE measured the detach line).
-  "loadgame start save=\\S+ name=quicksave scene=FLIGHT requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false",
-  "Load classified: early=InSession refined=QuickloadFlight scene=FLIGHT initialLoadDone=true rewinding=false reFlyInvoke=false discardReFly=none",
-  # TA-4's named leak: both same-id members refreshed from the committed copy (the
-  # active pod in recorder-state-preserving mode, the booster in full).
-  "SpliceMissingCommittedRecordings: tree 'GS1 Auto-Chute Booster' \\(id=\\S+\\) loadedBefore=[0-9]+ committed=[0-9]+ after=[0-9]+ splicedRecordings=[0-9]+ refreshedRecordings=(?:[2-9]|[1-9][0-9]+) \\(full=[1-9][0-9]* recorderStatePreserved=1\\)",
-  # TA-3's detach shape: the F9 un-commits the later-committed tree.
-  "TryRestoreActiveTreeNode: removed committed tree 'GS1 Auto-Chute Booster' \\(id=\\S+, [1-9][0-9]* recording\\(s\\)\\)",
-  "OnLoad: pending-Limbo tree 'GS1 Auto-Chute Booster' deferred to OnFlightReady for quickload-resume",
-  "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide",
+  # GROUP 3 - THE F9 IS A SAVE-FILE LOAD (design-load-restores-the-save.md 4.1). The seam
+  # line (ParsekTestCommandAddon.LoadGameImpl), the intent (SaveFileLoadIntent.Arm), the
+  # classification (LoadReconcilePolicy.FormatClassificationLine; the first one after the
+  # fire is Cold, field order tolerated), the reset (ResetSaveScopedSessionState) and the
+  # save's own game state (LoadGameStateFromNodeOrFiles).
+  "loadgame start save=\\S+ name=quicksave scene=FLIGHT requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false playerLoad=true",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave route=Focusable",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*\\[LoadPolicy\\] Save-file load intent armed: nodeUT=[0-9.]+ scene=FLIGHT",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "loadgame player-load: firing [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+  "loadgame player-load: firing [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
+  # The save's sidecar bytes (SidecarVersionResolution): CommitTree's flush replaced the
+  # heads after the F5, so the F5 bytes resolve from _versions and are promoted.
+  "loadgame player-load: firing [\\s\\S]*Sidecar version resolved: rec=[0-9a-f]{32} kind=prec hash=[0-9a-f]{16} source=version promoted=True",
+  "loadgame player-load: firing [\\s\\S]*Sidecar version resolution summary: reason=cold-onload (?=[^\\r\\n]*\\bversion=[1-9])",
+  # No committed copy to rule on or detach: the save holds the tree only as its active tree
+  # (ResolveCommittedCopyRestore's Verbose skip; TryRestoreActiveTreeNode's no-detach line).
+  "loadgame player-load: firing [\\s\\S]*Quickload committed-copy restore skipped: tree='GS1 Auto-Chute Booster' id=\\S+ reason=no-committed-copy staleMembers=0",
+  "loadgame player-load: firing [\\s\\S]*TryRestoreActiveTreeNode: no committed copy of tree 'GS1 Auto-Chute Booster' \\(id=\\S+\\) needed detaching",
+  # The cold branch's resume (ParsekScenario.OnLoad cold-active-tree-restore, the same
+  # OnFlightReady coroutine as before).
+  "OnLoad: cold-start active tree detected \\(state=Limbo\\) . deferred to OnFlightReady as Quickload",
+  "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide [^\\r\\n]*\\bloadKind=Cold\\b",
   "RestoreActiveTreeFromPending: resumed recording tree 'GS1 Auto-Chute Booster' activeRec='[0-9a-f]{32}'",
+  # Nothing to reconcile: every Cold cell is Save (LoadReconcilePolicy), so the resume
+  # reconcile skips by policy.
+  "\\[Scenario\\] Quickload abandoned-future reconcile skipped: tree='GS1 Auto-Chute Booster' kind=Cold scope=TreeWide reason=policy",
 
   # GROUP 4 - THE BOOSTER IS RECORDED AGAIN (existing wording; each reds on the leak).
   # The background recorder attaches to the resumed tree with the booster in its map.
@@ -307,29 +337,20 @@ required = [
   "Silent full-fidelity auto-commit \\(scene-exit\\): tree='GS1 Auto-Chute Booster' recordings=[1-9][0-9]*",
   "exittospacecenter complete scene=SPACECENTER game-loaded=true",
 
-  # =================================================================================
-  # FIX BLOCK - THE TOKENS THAT READ THE ABANDONED-FUTURE RECONCILE'S OWN LINES
-  # (ParsekScenario.TrimAndReconcileForQuickloadResume, ParsekScenario.Trim.cs).
-  # Pinned against the shipped interpolations; keep each field this block names if
-  # that wording changes. Field order is tolerated through lookaheads (each `.*`
-  # stays on the one line).
-  #   Summary (Info): `[Scenario] Quickload abandoned-future reconcile: tree='<n>'
-  #   kind=<LoadKind> scope=<QuickloadTrimScope> cutoffUT=<R> loadedUT=<R> trimmed=N
-  #   pruned=N endStatesCleared=N eventsPurged=N ledgerRowsRetired=N (afterCutoff=N
-  #   kerbalAssignment=N prunedRecording=N) skippedCommitted=N`. Pinned: the tree,
-  #   kind=QuickloadFlight (an in-flight F9), scope=TreeWide (no Re-Fly marker),
-  #   endStatesCleared >= 1 (expected 2: the pod's future Landed and the booster's
-  #   future SubOrbital).
-  "\\[Scenario\\] Quickload abandoned-future reconcile: tree='GS1 Auto-Chute Booster' (?=.*\\bkind=QuickloadFlight\\b)(?=.*\\bscope=TreeWide\\b)(?=.*\\bendStatesCleared=[1-9][0-9]*\\b)",
-  #   Per-recording clear (Verbose): `Quickload abandoned-future end state cleared:
-  #   rec=<id> previousTerminal=<k> preTrimEndUT=<R> cutoffUT=<R> crewEndStates=<n>`;
-  #   the booster's leaked SubOrbital is the one that was cleared.
-  "Quickload abandoned-future end state cleared: rec=[0-9a-f]{32} previousTerminal=SubOrbital preTrimEndUT=\\S+",
-  # END FIX BLOCK
-  # =================================================================================
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
+  # THE OLD IN-SESSION MACHINERY (design 8): unreachable on a save-file load. The F9 is
+  # not an in-session QuickloadFlight, nothing is refreshed from or detached out of a
+  # committed copy, and the TA-4 reconcile has nothing to clear.
+  "loadgame player-load: firing [\\s\\S]*Load classified: early=InSession refined=QuickloadFlight",
+  "loadgame player-load: firing [\\s\\S]*SpliceMissingCommittedRecordings: tree 'GS1 Auto-Chute Booster' [^\\r\\n]*refreshedRecordings=[1-9]",
+  "loadgame player-load: firing [\\s\\S]*TryRestoreActiveTreeNode: removed committed tree 'GS1 Auto-Chute Booster'",
+  "\\[Scenario\\] Quickload abandoned-future reconcile: tree='GS1 Auto-Chute Booster'",
+  "Quickload abandoned-future end state cleared:",
+  # The F5 bytes resolve by hash, which replaces the epoch rule on a Cold load: no stale
+  # member between the F9 and the final exit (a hashless member would read stale).
+  "loadgame player-load: firing (?:(?!exittospacecenter start)[\\s\\S])*Sidecar epoch mismatch",
   # The KSC-route shape (header): the saved tree dropped on stale sidecars, no resume.
   "dropped entire tree 'GS1 Auto-Chute Booster'",
   "TryRestoreActiveTreeNode: skipped active tree 'GS1 Auto-Chute Booster'",

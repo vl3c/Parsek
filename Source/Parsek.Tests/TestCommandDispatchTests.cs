@@ -365,6 +365,68 @@ namespace Parsek.Tests
             Assert.Equal(TestCommandLoadGame.AllowLiveRecorderArgInvalidReason, r.Reason);
         }
 
+        // ----- LoadGame playerLoad=true (design-load-restores-the-save.md 4.1) -----
+        //
+        // Parsed before the state terms: a bad spelling refuses with its own reason even
+        // with a live recorder (so a typo is never masked by recording-active), and the
+        // valid value relaxes no guard. Deleting the parse call reds the BadValue rows;
+        // moving it after the recorder term reds the live-recorder row.
+
+        [Fact]
+        public void LoadGame_PlayerLoadTrue_NoRecorder_Executes()
+        {
+            var r = TestCommandDispatcher.DecideDispatch(
+                CmdArgs("LoadGame", "playerLoad=true"), Flight());
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Fact]
+        public void LoadGame_PlayerLoadTrue_DoesNotRelaxRecordingActive()
+        {
+            var st = Flight();
+            st.Recording = true;
+            var r = TestCommandDispatcher.DecideDispatch(
+                CmdArgs("LoadGame", "playerLoad=true"), st);
+            Assert.Equal(DispatchDecision.Reject, r.Decision);
+            Assert.Equal("recording-active", r.Reason);
+        }
+
+        [Fact]
+        public void LoadGame_PlayerLoadTrue_WithAllowLiveRecorderAndMarker_Executes()
+        {
+            var st = Flight();
+            st.Recording = true;
+            st.ActiveReFlyMarker = true;
+            var r = TestCommandDispatcher.DecideDispatch(
+                CmdArgs("LoadGame", "allowLiveRecorder=refly", "playerLoad=true"), st);
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Fact]
+        public void LoadGame_PlayerLoadTrue_DoesNotRelaxLoadInFlight()
+        {
+            var st = Flight();
+            st.LoadInFlight = true;
+            var r = TestCommandDispatcher.DecideDispatch(
+                CmdArgs("LoadGame", "playerLoad=true"), st);
+            Assert.Equal(DispatchDecision.Reject, r.Decision);
+            Assert.Equal("load-in-flight", r.Reason);
+        }
+
+        [Theory]
+        [InlineData("playerLoad=True")]
+        [InlineData("playerLoad=false")]
+        [InlineData("playerLoad=")]
+        [InlineData("playerLoad=1")]
+        public void LoadGame_PlayerLoad_BadValue_Rejects_ArgInvalid_EvenWithLiveRecorder(string argToken)
+        {
+            var st = Flight();
+            st.Recording = true;
+            var r = TestCommandDispatcher.DecideDispatch(CmdArgs("LoadGame", argToken), st);
+            Assert.Equal(DispatchDecision.Reject, r.Decision);
+            Assert.Equal(TestCommandLoadGame.PlayerLoadArgInvalidReason, r.Reason);
+        }
+
         // ----- S4.4: RecordingState awaitRecorderLive=refly -----
         //
         // A named-condition wait: defer until a recorder AND a re-fly marker are live.

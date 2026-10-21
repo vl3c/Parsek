@@ -2558,6 +2558,23 @@ def validate_loadgame_focus_step(index: int, cmd: str, step_args: Dict) -> List[
 LOADGAME_ALLOW_LIVE_RECORDER_KEY = "allowLiveRecorder"
 LOADGAME_ALLOW_LIVE_RECORDER_VALUES: Tuple[str, ...] = ("refly",)
 
+# `LoadGame playerLoad=true` (design-load-restores-the-save.md 4.1): the load is the PLAYER's
+# load of a save file (F9, the pause-menu Load, the main-menu Load), so the applier fires
+# stock's `GameEvents.onGameStatePostLoad` with the loaded game's node after
+# `GamePersistence.LoadGame` succeeds and before the scene request, the point stock's
+# QuickSaveLoad fires it. The next OnLoad then classifies the load `Cold` with
+# `coldReason=save-file`. ABSENT is the fixture load (staging a save, picking a scene,
+# focusing a vessel) with its old in-session semantics. One value, the allowLiveRecorder=
+# grammar: `true` lowercase only (a TOML bool reaches the wire as `True` and is refused),
+# and `false` is not a spelling - omit the arg. The C# parse is
+# TestCommandLoadGame.TryParsePlayerLoad, fail-closed and case-sensitive
+# (`player-load-arg-invalid`, refused at dispatch before the state terms); mirrored by
+# LoadGamePlayerLoadSourceSyncTests. It relaxes no guard: a live recorder still refuses
+# `recording-active` unless allowLiveRecorder=refly admits it.
+LOADGAME_PLAYER_LOAD_KEY = "playerLoad"
+LOADGAME_PLAYER_LOAD_VALUES: Tuple[str, ...] = ("true",)
+LOADGAME_PLAYER_LOAD_INVALID_REASON = "player-load-arg-invalid"
+
 # S4.4 `RecordingState awaitRecorderLive=`: a named-condition WAIT on the read verb.
 # With `refly` the seam DEFERS the read (`refly-recorder-not-live`) until a recorder is
 # live AND a re-fly session marker is live - the state in which a bare LoadGame refuses
@@ -4824,6 +4841,7 @@ def validate_list_handles_expect_digest(index: int, cmd: str,
 VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     LOADGAME_SCENE_KEY: ("LoadGame", LOADGAME_SCENE_VALUES),
     LOADGAME_ALLOW_LIVE_RECORDER_KEY: ("LoadGame", LOADGAME_ALLOW_LIVE_RECORDER_VALUES),
+    LOADGAME_PLAYER_LOAD_KEY: ("LoadGame", LOADGAME_PLAYER_LOAD_VALUES),
     RECORDINGSTATE_AWAIT_RECORDER_LIVE_KEY: ("RecordingState",
                                              RECORDINGSTATE_AWAIT_RECORDER_LIVE_VALUES),
     SWITCHCLICK_SITE_KEY: ("SimulateStockSwitchClick", SWITCHCLICK_SITE_VALUES),
@@ -7002,6 +7020,7 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         # list is here for orientation, the TABLE is the authority):
         #   LoadGame                   scene=              (R12)
         #   LoadGame                   allowLiveRecorder=  (RF-3/A1)
+        #   LoadGame                   playerLoad=         (load restores the save, 4.1)
         #   RecordingState             awaitRecorderLive=  (S4.4)
         #   SimulateStockSwitchClick   site=
         #   RunTests                   strict=             (career-ledger B.4)
@@ -11127,6 +11146,9 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # parsed but no re-fly marker was live), which already has its own row - and that
     # separation is the point: a TYPO and a wrong STATE must not report as one thing.
     "allow-live-recorder-arg-invalid": "driver-arg",
+    # LoadGame playerLoad= (load restores the save, 4.1): a spelling fault, refused at
+    # dispatch before the recorder / load-in-flight terms.
+    "player-load-arg-invalid": "driver-arg",
     # LoadGame focusPid= (vessel names): a malformed pid and a scene= beside it are the
     # SPEC's fault, and so are a pid the save does not carry and one it carries twice.
     "focus-pid-arg-invalid": "driver-arg",
@@ -11956,6 +11978,7 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     # scene that has none; the retry reaches the same scene with the same arg.
     "physics-warp-not-in-flight",
     "allow-live-recorder-arg-invalid", "await-recorder-live-arg-invalid",
+    "player-load-arg-invalid",
     "cadence-arg-invalid", "cadence-arg-missing",
     "category-arg-empty", "dialog-arg-invalid",
     "drivevessel-seconds-arg-invalid", "drivevessel-seconds-arg-missing",

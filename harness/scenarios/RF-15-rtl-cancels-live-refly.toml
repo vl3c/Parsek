@@ -1,5 +1,11 @@
 schema = 1
 id = "RF-15-rtl-cancels-live-refly"
+# RESHAPED 2026-10-20 FOR "LOAD RESTORES THE SAVE" PHASE 2 (design
+# docs/dev/design-load-restores-the-save.md 4.1 / 4.7; plan Phase 2 step 7). NOT FLOWN in
+# this shape. The load of ACT 4 carries `playerLoad=true`, a Cold save-file load: the
+# player's F5 / F9 of what the rewind left. Its cold branch runs the same LoadTimeSweep,
+# which must still find no marker and nothing NotCommitted; the classification is pinned
+# Cold `coldReason=save-file` (scenes not pinned).
 # =====================================================================================
 # A REWIND-TO-LAUNCH TAKEN DURING A LIVE RE-FLY ENDS THAT RE-FLY AT ONCE.
 #
@@ -120,7 +126,7 @@ steps = [
   { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                            expect = "OK", budget = 300 },
   # --- ACT 4: an ordinary save + load of what the rewind left -----------------------------
   { cmd = "SaveGame",          args = { name = "quicksave" },                            expect = "OK" },
-  { cmd = "LoadGame",          args = { save = "${runSave}", name = "quicksave" },       expect = "OK", budget = 300 },
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
   { cmd = "RecordingState",                                                              expect = "OK" },
   { cmd = "FlushAndQuit",                                                                expect = "OK" },
 ]
@@ -158,7 +164,13 @@ required = [
   # The origin RP rode the rewind across (PR #1788) and the slot is still there.
   "End reason=discardReFlyForRewind [\\s\\S]*?RewindPoints carried across rewind: installed=1 ",
   # THE FOLLOWING ORDINARY LOAD: no marker, nothing NotCommitted left for its sweep.
-  "loadgame start save=\\S+ name=quicksave",
+  "loadgame start save=\\S+ name=quicksave [^\\r\\n]* playerLoad=true",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave route=Focusable",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*\\[LoadPolicy\\] Save-file load intent armed: nodeUT=[0-9.]+ scene=\\S+",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=\\S+ [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
+  "loadgame player-load: firing [\\s\\S]*\\[LoadSweep\\] Marker valid=False; spare=0 discarded=0 ",
   "\\[LoadSweep\\] Marker valid=False; spare=0 discarded=0 ",
 ]
 forbidden = [
@@ -171,6 +183,7 @@ forbidden = [
   # NO ZOMBIE ANYWHERE: the old split-across-two-loads face was a nonzero discard here.
   "\\[LoadSweep\\] Marker valid=(?:True|False); spare=[0-9]+ discarded=[1-9]",
   "invokerewindtolaunch refused",
+  "loadgame player-load: firing [\\s\\S]*Load classified: early=InSession refined=QuickloadFlight",
   "refly-gate This separation is in your future",
 ]
 

@@ -1774,7 +1774,7 @@ namespace Parsek
                         marker.RewindPointId, System.StringComparison.Ordinal))
                     continue;
 
-                RewindPointReaper.TryDeleteQuicksaveFile(rp);
+                RewindPointReaper.ReleaseQuicksaveFile(rp);
                 scenario.RewindPoints.RemoveAt(i);
                 RecordingsTableUI.ClearRewindSlotCanInvokeLogState(rp.RewindPointId);
                 RewindPointReaper.ClearBranchPointBackref(rp);

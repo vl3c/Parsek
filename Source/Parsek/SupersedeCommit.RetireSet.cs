@@ -552,11 +552,16 @@ namespace Parsek
         /// AppendRelations drops them) and <paramref name="attemptRecordingIds"/>, through
         /// <see cref="BuildRetireSet"/> over the raw ledger and the existing tombstones,
         /// exactly as <see cref="CommitTombstones"/> builds it. Uncached, logs nothing.
+        /// <paramref name="extraActions"/> are the rows the tree commit files before the
+        /// tombstones are built (the build step's preview); they are read as if they were
+        /// already in the ledger, so a replaced-flight row the ledger never filed is retired
+        /// here as the merge retires it.
         /// </summary>
         internal static List<GameAction> BuildMergeRetireSet(
             ReFlySessionMarker marker,
             ICollection<string> attemptRecordingIds,
-            out int closureCount)
+            out int closureCount,
+            IReadOnlyList<GameAction> extraActions = null)
         {
             closureCount = 0;
             if (marker == null)
@@ -578,8 +583,16 @@ namespace Parsek
                 closure.Add(kept[i]);
             }
             closureCount = closure.Count;
+            IReadOnlyList<GameAction> actions = Ledger.Actions;
+            if (extraActions != null && extraActions.Count > 0)
+            {
+                var combined = new List<GameAction>(actions.Count + extraActions.Count);
+                combined.AddRange(actions);
+                combined.AddRange(extraActions);
+                actions = combined;
+            }
             RetireSetScan scan = BuildRetireSet(
-                closure, ComputeTombstoneRewindCutoffUT(marker), Ledger.Actions,
+                closure, ComputeTombstoneRewindCutoffUT(marker), actions,
                 CollectTombstonedActionIds(), logDecisions: false);
             return scan.Rows;
         }
@@ -592,9 +605,16 @@ namespace Parsek
         /// <see cref="ValidateReFlySessionSupersedeSource(Recording, RecordingTree, ReFlySessionMarker, out string, out SlotVesselWalk, out BranchPoint)"/>,
         /// the predicate AppendRelations refuses on (<c>outcome=refused-unflown-provisional</c>),
         /// rejects it, read on the dialog's pending tree. <paramref name="reason"/> names which.
+        /// <para><paramref name="terminalPendingFinalize"/> is true when <paramref name="tree"/>
+        /// is the live tree the leaving-flight dialog reads before the scene exit finalizes it:
+        /// finalize stamps the active leaf's terminal state, so a provisional refused only for
+        /// its missing terminal is modeled as retiring. The payload refusals still stand, and the
+        /// click re-runs the check on the finalized tree, so this never lets an unflown attempt
+        /// through.</para>
         /// </summary>
         internal static bool MergeWouldRetireNothing(
-            ReFlySessionMarker marker, RecordingTree tree, out string reason)
+            ReFlySessionMarker marker, RecordingTree tree, out string reason,
+            bool terminalPendingFinalize = false)
         {
             reason = null;
             if (marker == null)
@@ -620,6 +640,12 @@ namespace Parsek
             if (!ValidateReFlySessionSupersedeSource(
                     provisional, tree, marker, out invalid, out _, out _))
             {
+                if (terminalPendingFinalize
+                    && string.Equals(invalid, "null TerminalState", StringComparison.Ordinal))
+                {
+                    reason = "terminal-pending-finalize";
+                    return false;
+                }
                 reason = "refused-unflown-provisional:" + (invalid ?? "<none>");
                 return true;
             }

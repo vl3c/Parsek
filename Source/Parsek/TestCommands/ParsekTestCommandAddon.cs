@@ -2112,6 +2112,17 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // playerLoad= (design-load-restores-the-save.md 4.1). The dispatcher already
+            // refused a bad spelling; re-parsed here for the bool, fail-closed all the same.
+            string playerLoadArg = ArgOrNull(cmd, TestCommandLoadGame.PlayerLoadKey);
+            if (!TestCommandLoadGame.TryParsePlayerLoad(playerLoadArg, out bool playerLoad))
+            {
+                ParsekLog.Warn(Tag,
+                    $"loadgame rejected reason={TestCommandLoadGame.PlayerLoadArgInvalidReason} playerLoad={playerLoadArg}");
+                SetExecResult("REJECTED", null, TestCommandLoadGame.PlayerLoadArgInvalidReason);
+                return;
+            }
+
             // THE ADMIT SIDE OF RF-3/A1 IS LOGGED HERE, and it has to be: the refusal Warns
             // with its reason, but a load that was ADMITTED past the recording-active guard
             // used to be indistinguishable in KSP.log from a load taken with no recorder at
@@ -2120,7 +2131,12 @@ namespace Parsek.TestCommands
             // step verdict. Both fields are printed unconditionally so their ABSENCE is
             // never the signal.
             ParsekLog.Info(Tag,
-                $"loadgame start save={save ?? string.Empty} name={name ?? string.Empty} scene={HighLogic.LoadedScene} requestedScene={requestedScene} allowLiveRecorder={ArgOrNull(cmd, "allowLiveRecorder") ?? "(none)"} recorderLive={(ParsekFlight.HasLiveRecorderForTagging() ? "true" : "false")}");
+                $"loadgame start save={save ?? string.Empty} name={name ?? string.Empty} scene={HighLogic.LoadedScene} requestedScene={requestedScene} allowLiveRecorder={ArgOrNull(cmd, "allowLiveRecorder") ?? "(none)"} recorderLive={(ParsekFlight.HasLiveRecorderForTagging() ? "true" : "false")} playerLoad={(playerLoad ? "true" : "false")}");
+
+            // A fixture load (no playerLoad=true) reads a save in-session on purpose; announce it
+            // so the saveStamp canary does not report it as an unannounced load.
+            if (!playerLoad)
+                ParsekScenario.AnnounceInSessionSaveLoad("harness-loadgame");
 
             Game game;
             try
@@ -2173,6 +2189,20 @@ namespace Parsek.TestCommands
                 ParsekLog.Error(Tag, $"loadgame failed save={save ?? string.Empty}: game null/incompatible");
                 SetExecResult("ERROR", null, "load-failed");
                 return;
+            }
+
+            // playerLoad=true: the player's load of a save file. Stock's player load paths
+            // (QuickSaveLoad's F9, the pause-menu and main-menu Load) fire onGameStatePostLoad
+            // with the loaded game's node once LoadGame returned a compatible game and before
+            // they request the scene; GamePersistence.LoadGame fires nothing. Fired here, after
+            // the focus rewrite and before every route's scene request, so Parsek's
+            // SaveFileLoadIntent arms exactly as it does for the player and the next OnLoad
+            // classifies the load as a save-file load. Without the arg nothing fires.
+            if (playerLoad)
+            {
+                ParsekLog.Info(Tag,
+                    $"loadgame player-load: firing onGameStatePostLoad save={save ?? string.Empty} name={name ?? string.Empty} route={route}");
+                GameEvents.onGameStatePostLoad.Fire(game.config);
             }
 
             if (route == LoadRoute.TrackingStation)

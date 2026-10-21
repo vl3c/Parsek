@@ -1,0 +1,49 @@
+# Parsek-file delete grep gate (scripts/grep-audit-parsek-file-deletes.ps1).
+#
+# Files under Parsek/Recordings, Parsek/RewindPoints and Parsek/Saves are deleted only
+# by ParsekFileCollector (design-load-restores-the-save.md 4.5): a file stays while any
+# save in the folder or the running game names it. The gate counts the four delete-family
+# tokens (File.Delete( / File.Move( / File.Replace( / Directory.Delete() on raw source
+# lines in Source/Parsek and fails on a file that is not listed here, or on a listed file
+# whose count differs from its pin.
+#
+# Entry forms (repo-relative, forward slashes, '#' starts a comment):
+#   <file>          owner: any count
+#   <file> <n>      pinned: exactly n hits; every hit was read and touches no file in
+#                   those three directories (the rationale follows each entry)
+#   <dir>/          prefix: every file underneath, any count (test-only code)
+#
+# A new delete site in a pinned file moves its count: re-read it, and when it touches one
+# of the three directories route it through the collector instead of raising the pin.
+
+# Owners.
+Source/Parsek/ParsekFileCollector.cs
+Source/Parsek/SidecarFileCommitBatch.cs
+
+# Test-only code: in-game tests and the batch crash reconcile they drive.
+Source/Parsek/InGameTests/
+
+# Generic safe-write helpers (temp + rename of the caller's own target, and the
+# .loadmeta sidecar KSP writes next to a root save).
+Source/Parsek/FileIOUtils.cs 12
+# Analyzer codec round trip: its own temp file.
+Source/Parsek/Analyzer/Rules/Inv10CodecRoundtrip.cs 1
+# Career-start snapshot: the root temp written by SaveGame, and its move INTO Parsek/Saves.
+Source/Parsek/CareerStartSnapshot.cs 2
+# Rewind save capture: the root temp written by SaveGame, and its move INTO Parsek/Saves.
+Source/Parsek/FlightRecorder.cs 2
+# Ledger baselines under Parsek/GameState.
+Source/Parsek/GameStateStore.cs 1
+# Test-batch crash reconcile (snapshot dir, persistent.sfs .bak artifacts) and the
+# save-root parsek_rw_*.sfs temp copies a crashed rewind left behind.
+Source/Parsek/ParsekScenario.cs 4
+# Pre-Parsek backup staging directories (outside Parsek/).
+Source/Parsek/PreParsekBackup.cs 2
+# Save-root temp copies of a rewind save.
+Source/Parsek/RecordingStore.cs 2
+# Discard Re-fly save-root temps.
+Source/Parsek/RevertInterceptor.cs 2
+# Re-Fly save-root temp quicksave.
+Source/Parsek/RewindInvoker.cs 1
+# Harness screenshot command: its own output file.
+Source/Parsek/TestCommands/ParsekTestCommandAddon.CaptureScreenshot.cs 1

@@ -39,7 +39,7 @@ namespace Parsek.Tests
                 () => new DateTime(2026, 5, 21, 12, 0, 0, DateTimeKind.Utc);
             UnfinishedFlightStashHandler.UtcNowForTesting =
                 () => new DateTime(2026, 5, 21, 12, 0, 0, DateTimeKind.Utc);
-            RewindPointReaper.DeleteQuicksaveForTesting = rpId =>
+            RewindPointReaper.ReleaseQuicksaveForTesting = rpId =>
             {
                 deletedRpIds.Add(rpId);
                 return true;

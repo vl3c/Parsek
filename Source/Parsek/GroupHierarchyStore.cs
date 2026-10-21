@@ -187,6 +187,10 @@ namespace Parsek
                 }
             }
 
+            // GC-3: groups of committed trees kept inert stay live, so going back to the
+            // Parsek build that wrote them finds their nesting and hidden flags intact.
+            InertRecordingTrees.AddGroupNamesTo(liveGroupNames);
+
             return PruneUnusedHierarchyEntries(liveGroupNames, reason);
         }
 

@@ -7,22 +7,23 @@ namespace Parsek
     public static partial class RecordingStore
     {
         /// <summary>
-        /// Unlinks a recording's whole on-disk footprint: the seven sidecar files
-        /// (<c>.prec</c>, <c>.pann</c>, <c>_vessel.craft</c>, <c>_ghost.craft</c> and the
-        /// three readable mirrors) PLUS, when the recording carries one, its
-        /// per-recording quickload-resume save at <c>Parsek/Saves/&lt;name&gt;.sfs</c>
-        /// (distinct from the Rewind-to-Separation quicksaves under
-        /// <c>Parsek/RewindPoints/</c>, which have their own builder and reaper).
+        /// Removes a recording's on-disk footprint from the head positions
+        /// (design-load-restores-the-save.md 4.4 / 4.5). The three hashed sidecars
+        /// (<c>.prec</c>, <c>_vessel.craft</c>, <c>_ghost.craft</c>) are RETAINED: each head goes
+        /// through a <see cref="SidecarFileCommitBatch"/> delete that files its bytes under
+        /// <c>_versions/&lt;id&gt;.&lt;hash&gt;&lt;suffix&gt;</c>, because some save file may still name
+        /// them; the collector removes a version once no save names it. The non-hashed kinds
+        /// (<c>.pann</c> and the three readable mirrors) are deleted. The recording's
+        /// quickload-resume save under <c>Parsek/Saves/</c> is left for the collector too.
         ///
         /// <para>Returns <c>true</c> when every limb it attempted completed - i.e.
-        /// nothing was left behind. Returns <c>false</c> when the recording was
+        /// no head was left behind. Returns <c>false</c> when the recording was
         /// unusable (null / invalid id) or when at least one file could not be
-        /// unlinked (locked by KSP or an antivirus); each such failure also logs its
-        /// own Warn from <see cref="DeleteFileIfExists"/>. Per-file failures are still
-        /// swallowed rather than thrown, so a partial delete never aborts a caller's
-        /// teardown - the return value exists so callers that report a batch summary
-        /// (<see cref="DiscardSidecarReap"/>) can count truthfully instead of assuming
-        /// success. Callers that do not report may ignore it.</para>
+        /// moved (locked by KSP or an antivirus); each such failure also logs its
+        /// own Warn. Per-file failures are swallowed rather than thrown, so a partial
+        /// delete never aborts a caller's teardown - the return value exists so callers
+        /// that report a batch summary (<see cref="DiscardSidecarReap"/>) can count
+        /// truthfully instead of assuming success. Callers that do not report may ignore it.</para>
         /// </summary>
         internal static bool DeleteRecordingFiles(Recording rec)
         {
@@ -41,9 +42,12 @@ namespace Parsek
                 $"DeleteRecordingFiles: id={rec.RecordingId} vessel='{rec.VesselName}' rewindSave={rec.RewindSaveFileName ?? "(none)"}");
 
             bool allDeleted = true;
-            allDeleted &= DeleteFileIfExists(RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
-            allDeleted &= DeleteFileIfExists(RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
-            allDeleted &= DeleteFileIfExists(RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
+            allDeleted &= RetainHeadIfExists(
+                RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId), rec.RecordingId, SidecarKind.Prec);
+            allDeleted &= RetainHeadIfExists(
+                RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId), rec.RecordingId, SidecarKind.Vessel);
+            allDeleted &= RetainHeadIfExists(
+                RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId), rec.RecordingId, SidecarKind.Ghost);
             // .pann annotation sidecar (design doc §17.3.1): regenerable cache,
             // but a stale file left behind after a recording is deleted could
             // be mis-cached against a future same-id recovery. Belongs in the
@@ -54,34 +58,69 @@ namespace Parsek
             allDeleted &= DeleteFileIfExists(RecordingPaths.BuildReadableGhostSnapshotMirrorRelativePath(rec.RecordingId));
 
             if (!string.IsNullOrEmpty(rec.RewindSaveFileName))
-                allDeleted &= DeleteFileIfExists(RecordingPaths.BuildRewindSaveRelativePath(rec.RewindSaveFileName));
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    $"DeleteRecordingFiles: rewind save '{rec.RewindSaveFileName}' left for collection " +
+                    "(deleted once no save names it)");
+            }
 
             return allDeleted;
         }
 
         /// <summary>
-        /// Unlinks one save-scoped file. Returns false ONLY when the delete threw (the
-        /// file is still there); a file that does not exist, or a path that cannot be
-        /// resolved because there is no save context, counts as nothing-left-behind and
-        /// returns true.
+        /// Moves one hashed head into <c>_versions</c> through a retained delete. Returns false
+        /// ONLY when the move threw (the head is still there); a missing file or an unresolved
+        /// save context counts as nothing-left-behind.
         /// </summary>
-        private static bool DeleteFileIfExists(string relativePath)
+        private static bool RetainHeadIfExists(string relativePath, string recordingId, SidecarKind kind)
         {
             try
             {
                 string absolutePath = RecordingPaths.ResolveSaveScopedPath(relativePath);
-                if (!string.IsNullOrEmpty(absolutePath) && File.Exists(absolutePath))
-                {
-                    File.Delete(absolutePath);
-                    ParsekLog.Verbose("RecordingStore", $"Deleted file: {relativePath}");
-                }
+                if (string.IsNullOrEmpty(absolutePath) || !File.Exists(absolutePath))
+                    return true;
+                SidecarFileCommitBatch.Apply(
+                    new List<SidecarFileCommitBatch.StagedChange>
+                    {
+                        SidecarFileCommitBatch.RetainedDelete(absolutePath, recordingId, kind)
+                    },
+                    () => SuppressLogging);
+                ParsekLog.Verbose("RecordingStore", $"Retained head as version: {relativePath}");
                 return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("RecordingStore", $"Failed to retain head '{relativePath}': {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Deletes one non-hashed save-scoped file. Returns false ONLY when the delete threw
+        /// (the file is still there); a file that does not exist, or a path that cannot be
+        /// resolved because there is no save context, counts as nothing-left-behind.
+        /// </summary>
+        private static bool DeleteFileIfExists(string relativePath)
+        {
+            string absolutePath;
+            try
+            {
+                absolutePath = RecordingPaths.ResolveSaveScopedPath(relativePath);
             }
             catch (Exception ex)
             {
                 ParsekLog.Warn("RecordingStore", $"Failed to delete file '{relativePath}': {ex.Message}");
                 return false;
             }
+            if (string.IsNullOrEmpty(absolutePath) || !File.Exists(absolutePath))
+                return true;
+            if (!SidecarFileCommitBatch.TryDeleteUnretained(absolutePath, () => SuppressLogging, out string failure))
+            {
+                ParsekLog.Warn("RecordingStore", $"Failed to delete file '{relativePath}': {failure}");
+                return false;
+            }
+            ParsekLog.Verbose("RecordingStore", $"Deleted file: {relativePath}");
+            return true;
         }
 
         /// <summary>
@@ -100,7 +139,7 @@ namespace Parsek
 
         /// <summary>
         /// Suffixes for recording files written by previous Parsek versions but no longer
-        /// used. CleanOrphanFiles deletes any of these unconditionally — they are by
+        /// used. ParsekFileCollector deletes any of these unconditionally — they are by
         /// definition stale (the format that wrote them no longer exists).
         /// </summary>
         private static readonly string[] LegacyRecordingFileSuffixes = { ".pcrf" };
@@ -215,6 +254,8 @@ namespace Parsek
 
             AddKnownTreeRecordingIds(knownIds, pendingTree);
             AddKnownTreeRecordingIds(knownIds, savedPendingTreeDuringActiveRestore);
+            // GC-3: recordings of committed trees kept inert are known (not orphans).
+            InertRecordingTrees.AddRecordingIdsTo(knownIds);
             return knownIds;
         }
 
@@ -244,8 +285,9 @@ namespace Parsek
 
         /// <summary>
         /// Builds the set of all recording IDs that are currently known to the store
-        /// (committed recordings, committed trees, and the pending tree). Used by
-        /// <see cref="CleanOrphanFiles"/> to decide which sidecar files to keep.
+        /// (committed recordings, committed trees, the pending tree, and the recordings of
+        /// committed trees kept inert by <see cref="InertRecordingTrees"/>). Used by
+        /// the OnSave stranded-sidecar warn and the load-fault preserve guard.
         /// Extracted as <c>internal static</c> for direct testability (#290).
         /// </summary>
         internal static HashSet<string> BuildKnownRecordingIds()
@@ -255,7 +297,7 @@ namespace Parsek
 
         /// <summary>
         /// Overload that also reports how many IDs came from the pending tree
-        /// (for diagnostic logging in <see cref="CleanOrphanFiles"/>).
+        /// (for diagnostic logging).
         /// </summary>
         internal static HashSet<string> BuildKnownRecordingIds(out int pendingTreeIdCount)
         {
@@ -275,6 +317,9 @@ namespace Parsek
             pendingTreeIdCount += AddKnownTreeRecordingIds(knownIds, pendingTree);
             pendingTreeIdCount += AddKnownTreeRecordingIds(
                 knownIds, savedPendingTreeDuringActiveRestore);
+            // GC-3: recordings of committed trees kept inert are known, so the ledger
+            // reconcile keeps their rows and the sweeps do not treat them as orphans.
+            InertRecordingTrees.AddRecordingIdsTo(knownIds);
             return knownIds;
         }
 
@@ -309,7 +354,7 @@ namespace Parsek
         /// _vessel.craft, _ghost.craft, .pann, plus the .txt readable variants) exist
         /// in the recordings directory. Excludes legacy / transient artifacts (.pcrf,
         /// .tmp / .stage / .bak suffixes) — only IDs corresponding to "live" sidecar
-        /// files are returned. Used by both <see cref="CleanOrphanFiles"/>'s safety
+        /// files are returned. Used by both <see cref="ParsekFileCollector"/>'s safety
         /// guard and <c>ParsekScenario.OnSave</c>'s stranded-sidecar warn.
         /// </summary>
         internal static HashSet<string> CollectSidecarIdsOnDisk()
@@ -339,183 +384,37 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Deletes orphaned sidecar files in the Parsek/Recordings/ directory that don't
-        /// correspond to any known recording ID. Called after all recordings and trees are loaded.
-        /// </summary>
-        internal static void CleanOrphanFiles()
-        {
-            string recordingsDir = ResolveRecordingsDirectoryForCurrentSave();
-            if (string.IsNullOrEmpty(recordingsDir))
-            {
-                ParsekLog.Verbose("RecordingStore", "CleanOrphanFiles: no save context — skipping");
-                return;
-            }
-            if (!Directory.Exists(recordingsDir))
-            {
-                ParsekLog.Verbose("RecordingStore", "CleanOrphanFiles: no recordings directory — skipping");
-                return;
-            }
-
-            // Build set of known recording IDs from committed + pending state.
-            // On cold-start resume, TryRestoreActiveTreeNode stashes the active
-            // tree into pendingTree BEFORE this method runs. Without including
-            // pendingTree, branch recordings (debris, EVA) would be deleted as
-            // orphans, silently degrading to 0 points on the next cold start (#290).
-            // If the save also has a finalized isPending=True tree, it is held in
-            // savedPendingTreeDuringActiveRestore and counted here too so active
-            // quickload resume cannot orphan the unrelated pending sidecars.
-            var knownIds = BuildKnownRecordingIds(out int pendingTreeIds);
-
-            string[] files;
-            try
-            {
-                files = Directory.GetFiles(recordingsDir);
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Warn("RecordingStore", $"CleanOrphanFiles: failed to list directory: {ex.Message}");
-                return;
-            }
-
-            // Safety guard: refuse to delete when scenario reports zero known recording IDs
-            // but the disk has live sidecar-shaped recording IDs. This is the "load lost its
-            // tree state" pattern — deleting now turns a recoverable accident (the .sfs tree
-            // metadata may still live in quicksave.sfs or a .bak) into permanent bulk-data
-            // loss. The OnSave-side warn pairs with this guard to flag the originating fault.
-            if (knownIds.Count == 0)
-            {
-                var diskIds = new HashSet<string>();
-                AddSidecarIdsFromFiles(files, diskIds);
-                if (diskIds.Count > 0)
-                {
-                    ParsekLog.Warn("RecordingStore",
-                        $"CleanOrphanFiles: REFUSING to delete — scenario reports 0 known recording IDs " +
-                        $"but disk has {diskIds.Count} sidecar-shaped recording ID(s) ({files.Length} file(s) total). " +
-                        $"This usually means the scenario load lost its tree state. Sidecars preserved so the " +
-                        $"save can be restored from quicksave.sfs or a backup. Investigate before next save.");
-                    return;
-                }
-            }
-
-            ParsekLog.Verbose("RecordingStore",
-                $"CleanOrphanFiles: scanning {files.Length} file(s) against {knownIds.Count} known recording ID(s)" +
-                (pendingTreeIds > 0 ? $" (incl. {pendingTreeIds} from pending tree)" : ""));
-
-            int orphanCount = 0;
-            int legacyCount = 0;
-            int transientCount = 0;
-            int skippedUnrecognized = 0;
-            for (int i = 0; i < files.Length; i++)
-            {
-                string fileName = Path.GetFileName(files[i]);
-                string extractedId = ExtractRecordingIdFromFileName(fileName);
-                if (extractedId == null)
-                {
-                    // Legacy sidecars (e.g. .pcrf from the removed ghost-geometry scaffolding,
-                    // #260) have no current consumer — delete unconditionally.
-                    if (IsLegacySidecarFile(fileName))
-                    {
-                        try
-                        {
-                            File.Delete(files[i]);
-                            legacyCount++;
-                            ParsekLog.Verbose("RecordingStore", $"Deleted legacy sidecar file: {fileName}");
-                        }
-                        catch (Exception ex)
-                        {
-                            ParsekLog.Warn("RecordingStore", $"Failed to delete legacy sidecar file '{fileName}': {ex.Message}");
-                        }
-                        continue;
-                    }
-                    if (IsTransientSidecarArtifactFile(fileName))
-                    {
-                        try
-                        {
-                            File.Delete(files[i]);
-                            transientCount++;
-                            ParsekLog.Verbose("RecordingStore", $"Deleted transient sidecar artifact: {fileName}");
-                        }
-                        catch (Exception ex)
-                        {
-                            ParsekLog.Warn("RecordingStore",
-                                $"Failed to delete transient sidecar artifact '{fileName}': {ex.Message}");
-                        }
-                        continue;
-                    }
-                    skippedUnrecognized++;
-                    continue; // Not a recognized sidecar file — leave it alone
-                }
-
-                if (!knownIds.Contains(extractedId))
-                {
-                    // Data-loss fix: orphaned RECORDING sidecars (.prec / craft / .pann with a
-                    // real recording id) are MOVED to a quarantine subfolder, never hard-deleted.
-                    // A sidecar can be "orphaned" not only by genuine garbage but by a transient
-                    // state bug that drops a still-referenced tree (e.g. a Limbo quickload-resume
-                    // tree that fell out of persistent.sfs — see the SavePendingTreeIfAny fix).
-                    // Deleting then was a one-way destruction of immutable recorded data; quarantine
-                    // de-clutters the active set while keeping the bulk data fully recoverable.
-                    // Legacy (.pcrf) and transient (.tmp/.stage/.bak) artifacts above are still
-                    // hard-deleted — they are by definition junk, not recorded data.
-                    if (QuarantineOrphanRecordingFile(files[i], recordingsDir, fileName, extractedId))
-                        orphanCount++;
-                }
-            }
-
-            if (orphanCount > 0 || legacyCount > 0 || transientCount > 0)
-                ParsekLog.Info("RecordingStore",
-                    $"Cleaned orphan files: quarantined {orphanCount} orphaned recording file(s)" +
-                    (legacyCount > 0 ? $", deleted {legacyCount} legacy sidecar file(s)" : "") +
-                    (transientCount > 0 ? $", deleted {transientCount} transient sidecar artifact(s)" : "") +
-                    (skippedUnrecognized > 0 ? $", skipped {skippedUnrecognized} unrecognized file(s)" : ""));
-            else
-                ParsekLog.Verbose("RecordingStore",
-                    $"CleanOrphanFiles: no orphans found" +
-                    (skippedUnrecognized > 0 ? $", skipped {skippedUnrecognized} unrecognized file(s)" : ""));
-        }
-
-        /// <summary>
         /// Subfolder under Parsek/Recordings/ where orphaned recording sidecars are parked by
-        /// <see cref="CleanOrphanFiles"/> instead of being deleted. Top-level-only directory
+        /// <see cref="ParsekFileCollector"/> instead of being deleted. Top-level-only directory
         /// scans (Directory.GetFiles) never descend into it, so quarantined files are not
         /// re-scanned or double-counted.
         /// </summary>
         internal const string OrphanQuarantineDirName = "_quarantine";
 
         /// <summary>
-        /// Moves an orphaned recording sidecar into the <see cref="OrphanQuarantineDirName"/>
-        /// subfolder of <paramref name="recordingsDir"/>. Non-destructive: the immutable bulk
-        /// data is preserved and recoverable. If a same-named file already sits in quarantine
-        /// (e.g. a prior sweep of the same id), the existing copy is kept and the new one is
-        /// suffixed so nothing is overwritten. Returns true if the file was moved.
+        /// Visits every recording the store holds in memory: the committed list, the committed
+        /// trees, the pending tree and the pending tree saved during an active restore. A
+        /// recording reachable from two of them is visited twice. Used by
+        /// <see cref="ParsekFileCollector"/> to build memory's reference set.
         /// </summary>
-        private static bool QuarantineOrphanRecordingFile(
-            string filePath, string recordingsDir, string fileName, string extractedId)
+        internal static void ForEachRecordingKnownToMemory(Action<Recording> visit)
         {
-            try
-            {
-                string quarantineDir = Path.Combine(recordingsDir, OrphanQuarantineDirName);
-                Directory.CreateDirectory(quarantineDir);
-                string dest = Path.Combine(quarantineDir, fileName);
-                if (File.Exists(dest))
-                {
-                    // Preserve the earlier quarantined copy; park this one alongside it.
-                    string suffixed = Path.Combine(
-                        quarantineDir,
-                        fileName + ".dup" + Guid.NewGuid().ToString("N").Substring(0, 8));
-                    dest = suffixed;
-                }
-                File.Move(filePath, dest);
-                ParsekLog.Verbose("RecordingStore",
-                    $"Quarantined orphan recording file: {fileName} (id={extractedId}) -> {OrphanQuarantineDirName}/");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Warn("RecordingStore",
-                    $"Failed to quarantine orphan recording file '{fileName}': {ex.Message} (left in place, NOT deleted)");
-                return false;
-            }
+            if (visit == null)
+                return;
+            for (int i = 0; i < committedRecordings.Count; i++)
+                visit(committedRecordings[i]);
+            for (int t = 0; t < committedTrees.Count; t++)
+                VisitTreeRecordings(committedTrees[t], visit);
+            VisitTreeRecordings(pendingTree, visit);
+            VisitTreeRecordings(savedPendingTreeDuringActiveRestore, visit);
+        }
+
+        private static void VisitTreeRecordings(RecordingTree tree, Action<Recording> visit)
+        {
+            if (tree == null || tree.Recordings == null)
+                return;
+            foreach (var kvp in tree.Recordings)
+                visit(kvp.Value);
         }
     }
 }

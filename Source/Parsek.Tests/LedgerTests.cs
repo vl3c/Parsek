@@ -1494,14 +1494,13 @@ namespace Parsek.Tests
                 l.Contains("[Ledger]") && l.Contains("unsupported schema"));
         }
 
-        // Fails if: the recording-schema-generation half of the load gate
-        // stops gating. Both existing schema cells write the CURRENT
-        // generation and mismatch only the ledger version, so making
-        // generationOk unconditionally true ships green while a ledger
-        // stamped with a generation this build cannot read loads as if it
-        // were compatible - rows keyed to a schema that moved underneath.
+        // Fails if: the load gate rejects a ledger whose only difference is the recording
+        // schema generation it was stamped with. A ledger row carries no recording schema, and
+        // the ledger's own format is pinned by its version (owner ruling 2026-10-21, todo
+        // GC3-LEDGER-GENERATION-GATE-DROPS-ROWS: load it when its format matches), so a save
+        // written by another generation keeps its earned rows.
         [Fact]
-        public void LoadFromFile_WrongSchemaGeneration_IsRejected()
+        public void LoadFromFile_OtherSchemaGeneration_LoadsWhenTheVersionMatches()
         {
             Ledger.AddAction(new GameAction
             {
@@ -1525,14 +1524,16 @@ namespace Parsek.Tests
             Ledger.ResetForTesting();
             logLines.Clear();
 
-            Assert.False(Ledger.LoadFromFile(LedgerPath));
+            Assert.True(Ledger.LoadFromFile(LedgerPath));
 
-            Assert.Empty(Ledger.Actions);
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(25000f, Ledger.Actions[0].InitialFunds);
+            Assert.DoesNotContain(logLines, l => l.Contains("unsupported schema"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Ledger]") &&
-                l.Contains("unsupported schema") &&
-                l.Contains("recordingSchemaGeneration='" + future + "'") &&
-                l.Contains("expectedGeneration=" + current));
+                l.Contains("recording schema generation '" + future + "'") &&
+                l.Contains("current=" + current) &&
+                l.Contains("loaded anyway"));
         }
 
         // ================================================================

@@ -17227,6 +17227,94 @@ class LoadGameFocusPidSourceSyncTests(unittest.TestCase):
         self.assertTrue(any("focus-pid-arg-invalid" in e for e in errs), errs)
 
 
+class LoadGamePlayerLoadSourceSyncTests(unittest.TestCase):
+    """`LoadGame playerLoad=true` (design-load-restores-the-save.md 4.1). Reads OUTSIDE
+    harness/: the key, the one value and the refusal reason of the comment-stripped
+    TestCommands/TestCommandLoadGame.cs; the dispatcher's parse before the recorder term;
+    and the applier's guarded onGameStatePostLoad fire after the load and the failed-route
+    check, before every route's scene request."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# LoadGame playerLoad tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_key_value_and_reason_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandLoadGame.cs")
+        self.assertIn('internal const string PlayerLoadKey = "%s";'
+                      % hlib.LOADGAME_PLAYER_LOAD_KEY, text)
+        self.assertEqual(("true",), hlib.LOADGAME_PLAYER_LOAD_VALUES)
+        self.assertIn('internal const string PlayerLoadTrueValue = "%s";'
+                      % hlib.LOADGAME_PLAYER_LOAD_VALUES[0], text)
+        self.assertIn('internal const string PlayerLoadArgInvalidReason = "%s";'
+                      % hlib.LOADGAME_PLAYER_LOAD_INVALID_REASON, text)
+        self.assertEqual(("LoadGame", hlib.LOADGAME_PLAYER_LOAD_VALUES),
+                         hlib.VERB_SCOPED_CLOSED_ARGS[hlib.LOADGAME_PLAYER_LOAD_KEY])
+        self.assertEqual("driver-arg", hlib._SEAM_REFUSAL_SUBKINDS.get(
+            hlib.LOADGAME_PLAYER_LOAD_INVALID_REASON))
+        self.assertIn(hlib.LOADGAME_PLAYER_LOAD_INVALID_REASON,
+                      hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+
+    def test_the_dispatcher_parses_before_the_recorder_term(self):
+        text = self._source("TestCommands", "TestCommandDispatcher.cs")
+        parse = "TestCommandLoadGame.TryParsePlayerLoad("
+        self.assertIn(parse, text)
+        self.assertIn("TestCommandLoadGame.PlayerLoadArgInvalidReason", text)
+        case = text.index('case "LoadGame":')
+        self.assertLess(case, text.index(parse))
+        self.assertLess(text.index(parse), text.index('DispatchResult.Reject("recording-active")'))
+
+    def test_the_applier_fires_the_event_only_for_a_player_load_before_the_scene_request(self):
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.cs")
+        start = applier.index("private void LoadGameImpl(")
+        end = applier.index("FlightDriver.StartAndFocusVessel(game, idx);", start) + 1
+        end = applier.index("SetExecResult(PendingVerdict, null, null);", end)
+        body = applier[start:end]
+        fire = "GameEvents.onGameStatePostLoad.Fire(game.config);"
+        self.assertEqual(1, body.count(fire), "exactly one fire site in LoadGameImpl")
+        self.assertEqual(1, applier.count("onGameStatePostLoad.Fire("),
+                         "no other fire site in the applier")
+        guard = body.rindex("if (playerLoad)", 0, body.index(fire))
+        # The fire sits inside the guard's own block (no block close at the guard's depth).
+        self.assertNotIn(chr(10) + "            }", body[guard:body.index(fire)])
+        self.assertLess(body.index("GamePersistence.LoadGame(name, save, true, false)"), guard)
+        self.assertLess(body.index("if (route == LoadRoute.Failed)"), guard)
+        self.assertLess(body.index("game.flightState.activeVesselIdx = focusIdx;"), guard)
+        for request in ("game.Start();", "FlightDriver.StartAndFocusVessel(game, idx);"):
+            self.assertLess(body.index(fire), body.index(request), request)
+        self.assertIn("TestCommandLoadGame.TryParsePlayerLoad(playerLoadArg, out bool playerLoad)",
+                      body)
+        self.assertIn("playerLoad={(playerLoad ? \"true\" : \"false\")}", body)
+
+    def test_the_closed_arg_validator(self):
+        spec = copy.deepcopy(load_spec("QL-6-discard-then-quickload-records-again.toml"))
+        loads = [s for s in spec["driver"]["steps"] if s.get("cmd") == "LoadGame"]
+        self.assertGreaterEqual(len(loads), 2)
+        loads[-1]["args"][hlib.LOADGAME_PLAYER_LOAD_KEY] = "true"
+        self.assertEqual([], [e for e in hlib.validate_spec(spec, load_registry()).errors
+                              if "playerLoad" in e])
+        for bad in ("True", "false", "", True):
+            with self.subTest(value=bad):
+                mutated = copy.deepcopy(spec)
+                [s for s in mutated["driver"]["steps"]
+                 if s.get("cmd") == "LoadGame"][-1]["args"]["playerLoad"] = bad
+                errs = hlib.validate_spec(mutated, load_registry()).errors
+                self.assertTrue(any("playerLoad" in e and "must be one of" in e for e in errs),
+                                errs)
+        mutated = copy.deepcopy(spec)
+        args = [s for s in mutated["driver"]["steps"] if s.get("cmd") == "LoadGame"][-1]["args"]
+        args["playerload"] = args.pop("playerLoad")
+        errs = hlib.validate_spec(mutated, load_registry()).errors
+        self.assertTrue(any("playerload" in e and "case-sensitive" in e for e in errs), errs)
+        mutated = copy.deepcopy(spec)
+        mutated["driver"]["steps"].insert(
+            1, {"cmd": "RecordingState", "args": {"playerLoad": "true"}, "expect": "OK"})
+        errs = hlib.validate_spec(mutated, load_registry()).errors
+        self.assertTrue(any("playerLoad" in e and "LoadGame" in e for e in errs), errs)
+
+
 class RevertToLaunchSourceSyncTests(unittest.TestCase):
     """`RevertToLaunch`. Reads OUTSIDE harness/: the verb and the refusal reasons (IN ORDER) of
     the comment-stripped TestCommands/TestCommandRevertToLaunch.cs, the applier's call of the

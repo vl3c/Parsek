@@ -1,5 +1,27 @@
 schema = 1
 id = "QL-5d-retry-refly-after-quickload"
+# RE-PINNED 2026-10-21 FOR THE RESUMED-SESSION KEEP (PR #2155 head c3b28d6, todo
+# REFLY-STARTED-FROM-A-RESUMED-VESSEL-IS-NEVER-SAVED, second cause). A load whose save's
+# Re-Fly marker names the restored tree and its active Re-Fly recording now KEEPS the
+# committed copy (`TryRestoreActiveTreeNode: kept the committed copy ... live Re-Fly
+# session`), the shape a fresh session has, so after the F9 the retry finds the tree still
+# committed (`treeState=still-committed ... restoredCommittedTree=false`, no
+# RestoreSanitizedPendingTreeIfDetached line) and the retried bundle captures it as an
+# ordinary session's would. `still-committed` is therefore the designed state here, not a
+# premise miss. The readout (the later history still committed in the retried session) and
+# the exit are unchanged and still gated. Flown red on c3b28d6 (`2026-10-21_1501`) only on the
+# old detach / restore tokens. The text below describes the earlier detach-and-restore route;
+# this block is authoritative where they differ.
+# RESHAPED 2026-10-20 FOR "LOAD RESTORES THE SAVE" PHASE 2 (design
+# docs/dev/design-load-restores-the-save.md 4.1 / 4.7 / 5 S4; plan Phase 2 step 7). NOT
+# FLOWN in this shape. The F9 carries `playerLoad=true`, so it is a Cold save-file load
+# into FLIGHT: the session reset forgets memory and the save restores everything, the
+# Re-Fly marker and the session's provisional included (LoadTimeSweep validates the
+# marker), so the session goes on as it was at the F5. The premise holds on the cold path
+# too: the F5 wrote the session's tree twice (the committed copy the Re-Fly start's bundle
+# put back, and the isActive resume node), and TryRestoreActiveTreeNode detaches the
+# committed copy on every load kind (the committed-copy rule itself reads
+# `action=Unchanged reason=load-kind-Cold`). Everything after the F9 is unchanged.
 # RE-PINNED 2026-10-20 FOR DESIGN SECTION 2.12 RULE 3 (Discard and Retry remove the attempt's
 # ledger rows), NOT RE-FLOWN: the RepairSessionBeforeRetry line gains `ledgerRowsRemoved=N`
 # between `stagedRowsPruned=` and `restoredCommittedTree=`; the token accepts any N (this
@@ -98,7 +120,7 @@ id = "QL-5d-retry-refly-after-quickload"
 # .FormatCompleteLine, ParsekTestCommandAddon.ListHandlesImpl / LoadGameImpl, and QL-5c's.
 # =====================================================================================
 tier = "nightly"
-description = "QL-5d: re-fly the crashed booster of the B9 split, fly 70 s, quicksave and quickload inside the session, then Esc, Revert Flight, Revert to Launch and Retry from Rewind Point. RetryHandler puts a sanitized copy of the tree the quickload detached back committed before the re-invoke, so the retried Re-Fly starts with the flight's whole tree in the timeline; Discard Re-Fly then exits with the booster still listed under STASH."
+description = "QL-5d: re-fly the crashed booster of the B9 split, fly 70 s, quicksave and the player's quickload inside the session (playerLoad=true, a Cold save-file load that restores the session), then Esc, Revert Flight, Revert to Launch and Retry from Rewind Point. RetryHandler puts a sanitized copy of the tree the quickload detached back committed before the re-invoke, so the retried Re-Fly starts with the flight's whole tree in the timeline; Discard Re-Fly then exits with the booster still listed under STASH."
 instanceProfile = "stock-minimal"
 tags = ["QL-5d", "QL-5c", "QL-5", "TA-1", "timeline-ops", "rewind", "refly", "refly-retry",
         "discard-refly", "quickload", "revert-dialog", "D9", "scene-ksc", "reading-run"]
@@ -123,7 +145,7 @@ steps = [
   { cmd = "TimeJump",       args = { deltaSeconds = "70.0" },                           expect = "OK", budget = 120 },
   # F5, then F9 (S4.4's / QL-5c's pair).
   { cmd = "SaveGame",       args = { name = "quicksave" },                              expect = "OK", budget = 120 },
-  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave", allowLiveRecorder = "refly" }, expect = "OK", budget = 300 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave", allowLiveRecorder = "refly", playerLoad = "true" }, expect = "OK", budget = 300 },
   # THE CHECK: Esc > Revert Flight > Revert to Launch > Retry from Rewind Point.
   { cmd = "ReFlyRevert",    args = { choice = "retry", target = "launch" },             expect = "OK", budget = 300 },
   { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                     expect = "OK", budget = 120 },
@@ -148,15 +170,23 @@ count = { min = 1 }
 
 [expectations.logContracts]
 required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
-             "loadgame start save=\\S+ name=quicksave .*allowLiveRecorder=refly recorderLive=true",
-             # The premise, ordered: the F9 detached the committed copy, before the retry.
-             "loadgame start save=\\S+ name=quicksave [^\\r\\n]*[\\s\\S]*TryRestoreActiveTreeNode: removed committed tree '[^']*' \\(id=\\S+, [1-9][0-9]* recording\\(s\\)\\)[\\s\\S]*reflyrevert start choice=retry",
+             "loadgame start save=\\S+ name=quicksave .*allowLiveRecorder=refly recorderLive=true playerLoad=true",
+             # THE F9 IS A SAVE-FILE LOAD (design 4.1), and the session's tree is restored from
+             # the save with its committed copy left as the save wrote it.
+             "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave route=Focusable",
+             "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*\\[LoadPolicy\\] Save-file load intent armed: nodeUT=[0-9.]+ scene=FLIGHT",
+             "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+             "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+             "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
+             "loadgame player-load: firing [\\s\\S]*Quickload committed-copy restore: tree='[^']*' id=\\S+ route=\\S+ action=Unchanged reason=load-kind-Cold loadKind=Cold ",
+             # The premise, ordered: the F9 kept the session's committed copy, before the retry.
+             "loadgame player-load: firing [\\s\\S]*TryRestoreActiveTreeNode: kept the committed copy of tree '[^']*' \\(id=\\S+\\) committed: the restored tree is the live Re-Fly session sess=\\S+[\\s\\S]*reflyrevert start choice=retry",
              "reflyrevert start choice=retry target=launch sess=\\S+ rp=rp_b9_root slot=b9-booster-a",
              "Prefix: blocking stock RevertToLaunch sess=\\S+ target=Launch",
              "reflyrevert pressed dialog button='Retry from Rewind Point' choice=retry",
              "End reason=retry sess=\\S+ rp=rp_b9_root slot=1 target=Launch",
-             # THE FIX (MergeDialog.RepairSessionBeforeRetry), in RetryHandler's order.
-             "End reason=retry sess=\\S+ rp=rp_b9_root[\\s\\S]*RestoreSanitizedPendingTreeIfDetached: restored committed tree tree=\\S+ recordings=(?:[3-9]|[1-9][0-9]+) prunedAttemptRecordings=[1-9][0-9]* [\\s\\S]*RepairSessionBeforeRetry callSite=RetryHandler sess=\\S+ tree=\\S+ treeState=detached-restored-copy attemptIds=[1-9][0-9]* stagedRowsPruned=0 ledgerRowsRemoved=[0-9]+ restoredCommittedTree=true[\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_b9_root slot=1\\.",
+             # MergeDialog.RepairSessionBeforeRetry, in RetryHandler's order: the tree is still committed.
+             "End reason=retry sess=\\S+ rp=rp_b9_root[\\s\\S]*RepairSessionBeforeRetry callSite=RetryHandler sess=\\S+ tree=\\S+ treeState=still-committed attemptIds=[1-9][0-9]* stagedRowsPruned=0 ledgerRowsRemoved=[0-9]+ restoredCommittedTree=false[\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_b9_root slot=1\\.",
              # The retried bundle carried the restored tree (trees=0 before the fix on this host).
              "End reason=retry sess=\\S+ rp=rp_b9_root[\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_b9_root slot=1\\.[\\s\\S]*Captured: recs=[1-9][0-9]* trees=[1-9][0-9]* ",
              "End reason=retry sess=\\S+ rp=rp_b9_root[\\s\\S]*Load classified: early=ReFlyStart refined=ReFlyStart scene=FLIGHT [^\\r\\n]*reFlyInvoke=true",
@@ -173,10 +203,15 @@ required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation comple
              "Load classified: early=DiscardReFly refined=DiscardReFly scene=SPACECENTER [^\\r\\n]*discardReFly=Launch handoff=present",
              "reflyrevert complete choice=discard target=launch scene=SPACECENTER sess=\\S+ rp=rp_b9_root rpKept=true slot=b9-booster-a slotListed=true unfinishedFlights=[1-9][0-9]* marker=none"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             # The old in-session route (design 8) for the F9.
+             "loadgame player-load: firing [\\s\\S]*Load classified: early=InSession refined=QuickloadFlight",
+             "loadgame player-load: firing [\\s\\S]*Quickload committed-copy restore: [^\\r\\n]*action=ResumeFromQuicksave",
              "reflyrevert rejected",
              "reflyrevert error",
              "RetryHandler: (?:cannot resolve|rp=\\S+ ut=\\S+ is in the future)",
-             "RepairSessionBeforeRetry callSite=RetryHandler(?::| [^\\r\\n]*treeState=(?:no-tree|still-committed|detached-not-restored))",
+             "RepairSessionBeforeRetry callSite=RetryHandler(?::| [^\\r\\n]*treeState=(?:no-tree|detached-restored-copy|detached-not-restored))",
+             # The F9 no longer detaches the live session's tree, so nothing is restored.
+             "RestoreSanitizedPendingTreeIfDetached: restored committed tree",
              "has no recordings after Re-Fly attempt pruning",
              # Before the fix the exit discard found the tree detached and restored it itself.
              "RestoreDetachedTreeAfterEscDiscard callSite=DiscardReFlyHandler: tree=\\S+ detached restored=",
