@@ -57,9 +57,12 @@ tier = "nightly"
 # are unlocked too (read from the automation instance's ModuleManager.ConfigCache /
 # TechTree on the operator PC; see the builder docstring). The vessel, the pools, the
 # PARAMETERS and every other surface are byte-identical to the flown bytes. The tally is
-# NOT expected to move (no Logistics cell reads R&D state that names those nodes), but
-# ONE CONFIRMING FLIGHT on the regenerated fixture is OWED before the pin counts as
-# re-proven.
+# NOT expected to move (no Logistics cell reads R&D state that names those nodes).
+#
+# FLIGHT 2  `2026-10-21_1810`, the confirming flight on the regenerated fixture: PASS
+#           attempt 1, wall 183 s, same `total=47 passed=39 failed=0 skipped=8`,
+#           `funds unchanged net=0`, no `no Funding singleton`, no Parsek ERROR; the
+#           pin is re-proven.
 #
 # THE SKIP ROSTER - all 8, the same split as H38's (see that spec's header for each
 # cell's verbatim skip string):
@@ -98,8 +101,9 @@ tier = "nightly"
 #   7 Tight count windows: the recordings count is pinned to exactly 0 (nothing records).
 #   8 Tier by measured cost: nightly, as H38 (measured wall 250 s, far under the
 #     1,800 s longhaul floor).
-#   9 flight_efficiency.py: owed (not run on flight 1; read it off the results archive
-#     with the confirming flight).
+#   9 flight_efficiency.py (flight 2, `2026-10-21_1810`): boot 26.1 s, seam steps 142.6 s
+#     (RunTests 134.5 s, LoadGame 8.2 s), gaps 1.0 s, quit 1.1 s, post-quit 9.3 s,
+#     0.0 s unaccounted, retries 0. Nothing to trim: the batch itself is the cost.
 description = "Run the in-game Logistics category through the ISOLATED batch entry point over logi-cargo-career, H38's Logi Cargo Rig in a CAREER save, so RouteRewindRedeliveryInGameTest's funds-flat assertion runs with a live Funding singleton instead of skipping as it does on every Sandbox host. FLOWN GREEN 2026-10-21 on its first flight (2026-10-21_1739, funds unchanged net=0): 39 passed / 0 failed / 8 skipped, H38's split, pinned whole. The fixture gained three research nodes afterwards, so one confirming flight is owed."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "isolated-batch", "logistics", "career", "H73", "flown", "reading-iteration"]
