@@ -45,7 +45,9 @@ namespace Parsek.Logistics
         bool OriginHasCargo(Route route, out string lackingResource, out double shortfall);
 
         /// <summary>
-        /// True if (Career mode AND KSC origin) has funds for the dispatch cost.
+        /// True if (Career mode AND KSC origin) has funds for the dispatch cost: the live
+        /// counter covers it AND it fits in what the ledger leaves free once committed future
+        /// costs are reserved (todo ROUTE-DISPATCH-IGNORES-RESERVATIONS).
         /// Sandbox, Science, and non-KSC origins always return <c>true</c>; the
         /// evaluator avoids calling this entirely in those cases.
         /// </summary>

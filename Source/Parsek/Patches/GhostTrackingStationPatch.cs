@@ -757,7 +757,15 @@ namespace Parsek.Patches
                 return true;
             }
             if (!GhostMapPresence.IsGhostMapVessel(selected.persistentId))
-                return true;
+            {
+                // GC-2: a real vessel a committed future flight holds is not deleted either
+                // (its Delete button is greyed by ClaimedVesselDisposalPatches; this is the
+                // click-block reading the same predicate).
+                if (!ClaimedVesselDisposalPatches.RefuseTrackingStationDisposal(selected, "Delete"))
+                    return true;
+                Traverse.Create(__instance).Method("OnDialogDismiss").GetValue();
+                return false;
+            }
 
             GhostTrackingStationSelection.SelectGhost(selected, "Delete block");
             ScreenMessages.PostScreenMessage(
@@ -880,7 +888,13 @@ namespace Parsek.Patches
                 return true;
             }
             if (!GhostMapPresence.IsGhostMapVessel(selected.persistentId))
-                return true;
+            {
+                // GC-2: the click-block for a real vessel a committed future flight holds.
+                if (!ClaimedVesselDisposalPatches.RefuseTrackingStationDisposal(selected, "Recover"))
+                    return true;
+                Traverse.Create(__instance).Method("OnDialogDismiss").GetValue();
+                return false;
+            }
 
             GhostTrackingStationSelection.SelectGhost(selected, "Recover block");
             ScreenMessages.PostScreenMessage(
