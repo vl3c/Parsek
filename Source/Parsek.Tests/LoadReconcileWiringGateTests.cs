@@ -447,18 +447,6 @@ namespace Parsek.Tests
             int recalc = IndexOrFail(reconcile, "LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(");
             Assert.True(treeTrim < endStates && endStates < events && events < rows && rows < recalc,
                 "load-reconcile gate: trim, end states, events, ledger rows, then the current-timeline recalculation");
-            // The restore's abandoned Re-Fly forks join the plan (pruned set) and leave the tree
-            // after the trim, under either scope and before any category step reads the tree.
-            Assert.Equal(1, Occurrences(reconcile, "PruneAbandonedReFlyForks("));
-            int forks = IndexOrFail(reconcile, "PresentAbandonedReFlyForkIds(");
-            int prune = IndexOrFail(reconcile, "PruneAbandonedReFlyForks(");
-            Assert.True(forks < plan && treeTrim < prune && recTrim < prune && prune < endStates,
-                "load-reconcile gate: the fork set is read before the plan, the forks are pruned after the trim "
-                + "and before the end-state step");
-            Assert.Contains("quicksaveFacts, abandonedForkIds)", flat);
-            int policyReturn = IndexOrFail(reconcile, "if (!anyCategory)");
-            Assert.True(prune < policyReturn,
-                "load-reconcile gate: the fork prune does not depend on the policy cells");
         }
 
         [Fact]
@@ -514,12 +502,8 @@ namespace Parsek.Tests
                 + "&& ShouldKeepPendingTreeAfterHydrationFailure(tree, staleEpochHydrationFailures))", Collapse(body));
             Assert.Contains("if (committedCopyAction == CommittedCopyRestoreAction.ResumeFromQuicksave) "
                 + "ClearCommittedTreeRestoreAttemptAfterDetach(tree);", Collapse(body));
-            // The abandoned Re-Fly forks are noted exactly where the row rule's resume note is,
-            // so the forks the resume prunes and the rows step B hands to the save agree.
-            Assert.Equal(1, Occurrences(body, "NoteAbandonedReFlyForks("));
-            Assert.Contains("if (committedCopyDetached && resumeDetachedCopyIds != null) { "
-                + "NoteQuickloadResumeDetach(tree, resumeDetachedCopyIds); "
-                + "NoteAbandonedReFlyForks(tree, lastRestoredQuicksaveTreeFacts); }", Collapse(body));
+            Assert.Contains("if (committedCopyDetached && resumeDetachedCopyIds != null) "
+                + "NoteQuickloadResumeDetach(tree, resumeDetachedCopyIds);", Collapse(body));
 
             // Both OnLoad call sites pass the prologue's load kind and whether the load lands in
             // FLIGHT (the defaults model an F9 in flight, for tests only).

@@ -331,6 +331,16 @@ committed, skips the splice, and restores the held-back events, so an earning ma
 resumed spawned-vessel flight survives F5 / F9 and reaches the ledger at the merge. Residue filed
 as ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE, since fixed. Lane QL-13.
 
+Phase 3 (2026-10-21, local branch `phase3-local`, separate PR): deletes the in-session quickload
+machinery no remaining load kind reaches (design section 8 table, "Phase 3" column). Deleted:
+the abandoned Re-Fly fork prune (`CollectAbandonedReFlyForkIds` / `NoteAbandonedReFlyForks` /
+`PruneAbandonedReFlyForks`; only a committed-copy resume noted forks). Kept on purpose: the QL-R1
+decline (`TryDeclineDiscardedActiveTree` / `TryDeclineDiscardedPendingTree`), still reached by a
+stock revert after a cold resume and an in-flight discard; the `QuickloadFlight` kind and its
+column, still produced by the harness `LoadGame` verb without `playerLoad=true` and the in-game
+QuickloadResume tests (`QuickloadResumeHelpers.TriggerQuickload`), where folding it into
+`InSessionOther` would change `DiscardStashedOnQuickload` and the route reconcile.
+
 ## ~~ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE: F5 inside a committed-tree restore attempt that resumed its recording in place loses the attempt's held-back earnings on F9~~ [FILED 2026-10-20 while closing design-load-restores-the-save.md open question 3. Was open. FIXED 2026-10-21 (the held-back earnings, PR #2164; the trajectory, owner ruling 2026-10-21) on branch `claude/project-thread-hvhou8`. xUnit; lane QL-13 LIVE-PROVEN `2026-10-21_2058`]
 
 When the flight-ready committed-tree restore resumes a committed recording in place (the live

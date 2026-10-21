@@ -270,6 +270,15 @@ resumed-merged-attempt branches of `PruneStagedRowsNamingAttempt` / `RepairSessi
 (VERIFY no fresh-session path depends on them), and the `QuickloadFlight` kind. Each deletion
 updates the policy table and its tests. Phase 3 is a separate PR.
 
+Status (2026-10-21, implemented one commit per mechanism; the design section 8 table's "Phase 3"
+column is the record). Two items stay, against the list above: the QL-R1 decline is still
+reached by a stock revert after a cold resume and an in-flight discard, and the `QuickloadFlight`
+kind is still produced by the harness `LoadGame` verb without `playerLoad=true` and the in-game
+QuickloadResume tests (`QuickloadResumeHelpers.TriggerQuickload`); folding it into
+`InSessionOther` would change `DiscardStashedOnQuickload` and the route reconcile for those
+lanes, so the kind keeps its column and loses only the cells of deleted categories. The RP owner
+partition stays with step A: Discard Re-fly and a stock revert still read it.
+
 ## VERIFY index
 
 V1 (done at design time): in KSP 1.12.5 `onGameStatePostLoad` is fired only by `QuickSaveLoad`

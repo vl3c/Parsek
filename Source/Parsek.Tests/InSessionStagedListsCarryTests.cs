@@ -847,56 +847,6 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// The reviewer's sequence, production-stamped and driven on through the recorder's resume
-        /// (todo QUICKLOAD-KEEPS-POST-SAVE-REFLY-FORKS-WHOSE-ROWS-FOLLOW-THE-SAVE, tree-wide shape):
-        /// the Re-Fly A' of O merged after the named save, from a rewind point before the save. Its
-        /// rows follow the save, so the fork goes too: the tree-wide resume keeps no stub of it
-        /// next to O, and its tagged event and ledger row from before the cutoff retire with it.
-        /// O and the rewind point's branch point stay.
-        /// </summary>
-        [Fact]
-        public void Quickload_SaveBeforeReFlyMergeOfTheResumedFlight_ResumePrep_PrunesTheForkStub()
-        {
-            UseTempSaveRoot();
-            RecordingTree committed = InstallCommittedFlownTree();
-            Provisional(committed.Recordings[ForkId], SessionS, "rp_t", OriginId);
-            LinkSplit(committed, BpFor("rp_t"), CoreId, OriginId, ForkId);
-            AddDeathAction();
-            AddTaggedEvent(ForkId, 150.0, "fork-150");
-            AddTaggedRow("act_fork_150", ForkId, 150.0);
-            var memory = Memory(s =>
-            {
-                s.RewindPoints.Add(Rp("rp_t"));
-                s.RecordingSupersedes.Add(Rel("rel_a", OriginId, ForkId));
-                s.LedgerTombstones.Add(Tomb("tomb_a", DeathActionId, ForkId));
-            });
-            ConfigNode saved = SaveNode(s => s.RewindPoints.Add(Rp("rp_t")));
-            AddSavedActiveTreeShaped(saved, t => LinkSplit(t, BpFor("rp_t"), CoreId, OriginId));
-
-            var loaded = Load(memory, saved, EarlyLoadKind.InSession, treeRestore: RealActiveTreeRestore(saved));
-            RecordingTree resumed = RecordingStore.PendingTree;
-            Assert.True(resumed.Recordings.ContainsKey(ForkId), "premise: the restore splices A' into the resumed tree");
-            Assert.Empty(loaded.RecordingSupersedes);
-
-            RunResumePrep(resumed, NamedSaveUT, LoadKind.QuickloadFlight);
-
-            Assert.False(resumed.Recordings.ContainsKey(ForkId),
-                "A' merged after the save: its rows followed the save, so no stub of it may play next to O");
-            Assert.True(resumed.Recordings.ContainsKey(OriginId));
-            Assert.True(resumed.Recordings.ContainsKey(CoreId));
-            BranchPoint rpBranch = resumed.BranchPoints.Single(b => b.Id == BpFor("rp_t"));
-            Assert.Equal(new[] { OriginId }, rpBranch.ChildRecordingIds);
-            Assert.DoesNotContain(GameStateStore.Events, e => e.recordingId == ForkId);
-            Assert.DoesNotContain(Ledger.Actions, a => a.RecordingId == ForkId);
-            Assert.Contains(logLines, l => l.Contains("[Scenario]")
-                && l.Contains("Quickload resume abandoned Re-Fly forks noted: tree=" + TreeId)
-                && l.Contains("forks=1") && l.Contains("attempt=none(no-marker)"));
-            Assert.Contains(logLines, l => l.Contains("[Scenario]")
-                && l.Contains("Quickload abandoned Re-Fly forks pruned: tree='Test_" + TreeId + "'")
-                && l.Contains("pruned=1") && l.Contains("ids=[" + ForkId + "]"));
-        }
-
-        /// <summary>
         /// The rule reaches only the resumed tree: a different tree's Re-Fly merged after the save
         /// (X, still committed) keeps memory's rows, and a row the save already holds for the
         /// resumed tree (C->C', merged before the save) stays, as the save's copy.
@@ -1028,25 +978,6 @@ namespace Parsek.Tests
                 && l.Contains("attempt=sess=" + SessionS + " ids=1 (marker-resumes-attempt)")
                 && l.Contains("supersedes installed=1 untouched=0 attemptKept=1 followSave=0 dropped=1 restoredFromSave=0")
                 && l.Contains("tombstones installed=1 untouched=0 attemptKept=1 followSave=0 dropped=1 restoredFromSave=0"));
-
-            RecordingTree resumed = RecordingStore.PendingTree;
-            Assert.True(resumed.Recordings.ContainsKey(SecondForkDebrisId), "premise: the splice brings C' debris too");
-            RunResumePrep(resumed, NamedSaveUT, LoadKind.QuickloadFlight);
-
-            Assert.Contains(logLines, l => l.Contains("Quickload resume prep:") && l.Contains("trimScope=ActiveRecOnly"));
-            Assert.False(resumed.Recordings.ContainsKey(SecondForkId),
-                "S2's fork merged after the save: its rows followed the save, so C' may not play next to C");
-            Assert.False(resumed.Recordings.ContainsKey(SecondForkDebrisId),
-                "the debris C' shed on a split S2 authored goes with C'");
-            Assert.True(resumed.Recordings.ContainsKey(ForkId), "S's own attempt stays (owner ruling OQ-1)");
-            Assert.True(resumed.Recordings.ContainsKey(SecondChildId));
-            Assert.True(resumed.Recordings.ContainsKey(OriginId));
-            Assert.DoesNotContain(resumed.BranchPoints, b => b.Id == "bp_s2_debris");
-            Assert.DoesNotContain(Ledger.Actions, a => a.RecordingId == SecondForkId);
-            Assert.Contains(logLines, l => l.Contains("Quickload resume abandoned Re-Fly forks noted: tree=" + TreeId)
-                && l.Contains("forks=2") && l.Contains("attempt=sess=" + SessionS + " ids=1"));
-            Assert.Contains(logLines, l => l.Contains("Quickload abandoned Re-Fly forks pruned:")
-                && l.Contains("pruned=2"));
         }
 
         /// <summary>
@@ -1098,20 +1029,6 @@ namespace Parsek.Tests
             Assert.Equal(new[] { "tomb_a" }, loaded.LedgerTombstones.Select(t => t.TombstoneId));
             Assert.Contains(logLines, l => l.Contains("In-session resumed-tree rows: tree=" + TreeId)
                 && l.Contains("attempt=sess=" + SessionS + " ids=2 (marker-resumes-attempt)"));
-
-            RecordingTree resumed = RecordingStore.PendingTree;
-            Assert.True(resumed.Recordings.ContainsKey(StageForkId), "premise: the splice brings X' in");
-            RunResumePrep(resumed, NamedSaveUT, LoadKind.QuickloadFlight);
-
-            Assert.False(resumed.Recordings.ContainsKey(StageForkId),
-                "S2's fork of a slot S created: its row followed the save, so X' may not play next to X");
-            Assert.False(resumed.Recordings.ContainsKey(StageForkDebrisId),
-                "S2's debris is not S's attempt and goes with X'");
-            Assert.True(resumed.Recordings.ContainsKey(StageId), "S's own stage stays");
-            Assert.True(resumed.Recordings.ContainsKey(ForkId), "S's own attempt stays (owner ruling OQ-1)");
-            Assert.Equal(new[] { StageId }, resumed.BranchPoints.Single(b => b.Id == "bp_s").ChildRecordingIds);
-            Assert.DoesNotContain(resumed.BranchPoints, b => b.Id == "bp_s2_debris");
-            Assert.DoesNotContain(Ledger.Actions, a => a.RecordingId == StageForkId);
         }
 
         /// <summary>
@@ -1979,49 +1896,6 @@ namespace Parsek.Tests
             Assert.DoesNotContain(Ledger.Actions, a => a.ActionId == "act_attempt_science");
             Assert.Equal(preInvoke, LedgerFingerprint());
             Assert.True(MinRunningScience(Ledger.Actions) >= 0.0);
-        }
-
-        /// <summary>
-        /// The pure abandoned-fork collector: a stamped member the quicksave lacks goes with its
-        /// unstamped descendants (transitively, through branch points whose parents all go); a
-        /// member the quicksave holds (an earlier session's fork, owner ruling D2), the resumed
-        /// attempt (OQ-1), a split half of a quicksave member (a TIP inheriting its origin's
-        /// stamp), an unstamped spliced recording and a child with a surviving co-parent stay.
-        /// </summary>
-        [Fact]
-        public void CollectAbandonedReFlyForkIds_Pure()
-        {
-            Recording R(string id, string session = null, string chain = null, int chainIndex = -1)
-            {
-                var rec = Rec(id, 100.0, MergeState.Immutable);
-                rec.CreatingSessionId = session;
-                rec.ProvisionalForRpId = session != null ? "rp_" + session : null;
-                rec.ChainId = chain;
-                rec.ChainIndex = chainIndex;
-                return rec;
-            }
-            var tree = BuildTree(TreeId, null,
-                R("m"), R("f0", "s0", "c0", 0), R("tip", "s0", "c0", 1), R("f", "s2", "cf", 0),
-                R("f_half", "s2", "cf", 1), R("attempt", SessionS), R("u"), R("d"), R("g"), R("e"));
-            tree.ActiveRecordingId = "m";
-            LinkSplit(tree, "bp_f", "f", "d");
-            LinkSplit(tree, "bp_d", "d", "g");
-            tree.BranchPoints.Add(new BranchPoint
-            {
-                Id = "bp_mix", Type = BranchPointType.Dock,
-                ParentRecordingIds = new List<string> { "f", "m" },
-                ChildRecordingIds = new List<string> { "e" },
-            });
-            var facts = new ParsekScenario.QuicksaveTreeFacts { TreeId = TreeId, ActiveRecordingId = "m" };
-            facts.Members["m"] = new ParsekScenario.QuicksaveMemberFacts();
-            facts.Members["f0"] = new ParsekScenario.QuicksaveMemberFacts();
-
-            HashSet<string> ids = ParsekScenario.CollectAbandonedReFlyForkIds(
-                tree, facts, new HashSet<string> { "attempt" });
-
-            Assert.Equal(new[] { "d", "f", "f_half", "g" }, ids.OrderBy(x => x, StringComparer.Ordinal));
-            Assert.Empty(ParsekScenario.CollectAbandonedReFlyForkIds(tree, null, null));
-            Assert.Contains("attempt", ParsekScenario.CollectAbandonedReFlyForkIds(tree, facts, null));
         }
 
         [Theory]

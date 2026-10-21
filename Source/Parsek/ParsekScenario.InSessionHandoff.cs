@@ -455,10 +455,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The resumed-attempt set for <paramref name="resumed"/> under <paramref name="marker"/>.
-        /// Shared by the resumed-tree row rule and the restore's abandoned-fork note
-        /// (<see cref="NoteAbandonedReFlyForks"/>), so the rows and the recordings a resume keeps
-        /// for the attempt are the same set. The splice brought in branch points later sessions
+        /// The resumed-attempt set for <paramref name="resumed"/> under <paramref name="marker"/>,
+        /// read by the resumed-tree row rule. The splice brought in branch points later sessions
         /// authored, none of them in the marker's pre-session list, so the attempt adopts children
         /// only through branch points the save held (<paramref name="quicksaveBranchPointIds"/>)
         /// or whose parent is already the attempt's
