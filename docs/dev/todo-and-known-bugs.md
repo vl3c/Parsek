@@ -263,13 +263,15 @@ section 7.
   (matches D2).
 - O3: a recording that fails to load, for any reason, keeps its ledger rows; it loses its ghost and
   playback, never its rows (extends the GC-3 ruling from schema rejects to every load failure).
-- O4: Model H, committed route cycles are history (research
-  `docs/dev/research/route-funds-vs-cargo-2026-10-21.md`): filed as ROUTE-CYCLES-ARE-HISTORY-AT-REWIND.
+- O4: a rewind keeps committed route rows and refunds the cycles after the rewind point; a cycle
+  that made money stays history (Model H was ruled first, then replaced the same day; research
+  `docs/dev/research/route-funds-vs-cargo-2026-10-21.md`): filed as
+  ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES.
 - O5: moot once PR #2155 merges: the rule acts only on an in-flight `ResumeFromQuicksave` detach
   during an in-session load, which #2155 makes a Cold save-file load that drops the handoff
   (design-load-restores-the-save section 8 lists it as unreached).
 
-## ROUTE-CYCLES-ARE-HISTORY-AT-REWIND: a rewind deletes committed supply-route rows and re-decides the cycles live, so a profitable route's earnings can vanish under purchases they paid for [FILED 2026-10-21 from the owner ruling on LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O4. OPEN, needs design; Model H ruled]
+## ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES: a rewind deletes committed supply-route rows and re-decides the cycles live, so a profitable route's earnings can vanish under purchases they paid for [FILED 2026-10-21 from the owner ruling on LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O4. OPEN, needs design; refund rule ruled]
 
 Today a rewind (and a Re-Fly start) retires every free-standing route row after the cutoff and the
 cycles fire again live (design 10.6, `RouteLedgerRetire`). Most cycles are a net cost, so that
@@ -277,19 +279,34 @@ only raises funds, except (1) the recovery credit of a cycle dispatched before t
 only through the saved marker and never paid if the route pauses or loses its endpoint, and (2) a
 profitable route (a pickup run recovered at KSC whose credit beats its dispatch cost, inferred from
 the costing formula): its retired earnings leave a committed purchase unpaid until the route fires
-again, or never. Analysis: `docs/dev/research/route-funds-vs-cargo-2026-10-21.md`.
+again, or never. Deleting committed rows is also the one D2 exception. Analysis:
+`docs/dev/research/route-funds-vs-cargo-2026-10-21.md`.
 
-Owner rulings 2026-10-21: Model H. Committed cycles are history like every other committed row
-(D2): a rewind deletes no route row; when the clock passes a committed crossing its recorded cargo
-is re-applied physically (the save restore put the tanks back), with no new ledger row, delivering
-what fits; the origin depot gives at most what it holds. A committed cycle that cannot deliver in
-full stays paid (the design 10.5 rule). Cycles after the committed present are live. The vessel's
-"already holds cycle N" marker is the UT its state was taken at (save UT, snapshot capture UT),
-which should make `RetiredRouteCargoStore` and probably the route state floor unnecessary. Next:
-rewrite logistics design 10.6, VERIFY the snapshot capture UT is readable on every spawn path, then
-a plan. A quickload / load still restores exactly what the save holds.
+Owner rulings 2026-10-21. Model H (committed cycles are history, cargo re-applied at runtime) was
+ruled first and then REPLACED: it charges for cycles the new timeline can no longer deliver (the
+player moves or loses the destination), and holding the destination as a ghost until the last
+committed cycle was rejected ("the whole point of supply routes is that vessels can just dock with
+the station or base to get supplies"). The rule now:
+- A rewind deletes no route row. It adds, at the rewind UT, a refund for every committed cycle
+  dispatched after the rewind point (only increases funds). The destination stays live, and the
+  route re-decides those cycles live as the clock passes, as today.
+- The refund is the cycle's NET cost (dispatch debit minus its recovery credit), so a re-run cycle
+  costs what the original did and repeated rewinds cannot farm the credits.
+- Each cycle is refunded once: the refund row names the cycles it covers, so a second rewind past
+  the same cycles refunds nothing more.
+- A cycle dispatched before the rewind and delivered after it is not refunded (it still delivers
+  through the saved route state), and its recovery credit is not paid twice.
+- A cycle that made money (credit above its debit, e.g. Sell-at-KSC) stays history: not refunded,
+  not run again, and when the clock passes its crossing its pickup is taken from the origin depot
+  again, up to what the depot holds, with no new ledger row (the rewind restored the depot's cargo,
+  so keeping the gain without this would sell the same cargo twice).
+- `RetiredRouteCargoStore` stays: a later committed recording's snapshot can still carry cargo from
+  a refunded cycle.
+- A quickload / load needs none of this: it restores exactly the rows the save holds.
+Next: rewrite logistics design 10.6 to this rule (refund row shape and its cycle list, how the live
+loop skips a gain cycle's slot, the straddling credit dedup), then a plan.
 
-## ~~ROUTE-DISPATCH-IGNORES-RESERVATIONS: a route dispatch checks the raw funds counter, so it can spend money a committed purchase needs~~ [FILED 2026-10-21 from the O4 analysis. Was open, small; owner ruling: ship now, ahead of ROUTE-CYCLES-ARE-HISTORY-AT-REWIND. FIXED 2026-10-21 on branch `claude/project-thread-q165qu`. xUnit only. product]
+## ~~ROUTE-DISPATCH-IGNORES-RESERVATIONS: a route dispatch checks the raw funds counter, so it can spend money a committed purchase needs~~ [FILED 2026-10-21 from the O4 analysis. Was open, small; owner ruling: ship now, ahead of ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES. FIXED 2026-10-21 on branch `claude/project-thread-q165qu`. xUnit only. product]
 
 `LiveRouteRuntimeEnvironment.KscFundsAvailable` compares `Funding.Instance.Funds` with the dispatch
 cost, but the logistics design (section 8, step 4) says the KSC dispatch must be "affordable under

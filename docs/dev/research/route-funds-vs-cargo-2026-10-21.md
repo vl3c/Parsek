@@ -160,3 +160,13 @@ rule needs it either way.
 2. In Model H, scenarios 4-6: a committed cycle that cannot deliver in full stays paid (recommended:
    yes, the 10.5 rule), or is refunded the undelivered share.
 3. Whether L2 ships now, ahead of the routes design task (recommended: yes).
+
+## 7. Outcome (owner rulings, 2026-10-21)
+
+V first ruled Model H, then replaced it the same day. Under H a committed cycle stays charged even
+when the new timeline cannot deliver it (the player moved or lost the destination), and holding the
+destination as a ghost until the last committed cycle defeats the point of a supply route. The rule
+adopted instead keeps every committed route row (no D2 exception) and adds, at the rewind, a
+refund of each later committed cycle's net cost, once per cycle; the cycles are re-decided live as
+in Model L. A cycle that made money stays history: not refunded, not re-run, its pickup re-taken
+from the origin depot when the clock passes it. Todo ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES.
