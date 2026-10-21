@@ -331,7 +331,7 @@ committed, skips the splice, and restores the held-back events, so an earning ma
 resumed spawned-vessel flight survives F5 / F9 and reaches the ledger at the merge. Residue filed
 as ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE, since fixed. Lane QL-13.
 
-Phase 3 (2026-10-21, local branch `phase3-local`, separate PR): deletes the in-session quickload
+Phase 3 (2026-10-21, branch `claude/project-thread-hvhou8`, separate PR): deletes the in-session quickload
 machinery no remaining load kind reaches (design section 8 table, "Phase 3" column). Deleted:
 the abandoned Re-Fly fork prune (`CollectAbandonedReFlyForkIds` / `NoteAbandonedReFlyForks` /
 `PruneAbandonedReFlyForks`; only a committed-copy resume noted forks); step B's resumed-tree row
