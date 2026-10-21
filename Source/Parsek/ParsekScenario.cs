@@ -3767,6 +3767,8 @@ namespace Parsek
             InFlightRecoveryRequest.Clear("OnLoad");
             // Jumped spans belong to the timeline that made them; a load starts another.
             ConverterJumpPolicy.ClearJumpedSpans("OnLoad");
+            // Attempt events held for the last load's flight restore belong to that load only.
+            DropHeldSaveAttemptEvents("next-load");
 
             DiagnosticsState.ResetSessionCounters();
             IncompleteBallisticSceneExitFinalizer.ResetLifecycleDiagnostics();

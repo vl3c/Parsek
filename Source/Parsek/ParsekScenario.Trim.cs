@@ -18,6 +18,7 @@ namespace Parsek
                 return false;
 
             bool mutated = false;
+            bool closedBeforeCutoff = IsClosedBeforeCutoff(rec, cutoffUT);
 
             mutated |= RemoveItemsPastUT(rec.Points, cutoffUT, p => p.ut);
             mutated |= TrimOrbitSegmentsPastUT(rec.OrbitSegments, cutoffUT);
@@ -32,7 +33,11 @@ namespace Parsek
                 mutated = true;
             }
 
-            if (double.IsNaN(rec.ExplicitEndUT) || rec.ExplicitEndUT > cutoffUT)
+            // A recording still open at the cutoff continues from it, so its end is the cutoff.
+            // One closed before the cutoff (a terminal, or a split it handed on at) keeps its own
+            // end: stamping the cutoff would make it read as existing until the resume moment.
+            if (rec.ExplicitEndUT > cutoffUT
+                || (double.IsNaN(rec.ExplicitEndUT) && !closedBeforeCutoff))
             {
                 rec.ExplicitEndUT = cutoffUT;
                 mutated = true;
@@ -42,6 +47,19 @@ namespace Parsek
                 rec.MarkFilesDirty();
 
             return mutated;
+        }
+
+        /// <summary>
+        /// Pure: true when <paramref name="rec"/> ended at or before <paramref name="cutoffUT"/>
+        /// by a terminal state or at a split it handed on at (a child branch point).
+        /// </summary>
+        internal static bool IsClosedBeforeCutoff(Recording rec, double cutoffUT)
+        {
+            if (rec == null)
+                return false;
+            if (!rec.TerminalStateValue.HasValue && string.IsNullOrEmpty(rec.ChildBranchPointId))
+                return false;
+            return rec.EndUT <= cutoffUT;
         }
 
         /// <summary>

@@ -49,6 +49,9 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Loading a save no longer stretches a vessel's recording that ended before the save.** A vessel
+  destroyed, or one that split, before the save kept playing as if it lasted until the load moment.
+  Its recording now ends where it really ended. (QUICKLOAD-TRIM-STAMPS-CUTOFF-AS-EARLIER-END)
 - **A supply route no longer spends money a committed purchase needs.** After a rewind, a route
   from the Space Center now waits for funds when its next run would dip into money a recorded later
   purchase still needs, the same way it waits when the funds counter is short.

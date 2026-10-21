@@ -781,6 +781,64 @@ namespace Parsek.Tests
             Assert.Equal(130.0, rec.ExplicitEndUT);
         }
 
+        // catches: the trim moving the end of a recording that ended before the cutoff (a
+        // destroyed member, a parent closed at its split) up to the cutoff, so it reads as
+        // existing until the resume moment (todo QUICKLOAD-TRIM-STAMPS-CUTOFF-AS-EARLIER-END).
+        [Theory]
+        [InlineData("terminal")]
+        [InlineData("split")]
+        public void TrimRecordingPastUT_ClosedBeforeTheCutoff_KeepsItsOwnEnd(string closedBy)
+        {
+            var rec = new Recording { RecordingId = "trim_closed", VesselName = "Closed Early" };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 150.0 });
+            if (closedBy == "terminal")
+                rec.TerminalStateValue = TerminalState.Destroyed;
+            else
+                rec.ChildBranchPointId = "bp_split";
+
+            bool trimmed = ParsekScenario.TrimRecordingPastUT(rec, 200.0);
+
+            Assert.False(trimmed);
+            Assert.True(double.IsNaN(rec.ExplicitEndUT));
+            Assert.Equal(150.0, rec.EndUT);
+            Assert.False(rec.FilesDirty);
+        }
+
+        // catches: the fix also dropping the stamp from a recording still open at the cutoff
+        // (the resumed flight continues it from there).
+        [Fact]
+        public void TrimRecordingPastUT_OpenRecordingEndedBeforeTheCutoff_IsStampedAtTheCutoff()
+        {
+            var rec = new Recording { RecordingId = "trim_open", VesselName = "Still Flying" };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 150.0 });
+
+            bool trimmed = ParsekScenario.TrimRecordingPastUT(rec, 200.0);
+
+            Assert.True(trimmed);
+            Assert.Equal(200.0, rec.ExplicitEndUT);
+            Assert.Equal(200.0, rec.EndUT);
+        }
+
+        // catches: a closed recording whose payload runs past the cutoff left uncut (the
+        // closed-early skip must not cover an ending the load retires).
+        [Fact]
+        public void TrimRecordingPastUT_ClosedAfterTheCutoff_IsCutToTheCutoff()
+        {
+            var rec = new Recording { RecordingId = "trim_closed_late", VesselName = "Closed Late" };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 250.0 });
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            rec.ExplicitEndUT = 250.0;
+
+            bool trimmed = ParsekScenario.TrimRecordingPastUT(rec, 200.0);
+
+            Assert.True(trimmed);
+            Assert.Equal(200.0, rec.ExplicitEndUT);
+            Assert.Single(rec.Points);
+        }
+
         [Fact]
         public void TrimRecordingPastUT_CutoffBeforeFirstSample_RemovesFutureOnlyRecording()
         {

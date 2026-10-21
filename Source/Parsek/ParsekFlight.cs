@@ -16411,6 +16411,9 @@ namespace Parsek
             RecordingStore.ArmCommittedTreeRestoreAttempt(
                 committedTree,
                 "TryTakeCommittedTreeForSpawnedVesselRestore copy-on-write");
+            // A save made inside an attempt that resumed in place holds no active tree, so its
+            // held-back events wait for this arm (design-load-restores-the-save.md 4.3).
+            ParsekScenario.ResolveHeldSaveAttemptEventsOnArm(committedTree.Id);
 
             // The recording we're about to resume carries VesselSpawned=true and a
             // non-zero SpawnedVesselPersistentId from its prior commit (set by the KSC

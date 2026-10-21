@@ -1,0 +1,173 @@
+schema = 1
+id = "QL-14-ksc-rows-crossed-in-flight"
+tier = "nightly"
+# QL-14: COMMITTED SPACE CENTER ROWS THE CLOCK REACHES WHILE THE PLAYER IS IN FLIGHT. The
+# reading run for todo QL-KSC-ROWS-CROSSED-ACROSS-A-SCENE-CHANGE (filed 2026-10-16 from the
+# QL1-KSC-CLOCK-CROSSING fix, reasoned from code, never measured).
+#
+# THE QUESTION. The clock-crossing fix lets committed-future Space Center rows apply once
+# when the clock reaches them, but only through the Space Center / Tracking Station clock
+# cursor and the forward time jumps: each applied patch records which rows were still ahead
+# of it, and a crossing passes the drawdown guard only while that record holds. Every
+# in-session load forgets the record (`Committed-future snapshot cleared:
+# reason=in-session-load`), a scene change included. A player who launches before the rows'
+# UT and flies past it reaches them in a scene with no cursor; the next scene's load walks at
+# the new clock with no record, so the guard should clamp (`GUARDED DRAWDOWN clamped ... (no
+# time-travel context)`): the upgrade and the research go uncharged and the hire is never
+# promoted.
+#
+# WHY A REWIND AND NOT A QUICKLOAD. QL-1 built this state with a quickload before the
+# purchases. Since PR #2155 a save-file load restores the save's own ledger, so no load can
+# leave Space Center rows in the future any more. A Rewind-to-Launch keeps them (ruling D2),
+# which is L8's route, reused here.
+#
+# THE ROUTE (career-pad-craft, L8's host and verbs):
+#   flight A   warp the pad to 60, record the Flea, warp to 1000 in flight, stop, CommitTree,
+#              Recover (L8's first flight verbatim).
+#   KSC        at ~1000: upgrade the Tracking Station, research basicRocketry, hire Verhat
+#              Kerman.
+#   rewind     Rewind-to-Launch A: clock 45, the three rows committed future (L8 measured the
+#              upgrade refused blocked-committed there).
+#   flight B   VAB launch of the Settings Probe (unrecorded), warp to 1100 in flight, past
+#              every row, then back to the Space Center. That scene change is the defect's
+#              path: no cursor ran while the clock crossed the rows.
+#   end        save persistent at ~1100 and quit.
+#
+# THE GATES (the fixed behavior; a red reading on these confirms the todo):
+#   - after the return to the Space Center, `Clock-crossing reached committed-future rows`
+#     and no guard clamp anywhere after the rewind;
+#   - `PromoteReachedCommittedHires: rows=1 promoted=1`: Verhat is crew again;
+#   - the rewind-aware ledger oracle: every row is past at the end clock, so funds are the
+#     seed minus both purchases and the hire, plus the recovery, minus the check rollout,
+#     charged once.
+#
+# PRE-REGISTERED READINGS:
+#   - `GUARDED DRAWDOWN clamped` after the return with no crossing line: the todo confirmed.
+#   - the crossing line present and pools right: the todo is moot on this route; close it.
+#   - `invokerewindtolaunch refused`: read the reason (L8 flew this exact rewind).
+#
+# STATUS: AUTHORED 2026-10-21 (branch `claude/project-thread-hvhou8`), NOT FLOWN. A reading
+# run: the expectations are the fixed behavior, and the first flight decides the todo.
+description = "QL-14: on career-pad-craft, record and recover a flight, buy a facility upgrade, a tech and a hire at the Space Center at UT ~1000, rewind to that flight's launch (the rows stay committed future), launch an unrecorded probe and warp past the rows in flight, then return to the Space Center. The rows apply once when the clock has crossed them outside the Space Center: no guard clamp, the hire promoted, the ledger oracle exact."
+instanceProfile = "stock-minimal"
+tags = ["QL-14", "career", "ledger", "rewind", "timeline-ops", "action-blocking", "editor",
+        "scene-change", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-pad-craft"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+
+  # ---- flight A: L8's first flight (record on the pad, commit, recover) ----
+  { cmd = "WarpToUT",       args = { ut = "60" },                                          expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "1000" },                                        expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "2905720181" },                                 expect = "OK", budget = 120 },
+
+  # ---- the Space Center purchases at ~1000 ----
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/TrackingStation" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",      args = { action = "research-node", node = "basicRocketry" },   expect = "OK", budget = 60 },
+  { cmd = "KscAction",      args = { action = "hire-kerbal", kerbal = "Verhat Kerman" },   expect = "OK", budget = 60 },
+
+  # ---- the rewind: the three rows stay committed future ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "ql14-rewound" },                             expect = "OK" },
+
+  # ---- flight B: past the rows in flight, then back to the Space Center ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Settings Probe" },         expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                              expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "1100" },                                        expect = "OK", budget = 120 },
+  { cmd = "ExitToSpaceCenter",                                                             expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "ql14-back-at-ksc" },                         expect = "OK" },
+
+  { cmd = "SaveGame",       args = { name = "persistent" },                                expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "science", "kerbals", "facilities", "recalc-engine", "ksp-state-patcher", "action-blocking"]
+D14 = ["career", "scene-ksc", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Flight A only; flight B is unrecorded.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  "kscaction action=upgrade-facility target=SpaceCenter/TrackingStation applied=true",
+  "kscaction action=research-node target=basicRocketry applied=true",
+  "kscaction action=hire-kerbal target=Verhat Kerman applied=true",
+  "\\[Rewind\\] Rewind-to-Launch initiated to UT ",
+  # The rows reached outside the Space Center apply once on the return.
+  "MISSIONMARK label=ql14-rewound [\\s\\S]*Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* ",
+  "MISSIONMARK label=ql14-rewound [\\s\\S]*PromoteReachedCommittedHires: rows=1 promoted=1 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  "invokerewindtolaunch refused",
+]
+
+# The rewind-aware ledger oracle. The end clock (~1100) is past every row.
+[expectations.ledger]
+seedFrom     = "template"
+tolerances   = "default"
+rec3CarveOut = false
+timeline     = "rewind-aware"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [44.0, 60.0]
+  kind       = "vessel-build-cost"
+  # Flight B's rollout: the Settings Probe's Stayputnik (HC-2's measured 300).
+  funds      = -300.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [1000.0, 1010.0]
+  kind       = "vessel-recovery"
+  # Flight A's pad recovery of the Jumping Flea (L2's measured payout).
+  funds      = 4182.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [1000.0, 1010.0]
+  kind       = "facility-upgrade"
+  # Tracking Station 0 -> 1 (L1-upgrade-facility-career, QL-1, L8).
+  funds      = -150000.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [1000.0, 1010.0]
+  kind       = "tech-unlock"
+  # basicRocketry (L1-research-node-career, L8).
+  science    = -5.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [1000.0, 1010.0]
+  kind       = "kerbal-hire"
+  # L8's measured recruit cost on this roster.
+  funds      = -62113.0
+  provenance = "seam-declared"
+
+[runtime]
+budgetSeconds = 3000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
