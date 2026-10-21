@@ -186,8 +186,8 @@ namespace Parsek
         /// What one quickload-resume reconcile owns, captured BEFORE the trim: the
         /// recordings the trim cuts (every recording of the tree, or only the active one
         /// under the Re-Fly scope), the future-only recordings it prunes, and each one's
-        /// end UT before the trim (the trim stamps <c>ExplicitEndUT</c> = cutoff, so the
-        /// post-trim end cannot tell whether a recording ended after the cutoff). A
+        /// end UT before the trim (the trim cuts a recording that ran past the cutoff to the
+        /// cutoff, so the post-trim end cannot tell whether it ended after the cutoff). A
         /// recording that is still committed, or that the quicksave already shows as
         /// committed history (<see cref="IsCommittedHistoryAtQuicksave"/>), is left out of
         /// every set, including <c>PrunedIds</c> when the trim prunes it.

@@ -310,7 +310,10 @@ fresh attempt for the same tree. The save's held-back events are held for that a
 active tree restored, no attempt armed and the attempt's committed tree loaded,
 `ApplySaveAttemptEventsAfterActiveTreeRestore` holds them (`HoldForFlightRestore`), and
 `TryTakeCommittedTreeForSpawnedVesselRestore` puts them back into memory only when it arms that
-tree id (any other arm drops them, and the next OnLoad drops a hold no arm took). The trajectory
+tree id, and then only the events that arm itself keeps off the file (an event of a recording the
+attempt made after the resume is not in the committed copy the arm reads, so it is dropped with its
+accept's contract snapshot rather than written to the next save outside a merge; any other arm
+drops them, and the next OnLoad drops a hold no arm took). The trajectory
 flown between the resume and the save is still not in the save
 (`ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE`). Lane QL-13 (to add): inside a spawned-vessel resume
 that continues in a new segment, earn something, F5, F9, merge: the earning is in the ledger

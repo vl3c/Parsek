@@ -284,6 +284,50 @@ namespace Parsek.Tests
             Assert.Contains(next.AttemptEvents.GetNodes("GAME_STATE_EVENT"), n => n.GetValue("key") == "earned-in-attempt");
         }
 
+        // catches: the re-arm restoring every held event, including one of a recording the
+        // original attempt made after the resume (gone with the save's missing active tree):
+        // the fresh arm's cutoffs come from the committed copy alone, so the next save would
+        // write that event, and its accept's contract snapshot, to the file outside a merge.
+        [Fact]
+        public void ColdLoad_InPlaceAttempt_HeldEventOfARecordingTheArmDoesNotKnow_Dropped()
+        {
+            ConfigNode save = WriteSaveInsideAttempt(withHeldEvent: true);
+            save.RemoveNode(save.GetNodes("RECORDING_TREE").Single(n => ParsekScenario.IsActiveTreeNode(n)));
+            ConfigNode attemptNode = save.GetNode(ParsekScenario.GameStateNodeName)
+                .GetNode(GameStateStore.AttemptEventsNodeName);
+            Assert.NotNull(attemptNode);
+            new GameStateEvent
+            {
+                ut = 240.0, eventType = GameStateEventType.ContractAccepted, key = "child-contract-guid",
+                detail = "", recordingId = "rec_attempt_child",
+            }.SerializeInto(attemptNode.AddNode("GAME_STATE_EVENT"));
+            new ContractSnapshot
+            {
+                contractGuid = "child-contract-guid", ut = 240.0, contractNode = new ConfigNode("CONTRACT"),
+            }.SerializeInto(attemptNode);
+            SimulateColdLoad(save);
+
+            Assert.False(ParsekScenario.TryRestoreActiveTreeNode(save, EarlyLoadKind.Cold, loadedSceneIsFlight: true));
+            Assert.Equal(0, ParsekScenario.ApplySaveAttemptEventsAfterActiveTreeRestore());
+            Assert.True(ParsekScenario.HasHeldSaveAttemptEventsForTesting);
+
+            logLines.Clear();
+            RecordingStore.ArmCommittedTreeRestoreAttempt(
+                RecordingStore.CommittedTrees.Single(t => t.Id == TreeId), OriginalArmReason);
+            Assert.Equal(1, ParsekScenario.ResolveHeldSaveAttemptEventsOnArm(TreeId));
+            Assert.Single(GameStateStore.Events.Where(e => e.key == "earned-in-attempt"));
+            Assert.DoesNotContain(GameStateStore.Events, e => e.key == "child-contract-guid");
+            Assert.DoesNotContain(GameStateStore.ContractSnapshots, c => c.contractGuid == "child-contract-guid");
+            Assert.Contains(logLines, l => l.Contains("Restored the held ATTEMPT_EVENTS into memory only on the flight's re-arm")
+                && l.Contains("events=1") && l.Contains("droppedNotHeldByTheArm=1"));
+
+            var next = GameStateStore.BuildEventsNode(
+                RecordingStore.CommittedTreeRestoreAttemptTreeId,
+                RecordingStore.CommittedTreeRestoreAttemptReason);
+            Assert.DoesNotContain(next.Root.GetNodes("GAME_STATE_EVENT"), n => n.GetValue("key") == "child-contract-guid");
+            Assert.DoesNotContain(next.Root.GetNodes("CONTRACT_SNAPSHOT"), n => n.GetValue("guid") == "child-contract-guid");
+        }
+
         // catches: held events restored for an attempt on another tree, or kept past the load
         // that held them (they would then reach a later timeline).
         [Theory]

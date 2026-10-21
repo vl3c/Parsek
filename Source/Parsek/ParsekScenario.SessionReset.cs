@@ -560,10 +560,17 @@ namespace Parsek
                     + " reason=DropOtherTree armedTree=" + (armedTreeId ?? "<none>"));
                 return 0;
             }
-            int restored = GameStateStore.RestoreAttemptEventsToMemory(held);
+            // The re-arm builds its cutoffs from the committed copy alone, so an event of a
+            // recording the attempt made after the resume (gone with the save's missing active
+            // tree) is not one it would keep off the file: drop it rather than let the next
+            // save write it outside a merge (#866).
+            int restored = GameStateStore.RestoreAttemptEventsToMemory(
+                held, RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence,
+                out int dropped);
             ParsekLog.Info("Scenario",
                 "Restored the held ATTEMPT_EVENTS into memory only on the flight's re-arm: attemptTreeId="
-                + heldId + " events=" + restored.ToString(CultureInfo.InvariantCulture));
+                + heldId + " events=" + restored.ToString(CultureInfo.InvariantCulture)
+                + " droppedNotHeldByTheArm=" + dropped.ToString(CultureInfo.InvariantCulture));
             return restored;
         }
 
