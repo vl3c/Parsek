@@ -15,7 +15,9 @@ namespace Parsek
     /// <see cref="ParsekLog.ScreenMessage"/> (the only player channel CLAUDE.md allows for
     /// this). The evaluation is pure; <see cref="ParsekHarmony"/> collects the inputs at
     /// <c>Startup.Instantly</c> and posts the queued notices once a playable scene settles,
-    /// because KSP clears screen messages on every level load.
+    /// because KSP clears screen messages on every level load. A load-time event notice (the
+    /// inert-tree notice, GC-3) uses the same queue through
+    /// <see cref="ParsekHarmony.QueueNoticeForSettledScene"/>.
     /// </summary>
     internal static class StartupNotices
     {

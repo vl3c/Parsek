@@ -243,8 +243,8 @@ It does NOT null the committed-list notification events (the batch reset does; t
 controllers subscribe to them) and does not touch settings.
 
 A pure inventory gate (xUnit) lists every `static` field in `RecordingStore`, `GameStateStore`,
-`MilestoneStore`, `GameStateRecorder`, `LedgerOrchestrator`, `KspStatePatcher` and
-`ParsekScenario` by reflection and requires each to be either reset by the helper (proved by a
+`MilestoneStore`, `GameStateRecorder`, `LedgerOrchestrator`, `KspStatePatcher`,
+`ParsekScenario` and `InertRecordingTrees` by reflection and requires each to be either reset by the helper (proved by a
 set-then-reset-then-read cell) or named in an allowlist with a one-line reason (settings,
 caches keyed by content, log rate limiters). A new static then fails the suite until someone
 decides which side it is on.
@@ -451,7 +451,9 @@ directories outside an allowlist naming the collector, the commit batch and the 
   pending and committed trees alike), every rewind point id in `REWIND_POINTS`, and every
   `rewindSave` and `resumeRewindSave` file name;
 - the in-memory state: the same items over memory's trees, pending tree and rewind point list,
-  plus `pendingActiveTreeResumeRewindSave` and the live recorder's `RewindSaveFileName`.
+  plus `pendingActiveTreeResumeRewindSave` and the live recorder's `RewindSaveFileName`, and the
+  committed trees kept inert because the schema gate rejected them (`InertRecordingTrees`, GC-3:
+  their nodes are re-emitted verbatim, so every save that held them still names their files).
 
 `Parsek/RewindPoints/*.sfs` and `Parsek/Saves/*.sfs` are not referrers: rewinds and Re-Fly loads
 read recordings from memory, never through the rewind file's own node (VERIFY V5 in the plan).

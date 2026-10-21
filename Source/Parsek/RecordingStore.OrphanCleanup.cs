@@ -254,6 +254,8 @@ namespace Parsek
 
             AddKnownTreeRecordingIds(knownIds, pendingTree);
             AddKnownTreeRecordingIds(knownIds, savedPendingTreeDuringActiveRestore);
+            // GC-3: recordings of committed trees kept inert are known (not orphans).
+            InertRecordingTrees.AddRecordingIdsTo(knownIds);
             return knownIds;
         }
 
@@ -283,7 +285,8 @@ namespace Parsek
 
         /// <summary>
         /// Builds the set of all recording IDs that are currently known to the store
-        /// (committed recordings, committed trees, and the pending tree). Used by
+        /// (committed recordings, committed trees, the pending tree, and the recordings of
+        /// committed trees kept inert by <see cref="InertRecordingTrees"/>). Used by
         /// the OnSave stranded-sidecar warn and the load-fault preserve guard.
         /// Extracted as <c>internal static</c> for direct testability (#290).
         /// </summary>
@@ -314,6 +317,9 @@ namespace Parsek
             pendingTreeIdCount += AddKnownTreeRecordingIds(knownIds, pendingTree);
             pendingTreeIdCount += AddKnownTreeRecordingIds(
                 knownIds, savedPendingTreeDuringActiveRestore);
+            // GC-3: recordings of committed trees kept inert are known, so the ledger
+            // reconcile keeps their rows and the sweeps do not treat them as orphans.
+            InertRecordingTrees.AddRecordingIdsTo(knownIds);
             return knownIds;
         }
 

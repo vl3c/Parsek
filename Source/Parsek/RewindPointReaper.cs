@@ -100,6 +100,7 @@ namespace Parsek
             // while iterating.
             var toReap = new List<RewindPoint>();
             var toReapIndices = new List<int>();
+            int keptInert = 0;
             for (int i = 0; i < rps.Count; i++)
             {
                 var rp = rps[i];
@@ -113,9 +114,20 @@ namespace Parsek
                     continue;
                 }
                 if (!IsReapEligible(rp, supersedes))
+                {
+                    if (NamesInertRecording(rp, supersedes))
+                        keptInert++;
                     continue;
+                }
                 toReap.Add(rp);
                 toReapIndices.Add(i);
+            }
+
+            if (keptInert > 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"ReapOrphanedRPs: kept {keptInert.ToString(CultureInfo.InvariantCulture)} rewind point(s) " +
+                    "naming inert recordings (committed trees from a different recording schema generation)");
             }
 
             if (toReap.Count == 0)
@@ -185,8 +197,10 @@ namespace Parsek
         /// MergeState (collapse-seal-into-mergestate plan). A slot whose
         /// OriginChildRecordingId is null/blank, or whose effective tip cannot
         /// be resolved to a committed recording (orphan), is treated as closed
-        /// (there is no recording that could still be re-flown). An RP with no
-        /// slots at all is eligible.
+        /// (there is no recording that could still be re-flown), EXCEPT a tip that
+        /// belongs to a committed tree kept inert (<see cref="InertRecordingTrees"/>,
+        /// GC-3): that slot reads OPEN, so the point and its quicksave stay for the
+        /// Parsek build that can load the tree. An RP with no slots at all is eligible.
         /// </summary>
         internal static bool IsReapEligible(
             RewindPoint rp, IReadOnlyList<RecordingSupersedeRelation> supersedes)
@@ -211,6 +225,10 @@ namespace Parsek
                 var rec = FindRecordingById(effectiveId);
                 if (rec == null)
                 {
+                    // A recording of an inert tree is not an orphan: it is kept
+                    // unchanged for the Parsek build that wrote it -> open.
+                    if (InertRecordingTrees.ContainsRecordingId(effectiveId))
+                        return false;
                     // Orphan recording id (tree was discarded mid-session,
                     // or the save dropped the recording). No re-fly target
                     // survives -> closed.
@@ -226,6 +244,27 @@ namespace Parsek
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// True when a slot of <paramref name="rp"/> resolves to a recording of a committed tree
+        /// kept inert (the reason <see cref="IsReapEligible"/> kept it). Diagnostics only.
+        /// </summary>
+        internal static bool NamesInertRecording(
+            RewindPoint rp, IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (rp?.ChildSlots == null || InertRecordingTrees.Count == 0)
+                return false;
+            for (int s = 0; s < rp.ChildSlots.Count; s++)
+            {
+                var slot = rp.ChildSlots[s];
+                if (slot == null) continue;
+                string effectiveId = slot.EffectiveRecordingId(supersedes);
+                if (InertRecordingTrees.ContainsRecordingId(effectiveId)
+                    && FindRecordingById(effectiveId) == null)
+                    return true;
+            }
+            return false;
         }
 
         private static Recording FindRecordingById(string recordingId)

@@ -29,6 +29,7 @@ namespace Parsek.Tests
             typeof(LedgerOrchestrator),
             typeof(KspStatePatcher),
             typeof(ParsekScenario),
+            typeof(InertRecordingTrees),
         };
 
         private readonly List<string> logLines = new List<string>();
@@ -129,7 +130,7 @@ namespace Parsek.Tests
                 + string.Join(", ", stale));
         }
 
-        // Every static of the seven classes is either allowlisted or reset by the helper: this
+        // Every static of the inventory classes is either allowlisted or reset by the helper: this
         // cell sets each non-allowlisted one to a value the reset must undo, runs the reset and
         // reads it back. A new static fails here (or in the mutation step, naming the field)
         // until it is reset or allowlisted with a reason.
