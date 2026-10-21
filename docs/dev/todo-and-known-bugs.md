@@ -289,7 +289,7 @@ which should make `RetiredRouteCargoStore` and probably the route state floor un
 rewrite logistics design 10.6, VERIFY the snapshot capture UT is readable on every spawn path, then
 a plan. A quickload / load still restores exactly what the save holds.
 
-## ROUTE-DISPATCH-IGNORES-RESERVATIONS: a route dispatch checks the raw funds counter, so it can spend money a committed purchase needs [FILED 2026-10-21 from the O4 analysis. OPEN, small; owner ruling: ship now, ahead of ROUTE-CYCLES-ARE-HISTORY-AT-REWIND]
+## ~~ROUTE-DISPATCH-IGNORES-RESERVATIONS: a route dispatch checks the raw funds counter, so it can spend money a committed purchase needs~~ [FILED 2026-10-21 from the O4 analysis. Was open, small; owner ruling: ship now, ahead of ROUTE-CYCLES-ARE-HISTORY-AT-REWIND. FIXED 2026-10-21 on branch `claude/project-thread-q165qu`. xUnit only. product]
 
 `LiveRouteRuntimeEnvironment.KscFundsAvailable` compares `Funding.Instance.Funds` with the dispatch
 cost, but the logistics design (section 8, step 4) says the KSC dispatch must be "affordable under
@@ -298,6 +298,12 @@ once committed future costs are reserved, so a cycle can spend it (breaks rule 3
 ledger rule, LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY). Fix: read the reservation-aware affordable
 amount (`LedgerOrchestrator.CanAffordFundsSpending`, already consistent with the drawdown guard);
 a short dispatch waits with the existing `WaitingForFunds` status. Unit cells first.
+
+Done: `LiveRouteRuntimeEnvironment.KscFundsAvailable` now gates on the smaller of the live counter
+and `CanAffordFundsSpending`'s effective available amount (pure `DecideKscFundsAvailable`; a NaN or
++inf reading, or a throwing probe, leaves the live counter as the bound). A refusal logs which side
+bound (`bound=live|reserved`) and keeps the existing `FundsShort` / `WaitingForFunds` path. Cells:
+`RouteDispatchReservationGateTests` (pure decision plus a seeded committed-future purchase).
 
 ## REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE: after a plain rewind, a vessel whose committed future is a root-lineage or switch-continuation flight stays a real vessel [FILED 2026-10-19, inferred from code. OPEN, medium, physical paradox]
 

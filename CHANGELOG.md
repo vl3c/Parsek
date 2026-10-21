@@ -44,6 +44,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A supply route no longer spends money a committed purchase needs.** After a rewind, a route
+  from the Space Center now waits for funds when its next run would dip into money a recorded later
+  purchase still needs, the same way it waits when the funds counter is short.
+  (ROUTE-DISPATCH-IGNORES-RESERVATIONS)
 - **A station a later flight docks with can't be recovered early.** After a rewind, the Tracking
   Station greys Recover and Delete, and the Space Center greys Recover, on a vessel a recorded later
   flight still docks with, so it can't come back as a duplicate and be paid for twice. (GC-2)
