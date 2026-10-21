@@ -777,15 +777,19 @@ namespace Parsek
         /// <summary>
         /// The path a lazy vessel-snapshot hydration reads: a recording hydrated inside a
         /// Cold load follows the version its save named (head when the head matches, the
-        /// retained version otherwise, nothing when neither holds it); every other
-        /// recording reads the head, as today.
+        /// retained version otherwise, nothing when neither holds it). Any other recording
+        /// with a known hash reads its own bytes too when a version holds them (a committed
+        /// recording a restore attempt resumed in place: the attempt's save wrote the head),
+        /// and reads the head otherwise, as before.
         /// </summary>
         internal static string ResolveLazyVesselSnapshotPath(Recording rec, string headPath)
         {
-            if (rec == null || !rec.SidecarVersionsResolved || string.IsNullOrEmpty(rec.VesselSnapshotHash))
+            if (rec == null || string.IsNullOrEmpty(rec.VesselSnapshotHash))
                 return headPath;
             SidecarResolution r = SidecarVersionResolution.Resolve(
                 headPath, rec.RecordingId, SidecarKind.Vessel, rec.VesselSnapshotHash);
+            if (!rec.SidecarVersionsResolved && r.Source == SidecarResolveSource.Unresolved)
+                return headPath;
             return r.ReadPath;
         }
 
@@ -914,6 +918,98 @@ namespace Parsek
                 RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
             return AreRecordingFilesCurrentAtPaths(
                 rec, precPath, vesselPath, ghostPath, out reason);
+        }
+
+        /// <summary>
+        /// True when the recording's head files are not its own but the bytes its named hashes
+        /// point at are all on disk (at least one as a retained version) and pass the same
+        /// currency checks there. That is a committed recording whose id a restore attempt
+        /// resumed in place: the attempt's save wrote the head and retained the committed
+        /// bytes under their hash, so the committed copy is current without a rewrite (a
+        /// rewrite would advance its sidecar epoch and move the committed history before any
+        /// merge). False with a reason otherwise; the caller then checks or rewrites the head.
+        /// </summary>
+        /// <summary>
+        /// True when the recording names no trajectory hash, or its <c>.prec</c> head holds
+        /// exactly the bytes it names. A head that holds other bytes (another copy of the same
+        /// id wrote it) returns false with <c>head-holds-other-bytes</c>.
+        /// </summary>
+        internal static bool TrajectoryHeadHoldsNamedBytes(Recording rec, out string reason)
+        {
+            reason = null;
+            if (rec == null || string.IsNullOrEmpty(rec.PrecHash)
+                || !RecordingPaths.ValidateRecordingId(rec.RecordingId))
+                return true;
+            string headPath = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
+            if (string.IsNullOrEmpty(headPath) || !File.Exists(headPath))
+            {
+                reason = "trajectory-missing";
+                return false;
+            }
+            string headHash;
+            try { headHash = SidecarContentHash.ComputeFile(headPath); }
+            catch (Exception ex)
+            {
+                reason = "head-hash-unreadable: " + FormatExceptionForSidecarLog(ex);
+                return false;
+            }
+            if (string.Equals(headHash, rec.PrecHash, StringComparison.Ordinal))
+                return true;
+            reason = "head-holds-other-bytes";
+            return false;
+        }
+
+        internal static bool AreRecordingFilesCurrentThroughNamedVersions(Recording rec, out string reason)
+        {
+            reason = null;
+            if (rec == null)
+            {
+                reason = "recording-null";
+                return false;
+            }
+            if (string.IsNullOrEmpty(rec.PrecHash))
+            {
+                reason = "no-named-prec-hash";
+                return false;
+            }
+            string id = rec.RecordingId;
+            if (!RecordingPaths.ValidateRecordingId(id))
+            {
+                reason = "recording-id-invalid";
+                return false;
+            }
+
+            SidecarResolution prec = SidecarVersionResolution.Resolve(
+                RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildTrajectoryRelativePath(id)),
+                id, SidecarKind.Prec, rec.PrecHash);
+            SidecarResolution vessel = SidecarVersionResolution.Resolve(
+                RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildVesselSnapshotRelativePath(id)),
+                id, SidecarKind.Vessel, rec.VesselSnapshotHash);
+            SidecarResolution ghost = SidecarVersionResolution.Resolve(
+                RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildGhostSnapshotRelativePath(id)),
+                id, SidecarKind.Ghost, rec.GhostSnapshotHash);
+
+            var all = new[] { prec, vessel, ghost };
+            bool anyVersion = false;
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i].Source == SidecarResolveSource.Unresolved)
+                {
+                    reason = "named-hash-unresolved:" + SidecarVersions.Label(all[i].Kind);
+                    return false;
+                }
+                if (all[i].Source == SidecarResolveSource.Version)
+                    anyVersion = true;
+            }
+            if (!anyVersion)
+            {
+                reason = "no-retained-version";
+                return false;
+            }
+
+            return AreRecordingFilesCurrentAtPaths(
+                rec, prec.ReadPath, vessel.ReadPath, ghost.ReadPath, out reason);
         }
 
         internal static bool AreRecordingFilesCurrentAtPaths(

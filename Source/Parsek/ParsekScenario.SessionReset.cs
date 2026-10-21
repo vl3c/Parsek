@@ -25,8 +25,9 @@ namespace Parsek
         private static ConfigNode pendingSaveAttemptEvents;
 
         // The save's ATTEMPT_EVENTS when the save holds the attempt's committed tree but no
-        // active node for it (an attempt that resumed its recording in place: the overlap skip
-        // leaves the active node out of every save while a member is dirty). Held past OnLoad
+        // active node for it (a save written while the active tree could not be saved, e.g.
+        // a member skipped as degraded, or by a build that skipped a resumed-in-place
+        // recording). Held past OnLoad
         // until the flight's committed-tree restore arms the same tree again
         // (ResolveHeldSaveAttemptEventsOnArm); the next OnLoad drops it.
         private static ConfigNode heldSaveAttemptEvents;

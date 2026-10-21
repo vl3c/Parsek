@@ -310,22 +310,31 @@ reapers and sweeps do not read it, and `ParsekFlight.ResetFlightReadyState` runs
 scene's controller with no active tree, so its id-matched clear is a no-op; the flight-ready
 Quickload restore pops the tree into the recorder as before. A save that names an attempt but
 holds no committed copy of its tree does not re-arm (the attempt cannot be reconstructed) and
-drops the events with a Verbose line. Limit: an attempt that resumed a committed recording in
-place and had written to it is not in the save at all, because the overlap skip in
-`PlanActiveTreeSidecarSaves` leaves the active-tree node out of every save while such a member
-is dirty; that load restores no active tree, and the flight-ready committed-tree restore arms a
-fresh attempt for the same tree. The save's held-back events are held for that arm: with no
+drops the events with a Verbose line. An attempt that resumed a committed recording in place
+shares that recording's id with the committed copy. Every save writes it like any other active
+member: the write replaces the head and keeps the committed bytes as their hashed version (4.4),
+and the committed copy keeps naming that hash. A committed-tree recording whose head moved on is
+current for the save when every hash it names resolves and one resolves to a retained version, so
+it is never rewritten and its epoch does not move before a merge (the attempt member, which
+starts at the same epoch, also checks that the head holds the hash it names). An in-session load
+of such a save while the attempt is armed for that tree (the save stock makes before leaving
+flight) keeps the committed original committed and skips the splice, as the cold re-arm does.
+Such a save names two versions
+of the id; the cold load reads each copy from its own bytes (two owners, no promote) and re-arms
+the attempt as above. A Discard leaves the committed copy current through its version, and the
+next load that names it alone promotes it back to head. Fallback, for a save holding the
+attempt's committed tree but no active node (an active tree skipped for a degraded member): that
+load restores no active tree, and the flight-ready committed-tree restore arms a fresh attempt
+for the same tree. The save's held-back events are held for that arm: with no
 active tree restored, no attempt armed and the attempt's committed tree loaded,
 `ApplySaveAttemptEventsAfterActiveTreeRestore` holds them (`HoldForFlightRestore`), and
 `TryTakeCommittedTreeForSpawnedVesselRestore` puts them back into memory only when it arms that
 tree id, and then only the events that arm itself keeps off the file (an event of a recording the
 attempt made after the resume is not in the committed copy the arm reads, so it is dropped with its
 accept's contract snapshot rather than written to the next save outside a merge; any other arm
-drops them, and the next OnLoad drops a hold no arm took). The trajectory
-flown between the resume and the save is still not in the save
-(`ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE`). Lane QL-13 (to add): inside a spawned-vessel resume
-that continues in a new segment, earn something, F5, F9, merge: the earning is in the ledger
-once.
+drops them, and the next OnLoad drops a hold no arm took)
+(`ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE`). Lane QL-13: a committed orbiting vessel resumed in
+place, F5, F9: the save names both versions, the F9 re-arms and resumes the same recording.
 
 A save taken during a live Re-Fly session holds the session tree twice, as an ordinary session
 has it in memory: the committed original and the live tree with the same id. A load of that save
@@ -813,4 +822,4 @@ existing `QL-*` lane with its log contract moved from the old machinery's lines 
 3. ~~A save written inside a committed-tree restore attempt: does a save-file load re-arm it?~~
    Closed (Phase 2): the cold active-tree restore re-arms the attempt from the save's committed
    copy and its held-back events come back; see the V8 outcome in 4.3, including the
-   resumed-in-place limit. Lane QL-13.
+   resumed-in-place save. Lane QL-13.

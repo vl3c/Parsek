@@ -57,6 +57,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **F5 and F9 during a flight that continues a committed vessel keep the path you flew.** Flying a
+  committed vessel again extends its recording; a quicksave now holds that new flying beside the
+  committed copy, so a quickload resumes it with no gap, and Discard still leaves the committed
+  flight as it was. (ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE)
 - **Loading a save no longer stretches a vessel's recording that ended before the save.** A vessel
   destroyed, or one that split, before the save kept playing as if it lasted until the load moment.
   Its recording now ends where it really ended. (QUICKLOAD-TRIM-STAMPS-CUTOFF-AS-EARLIER-END)

@@ -1,0 +1,140 @@
+schema = 1
+id = "QL-13-resumed-flight-survives-f5-f9"
+tier = "nightly"
+# QL-13: A COMMITTED VESSEL FLOWN AGAIN, THEN F5 AND F9. The live proof of todo
+# ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE (owner ruling 2026-10-21: keep the in-place
+# resume, save it through the hashed sidecar versions).
+#
+# THE DEFECT. Flying a committed vessel again resumes its committed recording IN PLACE when the
+# live parts match its snapshot: the restore attempt's clone keeps the committed recording's
+# id. Every save skipped the whole live tree while that recording had unsaved changes (the
+# committed-restore overlap skip), so an F5 held no live tree and the F9 re-took the committed
+# copy from scratch, losing the path flown between the resume and the F5.
+#
+# THE FIX. The save writes the resumed recording like any other. The write keeps the committed
+# bytes as their hashed version under `_versions/`, the committed copy keeps naming that hash
+# and is current through it (never rewritten before a merge), so one save names both versions
+# of the id. The F9 (a Cold load) reads each copy from its own bytes, re-arms the attempt and
+# resumes the same recording.
+#
+# HOST: `lab-lko-science` (LAB-6's host): the LABX Orbital Lab (pid 2200110055) orbiting Kerbin,
+# fixture UT 355.8. Orbit coast only; nothing else is needed to have a path to lose.
+#
+# THE ROUTE.
+#   record     LAB-6's opening (StopRecording + DiscardTree of the fixture's own tree), record
+#              the lab to UT 600, CommitTree. CommitTree re-takes the committed tree for the
+#              still-active vessel (LAB-6, H58): the in-place resume under test.
+#   resumed    coast to 900, note the active recording, F5 (`quicksave`).
+#   abandoned  coast to 1200, stop the recorder (the LoadGame verb refuses a live one, the
+#              QL-4 / QL-11 deviation), then F9 (`playerLoad=true`, a Cold save-file load).
+#   after      note the active recording again (the SAME id), coast to 1300, commit, then
+#              StopRecording + DiscardTree of the next re-take (LAB-6's shape), so the
+#              committed set is the one resumed recording.
+#
+# THE GATES: the re-take arms the attempt; the F5 writes the resumed recording; the F9 reads
+# the committed copy and the resumed one from two versions of the same id (`owners=2`, the one
+# shape only the fix produces), re-arms the attempt, and the same recording is active again;
+# no both-or-neither skip, no unresolved version, no ERROR; one committed recording.
+#
+# STATUS: AUTHORED 2026-10-21 (branch `claude/project-thread-hvhou8`). First flights
+# `2026-10-21_2030` / `_2032_a2` INVALID driver-verdict-mismatch: the F9 was refused with the
+# recorder live (`reject ... cmd=LoadGame reason=recording-active`); the F5 already logged
+# `writing restore-attempt recording`. StopRecording added before the F9; LIVE-PROVEN
+# `2026-10-21_2058` PASS attempt 1.
+description = "QL-13: a committed orbiting lab is flown again and resumes its recording in place; an F5 at UT 900 writes the resumed recording beside the committed copy's hashed version, an F9 after 300 s of abandoned future reads both, resumes the same recording, and the final commit holds that one recording."
+instanceProfile = "stock-minimal"
+tags = ["QL-13", "quickload", "resume", "sidecar-versions", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/lab-lko-science"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+
+  # ---- the recording, committed; CommitTree's re-take is the in-place resume ----
+  { cmd = "StartRecording",                                                          expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "600" },                                   expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "CommitTree",                                                              expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "ql13-resumed" },                       expect = "OK" },
+
+  # ---- fly on in the resumed recording, then F5 ----
+  { cmd = "WarpToUT",       args = { ut = "900" },                                   expect = "OK", budget = 120 },
+  { cmd = "ListHandles",    args = { kind = "active" }, label = "a0",                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ql13-before-f5-${a0.activeRec}" },     expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "quicksave" },                           expect = "OK", budget = 120 },
+
+  # ---- the abandoned future, then F9 ----
+  { cmd = "WarpToUT",       args = { ut = "1200" },                                  expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "ql13-f9" },                            expect = "OK" },
+  # The LoadGame verb refuses a live recorder (`reason=recording-active`), as in QL-4 / QL-11.
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "active" }, label = "a1",                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ql13-after-f9-${a1.activeRec}" },      expect = "OK" },
+
+  # ---- fly on, merge, drop the next re-take ----
+  { cmd = "WarpToUT",       args = { ut = "1300" },                                  expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "CommitTree",                                                              expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c1",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ql13-done-${c1.count}" },              expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "persistent" },                          expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "science-mode", "scene-flight", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The one recording, resumed in place and merged.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  "committree committed=true",
+  # CommitTree's re-take arms the restore attempt: the resume in place.
+  "committree committed=true[\\s\\S]*Armed committed-tree restore attempt for '[^']*' \\(id=\\S+, recordings=1,[\\s\\S]*MISSIONMARK label=ql13-resumed ",
+  # The F5 writes the resumed recording over its committed copy's id ...
+  "MISSIONMARK label=ql13-before-f5-([0-9a-f]{32}) [\\s\\S]*SaveActiveTreeIfAny: writing restore-attempt recording '\\1'[\\s\\S]*MISSIONMARK label=ql13-f9 ",
+  # ... the F9 reads two versions of that id, one per copy ...
+  "MISSIONMARK label=ql13-before-f5-([0-9a-f]{32}) [\\s\\S]*MISSIONMARK label=ql13-f9 [\\s\\S]*Sidecar version read without promote: rec=\\1 kind=\\S+ hash=[0-9a-f]{16} reason=multiple-owners owners=2",
+  # ... re-arms the attempt from the save ...
+  "MISSIONMARK label=ql13-f9 [\\s\\S]*loadgame start save=\\S+ name=quicksave scene=FLIGHT requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false playerLoad=true",
+  "MISSIONMARK label=ql13-f9 [\\s\\S]*OnLoad: re-armed the save's committed-tree restore attempt for tree '",
+  "MISSIONMARK label=ql13-f9 [\\s\\S]*recordingstate recording=true tree=\\S+ points=",
+  # ... and the same recording is the active one again.
+  "MISSIONMARK label=ql13-before-f5-([0-9a-f]{32}) [\\s\\S]*MISSIONMARK label=ql13-after-f9-\\1 ",
+  "MISSIONMARK label=ql13-done-1 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "skipped dirty sidecar save for committed-restore overlap",
+  "outcome=both-or-neither",
+  "Sidecar version unresolved",
+]
+
+[runtime]
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

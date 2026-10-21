@@ -71,18 +71,13 @@ namespace Parsek.Tests
         // The exact shape from the todo entry
         // -----------------------------------------------------------------
 
-        // Fails if: the classify pass reports the tree as writable while a
-        // committed-restore overlap is present, or stops reporting the
-        // legitimately-new switch-segment recording as a write candidate.
-        //
-        // This is the both-or-neither statement in one assertion pair: the
-        // marker-owned segment IS a write candidate (its sidecar would have been
-        // written by the old inline loop), yet the plan says the tree node cannot be
-        // written. The caller must therefore write NEITHER. Before the fix, the
-        // segment's sidecar had already been flushed by the time the overlap was
-        // reached, orphaning it.
+        // Fails if: a restore attempt's member that shares its id with the committed copy
+        // (a committed recording resumed in place) blocks the whole active-tree node again.
+        // That skip left an F5 inside a resumed flight with no live tree, so an F9 lost the
+        // path flown since the resume (todo ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE);
+        // the write now retains the committed bytes as their hashed version instead.
         [Fact]
-        public void OverlapPlusMarkerOwnedSegment_PlanDefersEverySidecarWrite()
+        public void OverlapPlusMarkerOwnedSegment_PlanWritesBoth()
         {
             RecordingTree activeTree = BuildOverlapPlusSegmentActiveTree(
                 out Recording overlap, out Recording segment);
@@ -91,35 +86,26 @@ namespace Parsek.Tests
             ParsekScenario.ActiveTreeSidecarSavePlan plan =
                 ParsekScenario.PlanActiveTreeSidecarSaves(activeTree);
 
-            // The tree node will NOT be written...
-            Assert.False(plan.AllRecordingsWritable);
-            Assert.Equal(1, plan.SkippedCommittedRestoreOverlapCount);
+            Assert.True(plan.AllRecordingsWritable);
+            Assert.Equal(1, plan.CommittedRestoreOverlapCount);
             Assert.Equal(0, plan.SkippedDegradedCount);
-
-            // ...but the new switch-segment recording was still a write candidate,
-            // so the caller is the one that has to abandon it.
-            Recording candidate = Assert.Single(plan.WriteCandidates);
-            Assert.Equal(SegmentRecordingId, candidate.RecordingId);
-            Assert.Same(segment, candidate);
-            Assert.True(plan.WriteCandidateWasDirty[0]);
-
+            Assert.Equal(2, plan.WriteCandidates.Count);
+            Assert.Contains(overlap, plan.WriteCandidates);
+            Assert.Contains(segment, plan.WriteCandidates);
             Assert.Equal(2, plan.RecordingCount);
             Assert.Equal(2, plan.DirtyCount);
 
-            // Both recordings are still dirty: the classify pass writes nothing.
+            // The classify pass writes nothing.
             Assert.True(overlap.FilesDirty);
             Assert.True(segment.FilesDirty);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Scenario]") &&
-                l.Contains("skipped dirty sidecar save for committed-restore overlap") &&
-                l.Contains("'" + OverlapRecordingId + "'"));
+                l.Contains("writing restore-attempt recording '" + OverlapRecordingId + "'"));
+            Assert.DoesNotContain(logLines, l => l.Contains("skipped dirty sidecar save"));
         }
 
-        // Fails if: the classify pass is order-dependent. The orphan was created by
-        // dictionary iteration order (segment first, overlap second); the plan must
-        // reach the same verdict whichever order the recordings are walked in, so
-        // both orders are asserted against the same expectations.
+        // Fails if: the classify pass is order-dependent.
         [Theory]
         [InlineData(true)]
         [InlineData(false)]
@@ -131,12 +117,11 @@ namespace Parsek.Tests
             ParsekScenario.ActiveTreeSidecarSavePlan plan =
                 ParsekScenario.PlanActiveTreeSidecarSaves(activeTree);
 
-            Assert.False(plan.AllRecordingsWritable);
-            Assert.Equal(1, plan.SkippedCommittedRestoreOverlapCount);
+            Assert.True(plan.AllRecordingsWritable);
+            Assert.Equal(1, plan.CommittedRestoreOverlapCount);
             Assert.Equal(2, plan.RecordingCount);
             Assert.Equal(2, plan.DirtyCount);
-            Recording candidate = Assert.Single(plan.WriteCandidates);
-            Assert.Equal(SegmentRecordingId, candidate.RecordingId);
+            Assert.Equal(2, plan.WriteCandidates.Count);
         }
 
         // Fails if: a marker-owned recording that ALSO shares an id with the armed
@@ -163,7 +148,7 @@ namespace Parsek.Tests
                 ParsekScenario.PlanActiveTreeSidecarSaves(activeTree);
 
             Assert.True(plan.AllRecordingsWritable);
-            Assert.Equal(0, plan.SkippedCommittedRestoreOverlapCount);
+            Assert.Equal(0, plan.CommittedRestoreOverlapCount);
             Assert.Same(shared, Assert.Single(plan.WriteCandidates));
             Assert.Contains(logLines, l =>
                 l.Contains("[Scenario]") &&
@@ -188,7 +173,7 @@ namespace Parsek.Tests
             Assert.Equal(2, plan.WriteCandidates.Count);
             Assert.Equal(2, plan.RecordingCount);
             Assert.Equal(1, plan.DirtyCount);
-            Assert.Equal(0, plan.SkippedCommittedRestoreOverlapCount);
+            Assert.Equal(0, plan.CommittedRestoreOverlapCount);
             Assert.Equal(0, plan.SkippedDegradedCount);
         }
 
@@ -262,7 +247,7 @@ namespace Parsek.Tests
             int bothOrNeitherIdx = methodSrc.IndexOf(
                 "outcome=both-or-neither", StringComparison.Ordinal);
             int writeIdx = methodSrc.IndexOf(
-                "EnsureRecordingFilesCurrentForSave(writeCandidate, \"active tree\")",
+                "EnsureRecordingFilesCurrentForSave(writeCandidate, ActiveTreeKind)",
                 StringComparison.Ordinal);
 
             Assert.True(planIdx >= 0,
@@ -288,7 +273,7 @@ namespace Parsek.Tests
 
             int total = CountOccurrences(methodSrc, "EnsureRecordingFilesCurrentForSave(");
             int deferred = CountOccurrences(methodSrc,
-                "EnsureRecordingFilesCurrentForSave(writeCandidate, \"active tree\")");
+                "EnsureRecordingFilesCurrentForSave(writeCandidate, ActiveTreeKind)");
 
             Assert.Equal(1, total);
             Assert.Equal(1, deferred);

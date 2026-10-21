@@ -1265,9 +1265,10 @@ namespace Parsek
         /// has loaded. The attempt guards the copy-on-write clone of the flight that was live
         /// before the rewind (<c>ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore</c>);
         /// the rewind replaced that flight, but the attempt is static and outlives the scene.
-        /// Left armed it would mark the session tree's committed recordings as restore
-        /// overlaps, so every save during the session skips the active tree (both-or-neither)
-        /// and a save-file load of such a save loses the Re-Fly (CI-3). The clone's post-cutoff
+        /// Left armed it would treat the session tree's committed recordings as the stale
+        /// attempt's members, holding back the session's events and writing the attempt's
+        /// tree id into every save, so a save-file load re-arms an attempt nobody flies
+        /// (CI-3). The clone's post-cutoff
         /// event tails are purged with it, as on every other discard of the clone. No-op when
         /// nothing is armed. Returns true when an attempt was discarded.
         /// </summary>
