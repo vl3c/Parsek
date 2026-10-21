@@ -994,21 +994,29 @@ namespace Parsek
             bool versionOk = versionStr != null
                 && int.TryParse(versionStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out version)
                 && version == CurrentLedgerVersion;
-            bool generationOk = schemaGenerationStr != null
+            bool generationCurrent = schemaGenerationStr != null
                 && int.TryParse(schemaGenerationStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out schemaGeneration)
                 && schemaGeneration == RecordingStore.CurrentRecordingSchemaGeneration;
 
-            if (!versionOk || !generationOk)
+            if (!versionOk)
             {
                 ParsekLog.Warn("Ledger",
                     $"{sourceDescription} has unsupported schema: " +
-                    $"version='{versionStr ?? "(missing)"}' expected={CurrentLedgerVersion.ToString(CultureInfo.InvariantCulture)} " +
-                    $"recordingSchemaGeneration='{schemaGenerationStr ?? "(missing)"}' " +
-                    $"expectedGeneration={RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture)}; " +
+                    $"version='{versionStr ?? "(missing)"}' expected={CurrentLedgerVersion.ToString(CultureInfo.InvariantCulture)}; " +
                     "starting with empty ledger");
                 ClearForFailedLoad();
                 return false;
             }
+
+            // The ledger's format is its version. A row carries no recording schema, so a ledger
+            // stamped with another recording schema generation loads (owner ruling 2026-10-21,
+            // GC3-LEDGER-GENERATION-GATE-DROPS-ROWS); rows of recordings that did not load are kept
+            // by the reconcile when their trees are held inert (InertRecordingTrees).
+            if (!generationCurrent)
+                ParsekLog.Info("Ledger",
+                    $"{sourceDescription} carries recording schema generation '{schemaGenerationStr ?? "(missing)"}' " +
+                    $"(current={RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture)}); " +
+                    "ledger version matches, loaded anyway");
 
             // Deserialize actions
             var newActions = new List<GameAction>();

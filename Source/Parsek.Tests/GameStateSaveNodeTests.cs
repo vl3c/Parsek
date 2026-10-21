@@ -210,12 +210,9 @@ namespace Parsek.Tests
 
         // ---- gates ----
 
-        // catches: the node path skipping the version / recording-schema-generation gates the
-        // ledger file reader applies.
+        // catches: the node path skipping the ledger version gate the ledger file reader applies.
         [Theory]
         [InlineData("version", "99")]
-        [InlineData("recordingSchemaGeneration", "999")]
-        [InlineData("recordingSchemaGeneration", null)]
         public void LedgerNode_SchemaGates_StartEmpty(string key, string value)
         {
             Ledger.AddAction(new GameAction { UT = 10.0, Type = GameActionType.FundsSpending, Sequence = 1 });
@@ -236,6 +233,34 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[WARN][Ledger]")
                 && l.Contains("Ledger node in the save's GAME_STATE has unsupported schema")
                 && l.Contains("starting with empty ledger"));
+        }
+
+        // catches: the node path rejecting a ledger whose only difference is the recording
+        // schema generation it was stamped with (GC3-LEDGER-GENERATION-GATE-DROPS-ROWS, owner
+        // ruling 2026-10-21: load it when its format matches).
+        [Theory]
+        [InlineData("999")]
+        [InlineData(null)]
+        public void LedgerNode_OtherRecordingSchemaGeneration_Loads(string value)
+        {
+            Ledger.AddAction(new GameAction { UT = 10.0, Type = GameActionType.FundsSpending, Sequence = 1 });
+            RecordingPaths.SaveRootOverrideForTesting = NewTempRoot();
+            ConfigNode scenario = SaveScenarioNodeThroughText(gs =>
+            {
+                ConfigNode ledger = gs.GetNode(ParsekScenario.LedgerNodeName);
+                ledger.RemoveValues("recordingSchemaGeneration");
+                if (value != null)
+                    ledger.AddValue("recordingSchemaGeneration", value);
+            });
+
+            ResetStores();
+            logLines.Clear();
+            ParsekScenario.LoadGameStateFromNodeOrFiles(scenario);
+
+            Assert.Single(Ledger.Actions);
+            Assert.Contains(logLines, l => l.Contains("[INFO][Ledger]")
+                && l.Contains("recording schema generation")
+                && l.Contains("loaded anyway"));
         }
 
         // catches: the events node path rejecting (or silently accepting) a version the file
