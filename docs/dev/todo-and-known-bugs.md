@@ -334,7 +334,9 @@ as ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE, since fixed. Lane QL-13.
 Phase 3 (2026-10-21, local branch `phase3-local`, separate PR): deletes the in-session quickload
 machinery no remaining load kind reaches (design section 8 table, "Phase 3" column). Deleted:
 the abandoned Re-Fly fork prune (`CollectAbandonedReFlyForkIds` / `NoteAbandonedReFlyForks` /
-`PruneAbandonedReFlyForks`; only a committed-copy resume noted forks). Kept on purpose: the QL-R1
+`PruneAbandonedReFlyForks`; only a committed-copy resume noted forks); step B's resumed-tree row
+rule (`ApplyResumedTreeRowRule`, `NoteQuickloadResumeDetach` and the resume narrowing of
+`MergeDialog.CollectReFlyAttemptOwnedRecordingIds`; every staged row list now stays memory's). Kept on purpose: the QL-R1
 decline (`TryDeclineDiscardedActiveTree` / `TryDeclineDiscardedPendingTree`), still reached by a
 stock revert after a cold resume and an in-flight discard; the `QuickloadFlight` kind and its
 column, still produced by the harness `LoadGame` verb without `playerLoad=true` and the in-game

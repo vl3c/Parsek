@@ -810,20 +810,10 @@ namespace Parsek
         /// recording, recordings stamped with its session (<see cref="IsCreatedByReFlySession"/>;
         /// never another session's fork on the same rewind point), an unstamped NotCommitted fork
         /// aimed at its slot, and children of branch points the session authored (never one
-        /// stamped by another session). The discards prune these; the in-session handoff's
-        /// resumed-tree rule keeps the rows they wrote when the loaded marker resumes the attempt
-        /// (owner ruling OQ-1).
-        /// <para>
-        /// <paramref name="resumeHeldBranchPointIds"/> is given on a quickload resume of the
-        /// attempt (the branch points the loaded save held): the splice then brings in branch
-        /// points later sessions authored after the save, which the marker's pre-session list
-        /// cannot name either, so a branch point outside that list is the session's only when the
-        /// save held it or one of its parents is already the attempt's.
-        /// </para>
+        /// stamped by another session). The discards prune these.
         /// </summary>
         internal static HashSet<string> CollectReFlyAttemptOwnedRecordingIds(
-            RecordingTree tree, ReFlySessionMarker marker,
-            ICollection<string> resumeHeldBranchPointIds = null)
+            RecordingTree tree, ReFlySessionMarker marker)
         {
             var ids = new HashSet<string>(System.StringComparer.Ordinal);
             if (marker == null)
@@ -850,14 +840,13 @@ namespace Parsek
             // walk Discard would leave abandoned debris/children in
             // tree.Recordings (and on next save in CommittedRecordings) for
             // OnSave to serialise as committed mission history.
-            AddSessionBranchPointDescendantAttemptIds(ids, tree, marker, resumeHeldBranchPointIds);
+            AddSessionBranchPointDescendantAttemptIds(ids, tree, marker);
 
             return ids;
         }
 
         private static void AddSessionBranchPointDescendantAttemptIds(
-            HashSet<string> ids, RecordingTree tree, ReFlySessionMarker marker,
-            ICollection<string> resumeHeldBranchPointIds)
+            HashSet<string> ids, RecordingTree tree, ReFlySessionMarker marker)
         {
             if (ids == null || tree == null || tree.BranchPoints == null
                 || marker == null)
@@ -875,98 +864,78 @@ namespace Parsek
             var preSessionBpIds = new HashSet<string>(
                 marker.PreSessionBranchPointIds,
                 System.StringComparer.Ordinal);
-            bool resume = resumeHeldBranchPointIds != null;
 
             int adopted = 0;
             var skippedOtherSession = new HashSet<string>(System.StringComparer.Ordinal);
-            var skippedNotHeld = new HashSet<string>(System.StringComparer.Ordinal);
             var skippedCommittedHistory = new HashSet<string>(System.StringComparer.Ordinal);
-            // One pass suffices outside a resume: every non-pre-session branch point is the
-            // session's, chained breakups included. On a resume a branch point may qualify only
-            // once a parent joined the set, so the walk repeats until nothing is added.
-            bool changed = true;
-            while (changed)
+            // One pass suffices: every non-pre-session branch point is the session's, chained
+            // breakups included.
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
             {
-                changed = false;
-                for (int i = 0; i < tree.BranchPoints.Count; i++)
+                var bp = tree.BranchPoints[i];
+                if (bp == null || string.IsNullOrEmpty(bp.Id))
+                    continue;
+                if (preSessionBpIds.Contains(bp.Id))
+                    continue;
+                if (bp.ChildRecordingIds == null)
+                    continue;
+
+                for (int j = 0; j < bp.ChildRecordingIds.Count; j++)
                 {
-                    var bp = tree.BranchPoints[i];
-                    if (bp == null || string.IsNullOrEmpty(bp.Id))
+                    string childId = bp.ChildRecordingIds[j];
+                    if (string.IsNullOrEmpty(childId))
                         continue;
-                    if (preSessionBpIds.Contains(bp.Id))
+                    if (ids.Contains(childId))
                         continue;
-                    if (bp.ChildRecordingIds == null)
+                    // Defence in depth: the protected origin/supersede-target
+                    // ids should never appear as a session-authored BP child
+                    // in production (origin pre-existed the attempt; supersede
+                    // targets are pre-existing too), but skip them anyway.
+                    if (IsProtectedReFlyRecordingId(childId, marker))
                         continue;
-                    if (resume
-                        && !resumeHeldBranchPointIds.Contains(bp.Id)
-                        && (bp.ParentRecordingIds == null || !bp.ParentRecordingIds.Exists(ids.Contains)))
+                    // Another session's fork attached to this split (a later Re-Fly of a
+                    // slot this session created) is that session's, never this one's.
+                    if (tree.Recordings != null
+                        && tree.Recordings.TryGetValue(childId, out Recording child)
+                        && IsStampedByOtherReFlySession(child, marker))
                     {
-                        skippedNotHeld.Add(bp.Id);
+                        skippedOtherSession.Add(childId);
                         continue;
                     }
-                    skippedNotHeld.Remove(bp.Id);
-
-                    for (int j = 0; j < bp.ChildRecordingIds.Count; j++)
+                    // The baseline (PreSessionBranchPointIds) was snapshot from the tree
+                    // instance the marker write found, usually the committed original, while
+                    // the prune may walk the live clone (ResolveReFlyAttemptTree). A branch
+                    // point the clone kept and the original lost (optimizer, splitter) then
+                    // reads as session-authored, and its children are committed history,
+                    // not attempt debris. Every genuine attempt recording is NotCommitted,
+                    // so a child committed history holds is never adopted: the discard
+                    // would remove it, purge its events and delete its sidecars.
+                    if (IsCommittedHistoryRecordingId(childId))
                     {
-                        string childId = bp.ChildRecordingIds[j];
-                        if (string.IsNullOrEmpty(childId))
-                            continue;
-                        if (ids.Contains(childId))
-                            continue;
-                        // Defence in depth: the protected origin/supersede-target
-                        // ids should never appear as a session-authored BP child
-                        // in production (origin pre-existed the attempt; supersede
-                        // targets are pre-existing too), but skip them anyway.
-                        if (IsProtectedReFlyRecordingId(childId, marker))
-                            continue;
-                        // Another session's fork attached to this split (a later Re-Fly of a
-                        // slot this session created) is that session's, never this one's.
-                        if (tree.Recordings != null
-                            && tree.Recordings.TryGetValue(childId, out Recording child)
-                            && IsStampedByOtherReFlySession(child, marker))
+                        if (skippedCommittedHistory.Add(childId))
                         {
-                            skippedOtherSession.Add(childId);
-                            continue;
+                            ParsekLog.Warn("MergeDialog",
+                                $"AddSessionBranchPointDescendantAttemptIds: kept rec={childId} " +
+                                $"out of the attempt discard - it is committed history (child of " +
+                                $"non-baseline bp={bp.Id}, tree={tree.Id ?? "<none>"}, " +
+                                $"sess={marker.SessionId ?? "<none>"}); its sidecars stay");
                         }
-                        // The baseline (PreSessionBranchPointIds) was snapshot from the tree
-                        // instance the marker write found, usually the committed original, while
-                        // the prune may walk the live clone (ResolveReFlyAttemptTree). A branch
-                        // point the clone kept and the original lost (optimizer, splitter) then
-                        // reads as session-authored, and its children are committed history,
-                        // not attempt debris. Outside a resume every genuine attempt recording
-                        // is NotCommitted, so a child committed history holds is never adopted:
-                        // the discard would remove it, purge its events and delete its sidecars.
-                        if (!resume && IsCommittedHistoryRecordingId(childId))
-                        {
-                            if (skippedCommittedHistory.Add(childId))
-                            {
-                                ParsekLog.Warn("MergeDialog",
-                                    $"AddSessionBranchPointDescendantAttemptIds: kept rec={childId} " +
-                                    $"out of the attempt discard - it is committed history (child of " +
-                                    $"non-baseline bp={bp.Id}, tree={tree.Id ?? "<none>"}, " +
-                                    $"sess={marker.SessionId ?? "<none>"}); its sidecars stay");
-                            }
-                            continue;
-                        }
-
-                        ids.Add(childId);
-                        adopted++;
-                        if (resume)
-                            changed = true;
+                        continue;
                     }
+
+                    ids.Add(childId);
+                    adopted++;
                 }
             }
 
-            if (adopted > 0 || skippedOtherSession.Count > 0 || skippedNotHeld.Count > 0
-                || skippedCommittedHistory.Count > 0)
+            if (adopted > 0 || skippedOtherSession.Count > 0 || skippedCommittedHistory.Count > 0)
             {
                 ParsekLog.Info("MergeDialog",
                     $"AddSessionBranchPointDescendantAttemptIds: " +
                     $"adopted {adopted} attempt-authored child recording(s) " +
                     $"linked to session-authored branch points " +
                     $"(tree={tree.Id ?? "<none>"}, sess={marker.SessionId ?? "<none>"}, " +
-                    $"mode={(resume ? "resume" : "live")}, skippedOtherSession={skippedOtherSession.Count}, " +
-                    $"skippedBranchPointsNotHeld={skippedNotHeld.Count}, " +
+                    $"skippedOtherSession={skippedOtherSession.Count}, " +
                     $"skippedCommittedHistory={skippedCommittedHistory.Count})");
             }
         }

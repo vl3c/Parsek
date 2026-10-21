@@ -128,7 +128,6 @@ namespace Parsek
             pendingFreshRecordingAfterDiscard = null;
             pendingQuickloadResumeContext = null;
             lastRestoredQuicksaveTreeFacts = null;
-            ClearQuickloadResumeDetach();
             pendingSaveAttemptEvents = null;
             heldSaveAttemptEvents = null;
             announcedInSessionSaveLoadSource = null;

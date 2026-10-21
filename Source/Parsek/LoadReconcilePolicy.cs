@@ -604,11 +604,7 @@ namespace Parsek
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
                     return Today(LoadReconcileAction.Memory,
-                        InSessionHandoffInstalls + " (RecordingStore.MergeCarriedStagedList); "
-                        + "ParsekScenario.ApplyInSessionStagedStateHandoffStepB then hands the rows naming a tree "
-                        + "a quickload resumed from the save (the committed-copy restore, ResumeFromQuicksave) "
-                        + "back to the save, except rows the loaded marker's resumed Re-Fly attempt wrote "
-                        + "(owner ruling OQ-1)");
+                        InSessionHandoffInstalls + " (RecordingStore.MergeCarriedStagedList)");
             }
             throw UnknownKind(kind);
         }

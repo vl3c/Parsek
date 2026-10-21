@@ -245,8 +245,6 @@ namespace Parsek
             internal bool TreeCommittedInQuicksave;
             internal readonly Dictionary<string, QuicksaveMemberFacts> Members =
                 new Dictionary<string, QuicksaveMemberFacts>(StringComparer.Ordinal);
-            // The ids of the branch points the quicksave's active tree holds.
-            internal readonly HashSet<string> BranchPointIds = new HashSet<string>(StringComparer.Ordinal);
 
             /// <summary>True when any member is in a committed tree node of the save.</summary>
             internal bool AnyMemberCommittedInQuicksave
@@ -342,7 +340,6 @@ namespace Parsek
                 TreeCommittedInQuicksave = committedTreeIdsInQuicksave != null
                     && committedTreeIdsInQuicksave.Contains(loadedTree.Id),
             };
-            facts.BranchPointIds.UnionWith(branchUTs.Keys);
             if (loadedTree.Recordings == null)
                 return facts;
 

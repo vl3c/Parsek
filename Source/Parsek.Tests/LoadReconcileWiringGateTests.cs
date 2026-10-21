@@ -502,8 +502,8 @@ namespace Parsek.Tests
                 + "&& ShouldKeepPendingTreeAfterHydrationFailure(tree, staleEpochHydrationFailures))", Collapse(body));
             Assert.Contains("if (committedCopyAction == CommittedCopyRestoreAction.ResumeFromQuicksave) "
                 + "ClearCommittedTreeRestoreAttemptAfterDetach(tree);", Collapse(body));
-            Assert.Contains("if (committedCopyDetached && resumeDetachedCopyIds != null) "
-                + "NoteQuickloadResumeDetach(tree, resumeDetachedCopyIds);", Collapse(body));
+            // The resumed-tree row rule of step B is gone: the restore notes nothing for it.
+            Assert.Equal(0, Occurrences(body, "NoteQuickloadResumeDetach("));
 
             // Both OnLoad call sites pass the prologue's load kind and whether the load lands in
             // FLIGHT (the defaults model an F9 in flight, for tests only).

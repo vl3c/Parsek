@@ -341,8 +341,8 @@ has it in memory: the committed original and the live tree with the same id. A l
 keeps both: `TryRestoreActiveTreeNode` skips the detach when the save's Re-Fly marker names the
 restored tree and its active Re-Fly recording (`IsResumedReFlySessionTree`), so ghost chains,
 which read committed trees only, still hold back the vessels the session claims (lane CI-3). A
-session merged after the save is the committed-copy rule's resume instead: its copy detaches and
-step B's row rule applies (section 6.16 of the rewind design).
+session merged after the save is the committed-copy rule's resume instead: its copy detaches (the
+row rule step B applied to it was deleted in Phase 3; every row now stays memory's).
 
 - **Load.** The cold branch reads each store from `GAME_STATE` when present (replacing
   `LoadExternalFiles`' reads: `GameStateStore.LoadEventFile`, `LoadBaselines`,
@@ -695,7 +695,7 @@ For a save-file load the following become unreachable, because the load no longe
 | QL-R1 (a discarded flight records again) | `TryDeclineDiscardedActiveTree`, user guide 404 | reversed: the flight resumes with its recording | kept (see below) |
 | OQ-2 resume reconcile (`TrimAndReconcileForQuickloadResume` retire halves) | ParsekScenario.Trim.cs | no abandoned future reaches it on a save-file load; the trajectory trim stays as a guard | |
 | OQ-3 rewind point owner partition, step A | InSessionStagedStateHandoff, ParsekScenario.InSessionHandoff.cs | only scene changes and reverts reach the handoff | kept: live on Discard Re-fly and a stock revert |
-| Step B's resumed-tree row rule | ParsekScenario.InSessionHandoff.cs | only a committed-copy resume notes a detach for it | |
+| Step B's resumed-tree row rule | ParsekScenario.InSessionHandoff.cs | only a committed-copy resume notes a detach for it | deleted |
 | Committed-copy rule (`DecideCommittedCopyRestore`) | ParsekScenario.HydrationRepair.cs | unreachable on a save-file load | |
 | Stale-epoch keep (`ShouldKeepPendingTreeAfterHydrationFailure`) | ParsekScenario.HydrationRepair.cs | not load-kind gated | kept: a Re-Fly Retry and a stock revert reach it |
 | Abandoned Re-Fly fork prune | ParsekScenario.Trim.cs | noted only by a committed-copy resume | deleted |

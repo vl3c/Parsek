@@ -6531,7 +6531,6 @@ namespace Parsek
             bool loadedSceneIsFlight = true)
         {
             lastRestoredQuicksaveTreeFacts = null;
-            ClearQuickloadResumeDetach();
             pendingFreshRecordingAfterDiscard = null;
             if (node == null) return false;
             if (RewindContext.IsRewinding)
@@ -6696,12 +6695,6 @@ namespace Parsek
                 // though the save file has the T2 active version), remove the committed
                 // copy so the active version is the single source of truth. Otherwise
                 // the next OnSave would write the tree twice with the same id.
-                // A resume from the quicksave notes the detached copy's members for the
-                // in-session handoff's step B (its rows follow the save).
-                List<string> resumeDetachedCopyIds =
-                    committedCopyAction == CommittedCopyRestoreAction.ResumeFromQuicksave
-                        ? CollectCommittedCopyRecordingIds(tree)
-                        : null;
                 // A re-armed attempt keeps its committed original committed, as a live attempt
                 // does: a later Discard drops only the clone, and a Merge replaces the original.
                 // A Re-Fly session the save resumes keeps it too: a session runs with the
@@ -6779,8 +6772,6 @@ namespace Parsek
                     ? PendingTreeState.LimboVesselSwitch
                     : PendingTreeState.Limbo;
                 RecordingStore.StashPendingTree(tree, stashState);
-                if (committedCopyDetached && resumeDetachedCopyIds != null)
-                    NoteQuickloadResumeDetach(tree, resumeDetachedCopyIds);
 
                 // Read resume hints for the restore coroutine (rewind save filename only).
                 pendingActiveTreeResumeRewindSave = treeNodes[t].GetValue("resumeRewindSave");
