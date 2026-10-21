@@ -4,10 +4,12 @@ The fixture is BUILT by `harness/tools/build_logi_cargo_career.py`: `fresh-caree
 (CAREER, funds 500,000, science 100, reputation 0, every facility at level 0, an empty
 ProgressTracking tree) with `logi-cargo-pad`'s `Logi Cargo Rig` (uncrewed, PRELAUNCH)
 as its one vessel, the donor's inert ParsekScenario node (its dead MILESTONE_STATE row
-excised) inserted, and `lab-lko-science`'s 29 granted tech nodes added with the science
-pool left at 100. It exists so `RouteRewindRedeliveryInGameTest`'s funds-flat assertion
-runs with a live Funding singleton. A hand edit to the fixture, a change to either input
-save or to TECH_NODES, or a change to the shared recipe reds here instead of in a flight.
+excised) inserted, and `lab-lko-science`'s 29 granted tech nodes plus the three nodes
+the rig's other parts need (miniaturization, precisionEngineering, advExploration) added
+with the science pool left at 100. It exists so `RouteRewindRedeliveryInGameTest`'s
+funds-flat assertion runs with a live Funding singleton. A hand edit to the fixture, a
+change to either input save, to TECH_NODES or to RIG_EXTRA_TECH_NODES, or a change to the
+shared recipe reds here instead of in a flight.
 
 Stdlib only; ASCII only; no em dashes.
 """
@@ -85,13 +87,19 @@ class LogiCargoCareerDriftTests(unittest.TestCase):
         self.assertNotIn("MILESTONE_STATE", body)
         self.assertIn("\t\tgameStateEventCount = 2", body)
 
-    def test_the_granted_tech_is_lab_pad_careers_closure(self):
-        # The same 29 nodes LAB-12's career host carries, byte for byte.
+    def test_the_granted_tech_is_lab_pad_careers_closure_plus_the_rig_nodes(self):
+        # The same 29 nodes LAB-12's career host carries, byte for byte, then the three
+        # nodes the 2026-10-21 ConfigCache read names for the rig's other parts.
         def techs(text):
             rnd = _scenario_body(text, "ResearchAndDevelopment")
             return rnd[rnd.index("\t\tTech"):]
         lab = _read(os.path.join(SAVES, "lab-pad-career", "persistent.sfs"))
-        self.assertEqual(techs(lab), techs(self.text))
+        ours = techs(self.text)
+        self.assertTrue(ours.startswith(techs(lab)))
+        extra = re.findall(r"\n\t\t\tid = (\w+)\n", ours[len(techs(lab)):])
+        self.assertEqual(["miniaturization", "precisionEngineering", "advExploration"], extra)
+        self.assertEqual([t[0] for t in self.b.RIG_EXTRA_TECH_NODES], extra)
+        self.assertFalse(hasattr(self.b, "RIG_PARTS_UNMAPPED"))
         for part, node in sorted(self.b.RIG_PART_TECH.items()):
             self.assertRegex(
                 self.text,

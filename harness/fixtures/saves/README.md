@@ -926,16 +926,20 @@ SANDBOX and skips it). `harness/tools/build_logi_cargo_career.py` runs
 1 -> 0; the `Logi Cargo Rig` VESSEL byte for byte, pid 2200110038, `type = Probe`, PRELAUNCH,
 UT 25.26), the donor's ParsekScenario node inserted with its one `MILESTONE_STATE` row excised
 (the `lab-lko-science` precedent), and the 29 `Tech` nodes of `build_lab_lko_science.TECH_NODES`
-added `state = Available` with the science pool left at 100 (granted, not bought; the same set
-`lab-pad-career` carries). The rig is uncrewed, so the ROSTER is `fresh-career`'s untouched, and
-`build_career_pad_craft.build()` (Ship-only, crew swap) is not reused as is. Tech: the rig's
-`liquidEngine2` (basicRocketry), `fuelTank` (advRocketry), `smallCargoContainer` and the stored
-`evaRepairKit` (spaceExploration) and `FuelCell` (electrics) are unlocked; TECH_NODES is the only
-committed ancestor-closed set holding those four nodes (no committed file carries the tree's
-Parent entries), so the whole closure is granted rather than a guessed subset.
-`probeCoreOcto2.v2`, `cargoContainer` and `evaScienceKit` stay UNMAPPED and unresearched: their
-nodes need a read of the automation instance's `GameData/ModuleManager.ConfigCache` on the
-operator PC. A persisted vessel loads regardless (see `career-pad-craft`). Career PARAMETERS
+(the set `lab-pad-career` carries) plus three more, all added `state = Available` with the science
+pool left at 100 (granted, not bought). The rig is uncrewed, so the ROSTER is `fresh-career`'s
+untouched, and `build_career_pad_craft.build()` (Ship-only, crew swap) is not reused as is. Tech:
+every rig part is unlocked. `liquidEngine2` (basicRocketry), `fuelTank` (advRocketry),
+`smallCargoContainer` and the stored `evaRepairKit` (spaceExploration) and `FuelCell` (electrics)
+come from TECH_NODES, the only committed ancestor-closed set holding those four nodes (no committed
+file carries the tree's Parent entries), so the whole closure is granted rather than a guessed
+subset. The other three come from a 2026-10-21 read of the automation instance's
+`GameData/ModuleManager.ConfigCache` / `ModuleManager.TechTree` on the operator PC:
+`probeCoreOcto2.v2` -> precisionEngineering (160; parents miniaturization or electrics),
+`cargoContainer` -> advExploration (160; parent spaceExploration), the stored `evaScienceKit` ->
+miniaturization (90; parent basicScience). Those three nodes list only the rig's part (the read did
+not enumerate their other parts, which read as unpurchased). The builder's `verify()` checks every
+rig part is listed by a granted node and every declared parent is granted. Career PARAMETERS
 differ from the SANDBOX donor in ways a Logistics cell could see: `ResourceTransferObeyCrossfeed
 = True` (donor False) and every facility at level 0 (a sandbox has every facility at its top
 level). `AddOns/` is the base's; the donor's

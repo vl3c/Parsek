@@ -19,7 +19,7 @@ tier = "nightly"
 # the redelivery cell PASSING on (it is not in H38's skip roster: the pad rig unpacks
 # after the cell's own unpack wait and carries the LiquidFuel tank the cell delivers
 # into), so the only variable moved is the game mode (with the career PARAMETERS and
-# facility levels it brings, named under the prediction below).
+# facility levels it brings, named under flight 1 below).
 #
 # WHAT IT PROVES, in the two cell tokens below:
 #   REQUIRED  `RewindRedeliver_InGame: funds unchanged net=` - the Info line the cell
@@ -35,22 +35,52 @@ tier = "nightly"
 #   FORBIDDEN `RewindRedeliver_InGame: no Funding singleton \(Sandbox\)` - the else
 #             branch, i.e. a host that silently stopped being a career.
 #
-# NEVER FLOWN - INTERIM PIN. `total=47` is the attribute derivation
-# (hlib.derive_batch_tally(decls, "Logistics", "FLIGHT", isolated=True): total 47,
-# scene-skipped 1, executable 46; the ordinary filter executes 8, and 38 cells are
-# restore-after-run). The split is a regex class until the first census: `passed=` is a
-# FLOOR OF 9, above the ordinary path's executable ceiling of 8 (the H38 move, swept by
-# IsolatedBatchWiringGroupTests.test_an_interim_pin_still_rejects_the_ordinary_paths_
-# executable_ceiling), `failed=0` stays a literal so a finding reds, and `skipped=` is
-# free. PREDICTION, written to be refuted, not pinned: H38's split `passed=39 failed=0
-# skipped=8` with the same skip roster (every one of its seven run-time skips is a
-# missing RECORDED subject or a drill rig, none a game-mode property). What could move
-# it in career, all fixture facts rather than guesses: `ResourceTransferObeyCrossfeed =
-# True` (SANDBOX donor: False), every facility at level 0 (a sandbox has them all at
-# the top level), and the career's live Funding / R&D / Reputation singletons, which
-# some cells read. The first census
-# replaces the pin whole, declares `skipped=` in MEASURED_SKIPPED if it is above the
-# attribute floor of 1, and removes the id from INTERIM_PIN_IDS in the same commit.
+# FLIGHT HISTORY - THE PIN'S SOURCE.
+#
+# FLIGHT 1  `2026-10-21_1739`, PASS attempt 1, wall 184 s, automation DLL sha256 prefix
+#           3e4e2356b2b2. MEASURED: `BATCH_COMPLETE v1 total=47 passed=39 failed=0
+#           skipped=8 category=Logistics scene=FLIGHT`. `RewindRedeliver_InGame: funds
+#           unchanged net=0` present (the funds half ran, and moved nothing), the
+#           Sandbox skip line `no Funding singleton` absent, the redelivery cell's
+#           PASSED line present. Every gating verifier PASS; unityExceptions
+#           (report-only) saw 2 after-quit stock NREs with no Parsek frame.
+#           THE PREDICTION HELD: H38's split, 39 / 0 / 8, with H38's skip roster cell
+#           for cell, so the career PARAMETERS (`ResourceTransferObeyCrossfeed = True`),
+#           the level-0 facilities and the live Funding / R&D / Reputation singletons
+#           moved no cell. The tally is now PINNED WHOLE off this flight, `skipped=8`
+#           is declared in IsolatedBatchWiringGroupTests.MEASURED_SKIPPED (attribute
+#           floor 1, plus 7 run-time skips), and the id has LEFT INTERIM_PIN_IDS.
+#
+# FIXTURE CHANGED AFTER FLIGHT 1 (RESEARCH NODES ONLY). The same day the fixture gained
+# three granted Tech nodes, miniaturization, precisionEngineering and advExploration,
+# so the rig's last three parts (`evaScienceKit`, `probeCoreOcto2.v2`, `cargoContainer`)
+# are unlocked too (read from the automation instance's ModuleManager.ConfigCache /
+# TechTree on the operator PC; see the builder docstring). The vessel, the pools, the
+# PARAMETERS and every other surface are byte-identical to the flown bytes. The tally is
+# NOT expected to move (no Logistics cell reads R&D state that names those nodes), but
+# ONE CONFIRMING FLIGHT on the regenerated fixture is OWED before the pin counts as
+# re-proven.
+#
+# THE SKIP ROSTER - all 8, the same split as H38's (see that spec's header for each
+# cell's verbatim skip string):
+#   1 scene-filtered: RouteInterBodyBuilderShapeInGameTest's
+#     InterBodyRoute_RealBuilder_ClassifiesReaimWindows_AndModuloFires (SPACECENTER
+#     only; H34 owns it).
+#   7 run-time `InGameAssert.Skip`, each a missing RECORDED subject or a drill rig,
+#     none a game-mode property:
+#       HarvestCapture_CatchUpOnLoad_AttributesInsideWindowOrBridges (no BaseDrill),
+#       HarvestRoute_AnalyzesEligible_FromSyntheticRecording (synthetic tree absent,
+#         `injectedRecordings = "none"`),
+#       RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof,
+#       RouteOriginProof_StartedOnRunway_ProducerSkipsProof,
+#       RouteProof_ActiveAsInitiatorDockWindow_HasEndpointProof,
+#       RouteProof_ActiveAsTargetDockWindow_HasEndpointProof,
+#       RouteProof_CrossTreeCommittedPartner_HasEndpointProof (no recorded subject).
+#
+# THE TALLY GATES as H38's does: `passed=39 failed=0 skipped=8` are literals, so a cell
+# that fails, self-skips or is deleted reds (the last locally, through
+# CommittedBatchTallySourceSyncTests). The two cell tokens below still name the one
+# cell the lane exists for.
 #
 # FAST-LANE CHECKLIST (harness/README.md -> "Authoring a fast lane"):
 #   1 Reuse a flight: NOT APPLIED. The only flight this could ride is H38's, and the
@@ -68,10 +98,11 @@ tier = "nightly"
 #   7 Tight count windows: the recordings count is pinned to exactly 0 (nothing records).
 #   8 Tier by measured cost: nightly, as H38 (measured wall 250 s, far under the
 #     1,800 s longhaul floor).
-#   9 flight_efficiency.py: owed on the first green flight.
-description = "Run the in-game Logistics category through the ISOLATED batch entry point over logi-cargo-career, H38's Logi Cargo Rig in a CAREER save, so RouteRewindRedeliveryInGameTest's funds-flat assertion runs with a live Funding singleton instead of skipping as it does on every Sandbox host. AUTHORED 2026-10-21, NEVER FLOWN: interim tally pin, the career funds-check line required and the Sandbox skip line forbidden."
+#   9 flight_efficiency.py: owed (not run on flight 1; read it off the results archive
+#     with the confirming flight).
+description = "Run the in-game Logistics category through the ISOLATED batch entry point over logi-cargo-career, H38's Logi Cargo Rig in a CAREER save, so RouteRewindRedeliveryInGameTest's funds-flat assertion runs with a live Funding singleton instead of skipping as it does on every Sandbox host. FLOWN GREEN 2026-10-21 on its first flight (2026-10-21_1739, funds unchanged net=0): 39 passed / 0 failed / 8 skipped, H38's split, pinned whole. The fixture gained three research nodes afterwards, so one confirming flight is owed."
 instanceProfile = "stock-minimal"
-tags = ["ingame-batch", "isolated-batch", "logistics", "career", "H73", "never-flown", "reading-iteration"]
+tags = ["ingame-batch", "isolated-batch", "logistics", "career", "H73", "flown", "reading-iteration"]
 
 [fixture]
 # Same rig as H38, byte for byte, in a career save; injectedRecordings = "none" for
@@ -96,8 +127,9 @@ steps = [
 # CLAIM-IS-NOT-GATE (the H35 rule): only values a REQUIRED token reds on. D8 `funds`
 # rests on the career funds-check line plus the cell's PASSED line; D14 `career` is
 # pinned to the fixture's `Mode = CAREER` by test_d14_game_mode.py. H38's D10 rows are
-# NOT claimed while the tally is interim: an interim `passed=` cannot say which cells
-# passed.
+# NOT re-claimed now that the tally is whole: H38 already declares them, and
+# re-claiming a covered row inflates the count without gating anything new (the H34
+# rule).
 D8 = ["funds"]
 D14 = ["career", "scene-flight"]
 
@@ -111,7 +143,7 @@ count = { min = 0, max = 0 }
 required  = [
   "runtests start category=Logistics isolated=true",
   "Using batch baseline slot .* for 38 restore-after-run test\\(s\\)",
-  "BATCH_COMPLETE v1 total=47 passed=(?:9|[1-9][0-9]+) failed=0 skipped=[0-9]+ category=Logistics scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=47 passed=39 failed=0 skipped=8 category=Logistics scene=FLIGHT",
   "RewindRedeliver_InGame: funds unchanged net=",
   "PASSED: RouteRewindRedeliveryInGameTest\\.RouteRedeliversAfterRewindPastDelivery",
 ]

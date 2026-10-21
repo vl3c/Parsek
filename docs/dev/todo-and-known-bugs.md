@@ -431,12 +431,13 @@ still loads and renders a generic line. `Route.CreationTreeRecordingIds` kept. H
 RVR-17, GUI-23, the `rover-route-career` fixture and builder, `[fixture.career]` and the oracle's
 Rec-3 route-funds carve-out retired; IR-5's dispatch token re-pinned. Flown 2026-10-21 at 98a0aae, 59 lanes (47 route / Logistics, 12
 ledger): 56 PASS, 3 PARSEK-FAIL unrelated to the change (MINE-7-RESTORE-PIN-ASSUMES-DRILLS-OFF,
-RVR-21-START-SPEED-ABOVE-STATIONARY, L2-AFTER-QUIT-STOCK-NRE). Gap: `RouteRewindRedeliveryInGameTest`'s
-funds-flat assertion ran on no lane (its four hosts H38 / H39 / H40 / RVR-6 are Sandbox and skip it).
-AUTHORED 2026-10-21, NOT FLOWN YET: `H73-logistics-isolated-career` flies H38's isolated Logistics
-batch on the new career fixture `logi-cargo-career` (H38's rig in `fresh-career`), requiring the
-cell's career-only `RewindRedeliver_InGame: funds unchanged net=` line and forbidding the Sandbox skip
-line; interim tally pin until its first census.
+RVR-21-START-SPEED-ABOVE-STATIONARY, L2-AFTER-QUIT-STOCK-NRE). Gap (CLOSED 2026-10-21):
+`RouteRewindRedeliveryInGameTest`'s funds-flat assertion ran on no lane (its four hosts H38 / H39 /
+H40 / RVR-6 are Sandbox and skip it). The career funds-flat check is now proven by
+`H73-logistics-isolated-career` `2026-10-21_1739` (PASS attempt 1, `RewindRedeliver_InGame: funds
+unchanged net=0`, the Sandbox skip line absent): H38's isolated Logistics batch on the career fixture
+`logi-cargo-career` (H38's rig in `fresh-career`), tally 39 / 0 / 8 pinned whole. The fixture then
+gained three research nodes (every rig part unlocked), so one confirming flight is owed.
 
 ## ~~ROUTE-DISPATCH-IGNORES-RESERVATIONS: a route dispatch checks the raw funds counter, so it can spend money a committed purchase needs~~ [FILED 2026-10-21 from the O4 analysis. Was open, small; owner ruling: ship now, ahead of LOGISTICS-WITHOUT-MONEY. FIXED 2026-10-21 on branch `claude/project-thread-q165qu`. xUnit only. product. SUPERSEDED the same day by LOGISTICS-WITHOUT-MONEY phase 1, which deletes the route funds gate this fix made reservation-aware, with `RouteDispatchReservationGateTests`.]
 

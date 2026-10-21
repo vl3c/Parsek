@@ -2,7 +2,7 @@ GAME
 {
 	version = 1.12.5
 	Title = logi-cargo-career (CAREER)
-	Description = Parsek autotest fixture (file-constructed: fresh-career with logi-cargo-pad's Logi Cargo Rig PRELAUNCH on the pad, uncrewed, 29 tech nodes granted).
+	Description = Parsek autotest fixture (file-constructed: fresh-career with logi-cargo-pad's Logi Cargo Rig PRELAUNCH on the pad, uncrewed, 32 tech nodes granted).
 	linkURL = 
 	linkCaption = 
 	Mode = CAREER
@@ -657,6 +657,27 @@ GAME
 			state = Available
 			cost = 550
 			part = Large.Crewed.Lab
+		}
+		Tech
+		{
+			id = miniaturization
+			state = Available
+			cost = 90
+			part = evaScienceKit
+		}
+		Tech
+		{
+			id = precisionEngineering
+			state = Available
+			cost = 160
+			part = probeCoreOcto2.v2
+		}
+		Tech
+		{
+			id = advExploration
+			state = Available
+			cost = 160
+			part = cargoContainer
 		}
 	}
 	SCENARIO

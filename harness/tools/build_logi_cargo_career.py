@@ -34,9 +34,11 @@ never modified), plus a loadmeta restamp (vessel count + UT):
      FLIGHT-route LoadGame needs it or the module is never created (CL-1 flight 1).
   4. The ResearchAndDevelopment node gains the 29 `Tech` nodes of
      build_lab_lko_science.TECH_NODES, inserted after `start`, each `state = Available`
-     with its tree cost and full part list. The SCIENCE POOL STAYS 100: the nodes are
-     granted, not bought, so no ledger or pool consumer sees a spend that never happened.
-     See "THE TECH GRANT" below for why the whole closure and not four nodes.
+     with its tree cost and full part list, then the 3 RIG_EXTRA_TECH_NODES below
+     (miniaturization, precisionEngineering, advExploration). The SCIENCE POOL STAYS
+     100: the nodes are granted, not bought, so no ledger or pool consumer sees a spend
+     that never happened. See "THE TECH GRANT" below for why the whole closure and not
+     a guessed subset.
   5. `Title` becomes `logi-cargo-career (CAREER)` and the Description names the splice.
 
 THE TECH GRANT. Unlocks are optional for this fixture: a persisted VESSEL loads in career
@@ -54,10 +56,27 @@ ancestor-closed by derivation and contains all four, and it is exactly the set
 `lab-pad-career` carries in career (LAB-12 flew it green, `2026-10-18_0229`), so the
 whole closure is granted rather than a guessed subset.
 
-UNMAPPED, AND SAID SO: `probeCoreOcto2.v2` (the rig's root), `cargoContainer` (the 9-slot
-container) and `evaScienceKit` (stored) appear in no TECH_NODES part list. Their nodes
-need a read of the automation instance's `GameData/ModuleManager.ConfigCache` on the
-operator PC; until then they stay unresearched, which loads fine (see above).
+THE OTHER THREE RIG PARTS appear in no TECH_NODES part list: `probeCoreOcto2.v2` (the
+rig's root), `cargoContainer` (the 9-slot container) and `evaScienceKit` (stored). Their
+nodes were READ 2026-10-21 on the operator PC from the automation instance's
+`GameData/ModuleManager.ConfigCache` (the effective TechRequired) and
+`GameData/ModuleManager.TechTree` (the RDNode cost, Parent entries and anyToUnlock):
+    probeCoreOcto2.v2 -> precisionEngineering  cost 160, parents miniaturization OR
+                                               electrics (anyToUnlock = True)
+    cargoContainer    -> advExploration        cost 160, parent spaceExploration
+    evaScienceKit     -> miniaturization       cost  90, parent basicScience
+None of the three nodes is in TECH_NODES, and every parent is (basicScience, electrics,
+spaceExploration) or is one of the three (miniaturization), so RIG_EXTRA_TECH_NODES
+keeps the granted set ancestor-closed; both of precisionEngineering's parents are
+granted, the same superset rule TECH_NODES uses for anyToUnlock nodes. UNLIKE TECH_NODES,
+each extra node lists ONLY the rig part the read named, not every part the node unlocks
+(the read did not enumerate them). In CAREER a Tech node's `part = ` lines are the
+PURCHASED parts, so the other parts of these three nodes read as researched but not
+purchased, a state stock loads (it is what research with entry purchase on leaves), and
+nothing the Logistics cells do opens an editor. Every rig part is now mapped, and
+verify() proves each is listed by a granted node and every declared parent is granted.
+If the instance's tree pins move (a CTT or PBC upgrade), re-read and re-run this
+builder.
 
 WHAT IS NOT TOUCHED. Every other career surface is `fresh-career`'s: Mode CAREER, the
 PARAMETERS block (note `ResourceTransferObeyCrossfeed = True`, False in the SANDBOX
@@ -104,7 +123,7 @@ VESSEL_PERSISTENT_ID = "2200110038"
 VESSEL_TYPE = "Probe"
 TITLE = "logi-cargo-career (CAREER)"
 DESCRIPTION = ("Parsek autotest fixture (file-constructed: fresh-career with logi-cargo-pad's "
-               "Logi Cargo Rig PRELAUNCH on the pad, uncrewed, 29 tech nodes granted).")
+               "Logi Cargo Rig PRELAUNCH on the pad, uncrewed, 32 tech nodes granted).")
 BASE_DESCRIPTION = "Parsek autotest fixture (synthetic, file-constructed)."
 TEXT_FILES = ("persistent.sfs", "persistent.loadmeta")
 
@@ -115,17 +134,32 @@ EXPECT_SCIENCE = "100"
 EXPECT_REPUTATION = "0"
 EXPECT_TECH_TREE_URL = "GameData/ModuleManager.TechTree"
 
-# The rig's parts (top-level PARTs plus the stored inventory parts) whose node is known
-# from TECH_NODES' automation-instance derivation.
+# The research nodes the rig needs beyond TECH_NODES, as (id, cost, parts, parents).
+# Read 2026-10-21 on the operator PC from the automation instance's
+# GameData/ModuleManager.ConfigCache (TechRequired) and ModuleManager.TechTree (cost,
+# Parent entries); see the module docstring. `parts` is the rig's part on that node
+# only (dot form), not the node's full list. Parent order is irrelevant; a parent may
+# be any granted node (TECH_NODES or an earlier entry here). precisionEngineering is
+# anyToUnlock = True, and both of its parents are granted.
+RIG_EXTRA_TECH_NODES = (
+    ("miniaturization", "90", ("evaScienceKit",), ("basicScience",)),
+    ("precisionEngineering", "160", ("probeCoreOcto2.v2",), ("miniaturization", "electrics")),
+    ("advExploration", "160", ("cargoContainer",), ("spaceExploration",)),
+)
+
+# Every part the rig carries (top-level PARTs plus the stored inventory parts) -> the
+# node that unlocks it: the first five from TECH_NODES' automation-instance derivation,
+# the last three from the 2026-10-21 ConfigCache read.
 RIG_PART_TECH = {
     "liquidEngine2": "basicRocketry",
     "fuelTank": "advRocketry",
     "smallCargoContainer": "spaceExploration",
     "evaRepairKit": "spaceExploration",
     "FuelCell": "electrics",
+    "probeCoreOcto2.v2": "precisionEngineering",
+    "cargoContainer": "advExploration",
+    "evaScienceKit": "miniaturization",
 }
-# The rig's parts whose node is NOT known here (see the module docstring).
-RIG_PARTS_UNMAPPED = ("probeCoreOcto2.v2", "cargoContainer", "evaScienceKit")
 
 
 def _path(*parts: str) -> str:
@@ -198,6 +232,8 @@ def build(base_lines: List[str], donor_lines: List[str]) -> List[str]:
         raise SystemExit("base R&D Tech nodes are %r, expected only start" % ids)
     block: List[str] = []
     for tech_id, cost, parts in _tech.TECH_NODES:
+        block += _tech._tech_block(tech_id, cost, parts)
+    for tech_id, cost, parts, _parents in RIG_EXTRA_TECH_NODES:
         block += _tech._tech_block(tech_id, cost, parts)
     base[techs[0][1]:techs[0][1]] = block
 
@@ -280,8 +316,9 @@ def verify(lines: List[str]) -> List[str]:
             problems.append("%s %s is %r, expected %r" % (
                 scenario, key, _recipe.get_value(lines, node, key) if node else None, want))
 
-    # Tech: start plus exactly the TECH_NODES closure, Available; the mapped rig parts
-    # unlocked; the unmapped ones are NOT claimed unlocked by any node.
+    # Tech: start plus exactly the TECH_NODES closure and RIG_EXTRA_TECH_NODES,
+    # Available; every rig part mapped and listed by its granted node; every declared
+    # parent of an extra node granted.
     rnd = _scenario(lines, "ResearchAndDevelopment")
     available: Dict[str, set] = {}
     for tech in _recipe.child_nodes(lines, rnd, "Tech") if rnd else []:
@@ -290,25 +327,26 @@ def verify(lines: List[str]) -> List[str]:
         available[_recipe.get_value(lines, tech, "id")] = {
             lines[i].strip()[len("part = "):] for i in range(tech[0], tech[1])
             if lines[i].strip().startswith("part = ")}
-    expected_ids = ["start"] + [t[0] for t in _tech.TECH_NODES]
+    expected_ids = (["start"] + [t[0] for t in _tech.TECH_NODES]
+                    + [t[0] for t in RIG_EXTRA_TECH_NODES])
     if sorted(available) != sorted(expected_ids):
         problems.append("Available tech nodes %r != expected %r"
                         % (sorted(available), sorted(expected_ids)))
+    for tech_id, _cost, _parts, parents in RIG_EXTRA_TECH_NODES:
+        for parent in parents:
+            if parent not in available:
+                problems.append("tech %s is granted but its parent %s is not"
+                                % (tech_id, parent))
     rig_parts = set(_part_names(lines, ship))
-    unaccounted = sorted(rig_parts - set(RIG_PART_TECH) - set(RIG_PARTS_UNMAPPED))
-    if unaccounted:
-        problems.append("rig parts neither mapped nor declared unmapped: %r" % unaccounted)
+    unmapped = sorted(rig_parts - set(RIG_PART_TECH))
+    if unmapped:
+        problems.append("rig parts with no RIG_PART_TECH node: %r" % unmapped)
     for part_name, tech_id in sorted(RIG_PART_TECH.items()):
         if part_name not in rig_parts:
             problems.append("RIG_PART_TECH names %s, which the rig does not carry" % part_name)
         if part_name not in available.get(tech_id, ()):
             problems.append("%s is not unlocked (tech %s Available and listing it)"
                             % (part_name, tech_id))
-    all_unlocked = set().union(*available.values()) if available else set()
-    for part_name in RIG_PARTS_UNMAPPED:
-        if part_name in all_unlocked:
-            problems.append("%s is now unlocked by a granted node; move it into "
-                            "RIG_PART_TECH" % part_name)
 
     scn = _scenario(lines, "ParsekScenario")
     if scn is None:
