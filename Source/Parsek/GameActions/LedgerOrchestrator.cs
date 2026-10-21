@@ -4691,10 +4691,14 @@ namespace Parsek
             // Convert existing GameStateStore events into GameActions.
             // Done AFTER the existing-ledger reconcile, then immediately reconciled so
             // future rows from the old event store cannot bypass maxUT on first load.
-            if (Ledger.Actions.Count == 0 && validRecordingIds != null && validRecordingIds.Count > 0)
+            // GC-3: recordings of trees kept inert (another schema generation) are known to the
+            // reconcile above, but they neither trigger the migration nor feed it: an inert
+            // tree is never interpreted, and a save holding only inert trees is not an old save.
+            HashSet<string> migrationRecordingIds = ExcludeInertRecordingIds(validRecordingIds);
+            if (Ledger.Actions.Count == 0 && migrationRecordingIds != null && migrationRecordingIds.Count > 0)
             {
                 int beforeOldSaveMigration = Ledger.Actions.Count;
-                MigrateOldSaveEvents(validRecordingIds);
+                MigrateOldSaveEvents(migrationRecordingIds);
                 if (Ledger.Actions.Count != beforeOldSaveMigration)
                 {
                     Ledger.Reconcile(
@@ -4780,6 +4784,32 @@ namespace Parsek
         /// Migration for old saves: converts existing GameStateStore events from committed
         /// recordings into GameActions and adds them to the ledger.
         /// </summary>
+        /// <summary>
+        /// The ids of <paramref name="validRecordingIds"/> that do not belong to a committed tree
+        /// kept inert (<see cref="InertRecordingTrees"/>). Returns the same set when none do.
+        /// </summary>
+        internal static HashSet<string> ExcludeInertRecordingIds(HashSet<string> validRecordingIds)
+        {
+            if (validRecordingIds == null || InertRecordingTrees.Count == 0)
+                return validRecordingIds;
+            var kept = new HashSet<string>(StringComparer.Ordinal);
+            int excluded = 0;
+            foreach (string id in validRecordingIds)
+            {
+                if (InertRecordingTrees.ContainsRecordingId(id))
+                    excluded++;
+                else
+                    kept.Add(id);
+            }
+            if (excluded > 0)
+                ParsekLog.Verbose(Tag,
+                    "OnKspLoad: old-save migration scope excludes " +
+                    excluded.ToString(CultureInfo.InvariantCulture) +
+                    " recording id(s) of inert trees; remaining=" +
+                    kept.Count.ToString(CultureInfo.InvariantCulture));
+            return kept;
+        }
+
         private static void MigrateOldSaveEvents(HashSet<string> validRecordingIds)
         {
             LedgerLoadMigration.MigrateOldSaveEvents(validRecordingIds);

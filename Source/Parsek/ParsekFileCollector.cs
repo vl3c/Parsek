@@ -364,6 +364,7 @@ namespace Parsek
         /// <summary>
         /// Everything the running game holds: every recording the store knows (committed list,
         /// committed trees, pending tree, the pending tree saved during an active restore), the
+        /// recordings of committed trees kept inert (<see cref="InertRecordingTrees"/>), the
         /// flight scene's active tree and live recorder, the scenario's rewind point list and
         /// <see cref="ParsekScenario.pendingActiveTreeResumeRewindSave"/>.
         /// </summary>
@@ -371,6 +372,8 @@ namespace Parsek
         {
             var refs = new SaveReferences();
             RecordingStore.ForEachRecordingKnownToMemory(rec => AddRecording(refs, rec));
+            // GC-3: committed trees kept inert name their files exactly as their save node does.
+            InertRecordingTrees.AddReferencesTo(refs);
             AddFlightSceneReferences(refs);
 
             // Reference test: a scenario built outside Unity compares equal to null.

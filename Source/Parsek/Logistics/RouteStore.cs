@@ -176,6 +176,8 @@ namespace Parsek.Logistics
                 if (!string.IsNullOrEmpty(id))
                     liveIds.Add(id);
             }
+            // GC-3: a committed tree kept inert (another schema generation) still exists.
+            InertRecordingTrees.AddTreeIdsTo(liveIds);
 
             int before = dismissedCandidateTreeIds.Count;
             dismissedCandidateTreeIds.RemoveWhere(id => !liveIds.Contains(id));
@@ -264,6 +266,8 @@ namespace Parsek.Logistics
                 if (!string.IsNullOrEmpty(id))
                     liveIds.Add(id);
             }
+            // GC-3: a committed tree kept inert (another schema generation) still exists.
+            InertRecordingTrees.AddTreeIdsTo(liveIds);
 
             int before = promptedCandidateTreeIds.Count;
             promptedCandidateTreeIds.RemoveWhere(id => !liveIds.Contains(id));

@@ -75,6 +75,8 @@ namespace Parsek
             suppressNextTreeSceneExitCommitReason = null;
             suppressNextActiveTreeRestore = false;
             suppressNextActiveTreeRestoreReason = null;
+            // The cold branch reloads committed trees from the save; inert ones come with them.
+            InertRecordingTrees.ResetForLoad("save-scoped-reset");
             return pendingDropped;
         }
     }

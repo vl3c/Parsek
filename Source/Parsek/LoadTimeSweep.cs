@@ -1178,6 +1178,7 @@ namespace Parsek
 
             int legacyOldSideCandidates = 0;
             int legacyOldSideDeferred = 0;
+            int keptInertOldSide = 0;
             for (int i = scenario.RecordingRewindRetirements.Count - 1; i >= 0; i--)
             {
                 var retirement = scenario.RecordingRewindRetirements[i];
@@ -1188,6 +1189,14 @@ namespace Parsek
                         StringComparison.Ordinal)
                     || immutableRecordingIds.Contains(retirement.RecordingId))
                     continue;
+
+                // GC-3: a row naming a recording of an inert tree (another recording schema
+                // generation) is kept as the save holds it; its MergeState is unknown here.
+                if (InertRecordingTrees.ContainsRecordingId(retirement.RecordingId))
+                {
+                    keptInertOldSide++;
+                    continue;
+                }
 
                 // Live non-Immutable priorTip carrying RewoundOutOldSideReason.
                 // (Orphan priorTips were already removed by the per-row loop's
@@ -1232,6 +1241,13 @@ namespace Parsek
                     "(reconstructed or surviving). Removing them could expose " +
                     "multi-old-side-to-one-Immutable-fork priorTips kept hidden by their " +
                     "per-row retirements. Rows stay until a future rewind reseals them.");
+            }
+            if (keptInertOldSide > 0)
+            {
+                ParsekLog.Info(SweepTag,
+                    $"[LoadSweep] Kept {keptInertOldSide.ToString(CultureInfo.InvariantCulture)} old-side " +
+                    "rewind-retirement row(s) naming inert recordings (committed trees from a different " +
+                    "recording schema generation)");
             }
 
             int orphanOnly = removed

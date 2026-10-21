@@ -328,6 +328,31 @@ namespace Parsek.Tests
                 && l.Contains("Re-hydrated 2 committed RECORDING_TREE + 3 MISSION"));
         }
 
+        // catches: a load fault after LoadRecordingTrees set a tree aside as inert (GC-3), so the
+        // save writes the inert node AND the guard re-adds the same committed tree from disk:
+        // one tree id twice in one save.
+        [Fact]
+        public void PreserveGuard_DoesNotReAddACommittedTreeIdAlreadyWritten()
+        {
+            string recordingsDir = CreateRecordingsDir("preserve-inert");
+            File.WriteAllText(Path.Combine(recordingsDir, "stranded-rec.prec"), "p");
+
+            ParsekScenario.PersistentSavePathOverrideForTesting = WriteTempPersistentSfs(
+                committedTreeIds: new[] { "tree-a", "tree-b" },
+                missionNames: new[] { "Mun Run" });
+
+            var node = new ConfigNode("ParsekScenario");
+            node.AddNode("RECORDING_TREE").AddValue("id", "tree-a");
+            logLines.Clear();
+            ParsekScenario.PreserveRecordingStateIfLoadFault(node);
+
+            string[] ids = System.Array.ConvertAll(node.GetNodes("RECORDING_TREE"), n => n.GetValue("id"));
+            Assert.Equal(2, ids.Length);
+            Assert.Single(ids, id => id == "tree-a");
+            Assert.Contains("tree-b", ids);
+            Assert.Contains(logLines, l => l.Contains("tree id=tree-a already written this save"));
+        }
+
         [Fact]
         public void PreserveGuard_PreservesLiveActiveNode_AndSkipsOnDiskActiveMarker()
         {

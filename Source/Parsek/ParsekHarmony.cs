@@ -60,6 +60,7 @@ namespace Parsek
             LastFailedPatchNames = failedPatchNames.AsReadOnly();
 
             initialized = true;
+            instance = this;
             DontDestroyOnLoad(gameObject);
             ParsekLog.Info("Init",
                 FormatSessionStartMessage(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
@@ -157,6 +158,7 @@ namespace Parsek
         // notice queued until stock actually accepts it.
         private IEnumerator PostStartupNoticesWhenSceneSettles()
         {
+            noticePosterRunning = true;
             var poster = new StartupNoticePoster();
             while (!poster.Tick(HighLogic.LoadedScene, ScreenMessages.Instance != null,
                 Time.realtimeSinceStartup,
@@ -164,6 +166,32 @@ namespace Parsek
             {
                 yield return null;
             }
+            noticePosterRunning = false;
+        }
+
+        private static ParsekHarmony instance;
+        private static bool noticePosterRunning;
+
+        /// <summary>
+        /// Posts a one-shot notice for an EVENT found during a load (a save load runs inside a
+        /// scene load, when stock drops screen messages): queues it with the startup notices and
+        /// makes sure this process-lifetime addon's poster is running, so it posts once the next
+        /// playable scene settles. Without the addon it posts directly.
+        /// </summary>
+        internal static void QueueNoticeForSettledScene(string notice)
+        {
+            if (string.IsNullOrEmpty(notice))
+                return;
+            if (instance == null)
+            {
+                ParsekLog.Warn("Init", "Notice host missing; posting the notice directly: " + notice);
+                ParsekLog.ScreenMessage(notice, StartupNotices.NoticeDurationSeconds);
+                return;
+            }
+            StartupNotices.Enqueue(notice);
+            if (!noticePosterRunning)
+                instance.StartCoroutine(instance.PostStartupNoticesWhenSceneSettles());
+            ParsekLog.Verbose("Init", "Notice queued for the next settled scene: " + notice);
         }
 
         // This addon is DontDestroyOnLoad and lives for the whole process, so it is the one
