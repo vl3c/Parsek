@@ -433,9 +433,14 @@ still loads and renders a generic line. `Route.CreationTreeRecordingIds` kept. H
 RVR-17, GUI-23, the `rover-route-career` fixture and builder, `[fixture.career]` and the oracle's
 Rec-3 route-funds carve-out retired; IR-5's dispatch token re-pinned. Flown 2026-10-21 at 98a0aae, 59 lanes (47 route / Logistics, 12
 ledger): 56 PASS, 3 PARSEK-FAIL unrelated to the change (MINE-7-RESTORE-PIN-ASSUMES-DRILLS-OFF,
-RVR-21-START-SPEED-ABOVE-STATIONARY, L2-AFTER-QUIT-STOCK-NRE). Gap: `RouteRewindRedeliveryInGameTest`'s
-funds-flat assertion ran on no lane (its four hosts H38 / H39 / H40 / RVR-6 are Sandbox and skip it);
-proving it needs a Logistics isolated lane on a career save (not authored).
+RVR-21-START-SPEED-ABOVE-STATIONARY, L2-AFTER-QUIT-STOCK-NRE). Gap (CLOSED 2026-10-21):
+`RouteRewindRedeliveryInGameTest`'s funds-flat assertion ran on no lane (its four hosts H38 / H39 /
+H40 / RVR-6 are Sandbox and skip it). The career funds-flat check is now proven by
+`H73-logistics-isolated-career` `2026-10-21_1739` (PASS attempt 1, `RewindRedeliver_InGame: funds
+unchanged net=0`, the Sandbox skip line absent): H38's isolated Logistics batch on the career fixture
+`logi-cargo-career` (H38's rig in `fresh-career`), tally 39 / 0 / 8 pinned whole. The fixture then
+gained three research nodes (every rig part unlocked) and the confirming flight `2026-10-21_1810`
+passed on it (same tally, `funds unchanged net=0`).
 
 **Phase 2 FIXED 2026-10-21** (branch `logistics-no-money-p2`, stacked on phase 1). Route events left
 the ledger. New: `Logistics/RouteEvent.cs` (`RouteEvent` + `RouteEventType`, the eight kinds with the

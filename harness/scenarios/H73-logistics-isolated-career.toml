@@ -1,0 +1,167 @@
+schema = 1
+id = "H73-logistics-isolated-career"
+tier = "nightly"
+# H38's FLIGHT ON A CAREER SAVE, AND THE ONLY LOGISTICS LANE WITH A LIVE FUNDING POOL.
+#
+# WHY IT EXISTS. `RouteRewindRedeliveryInGameTest.RouteRedeliversAfterRewindPastDelivery`
+# asserts that career funds stay flat across a route delivery, a rewind past it and the
+# re-delivery (supply routes carry no money, todo LOGISTICS-WITHOUT-MONEY phase 1). The
+# assertion is gated on `Funding.Instance != null`, and every host that runs the category
+# isolated - H38 (`logi-cargo-pad`), H39 (`bdock-recorded`), H40 (`depot-route-recorded`),
+# RVR-6 (`rover-relay-recorded`) - is SANDBOX, so on all four the cell logs
+#   RewindRedeliver_InGame: no Funding singleton (Sandbox) - funds-unchanged assertion
+#   skipped; tank re-delivery + ledger-row assertions still ran
+# and the funds half has run on no lane. This spec flies H38's exact driver over
+# `logi-cargo-career`, which is `fresh-career` (CAREER, funds 500,000, science 100,
+# reputation 0, every facility at level 0) carrying H38's own `Logi Cargo Rig`, byte for
+# byte, uncrewed and PRELAUNCH (builder `harness/tools/build_logi_cargo_career.py`,
+# drift gate `harness/lib/test_logi_cargo_career.py`). The rig is the host H38 measured
+# the redelivery cell PASSING on (it is not in H38's skip roster: the pad rig unpacks
+# after the cell's own unpack wait and carries the LiquidFuel tank the cell delivers
+# into), so the only variable moved is the game mode (with the career PARAMETERS and
+# facility levels it brings, named under flight 1 below).
+#
+# WHAT IT PROVES, in the two cell tokens below:
+#   REQUIRED  `RewindRedeliver_InGame: funds unchanged net=` - the Info line the cell
+#             writes ONLY on the career path and ONLY after both funds assertions held
+#             (cycle 1 and deliver + rewind + redeliver; RouteRewindRedeliveryInGameTest.cs
+#             `if (hasFunding) { ... InGameAssert.IsTrue(net within FundsTolerance) ...
+#             ParsekLog.Info(...funds unchanged net=...) }`). The amount is NOT pinned:
+#             the cell's own tolerance is the gate, and the line exists to prove the
+#             branch ran.
+#   REQUIRED  `PASSED: RouteRewindRedeliveryInGameTest.RouteRedeliversAfterRewindPastDelivery`
+#             - the runner's per-test line (Verbose, hence verboseLogging below), so a
+#             cell that self-skipped or failed AFTER the funds line still reds.
+#   FORBIDDEN `RewindRedeliver_InGame: no Funding singleton \(Sandbox\)` - the else
+#             branch, i.e. a host that silently stopped being a career.
+#
+# FLIGHT HISTORY - THE PIN'S SOURCE.
+#
+# FLIGHT 1  `2026-10-21_1739`, PASS attempt 1, wall 184 s, automation DLL sha256 prefix
+#           3e4e2356b2b2. MEASURED: `BATCH_COMPLETE v1 total=47 passed=39 failed=0
+#           skipped=8 category=Logistics scene=FLIGHT`. `RewindRedeliver_InGame: funds
+#           unchanged net=0` present (the funds half ran, and moved nothing), the
+#           Sandbox skip line `no Funding singleton` absent, the redelivery cell's
+#           PASSED line present. Every gating verifier PASS; unityExceptions
+#           (report-only) saw 2 after-quit stock NREs with no Parsek frame.
+#           THE PREDICTION HELD: H38's split, 39 / 0 / 8, with H38's skip roster cell
+#           for cell, so the career PARAMETERS (`ResourceTransferObeyCrossfeed = True`),
+#           the level-0 facilities and the live Funding / R&D / Reputation singletons
+#           moved no cell. The tally is now PINNED WHOLE off this flight, `skipped=8`
+#           is declared in IsolatedBatchWiringGroupTests.MEASURED_SKIPPED (attribute
+#           floor 1, plus 7 run-time skips), and the id has LEFT INTERIM_PIN_IDS.
+#
+# FIXTURE CHANGED AFTER FLIGHT 1 (RESEARCH NODES ONLY). The same day the fixture gained
+# three granted Tech nodes, miniaturization, precisionEngineering and advExploration,
+# so the rig's last three parts (`evaScienceKit`, `probeCoreOcto2.v2`, `cargoContainer`)
+# are unlocked too (read from the automation instance's ModuleManager.ConfigCache /
+# TechTree on the operator PC; see the builder docstring). The vessel, the pools, the
+# PARAMETERS and every other surface are byte-identical to the flown bytes. The tally is
+# NOT expected to move (no Logistics cell reads R&D state that names those nodes).
+#
+# FLIGHT 2  `2026-10-21_1810`, the confirming flight on the regenerated fixture: PASS
+#           attempt 1, wall 183 s, same `total=47 passed=39 failed=0 skipped=8`,
+#           `funds unchanged net=0`, no `no Funding singleton`, no Parsek ERROR; the
+#           pin is re-proven.
+#
+# THE SKIP ROSTER - all 8, the same split as H38's (see that spec's header for each
+# cell's verbatim skip string):
+#   1 scene-filtered: RouteInterBodyBuilderShapeInGameTest's
+#     InterBodyRoute_RealBuilder_ClassifiesReaimWindows_AndModuloFires (SPACECENTER
+#     only; H34 owns it).
+#   7 run-time `InGameAssert.Skip`, each a missing RECORDED subject or a drill rig,
+#     none a game-mode property:
+#       HarvestCapture_CatchUpOnLoad_AttributesInsideWindowOrBridges (no BaseDrill),
+#       HarvestRoute_AnalyzesEligible_FromSyntheticRecording (synthetic tree absent,
+#         `injectedRecordings = "none"`),
+#       RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof,
+#       RouteOriginProof_StartedOnRunway_ProducerSkipsProof,
+#       RouteProof_ActiveAsInitiatorDockWindow_HasEndpointProof,
+#       RouteProof_ActiveAsTargetDockWindow_HasEndpointProof,
+#       RouteProof_CrossTreeCommittedPartner_HasEndpointProof (no recorded subject).
+#
+# THE TALLY GATES as H38's does: `passed=39 failed=0 skipped=8` are literals, so a cell
+# that fails, self-skips or is deleted reds (the last locally, through
+# CommittedBatchTallySourceSyncTests). The two cell tokens below still name the one
+# cell the lane exists for.
+#
+# FAST-LANE CHECKLIST (harness/README.md -> "Authoring a fast lane"):
+#   1 Reuse a flight: NOT APPLIED. The only flight this could ride is H38's, and the
+#     variable this lane exists to move is H38's FIXTURE: a funds-flat assertion needs a
+#     Funding singleton, which only a career save creates, so no token added to a
+#     sandbox flight can ever see it. Moving H38 itself to career would throw away its
+#     measured, whole-pinned sandbox census (39/0/8), which HV-1 and the recorded-host
+#     lanes are read against, and the sandbox path of every cell. No existing career
+#     flight runs `Logistics` at all.
+#   2 No idle waits: applied by construction; the driver has none.
+#   3 Dwell / hold lengths: not applicable, nothing dwells.
+#   4 Burns at 1x / 5 b5 coasts: not applicable, nothing flies.
+#   6 Fail fast: the batch ends itself; `[retry] policy = "once"` as H38, because an
+#     isolated batch's restores are the nondeterministic part a retry is for.
+#   7 Tight count windows: the recordings count is pinned to exactly 0 (nothing records).
+#   8 Tier by measured cost: nightly, as H38 (measured wall 250 s, far under the
+#     1,800 s longhaul floor).
+#   9 flight_efficiency.py (flight 2, `2026-10-21_1810`): boot 26.1 s, seam steps 142.6 s
+#     (RunTests 134.5 s, LoadGame 8.2 s), gaps 1.0 s, quit 1.1 s, post-quit 9.3 s,
+#     0.0 s unaccounted, retries 0. Nothing to trim: the batch itself is the cost.
+description = "Run the in-game Logistics category through the ISOLATED batch entry point over logi-cargo-career, H38's Logi Cargo Rig in a CAREER save, so RouteRewindRedeliveryInGameTest's funds-flat assertion runs with a live Funding singleton instead of skipping as it does on every Sandbox host. FLOWN GREEN 2026-10-21 on its first flight (2026-10-21_1739, funds unchanged net=0): 39 passed / 0 failed / 8 skipped, H38's split, pinned whole. The fixture gained three research nodes afterwards, so one confirming flight is owed."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "logistics", "career", "H73", "flown", "reading-iteration"]
+
+[fixture]
+# Same rig as H38, byte for byte, in a career save; injectedRecordings = "none" for
+# H38's measured reason (every restore-flagged cell builds and reaps its own state).
+saveTemplate = "fixtures/saves/logi-cargo-career"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# H38's steps, unchanged. No kill triple: the fixture records nothing.
+# verboseLogging=true is REQUIRED: the per-test PASSED line pinned below is Verbose.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Logistics", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE (the H35 rule): only values a REQUIRED token reds on. D8 `funds`
+# rests on the career funds-check line plus the cell's PASSED line; D14 `career` is
+# pinned to the fixture's `Mode = CAREER` by test_d14_game_mode.py. H38's D10 rows are
+# NOT re-claimed now that the tally is whole: H38 already declares them, and
+# re-claiming a covered row inflates the count without gating anything new (the H34
+# rule).
+D8 = ["funds"]
+D14 = ["career", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required  = [
+  "runtests start category=Logistics isolated=true",
+  "Using batch baseline slot .* for 38 restore-after-run test\\(s\\)",
+  "BATCH_COMPLETE v1 total=47 passed=39 failed=0 skipped=8 category=Logistics scene=FLIGHT",
+  "RewindRedeliver_InGame: funds unchanged net=",
+  "PASSED: RouteRewindRedeliveryInGameTest\\.RouteRedeliversAfterRewindPastDelivery",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "RewindRedeliver_InGame: no Funding singleton \\(Sandbox\\)",
+]
+
+[runtime]
+# H38's deferred worst case (LoadGame 660 + RunTests 660 = 1320), same batch.
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
