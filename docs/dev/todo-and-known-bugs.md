@@ -265,44 +265,33 @@ and logistics design section 10.6).**
   (matches D2).
 - O3: a recording that fails to load, for any reason, keeps its ledger rows; it loses its ghost and
   playback, never its rows (extends the GC-3 ruling from schema rejects to every load failure).
-- O4: supply routes are a real-time system: every load back in time retires the route rows after
-  its cutoff (as built) and route money can only be a cost, the recovery credit capped at the
-  cycle's cost and settled at dispatch (Model H, then refund rows, were ruled and replaced the
-  same day; research `docs/dev/research/route-funds-vs-cargo-2026-10-21.md`): filed as
-  ROUTE-MONEY-COST-ONLY.
+- O4: supply routes are a real-time system and carry no money; route cycles stop touching the
+  ledger, and Space Center routes are free in every mode (Model H, refund rows and a cost-only
+  credit were ruled and replaced the same day; research
+  `docs/dev/research/route-funds-vs-cargo-2026-10-21.md`): filed as LOGISTICS-WITHOUT-MONEY.
 - O5: moot once PR #2155 merges: the rule acts only on an in-flight `ResumeFromQuicksave` detach
   during an in-session load, which #2155 makes a Cold save-file load that drops the handoff
   (design-load-restores-the-save section 8 lists it as unreached).
 
-## ROUTE-MONEY-COST-ONLY: a supply route's recovery credit can beat its cost and lands one interval after the dispatch, so a load back in time can take route money away [FILED 2026-10-21 from the owner ruling on LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O4, first as ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES. OPEN, ruled; small code change]
+## LOGISTICS-WITHOUT-MONEY: supply routes still charge and credit funds and write ledger rows, so the funds history depends on choices made after a rewind [FILED 2026-10-21 from the owner ruling on LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O4, first as ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES, then ROUTE-MONEY-COST-ONLY. OPEN, ruled; plan written]
 
-Supply routes are a real-time system (owner ruling 2026-10-21, 13:13Z: "keep supply routes as a
-real-time system instead of recording cycle events"; "no paradoxes allowed by design, being
-conservative for timeline correctness"). A route cycle is never committed history: every load back
-in time (go-back rewind, Re-Fly start, Discard Re-fly, stock revert, F9 and the other in-session
-loads) retires the free-standing route rows after its cutoff and the clock re-decides those cycles
-from the restored vessels. That is already built (design 10.6, the Routes column of
-`LoadReconcilePolicy`). It stays paradox-free only while retiring route rows can never lower funds,
-which needs route money to be a cost and nothing else. Two things break that today:
-1. A cycle's `RouteRecoveryCredited` is the source tree's whole summed recovery credit, uncapped, so
-   a Sell-at-KSC run can credit more than it costs; retiring it takes money a later committed
-   purchase may have used.
-2. The credit lands one dispatch interval after its debit, at the next crossing, keyed on the prior
-   cycle, so a load back in time can keep a cycle's debit and retire its credit (re-owed only
-   through the saved marker, and never paid if the route pauses or loses its endpoint).
+Supply routes are a real-time system: every load back in time retires a route's cycles after its
+cutoff and the clock re-decides them (as built, design 10.6). Any money a cycle writes makes the funds
+history depend on what the player does after a rewind (pause, resume, move an endpoint), so the money
+ledger stops being deterministic. Owner rulings 2026-10-21: 13:32Z "we delete money/ funds from the
+logistics system and go from there; logistics cycles should not touch the ledger, they only deliver
+resources to enable that gameplay"; 13:39Z Space Center origin routes stay, free in every mode, Career
+included (accepted: delivered cargo can be recovered for funds). Replaces every route-money rule ruled
+earlier that day (Model H, refund rows, gain cycles, the cost-only credit cap and credit at dispatch,
+banked prepaid cycles).
+Plan: `docs/dev/plans/logistics-without-money.md`. Phase 1 removes the money (dispatch charge, live
+delivery debit, recovery credit and its pending marker, the funds gate and WaitingForFunds, the cost
+calculators and every cost line in the Logistics window); old route money rows stay as committed funds
+history. Phase 2 moves the remaining route rows out of the ledger into a route-owned event log
+persisted with the route store. Kept: the endpoint chain hold and `RetiredRouteCargoStore`.
+Supersedes ROUTE-DISPATCH-COST-BASIS-RESIDUALS once phase 1 lands.
 
-Fix: cap each cycle's credit at that cycle's own dispatch cost and settle it at dispatch, with the
-debit (reverses the 2026-07-07 constant deferred credit; the amount is a constant from the source
-tree, so it is known at dispatch). The owed-credit marker and its flush paths go, and the KSC funds
-gate checks the net. The player gives up route profit; selling cargo for profit stays possible by
-flying it. Withdrawn the same day: refund rows at a rewind, a gain cycle staying history, and the
-emptied-depot shortfall (analysis "Supply routes and time travel: first principles", Claude Doc).
-Kept: reservation-aware dispatch (ROUTE-DISPATCH-IGNORES-RESERVATIONS), the live destination with
-only the Ghost Chain Rule hold, and `RetiredRouteCargoStore`.
-Open check: whether a stock ISRU contract can be completed by route cargo; if so, a route delivery
-must not count toward it.
-
-## ~~ROUTE-DISPATCH-IGNORES-RESERVATIONS: a route dispatch checks the raw funds counter, so it can spend money a committed purchase needs~~ [FILED 2026-10-21 from the O4 analysis. Was open, small; owner ruling: ship now, ahead of ROUTE-MONEY-COST-ONLY. FIXED 2026-10-21 on branch `claude/project-thread-q165qu`. xUnit only. product]
+## ~~ROUTE-DISPATCH-IGNORES-RESERVATIONS: a route dispatch checks the raw funds counter, so it can spend money a committed purchase needs~~ [FILED 2026-10-21 from the O4 analysis. Was open, small; owner ruling: ship now, ahead of LOGISTICS-WITHOUT-MONEY. FIXED 2026-10-21 on branch `claude/project-thread-q165qu`. xUnit only. product]
 
 `LiveRouteRuntimeEnvironment.KscFundsAvailable` compares `Funding.Instance.Funds` with the dispatch
 cost, but the logistics design (section 8, step 4) says the KSC dispatch must be "affordable under

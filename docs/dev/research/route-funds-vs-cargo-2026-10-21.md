@@ -178,5 +178,11 @@ the depot after a rewind, with or without money; real-time cycles do not. Money 
 problem, a gain being retired, which a cost-only rule removes. V picked real-time cycles with money:
 every load back in time retires the later route rows (as built), each cycle's recovery credit is
 capped at its own cost and settles at dispatch. Refund rows, gain cycles staying history and the
-emptied-depot shortfall were withdrawn. Todo ROUTE-MONEY-COST-ONLY (filed as
-ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES), logistics design 10.6.
+emptied-depot shortfall were withdrawn.
+
+Replaced a final time at 13:32Z. Even cost-only route money leaves the funds history depending on
+what the player does after a rewind (pause, then spend, then rewind and resume). V rejected banked
+prepaid cycles as too much technical debt and ruled: "we delete money/ funds from the logistics
+system and go from there; logistics cycles should not touch the ledger, they only deliver resources
+to enable that gameplay". At 13:39Z: Space Center routes stay, free in every mode. Todo
+LOGISTICS-WITHOUT-MONEY, plan `docs/dev/plans/logistics-without-money.md`, logistics design 10.6.
