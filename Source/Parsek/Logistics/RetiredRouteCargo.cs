@@ -72,17 +72,17 @@ namespace Parsek.Logistics
 
     /// <summary>
     /// One physical route crossing (a delivery into, a pickup from, or an origin debit of a
-    /// vessel) that a rewind retired from the ledger and refunded, kept because an
+    /// vessel) that a rewind retired from the route event log and refunded, kept because an
     /// end-of-recording snapshot captured after it still carries its cargo
     /// (CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO, extended to ordinary leaves by
     /// END-SPAWN-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO). Built from the retired
-    /// <see cref="GameAction"/> plus the route endpoint it touched, resolved while the route
+    /// <see cref="RouteEvent"/> plus the route endpoint it touched, resolved while the route
     /// was still in the store: the delivery row itself names no vessel.
     /// </summary>
     internal sealed class RetiredRouteCargoRow
     {
-        /// <summary><see cref="GameActionType.RouteCargoDelivered"/>, <see cref="GameActionType.RouteCargoPickedUp"/> or <see cref="GameActionType.RouteCargoDebited"/>.</summary>
-        internal GameActionType Type;
+        /// <summary><see cref="RouteEventType.RouteCargoDelivered"/>, <see cref="RouteEventType.RouteCargoPickedUp"/> or <see cref="RouteEventType.RouteCargoDebited"/>.</summary>
+        internal RouteEventType Type;
         internal double UT;
         /// <summary>The rewind cutoff that retired the row (the row's UT is strictly after it).</summary>
         internal double CutoffUT;
@@ -104,7 +104,7 @@ namespace Parsek.Logistics
         internal List<RetiredRouteCargoTipTag> Tips = new List<RetiredRouteCargoTipTag>();
 
         /// <summary>A pickup or an origin debit took the cargo FROM the vessel; a delivery put it in.</summary>
-        internal bool TookFromVessel => Type != GameActionType.RouteCargoDelivered;
+        internal bool TookFromVessel => Type != RouteEventType.RouteCargoDelivered;
 
         internal string RowKey => RetiredRouteCargoStore.RowKey(RouteId, CycleId, StopIndex, Type, UT);
 
@@ -115,7 +115,7 @@ namespace Parsek.Logistics
     /// The retired route crossings that some committed end-of-recording snapshot still carries.
     ///
     /// <para>A go-back rewind, a Re-Fly restore and an in-session load back in time remove the
-    /// route rows after the cutoff from the ledger (<see cref="RouteLedgerRetire"/>): the
+    /// route events after the cutoff from the route event log (<see cref="RouteEventRetire"/>): the
     /// refund is right, because the reverted save restores the origin. But a snapshot a
     /// committed recording spawns its vessel from at its end (a chain tip: the claimed station
     /// as a committed mission left it; or an ordinary leaf: the route-fed vessel's own
@@ -129,10 +129,10 @@ namespace Parsek.Logistics
     /// retire first saw it; and the real capture UT of every snapshot whose recording's tail
     /// the optimizer trimmed (<see cref="NoteSnapshotCapture"/>): the trim moves the
     /// recording's end earlier and keeps the snapshot, so its end no longer says when the
-    /// snapshot was captured. Persisted beside the ledger actions as an additive
-    /// <c>RETIRED_ROUTE_CARGO</c> child of the ledger file, absent while empty, so a build that
-    /// predates it reads the file unchanged. Survives in-session loads with the ledger and is
-    /// kept by <c>Ledger.Clear</c> (the Re-Fly restore clears and re-adds the actions).</para>
+    /// snapshot was captured. Persisted with the routes as the sparse
+    /// <c>RETIRED_ROUTE_CARGO</c> child of the PARSEK scenario node, absent while empty, and
+    /// read back with them on a cold load; survives in-session loads in memory like the route
+    /// store and the route event log.</para>
     /// </summary>
     internal static class RetiredRouteCargoStore
     {
@@ -157,7 +157,7 @@ namespace Parsek.Logistics
         internal static IReadOnlyList<RetiredRouteCargoSnapshotCapture> Captures => captures;
 
         /// <summary>One retired row exactly (a row is retired once; a re-retire of the same row is a duplicate).</summary>
-        internal static string RowKey(string routeId, string cycleId, int stopIndex, GameActionType type, double ut)
+        internal static string RowKey(string routeId, string cycleId, int stopIndex, RouteEventType type, double ut)
         {
             return ReplayGroupKey(routeId, stopIndex, type) + "|" + (cycleId ?? "") + "|" + ut.ToString("R", IC);
         }
@@ -167,17 +167,17 @@ namespace Parsek.Logistics
         /// a replay stands for is decided by UT, never by cycle id (the counters behind cycle ids
         /// are rebuilt from the kept rows at every rewind, so a replay can carry another id).
         /// </summary>
-        internal static string ReplayGroupKey(string routeId, int stopIndex, GameActionType type)
+        internal static string ReplayGroupKey(string routeId, int stopIndex, RouteEventType type)
         {
             return (routeId ?? "") + "|" + stopIndex.ToString(IC) + "|" + ((int)type).ToString(IC);
         }
 
         /// <summary>The three route row types that move cargo physically.</summary>
-        internal static bool IsCargoRowType(GameActionType t)
+        internal static bool IsCargoRowType(RouteEventType t)
         {
-            return t == GameActionType.RouteCargoDelivered
-                || t == GameActionType.RouteCargoPickedUp
-                || t == GameActionType.RouteCargoDebited;
+            return t == RouteEventType.RouteCargoDelivered
+                || t == RouteEventType.RouteCargoPickedUp
+                || t == RouteEventType.RouteCargoDebited;
         }
 
         /// <summary>
@@ -186,10 +186,10 @@ namespace Parsek.Logistics
         /// <paramref name="route"/> (null when the route is gone: the entry then matches by the
         /// row's own vessel pid only).
         /// </summary>
-        internal static RetiredRouteCargoRow BuildRow(GameAction retired, double cutoffUT, Route route)
+        internal static RetiredRouteCargoRow BuildRow(RouteEvent retired, double cutoffUT, Route route)
         {
             if (retired == null || !IsCargoRowType(retired.Type)
-                || !RouteLedgerRetire.IsPhysicalRouteMutation(retired))
+                || !RouteEventRetire.IsPhysicalRouteMutation(retired))
                 return null;
             Dictionary<string, double> resources = CopyPositive(retired.RouteResourceManifest);
             if (resources == null)
@@ -203,7 +203,7 @@ namespace Parsek.Logistics
                 RouteId = retired.RouteId,
                 CycleId = retired.RouteCycleId,
                 StopIndex = retired.RouteStopIndex,
-                ActualVesselPid = retired.Type == GameActionType.RouteCargoDelivered
+                ActualVesselPid = retired.Type == RouteEventType.RouteCargoDelivered
                     ? 0u
                     : retired.RouteOriginVesselPid,
                 Resources = resources
@@ -211,7 +211,7 @@ namespace Parsek.Logistics
 
             if (route != null)
             {
-                if (retired.Type == GameActionType.RouteCargoDebited)
+                if (retired.Type == RouteEventType.RouteCargoDebited)
                 {
                     if (!route.IsKscOrigin)
                     {
@@ -414,13 +414,20 @@ namespace Parsek.Logistics
             Clear();
         }
 
-        /// <summary>Writes the stash as a child of the ledger file root; nothing while empty.</summary>
-        internal static void SerializeInto(ConfigNode ledgerRoot)
+        /// <summary>
+        /// Writes the stash as the <c>RETIRED_ROUTE_CARGO</c> child of the PARSEK scenario
+        /// node, beside the routes (<c>RouteStore.SaveRoutesTo</c>); strips a stale child first
+        /// and writes nothing while empty.
+        /// </summary>
+        internal static void SerializeInto(ConfigNode parsekNode)
         {
-            if (ledgerRoot == null || (rows.Count == 0 && watermarks.Count == 0 && captures.Count == 0))
+            if (parsekNode == null)
+                return;
+            parsekNode.RemoveNodes(NodeName);
+            if (rows.Count == 0 && watermarks.Count == 0 && captures.Count == 0)
                 return;
 
-            ConfigNode node = ledgerRoot.AddNode(NodeName);
+            ConfigNode node = parsekNode.AddNode(NodeName);
             for (int i = 0; i < rows.Count; i++)
             {
                 RetiredRouteCargoRow row = rows[i];
@@ -506,13 +513,14 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Replaces the stash with the ledger root's child (none: empty). Returns the number of
-        /// unreadable entries dropped.
+        /// Replaces the stash with the PARSEK scenario node's child (none: empty), on a cold
+        /// load (<c>RouteStore.LoadRoutesFrom</c>). Returns the number of unreadable entries
+        /// dropped.
         /// </summary>
-        internal static int LoadFrom(ConfigNode ledgerRoot)
+        internal static int LoadFrom(ConfigNode parsekNode)
         {
             Clear();
-            ConfigNode node = ledgerRoot?.GetNode(NodeName);
+            ConfigNode node = parsekNode?.GetNode(NodeName);
             if (node == null)
                 return 0;
 
@@ -576,7 +584,7 @@ namespace Parsek.Logistics
 
         private static RetiredRouteCargoRow ReadRow(ConfigNode r)
         {
-            GameActionType type;
+            RouteEventType type;
             if (!TryParseType(r.GetValue("type"), out type) || !IsCargoRowType(type))
                 return null;
             if (!TryParseDouble(r.GetValue("ut"), out double ut)
@@ -628,15 +636,15 @@ namespace Parsek.Logistics
             return row;
         }
 
-        private static bool TryParseType(string s, out GameActionType type)
+        private static bool TryParseType(string s, out RouteEventType type)
         {
-            type = default(GameActionType);
+            type = default(RouteEventType);
             if (string.IsNullOrEmpty(s))
                 return false;
             try
             {
-                type = (GameActionType)Enum.Parse(typeof(GameActionType), s, false);
-                return Enum.IsDefined(typeof(GameActionType), type);
+                type = (RouteEventType)Enum.Parse(typeof(RouteEventType), s, false);
+                return Enum.IsDefined(typeof(RouteEventType), type);
             }
             catch (ArgumentException)
             {

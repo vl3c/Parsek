@@ -340,11 +340,9 @@ namespace Parsek
         /// / <see cref="GameActionType.ScienceInitial"/> / <see cref="GameActionType.ReputationInitial"/>)
         /// are excluded explicitly: they define the session baseline and must survive regardless of UT.</para>
         /// </summary>
-        internal static int PruneOrphanActionsAfterUT(
-            double cutoffUT, bool inclusive = false, double keepRouteRowsThroughUT = double.NaN)
+        internal static int PruneOrphanActionsAfterUT(double cutoffUT, bool inclusive = false)
         {
             int removed = 0;
-            int routeRowsKept = 0;
             for (int i = actions.Count - 1; i >= 0; i--)
             {
                 var action = actions[i];
@@ -354,13 +352,6 @@ namespace Parsek
                     continue;
                 if (RecalculationEngine.IsSeedType(action.Type))
                     continue;
-                if (keepRouteRowsThroughUT > cutoffUT
-                    && Logistics.RouteLedgerRetire.IsFreeStandingRouteAction(action)
-                    && action.UT <= keepRouteRowsThroughUT)
-                {
-                    routeRowsKept++;
-                    continue;
-                }
                 // Keep everything before the launch boundary. Exclusive keeps the boundary UT
                 // itself (rollout retained on Revert-to-Launch); inclusive drops it (rollout
                 // refunded on Revert-to-editor).
@@ -373,13 +364,6 @@ namespace Parsek
             }
 
             string boundary = inclusive ? "at/after" : "after";
-            if (routeRowsKept > 0)
-            {
-                ParsekLog.Info("Ledger",
-                    $"PruneOrphanActionsAfterUT: kept {routeRowsKept} free-standing route action(s) " +
-                    $"through the route state floor UT " +
-                    $"{keepRouteRowsThroughUT.ToString("R", CultureInfo.InvariantCulture)}");
-            }
             if (removed > 0)
             {
                 BumpStateVersion();
@@ -438,76 +422,6 @@ namespace Parsek
             }
 
             return removed;
-        }
-
-        /// <summary>
-        /// Go-back rewind seam (<c>ParsekScenario.HandleRewindOnLoad</c>): retires
-        /// free-standing route ledger rows with UT strictly after the rewind cutoff
-        /// IN PLACE, mirroring the Rec-1 retire the Re-Fly seam performs in
-        /// <c>ReconciliationBundle.Restore(cutoff)</c> (which works on the bundle's
-        /// captured list instead). The go-back path never routes through
-        /// <see cref="PruneOrphanActionsAfterUT"/> (that is the revert branch), so
-        /// without this the abandoned-future route rows survive the rewind and the
-        /// UT-blind dispatch dedup swallows re-played cycles ("funds spent, no
-        /// goods" — the same failure Rec-1 fixed for Re-Fly).
-        ///
-        /// <para>Scoped strictly to route action Types carrying a non-empty
-        /// <see cref="GameAction.RouteId"/> (the
-        /// <c>RouteLedgerRetire.ShouldRetireRouteActionAtRewind</c> predicate, same
-        /// strict-<c>&gt;</c> boundary); every non-route action is untouched.
-        /// <paramref name="keptActions"/> receives an independent copy of the
-        /// surviving list for the caller's route-store reconcile, so callers never
-        /// read <see cref="Actions"/> raw (ERS/ELS discipline).</para>
-        /// </summary>
-        /// <returns>The number of route rows retired.</returns>
-        internal static int RetireFutureRouteActionsAtRewind(
-            double cutoffUT, out List<GameAction> keptActions)
-        {
-            keptActions = Logistics.RouteLedgerRetire.RetireFutureRouteActions(
-                actions, cutoffUT, out int retired, out List<GameAction> retiredRows);
-            if (retired > 0)
-            {
-                actions.Clear();
-                actions.AddRange(keptActions);
-                BumpStateVersion();
-                ParsekLog.Info("Ledger",
-                    $"RetireFutureRouteActionsAtRewind: removed {retired} free-standing route " +
-                    $"action(s) after UT {cutoffUT.ToString("R", CultureInfo.InvariantCulture)}, " +
-                    $"total={actions.Count}");
-            }
-            else
-            {
-                ParsekLog.Verbose("Ledger",
-                    "RetireFutureRouteActionsAtRewind: no free-standing route actions after UT " +
-                    $"{cutoffUT.ToString("R", CultureInfo.InvariantCulture)} (total={actions.Count})");
-            }
-            // A committed chain tip snapshot still carries the cargo of these crossings; the
-            // route store still holds the pre-rewind routes here (every caller reconciles it
-            // after this retire). Called with no rows too: the cutoff still lowers every tip
-            // snapshot's watermark, since rows created from now on are not in any of them.
-            ChainTipRouteCargo.CaptureRetiredRouteCargo(
-                retiredRows, cutoffUT,
-                Logistics.RouteStore.CommittedRoutes, Logistics.RouteStore.DormantRoutes,
-                "ledger retire");
-            return retired;
-        }
-
-        /// <summary>
-        /// True when the ledger holds at least one free-standing route row
-        /// (<c>RouteLedgerRetire.ShouldRetireRouteActionAtRewind</c>, the same predicate and
-        /// strict-<c>&gt;</c> boundary <see cref="RetireFutureRouteActionsAtRewind"/> uses) with
-        /// UT after <paramref name="cutoffUT"/>. Read-only. The in-session load route reconcile
-        /// (<c>RouteLoadReconcile</c>) reads it as evidence that a load went back in time past
-        /// route activity.
-        /// </summary>
-        internal static bool HasFreeStandingRouteActionsAfterUT(double cutoffUT)
-        {
-            for (int i = 0; i < actions.Count; i++)
-            {
-                if (Logistics.RouteLedgerRetire.ShouldRetireRouteActionAtRewind(actions[i], cutoffUT))
-                    return true;
-            }
-            return false;
         }
 
         /// <summary>
@@ -836,8 +750,8 @@ namespace Parsek
 
         /// <summary>
         /// Builds the <c>LEDGER</c> node the ledger file and the save's <c>GAME_STATE</c> node
-        /// both carry: version, recording schema generation, every action, the pre-ledger
-        /// progress seed and the retired route cargo.
+        /// both carry: version, recording schema generation, every action and the pre-ledger
+        /// progress seed.
         /// </summary>
         internal static ConfigNode BuildSaveNode()
         {
@@ -854,7 +768,6 @@ namespace Parsek
             // Additive child node: a build that predates it reads only GAME_ACTION
             // nodes, so the ledger version does not change.
             progressSeed.SerializeInto(root);
-            Logistics.RetiredRouteCargoStore.SerializeInto(root);
             return root;
         }
 
@@ -909,7 +822,6 @@ namespace Parsek
         {
             actions.Clear();
             progressSeed = PreLedgerProgressSeed.NotCaptured;
-            Logistics.RetiredRouteCargoStore.Clear();
             BumpStateVersion();
         }
 
@@ -1022,23 +934,19 @@ namespace Parsek
             var newActions = new List<GameAction>();
             ConfigNode[] actionNodes = loaded.GetNodes(ActionNodeName);
             int parseErrors = 0;
-            int droppedRouteCredits = 0;
-            int droppedRouteCharges = 0;
+            var droppedRouteRows = new LedgerLoadMigration.LegacyRouteRowTally();
             ResetContractDeadlineMigrationTally();
 
             for (int i = 0; i < actionNodes.Length; i++)
             {
                 try
                 {
-                    // Supply routes carry no money (todo LOGISTICS-WITHOUT-MONEY): an
-                    // old save's route money rows are dropped here, before any
-                    // recalculation can read them.
-                    if (LedgerLoadMigration.IsLegacyRouteMoneyNode(actionNodes[i], out bool isCredit))
-                    {
-                        if (isCredit) droppedRouteCredits++;
-                        else droppedRouteCharges++;
+                    // Supply-route rows left the ledger (todo LOGISTICS-WITHOUT-MONEY): an old
+                    // save's route rows are dropped here, before deserialization and before any
+                    // recalculation can read them. No migration: route events live in the
+                    // route event log, which an old save does not have.
+                    if (LedgerLoadMigration.IsLegacyRouteNode(actionNodes[i], droppedRouteRows))
                         continue;
-                    }
                     var action = GameAction.DeserializeFrom(actionNodes[i]);
                     newActions.Add(action);
                 }
@@ -1052,19 +960,17 @@ namespace Parsek
 
             actions = newActions;
             progressSeed = PreLedgerProgressSeed.LoadFrom(loaded, out int seedMalformed);
-            Logistics.RetiredRouteCargoStore.LoadFrom(loaded);
             BumpStateVersion();
             ParsekLog.Verbose("Ledger",
                 $"Loaded ledger from '{sourceLabel}': version={version}, actions={actions.Count}, " +
                 $"parseErrors={parseErrors}");
-            if (droppedRouteCredits + droppedRouteCharges > 0)
+            if (droppedRouteRows.Total > 0)
             {
                 ParsekLog.Info("Ledger",
-                    $"Dropped {(droppedRouteCredits + droppedRouteCharges).ToString(CultureInfo.InvariantCulture)} " +
-                    "legacy supply-route money rows at load " +
-                    $"(recoveryCredits={droppedRouteCredits.ToString(CultureInfo.InvariantCulture)} " +
-                    $"spaceCenterCharges={droppedRouteCharges.ToString(CultureInfo.InvariantCulture)}); " +
-                    "supply routes carry no money");
+                    $"Dropped {droppedRouteRows.Total.ToString(CultureInfo.InvariantCulture)} " +
+                    $"legacy supply-route rows at load from '{sourceLabel}' " +
+                    $"({droppedRouteRows.FormatByType()}); route events live in the route event log, " +
+                    "not the ledger");
             }
             if (seedMalformed > 0)
             {
@@ -1530,10 +1436,14 @@ namespace Parsek
         {
             actions = new List<GameAction>();
             progressSeed = PreLedgerProgressSeed.NotCaptured;
-            Logistics.RetiredRouteCargoStore.ResetForTesting();
             BumpStateVersion();
             ResetLegacyActionIdMigrationForTesting();
             ResetContractDeadlineMigrationTally();
+            // Test isolation: route events and the retired route cargo stash lived in the
+            // ledger before route events left it, so every test that resets the ledger also
+            // starts with an empty route event log and stash.
+            Logistics.RouteEventLog.ResetForTesting();
+            Logistics.RetiredRouteCargoStore.ResetForTesting();
         }
 
         /// <summary>

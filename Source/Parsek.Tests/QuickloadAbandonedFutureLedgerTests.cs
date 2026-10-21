@@ -376,20 +376,16 @@ namespace Parsek.Tests
             {
                 ActionId = "act_tagged", UT = 300.0, Type = GameActionType.FundsEarning, RecordingId = "rec_other",
             });
-            Ledger.AddAction(new GameAction
-            {
-                ActionId = "act_route", UT = 300.0, Type = GameActionType.RouteDispatched, RouteId = "route-1",
-            });
 
             int retired = ParsekScenario.RetireUntaggedRowsAfterSaveAtInSessionLoad(kind, 200.0, 400.0);
 
             Assert.Equal(2, retired);
             Assert.Equal(
-                new[] { "act_seed", "act_before_save", "act_at_save", "act_committed_future", "act_tagged", "act_route" },
+                new[] { "act_seed", "act_before_save", "act_at_save", "act_committed_future", "act_tagged" },
                 Ledger.Actions.Select(a => a.ActionId));
             Assert.Contains(logLines, l => l.Contains("[INFO][LoadPolicy]")
                 && l.Contains("Untagged rows after the save retired: kind=" + kind + " saveUT=200 clockUT=400")
-                && l.Contains("retired=2 seedsKept=0 routeRowsLeft=1"));
+                && l.Contains("retired=2 seedsKept=0 keptKnown=0"));
             Assert.Contains(logLines, l => l.Contains("[Ledger]")
                 && l.Contains("RetireAbandonedFutureActions: removed 2 action(s) reason=quickload-untagged-after-save"));
         }
@@ -444,8 +440,6 @@ namespace Parsek.Tests
                 new GameAction { UT = 300.0, Type = GameActionType.KerbalHire, RecordingId = "rec" }, 200.0, 400.0));
             Assert.False(ParsekScenario.ShouldRetireUntaggedRowAfterSave(
                 new GameAction { UT = 300.0, Type = GameActionType.ScienceInitial }, 200.0, 400.0));
-            Assert.False(ParsekScenario.ShouldRetireUntaggedRowAfterSave(
-                new GameAction { UT = 300.0, Type = GameActionType.RouteDispatched, RouteId = "r" }, 200.0, 400.0));
             Assert.False(ParsekScenario.ShouldRetireUntaggedRowAfterSave(null, 200.0, 400.0));
             var known = new HashSet<string> { "act_known" };
             Assert.False(ParsekScenario.ShouldRetireUntaggedRowAfterSave(
@@ -518,7 +512,7 @@ namespace Parsek.Tests
             Assert.Equal(new[] { "act_rewind_left", "act_before_save" }, Ledger.Actions.Select(a => a.ActionId));
             Assert.Contains(logLines, l => l.Contains("[INFO][LoadPolicy]")
                 && l.Contains("Untagged rows after the save retired: kind=InSessionOther saveUT=300 clockUT=600")
-                && l.Contains("retired=2 seedsKept=0 routeRowsLeft=0 keptKnown=1 mode=exact"));
+                && l.Contains("retired=2 seedsKept=0 keptKnown=1 mode=exact"));
         }
 
         [Fact]
@@ -540,7 +534,7 @@ namespace Parsek.Tests
                 && l.Contains("Untagged rows after the save: no list in the loaded save")
                 && l.Contains("mode=window-legacy"));
             Assert.Contains(logLines, l => l.Contains("[INFO][LoadPolicy]")
-                && l.Contains("retired=2 seedsKept=0 routeRowsLeft=0 keptKnown=0 mode=window-legacy"));
+                && l.Contains("retired=2 seedsKept=0 keptKnown=0 mode=window-legacy"));
         }
 
         [Fact]
@@ -559,7 +553,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void WriteUntaggedFutureRowsNode_ListsOnlyUntaggedNonSeedNonRouteRowsAfterTheSave()
+        public void WriteUntaggedFutureRowsNode_ListsOnlyUntaggedNonSeedRowsAfterTheSave()
         {
             Ledger.AddAction(new GameAction { ActionId = "act_seed", UT = 0.0, Type = GameActionType.FundsInitial, InitialFunds = 25000f });
             AddUntagged("act_old", 100.0);
@@ -567,7 +561,6 @@ namespace Parsek.Tests
             AddUntagged("act_future_a", 500.0);
             AddUntagged("act_future_b", 700.0, GameActionType.KerbalHire);
             Ledger.AddAction(new GameAction { ActionId = "act_tagged", UT = 500.0, Type = GameActionType.FundsEarning, RecordingId = "rec" });
-            Ledger.AddAction(new GameAction { ActionId = "act_route", UT = 500.0, Type = GameActionType.RouteDispatched, RouteId = "r" });
             Ledger.AddAction(new GameAction { ActionId = "act_late_seed", UT = 500.0, Type = GameActionType.ScienceInitial });
 
             var node = new ConfigNode("SCENARIO");
@@ -644,21 +637,6 @@ namespace Parsek.Tests
             {
                 try { Directory.Delete(dir, true); } catch (Exception) { }
             }
-        }
-
-        [Fact]
-        public void TrimAndReconcile_RouteRowsUntouched()
-        {
-            var tree = MakeTree("ta3_route");
-            Ledger.AddAction(new GameAction
-            {
-                UT = 300.0, Type = GameActionType.RouteDispatched, RecordingId = tree.RootRecordingId, RouteId = "route-1",
-            });
-
-            RunResumePrep(tree, 200.0, LoadKind.QuickloadFlight);
-
-            var kept = Assert.Single(NonSeedRows());
-            Assert.Equal("route-1", kept.RouteId);
         }
 
         [Fact]
@@ -1019,10 +997,6 @@ namespace Parsek.Tests
             Assert.False(Retire(plan, "other", 300.0, GameActionType.FundsEarning));
             Assert.False(Retire(plan, null, 300.0, GameActionType.FundsEarning));
             Assert.False(Retire(plan, "rec", 300.0, GameActionType.FundsInitial));
-            Assert.False(ParsekScenario.ShouldRetireAbandonedFutureRow(new GameAction
-            {
-                UT = 300.0, Type = GameActionType.RouteDispatched, RecordingId = "rec", RouteId = "r",
-            }, plan));
             Assert.False(ParsekScenario.ShouldRetireAbandonedFutureRow(null, plan));
             Assert.False(ParsekScenario.ShouldRetireAbandonedFutureRow(new GameAction { RecordingId = "rec", UT = 300.0 }, null));
         }

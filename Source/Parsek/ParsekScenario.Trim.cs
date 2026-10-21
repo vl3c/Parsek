@@ -1221,7 +1221,7 @@ namespace Parsek
         /// Pure: whether a ledger row is part of the plan's abandoned future (owner ruling OQ-2:
         /// a quickload into a later-committed flight's quicksave retires that flight's
         /// recording-tagged rows after the quicksave). Only rows tagged to a trimmed recording,
-        /// never a route row and never a seed; then: the recording was pruned (it no longer
+        /// never a seed; then: the recording was pruned (it no longer
         /// exists), or the fact happened strictly after the cutoff (the occurrence UT the
         /// commit dedupe uses: a science row is stamped at its recording's end and carries the
         /// capture moment in the single-precision <c>StartUT</c>), or it is the KerbalAssignment summary of a
@@ -1236,7 +1236,7 @@ namespace Parsek
                 return AbandonedFutureRowReason.None;
             if (string.IsNullOrEmpty(action.RecordingId) || !plan.TrimmedIds.Contains(action.RecordingId))
                 return AbandonedFutureRowReason.None;
-            if (!string.IsNullOrEmpty(action.RouteId) || RecalculationEngine.IsSeedType(action.Type))
+            if (RecalculationEngine.IsSeedType(action.Type))
                 return AbandonedFutureRowReason.None;
             if (plan.PrunedIds.Contains(action.RecordingId))
                 return AbandonedFutureRowReason.PrunedRecording;
@@ -1328,8 +1328,7 @@ namespace Parsek
         /// rewind keeps such rows, ruling D2) and is not part of what the player did after the
         /// save. A row the loaded save lists in <paramref name="knownAtSave"/> already existed
         /// when the save was written (a D2 row the clock has since passed) and stays; null means
-        /// the save carries no list and the window alone decides. Never a seed, never a route
-        /// row (the in-session route reconcile owns those).
+        /// the save carries no list and the window alone decides. Never a seed.
         /// </summary>
         internal static bool ShouldRetireUntaggedRowAfterSave(
             GameAction action, double saveUT, double preLoadClockUT, ICollection<string> knownAtSave = null)
@@ -1341,13 +1340,13 @@ namespace Parsek
             return action.UT > saveUT && action.UT <= preLoadClockUT;
         }
 
-        /// <summary>Pure: an untagged, non-seed, non-route ledger row, the set the save's id list
+        /// <summary>Pure: an untagged, non-seed ledger row, the set the save's id list
         /// and the in-session retire both cover.</summary>
         internal static bool IsUntaggedSaveScopedRow(GameAction action)
         {
             if (action == null || !string.IsNullOrEmpty(action.RecordingId))
                 return false;
-            return !RecalculationEngine.IsSeedType(action.Type) && string.IsNullOrEmpty(action.RouteId);
+            return !RecalculationEngine.IsSeedType(action.Type);
         }
 
         /// <summary>Child node of the PARSEK scenario node that lists, by ActionId, the untagged
@@ -1360,7 +1359,7 @@ namespace Parsek
 
         /// <summary>
         /// Pure over the node: writes <see cref="UntaggedFutureRowsNodeName"/> into the PARSEK
-        /// scenario node, one <c>id</c> value per untagged, non-seed, non-route row of
+        /// scenario node, one <c>id</c> value per untagged, non-seed row of
         /// <paramref name="actions"/> dated after <paramref name="saveClockUT"/> (less a one-second
         /// margin; every such row when the clock is unusable), plus the save clock as
         /// <c>saveUT</c>. Always written, even empty: the node's presence is what tells a later
@@ -1486,7 +1485,6 @@ namespace Parsek
             }
 
             int seedsKept = 0;
-            int routeRowsLeft = 0;
             int keptKnown = 0;
             int retired = Ledger.RetireAbandonedFutureActions(action =>
             {
@@ -1495,8 +1493,6 @@ namespace Parsek
                 {
                     if (RecalculationEngine.IsSeedType(action.Type))
                         seedsKept++;
-                    else if (!string.IsNullOrEmpty(action.RouteId))
-                        routeRowsLeft++;
                     else if (knownAtSave != null && action.ActionId != null && knownAtSave.Contains(action.ActionId))
                         keptKnown++;
                 }
@@ -1509,8 +1505,7 @@ namespace Parsek
                 ParsekLog.Info(LoadReconcilePolicy.LogTag,
                     $"Untagged rows after the save retired: kind={kind} saveUT={saveText} clockUT={clockText} " +
                     $"retired={retired.ToString(CultureInfo.InvariantCulture)} " +
-                    $"seedsKept={seedsKept.ToString(CultureInfo.InvariantCulture)} " +
-                    $"routeRowsLeft={routeRowsLeft.ToString(CultureInfo.InvariantCulture)} {tail}");
+                    $"seedsKept={seedsKept.ToString(CultureInfo.InvariantCulture)} {tail}");
             }
             else
             {

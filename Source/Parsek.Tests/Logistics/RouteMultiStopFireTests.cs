@@ -17,7 +17,7 @@ namespace Parsek.Tests.Logistics
     /// <para><b>Real path, not the false-green fake.</b> The plain
     /// <see cref="RouteOrchestrator.DeliveryApplierForTesting"/> fake short-circuits
     /// BEFORE the per-window idempotency guard
-    /// (<see cref="RouteOrchestrator.IsDeliveryAlreadyInLedger"/>) and would let a
+    /// (<see cref="RouteOrchestrator.IsDeliveryAlreadyLogged"/>) and would let a
     /// "window 2 not suppressed" assertion pass even if the real guard suppressed
     /// it. These tests instead leave that fake null and assign
     /// <see cref="RouteOrchestrator.DeliveryRowEmitterForTesting"/>, which the REAL
@@ -88,9 +88,9 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.DeliveryRowEmitterForTesting =
                 (route, currentUT, env, cycleId, stopIndex, bumpCompletedCycle) =>
                 {
-                    Ledger.AddAction(new GameAction
+                    RouteEventLog.Add(new RouteEvent
                     {
-                        Type = GameActionType.RouteCargoDelivered,
+                        Type = RouteEventType.RouteCargoDelivered,
                         UT = currentUT,
                         RouteId = route.Id,
                         RouteCycleId = cycleId,
@@ -173,11 +173,11 @@ namespace Parsek.Tests.Logistics
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }
 
-        private static List<GameAction> Delivered() =>
-            Ledger.Actions.Where(a => a.Type == GameActionType.RouteCargoDelivered).ToList();
+        private static List<RouteEvent> Delivered() =>
+            RouteEventLog.Events.Where(a => a.Type == RouteEventType.RouteCargoDelivered).ToList();
 
-        private static List<GameAction> Dispatched() =>
-            Ledger.Actions.Where(a => a.Type == GameActionType.RouteDispatched).ToList();
+        private static List<RouteEvent> Dispatched() =>
+            RouteEventLog.Events.Where(a => a.Type == RouteEventType.RouteDispatched).ToList();
 
         // ==================================================================
         // (1) Both windows fire at their phases; window 2 NOT suppressed
@@ -253,25 +253,25 @@ namespace Parsek.Tests.Logistics
             // Pre-seed the ledger as it would be after window 0 fired + saved:
             // the RouteDispatched row (cycle-0, carrier stop 0) and window 0's
             // RouteCargoDelivered row (cycle-0, stop 0).
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteDispatched,
+                Type = RouteEventType.RouteDispatched,
                 UT = 1150.0,
                 RouteId = route.Id,
                 RouteCycleId = "cycle-0",
                 RouteStopIndex = 0,
                 Sequence = 0,
             });
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteCargoDelivered,
+                Type = RouteEventType.RouteCargoDelivered,
                 UT = 1150.0,
                 RouteId = route.Id,
                 RouteCycleId = "cycle-0",
                 RouteStopIndex = 0,
                 Sequence = 0 * RouteOrchestrator.SeqStride + 3,
             });
-            int before = Ledger.Actions.Count;
+            int before = RouteEventLog.Events.Count;
 
             // Re-present the cycle past dock B (loopUT 1350).
             RouteOrchestrator.Tick(1350.0, env);
@@ -289,18 +289,18 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(0, route.LastObservedLoopCycleIndex);
             // Net new rows: exactly the window-1 delivered row (no re-dispatch, no
             // re-debit, no window-0 re-delivery).
-            Assert.Equal(before + 1, Ledger.Actions.Count);
+            Assert.Equal(before + 1, RouteEventLog.Events.Count);
         }
 
         // catches: the per-window delivery guard not distinguishing stopIndex. The
-        // REAL IsDeliveryAlreadyInLedger is asserted directly: window 0's row must
+        // REAL IsDeliveryAlreadyLogged is asserted directly: window 0's row must
         // NOT register as "window 1 already delivered".
         [Fact]
         public void DeliveryGuard_IsPerWindow_NotPerCycle()
         {
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteCargoDelivered,
+                Type = RouteEventType.RouteCargoDelivered,
                 UT = 1150.0,
                 RouteId = "route-x",
                 RouteCycleId = "cycle-0",
@@ -308,9 +308,9 @@ namespace Parsek.Tests.Logistics
             });
 
             // Window 0 IS in the ledger.
-            Assert.True(RouteOrchestrator.IsDeliveryAlreadyInLedger("route-x", "cycle-0", 0));
+            Assert.True(RouteOrchestrator.IsDeliveryAlreadyLogged("route-x", "cycle-0", 0));
             // Window 1 is NOT (the RANK-1 hole would return true here).
-            Assert.False(RouteOrchestrator.IsDeliveryAlreadyInLedger("route-x", "cycle-0", 1));
+            Assert.False(RouteOrchestrator.IsDeliveryAlreadyLogged("route-x", "cycle-0", 1));
         }
 
         // ==================================================================
@@ -336,7 +336,7 @@ namespace Parsek.Tests.Logistics
 
             // Collect every route row for the cycle and assert (UT, Sequence) is a
             // total order (no duplicate key).
-            var rows = Ledger.Actions
+            var rows = RouteEventLog.Events
                 .Where(a => a.RouteId == route.Id && a.RouteCycleId == "cycle-0")
                 .Select(a => (a.UT, a.Sequence))
                 .ToList();
@@ -518,7 +518,7 @@ namespace Parsek.Tests.Logistics
             // loopUT 1050 < dock A 1150 -> no window due.
             RouteOrchestrator.Tick(1050.0, env);
 
-            Assert.Empty(Ledger.Actions);
+            Assert.Empty(RouteEventLog.Events);
             Assert.Equal(0, route.CompletedCycles);
             Assert.Equal(-1, route.LastObservedLoopCycleIndex);
             Assert.Equal(-1, route.Stops[0].LastFiredCycleIndex);
@@ -609,14 +609,14 @@ namespace Parsek.Tests.Logistics
             InstallUnitResolver(BuildUnit());
             InstallRealPathRowEmitter();
             var env = new EligibleEnv();
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteDispatched, UT = 1150.0, RouteId = route.Id,
+                Type = RouteEventType.RouteDispatched, UT = 1150.0, RouteId = route.Id,
                 RouteCycleId = "cycle-0", RouteStopIndex = 0, Sequence = 0,
             });
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteCargoDelivered, UT = 1150.0, RouteId = route.Id,
+                Type = RouteEventType.RouteCargoDelivered, UT = 1150.0, RouteId = route.Id,
                 RouteCycleId = "cycle-0", RouteStopIndex = 0,
                 Sequence = 0 * RouteOrchestrator.SeqStride + 3,
             });
@@ -697,7 +697,7 @@ namespace Parsek.Tests.Logistics
         // C-2 (defense-in-depth): a multi-stop pickup window must NOT double-debit
         // its physical source across a simulated reload. Pre-seed the ledger with
         // the window's RouteCargoPickedUp row (as if it fired + saved), then
-        // re-present the window: the C-2 backstop (IsPickupAlreadyInLedger) must
+        // re-present the window: the C-2 backstop (IsPickupAlreadyLogged) must
         // suppress the SECOND physical debit (PickupDebitApplierForTesting NOT
         // re-invoked) and emit no second pickup row.
         [Fact]
@@ -754,18 +754,18 @@ namespace Parsek.Tests.Logistics
 
             // Pre-seed the cycle-0 pickup row + dispatch row as if the window fired
             // and was saved (the reload state). stopIndex 0.
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteDispatched, UT = 1150.0, RouteId = route.Id,
+                Type = RouteEventType.RouteDispatched, UT = 1150.0, RouteId = route.Id,
                 RouteCycleId = "cycle-0", RouteStopIndex = -1, Sequence = 0,
             });
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteCargoPickedUp, UT = 1150.0, RouteId = route.Id,
+                Type = RouteEventType.RouteCargoPickedUp, UT = 1150.0, RouteId = route.Id,
                 RouteCycleId = "cycle-0", RouteStopIndex = 0,
                 Sequence = 0 * RouteOrchestrator.SeqStride + 2,
             });
-            int pickupRowsBefore = Ledger.Actions.Count(a => a.Type == GameActionType.RouteCargoPickedUp);
+            int pickupRowsBefore = RouteEventLog.Events.Count(a => a.Type == RouteEventType.RouteCargoPickedUp);
 
             // Re-present the window directly (the C-2 guard lives in EmitPickupHalf,
             // exercised here through the real per-window emit). PendingStopIndex 0.
@@ -776,7 +776,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(0, physicalDebits);
             // No second pickup row emitted.
             Assert.Equal(pickupRowsBefore,
-                Ledger.Actions.Count(a => a.Type == GameActionType.RouteCargoPickedUp));
+                RouteEventLog.Events.Count(a => a.Type == RouteEventType.RouteCargoPickedUp));
             Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("C-2 backstop"));
         }
 
@@ -786,13 +786,13 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void PickupBackstop_IsPerWindow_NotPerCycle()
         {
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteCargoPickedUp, UT = 1150.0, RouteId = "route-y",
+                Type = RouteEventType.RouteCargoPickedUp, UT = 1150.0, RouteId = "route-y",
                 RouteCycleId = "cycle-0", RouteStopIndex = 0,
             });
-            Assert.True(RouteOrchestrator.IsPickupAlreadyInLedger("route-y", "cycle-0", 0));
-            Assert.False(RouteOrchestrator.IsPickupAlreadyInLedger("route-y", "cycle-0", 1));
+            Assert.True(RouteOrchestrator.IsPickupAlreadyLogged("route-y", "cycle-0", 0));
+            Assert.False(RouteOrchestrator.IsPickupAlreadyLogged("route-y", "cycle-0", 1));
         }
     }
 }

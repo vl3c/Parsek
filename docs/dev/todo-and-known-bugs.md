@@ -398,7 +398,7 @@ and logistics design section 10.6).**
   during an in-session load, which #2155 makes a Cold save-file load that drops the handoff
   (design-load-restores-the-save section 8 lists it as unreached).
 
-## LOGISTICS-WITHOUT-MONEY: supply routes still charge and credit funds and write ledger rows, so the funds history depends on choices made after a rewind [FILED 2026-10-21 from the owner ruling on LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O4, first as ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES, then ROUTE-MONEY-COST-ONLY. OPEN for phase 2 (route rows out of the ledger); phase 1 (no route money) FIXED 2026-10-21]
+## ~~LOGISTICS-WITHOUT-MONEY: supply routes still charge and credit funds and write ledger rows, so the funds history depends on choices made after a rewind~~ [FILED 2026-10-21 from the owner ruling on LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O4, first as ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES, then ROUTE-MONEY-COST-ONLY. FIXED 2026-10-21: phase 1 (no route money) on branch `logistics-no-money-p1`, phase 2 (route events out of the ledger) on branch `logistics-no-money-p2`. Harness re-flight of the Logistics lanes pending. product]
 
 Supply routes are a real-time system: every load back in time retires a route's cycles after its
 cutoff and the clock re-decides them (as built, design 10.6). Any money a cycle writes makes the funds
@@ -416,8 +416,7 @@ ledger are dropped at load. Phase 2 moves the remaining route rows out
 of the ledger into a route-owned event log persisted with the route store. Kept: the endpoint chain
 hold and `RetiredRouteCargoStore`. Supersedes ROUTE-DISPATCH-COST-BASIS-RESIDUALS.
 
-**Phase 1 FIXED 2026-10-21** (branch `logistics-no-money-p1`; phase 2 still OPEN, so this entry
-stays open). Removed: the funds gate (`IsCareer`, `KscFundsAvailable`, `WaitFunds`, the FundsShort
+**Phase 1 FIXED 2026-10-21** (branch `logistics-no-money-p1`). Removed: the funds gate (`IsCareer`, `KscFundsAvailable`, `WaitFunds`, the FundsShort
 gate paths), the dispatch charge, the live delivery debit, the recovery credit with its pending
 marker and flush sites, `RouteFundsCalculator`, `RouteRunCostCalculator`,
 `LogisticsCostPresentation`, `ComputeDispatchFundsCostForRoute`, the Logistics cost text and
@@ -426,7 +425,7 @@ route arms of `FundsModule`, `RecalculationEngine`, `LedgerOrchestrator` and `Ro
 Center origin writes one `RouteDispatched` row and no debit row (`DispatchDebit: ... space-center
 origin: dispatch row only (free, no debit row)`); a vessel origin still writes dispatched + debited.
 Old saves, by the coordinator's scope change (no conversion): `Ledger.LoadFromFile` drops legacy
-route money rows at the ConfigNode level before deserialization (`LedgerLoadMigration.IsLegacyRouteMoneyNode`:
+route money rows at the ConfigNode level before deserialization (`LedgerLoadMigration.IsLegacyRouteMoneyNode`, widened by phase 2 to every route row as `IsLegacyRouteNode`:
 type 28, and type 24 with a non-zero `routeKscFundsCost`) with one Info count line; the next save
 holds none, so a second load drops nothing. `RouteCodec` ignores `kscDispatchFundsCost` and the
 pending-credit keys and never writes them; `WaitingForFunds` reads as `Active`; a FundsShort hold
@@ -442,6 +441,29 @@ unchanged net=0`, the Sandbox skip line absent): H38's isolated Logistics batch 
 `logi-cargo-career` (H38's rig in `fresh-career`), tally 39 / 0 / 8 pinned whole. The fixture then
 gained three research nodes (every rig part unlocked) and the confirming flight `2026-10-21_1810`
 passed on it (same tally, `funds unchanged net=0`).
+
+**Phase 2 FIXED 2026-10-21** (branch `logistics-no-money-p2`, stacked on phase 1). Route events left
+the ledger. New: `Logistics/RouteEvent.cs` (`RouteEvent` + `RouteEventType`, the eight kinds with the
+names and numbers of their reserved `GameActionType` ids), `Logistics/RouteEventLog.cs` (the static
+log; `SaveInto` / `LoadFrom` as the sparse `ROUTE_EVENT_LOG` child of the PARSEK scenario node, called
+from `RouteStore.SaveRoutesTo` / `LoadRoutesFrom`), and `RouteEventRetire` (was `RouteLedgerRetire`).
+`RetiredRouteCargoStore` moved from the ledger file to the same node. Every reader takes
+`RouteEventLog.Events`: the dispatch / pickup / delivery dedup, the hold-episode walk, catch-up resume,
+`DeriveTimelineStatus` / `ReconstructCycleCounters`, `ChainTipRouteCargo`, the Rec-3 discard leak
+report, Route History, delivery summary and flow rows. Load paths: a cold load reads the save's log;
+every in-session load keeps memory's and the route reconcile retires the events after its cutoff (the
+same `RetireFutureRouteActionsAtRewind` log line, now tagged `RouteEventLog`); the Re-Fly bundle
+captures the log and its restore retires the capture; the stock revert prune no longer touches route
+state (the reconcile, cutoff raised to the save's route state floor, does it, with strict `>`).
+Deleted: `RouteModule`, the route fields and codec of `GameAction`, the route arms of `TimelineBuilder`,
+`ParsekScenario.Trim` (the `routeRowsLeft=` token), `SupersedeCommit` and the revert prune; ids 23 to
+30 and 36 stay reserved and `Ledger.LoadFromFile` drops any such row (`LedgerLoadMigration.IsLegacyRouteNode`,
+one Info line with the count per type). `PostWalk: routes=` now comes from `RouteEventLog.LogWalkSummary`
+on every load and after each reconcile. The `RouteOrchestrator` ERS/ELS allowlist entry stays (its loop
+unit reads the raw committed recordings). Fixtures `rover-route-recorded`, `interbody-route-recorded` and
+`depot-route-recorded` keep legacy route rows in their ledger, dropped at load. xUnit: new
+`RouteEventLogTests`, `RouteEventCodecTests`, `RouteEventRetireTests`, ledger drop cells in `LedgerTests`;
+route tests ported to the log; `RouteModuleTests` deleted. No lane flown yet.
 
 ## ~~ROUTE-DISPATCH-IGNORES-RESERVATIONS: a route dispatch checks the raw funds counter, so it can spend money a committed purchase needs~~ [FILED 2026-10-21 from the O4 analysis. Was open, small; owner ruling: ship now, ahead of LOGISTICS-WITHOUT-MONEY. FIXED 2026-10-21 on branch `claude/project-thread-q165qu`. xUnit only. product. SUPERSEDED the same day by LOGISTICS-WITHOUT-MONEY phase 1, which deletes the route funds gate this fix made reservation-aware, with `RouteDispatchReservationGateTests`.]
 
@@ -5031,6 +5053,10 @@ runs from the Space Center as well as FLIGHT (`VerbSceneRequirement.RequiresRewi
 recovering it. The second flight (`2026-10-17_0700`) found HIRE-RECALC-BEFORE-STOCK-DEBIT; the
 third, `2026-10-17_0930`, PASSED attempt 1 with the produced pools equal to the oracle's
 (funds 216769, science 90, rep 0 at end clock 199.87). Still open: the route action types.
+Update 2026-10-21 (LOGISTICS-WITHOUT-MONEY phase 2, branch `logistics-no-money-p2`): route events
+are no longer ledger rows and routes move no funds, so the route half has nothing left to model in
+the ledger oracle; a route-cutoff check would read the route event log (`ROUTE_EVENT_LOG`) instead.
+Left open for the operator to close or re-scope.
 
 ---
 

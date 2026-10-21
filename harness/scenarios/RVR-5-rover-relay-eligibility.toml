@@ -388,8 +388,8 @@ count = { min = 9, max = 9 }
 #          shapes a pickup-plus-delivery relay - which is exactly what this census is for.
 #          RVR-2's history is the standing lesson on pinning a derived number.
 #
-# TOKEN 5  THE ROUTE STORE IS EMPTY ON THE WAY IN, from `RouteModule`'s recalculation
-#          epilogue (`PostWalk: routes={0}, paused=...`). It fires on OnLoad - unlike
+# TOKEN 5  THE ROUTE STORE IS EMPTY ON THE WAY IN, from the route event log's walk
+#          summary (`PostWalk: routes={0}, paused=...`, `RouteEventLog.LogWalkSummary`). It fires on OnLoad - unlike
 #          `DeriveCandidates`, which does not (see the header) - and the fixture already
 #          carries `verboseLogging = True`, with step 5 re-asserting it. It is the
 #          before-picture the admission is measured against, and together with the

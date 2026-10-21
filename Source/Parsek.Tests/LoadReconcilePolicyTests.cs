@@ -539,7 +539,9 @@ namespace Parsek.Tests
 
             var routes = LoadReconcilePolicy.Decide(LoadKind.Cold, LoadStateCategory.Routes);
             Assert.Equal(LoadReconcileAction.Save, routes.Action);
-            Assert.Contains("GAME_STATE/LEDGER", routes.Reason);
+            // Route events persist with the routes in the PARSEK node, not in the ledger.
+            Assert.Contains("RouteStore.LoadRoutesFrom", routes.Reason);
+            Assert.Contains("ROUTE_EVENT_LOG", routes.Reason);
             Assert.Contains("GAME_STATE/PARSEK_GAME_STATE",
                 LoadReconcilePolicy.Decide(LoadKind.Cold, LoadStateCategory.AbandonedFutureEvents).Reason);
             Assert.Contains("GAME_STATE/LEDGER",

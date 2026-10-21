@@ -76,7 +76,7 @@ namespace Parsek.Logistics
         /// first harvest window's open location (pid 0); dispatch eligibility
         /// skips origin endpoint resolution and the origin-cargo gate, and
         /// the per-cycle <see cref="CostManifest"/> is EMPTY (the
-        /// dispatch/debit ledger row pair still emits for row-shape
+        /// dispatch/debit route event pair still emits for row-shape
         /// stability, as a structural no-op). Mutually exclusive with
         /// <see cref="IsKscOrigin"/>. Sparse in the codec (omitted when
         /// false).
@@ -255,7 +255,7 @@ namespace Parsek.Logistics
         /// yet completed (route-timeline events). Distinguishes the Send Once arm
         /// from an ordinary pause-after-cycle request (both set
         /// <see cref="PauseAfterCurrentCycle"/>): the Logistics window shows the
-        /// "Sending one cycle" state from this, and the dispatched ledger row is
+        /// "Sending one cycle" state from this, and the dispatched route event is
         /// stamped <c>RouteSendOnce</c> from it so the one-shot run is identifiable
         /// in the timeline. Set by <c>RouteOrchestrator.TrySendOneCycleNow</c>;
         /// cleared by the armed-pause completion, a player Pause, and a player

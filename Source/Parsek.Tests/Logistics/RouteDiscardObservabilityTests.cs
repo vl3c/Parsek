@@ -31,9 +31,9 @@ namespace Parsek.Tests.Logistics
             ParsekLog.ResetTestOverrides();
         }
 
-        private static GameAction Phys(
-            GameActionType t, double ut, string routeId, string cycleId, string res, double amt)
-            => new GameAction
+        private static RouteEvent Phys(
+            RouteEventType t, double ut, string routeId, string cycleId, string res, double amt)
+            => new RouteEvent
             {
                 Type = t,
                 UT = ut,
@@ -113,9 +113,9 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void Summarize_RewindBacked_ReportsNothing()
         {
-            var actions = new List<GameAction>
+            var actions = new List<RouteEvent>
             {
-                Phys(GameActionType.RouteCargoDelivered, 150.0, "R1", "c1", "LiquidFuel", 200.0),
+                Phys(RouteEventType.RouteCargoDelivered, 150.0, "R1", "c1", "LiquidFuel", 200.0),
             };
 
             int n = RouteDiscardObservability.SummarizePhysicalLeak(
@@ -128,14 +128,14 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void Summarize_NonRewind_CountsOnlyPhysicalRowsInWindow()
         {
-            var actions = new List<GameAction>
+            var actions = new List<RouteEvent>
             {
-                Phys(GameActionType.RouteCargoDelivered, 150.0, "R1", "c1", "LiquidFuel", 200.0),
-                Phys(GameActionType.RouteCargoDebited, 160.0, "R1", "c1", "Ore", 500.0),
+                Phys(RouteEventType.RouteCargoDelivered, 150.0, "R1", "c1", "LiquidFuel", 200.0),
+                Phys(RouteEventType.RouteCargoDebited, 160.0, "R1", "c1", "Ore", 500.0),
                 // marker row, no manifest -> not counted
-                new GameAction { Type = GameActionType.RouteDispatched, UT = 155.0, RouteId = "R1", RouteCycleId = "c1" },
+                new RouteEvent { Type = RouteEventType.RouteDispatched, UT = 155.0, RouteId = "R1", RouteCycleId = "c1" },
                 // physical but OUT of window -> not counted
-                Phys(GameActionType.RouteCargoDelivered, 999.0, "R1", "c9", "LiquidFuel", 50.0),
+                Phys(RouteEventType.RouteCargoDelivered, 999.0, "R1", "c9", "LiquidFuel", 50.0),
             };
 
             int n = RouteDiscardObservability.SummarizePhysicalLeak(
@@ -149,11 +149,11 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void Summarize_OnlyManifestlessOrMarkerRows_ReportsNothing()
         {
-            var actions = new List<GameAction>
+            var actions = new List<RouteEvent>
             {
-                new GameAction { Type = GameActionType.RouteDispatched, UT = 150.0, RouteId = "R1" },
+                new RouteEvent { Type = RouteEventType.RouteDispatched, UT = 150.0, RouteId = "R1" },
                 // A debit row with no manifest moved nothing physical.
-                new GameAction { Type = GameActionType.RouteCargoDebited, UT = 160.0, RouteId = "R1" },
+                new RouteEvent { Type = RouteEventType.RouteCargoDebited, UT = 160.0, RouteId = "R1" },
             };
 
             int n = RouteDiscardObservability.SummarizePhysicalLeak(
@@ -172,9 +172,9 @@ namespace Parsek.Tests.Logistics
             {
                 new Recording { ExplicitStartUT = 100.0, ExplicitEndUT = 200.0 },
             };
-            var actions = new List<GameAction>
+            var actions = new List<RouteEvent>
             {
-                Phys(GameActionType.RouteCargoDelivered, 150.0, "FuelRun", "c1", "LiquidFuel", 200.0),
+                Phys(RouteEventType.RouteCargoDelivered, 150.0, "FuelRun", "c1", "LiquidFuel", 200.0),
             };
 
             int n = RouteDiscardObservability.ReportDiscardLeakForRecordings(
@@ -192,9 +192,9 @@ namespace Parsek.Tests.Logistics
             {
                 new Recording { ExplicitStartUT = 100.0, ExplicitEndUT = 200.0 },
             };
-            var actions = new List<GameAction>
+            var actions = new List<RouteEvent>
             {
-                Phys(GameActionType.RouteCargoDelivered, 150.0, "FuelRun", "c1", "LiquidFuel", 200.0),
+                Phys(RouteEventType.RouteCargoDelivered, 150.0, "FuelRun", "c1", "LiquidFuel", 200.0),
             };
 
             int n = RouteDiscardObservability.ReportDiscardLeakForRecordings(
@@ -207,9 +207,9 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void Report_NoWindow_NoWarn()
         {
-            var actions = new List<GameAction>
+            var actions = new List<RouteEvent>
             {
-                Phys(GameActionType.RouteCargoDelivered, 150.0, "FuelRun", "c1", "LiquidFuel", 200.0),
+                Phys(RouteEventType.RouteCargoDelivered, 150.0, "FuelRun", "c1", "LiquidFuel", 200.0),
             };
 
             int n = RouteDiscardObservability.ReportDiscardLeakForRecordings(

@@ -222,14 +222,13 @@ namespace Parsek.Tests
                 l.Contains("[Ledger]") && l.Contains("Loaded ledger") && l.Contains("actions=5"));
         }
 
-        // catches: an old save's supply-route money rows surviving the ledger load.
-        // Supply routes carry no money (todo LOGISTICS-WITHOUT-MONEY): a recovery
-        // credit (type 28) and a Space Center charge (type 24 with a non-zero
-        // routeKscFundsCost) are dropped with one Info summary, a vessel-origin
-        // RouteCargoDebited row (no cost) is kept, the next save writes neither, and
-        // a second load drops nothing.
+        // catches: an old save's supply-route rows surviving the load. Route events
+        // live in the route event log (todo LOGISTICS-WITHOUT-MONEY phase 2): every row
+        // of a reserved route type (23-30, 36) is dropped before deserialization with
+        // one Info summary, the rest of the ledger loads untouched, and the next save
+        // writes none of them, so a second load drops nothing.
         [Fact]
-        public void LoadFromFile_DropsLegacyRouteMoneyRows_KeepsVesselOriginDebit()
+        public void LoadFromFile_DropsEveryLegacyRouteRow_KeepsTheRest()
         {
             Ledger.AddAction(new GameAction
             {
@@ -239,33 +238,28 @@ namespace Parsek.Tests
             });
             Ledger.AddAction(new GameAction
             {
-                UT = 100.0,
-                Type = GameActionType.RouteCargoDebited,
-                RouteId = "route-vessel",
-                RouteCycleId = "cycle-vessel",
-                RouteOriginVesselPid = 4242u,
-                RouteResourceManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } }
-            });
-            Ledger.AddAction(new GameAction
-            {
-                UT = 110.0,
-                Type = GameActionType.RouteCargoDebited,
-                RouteId = "route-ksc",
-                RouteCycleId = "cycle-charge"
+                UT = 50.0,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = 100f,
+                FundsSpendingSource = FundsSpendingSource.Other
             });
             Assert.True(Ledger.SaveToFile(LedgerPath));
 
-            // Give the Space Center debit the money key an old save wrote, and append
-            // an old recovery-credit row (type 28) as the old writer laid it out.
-            string content = File.ReadAllText(LedgerPath);
-            Assert.DoesNotContain("routeKscFundsCost", content);
-            string chargeLine = "routeCycleId = cycle-charge";
-            Assert.Contains(chargeLine, content);
-            content = content.Replace(chargeLine, chargeLine + "\n\trouteKscFundsCost = 12500")
-                + "GAME_ACTION\n{\n\tut = 400\n\ttype = 28\n\tactionId = act_legacycredit\n"
-                + "\trouteId = route-ksc\n\trouteCycleId = cycle-credit\n"
-                + "\trouteKscFundsCost = 7300\n}\n";
-            File.WriteAllText(LedgerPath, content);
+            // Append one old-layout row of every reserved route type.
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            int[] routeTypes = { 23, 24, 25, 26, 27, 28, 29, 30, 36 };
+            var sb = new System.Text.StringBuilder(File.ReadAllText(LedgerPath));
+            for (int i = 0; i < routeTypes.Length; i++)
+            {
+                sb.Append("GAME_ACTION\n{\n\tut = ").Append((100 + i).ToString(ic))
+                  .Append("\n\ttype = ").Append(routeTypes[i].ToString(ic))
+                  .Append("\n\tactionId = act_legacyroute").Append(i.ToString(ic))
+                  .Append("\n\trouteId = route-old\n\trouteCycleId = cycle-0")
+                  .Append("\n\tresource = LiquidFuel|10\n}\n");
+            }
+            // A second dispatched row so the per-type tally is not all ones.
+            sb.Append("GAME_ACTION\n{\n\tut = 200\n\ttype = 23\n\trouteId = route-old\n}\n");
+            File.WriteAllText(LedgerPath, sb.ToString());
 
             Ledger.ResetForTesting();
             logLines.Clear();
@@ -273,53 +267,60 @@ namespace Parsek.Tests
 
             Assert.Equal(2, Ledger.Actions.Count);
             Assert.Equal(GameActionType.FundsInitial, Ledger.Actions[0].Type);
-            GameAction kept = Ledger.Actions[1];
-            Assert.Equal(GameActionType.RouteCargoDebited, kept.Type);
-            Assert.Equal("cycle-vessel", kept.RouteCycleId);
-            Assert.Equal(4242u, kept.RouteOriginVesselPid);
-            Assert.Equal(100.0, kept.RouteResourceManifest["LiquidFuel"]);
+            Assert.Equal(GameActionType.FundsSpending, Ledger.Actions[1].Type);
+            Assert.DoesNotContain(Ledger.Actions, a => LedgerLoadMigration.IsReservedRouteActionType(a.Type));
             Assert.Single(logLines, l =>
                 l.Contains("[INFO]") && l.Contains("[Ledger]")
-                && l.Contains("Dropped 2 legacy supply-route money rows at load")
-                && l.Contains("recoveryCredits=1 spaceCenterCharges=1"));
+                && l.Contains("Dropped 10 legacy supply-route rows at load")
+                && l.Contains("RouteDispatched=2 RouteCargoDebited=1 RouteCargoDelivered=1 RoutePaused=1 "
+                    + "RouteEndpointLost=1 RouteRecoveryCredited=1 RouteCargoPickedUp=1 RouteResumed=1 RouteHeld=1"));
+            Assert.DoesNotContain(logLines, l => l.Contains("[WARN]") && l.Contains("[Ledger]"));
+            // The route event log is not fed from the ledger.
+            Assert.Empty(Parsek.Logistics.RouteEventLog.Events);
 
-            // Idempotent: the next save writes neither row, and its load drops nothing.
+            // Idempotent: the next save writes no route row, and its load drops nothing.
             Assert.True(Ledger.SaveToFile(LedgerPath));
             string resaved = File.ReadAllText(LedgerPath);
-            Assert.DoesNotContain("routeKscFundsCost", resaved);
-            Assert.DoesNotContain("cycle-charge", resaved);
-            Assert.DoesNotContain("cycle-credit", resaved);
-            Assert.DoesNotContain("type = 28", resaved);
+            Assert.DoesNotContain("route-old", resaved);
+            Assert.DoesNotContain("routeId", resaved);
             Ledger.ResetForTesting();
             logLines.Clear();
             Assert.True(Ledger.LoadFromFile(LedgerPath));
             Assert.Equal(2, Ledger.Actions.Count);
-            Assert.DoesNotContain(logLines, l => l.Contains("legacy supply-route money rows"));
+            Assert.DoesNotContain(logLines, l => l.Contains("legacy supply-route rows"));
         }
 
-        // catches: the drop predicate over-reaching. A RouteCargoDebited row whose
-        // routeKscFundsCost is absent or zero is physical cargo and is kept; a
-        // non-zero cost marks the old Space Center charge; type 28 is always money.
+        // catches: the drop predicate over-reaching or under-reaching. Exactly the
+        // reserved route ids are dropped; every other type, an unknown id, a missing or
+        // unparseable type and a null node are left to the normal deserializer.
         [Fact]
-        public void IsLegacyRouteMoneyNode_ClassifiesByTypeAndCost()
+        public void IsLegacyRouteNode_ClassifiesByType_AndTallies()
         {
-            ConfigNode Node(GameActionType type, string cost)
+            ConfigNode Node(string type)
             {
                 var n = new ConfigNode("GAME_ACTION");
-                n.AddValue("type", ((int)type).ToString(System.Globalization.CultureInfo.InvariantCulture));
-                if (cost != null) n.AddValue("routeKscFundsCost", cost);
+                if (type != null) n.AddValue("type", type);
                 return n;
             }
 
-            Assert.False(LedgerLoadMigration.IsLegacyRouteMoneyNode(Node(GameActionType.RouteCargoDebited, null), out _));
-            Assert.False(LedgerLoadMigration.IsLegacyRouteMoneyNode(Node(GameActionType.RouteCargoDebited, "0"), out _));
-            Assert.True(LedgerLoadMigration.IsLegacyRouteMoneyNode(Node(GameActionType.RouteCargoDebited, "12500"), out bool chargeIsCredit));
-            Assert.False(chargeIsCredit);
-            Assert.True(LedgerLoadMigration.IsLegacyRouteMoneyNode(Node(GameActionType.RouteRecoveryCredited, null), out bool creditIsCredit));
-            Assert.True(creditIsCredit);
-            Assert.False(LedgerLoadMigration.IsLegacyRouteMoneyNode(Node(GameActionType.RouteCargoDelivered, "500"), out _));
-            Assert.False(LedgerLoadMigration.IsLegacyRouteMoneyNode(Node(GameActionType.FundsSpending, null), out _));
-            Assert.False(LedgerLoadMigration.IsLegacyRouteMoneyNode(null, out _));
+            var tally = new LedgerLoadMigration.LegacyRouteRowTally();
+            foreach (GameActionType t in Enum.GetValues(typeof(GameActionType)))
+            {
+                bool reserved = LedgerLoadMigration.IsReservedRouteActionType(t);
+                Assert.Equal(reserved, LedgerLoadMigration.IsLegacyRouteNode(
+                    Node(((int)t).ToString(System.Globalization.CultureInfo.InvariantCulture)), tally));
+            }
+            Assert.Equal(9, tally.Total);
+            Assert.Equal(1, tally.CountOf(GameActionType.RouteHeld));
+            Assert.Equal(0, tally.CountOf(GameActionType.FundsSpending));
+
+            Assert.False(LedgerLoadMigration.IsLegacyRouteNode(Node("9999"), tally));
+            Assert.False(LedgerLoadMigration.IsLegacyRouteNode(Node("RouteDispatched"), tally));
+            Assert.False(LedgerLoadMigration.IsLegacyRouteNode(Node(null), tally));
+            Assert.False(LedgerLoadMigration.IsLegacyRouteNode(null, tally));
+            Assert.True(LedgerLoadMigration.IsLegacyRouteNode(Node("23"), null));
+            Assert.Equal(9, tally.Total);
+            Assert.Equal("none", new LedgerLoadMigration.LegacyRouteRowTally().FormatByType());
         }
 
         [Fact]

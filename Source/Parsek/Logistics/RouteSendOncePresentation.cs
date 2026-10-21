@@ -16,7 +16,7 @@ namespace Parsek.Logistics
     /// <see cref="BuildDeliveredMessage"/>), CYCLE COMPLETE (a multi-stop cycle
     /// finished across its N windows - <see cref="BuildCycleDeliveredMessage"/>,
     /// posted by <c>RouteOrchestrator.TryHonorArmedPauseOnCompletedCycle</c>),
-    /// ALREADY DELIVERED (the ELS replay backstop -
+    /// ALREADY DELIVERED (the event-log replay backstop -
     /// <see cref="BuildAlreadyDeliveredMessage"/>), and BLOCKED (the cycle was
     /// consumed by an eligibility hold and the armed pause was honored - see
     /// <c>RouteOrchestrator.TryHonorArmedPauseOnBlockedCycle</c>).
@@ -76,9 +76,9 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Shown when a send-once cycle resolved on the ELS REPLAY backstop
-        /// (SENDONCE-RESIDUAL-PATHS item 2): the delivered row was already in the
-        /// ledger - a save/reload or crash landed it without the pause marker - so
+        /// Shown when a send-once cycle resolved on the EVENT-LOG REPLAY backstop
+        /// (SENDONCE-RESIDUAL-PATHS item 2): the delivered event was already in the
+        /// route event log - a save/reload or crash landed it without the pause marker - so
         /// the run produced no NEW delivery. That is precisely the shape where a
         /// silent resolution makes the player click Send Once again, so it toasts
         /// like the other two. Counts-free by construction: this branch re-plans

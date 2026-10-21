@@ -16,9 +16,9 @@ namespace Parsek
     ///   rows the elapsed "T+" from it. Rows from the pure
     ///   <see cref="MissionStructureListBuilder"/>.</item>
     ///   <item>The Route History ("Parsek - Route History: &lt;route&gt;"): one supply
-    ///   route's runs and state changes from its ledger rows, opened from the route's
+    ///   route's runs and state changes from its route events, opened from the route's
     ///   "Log" button in the Logistics window. Every row carries its own date. Rows from the
-    ///   pure <see cref="RouteHistoryBuilder"/> over the Effective Ledger Set.</item>
+    ///   pure <see cref="RouteHistoryBuilder"/> over the route event log.</item>
     /// </list>
     /// Both draw the same table (Time | Event | Location | Vessel), hover strip and Close;
     /// reopening an instance retargets it. Read-only.
@@ -189,8 +189,8 @@ namespace Parsek
 
         /// <summary>
         /// Opens the Route History on one supply route: its runs and state changes from the
-        /// route's ledger rows. While open it rebuilds when the ledger, the tombstones or the
-        /// route's name move (<see cref="RefreshIfChanged"/>).
+        /// route's events. While open it rebuilds when the route event log or the
+        /// route's name moves (<see cref="RefreshIfChanged"/>).
         /// </summary>
         internal void OpenForRoute(string routeId, string displayTitle)
         {

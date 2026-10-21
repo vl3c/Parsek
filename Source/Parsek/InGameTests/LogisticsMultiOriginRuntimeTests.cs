@@ -161,7 +161,7 @@ namespace Parsek.InGameTests
                     deliveryTarget, PickupAmountA + PickupAmountB);
 
                 List<Route> preExistingRoutes = SnapshotRoutes();
-                int beforeLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+                int beforeLedgerCount = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
 
                 RunMultiStopCrossing(
                     label: "MultiOrigin_Consolidation",
@@ -285,7 +285,7 @@ namespace Parsek.InGameTests
                 string routeId = "ingame-mo-short-id-" + Guid.NewGuid().ToString("N").Substring(0, 8);
 
                 List<Route> preExistingRoutes = SnapshotRoutes();
-                int beforeLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+                int beforeLedgerCount = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
 
                 RunMultiStopCrossing(
                     label: "MultiOrigin_ShortSource",
@@ -388,7 +388,7 @@ namespace Parsek.InGameTests
                 var stationTankSnap = SnapshotAndClearDeliveryTarget(station, ShuttleLoadAmount);
 
                 List<Route> preExistingRoutes = SnapshotRoutes();
-                int beforeLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+                int beforeLedgerCount = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
 
                 RunMultiStopCrossing(
                     label: "Shuttle_LoadDeliver",
@@ -734,7 +734,7 @@ namespace Parsek.InGameTests
                             : (previousResolver != null ? previousResolver(r, ut) : (GhostPlaybackLogic.LoopUnit?)null);
                     seamArmed = true;
 
-                    int beforeResumeLedger = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+                    int beforeResumeLedger = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
                     double depotAStoredAtResume = new LiveOriginCargoProbe(depotA, false).ProbeResourceStored(LiquidFuelName);
 
                     RouteOrchestrator.Tick(TickUtAllDocks);
@@ -1447,20 +1447,20 @@ namespace Parsek.InGameTests
             pickedUpCount = 0;
             pickedUpStopIndices = new HashSet<int>();
             deliveredCount = 0;
-            var actions = Ledger.Actions;
+            var actions = RouteEventLog.Events;
             if (actions == null) return;
             for (int i = fromIndex; i < actions.Count; i++)
             {
-                GameAction a = actions[i];
+                RouteEvent a = actions[i];
                 if (a == null) continue;
                 if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
-                if (a.Type == GameActionType.RouteDispatched) dispatchedCount++;
-                else if (a.Type == GameActionType.RouteCargoPickedUp)
+                if (a.Type == RouteEventType.RouteDispatched) dispatchedCount++;
+                else if (a.Type == RouteEventType.RouteCargoPickedUp)
                 {
                     pickedUpCount++;
                     pickedUpStopIndices.Add(a.RouteStopIndex);
                 }
-                else if (a.Type == GameActionType.RouteCargoDelivered) deliveredCount++;
+                else if (a.Type == RouteEventType.RouteCargoDelivered) deliveredCount++;
             }
         }
 

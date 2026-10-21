@@ -177,7 +177,7 @@ namespace Parsek.Tests.Logistics
 
             // No routes means no summary log, no per-route work, no exceptions.
             Assert.DoesNotContain(logLines, l => l.Contains("[Route]") && l.Contains("Tick:"));
-            Assert.Empty(Ledger.Actions);
+            Assert.Empty(RouteEventLog.Events);
         }
 
         // catches: not-due routes mutating state.
@@ -193,7 +193,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(RouteStatus.Active, route.Status);
             Assert.Equal(500.0, route.NextDispatchUT);
             Assert.Null(route.CurrentCycleStartUT);
-            Assert.Empty(Ledger.Actions);
+            Assert.Empty(RouteEventLog.Events);
         }
 
         // catches: dispatch path failing to flip status / advance schedule.
@@ -311,8 +311,8 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(-1, route.PendingStopIndex);
             Assert.Equal(RouteStatus.EndpointLost, route.Status);
             Assert.Equal(0, route.CompletedCycles);
-            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteCargoDelivered);
-            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.RouteEndpointLost);
+            Assert.DoesNotContain(RouteEventLog.Events, a => a.Type == RouteEventType.RouteCargoDelivered);
+            Assert.Contains(RouteEventLog.Events, a => a.Type == RouteEventType.RouteEndpointLost);
         }
 
         // catches: wait state silently advancing NextDispatchUT (would let a
@@ -381,7 +381,7 @@ namespace Parsek.Tests.Logistics
             // Status untouched.
             Assert.Equal(RouteStatus.Paused, route.Status);
             // No ledger actions produced.
-            Assert.Empty(Ledger.Actions);
+            Assert.Empty(RouteEventLog.Events);
         }
 
         // catches: an in-tick AddRoute corrupting the iteration (the snapshot
@@ -396,7 +396,7 @@ namespace Parsek.Tests.Logistics
             // second route and verify it is picked up on the second tick.
             var env = new FakeRouteRuntimeEnvironment();
             RouteOrchestrator.Tick(200.0, env);
-            int actionsAfterFirstTick = Ledger.Actions.Count;
+            int actionsAfterFirstTick = RouteEventLog.Events.Count;
             Assert.Equal(RouteStatus.InTransit, routeA.Status);
 
             // Adding a new route now must not retroactively re-process routeA.
@@ -411,7 +411,7 @@ namespace Parsek.Tests.Logistics
 
             // Ledger grew by exactly the new dispatch row (a Space Center origin
             // writes no debit row).
-            Assert.Equal(actionsAfterFirstTick + 1, Ledger.Actions.Count);
+            Assert.Equal(actionsAfterFirstTick + 1, RouteEventLog.Events.Count);
         }
 
         // catches: endpoint loss not emitting the ledger row OR failing to
@@ -432,8 +432,8 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(RouteStatus.EndpointLost, route.Status);
             Assert.True(route.NextEligibilityCheckUT.HasValue);
 
-            var last = Ledger.Actions.Last();
-            Assert.Equal(GameActionType.RouteEndpointLost, last.Type);
+            var last = RouteEventLog.Events.Last();
+            Assert.Equal(RouteEventType.RouteEndpointLost, last.Type);
             Assert.Equal(route.Id, last.RouteId);
             Assert.Contains("pid-miss-no-surface-fallback", last.RouteEndpointReason ?? "");
         }
@@ -450,10 +450,10 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(200.0, env);
 
-            Assert.Equal(2, Ledger.Actions.Count);
+            Assert.Equal(2, RouteEventLog.Events.Count);
 
-            var dispatched = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteDispatched);
-            var debited = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoDebited);
+            var dispatched = RouteEventLog.Events.FirstOrDefault(a => a.Type == RouteEventType.RouteDispatched);
+            var debited = RouteEventLog.Events.FirstOrDefault(a => a.Type == RouteEventType.RouteCargoDebited);
 
             Assert.NotNull(dispatched);
             Assert.NotNull(debited);
@@ -479,7 +479,7 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(200.0, env);
 
-            var debited = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoDebited);
+            var debited = RouteEventLog.Events.FirstOrDefault(a => a.Type == RouteEventType.RouteCargoDebited);
             Assert.NotNull(debited);
             // CostManifest copied (not the same reference) onto the action.
             Assert.NotNull(debited.RouteResourceManifest);
@@ -519,7 +519,7 @@ namespace Parsek.Tests.Logistics
             // Dispatched through the legacy path, physical debit skipped.
             Assert.Equal(RouteStatus.InTransit, route.Status);
             Assert.Equal(0, seamCalls);
-            var debited = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoDebited);
+            var debited = RouteEventLog.Events.FirstOrDefault(a => a.Type == RouteEventType.RouteCargoDebited);
             Assert.NotNull(debited);
             // v0 row shape byte-identical: CostManifest clone, no requested
             // manifest, no origin pid.
@@ -546,9 +546,9 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.Tick(200.0, new FakeRouteRuntimeEnvironment());
 
             Assert.Equal(RouteStatus.InTransit, route.Status);
-            Assert.Single(Ledger.Actions);
-            Assert.Equal(GameActionType.RouteDispatched, Ledger.Actions[0].Type);
-            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteCargoDebited);
+            Assert.Single(RouteEventLog.Events);
+            Assert.Equal(RouteEventType.RouteDispatched, RouteEventLog.Events[0].Type);
+            Assert.DoesNotContain(RouteEventLog.Events, a => a.Type == RouteEventType.RouteCargoDebited);
             Assert.Contains(logLines, l =>
                 l.Contains("[Route]") && l.Contains("space-center origin: dispatch row only"));
         }
@@ -610,7 +610,7 @@ namespace Parsek.Tests.Logistics
 
             // Evaluator returns Skip("sources-stale") — no transition, no ledger row.
             Assert.Equal(RouteStatus.Active, route.Status);
-            Assert.Empty(Ledger.Actions);
+            Assert.Empty(RouteEventLog.Events);
         }
 
         // catches: a Wait* outcome's reason text not being preserved into the
@@ -965,18 +965,17 @@ namespace Parsek.Tests.Logistics
             bool ok = RouteOrchestrator.TryPause(route, 500.0);
 
             Assert.True(ok);
-            var marker = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RoutePaused);
+            var marker = RouteEventLog.Events.FirstOrDefault(a => a.Type == RouteEventType.RoutePaused);
             Assert.NotNull(marker);
             Assert.Equal(route.Id, marker.RouteId);
             Assert.Equal(500.0, marker.UT);
             Assert.Equal("player-pause", marker.RouteEndpointReason);
-            Assert.Null(marker.RecordingId); // free-standing route row contract
             Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("LifecycleMarker"));
         }
 
         private static List<StructureStep> HistoryOf(Route route)
         {
-            return RouteHistoryBuilder.Build(Ledger.Actions.ToList(), route.Id, "KSC", null,
+            return RouteHistoryBuilder.Build(RouteEventLog.Events.ToList(), route.Id, "KSC", null,
                 stop => "-", stop => "-", pid => null);
         }
 
@@ -988,7 +987,7 @@ namespace Parsek.Tests.Logistics
         {
             var route = BuildActiveDueKscRoute(nextDispatchUT: 1_000_000.0);
             route.Status = RouteStatus.Paused;
-            int ledgerBefore = Ledger.Actions.Count;
+            int ledgerBefore = RouteEventLog.Events.Count;
 
             Assert.True(RouteOrchestrator.TrySendOneCycleNow(route, 100.0));
             Assert.Equal(RouteStatus.Active, route.Status);
@@ -999,11 +998,11 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(RouteStatus.Paused, route.Status);
             Assert.False(route.SendOnceArmed);
             Assert.False(route.PauseAfterCurrentCycle);
-            Assert.Equal(ledgerBefore, Ledger.Actions.Count);
-            Assert.DoesNotContain(Ledger.Actions, a => a.RouteId == route.Id);
+            Assert.Equal(ledgerBefore, RouteEventLog.Events.Count);
+            Assert.DoesNotContain(RouteEventLog.Events, a => a.RouteId == route.Id);
             Assert.Empty(HistoryOf(route));
             Assert.Contains(logLines, l => l.Contains("TryCancelSendOnce")
-                && l.Contains("no ledger row written"));
+                && l.Contains("no route event written"));
             Assert.Contains(logLines, l => l.Contains("reason=" + RouteOrchestrator.SendOnceCancelledReason));
         }
 
@@ -1032,7 +1031,7 @@ namespace Parsek.Tests.Logistics
             paused.SendOnceArmed = true;
             Assert.False(RouteOrchestrator.TryCancelSendOnce(paused));
 
-            Assert.Empty(Ledger.Actions);
+            Assert.Empty(RouteEventLog.Events);
         }
 
         // The mirror: an explicit Pause of a genuinely Active scheduled route still writes
@@ -1046,7 +1045,7 @@ namespace Parsek.Tests.Logistics
             Assert.True(RouteOrchestrator.TryPause(route, 500.0));
 
             Assert.Equal(RouteStatus.Paused, route.Status);
-            Assert.Single(Ledger.Actions, a => a.Type == GameActionType.RoutePaused && a.RouteId == route.Id);
+            Assert.Single(RouteEventLog.Events, a => a.Type == RouteEventType.RoutePaused && a.RouteId == route.Id);
             var history = HistoryOf(route);
             Assert.Single(history);
             Assert.Equal("Paused", history[0].Label);
@@ -1066,7 +1065,7 @@ namespace Parsek.Tests.Logistics
 
             Assert.True(ok);
             Assert.Equal(RouteStatus.Paused, route.Status);
-            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RoutePaused);
+            Assert.DoesNotContain(RouteEventLog.Events, a => a.Type == RouteEventType.RoutePaused);
             Assert.Contains(logLines, l => l.Contains("LifecycleMarker") && l.Contains("SKIPPED"));
         }
 
@@ -1079,7 +1078,7 @@ namespace Parsek.Tests.Logistics
             route.Status = RouteStatus.InTransit;
 
             Assert.True(RouteOrchestrator.TryPause(route, 500.0));
-            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RoutePaused);
+            Assert.DoesNotContain(RouteEventLog.Events, a => a.Type == RouteEventType.RoutePaused);
         }
 
         [Fact]
@@ -1112,7 +1111,7 @@ namespace Parsek.Tests.Logistics
             bool ok = RouteOrchestrator.TryActivate(route, 700.0);
 
             Assert.True(ok);
-            var marker = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteResumed);
+            var marker = RouteEventLog.Events.FirstOrDefault(a => a.Type == RouteEventType.RouteResumed);
             Assert.NotNull(marker);
             Assert.Equal(route.Id, marker.RouteId);
             Assert.Equal(700.0, marker.UT);
@@ -1130,7 +1129,7 @@ namespace Parsek.Tests.Logistics
             Assert.True(route.PauseAfterCurrentCycle);
             // Send Once un-pauses without a RouteResumed row: the one-shot is
             // bracketed by the stamped dispatch + the post-delivery pause instead.
-            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteResumed);
+            Assert.DoesNotContain(RouteEventLog.Events, a => a.Type == RouteEventType.RouteResumed);
 
             // A player pause cancels the never-fired arm and leaves no dispatch trace.
             Assert.True(RouteOrchestrator.TryPause(route, 200.0));
@@ -1162,7 +1161,7 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(200.0, env);
 
-            var dispatched = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteDispatched);
+            var dispatched = RouteEventLog.Events.FirstOrDefault(a => a.Type == RouteEventType.RouteDispatched);
             Assert.NotNull(dispatched);
             Assert.True(dispatched.RouteSendOnce,
                 "a Send-Once-armed cycle's dispatched row must carry the provenance stamp");
@@ -1177,7 +1176,7 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(200.0, env);
 
-            var dispatched = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteDispatched);
+            var dispatched = RouteEventLog.Events.FirstOrDefault(a => a.Type == RouteEventType.RouteDispatched);
             Assert.NotNull(dispatched);
             Assert.False(dispatched.RouteSendOnce);
         }
@@ -1186,17 +1185,17 @@ namespace Parsek.Tests.Logistics
         public void EmitRouteLifecycleMarker_UsesInjectedEmitterAndSequence()
         {
             var route = BuildActiveDueKscRoute();
-            var captured = new List<GameAction>();
+            var captured = new List<RouteEvent>();
 
             RouteOrchestrator.EmitRouteLifecycleMarker(
-                route, 900.0, GameActionType.RoutePaused, "delivered-then-paused",
+                route, 900.0, RouteEventType.RoutePaused, "delivered-then-paused",
                 sequence: 4, emitter: captured.Add);
 
             Assert.Single(captured);
-            Assert.Equal(GameActionType.RoutePaused, captured[0].Type);
+            Assert.Equal(RouteEventType.RoutePaused, captured[0].Type);
             Assert.Equal(4, captured[0].Sequence);
             Assert.Equal("delivered-then-paused", captured[0].RouteEndpointReason);
-            Assert.Empty(Ledger.Actions); // injected emitter bypasses the static ledger
+            Assert.Empty(RouteEventLog.Events); // injected emitter bypasses the static ledger
         }
     }
 }

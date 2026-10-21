@@ -21,13 +21,13 @@ namespace Parsek.Logistics
 
     /// <summary>
     /// The in-session load route reconcile (owner ruling 2026-10-07, todo
-    /// ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD). <see cref="RouteStore"/> is loaded from
-    /// the save on a cold load only, and the ledger is never reloaded in session, so a load that
-    /// goes back in time keeps the abandoned future's route rows and loop cursors: the re-flown
-    /// crossings are swallowed by the cursor and the UT-blind dispatch dedup while their
-    /// rows survive. An F9 quickload, a stock revert and the Esc-menu Discard Re-fly load
-    /// therefore run the SAME reconcile the go-back rewind exit runs
-    /// (<see cref="Ledger.RetireFutureRouteActionsAtRewind"/> +
+    /// ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD). <see cref="RouteStore"/> and the
+    /// <see cref="RouteEventLog"/> are loaded from the save on a cold load only, so a load that
+    /// goes back in time keeps the abandoned future's route events and loop cursors: the
+    /// re-flown crossings are swallowed by the cursor and the UT-blind dispatch dedup while
+    /// their events survive. An F9 quickload, a stock revert and the Esc-menu Discard Re-fly
+    /// load therefore run the SAME reconcile the go-back rewind exit runs
+    /// (<see cref="RouteEventLog.RetireFutureRouteActionsAtRewind"/> +
     /// <see cref="RouteRewindClassifier.ReconcileStoreAtRewind"/>) keyed to the loaded save's UT.
     /// Every other in-session load runs it only when route state lies after the loaded save
     /// (an F9 at the Space Center or Tracking Station), so a forward scene change is untouched.
@@ -41,9 +41,9 @@ namespace Parsek.Logistics
     /// load reads that copy from its OnLoad node; the two rewind exits run the same restore
     /// through <see cref="RestoreLoopPositionAtRewindExit"/>.</para>
     ///
-    /// <para>OnLoad-safe: removes ledger rows and mutates Route instances only, never
-    /// <c>Ledger.AddAction</c>, so it runs inside <c>ParsekScenario.OnLoad</c> before the
-    /// recalculation, as the go-back exit does.</para>
+    /// <para>OnLoad-safe: removes route events and mutates Route instances only, never
+    /// <c>RouteEventLog.Add</c>, so it runs inside <c>ParsekScenario.OnLoad</c>, as the
+    /// go-back exit does.</para>
     /// </summary>
     internal static class RouteLoadReconcile
     {
@@ -157,18 +157,18 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// True when anything that HAPPENED on a route lies strictly after
-        /// <paramref name="cutoffUT"/>: a free-standing route ledger row
-        /// (<paramref name="ledgerHasFutureRouteRows"/>), a route created after it, or a route's
+        /// <paramref name="cutoffUT"/>: a route event
+        /// (<paramref name="logHasFutureEvents"/>), a route created after it, or a route's
         /// cycle start, hold or partial delivery stamped after it. Scheduled
         /// UTs (next dispatch, next eligibility check, pending delivery) are the future by design
         /// and do not count. <paramref name="evidence"/> names the first hit, or "none".
         /// </summary>
         internal static bool HasRouteStateAfterUT(
-            double cutoffUT, IReadOnlyList<Route> committedRoutes, bool ledgerHasFutureRouteRows, out string evidence)
+            double cutoffUT, IReadOnlyList<Route> committedRoutes, bool logHasFutureEvents, out string evidence)
         {
-            if (ledgerHasFutureRouteRows)
+            if (logHasFutureEvents)
             {
-                evidence = "ledger-rows";
+                evidence = "route-events";
                 return true;
             }
             if (committedRoutes != null)
@@ -370,7 +370,7 @@ namespace Parsek.Logistics
         /// <see cref="RouteStore.CommittedRoutes"/> with the loaded save's own route copy, so the
         /// reset does not re-fire the crossing that most recently passed before the cutoff.
         /// <paramref name="savedRoutes"/> null (no copy in hand) leaves the reset standing. Sets
-        /// Route fields only, never a ledger row (both exits run inside OnLoad). One log line per call.
+        /// Route fields only, never a route event (both exits run inside OnLoad). One log line per call.
         /// </summary>
         internal static int RestoreLoopPositionAtRewindExit(
             IReadOnlyList<Route> savedRoutes, double cutoffUT, double loadedSaveUT,
@@ -448,16 +448,15 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// The go-back rewind's route reconcile, run by <c>ParsekScenario.HandleRewindOnLoad</c>.
-        /// The go-back path never runs <c>Ledger.PruneOrphanActionsAfterUT</c> (the revert branch),
-        /// so without it the abandoned future's free-standing route rows survive (the UT-blind
-        /// dispatch dedup then swallows re-played cycles), kept routes carry its loop cursors, and
-        /// routes created after the cutoff stay committed. Retires route rows after the cutoff in
+        /// Without it the abandoned future's route events survive (the UT-blind dispatch dedup
+        /// then swallows re-played cycles), kept routes carry its loop cursors, and routes
+        /// created after the cutoff stay committed. Retires route events after the cutoff in
         /// place, runs the shared store reconcile over the live route lists (RouteStore survives
         /// the in-session load, so they are the pre-rewind capture; snapshots because
         /// <c>InstallRoutesAtRewind</c> replaces the lists), then gives each kept route its loop
         /// position back from the rewind save's own copy. The cutoff is
-        /// <see cref="ResolveGoBackRouteCutoffUT"/>. Emits no ledger action (it runs inside OnLoad,
-        /// before the recalculation). Returns the cutoff used.
+        /// <see cref="ResolveGoBackRouteCutoffUT"/>. Writes no route event (it runs inside OnLoad).
+        /// Returns the cutoff used.
         /// </summary>
         internal static double ReconcileAtGoBackRewind(
             double rewindAdjustedUT, IReadOnlyList<Route> rewindSaveRoutes, double rewindSaveUT)
@@ -469,8 +468,8 @@ namespace Parsek.Logistics
             RouteStore.StateFloorUT = cutoffSource == "rewind-save-ut" && cutoffUT > rewindAdjustedUT
                 ? cutoffUT
                 : double.NaN;
-            int retiredRouteRows = Ledger.RetireFutureRouteActionsAtRewind(
-                cutoffUT, out List<GameAction> keptLedgerActions);
+            int retiredRouteRows = RouteEventLog.RetireFutureRouteActionsAtRewind(
+                cutoffUT, out List<RouteEvent> keptEvents);
             ParsekLog.Info("Rewind",
                 "OnLoad: go-back route reconcile at cutoff=" + cutoffUT.ToString("R", IC) +
                 " retiredRouteRows=" + retiredRouteRows.ToString(IC) +
@@ -484,7 +483,7 @@ namespace Parsek.Logistics
                 new List<Route>(RouteStore.CommittedRoutes),
                 new List<Route>(RouteStore.DormantRoutes),
                 cutoffUT,
-                keptLedgerActions,
+                keptEvents,
                 logTag: "Rewind",
                 logPrefix: "OnLoad go-back");
             RestoreLoopPositionAtRewindExit(
@@ -554,7 +553,7 @@ namespace Parsek.Logistics
             {
                 evidenceFound = HasRouteStateAfterUT(
                     cutoffUT, RouteStore.CommittedRoutes,
-                    Ledger.HasFreeStandingRouteActionsAfterUT(cutoffUT), out evidence);
+                    RouteEventLog.HasEventsAfterUT(cutoffUT), out evidence);
             }
 
             RouteLoadReconcileOutcome outcome = Decide(kind, cutoffUT, evidenceFound);
@@ -578,14 +577,14 @@ namespace Parsek.Logistics
                 return outcome;
             }
 
-            int retiredRouteRows = Ledger.RetireFutureRouteActionsAtRewind(
-                cutoffUT, out List<GameAction> keptLedgerActions);
+            int retiredRouteRows = RouteEventLog.RetireFutureRouteActionsAtRewind(
+                cutoffUT, out List<RouteEvent> keptEvents);
             int dormantBefore = RouteStore.DormantRoutes.Count;
             RouteRewindClassifier.ReconcileStoreAtRewind(
                 new List<Route>(RouteStore.CommittedRoutes),
                 new List<Route>(RouteStore.DormantRoutes),
                 cutoffUT,
-                keptLedgerActions,
+                keptEvents,
                 logTag: LogTag,
                 logPrefix: "OnLoad in-session " + kind);
 

@@ -964,8 +964,9 @@ Recorded so they are not lost; none blocks the v1 B10 passive-safety oracle.
   where stock is silent, wait for the `gameevents-captured` in-game subscriber
   (M-B3) rather than reading a Parsek-derived number.
 - **Rewind / timeline-layering oracle (L4, M-C3).** See "The rewind-aware model"
-  below; the remaining deferral is route action types (todo
-  HARNESS-LEDGER-ORACLE-ROUTES-AND-REWIND).
+  below; the remaining deferral was route action types (todo
+  HARNESS-LEDGER-ORACLE-ROUTES-AND-REWIND), moot since route events left the ledger
+  (0.10.6, todo LOGISTICS-WITHOUT-MONEY).
 - **Reputation curve fidelity.** RESOLVED, not open: `apply_rep_curve` mirrors
   `ReputationModule.ApplyReputationCurve`, whose keyframes are the decompiled STOCK
   values extracted in the game-actions spike (`docs/dev/done/game-actions/game-actions-spike-findings.md (note: the ReputationModule.cs:22 comment cites a stale plans/ path)`,

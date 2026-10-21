@@ -40,42 +40,83 @@ namespace Parsek
         }
 
         /// <summary>
-        /// True for a serialized ledger row that carried supply-route MONEY in an old save:
-        /// every <see cref="GameActionType.RouteRecoveryCredited"/> row (type 28), and a
-        /// <see cref="GameActionType.RouteCargoDebited"/> row (type 24) whose
-        /// <c>routeKscFundsCost</c> is non-zero (a Career Space Center charge). Supply routes
-        /// carry no money any more (todo LOGISTICS-WITHOUT-MONEY), so
-        /// <see cref="Ledger.LoadFromFile"/> drops these rows before any recalculation reads
-        /// them; an old dev save's funds may shift once (accepted). A vessel-origin debit row
-        /// (no <c>routeKscFundsCost</c>, or zero) is a physical route row and is kept.
-        /// <paramref name="isCredit"/> tells the two kinds apart for the load summary. Pure:
-        /// reads the node only, so a ledger saved after the drop (which holds neither) is untouched.
+        /// The supply-route ids of <see cref="GameActionType"/> (23-30 and 36). Route events
+        /// left the ledger (todo LOGISTICS-WITHOUT-MONEY): nothing writes these types any more,
+        /// and an old save's rows of them are dropped at load (<see cref="IsLegacyRouteNode"/>).
+        /// The ids stay defined so such a row never parses as type 0 first. An explicit switch,
+        /// not a numeric range, so a later type can never widen the set.
         /// </summary>
-        internal static bool IsLegacyRouteMoneyNode(ConfigNode node, out bool isCredit)
+        internal static bool IsReservedRouteActionType(GameActionType t)
         {
-            isCredit = false;
+            switch (t)
+            {
+                case GameActionType.RouteDispatched:        // 23
+                case GameActionType.RouteCargoDebited:      // 24
+                case GameActionType.RouteCargoDelivered:    // 25
+                case GameActionType.RoutePaused:            // 26
+                case GameActionType.RouteEndpointLost:      // 27
+                case GameActionType.RouteRecoveryCredited:  // 28
+                case GameActionType.RouteCargoPickedUp:     // 29
+                case GameActionType.RouteResumed:           // 30
+                case GameActionType.RouteHeld:              // 36
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>Per-type counts of the legacy route rows one ledger load dropped.</summary>
+        internal sealed class LegacyRouteRowTally
+        {
+            private readonly SortedDictionary<int, int> byType = new SortedDictionary<int, int>();
+
+            internal int Total { get; private set; }
+
+            internal void Count(GameActionType t)
+            {
+                byType.TryGetValue((int)t, out int n);
+                byType[(int)t] = n + 1;
+                Total++;
+            }
+
+            internal int CountOf(GameActionType t)
+            {
+                return byType.TryGetValue((int)t, out int n) ? n : 0;
+            }
+
+            /// <summary>"RouteDispatched=2 RouteCargoDelivered=1", in type-id order.</summary>
+            internal string FormatByType()
+            {
+                var parts = new List<string>();
+                foreach (var kv in byType)
+                    parts.Add(((GameActionType)kv.Key).ToString() + "=" + kv.Value.ToString(CultureInfo.InvariantCulture));
+                return parts.Count == 0 ? "none" : string.Join(" ", parts.ToArray());
+            }
+        }
+
+        /// <summary>
+        /// True for a serialized ledger row of a supply-route type
+        /// (<see cref="IsReservedRouteActionType"/>): an old save's route row, which
+        /// <see cref="Ledger"/> drops before deserialization (owner ruling 2026-10-21: no
+        /// backward compatibility, no migration). <paramref name="tally"/> (may be null) counts
+        /// it by type for the load's one summary line. Pure: reads the node's <c>type</c> only.
+        /// </summary>
+        internal static bool IsLegacyRouteNode(ConfigNode node, LegacyRouteRowTally tally)
+        {
             if (node == null)
                 return false;
             string typeStr = node.GetValue("type");
             if (typeStr == null
                 || !int.TryParse(typeStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out int typeInt))
                 return false;
-            if (typeInt == (int)GameActionType.RouteRecoveryCredited)
-            {
-                isCredit = true;
-                return true;
-            }
-            if (typeInt != (int)GameActionType.RouteCargoDebited)
+            if (!Enum.IsDefined(typeof(GameActionType), typeInt))
                 return false;
-            string costStr = node.GetValue(LegacyRouteKscFundsCostKey);
-            return costStr != null
-                && float.TryParse(costStr, NumberStyles.Float, CultureInfo.InvariantCulture, out float cost)
-                && cost != 0f;
+            var type = (GameActionType)typeInt;
+            if (!IsReservedRouteActionType(type))
+                return false;
+            tally?.Count(type);
+            return true;
         }
-
-        /// <summary>The old save's per-row Space Center funds key, read only by
-        /// <see cref="IsLegacyRouteMoneyNode"/> and never written.</summary>
-        internal const string LegacyRouteKscFundsCostKey = "routeKscFundsCost";
 
         /// <summary>
         /// Migration for old saves: converts existing GameStateStore events from committed
@@ -248,28 +289,6 @@ namespace Parsek
                 case GameActionType.FundsInitial:
                 case GameActionType.ScienceInitial:
                 case GameActionType.ReputationInitial:
-                    return false;
-
-                // Route rows (design doc section 6): supply routes carry no money (todo
-                // LOGISTICS-WITHOUT-MONEY), so no route type moves a funds / science /
-                // reputation pool. RouteDispatched is a scheduler-decision marker;
-                // RouteCargoDebited / RouteCargoPickedUp / RouteCargoDelivered record
-                // physical cargo moves that happened live at emit and are reverted by
-                // the rewind quicksave; RoutePaused / RouteEndpointLost are scheduler
-                // state flips. RouteRecoveryCredited is a legacy type nothing writes
-                // (old rows are dropped at ledger load by IsLegacyRouteMoneyNode).
-                case GameActionType.RouteDispatched:
-                case GameActionType.RouteCargoDebited:
-                case GameActionType.RouteRecoveryCredited:
-                case GameActionType.RouteCargoDelivered:
-                case GameActionType.RouteCargoPickedUp:
-                case GameActionType.RoutePaused:
-                // RouteResumed (route-timeline events): a scheduler state flip like
-                // RoutePaused; moves no funds / science / reputation.
-                case GameActionType.RouteResumed:
-                case GameActionType.RouteEndpointLost:
-                // RouteHeld: records that a run was held; moves no pool.
-                case GameActionType.RouteHeld:
                     return false;
 
                 default:

@@ -274,7 +274,7 @@ namespace Parsek.InGameTests
                     "TrySendOneCycleNow returned false for an Active synthetic route");
                 InGameAssert.IsTrue(route.PauseAfterCurrentCycle, "PauseAfterCurrentCycle not armed");
                 InGameAssert.IsTrue(route.SendOnceArmed, "SendOnceArmed not armed");
-                int beforeTick = Ledger.Actions.Count;
+                int beforeTick = RouteEventLog.Events.Count;
 
                 RouteOrchestrator.Tick(crossingUT, arena.Env);
 
@@ -289,11 +289,11 @@ namespace Parsek.InGameTests
                 // ...nothing was emitted beyond the pause marker. This is also the
                 // world-safety assertion: the stop points at a REAL vessel, so a
                 // debit or delivery row here would mean the cell moved live cargo.
-                InGameAssert.AreEqual(0, CountRouteRows(routeId, GameActionType.RouteDispatched),
+                InGameAssert.AreEqual(0, CountRouteRows(routeId, RouteEventType.RouteDispatched),
                     "A blocked cycle emitted a RouteDispatched row");
-                InGameAssert.AreEqual(0, CountRouteRows(routeId, GameActionType.RouteCargoDelivered),
+                InGameAssert.AreEqual(0, CountRouteRows(routeId, RouteEventType.RouteCargoDelivered),
                     "A blocked cycle emitted a RouteCargoDelivered row against a REAL vessel");
-                InGameAssert.AreEqual(0, CountRouteRows(routeId, GameActionType.RouteCargoDebited),
+                InGameAssert.AreEqual(0, CountRouteRows(routeId, RouteEventType.RouteCargoDebited),
                     "A blocked cycle emitted a RouteCargoDebited row");
 
                 // ...and the armed pause was honored (THE defect: the route used to
@@ -317,7 +317,7 @@ namespace Parsek.InGameTests
                     "Hold UT not stamped at the crossing");
 
                 // The durable timeline marker a later rewind retires.
-                GameAction pauseRow = LatestRouteRow(routeId, GameActionType.RoutePaused, beforeTick);
+                RouteEvent pauseRow = LatestRouteRow(routeId, RouteEventType.RoutePaused, beforeTick);
                 InGameAssert.IsNotNull(pauseRow,
                     "No RoutePaused ledger row emitted by the blocked-cycle armed pause");
                 InGameAssert.AreEqual(RouteOrchestrator.BlockedThenPausedReason,
@@ -388,7 +388,7 @@ namespace Parsek.InGameTests
                     "TrySendOneCycleNow returned false for an Active synthetic route");
                 InGameAssert.IsTrue(route.PauseAfterCurrentCycle, "PauseAfterCurrentCycle not armed");
                 InGameAssert.IsTrue(route.SendOnceArmed, "SendOnceArmed not armed");
-                int beforeTick = Ledger.Actions.Count;
+                int beforeTick = RouteEventLog.Events.Count;
 
                 RouteOrchestrator.Tick(crossingUT, arena.Env);
 
@@ -424,7 +424,7 @@ namespace Parsek.InGameTests
                 // No pause marker (the postponement branch returns before the marker
                 // emission); the only durable row is the hold episode's one RouteHeld
                 // row (the Route History's Held row, written by design since PR #1982).
-                InGameAssert.IsNull(LatestRouteRow(routeId, GameActionType.RoutePaused, beforeTick),
+                InGameAssert.IsNull(LatestRouteRow(routeId, RouteEventType.RoutePaused, beforeTick),
                     "A postponement block emitted a RoutePaused row");
                 AssertOnlyRowIsPostponementHeldRow(routeId, beforeTick, "A postponement block");
                 InGameAssert.AreEqual(0, toasts.Count,
@@ -471,7 +471,7 @@ namespace Parsek.InGameTests
 
             var lines = new List<string>();
             Action<string> prevObserver = ParsekLog.TestObserverForTesting;
-            int beforeArm = Ledger.Actions.Count;
+            int beforeArm = RouteEventLog.Events.Count;
             try
             {
                 ParsekLog.TestObserverForTesting = l => { lines.Add(l); prevObserver?.Invoke(l); };
@@ -488,7 +488,7 @@ namespace Parsek.InGameTests
                     $"(next={route.NextDispatchUT.ToString("R", IC)} now={baseUT.ToString("R", IC)})");
                 InGameAssert.IsFalse(route.NextEligibilityCheckUT.HasValue,
                     "Send Once did not clear the wait-retry backoff");
-                InGameAssert.AreEqual(beforeArm, Ledger.Actions.Count,
+                InGameAssert.AreEqual(beforeArm, RouteEventLog.Events.Count,
                     "Send Once must not emit a ledger row at arm time (the provenance rides " +
                     "the dispatched row, and a never-fired arm must leave no trace)");
 
@@ -545,7 +545,7 @@ namespace Parsek.InGameTests
                     "TryPause must not set the Send Once provenance");
                 InGameAssert.AreEqual(RouteStatus.InTransit, route.Status,
                     "TryPause must leave an InTransit route in transit until the cycle resolves");
-                int beforeTick = Ledger.Actions.Count;
+                int beforeTick = RouteEventLog.Events.Count;
 
                 RouteOrchestrator.Tick(crossingUT, arena.Env);
 
@@ -560,12 +560,12 @@ namespace Parsek.InGameTests
                     $"Hold kind not retained across the armed pause (got {route.LastHoldKind})");
 
                 // World safety: the stop is a REAL vessel, so nothing may be written.
-                InGameAssert.AreEqual(0, CountRouteRows(routeId, GameActionType.RouteCargoDelivered),
+                InGameAssert.AreEqual(0, CountRouteRows(routeId, RouteEventType.RouteCargoDelivered),
                     "A blocked cycle emitted a RouteCargoDelivered row against a REAL vessel");
-                InGameAssert.AreEqual(0, CountRouteRows(routeId, GameActionType.RouteCargoDebited),
+                InGameAssert.AreEqual(0, CountRouteRows(routeId, RouteEventType.RouteCargoDebited),
                     "A blocked cycle emitted a RouteCargoDebited row");
 
-                GameAction pauseRow = LatestRouteRow(routeId, GameActionType.RoutePaused, beforeTick);
+                RouteEvent pauseRow = LatestRouteRow(routeId, RouteEventType.RoutePaused, beforeTick);
                 InGameAssert.IsNotNull(pauseRow, "No RoutePaused row for the completed in-transit pause");
                 InGameAssert.AreEqual(RouteOrchestrator.BlockedThenPausedReason,
                     pauseRow.RouteEndpointReason,
@@ -617,7 +617,7 @@ namespace Parsek.InGameTests
                     "TryPause did not arm PauseAfterCurrentCycle on the InTransit branch");
                 InGameAssert.IsFalse(route.SendOnceArmed,
                     "TryPause must not set the Send Once provenance");
-                int beforeTick = Ledger.Actions.Count;
+                int beforeTick = RouteEventLog.Events.Count;
 
                 RouteOrchestrator.Tick(crossingUT, arena.Env);
 
@@ -633,7 +633,7 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual(PostponementBlockDetail, route.LastHoldDetail,
                     $"Hold detail not recorded (got '{route.LastHoldDetail ?? "<null>"}')");
 
-                InGameAssert.IsNull(LatestRouteRow(routeId, GameActionType.RoutePaused, beforeTick),
+                InGameAssert.IsNull(LatestRouteRow(routeId, RouteEventType.RoutePaused, beforeTick),
                     "A postponement block emitted a RoutePaused row");
                 AssertOnlyRowIsPostponementHeldRow(routeId, beforeTick, "A postponement block");
                 InGameAssert.AreEqual(0, toasts.Count,
@@ -677,7 +677,7 @@ namespace Parsek.InGameTests
             using (var arena = new LifecycleArena(lines, toasts, route, baseUT))
             {
                 RequireLivePostponementBlock(route, crossingUT, arena.Env);
-                int beforeTick = Ledger.Actions.Count;
+                int beforeTick = RouteEventLog.Events.Count;
 
                 RouteOrchestrator.Tick(crossingUT, arena.Env);
 
@@ -693,7 +693,7 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual(PostponementBlockKind, route.LastHoldKind,
                     $"Hold not recorded on the unarmed blocked cycle (got {route.LastHoldKind})");
 
-                InGameAssert.IsNull(LatestRouteRow(routeId, GameActionType.RoutePaused, beforeTick),
+                InGameAssert.IsNull(LatestRouteRow(routeId, RouteEventType.RoutePaused, beforeTick),
                     "An unarmed blocked cycle emitted a RoutePaused row");
                 AssertOnlyRowIsPostponementHeldRow(routeId, beforeTick, "An unarmed blocked cycle");
                 InGameAssert.AreEqual(0, toasts.Count,
@@ -799,7 +799,7 @@ namespace Parsek.InGameTests
         /// <summary>
         /// Owns EVERY global a ticking cell touches and restores all of them on
         /// dispose, so an assertion that throws mid-cell can never leave a
-        /// synthetic route, a stale ledger row, an installed loop-unit resolver, a
+        /// synthetic route, a stale route event, an installed loop-unit resolver, a
         /// forced verbose-logging override or a hijacked screen-message sink behind
         /// in the player's session. Mirrors the RouteRewindTimeline seam tests'
         /// <c>finally</c> block, hoisted into a struct because six of this
@@ -807,7 +807,7 @@ namespace Parsek.InGameTests
         /// </summary>
         private struct LifecycleArena : IDisposable
         {
-            private readonly List<GameAction> preLedger;
+            private readonly List<RouteEvent> preLedger;
             private readonly List<Route> preCommitted;
             private readonly List<Route> preDormant;
             private readonly Action<string> prevObserver;
@@ -1388,12 +1388,12 @@ namespace Parsek.InGameTests
         private static void AssertOnlyRowIsPostponementHeldRow(
             string routeId, int beforeTick, string what)
         {
-            InGameAssert.AreEqual(beforeTick + 1, Ledger.Actions.Count,
-                $"{what} emitted {(Ledger.Actions.Count - beforeTick).ToString(IC)} ledger row(s); " +
+            InGameAssert.AreEqual(beforeTick + 1, RouteEventLog.Events.Count,
+                $"{what} emitted {(RouteEventLog.Events.Count - beforeTick).ToString(IC)} ledger row(s); " +
                 "it must emit exactly one (the hold episode's RouteHeld row)");
-            GameAction held = Ledger.Actions[beforeTick];
+            RouteEvent held = RouteEventLog.Events[beforeTick];
             InGameAssert.IsNotNull(held, $"{what} emitted a null ledger row");
-            InGameAssert.AreEqual(GameActionType.RouteHeld, held.Type,
+            InGameAssert.AreEqual(RouteEventType.RouteHeld, held.Type,
                 $"{what} emitted a {held.Type} row; the only row must be RouteHeld");
             InGameAssert.AreEqual(routeId, held.RouteId,
                 $"The RouteHeld row names route '{held.RouteId ?? "<null>"}', not {routeId}");
@@ -1406,13 +1406,13 @@ namespace Parsek.InGameTests
         /// <summary>Latest row of <paramref name="type"/> for
         /// <paramref name="routeId"/> at or after <paramref name="fromIndex"/>;
         /// null when none.</summary>
-        private static GameAction LatestRouteRow(string routeId, GameActionType type, int fromIndex)
+        private static RouteEvent LatestRouteRow(string routeId, RouteEventType type, int fromIndex)
         {
-            var actions = Ledger.Actions;
+            var actions = RouteEventLog.Events;
             if (actions == null) return null;
             for (int i = actions.Count - 1; i >= fromIndex && i >= 0; i--)
             {
-                GameAction a = actions[i];
+                RouteEvent a = actions[i];
                 if (a == null) continue;
                 if (a.Type != type) continue;
                 if (string.Equals(a.RouteId, routeId, StringComparison.Ordinal))
@@ -1421,14 +1421,14 @@ namespace Parsek.InGameTests
             return null;
         }
 
-        private static int CountRouteRows(string routeId, GameActionType type)
+        private static int CountRouteRows(string routeId, RouteEventType type)
         {
             int count = 0;
-            var actions = Ledger.Actions;
+            var actions = RouteEventLog.Events;
             if (actions == null) return 0;
             for (int i = 0; i < actions.Count; i++)
             {
-                GameAction a = actions[i];
+                RouteEvent a = actions[i];
                 if (a == null) continue;
                 if (a.Type == type && string.Equals(a.RouteId, routeId, StringComparison.Ordinal))
                     count++;
@@ -1436,10 +1436,10 @@ namespace Parsek.InGameTests
             return count;
         }
 
-        private static List<GameAction> SnapshotLedger()
+        private static List<RouteEvent> SnapshotLedger()
         {
-            var snapshot = new List<GameAction>();
-            var actions = Ledger.Actions;
+            var snapshot = new List<RouteEvent>();
+            var actions = RouteEventLog.Events;
             if (actions != null)
             {
                 for (int i = 0; i < actions.Count; i++)
@@ -1449,33 +1449,29 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// Restores the live ledger to the pre-test snapshot (Clear + AddActions,
-        /// the verified surfaces). One full retry runs before giving up so a
-        /// first-attempt failure cannot leave a partially restored ledger silently;
-        /// a second failure Warn-logs both counts so the residue is attributable in
-        /// the batch log. (Copied from the RouteRewindTimeline helper: the two
-        /// categories must not share mutable test state.)
+        /// Restores the live route event log to the pre-test snapshot. One full retry
+        /// runs before giving up so a first-attempt failure cannot leave a partially
+        /// restored log silently; a second failure Warn-logs both counts so the residue
+        /// is attributable in the batch log.
         /// </summary>
-        private static void RestoreLedger(List<GameAction> snapshot)
+        private static void RestoreLedger(List<RouteEvent> snapshot)
         {
             for (int attempt = 1; attempt <= 2; attempt++)
             {
                 try
                 {
-                    Ledger.Clear();
-                    if (snapshot != null && snapshot.Count > 0)
-                        Ledger.AddActions(snapshot);
+                    RouteEventLog.ReplaceAll(snapshot ?? new List<RouteEvent>(), "route lifecycle test cleanup");
                     return;
                 }
                 catch (Exception ex)
                 {
                     int liveCount = 0;
-                    try { liveCount = Ledger.Actions != null ? Ledger.Actions.Count : 0; } catch { }
+                    try { liveCount = RouteEventLog.Events.Count; } catch { }
                     ParsekLog.Warn("TestRunner",
-                        $"RouteLifecycle cleanup: ledger restore attempt {attempt.ToString(IC)}/2 failed " +
+                        $"RouteLifecycle cleanup: route event log restore attempt {attempt.ToString(IC)}/2 failed " +
                         $"({ex.GetType().Name}: {ex.Message}); snapshot={(snapshot?.Count ?? 0).ToString(IC)} " +
                         $"live={liveCount.ToString(IC)}" +
-                        (attempt == 2 ? " - ledger may be partially restored" : "; retrying"));
+                        (attempt == 2 ? " - route event log may be partially restored" : "; retrying"));
                 }
             }
         }

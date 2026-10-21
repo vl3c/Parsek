@@ -600,7 +600,7 @@ namespace Parsek
 
         /// <summary>
         /// "Last delivered on Y1, D05, 22:40: delivered 200.0 LiquidFuel. Delivered so far:
-        /// 200.0 LiquidFuel in 1 run." from the route's RouteCargoDelivered ledger rows (the
+        /// 200.0 LiquidFuel in 1 run." from the route's RouteCargoDelivered route events (the
         /// only reliable record of a delivery; the route stores no delivered UT). Returns
         /// null when nothing was delivered.
         /// </summary>
@@ -626,7 +626,7 @@ namespace Parsek
 
         /// <summary>
         /// The information line a detail block too short to host its Interact buttons gets
-        /// (never an empty line): "Delivered so far: 400.0 LiquidFuel." when the ledger has a
+        /// (never an empty line): "Delivered so far: 400.0 LiquidFuel." when the route event log has a
         /// delivery, else "Not run yet.".
         /// </summary>
         internal static string FormatFillerInfoLine(bool hasDeliveries, string cumulativeText)
@@ -712,18 +712,17 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The Route History's change signature from its inputs: the ledger version, the
-        /// tombstone version, whether the route resolves and its name. Pure; an in-memory
-        /// compare value, never persisted.
+        /// The Route History's change signature from its inputs: the route event log's
+        /// version, whether the route resolves and its name. Pure; an in-memory compare
+        /// value, never persisted.
         /// </summary>
         internal static int RouteHistoryChangeSignature(
-            int ledgerVersion, int tombstoneVersion, bool routeFound, string routeName)
+            int routeEventLogVersion, bool routeFound, string routeName)
         {
             unchecked
             {
                 int h = 17;
-                h = h * 31 + ledgerVersion;
-                h = h * 31 + tombstoneVersion;
+                h = h * 31 + routeEventLogVersion;
                 h = h * 31 + (routeFound ? 1 : 0);
                 h = h * 31 + (routeName != null ? StringComparer.Ordinal.GetHashCode(routeName) : 0);
                 return h;

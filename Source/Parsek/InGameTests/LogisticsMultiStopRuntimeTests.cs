@@ -140,7 +140,7 @@ namespace Parsek.InGameTests
             string routeId = "ingame-ms-loaded-id-" + Guid.NewGuid().ToString("N").Substring(0, 8);
 
             List<Route> preExistingRoutes = SnapshotRoutes();
-            int beforeLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+            int beforeLedgerCount = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
 
             RunMultiStopCrossing(
                 label: "MultiStop_Loaded",
@@ -261,7 +261,7 @@ namespace Parsek.InGameTests
                 List<KeyValuePair<ProtoPartResourceSnapshot, double>> protoSnapshot =
                     SnapshotProtoLiquidFuel(endpointVessel);
                 double rawBefore = SumProtoLiquidFuelRaw(endpointVessel);
-                int beforeLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+                int beforeLedgerCount = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
 
                 RunMultiStopCrossing(
                     label: "MultiStop_Unloaded",
@@ -375,7 +375,7 @@ namespace Parsek.InGameTests
             }
 
             List<Route> preExistingRoutes = SnapshotRoutes();
-            int beforeLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+            int beforeLedgerCount = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
 
             RecordingTree routeTree = BuildMultiStopBackingTree(treeId);
             GhostPlaybackLogic.LoopUnit loopUnit = BuildSpanLoopUnit();
@@ -493,7 +493,7 @@ namespace Parsek.InGameTests
                 };
                 seamArmed = true;
 
-                int beforeResumeLedger = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+                int beforeResumeLedger = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
 
                 // ---- TICK 2: reach dock B (UT 2500). Window 1 fires and COMPLETES
                 //      the same cycle exactly once. Window 0 must NOT re-fire. ----
@@ -940,15 +940,15 @@ namespace Parsek.InGameTests
             dispatchedCount = 0;
             deliveredCount = 0;
             deliveredStopIndices = new HashSet<int>();
-            var actions = Ledger.Actions;
+            var actions = RouteEventLog.Events;
             if (actions == null) return;
             for (int i = fromIndex; i < actions.Count; i++)
             {
-                GameAction a = actions[i];
+                RouteEvent a = actions[i];
                 if (a == null) continue;
                 if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
-                if (a.Type == GameActionType.RouteDispatched) dispatchedCount++;
-                else if (a.Type == GameActionType.RouteCargoDelivered)
+                if (a.Type == RouteEventType.RouteDispatched) dispatchedCount++;
+                else if (a.Type == RouteEventType.RouteCargoDelivered)
                 {
                     deliveredCount++;
                     deliveredStopIndices.Add(a.RouteStopIndex);

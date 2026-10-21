@@ -15,12 +15,12 @@ namespace Parsek
         internal double MaxAmount;
     }
 
-    /// <summary>A cargo-moving route row of the current effective ledger, as the replay match reads it.</summary>
+    /// <summary>A cargo-moving event of the route event log, as the replay match reads it.</summary>
     internal struct ReplayedCrossing
     {
         internal string RouteId;
         internal int StopIndex;
-        internal GameActionType Type;
+        internal RouteEventType Type;
         internal double UT;
     }
 
@@ -120,8 +120,8 @@ namespace Parsek
     /// watermark): a row above that was created in a timeline that branched after the capture,
     /// so the snapshot cannot hold it.</para>
     ///
-    /// <para><b>Replays.</b> A crossing the current timeline performed again (its row is back
-    /// in the effective ledger, for example into the pre-claim station standing live at the
+    /// <para><b>Replays.</b> A crossing the current timeline performed again (its event is back
+    /// in the route event log, for example into the pre-claim station standing live at the
     /// Space Center) is paid again, and the snapshot's copy is the one that survives the
     /// replacement, so it is left in. A replay is matched to a stashed crossing by route, stop,
     /// row type and the nearest UT inside the snapshot's window, one to one, never by cycle id:
@@ -1124,7 +1124,7 @@ namespace Parsek
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// Called by every retire (the ledger retire of the go-back rewind and the in-session
+        /// Called by every retire (the event-log retire of the go-back rewind and the in-session
         /// load reconcile, and the Re-Fly restore) with the rows it just removed, even when it
         /// removed none, and with no rows by an in-session load whose route reconcile found
         /// nothing after its cutoff: keeps the cargo rows a committed chain tip snapshot carries,
@@ -1134,7 +1134,7 @@ namespace Parsek
         /// Never throws. Returns how many rows were stashed.
         /// </summary>
         internal static int CaptureRetiredRouteCargo(
-            IReadOnlyList<GameAction> retired,
+            IReadOnlyList<RouteEvent> retired,
             double cutoffUT,
             IEnumerable<Route> committedRoutes,
             IEnumerable<Route> dormantRoutes,
@@ -1156,7 +1156,7 @@ namespace Parsek
                 int cargoRows = 0, noResource = 0, noRoute = 0;
                 for (int i = 0; i < retiredCount; i++)
                 {
-                    GameAction a = retired[i];
+                    RouteEvent a = retired[i];
                     if (a == null || !RetiredRouteCargoStore.IsCargoRowType(a.Type))
                         continue;
                     cargoRows++;
@@ -1363,31 +1363,20 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Every cargo-moving route row in the effective ledger: crossings the current timeline
-        /// performed (and paid).
+        /// Every cargo-moving event in the route event log: crossings the current timeline
+        /// performed.
         /// </summary>
         private static List<ReplayedCrossing> CollectReplayedCrossings()
         {
             var replayed = new List<ReplayedCrossing>();
-            IReadOnlyList<GameAction> els;
-            try
-            {
-                els = EffectiveState.ComputeELS();
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    "ComputeELS threw " + ex.GetType().Name + ": " + ex.Message
-                    + " - treating no retired crossing as replayed");
-                return replayed;
-            }
+            IReadOnlyList<RouteEvent> els = RouteEventLog.Events;
             if (els == null)
                 return replayed;
             for (int i = 0; i < els.Count; i++)
             {
-                GameAction a = els[i];
+                RouteEvent a = els[i];
                 if (a == null || !RetiredRouteCargoStore.IsCargoRowType(a.Type)
-                    || !RouteLedgerRetire.IsPhysicalRouteMutation(a))
+                    || !RouteEventRetire.IsPhysicalRouteMutation(a))
                     continue;
                 replayed.Add(new ReplayedCrossing
                 {

@@ -375,30 +375,6 @@ namespace Parsek.Tests
                 case GameActionType.ReputationInitial:
                     action.InitialReputation = 10f;
                     break;
-                case GameActionType.RouteDispatched:
-                    action.RouteId = "route-" + iteration;
-                    action.RouteCycleId = "cycle-" + iteration + "-" + sequence;
-                    break;
-                case GameActionType.RouteCargoDebited:
-                    action.RouteId = "route-" + iteration;
-                    action.RouteCycleId = "cycle-" + iteration + "-" + sequence;
-                    action.RouteResourceManifest = new Dictionary<string, double>
-                    {
-                        { "Ore", 10.0 }
-                    };
-                    break;
-                case GameActionType.RouteCargoDelivered:
-                    action.RouteId = "route-" + iteration;
-                    action.RouteCycleId = "cycle-" + iteration + "-" + sequence;
-                    action.RouteResourceManifest = new Dictionary<string, double>
-                    {
-                        { "Ore", 10.0 }
-                    };
-                    break;
-                case GameActionType.RoutePaused:
-                    action.RouteId = "route-" + iteration;
-                    action.RouteEndpointReason = "player-pause";
-                    break;
                 case GameActionType.KerbalExperience:
                     action.KerbalName = "Fuzz Kerman " + iteration;
                     action.KerbalRole = "Pilot";
@@ -408,33 +384,6 @@ namespace Parsek.Tests
                             new KerbalCareerLogEntry(iteration % 4, "Orbit", "Kerbin"),
                             new KerbalCareerLogEntry(iteration % 4, "Recover", ""),
                         });
-                    break;
-                case GameActionType.RouteResumed:
-                    action.RouteId = "route-" + iteration;
-                    action.RouteEndpointReason = "player-activate";
-                    break;
-                case GameActionType.RouteHeld:
-                    action.RouteId = "route-" + iteration;
-                    action.RouteCycleId = "cycle-" + iteration + "-" + sequence;
-                    action.RouteHoldKind = Parsek.Logistics.RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull;
-                    action.RouteEndpointReason = "LiquidFuel";
-                    break;
-                case GameActionType.RouteEndpointLost:
-                    action.RouteId = "route-" + iteration;
-                    action.RouteEndpointReason = "endpoint-lost";
-                    break;
-                case GameActionType.RouteRecoveryCredited:
-                    action.RouteId = "route-" + iteration;
-                    action.RouteCycleId = "cycle-" + iteration + "-" + sequence;
-                    break;
-                case GameActionType.RouteCargoPickedUp:
-                    action.RouteId = "route-" + iteration;
-                    action.RouteCycleId = "cycle-" + iteration + "-" + sequence;
-                    action.RouteOriginVesselPid = 42u;
-                    action.RouteResourceManifest = new Dictionary<string, double>
-                    {
-                        { "Ore", 5.0 }
-                    };
                     break;
             }
 

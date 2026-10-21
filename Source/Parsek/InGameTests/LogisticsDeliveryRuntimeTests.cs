@@ -24,8 +24,8 @@ namespace Parsek.InGameTests
     ///   * The active vessel's LiquidFuel amount increased by the manifest
     ///     amount (within a small tolerance — the loaded-path writer mutates
     ///     <see cref="PartResource.amount"/> directly).
-    ///   * A new <see cref="GameActionType.RouteCargoDelivered"/> action exists
-    ///     in <see cref="Ledger.Actions"/> tagged with the synthetic route id.
+    ///   * A new <see cref="RouteEventType.RouteCargoDelivered"/> action exists
+    ///     in <see cref="RouteEventLog.Events"/> tagged with the synthetic route id.
     ///
     /// xUnit covers <see cref="RouteOrchestrator.ApplyDeliveryFromPlan"/> with
     /// injected delegate writers; this test exercises the production-only path
@@ -116,7 +116,7 @@ namespace Parsek.InGameTests
             double expectedAmount = postDrainAmount + expectedDelta;
 
             string syntheticRouteId = "ingame-delivery-" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            int beforeLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+            int beforeLedgerCount = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
 
             double currentUT = Planetarium.GetUniversalTime();
 
@@ -233,15 +233,15 @@ namespace Parsek.InGameTests
 
                 // 3. Ledger row: a RouteCargoDelivered action with our route id
                 //    must have been appended during the tick.
-                int afterLedgerCount = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+                int afterLedgerCount = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
                 bool deliveredRowFound = false;
-                if (afterLedgerCount > beforeLedgerCount && Ledger.Actions != null)
+                if (afterLedgerCount > beforeLedgerCount && RouteEventLog.Events != null)
                 {
                     for (int i = beforeLedgerCount; i < afterLedgerCount; i++)
                     {
-                        GameAction action = Ledger.Actions[i];
+                        RouteEvent action = RouteEventLog.Events[i];
                         if (action == null) continue;
-                        if (action.Type != GameActionType.RouteCargoDelivered) continue;
+                        if (action.Type != RouteEventType.RouteCargoDelivered) continue;
                         if (!string.Equals(action.RouteId, syntheticRouteId, StringComparison.Ordinal)) continue;
                         deliveredRowFound = true;
                         break;
@@ -251,7 +251,7 @@ namespace Parsek.InGameTests
                     deliveredRowFound,
                     $"No RouteCargoDelivered ledger row found for synthetic routeId={syntheticRouteId} " +
                     $"(beforeCount={beforeLedgerCount.ToString(IC)} afterCount={afterLedgerCount.ToString(IC)}). " +
-                    "ApplyDeliveryFromPlan should have emitted one via ctx.LedgerEmitter.");
+                    "ApplyDeliveryFromPlan should have emitted one via ctx.EventEmitter.");
 
                 ParsekLog.Info("TestRunner",
                     $"Delivery_LoadedVessel: PASS routeId={syntheticRouteId} " +

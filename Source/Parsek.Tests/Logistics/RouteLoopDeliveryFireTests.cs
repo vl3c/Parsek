@@ -80,9 +80,9 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.DeliveryApplierForTesting = (route, currentUT, env) =>
             {
                 string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles).ToString(IC);
-                Ledger.AddAction(new GameAction
+                RouteEventLog.Add(new RouteEvent
                 {
-                    Type = GameActionType.RouteCargoDelivered,
+                    Type = RouteEventType.RouteCargoDelivered,
                     UT = currentUT,
                     RouteId = route.Id,
                     RouteCycleId = cycleId,
@@ -190,9 +190,9 @@ namespace Parsek.Tests.Logistics
         // ==================================================================
 
         // catches: must-fix #1 regression — a crossing emitting delivery ALONE
-        // (no dispatch/debit) would never debit origin and would
-        // trip RouteModule's out-of-order guard. A vessel-origin cycle MUST emit
-        // all three row types under one cycleId.
+        // (no dispatch/debit) would never debit origin, and the dedup and counter
+        // readers would see a delivery with no dispatch. A vessel-origin cycle MUST
+        // emit all three event types under one cycleId.
         [Fact]
         public void Crossing_EmitsAllThreeRows_UnderOneCycleId()
         {
@@ -215,9 +215,9 @@ namespace Parsek.Tests.Logistics
             // ut 1150 -> cycle 0, mid-span, dock 1150 in span -> crossing.
             RouteOrchestrator.Tick(1150.0, env);
 
-            var dispatched = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteDispatched);
-            var debited = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoDebited);
-            var delivered = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoDelivered);
+            var dispatched = RouteEventLog.Events.FirstOrDefault(a => a.Type == RouteEventType.RouteDispatched);
+            var debited = RouteEventLog.Events.FirstOrDefault(a => a.Type == RouteEventType.RouteCargoDebited);
+            var delivered = RouteEventLog.Events.FirstOrDefault(a => a.Type == RouteEventType.RouteCargoDelivered);
 
             Assert.NotNull(dispatched);
             Assert.NotNull(debited);
@@ -228,10 +228,10 @@ namespace Parsek.Tests.Logistics
             Assert.Equal("cycle-0", debited.RouteCycleId);
             Assert.Equal("cycle-0", delivered.RouteCycleId);
 
-            // Dispatch emitted BEFORE delivery (RouteModule walks in order; the
-            // out-of-order guard requires DispatchedCycles > 0 at delivery time).
-            int dispatchedIdx = Ledger.Actions.ToList().FindIndex(a => a.Type == GameActionType.RouteDispatched);
-            int deliveredIdx = Ledger.Actions.ToList().FindIndex(a => a.Type == GameActionType.RouteCargoDelivered);
+            // Dispatch emitted BEFORE delivery: the event log is read in write order,
+            // so a reader must see the dispatch before the delivery it pays for.
+            int dispatchedIdx = RouteEventLog.Events.ToList().FindIndex(a => a.Type == RouteEventType.RouteDispatched);
+            int deliveredIdx = RouteEventLog.Events.ToList().FindIndex(a => a.Type == RouteEventType.RouteCargoDelivered);
             Assert.True(dispatchedIdx < deliveredIdx);
 
             // The dispatch-debit half ran (cost manifest cloned onto the debit row).
@@ -298,9 +298,9 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
 
             // The full three-row cycle still emitted under one cycleId.
-            var dispatched = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteDispatched);
-            var debited = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoDebited);
-            var delivered = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoDelivered);
+            var dispatched = RouteEventLog.Events.FirstOrDefault(a => a.Type == RouteEventType.RouteDispatched);
+            var debited = RouteEventLog.Events.FirstOrDefault(a => a.Type == RouteEventType.RouteCargoDebited);
+            var delivered = RouteEventLog.Events.FirstOrDefault(a => a.Type == RouteEventType.RouteCargoDelivered);
             Assert.NotNull(dispatched);
             Assert.NotNull(debited);
             Assert.NotNull(delivered);
@@ -378,11 +378,11 @@ namespace Parsek.Tests.Logistics
             var env = new EligibleEnv();
 
             RouteOrchestrator.Tick(1150.0, env); // cycle 0 dock crossing -> fires
-            int afterFirst = Ledger.Actions.Count;
+            int afterFirst = RouteEventLog.Events.Count;
             Assert.Equal(2, afterFirst); // dispatched + delivered (Space Center origin: no debit row)
 
             RouteOrchestrator.Tick(1200.0, env); // still cycle 0, dock already crossed -> no new fire
-            Assert.Equal(afterFirst, Ledger.Actions.Count);
+            Assert.Equal(afterFirst, RouteEventLog.Events.Count);
             Assert.Equal(1, route.CompletedCycles);
         }
 
@@ -400,14 +400,14 @@ namespace Parsek.Tests.Logistics
 
             // ut 1050 -> cycle 0, loopUT 1050 < dock 1150 -> NOT yet at the dock phase.
             RouteOrchestrator.Tick(1050.0, env);
-            Assert.Empty(Ledger.Actions);
+            Assert.Empty(RouteEventLog.Events);
             Assert.Equal(0, route.CompletedCycles);
             Assert.Equal(-1, route.LastObservedLoopCycleIndex); // not consumed
             Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("no dock crossing"));
 
             // ut 1200 -> cycle 0, loopUT 1200 >= dock 1150 -> NOW fires.
             RouteOrchestrator.Tick(1200.0, env);
-            Assert.Equal(2, Ledger.Actions.Count); // dispatched + delivered (Space Center origin: no debit row)
+            Assert.Equal(2, RouteEventLog.Events.Count); // dispatched + delivered (Space Center origin: no debit row)
             Assert.Equal(1, route.CompletedCycles);
             Assert.Equal(0, route.LastObservedLoopCycleIndex);
             Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("DOCK CROSSING confirmed"));
@@ -435,7 +435,7 @@ namespace Parsek.Tests.Logistics
 
             // Fired exactly ONCE (3 rows), snapped to the highest passed-dock cycle
             // (4), NOT the raw span-clock cycle 5 whose dock is still ahead.
-            Assert.Equal(2, Ledger.Actions.Count); // dispatched + delivered (Space Center origin: no debit row)
+            Assert.Equal(2, RouteEventLog.Events.Count); // dispatched + delivered (Space Center origin: no debit row)
             Assert.Equal(4, route.LastObservedLoopCycleIndex);
             Assert.Equal(2, route.CompletedCycles); // 1 + this one
             Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("warp jump"));
@@ -457,7 +457,7 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(2700.0, env);
 
-            Assert.Equal(2, Ledger.Actions.Count); // fired ONCE
+            Assert.Equal(2, RouteEventLog.Events.Count); // fired ONCE
             Assert.Equal(5, route.LastObservedLoopCycleIndex); // snapped to the landing cycle
             Assert.Equal(2, route.CompletedCycles);
             Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("warp jump"));
@@ -481,13 +481,13 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.Tick(1450.0, env);
 
             // Dock of cycle 0 already passed -> fire once.
-            Assert.Equal(2, Ledger.Actions.Count); // dispatched + delivered (Space Center origin: no debit row)
+            Assert.Equal(2, RouteEventLog.Events.Count); // dispatched + delivered (Space Center origin: no debit row)
             Assert.Equal(0, route.LastObservedLoopCycleIndex);
             Assert.Equal(1, route.CompletedCycles);
 
             // Still parked in cycle 0's tail -> no re-fire.
             RouteOrchestrator.Tick(1500.0, env);
-            Assert.Equal(2, Ledger.Actions.Count); // unchanged
+            Assert.Equal(2, RouteEventLog.Events.Count); // unchanged
             Assert.Equal(1, route.CompletedCycles);
         }
 
@@ -506,7 +506,7 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
 
-            Assert.Empty(Ledger.Actions);
+            Assert.Empty(RouteEventLog.Events);
             Assert.Equal(RouteStatus.Paused, route.Status);
             Assert.Equal(0, route.CompletedCycles);
         }
@@ -531,7 +531,7 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.Tick(1150.0, env);
 
             // No run rows: the only row is the hold's own Route History row.
-            Assert.Equal(GameActionType.RouteHeld, Assert.Single(Ledger.Actions).Type);
+            Assert.Equal(RouteEventType.RouteHeld, Assert.Single(RouteEventLog.Events).Type);
             // SkippedCycles bumped, CompletedCycles untouched.
             Assert.Equal(1, route.SkippedCycles);
             Assert.Equal(0, route.CompletedCycles);
@@ -555,7 +555,7 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.Tick(1200.0, env); // still cycle 0, dock already crossed -> no re-fire
 
             // No run rows; the one hold row was written once.
-            Assert.Equal(GameActionType.RouteHeld, Assert.Single(Ledger.Actions).Type);
+            Assert.Equal(RouteEventType.RouteHeld, Assert.Single(RouteEventLog.Events).Type);
             Assert.Equal(1, route.SkippedCycles); // bumped exactly once
             Assert.Equal(0, route.LastObservedLoopCycleIndex);
         }
@@ -576,15 +576,15 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.Tick(1150.0, blockedEnv); // cycle 0 dock crossing, blocked -> SkippedCycles=1, snap to 0
             Assert.Equal(1, route.SkippedCycles);
             Assert.Equal(0, route.LastObservedLoopCycleIndex);
-            Assert.Equal(GameActionType.RouteHeld, Assert.Single(Ledger.Actions).Type);
+            Assert.Equal(RouteEventType.RouteHeld, Assert.Single(RouteEventLog.Events).Type);
 
             // Cycle 1: eligible (fire). cycleId = cycle-{0 completed + 1 skipped} = cycle-1.
             var eligibleEnv = new EligibleEnv();
             // ut 1450 -> cycle 1 (one full 300s period + 150), dock 1150 in span.
             RouteOrchestrator.Tick(1450.0, eligibleEnv);
 
-            var dispatched = Ledger.Actions.First(a => a.Type == GameActionType.RouteDispatched);
-            var delivered = Ledger.Actions.First(a => a.Type == GameActionType.RouteCargoDelivered);
+            var dispatched = RouteEventLog.Events.First(a => a.Type == RouteEventType.RouteDispatched);
+            var delivered = RouteEventLog.Events.First(a => a.Type == RouteEventType.RouteCargoDelivered);
             // The fired cycle uses cycle-1 (NOT cycle-0 — the skip advanced the id).
             Assert.Equal("cycle-1", dispatched.RouteCycleId);
             Assert.Equal("cycle-1", delivered.RouteCycleId);
@@ -593,8 +593,8 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(1, route.LastObservedLoopCycleIndex);
 
             // Exactly one dispatched + one delivered (no double-charge).
-            Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.RouteDispatched));
-            Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.RouteCargoDelivered));
+            Assert.Single(RouteEventLog.Events.Where(a => a.Type == RouteEventType.RouteDispatched));
+            Assert.Single(RouteEventLog.Events.Where(a => a.Type == RouteEventType.RouteCargoDelivered));
         }
 
         // ==================================================================
@@ -638,7 +638,7 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
 
-            Assert.Equal(2, Ledger.Actions.Count); // genuinely fired
+            Assert.Equal(2, RouteEventLog.Events.Count); // genuinely fired
             Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.None, route.LastHoldKind);
             Assert.Null(route.LastHoldDetail);
             Assert.Equal(0.0, route.LastHoldShortfall);
@@ -663,20 +663,20 @@ namespace Parsek.Tests.Logistics
             // M3 OQ4 re-key: the loop replay backstop now keys on RouteDispatched
             // (direction-agnostic), NOT RouteCargoDelivered (which a pickup-only
             // route never emits), so the seed must be a RouteDispatched row.
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteDispatched,
+                Type = RouteEventType.RouteDispatched,
                 UT = 150.0,
                 RouteId = route.Id,
                 RouteCycleId = "cycle-0",
                 RouteStopIndex = -1,
                 Sequence = 0,
             });
-            int before = Ledger.Actions.Count;
+            int before = RouteEventLog.Events.Count;
 
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
 
-            Assert.Equal(before, Ledger.Actions.Count); // backstop emitted nothing
+            Assert.Equal(before, RouteEventLog.Events.Count); // backstop emitted nothing
             Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.None, route.LastHoldKind);
             Assert.Null(route.LastHoldDetail);
             Assert.Equal(-1.0, route.LastHoldUT);
@@ -707,8 +707,8 @@ namespace Parsek.Tests.Logistics
             // The crossing was eligible (dispatch+debit emitted), the delivery
             // half lost the endpoint, and the hold recorded inside EmitLoopCycle
             // SURVIVED the post-crossing bookkeeping.
-            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.RouteDispatched);
-            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.RouteEndpointLost);
+            Assert.Contains(RouteEventLog.Events, a => a.Type == RouteEventType.RouteDispatched);
+            Assert.Contains(RouteEventLog.Events, a => a.Type == RouteEventType.RouteEndpointLost);
             Assert.Equal(RouteStatus.EndpointLost, route.Status);
             Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost,
                 route.LastHoldKind);
@@ -738,27 +738,27 @@ namespace Parsek.Tests.Logistics
             // at -1 in the in-memory route). M3 OQ4 re-key: the loop replay backstop
             // keys on RouteDispatched (direction-agnostic), so the replay seed is a
             // RouteDispatched row.
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteDispatched,
+                Type = RouteEventType.RouteDispatched,
                 UT = 150.0,
                 RouteId = route.Id,
                 RouteCycleId = "cycle-0",
                 RouteStopIndex = -1,
                 Sequence = 0,
             });
-            int before = Ledger.Actions.Count;
+            int before = RouteEventLog.Events.Count;
 
             RouteOrchestrator.Tick(1150.0, env); // would be cycle 0 again
 
             // No NEW rows (the backstop suppressed the duplicate dispatch+debit+
             // delivery).
-            Assert.Equal(before, Ledger.Actions.Count);
+            Assert.Equal(before, RouteEventLog.Events.Count);
             // CompletedCycles bumped so the NEXT cycle id advances past cycle-0.
             Assert.Equal(1, route.CompletedCycles);
             // Snapped forward.
             Assert.Equal(0, route.LastObservedLoopCycleIndex);
-            Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("already in ledger") && l.Contains("replay"));
+            Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("already logged") && l.Contains("replay"));
         }
 
         // ==================================================================
@@ -777,7 +777,7 @@ namespace Parsek.Tests.Logistics
 
             var ex = Record.Exception(() => RouteOrchestrator.Tick(1150.0, new EligibleEnv()));
             Assert.Null(ex);
-            Assert.Empty(Ledger.Actions);
+            Assert.Empty(RouteEventLog.Events);
             Assert.Equal(-1, route.LastObservedLoopCycleIndex);
         }
 
@@ -833,7 +833,7 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
 
-            Assert.Empty(Ledger.Actions);
+            Assert.Empty(RouteEventLog.Events);
             Assert.Equal(0, route.CompletedCycles);
         }
 
@@ -875,7 +875,7 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
 
             Assert.Equal(1, seamCalls);
-            var debited = Ledger.Actions.First(a => a.Type == GameActionType.RouteCargoDebited);
+            var debited = RouteEventLog.Events.First(a => a.Type == RouteEventType.RouteCargoDebited);
             Assert.NotNull(debited.RouteResourceManifest);
             Assert.Equal(2, debited.RouteResourceManifest.Count);
             Assert.Equal(100.0, debited.RouteResourceManifest["LiquidFuel"]);
@@ -910,10 +910,10 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
 
             Assert.Equal(0, seamCalls); // KSC origins never reach the physical debit
-            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteCargoDebited);
-            Assert.Equal(new[] { GameActionType.RouteDispatched, GameActionType.RouteCargoDelivered },
-                Ledger.Actions.Select(a => a.Type).ToArray());
-            Assert.All(Ledger.Actions, a => Assert.Equal("cycle-0", a.RouteCycleId));
+            Assert.DoesNotContain(RouteEventLog.Events, a => a.Type == RouteEventType.RouteCargoDebited);
+            Assert.Equal(new[] { RouteEventType.RouteDispatched, RouteEventType.RouteCargoDelivered },
+                RouteEventLog.Events.Select(a => a.Type).ToArray());
+            Assert.All(RouteEventLog.Events, a => Assert.Equal("cycle-0", a.RouteCycleId));
             Assert.Equal(1, route.CompletedCycles);
         }
 
@@ -940,7 +940,7 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
 
-            var debited = Ledger.Actions.First(a => a.Type == GameActionType.RouteCargoDebited);
+            var debited = RouteEventLog.Events.First(a => a.Type == RouteEventType.RouteCargoDebited);
             Assert.Equal(40.0, debited.RouteResourceManifest["LiquidFuel"]);
             Assert.NotNull(debited.RouteRequestedResourceManifest);
             Assert.Equal(100.0, debited.RouteRequestedResourceManifest["LiquidFuel"]);
@@ -966,7 +966,7 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
 
-            var debited = Ledger.Actions.First(a => a.Type == GameActionType.RouteCargoDebited);
+            var debited = RouteEventLog.Events.First(a => a.Type == RouteEventType.RouteCargoDebited);
             // Zero actuals serialize as no manifest; full requested manifest.
             Assert.Null(debited.RouteResourceManifest);
             Assert.NotNull(debited.RouteRequestedResourceManifest);
@@ -1005,20 +1005,20 @@ namespace Parsek.Tests.Logistics
             // Pre-seed a DISPATCHED row for cycle-0 (save written after the
             // cycle fired, reloaded with the stale in-memory cursor). M3 OQ4
             // re-key: the loop replay backstop keys on RouteDispatched.
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteDispatched,
+                Type = RouteEventType.RouteDispatched,
                 UT = 150.0,
                 RouteId = route.Id,
                 RouteCycleId = "cycle-0",
                 RouteStopIndex = -1,
                 Sequence = 0,
             });
-            int before = Ledger.Actions.Count;
+            int before = RouteEventLog.Events.Count;
 
             RouteOrchestrator.Tick(1150.0, new EligibleEnv()); // would be cycle 0 again
 
-            Assert.Equal(before, Ledger.Actions.Count); // nothing emitted
+            Assert.Equal(before, RouteEventLog.Events.Count); // nothing emitted
             Assert.Equal(0, seamCalls); // physical debit never invoked on replay
         }
 
@@ -1035,9 +1035,9 @@ namespace Parsek.Tests.Logistics
             return Route.DeserializeFrom(node);
         }
 
-        private static List<GameAction> DispatchRows()
+        private static List<RouteEvent> DispatchRows()
         {
-            return Ledger.Actions.Where(a => a.Type == GameActionType.RouteDispatched).ToList();
+            return RouteEventLog.Events.Where(a => a.Type == RouteEventType.RouteDispatched).ToList();
         }
 
         // catches: a revert / F9 back past a crossing leaving the abandoned future's cursor

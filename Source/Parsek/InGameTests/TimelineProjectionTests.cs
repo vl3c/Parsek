@@ -208,13 +208,14 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// Design section 3.3: "the route action types have no timeline entry", and the
-        /// VesselRecovered spawn-evidence row has none either. Every other type,
-        /// KerbalExperience included, must render as its own row.
+        /// The VesselRecovered spawn-evidence row has no timeline entry (design section 3.3),
+        /// and the reserved supply-route ids never reach the ledger (route events live in the
+        /// route event log). Every other type, KerbalExperience included, must render as its
+        /// own row.
         /// </summary>
         internal static bool IsDesignLedgerOnlyType(GameActionType type)
         {
-            return Logistics.RouteLedgerRetire.IsRouteActionType(type)
+            return LedgerLoadMigration.IsReservedRouteActionType(type)
                 || TimelineBuilder.IsSpawnEvidenceOnlyActionType(type);
         }
 

@@ -1,5 +1,9 @@
 # Logistics without money (plan, 2026-10-21)
 
+Status: phase 1 built on branch `logistics-no-money-p1` (PR #2163); phase 2 built on branch
+`logistics-no-money-p2`, stacked on it (see "Phase 2 as built"). Both await the harness re-flight
+of the Logistics lanes.
+
 Owner rulings, 2026-10-21 (thread "Ledger rulings interview"):
 - 13:32Z: "we delete money/ funds from the logistics system and go from there; logistics cycles
   should not touch the ledger, they only deliver resources to enable that gameplay". This replaces
@@ -104,6 +108,26 @@ quickload reads the save's own log.
 - Old saves: no migration (same reason as phase 1); route rows left in an old ledger are dropped at
   load with a summary log line.
 Rough size: +1,000 / -1,500 production lines, about 3,000 test lines touched, about 75 files.
+
+### Phase 2 as built
+
+- `Logistics/RouteEvent.cs`: `RouteEvent` (the route fields `GameAction` carried, same key names) and
+  `RouteEventType` (the eight kinds, same names and numbers as their reserved `GameActionType` ids).
+- `Logistics/RouteEventLog.cs`: the static log, written by `RouteStore.SaveRoutesTo` as the sparse
+  `ROUTE_EVENT_LOG` child of the PARSEK scenario node and replaced by `RouteStore.LoadRoutesFrom` on a
+  cold load. `RetiredRouteCargoStore` saves and loads beside it (`RETIRED_ROUTE_CARGO`).
+- `Logistics/RouteEventRetire.cs` (was `RouteLedgerRetire`): the strict `>` retire predicate and the
+  discard-window selection, over route events.
+- Load paths: cold load reads the save's log; every in-session load keeps memory's log and the route
+  reconcile retires the events after its cutoff (`RouteLoadReconcile.ReconcileAtInSessionLoad`, the
+  go-back rewind's `ReconcileAtGoBackRewind`); the Re-Fly bundle captures the log and its restore
+  retires the capture at the cutoff. The stock revert prune no longer touches route state: the
+  in-session reconcile, keyed to the cutoff raised to the save's route state floor, does it.
+- Deleted: `RouteModule`, the route fields and codec of `GameAction`, and the route arms of
+  `TimelineBuilder`, `ParsekScenario.Trim`, `SupersedeCommit` and the revert prune. `GameActionType`
+  23 to 30 and 36 stay reserved; `Ledger.LoadFromFile` drops any such row with one Info line.
+- Kept, against the plan: the `RouteOrchestrator` entry in the ERS/ELS allowlist, because its loop
+  unit still reads the raw committed recordings (member-index alignment); only its comment changed.
 
 ## Settled by the rulings
 

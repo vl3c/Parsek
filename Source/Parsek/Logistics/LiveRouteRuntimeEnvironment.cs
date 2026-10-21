@@ -46,8 +46,8 @@ namespace Parsek.Logistics
     ///     (the transport is a ghost). Unresolvable stop vessels fail OPEN
     ///     (the endpoint gate owns that failure); the apply-time partial fill
     ///     remains as the backstop for capacity that changes between the gate
-    ///     and the write, recorded in the <c>RouteCargoDelivered</c> ledger
-    ///     row and surfaced via <c>Route.LastPartialDelivery*</c>.</item>
+    ///     and the write, recorded in the <c>RouteCargoDelivered</c> route
+    ///     event and surfaced via <c>Route.LastPartialDelivery*</c>.</item>
     /// </list>
     /// </remarks>
     internal sealed class LiveRouteRuntimeEnvironment : IRouteRuntimeEnvironment
