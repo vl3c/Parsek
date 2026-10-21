@@ -408,45 +408,27 @@ namespace Parsek.Tests
         private static string ReadParsekSourcePrepared(string relPath)
             => SourceScanText.StripCommentsAndMaskLiterals(ReadParsekSource(relPath));
 
-        // ---- the quickload-resume reconcile ----
+        // ---- the quickload-resume trim ----
 
         [Fact]
-        public void PrepareQuickloadResumeCallsTheReconcile()
+        public void PrepareQuickloadResumeCallsTheTrim()
         {
             string body = PreparedMethodBody(RecorderPath, "private void PrepareQuickloadResumeStateIfNeeded()");
-            Assert.Equal(1, Occurrences(body, "ParsekScenario.TrimAndReconcileForQuickloadResume("));
+            Assert.Equal(1, Occurrences(body, "ParsekScenario.TrimForQuickloadResume("));
             Assert.Equal(0, Occurrences(body, "TrimRecordingTreePastUT("));
             Assert.Equal(0, Occurrences(body, "TrimRecordingPastUT("));
-            int kind = IndexOrFail(body, "ParsekScenario.GetPendingQuickloadLoadKind(");
-            int call = IndexOrFail(body, "ParsekScenario.TrimAndReconcileForQuickloadResume(");
+            int call = IndexOrFail(body, "ParsekScenario.TrimForQuickloadResume(");
             int clear = IndexOrFail(body, "ParsekScenario.ClearPendingQuickloadResumeContext();");
-            Assert.True(kind < call,
-                "load-reconcile gate: the resume reads the armed load kind before the reconcile");
             Assert.True(body.LastIndexOf("ParsekScenario.ClearPendingQuickloadResumeContext();", StringComparison.Ordinal) > call,
-                "load-reconcile gate: the context is cleared after the reconcile read it (first clear at " + clear + ")");
-            Assert.Contains("TrimAndReconcileForQuickloadResume( ActiveTree, activeRec, resumeUT, trimScope, loadKind, loadedUT, "
-                + "quicksaveFacts)", Collapse(body));
+                "load-reconcile gate: the context is cleared after the trim read it (first clear at " + clear + ")");
+            Assert.Contains("TrimForQuickloadResume( ActiveTree, activeRec, resumeUT, trimScope, quicksaveFacts)",
+                Collapse(body));
             Assert.Contains("var quicksaveFacts = ParsekScenario.GetPendingQuickloadQuicksaveFacts(ActiveTree.Id);",
                 Collapse(body));
-
-            string reconcile = PreparedMethodBody(TrimPath, "internal static bool TrimAndReconcileForQuickloadResume(");
-            int plan = IndexOrFail(reconcile, "BuildAbandonedFuturePlan(");
-            int treeTrim = IndexOrFail(reconcile, "TrimRecordingTreePastUT(");
-            int recTrim = IndexOrFail(reconcile, "TrimRecordingPastUT(");
-            Assert.True(plan < treeTrim && plan < recTrim,
-                "load-reconcile gate: the abandoned-future plan is taken before the trim cuts the payload");
-            string flat = Collapse(reconcile);
-            Assert.Contains("ShouldReconcileAtResume(loadKind, LoadStateCategory.AbandonedFutureEndStates)", flat);
-            Assert.Contains("ShouldReconcileAtResume(loadKind, LoadStateCategory.AbandonedFutureEvents)", flat);
-            Assert.Contains("ShouldReconcileAtResume(loadKind, LoadStateCategory.AbandonedFutureLedgerRows)", flat);
-            // The ledger step reads the end-state step's cleared set (the KerbalAssignment rule),
-            // so the end states are cleared first.
-            int endStates = IndexOrFail(reconcile, "ClearAbandonedFutureEndStates(");
-            int events = IndexOrFail(reconcile, "PurgeAbandonedFutureEvents(");
-            int rows = IndexOrFail(reconcile, "RetireAbandonedFutureLedgerRows(");
-            int recalc = IndexOrFail(reconcile, "LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(");
-            Assert.True(treeTrim < endStates && endStates < events && events < rows && rows < recalc,
-                "load-reconcile gate: trim, end states, events, ledger rows, then the current-timeline recalculation");
+            // Phase 3 deleted the abandoned-future reconcile (owner ruling OQ-2).
+            string trim = PreparedMethodBody(TrimPath, "internal static bool TrimForQuickloadResume(");
+            Assert.Equal(0, Occurrences(trim, "Ledger."));
+            Assert.Equal(0, Occurrences(trim, "GameStateStore."));
         }
 
         [Fact]
@@ -454,21 +436,19 @@ namespace Parsek.Tests
         {
             // QUICKLOAD-TRIM-CUTS-COMMITTED-HISTORY-OF-A-RESUMED-CLONE: the tree-wide trim is
             // handed the quicksave's history members (read before the trim) and leaves them
-            // whole; the plan and the kept-whole set read each member as the restore left it, so
-            // an ending restamped after the save is not history to either.
-            string reconcile = PreparedMethodBody(TrimPath, "internal static bool TrimAndReconcileForQuickloadResume(");
-            string flat = Collapse(reconcile);
-            Assert.Equal(1, Occurrences(reconcile, "CollectQuicksaveHistoryKeptWhole("));
-            Assert.Contains("CollectQuicksaveHistoryKeptWhole(tree, activeRec?.RecordingId, resumeUT, quicksaveFacts)", flat);
+            // whole; the kept-whole set reads each member as the restore left it, so an ending
+            // restamped after the save is not history.
+            string trim = PreparedMethodBody(TrimPath, "internal static bool TrimForQuickloadResume(");
+            string flat = Collapse(trim);
+            Assert.Equal(1, Occurrences(trim, "CollectQuicksaveHistoryKeptWhole("));
+            Assert.Contains("CollectQuicksaveHistoryKeptWhole( tree, activeRec?.RecordingId, resumeUT, quicksaveFacts)", flat);
             Assert.Contains("TrimRecordingTreePastUT(tree, resumeUT, keepWhole)", flat);
-            Assert.True(IndexOrFail(reconcile, "CollectQuicksaveHistoryKeptWhole(")
-                    < IndexOrFail(reconcile, "TrimRecordingTreePastUT("),
+            Assert.True(IndexOrFail(trim, "CollectQuicksaveHistoryKeptWhole(")
+                    < IndexOrFail(trim, "TrimRecordingTreePastUT("),
                 "load-reconcile gate: the kept-whole history set is read before the trim cuts the payload");
 
             string keep = Collapse(PreparedMethodBody(TrimPath, "internal static HashSet<string> CollectQuicksaveHistoryKeptWhole("));
             Assert.Contains("IsCommittedHistoryAtQuicksave(quicksaveFacts, kvp.Key, cutoffUT, out _, kvp.Value)", keep);
-            string plan = Collapse(PreparedMethodBody(TrimPath, "internal static AbandonedFuturePlan BuildAbandonedFuturePlan("));
-            Assert.Contains("IsCommittedHistoryAtQuicksave(quicksaveFacts, id, cutoffUT, out string historyReason, rec)", plan);
         }
 
         [Fact]
@@ -516,8 +496,8 @@ namespace Parsek.Tests
         {
             string onLoad = Collapse(PreparedMethodBody(ScenarioPath, "public override void OnLoad(ConfigNode node)"));
             Assert.Equal(2, Occurrences(onLoad, "ConfigurePendingQuickloadResumeContext("));
-            Assert.Contains("ConfigurePendingQuickloadResumeContext( RecordingStore.PendingTree, refinedLoadKind, "
-                + "planetariumReady ? loadedUT : double.NaN);", onLoad);
+            Assert.Contains("ConfigurePendingQuickloadResumeContext( RecordingStore.PendingTree, refinedLoadKind);",
+                onLoad);
             Assert.Contains("ConfigurePendingQuickloadResumeContext(RecordingStore.PendingTree, LoadKind.Cold);", onLoad);
 
             string root = ParsekSourceRoot();

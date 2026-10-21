@@ -340,7 +340,10 @@ rule (`ApplyResumedTreeRowRule`, `NoteQuickloadResumeDetach` and the resume narr
 the committed-copy rule (`DecideCommittedCopyRestore` / `ResolveCommittedCopyRestore`, its
 stale-epoch salvage and its restore-attempt clear; the stale-epoch keep now runs ungated, and
 lanes LAB-9a, QL-2, QL-2b, QL-2c pin the restore's no-detach line in place of the rule's skip
-line). Kept on purpose: the QL-R1
+line); OQ-2's retire halves (the abandoned-future reconcile: `BuildAbandonedFuturePlan`, the end
+state clear, the merge state reset, the event purge, the ledger retire, the `AbandonedFuture*`
+policy categories and `ReconcileAtResume`; the resume runs `TrimForQuickloadResume`, the trim
+alone, and seven lanes drop the reconcile's `reason=policy` skip line). Kept on purpose: the QL-R1
 decline (`TryDeclineDiscardedActiveTree` / `TryDeclineDiscardedPendingTree`), still reached by a
 stock revert after a cold resume and an in-flight discard; the `QuickloadFlight` kind and its
 column, still produced by the harness `LoadGame` verb without `playerLoad=true` and the in-game

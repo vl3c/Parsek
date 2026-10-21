@@ -691,7 +691,7 @@ For a save-file load the following become unreachable, because the load no longe
 |---|---|---|---|
 | D2 applied to quickloads (QL-R2 "every other committed flight is kept") | rewind design, game-actions design, user guide 402-403 | reversed for save-file loads; rewinds keep D2 | ruling only, no code |
 | QL-R1 (a discarded flight records again) | `TryDeclineDiscardedActiveTree`, user guide 404 | reversed: the flight resumes with its recording | kept (see below) |
-| OQ-2 resume reconcile (`TrimAndReconcileForQuickloadResume` retire halves) | ParsekScenario.Trim.cs | no abandoned future reaches it on a save-file load; the trajectory trim stays as a guard | |
+| OQ-2 resume reconcile (`TrimAndReconcileForQuickloadResume` retire halves) | ParsekScenario.Trim.cs | no abandoned future reaches it on a save-file load; the trajectory trim stays as a guard | deleted; the trim stays (`TrimForQuickloadResume`) |
 | OQ-3 rewind point owner partition, step A | InSessionStagedStateHandoff, ParsekScenario.InSessionHandoff.cs | only scene changes and reverts reach the handoff | kept: live on Discard Re-fly and a stock revert |
 | Step B's resumed-tree row rule | ParsekScenario.InSessionHandoff.cs | only a committed-copy resume notes a detach for it | deleted |
 | Committed-copy rule (`DecideCommittedCopyRestore`) | ParsekScenario.HydrationRepair.cs | unreachable on a save-file load | deleted |

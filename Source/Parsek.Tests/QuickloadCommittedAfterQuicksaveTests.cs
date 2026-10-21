@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using UnityEngine;
 using Xunit;
 
@@ -14,8 +13,7 @@ namespace Parsek.Tests
     /// ones the quicksave names, so every member that changed reads `stale-sidecar-epoch` on the
     /// load. A save-file load (F9) is cold since "load restores the save"; these shapes are
     /// reached by a load no stock path announces. Driven through
-    /// <c>ParsekScenario.TryRestoreActiveTreeNode</c> and the production resume entry
-    /// <c>FlightRecorder.PrepareQuickloadResumeStateIfNeeded</c>.
+    /// <c>ParsekScenario.TryRestoreActiveTreeNode</c>.
     /// </summary>
     [Collection("Sequential")]
     public class QuickloadCommittedAfterQuicksaveTests : IDisposable
@@ -184,35 +182,6 @@ namespace Parsek.Tests
         }
 
         // ============================================================
-        // The merge state of a member committed before the quicksave (owner ruling D2).
-        // ============================================================
-
-        [Fact]
-        public void CommittedBeforeTheQuicksave_PromotedMemberKeepsItsCommittedMergeState()
-        {
-            // D2: the quicksave holds the tree as committed history, the restore keeps the
-            // copy-on-write clone, and the reconcile reads every member as still committed.
-            var committed = CommitFuture("ql_ms_d2", promoteBooster: true);
-            RecordingTree clone = StashResumedClone(committed);
-            string boosterId = BoosterId(committed);
-            var quicksavedCommitted = MakeQuicksaveTree("ql_ms_d2");
-            quicksavedCommitted.Recordings[boosterId].MergeState = MergeState.CommittedProvisional;
-            var quicksavedActive = MakeQuicksaveTree("ql_ms_d2");
-            quicksavedActive.Recordings[boosterId].MergeState = MergeState.CommittedProvisional;
-            ConfigNode node = QuicksaveNode(quicksavedActive, quicksavedCommitted);
-
-            logLines.Clear();
-            Assert.True(ParsekScenario.TryRestoreActiveTreeNode(node));
-            Assert.Same(clone, RecordingStore.PendingTree);
-            RecordingTree resumed = RecordingStore.PopPendingTree();
-            RunResumePrep(resumed, QuicksaveUT, LoadKind.QuickloadFlight);
-
-            Assert.Equal(MergeState.CommittedProvisional, resumed.Recordings[boosterId].MergeState);
-            Assert.Equal(MergeState.CommittedProvisional, committed.Recordings[boosterId].MergeState);
-            AssertNoLine("Quickload abandoned-future merge state reset:");
-        }
-
-        // ============================================================
         // Pure pieces
         // ============================================================
 
@@ -338,12 +307,9 @@ namespace Parsek.Tests
             return tree;
         }
 
-        private static RecordingTree CommitFuture(string id, bool promoteBooster = false)
+        private static RecordingTree CommitFuture(string id)
         {
             var tree = MakeFutureTree(id);
-            // The commit's promotion pass made the crashed booster an Unfinished Flight.
-            if (promoteBooster)
-                tree.Recordings[BoosterId(tree)].MergeState = MergeState.CommittedProvisional;
             CommitTreeWithSidecars(tree);
             return tree;
         }
@@ -420,15 +386,5 @@ namespace Parsek.Tests
             rec.ExplicitEndUT = uts[uts.Length - 1];
         }
 
-        private static void RunResumePrep(RecordingTree tree, double resumeUT, LoadKind kind)
-        {
-            var recorder = new FlightRecorder { ActiveTree = tree };
-            FlightRecorder.QuickloadResumeUTProviderForTesting = () => resumeUT;
-            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree, kind);
-            MethodInfo method = typeof(FlightRecorder).GetMethod(
-                "PrepareQuickloadResumeStateIfNeeded", BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.NotNull(method);
-            method.Invoke(recorder, null);
-        }
     }
 }

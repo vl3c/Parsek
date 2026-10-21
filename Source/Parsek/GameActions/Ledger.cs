@@ -382,9 +382,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Quickload-resume seam (<c>ParsekScenario.TrimAndReconcileForQuickloadResume</c>):
-        /// physically removes every action <paramref name="shouldRetire"/> selects, the
-        /// recording-tagged rows of a resumed tree's abandoned future (owner ruling OQ-2).
+        /// In-session load seam (<c>ParsekScenario.RetireUntaggedRowsAfterSaveAtInSessionLoad</c>):
+        /// physically removes every action <paramref name="shouldRetire"/> selects, the untagged
+        /// rows made after the loaded save.
         /// Removal, not a tombstone: a tombstoned row still dedupes the resumed flight's
         /// re-commit (<c>LedgerOrchestrator.DeduplicateAgainstLedger</c> compares against every
         /// stored row), so the fresh row for the same fact would never be filed. The caller's

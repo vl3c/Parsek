@@ -241,9 +241,8 @@ required = [
   # =================================================================================
   # THE GATE - THE ABANDONED REWARD AND ITS STRATEGY SHARE ARE NOT IN THE SAVE. The
   # ledger, events and milestones are the quicksave's GAME_STATE (the f9 block's
-  # `ledgerRows=` line), written before the EVA; the resume reconcile has nothing to do
-  # and skips by policy, so no `strategyConversionRetired=` count is printed.
-  "\\[Scenario\\] Quickload abandoned-future reconcile skipped: tree='GS1 Auto-Chute Booster' kind=Cold scope=TreeWide reason=policy",
+  # `ledgerRows=` line), written before the EVA (Phase 3 deleted the resume reconcile whose
+  # skip line stood here).
   # THE CONTROL that makes the forbidden walk tokens below mean something: the save's ledger
   # IS walked after the load (the cold load's recalc and the exit commit's), and the walk
   # still credits the pre-F5 FirstLaunch milestone of the pod recording.

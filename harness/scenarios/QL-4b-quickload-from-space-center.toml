@@ -291,8 +291,6 @@ required = [
   "OnLoad: cold-start active tree detected \\(state=Limbo\\) . deferred to OnFlightReady as Quickload",
   "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide [^\\r\\n]*\\bloadKind=Cold\\b",
   "RestoreActiveTreeFromPending: resumed recording tree 'GS1 Auto-Chute Booster' activeRec='[0-9a-f]{32}'",
-  # Nothing to reconcile (every Cold cell is Save).
-  "\\[Scenario\\] Quickload abandoned-future reconcile skipped: tree='GS1 Auto-Chute Booster' kind=Cold scope=TreeWide reason=policy",
 
   # GROUP 4 - THE FLIGHT IS RECORDED AGAIN AND COMMITS ONCE MORE.
   "RestoreActiveTreeFromPending: attached BackgroundRecorder for tree 'GS1 Auto-Chute Booster' \\([1-9][0-9]* background entry\\(ies\\)\\)",

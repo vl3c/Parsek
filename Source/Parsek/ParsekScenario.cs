@@ -4623,8 +4623,7 @@ namespace Parsek
                             // pending-Limbo tree and wires a fresh recorder to it.
                             ConfigurePendingQuickloadResumeContext(
                                 RecordingStore.PendingTree,
-                                refinedLoadKind,
-                                planetariumReady ? loadedUT : double.NaN);
+                                refinedLoadKind);
                             ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.Quickload;
                             ParsekLog.Info("Scenario",
                                 $"OnLoad: pending-Limbo tree '{RecordingStore.PendingTree?.TreeName}' " +
@@ -6566,7 +6565,7 @@ namespace Parsek
 
                 // What the quicksave itself says about each member, read from the node before
                 // hydration, salvage, the stale-epoch keep or the same-id refresh can bring the
-                // committed future in. The quickload-resume reconcile reads it to leave alone a
+                // committed future in. The quickload-resume trim reads it to leave whole a
                 // member that was already committed history when the quicksave was taken.
                 lastRestoredQuicksaveTreeFacts = CaptureQuicksaveTreeFacts(
                     tree, CollectQuicksaveCommittedRecordingIds(node), CollectQuicksaveCommittedTreeIds(node));
@@ -6793,11 +6792,8 @@ namespace Parsek
             internal string TreeId;
             internal QuickloadTrimScope TrimScope;
             internal string TrimScopeReason;
-            // The load that armed the resume: TrimAndReconcileForQuickloadResume gates each
-            // abandoned-future category on LoadReconcilePolicy.Decide(LoadKind, category).
+            // The load that armed the resume (the resume-prep line logs it).
             internal LoadKind LoadKind;
-            // Planetarium UT when OnLoad armed the context (NaN when the clock was not ready).
-            internal double LoadedUT;
             // What the loaded save said about the tree's members (null when the resumed tree
             // did not come from this load's save node).
             internal QuicksaveTreeFacts QuicksaveFacts;
@@ -6813,7 +6809,7 @@ namespace Parsek
         private static QuickloadResumeContext pendingQuickloadResumeContext;
 
         internal static void ConfigurePendingQuickloadResumeContext(
-            RecordingTree tree, LoadKind loadKind, double loadedUT = double.NaN)
+            RecordingTree tree, LoadKind loadKind)
         {
             if (tree == null || string.IsNullOrEmpty(tree.Id) || string.IsNullOrEmpty(tree.ActiveRecordingId))
             {
@@ -6836,14 +6832,12 @@ namespace Parsek
                 TrimScope = trimScope,
                 TrimScopeReason = trimScopeReason,
                 LoadKind = loadKind,
-                LoadedUT = loadedUT,
                 QuicksaveFacts = quicksaveFacts,
             };
 
             ParsekLog.Verbose("Scenario",
                 $"Quickload-resume context armed: treeId={tree.Id} activeRecId={tree.ActiveRecordingId} " +
                 $"trimScope={trimScope} ({trimScopeReason}) loadKind={loadKind} " +
-                $"loadedUT={loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
                 $"quicksaveFacts={(quicksaveFacts != null ? quicksaveFacts.Members.Count.ToString(CultureInfo.InvariantCulture) : "none")}");
         }
 
@@ -6869,21 +6863,18 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The load kind (and the clock at OnLoad) the pending quickload-resume context was
-        /// armed with, or null when no context is armed for <paramref name="treeId"/>.
+        /// The load kind the pending quickload-resume context was armed with, or null when no
+        /// context is armed for <paramref name="treeId"/>.
         /// </summary>
-        internal static LoadKind? GetPendingQuickloadLoadKind(string treeId, out double loadedUT)
+        internal static LoadKind? GetPendingQuickloadLoadKind(string treeId)
         {
             QuickloadResumeContext context = pendingQuickloadResumeContext;
             if (context == null
                 || string.IsNullOrEmpty(treeId)
                 || !string.Equals(context.TreeId, treeId, StringComparison.Ordinal))
             {
-                loadedUT = double.NaN;
                 return null;
             }
-
-            loadedUT = context.LoadedUT;
             return context.LoadKind;
         }
 

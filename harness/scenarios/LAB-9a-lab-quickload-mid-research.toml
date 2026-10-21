@@ -183,8 +183,6 @@ required = [
   "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide [^\\r\\n]*\\bloadKind=Cold\\b",
   # The F9 resumed the quicksave's tree on the lab at the quicksave's clock.
   "(?s)loadgame start save=\\S+ name=quicksave .*?RestoreActiveTreeFromPending: resumed recording tree 'LABX Orbital Lab' activeRec='[0-9a-f]{32}' vessel='LABX Orbital Lab' pid=2200110055 at UT=439[0-9]\\.[0-9]",
-  # The save's own ledger has nothing after the save: the resume reconcile skips by policy.
-  "\\[Scenario\\] Quickload abandoned-future reconcile skipped: tree='LABX Orbital Lab' kind=Cold scope=TreeWide reason=policy",
   # THE EQUALITY: the lab after the F9 reads exactly as before the F5 (q2 == q0), researching.
   "(?s)partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=([0-9]+\\.[0-9]{2}) dataStored=([0-9]+\\.[0-9]{2});Research:active=1'(?:(?!partaction applied button=).)*?MISSIONMARK label=lab9a-f5 .*?MISSIONMARK label=lab9a-f9-loaded (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*activePid=2200110055 [^\\r\\n]*state='lab:storedScience=\\1 dataStored=\\2;Research:active=1'",
   # ... and the abandoned half day is gone (q2 is back in the pre-F5 window).

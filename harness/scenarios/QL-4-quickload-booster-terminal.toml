@@ -321,9 +321,6 @@ required = [
   "OnLoad: cold-start active tree detected \\(state=Limbo\\) . deferred to OnFlightReady as Quickload",
   "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide [^\\r\\n]*\\bloadKind=Cold\\b",
   "RestoreActiveTreeFromPending: resumed recording tree 'GS1 Auto-Chute Booster' activeRec='[0-9a-f]{32}'",
-  # Nothing to reconcile: every Cold cell is Save (LoadReconcilePolicy), so the resume
-  # reconcile skips by policy.
-  "\\[Scenario\\] Quickload abandoned-future reconcile skipped: tree='GS1 Auto-Chute Booster' kind=Cold scope=TreeWide reason=policy",
 
   # GROUP 4 - THE BOOSTER IS RECORDED AGAIN (existing wording; each reds on the leak).
   # The background recorder attaches to the resumed tree with the booster in its map.

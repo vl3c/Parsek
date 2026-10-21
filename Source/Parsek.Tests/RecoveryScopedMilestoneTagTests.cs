@@ -76,11 +76,11 @@ namespace Parsek.Tests
         }
 
         // ============================================================
-        // The QL-2 shape, end to end
+        // The QL-2 shape: the recovery milestone is tagged to the recovered recording
         // ============================================================
 
         [Fact]
-        public void QL2_RecoveryMilestoneAfterQuicksave_TaggedToRecoveredRecording_RetiredByQuickload()
+        public void QL2_RecoveryMilestoneAfterQuicksave_TaggedToRecoveredRecording()
         {
             // The Flea hopped, was quicksaved on the ground at 352.2, recovered at 353.8
             // (the scene-exit commit ends the recording there) and stock completed
@@ -103,42 +103,6 @@ namespace Parsek.Tests
                 && l.Contains("owner=CommittedRecording")
                 && l.Contains("recordingId=" + rootId)
                 && l.Contains("reason=recovered-recording"));
-
-            // F9 from the Space Center into the quicksave taken at 352.2.
-            var resumed = RestoreQuicksaveOf(committed, 352.2);
-            Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == committed.Id);
-            logLines.Clear();
-            RunResumePrep(resumed, 352.48, LoadKind.QuickloadFlight);
-
-            Assert.DoesNotContain(Ledger.Actions, a =>
-                a.Type == GameActionType.MilestoneAchievement && a.MilestoneId == Milestone);
-            Assert.DoesNotContain(GameStateStore.Events, e =>
-                e.eventType == GameStateEventType.MilestoneAchieved && e.key == Milestone);
-            Assert.Contains(logLines, l =>
-                l.Contains("Quickload abandoned-future reconcile:")
-                && l.Contains("ledgerRowsRetired=1")
-                && l.Contains("afterCutoff=1"));
-        }
-
-        [Fact]
-        public void RecoveryMilestone_BeforeQuicksave_KeptByReconcile()
-        {
-            // Committed history: the recovery (and its milestone) came BEFORE the quicksave
-            // the player loads, so the tag must not make it retireable.
-            var committed = MakeFleaTree("ql2_history", 160.0, TerminalState.Recovered);
-            CommitInMemory(committed);
-            string rootId = committed.RootRecordingId;
-
-            RecoverWithMilestone(160.5, Milestone, funds: 800f);
-
-            var resumed = RestoreQuicksaveOf(committed, 150.0);
-            RunResumePrep(resumed, 200.0, LoadKind.QuickloadFlight);
-
-            GameAction row = Ledger.Actions.Single(a =>
-                a.Type == GameActionType.MilestoneAchievement && a.MilestoneId == Milestone);
-            Assert.Equal(rootId, row.RecordingId);
-            Assert.Contains(GameStateStore.Events, e =>
-                e.eventType == GameStateEventType.MilestoneAchieved && e.key == Milestone);
         }
 
         // ============================================================
@@ -553,19 +517,6 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedTreeForTesting(tree);
         }
 
-        // F9 into the quicksave taken at quicksaveUT: the save carries the tree as it was then
-        // (isActive); the restore splices the committed copy and detaches it.
-        private static RecordingTree RestoreQuicksaveOf(RecordingTree committed, double quicksaveUT)
-        {
-            var quicksaved = MakeFleaTree(committed.Id, quicksaveUT, null);
-            var node = new ConfigNode("PARSEK_SCENARIO");
-            var treeNode = node.AddNode("RECORDING_TREE");
-            quicksaved.Save(treeNode);
-            treeNode.AddValue("isActive", "True");
-            Assert.True(ParsekScenario.TryRestoreActiveTreeNode(node));
-            return RecordingStore.PopPendingTree();
-        }
-
         private static void SetPoints(Recording rec, params double[] uts)
         {
             rec.Points.Clear();
@@ -582,15 +533,5 @@ namespace Parsek.Tests
             rec.ExplicitEndUT = uts[uts.Length - 1];
         }
 
-        private static void RunResumePrep(RecordingTree tree, double resumeUT, LoadKind kind)
-        {
-            var recorder = new FlightRecorder { ActiveTree = tree };
-            FlightRecorder.QuickloadResumeUTProviderForTesting = () => resumeUT;
-            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree, kind);
-            MethodInfo method = typeof(FlightRecorder).GetMethod(
-                "PrepareQuickloadResumeStateIfNeeded", BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.NotNull(method);
-            method.Invoke(recorder, null);
-        }
     }
 }

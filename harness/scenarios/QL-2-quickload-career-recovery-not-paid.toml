@@ -467,9 +467,8 @@ required = [
   # =================================================================================
   # THE GATE - THE PAYOUT IS NOT IN THE SAVE. The ledger is the quicksave's own
   # GAME_STATE/LEDGER (the f9 block's `ledgerRows=` line), written before the recovery, so
-  # nothing is retired: the resume reconcile skips by policy (every Cold cell is Save) and
+  # nothing needs retiring (Phase 3 deleted the resume reconcile whose skip line stood here);
   # the forbidden walks below prove no Recovery row came back.
-  "\\[Scenario\\] Quickload abandoned-future reconcile skipped: tree='Jumping Flea' kind=Cold scope=TreeWide reason=policy",
   # END GATE
   # =================================================================================
 
