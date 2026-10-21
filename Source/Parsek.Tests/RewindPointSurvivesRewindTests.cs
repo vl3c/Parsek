@@ -53,7 +53,7 @@ namespace Parsek.Tests
             RewindInvoker.PartLoaderPrecondition.PartExistsOverrideForTesting = null;
             RewindInvoker.NowUtProviderForTesting = null;
             RewindPointReaper.ResetTestOverrides();
-            RewindPointReaper.DeleteQuicksaveForTesting = rpId =>
+            RewindPointReaper.ReleaseQuicksaveForTesting = rpId =>
             {
                 deletedRpIds.Add(rpId);
                 return true;

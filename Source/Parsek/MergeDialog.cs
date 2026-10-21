@@ -426,7 +426,8 @@ namespace Parsek
                 // build-step rows feed the auto-seal preview.
                 List<GameAction> attemptRows;
                 ReFlyMergeDominanceVerdict dominance =
-                    ReFlyMergeDominance.EvaluateForMerge(liveTree, "dialog-open", out attemptRows);
+                    ReFlyMergeDominance.EvaluateForMerge(
+                        liveTree, "dialog-open", out attemptRows, treeAwaitsFinalize: true);
                 mergeRefused = dominance.Applicable && !dominance.Pass;
                 var preview = ReFlyAutoSealPreviewer.Preview(
                     reFlyRec, marker, FlightGlobals.ActiveVessel, attemptRows);

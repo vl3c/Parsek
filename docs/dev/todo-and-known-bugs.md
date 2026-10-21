@@ -16,6 +16,49 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REFLY-STARTED-FROM-A-RESUMED-VESSEL-IS-NEVER-SAVED: an F5 during a Re-Fly started while flying a resumed committed vessel does not save the Re-Fly~~ [FILED 2026-10-20 from harness lane CI-3 on V's PC (PR #2155 head 1abd1b4). Was open, high: with save-file loads cold (PR #2155) the F9 cleared the Re-Fly marker. FIXED 2026-10-21 on branch `claude/project-thread-hvhou8` (PR #2155): the session survives the F9 and keeps its committed original. xUnit; CI-3 re-fly pending. product]
+
+Flying a committed vessel Parsek spawned resumes its tree as a copy-on-write clone and arms a
+committed-tree restore attempt (`TryTakeCommittedTreeForSpawnedVesselRestore`). Starting a Re-Fly
+from there replaced the flight but left the static attempt armed for the whole session, so every
+save marked the session tree's committed recordings as restore overlaps and skipped the active tree
+(`outcome=both-or-neither`). The F5 held the marker but not the provisional; a save-file F9 then
+cleared the marker (`Marker invalid field=ActiveReFlyRecordingId`). Before PR #2155 the F9 was an
+in-session load and memory hid the gap; a cold boot of such a save lost the session the same way.
+Fix: `RewindInvoker.ConsumePostLoad` discards the abandoned flight's attempt (purge then clear) after
+the bundle restore, before the strip (`DiscardRestoreAttemptOfAbandonedFlight`).
+
+Second cause (CI-3 flown on 32c497b, `2026-10-20_2226`): with the session saved, the F9 read back
+6 chains instead of 13 (`listhandles kind=chains count=0 ... match=false`). `TryRestoreActiveTreeNode`
+detached the committed copy of the restored session tree (`RemoveCommittedTreeById`), and ghost
+chains derive from `CommittedTrees` only, so the committed original's chains went with it. A fresh
+session keeps that original committed beside its live tree (the bundle restore puts it back). Fix:
+the restore keeps the committed copy when the save's marker names the restored tree and its active
+Re-Fly recording (`ParsekScenario.IsResumedReFlySessionTree`), except on the committed-copy rule's
+resume (a session merged after the save), whose copy still detaches for step B's row rule. The
+ghosted count before the F5 is 0 because PR #2151's Re-Fly start holds the claimed vessels
+(`HoldResurrectedVesselsWithCommittedFuture`); the lane now pins the chain count only.
+
+## ~~REFLY-DIALOG-READS-UNFINALIZED-ATTEMPT-AS-UNFLOWN: the leaving-flight Re-Fly dialog refuses Merge for an attempt that lost value~~ [FILED 2026-10-20 from harness lane QL-3 on V's PC (PR #2155 head c6f80ab). Was open, high; regression from PR #2151, never shipped. FIXED 2026-10-20 on branch `claude/project-thread-hvhou8` (PR #2155). xUnit; QL-3 re-fly pending; the seam half is open. product]
+
+The "Re-Fly attempt - leaving flight" dialog runs the dominance check on the live tree before
+the scene exit finalizes it, so the provisional still has no terminal state.
+`SupersedeCommit.MergeWouldRetireNothing` read that as `refused-unflown-provisional:null TerminalState`,
+modeled an empty retire set, and an attempt with any loss (QL-3: -9 reputation) read as lowering a
+balance: the dialog offered Discard only and the merge took the discard path. Fix: the dialog-open
+call passes `treeAwaitsFinalize`, under which a refusal for the missing terminal alone counts as
+retiring (`terminal-pending-finalize`); payload refusals still stand, and the merge click re-runs the
+check on the finalized tree unchanged. Second cause, same lane: the replaced flight's own death
+penalty was not filed in the ledger yet (the tree commit's build step files it, then the merge
+tombstones it), so the check counted it as a new loss of the attempt. Now the retire set also reads
+the build step's rows (`BuildMergeRetireSet` extraActions, as the Rule 1 read already did), and a
+build-step row the retire set takes is left out of `L'`, as the commit leaves it. `L` stays the
+Discard world (the unfiled row is never filed there), so retiring it makes no room for an attempt loss.
+
+Harness gap found on the same run: `AnswerMergeDialog choice=merge` answered `result=committed`
+although the dominance check refused the merge and the dialog fell back to Discard, so the drive
+read every step as met. The seam should report the refusal (open).
+
 ## ~~REFLY-MERGE-RETIRES-VALUE-LATER-SPENDING-USED: a Re-Fly merge takes back the replaced flight's earnings after the timeline already spent them~~ [FILED 2026-10-19 from the "Re-Fly ledger paradox analysis" thread, code read on main 4503a53. Was open, critical (owner rulings: never lower the ledger, no time-travel paradox); designed in `parsek-rewind-to-separation-design.md` section 2.12, Option 1 confirmed by the owner 2026-10-19, implementation plan `docs/dev/plans/refly-ledger-safety-implementation.md`. FIXED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151, design 2.12 phases 1-4 plus review fixes). xUnit; the reshaped Re-Fly lanes and RF-L1..RF-L4 not flown yet. product]
 
 **What happens.** Since the 2026-05-06 broad tombstone scope (`f4763de1`, `d66626ba`) a Re-Fly
@@ -182,7 +225,7 @@ promotion builds the tree's pending rows once (`BuildTreeCommitRowsPreview`) and
 through `SupersedeCommit.UsePendingCommitRows` (uncached). A failed build falls back to the ledger
 alone with a Warn. Test: `TreeCommitTests.CommitTree_DestroyedChildWhosePendingRowsSeal_IsNotPromoted`.
 
-## QUICKLOAD-RESTORES-THE-SAVE-EXACTLY: an in-session load keeps Parsek state from after the save that the save itself does not have [FILED 2026-10-19 from the owner ruling and a code audit at 2f9256d. OPEN, needs design; scope ruled 2026-10-19: drop everything after the save]
+## QUICKLOAD-RESTORES-THE-SAVE-EXACTLY: an in-session load keeps Parsek state from after the save that the save itself does not have [FILED 2026-10-19 from the owner ruling and a code audit at 2f9256d. OPEN, DESIGNED 2026-10-20 (`docs/dev/design-load-restores-the-save.md`, plan `docs/dev/plans/load-restores-the-save-implementation.md`); scope ruled 2026-10-19: drop everything after the save]
 
 Owner ruling (V, 2026-10-19): "a quick/load should work exactly as a quickload - restoring the
 state of the game exactly to what it was at the moment of the quicksave / save". Today an F9 or a
@@ -211,6 +254,61 @@ undoes the tech it was built with is a paradox. Direction: an in-session load re
 from the save the way a cold load does, keeping only what the save cannot hold; separate work
 after the Re-Fly ledger plan. Audit table:
 `docs/dev/plans/refly-ledger-safety-implementation.md` appendix.
+
+Design (2026-10-20): a load of a save file (stock fires `GameEvents.onGameStatePostLoad` on F9,
+the pause-menu Load and the main-menu Load, and on reverts, which stay excluded) becomes a Cold
+load after one session reset. For a cold load to be exact, every save becomes complete: its
+ledger, events, milestones, baselines and pending science go into a `GAME_STATE` node of the
+Parsek scenario node (the external files stay as mirrors), each recording names its sidecars by
+content hash, a sidecar a write or delete replaces is kept under `Parsek/Recordings/_versions/`,
+and files are deleted only by a collection over every save file in the folder. Found while
+designing: a cold load of an older save today moves the sidecars of every newer save's
+recordings into `_quarantine` (`RecordingStore.CleanOrphanFiles`), and drops a committed tree
+whose root sidecar was rewritten after the save (stale epoch); both are fixed by the same
+storage change. Phases: 1 complete saves and safe files, 2 the classification switch and the
+`QL-*` lanes, 3 deleting the in-session quickload machinery nothing reaches any more.
+
+Phase 1 implemented 2026-10-20 on branch `claude/project-thread-hvhou8` (xUnit only, no lane
+yet): every cold load resets the save-scoped session state; saves carry `GAME_STATE` (fixing
+COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE); recordings carry `precHash` /
+`vesselHash` / `ghostHash`, a replaced or deleted sidecar is filed under `_versions`, a cold load
+resolves and promotes the version its save names; `ParsekFileCollector` is the only remover of
+Parsek files (`RecordingStore.CleanOrphanFiles` is gone, the rewind point reaper and the discard
+purge only unlist, the grep gate `grep-audit-parsek-file-deletes.ps1` pins the delete sites).
+Both found-while-designing defects above are fixed by it.
+
+Phase 2 implemented 2026-10-20 on the same branch: a save-file load (F9, pause-menu Load, the
+harness `LoadGame playerLoad=true`) classifies Cold in every scene (`coldReason=save-file`) and
+reconciles at the save's own UT; a `saveStamp` canary Warns on an unannounced in-session read of
+an older save; Parsek no longer rewrites quicksave.sfs on merge or discard (owner decision
+2026-10-20); a cold load of a save made inside a committed-tree restore attempt re-arms it from
+the save's committed copy so the held-back earnings survive. Remaining: fly the reshaped and new
+`QL-*` lanes (QL-1..QL-12, QL-13 planned) on the owner's PC; Phase 3 (deleting the in-session
+quickload machinery nothing reaches) as a separate PR.
+
+Phase 2, design open question 3 (2026-10-20, xUnit only): a cold load of a save written inside a
+committed-tree restore attempt re-arms the attempt from the save's committed copy (the save's
+`ATTEMPT_EVENTS` now always names the attempt's tree id and arm reason), keeps that copy
+committed, skips the splice, and restores the held-back events, so an earning made inside a
+resumed spawned-vessel flight survives F5 / F9 and reaches the ledger at the merge. Lane QL-13 to
+add. Residue filed as ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE.
+
+## ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE: F5 inside a committed-tree restore attempt that resumed its recording in place loses the attempt's held-back earnings on F9 [FILED 2026-10-20 while closing design-load-restores-the-save.md open question 3. OPEN]
+
+When the flight-ready committed-tree restore resumes a committed recording in place (the live
+vessel's parts are covered by the recording's snapshot, so no new segment is made) and the
+recorder has written to it, `PlanActiveTreeSidecarSaves` skips the whole active-tree node at
+every `OnSave` (the #866 committed-restore overlap skip). The save then holds the committed tree,
+the `ATTEMPT_EVENTS` and no active tree. On F9 (a cold load) nothing is restored as active, so the
+attempt is not re-armed and the save's held-back events are dropped
+(`dropped the save's ATTEMPT_EVENTS ... reason=DropAttemptNotArmed`); the flight-ready restore
+then arms a fresh attempt for the spawned vessel. An earning made between the resume and the F5
+never reaches the ledger, while KSP's own funds at the F5 include it. The trajectory flown
+between the resume and the F5 is not in the save either. Fix direction: hold the save's
+`ATTEMPT_EVENTS` past OnLoad when the save has a committed copy and no active node for that tree,
+and restore them when `TryTakeCommittedTreeForSpawnedVesselRestore` arms the same tree id in
+that flight (drop them otherwise), or write the attempt's trajectory into the save so the
+active node is never skipped. Seen in code only; no lane yet.
 
 ## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. RULED 2026-10-21 (owner interview, every path); OPEN for the fixes; same invariant as section 2.12]
 
@@ -3418,7 +3516,7 @@ is gone.
 
 ---
 
-## COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE: a cold load into an older mid-flight quicksave keeps the abandoned future's events and ledger rows [FILED 2026-10-06 from the PR #2021 review, verified by code read. OPEN, product; not yet reproduced]
+## ~~COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE: a cold load into an older mid-flight quicksave keeps the abandoned future's events and ledger rows~~ [FILED 2026-10-06 from the PR #2021 review, verified by code read. Was open, product. FIXED 2026-10-20 on branch `claude/project-thread-hvhou8` as Phase 1 of QUICKLOAD-RESTORES-THE-SAVE-EXACTLY: every save carries its ledger, events, milestones, baselines and pending science in a `GAME_STATE` node of the Parsek scenario, a cold load reads them from it (older saves fall back to the files), and every cold load first resets the save-scoped session state (`ParsekScenario.ResetSaveScopedSessionState`, inventory gate `SaveScopedSessionResetTests`), so the once-per-folder store guards no longer keep another save's events. The route twin closes with it: the save's route rows come from its own ledger. xUnit `GameStateSaveNodeTests`; no lane yet (Phase 2 adds the load lanes). product]
 
 The cold-path twin of QUICKLOAD-ABANDONED-FUTURE-EVENTS-BOOKED-AT-COMMIT and
 QUICKLOAD-DETACHED-TREE-KEEPS-LEDGER-ROWS. Both external files are written at every OnSave, so a

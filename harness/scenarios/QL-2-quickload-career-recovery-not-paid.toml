@@ -1,5 +1,18 @@
 schema = 1
 id = "QL-2-quickload-career-recovery-not-paid"
+# RESHAPED 2026-10-20 FOR "LOAD RESTORES THE SAVE" PHASE 2 (design
+# docs/dev/design-load-restores-the-save.md 4.1 / 4.3 / 5 S3 / 8; plan Phase 2 step 7). NOT
+# FLOWN in this shape. The F9 carries `playerLoad=true`, a Cold save-file load. The payout
+# is no longer retired by the resume reconcile: the cold branch reads the ledger from the
+# quicksave's own GAME_STATE node (`OnLoad game state from save node: ledgerRows=`), which
+# was written at the F5, before the recovery, so the Recovery rows are simply not there.
+# The tree committed at the recovery's exit is gone with the reset (the quicksave holds it
+# only as its active tree), its F5 sidecar bytes resolve from `_versions` (the recovery's
+# persistent save rewrote the heads) and are promoted, no committed-copy rule runs and the
+# resume reconcile skips by policy (kind=Cold). OUTCOME unchanged: no committed recording
+# after the F9, no Recovery earning walked, no funds uplift, and the flight commits again
+# Landed. The mechanism paragraphs below describe the in-session route this lane was
+# authored for; kept as history, this block is authoritative.
 # =====================================================================================
 # QL-2: A REWARD EARNED AFTER AN F5 IS NOT PAID ONCE THE F9 TAKES THE FLIGHT BACK. The
 # career half of the manual F9 check "F5 after staging, fly on, merge, F9: the booster is
@@ -112,7 +125,7 @@ id = "QL-2-quickload-career-recovery-not-paid"
 # saveParse blocks are REPORT-ONLY until a reading run.
 # =====================================================================================
 tier = "nightly"
-description = "QL-2: the career reward half of the F9 checks. Hop the Jumping Flea in a career, land, F5, recover it (stock pays funds, science and crew XP, booked to the flight), then F9 from the Space Center: the committed copy is detached, the flight resumes, the reconcile retires the payout rows, no later recalc walks a Recovery earning, and the flight commits again Landed."
+description = "QL-2: the career reward half of the F9 checks. Hop the Jumping Flea in a career, land, F5, recover it (stock pays funds, science and crew XP, booked to the flight), then the player's F9 from the Space Center, a Cold save-file load: the ledger is the quicksave's own (no Recovery rows), the recovery's commit is gone, the flight resumes from the save's sidecar versions, no recalc walks a Recovery earning, and the flight commits again Landed."
 instanceProfile = "stock-minimal"
 tags = ["QL-2", "TA-2", "TA-3", "quickload", "timeline-ops", "career", "recovery", "ledger",
         "scene-exit", "auto-merge", "reading-run"]
@@ -206,9 +219,10 @@ steps = [
   { cmd = "RecordingState",                                                            expect = "OK" },
   # THE REWARD AFTER THE F5: stock's Recover button on the active Flea (ZF-1's pid).
   { cmd = "Recover",        args = { pid = "2905720181" },                             expect = "OK", budget = 120 },
-  # THE F9, from the Space Center: the quicksave holds a focusable vessel, so the verb
-  # takes the FLIGHT route. No recorder is live at the KSC.
-  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave" },        expect = "OK", budget = 300 },
+  # THE F9, from the Space Center: the player's load of the quicksave (playerLoad=true), a
+  # Cold save-file load. The quicksave holds a focusable vessel, so the verb takes the
+  # FLIGHT route. No recorder is live at the KSC.
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
   # Settle: RestoreActiveTreeFromPending runs from OnFlightReady (QL-4b's twelve steps).
   { cmd = "RecordingState",                                                            expect = "OK" },
   { cmd = "RecordingState",                                                            expect = "OK" },
@@ -436,28 +450,26 @@ required = [
   # LedgerRecoveryFundsPairing.TryAddVesselRecoveryFundsAction: the payout row, TAGGED.
   "VesselRecovery funds patched: vessel='Jumping Flea' amount=[1-9][0-9]* ut=[0-9.]+ recordingId=[0-9a-f]{32} quick=False",
 
-  # GROUP 3 - THE F9 FROM THE SPACE CENTER REACHES THE QUICKLOAD RESUME (QL-4b's route).
-  "loadgame start save=\\S+ name=quicksave scene=SPACECENTER requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false",
-  "Load classified: early=InSession refined=(?:QuickloadFlight|InSessionOther) scene=FLIGHT initialLoadDone=true rewinding=false reFlyInvoke=false discardReFly=none",
-  "\\[Scenario\\] Quickload committed-copy restore: tree='Jumping Flea' id=\\S+ route=space-center action=ResumeFromQuicksave reason=committed-after-quicksave loadKind=InSession staleMembers=[0-9]+ salvagedFromCommitted=[0-9]+ unsalvaged=[0-9]+ replacesStaleKeep=false",
-  "TryRestoreActiveTreeNode: removed committed tree 'Jumping Flea' \\(id=\\S+, [1-9][0-9]* recording\\(s\\)\\)",
-  "OnLoad: pending-Limbo tree 'Jumping Flea' deferred to OnFlightReady for quickload-resume",
-  "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide",
+  # GROUP 3 - THE F9 FROM THE SPACE CENTER IS A SAVE-FILE LOAD (design 4.1).
+  "loadgame start save=\\S+ name=quicksave scene=SPACECENTER requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false playerLoad=true",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave route=Focusable",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*\\[LoadPolicy\\] Save-file load intent armed: nodeUT=[0-9.]+ scene=SPACECENTER",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
+  # The recovery's persistent save rewrote the heads after the F5; the F5 bytes resolve.
+  "loadgame player-load: firing [\\s\\S]*Sidecar version resolved: rec=[0-9a-f]{32} kind=prec hash=[0-9a-f]{16} source=version promoted=True",
+  "loadgame player-load: firing [\\s\\S]*Quickload committed-copy restore skipped: tree='Jumping Flea' id=\\S+ reason=no-committed-copy staleMembers=0",
+  "OnLoad: cold-start active tree detected \\(state=Limbo\\) . deferred to OnFlightReady as Quickload",
+  "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide [^\\r\\n]*\\bloadKind=Cold\\b",
   "RestoreActiveTreeFromPending: resumed recording tree 'Jumping Flea' activeRec='[0-9a-f]{32}'",
 
   # =================================================================================
-  # THE GATE - THE PAYOUT IS RETIRED. ParsekScenario.TrimAndReconcileForQuickloadResume:
-  #   `[Scenario] Quickload abandoned-future reconcile: tree='<n>' kind=<LoadKind>
-  #   scope=<scope> cutoffUT=.. loadedUT=.. trimmed=N pruned=N endStatesCleared=N
-  #   eventsPurged=N ledgerRowsRetired=N (afterCutoff=N kerbalAssignment=N
-  #   prunedRecording=N) skippedCommitted=N ...`
-  # Pinned: at least one row retired AS AFTER-CUTOFF (the recovery rows; the sandbox
-  # lanes all read afterCutoff=0) and nothing skipped as still committed. eventsPurged and
-  # endStatesCleared are read, not pinned: the payout events are captured at the Space
-  # Center, untagged, and the exit commit's tail trim may end the recording before the
-  # cutoff (then its Recovered ending is not an after-cutoff one).
-  "\\[Scenario\\] Quickload abandoned-future reconcile: tree='Jumping Flea' (?=.*\\bkind=(?:QuickloadFlight|InSessionOther)\\b)(?=.*\\bscope=TreeWide\\b)(?=.*\\bledgerRowsRetired=[1-9][0-9]* \\(afterCutoff=[1-9][0-9]* )(?=.*\\bskippedCommitted=0\\b)",
-  "RetireAbandonedFutureActions: removed [1-9][0-9]* action\\(s\\) reason=quickload-abandoned-future total=[0-9]+",
+  # THE GATE - THE PAYOUT IS NOT IN THE SAVE. The ledger is the quicksave's own
+  # GAME_STATE/LEDGER (the f9 block's `ledgerRows=` line), written before the recovery, so
+  # nothing is retired: the resume reconcile skips by policy (every Cold cell is Save) and
+  # the forbidden walks below prove no Recovery row came back.
+  "\\[Scenario\\] Quickload abandoned-future reconcile skipped: tree='Jumping Flea' kind=Cold scope=TreeWide reason=policy",
   # END GATE
   # =================================================================================
 
@@ -468,21 +480,26 @@ required = [
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
+  # THE OLD IN-SESSION MACHINERY (design 8), unreachable on a save-file load.
+  "loadgame player-load: firing (?:(?!Load classified: )[\\s\\S])*Load classified: early=InSession",
+  "Quickload committed-copy restore: tree='Jumping Flea'",
+  "loadgame player-load: firing [\\s\\S]*TryRestoreActiveTreeNode: removed committed tree 'Jumping Flea'",
+  "\\[Scenario\\] Quickload abandoned-future reconcile: tree='Jumping Flea'",
+  "RetireAbandonedFutureActions: removed [1-9][0-9]* action\\(s\\) reason=quickload-",
   # The F9 must reach the resume (QL-4b's defect shapes).
   "dropped entire tree 'Jumping Flea'",
   "TryRestoreActiveTreeNode: skipped active tree 'Jumping Flea'",
   "Quickload resume prep skipped",
-  "Quickload committed-copy restore: tree='Jumping Flea' id=\\S+ route=\\S+ action=Unchanged",
   "keeping in-memory pending tree 'Jumping Flea'",
-  "Quickload abandoned-future reconcile skipped: tree='Jumping Flea'",
   "listhandles kind=committed count=[1-9]",
-  # THE PAYOUT MUST NOT COME BACK. After the reconcile no recalc walks a Recovery earning
-  # (FundsModule.ProcessFundsEarning) or the recovery science (ScienceModule's walk line),
-  # and nothing clamps or lifts the funds pool off KSP's (the quicksave's, without the
-  # recovery: KspStatePatcher.PatchFunds and its keep-what-you-earned guard).
-  "Quickload abandoned-future reconcile: tree='Jumping Flea'[\\s\\S]*\\[Funds\\] FundsEarning: \\+[^,\\r\\n]*, source=Recovery",
-  "Quickload abandoned-future reconcile: tree='Jumping Flea'[\\s\\S]*\\[ScienceModule\\] Earning: subject=recovery@",
-  "Quickload abandoned-future reconcile: tree='Jumping Flea'[\\s\\S]*GUARDED (?:UPLIFT|DRAWDOWN) clamped resource=Funds",
+  # THE PAYOUT MUST NOT COME BACK. After the save's ledger is read no recalc walks a
+  # Recovery earning (FundsModule.ProcessFundsEarning) or the recovery science
+  # (ScienceModule's walk line), and nothing clamps or lifts the funds pool off KSP's (the
+  # quicksave's, without the recovery: KspStatePatcher.PatchFunds and its
+  # keep-what-you-earned guard).
+  "loadgame player-load: firing [\\s\\S]*\\[Funds\\] FundsEarning: \\+[^,\\r\\n]*, source=Recovery",
+  "loadgame player-load: firing [\\s\\S]*\\[ScienceModule\\] Earning: subject=recovery@",
+  "loadgame player-load: firing [\\s\\S]*GUARDED (?:UPLIFT|DRAWDOWN) clamped resource=Funds",
   # After the F9 the replay recovers nothing: no payout is booked again and no patch lifts
   # the funds (a positive delta is the abandoned payout paid).
   "loadgame start save=\\S+ name=quicksave [\\s\\S]*VesselRecovery funds patched: vessel='Jumping Flea'",

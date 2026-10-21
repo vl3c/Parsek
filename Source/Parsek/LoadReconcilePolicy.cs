@@ -11,8 +11,10 @@ namespace Parsek
     /// </summary>
     internal enum LoadKind
     {
-        /// <summary>First load of a save folder in this session (game start, main menu, save-folder
-        /// change, the test-batch crash-reconcile reload, the isolated batch baseline restore).</summary>
+        /// <summary>A load that rebuilds Parsek from the save: game start, main menu, save-folder
+        /// change, the test-batch crash-reconcile reload, the isolated batch baseline restore, and
+        /// every load of a save file stock announced (<see cref="SaveFileLoadIntent"/>: F9, the
+        /// pause-menu Load) that is not a revert (design-load-restores-the-save.md 4.1).</summary>
         Cold,
         /// <summary>Plain rewind (Rewind-to-Launch, Warp-to-game-start): <c>RewindContext.IsRewinding</c>.</summary>
         PlainRewind,
@@ -22,11 +24,15 @@ namespace Parsek
         DiscardReFly,
         /// <summary>A stock revert (<c>RevertDetector</c> consumed a revert kind, not a vessel switch).</summary>
         StockRevert,
-        /// <summary>FLIGHT to FLIGHT with the clock moved backwards and no revert: F9 in flight.</summary>
+        /// <summary>FLIGHT to FLIGHT with the clock moved backwards and no revert. No longer
+        /// produced by stock F9, which is a save-file load and classifies <see cref="Cold"/>:
+        /// only a load no stock path announced reaches it (a harness <c>LoadGame</c> without
+        /// <c>playerLoad=true</c>, another mod's loader; the saveStamp canary warns on it).</summary>
         QuickloadFlight,
         /// <summary>Every other in-session load: scene change, same-instant reload, vessel-switch
-        /// reload, F9 at the Space Center or Tracking Station (no clock stamp outside flight, so it
-        /// reads as a scene change), F9 from the Space Center into a flight quicksave.</summary>
+        /// reload, Tracking Station Fly, and a load of a save file no stock path announced (the
+        /// saveStamp canary warns on it). Stock F9 and the pause-menu Load classify
+        /// <see cref="Cold"/>.</summary>
         InSessionOther,
     }
 
@@ -198,8 +204,6 @@ namespace Parsek
     /// </summary>
     internal static class LoadReconcilePolicy
     {
-        internal const string GapColdLoadAbandonedFuture = "COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE";
-
         internal const string LogTag = "LoadPolicy";
 
         /// <summary>
@@ -251,7 +255,9 @@ namespace Parsek
                 {
                     "TestCommands/ParsekTestCommandAddon.cs",
                     new KnownLoadInitiator(1, new[] { EarlyLoadKind.InSession, EarlyLoadKind.Cold },
-                        "the LoadGame seam verb; Cold when save= names another save folder (DetectSaveFolderChange)")
+                        "the LoadGame seam verb; Cold when save= names another save folder (DetectSaveFolderChange) "
+                        + "or when the verb announces the load as the player's (playerLoad=true fires "
+                        + "onGameStatePostLoad, a save-file load)")
                 },
                 {
                     "InGameTests/Helpers/QuickloadResumeHelpers.cs",
@@ -268,19 +274,64 @@ namespace Parsek
         /// Prologue classification, in OnLoad's own precedence: the cold branch runs whenever
         /// <c>initialLoadDone</c> is false; the in-session branch returns through
         /// <c>HandleRewindOnLoad</c> before the Re-Fly post-load dispatch while rewinding; the Re-Fly
-        /// post-load dispatch runs whatever else the load is. Two combinations the code supports
-        /// but no initiator produces (a rewind or a Re-Fly invoke whose own load finds
-        /// <c>initialLoadDone</c> false) classify Cold even though the prologue's rewind carry or
-        /// the cold path's Re-Fly dispatch would still run.
+        /// post-load dispatch runs whatever else the load is. A load of a save file stock announced
+        /// (<paramref name="saveFileLoadPending"/>, <see cref="SaveFileLoadIntent"/>) that is not a
+        /// revert (<paramref name="revertPending"/>: <c>RevertDetector</c> armed, read without
+        /// consuming it; stock fires the save-file event inside a revert too) classifies Cold after
+        /// the rewind, Re-Fly start and Discard Re-fly checks (design-load-restores-the-save.md 4.1);
+        /// OnLoad then sets <c>initialLoadDone</c> false so the cold branch runs. Two combinations
+        /// the code supports but no initiator produces (a rewind or a Re-Fly invoke whose own load
+        /// finds <c>initialLoadDone</c> false) classify Cold even though the prologue's rewind carry
+        /// or the cold path's Re-Fly dispatch would still run.
         /// </summary>
         internal static EarlyLoadKind ClassifyEarly(
-            bool initialLoadDone, bool isRewinding, bool reFlyInvokePending, bool discardReFlyPending)
+            bool initialLoadDone, bool isRewinding, bool reFlyInvokePending, bool discardReFlyPending,
+            bool saveFileLoadPending, bool revertPending)
         {
             if (!initialLoadDone) return EarlyLoadKind.Cold;
             if (isRewinding) return EarlyLoadKind.PlainRewind;
             if (reFlyInvokePending) return EarlyLoadKind.ReFlyStart;
             if (discardReFlyPending) return EarlyLoadKind.DiscardReFly;
+            if (saveFileLoadPending && !revertPending) return EarlyLoadKind.Cold;
             return EarlyLoadKind.InSession;
+        }
+
+        internal const string ColdReasonBoot = "boot";
+        internal const string ColdReasonMainMenu = "main-menu";
+        internal const string ColdReasonFolderChange = "folder-change";
+        internal const string ColdReasonSaveFile = "save-file";
+        internal const string ColdReasonBatch = "batch";
+
+        /// <summary>Every value <see cref="ResolveColdReason"/> returns for a Cold load.</summary>
+        internal static readonly IReadOnlyList<string> ColdReasons = new[]
+        {
+            ColdReasonBoot, ColdReasonMainMenu, ColdReasonFolderChange, ColdReasonSaveFile, ColdReasonBatch,
+        };
+
+        /// <summary>
+        /// Pure: why a load is Cold, or null for any other kind. A Cold load that found
+        /// <c>initialLoadDone</c> true at classification is a save-file load (the only rule that
+        /// classifies Cold past it). Otherwise: the first cold load of the process is the boot; a
+        /// load after the main-menu transition finds no previous folder
+        /// (<c>OnMainMenuTransition</c> nulls it); a different folder is a folder change
+        /// (<c>DetectSaveFolderChange</c>); anything else re-armed the cold path in process (the
+        /// in-game test batch's baseline restore or crash reconcile).
+        /// </summary>
+        internal static string ResolveColdReason(
+            EarlyLoadKind early, bool initialLoadDoneAtClassify,
+            int coldLoadsBefore, string saveFolderBeforeDetect, string currentSaveFolder)
+        {
+            if (early != EarlyLoadKind.Cold)
+                return null;
+            if (initialLoadDoneAtClassify)
+                return ColdReasonSaveFile;
+            if (coldLoadsBefore <= 0)
+                return ColdReasonBoot;
+            if (saveFolderBeforeDetect == null)
+                return ColdReasonMainMenu;
+            if (!string.Equals(saveFolderBeforeDetect, currentSaveFolder, StringComparison.Ordinal))
+                return ColdReasonFolderChange;
+            return ColdReasonBatch;
         }
 
         /// <summary>
@@ -317,11 +368,16 @@ namespace Parsek
             throw new ArgumentOutOfRangeException(nameof(early), early, "unknown EarlyLoadKind");
         }
 
-        /// <summary>The once-per-load classification line (logged under <see cref="LogTag"/>).</summary>
+        /// <summary>The once-per-load classification line (logged under <see cref="LogTag"/>).
+        /// <paramref name="coldReason"/> is null for a non-Cold load; <paramref name="saveFileLoad"/>
+        /// is whether this load consumed a live save-file intent, with its frame age
+        /// (<paramref name="intentAgeFrames"/>, -1 when none) and the loaded game's UT
+        /// (<paramref name="intentNodeUT"/>, NaN when none).</summary>
         internal static string FormatClassificationLine(
             EarlyLoadKind early, LoadKind refined, string scene,
             bool initialLoadDone, bool rewinding, bool reFlyInvoke, string discardReFlyTarget,
-            string handoff)
+            string handoff, string coldReason, bool saveFileLoad, bool revertPending,
+            int intentAgeFrames, double intentNodeUT)
         {
             return "Load classified: early=" + early
                 + " refined=" + refined
@@ -330,7 +386,54 @@ namespace Parsek
                 + " rewinding=" + (rewinding ? "true" : "false")
                 + " reFlyInvoke=" + (reFlyInvoke ? "true" : "false")
                 + " discardReFly=" + (string.IsNullOrEmpty(discardReFlyTarget) ? "none" : discardReFlyTarget)
-                + " handoff=" + (string.IsNullOrEmpty(handoff) ? "absent" : handoff);
+                + " handoff=" + (string.IsNullOrEmpty(handoff) ? "absent" : handoff)
+                + " coldReason=" + (string.IsNullOrEmpty(coldReason) ? "none" : coldReason)
+                + " saveFileLoad=" + (saveFileLoad ? "true" : "false")
+                + " revertPending=" + (revertPending ? "true" : "false")
+                + " intentAgeFrames=" + intentAgeFrames.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + " nodeUT=" + (double.IsNaN(intentNodeUT) || double.IsInfinity(intentNodeUT)
+                    ? "NaN"
+                    : intentNodeUT.ToString("F2", System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        // ------------------------------------------------------------------
+        // The saveStamp canary (design 4.1)
+        // ------------------------------------------------------------------
+
+        /// <summary>The Parsek-node key OnSave writes a fresh stamp under.</summary>
+        internal const string SaveStampKey = "saveStamp";
+
+        /// <summary>
+        /// Pure: the loads the canary checks. Only the two in-session kinds that read a node the
+        /// previous OnSave wrote: a stock revert reads the launch or prelaunch snapshot (an older
+        /// stamp by design), every other kind is not an in-session read of the last save.
+        /// </summary>
+        internal static bool ShouldCheckSaveStamp(LoadKind refined)
+        {
+            return refined == LoadKind.InSessionOther || refined == LoadKind.QuickloadFlight;
+        }
+
+        /// <summary>
+        /// Pure: true when a checked load read a node stamped by a save this process did not
+        /// write last. Silent when either side has no stamp (a save from an older build, or no
+        /// OnSave yet in this process). Never reclassifies: the canary finds unannounced loads.
+        /// </summary>
+        internal static bool IsForeignSaveStamp(string loadedStamp, string lastWrittenStamp)
+        {
+            if (string.IsNullOrEmpty(loadedStamp) || string.IsNullOrEmpty(lastWrittenStamp))
+                return false;
+            return !string.Equals(loadedStamp, lastWrittenStamp, StringComparison.Ordinal);
+        }
+
+        /// <summary>The canary's Warn text.</summary>
+        internal static string FormatForeignSaveStampWarning(
+            LoadKind refined, string scene, string loadedStamp, string lastWrittenStamp)
+        {
+            return "In-session load read a save this session did not just write: stamp=" + (loadedStamp ?? "<none>")
+                + " lastWritten=" + (lastWrittenStamp ?? "<none>")
+                + " refined=" + refined
+                + " scene=" + (string.IsNullOrEmpty(scene) ? "<none>" : scene)
+                + " (no stock save-file load was announced; the load keeps the in-session path)";
         }
 
         // ------------------------------------------------------------------
@@ -442,6 +545,32 @@ namespace Parsek
         private static ArgumentOutOfRangeException UnknownKind(LoadKind kind)
         {
             return new ArgumentOutOfRangeException(nameof(kind), kind, "unknown LoadKind");
+        }
+
+        /// <summary>
+        /// Appended to every QuickloadFlight cell the prologue does not consume (the shared early
+        /// cells say it on the enum member): stock F9 is a save-file load and classifies Cold
+        /// (design-load-restores-the-save.md 4.1), so the column documents a load no stock path
+        /// announced. Phase 3 deletes the mechanisms only this column reaches.
+        /// </summary>
+        internal const string QuickloadFlightUnreachedByStockF9 =
+            " [QuickloadFlight is no longer produced by stock F9, a save-file load that classifies Cold: only a "
+            + "FLIGHT to FLIGHT load with the clock backwards that no stock path announced reaches it]";
+
+        /// <summary>Appended to the InSessionOther cells that once served an F9 at the Space Center or
+        /// into a flight quicksave from the Space Center.</summary>
+        internal const string InSessionOtherNoStockLoad =
+            " [stock F9 and the pause-menu Load classify Cold now: only a scene change, a vessel-switch reload, "
+            + "Tracking Station Fly or a load no stock path announced reaches this cell]";
+
+        private static LoadReconcileDecision QuickloadOnly(LoadReconcileAction action, string reason)
+        {
+            return new LoadReconcileDecision(action, null, reason + QuickloadFlightUnreachedByStockF9);
+        }
+
+        private static LoadReconcileDecision InSessionOtherOnly(LoadReconcileAction action, string reason)
+        {
+            return new LoadReconcileDecision(action, null, reason + InSessionOtherNoStockLoad);
         }
 
         private const string StagingFromNode =
@@ -617,18 +746,31 @@ namespace Parsek
             "not reachable: TryRestoreActiveTreeNode returns early while rewinding, so no quickload trim is armed";
         private const string ResumeTrimOnlyCutsTrajectories =
             "the quickload resume trim (ParsekScenario.TrimRecordingTreePastUT) cuts trajectories only";
+        private const string ColdSessionReset =
+            "ParsekScenario.ResetSaveScopedSessionState forgets the store and its once-per-folder guard; ";
+        private const string ColdGameStateReader = "ParsekScenario.LoadGameStateFromNodeOrFiles";
+        private const string ColdFilesFallback =
+            "a save without the node (an older build) reads the external file as last written";
         private const string ResumeReconcileSkips =
             "ParsekScenario.TrimAndReconcileForQuickloadResume runs the trim but skips this category on this kind";
+
+        private const string AbandonedFutureEventsResume =
+            "FlightRecorder.PrepareQuickloadResumeStateIfNeeded -> "
+            + "ParsekScenario.TrimAndReconcileForQuickloadResume purges the trimmed set's tagged events "
+            + "after the resume UT (GameStateStore.PurgeEventsForRecordingAfterUT; every event of a pruned "
+            + "recording), never an untagged event or one of committed history (a recording still committed, "
+            + "or one the quicksave already shows as history: IsCommittedHistoryAtQuicksave, which the "
+            + "trim leaves whole)";
 
         private static LoadReconcileDecision DecideAbandonedFutureEvents(LoadKind kind)
         {
             switch (kind)
             {
                 case LoadKind.Cold:
-                    return Gap(LoadReconcileAction.Keep, GapColdLoadAbandonedFuture,
-                        "GameStateStore.LoadEventFile reads the external file as last written, on the first cold load "
-                        + "of a save folder only (memory after); " + ResumeTrimOnlyCutsTrajectories
-                        + " (COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE; the in-session fix does not cover it)");
+                    return Today(LoadReconcileAction.Save,
+                        ColdSessionReset + "GameStateStore.LoadEventsFromSaveNode reads the save's own "
+                        + "GAME_STATE/PARSEK_GAME_STATE node (" + ColdGameStateReader + "), so the events are the save's; "
+                        + ColdFilesFallback + "; " + ResumeReconcileSkips);
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.Keep, RewindResumesNothing);
                 case LoadKind.ReFlyStart:
@@ -642,14 +784,9 @@ namespace Parsek
                     return Today(LoadReconcileAction.Keep, RevertResumesNothing
                         + "; the reverted flight's events stay for an F9 back, hidden by recording-id visibility");
                 case LoadKind.QuickloadFlight:
+                    return QuickloadOnly(LoadReconcileAction.ReconcileAtResume, AbandonedFutureEventsResume);
                 case LoadKind.InSessionOther:
-                    return Today(LoadReconcileAction.ReconcileAtResume,
-                        "FlightRecorder.PrepareQuickloadResumeStateIfNeeded -> "
-                        + "ParsekScenario.TrimAndReconcileForQuickloadResume purges the trimmed set's tagged events "
-                        + "after the resume UT (GameStateStore.PurgeEventsForRecordingAfterUT; every event of a pruned "
-                        + "recording), never an untagged event or one of committed history (a recording still committed, "
-                        + "or one the quicksave already shows as history: IsCommittedHistoryAtQuicksave, which the "
-                        + "trim leaves whole)");
+                    return InSessionOtherOnly(LoadReconcileAction.ReconcileAtResume, AbandonedFutureEventsResume);
             }
             throw UnknownKind(kind);
         }
@@ -659,12 +796,10 @@ namespace Parsek
             switch (kind)
             {
                 case LoadKind.Cold:
-                    return Gap(LoadReconcileAction.Keep, GapColdLoadAbandonedFuture,
-                        "LedgerOrchestrator.OnLoad reads the ledger file as last written; the cold active-tree restore runs "
-                        + "before OnKspLoad, so Ledger.Reconcile counts the restored tree's ids as known "
-                        + "(RecordingStore.BuildKnownRecordingIds) and keeps its earnings at any UT and its spendings in "
-                        + "FLIGHT / SPACECENTER (COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE; the in-session "
-                        + "fix does not cover it)");
+                    return Today(LoadReconcileAction.Save,
+                        ColdSessionReset + "LedgerOrchestrator.OnLoad reads the save's own GAME_STATE/LEDGER node ("
+                        + ColdGameStateReader + "), so the restored tree's rows are the rows of the save's moment; "
+                        + ColdFilesFallback + "; " + ResumeReconcileSkips);
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.Keep, RewindResumesNothing);
                 case LoadKind.ReFlyStart:
@@ -675,8 +810,14 @@ namespace Parsek
                 case LoadKind.StockRevert:
                     return Today(LoadReconcileAction.Keep, RevertResumesNothing);
                 case LoadKind.QuickloadFlight:
+                    return QuickloadOnly(LoadReconcileAction.ReconcileAtResume, AbandonedFutureLedgerRowsResume);
                 case LoadKind.InSessionOther:
-                    return Today(LoadReconcileAction.ReconcileAtResume,
+                    return InSessionOtherOnly(LoadReconcileAction.ReconcileAtResume, AbandonedFutureLedgerRowsResume);
+            }
+            throw UnknownKind(kind);
+        }
+
+        private const string AbandonedFutureLedgerRowsResume =
                         "FlightRecorder.PrepareQuickloadResumeStateIfNeeded -> "
                         + "ParsekScenario.TrimAndReconcileForQuickloadResume -> Ledger.RetireAbandonedFutureActions "
                         + "removes the trimmed set's recording-tagged rows that happened after the resume UT, every row "
@@ -684,10 +825,7 @@ namespace Parsek
                         + "(owner ruling OQ-2; untagged rows are the OnLoad untagged-rows-after-save retire's, and route "
                         + "rows, seeds and committed history stay: a "
                         + "recording still committed, or one the quicksave already shows as history, "
-                        + "IsCommittedHistoryAtQuicksave, which the trim leaves whole)");
-            }
-            throw UnknownKind(kind);
-        }
+                        + "IsCommittedHistoryAtQuicksave, which the trim leaves whole)";
 
         private static LoadReconcileDecision DecideAbandonedFutureEndStates(LoadKind kind)
         {
@@ -709,18 +847,21 @@ namespace Parsek
                 case LoadKind.StockRevert:
                     return Today(LoadReconcileAction.Keep, RevertResumesNothing);
                 case LoadKind.QuickloadFlight:
+                    return QuickloadOnly(LoadReconcileAction.ReconcileAtResume, AbandonedFutureEndStatesResume);
                 case LoadKind.InSessionOther:
-                    return Today(LoadReconcileAction.ReconcileAtResume,
+                    return InSessionOtherOnly(LoadReconcileAction.ReconcileAtResume, AbandonedFutureEndStatesResume);
+            }
+            throw UnknownKind(kind);
+        }
+
+        private const string AbandonedFutureEndStatesResume =
                         "FlightRecorder.PrepareQuickloadResumeStateIfNeeded -> "
                         + "ParsekScenario.TrimAndReconcileForQuickloadResume clears the terminal and crew end states "
                         + "of every trimmed recording that ended after the resume UT and gives every surviving trimmed "
                         + "recording back the merge state its quicksave baseline held (ResolveQuicksaveBaselineId, "
                         + "ShouldResetMergeStateForResume; not committed history: a recording "
                         + "still committed, or one the quicksave already shows as history, IsCommittedHistoryAtQuicksave; "
-                        + "an ending restamped after the save is not, IsEndRestampedAfterQuicksave)");
-            }
-            throw UnknownKind(kind);
-        }
+                        + "an ending restamped after the save is not, IsEndRestampedAfterQuicksave)";
 
         private static LoadReconcileDecision DecideUntaggedLedgerRows(LoadKind kind)
         {
@@ -747,8 +888,14 @@ namespace Parsek
                         + "rewind's lead-time window), then LedgerOrchestrator.PruneRevertedFlightStrategyConversionRows "
                         + "for the reverted flight's tagged strategy conversion rows");
                 case LoadKind.QuickloadFlight:
+                    return QuickloadOnly(LoadReconcileAction.ReconcileAtCutoff, UntaggedRowsRetire);
                 case LoadKind.InSessionOther:
-                    return Today(LoadReconcileAction.ReconcileAtCutoff,
+                    return InSessionOtherOnly(LoadReconcileAction.ReconcileAtCutoff, UntaggedRowsRetire);
+            }
+            throw UnknownKind(kind);
+        }
+
+        private const string UntaggedRowsRetire =
                         "ParsekScenario.OnLoad -> RetireUntaggedRowsAfterSaveAtInSessionLoad, after the route reconcile and "
                         + "before the recalculation: Ledger.RetireAbandonedFutureActions removes every untagged row (Space "
                         + "Center purchases, upgrades, hires, contract actions, launch-pad rows) dated after the loaded save's "
@@ -756,19 +903,16 @@ namespace Parsek
                         + "save's UNTAGGED_FUTURE_ROWS id list names (they already existed at the save, a D2 row the clock "
                         + "has since passed; a save without the list falls back to the window alone), so a load back in time "
                         + "undoes them (owner ruling 2026-10-19, reversing QL-R2 for loads; rewinds keep D2) and a forward "
-                        + "or same-instant scene change touches nothing; seeds never, route rows are the route reconcile's");
-            }
-            throw UnknownKind(kind);
-        }
+                        + "or same-instant scene change touches nothing; seeds never, route rows are the route reconcile's";
 
         private static LoadReconcileDecision DecidePendingScience(LoadKind kind)
         {
             switch (kind)
             {
                 case LoadKind.Cold:
-                    return Today(LoadReconcileAction.Keep,
-                        "cleared wholesale only when DiscardStalePendingState discards a stale pending tree "
-                        + "(RecordingStore.DiscardPendingTree abandon path)");
+                    return Today(LoadReconcileAction.Save,
+                        ColdSessionReset + "the cold branch restores GAME_STATE/PENDING_SCIENCE ("
+                        + ColdGameStateReader + "); a save without the node has none");
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.Keep, "the rewind branch does not touch it");
                 case LoadKind.ReFlyStart:
@@ -781,11 +925,11 @@ namespace Parsek
                 case LoadKind.StockRevert:
                     return Today(LoadReconcileAction.Clear, "RecordingStore.UnstashPendingTreeOnRevert, unconditionally");
                 case LoadKind.QuickloadFlight:
-                    return Today(LoadReconcileAction.Clear,
+                    return QuickloadOnly(LoadReconcileAction.Clear,
                         "ParsekScenario.DiscardStashedOnQuickload; skipped while the loaded save carries a Re-Fly marker "
                         + "(ShouldRunQuickloadDiscard)");
                 case LoadKind.InSessionOther:
-                    return Today(LoadReconcileAction.Keep, "the scene-change path does not touch it");
+                    return InSessionOtherOnly(LoadReconcileAction.Keep, "the scene-change path does not touch it");
             }
             throw UnknownKind(kind);
         }
@@ -795,7 +939,9 @@ namespace Parsek
             switch (kind)
             {
                 case LoadKind.Cold:
-                    return Today(LoadReconcileAction.Save, "RouteStore.LoadRoutesFrom + RevalidateSources on the cold path");
+                    return Today(LoadReconcileAction.Save,
+                        "RouteStore.LoadRoutesFrom + RevalidateSources on the cold path, against the save's own ledger "
+                        + "rows (GAME_STATE/LEDGER, " + ColdGameStateReader + ")");
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.ReconcileAtCutoff,
                         "ParsekScenario.HandleRewindOnLoad -> RouteLoadReconcile.ReconcileAtGoBackRewind: "
@@ -812,13 +958,14 @@ namespace Parsek
                         + "loop position back from the RP quicksave's own route copy (the OnLoad node)");
                 case LoadKind.DiscardReFly:
                 case LoadKind.StockRevert:
-                case LoadKind.QuickloadFlight:
                     return Today(LoadReconcileAction.ReconcileAtCutoff, InSessionRouteReconcile);
+                case LoadKind.QuickloadFlight:
+                    return QuickloadOnly(LoadReconcileAction.ReconcileAtCutoff, InSessionRouteReconcile);
                 case LoadKind.InSessionOther:
-                    return Today(LoadReconcileAction.ReconcileAtCutoff,
+                    return InSessionOtherOnly(LoadReconcileAction.ReconcileAtCutoff,
                         InSessionRouteReconcile + ", only when route state lies after the loaded save "
-                        + "(an F9 at the Space Center or Tracking Station, or into a flight quicksave from the "
-                        + "Space Center); a forward or same-instant scene change finds none and touches nothing");
+                        + "(a load no stock path announced); a forward or same-instant scene change finds none and "
+                        + "touches nothing");
             }
             throw UnknownKind(kind);
         }
@@ -894,6 +1041,9 @@ namespace Parsek
             throw UnknownKind(kind);
         }
 
+        private const string MissionsColdOnly =
+            "MissionStore is loaded on the cold path only (the Re-Fly bundle does not carry it)";
+
         private static LoadReconcileDecision DecideMissions(LoadKind kind)
         {
             switch (kind)
@@ -904,13 +1054,17 @@ namespace Parsek
                 case LoadKind.ReFlyStart:
                 case LoadKind.DiscardReFly:
                 case LoadKind.StockRevert:
+                    return Today(LoadReconcileAction.Memory, MissionsColdOnly);
                 case LoadKind.QuickloadFlight:
+                    return QuickloadOnly(LoadReconcileAction.Memory, MissionsColdOnly);
                 case LoadKind.InSessionOther:
-                    return Today(LoadReconcileAction.Memory,
-                        "MissionStore is loaded on the cold path only (the Re-Fly bundle does not carry it)");
+                    return InSessionOtherOnly(LoadReconcileAction.Memory, MissionsColdOnly);
             }
             throw UnknownKind(kind);
         }
+
+        private const string MilestonesSceneChange =
+            "list kept in memory; scene-change branch -> MilestoneStore.RestoreMutableState(node)";
 
         private static LoadReconcileDecision DecideMilestones(LoadKind kind)
         {
@@ -918,7 +1072,8 @@ namespace Parsek
             {
                 case LoadKind.Cold:
                     return Today(LoadReconcileAction.Save,
-                        "MilestoneStore.LoadMilestoneFile (first cold load of a save folder) + RestoreMutableState(node)");
+                        ColdSessionReset + "MilestoneStore.LoadMilestonesFromSaveNode reads GAME_STATE/PARSEK_MILESTONES ("
+                        + ColdGameStateReader + "; " + ColdFilesFallback + ") + RestoreMutableState(node)");
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.Save,
                         "list kept in memory; ParsekScenario.HandleRewindOnLoad -> MilestoneStore.RestoreMutableState(node, resetUnmatched: true)");
@@ -928,10 +1083,11 @@ namespace Parsek
                     return Today(LoadReconcileAction.Save,
                         "list kept in memory; revert branch -> MilestoneStore.RestoreMutableState(node, resetUnmatched: true)");
                 case LoadKind.DiscardReFly:
+                    return Today(LoadReconcileAction.Save, MilestonesSceneChange);
                 case LoadKind.QuickloadFlight:
+                    return QuickloadOnly(LoadReconcileAction.Save, MilestonesSceneChange);
                 case LoadKind.InSessionOther:
-                    return Today(LoadReconcileAction.Save,
-                        "list kept in memory; scene-change branch -> MilestoneStore.RestoreMutableState(node)");
+                    return InSessionOtherOnly(LoadReconcileAction.Save, MilestonesSceneChange);
             }
             throw UnknownKind(kind);
         }
@@ -956,7 +1112,9 @@ namespace Parsek
             {
                 case LoadKind.Cold:
                     return Today(LoadReconcileAction.Save,
-                        "VesselNameStore.Load on the cold path (ParsekScenario.OnLoad, before the committed trees load)");
+                        "VesselNameStore.Load on the cold path (ParsekScenario.OnLoad, before the committed trees load); "
+                        + "a save-file load (F9, the Load menu) is Cold, so its names are the save's (design 7.6 ruling 5 "
+                        + "no longer applies to it)");
                 case LoadKind.StockRevert:
                     return Today(LoadReconcileAction.MemoryUndoRevertedFlight,
                         VesselNamesUndo + VesselNamesMemory);
@@ -970,9 +1128,11 @@ namespace Parsek
                         + "cancelled attempt's stock decisions in RevertInterceptor.RetryHandler, before its load; "
                         + "a fresh Re-Fly invoke undoes nothing");
                 case LoadKind.PlainRewind:
-                case LoadKind.QuickloadFlight:
-                case LoadKind.InSessionOther:
                     return Today(LoadReconcileAction.Memory, VesselNamesMemory);
+                case LoadKind.QuickloadFlight:
+                    return QuickloadOnly(LoadReconcileAction.Memory, VesselNamesMemory);
+                case LoadKind.InSessionOther:
+                    return InSessionOtherOnly(LoadReconcileAction.Memory, VesselNamesMemory);
             }
             throw UnknownKind(kind);
         }

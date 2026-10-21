@@ -52,20 +52,18 @@ namespace Parsek
 
         /// <summary>
         /// Test seam: when non-null, replaces
-        /// <see cref="TryDeleteQuicksaveFile"/> with an injected predicate.
-        /// Returns true on "file deleted / file absent" (reap continues),
-        /// false on "I/O failure" (reap continues + logs a Warn — the
-        /// scenario entry is still removed so the state is bounded).
-        /// Production code leaves this null and the reaper performs a
-        /// real <see cref="File.Delete"/>.
+        /// <see cref="ReleaseQuicksaveFile"/> with an injected predicate that
+        /// observes which points were released. Returning false counts as a
+        /// release failure in the summary (the scenario entry is still removed).
+        /// Production code leaves this null; the release never touches the file.
         /// </summary>
-        internal static Func<string, bool> DeleteQuicksaveForTesting;
+        internal static Func<string, bool> ReleaseQuicksaveForTesting;
         internal static Func<string, string> ResolveQuicksaveAbsolutePathForTesting;
 
         /// <summary>Clears all test seams. Called from test class Dispose.</summary>
         internal static void ResetTestOverrides()
         {
-            DeleteQuicksaveForTesting = null;
+            ReleaseQuicksaveForTesting = null;
             ResolveQuicksaveAbsolutePathForTesting = null;
         }
 
@@ -127,8 +125,8 @@ namespace Parsek
                 return 0;
             }
 
-            int fileDeleteOk = 0;
-            int fileDeleteFail = 0;
+            int fileReleaseOk = 0;
+            int fileReleaseFail = 0;
             int contractSnapshotsPurged = 0;
             int bpBackrefCleared = 0;
 
@@ -139,11 +137,11 @@ namespace Parsek
                 var rp = toReap[k];
                 int idx = toReapIndices[k];
 
-                // 1. Delete quicksave file (best-effort).
-                if (TryDeleteQuicksaveFile(rp))
-                    fileDeleteOk++;
+                // 1. Release the quicksave file to the collector.
+                if (ReleaseQuicksaveFile(rp))
+                    fileReleaseOk++;
                 else
-                    fileDeleteFail++;
+                    fileReleaseFail++;
 
                 // 2. Remove scenario entry.
                 rps.RemoveAt(idx);
@@ -168,8 +166,8 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"ReapOrphanedRPs: reaped={toReap.Count.ToString(CultureInfo.InvariantCulture)} " +
                 $"remaining={rps.Count.ToString(CultureInfo.InvariantCulture)} " +
-                $"fileDeleteOk={fileDeleteOk.ToString(CultureInfo.InvariantCulture)} " +
-                $"fileDeleteFail={fileDeleteFail.ToString(CultureInfo.InvariantCulture)} " +
+                $"fileReleaseOk={fileReleaseOk.ToString(CultureInfo.InvariantCulture)} " +
+                $"fileReleaseFail={fileReleaseFail.ToString(CultureInfo.InvariantCulture)} " +
                 $"bpBackrefCleared={bpBackrefCleared.ToString(CultureInfo.InvariantCulture)} " +
                 $"contractSnapshotsPurged={contractSnapshotsPurged.ToString(CultureInfo.InvariantCulture)}");
 
@@ -246,9 +244,15 @@ namespace Parsek
             return EffectiveState.FindCommittedRecordingByIdRaw(recordingId);
         }
 
-        internal static bool TryDeleteQuicksaveFile(RewindPoint rp)
+        /// <summary>
+        /// Releases a reaped point's quicksave file. The reaper only unlists the point; the file
+        /// stays until <see cref="ParsekFileCollector"/> finds that no save file and no memory
+        /// list names the point any more (design-load-restores-the-save.md 4.5), because an
+        /// older save may still list it and offer its rewind.
+        /// </summary>
+        internal static bool ReleaseQuicksaveFile(RewindPoint rp)
         {
-            var hook = DeleteQuicksaveForTesting;
+            var hook = ReleaseQuicksaveForTesting;
             if (hook != null)
             {
                 try
@@ -258,49 +262,16 @@ namespace Parsek
                 catch (Exception ex)
                 {
                     ParsekLog.Warn(Tag,
-                        $"RewindPoint quicksave delete hook threw for rp={rp?.RewindPointId ?? "<no-id>"}: " +
+                        $"RewindPoint quicksave release hook threw for rp={rp?.RewindPointId ?? "<no-id>"}: " +
                         $"{ex.GetType().Name}: {ex.Message}");
                     return false;
                 }
             }
 
-            if (rp == null || string.IsNullOrEmpty(rp.RewindPointId))
-            {
-                ParsekLog.Verbose(Tag,
-                    "TryDeleteQuicksaveFile: no rewindPointId — nothing to delete");
-                return true;
-            }
-
-            string absolute = ResolveQuicksaveAbsolutePath(rp.RewindPointId);
-            if (string.IsNullOrEmpty(absolute))
-            {
-                ParsekLog.Verbose(Tag,
-                    $"TryDeleteQuicksaveFile: could not resolve save root for rp={rp.RewindPointId} — skipping delete");
-                return true;
-            }
-
-            try
-            {
-                if (File.Exists(absolute))
-                {
-                    File.Delete(absolute);
-                    ParsekLog.Verbose(Tag,
-                        $"Deleted rewind quicksave rp={rp.RewindPointId} path={absolute}");
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag,
-                        $"Rewind quicksave already absent rp={rp.RewindPointId} path={absolute}");
-                }
-                return true;
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Warn(Tag,
-                    $"Failed to delete rewind quicksave rp={rp.RewindPointId} path={absolute}: " +
-                    $"{ex.GetType().Name}: {ex.Message}");
-                return false;
-            }
+            ParsekLog.Verbose(Tag,
+                $"Rewind quicksave released for collection rp={rp?.RewindPointId ?? "<no-id>"} " +
+                "(deleted once no save lists the point)");
+            return true;
         }
 
         internal static string ResolveQuicksaveAbsolutePath(string rewindPointId)

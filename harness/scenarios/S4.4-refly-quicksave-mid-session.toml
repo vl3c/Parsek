@@ -1,5 +1,14 @@
 schema = 1
 id = "S4.4-refly-quicksave-mid-session"
+# RESHAPED 2026-10-20 FOR "LOAD RESTORES THE SAVE" PHASE 2 (design
+# docs/dev/design-load-restores-the-save.md 4.1 / 4.7; plan Phase 2 step 7). NOT FLOWN in
+# this shape. The admitted F9 (step 8) carries `playerLoad=true`, a Cold save-file load
+# into FLIGHT that restores the session from the quicksave (marker and zero-point
+# provisional). The REJECTED negative control keeps no `playerLoad`: the dispatch
+# `recording-active` refusal reads the same either way. Every merge token is unchanged.
+# READING-RUN RISK: the provisional holds zero points at the F5, and a cold load has no
+# pending tree to salvage a failed hydration from; `Marker invalid
+# field=ActiveReFlyRecordingId` (forbidden) would name that, a product finding.
 # READING 2026-10-07 (branch `f9-verify`, automation DLL sha256 prefix bd97e6a7): attempt 1
 # `2026-10-07_1922` INVALID driver-verdict-mismatch, attempt 2 `2026-10-07_1923` PASS. Attempt 1
 # is the pre-registered "reload OK instead of REJECTED" shape and it is TIMING, not the guard:
@@ -208,7 +217,7 @@ steps = [
   # THE F9 HALF (RF-3/A1). The opt-in is scoped to LoadGame and admits only while a re-fly
   # session marker is live, which is exactly this state. Two-phase like every other load,
   # so it takes the LoadGame budget.
-  { cmd = "LoadGame",          args = { save = "${runSave}", name = "quicksave", allowLiveRecorder = "refly" }, expect = "OK", budget = 300 },
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "quicksave", allowLiveRecorder = "refly", playerLoad = "true" }, expect = "OK", budget = 300 },
   { cmd = "AnswerMergeDialog", args = { choice = "merge" },                         expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                         expect = "OK" },
   { cmd = "FlushAndQuit",                                                           expect = "OK" },
@@ -254,9 +263,20 @@ required  = [
   # line carrying `recorderLive=true` can only be produced by a load the guard admitted,
   # which is the whole RF-3/A1 contract in one token - and step 7's reject two lines
   # above it is the negative control on the same recorder.
-  "loadgame start save=\\S+ name=quicksave .*allowLiveRecorder=refly recorderLive=true",
-  "outcome=retired-empty-provisional",
-  "AppendRelations outcome=refused-unflown-provisional",
+  "loadgame start save=\\S+ name=quicksave .*allowLiveRecorder=refly recorderLive=true playerLoad=true",
+  # The admitted F9 is a save-file load (design 4.1).
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave route=Focusable",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*\\[LoadPolicy\\] Save-file load intent armed: nodeUT=[0-9.]+ scene=FLIGHT",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
+  # THE CONCLUSION ROUTE NOW DEPENDS ON THE RESUME (flown 2026-10-20, `2026-10-20_2205`). The
+  # cold F9 resumes the recorder through the quickload resume, not the Re-Fly post-load settle
+  # hold, so it can sample before AnswerMergeDialog drives the merge: that run flushed 1 point
+  # and concluded the FLOWN way (`Added 1 supersede relations for subtree rooted at
+  # wp-booster-a`, dominance pass). Either route is a clean conclusion of the session the F9
+  # restored; the marker surviving the cold load is the claim (forbidden `Marker invalid` below).
+  "(?:outcome=retired-empty-provisional[\\s\\S]*AppendRelations outcome=refused-unflown-provisional|Added [1-9][0-9]* supersede relations for subtree rooted at wp-booster-a\\b)",
   # THE CLEAN-CONCLUSION TOKEN. S4.2 (via the batch) ended `outcome=concluded-no-supersede`;
   # this lane's merge of the surviving world-preservation tree ends `End reason=merged`
   # (measured run `2026-09-02_1141`: `TryCommitReFlySupersede -> MergeJournalOrchestrator`
@@ -274,6 +294,7 @@ forbidden = [
   "End reason=treeDiscarded",
   "not found in committed list after tree commit",
   "Marker invalid field=ActiveReFlyRecordingId",
+  "loadgame player-load: firing [\\s\\S]*Load classified: early=InSession refined=QuickloadFlight",
 ]
 
 [runtime]

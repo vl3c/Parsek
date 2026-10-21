@@ -1,0 +1,174 @@
+schema = 1
+id = "QL-9-load-older-save-keeps-newer-save-intact"
+# =====================================================================================
+# QL-9: LOADING AN OLDER SAVE KEEPS A NEWER SAVE'S RECORDINGS LOADABLE.
+# "Load restores the save" Phase 2 (design docs/dev/design-load-restores-the-save.md
+# section 5 scenario S6; plan docs/dev/plans/load-restores-the-save-implementation.md
+# Phase 2 step 7). AUTHORED 2026-10-20, NOT FLOWN.
+#
+# In gameplay terms: the player saves "A" on the pad, flies the Jumping Flea and lands,
+# Esc (the flight auto-merges), saves "B" at the Space Center, loads A (no flight yet),
+# then loads B again: B's flight is back, every recording with its points. The risk under
+# test is the load of A: its cold collection judges the save folder's sidecar files, and
+# the only referrer naming the hop is ql9-b.sfs (the Space Center route of the A load
+# rewrites persistent.sfs from A). If A's load quarantined a head or deleted a version B
+# names, B's load would read unresolved hashes or a missing trajectory.
+#
+# THE ROUTE:
+#   ACT 0  the career pad fixture boots FLIGHT on the pad; settings (autoRecordOnLaunch,
+#          autoMerge, verboseLogging); `SaveGame ql9-a` = SAVE A, on the pad.
+#   ACT 1  B1's hop (QL-2's mission and values verbatim), Esc: the auto-merge commits it.
+#          The committed set read back (count and first id), `SaveGame ql9-b` = SAVE B.
+#   ACT 2  `LoadGame ql9-a scene=spacecenter playerLoad=true`: a Cold save-file load of A
+#          (A was taken on the pad; the explicit scene keeps the lane at the Space Center).
+#          The committed count reads 0.
+#   ACT 3  `LoadGame ql9-b scene=spacecenter playerLoad=true`: a Cold save-file load of B.
+#          The committed set reads back the SAME count and first id as before A's load.
+#
+# THE GATE (pinned below):
+#   (a) A's load: the f9 block, its cold collection clean with headsQuarantined=0 (B names
+#       every hop head), committed count 0;
+#   (b) B's load: the f9 block, the version summary with unresolved=0 and head >= 1, the
+#       committed trees load with points > 0 (Verbose `Loaded N tree nodes ...`), no
+#       hydration failure;
+#   (c) the committed set after B's load equals the one written into B (count and first
+#       recording id tied by backreference).
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse: QL-8's / QL-2's B1 hop, but the save points (A on the pad, B after the exit)
+#     and the two loads differ from both; a new spec. 2 no idle waits: none.
+#   3 / 4 / 5 not applicable (B1's hop). 6 retry once (a scene-change flake).
+#   7 tight windows: count {1,3} (QL-2's: the Flea, plus an optimizer split at the exit
+#     commit); tighten after the first flight. 8 tier nightly (about 6 minutes).
+#   9 flight_efficiency.py after the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "QL-9 (S6): save A on the pad, fly and land the Jumping Flea, Esc (auto-merge), save B, load A (a Cold save-file load, no committed flight), load B: B's committed flight is back with its points, its sidecar hashes all resolve, and A's collection quarantined nothing B names."
+instanceProfile = "stock-minimal"
+tags = ["QL-9", "quickload", "timeline-ops", "career", "save-file-load", "named-saves",
+        "sidecar-versions", "collector", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/career-pad-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b1_pad_hop_career"
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  # ACT 0: settings, SAVE A on the pad.
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "true" },    expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoMerge", value = "true" },             expect = "OK" },
+  # LOAD-BEARING: the `Loaded N tree nodes` line the gate reads is Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },        expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "ql9-a" },                                 expect = "OK", budget = 120 },
+  # ACT 1: the hop, Esc (auto-merge), SAVE B.
+  { phase = "mission",                                                                 expect = "MISSION-OK", budget = 900 },
+  { cmd = "ExitToSpaceCenter",                                                         expect = "OK", budget = 120 },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "cb",               expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ql9-b-committed-${cb.count}-${cb.rec0}" }, expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "ql9-b" },                                 expect = "OK", budget = 120 },
+  # ACT 2: load A (the player's load).
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "ql9-a", scene = "spacecenter", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "ca",               expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ql9-a-committed-${ca.count}" },          expect = "OK" },
+  # ACT 3: load B (the player's load).
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "ql9-b", scene = "spacecenter", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "cb2",              expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ql9-b2-committed-${cb2.count}-${cb2.rec0}" }, expect = "OK" },
+  { cmd = "FlushAndQuit",                                                              expect = "OK" },
+]
+
+[driver.missionParams]
+# B1-pad-hop's values VERBATIM (QL-2's; the craft is byte-identical).
+throttle                 = 1.0
+apoapsisWindowMeters     = { min = 6000, max = 30000 }
+chuteArmMaxRateMps       = 30
+chuteFullDeployAltMeters = 2500
+landedSituations         = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds     = 90
+coastTimeoutSeconds      = 180
+descentTimeoutSeconds    = 360
+
+[dimensionsCovered]
+# D14 values only (each already covered elsewhere). No D-value names a back-in-time load.
+D14 = ["kerbin", "career", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The Flea's recording; the ceiling absorbs an optimizer split at the exit commit.
+count = { min = 1, max = 3 }
+
+# REPORT-ONLY until a reading run. Predicted: the produced save is B's timeline (the last
+# load), so one committed tree.
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 3 }
+
+[expectations.logContracts]
+required = [
+  # GROUP 1 - SAVE A, THE HOP, SAVE B.
+  "savegame name=ql9-a folder=.+ saved=true[\\s\\S]*Recording started",
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='Jumping Flea' recordings=[1-9][0-9]*",
+  "MISSIONMARK label=ql9-b-committed-[1-9][0-9]*-[0-9a-f]{32} ut=[\\s\\S]*savegame name=ql9-b folder=.+ saved=true",
+
+  # GROUP 2 - THE LOAD OF A IS A SAVE-FILE LOAD (design 4.1).
+  "loadgame start save=\\S+ name=ql9-a scene=SPACECENTER requestedScene=SpaceCenter [^\\r\\n]* playerLoad=true",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql9-a route=NoVesselSpaceCenter",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql9-a [\\s\\S]*\\[LoadPolicy\\] Save-file load intent armed: nodeUT=[0-9.]+ scene=SPACECENTER",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql9-a (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=SPACECENTER [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql9-a [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql9-a [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
+  # (a) A's cold collection: clean, and it quarantined no head (B names them all).
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql9-a (?:(?!Collection: )[\\s\\S])*Collection: referrers=[1-9][0-9]* [^\\r\\n]*\\bheadsQuarantined=0 [^\\r\\n]*\\bfailures=0 [^\\r\\n]*reason=cold-load",
+  "MISSIONMARK label=ql9-a-committed-0 ut=",
+
+  # GROUP 3 - THE LOAD OF B IS A SAVE-FILE LOAD.
+  "loadgame start save=\\S+ name=ql9-b scene=SPACECENTER requestedScene=SpaceCenter [^\\r\\n]* playerLoad=true",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql9-b route=NoVesselSpaceCenter",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql9-b [\\s\\S]*\\[LoadPolicy\\] Save-file load intent armed: nodeUT=[0-9.]+ scene=SPACECENTER",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql9-b (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=SPACECENTER [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql9-b [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql9-b [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
+  # =================================================================================
+  # THE GATE.
+  # (b) Every sidecar hash B names resolves (B was written after the exit, so its heads
+  # read straight: head >= 1), and the committed trees load with their points.
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql9-b (?:(?!Sidecar version resolution summary)[\\s\\S])*Sidecar version resolution summary: reason=cold-onload files=[1-9][0-9]* head=[1-9][0-9]* [^\\r\\n]*\\bunresolved=0 ",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql9-b (?:(?!Loaded [0-9]+ tree nodes)[\\s\\S])*Loaded [1-9][0-9]* tree nodes \\([1-9][0-9]* committed recordings [^\\r\\n]*\\): [1-9][0-9]* points, ",
+  # (c) The committed set after B's load is the one written into B.
+  "MISSIONMARK label=ql9-b-committed-([0-9]+)-([0-9a-f]{32}) ut=[\\s\\S]*MISSIONMARK label=ql9-a-committed-0 ut=[\\s\\S]*MISSIONMARK label=ql9-b2-committed-\\1-\\2 ut=",
+  # END GATE
+  # =================================================================================
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # THE OLD IN-SESSION MACHINERY, unreachable on a save-file load (design 8).
+  "loadgame player-load: firing (?:(?!Load classified: )[\\s\\S])*Load classified: early=InSession",
+  # B's flight lost or degraded by A's load: a quarantined head, a hash that does not
+  # resolve, a hydration failure, a dropped tree.
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql9-a [\\s\\S]*Quarantined orphan recording file",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql9-b [\\s\\S]*Sidecar version resolution summary: reason=cold-onload [^\\r\\n]*\\bunresolved=[1-9]",
+  "loadgame player-load: firing [\\s\\S]*recording\\(s\\) with sidecar hydration failures",
+  "loadgame player-load: firing [\\s\\S]*LoadRecordingTrees: skipped tree 'Jumping Flea'",
+  "MISSIONMARK label=ql9-a-committed-[1-9]",
+]
+
+[runtime]
+# Three LoadGame (max(300,600)+60 each = 1980), SetSetting x3 360, two SaveGame 360,
+# mission 900, ExitToSpaceCenter 120, three ListHandles / three MissionMark / FlushAndQuit
+# 420. Expected wall about 6 minutes (boot, two reloads, a ~2 minute hop).
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

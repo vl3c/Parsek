@@ -65,8 +65,9 @@ namespace Parsek
     ///
     /// <para>Every OnLoad consumes it exactly once (<see cref="Take"/>) in its prologue. A cold load,
     /// a plain rewind (which owns <c>RecordingStore</c>'s rewind carries) and a Re-Fly start (which
-    /// owns the reconciliation bundle) drop it; the main-menu transition, a save-folder change and
-    /// the inert game-mode early return drop it too. Static state: one scene transition is in flight
+    /// owns the reconciliation bundle) drop it; the main-menu transition, a save-folder change, a
+    /// save-file load (F9, the pause-menu Load: Cold since design-load-restores-the-save.md 4.1)
+    /// and the inert game-mode early return drop it too. Static state: one scene transition is in flight
     /// at a time.</para>
     /// </summary>
     internal static class InSessionStagedStateHandoff
@@ -82,6 +83,9 @@ namespace Parsek
         internal const string DropSaveFolderChanged = "save-folder-changed";
         internal const string DropMainMenu = "main-menu";
         internal const string DropInertGameMode = "inert-game-mode";
+        /// <summary>A save-file load (F9, the pause-menu Load) classifies Cold: the save's own
+        /// staging nodes are the state, not the torn-down instance's lists.</summary>
+        internal const string DropSaveFileLoad = "save-file-load";
         /// <summary>An instance whose OnLoad never reached step A is torn down: the handoff it
         /// never took is older than that load, so it is dropped rather than handed to the next.</summary>
         internal const string DropStagedStateNotLoaded = "staged-state-not-loaded";
@@ -91,6 +95,7 @@ namespace Parsek
         {
             DropColdLoad, DropRewindCarryOwns, DropReFlyBundleOwns,
             DropSaveFolderChanged, DropMainMenu, DropInertGameMode, DropStagedStateNotLoaded,
+            DropSaveFileLoad,
         };
 
         /// <summary>Shallow copies of the scenario's staged lists plus its two singletons.</summary>

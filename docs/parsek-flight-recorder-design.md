@@ -2032,6 +2032,15 @@ Ghost chain vessel conversion (Section 13.10) introduces the first modification 
 
 - **Orphaned timeline entries:** Show as "missing data" in manager.
 - **Orphaned sidecar files:** Ignore on load, preserve files.
+- **Sidecar versions and collection** (`docs/dev/design-load-restores-the-save.md` 4.4-4.5):
+  each `RECORDING` node names its `.prec` / `_vessel.craft` / `_ghost.craft` by content hash
+  (`precHash` / `vesselHash` / `ghostHash`; additive, no generation bump; `sidecarEpoch` keeps its
+  meaning). A rewrite or delete files the replaced head under
+  `Parsek/Recordings/_versions/<id>.<hash><suffix>`, and a cold load reads (and, when its save is
+  the only owner, promotes) the version its save names. Only `ParsekFileCollector` removes Parsek
+  files: a version, head, rewind point file or `parsek_rw_` rewind save goes when no save in the
+  folder (including `Backup/`) and no in-memory state names it; heads go to `_quarantine`, never
+  deleted; an unreadable save stops the run.
 - **Missing quicksave:** Rewind to that recording unavailable. Fall back to nearest prior quicksave.
 - **Save during active recording:** Parsek captures session state for resume. If this fails, in-progress recording is lost but committed recordings are unaffected.
 

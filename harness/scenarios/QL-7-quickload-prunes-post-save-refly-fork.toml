@@ -1,5 +1,20 @@
 schema = 1
 id = "QL-7-quickload-prunes-post-save-refly-fork"
+# RESHAPED 2026-10-20 FOR "LOAD RESTORES THE SAVE" PHASE 2 (design
+# docs/dev/design-load-restores-the-save.md 4.1 / 4.7 / 5 S3-S4 / 8; plan Phase 2 step 7).
+# NOT FLOWN in this shape. The load of `ql7-in-flight` carries `playerLoad=true`, a Cold
+# save-file load from the Space Center into FLIGHT. The OUTCOME is the same (the flight
+# resumes from the save, the Re-Fly never happened, the resumed tree commits without the
+# fork) but nothing is pruned any more: the session reset forgets the committed tree and
+# the merge's rows, and a Re-Fly merged after the save is simply not in the save. So the
+# committed-copy rule (`ResumeFromQuicksave`), the detach, the abandoned-fork note and prune
+# and the resumed-tree row rule of THE MECHANISM UNDER TEST below are FORBIDDEN after the
+# load; the save's tree resolves its F5-moment sidecars from `_versions` (the scene-exit
+# commit and the Re-Fly's split rewrote the heads) and resumes with `loadKind=Cold`. The
+# booster's SubOrbital ending stamped by the commit is not in the save either, so the
+# QUICKLOAD-RESUME-KEEPS-AN-ENDING-STAMPED-JUST-AFTER-THE-SAVE note below does not apply
+# to this shape (not pinned either way). The text below is the in-session shape this lane
+# flew before Phase 2, kept as history; this block is authoritative.
 # =====================================================================================
 # QL-7: LOADING AN IN-FLIGHT SAVE OF A FLIGHT THAT WAS RE-FLOWN AND MERGED AFTER THE SAVE
 # DROPS THE RE-FLY'S RECORDING ALONG WITH ITS ROWS. The live proof of todo
@@ -87,7 +102,7 @@ id = "QL-7-quickload-prunes-post-save-refly-fork"
 # ListHandlesImpl); the rest are RF-1's, QL-4b's and QL-4c's.
 # =====================================================================================
 tier = "nightly"
-description = "QL-7: fly GS-1's hop with the booster under canopy, save to a named slot in flight, commit at the Space Center, re-fly the booster's Unfinished Flight and merge, then load the in-flight save. The flight resumes from the save, the merged Re-Fly's recording is pruned with its supersede row, and the resumed tree commits without it."
+description = "QL-7: fly GS-1's hop with the booster under canopy, save to a named slot in flight, commit at the Space Center, re-fly the booster's Unfinished Flight and merge, then the player loads the in-flight save (playerLoad=true, a Cold save-file load). The flight resumes from the save, which never had the merged Re-Fly's recording or its supersede row, and the resumed tree commits without it."
 instanceProfile = "stock-minimal"
 tags = ["QL-7", "TA-1", "quickload", "timeline-ops", "rewind", "refly", "merge", "GS1",
         "staging", "scene-exit", "auto-merge", "runtime-handles", "D9", "scene-ksc", "reading-run"]
@@ -121,8 +136,9 @@ steps = [
   { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "1" },             expect = "OK", budget = 300 },
   { cmd = "AnswerMergeDialog", args = { choice = "merge" },                              expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                              expect = "OK" },
-  # THE LOAD: the in-flight save, from the Space Center (QL-4b's FLIGHT route).
-  { cmd = "LoadGame",          args = { save = "${runSave}", name = "ql7-in-flight" },   expect = "OK", budget = 300 },
+  # THE LOAD: the player's load of the in-flight save (playerLoad=true), from the Space
+  # Center (QL-4b's FLIGHT route); a Cold save-file load.
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "ql7-in-flight", playerLoad = "true" }, expect = "OK", budget = 300 },
   # QL-4b's / QL-4c's settle (see the header).
   { cmd = "RecordingState",                                                              expect = "OK" },
   { cmd = "RecordingState",                                                              expect = "OK" },
@@ -194,29 +210,29 @@ required = [
   # GROUP 2 - THE IN-FLIGHT SAVE, BEFORE THE COMMIT (the premise of the committed-copy rule).
   "savegame name=ql7-in-flight folder=.+ saved=true[\\s\\S]*exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
   "Silent full-fidelity auto-commit \\(scene-exit\\): tree='GS1 Auto-Chute Booster' recordings=[1-9][0-9]*",
-  "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=stableLeafUnconcluded to CommittedProvisional",
+  # The reason follows how far the background booster has fallen at the commit: still under its
+  # chutes (stableLeafUnconcluded) or already stamped Destroyed from its predicted impact
+  # (crashed). Either is an Unfinished Flight; the promotion is what this lane needs.
+  "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=(stableLeafUnconcluded|crashed) to CommittedProvisional",
   # GROUP 3 - THE RE-FLY MERGES AFTER THE SAVE (RF-1's and QL-3's).
   "listhandles kind=rewindpoints count=1 truncated=false",
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
   "Invocation complete",
   "Added [1-9][0-9]* supersede relations for subtree rooted at",
-  # GROUP 4 - THE LOAD RESUMES THE SAVE'S TREE.
-  "Added [1-9][0-9]* supersede relations for subtree rooted at[\\s\\S]*loadgame start save=\\S+ name=ql7-in-flight scene=\\S+ requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false",
-  "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*Load classified: early=InSession refined=(?:QuickloadFlight|InSessionOther) scene=FLIGHT initialLoadDone=true rewinding=false reFlyInvoke=false discardReFly=none",
-  "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*\\[Scenario\\] Quickload committed-copy restore: tree='GS1 Auto-Chute Booster' id=\\S+ route=\\S+ action=ResumeFromQuicksave reason=committed-after-quicksave loadKind=InSession ",
-  "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*TryRestoreActiveTreeNode: removed committed tree 'GS1 Auto-Chute Booster' \\(id=\\S+, [1-9][0-9]* recording\\(s\\)\\)",
-  # =================================================================================
-  # FIX BLOCK - THE ABANDONED RE-FLY FORK (ParsekScenario.Trim.cs).
-  "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*Quickload resume abandoned Re-Fly forks noted: tree=\\S+ forks=[1-9][0-9]* attempt=none\\([^)\\r\\n]*\\) ids=\\[[0-9a-z_,]+\\] ",
-  "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide",
-  "Quickload abandoned Re-Fly forks pruned: tree='GS1 Auto-Chute Booster' pruned=([1-9][0-9]*)/\\1 prunedBranchPoints=[0-9]+ ids=\\[[0-9a-z_,]+\\] sidecars=kept",
-  # END FIX BLOCK
-  # =================================================================================
-  # The rows agree: the fork's supersede row follows the save, which has none.
-  "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*In-session resumed-tree rows: tree=\\S+ recordings=[1-9][0-9]* attempt=none\\([^)\\r\\n]*\\); supersedes installed=[0-9]+ untouched=[0-9]+ attemptKept=0 followSave=0 dropped=[1-9][0-9]* restoredFromSave=0;",
-  # No `listhandles kind=active count>=1`: the booster's SubOrbital ending stamped by the commit
-  # 0.03 s after the save sits before the resume cutoff, so it stays and the booster is not
-  # background-recorded after the load (todo QUICKLOAD-RESUME-KEEPS-AN-ENDING-STAMPED-JUST-AFTER-THE-SAVE).
+  # GROUP 4 - THE LOAD IS A SAVE-FILE LOAD AND RESUMES THE SAVE'S TREE (design 4.1, 4.7).
+  "Added [1-9][0-9]* supersede relations for subtree rooted at[\\s\\S]*loadgame start save=\\S+ name=ql7-in-flight scene=\\S+ requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false playerLoad=true",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql7-in-flight route=Focusable",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql7-in-flight [\\s\\S]*\\[LoadPolicy\\] Save-file load intent armed: nodeUT=[0-9.]+ scene=SPACECENTER",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql7-in-flight (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql7-in-flight [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql7-in-flight [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
+  "loadgame player-load: firing [\\s\\S]*Sidecar version resolved: rec=[0-9a-f]{32} kind=prec hash=[0-9a-f]{16} source=version promoted=True",
+  # The save holds the tree as its active tree only: no committed copy to rule on or detach.
+  "loadgame player-load: firing [\\s\\S]*Quickload committed-copy restore skipped: tree='GS1 Auto-Chute Booster' id=\\S+ reason=no-committed-copy staleMembers=0",
+  "loadgame player-load: firing [\\s\\S]*TryRestoreActiveTreeNode: no committed copy of tree 'GS1 Auto-Chute Booster' \\(id=\\S+\\) needed detaching",
+  "OnLoad: cold-start active tree detected \\(state=Limbo\\) . deferred to OnFlightReady as Quickload",
+  "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide [^\\r\\n]*\\bloadKind=Cold\\b",
+  "loadgame player-load: firing [\\s\\S]*RestoreActiveTreeFromPending: resumed recording tree 'GS1 Auto-Chute Booster' activeRec='[0-9a-f]{32}'",
   # THE COMMIT of the resumed tree, without the fork.
   "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
   "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*Silent full-fidelity auto-commit \\(scene-exit\\): tree='GS1 Auto-Chute Booster' recordings=[1-9][0-9]*",
@@ -224,15 +240,17 @@ required = [
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "loadgame (?:rejected|refused)",
-  "In-session load found no staged-list handoff",
-  # Anchored after the ql7 load: the Re-Fly start's own restore logs action=Unchanged by design.
-  "loadgame start save=\\S+ name=ql7-in-flight [\\s\\S]*Quickload committed-copy restore: tree='GS1 Auto-Chute Booster' id=\\S+ route=\\S+ action=Unchanged",
+  # THE OLD IN-SESSION ROUTE (design 8), after the load: no in-session classification, no
+  # committed-copy rule, no detach, no fork note or prune, no row rule.
+  "loadgame player-load: firing [\\s\\S]*Load classified: early=InSession refined=(?:QuickloadFlight|InSessionOther) scene=FLIGHT",
+  "loadgame player-load: firing [\\s\\S]*Quickload committed-copy restore: tree='GS1 Auto-Chute Booster'",
+  "loadgame player-load: firing [\\s\\S]*TryRestoreActiveTreeNode: removed committed tree 'GS1 Auto-Chute Booster'",
+  "loadgame player-load: firing [\\s\\S]*Quickload resume abandoned Re-Fly forks noted: ",
+  "loadgame player-load: firing [\\s\\S]*Quickload abandoned Re-Fly forks pruned: ",
+  # (The exit's own scene-change load still runs the handoff; it detached nothing.)
+  "loadgame player-load: firing [\\s\\S]*In-session resumed-tree rows: tree=",
   "Quickload resume prep skipped",
   "TryRestoreActiveTreeNode: skipped active tree 'GS1 Auto-Chute Booster'",
-  "Quickload resume abandoned Re-Fly forks noted: tree=\\S+ forks=0 ",
-  "Quickload abandoned Re-Fly forks pruned: [^\\r\\n]* pruned=0/",
-  # THE DEFECT: the pruned fork recorded again or committed with the resumed tree.
-  "Quickload abandoned Re-Fly forks pruned: [^\\r\\n]*ids=\\[(?:[0-9a-z_]+,)*([0-9a-z_]+)[,\\]][\\s\\S]*FinalizeTreeRecordings: rec='\\1'",
 ]
 
 [runtime]

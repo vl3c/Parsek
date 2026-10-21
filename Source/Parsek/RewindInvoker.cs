@@ -1214,6 +1214,10 @@ namespace Parsek
                     "ConsumePostLoad: no captured bundle — skipping reconciliation");
             }
 
+            // The pre-rewind flight is gone with the scene: drop a copy-on-write restore
+            // attempt it armed (CI-3), after the bundle restore so its purge sticks.
+            DiscardRestoreAttemptOfAbandonedFlight(sessionId);
+
             // Steps 2-5: Strip + Activate + AtomicMarkerWrite + LedgerRecalc.
             // These need FlightGlobals.Vessels populated. During an async
             // SPACECENTER→FLIGHT scene change, ParsekScenario.OnLoad (and
@@ -1254,6 +1258,30 @@ namespace Parsek
                     tempPath,
                     readinessPids);
             }
+        }
+
+        /// <summary>
+        /// Discards a committed-tree restore attempt still armed when a Re-Fly's rewind point
+        /// has loaded. The attempt guards the copy-on-write clone of the flight that was live
+        /// before the rewind (<c>ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore</c>);
+        /// the rewind replaced that flight, but the attempt is static and outlives the scene.
+        /// Left armed it would mark the session tree's committed recordings as restore
+        /// overlaps, so every save during the session skips the active tree (both-or-neither)
+        /// and a save-file load of such a save loses the Re-Fly (CI-3). The clone's post-cutoff
+        /// event tails are purged with it, as on every other discard of the clone. No-op when
+        /// nothing is armed. Returns true when an attempt was discarded.
+        /// </summary>
+        internal static bool DiscardRestoreAttemptOfAbandonedFlight(string sessionId)
+        {
+            string armedTreeId = RecordingStore.CommittedTreeRestoreAttemptTreeId;
+            if (string.IsNullOrEmpty(armedTreeId))
+                return false;
+            ParsekLog.Info(InvokeTag,
+                $"ConsumePostLoad: discarding the committed-tree restore attempt of the pre-rewind " +
+                $"flight tree={armedTreeId} sess={sessionId ?? "<none>"}");
+            RecordingStore.DiscardCommittedTreeRestoreAttempt(
+                "refly-start: pre-rewind flight abandoned");
+            return true;
         }
 
         private static void RunStripActivateMarker(
@@ -2447,7 +2475,7 @@ namespace Parsek
         /// and the live active tree (the s11 evidence case — the zombie was
         /// reachable only from <see cref="ParsekFlight.ActiveTreeForSerialization"/>).
         /// Sidecar files on disk are also removed so a future
-        /// <c>CleanOrphanFiles</c> pass does not warn about them.
+        /// <c>ParsekFileCollector</c> pass does not warn about them.
         /// </para>
         ///
         /// <para>
@@ -3066,6 +3094,17 @@ namespace Parsek
                 ? Math.Max(currentEpoch, probe.SidecarEpoch)
                 : probe.SidecarEpoch;
             string newValue = targetEpoch.ToString(CultureInfo.InvariantCulture);
+
+            // The node now points at the current heads by epoch; its content hashes name the
+            // rewind point's older bytes. Strip them so any load of this temp save reads the
+            // heads under the epoch rule instead of resolving the older versions
+            // (design-load-restores-the-save.md 4.5, VERIFY V5).
+            int hashesStripped = StripSidecarHashes(recordingNode);
+            if (hashesStripped > 0)
+            {
+                ParsekLog.Verbose(InvokeTag,
+                    $"Re-Fly temp save sidecar hashes stripped: rec={recordingId} count={hashesStripped}");
+            }
             if (!string.Equals(oldValue, newValue, StringComparison.Ordinal))
             {
                 SetOrAddValue(recordingNode, "sidecarEpoch", newValue);
@@ -3074,6 +3113,19 @@ namespace Parsek
                     $"Re-Fly sidecar epoch refreshed: rec={recordingId} old={oldValue ?? "<missing>"} " +
                     $"new={newValue} path='{precPath}'");
             }
+        }
+
+        internal static int StripSidecarHashes(ConfigNode recordingNode)
+        {
+            if (recordingNode == null) return 0;
+            int stripped = 0;
+            foreach (string key in new[] { "precHash", "vesselHash", "ghostHash" })
+            {
+                if (!recordingNode.HasValue(key)) continue;
+                recordingNode.RemoveValues(key);
+                stripped++;
+            }
+            return stripped;
         }
 
         /// <summary>

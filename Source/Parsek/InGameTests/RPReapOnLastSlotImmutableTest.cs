@@ -105,7 +105,7 @@ namespace Parsek.InGameTests
             scenario.RewindPoints = new List<RewindPoint> { fakeRp };
 
             bool deleteHookCalled = false;
-            RewindPointReaper.DeleteQuicksaveForTesting = id =>
+            RewindPointReaper.ReleaseQuicksaveForTesting = id =>
             {
                 deleteHookCalled = true;
                 return true;

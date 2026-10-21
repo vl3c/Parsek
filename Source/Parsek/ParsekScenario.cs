@@ -766,6 +766,41 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: the clock the cold branch reconciles and walks at (design-load-restores-the-save.md
+        /// 4.1, "The clock"). Inside a Space Center or Tracking Station OnLoad the Planetarium
+        /// still reads the clock from before the load: stock <c>Game.Load</c> runs the scenario
+        /// modules' OnLoad before <c>FlightState.Load</c> sets the universal time (decompiled KSP
+        /// 1.12.5). So a ready Planetarium reading (positive) is replaced by the loaded save's own
+        /// <c>flightState.universalTime</c> whenever that is finite and not negative; a reading that
+        /// is not ready (0 or NaN, the boot load) is returned as it is, so the existing not-ready
+        /// rules (keep every row, full replay, the deferred seed walks once the clock is set) hold.
+        /// </summary>
+        internal static double ResolveColdLoadClockUT(double loadedSaveUT, double planetariumUT)
+        {
+            if (double.IsNaN(planetariumUT) || double.IsInfinity(planetariumUT) || planetariumUT <= 0.0)
+                return planetariumUT;
+            if (!double.IsNaN(loadedSaveUT) && !double.IsInfinity(loadedSaveUT) && loadedSaveUT >= 0.0)
+                return loadedSaveUT;
+            return planetariumUT;
+        }
+
+        /// <summary>The loaded game's <c>flightState.universalTime</c> as written, or NaN.</summary>
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double ReadLoadedFlightStateUTRaw()
+        {
+            try
+            {
+                var flightState = HighLogic.CurrentGame?.flightState;
+                return flightState != null ? flightState.universalTime : double.NaN;
+            }
+            catch (Exception)
+            {
+                return double.NaN;
+            }
+        }
+
+        /// <summary>
         /// The in-session OnLoad's ledger recalculation: reads the live load state, decides
         /// between the current-UT cutoff and the plain walk
         /// (<see cref="ShouldUseCurrentUtCutoffForPostRewindFlightLoad"/>), logs the decision
@@ -1465,6 +1500,11 @@ namespace Parsek
                         GhostMapPresence.StripFromSave(flightState);
                 }
 
+                // A fresh stamp per save: an in-session load that reads another one read a
+                // save no stock load announced (the canary, design 4.1).
+                savePhase = "save-stamp";
+                WriteSaveStamp(node);
+
                 lastOnSaveScene = HighLogic.LoadedScene;
                 RecorderStateLog.RecState("OnSave:post", CaptureScenarioRecorderState());
             }
@@ -1661,7 +1701,7 @@ namespace Parsek
 
         /// <summary>
         /// Load-fault data-loss guard (the OnSave-side partner of
-        /// <see cref="RecordingStore.CleanOrphanFiles"/>'s refuse-to-delete guard). Fires
+        /// <see cref="ParsekFileCollector"/>'s refuse-to-delete guard). Fires
         /// ONLY on the "scenario load lost its tree state" fingerprint: an INCOMPLETE cold
         /// load (<c>initialLoadDone == false</c>) left the COMMITTED store empty while the
         /// recordings directory still holds stranded sidecar bulk data. All three conditions
@@ -1731,7 +1771,7 @@ namespace Parsek
                 ParsekLog.Warn("Scenario",
                     $"OnSave load-fault guard: writing 0 committed RECORDING_TREE nodes after an incomplete load; disk "
                     + $"has {strandedIds.Count} stranded sidecar recording ID(s) but the on-disk save has no committed "
-                    + "tree metadata to preserve. Sidecars are preserved by CleanOrphanFiles; recover the trees from "
+                    + "tree metadata to preserve. Sidecars are preserved by the file collector; recover the trees from "
                     + "quicksave.sfs or a backup.");
             }
         }
@@ -2685,13 +2725,24 @@ namespace Parsek
             // Persist group hierarchy and hidden groups
             GroupHierarchyStore.SaveInto(node);
 
-            // Save game state events to external file
-            GameStateStore.SaveEventFile();
+            // Each game-state node is built once, written to its external file (kept as a
+            // mirror for the offline tools) and carried in the save's GAME_STATE node, which a
+            // cold load reads (design-load-restores-the-save.md 4.3).
+            var eventsBuild = GameStateStore.BuildEventsNode(
+                RecordingStore.CommittedTreeRestoreAttemptTreeId,
+                RecordingStore.CommittedTreeRestoreAttemptReason);
+            GameStateStore.WriteEventsNode(eventsBuild);
             node.AddValue("gameStateEventCount", GameStateStore.EventCount);
 
-            // Save any pending baselines
+            var baselinesNode = new ConfigNode(BaselinesNodeName);
             foreach (var baseline in GameStateStore.Baselines)
-                GameStateStore.SaveBaseline(baseline);
+            {
+                ConfigNode baselineNode = GameStateStore.BuildBaselineNode(baseline);
+                if (baselineNode == null)
+                    continue;
+                GameStateStore.WriteBaselineNode(baseline, baselineNode);
+                baselinesNode.AddNode(baselineNode);
+            }
 
             // Flush any uncaptured game state events into a milestone before saving.
             // Handles events that happened without a recording commit (e.g. tech
@@ -2715,13 +2766,25 @@ namespace Parsek
             }
 
             // Save milestones to external file + mutable state to .sfs
-            MilestoneStore.SaveMilestoneFile();
+            ConfigNode milestonesNode = MilestoneStore.BuildMilestonesNode();
+            MilestoneStore.WriteMilestonesNode(milestonesNode);
             MilestoneStore.SaveMutableState(node);
 
             // Save ledger to external file
-            LedgerOrchestrator.OnSave();
+            ConfigNode ledgerNode = Ledger.BuildSaveNode();
+            LedgerOrchestrator.OnSave(ledgerNode);
+
+            node.RemoveNodes(GameStateNodeName);
+            node.AddNode(BuildGameStateNode(
+                ledgerNode, eventsBuild.Root, milestonesNode, baselinesNode,
+                GameStateRecorder.BuildPendingScienceNode(GameStateRecorder.PendingScienceSubjects),
+                eventsBuild.AttemptEvents));
             ParsekLog.Verbose("Scenario",
-                $"OnSave: wrote external game-state files (events={GameStateStore.EventCount}, milestones={MilestoneStore.MilestoneCount})");
+                $"OnSave: wrote external game-state files and the GAME_STATE node (events={GameStateStore.EventCount}, " +
+                $"milestones={MilestoneStore.MilestoneCount}, baselines={GameStateStore.BaselineCount}, " +
+                $"ledgerRows={Ledger.Actions.Count}, pendingScience={GameStateRecorder.PendingScienceSubjects.Count}, " +
+                $"attemptEvents={(eventsBuild.AttemptEvents != null ? eventsBuild.SkippedAttemptEvents : 0)}, " +
+                $"attemptTree={RecordingStore.CommittedTreeRestoreAttemptTreeId ?? "<none>"})");
         }
 
         /// <summary>
@@ -3641,16 +3704,48 @@ namespace Parsek
             return RecordingStore.BuildKnownRecordingIds();
         }
 
+        /// <summary>The classification inputs OnLoad logs, captured once in its prologue.</summary>
+        private readonly struct LoadClassificationFacts
+        {
+            internal readonly bool InitialLoadDone;
+            internal readonly bool Rewinding;
+            internal readonly bool ReFlyInvoke;
+            internal readonly string DiscardReFlyTarget;
+            internal readonly string Handoff;
+            internal readonly string ColdReason;
+            internal readonly bool SaveFileLoad;
+            internal readonly bool RevertPending;
+            internal readonly int IntentAgeFrames;
+            internal readonly double IntentNodeUT;
+
+            internal LoadClassificationFacts(
+                bool initialLoadDone, bool rewinding, bool reFlyInvoke, string discardReFlyTarget,
+                string handoff, string coldReason, bool saveFileLoad, bool revertPending,
+                int intentAgeFrames, double intentNodeUT)
+            {
+                InitialLoadDone = initialLoadDone;
+                Rewinding = rewinding;
+                ReFlyInvoke = reFlyInvoke;
+                DiscardReFlyTarget = discardReFlyTarget;
+                Handoff = handoff;
+                ColdReason = coldReason;
+                SaveFileLoad = saveFileLoad;
+                RevertPending = revertPending;
+                IntentAgeFrames = intentAgeFrames;
+                IntentNodeUT = intentNodeUT;
+            }
+        }
+
         /// <summary>The once-per-load <see cref="LoadReconcilePolicy"/> classification line.</summary>
         private static void LogLoadClassification(
-            EarlyLoadKind early, LoadKind refined,
-            bool initialLoadDoneAtClassify, bool rewinding, bool reFlyInvoke, string discardReFlyTarget,
-            string handoff)
+            EarlyLoadKind early, LoadKind refined, LoadClassificationFacts facts)
         {
             ParsekLog.Info(LoadReconcilePolicy.LogTag,
                 LoadReconcilePolicy.FormatClassificationLine(
                     early, refined, HighLogic.LoadedScene.ToString(),
-                    initialLoadDoneAtClassify, rewinding, reFlyInvoke, discardReFlyTarget, handoff));
+                    facts.InitialLoadDone, facts.Rewinding, facts.ReFlyInvoke, facts.DiscardReFlyTarget,
+                    facts.Handoff, facts.ColdReason, facts.SaveFileLoad, facts.RevertPending,
+                    facts.IntentAgeFrames, facts.IntentNodeUT));
         }
 
         public override void OnLoad(ConfigNode node)
@@ -3663,6 +3758,7 @@ namespace Parsek
             {
                 StashInertGameModeNode(node);
                 InSessionStagedStateHandoff.Drop(InSessionStagedStateHandoff.DropInertGameMode);
+                SaveFileLoadIntent.Clear("inert-game-mode");
                 return;
             }
             inertGameModePassthroughNode = null;
@@ -3750,6 +3846,7 @@ namespace Parsek
 
                 loadPhase = "hooks";
                 RegisterMainMenuHook();
+                string saveFolderBeforeDetect = lastSaveFolder;
                 DetectSaveFolderChange();
 
                 // Load classification (LoadReconcilePolicy) before the prologue consumes any
@@ -3768,14 +3865,51 @@ namespace Parsek
                 string classifyDiscardReFlyTarget = classifyDiscardReFly
                     ? discardReFlyIntentTarget.ToString()
                     : null;
+                // A save file stock just loaded (F9, the pause-menu Load, the main-menu Load):
+                // consumed by this load whatever it classifies as. The revert detector is read
+                // without consuming it (the revert branch consumes it below): stock fires the
+                // save-file event inside a revert too, and the revert wins.
+                bool classifyRevertPending = RevertDetector.PendingKind != RevertKind.None;
+                bool classifySaveFileLoad = SaveFileLoadIntent.TryConsume(
+                    UnityEngine.Time.realtimeSinceStartup, UnityEngine.Time.frameCount,
+                    "ParsekScenario.OnLoad", out double saveFileIntentNodeUT, out int saveFileIntentAgeFrames);
                 string classifyHandoff = InSessionStagedStateHandoff.DescribeForClassification();
                 EarlyLoadKind earlyLoadKind = LoadReconcilePolicy.ClassifyEarly(
-                    classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFly);
+                    classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFly,
+                    classifySaveFileLoad, classifyRevertPending);
+                string coldReason = LoadReconcilePolicy.ResolveColdReason(
+                    earlyLoadKind, classifyInitialLoadDone,
+                    coldLoadsThisProcess, saveFolderBeforeDetect, HighLogic.SaveFolder);
+                var classification = new LoadClassificationFacts(
+                    classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFlyTarget,
+                    classifyHandoff, coldReason, classifySaveFileLoad, classifyRevertPending,
+                    classifySaveFileLoad ? saveFileIntentAgeFrames : -1,
+                    classifySaveFileLoad ? saveFileIntentNodeUT : double.NaN);
                 if (earlyLoadKind != EarlyLoadKind.InSession)
+                    LogLoadClassification(earlyLoadKind, LoadReconcilePolicy.ToLoadKind(earlyLoadKind), classification);
+
+                // A save-file load replaces everything from the save (design 4.1): the cold
+                // branch below runs, and the handoff the torn-down scenario captured is not
+                // this load's (the save's own staging nodes are).
+                if (coldReason == LoadReconcilePolicy.ColdReasonSaveFile)
                 {
-                    LogLoadClassification(earlyLoadKind, LoadReconcilePolicy.ToLoadKind(earlyLoadKind),
-                        classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFlyTarget,
-                        classifyHandoff);
+                    initialLoadDone = false;
+                    InSessionStagedStateHandoff.Drop(InSessionStagedStateHandoff.DropSaveFileLoad);
+                }
+                else if (classifySaveFileLoad)
+                {
+                    ParsekLog.Verbose(LoadReconcilePolicy.LogTag,
+                        "Save-file load intent dropped reason=consumed-by-" + earlyLoadKind
+                        + (classifyRevertPending ? " (a revert is pending)" : ""));
+                }
+
+                // Every Cold load starts from nothing: the save (and, for a save written by an
+                // older build, the external files) is the only source of what follows
+                // (design-load-restores-the-save.md 4.2).
+                if (earlyLoadKind == EarlyLoadKind.Cold)
+                {
+                    loadPhase = "save-scoped-reset";
+                    ResetSaveScopedSessionState(coldReason);
                 }
 
                 if (!RewindContext.IsRewinding)
@@ -3841,7 +3975,7 @@ namespace Parsek
                 loadPhase = "game-state-recorder";
                 stateRecorder?.Unsubscribe();
                 if (!initialLoadDone)
-                    LoadExternalFiles();
+                    LoadExternalFiles(node);
                 stateRecorder = new GameStateRecorder();
                 stateRecorder.SeedFacilityCacheFromCurrentState();
                 stateRecorder.Subscribe();
@@ -4022,11 +4156,12 @@ namespace Parsek
                     LoadKind refinedLoadKind = LoadReconcilePolicy.ClassifyRefined(
                         earlyLoadKind, isRevert, isFlightToFlight, utWentBackwards);
                     if (earlyLoadKind == EarlyLoadKind.InSession)
-                    {
-                        LogLoadClassification(earlyLoadKind, refinedLoadKind,
-                            classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFlyTarget,
-                            classifyHandoff);
-                    }
+                        LogLoadClassification(earlyLoadKind, refinedLoadKind, classification);
+
+                    // The saveStamp canary (design 4.1): an in-session read of a save this
+                    // process did not write last is a load no stock path announced. One Warn;
+                    // the classification stands.
+                    CheckLoadedSaveStamp(node, refinedLoadKind);
 
                     // Vessel names (design 7.6, ruling 5): a stock revert or Discard Re-fly cancels
                     // the current flight epoch, and with it the stock renames made inside it.
@@ -4617,6 +4752,11 @@ namespace Parsek
                     loadPhase = "rewind-point-reap";
                     RewindPointReaper.ReapOrphanedRPs();
 
+                    // Memory's lists are final: collect files no save and no memory names
+                    // (design-load-restores-the-save.md 4.5; rate-limited in-session).
+                    loadPhase = "file-collection";
+                    ParsekFileCollector.RunAtLoad(earlyLoadKind, coldBranch: false, scenario: this);
+
                     loadPhase = "vessel-names-apply";
                     VesselNameStore.RunSpawnLinkBackfill(isRevert ? "onload-tail:revert" : "onload-tail:scene-change");
                     VesselNameStore.ApplyAll(isRevert ? "onload-tail:revert" : "onload-tail:scene-change",
@@ -4628,6 +4768,9 @@ namespace Parsek
 
                 loadPhase = "cold-start";
                 initialLoadDone = true;
+                // Recording hydration from here to the end of this OnLoad reads the sidecar
+                // versions the save names (design-load-restores-the-save.md 4.4).
+                SidecarVersionResolution.BeginColdLoad(node);
 
                 // A game load ends any window in which an in-game batch's persistent.sfs
                 // restore was still the intended final state of a save (the batch's own
@@ -4733,6 +4876,10 @@ namespace Parsek
                         $"OnLoad: cold-start active tree detected (state={RecordingStore.PendingTreeStateValue}) — " +
                         $"deferred to OnFlightReady as {ScheduleActiveTreeRestoreOnFlightReady}");
                 }
+                // The save's restore-attempt events (memory only) follow the active tree they
+                // belong to; dropped otherwise (design 4.3, #866).
+                loadPhase = "cold-attempt-events";
+                ApplySaveAttemptEventsAfterActiveTreeRestore();
                 bool coldActiveTreeRestoredFromSave =
                     RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
                     || RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch;
@@ -4748,18 +4895,23 @@ namespace Parsek
                         pendingRestoreDisposition);
                 }
 
-                // Clean orphaned sidecar files (recordings deleted in previous sessions)
-                loadPhase = "orphan-sidecar-cleanup";
-                RecordingStore.CleanOrphanFiles();
-
                 // Restore milestone mutable state (LastReplayedEventIndex) from .sfs
                 loadPhase = "milestones";
                 MilestoneStore.RestoreMutableState(node);
 
                 // Reconcile ledger against loaded recordings (prunes orphaned actions, recalculates)
+                // at the loaded save's own clock (design 4.1): never the clock from before the load.
                 loadPhase = "ledger-load";
                 var validIds = BuildValidRecordingIdsForKspLoad();
-                double reconcileUT = Planetarium.GetUniversalTime();
+                double coldPlanetariumUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : 0.0;
+                double coldLoadedSaveUT = ReadLoadedFlightStateUTRaw();
+                double coldClockUT = ResolveColdLoadClockUT(coldLoadedSaveUT, coldPlanetariumUT);
+                ParsekLog.Info("Scenario",
+                    "OnLoad: cold clock=" + coldClockUT.ToString("R", CultureInfo.InvariantCulture)
+                    + " (saveUT=" + coldLoadedSaveUT.ToString("R", CultureInfo.InvariantCulture)
+                    + " planetariumUT=" + coldPlanetariumUT.ToString("R", CultureInfo.InvariantCulture)
+                    + " coldReason=" + (coldReason ?? "none") + ")");
+                double reconcileUT = coldClockUT;
                 LedgerOrchestrator.OnKspLoad(
                     validIds,
                     reconcileUT,
@@ -4784,8 +4936,7 @@ namespace Parsek
                 // hand-edited or legacy save might carry on that tree. Route looping wins.
                 loadPhase = "route-loop-reconcile";
                 {
-                    double reconcileUtForLoops = Planetarium.fetch != null
-                        ? Planetarium.GetUniversalTime() : 0.0;
+                    double reconcileUtForLoops = coldClockUT;
                     var boundTreeIds = RouteTreeGuard.BoundTreeIds();
                     int reconciledTreeCount = 0;
                     for (int bi = 0; bi < boundTreeIds.Count; bi++)
@@ -4812,7 +4963,7 @@ namespace Parsek
                 // Bucket the statuses into counts; keep IN_PROGRESS detail (rare and
                 // most useful when debugging spawn timing) at Verbose.
                 loadPhase = "load-summary";
-                double loadUT = Planetarium.GetUniversalTime();
+                double loadUT = coldClockUT;
                 ParsekLog.Info("Scenario",
                     string.Format(CultureInfo.InvariantCulture,
                         "Scenario load summary — UT: {0:F0}, {1} recording(s)",
@@ -4867,7 +5018,7 @@ namespace Parsek
                 // handles spawning there (bug #99), so nulling the snapshot here would
                 // pre-empt the KSC spawn.
                 loadPhase = "crew-auto-unreserve";
-                double currentUT = Planetarium.GetUniversalTime();
+                double currentUT = coldClockUT;
                 if (HighLogic.LoadedScene != GameScenes.SPACECENTER)
                 {
                     for (int i = 0; i < recordings.Count; i++)
@@ -5001,6 +5152,11 @@ namespace Parsek
                 loadPhase = "rewind-point-reap";
                 RewindPointReaper.ReapOrphanedRPs();
 
+                // Memory's lists are final: collect files no save and no memory names
+                // (design-load-restores-the-save.md 4.5).
+                loadPhase = "file-collection";
+                ParsekFileCollector.RunAtLoad(earlyLoadKind, coldBranch: true, scenario: this);
+
                 // After hydration repair and the journal finisher: re-apply every vessel name
                 // decision to the recordings this load produced (design 7.4 / 7.6).
                 loadPhase = "vessel-names-apply";
@@ -5018,6 +5174,7 @@ namespace Parsek
             finally
             {
                 onLoadInProgress = false;
+                SidecarVersionResolution.End("cold-onload");
                 KerbalLoadRepairDiagnostics.Reset();
                 // Always capture timing exactly once, even on exception.
                 loadedRecordingCount = SafeCommittedRecordingCount();
@@ -5620,20 +5777,16 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Loads external data files (game state events, baselines, milestones, ledger)
-        /// and cleans up stale rewind temp files. Only called on initial load (not
-        /// revert/scene change).
+        /// Loads the game state (events, baselines, milestones, ledger, pending science) from
+        /// the save's GAME_STATE node, or from the external files for a save without one, and
+        /// cleans up stale rewind temp files. Only called on initial load (not revert/scene
+        /// change).
         /// </summary>
-        private static void LoadExternalFiles()
+        private static void LoadExternalFiles(ConfigNode node)
         {
-            ParsekLog.Verbose("Scenario", "OnLoad: initial load — loading external files");
-            GameStateStore.LoadEventFile();
-            GameStateStore.LoadBaselines();
-            MilestoneStore.LoadMilestoneFile();
-
-            // Load ledger from external file (skip during rewind — in-memory ledger is source of truth)
-            if (!RewindContext.IsRewinding)
-                LedgerOrchestrator.OnLoad();
+            ParsekLog.Verbose("Scenario", "OnLoad: initial load - loading game state");
+            // The ledger is skipped during a rewind (the in-memory ledger is the source of truth).
+            LoadGameStateFromNodeOrFiles(node);
 
             // Clean up stale parsek_rw_*.sfs temp files left by a crash during rewind
             try
@@ -6274,6 +6427,22 @@ namespace Parsek
         /// committed-copy rule (<see cref="DecideCommittedCopyRestore"/>) applies to a plain
         /// in-session load into FLIGHT only.
         /// </summary>
+        /// <summary>
+        /// Pure: true when <paramref name="tree"/>, the active tree a load restores, is the live
+        /// Re-Fly session's tree: the marker names its id and its active Re-Fly recording is a
+        /// member (the field <c>LoadTimeSweep</c> validates the marker on). Such a load keeps
+        /// the committed copy committed beside it, the shape the session had before the save.
+        /// </summary>
+        internal static bool IsResumedReFlySessionTree(ReFlySessionMarker marker, RecordingTree tree)
+        {
+            if (marker == null || tree == null || tree.Recordings == null)
+                return false;
+            if (string.IsNullOrEmpty(marker.TreeId) || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+                return false;
+            return string.Equals(marker.TreeId, tree.Id, StringComparison.Ordinal)
+                && tree.Recordings.ContainsKey(marker.ActiveReFlyRecordingId);
+        }
+
         internal static bool TryRestoreActiveTreeNode(
             ConfigNode node,
             EarlyLoadKind earlyLoadKind = EarlyLoadKind.InSession,
@@ -6410,8 +6579,20 @@ namespace Parsek
                 // state, ChildBranchPointId) ARE refreshed for the active recording — that is
                 // the whole point of the P1 fix, since the active id IS most likely the stale
                 // post-split first half from the RP's frozen .sfs.
-                int splicedFromCommitted = SpliceMissingCommittedRecordingsIntoLoadedTree(
-                    tree, tree.ActiveRecordingId);
+                //
+                // A cold load of a save written while a committed-tree restore attempt was live
+                // (the tree is the attempt's copy-on-write clone; the save names it in
+                // GAME_STATE/ATTEMPT_EVENTS) re-arms the attempt from the save's committed copy,
+                // so the clone resumes as the live attempt it was. Both trees come from the same
+                // OnSave and the clone descends from the committed copy, so the splice has
+                // nothing newer to bring in; its same-id refresh would instead overwrite the
+                // attempt's own edits (a segment's parent link) with the committed shape and mark
+                // the members dirty, which the re-armed attempt's overlap skip would then keep
+                // out of every later save. Both the splice and the detach are skipped.
+                bool saveAttemptRearmed = TryRearmSaveAttemptForRestoredTree(tree, earlyLoadKind);
+                int splicedFromCommitted = saveAttemptRearmed
+                    ? 0
+                    : SpliceMissingCommittedRecordingsIntoLoadedTree(tree, tree.ActiveRecordingId);
                 if (RepairMissingContiguousChainPredecessors(tree, "TryRestoreActiveTreeNode") > 0)
                     tree.RebuildBackgroundMap();
                 // A tree written before a split moved its parent links names the head for
@@ -6430,10 +6611,36 @@ namespace Parsek
                     committedCopyAction == CommittedCopyRestoreAction.ResumeFromQuicksave
                         ? CollectCommittedCopyRecordingIds(tree)
                         : null;
-                bool committedCopyDetached = RecordingStore.RemoveCommittedTreeById(
-                    tree.Id,
-                    logContext: "TryRestoreActiveTreeNode");
-                if (!committedCopyDetached)
+                // A re-armed attempt keeps its committed original committed, as a live attempt
+                // does: a later Discard drops only the clone, and a Merge replaces the original.
+                // A Re-Fly session the save resumes keeps it too: a session runs with the
+                // committed original beside its live tree (the Re-Fly start's bundle restore puts
+                // it back), so ghost chains still hold back the vessels it claims (CI-3). A
+                // session merged after the save is a resume from the quicksave instead: its
+                // committed copy detaches and its rows follow the save.
+                bool reFlySessionResumed =
+                    committedCopyAction != CommittedCopyRestoreAction.ResumeFromQuicksave
+                    && IsResumedReFlySessionTree(Instance?.ActiveReFlySessionMarker, tree);
+                bool committedCopyDetached = !saveAttemptRearmed
+                    && !reFlySessionResumed
+                    && RecordingStore.RemoveCommittedTreeById(
+                        tree.Id,
+                        logContext: "TryRestoreActiveTreeNode");
+                if (reFlySessionResumed && !saveAttemptRearmed)
+                {
+                    ParsekLog.Info("Scenario",
+                        $"TryRestoreActiveTreeNode: kept the committed copy of tree '{tree.TreeName}' " +
+                        $"(id={tree.Id}) committed: the restored tree is the live Re-Fly session " +
+                        $"sess={Instance?.ActiveReFlySessionMarker?.SessionId ?? "<no-id>"}");
+                }
+                if (saveAttemptRearmed)
+                {
+                    ParsekLog.Info("Scenario",
+                        $"TryRestoreActiveTreeNode: kept the committed copy of tree '{tree.TreeName}' " +
+                        $"(id={tree.Id}) committed and skipped the splice: the restored tree is the " +
+                        "re-armed restore attempt's clone");
+                }
+                else if (!committedCopyDetached && !reFlySessionResumed)
                 {
                     ParsekLog.Verbose("Scenario",
                         $"TryRestoreActiveTreeNode: no committed copy of tree '{tree.TreeName}' " +
@@ -8877,6 +9084,9 @@ namespace Parsek
                 // A handoff captured before this reset would otherwise wait for the next game's
                 // load (which is cold anyway and would drop it there).
                 InSessionStagedStateHandoff.Drop(InSessionStagedStateHandoff.DropMainMenu);
+                // An announced save-file load that never reached an OnLoad belongs to the game
+                // being unloaded; the next game's own load arms its own.
+                SaveFileLoadIntent.Clear("main-menu");
                 ParsekLog.Info("Scenario",
                     "Main menu transition — reset initialLoadDone to prevent stale data leak");
             }

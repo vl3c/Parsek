@@ -5,6 +5,17 @@ id = "QL-1-ksc-actions-then-earlier-quicksave"
 # Space Center AFTER a quicksave, then that quicksave loaded at the Space Center. The
 # first lane that loads a save back in time with KSC purchases in the abandoned stretch.
 #
+# RESHAPED AGAIN 2026-10-20 FOR "LOAD RESTORES THE SAVE" PHASE 2 (design
+# docs/dev/design-load-restores-the-save.md 4.1 / 4.3 / 5 S2 / 8). NOT FLOWN in this shape.
+# The load now carries `playerLoad=true`, so it is a Cold save-file load: the session reset
+# forgets the in-memory ledger and the cold load reads the quicksave's own GAME_STATE node,
+# written before the four purchases. The four rows are therefore simply not there; nothing
+# retires them, so the `Untagged rows after the save retired` and
+# `RetireAbandonedFutureActions ... reason=quickload-untagged-after-save` lines of the
+# reshape below are now FORBIDDEN, and the gate is the save-file classification plus the
+# repeat presses and the ledger oracle (unchanged). The block below is the earlier reshape,
+# kept as history; this paragraph is authoritative where they differ.
+#
 # RESHAPED 2026-10-20 FOR THE OWNER RULING OF 2026-10-19 ("a quickload also undoes Space
 # Center purchases made after the quicksave", design parsek-rewind-to-separation-design.md
 # section 2.12 Rule 3; plan docs/dev/plans/refly-ledger-safety-implementation.md Phase 2
@@ -49,7 +60,7 @@ id = "QL-1-ksc-actions-then-earlier-quicksave"
 # (9) flight_efficiency.py after the first green flight.
 # =====================================================================================
 tier = "nightly"
-description = "QL-1: career actions at the Space Center after a quicksave (research, facility upgrade, hire, contract accept), then the quicksave loaded at the Space Center. The load undoes the purchases (owner ruling 2026-10-19): the four rows dated after the save are retired, stock is back at the save, and the player can buy each again, charged once."
+description = "QL-1: career actions at the Space Center after a quicksave (research, facility upgrade, hire, contract accept), then the quicksave loaded at the Space Center as the player's load (playerLoad=true), a Cold save-file load. The load undoes the purchases (owner ruling 2026-10-19): the career is the save's own ledger, which never had the four rows, stock is back at the save, and the player can buy each again, charged once."
 instanceProfile = "stock-minimal"
 tags = ["QL-1", "timeline-ops", "quickload", "ledger", "career", "action-blocking"]
 
@@ -75,7 +86,7 @@ steps = [
   { cmd = "KscAction", args = { action = "accept-contract", contract = "90e4faaf-2029-4c6b-8bc1-40226bb0fc27" },  expect = "OK", budget = 60 },
 
   # ---- back in time: the purchases are undone ----
-  { cmd = "LoadGame",   args = { save = "${runSave}", name = "quicksave", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "quicksave", scene = "spacecenter", playerLoad = "true" }, expect = "OK", budget = 300 },
 
   # ---- nothing is blocked: each action applies again, charged once ----
   { cmd = "KscAction", args = { action = "research-node", node = "basicRocketry" },                               expect = "OK", budget = 60 },
@@ -104,9 +115,13 @@ required = [
   "kscaction action=hire-kerbal target=Verhat Kerman applied=true",
   "kscaction action=accept-contract target=90e4faaf-2029-4c6b-8bc1-40226bb0fc27 applied=true",
   "loadgame start save=\\S+ name=quicksave ",
-  # ---- the load retires the untagged rows dated after the save (Phase 2's literals) ----
-  "loadgame start save=\\S+ name=quicksave [\\s\\S]*\\[LoadPolicy\\] Untagged rows after the save retired: kind=(?:InSessionOther|QuickloadFlight) saveUT=\\S+ clockUT=\\S+ retired=(?:[4-9]|[1-9][0-9]+) ",
-  "loadgame start save=\\S+ name=quicksave [\\s\\S]*RetireAbandonedFutureActions: removed (?:[4-9]|[1-9][0-9]+) action\\(s\\) reason=quickload-untagged-after-save",
+  # ---- the load is a save-file load: a Cold load that reads the save's own ledger ----
+  "loadgame start save=\\S+ name=quicksave scene=SPACECENTER requestedScene=SpaceCenter [^\\r\\n]* playerLoad=true",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave route=NoVesselSpaceCenter",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*\\[LoadPolicy\\] Save-file load intent armed: nodeUT=[0-9.]+ scene=SPACECENTER",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=SPACECENTER [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
   # ---- after the load each control applies again (stock back at the save) ----
   "loadgame start save=\\S+ name=quicksave [\\s\\S]*kscaction action=research-node target=basicRocketry applied=true",
   "loadgame start save=\\S+ name=quicksave [\\s\\S]*kscaction action=upgrade-facility target=SpaceCenter/TrackingStation applied=true",
@@ -123,11 +138,16 @@ forbidden = [
   "loadgame start save=\\S+ name=quicksave [\\s\\S]*kscaction refused ",
   "loadgame start save=\\S+ name=quicksave [\\s\\S]*GUARDED (UPLIFT|DRAWDOWN) clamped",
   "loadgame start save=\\S+ name=quicksave [\\s\\S]*An item with the same key has already been added",
+  # The old in-session route (design 8): no in-session classification of the F9, and no
+  # retire, because the four rows are not in the save.
+  "loadgame player-load: firing [\\s\\S]*Load classified: early=InSession ",
+  "\\[LoadPolicy\\] Untagged rows after the save retired: ",
+  "RetireAbandonedFutureActions: removed [0-9]+ action\\(s\\) reason=quickload-",
 ]
 
 # The ledger oracle: seed (the staged fixture) plus each declared action ONCE, diffed HARD
-# against the final save. Valid across the back-in-time load because the load retires the
-# first four rows and the end save carries only the repeat presses (header).
+# against the final save. Valid across the back-in-time load because the save's ledger
+# never had the first four rows and the end save carries only the repeat presses (header).
 [expectations.ledger]
 seedFrom     = "template"
 tolerances   = "default"

@@ -6,7 +6,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Tests for the load-fault data-loss guard pair: <see cref="RecordingStore.CleanOrphanFiles"/>
+    /// Tests for the load-fault data-loss guard pair: <see cref="ParsekFileCollector"/>
     /// must refuse to delete sidecars when the scenario reports zero known recording IDs but
     /// the disk has live sidecar-shaped recording IDs (the "load lost its tree state" pattern),
     /// and <c>ParsekScenario.PreserveRecordingStateIfLoadFault</c> must re-hydrate the on-disk
@@ -65,7 +65,7 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
         }
 
-        // ----- CleanOrphanFiles safety guard -----
+        // ----- ParsekFileCollector zero-known-ids guard (formerly CleanOrphanFiles) -----
 
         [Fact]
         public void CleanOrphanFiles_RefusesDeletion_WhenKnownIdsEmptyButDiskHasSidecarIds()
@@ -87,7 +87,7 @@ namespace Parsek.Tests
                 File.WriteAllText(p, "data");
 
             logLines.Clear();
-            RecordingStore.CleanOrphanFiles();
+            ParsekFileCollector.Run("test");
 
             Assert.True(File.Exists(a1));
             Assert.True(File.Exists(a2));
@@ -98,7 +98,7 @@ namespace Parsek.Tests
             Assert.True(File.Exists(b3));
             Assert.True(File.Exists(b4));
             Assert.Contains(logLines, l =>
-                l.Contains("[RecordingStore]") && l.Contains("REFUSING to delete")
+                l.Contains("[FileCollector]") && l.Contains("REFUSING to delete")
                 && l.Contains("0 known recording IDs") && l.Contains("2 sidecar-shaped recording ID(s)"));
         }
 
@@ -118,7 +118,7 @@ namespace Parsek.Tests
             File.WriteAllText(legacyPcrf, "pcrf");
 
             logLines.Clear();
-            RecordingStore.CleanOrphanFiles();
+            ParsekFileCollector.Run("test");
 
             Assert.False(File.Exists(transientStage));
             Assert.False(File.Exists(transientBak));
@@ -144,7 +144,7 @@ namespace Parsek.Tests
             File.WriteAllText(orphanPrec, "orphan");
 
             logLines.Clear();
-            RecordingStore.CleanOrphanFiles();
+            ParsekFileCollector.Run("test");
 
             string quarantinedOrphan = Path.Combine(
                 recordingsDir, RecordingStore.OrphanQuarantineDirName, "orphan-rec.prec");
@@ -154,7 +154,7 @@ namespace Parsek.Tests
             Assert.Equal("orphan", File.ReadAllText(quarantinedOrphan));
             Assert.DoesNotContain(logLines, l => l.Contains("REFUSING to delete"));
             Assert.Contains(logLines, l =>
-                l.Contains("[RecordingStore]") && l.Contains("Quarantined orphan recording file")
+                l.Contains("[FileCollector]") && l.Contains("Quarantined orphan recording file")
                 && l.Contains("orphan-rec.prec"));
         }
 
@@ -177,7 +177,7 @@ namespace Parsek.Tests
             File.WriteAllText(droppedVessel, "dropped-vessel");
 
             logLines.Clear();
-            RecordingStore.CleanOrphanFiles();
+            ParsekFileCollector.Run("test");
 
             string qDir = Path.Combine(recordingsDir, RecordingStore.OrphanQuarantineDirName);
             Assert.True(File.Exists(survivorPrec));
@@ -205,7 +205,7 @@ namespace Parsek.Tests
             File.WriteAllText(Path.Combine(recordingsDir, "orphan-rec.prec"), "newer-copy");
 
             logLines.Clear();
-            RecordingStore.CleanOrphanFiles();
+            ParsekFileCollector.Run("test");
 
             Assert.Equal("earlier-copy", File.ReadAllText(Path.Combine(qDir, "orphan-rec.prec")));
             string[] quarantined = Directory.GetFiles(qDir, "orphan-rec.prec*");
@@ -220,7 +220,7 @@ namespace Parsek.Tests
             CreateRecordingsDir("empty-dir");
 
             logLines.Clear();
-            RecordingStore.CleanOrphanFiles();
+            ParsekFileCollector.Run("test");
 
             Assert.DoesNotContain(logLines, l => l.Contains("REFUSING to delete"));
         }

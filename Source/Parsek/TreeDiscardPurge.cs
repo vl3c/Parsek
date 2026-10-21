@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
 
 namespace Parsek
 {
@@ -40,10 +39,10 @@ namespace Parsek
         private const string JournalTag = "MergeJournal";
 
         /// <summary>
-        /// Test seam: mirrors <see cref="RewindPointReaper.DeleteQuicksaveForTesting"/>.
-        /// Non-null overrides the real file-delete.
+        /// Test seam: mirrors <see cref="RewindPointReaper.ReleaseQuicksaveForTesting"/>.
+        /// Non-null observes the release.
         /// </summary>
-        internal static Func<string, bool> DeleteQuicksaveForTesting;
+        internal static Func<string, bool> ReleaseQuicksaveForTesting;
 
         /// <summary>
         /// Test seam: counter of every <see cref="PurgeTree"/> invocation,
@@ -64,7 +63,7 @@ namespace Parsek
         /// <summary>Clears all test seams.</summary>
         internal static void ResetTestOverrides()
         {
-            DeleteQuicksaveForTesting = null;
+            ReleaseQuicksaveForTesting = null;
             PurgeTreeCountForTesting = 0;
         }
 
@@ -349,8 +348,8 @@ namespace Parsek
                     continue;
                 }
 
-                // Best-effort quicksave delete.
-                TryDeleteQuicksaveFile(rp);
+                // Release the quicksave file to the collector.
+                ReleaseQuicksaveFile(rp);
 
                 // Remove scenario entry.
                 scenario.RewindPoints.RemoveAt(i);
@@ -378,53 +377,29 @@ namespace Parsek
             return purged;
         }
 
-        private static bool TryDeleteQuicksaveFile(RewindPoint rp)
+        /// <summary>
+        /// Releases a purged point's quicksave file: the purge unlists the point, and
+        /// <see cref="ParsekFileCollector"/> deletes the file once no save lists it
+        /// (design-load-restores-the-save.md 4.5).
+        /// </summary>
+        private static bool ReleaseQuicksaveFile(RewindPoint rp)
         {
-            var hook = DeleteQuicksaveForTesting;
+            var hook = ReleaseQuicksaveForTesting;
             if (hook != null)
             {
                 try { return hook(rp?.RewindPointId ?? ""); }
                 catch (Exception ex)
                 {
                     ParsekLog.Warn(RewindTag,
-                        $"PurgeTree quicksave delete hook threw for rp={rp?.RewindPointId ?? "<no-id>"}: " +
+                        $"PurgeTree quicksave release hook threw for rp={rp?.RewindPointId ?? "<no-id>"}: " +
                         $"{ex.GetType().Name}: {ex.Message}");
                     return false;
                 }
             }
 
-            if (rp == null || string.IsNullOrEmpty(rp.RewindPointId))
-                return true;
-
-            string relPath = RecordingPaths.BuildRewindPointRelativePath(rp.RewindPointId);
-            if (string.IsNullOrEmpty(relPath))
-                return true;
-
-            string root = null;
-            string saveFolder = null;
-            try { root = KSPUtil.ApplicationRootPath; } catch { root = null; }
-            try { saveFolder = HighLogic.SaveFolder; } catch { saveFolder = null; }
-            if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(saveFolder))
-                return true;
-
-            string absolute = Path.GetFullPath(Path.Combine(root, "saves", saveFolder, relPath));
-            try
-            {
-                if (File.Exists(absolute))
-                {
-                    File.Delete(absolute);
-                    ParsekLog.Verbose(RewindTag,
-                        $"PurgeTree deleted rewind quicksave rp={rp.RewindPointId} path={absolute}");
-                }
-                return true;
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Warn(RewindTag,
-                    $"PurgeTree failed to delete rewind quicksave rp={rp.RewindPointId} path={absolute}: " +
-                    $"{ex.GetType().Name}: {ex.Message}");
-                return false;
-            }
+            ParsekLog.Verbose(RewindTag,
+                $"PurgeTree released rewind quicksave for collection rp={rp?.RewindPointId ?? "<no-id>"}");
+            return true;
         }
 
         private static void ClearBranchPointBackref(RewindPoint rp, HashSet<string> branchPointIds)

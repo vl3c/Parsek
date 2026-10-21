@@ -47,7 +47,7 @@ namespace Parsek.Tests
             RouteStore.ResetForTesting();
             TreeDiscardPurge.ResetTestOverrides();
 
-            TreeDiscardPurge.DeleteQuicksaveForTesting = id =>
+            TreeDiscardPurge.ReleaseQuicksaveForTesting = id =>
             {
                 deletedRpIds.Add(id);
                 return true;
@@ -797,7 +797,7 @@ namespace Parsek.Tests
                 rps: new List<RewindPoint> { rp },
                 supersedes: new List<RecordingSupersedeRelation> { rel });
 
-            TreeDiscardPurge.DeleteQuicksaveForTesting = id =>
+            TreeDiscardPurge.ReleaseQuicksaveForTesting = id =>
             {
                 throw new System.IO.IOException("simulated failure");
             };
@@ -810,7 +810,7 @@ namespace Parsek.Tests
             Assert.Empty(scenario.RecordingSupersedes);
             Assert.Contains(logLines, l =>
                 l.Contains("[Rewind]")
-                && l.Contains("PurgeTree quicksave delete hook threw")
+                && l.Contains("PurgeTree quicksave release hook threw")
                 && l.Contains("rp=rp_1"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")

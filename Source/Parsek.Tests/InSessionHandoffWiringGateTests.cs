@@ -43,7 +43,7 @@ namespace Parsek.Tests
             int listCarry = IndexOrFail(body, "RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad(");
             int stepA = IndexOrFail(body, StepA);
             int rewindBranch = IndexOrFail(body, "HandleRewindOnLoad(node, recordings);");
-            int externalFiles = IndexOrFail(body, "LoadExternalFiles();");
+            int externalFiles = IndexOrFail(body, "LoadExternalFiles(node);");
 
             Assert.True(describe < stepA && early < stepA,
                 "in-session handoff gate: the load is classified (and the handoff's presence read for the "
@@ -72,8 +72,11 @@ namespace Parsek.Tests
             int coldBranch = IndexOrFail(body, "initialLoadDone = true;");
             Assert.True(coldBranch > stepB, "in-session handoff gate: step B lives in the in-session branch");
 
-            // Both classification lines carry the handoff token.
-            Assert.Equal(2, Occurrences(Collapse(body), "classifyDiscardReFlyTarget, classifyHandoff);"));
+            // Both classification lines carry the handoff token (through the captured facts).
+            Assert.Equal(1, Occurrences(Collapse(body),
+                "classifyDiscardReFlyTarget, classifyHandoff, coldReason,"));
+            Assert.Equal(2, Occurrences(Collapse(body), "LogLoadClassification("));
+            Assert.Equal(2, Occurrences(Collapse(body), ", classification);"));
         }
 
         [Fact]
@@ -132,7 +135,7 @@ namespace Parsek.Tests
                 + SourceScanText.StripCommentsAndMaskLiterals(ReadParsekSource(HandoffPartialPath));
             var dropSite = new Regex(@"InSessionStagedStateHandoff\.Drop\(\s*InSessionStagedStateHandoff\.(\w+)\s*\)");
             var sites = dropSite.Matches(scenario).Cast<Match>().Select(m => m.Groups[1].Value).ToList();
-            Assert.Equal(new[] { "DropInertGameMode", "DropMainMenu", "DropSaveFolderChanged", "DropStagedStateNotLoaded" },
+            Assert.Equal(new[] { "DropInertGameMode", "DropMainMenu", "DropSaveFileLoad", "DropSaveFolderChanged", "DropStagedStateNotLoaded" },
                 sites.OrderBy(s => s, StringComparer.Ordinal));
             foreach (string field in sites)
             {

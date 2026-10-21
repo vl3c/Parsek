@@ -299,6 +299,91 @@ namespace Parsek
                 5.0);
         }
 
+        internal const string PendingScienceNodeName = "PENDING_SCIENCE";
+        private const string PendingScienceSubjectNodeName = "SUBJECT";
+
+        /// <summary>
+        /// Builds the save's <c>GAME_STATE/PENDING_SCIENCE</c> node: one <c>SUBJECT</c> per
+        /// pending science subject, every field, invariant culture.
+        /// </summary>
+        internal static ConfigNode BuildPendingScienceNode(IReadOnlyList<PendingScienceSubject> subjects)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            var root = new ConfigNode(PendingScienceNodeName);
+            if (subjects == null)
+                return root;
+            for (int i = 0; i < subjects.Count; i++)
+            {
+                var s = subjects[i];
+                var n = root.AddNode(PendingScienceSubjectNodeName);
+                n.AddValue("subjectId", s.subjectId ?? "");
+                n.AddValue("science", s.science.ToString("R", ic));
+                n.AddValue("subjectMaxValue", s.subjectMaxValue.ToString("R", ic));
+                n.AddValue("captureUT", s.captureUT.ToString("R", ic));
+                if (!string.IsNullOrEmpty(s.reasonKey))
+                    n.AddValue("reasonKey", s.reasonKey);
+                if (!string.IsNullOrEmpty(s.recordingId))
+                    n.AddValue("recordingId", s.recordingId);
+                n.AddValue("scienceGainMultiplier", s.scienceGainMultiplier.ToString("R", ic));
+                if (!string.IsNullOrEmpty(s.captureActionId))
+                    n.AddValue("captureActionId", s.captureActionId);
+            }
+            return root;
+        }
+
+        /// <summary>
+        /// Parses a <c>PENDING_SCIENCE</c> node built by <see cref="BuildPendingScienceNode"/>.
+        /// A subject with no id is skipped and counted in <paramref name="malformed"/>.
+        /// </summary>
+        internal static List<PendingScienceSubject> ParsePendingScienceNode(ConfigNode node, out int malformed)
+        {
+            malformed = 0;
+            var result = new List<PendingScienceSubject>();
+            if (node == null)
+                return result;
+            var ic = CultureInfo.InvariantCulture;
+            ConfigNode[] subjects = node.GetNodes(PendingScienceSubjectNodeName);
+            for (int i = 0; i < subjects.Length; i++)
+            {
+                var n = subjects[i];
+                string id = n.GetValue("subjectId");
+                if (string.IsNullOrEmpty(id))
+                {
+                    malformed++;
+                    continue;
+                }
+                var s = new PendingScienceSubject { subjectId = id };
+                float.TryParse(n.GetValue("science"), NumberStyles.Float, ic, out s.science);
+                float.TryParse(n.GetValue("subjectMaxValue"), NumberStyles.Float, ic, out s.subjectMaxValue);
+                double.TryParse(n.GetValue("captureUT"), NumberStyles.Float, ic, out s.captureUT);
+                float.TryParse(n.GetValue("scienceGainMultiplier"), NumberStyles.Float, ic, out s.scienceGainMultiplier);
+                string reason = n.GetValue("reasonKey");
+                s.reasonKey = string.IsNullOrEmpty(reason) ? null : reason;
+                string rec = n.GetValue("recordingId");
+                s.recordingId = string.IsNullOrEmpty(rec) ? null : rec;
+                string actionId = n.GetValue("captureActionId");
+                s.captureActionId = string.IsNullOrEmpty(actionId) ? null : actionId;
+                result.Add(s);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Production reset for a cold load (<c>ParsekScenario.ResetSaveScopedSessionState</c>):
+        /// pending milestone rewards, the contract-completion dedup, the recovery payout
+        /// contexts and the pending science subjects. Test seams and the scoped suppression
+        /// flags are left alone. Returns the number of pending science subjects dropped.
+        /// </summary>
+        internal static int ResetForSaveLoad()
+        {
+            ClearPendingMilestoneEvents("save-scoped-reset");
+            ClearContractCompletionDedup("save-scoped-reset");
+            RecoveryPayoutContextStore.Clear("save-scoped-reset");
+            int droppedScience = PendingScienceSubjects.Count;
+            PendingScienceSubjects.Clear();
+            return droppedScience;
+        }
+
         internal static void ResetForTesting()
         {
             TagResolverForTesting = null;

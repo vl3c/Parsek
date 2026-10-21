@@ -70,8 +70,79 @@ namespace Parsek.Tests
         public void ClassifyEarly_TruthTable(
             bool initialLoadDone, bool rewinding, bool reFlyInvoke, bool discard, int expected)
         {
+            // No save-file load announced: today's precedence, whatever the revert detector holds.
+            foreach (bool revertPending in new[] { false, true })
+            {
+                Assert.Equal((EarlyLoadKind)expected,
+                    LoadReconcilePolicy.ClassifyEarly(initialLoadDone, rewinding, reFlyInvoke, discard,
+                        saveFileLoadPending: false, revertPending: revertPending));
+            }
+        }
+
+        [Theory]
+        // A save-file load with no revert pending is Cold once the rewind / Re-Fly start /
+        // Discard Re-fly checks pass (design-load-restores-the-save.md 4.1).
+        [InlineData(true, false, false, false, false, (int)EarlyLoadKind.Cold)]
+        // A revert wins: stock fires the save-file event inside RevertToLaunch / RevertToPrelaunch.
+        [InlineData(true, false, false, false, true, (int)EarlyLoadKind.InSession)]
+        // The earlier rules keep their precedence over a save-file load.
+        [InlineData(true, true, false, false, false, (int)EarlyLoadKind.PlainRewind)]
+        [InlineData(true, false, true, false, false, (int)EarlyLoadKind.ReFlyStart)]
+        [InlineData(true, false, false, true, false, (int)EarlyLoadKind.DiscardReFly)]
+        [InlineData(true, true, false, false, true, (int)EarlyLoadKind.PlainRewind)]
+        [InlineData(true, false, true, false, true, (int)EarlyLoadKind.ReFlyStart)]
+        [InlineData(true, false, false, true, true, (int)EarlyLoadKind.DiscardReFly)]
+        // initialLoadDone false is Cold already (reason boot / main-menu / folder-change / batch).
+        [InlineData(false, false, false, false, false, (int)EarlyLoadKind.Cold)]
+        [InlineData(false, false, false, false, true, (int)EarlyLoadKind.Cold)]
+        public void ClassifyEarly_SaveFileLoad_TruthTable(
+            bool initialLoadDone, bool rewinding, bool reFlyInvoke, bool discard, bool revertPending, int expected)
+        {
             Assert.Equal((EarlyLoadKind)expected,
-                LoadReconcilePolicy.ClassifyEarly(initialLoadDone, rewinding, reFlyInvoke, discard));
+                LoadReconcilePolicy.ClassifyEarly(initialLoadDone, rewinding, reFlyInvoke, discard,
+                    saveFileLoadPending: true, revertPending: revertPending));
+        }
+
+        [Theory]
+        [InlineData((int)EarlyLoadKind.Cold, true, 3, "s1", "s1", "save-file")]
+        [InlineData((int)EarlyLoadKind.Cold, true, 0, null, "s1", "save-file")]
+        [InlineData((int)EarlyLoadKind.Cold, false, 0, null, "s1", "boot")]
+        [InlineData((int)EarlyLoadKind.Cold, false, 0, "s1", "s1", "boot")]
+        [InlineData((int)EarlyLoadKind.Cold, false, 1, null, "s1", "main-menu")]
+        [InlineData((int)EarlyLoadKind.Cold, false, 3, "s0", "s1", "folder-change")]
+        [InlineData((int)EarlyLoadKind.Cold, false, 2, "s1", "s1", "batch")]
+        [InlineData((int)EarlyLoadKind.InSession, true, 2, "s1", "s1", null)]
+        [InlineData((int)EarlyLoadKind.PlainRewind, true, 2, "s1", "s1", null)]
+        [InlineData((int)EarlyLoadKind.ReFlyStart, true, 2, "s1", "s1", null)]
+        [InlineData((int)EarlyLoadKind.DiscardReFly, true, 2, "s1", "s1", null)]
+        public void ResolveColdReason_NamesTheCause(
+            int early, bool initialLoadDone, int coldLoadsBefore, string before, string current, string expected)
+        {
+            string reason = LoadReconcilePolicy.ResolveColdReason(
+                (EarlyLoadKind)early, initialLoadDone, coldLoadsBefore, before, current);
+            Assert.Equal(expected, reason);
+            if (reason != null)
+                Assert.Contains(reason, LoadReconcilePolicy.ColdReasons);
+        }
+
+        [Fact]
+        public void ColdReason_SaveFileIsTheOnlyColdLoadWithInitialLoadDone()
+        {
+            // Pins the link OnLoad relies on: ClassifyEarly says Cold with initialLoadDone true
+            // only for an announced save-file load with no revert, and that is the one load
+            // ResolveColdReason names save-file.
+            foreach (bool rewinding in new[] { false, true })
+            foreach (bool reFly in new[] { false, true })
+            foreach (bool discard in new[] { false, true })
+            foreach (bool saveFile in new[] { false, true })
+            foreach (bool revert in new[] { false, true })
+            {
+                EarlyLoadKind early = LoadReconcilePolicy.ClassifyEarly(true, rewinding, reFly, discard, saveFile, revert);
+                bool saveFileCold = saveFile && !revert && !rewinding && !reFly && !discard;
+                Assert.Equal(saveFileCold, early == EarlyLoadKind.Cold);
+                Assert.Equal(saveFileCold ? LoadReconcilePolicy.ColdReasonSaveFile : null,
+                    LoadReconcilePolicy.ResolveColdReason(early, true, 5, "f", "f"));
+            }
         }
 
         [Theory]
@@ -119,15 +190,78 @@ namespace Parsek.Tests
         {
             Assert.Equal(
                 "Load classified: early=InSession refined=QuickloadFlight scene=FLIGHT initialLoadDone=true "
-                + "rewinding=false reFlyInvoke=false discardReFly=none handoff=present reason=OnDestroy",
+                + "rewinding=false reFlyInvoke=false discardReFly=none handoff=present reason=OnDestroy "
+                + "coldReason=none saveFileLoad=false revertPending=false intentAgeFrames=-1 nodeUT=NaN",
                 LoadReconcilePolicy.FormatClassificationLine(
                     EarlyLoadKind.InSession, LoadKind.QuickloadFlight, "FLIGHT", true, false, false, null,
-                    "present reason=OnDestroy"));
+                    "present reason=OnDestroy", null, false, false, -1, double.NaN));
             Assert.Equal(
                 "Load classified: early=DiscardReFly refined=DiscardReFly scene=EDITOR initialLoadDone=true "
-                + "rewinding=false reFlyInvoke=false discardReFly=Prelaunch handoff=absent",
+                + "rewinding=false reFlyInvoke=false discardReFly=Prelaunch handoff=absent "
+                + "coldReason=none saveFileLoad=false revertPending=false intentAgeFrames=-1 nodeUT=NaN",
                 LoadReconcilePolicy.FormatClassificationLine(
-                    EarlyLoadKind.DiscardReFly, LoadKind.DiscardReFly, "EDITOR", true, false, false, "Prelaunch", null));
+                    EarlyLoadKind.DiscardReFly, LoadKind.DiscardReFly, "EDITOR", true, false, false, "Prelaunch", null,
+                    null, false, false, -1, double.NaN));
+            // The save-file load: Cold with initialLoadDone true at classification, the intent's
+            // frame age and the loaded game's UT (design section 11).
+            Assert.Equal(
+                "Load classified: early=Cold refined=Cold scene=SPACECENTER initialLoadDone=true "
+                + "rewinding=false reFlyInvoke=false discardReFly=none handoff=present reason=OnDestroy "
+                + "coldReason=save-file saveFileLoad=true revertPending=false intentAgeFrames=12 nodeUT=409.90",
+                LoadReconcilePolicy.FormatClassificationLine(
+                    EarlyLoadKind.Cold, LoadKind.Cold, "SPACECENTER", true, false, false, null,
+                    "present reason=OnDestroy", "save-file", true, false, 12, 409.9));
+            // A revert consumed the intent and stayed in session.
+            Assert.Equal(
+                "Load classified: early=InSession refined=StockRevert scene=FLIGHT initialLoadDone=true "
+                + "rewinding=false reFlyInvoke=false discardReFly=none handoff=absent "
+                + "coldReason=none saveFileLoad=true revertPending=true intentAgeFrames=3 nodeUT=17.25",
+                LoadReconcilePolicy.FormatClassificationLine(
+                    EarlyLoadKind.InSession, LoadKind.StockRevert, "FLIGHT", true, false, false, null, null,
+                    null, true, true, 3, 17.25));
+        }
+
+        [Fact]
+        public void FormatClassificationLine_IsCultureInvariant()
+        {
+            var prior = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    System.Globalization.CultureInfo.GetCultureInfo("de-DE");
+                string line = LoadReconcilePolicy.FormatClassificationLine(
+                    EarlyLoadKind.Cold, LoadKind.Cold, "FLIGHT", true, false, false, null, null,
+                    "save-file", true, false, 1234, 1234.5);
+                Assert.EndsWith("intentAgeFrames=1234 nodeUT=1234.50", line);
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = prior;
+            }
+        }
+
+        // ---- the saveStamp canary ----
+
+        [Fact]
+        public void SaveStampCanary_ChecksOnlyTheInSessionReadsOfTheLastSave()
+        {
+            foreach (LoadKind kind in AllKinds())
+            {
+                Assert.Equal(kind == LoadKind.InSessionOther || kind == LoadKind.QuickloadFlight,
+                    LoadReconcilePolicy.ShouldCheckSaveStamp(kind));
+            }
+        }
+
+        [Theory]
+        [InlineData("a", "a", false)]
+        [InlineData("a", "b", true)]
+        [InlineData(null, "b", false)]
+        [InlineData("", "b", false)]
+        [InlineData("a", null, false)]
+        [InlineData(null, null, false)]
+        public void SaveStampCanary_ForeignOnlyWhenBothStampsDiffer(string loaded, string last, bool expected)
+        {
+            Assert.Equal(expected, LoadReconcilePolicy.IsForeignSaveStamp(loaded, last));
         }
 
         // ---- the table ----
@@ -294,10 +428,10 @@ namespace Parsek.Tests
         public void ReconcileAtResume_IsTheAbandonedFutureCellsOfTheKindsThatResume()
         {
             // The quickload-resume reconcile (ParsekScenario.TrimAndReconcileForQuickloadResume)
-            // gates each category on its own cell. Only an F9 in flight and the other in-session
-            // loads that restore a flight (F9 from the Space Center into a flight quicksave) own
-            // the abandoned future; a Re-Fly start and a cold resume reach the trim but not the
-            // reconcile, and the other kinds arm no resume at all.
+            // gates each category on its own cell. Only the in-session loads that restore a flight
+            // own the abandoned future; a Re-Fly start and a cold resume (every stock F9 and
+            // pause-menu Load since design-load-restores-the-save.md 4.1) reach the trim but not
+            // the reconcile, and the other kinds arm no resume at all.
             var reconciled = new HashSet<string>(StringComparer.Ordinal);
             foreach (LoadKind kind in AllKinds())
                 foreach (LoadStateCategory category in AllCategories())
@@ -320,6 +454,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void QuickloadFlightColumn_IsDocumentedAsUnreachedByStockF9()
+        {
+            // Plan Phase 2 step 6: stock F9 is a save-file load and classifies Cold, so every
+            // QuickloadFlight cell the prologue does not consume says so (the early cells are
+            // shared with the other refined in-session kinds and say it on the enum member), and
+            // every InSessionOther cell that once served an F9 says what still reaches it.
+            int quickload = 0, other = 0;
+            foreach (LoadStateCategory category in AllCategories())
+            {
+                if (LoadReconcilePolicy.IsConsumedEarly(category))
+                    continue;
+                string q = LoadReconcilePolicy.Decide(LoadKind.QuickloadFlight, category).Reason;
+                Assert.EndsWith(LoadReconcilePolicy.QuickloadFlightUnreachedByStockF9, q);
+                quickload++;
+                string o = LoadReconcilePolicy.Decide(LoadKind.InSessionOther, category).Reason;
+                Assert.EndsWith(LoadReconcilePolicy.InSessionOtherNoStockLoad, o);
+                other++;
+                Assert.DoesNotContain("an F9 at the Space Center", o);
+            }
+            Assert.Equal(9, quickload);
+            Assert.Equal(9, other);
+            // No other kind carries the notes.
+            foreach (LoadKind kind in AllKinds())
+            {
+                if (kind == LoadKind.QuickloadFlight || kind == LoadKind.InSessionOther)
+                    continue;
+                foreach (LoadStateCategory category in AllCategories())
+                {
+                    string r = LoadReconcilePolicy.Decide(kind, category).Reason;
+                    Assert.DoesNotContain(LoadReconcilePolicy.QuickloadFlightUnreachedByStockF9, r);
+                    Assert.DoesNotContain(LoadReconcilePolicy.InSessionOtherNoStockLoad, r);
+                }
+            }
+        }
+
+        [Fact]
         public void KnownGaps_AreExactlyTheFiledDefects()
         {
             var ids = new HashSet<string>(StringComparer.Ordinal);
@@ -335,12 +505,9 @@ namespace Parsek.Tests
                     }
                 }
 
-            Assert.Equal(
-                new[]
-                {
-                    LoadReconcilePolicy.GapColdLoadAbandonedFuture,
-                }.OrderBy(s => s, StringComparer.Ordinal),
-                ids.OrderBy(s => s, StringComparer.Ordinal));
+            // COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE is fixed: a cold load reads
+            // the save's own GAME_STATE node, so no cell is a known gap any more.
+            Assert.Empty(ids);
 
             // No gap on a kind whose state another mechanism owns (the rewind carry, the bundle).
             foreach (LoadStateCategory category in AllCategories())
@@ -348,20 +515,39 @@ namespace Parsek.Tests
                 foreach (LoadKind owned in new[] { LoadKind.PlainRewind, LoadKind.ReFlyStart })
                     Assert.False(LoadReconcilePolicy.Decide(owned, category).IsKnownGap, owned + " x " + category);
             }
+        }
 
-            // Cold is gapped only on the abandoned-future categories its own todo entry names.
-            foreach (LoadStateCategory category in AllCategories())
+        [Fact]
+        public void Cold_GameStateCellsReadTheSaveNode()
+        {
+            // Plan 1.3 step 3: the cold load reads the save's GAME_STATE node (the external
+            // files only for a save without it), after the session reset forgets memory.
+            foreach (LoadStateCategory category in new[]
+                {
+                    LoadStateCategory.AbandonedFutureEvents,
+                    LoadStateCategory.AbandonedFutureLedgerRows,
+                    LoadStateCategory.PendingScience,
+                    LoadStateCategory.Milestones,
+                })
             {
                 var cold = LoadReconcilePolicy.Decide(LoadKind.Cold, category);
-                bool expected = category == LoadStateCategory.AbandonedFutureEvents
-                    || category == LoadStateCategory.AbandonedFutureLedgerRows;
-                Assert.Equal(expected, cold.IsKnownGap);
-                if (expected)
-                {
-                    Assert.Equal(LoadReconcilePolicy.GapColdLoadAbandonedFuture, cold.KnownGapTodoId);
-                    Assert.Contains(LoadReconcilePolicy.GapColdLoadAbandonedFuture, cold.Reason);
-                }
+                Assert.Equal(LoadReconcileAction.Save, cold.Action);
+                Assert.False(cold.IsKnownGap, "Cold x " + category);
+                Assert.Contains("LoadGameStateFromNodeOrFiles", cold.Reason);
+                Assert.Contains("ResetSaveScopedSessionState", cold.Reason);
             }
+
+            var routes = LoadReconcilePolicy.Decide(LoadKind.Cold, LoadStateCategory.Routes);
+            Assert.Equal(LoadReconcileAction.Save, routes.Action);
+            Assert.Contains("GAME_STATE/LEDGER", routes.Reason);
+            Assert.Contains("GAME_STATE/PARSEK_GAME_STATE",
+                LoadReconcilePolicy.Decide(LoadKind.Cold, LoadStateCategory.AbandonedFutureEvents).Reason);
+            Assert.Contains("GAME_STATE/LEDGER",
+                LoadReconcilePolicy.Decide(LoadKind.Cold, LoadStateCategory.AbandonedFutureLedgerRows).Reason);
+            Assert.Contains("GAME_STATE/PENDING_SCIENCE",
+                LoadReconcilePolicy.Decide(LoadKind.Cold, LoadStateCategory.PendingScience).Reason);
+            Assert.Contains("GAME_STATE/PARSEK_MILESTONES",
+                LoadReconcilePolicy.Decide(LoadKind.Cold, LoadStateCategory.Milestones).Reason);
         }
 
         [Fact]
@@ -421,7 +607,6 @@ namespace Parsek.Tests
                     if (decision.IsKnownGap)
                         ids.Add(decision.KnownGapTodoId);
                 }
-            Assert.NotEmpty(ids);
 
             foreach (string id in ids)
             {

@@ -402,7 +402,7 @@ namespace Parsek.InGameTests
 
                 // RemoveCommittedTreeById is memory-only. CommitTree already flushed a
                 // .prec / .pann / .prec.txt for all five synthetic recordings, and once
-                // their ids leave the store CleanOrphanFiles preserves those files
+                // their ids leave the store ParsekFileCollector preserves those files
                 // forever - the leak M1-mission-loop-unit caught live on 2026-07-26
                 // (recordings.count 5 against a {0,0} pin, with zero RECORDING nodes in
                 // persistent.sfs). Reap AFTER the removals so the reaper's known-ids

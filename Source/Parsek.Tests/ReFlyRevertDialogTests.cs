@@ -807,7 +807,7 @@ namespace Parsek.Tests
             // unexpected body execution would still set this flag (the
             // DeleteQuicksave hook only fires from PurgeTree's RP pass).
             bool purgeInvoked = false;
-            TreeDiscardPurge.DeleteQuicksaveForTesting = _ => { purgeInvoked = true; return true; };
+            TreeDiscardPurge.ReleaseQuicksaveForTesting = _ => { purgeInvoked = true; return true; };
 
             // Baseline the counter so this test reads its own delta rather
             // than picking up some prior resetter miss.

@@ -86,6 +86,20 @@ namespace Parsek
         // it is lost on quit, which is the accepted window (see the flush's docs).
         [NonSerialized] internal bool SidecarEpochAdvancePending;
 
+        // Content hashes of the three hashed sidecars (design-load-restores-the-save.md 4.4):
+        // per kind, the hash of the bytes memory holds - the bytes last written or read.
+        // Null = unknown. Persisted (sparse) next to sidecarEpoch so a save names the exact
+        // bytes it was written with. A recording whose hydration failed keeps the hash its
+        // save named, so the next save names the same bytes again. sidecarEpoch keeps its
+        // own meaning (route proof of source, the .pann cache key).
+        internal string PrecHash;
+        internal string VesselSnapshotHash;
+        internal string GhostSnapshotHash;
+
+        // Set when the recording was hydrated inside a Cold OnLoad, where a named hash
+        // resolves to a retained version; a later lazy snapshot hydration follows the same rule.
+        [NonSerialized] internal bool SidecarVersionsResolved;
+
         // Runtime-only hydration state: LoadRecordingFiles can fail because the current save
         // point does not have a compatible sidecar for this recording. These flags are used to
         // avoid destructive follow-on behavior (for example pruning an empty leaf that only
@@ -1136,6 +1150,8 @@ namespace Parsek
             clone.FilesDirty = source.FilesDirty;
             clone.SidecarEpoch = source.SidecarEpoch;
             clone.SidecarEpochAdvancePending = source.SidecarEpochAdvancePending;
+            SidecarVersions.CopyHashes(clone, source);
+            clone.SidecarVersionsResolved = source.SidecarVersionsResolved;
             clone.SidecarLoadFailed = source.SidecarLoadFailed;
             clone.SidecarLoadFailureReason = source.SidecarLoadFailureReason;
             clone.LoopSyncParentIdx = source.LoopSyncParentIdx;

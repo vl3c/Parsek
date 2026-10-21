@@ -1,0 +1,148 @@
+schema = 1
+id = "QL-10-quickload-restores-names-and-groups"
+# =====================================================================================
+# QL-10: A LOAD PUTS BACK THE SAVE'S RECORDING NAMES AND GROUP NAMES.
+# "Load restores the save" Phase 2 (design docs/dev/design-load-restores-the-save.md
+# section 5; plan docs/dev/plans/load-restores-the-save-implementation.md Phase 2 step 7).
+# AUTHORED 2026-10-20, NOT FLOWN.
+#
+# In gameplay terms: at the Space Center the player quicksaves, renames a recording (a
+# vessel name decision, written through to the live vessel) and renames a mission's group
+# in the Missions window, then quickloads. After the load the names are the save's: the
+# recording is "Kerbal X Probe" again and the group "Kerbal X #3" again, and the renamed
+# group no longer exists.
+#
+# DEVIATION FROM THE PLAN, NAMED: the plan says "rename a vessel and move a recording to a
+# group (seam verbs)". No seam verb moves a recording into a group (the UiAction edit table
+# has recordingname / groupname / missiontitle only; TestCommandUiEdit.cs), so the group
+# half is a GROUP RENAME: the root group's name and the mission name it is linked to
+# (MissionGroupLink.RenameMissionGroup), the same save-held group state a move would touch.
+#
+# HOST: `interbody-route-recorded`, GUI-25's host and editor keys. The recording key
+# fdb510bf72a049448d812cb2cb54eed9 is `Kerbal X Probe` (a single-member display block, so
+# its text field draws; GUI-25's header explains why a grouped block's row cannot), with a
+# launch guid (3123835037b3...), so a Parsek rename records a decision. "Kerbal X #3" is
+# that recording's tree's auto-generated root group. Both are fixture constants.
+#
+# THE ROUTE (one scene, the Space Center, no flight):
+#   ACT 0  LoadGame persistent at the Space Center, verbose; the Missions window open on
+#          its Recordings tab with everything expanded (GUI-25's precondition for edits).
+#   ACT 1  THE F5 (`SaveGame quicksave`).
+#   ACT 2  rename the recording to "QL10 Probe" and the group to "QL10 Group", committed.
+#   ACT 3  THE F9 at the Space Center (`LoadGame quicksave scene=spacecenter
+#          playerLoad=true`); the window reopened and expanded.
+#   ACT 4  the readback, through the editors themselves: an edit keyed to "QL10 Group" is
+#          REJECTED edit-target-unavailable (the group does not exist), and renaming the
+#          recording and "Kerbal X #3" again logs the OLD names the load restored.
+#
+# THE GATE (pinned below): the two pre-F9 renames; the f9 block; the post-F9 rename lines
+# naming 'Kerbal X Probe' and 'Kerbal X #3' as the old names; the edit-target-unavailable
+# refusal for 'QL10 Group'. Forbidden after the fire: any post-F9 rename line naming
+# 'QL10 Probe' or 'QL10 Group' as the old name, and an in-session classification.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse: GUI-25 flies this host at the KSC but is an operator census lane at 1920x1080
+#     whose product is images and whose edits stay drafts; a load in its middle would move
+#     its later photographs. A new spec. 2 no idle waits: none.
+#   3 / 4 / 5 not applicable (no flight). 6 retry once.
+#   7 tight windows: count min 1 (the fixture's recordings; this lane records nothing).
+#   8 tier nightly (no flight; two KSC loads, about 2 minutes). 9 flight_efficiency.py
+#     after the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "QL-10: at the Space Center quicksave, rename a recording and a mission's root group in the Missions window, then the player's F9 (a Cold save-file load). The save's names come back: the recording is 'Kerbal X Probe' and the group 'Kerbal X #3' again, and the renamed group no longer exists."
+instanceProfile = "stock-minimal"
+tags = ["QL-10", "quickload", "timeline-ops", "save-file-load", "vessel-names", "groups",
+        "missions-window", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/interbody-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  # ACT 0: the Space Center, the Missions window ready for edits.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },  expect = "OK" },
+  { cmd = "UiAction",   args = { op = "complexity", mode = "advanced" },     expect = "OK" },
+  { cmd = "UiAction",   args = { op = "open", window = "main" },             expect = "OK" },
+  { cmd = "UiAction",   args = { op = "open", window = "missions" },         expect = "OK" },
+  { cmd = "UiAction",   args = { op = "rect", window = "missions", x = "0", y = "8", w = "1355", h = "700" }, expect = "OK" },
+  { cmd = "UiAction",   args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "UiAction",   args = { op = "expand", window = "missions", key = "all" }, expect = "OK" },
+  # ACT 1: THE F5.
+  { cmd = "SaveGame",   args = { name = "quicksave" },                     expect = "OK", budget = 120 },
+  # ACT 2: the renames after the save, each committed by its own edit.
+  { cmd = "UiAction",   args = { op = "edit", window = "missions", field = "recordingname", key = "fdb510bf72a049448d812cb2cb54eed9", draft = "QL10 Probe", commit = "true" }, expect = "OK" },
+  { cmd = "UiAction",   args = { op = "edit", window = "missions", field = "groupname", key = "Kerbal X #3", draft = "QL10 Group", commit = "true" }, expect = "OK" },
+  # ACT 3: THE F9 at the Space Center, the player's load (playerLoad=true).
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "quicksave", scene = "spacecenter", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "UiAction",   args = { op = "open", window = "main" },             expect = "OK" },
+  { cmd = "UiAction",   args = { op = "open", window = "missions" },         expect = "OK" },
+  { cmd = "UiAction",   args = { op = "rect", window = "missions", x = "0", y = "8", w = "1355", h = "700" }, expect = "OK" },
+  { cmd = "UiAction",   args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "UiAction",   args = { op = "expand", window = "missions", key = "all" }, expect = "OK" },
+  # ACT 4: the readback. The renamed group is gone...
+  { cmd = "UiAction",   args = { op = "edit", window = "missions", field = "groupname", key = "QL10 Group", draft = "QL10 Ghost Group", commit = "true" }, expect = "REJECTED" },
+  # ...and each rename logs the name the load restored as its old name.
+  { cmd = "UiAction",   args = { op = "edit", window = "missions", field = "recordingname", key = "fdb510bf72a049448d812cb2cb54eed9", draft = "QL10 Second", commit = "true" }, expect = "OK" },
+  { cmd = "UiAction",   args = { op = "edit", window = "missions", field = "groupname", key = "Kerbal X #3", draft = "QL10 Group Again", commit = "true" }, expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["sandbox", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's recordings (this lane records nothing and deletes nothing).
+count = { min = 1 }
+
+[expectations.logContracts]
+required = [
+  # GROUP 1 - THE RENAMES AFTER THE F5 (the premise).
+  "savegame name=quicksave folder=.+ saved=true[\\s\\S]*\\[UI\\] Recording 'Kerbal X Probe' renamed to 'QL10 Probe' identity=\\S+ legs=[1-9][0-9]*",
+  "savegame name=quicksave folder=.+ saved=true[\\s\\S]*\\[UI\\] Group 'Kerbal X #3' renamed to 'QL10 Group'",
+
+  # GROUP 2 - THE F9 AT THE SPACE CENTER IS A SAVE-FILE LOAD (design 4.1).
+  "loadgame start save=\\S+ name=quicksave scene=SPACECENTER requestedScene=SpaceCenter [^\\r\\n]* playerLoad=true",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave route=NoVesselSpaceCenter",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*\\[LoadPolicy\\] Save-file load intent armed: nodeUT=[0-9.]+ scene=SPACECENTER",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=SPACECENTER [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
+
+  # =================================================================================
+  # THE GATE - THE SAVE'S NAMES ARE BACK.
+  # The renamed group does not exist after the load (the edit applier's refusal).
+  "loadgame player-load: firing [\\s\\S]*uiaction rejected reason=edit-target-unavailable window=\\S+ field=groupname key=QL10 Group(?:\\r|\\n|$)",
+  # The recording's name is the save's: the next rename's old name is 'Kerbal X Probe'.
+  "loadgame player-load: firing [\\s\\S]*\\[UI\\] Recording 'Kerbal X Probe' renamed to 'QL10 Second' identity=\\S+ legs=[1-9][0-9]*",
+  # The group's name is the save's: the next rename's old name is 'Kerbal X #3'.
+  "loadgame player-load: firing [\\s\\S]*\\[UI\\] Group 'Kerbal X #3' renamed to 'QL10 Group Again'",
+  # END GATE
+  # =================================================================================
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "loadgame player-load: firing (?:(?!Load classified: )[\\s\\S])*Load classified: early=InSession",
+  # The post-save names surviving the load.
+  "loadgame player-load: firing [\\s\\S]*\\[UI\\] Recording 'QL10 Probe' renamed to",
+  "loadgame player-load: firing [\\s\\S]*\\[UI\\] Group 'QL10 Group' renamed to",
+  "loadgame player-load: firing [\\s\\S]*Group rename rejected: 'QL10 Group Again'",
+]
+
+[runtime]
+# Two LoadGame (max(300,600)+60 each = 1320), one SaveGame 180, about 17 single-phase UI
+# ops and FlushAndQuit at 120 each. Expected wall about 2 minutes.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -108,7 +108,7 @@ namespace Parsek.InGameTests
 
             // File-delete hook avoids touching the real save folder.
             bool deleteHookCalled = false;
-            TreeDiscardPurge.DeleteQuicksaveForTesting = id =>
+            TreeDiscardPurge.ReleaseQuicksaveForTesting = id =>
             {
                 deleteHookCalled = true;
                 return true;

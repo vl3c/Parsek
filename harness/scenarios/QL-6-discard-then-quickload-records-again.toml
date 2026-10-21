@@ -1,5 +1,19 @@
 schema = 1
 id = "QL-6-discard-then-quickload-records-again"
+# RESHAPED 2026-10-20 FOR "LOAD RESTORES THE SAVE" PHASE 2 (design
+# docs/dev/design-load-restores-the-save.md 4.2 / 4.4 / 5 S5 / 8; plan Phase 2 step 7). NOT
+# FLOWN in this shape. THE EXPECTED OUTCOME FLIPS (design 8 reverses QL-R1 for save-file
+# loads): the F9 carries `playerLoad=true`, a Cold save-file load, so the discarded flight
+# RESUMES WITH ITS RECORDING, as a KSP restart into the quicksave would. The session reset
+# forgets the discarded-tree set, the discard's reap no longer destroys the bytes
+# (`RecordingStore.DeleteRecordingFiles` files each hashed head into `_versions`, design
+# 4.4), and the quicksave names those hashes, so the restore resolves the trajectory from
+# `_versions` and promotes it back to the head (`Sidecar version resolved ... source=version
+# promoted=True`). The recorder resumes into the SAME tree id the discard noted (a
+# backreference now REQUIRES the equal id), and the decline / fresh-tree lines of the
+# old ruling are forbidden. The lane id keeps its old name; the description is current.
+# The text below the rule is the QL-R1 shape this lane flew before Phase 2, kept as
+# history; this block is authoritative.
 # =====================================================================================
 # QL-6 (todo QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN, owner ruling 2026-10-06): F5
 # during a recorded flight, Discard that flight, then F9 back into the quicksave. The
@@ -13,8 +27,8 @@ id = "QL-6-discard-then-quickload-records-again"
 # scene-exit no-op and idle-on-pad discards) and the `DiscardTree` verb never noted the
 # tree, so an F9 after one of them still resumed into the deleted ids. This lane's
 # branch makes both reaps note the tree; the `DiscardTree` verb is the seam stand-in for
-# the in-flight discard (the merge dialog's Discard is not seam-drivable, and it also
-# rewrites quicksave.sfs, which would take away the very save this lane loads).
+# the in-flight discard (the merge dialog's Discard is not seam-drivable; before Phase 2 it
+# also rewrote quicksave.sfs, which design 4.6 stops).
 #
 # FLOW (gloops-airshow, the pad pod, save clock UT 21.16):
 #   record to UT 40, F5 (`SaveGame name=quicksave`), stop + DiscardTree (the verb's reap
@@ -28,7 +42,7 @@ id = "QL-6-discard-then-quickload-records-again"
 # Every `Noted tree` line is Verbose, hence `verboseLogging=true` before the discard.
 # =====================================================================================
 tier = "nightly"
-description = "QL-6: F5 during a recorded flight of the pad pod, Discard the flight in flight, then F9 back into the quicksave. The quicksave's tree is not restored into the deleted recordings; a fresh tree records the loaded flight and commits."
+description = "QL-6: F5 during a recorded flight of the pad pod, Discard the flight in flight, then the player's F9 back into the quicksave (playerLoad=true, a Cold save-file load). The discarded flight resumes with its recording: the trajectory resolves from the version the discard retained, the recorder resumes the same tree, and it commits."
 instanceProfile = "stock-minimal"
 tags = ["QL-6", "TA-15", "timeline-ops", "quickload", "discard", "live-recording", "D1"]
 
@@ -50,8 +64,8 @@ steps = [
   { cmd = "SaveGame",       args = { name = "quicksave" },                            expect = "OK", budget = 120 },
   { cmd = "StopRecording",                                                            expect = "OK" },
   { cmd = "DiscardTree",                                                              expect = "OK" },
-  # F9.
-  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave" },       expect = "OK", budget = 300 },
+  # F9: the player's load of the quicksave (playerLoad=true), a Cold save-file load.
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
   { cmd = "WarpToUT",       args = { ut = "60", maxRate = "1" },                      expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                           expect = "OK" },
   { cmd = "StopRecording",                                                            expect = "OK" },
@@ -67,7 +81,7 @@ D14 = ["kerbin", "sandbox", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The fresh tree's one recording, committed. The discarded tree's sidecars are gone.
+# The resumed tree's one recording, committed (its head promoted back from `_versions`).
 count = { min = 1, max = 1 }
 
 [expectations.logContracts]
@@ -76,21 +90,34 @@ required = [
   "startrecording recordingId=[0-9a-f]+ already=false",
   "discardtree sidecar-reap: treeRecordings=1 knownAfterDiscard=0 reaped=1 failed=0\\b",
   "discardtree discarded=true",
-  "loadgame start save=\\S+ name=quicksave ",
-  # The discard noted the tree, the F9 declined it, flight ready started a fresh tree.
-  "Noted tree '[^']*' id=([0-9a-f]+) as discarded this session \\(removedSidecarSets=1, new=true\\)[\\s\\S]*TryRestoreActiveTreeNode: saved active tree '[^']*' id=\\1 was discarded this session \\(members=1, every trajectory sidecar deleted\\) - not restoring it; action=StartFreshRecording reason=discarded-this-session [^\\r\\n]*poppedLimbo=none - a fresh recording starts for the active vessel at flight ready",
-  "Noted tree '[^']*' id=([0-9a-f]+) as discarded[\\s\\S]*Fresh recording after discarded restore started: the flight records again as a new tree \\(discarded tree '[^']*' id=\\1 ",
-  # The recorder is live after the F9, on a tree that is not the discarded one.
-  "Noted tree '[^']*' id=([0-9a-f]+) as discarded[\\s\\S]*Fresh recording after discarded restore started[\\s\\S]*recordingstate recording=true tree=(?!\\1\\b)[0-9a-f]+ ",
+  # The reap keeps the bytes: the hashed head is filed as a version (Verbose, logged
+  # per file before the reap summary line).
+  "Retained head as version: Parsek[\\\\/]Recordings[\\\\/]\\S+\\.prec\\b",
+  "loadgame start save=\\S+ name=quicksave scene=FLIGHT [^\\r\\n]* playerLoad=true",
+  # THE F9 IS A SAVE-FILE LOAD (design 4.1).
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave route=Focusable",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*\\[LoadPolicy\\] Save-file load intent armed: nodeUT=[0-9.]+ scene=FLIGHT",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
+  # The trajectory resolves from the retained version and is promoted back to the head.
+  "loadgame player-load: firing [\\s\\S]*Sidecar version resolved: rec=[0-9a-f]{32} kind=prec hash=[0-9a-f]{16} source=version promoted=True",
+  "loadgame player-load: firing [\\s\\S]*Sidecar version resolution summary: reason=cold-onload files=[1-9][0-9]* head=[0-9]+ version=[1-9][0-9]* promoted=[1-9][0-9]* ",
+  "OnLoad: cold-start active tree detected \\(state=Limbo\\) . deferred to OnFlightReady as Quickload",
+  # THE DISCARDED FLIGHT RESUMES, into the SAME tree the discard noted.
+  "Noted tree '[^']*' id=([0-9a-f]+) as discarded this session \\(removedSidecarSets=1, new=true\\)[\\s\\S]*RestoreActiveTreeFromPending: resumed recording tree '[^']*' activeRec='[0-9a-f]{32}'[\\s\\S]*recordingstate recording=true tree=\\1 ",
   "committree committed=true",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
-  "RestoreActiveTreeFromPending: resumed recording tree",
   "sidecar hydration failure",
-  "was discarded this session but is restored as before",
-  "Fresh recording after discarded restore skipped",
-  "Fresh recording after discarded restore: StartRecording left no recorder running",
+  # THE OLD RULING (QL-R1, design 8): no decline, no fresh tree.
+  "TryRestoreActiveTreeNode: saved active tree '[^']*' id=[0-9a-f]+ was discarded this session",
+  "Fresh recording after discarded restore",
+  "loadgame player-load: firing [\\s\\S]*Load classified: early=InSession refined=QuickloadFlight",
+  # The F9 must reach the resume.
+  "TryRestoreActiveTreeNode: skipped active tree",
+  "Quickload resume prep skipped",
 ]
 
 [runtime]
