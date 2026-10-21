@@ -1244,7 +1244,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Serialize_RouteCargoDebited_RoundTripsManifestAndKscCost()
+        public void Serialize_RouteCargoDebited_RoundTripsManifest()
         {
             var original = new GameAction
             {
@@ -1256,8 +1256,7 @@ namespace Parsek.Tests
                 {
                     { "LiquidFuel", 250.5 },
                     { "Oxidizer", 305.75 }
-                },
-                RouteKscFundsCost = 1500f
+                }
             };
 
             var result = RoundTrip(original);
@@ -1269,12 +1268,11 @@ namespace Parsek.Tests
             Assert.Equal(2, result.RouteResourceManifest.Count);
             Assert.Equal(250.5, result.RouteResourceManifest["LiquidFuel"]);
             Assert.Equal(305.75, result.RouteResourceManifest["Oxidizer"]);
-            Assert.Equal(1500f, result.RouteKscFundsCost);
         }
 
         // M1 physical origin debit: the debited row's ADDITIVE fields (the
         // requested-on-shortfall manifest and the sparse origin pid) must
-        // round-trip alongside the existing actuals manifest + funds cost.
+        // round-trip alongside the existing actuals manifest.
         [Fact]
         public void RouteCargoDebited_RoundTrips_ActualsRequestedAndOriginPid()
         {
@@ -1304,13 +1302,14 @@ namespace Parsek.Tests
             Assert.NotNull(result.RouteRequestedResourceManifest);
             Assert.Equal(100.0, result.RouteRequestedResourceManifest["LiquidFuel"]);
             Assert.Equal(3149815921u, result.RouteOriginVesselPid);
-            Assert.Equal(0f, result.RouteKscFundsCost);
         }
 
         // M1 codec safety: the new keys are ADDITIVE - an old-shape debited
         // node (no requestedResource lines, no routeOriginVesselPid value)
         // reads back unchanged with the new fields at their defaults, and a
-        // KSC-shaped row writes neither new key (byte-identical on-disk shape).
+        // KSC-shaped row writes neither new key. The legacy routeKscFundsCost key
+        // is ignored on read and never written (supply routes carry no money; the
+        // ledger load drops a row whose cost is non-zero before it gets here).
         [Fact]
         public void RouteCargoDebited_OldShapeNode_ReadsBackWithDefaults()
         {
@@ -1328,7 +1327,6 @@ namespace Parsek.Tests
             Assert.Equal(GameActionType.RouteCargoDebited, result.Type);
             Assert.Equal("route-old", result.RouteId);
             Assert.Equal(250.5, result.RouteResourceManifest["LiquidFuel"]);
-            Assert.Equal(1500f, result.RouteKscFundsCost);
             // New fields default on old rows.
             Assert.Null(result.RouteRequestedResourceManifest);
             Assert.Equal(0u, result.RouteOriginVesselPid);
@@ -1341,6 +1339,7 @@ namespace Parsek.Tests
             string[] requested = reserialized.GetValues("requestedResource");
             Assert.True(requested == null || requested.Length == 0);
             Assert.Null(reserialized.GetValue("routeOriginVesselPid"));
+            Assert.Null(reserialized.GetValue("routeKscFundsCost"));
         }
 
         [Fact]
@@ -1542,35 +1541,10 @@ namespace Parsek.Tests
             Assert.Equal("EndpointLost:OrbitalNoFallback", result.RouteEndpointReason);
         }
 
-        // T-TYPE (logistics-recovery-credit section 9): the new credit row
-        // round-trips with RouteId / RouteCycleId / RouteKscFundsCost preserved.
-        [Fact]
-        public void Serialize_RouteRecoveryCredited_RoundTripsIdsAndAmount()
-        {
-            var original = new GameAction
-            {
-                UT = 54000.0,
-                Type = GameActionType.RouteRecoveryCredited,
-                RouteId = "route-credit",
-                RouteCycleId = "cycle-3", // the PRIOR dispatched cycle it pays back
-                RouteStopIndex = -1,
-                Sequence = 0,
-                RouteKscFundsCost = 7300f // positive magnitude; type carries the credit direction
-            };
-
-            var result = RoundTrip(original);
-
-            Assert.Equal(GameActionType.RouteRecoveryCredited, result.Type);
-            Assert.Equal("route-credit", result.RouteId);
-            Assert.Equal("cycle-3", result.RouteCycleId);
-            Assert.Equal(7300f, result.RouteKscFundsCost);
-        }
-
         // M3 (plan Phase 4 / OQ4 / D6): the pickup row round-trips with
         // RouteId / RouteCycleId / RouteStopIndex / the ACTUAL debited manifest /
         // the requested-on-shortfall manifest / the endpoint pid preserved, and
-        // carries NO funds field (a pickup emits zero funds, so routeKscFundsCost
-        // is never written and reads back at the 0 default).
+        // writes no funds line.
         [Fact]
         public void Serialize_RouteCargoPickedUp_RoundTripsManifestsAndEndpointPid_NoFunds()
         {
@@ -1601,9 +1575,6 @@ namespace Parsek.Tests
                 {
                     MakePickupPayload("ore-container-hash", "smallCargoContainer", "white", 2),
                 },
-                // Set a non-zero funds cost on the in-memory object to prove the
-                // pickup codec NEVER writes a funds line (zero funds, D6).
-                RouteKscFundsCost = 999f,
             };
 
             var result = RoundTrip(original);
@@ -1617,8 +1588,6 @@ namespace Parsek.Tests
             Assert.NotNull(result.RouteRequestedResourceManifest);
             Assert.Equal(100.0, result.RouteRequestedResourceManifest["Ore"]);
             Assert.Equal(3149815921u, result.RouteOriginVesselPid);
-            // No funds line written -> reads back at the 0 default (NOT 999).
-            Assert.Equal(0f, result.RouteKscFundsCost);
 
             // M3 Phase 5: the inventory manifests round-trip - part name, variant,
             // quantity, and the verbatim STOREDPART snapshot. The identityHash is
@@ -1769,7 +1738,6 @@ namespace Parsek.Tests
             Assert.Equal("route-lean", result.RouteId);
             Assert.Null(result.RouteCycleId);
             Assert.Equal(-1, result.RouteStopIndex);
-            Assert.Equal(0f, result.RouteKscFundsCost);
             Assert.Null(result.RouteResourceManifest);
             Assert.Null(result.RouteRequestedResourceManifest);
             Assert.Null(result.RouteEndpointReason);

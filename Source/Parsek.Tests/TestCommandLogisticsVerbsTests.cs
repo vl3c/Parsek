@@ -1036,13 +1036,13 @@ namespace Parsek.Tests
         {
             Route route = StoreMinimalRoute("route-pause", RouteStatus.Active);
 
-            Assert.True(RouteOrchestrator.TryPause(route, 500.0, null));
+            Assert.True(RouteOrchestrator.TryPause(route, 500.0));
             Assert.Equal(RouteStatus.Paused, route.Status);
 
             // Idempotence is NOT silent success here: a second pause declines, which the
             // verb reports as ERROR. That is deliberate - "pause" answering OK on an
             // already-paused route would make a lane's assertion vacuous.
-            Assert.False(RouteOrchestrator.TryPause(route, 500.0, null));
+            Assert.False(RouteOrchestrator.TryPause(route, 500.0));
         }
 
         [Fact]

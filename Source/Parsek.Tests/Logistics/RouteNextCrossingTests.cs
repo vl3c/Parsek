@@ -435,14 +435,13 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(50.0, decision.Seconds, 6);
         }
 
-        // IsWaitState classifies exactly the three blocked-but-flying states.
+        // IsWaitState classifies exactly the two blocked-but-flying states.
         // RouteStatus is internal, so the inputs stay inside the method body (a
         // public [Theory] parameter of an internal enum trips CS0051).
         [Fact]
         public void IsWaitState_ClassifiesBlockedStates()
         {
             Assert.True(LogisticsCountdownPresentation.IsWaitState(RouteStatus.WaitingForResources));
-            Assert.True(LogisticsCountdownPresentation.IsWaitState(RouteStatus.WaitingForFunds));
             Assert.True(LogisticsCountdownPresentation.IsWaitState(RouteStatus.DestinationFull));
 
             Assert.False(LogisticsCountdownPresentation.IsWaitState(RouteStatus.Active));

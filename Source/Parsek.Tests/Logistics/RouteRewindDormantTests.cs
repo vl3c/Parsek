@@ -174,12 +174,10 @@ namespace Parsek.Tests.Logistics
             route.PendingDeliveryUT = 850.0;
             route.PendingStopIndex = 0;
             route.NextEligibilityCheckUT = 900.0;
-            route.RecordHold(RouteDispatchEvaluator.EligibilityFailureKind.FundsShort, "funds-short", 5.0, 700.0);
+            route.RecordHold(RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, "origin-lacks-Ore", 5.0, 700.0);
             route.LastPartialDeliverySummary = "Ore 1/2";
             route.LastPartialDeliveryUT = 750.0;
             route.LastPartialDeliveryCycleId = "cycle-6";
-            route.PendingRecoveryCreditCycleId = "cycle-6";
-            route.PendingRecoveryCreditDispatchUT = 760.0;
             route.CompletedCycles = 7;
             route.SkippedCycles = 1;
             route.NextDispatchUT = 4400.0; // abandoned-future legacy schedule
@@ -195,7 +193,6 @@ namespace Parsek.Tests.Logistics
             Assert.Null(route.NextEligibilityCheckUT);
             Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.None, route.LastHoldKind);
             Assert.Null(route.LastPartialDeliverySummary);
-            Assert.Null(route.PendingRecoveryCreditCycleId);
             // Counters untouched by THIS helper - the rewind seam reconstructs
             // them separately via ReconstructCycleCounters (see
             // RouteRewindStatusFidelityTests).
@@ -215,8 +212,6 @@ namespace Parsek.Tests.Logistics
             route.PendingStopIndex = 0;
             route.NextEligibilityCheckUT = 480.0;
             route.RecordHold(RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull, "Ore", 0.0, 490.0);
-            route.PendingRecoveryCreditCycleId = "cycle-2";
-            route.PendingRecoveryCreditDispatchUT = 300.0;
 
             RouteRewindClassifier.ResetCycleStateForRewind(route, 500.0);
 
@@ -225,7 +220,6 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(450.0, route.PendingDeliveryUT);
             Assert.Equal(480.0, route.NextEligibilityCheckUT);
             Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull, route.LastHoldKind);
-            Assert.Equal("cycle-2", route.PendingRecoveryCreditCycleId);
         }
 
         // ------------------------------------------------------------------
@@ -277,8 +271,6 @@ namespace Parsek.Tests.Logistics
             route.SendOnceArmed = true;
             route.PauseAfterCurrentCycle = true;
             route.LastConsumedPartnerCycle = 4;
-            route.PendingRecoveryCreditCycleId = "cycle-4";
-            route.PendingRecoveryCreditDispatchUT = 1000.0;
             route.NextDispatchUT = 99999.0; // abandoned-future legacy schedule
 
             RouteRewindClassifier.ResetToFreshForMaterialize(route);
@@ -299,7 +291,6 @@ namespace Parsek.Tests.Logistics
             Assert.False(route.SendOnceArmed);
             Assert.False(route.PauseAfterCurrentCycle);
             Assert.Equal(0, route.LastConsumedPartnerCycle);
-            Assert.Null(route.PendingRecoveryCreditCycleId);
             // Re-anchored to the creation point; activation pulls it up to now.
             Assert.Equal(900.0, route.NextDispatchUT);
         }
@@ -398,14 +389,11 @@ namespace Parsek.Tests.Logistics
         /// committed route, so no member should ever be called.</summary>
         private sealed class ThrowingEnv : IRouteRuntimeEnvironment
         {
-            public bool IsCareer => false;
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason)
                 => throw new InvalidOperationException("env must not be consulted");
             public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason)
                 => throw new InvalidOperationException("env must not be consulted");
             public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall)
-                => throw new InvalidOperationException("env must not be consulted");
-            public bool KscFundsAvailable(Route route, out double shortfall)
                 => throw new InvalidOperationException("env must not be consulted");
             public bool DestinationHasCapacity(Route route, out string fullResource)
                 => throw new InvalidOperationException("env must not be consulted");

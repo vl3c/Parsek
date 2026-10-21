@@ -103,7 +103,7 @@ namespace Parsek.Logistics
         /// <param name="routeId">The route id, for the unnamed-route fallback label.</param>
         /// <param name="kind">The evaluator's failure kind, as recorded on the hold.</param>
         /// <param name="detail">The evaluator's raw reason token, as recorded on the hold.</param>
-        /// <param name="shortfall">The recorded funds shortfall (0 when not a funds hold).</param>
+        /// <param name="shortfall">The recorded resource shortfall (0 when none was measured).</param>
         internal static string BuildBlockedMessage(
             string routeName,
             string routeId,

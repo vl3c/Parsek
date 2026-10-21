@@ -53,7 +53,7 @@ def manifest_entry_to_dict(e) -> Dict:
     d = {"ut": e.ut, "seq": e.seq, "kind": e.kind, "funds": e.funds,
          "science": e.science, "reputation": e.reputation, "repMode": e.rep_mode,
          "subjectIds": list(e.subject_ids), "contractGuid": e.contract_guid,
-         "provenance": e.provenance, "rec3Row": e.rec3_row,
+         "provenance": e.provenance,
          "utWindow": (list(e.ut_window) if e.ut_window is not None else None),
          "stockReason": list(e.stock_reasons)}
     # The rewind-model labels are written only when set, so a sum-model manifest
@@ -196,8 +196,6 @@ def evaluate(ledger_block: Optional[Dict], world_block: Optional[Dict],
             # pre-launch terminal INVALID; fail closed rather than green.
             log("warn", "verify ledgerOracle status=INVALID subkind=tooling: no seed baseline for an active ledger verifier")
             return LedgerVerdict(_invalid("no seed baseline"), False, True)
-        rec3 = bool(ledger_block.get("rec3CarveOut", False))
-        rec3_whitelist = (ledger_block.get("rec3Whitelist", []) or []) if rec3 else []
         rewind_aware = timeline_model(ledger_block) == oracle.TIMELINE_REWIND_AWARE
         end_ut = career_save_clock(career_block)
         if rewind_aware and end_ut is None:
@@ -234,7 +232,7 @@ def evaluate(ledger_block: Optional[Dict], world_block: Optional[Dict],
                        "expected effect can false-PASS): %s" % err))
             log("warn", "ledger timeline-unplaceable (hard): %s" % err)
         if not rewind_aware:
-            expected = oracle.compute_expected(seed, seam_entries, tol, rec3_whitelist)
+            expected = oracle.compute_expected(seed, seam_entries, tol)
         else:
             tl = expected.timeline
             fl = tl.get("funds") or {}
@@ -246,12 +244,10 @@ def evaluate(ledger_block: Optional[Dict], world_block: Optional[Dict],
                    tl.get("retired", 0), tl.get("onceShadowed", 0),
                    fl.get("running"), fl.get("available"), fl.get("reserved"),
                    sl.get("running"), sl.get("available")))
-        log("info", "oracle-expected funds=%s science=%s rep=%s subjects=%d activeContracts=%d rec3CarveOut=%s"
+        log("info", "oracle-expected funds=%s science=%s rep=%s subjects=%d activeContracts=%d"
             % (expected.funds, expected.science, expected.reputation,
-               len(expected.subject_science), len(expected.active_contract_guids), rec3))
-        for row in expected.rec3_residual_rows:
-            log("info", "oracle: rec3 residual retained row=%s expecting [Rec-3 residual]" % row)
-        divergences += oracle.diff_expected_vs_parsed(expected, career_block, tol, rec3_whitelist)
+               len(expected.subject_science), len(expected.active_contract_guids)))
+        divergences += oracle.diff_expected_vs_parsed(expected, career_block, tol)
         # Zero-delta cross-check (design ~482 / edge 4): a captured award not
         # explained by a seam entry is an unexpected stock award.
         #

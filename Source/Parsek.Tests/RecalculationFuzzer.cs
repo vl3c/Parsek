@@ -382,7 +382,6 @@ namespace Parsek.Tests
                 case GameActionType.RouteCargoDebited:
                     action.RouteId = "route-" + iteration;
                     action.RouteCycleId = "cycle-" + iteration + "-" + sequence;
-                    action.RouteKscFundsCost = 50f;
                     action.RouteResourceManifest = new Dictionary<string, double>
                     {
                         { "Ore", 10.0 }
@@ -427,7 +426,6 @@ namespace Parsek.Tests
                 case GameActionType.RouteRecoveryCredited:
                     action.RouteId = "route-" + iteration;
                     action.RouteCycleId = "cycle-" + iteration + "-" + sequence;
-                    action.RouteKscFundsCost = 30f;
                     break;
                 case GameActionType.RouteCargoPickedUp:
                     action.RouteId = "route-" + iteration;

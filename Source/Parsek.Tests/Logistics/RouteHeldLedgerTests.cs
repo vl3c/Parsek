@@ -209,31 +209,6 @@ namespace Parsek.Tests.Logistics
             Assert.Single(Held());
         }
 
-        // catches: the legacy funds token "funds-shortfall-N" carrying the amount, so a
-        // shortfall-only change between two waits read as a new reason and wrote a row.
-        [Fact]
-        public void FundsHold_AmountInTheToken_IsNotANewReason()
-        {
-            Route route = PlainRoute();
-            var funds = RouteDispatchEvaluator.EligibilityFailureKind.FundsShort;
-            Assert.True(Hold(route, funds, "funds-shortfall-750", 750.0, 1000.0));
-            Assert.False(Hold(route, funds, "funds-shortfall-500", 500.0, 1030.0));
-            Assert.False(Hold(route, funds, "funds-short", 400.0, 1060.0));
-            GameAction row = Assert.Single(Held());
-            Assert.Equal(RouteOrchestrator.HeldFundsShortDetail, row.RouteEndpointReason);
-            Assert.Equal(750.0, row.RouteHoldShortfall);
-        }
-
-        // The legacy decision carries the funds amount as a number, not only in its token.
-        [Fact]
-        public void WaitFundsDecision_CarriesTheShortfall()
-        {
-            RouteDispatchDecision d = RouteDispatchDecision.WaitFunds(100.0, 750.4);
-            Assert.Equal(750.4, d.Shortfall);
-            Assert.Equal("funds-shortfall-750", d.Reason);
-            Assert.Equal(0.0, RouteDispatchDecision.WaitResources(100.0, "Ore").Shortfall);
-        }
-
         // catches: the partner hold keyed on the partner's NAME, so renaming the linked
         // route mid-hold wrote a second row for the same wait.
         [Fact]
@@ -390,7 +365,6 @@ namespace Parsek.Tests.Logistics
             internal string OriginShort;
             internal double OriginShortfall;
             internal string DestinationFullToken;
-            public bool IsCareer { get; set; }
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = string.Empty; return true; }
             public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason) { vessel = null; reason = string.Empty; return true; }
             public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall)
@@ -399,7 +373,6 @@ namespace Parsek.Tests.Logistics
                 shortfall = OriginShort == null ? 0.0 : OriginShortfall;
                 return OriginShort == null;
             }
-            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
             public bool DestinationHasCapacity(Route route, out string fullResource)
             {
                 fullResource = DestinationFullToken ?? string.Empty;

@@ -27,7 +27,7 @@ namespace Parsek.Logistics
     ///   collision (confirmed decision).</item>
     ///   <item><see cref="GhostDriving"/>: TRUE only when the route is live
     ///   enough to render a looping ghost: Active, InTransit,
-    ///   WaitingForResources, WaitingForFunds, DestinationFull. Paused and the
+    ///   WaitingForResources, DestinationFull. Paused and the
     ///   three broken states render nothing.</item>
     ///   <item><see cref="Broken"/>: TRUE for the three hard-broken states
     ///   (EndpointLost, MissingSourceRecording, SourceChanged) that need player
@@ -45,7 +45,7 @@ namespace Parsek.Logistics
         /// <summary>
         /// TRUE when a route in this status BINDS its tree, blocking manual
         /// looping (mission-window and recordings-window) on that tree. TRUE
-        /// for all 9 statuses: a route binds its tree until explicitly removed.
+        /// for all 8 statuses: a route binds its tree until explicitly removed.
         /// </summary>
         internal static bool BindsTree(RouteStatus status)
         {
@@ -54,7 +54,6 @@ namespace Parsek.Logistics
                 case RouteStatus.Active:
                 case RouteStatus.InTransit:
                 case RouteStatus.WaitingForResources:
-                case RouteStatus.WaitingForFunds:
                 case RouteStatus.DestinationFull:
                 case RouteStatus.EndpointLost:
                 case RouteStatus.MissingSourceRecording:
@@ -72,7 +71,7 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// TRUE when a route in this status should render its looping ghost.
-        /// TRUE for Active, InTransit, WaitingForResources, WaitingForFunds,
+        /// TRUE for Active, InTransit, WaitingForResources,
         /// DestinationFull; FALSE for Paused, EndpointLost,
         /// MissingSourceRecording, SourceChanged.
         /// </summary>
@@ -83,7 +82,6 @@ namespace Parsek.Logistics
                 case RouteStatus.Active:
                 case RouteStatus.InTransit:
                 case RouteStatus.WaitingForResources:
-                case RouteStatus.WaitingForFunds:
                 case RouteStatus.DestinationFull:
                     return true;
                 case RouteStatus.Paused:
@@ -120,7 +118,6 @@ namespace Parsek.Logistics
                 case RouteStatus.Active:
                 case RouteStatus.InTransit:
                 case RouteStatus.WaitingForResources:
-                case RouteStatus.WaitingForFunds:
                 case RouteStatus.DestinationFull:
                 case RouteStatus.Paused:
                     return false;

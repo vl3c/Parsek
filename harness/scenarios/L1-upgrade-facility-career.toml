@@ -63,7 +63,6 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 [expectations.ledger]
 seedFrom     = "template"
 tolerances   = "default"
-rec3CarveOut = false
 
 [[expectations.ledger.manifest]]
   ut         = 0.0

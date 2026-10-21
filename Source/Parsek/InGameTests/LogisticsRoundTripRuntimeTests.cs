@@ -699,7 +699,6 @@ namespace Parsek.InGameTests
                 LastConsumedPartnerCycle = 0,
                 CompletedCycles = 0,
                 SkippedCycles = 0,
-                KscDispatchFundsCost = 0.0,
                 // Harvest origin: nothing launched, nothing loaded en route - the
                 // cargo is delivered at the dock. CostManifest stays EMPTY.
                 CostManifest = new Dictionary<string, double>(StringComparer.Ordinal),

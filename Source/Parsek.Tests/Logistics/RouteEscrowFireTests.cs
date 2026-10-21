@@ -287,11 +287,9 @@ namespace Parsek.Tests.Logistics
         // falls back to the endpoint's baked pid - matching the seam's OriginVesselPid.
         private sealed class EligibleEnv : IRouteRuntimeEnvironment
         {
-            public bool IsCareer { get; set; }
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = string.Empty; return true; }
             public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason) { vessel = null; reason = string.Empty; return true; }
             public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall) { shortfall = 0.0; lackingResource = string.Empty; return true; }
-            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
             public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = string.Empty; return true; }
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }

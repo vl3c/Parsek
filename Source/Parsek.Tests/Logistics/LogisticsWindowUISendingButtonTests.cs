@@ -33,7 +33,6 @@ namespace Parsek.Tests.Logistics
         [InlineData((int)RouteStatus.Active)]
         [InlineData((int)RouteStatus.InTransit)]
         [InlineData((int)RouteStatus.WaitingForResources)]
-        [InlineData((int)RouteStatus.WaitingForFunds)]
         [InlineData((int)RouteStatus.DestinationFull)]
         public void ArmedAndDispatchable_ShowsSending(int statusOrdinal)
         {
@@ -109,7 +108,6 @@ namespace Parsek.Tests.Logistics
         [Theory]
         [InlineData((int)RouteStatus.Active)]
         [InlineData((int)RouteStatus.WaitingForResources)]
-        [InlineData((int)RouteStatus.WaitingForFunds)]
         [InlineData((int)RouteStatus.DestinationFull)]
         public void Dispatchable_ClassifiesSendOnce_AndLabels(int statusOrdinal)
         {

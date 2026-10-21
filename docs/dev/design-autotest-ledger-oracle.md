@@ -100,7 +100,8 @@ single-module action scripts (nonzero deltas) are the follow-on (M-B3), not v1.
   The oracle's expected total is `seed + accumulated manifest deltas`.
 - **Oracle**: the pure Python function (`harness/lib/oracle.py`) that turns an
   accumulated manifest plus a seed baseline into expected career totals, applying
-  the tolerance policy, the reputation-curve exception, and the Rec-3 carve-out.
+  the tolerance policy and the reputation-curve exception (the Rec-3 carve-out was
+  removed 2026-10-21, see below).
 - **Ledger-oracle verifier**: the harness-core verifier-chain slot 8. Post-run it
   reads the produced save's parsed career totals from the analyzer's
   `.analysis.json` `careerSave` block, computes expected totals via the oracle,
@@ -124,8 +125,8 @@ single-module action scripts (nonzero deltas) are the follow-on (M-B3), not v1.
   `gameevents-captured` old/new deltas are `applied` (post-curve, added with no
   further curve). v1 (B10) has zero rep deltas, so this degenerates to `expected =
   seed`.
-- **RATIFIED-RESIDUAL CARVE-OUT** (plan section 6, logistics 10.6, [Rec-3
-  residual], BINDING): on a plain (non-rewind) discard, route funds and physical
+- ~~**RATIFIED-RESIDUAL CARVE-OUT**~~ REMOVED 2026-10-21 with supply-route money (todo LOGISTICS-WITHOUT-MONEY phase 1): route rows move no funds, so no route residual can read as funds drift; a spec naming `rec3CarveOut` / `rec3Whitelist` is refused pre-launch. Historical text: (plan section 6, logistics 10.6, [Rec-3
+  residual]): on a plain (non-rewind) discard, route funds and physical
   route cargo persist BY DESIGN. A rollback oracle must consult this carve-out
   before declaring drift: whitelisted free-standing route rows are NOT expected to
   roll back on a non-rewind discard, and the oracle asserts the `[Rec-3 residual]`
@@ -232,8 +233,7 @@ seedFrom = "template"          # "template" = parse the staged fixture save for 
                                #   {funds,science,reputation} seed is RESERVED.
 tolerances = "default"         # "default" = FacetTolerances.Default mirror
                                #   (funds 1.0, science 0.1, rep 0.1, subject 0.1).
-rec3CarveOut = false           # true only for a non-rewind-discard route scenario
-                               #   (L3); v1 B10 leaves it false.
+# rec3CarveOut                 REMOVED 2026-10-21 (route money removed); refused if declared.
 
 # Declared career effects (seam-declared provenance). EMPTY for B10 passive safety.
 # Each entry is the career effect a driver step is about to cause; the amount is an
@@ -437,14 +437,11 @@ class OracleDivergence:
 
 ### Oracle computation (`oracle.compute_expected`)
 
-Pure. `ExpectedCareer = compute_expected(seed, entries, tol, rec3_whitelist)`:
+Pure. `ExpectedCareer = compute_expected(seed, entries, tol)`:
 
 - **Funds pool (HARD)**: `expected.funds = seed.funds + sum(e.funds for e in
-  entries)`, MINUS nothing on a non-rewind discard EXCEPT the Rec-3 carve-out: a
-  discard entry that would roll a route row back is SUPPRESSED from the rollback
-  when its row is on `rec3_whitelist` (the residual persists by design), and the
-  oracle instead expects the `[Rec-3 residual]` diagnostic line in the log. For B10
-  there are no discard entries, so this is `seed.funds + 0`.
+  entries)`. (The Rec-3 route-row carve-out is REMOVED 2026-10-21 with supply-route money (todo LOGISTICS-WITHOUT-MONEY phase 1): route rows move no funds, so no route residual can read as funds drift; a spec naming `rec3CarveOut` / `rec3Whitelist` is refused pre-launch.) For B10 there are no
+  entries, so this is `seed.funds + 0`.
 - **Science pool (HARD)**: `seed.science + sum(e.science)`. Subject caps are a
   Parsek/KSP concern already reflected in the captured event-time magnitudes, so the
   oracle sums the captured (post-cap) deltas, never recomputes caps.
@@ -522,11 +519,11 @@ edge 5). Steps:
    state-dependent null / un-fillable funds) is NOT warn-and-dropped: each rejection
    becomes a HARD divergence -> `PARSEK-FAIL(ledger)` (edge 18; a dropped expected
    effect can false-PASS).
-3. `expected = oracle.compute_expected(seed, entries, tol, rec3_whitelist)` where
+3. `expected = oracle.compute_expected(seed, entries, tol)` where
    `entries` are the SEAM-DECLARED author constants ONLY (ledger activation only; see
    Accumulation - captured awards cross-check separately and are never summed into
    EXPECTED, so an unexpected award cannot self-cancel against the save).
-4. `diffs = oracle.diff_expected_vs_parsed(expected, careerSave, tol, rec3_whitelist)`
+4. `diffs = oracle.diff_expected_vs_parsed(expected, careerSave, tol)`
    (pure), mirroring the `LedgerGroundTruthDiff` FACET POLICY: hard pools
    (funds/science/rep), report-only per-identity (subject science, contracts,
    milestones, facilities), vessel-resource consistency for the `world` block
@@ -606,7 +603,7 @@ nothing.
 
 `harness/scenarios/B10-career-passive-safety.toml` gains an
 `[expectations.ledger]` block with an EMPTY manifest, `seedFrom = "template"`,
-`tolerances = "default"`, `rec3CarveOut = false`. The driver (unchanged from the
+`tolerances = "default"` (its `rec3CarveOut = false` line was removed 2026-10-21 with the key). The driver (unchanged from the
 M-A5 flagship, committed verbs only) `LoadGame`s a fresh career cold, `SetSetting`s
 auto-record off, `RunTests` the `RecordingInvariants` batch in-scene, and
 `FlushAndQuit`s. The ledger-oracle verifier then proves the produced save's
@@ -675,7 +672,7 @@ Each: scenario -> expected behavior -> v1 or deferred.
    science 0.1, rep 0.1, subject 0.1); accumulation uses a DETERMINISTIC order
    `(ut, sequence)` so the sum is reproducible, and the tolerance absorbs the
    residual. A drift that exceeds tolerance is real. v1.
-8. **The Rec-3 residual** (non-rewind discard leaves route funds + cargo by design).
+8. ~~**The Rec-3 residual**~~ REMOVED 2026-10-21 with supply-route money (todo LOGISTICS-WITHOUT-MONEY phase 1): route rows move no funds, so no route residual can read as funds drift; a spec naming `rec3CarveOut` / `rec3Whitelist` is refused pre-launch. Historical text: (non-rewind discard leaves route funds + cargo by design).
    -> The oracle consults the `rec3_whitelist`; whitelisted route rows are NOT rolled
    back and the oracle expects the `[Rec-3 residual]` diagnostic line instead of a
    rollback-to-zero, so the ratified behavior does not read as drift (plan 6 /
@@ -808,8 +805,8 @@ batch-counting convention applies to the per-line capture grep (one summary line
   seamDeclared=<k> accumulated=<total>"; per unexpected award on an empty manifest
   `Warn` "manifest-capture: unexpected stock award ut=<ut> kind=<k> line='<...>'".
 - **ORACLE**: `Info` "oracle-expected funds=<f> science=<s> rep=<r>
-  subjects=<n> activeContracts=<n> rec3CarveOut=<b>"; per Rec-3 residual
-  `Info` "oracle: rec3 residual retained row=<id> expecting [Rec-3 residual]".
+  subjects=<n> activeContracts=<n>" (the `rec3CarveOut=` field and the per-residual
+  line were removed 2026-10-21 with the carve-out).
 - **DIFF**: one line per facet `Info` "ledger-diff facet=<facet> expected=<e>
   parsed=<p> delta=<d> tol=<t> within=<b> hard=<b>"; per hard divergence `Warn`
   "ledger-drift facet=<facet> id=<id> expected=<e> parsed=<p> utWindow=[<lo>,<hi>]".
@@ -849,7 +846,7 @@ agent cannot pilot KSP, MEMORY: in-game-sweep-needs-operator).
 - **Reputation curve, not linear sum.** Two rep deltas through `apply_rep_curve`
   produce the curve-composed value, NOT their arithmetic sum. Fails if rep is summed
   linearly (the double-curve distortion 15.1 warns about, read backward).
-- **Rec-3 carve-out.** A non-rewind-discard entry on the `rec3_whitelist` does NOT
+- ~~**Rec-3 carve-out.**~~ REMOVED 2026-10-21 with the carve-out (its three `test_oracle.py` cells went with it). Historical text: A non-rewind-discard entry on the `rec3_whitelist` does NOT
   reduce expected funds and the oracle flags an expected `[Rec-3 residual]`; the
   SAME entry NOT whitelisted DOES roll back. Fails if a ratified route residual reds
   as drift, or a non-ratified rollback is skipped.

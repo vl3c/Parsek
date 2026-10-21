@@ -64,7 +64,7 @@ namespace Parsek.Logistics
         /// <summary>Ordered stops along the route (v1: exactly one).</summary>
         public List<RouteStop> Stops = new List<RouteStop>();
 
-        /// <summary>True = Career charges KSC funds instead of physical origin cargo.</summary>
+        /// <summary>True = the cargo comes from the Space Center (free, no origin vessel to debit).</summary>
         public bool IsKscOrigin;
 
         /// <summary>
@@ -99,9 +99,6 @@ namespace Parsek.Logistics
 
         /// <summary>Exact stored-part payloads used or delivered across the whole route.</summary>
         public List<InventoryPayloadItem> InventoryCostManifest;
-
-        /// <summary>Stock part + used/delivered cargo funds per KSC dispatch.</summary>
-        public double KscDispatchFundsCost;
 
         // --- Scheduling / timing ---
 
@@ -174,7 +171,7 @@ namespace Parsek.Logistics
         /// <summary>UT when the in-transit cycle began; null when idle.</summary>
         public double? CurrentCycleStartUT;
 
-        /// <summary>Retry backoff for resource/funds waits; null when not waiting.</summary>
+        /// <summary>Retry backoff for resource / capacity waits; null when not waiting.</summary>
         public double? NextEligibilityCheckUT;
 
         /// <summary>0-based active source-recording index; -1 when not in transit.</summary>
@@ -271,7 +268,7 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// Count of loop-route cycles that crossed but were blocked by eligibility
-        /// (destination full, origin empty, funds short, endpoint lost, etc.). The
+        /// (destination full, origin empty, endpoint lost, etc.). The
         /// loop-clock path (Phase 4) increments this on a blocked cycle: the ghost
         /// still flies (the world looks busy) but nothing is debited or delivered,
         /// and the crossing index is snapped forward. The increment is load-bearing
@@ -300,7 +297,7 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// Raw evaluator reason token of the most recent hold, VERBATIM (e.g. a
-        /// bare resource name, <c>funds-short</c>, <c>stop-0-no-live-vessels</c>,
+        /// bare resource name, <c>stop-0-no-live-vessels</c>,
         /// or a legacy-prefixed <c>origin-lacks-X</c>); null when no hold is
         /// recorded. Player-language mapping happens in the UI formatter
         /// (<c>LogisticsHoldPresentation</c>), never here. Sparse in the codec
@@ -309,8 +306,9 @@ namespace Parsek.Logistics
         public string LastHoldDetail;
 
         /// <summary>
-        /// Funds shortfall of the most recent hold (FundsShort only); 0 for
-        /// every other kind. Sparse in the codec (omitted when not &gt; 0).
+        /// Measured shortfall of the most recent hold (an origin-cargo short's
+        /// missing amount, in the resource's own units); 0 when none was measured.
+        /// Sparse in the codec (omitted when not &gt; 0).
         /// </summary>
         public double LastHoldShortfall;
 
@@ -383,15 +381,11 @@ namespace Parsek.Logistics
         /// (M-MIS-9-R1) Recording ids of EVERY recording in the source tree at
         /// route creation, captured by <c>RouteBuilder.BuildRoute</c> and
         /// persisted by <see cref="RouteCodec"/>. This is the creation-time
-        /// known-recording union that scopes the recovery-credit sum
-        /// (<c>RouteRunCostCalculator.ResolveTreeRecordingIds(Route)</c>
-        /// intersects the CURRENT tree's ids with this set): it contains the
-        /// post-undock fly-home-and-recover leg (gotcha G1 stays satisfied)
-        /// while post-creation branches (re-fly forks, switch-fly
-        /// continuations) mint NEW ids outside it and are excluded from the
-        /// per-cycle credit. Empty set = no snapshot (degenerate or pre-field
-        /// route); the resolver then FAILS OPEN to the whole current tree,
-        /// preserving G1's never-silently-zero contract.
+        /// known-recording union the map route lines read
+        /// (<c>RouteMemberRunExpansion</c>): it contains the post-undock legs
+        /// while post-creation branches (re-fly forks, switch-fly continuations)
+        /// mint NEW ids outside it. Empty set = no snapshot (degenerate or
+        /// pre-field route).
         /// </summary>
         public HashSet<string> CreationTreeRecordingIds =
             new HashSet<string>(StringComparer.Ordinal);
@@ -552,28 +546,6 @@ namespace Parsek.Logistics
         /// pre-M5 route nodes stay byte-identical.
         /// </summary>
         public bool ReaimWindowBasisEngaged;
-
-        /// <summary>
-        /// Recovery-credit deferral marker (logistics-recovery-credit, design doc
-        /// section 5.2): the id of the dispatched cycle whose recovery credit has
-        /// not yet been flushed. A Career, KSC-origin dispatch sets this to the
-        /// cycle it just dispatched (<c>cycle-K</c>); the NEXT dock crossing flushes
-        /// that owed credit (at a strictly later UT) and clears the marker, then sets
-        /// its own. Null means no credit is owed (route just activated, or the last
-        /// owed credit was already flushed). Persisted sparsely by
-        /// <see cref="RouteCodec"/> (omitted when null) so a save / reload between
-        /// crossings does not lose or double-emit the owed credit. Default null.
-        /// </summary>
-        public string PendingRecoveryCreditCycleId;
-
-        /// <summary>
-        /// The dispatch UT of the cycle named by
-        /// <see cref="PendingRecoveryCreditCycleId"/>, recorded for the audit / log
-        /// only (the credit's actual UT is the NEXT crossing's UT, not this).
-        /// Persisted sparsely by <see cref="RouteCodec"/> (omitted when -1).
-        /// Default -1 (no pending credit).
-        /// </summary>
-        public double PendingRecoveryCreditDispatchUT = -1.0;
 
         /// <summary>
         /// The player's re-captured endpoint part sets (owner ruling 2026-10-07): one entry per

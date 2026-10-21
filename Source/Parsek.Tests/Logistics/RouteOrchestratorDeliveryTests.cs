@@ -55,7 +55,6 @@ namespace Parsek.Tests.Logistics
         {
             public readonly List<(string Name, double Amount)> ResourceCalls = new List<(string, double)>();
             public readonly List<(InventoryPayloadItem Item, InventorySlotAddress Slot, int Units)> InventoryCalls = new List<(InventoryPayloadItem, InventorySlotAddress, int)>();
-            public readonly List<double> FundsDebits = new List<double>();
             public readonly List<GameAction> EmittedActions = new List<GameAction>();
 
             public void WriteResource(string name, double amount) => ResourceCalls.Add((name, amount));
@@ -80,8 +79,6 @@ namespace Parsek.Tests.Logistics
                 return total;
             }
 
-            public void DebitFunds(double cost) => FundsDebits.Add(cost);
-
             public void EmitAction(GameAction a) => EmittedActions.Add(a);
         }
 
@@ -93,8 +90,7 @@ namespace Parsek.Tests.Logistics
             string id = "route-1",
             int completedCycles = 0,
             int skippedCycles = 0,
-            bool isKscOrigin = true,
-            double kscFundsCost = 1000.0)
+            bool isKscOrigin = true)
         {
             return new Route
             {
@@ -108,7 +104,6 @@ namespace Parsek.Tests.Logistics
                 NextDispatchUT = 1_000_000.0, // no double-dispatch in the same tick
                 PendingDeliveryUT = 150.0,
                 PendingStopIndex = 0,
-                KscDispatchFundsCost = kscFundsCost,
                 Stops = new List<RouteStop>
                 {
                     new RouteStop
@@ -151,9 +146,6 @@ namespace Parsek.Tests.Logistics
             string cycleId = "cycle-0",
             double ut = 200.0,
             int stopIndex = 0,
-            bool isCareer = true,
-            bool isKscOrigin = true,
-            double kscFundsCost = 1000.0,
             bool bumpCompletedCycle = true)
         {
             return new RouteOrchestrator.ApplyDeliveryContext
@@ -161,14 +153,10 @@ namespace Parsek.Tests.Logistics
                 CycleId = cycleId,
                 CurrentUT = ut,
                 StopIndex = stopIndex,
-                IsCareer = isCareer,
-                IsKscOrigin = isKscOrigin,
-                KscFundsCost = isCareer && isKscOrigin ? kscFundsCost : 0.0,
                 ResourceWriter = writers.WriteResource,
                 ResourceActualReader = writers.ReadActualResource,
                 InventoryWriter = writers.WriteInventory,
                 InventoryActualCountReader = writers.ReadInventoryActualCount,
-                FundsDebiter = writers.DebitFunds,
                 LedgerEmitter = writers.EmitAction,
                 // M4a A3 (Horn A): the direct ApplyDeliveryFromPlan tests model a
                 // single complete delivery, so the cycle-complete CompletedCycles
@@ -208,7 +196,7 @@ namespace Parsek.Tests.Logistics
                 isPartial: true,
                 isZero: false);
             var writers = new CapturingWriters();
-            var ctx = BuildContext(writers, isCareer: false, isKscOrigin: false, kscFundsCost: 0.0);
+            var ctx = BuildContext(writers);
 
             RouteOrchestrator.ApplyDeliveryFromPlan(route, plan, ctx);
 
@@ -225,14 +213,14 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(RouteStatus.Active, route.Status);
         }
 
-        // catches: missing funds debit OR wrong sign.
+        // catches: a full-fill delivery missing a write or its delivered row.
         [Fact]
-        public void HappyPath_KscCareer_FullFill_EmitsActionAndDebitsFunds()
+        public void HappyPath_Ksc_FullFill_EmitsAction()
         {
-            var route = BuildInTransitKscRoute(kscFundsCost: 1234.0);
+            var route = BuildInTransitKscRoute();
             var plan = BuildFullFillPlan(route.Stops[0].DeliveryManifest);
             var writers = new CapturingWriters();
-            var ctx = BuildContext(writers, isCareer: true, isKscOrigin: true, kscFundsCost: 1234.0);
+            var ctx = BuildContext(writers);
 
             RouteOrchestrator.ApplyDeliveryFromPlan(route, plan, ctx);
 
@@ -241,14 +229,8 @@ namespace Parsek.Tests.Logistics
             Assert.Contains(writers.ResourceCalls, c => c.Name == "LiquidFuel" && c.Amount == 100.0);
             Assert.Contains(writers.ResourceCalls, c => c.Name == "Oxidizer" && c.Amount == 120.0);
 
-            // Funds debited exactly once with the positive cost magnitude
-            // (the sign is applied at the LiveDebitFunds production callsite).
-            Assert.Single(writers.FundsDebits);
-            Assert.Equal(1234.0, writers.FundsDebits[0]);
-
             // RouteCargoDelivered emitted with the full manifest, no requested
-            // manifest (no shortfall), correct cycle/stop identity, and the
-            // KSC funds cost surfaced.
+            // manifest (no shortfall), and correct cycle/stop identity.
             Assert.Single(writers.EmittedActions);
             GameAction a = writers.EmittedActions[0];
             Assert.Equal(GameActionType.RouteCargoDelivered, a.Type);
@@ -260,7 +242,6 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(100.0, a.RouteResourceManifest["LiquidFuel"]);
             Assert.Equal(120.0, a.RouteResourceManifest["Oxidizer"]);
             Assert.Null(a.RouteRequestedResourceManifest);
-            Assert.Equal(1234f, a.RouteKscFundsCost);
 
             // Route state: cycle counter advanced, pending cleared, status Active.
             Assert.Equal(1, route.CompletedCycles);
@@ -279,7 +260,7 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void ApplyDeliveryFromPlan_StopIndex1_EmitsStopIndex1AndSequence11()
         {
-            var route = BuildInTransitKscRoute(kscFundsCost: 500.0);
+            var route = BuildInTransitKscRoute();
             var plan = BuildFullFillPlan(route.Stops[0].DeliveryManifest);
             var writers = new CapturingWriters();
             // ctx.StopIndex = 1: the second window of a multi-stop cycle. The stride
@@ -287,8 +268,7 @@ namespace Parsek.Tests.Logistics
             // 1*8 + 3 = 11. bumpCompletedCycle false models an EARLIER multi-stop
             // window (the caller owns the once-per-cycle bump).
             var ctx = BuildContext(
-                writers, stopIndex: 1, isCareer: true, isKscOrigin: true,
-                kscFundsCost: 500.0, bumpCompletedCycle: false);
+                writers, stopIndex: 1, bumpCompletedCycle: false);
 
             RouteOrchestrator.ApplyDeliveryFromPlan(route, plan, ctx);
 
@@ -303,31 +283,6 @@ namespace Parsek.Tests.Logistics
             // so ApplyDeliveryFromPlan with bumpCompletedCycle=false leaves the
             // counter alone (the cycleId the later windows compute stays stable).
             Assert.Equal(0, route.CompletedCycles);
-        }
-
-        // catches: unconditional funds debit leaking to Sandbox.
-        [Fact]
-        public void HappyPath_Sandbox_NoFundsDebit_StillEmitsAction()
-        {
-            var route = BuildInTransitKscRoute();
-            var plan = BuildFullFillPlan(route.Stops[0].DeliveryManifest);
-            var writers = new CapturingWriters();
-            // Sandbox: isCareer=false (even though origin is KSC the gate must
-            // still suppress the debit).
-            var ctx = BuildContext(writers, isCareer: false, isKscOrigin: true, kscFundsCost: 1234.0);
-
-            RouteOrchestrator.ApplyDeliveryFromPlan(route, plan, ctx);
-
-            // No funds debit.
-            Assert.Empty(writers.FundsDebits);
-
-            // But the cycle still completes and the delivered row goes out
-            // with zero funds cost.
-            Assert.Single(writers.EmittedActions);
-            GameAction a = writers.EmittedActions[0];
-            Assert.Equal(GameActionType.RouteCargoDelivered, a.Type);
-            Assert.Equal(0f, a.RouteKscFundsCost);
-            Assert.Equal(1, route.CompletedCycles);
         }
 
         // catches: partial-fill manifest missing or including fully-filled resources.
@@ -346,7 +301,7 @@ namespace Parsek.Tests.Logistics
                 isPartial: true,
                 isZero: false);
             var writers = new CapturingWriters();
-            var ctx = BuildContext(writers, isCareer: true, isKscOrigin: true);
+            var ctx = BuildContext(writers);
 
             RouteOrchestrator.ApplyDeliveryFromPlan(route, plan, ctx);
 
@@ -533,8 +488,10 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(1, route.CompletedCycles);
             Assert.Equal(RouteStatus.InTransit, route.Status);
 
+            // Space Center origin dispatches free: the dispatched row is the only
+            // new row (no debit row).
             int newCount = Ledger.Actions.Count - actionsBefore;
-            Assert.Equal(2, newCount);
+            Assert.Equal(1, newCount);
 
             // The new dispatched row pins the no-collision contract.
             GameAction newDispatched = null;
@@ -546,15 +503,9 @@ namespace Parsek.Tests.Logistics
                 else if (a.Type == GameActionType.RouteCargoDebited) newDebited = a;
             }
             Assert.NotNull(newDispatched);
-            Assert.NotNull(newDebited);
+            Assert.Null(newDebited);
             Assert.Equal("cycle-1", newDispatched.RouteCycleId);
             Assert.NotEqual("cycle-0", newDispatched.RouteCycleId);
-            // The debited row is the dispatch's pair and must share the new
-            // cycleId; Sequence=1 pins it after the dispatched row at the
-            // same UT (mirrors ApplyDispatch).
-            Assert.Equal("cycle-1", newDebited.RouteCycleId);
-            Assert.Equal(newDispatched.UT, newDebited.UT);
-            Assert.True(newDebited.Sequence > newDispatched.Sequence);
         }
 
         // Route-timeline events contract hole (review finding 3, PR #1327): the
@@ -1010,13 +961,13 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(200.0, route.CurrentCycleStartUT);
             Assert.Equal(200.0 + route.DispatchInterval, route.NextDispatchUT);
 
-            // Ledger picked up the new RouteDispatched + RouteCargoDebited pair
-            // (the delivered row was pre-seeded; the catch-up loop continuing
-            // is proved by these new rows landing in the same tick).
+            // Ledger picked up the new RouteDispatched row (the delivered row was
+            // pre-seeded; the catch-up loop continuing is proved by this row
+            // landing in the same tick). A Space Center origin writes no debit row.
             int newCount = Ledger.Actions.Count - actionsBefore;
-            Assert.Equal(2, newCount);
+            Assert.Equal(1, newCount);
             Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.RouteDispatched && a.UT == 200.0);
-            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.RouteCargoDebited && a.UT == 200.0);
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteCargoDebited);
         }
 
         // catches: status gate regression — applying delivery for paused route
@@ -1248,7 +1199,6 @@ namespace Parsek.Tests.Logistics
         /// </summary>
         private sealed class EndpointLostFakeEnv : IRouteRuntimeEnvironment
         {
-            public bool IsCareer => false;
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason)
             {
                 reason = string.Empty;
@@ -1263,11 +1213,6 @@ namespace Parsek.Tests.Logistics
             public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall)
             {
                 lackingResource = string.Empty;
-                shortfall = 0.0;
-                return true;
-            }
-            public bool KscFundsAvailable(Route route, out double shortfall)
-            {
                 shortfall = 0.0;
                 return true;
             }

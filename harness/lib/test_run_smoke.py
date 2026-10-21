@@ -323,7 +323,7 @@ def _make_ledger_spec(save_template, run_tests_budget=30, run_budget=600, manife
     spec = _make_spec(save_template, run_tests_budget, run_budget)
     spec["id"] = "SMOKE-ledger"
     spec["expectations"]["ledger"] = {
-        "seedFrom": "template", "tolerances": "default", "rec3CarveOut": False,
+        "seedFrom": "template", "tolerances": "default",
         "manifest": manifest or [],
     }
     return spec
@@ -2773,7 +2773,7 @@ class LedgerOracleEndToEndTests(unittest.TestCase):
                 "vessels": vessels or []}
 
     def _ledger_block(self, manifest=None, capture_cross_check=None):
-        block = {"seedFrom": "template", "tolerances": "default", "rec3CarveOut": False,
+        block = {"seedFrom": "template", "tolerances": "default",
                  "manifest": manifest or []}
         if capture_cross_check is not None:
             block[hlib.LEDGER_CAPTURE_CROSS_CHECK_KEY] = capture_cross_check
@@ -5507,8 +5507,9 @@ class LiveStateStageTests(unittest.TestCase):
 
 
 class RemovalAndCareerStageTests(unittest.TestCase):
-    """The shell half of the two 2026-09-03 staging modes: `remove = true` and
-    `[fixture.career] funds`.
+    """The shell half of the 2026-09-03 `remove = true` staging mode (its sibling
+    `[fixture.career] funds` was retired with supply-route money, todo
+    LOGISTICS-WITHOUT-MONEY).
 
     Same standard as `LiveStateStageTests`: every cell is about the OBSERVABLE
     effect on the STAGED COPY and about failing closed pre-boot, because the
@@ -5561,12 +5562,10 @@ class RemovalAndCareerStageTests(unittest.TestCase):
         self.logger.close()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def _spec(self, live_state=None, career=None):
+    def _spec(self, live_state=None):
         spec = _make_spec(self.template, 30, 600)
         if live_state is not None:
             spec["fixture"]["liveState"] = live_state
-        if career is not None:
-            spec["fixture"]["career"] = career
         return spec
 
     def _staged_sfs(self, name):
@@ -5612,43 +5611,9 @@ class RemovalAndCareerStageTests(unittest.TestCase):
                          "a removal of a vessel the save does not carry must never boot KSP")
         self.assertIn("found 0", self._log())
 
-    def test_a_career_seed_reaches_the_staged_save(self):
-        ok, name, subkind = run.stage_fixture(
-            self._spec(career={"funds": 7409}), self.instance,
-            FakeRuntime("pass"), self.logger)
-        self.assertTrue(ok)
-        self.assertEqual("", subkind)
-        self.assertIn("\t\tfunds = 7409", self._staged_sfs(name))
-        self.assertIn("career patched funds 11000->7409", self._log())
-
-    def test_a_career_seed_on_a_sandbox_template_fails_closed(self):
-        sandbox = os.path.join(self.tmp, "sandbox-template")
-        os.makedirs(sandbox, exist_ok=True)
-        with open(os.path.join(sandbox, "persistent.sfs"), "wb") as fh:
-            fh.write(self.SAVE.replace("\t\tname = Funding\n", "\t\tname = Other\n")
-                     .encode("utf-8"))
-        spec = _make_spec(sandbox, 30, 600)
-        spec["fixture"]["career"] = {"funds": 7409}
-        ok, _name, subkind = run.stage_fixture(
-            spec, self.instance, FakeRuntime("pass"), self.logger)
-        self.assertFalse(ok)
-        self.assertEqual("staging", subkind)
-        self.assertIn("Funding", self._log())
-
-    def test_both_declarations_apply_in_one_pass(self):
-        ok, name, _ = run.stage_fixture(
-            self._spec(live_state=[{"pid": 777, "remove": True}],
-                       career={"funds": 1}),
-            self.instance, FakeRuntime("pass"), self.logger)
-        self.assertTrue(ok)
-        staged = self._staged_sfs(name)
-        self.assertNotIn("persistentId = 777", staged)
-        self.assertIn("\t\tfunds = 1", staged)
-
     def test_the_committed_template_is_never_written(self):
         before = open(self.template_sfs, "rb").read()
-        run.stage_fixture(self._spec(live_state=[{"pid": 777, "remove": True}],
-                                     career={"funds": 1}),
+        run.stage_fixture(self._spec(live_state=[{"pid": 777, "remove": True}]),
                           self.instance, FakeRuntime("pass"), self.logger)
         self.assertEqual(before, open(self.template_sfs, "rb").read())
 
@@ -5657,7 +5622,6 @@ class RemovalAndCareerStageTests(unittest.TestCase):
                                         FakeRuntime("pass"), self.logger)
         self.assertTrue(ok)
         self.assertEqual(self.SAVE, self._staged_sfs(name))
-        self.assertNotIn("career patched", self._log())
 
 
 class FillStageTests(unittest.TestCase):

@@ -1420,24 +1420,16 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
     # a window index out of range - aborts with the cause named and KSP never
     # launched. Same containment discipline as the rest of this function: the
     # file must resolve strictly inside saves/.
-    # `[fixture.career]` rides the SAME read / patch / write, in the same step and
-    # under the same fail-closed rule: it is one more declaration about the state
-    # the lane's tokens are derived from, and splitting it into a second pass over
-    # the same file would only add a way for the two to disagree about which text
-    # they patched. liveState runs first, career second; they touch disjoint nodes
-    # (FLIGHTSTATE vessels vs a top-level SCENARIO), so the order is arbitrary and
-    # fixed only so the log reads the same way every run.
     live_state = savepatch.declared_live_state(fixture)
-    career_state = savepatch.declared_career_state(fixture)
     # `[[fixture.crewInventory]]` (coverage wave 10) rides the same read / patch /
-    # write, third: it touches only GAME / ROSTER, disjoint from both of the above.
+    # write, second: it touches only GAME / ROSTER, disjoint from liveState.
     crew_inventory = savepatch.declared_crew_inventory(fixture)
-    # `[[fixture.partInventory]]` (the ground-science cluster lanes) rides it fourth:
+    # `[[fixture.partInventory]]` (the ground-science cluster lanes) rides it third:
     # FLIGHTSTATE container parts, applied AFTER liveState so a liveState removal
     # that re-points activeVessel cannot shift the vessel it addresses (it is
     # addressed by persistentId, never by index, so the order is belt and braces).
     part_inventory = savepatch.declared_part_inventory(fixture)
-    if live_state or career_state or crew_inventory or part_inventory:
+    if live_state or crew_inventory or part_inventory:
         sfs_path = os.path.join(target_save, "persistent.sfs")
         if not _is_strictly_inside(sfs_path, saves_dir) or not os.path.isfile(sfs_path):
             logger.error("Stage", "liveState: staged save %s has no readable "
@@ -1445,7 +1437,6 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
                          % run_save_name)
             return False, run_save_name, "staging"
         live_notes: List[str] = []
-        career_notes: List[str] = []
         crew_notes: List[str] = []
         part_notes: List[str] = []
         try:
@@ -1453,8 +1444,6 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
                 sfs_text = fh.read().decode("utf-8")
             patched_text, live_notes = savepatch.apply_live_state(
                 sfs_text, live_state, run_save_name)
-            patched_text, career_notes = savepatch.apply_career_state(
-                patched_text, career_state)
             patched_text, crew_notes = savepatch.apply_crew_inventory(
                 patched_text, crew_inventory)
             patched_text, part_notes = savepatch.apply_part_inventory(
@@ -1471,8 +1460,6 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
             return False, run_save_name, "staging"
         for note in live_notes:
             logger.info("Stage", "liveState patched %s" % note)
-        for note in career_notes:
-            logger.info("Stage", "career patched %s" % note)
         for note in crew_notes:
             logger.info("Stage", "crewInventory patched %s" % note)
         for note in part_notes:

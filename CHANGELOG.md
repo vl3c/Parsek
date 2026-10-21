@@ -42,6 +42,10 @@ _(unreleased - entries accumulate here per commit)_
   a mining flight no longer repeats a burst of ore the game added at once after time passed off
   screen. Each run's harvest is capped at the drills' rate times the recorded drilling time, and
   the route's from/to hover says when the cap applies. (HARVEST-ROUTE-PLAUSIBILITY-CAP)
+- **Supply routes no longer cost or pay funds.** A route from the Space Center is free in every
+  game mode, Career included, and never waits for funds. No route charges for a run or pays back
+  a recovery credit; a depot route still takes its cargo from the depot. The Logistics window no
+  longer shows a run cost. (LOGISTICS-WITHOUT-MONEY)
 - **Resource scans are part of your committed career.** An orbital survey or a surface scan is now
   recorded with the flight that made it. After a rewind to before the scan, the scanned body or
   biome unlocks again when the clock reaches the moment it was scanned, like other committed
@@ -49,10 +53,6 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
-- **A supply route no longer spends money a committed purchase needs.** After a rewind, a route
-  from the Space Center now waits for funds when its next run would dip into money a recorded later
-  purchase still needs, the same way it waits when the funds counter is short.
-  (ROUTE-DISPATCH-IGNORES-RESERVATIONS)
 - **A station a later flight docks with can't be recovered early.** After a rewind, the Tracking
   Station greys Recover and Delete, and the Space Center greys Recover, on a vessel a recorded later
   flight still docks with, so it can't come back as a duplicate and be paid for twice. (GC-2)
@@ -263,11 +263,9 @@ _(unreleased - entries accumulate here per commit)_
   of a parked rover's container, or putting one in, now makes that rover part of the flight: after
   a rewind it waits as a ghost and comes back with its new contents, so the part is no longer
   duplicated or lost. (EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED)
-- **Supply routes keep their cargo hold and recovery credit across scene changes and loads.** A
-  multi-stop route that already loaded at one depot keeps the rest of its cargo reserved after a
-  scene change, so another route can no longer take it before the next stop. A recovery credit
-  owed by a route whose source recording went missing is now paid after the save loads, at the
-  right time, instead of during the load. (ROUTE-ESCROW-LOST-ON-SCENE-SWITCH)
+- **Supply routes keep their cargo hold across scene changes and loads.** A multi-stop route that
+  already loaded at one depot keeps the rest of its cargo reserved after a scene change, so another
+  route can no longer take it before the next stop. (ROUTE-ESCROW-LOST-ON-SCENE-SWITCH)
 - **Docking a fleet of identical ships no longer mixes up their histories.** When your ship docks
   to another and takes it over, Parsek now remembers which launch of that ship it was. A later
   launch of the same design no longer has its vessel hidden or spawned at the wrong time because

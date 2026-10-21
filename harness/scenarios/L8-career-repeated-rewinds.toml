@@ -198,7 +198,6 @@ forbidden = [
 [expectations.ledger]
 seedFrom     = "template"
 tolerances   = "default"
-rec3CarveOut = false
 timeline     = "rewind-aware"
 
 # Every row except the check rollout sits after the end clock (~200: the third rewind lands

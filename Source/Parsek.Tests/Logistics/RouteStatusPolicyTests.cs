@@ -33,20 +33,19 @@ namespace Parsek.Tests.Logistics
         // they cannot drift to cover a newly added value; this count pin is the
         // tripwire that forces the new value into both matrices.
         [Fact]
-        public void EnumValueCount_IsNine_SoAppendsTripThePinnedMatrices()
+        public void EnumValueCount_IsEight_SoAppendsTripThePinnedMatrices()
         {
             int count = Enum.GetValues(typeof(RouteStatus)).Length;
-            Assert.Equal(9, count);
+            Assert.Equal(8, count);
         }
 
-        // BindsTree is TRUE for ALL 9 values: a route binds its tree until
+        // BindsTree is TRUE for ALL 8 values: a route binds its tree until
         // explicitly removed (broken routes still bind, preventing the
         // self-heal double-owner collision).
         [Theory]
         [InlineData((int)RouteStatus.Active)]
         [InlineData((int)RouteStatus.InTransit)]
         [InlineData((int)RouteStatus.WaitingForResources)]
-        [InlineData((int)RouteStatus.WaitingForFunds)]
         [InlineData((int)RouteStatus.DestinationFull)]
         [InlineData((int)RouteStatus.EndpointLost)]
         [InlineData((int)RouteStatus.MissingSourceRecording)]
@@ -63,7 +62,6 @@ namespace Parsek.Tests.Logistics
         [InlineData((int)RouteStatus.Active)]
         [InlineData((int)RouteStatus.InTransit)]
         [InlineData((int)RouteStatus.WaitingForResources)]
-        [InlineData((int)RouteStatus.WaitingForFunds)]
         [InlineData((int)RouteStatus.DestinationFull)]
         public void GhostDriving_IsTrue_ForLiveRenderStates(int statusOrdinal)
         {
@@ -100,7 +98,6 @@ namespace Parsek.Tests.Logistics
         [InlineData((int)RouteStatus.Active)]
         [InlineData((int)RouteStatus.InTransit)]
         [InlineData((int)RouteStatus.WaitingForResources)]
-        [InlineData((int)RouteStatus.WaitingForFunds)]
         [InlineData((int)RouteStatus.DestinationFull)]
         [InlineData((int)RouteStatus.Paused)]
         public void Broken_IsFalse_ForLiveAndPausedStates(int statusOrdinal)
@@ -119,7 +116,6 @@ namespace Parsek.Tests.Logistics
                 { RouteStatus.Active, true },
                 { RouteStatus.InTransit, true },
                 { RouteStatus.WaitingForResources, true },
-                { RouteStatus.WaitingForFunds, true },
                 { RouteStatus.DestinationFull, true },
                 { RouteStatus.EndpointLost, false },
                 { RouteStatus.MissingSourceRecording, false },
@@ -132,7 +128,6 @@ namespace Parsek.Tests.Logistics
                 { RouteStatus.Active, false },
                 { RouteStatus.InTransit, false },
                 { RouteStatus.WaitingForResources, false },
-                { RouteStatus.WaitingForFunds, false },
                 { RouteStatus.DestinationFull, false },
                 { RouteStatus.EndpointLost, true },
                 { RouteStatus.MissingSourceRecording, true },

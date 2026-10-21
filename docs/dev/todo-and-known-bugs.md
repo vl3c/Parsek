@@ -16,6 +16,30 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MINE-7-RESTORE-PIN-ASSUMES-DRILLS-OFF: MINE-7 pins the spawned-drill restore line to "restored=4 alreadyOn=0", but the drills can come back on by themselves [FILED 2026-10-21 from MINE-7 `2026-10-21_1604` (PARSEK-FAIL, expectations), flown for PR #2163. OPEN, low. harness]
+
+**Symptom.** The lane's required line `Spawned harvester restore: vessel=Mining Rover RC pid=[0-9]+ restored=4 alreadyOn=0 missing=0` did not match: KSP.log had `restored=0 alreadyOn=4 missing=0` 2 s after `Unpacking Mining Rover RC` (`restore armed ... harvesters=4` before it). Mining and every resource check passed; every other verifier passed. The green `2026-10-17_1506_a2` run logged `restored=4 alreadyOn=0`.
+
+**Cause (inferred).** SPAWNED-DRILLS-SWITCH-OFF's restore runs once the vessel is loaded, off rails and landed; whether stock's `PrepareRecipe` impact check has already turned the drills off by then depends on the frame the raycast lands. The pin asserts one branch of a race the product handles both ways.
+
+**Fix.** Pin the outcome, not the branch: `restored=[0-4] alreadyOn=[0-4] missing=0` with restored + alreadyOn = 4 (regex alternation of the five pairs), keeping the drills-active resource assertions as the proof.
+
+## RVR-21-START-SPEED-ABOVE-STATIONARY: RVR-21 needs the rover to start recording below 0.1 m/s, and a boot that leaves it drifting at 0.12 m/s starts SurfaceMobile [FILED 2026-10-21 from RVR-21 `2026-10-21_1626` (PARSEK-FAIL, expectations), flown for PR #2163. OPEN, low. harness]
+
+**Symptom.** The required `Environment transition: SurfaceStationary -> SurfaceMobile at UT=... (debounce=3.0s)` line never printed (zero transition lines). `drivevessel start: ... srfSpeed=0.12`, `Hysteresis initialized: initial=SurfaceMobile`. The drive worked (`outcome=moved ... maxSrfSpeed=23.11 pathMeters=109.4`); every other verifier passed. The green `2026-10-15_1539` run and its negative control `_1544` started at 0.10 and 0.05 m/s.
+
+**Cause.** `EnvironmentDetector` classifies a landed vessel above 0.1 m/s as SurfaceMobile, so the start state depends on the rover's settle speed after the boot.
+
+**Fix.** Settle before `StartRecording` (a wait until `srfSpeed < 0.05`, failing fast past a bound), so the lane always starts SurfaceStationary.
+
+## L2-AFTER-QUIT-STOCK-NRE: L2-ledger-groundtruth-career's armed `unityExceptions maxTotal = 0` counts two stock NullReferenceExceptions thrown after Parsek's quit [FILED 2026-10-21 from L2 `2026-10-21_1640` (PARSEK-FAIL, unityExceptions), flown for PR #2163. OPEN, low. harness]
+
+**Symptom.** `unityExceptions status=FAIL gating=True total=2 ... parsekFrames=0 parsekThrowSite=0 parsekCaller=0 afterQuit=2`: both are `Exception handling event onPlanetariumTargetChange in class KnowledgeBase: NullReferenceException at KSP.UI.Screens.KbApp_PlanetResources.ActivateApp ... PlanetariumCamera:OnVesselDestroy / Vessel:OnDestroy()`, after `flushandquit: Application.Quit`. The ledger oracle passed (hardDivergences=0) and every other verifier passed.
+
+**Cause.** Stock scene teardown noise during shutdown; the armed gate counts after-quit exceptions with no Parsek frame.
+
+**Fix.** Decide in `hlib.evaluate_unity_exceptions` whether an armed `maxTotal` counts `afterQuit` exceptions with no Parsek frame (exclude them, or allow this stock signature), with a unit cell for each side.
+
 ## ~~REFLY-STARTED-FROM-A-RESUMED-VESSEL-IS-NEVER-SAVED: an F5 during a Re-Fly started while flying a resumed committed vessel does not save the Re-Fly~~ [FILED 2026-10-20 from harness lane CI-3 on V's PC (PR #2155 head 1abd1b4). Was open, high: with save-file loads cold (PR #2155) the F9 cleared the Re-Fly marker. FIXED 2026-10-21 on branch `claude/project-thread-hvhou8` (PR #2155): the session survives the F9 and keeps its committed original. xUnit; CI-3 re-fly pending. product]
 
 Flying a committed vessel Parsek spawned resumes its tree as a copy-on-write clone and arms a
@@ -326,7 +350,7 @@ can re-retire credits or un-retire debits; (O6) any post-rewind flight can inser
 committed spend (contract fail or deadline fail, cancel / decline penalties, death reputation,
 strategy converter debits, a destruction that makes a later committed repair chargeable, an early
 fail that zeroes a later committed completion); (O7) `CanAffordFundsSpending` has no production
-caller outside the route dispatch gate (PR #2159, removed by LOGISTICS-WITHOUT-MONEY phase 1) and the "keep what you earned" floor can hold the funds counter above the reservation.
+caller (the route dispatch gate of PR #2159 used it until LOGISTICS-WITHOUT-MONEY phase 1) and the "keep what you earned" floor can hold the funds counter above the reservation.
 Coop retirements (a transient dependent's ledger effects, a truncation's tail rows) are the same
 shape (`design-coop-async-multiplayer.md` section 7.10). Candidate shapes in the research doc,
 section 7.
@@ -371,7 +395,7 @@ and logistics design section 10.6).**
   during an in-session load, which #2155 makes a Cold save-file load that drops the handoff
   (design-load-restores-the-save section 8 lists it as unreached).
 
-## LOGISTICS-WITHOUT-MONEY: supply routes still charge and credit funds and write ledger rows, so the funds history depends on choices made after a rewind [FILED 2026-10-21 from the owner ruling on LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O4, first as ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES, then ROUTE-MONEY-COST-ONLY. OPEN, ruled; plan written]
+## LOGISTICS-WITHOUT-MONEY: supply routes still charge and credit funds and write ledger rows, so the funds history depends on choices made after a rewind [FILED 2026-10-21 from the owner ruling on LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O4, first as ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES, then ROUTE-MONEY-COST-ONLY. OPEN for phase 2 (route rows out of the ledger); phase 1 (no route money) FIXED 2026-10-21]
 
 Supply routes are a real-time system: every load back in time retires a route's cycles after its
 cutoff and the clock re-decides them (as built, design 10.6). Any money a cycle writes makes the funds
@@ -385,11 +409,33 @@ banked prepaid cycles).
 Plan: `docs/dev/plans/logistics-without-money.md`. Phase 1 removes the money (dispatch charge, live
 delivery debit, recovery credit and its pending marker, the funds gate and WaitingForFunds, the cost
 calculators and every cost line in the Logistics window); route money rows left in an old dev
-ledger are dropped at load (no backward compatibility before public launch). Phase 2 moves the remaining route rows out of the ledger into a route-owned event log
-persisted with the route store. Kept: the endpoint chain hold and `RetiredRouteCargoStore`.
-Supersedes ROUTE-DISPATCH-COST-BASIS-RESIDUALS once phase 1 lands.
+ledger are dropped at load. Phase 2 moves the remaining route rows out
+of the ledger into a route-owned event log persisted with the route store. Kept: the endpoint chain
+hold and `RetiredRouteCargoStore`. Supersedes ROUTE-DISPATCH-COST-BASIS-RESIDUALS.
 
-## ~~ROUTE-DISPATCH-IGNORES-RESERVATIONS: a route dispatch checks the raw funds counter, so it can spend money a committed purchase needs~~ [FILED 2026-10-21 from the O4 analysis. Was open, small; owner ruling: ship now, ahead of LOGISTICS-WITHOUT-MONEY. FIXED 2026-10-21 on branch `claude/project-thread-q165qu`. xUnit only. product]
+**Phase 1 FIXED 2026-10-21** (branch `logistics-no-money-p1`; phase 2 still OPEN, so this entry
+stays open). Removed: the funds gate (`IsCareer`, `KscFundsAvailable`, `WaitFunds`, the FundsShort
+gate paths), the dispatch charge, the live delivery debit, the recovery credit with its pending
+marker and flush sites, `RouteFundsCalculator`, `RouteRunCostCalculator`,
+`LogisticsCostPresentation`, `ComputeDispatchFundsCostForRoute`, the Logistics cost text and
+tooltips, the route-creation cost block, the funds half of the Route History Sent suffix, and the
+route arms of `FundsModule`, `RecalculationEngine`, `LedgerOrchestrator` and `RouteModule`. A Space
+Center origin writes one `RouteDispatched` row and no debit row (`DispatchDebit: ... space-center
+origin: dispatch row only (free, no debit row)`); a vessel origin still writes dispatched + debited.
+Old saves, by the coordinator's scope change (no conversion): `Ledger.LoadFromFile` drops legacy
+route money rows at the ConfigNode level before deserialization (`LedgerLoadMigration.IsLegacyRouteMoneyNode`:
+type 28, and type 24 with a non-zero `routeKscFundsCost`) with one Info count line; the next save
+holds none, so a second load drops nothing. `RouteCodec` ignores `kscDispatchFundsCost` and the
+pending-credit keys and never writes them; `WaitingForFunds` reads as `Active`; a FundsShort hold
+still loads and renders a generic line. `Route.CreationTreeRecordingIds` kept. Harness: RVR-4,
+RVR-17, GUI-23, the `rover-route-career` fixture and builder, `[fixture.career]` and the oracle's
+Rec-3 route-funds carve-out retired; IR-5's dispatch token re-pinned. Flown 2026-10-21 at 98a0aae, 59 lanes (47 route / Logistics, 12
+ledger): 56 PASS, 3 PARSEK-FAIL unrelated to the change (MINE-7-RESTORE-PIN-ASSUMES-DRILLS-OFF,
+RVR-21-START-SPEED-ABOVE-STATIONARY, L2-AFTER-QUIT-STOCK-NRE). Gap: `RouteRewindRedeliveryInGameTest`'s
+funds-flat assertion ran on no lane (its four hosts H38 / H39 / H40 / RVR-6 are Sandbox and skip it);
+proving it needs a Logistics isolated lane on a career save (not authored).
+
+## ~~ROUTE-DISPATCH-IGNORES-RESERVATIONS: a route dispatch checks the raw funds counter, so it can spend money a committed purchase needs~~ [FILED 2026-10-21 from the O4 analysis. Was open, small; owner ruling: ship now, ahead of LOGISTICS-WITHOUT-MONEY. FIXED 2026-10-21 on branch `claude/project-thread-q165qu`. xUnit only. product. SUPERSEDED the same day by LOGISTICS-WITHOUT-MONEY phase 1, which deletes the route funds gate this fix made reservation-aware, with `RouteDispatchReservationGateTests`.]
 
 `LiveRouteRuntimeEnvironment.KscFundsAvailable` compares `Funding.Instance.Funds` with the dispatch
 cost, but the logistics design (section 8, step 4) says the KSC dispatch must be "affordable under
@@ -11243,7 +11289,7 @@ either `outcome=no-external-coupling candidates=0` (which CONFIRMS this entry ou
 the walk ran and found nothing) or a `Captured` line (which refutes it). That lane does not
 exist yet and is the cheapest remaining step here.
 
-## ROUTE-DISPATCH-COST-BASIS-RESIDUALS: what the transport-subset + ghost-surface costing fix still leaves open [SUPERSEDED 2026-10-21 by LOGISTICS-WITHOUT-MONEY phase 1: routes carry no money. FOUND 2026-09-02 by the pre-merge correctness pass on PR #1597. NONE blocking - every item is a strict improvement over the pre-#1597 state, where the same routes dispatched for FREE - but each names a real follow-up. REPORT-ONLY, fix shapes recorded]
+## ~~ROUTE-DISPATCH-COST-BASIS-RESIDUALS: what the transport-subset + ghost-surface costing fix still leaves open~~ [SUPERSEDED 2026-10-21 by LOGISTICS-WITHOUT-MONEY phase 1: the dispatch cost basis and its calculators are deleted, so no residual remains. FOUND 2026-09-02 by the pre-merge correctness pass on PR #1597. NONE blocking - every item is a strict improvement over the pre-#1597 state, where the same routes dispatched for FREE - but each names a real follow-up. REPORT-ONLY, fix shapes recorded]
 
 1. **The two snapshot surfaces are not the same instant.** `GhostVisualSnapshot` is captured at
    recording START (`FlightRecorder` start-state node); `VesselSnapshot` at STOP. Preferring

@@ -184,11 +184,9 @@ namespace Parsek.Tests.Logistics
 
         private sealed class EligibleEnv : IRouteRuntimeEnvironment
         {
-            public bool IsCareer { get; set; }
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = string.Empty; return true; }
             public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason) { vessel = null; reason = string.Empty; return true; }
             public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall) { shortfall = 0.0; lackingResource = string.Empty; return true; }
-            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
             public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = string.Empty; return true; }
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }
@@ -292,33 +290,6 @@ namespace Parsek.Tests.Logistics
                 route.LastHoldKind);                                 // NO hold
             Assert.Equal(rowsAfterFire, Ledger.Actions.Count);       // NO rows
             Assert.False(RouteStore.HasEscrow(route.Id));            // NO escrow
-        }
-
-        // catches (OQ3): the skip IS the "next crossing" for the previously
-        // dispatched cycle - its pending recovery credit must flush on the skip
-        // tick, not strand until the next delivered window a synodic later.
-        [Fact]
-        public void ModuloSkip_FlushesPendingRecoveryCredit()
-        {
-            var route = BuildReaimRoute(cadenceMultiplier: 2, isKscOrigin: true);
-            RouteStore.AddRoute(route);
-            InstallUnitResolver(BuildReaimUnit());
-            InstallRealPathRowEmitter();
-            var env = new EligibleEnv { IsCareer = true };
-
-            RouteOrchestrator.Tick(DockUT, env); // window 0 fires, arms the credit
-            Assert.Equal("cycle-0", route.PendingRecoveryCreditCycleId);
-
-            logLines.Clear();
-            RouteOrchestrator.Tick(DockUT + Synodic, env); // window 1: skip -> flush
-
-            // The flush ran on the skip crossing (zero-recovery branch here: no
-            // recovery rows in the ledger, amount ELS-recomputed at flush time)
-            // and cleared the pending marker either way.
-            Assert.Null(route.PendingRecoveryCreditCycleId);
-            Assert.Contains(logLines, l => l.Contains("EmitPendingRecoveryCredit")
-                && l.Contains("cycle-0"));
-            Assert.Contains(logLines, l => l.Contains("SKIPPED by cadence modulo"));
         }
 
         // REQUIRED-RED (review Missed #3): a modulo skip must advance neither

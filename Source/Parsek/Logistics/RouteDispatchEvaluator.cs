@@ -38,7 +38,12 @@ namespace Parsek.Logistics
             EndpointLost,
             /// <summary>Origin lacks the manifest's required resources.</summary>
             OriginLacksCargo,
-            /// <summary>Career + KSC origin without funds for the dispatch cost.</summary>
+            /// <summary>
+            /// Legacy: a Career Space Center route short of dispatch funds. Never
+            /// produced since supply routes stopped carrying money (todo
+            /// LOGISTICS-WITHOUT-MONEY); kept so an old save's <c>lastHoldKind</c>
+            /// and <c>RouteHeld</c> rows with this kind still load.
+            /// </summary>
             FundsShort,
             /// <summary>Destination has no capacity for the cost manifest.</summary>
             DestinationFull,
@@ -118,7 +123,7 @@ namespace Parsek.Logistics
                     }
                     return RouteDispatchDecision.Skip("in-transit-pending");
 
-                // Active, WaitingForResources, WaitingForFunds, DestinationFull,
+                // Active, WaitingForResources, DestinationFull,
                 // EndpointLost: fall through to the dispatch decision chain.
             }
 
@@ -130,7 +135,7 @@ namespace Parsek.Logistics
             if (currentUT < route.NextDispatchUT)
                 return RouteDispatchDecision.Skip("not-due-yet");
 
-            // 4-8. Per-cycle eligibility (ERS, endpoint, cargo, funds, capacity).
+            // 4-8. Per-cycle eligibility (ERS, endpoint, cargo, capacity).
             //      Extracted into CheckEligibility (plan Phase 4 task 3) so the
             //      loop-clock path can reuse the identical gate WITHOUT this
             //      method's Dispatch->InTransit + PendingDeliveryUT self-timer
@@ -156,11 +161,6 @@ namespace Parsek.Logistics
                         currentUT + RouteOrchestrator.WaitRetryIntervalSec,
                         elig.Reason);
 
-                case EligibilityFailureKind.FundsShort:
-                    return RouteDispatchDecision.WaitFunds(
-                        currentUT + RouteOrchestrator.WaitRetryIntervalSec,
-                        elig.Shortfall);
-
                 case EligibilityFailureKind.DestinationFull:
                     return RouteDispatchDecision.WaitDestinationFull(
                         currentUT + RouteOrchestrator.WaitRetryIntervalSec,
@@ -184,8 +184,8 @@ namespace Parsek.Logistics
         /// <summary>
         /// Pure per-cycle eligibility gate (plan Phase 4 task 3, must-fix #3).
         /// Runs ONLY the per-cycle condition checks (ERS sources, endpoint
-        /// resolution for every stop + non-KSC origin, origin cargo, Career/KSC
-        /// funds, destination capacity) and returns the first failure (or
+        /// resolution for every stop + non-KSC origin, origin cargo, destination
+        /// capacity) and returns the first failure (or
         /// <see cref="EligibilityResult.Ok"/>). It does NOT touch route status,
         /// scheduling, or the <c>PendingDeliveryUT</c> self-timer — that
         /// machinery is owned by <see cref="EvaluateRoute"/> for the legacy path
@@ -235,8 +235,8 @@ namespace Parsek.Logistics
                     EligibilityFailureKind.EndpointLost, $"origin-{originReason}", 0.0);
             }
 
-            // 6. Origin has cargo. The gate's measured shortfall rides in the SAME
-            //    EligibilityResult field FundsShort uses: the hold token is a
+            // 6. Origin has cargo. The gate's measured shortfall rides in the
+            //    EligibilityResult Shortfall field: the hold token is a
             //    legibility string that must never be parsed for a magnitude, so
             //    this is the only channel the number has. Without it a PARTIALLY
             //    short source rendered as a bare "out of X" with no amount
@@ -249,26 +249,16 @@ namespace Parsek.Logistics
                     EligibilityFailureKind.OriginLacksCargo, lackingResource, cargoShortfall);
             }
 
-            // 7. Career funds (only when Career mode AND KSC origin).
-            if (env.IsCareer && route.IsKscOrigin)
-            {
-                if (!env.KscFundsAvailable(route, out double shortfall))
-                {
-                    return new EligibilityResult(
-                        EligibilityFailureKind.FundsShort, "funds-short", shortfall);
-                }
-            }
-
-            // 8. Destination capacity.
+            // 7. Destination capacity.
             if (!env.DestinationHasCapacity(route, out string fullResource))
             {
                 return new EligibilityResult(
                     EligibilityFailureKind.DestinationFull, fullResource, 0.0);
             }
 
-            // 9. Round-trip linking chain constraint (M4c Phase C1, plan D12 / OQ8).
+            // 8. Round-trip linking chain constraint (M4c Phase C1, plan D12 / OQ8).
             //    Ordered LAST so a genuinely-blocked route (sources / endpoint /
-            //    cargo / funds / capacity) surfaces its real blocker first - the
+            //    cargo / capacity) surfaces its real blocker first - the
             //    partner wait is the lowest-priority hold. Resolved via
             //    RouteStore.TryGetRoute (a static, the same seam B1 used to read
             //    escrow) rather than a new IRouteRuntimeEnvironment member, so the

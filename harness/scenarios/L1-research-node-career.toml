@@ -78,7 +78,6 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 [expectations.ledger]
 seedFrom     = "template"
 tolerances   = "default"
-rec3CarveOut = false
 
 # The FIRST-EVER nonzero seam-declared manifest entry.
 [[expectations.ledger.manifest]]

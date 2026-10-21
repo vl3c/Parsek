@@ -146,14 +146,9 @@ namespace Parsek
 
             // Second tier
             RecalculationEngine.RegisterModule(fundsModule, RecalculationEngine.ModuleTier.SecondTier);
-            // RouteModule second-tier slot, AFTER FundsModule (design doc §6.1 step 4).
-            // The future dispatch integration will (a) read GameAction.Affordable set
-            // by FundsModule to gate KSC-origin Career dispatch and (b) potentially
-            // synthesize cascading FundsSpending-equivalent debits via
-            // GameActionType.RouteCargoDebited. Both require running after FundsModule
-            // in the same tier walk. The skeleton does not consume Affordable yet,
-            // but placing it here now means the integration phase wires affordability
-            // in one line.
+            // RouteModule second-tier slot (design doc section 6.1 step 4). Supply routes
+            // carry no money (todo LOGISTICS-WITHOUT-MONEY), so the module only observes
+            // its route rows; its slot after FundsModule is kept as it was.
             RecalculationEngine.RegisterModule(routeModule, RecalculationEngine.ModuleTier.SecondTier);
             RecalculationEngine.RegisterModule(reputationModule, RecalculationEngine.ModuleTier.SecondTier);
 
@@ -3624,9 +3619,6 @@ namespace Parsek
                     return action.HireCost != 0f;
                 case GameActionType.StrategyActivate:
                     return action.SetupCost != 0f;
-                case GameActionType.RouteCargoDebited:
-                case GameActionType.RouteRecoveryCredited:
-                    return action.RouteKscFundsCost != 0f;
                 default:
                     return false;
             }

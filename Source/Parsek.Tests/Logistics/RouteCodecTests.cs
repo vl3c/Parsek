@@ -142,7 +142,7 @@ namespace Parsek.Tests.Logistics
                 .WithId("route-guid-1")
                 .WithName("Mun Fuel Run")
                 .WithStatus(RouteStatus.InTransit)
-                .WithKscOrigin(true, 12500f)
+                .WithKscOrigin(true)
                 .WithSchedule(12345.6, 43200.0)
                 .WithDispatchWindow(42654.0, 0.0, 258654.0)
                 .WithCurrentCycleStartUT(255000.0)
@@ -240,7 +240,6 @@ namespace Parsek.Tests.Logistics
             // Endpoints + flags
             AssertEndpointsEqual(original.Origin, roundTripped.Origin);
             Assert.Equal(original.IsKscOrigin, roundTripped.IsKscOrigin);
-            Assert.Equal(original.KscDispatchFundsCost, roundTripped.KscDispatchFundsCost);
 
             // Scheduling
             Assert.Equal(original.TransitDuration, roundTripped.TransitDuration);
@@ -599,10 +598,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(0u, harvestBack.Origin.VesselPersistentId);
         }
 
-        // T-CODEC (logistics-recovery-credit section 5.6): the recovery-credit
-        // pending marker (cycle id + dispatch UT) round-trips when set.
-        [Fact]
-        public void RoundTrip_PendingRecoveryCredit_Preserved()
+        private static Route BuildLeanKscRoute(string id)
         {
             var leanStop = new RouteStop
             {
@@ -612,62 +608,82 @@ namespace Parsek.Tests.Logistics
                 SegmentIndexBefore = 0,
                 DeliveryOffsetSeconds = 0.0
             };
-            var route = new RouteFixtureBuilder()
-                .WithId("pending-credit-route")
+            return new RouteFixtureBuilder()
+                .WithId(id)
                 .WithOrigin(BuildKscOrigin())
                 .WithStop(leanStop)
                 .WithBackingMissionTreeId("tree-9")
                 .Build();
-            route.PendingRecoveryCreditCycleId = "cycle-4";
-            route.PendingRecoveryCreditDispatchUT = 123456.5;
-
-            var node = new ConfigNode("ROUTE");
-            route.SerializeInto(node);
-            Assert.True(node.HasValue("pendingRecoveryCreditCycleId"),
-                "pendingRecoveryCreditCycleId must be written when set");
-            Assert.True(node.HasValue("pendingRecoveryCreditDispatchUT"),
-                "pendingRecoveryCreditDispatchUT must be written when >= 0");
-
-            Route roundTripped = Route.DeserializeFrom(node);
-            Assert.NotNull(roundTripped);
-            Assert.Equal("cycle-4", roundTripped.PendingRecoveryCreditCycleId);
-            Assert.Equal(123456.5, roundTripped.PendingRecoveryCreditDispatchUT);
         }
 
-        // T-CODEC sparse-default proof: a route with no pending marker omits BOTH
-        // keys and deserializes to the null / -1 defaults.
+        // catches: an old save's route money keys (the Space Center dispatch cost and
+        // the owed recovery-credit marker) being read back or written again. Supply
+        // routes carry no money (todo LOGISTICS-WITHOUT-MONEY): the keys load as
+        // ignored and the next save drops them.
         [Fact]
-        public void RoundTrip_PendingRecoveryCredit_SparseDefaults()
+        public void LegacyMoneyKeys_IgnoredOnRead_NeverWritten()
         {
-            var leanStop = new RouteStop
-            {
-                Endpoint = BuildMunStopEndpoint(),
-                ConnectionKind = RouteConnectionKind.DockingPort,
-                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
-                SegmentIndexBefore = 0,
-                DeliveryOffsetSeconds = 0.0
-            };
-            var route = new RouteFixtureBuilder()
-                .WithId("no-pending-credit-route")
-                .WithOrigin(BuildKscOrigin())
-                .WithStop(leanStop)
-                .WithBackingMissionTreeId("tree-9")
-                .Build();
-            // Default: no credit owed.
-            Assert.Null(route.PendingRecoveryCreditCycleId);
-            Assert.Equal(-1.0, route.PendingRecoveryCreditDispatchUT);
-
             var node = new ConfigNode("ROUTE");
-            route.SerializeInto(node);
-            Assert.False(node.HasValue("pendingRecoveryCreditCycleId"),
-                "pendingRecoveryCreditCycleId must be omitted when null");
-            Assert.False(node.HasValue("pendingRecoveryCreditDispatchUT"),
-                "pendingRecoveryCreditDispatchUT must be omitted when -1");
+            BuildLeanKscRoute("legacy-money-route").SerializeInto(node);
+            Assert.False(node.HasValue("kscDispatchFundsCost"));
+            Assert.False(node.HasValue("pendingRecoveryCreditCycleId"));
+            Assert.False(node.HasValue("pendingRecoveryCreditDispatchUT"));
 
-            Route roundTripped = Route.DeserializeFrom(node);
-            Assert.NotNull(roundTripped);
-            Assert.Null(roundTripped.PendingRecoveryCreditCycleId);
-            Assert.Equal(-1.0, roundTripped.PendingRecoveryCreditDispatchUT);
+            node.AddValue("kscDispatchFundsCost", "5000");
+            node.AddValue("pendingRecoveryCreditCycleId", "cycle-4");
+            node.AddValue("pendingRecoveryCreditDispatchUT", "123456.5");
+
+            Route loaded = Route.DeserializeFrom(node);
+            Assert.NotNull(loaded);
+            Assert.Equal("legacy-money-route", loaded.Id);
+            Assert.DoesNotContain(logLines, l => l.Contains("[WARN]") && l.Contains("[Route]"));
+
+            var resaved = new ConfigNode("ROUTE");
+            loaded.SerializeInto(resaved);
+            Assert.False(resaved.HasValue("kscDispatchFundsCost"));
+            Assert.False(resaved.HasValue("pendingRecoveryCreditCycleId"));
+            Assert.False(resaved.HasValue("pendingRecoveryCreditDispatchUT"));
+        }
+
+        // catches: an old save's WaitingForFunds route loading as an unknown status
+        // (a WARN) or staying held. The retired status reads as Active with one Info.
+        [Fact]
+        public void LegacyWaitingForFundsStatus_ReadsAsActive()
+        {
+            var node = new ConfigNode("ROUTE");
+            BuildLeanKscRoute("legacy-funds-wait-route").SerializeInto(node);
+            node.SetValue("status", RouteCodec.LegacyWaitingForFundsStatus);
+
+            Route loaded = Route.DeserializeFrom(node);
+
+            Assert.NotNull(loaded);
+            Assert.Equal(RouteStatus.Active, loaded.Status);
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO]") && l.Contains("[Route]")
+                && l.Contains("legacy status='WaitingForFunds'")
+                && l.Contains("legacy-funds-wait-route"));
+            Assert.DoesNotContain(logLines, l => l.Contains("[WARN]") && l.Contains("unknown status"));
+        }
+
+        // catches: an old save's FundsShort hold failing to load. The hold kind stays
+        // a defined member so a held route and its RouteHeld rows read back unchanged.
+        [Fact]
+        public void LegacyFundsShortHoldKind_StillLoads()
+        {
+            var node = new ConfigNode("ROUTE");
+            BuildLeanKscRoute("legacy-funds-hold-route").SerializeInto(node);
+            node.AddValue("lastHoldKind", "FundsShort");
+            node.AddValue("lastHoldDetail", "funds-short");
+            node.AddValue("lastHoldShortfall", "750");
+            node.AddValue("lastHoldUT", "1150");
+
+            Route loaded = Route.DeserializeFrom(node);
+
+            Assert.NotNull(loaded);
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.FundsShort, loaded.LastHoldKind);
+            Assert.Equal("funds-short", loaded.LastHoldDetail);
+            Assert.Equal(750.0, loaded.LastHoldShortfall);
+            Assert.DoesNotContain(logLines, l => l.Contains("[WARN]") && l.Contains("lastHoldKind"));
         }
 
         // catches: the cadence multiplier (Phase 6) not round-tripping, or the
@@ -1656,7 +1672,6 @@ namespace Parsek.Tests.Logistics
 	id = byte-id-single-stop
 	name = Lean Single Stop
 	isKscOrigin = False
-	kscDispatchFundsCost = 0
 	transitDuration = 0
 	dispatchInterval = 0
 	dispatchWindowEpochUT = 0

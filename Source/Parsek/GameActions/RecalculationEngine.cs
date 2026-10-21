@@ -516,9 +516,6 @@ namespace Parsek
                 // Science lab credit: an earning like ScienceEarning.
                 case GameActionType.ScienceLabEarning:
                 case GameActionType.FundsEarning:
-                // Logistics deferred recovery credit: a funds earning (FundsModule adds
-                // it to totalEarnings), so it sorts before spendings at a shared UT.
-                case GameActionType.RouteRecoveryCredited:
                 case GameActionType.MilestoneAchievement:
                 case GameActionType.ContractComplete:
                 case GameActionType.ReputationEarning:
@@ -559,9 +556,6 @@ namespace Parsek
                 //       Falling through to Reconcile's generic branch keeps a
                 //       valid-id-tagged row regardless of maxUT.
                 case GameActionType.FundsSpending:
-                // Logistics gross dispatch charge (Option A): a funds spending in the
-                // recalc walk, so it sorts after earnings at a shared UT.
-                case GameActionType.RouteCargoDebited:
                 case GameActionType.FacilityUpgrade:
                 case GameActionType.FacilityRepair:
                 case GameActionType.KerbalHire:

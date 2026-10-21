@@ -715,7 +715,6 @@ namespace Parsek.Tests
                 sb.Append(key).Append(':')
                   .Append(state.DispatchedCycles).Append('/')
                   .Append(state.DeliveredStops).Append('/')
-                  .Append(state.CreditedCycles).Append('/')
                   .Append(state.PhysicalDebits).Append('/')
                   .Append(state.PhysicalPickups).Append('/')
                   .Append(state.Paused ? 1 : 0).Append('/')
@@ -1103,7 +1102,6 @@ namespace Parsek.Tests
                     break;
                 case GameActionType.RouteCargoDebited:
                     ApplyRouteIdentity(action, rng);
-                    action.RouteKscFundsCost = Amount(rng, 0f, 900f);
                     action.RouteResourceManifest = new Dictionary<string, double>
                     {
                         { "Ore", rng.Next(1, 40) }
@@ -1127,7 +1125,6 @@ namespace Parsek.Tests
                     break;
                 case GameActionType.RouteRecoveryCredited:
                     ApplyRouteIdentity(action, rng);
-                    action.RouteKscFundsCost = Amount(rng, 0f, 700f);
                     break;
                 case GameActionType.RoutePaused:
                     ApplyRouteIdentity(action, rng);

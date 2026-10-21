@@ -477,7 +477,8 @@ covered" rather than "what does it look like". Its top level carries
 ## 10. Coverage as of the 2026-09-22 build
 
 314 captures over 16 fixtures and 13 windows, from 32 census runs (GUI-1 through
-GUI-23), behind **182 DISTINCT KEYS**. The two numbers are 1.7x apart and the
+GUI-23; GUI-23 was retired 2026-10-21 with the route funds gate it photographed, todo
+LOGISTICS-WITHOUT-MONEY, and these counts are the 2026-09-22 reading), behind **182 DISTINCT KEYS**. The two numbers are 1.7x apart and the
 second is the coverage one: 132 of the captures are SUPERSEDED, a later run of the
 same lane having photographed the same key (section 17). A file count was what let
 the state audit report 230 captures over 134 distinct labels and read as

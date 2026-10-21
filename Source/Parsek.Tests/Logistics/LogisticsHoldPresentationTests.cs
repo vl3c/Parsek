@@ -185,7 +185,7 @@ namespace Parsek.Tests.Logistics
         }
 
         // catches: the shortfall rendering under the OS culture (the xUnit host runs
-        // under it; ro-RO prints "108,8"). Same contract as the FundsShort number.
+        // under it; ro-RO prints "108,8").
         [Fact]
         public void DescribeHold_ShortfallAmount_IsInvariantUnderAForeignCulture()
         {
@@ -296,15 +296,15 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, token, 0.0));
         }
 
-        // catches: the funds shortfall number not surfacing (loop path carries it
-        // through EligibilityResult.Shortfall), or a comma-locale render.
+        // catches: an old save's FundsShort hold rendering the raw enum name. Supply
+        // routes carry no money (todo LOGISTICS-WITHOUT-MONEY), so the hold renders
+        // one generic line whatever shortfall it stored.
         [Fact]
-        public void DescribeHold_FundsShort_NamesShortfall()
+        public void DescribeHold_LegacyFundsShort_RendersGenericText()
         {
             Assert.Equal(
-                "not enough funds at KSC - short 750 funds for this run",
+                "not enough funds at KSC for this run",
                 LogisticsHoldPresentation.DescribeHold(FundsShort, "funds-short", 750.0));
-            // Shortfall 0 (legacy capture, or a degenerate result): generic text.
             Assert.Equal(
                 "not enough funds at KSC for this run",
                 LogisticsHoldPresentation.DescribeHold(FundsShort, "funds-short", 0.0));
@@ -496,8 +496,6 @@ namespace Parsek.Tests.Logistics
             Assert.True(LogisticsHoldPresentation.ShouldDisplayHold(
                 RouteStatus.WaitingForResources, OriginLacksCargo));
             Assert.True(LogisticsHoldPresentation.ShouldDisplayHold(
-                RouteStatus.WaitingForFunds, FundsShort));
-            Assert.True(LogisticsHoldPresentation.ShouldDisplayHold(
                 RouteStatus.DestinationFull, DestinationFull));
             Assert.True(LogisticsHoldPresentation.ShouldDisplayHold(
                 RouteStatus.EndpointLost, EndpointLost));
@@ -620,12 +618,11 @@ namespace Parsek.Tests.Logistics
             Assert.Null(LogisticsHoldPresentation.StatusCellText(None, "LiquidFuel", 5.0));
         }
 
-        // catches: the funds cell losing the shortfall number (loop path) or
-        // rendering blank on the legacy zero-shortfall capture.
+        // catches: an old save's FundsShort hold rendering a blank Status cell.
         [Fact]
-        public void StatusCellText_Funds_BothShapes()
+        public void StatusCellText_LegacyFunds_RendersGenericText()
         {
-            Assert.Equal("Held: short 500 funds",
+            Assert.Equal("Held: insufficient funds",
                 LogisticsHoldPresentation.StatusCellText(FundsShort, "funds-short", 500.0));
             Assert.Equal("Held: insufficient funds",
                 LogisticsHoldPresentation.StatusCellText(FundsShort, "funds-shortfall-99", 0.0));

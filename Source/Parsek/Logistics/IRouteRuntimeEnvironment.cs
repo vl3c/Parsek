@@ -3,14 +3,11 @@ namespace Parsek.Logistics
     /// <summary>
     /// Delegate surface for runtime queries the pure dispatch evaluator cannot
     /// perform itself. Implementations supply live KSP state (live vessels,
-    /// career funds, game mode, etc.); tests supply fakes so
+    /// resource stores, etc.); tests supply fakes so
     /// <see cref="RouteDispatchEvaluator"/> can be exercised entirely in xUnit.
     /// </summary>
     internal interface IRouteRuntimeEnvironment
     {
-        /// <summary>True when the current game is Career mode.</summary>
-        bool IsCareer { get; }
-
         /// <summary>
         /// Resolve the endpoint to a live vessel. Returns <c>false</c> on miss
         /// with a human-readable reason; the <c>out</c> reason is undefined when
@@ -29,13 +26,12 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// True if the origin currently has the manifest's required resources.
-        /// KSC origin always returns <c>true</c> (funds are checked separately
-        /// via <see cref="KscFundsAvailable"/>).
+        /// KSC origin always returns <c>true</c> (a Space Center origin is free
+        /// and has no cargo to gate).
         ///
         /// <para><paramref name="shortfall"/> is the missing AMOUNT of
         /// <paramref name="lackingResource"/> (need minus stored, in the
-        /// resource's own units), mirroring the
-        /// <see cref="KscFundsAvailable"/> shortfall contract: it is the only
+        /// resource's own units): it is the only
         /// channel the number has, because the hold token is a legibility
         /// string and must never be parsed for a magnitude. <c>0</c> means
         /// "unknown / not a resource shortfall": the short is an inventory
@@ -43,15 +39,6 @@ namespace Parsek.Logistics
         /// Undefined when the call returns <c>true</c>.</para>
         /// </summary>
         bool OriginHasCargo(Route route, out string lackingResource, out double shortfall);
-
-        /// <summary>
-        /// True if (Career mode AND KSC origin) has funds for the dispatch cost: the live
-        /// counter covers it AND it fits in what the ledger leaves free once committed future
-        /// costs are reserved (todo ROUTE-DISPATCH-IGNORES-RESERVATIONS).
-        /// Sandbox, Science, and non-KSC origins always return <c>true</c>; the
-        /// evaluator avoids calling this entirely in those cases.
-        /// </summary>
-        bool KscFundsAvailable(Route route, out double shortfall);
 
         /// <summary>
         /// True if every stop's destination has capacity for the cost manifest.

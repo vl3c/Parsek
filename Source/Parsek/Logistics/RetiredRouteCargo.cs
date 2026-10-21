@@ -182,7 +182,7 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// Pure: the stash entry for one retired row, or null when it moved no resource
-        /// (funds-only, marker and inventory-only rows). The endpoint comes from
+        /// (marker and inventory-only rows). The endpoint comes from
         /// <paramref name="route"/> (null when the route is gone: the entry then matches by the
         /// row's own vessel pid only).
         /// </summary>

@@ -16,13 +16,10 @@ namespace Parsek.Tests.Logistics
     {
         /// <summary>
         /// Hand-rolled fake. Every check returns a settable boolean + canned
-        /// out value. <c>KscFundsAvailableCalled</c> records whether the
-        /// evaluator actually invoked the funds path (so we can assert the
-        /// short-circuit in sandbox / non-KSC cases).
+        /// out value.
         /// </summary>
         private sealed class FakeRouteRuntimeEnvironment : IRouteRuntimeEnvironment
         {
-            public bool IsCareer { get; set; }
             public bool EndpointResolvable { get; set; } = true;
             public string EndpointResolveFailureReason { get; set; } = "pid-miss";
             /// <summary>
@@ -40,13 +37,9 @@ namespace Parsek.Tests.Logistics
             /// the pre-shortfall cells byte-identical.
             /// </summary>
             public double OriginCargoShortfall { get; set; } = 0.0;
-            public bool KscFundsAvailableResult { get; set; } = true;
-            public double KscFundsShortfall { get; set; } = 0.0;
             public bool DestinationHasCapacityResult { get; set; } = true;
             public string DestinationFullResource { get; set; } = "Ore";
             public bool RouteHasValidSourcesResult { get; set; } = true;
-
-            public bool KscFundsAvailableCalled;
 
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason)
             {
@@ -77,12 +70,6 @@ namespace Parsek.Tests.Logistics
                 return OriginHasCargoResult;
             }
 
-            public bool KscFundsAvailable(Route route, out double shortfall)
-            {
-                KscFundsAvailableCalled = true;
-                shortfall = KscFundsAvailableResult ? 0.0 : KscFundsShortfall;
-                return KscFundsAvailableResult;
-            }
 
             public bool DestinationHasCapacity(Route route, out string fullResource)
             {
@@ -381,62 +368,18 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(0.0, elig.Shortfall);
         }
 
-        // catches: a Career KSC route dispatching despite insufficient funds.
+        // catches: a funds gate coming back. Supply routes carry no money, so a
+        // Space Center origin route that passes every physical gate dispatches.
         [Fact]
-        public void WaitFunds_OnlyInCareer()
+        public void SpaceCenterOrigin_DispatchesWithNoFundsGate()
         {
             var route = MakeDueRoute();
-            var env = new FakeRouteRuntimeEnvironment
-            {
-                IsCareer = true,
-                KscFundsAvailableResult = false,
-                KscFundsShortfall = 12345.0,
-            };
-
-            var decision = RouteDispatchEvaluator.EvaluateRoute(route, 200.0, env);
-
-            Assert.Equal(RouteDispatchOutcome.WaitFunds, decision.Outcome);
-            Assert.Equal(RouteStatus.WaitingForFunds, decision.NextStatus);
-            Assert.Contains("12345", decision.Reason);
-        }
-
-        // catches: a sandbox game still gating dispatch on funds.
-        [Fact]
-        public void WaitFunds_SkippedInSandbox()
-        {
-            var route = MakeDueRoute();
-            var env = new FakeRouteRuntimeEnvironment
-            {
-                IsCareer = false,
-                KscFundsAvailableResult = false, // would fail if it were called
-            };
+            Assert.True(route.IsKscOrigin);
+            var env = new FakeRouteRuntimeEnvironment();
 
             var decision = RouteDispatchEvaluator.EvaluateRoute(route, 200.0, env);
 
             Assert.Equal(RouteDispatchOutcome.Dispatch, decision.Outcome);
-            Assert.False(env.KscFundsAvailableCalled,
-                "sandbox-mode routes must never invoke the funds check");
-        }
-
-        // catches: a Career non-KSC route still being charged from KSC funds.
-        [Fact]
-        public void WaitFunds_SkippedForNonKscOriginEvenInCareer()
-        {
-            var route = MakeDueRoute();
-            route.IsKscOrigin = false;
-            // Provide an Origin endpoint so the non-KSC resolver pass succeeds.
-            route.Origin = new RouteEndpoint { VesselPersistentId = 7u };
-            var env = new FakeRouteRuntimeEnvironment
-            {
-                IsCareer = true,
-                KscFundsAvailableResult = false, // would fail if it were called
-            };
-
-            var decision = RouteDispatchEvaluator.EvaluateRoute(route, 200.0, env);
-
-            Assert.Equal(RouteDispatchOutcome.Dispatch, decision.Outcome);
-            Assert.False(env.KscFundsAvailableCalled,
-                "non-KSC origin must never invoke the KSC funds check");
         }
 
         // catches: a destination-full outcome reporting Dispatch (or advancing NextDispatchUT semantics).
@@ -506,7 +449,6 @@ namespace Parsek.Tests.Logistics
         /// </summary>
         private sealed class ResolveOnlyStopsEnvironment : IRouteRuntimeEnvironment
         {
-            public bool IsCareer => false;
             public int StopCallCount;
             public int OriginCallCount;
 
@@ -537,11 +479,6 @@ namespace Parsek.Tests.Logistics
                 return true;
             }
 
-            public bool KscFundsAvailable(Route route, out double shortfall)
-            {
-                shortfall = 0.0;
-                return true;
-            }
 
             public bool DestinationHasCapacity(Route route, out string fullResource)
             {
@@ -571,8 +508,6 @@ namespace Parsek.Tests.Logistics
         private sealed class PureCheckOriginEnvironment : IRouteRuntimeEnvironment
         {
             public Dictionary<string, double> Stored = new Dictionary<string, double>();
-            public bool IsCareer { get; set; }
-            public bool KscFundsAvailableCalled;
 
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason)
             {
@@ -595,12 +530,6 @@ namespace Parsek.Tests.Logistics
                     out shortfall);
             }
 
-            public bool KscFundsAvailable(Route route, out double shortfall)
-            {
-                KscFundsAvailableCalled = true;
-                shortfall = 0.0;
-                return true;
-            }
 
             public bool DestinationHasCapacity(Route route, out string fullResource)
             {
@@ -639,7 +568,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, elig.Kind);
             Assert.Equal("LiquidFuel", elig.Reason);
             // ROUTE-HOLD-SHORTFALL-DROPPED: the MISSING AMOUNT rides in the same
-            // EligibilityResult field FundsShort uses (need 100 - stored 40 = 60).
+            // EligibilityResult Shortfall field (need 100 - stored 40 = 60).
             // Before the fix the evaluator hardcoded 0.0 here and the player text
             // said "out of LiquidFuel" for a source holding 40% of the manifest.
             Assert.Equal(60.0, elig.Shortfall);
@@ -694,11 +623,9 @@ namespace Parsek.Tests.Logistics
         }
 
         // catches: a fully-covered origin being held at the cargo gate. The
-        // route proceeds past gate 6 to the later gates (for a non-KSC origin
-        // the Career funds gate is skipped by design, so "passes" lands on
-        // Dispatch with the funds check never consulted).
+        // route proceeds past gate 6 to the later gates and lands on Dispatch.
         [Fact]
-        public void CheckEligibility_OriginCargoCovered_PassesToFundsGate()
+        public void CheckEligibility_OriginCargoCovered_PassesToLaterGates()
         {
             var route = MakeDueRoute();
             route.IsKscOrigin = false;
@@ -710,7 +637,6 @@ namespace Parsek.Tests.Logistics
             };
             var env = new PureCheckOriginEnvironment
             {
-                IsCareer = true,
                 Stored = new Dictionary<string, double>
                 {
                     { "LiquidFuel", 100.0 },
@@ -723,9 +649,6 @@ namespace Parsek.Tests.Logistics
 
             var decision = RouteDispatchEvaluator.EvaluateRoute(route, 200.0, env);
             Assert.Equal(RouteDispatchOutcome.Dispatch, decision.Outcome);
-            // Career + NON-KSC: the funds gate is short-circuited (gate 7 only
-            // runs for Career AND KSC origin).
-            Assert.False(env.KscFundsAvailableCalled);
         }
     }
 }

@@ -1211,17 +1211,6 @@
         "2026-10-12T19:18:51Z": 44.0
       }
     },
-    "GUI-23-census-logistics-hold-funds-short": {
-      "last": 44.0,
-      "lastVsP50": 1.0,
-      "n": 2,
-      "p50": 44.0,
-      "p95": 55.0,
-      "samples": {
-        "2026-09-21T21:20:47Z": 55.0,
-        "2026-10-12T19:19:38Z": 44.0
-      }
-    },
     "GUI-24-census-timeline-filters": {
       "last": 123.0,
       "lastVsP50": 1.685,
@@ -3325,16 +3314,6 @@
         "2026-10-12T08:38:20Z": 43.0
       }
     },
-    "RVR-17-rover-route-career-funds-short": {
-      "last": 44.0,
-      "lastVsP50": 1.0,
-      "n": 1,
-      "p50": 44.0,
-      "p95": 44.0,
-      "samples": {
-        "2026-10-12T08:39:06Z": 44.0
-      }
-    },
     "RVR-18-rover-route-endpoint-removed": {
       "last": 43.0,
       "lastVsP50": 1.0,
@@ -3388,17 +3367,6 @@
       "samples": {
         "2026-09-01T20:50:05Z": 51.0,
         "2026-10-12T11:00:58Z": 47.0
-      }
-    },
-    "RVR-4-rover-route-career-cost": {
-      "last": 43.0,
-      "lastVsP50": 1.0,
-      "n": 2,
-      "p50": 43.0,
-      "p95": 52.0,
-      "samples": {
-        "2026-09-01T22:54:30Z": 52.0,
-        "2026-10-12T08:42:52Z": 43.0
       }
     },
     "RVR-5-rover-relay-eligibility": {

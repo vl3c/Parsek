@@ -8,7 +8,7 @@ namespace Parsek.Logistics
     /// <c>docs/dev/plans/fix-logistics-rewind-determinism.md</c>; report
     /// <c>docs/dev/research/logistics-time-rewind-compat-report.md</c>).
     ///
-    /// <para><b>The bug.</b> Route dispatch/delivery/credit ledger rows are
+    /// <para><b>The bug.</b> Route dispatch/delivery ledger rows are
     /// FREE-STANDING (they carry a <see cref="GameAction.RouteId"/> but never a
     /// <see cref="GameAction.RecordingId"/>), so the supersede/tombstone walk —
     /// which gates on <c>RecordingId</c> — can never retire them. On a
@@ -16,14 +16,14 @@ namespace Parsek.Logistics
     /// pre-rewind ledger action list while the live world AND the route counters
     /// revert via the <c>.sfs</c>. The UT-blind dispatch dedup then reproduces the
     /// counter-keyed cycleId and SUPPRESSES the re-flown cycle that would re-apply
-    /// the live cargo, so the player is charged but the goods are never
-    /// re-delivered ("funds spent, no goods").</para>
+    /// the live cargo, so the origin is debited but the goods are never
+    /// re-delivered.</para>
     ///
     /// <para><b>The fix.</b> At a successful rewind restore, DROP every free-standing
     /// route ledger row whose <c>UT</c> is strictly after the rewind cutoff (the
     /// post-load live UT = the loaded quicksave UT). The surviving ledger then matches the reverted world,
-    /// and the live re-fly re-emits each cycle deterministically — re-charging funds
-    /// (once) AND re-delivering physical cargo (once), with the dedup correctly
+    /// and the live re-fly re-emits each cycle deterministically — re-delivering
+    /// physical cargo (once), with the dedup correctly
     /// seeing an empty slate for those cycles.</para>
     ///
     /// <para><b>Parity, not a new behavior.</b> The STOCK-revert path already drops
@@ -182,11 +182,9 @@ namespace Parsek.Logistics
         /// three no-reverse writers (<c>LiveDeliveryWriters</c>,
         /// <c>LiveOriginDebitWriters</c>, <c>LiveInventoryPickupWriter</c>) produce.
         ///
-        /// <para>Funds-only and marker rows return false: <c>RouteDispatched</c>,
-        /// <c>RoutePaused</c>, <c>RouteResumed</c>, <c>RouteHeld</c>, <c>RouteEndpointLost</c>, <c>RouteRecoveryCredited</c>,
-        /// and the KSC-funds-only <c>RouteCargoDebited</c> variant (which sets
-        /// <see cref="GameAction.RouteKscFundsCost"/> instead of a manifest) mutate no
-        /// physical world state, so they have nothing to leak on a non-rewind discard.</para>
+        /// <para>Marker rows return false: <c>RouteDispatched</c>,
+        /// <c>RoutePaused</c>, <c>RouteResumed</c>, <c>RouteHeld</c> and <c>RouteEndpointLost</c>
+        /// mutate no physical world state, so they have nothing to leak on a non-rewind discard.</para>
         /// </summary>
         internal static bool IsPhysicalRouteMutation(GameAction a)
         {

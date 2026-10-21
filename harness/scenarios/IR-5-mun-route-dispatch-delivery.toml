@@ -8,10 +8,10 @@ id = "IR-5-mun-route-dispatch-delivery"
 # 344.62) one cycle and reads the delivery off the station's own tanks.
 #
 # THE ROUTE AS HARVESTED: Paused, completedCycles 0, nextDispatchUT 6738239.52 (its
-# recorded dock), lastObserved -1, KSC origin (SANDBOX, so cost=0 and no origin debit).
+# recorded dock), lastObserved -1, KSC origin (free in every mode, so no debit row).
 # `RouteCommand send-once` arms PauseAfterCurrentCycle + SendOnceArmed and moves it to
 # Active without rebasing the loop clock, so the first 1 Hz tick after it already owes a
-# dock crossing from long ago and fires cycle-0 whole (dispatch, debit and delivery in
+# dock crossing from long ago and fires cycle-0 whole (dispatch and delivery in
 # one tick, the single-stop path: no `LoopRoute(multi)` line and no `ArmedPause:`
 # line), then pauses `delivered-then-paused`. So the wait is a short 1x WarpToUT, not a
 # transit-length jump (a long TimeJump would also epoch-shift a 45-recording corpus).
@@ -79,7 +79,7 @@ required = [
   "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
   "TrySendOneCycleNow: route=8f644e71 prevStatus=Paused [^\\r\\n]*PauseAfterCurrentCycle=true",
   "routecommand complete action=send-once route=8f644e71b1164df3bb735330127d2ee7 name='Route: KSC .{1,3} Mun' match=id statusBefore=Paused status=Active",
-  "DispatchDebit: route 8f644e71 cycle=cycle-0 ut=[0-9.E+]+ cost=0 careerKsc=0",
+  "DispatchDebit: route 8f644e71 cycle=cycle-0 ut=[0-9.E+]+ space-center origin: dispatch row only \\(free, no debit row\\)",
   "Delivery endpoint resolved: route=8f644e71 cycle=cycle-0 dest=Depot pid=4277041026 path=unloaded parts=[^\\r\\n]* plannedResources=2 plannedInventory=0",
   "Delivery write: route=8f644e71b1164df3bb735330127d2ee7 dest=Depot pid=4277041026 resource=LiquidFuel requested=281\\.95[0-9]* written=281\\.95[0-9]* tankBefore=[0-9.]+ tankAfter=[0-9.]+ capacity=[0-9.]+ path=unloaded ",
   "Delivery write: route=8f644e71b1164df3bb735330127d2ee7 dest=Depot pid=4277041026 resource=Oxidizer requested=344\\.61[0-9]* written=344\\.61[0-9]* tankBefore=[0-9.]+ tankAfter=[0-9.]+ capacity=[0-9.]+ path=unloaded ",

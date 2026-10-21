@@ -11,7 +11,7 @@ namespace Parsek.Logistics
     /// stored-part inventory) fits the destination right now.
     ///
     /// <para><b>Why all-or-nothing.</b> Dispatch physically debits the origin
-    /// (or charges KSC funds) for the FULL manifest; a partial delivery loses
+    /// for the FULL manifest; a partial delivery loses
     /// the remainder (the transport is a ghost, nothing comes back). Holding
     /// the cycle until the destination has room for everything keeps cargo
     /// conservation honest and mirrors the origin gate's all-or-nothing

@@ -144,7 +144,6 @@ namespace Parsek.InGameTests
                 PendingDeliveryUT = currentUT - 1.0,
                 PendingStopIndex = 0,
                 CompletedCycles = 0,
-                KscDispatchFundsCost = 0.0,
                 CostManifest = new Dictionary<string, double>(StringComparer.Ordinal)
                 {
                     { LiquidFuelName, DeliveryAmount },

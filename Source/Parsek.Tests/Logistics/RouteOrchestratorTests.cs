@@ -47,13 +47,10 @@ namespace Parsek.Tests.Logistics
 
         private sealed class FakeRouteRuntimeEnvironment : IRouteRuntimeEnvironment
         {
-            public bool IsCareer { get; set; }
             public bool EndpointResolvable { get; set; } = true;
             public string EndpointResolveFailureReason { get; set; } = "pid-miss";
             public bool OriginHasCargoResult { get; set; } = true;
             public string OriginLackingResource { get; set; } = "LiquidFuel";
-            public bool KscFundsAvailableResult { get; set; } = true;
-            public double KscFundsShortfall { get; set; } = 0.0;
             public bool DestinationHasCapacityResult { get; set; } = true;
             public string DestinationFullResource { get; set; } = "Ore";
             public bool RouteHasValidSourcesResult { get; set; } = true;
@@ -63,12 +60,11 @@ namespace Parsek.Tests.Logistics
             // throws InvalidOperationException if route.Id matches. Keying on
             // route id (instead of a global call counter) keeps the test
             // robust to evaluator-call-order reshuffles: a future evaluator
-            // tweak that reorders origin/funds/destination/sources checks
+            // tweak that reorders origin/destination/sources checks
             // would no longer silently shift which route throws.
             public string ThrowOnRouteId { get; set; }
 
             public int OriginHasCargoCalls;
-            public int KscFundsAvailableCalls;
 
             private void ThrowIfMatch(Route route)
             {
@@ -105,14 +101,6 @@ namespace Parsek.Tests.Logistics
                 return OriginHasCargoResult;
             }
 
-            public bool KscFundsAvailable(Route route, out double shortfall)
-            {
-                OnAnyCall?.Invoke();
-                ThrowIfMatch(route);
-                KscFundsAvailableCalls++;
-                shortfall = KscFundsAvailableResult ? 0.0 : KscFundsShortfall;
-                return KscFundsAvailableResult;
-            }
 
             public bool DestinationHasCapacity(Route route, out string fullResource)
             {
@@ -421,8 +409,9 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(RouteStatus.InTransit, routeB.Status);
             Assert.Equal(300.0, routeB.CurrentCycleStartUT);
 
-            // Ledger grew by exactly the new dispatch+debit pair (2 entries).
-            Assert.Equal(actionsAfterFirstTick + 2, Ledger.Actions.Count);
+            // Ledger grew by exactly the new dispatch row (a Space Center origin
+            // writes no debit row).
+            Assert.Equal(actionsAfterFirstTick + 1, Ledger.Actions.Count);
         }
 
         // catches: endpoint loss not emitting the ledger row OR failing to
@@ -455,6 +444,7 @@ namespace Parsek.Tests.Logistics
         public void Tick_DispatchEmitsTwoLedgerActions_WithMatchingCycleId()
         {
             var route = BuildActiveDueKscRoute(id: "route-X");
+            route.IsKscOrigin = false; // a vessel origin writes dispatched + debited
             RouteStore.AddRoute(route);
             var env = new FakeRouteRuntimeEnvironment();
 
@@ -478,24 +468,19 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(200.0, debited.UT);
         }
 
-        // catches: non-KSC dispatch routing funds-cost where it should be 0 +
-        // missing the cost manifest on the debit row.
+        // catches: a non-KSC dispatch missing the cost manifest on the debit row.
         [Fact]
-        public void Tick_NonKscOrigin_CostManifestPopulated_FundsCostZero()
+        public void Tick_NonKscOrigin_CostManifestPopulated()
         {
             var route = BuildActiveDueKscRoute();
             route.IsKscOrigin = false;
             RouteStore.AddRoute(route);
-            var env = new FakeRouteRuntimeEnvironment
-            {
-                IsCareer = true, // career + non-ksc still means zero funds cost
-            };
+            var env = new FakeRouteRuntimeEnvironment();
 
             RouteOrchestrator.Tick(200.0, env);
 
             var debited = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoDebited);
             Assert.NotNull(debited);
-            Assert.Equal(0f, debited.RouteKscFundsCost);
             // CostManifest copied (not the same reference) onto the action.
             Assert.NotNull(debited.RouteResourceManifest);
             Assert.NotSame(route.CostManifest, debited.RouteResourceManifest);
@@ -514,7 +499,7 @@ namespace Parsek.Tests.Logistics
         // applyPhysicalOriginDebit=false from it: the seam is never invoked,
         // the row keeps the v0 shape (CostManifest clone, no requested
         // manifest, pid 0), and the Verbose skip breadcrumb fires. The
-        // companion pin is Tick_NonKscOrigin_CostManifestPopulated_FundsCostZero
+        // companion pin is Tick_NonKscOrigin_CostManifestPopulated
         // staying green UNCHANGED above.
         [Fact]
         public void LegacyDispatchPath_NonKscOrigin_SkipsPhysicalDebit_Logs()
@@ -549,25 +534,23 @@ namespace Parsek.Tests.Logistics
                 && l.Contains("legacy dispatch path: physical origin debit skipped"));
         }
 
-        // catches: Sandbox + KSC origin dispatch silently charging funds.
+        // catches: a Space Center origin dispatch writing a debit (a funds charge
+        // under the old design). Supply routes carry no money: a Space Center
+        // route writes only its RouteDispatched row, in every game mode.
         [Fact]
-        public void Tick_SandboxKscOrigin_EmitsZeroFundsCost()
+        public void Tick_KscOrigin_DispatchesFree_WritesNoDebitRow()
         {
             var route = BuildActiveDueKscRoute();
             RouteStore.AddRoute(route);
-            var env = new FakeRouteRuntimeEnvironment
-            {
-                IsCareer = false, // sandbox / science
-                KscFundsAvailableResult = true, // evaluator short-circuits, but be safe
-            };
 
-            RouteOrchestrator.Tick(200.0, env);
+            RouteOrchestrator.Tick(200.0, new FakeRouteRuntimeEnvironment());
 
-            var debited = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoDebited);
-            Assert.NotNull(debited);
-            Assert.Equal(0f, debited.RouteKscFundsCost);
-            // Evaluator must not have called the funds check in sandbox.
-            Assert.Equal(0, env.KscFundsAvailableCalls);
+            Assert.Equal(RouteStatus.InTransit, route.Status);
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(GameActionType.RouteDispatched, Ledger.Actions[0].Type);
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteCargoDebited);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("space-center origin: dispatch row only"));
         }
 
         // catches: an env method throwing taking down the whole tick, instead
@@ -730,8 +713,8 @@ namespace Parsek.Tests.Logistics
             var route = BuildActiveDueKscRoute();
             route.Status = RouteStatus.Paused;
             route.RecordHold(
-                RouteDispatchEvaluator.EligibilityFailureKind.FundsShort,
-                "funds-short", 750.0, 50.0);
+                RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
+                "origin-lacks-LiquidFuel", 750.0, 50.0);
 
             bool ok = RouteOrchestrator.TryActivate(route, 100.0);
 
@@ -749,8 +732,6 @@ namespace Parsek.Tests.Logistics
         {
             Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
                 RouteOrchestrator.HoldKindForOutcome(RouteDispatchOutcome.WaitResources));
-            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.FundsShort,
-                RouteOrchestrator.HoldKindForOutcome(RouteDispatchOutcome.WaitFunds));
             Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull,
                 RouteOrchestrator.HoldKindForOutcome(RouteDispatchOutcome.WaitDestinationFull));
             Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost,
@@ -981,7 +962,7 @@ namespace Parsek.Tests.Logistics
             var route = BuildActiveDueKscRoute();
             route.Status = RouteStatus.Active;
 
-            bool ok = RouteOrchestrator.TryPause(route, 500.0, null);
+            bool ok = RouteOrchestrator.TryPause(route, 500.0);
 
             Assert.True(ok);
             var marker = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RoutePaused);
@@ -1062,7 +1043,7 @@ namespace Parsek.Tests.Logistics
             var route = BuildActiveDueKscRoute();
             route.Status = RouteStatus.Active;
 
-            Assert.True(RouteOrchestrator.TryPause(route, 500.0, null));
+            Assert.True(RouteOrchestrator.TryPause(route, 500.0));
 
             Assert.Equal(RouteStatus.Paused, route.Status);
             Assert.Single(Ledger.Actions, a => a.Type == GameActionType.RoutePaused && a.RouteId == route.Id);
@@ -1081,7 +1062,7 @@ namespace Parsek.Tests.Logistics
             var route = BuildActiveDueKscRoute();
             route.Status = RouteStatus.Active;
 
-            bool ok = RouteOrchestrator.TryPause(route, degenerateUT, null);
+            bool ok = RouteOrchestrator.TryPause(route, degenerateUT);
 
             Assert.True(ok);
             Assert.Equal(RouteStatus.Paused, route.Status);
@@ -1097,7 +1078,7 @@ namespace Parsek.Tests.Logistics
             var route = BuildActiveDueKscRoute();
             route.Status = RouteStatus.InTransit;
 
-            Assert.True(RouteOrchestrator.TryPause(route, 500.0, null));
+            Assert.True(RouteOrchestrator.TryPause(route, 500.0));
             Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RoutePaused);
         }
 
@@ -1113,7 +1094,7 @@ namespace Parsek.Tests.Logistics
             route.SendOnceArmed = true;
             route.PauseAfterCurrentCycle = true;
 
-            Assert.True(RouteOrchestrator.TryPause(route, 500.0, null));
+            Assert.True(RouteOrchestrator.TryPause(route, 500.0));
 
             Assert.False(route.SendOnceArmed);
             Assert.True(route.PauseAfterCurrentCycle);
@@ -1152,7 +1133,7 @@ namespace Parsek.Tests.Logistics
             Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteResumed);
 
             // A player pause cancels the never-fired arm and leaves no dispatch trace.
-            Assert.True(RouteOrchestrator.TryPause(route, 200.0, null));
+            Assert.True(RouteOrchestrator.TryPause(route, 200.0));
             Assert.False(route.SendOnceArmed);
             Assert.False(route.PauseAfterCurrentCycle);
         }
@@ -1216,785 +1197,6 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(4, captured[0].Sequence);
             Assert.Equal("delivered-then-paused", captured[0].RouteEndpointReason);
             Assert.Empty(Ledger.Actions); // injected emitter bypasses the static ledger
-        }
-
-        // ==================================================================
-        // M2 funds-basis selection (plan D9 / OQ1): the basis log names which
-        // resource-term basis ComputeDispatchFundsCostForRoute applied
-        // ==================================================================
-
-        /// <summary>
-        /// Commits a single-recording tree into the store (so ComputeERS
-        /// resolves it) whose recording carries the given run manifest, plus a
-        /// route pointing at it, and runs
-        /// <see cref="RouteOrchestrator.ComputeDispatchFundsCostForRoute"/>.
-        /// State is torn down inside the helper so the suite's other tests
-        /// keep their store-free shape.
-        /// </summary>
-        private double RunFundsBasisCase(RouteRunCargoManifest runManifest)
-        {
-            RecordingStore.ResetForTesting();
-            EffectiveState.ResetCachesForTesting();
-            ParsekScenario.ResetInstanceForTesting();
-            try
-            {
-                var snapshot = new ConfigNode("VESSEL");
-                ConfigNode part = snapshot.AddNode("PART");
-                part.AddValue("name", "fuelTank");
-
-                var rec = new Recording
-                {
-                    RecordingId = "rec-funds-basis",
-                    VesselName = "Funds Basis Transport",
-                    MergeState = MergeState.Immutable,
-                    VesselSnapshot = snapshot,
-                    RouteRunManifest = runManifest,
-                };
-                RecordingStore.AddRecordingWithTreeForTesting(rec);
-
-                var route = new Route
-                {
-                    Id = "route-funds-basis",
-                    SourceRefs = new List<RouteSourceRef>
-                    {
-                        new RouteSourceRef { RecordingId = "rec-funds-basis", TreeId = rec.TreeId },
-                    },
-                };
-
-                return RouteOrchestrator.ComputeDispatchFundsCostForRoute(route);
-            }
-            finally
-            {
-                RecordingStore.ResetForTesting();
-                EffectiveState.ResetCachesForTesting();
-                ParsekScenario.ResetInstanceForTesting();
-            }
-        }
-
-        // catches: the orchestrator threading a manifest basis without a
-        // COMPLETE run manifest, or not logging which basis it applied -
-        // gate and charge must not diverge (plan risk 7), and the basis log
-        // is the observable that says which one fired.
-        [Fact]
-        public void ComputeDispatchFundsCostForRoute_CompleteManifest_LogsLaunchManifestBasis()
-        {
-            RunFundsBasisCase(new RouteRunCargoManifest
-            {
-                TransportPartPersistentIds = new List<uint> { 100001u },
-                StartTransportResources = new Dictionary<string, ResourceAmount>
-                {
-                    ["LiquidFuel"] = new ResourceAmount { amount = 50.0, maxAmount = 100.0 },
-                },
-                EndTransportResources = new Dictionary<string, ResourceAmount>
-                {
-                    ["LiquidFuel"] = new ResourceAmount { amount = 10.0, maxAmount = 100.0 },
-                },
-                EndCaptured = true,
-            });
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[Route]")
-                && l.Contains("FundsCost basis=launch-manifest")
-                && l.Contains("route=route-fu")
-                && l.Contains("source=rec-funds-basis"));
-        }
-
-        // catches: a start-only (ForceStop-shaped) manifest sneaking onto the
-        // launch basis - the completeness gate requires BOTH halves, exactly
-        // like the analysis presence gate.
-        [Fact]
-        public void ComputeDispatchFundsCostForRoute_StartOnlyManifest_LogsStopSnapshotBasis()
-        {
-            RunFundsBasisCase(new RouteRunCargoManifest
-            {
-                TransportPartPersistentIds = new List<uint> { 100001u },
-                StartTransportResources = new Dictionary<string, ResourceAmount>
-                {
-                    ["LiquidFuel"] = new ResourceAmount { amount = 50.0, maxAmount = 100.0 },
-                },
-                EndCaptured = false,
-            });
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[Route]")
-                && l.Contains("FundsCost basis=stop-snapshot")
-                && l.Contains("source=rec-funds-basis"));
-        }
-
-        // catches: pre-M2 recordings (no run manifest at all) leaving the
-        // legacy basis - the containment half of OQ1.
-        [Fact]
-        public void ComputeDispatchFundsCostForRoute_NoManifest_LogsStopSnapshotBasis()
-        {
-            RunFundsBasisCase(runManifest: null);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[Route]")
-                && l.Contains("FundsCost basis=stop-snapshot")
-                && l.Contains("source=rec-funds-basis"));
-        }
-
-        // ==================================================================
-        // ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT: the snapshot-less
-        // root fallback
-        //
-        // The always-tree ROOT gets its VesselSnapshot at the first stop/split
-        // capture site, so a root that never reaches one (the rover-route
-        // shape: a runway stub ending at the transport's undock split, 0
-        // trajectory points) keeps VesselSnapshot == null forever and used to
-        // make the whole KSC dispatch FREE in career.
-        //
-        // WHICH SNAPSHOT WAS WALKED is proved mechanically, not just by the
-        // basis line: every part name the walk visits emits its own
-        // "Unknown part cost: name=..." Warn (headless PartLoader prices
-        // everything at 0), so each fixture recording carries a DISTINCT part
-        // name and the assertions read the visited set directly.
-        // ==================================================================
-
-        private const string RoverTreeId = "tree-rover-supply";
-        private const string RoverRootId = "rover-root";
-        private const string RoverTransportId = "rover-transport";
-        private const string RoverDockMergeId = "rover-dock-merge";
-        private const double RoverRootStartUT = 1000.0;
-        private const double RoverDockUT = 3000.0;
-        private const string RootPartName = "roverRootStubPart";
-        private const string TransportPartName = "roverTransportTankPart";
-        private const string DepotPartName = "roverDepotStationPart";
-
-        private static ConfigNode PartsSnapshot(params string[] partNames)
-        {
-            var snapshot = new ConfigNode("VESSEL");
-            for (int i = 0; i < partNames.Length; i++)
-                snapshot.AddNode("PART").AddValue("name", partNames[i]);
-            return snapshot;
-        }
-
-        private static Recording RoverMember(
-            string id, int treeOrder, ConfigNode snapshot, double startUT, double endUT)
-        {
-            return new Recording
-            {
-                RecordingId = id,
-                TreeId = RoverTreeId,
-                TreeOrder = treeOrder,
-                VesselName = id,
-                MergeState = MergeState.Immutable,
-                VesselSnapshot = snapshot,
-                ExplicitStartUT = startUT,
-                ExplicitEndUT = endUT,
-            };
-        }
-
-        /// <summary>
-        /// The rover-route tree shape: a snapshot-LESS runway-stub root, the
-        /// transport leg that split off it (snapshot), and the dock-merged
-        /// child that carries the connection window and a COMBINED
-        /// transport + depot snapshot. Commits whichever members the caller
-        /// names, builds a route whose SourceRefs list them in the given
-        /// order, and returns the computed cost.
-        /// </summary>
-        private double RunRoverFundsCase(
-            RouteRunCargoManifest rootManifest,
-            bool rootHasSnapshot,
-            params string[] sourceRefOrder)
-        {
-            RecordingStore.ResetForTesting();
-            EffectiveState.ResetCachesForTesting();
-            ParsekScenario.ResetInstanceForTesting();
-            try
-            {
-                Recording root = RoverMember(
-                    RoverRootId, 0,
-                    rootHasSnapshot ? PartsSnapshot(RootPartName) : null,
-                    RoverRootStartUT, RoverDockUT);
-                root.RouteRunManifest = rootManifest;
-
-                Recording transport = RoverMember(
-                    RoverTransportId, 1, PartsSnapshot(TransportPartName),
-                    RoverRootStartUT + 100.0, RoverDockUT);
-
-                Recording merged = RoverMember(
-                    RoverDockMergeId, 2,
-                    PartsSnapshot(TransportPartName, DepotPartName),
-                    RoverDockUT, RoverDockUT + 500.0);
-                merged.RouteConnectionWindows = new List<RouteConnectionWindow>
-                {
-                    new RouteConnectionWindow
-                    {
-                        WindowId = "w-rover",
-                        DockUT = RoverDockUT,
-                        UndockUT = RoverDockUT + 400.0,
-                    },
-                };
-
-                var byId = new Dictionary<string, Recording>(StringComparer.Ordinal)
-                {
-                    [RoverRootId] = root,
-                    [RoverTransportId] = transport,
-                    [RoverDockMergeId] = merged,
-                };
-
-                var refs = new List<RouteSourceRef>();
-                for (int i = 0; i < sourceRefOrder.Length; i++)
-                {
-                    Recording member = byId[sourceRefOrder[i]];
-                    RecordingStore.AddRecordingWithTreeForTesting(member);
-                    refs.Add(new RouteSourceRef
-                    {
-                        RecordingId = member.RecordingId,
-                        TreeId = RoverTreeId,
-                        TreeOrder = member.TreeOrder,
-                        StartUT = member.StartUT,
-                        EndUT = member.EndUT,
-                    });
-                }
-
-                var route = new Route
-                {
-                    Id = "route-rover-supply",
-                    RecordedDockUT = RoverDockUT,
-                    DockMemberRecordingId = RoverDockMergeId,
-                    SourceRefs = refs,
-                };
-
-                return RouteOrchestrator.ComputeDispatchFundsCostForRoute(route);
-            }
-            finally
-            {
-                RecordingStore.ResetForTesting();
-                EffectiveState.ResetCachesForTesting();
-                ParsekScenario.ResetInstanceForTesting();
-            }
-        }
-
-        private static RouteRunCargoManifest CompleteRootManifest()
-        {
-            return new RouteRunCargoManifest
-            {
-                TransportPartPersistentIds = new List<uint> { 100001u },
-                StartTransportResources = new Dictionary<string, ResourceAmount>
-                {
-                    ["LiquidFuel"] = new ResourceAmount { amount = 97.6, maxAmount = 100.0 },
-                },
-                EndTransportResources = new Dictionary<string, ResourceAmount>
-                {
-                    ["LiquidFuel"] = new ResourceAmount { amount = 0.0, maxAmount = 100.0 },
-                },
-                EndCaptured = true,
-            };
-        }
-
-        private bool VisitedPart(string partName) =>
-            logLines.Any(l => l.Contains("Unknown part cost: name=" + partName));
-
-        // catches: the fallback stealing the PREFERRED basis. A root that HAS a
-        // VesselSnapshot must still be priced from the root, from the root's own
-        // launch manifest, with fallback=0 - byte-identical to pre-fix behavior.
-        [Fact]
-        public void ComputeDispatchFundsCostForRoute_RootHasSnapshot_PricesRoot_NoFallback()
-        {
-            RunRoverFundsCase(
-                CompleteRootManifest(), rootHasSnapshot: true,
-                RoverRootId, RoverTransportId, RoverDockMergeId);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[Route]")
-                && l.Contains("FundsCost basis=launch-manifest")
-                && l.Contains("snapshotSource=" + RoverRootId)
-                && l.Contains("fallback=0"));
-            // Only the ROOT's snapshot was walked.
-            Assert.True(VisitedPart(RootPartName));
-            Assert.False(VisitedPart(TransportPartName));
-            Assert.False(VisitedPart(DepotPartName));
-        }
-
-        // THE defect. A snapshot-less root used to return 0 BEFORE the run-manifest
-        // branch was reachable, so the KSC dispatch was silently free in career (the
-        // zero fed BOTH the funds eligibility gate and the charge). The parts basis
-        // must fall back to the first member that HAS a snapshot while the resource
-        // term stays on the root's complete launch manifest.
-        [Fact]
-        public void ComputeDispatchFundsCostForRoute_SnapshotlessRoot_FallsBackToMemberParts_KeepsRootLaunchManifest()
-        {
-            RunRoverFundsCase(
-                CompleteRootManifest(), rootHasSnapshot: false,
-                RoverRootId, RoverTransportId, RoverDockMergeId);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[Route]")
-                && l.Contains("FundsCost basis=launch-manifest")
-                && l.Contains("source=" + RoverRootId)
-                && l.Contains("snapshotSource=" + RoverTransportId)
-                && l.Contains("fallback=1"));
-            Assert.Contains(logLines, l =>
-                l.Contains("has no VesselSnapshot - parts basis falls back to member "
-                    + RoverTransportId));
-            // The TRANSPORT's snapshot was walked; the combined dock-merge snapshot
-            // was not (that would charge for the depot every cycle).
-            Assert.True(VisitedPart(TransportPartName));
-            Assert.False(VisitedPart(DepotPartName));
-            Assert.DoesNotContain(logLines, l => l.Contains("UNCOSTED"));
-        }
-
-        // catches: the fallback silently promoting an INCOMPLETE root manifest onto
-        // the launch basis. With no complete manifest the resource term must come
-        // from the chosen member's snapshot through the legacy stop-snapshot walk -
-        // the same completeness gate the root-snapshot path applies.
-        [Fact]
-        public void ComputeDispatchFundsCostForRoute_SnapshotlessRoot_IncompleteManifest_UsesMemberSnapshotResources()
-        {
-            RunRoverFundsCase(
-                new RouteRunCargoManifest
-                {
-                    TransportPartPersistentIds = new List<uint> { 100001u },
-                    StartTransportResources = new Dictionary<string, ResourceAmount>
-                    {
-                        ["LiquidFuel"] = new ResourceAmount { amount = 97.6, maxAmount = 100.0 },
-                    },
-                    EndCaptured = false,
-                },
-                rootHasSnapshot: false,
-                RoverRootId, RoverTransportId, RoverDockMergeId);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[Route]")
-                && l.Contains("FundsCost basis=stop-snapshot")
-                && l.Contains("snapshotSource=" + RoverTransportId)
-                && l.Contains("fallback=1"));
-        }
-
-        // catches: the fallback pricing the COMBINED (dock-merged) vessel. The
-        // dock-merged child IS a SourceRefs member - RouteBuilder adds the
-        // window-carrying leaf unconditionally - and its snapshot is transport +
-        // endpoint, so charging from it would bill the player for the destination
-        // station on every cycle. Ordered here with the merged child AHEAD of the
-        // transport so the walk must skip it rather than merely never reach it.
-        [Fact]
-        public void ComputeDispatchFundsCostForRoute_SnapshotlessRoot_SkipsDockMergedMember()
-        {
-            RunRoverFundsCase(
-                CompleteRootManifest(), rootHasSnapshot: false,
-                RoverRootId, RoverDockMergeId, RoverTransportId);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[Route]")
-                && l.Contains("snapshotSource=" + RoverTransportId)
-                && l.Contains("fallback=1"));
-            Assert.Contains(logLines, l =>
-                l.Contains("skipping member " + RoverDockMergeId)
-                && l.Contains("dock-merged (combined-vessel) snapshot"));
-            Assert.True(VisitedPart(TransportPartName));
-            Assert.False(VisitedPart(DepotPartName));
-        }
-
-        // catches: the "no basis at all" case going silent again. When the root has
-        // no snapshot and the only other member is the dock-merged child, there IS
-        // no honest basis - the dispatch stays uncosted, and that must say so in a
-        // line distinct from the fallback breadcrumb (rate-limited: this method runs
-        // per UI repaint).
-        [Fact]
-        public void ComputeDispatchFundsCostForRoute_NoMemberWithUsableSnapshot_ReturnsZero_LogsUncosted()
-        {
-            double cost = RunRoverFundsCase(
-                CompleteRootManifest(), rootHasSnapshot: false,
-                RoverRootId, RoverDockMergeId);
-
-            Assert.Equal(0.0, cost);
-            Assert.Contains(logLines, l =>
-                l.Contains("[Route]")
-                && l.Contains("FundsCost: route ")
-                && l.Contains("UNCOSTED")
-                && l.Contains("a career KSC dispatch charges nothing"));
-            Assert.DoesNotContain(logLines, l => l.Contains("FundsCost basis="));
-            Assert.False(VisitedPart(DepotPartName));
-        }
-
-        // catches: the combined-vessel predicate losing one of its three positive
-        // facts. Each disjunct identifies a dock-merged member on its own, and a
-        // pre-dock transport leg must NOT match any of them.
-        [Fact]
-        public void IsCombinedVesselSourceMember_MatchesEachPositiveFact_NotThePreDockTransport()
-        {
-            var route = new Route
-            {
-                Id = "route-predicate",
-                RecordedDockUT = RoverDockUT,
-                DockMemberRecordingId = RoverDockMergeId,
-            };
-
-            // (1) carries a connection window (the dock-merge site's own stamp).
-            var windowed = RoverMember("member-windowed", 5, PartsSnapshot("x"),
-                RoverRootStartUT, RoverDockUT);
-            windowed.RouteConnectionWindows = new List<RouteConnectionWindow>
-            {
-                new RouteConnectionWindow { WindowId = "w", DockUT = RoverDockUT },
-            };
-            Assert.True(RouteOrchestrator.IsCombinedVesselSourceMember(route, null, windowed));
-
-            // (2) it is the route's own named dock member.
-            var named = RoverMember(RoverDockMergeId, 6, PartsSnapshot("x"),
-                RoverRootStartUT, RoverDockUT);
-            Assert.True(RouteOrchestrator.IsCombinedVesselSourceMember(route, null, named));
-
-            // (3) it starts at or after the route's dock UT.
-            var postDock = RoverMember("member-post-dock", 7, PartsSnapshot("x"),
-                RoverDockUT, RoverDockUT + 100.0);
-            Assert.True(RouteOrchestrator.IsCombinedVesselSourceMember(route, null, postDock));
-
-            // The pre-dock transport leg matches none of them.
-            var transport = RoverMember(RoverTransportId, 1, PartsSnapshot(TransportPartName),
-                RoverRootStartUT + 100.0, RoverDockUT);
-            Assert.False(RouteOrchestrator.IsCombinedVesselSourceMember(route, null, transport));
-        }
-
-        // ==================================================================
-        // ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT, ROUND 2
-        // (measured live by lane RVR-4 on the career fixture, 2026-09-01)
-        //
-        // The round-1 fallback assumed a separate un-merged TRANSPORT member to
-        // fall back to. RouteBuilder does not produce one for this tree shape:
-        // ComputeMemberRecordingIds collects one id per composition THROUGH-LINE
-        // HEAD, and the transport's driving legs are further structural intervals
-        // of the same vessel line whose HeadLegId strips back to the root id. The
-        // flight logged "keptIntervals=1 members=1" -> SourceRefs are exactly
-        // [snapshot-less root, dock-merged leaf] ("members=2 excluded=3").
-        //
-        // Blocker 2, also measured: by dispatch time NO member had a
-        // VesselSnapshot at all. ParsekScenario's OnLoad crew-auto-unreserve
-        // sweep nulls VesselSnapshot for every committed recording with
-        // !VesselSpawned && currentUT > EndUT ("Auto-unreserved crew for
-        // recording #2 (B)" / "#3 (B)"), which is why the flight never even
-        // logged the combined-member skip. GhostVisualSnapshot survives that
-        // sweep and is the durable costing surface.
-        // ==================================================================
-
-        private const uint RoverTransportPartPid = 100001u;
-        private const uint RoverDepotPartPid = 200001u;
-
-        /// <summary>
-        /// The dock-merged (combined) snapshot the real tree produces: the
-        /// transport's tank plus the endpoint depot's tank, each pid-stamped and
-        /// each carrying LiquidFuel, with DISTINCT part names so the
-        /// "Unknown part cost: name=" warns prove which side was walked.
-        /// </summary>
-        private static ConfigNode MergedPartsSnapshot()
-        {
-            var snapshot = new ConfigNode("VESSEL");
-            AddPricedPart(snapshot, TransportPartName, RoverTransportPartPid, 40.0);
-            AddPricedPart(snapshot, DepotPartName, RoverDepotPartPid, 500.0);
-            return snapshot;
-        }
-
-        private static void AddPricedPart(
-            ConfigNode snapshot, string partName, uint pid, double liquidFuel)
-        {
-            ConfigNode part = snapshot.AddNode("PART");
-            part.AddValue("name", partName);
-            part.AddValue("persistentId",
-                pid.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            ConfigNode res = part.AddNode("RESOURCE");
-            res.AddValue("name", "LiquidFuel");
-            res.AddValue("amount",
-                liquidFuel.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
-        }
-
-        /// <summary>
-        /// The REAL rover member set: SourceRefs = [snapshot-less root,
-        /// dock-merged leaf], nothing else. <paramref name="transportPids"/> is
-        /// the connection window's transport pid set (null / empty models a
-        /// window that never captured one). When
-        /// <paramref name="mergedSurfaceIsGhost"/> the merged leaf's
-        /// VesselSnapshot is null and only GhostVisualSnapshot survives - the
-        /// post-OnLoad-sweep state.
-        /// </summary>
-        private double RunRoverSubsetCase(
-            RouteRunCargoManifest rootManifest,
-            List<uint> transportPids,
-            bool mergedSurfaceIsGhost)
-        {
-            RecordingStore.ResetForTesting();
-            EffectiveState.ResetCachesForTesting();
-            ParsekScenario.ResetInstanceForTesting();
-            try
-            {
-                Recording root = RoverMember(
-                    RoverRootId, 0, null, RoverRootStartUT, RoverDockUT);
-                root.RouteRunManifest = rootManifest;
-
-                ConfigNode merged = MergedPartsSnapshot();
-                Recording mergedRec = RoverMember(
-                    RoverDockMergeId, 2,
-                    mergedSurfaceIsGhost ? null : merged,
-                    RoverDockUT, RoverDockUT + 500.0);
-                if (mergedSurfaceIsGhost)
-                    mergedRec.GhostVisualSnapshot = merged;
-                mergedRec.RouteConnectionWindows = new List<RouteConnectionWindow>
-                {
-                    new RouteConnectionWindow
-                    {
-                        WindowId = "w-rover",
-                        DockUT = RoverDockUT,
-                        UndockUT = RoverDockUT + 400.0,
-                        TransportPartPersistentIds = transportPids,
-                        EndpointPartPersistentIds = new List<uint> { RoverDepotPartPid },
-                    },
-                };
-
-                var refs = new List<RouteSourceRef>();
-                foreach (Recording member in new[] { root, mergedRec })
-                {
-                    RecordingStore.AddRecordingWithTreeForTesting(member);
-                    refs.Add(new RouteSourceRef
-                    {
-                        RecordingId = member.RecordingId,
-                        TreeId = RoverTreeId,
-                        TreeOrder = member.TreeOrder,
-                        StartUT = member.StartUT,
-                        EndUT = member.EndUT,
-                    });
-                }
-
-                var route = new Route
-                {
-                    Id = "route-rover-subset",
-                    RecordedDockUT = RoverDockUT,
-                    DockMemberRecordingId = RoverDockMergeId,
-                    SourceRefs = refs,
-                };
-
-                return RouteOrchestrator.ComputeDispatchFundsCostForRoute(route);
-            }
-            finally
-            {
-                RecordingStore.ResetForTesting();
-                EffectiveState.ResetCachesForTesting();
-                ParsekScenario.ResetInstanceForTesting();
-            }
-        }
-
-        // catches: THE measured defect. With the merged leaf as the only
-        // snapshot-bearing member the dispatch was free; it must now price the
-        // TRANSPORT subset of the combined snapshot, keeping the root's complete
-        // launch manifest as the resource term.
-        [Fact]
-        public void ComputeDispatchFundsCostForRoute_OnlyDockMergedMember_PricesTransportSubset()
-        {
-            RunRoverSubsetCase(
-                CompleteRootManifest(),
-                new List<uint> { RoverTransportPartPid },
-                mergedSurfaceIsGhost: false);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[Route]")
-                && l.Contains("FundsCost basis=launch-manifest")
-                && l.Contains("source=" + RoverRootId)
-                && l.Contains("snapshotSource=" + RoverDockMergeId)
-                && l.Contains("fallback=1 subset=transport snapshotSurface=vessel parts=1/2"));
-            Assert.Contains(logLines, l =>
-                l.Contains("no un-merged member carries a snapshot")
-                && l.Contains("RESTRICTED to window w-rover transport pids"));
-            // Only the transport half of the combined snapshot was walked.
-            Assert.True(VisitedPart(TransportPartName));
-            Assert.False(VisitedPart(DepotPartName));
-            Assert.DoesNotContain(logLines, l => l.Contains("UNCOSTED"));
-        }
-
-        // catches: an incomplete root manifest silently promoting to the launch
-        // basis. With no complete manifest the resource term comes from the
-        // snapshot walk - which, restricted, excludes the depot tank.
-        [Fact]
-        public void ComputeDispatchFundsCostForRoute_OnlyDockMergedMember_IncompleteManifest_UsesFilteredSnapshotResources()
-        {
-            RunRoverSubsetCase(
-                new RouteRunCargoManifest
-                {
-                    TransportPartPersistentIds = new List<uint> { RoverTransportPartPid },
-                    StartTransportResources = new Dictionary<string, ResourceAmount>
-                    {
-                        ["LiquidFuel"] = new ResourceAmount { amount = 97.6, maxAmount = 100.0 },
-                    },
-                    EndCaptured = false,
-                },
-                new List<uint> { RoverTransportPartPid },
-                mergedSurfaceIsGhost: false);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[Route]")
-                && l.Contains("FundsCost basis=stop-snapshot")
-                && l.Contains("snapshotSource=" + RoverDockMergeId)
-                && l.Contains("fallback=1 subset=transport snapshotSurface=vessel parts=1/2"));
-            // The depot part was never visited, so neither was its 500-unit tank:
-            // the resource term of the restricted walk is transport-only.
-            Assert.True(VisitedPart(TransportPartName));
-            Assert.False(VisitedPart(DepotPartName));
-        }
-
-        // catches: an empty / missing transport pid set falling OPEN and pricing
-        // the combined vessel. With nothing to separate transport from endpoint
-        // the dispatch must stay UNCOSTED.
-        [Fact]
-        public void ComputeDispatchFundsCostForRoute_EmptyTransportPidSet_StaysUncosted()
-        {
-            double cost = RunRoverSubsetCase(
-                CompleteRootManifest(), new List<uint>(), mergedSurfaceIsGhost: false);
-
-            Assert.Equal(0.0, cost);
-            Assert.Contains(logLines, l =>
-                l.Contains("carries no usable transport pid set")
-                && l.Contains("refusing to price the combined vessel"));
-            Assert.Contains(logLines, l =>
-                l.Contains("UNCOSTED")
-                && l.Contains("a career KSC dispatch charges nothing"));
-            Assert.DoesNotContain(logLines, l => l.Contains("FundsCost basis="));
-            Assert.False(VisitedPart(DepotPartName));
-        }
-
-        // catches: a transport pid set that matches NOTHING in the chosen surface
-        // (a pid-less snapshot, or pids from a different launch) charging the
-        // resource term alone - a plausible-looking but wrong bill.
-        [Fact]
-        public void ComputeDispatchFundsCostForRoute_TransportPidsMatchNoPart_StaysUncosted()
-        {
-            double cost = RunRoverSubsetCase(
-                CompleteRootManifest(),
-                new List<uint> { 999999u },       // in no PART node of the snapshot
-                mergedSurfaceIsGhost: false);
-
-            Assert.Equal(0.0, cost);
-            Assert.Contains(logLines, l =>
-                l.Contains("transport pid subset matched 0 of 2 PART node(s)")
-                && l.Contains("refusing a parts-less charge"));
-            Assert.Contains(logLines, l => l.Contains("UNCOSTED"));
-            Assert.DoesNotContain(logLines, l => l.Contains("FundsCost basis="));
-        }
-
-        // catches: blocker 2 on the SUBSET basis. After a load the merged leaf has
-        // no VesselSnapshot either (the OnLoad crew-auto-unreserve sweep nulled
-        // it); the surviving GhostVisualSnapshot must carry the pricing, and the
-        // line must say which surface was used.
-        [Fact]
-        public void ComputeDispatchFundsCostForRoute_GhostSurfaceOnMergedMember_PricesTransportSubset()
-        {
-            RunRoverSubsetCase(
-                CompleteRootManifest(),
-                new List<uint> { RoverTransportPartPid },
-                mergedSurfaceIsGhost: true);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[Route]")
-                && l.Contains("FundsCost basis=launch-manifest")
-                && l.Contains("snapshotSource=" + RoverDockMergeId)
-                && l.Contains("fallback=1 subset=transport snapshotSurface=ghost parts=1/2"));
-            Assert.True(VisitedPart(TransportPartName));
-            Assert.False(VisitedPart(DepotPartName));
-            Assert.DoesNotContain(logLines, l => l.Contains("UNCOSTED"));
-        }
-
-        // catches: blocker 2 on the PREFERRED (root) basis. A root that was priced
-        // directly before a save must still be priced directly after a load, off
-        // its ghost surface, with fallback=0 and no subset.
-        [Fact]
-        public void ComputeDispatchFundsCostForRoute_GhostSurfaceOnRoot_PricesRootDirectly()
-        {
-            RecordingStore.ResetForTesting();
-            EffectiveState.ResetCachesForTesting();
-            ParsekScenario.ResetInstanceForTesting();
-            try
-            {
-                Recording root = RoverMember(
-                    RoverRootId, 0, null, RoverRootStartUT, RoverDockUT);
-                root.RouteRunManifest = CompleteRootManifest();
-                root.GhostVisualSnapshot = PartsSnapshot(RootPartName);
-                RecordingStore.AddRecordingWithTreeForTesting(root);
-
-                var route = new Route
-                {
-                    Id = "route-rover-ghost-root",
-                    RecordedDockUT = RoverDockUT,
-                    DockMemberRecordingId = RoverDockMergeId,
-                    SourceRefs = new List<RouteSourceRef>
-                    {
-                        new RouteSourceRef
-                        {
-                            RecordingId = RoverRootId,
-                            TreeId = RoverTreeId,
-                            TreeOrder = 0,
-                            StartUT = root.StartUT,
-                            EndUT = root.EndUT,
-                        },
-                    },
-                };
-
-                RouteOrchestrator.ComputeDispatchFundsCostForRoute(route);
-            }
-            finally
-            {
-                RecordingStore.ResetForTesting();
-                EffectiveState.ResetCachesForTesting();
-                ParsekScenario.ResetInstanceForTesting();
-            }
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[Route]")
-                && l.Contains("FundsCost basis=launch-manifest")
-                && l.Contains("snapshotSource=" + RoverRootId)
-                && l.Contains("fallback=0 snapshotSurface=ghost"));
-            Assert.DoesNotContain(logLines, l => l.Contains("subset=transport"));
-            Assert.True(VisitedPart(RootPartName));
-            Assert.DoesNotContain(logLines, l => l.Contains("UNCOSTED"));
-        }
-
-        // catches: the window selector picking an arbitrary window on a
-        // multi-dock member. The route's own RecordedDockUT wins; with no match
-        // the EARLIEST dock does (the transport pid set is a launch fact).
-        [Fact]
-        public void ResolveTransportSubsetWindow_PrefersRouteDockUT_ThenEarliest()
-        {
-            var early = new RouteConnectionWindow { WindowId = "early", DockUT = RoverDockUT - 500.0 };
-            var exact = new RouteConnectionWindow { WindowId = "exact", DockUT = RoverDockUT };
-            var late = new RouteConnectionWindow { WindowId = "late", DockUT = RoverDockUT + 500.0 };
-
-            var member = RoverMember("multi-dock", 3, PartsSnapshot("x"),
-                RoverDockUT, RoverDockUT + 900.0);
-            member.RouteConnectionWindows = new List<RouteConnectionWindow> { late, exact, early };
-
-            var matching = new Route { Id = "r1", RecordedDockUT = RoverDockUT };
-            Assert.Same(exact, RouteOrchestrator.ResolveTransportSubsetWindow(matching, member));
-
-            // No route dock UT to match on -> earliest dock.
-            var unanchored = new Route { Id = "r2", RecordedDockUT = -1.0 };
-            Assert.Same(early, RouteOrchestrator.ResolveTransportSubsetWindow(unanchored, member));
-
-            // No windows at all -> null (the caller then stays UNCOSTED).
-            var windowless = RoverMember("windowless", 4, PartsSnapshot("x"),
-                RoverDockUT, RoverDockUT + 10.0);
-            Assert.Null(RouteOrchestrator.ResolveTransportSubsetWindow(matching, windowless));
-        }
-
-        // catches: the costing-surface resolver preferring the wrong surface, or
-        // reporting a surface name the FundsCost line does not use.
-        [Fact]
-        public void ResolveCostingSnapshot_PrefersVessel_FallsBackToGhost()
-        {
-            ConfigNode vesselNode = PartsSnapshot("v");
-            ConfigNode ghostNode = PartsSnapshot("g");
-
-            var both = RoverMember("both", 0, vesselNode, 0.0, 1.0);
-            both.GhostVisualSnapshot = ghostNode;
-            Assert.Same(vesselNode, RouteOrchestrator.ResolveCostingSnapshot(both, out string s1));
-            Assert.Equal("vessel", s1);
-
-            var ghostOnly = RoverMember("ghost-only", 0, null, 0.0, 1.0);
-            ghostOnly.GhostVisualSnapshot = ghostNode;
-            Assert.Same(ghostNode, RouteOrchestrator.ResolveCostingSnapshot(ghostOnly, out string s2));
-            Assert.Equal("ghost", s2);
-
-            var neither = RoverMember("neither", 0, null, 0.0, 1.0);
-            Assert.Null(RouteOrchestrator.ResolveCostingSnapshot(neither, out string s3));
-            Assert.Null(s3);
-
-            Assert.Null(RouteOrchestrator.ResolveCostingSnapshot(null, out string s4));
-            Assert.Null(s4);
         }
     }
 }

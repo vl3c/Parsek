@@ -24,10 +24,9 @@ computation" ~412 / "The ledger-oracle verifier" ~444):
     author-constant rule for state-dependent facets (per-subject science,
     reputation; fill-from-capture FORBIDDEN there), and the every-captured-amount-
     is-a-DELTA rule (a post-grant BALANCE is inadmissible)
-  - ``compute_expected(seed, entries, tolerances, rec3_whitelist)`` -- the
+  - ``compute_expected(seed, entries, tolerances)`` -- the
     per-facet expected totals (funds / science HARD linear pools, reputation via
-    the SetReputation-semantics curve, per-subject science + contracts report-only,
-    the Rec-3 ratified-residual carve-out)
+    the SetReputation-semantics curve, per-subject science + contracts report-only)
   - ``apply_rep_curve`` -- the Python port of
     ``ReputationModule.ApplyReputationCurve`` (decompiled stock keyframes, Unity
     Hermite tangent evaluation; the plan-6 / game-actions-15.1 curve exception)
@@ -189,7 +188,7 @@ def default_tolerances() -> Tolerances:
 
 # ---------------------------------------------------------------------------
 # Data types (design "Oracle expected-state + diff types" ~330). Field names
-# follow the design exactly; additive fields (ut_windows, rec3_*) never rename.
+# follow the design exactly; additive fields (ut_windows) never rename.
 # ---------------------------------------------------------------------------
 
 
@@ -222,8 +221,6 @@ class ManifestEntry:
     """One accumulated-manifest entry (design ~338). ``ut`` is null for a captured
     line with no UT-stamped ``[Parsek]`` neighbor; ``seq`` is the ordinal seqKey used
     for the (ut, seq) sort. ``rep_mode`` dispatches the reputation accumulation.
-    ``rec3_row`` (additive) carries the route-row identity a non-rewind discard would
-    roll back, consulted against the Rec-3 whitelist.
 
     ``stock_reasons`` (additive, OPTIONAL, default empty) is the stock
     ``TransactionReasons`` key set this entry expects the game to log for it
@@ -272,7 +269,6 @@ class ManifestEntry:
     subject_ids: Tuple[str, ...]
     contract_guid: str
     provenance: str
-    rec3_row: str = ""
     stock_reasons: Tuple[str, ...] = tuple()
     ut_window: Optional[Tuple[float, float]] = None
     attempt: str = ""
@@ -308,16 +304,13 @@ class ExpectedCareer:
     """Expected career totals (design ~347). ``funds`` / ``science`` / ``reputation``
     are None when the facet is absent (Sandbox). ``ut_windows`` (additive) maps a
     facet name to the bounding manifest UTs that contributed to it, so a drift can
-    name WHERE it entered; ``rec3_residual_rows`` (additive) lists route rows the
-    carve-out retained (the oracle expects a ``[Rec-3 residual]`` diagnostic for
-    each, not a rollback-to-zero)."""
+    name WHERE it entered."""
     funds: Optional[float]
     science: Optional[float]
     reputation: Optional[float]
     subject_science: Dict[str, float]
     active_contract_guids: Tuple[str, ...]
     ut_windows: Dict[str, Tuple[Optional[float], Optional[float]]] = field(default_factory=dict)
-    rec3_residual_rows: Tuple[str, ...] = ()
     # Rewind-aware model only (additive): the end UT, the per-pool running /
     # available / reserved split and the kept / retired / once-shadowed counts, for
     # the verifier log and the manifest audit. Empty under the legacy sum model.
@@ -586,7 +579,6 @@ def parse_manifest_entries(
 
         subject_ids = tuple(str(s) for s in (raw.get("subjectIds", raw.get("subject_ids", [])) or []))
         contract_guid = str(raw.get("contractGuid", raw.get("contract_guid", "")) or "")
-        rec3_row = str(raw.get("rec3Row", raw.get("rec3_row", "")) or "")
         # OPTIONAL corroboration tightener (see ManifestEntry.stock_reasons). Accepts a
         # single string or an array; a non-string member is a scenario-authoring defect
         # and rejects rather than being coerced (a silently-dropped reason would loosen
@@ -658,7 +650,7 @@ def parse_manifest_entries(
             ut=ut, seq=seq, kind=kind,
             funds=funds, science=science, reputation=reputation,
             rep_mode=rep_mode, subject_ids=subject_ids,
-            contract_guid=contract_guid, provenance=provenance, rec3_row=rec3_row,
+            contract_guid=contract_guid, provenance=provenance,
             stock_reasons=stock_reasons, ut_window=ut_window,
             attempt=labels["attempt"], once_key=labels["onceKey"],
         ))
@@ -825,16 +817,12 @@ def compute_expected(
     seed: SeedBaseline,
     entries: Sequence[ManifestEntry],
     tolerances: Optional[Tolerances] = None,
-    rec3_whitelist: Optional[Sequence[str]] = None,
 ) -> ExpectedCareer:
     """Turn a seed baseline + accumulated manifest into expected career totals (pure).
 
     Per-facet math (design ~416):
-      - **Funds (HARD)**: ``seed.funds + sum(e.funds)``. On a non-rewind discard the
-        Rec-3 carve-out SUPPRESSES the rollback of a whitelisted route row (the
-        residual persists by design, plan 6 / logistics 10.6); the oracle records
-        the row in ``rec3_residual_rows`` and expects a ``[Rec-3 residual]``
-        diagnostic instead of a rollback-to-zero. A non-whitelisted row rolls back.
+      - **Funds (HARD)**: ``seed.funds + sum(e.funds)``. (Supply routes carry no
+        money, todo LOGISTICS-WITHOUT-MONEY, so no route-row carve-out exists.)
       - **Science pool (HARD)**: ``seed.science + sum(e.science)`` -- the captured
         (post-cap) deltas, never a cap recomputation.
       - **Reputation (HARD, curve exception)**: NOT a linear sum -- accumulated
@@ -845,30 +833,19 @@ def compute_expected(
       - **Active contracts (REPORT-ONLY)**: accept adds, complete/fail remove.
       - **Facet absence**: an absent seed pool (Sandbox) stays None and the diff
         skips it.
-
-    ``rec3_whitelist`` is the collection of route-row identities the carve-out
-    retains (empty / None for a plain scenario like B10).
     """
     tolerances = tolerances or default_tolerances()  # accepted for symmetry with diff; math is exact
-    whitelist = set(rec3_whitelist or ())
     ordered = sorted(entries, key=_sort_key)
 
     ut_windows: Dict[str, Tuple[Optional[float], Optional[float]]] = {}
 
-    # --- Funds pool (HARD) + Rec-3 carve-out.
+    # --- Funds pool (HARD).
     funds: Optional[float] = None
-    residual_rows: List[str] = []
     if seed.has_funds:
         funds = seed.funds
         contributing_funds: List[ManifestEntry] = []
         for e in ordered:
             if e.funds == 0.0:
-                continue
-            if e.rec3_row and e.rec3_row in whitelist:
-                # Ratified residual: the route row does NOT roll back; expect the
-                # [Rec-3 residual] diagnostic line, not a rollback-to-zero.
-                if e.rec3_row not in residual_rows:
-                    residual_rows.append(e.rec3_row)
                 continue
             funds += e.funds
             contributing_funds.append(e)
@@ -927,7 +904,7 @@ def compute_expected(
     return ExpectedCareer(
         funds=funds, science=science, reputation=reputation,
         subject_science=subject_science, active_contract_guids=tuple(active),
-        ut_windows=ut_windows, rec3_residual_rows=tuple(residual_rows),
+        ut_windows=ut_windows,
     )
 
 
@@ -1195,7 +1172,6 @@ def diff_expected_vs_parsed(
     expected: ExpectedCareer,
     career_save: Dict,
     tolerances: Optional[Tolerances] = None,
-    rec3_whitelist: Optional[Sequence[str]] = None,
 ) -> List[OracleDivergence]:
     """Diff the expected career totals against the parsed ``careerSave`` block (pure).
 
@@ -1267,15 +1243,6 @@ def diff_expected_vs_parsed(
         divergences.append(OracleDivergence(
             "contract", "phantom", g, None, None, con_window, False,
             "contract %s active in the save but not expected" % g))
-
-    # --- Rec-3 ratified residual (REPORT-ONLY): the oracle expects a diagnostic, not
-    # a rollback; surfaced so the verifier can log the retained row (design edge 8).
-    for row in expected.rec3_residual_rows:
-        divergences.append(OracleDivergence(
-            "funds", "residual-expected", row, None, None,
-            expected.ut_windows.get("funds", (None, None)), False,
-            "Rec-3 residual retained row=%s (expect a [Rec-3 residual] diagnostic, "
-            "not a rollback-to-zero)" % row))
 
     return divergences
 

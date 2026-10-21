@@ -240,7 +240,7 @@ namespace Parsek.Tests.Logistics
 
             // Pause A mid-cycle (immediate-pause branch; null env -> the recovery-credit
             // flush no-ops, the escrow drop still runs).
-            Assert.True(RouteOrchestrator.TryPause(routeA, -1.0, null));
+            Assert.True(RouteOrchestrator.TryPause(routeA, -1.0));
             Assert.Equal(RouteStatus.Paused, routeA.Status);
 
             // The stale reservation is gone: B is no longer mis-gated, and A holds nothing.
@@ -260,7 +260,7 @@ namespace Parsek.Tests.Logistics
                 .WithId("route-A").WithStatus(RouteStatus.Active).Build();
             RouteStore.AddRoute(routeA);
 
-            Assert.True(RouteOrchestrator.TryPause(routeA, -1.0, null));
+            Assert.True(RouteOrchestrator.TryPause(routeA, -1.0));
             Assert.Equal(RouteStatus.Paused, routeA.Status);
             // No escrow was held, so no drop line is emitted (DropRouteEscrow returns early).
             Assert.DoesNotContain(logLines, l => l.Contains("[Route]") && l.Contains("DropRouteEscrow"));

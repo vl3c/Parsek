@@ -303,8 +303,6 @@ namespace Parsek
             {
                 case RouteStatus.WaitingForResources:
                     return Cell(StatusWord.Held, "Held: origin short of cargo", ParsekUI.StatusColorKind.Yellow);
-                case RouteStatus.WaitingForFunds:
-                    return Cell(StatusWord.Held, "Held: not enough funds", ParsekUI.StatusColorKind.Yellow);
                 case RouteStatus.DestinationFull:
                     return Cell(StatusWord.Held, "Held: destination full", ParsekUI.StatusColorKind.Yellow);
                 case RouteStatus.Paused:
@@ -361,8 +359,6 @@ namespace Parsek
                         return heldSentence;
                     switch (status)
                     {
-                        case RouteStatus.WaitingForFunds:
-                            return "Held: not enough funds for a run. Runs again once funds allow.";
                         case RouteStatus.DestinationFull:
                             return "Held: the destination has no room for the delivery. Runs again once it fits.";
                         default:
@@ -512,7 +508,7 @@ namespace Parsek
 
         /// <summary>
         /// The origin's short name for the Route cell's second line: "KSC" for a
-        /// funds-paid launch, "Harvested" for a harvest route, else the resolved origin
+        /// Space Center launch, "Harvested" for a harvest route, else the resolved origin
         /// vessel name, else "-".
         /// </summary>
         internal static string FormatOriginShort(bool kscOrigin, bool harvestOrigin, string originVesselName)

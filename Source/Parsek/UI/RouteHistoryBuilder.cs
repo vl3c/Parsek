@@ -11,9 +11,8 @@ namespace Parsek
     /// in its route mode) under the same Time | Event | Location | Vessel columns.
     /// <list type="bullet">
     ///   <item>RouteDispatched: "Run N: Sent", or "Run N: Sent once" for a run armed by Send
-    ///   (the row's <c>RouteSendOnce</c> stamp), followed by what the launch cost when it
-    ///   cost anything: ", cost 7,410 funds" and / or the cargo taken from the origin vessel
-    ///   (", cost 257.8 LiquidFuel, 315.1 Oxidizer"), read from the run's own
+    ///   (the row's <c>RouteSendOnce</c> stamp), followed by the cargo the launch took from
+    ///   its origin vessel when it took any (", cost 257.8 LiquidFuel, 315.1 Oxidizer"), read from the run's own
     ///   RouteCargoDebited row (same RouteCycleId). Location and Vessel name the origin.</item>
     ///   <item>RouteCargoPickedUp: "Run N: Picked up ..." at an intermediate stop, located
     ///   at that stop and its vessel (the row's endpoint pid first).</item>
@@ -22,7 +21,7 @@ namespace Parsek
     ///   <item>RouteHeld: "Held: origin is short 108.8 LiquidFuel" - the hold's reason as
     ///   the Logistics window words it, without its live-route advice, and with no run
     ///   number (a held run is not a run). One row per hold episode and reason. Located at
-    ///   the origin for an origin-cargo or funds hold, at the named pickup source's vessel
+    ///   the origin for an origin-cargo hold, at the named pickup source's vessel
     ///   for a source hold, "-" otherwise.</item>
     ///   <item>RoutePaused / RouteResumed / RouteEndpointLost: state rows ("Paused",
     ///   "Paused after the run", "Activated", "Stopped: destination lost", ...).</item>
@@ -32,8 +31,8 @@ namespace Parsek
     /// <c>partTitle</c> (the part's title; the raw name when it does not resolve).
     /// N is the run's position in dispatch order (a run's first row assigns it). The input
     /// is the Effective Ledger Set (<see cref="EffectiveState.ComputeELS"/>), so a rewound or
-    /// tombstoned run is simply absent, its debit with it. Debit rows (funds or origin
-    /// cargo) are not shown as rows: their cost is folded into the run's Sent row, and a
+    /// tombstoned run is simply absent, its debit with it. Debit rows (origin cargo)
+    /// are not shown as rows: their cost is folded into the run's Sent row, and a
     /// debit with no Sent row of its own adds nothing. Pure: names come through the resolvers.
     /// </summary>
     internal static class RouteHistoryBuilder
@@ -46,7 +45,7 @@ namespace Parsek
         /// <summary>
         /// Builds the rows for <paramref name="routeId"/> from <paramref name="els"/>.
         /// <paramref name="originPlace"/> / <paramref name="originVessel"/> label the Sent
-        /// rows ("KSC" / "-" for a funds-paid launch); <paramref name="stopPlace"/> and
+        /// rows ("KSC" / "-" for a Space Center launch); <paramref name="stopPlace"/> and
         /// <paramref name="stopVessel"/> name a stop by index; <paramref name="vesselByPid"/>
         /// names a pickup endpoint by its recorded pid (null when it no longer resolves).
         /// </summary>
@@ -162,32 +161,19 @@ namespace Parsek
         }
 
         /// <summary>
-        /// What a run's launch cost, from its RouteCargoDebited row: ", cost 7,410 funds",
-        /// ", cost 257.8 LiquidFuel, 315.1 Oxidizer", both joined, or "" when the launch cost
-        /// nothing. Funds read <c>RouteKscFundsCost</c>, which the dispatch writes only for a
-        /// Career KSC launch, so Sandbox and Science never show funds; a zero cost is left out
-        /// rather than shown as "free". Funds format as the route's Cost/run line
-        /// (<see cref="LogisticsCostPresentation.FormatFunds"/>: grouped whole funds,
-        /// InvariantCulture). Cargo is shown only for a debit taken from an origin VESSEL (the
-        /// row carries its pid): a KSC launch's row lists the cargo the funds bought, and a
-        /// legacy row a manifest nothing removed, so neither is a cost. Cargo reads amount
-        /// first, as a short delivery does ("40.0 of 150.0 LiquidFuel").
+        /// What a run's launch took from its origin vessel, from its RouteCargoDebited row:
+        /// ", cost 257.8 LiquidFuel, 315.1 Oxidizer", or "" when it took nothing. Cargo is
+        /// shown only for a debit taken from an origin VESSEL (the row carries its pid): a
+        /// legacy row's manifest is one nothing removed, so it is not a cost. A Space Center
+        /// launch is free and writes no debit row. Cargo reads amount first, as a short
+        /// delivery does ("40.0 of 150.0 LiquidFuel").
         /// </summary>
         internal static string SentCostSuffix(GameAction debit)
         {
-            if (debit == null)
+            if (debit == null || debit.RouteOriginVesselPid == 0u)
                 return "";
-            var parts = new List<string>(2);
-            double funds = debit.RouteKscFundsCost;
-            if (funds > 0.0 && !double.IsNaN(funds) && !double.IsInfinity(funds))
-                parts.Add(Logistics.LogisticsCostPresentation.FormatFunds(funds));
-            if (debit.RouteOriginVesselPid != 0u)
-            {
-                string cargo = DebitedCargo(debit.RouteResourceManifest, debit.RouteInventoryManifest);
-                if (!string.IsNullOrEmpty(cargo))
-                    parts.Add(cargo);
-            }
-            return parts.Count == 0 ? "" : ", cost " + string.Join(", ", parts.ToArray());
+            string cargo = DebitedCargo(debit.RouteResourceManifest, debit.RouteInventoryManifest);
+            return string.IsNullOrEmpty(cargo) ? "" : ", cost " + cargo;
         }
 
         // The cargo a launch took from its origin vessel; null when it took nothing.
@@ -210,7 +196,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Where a held row is located. An origin-cargo or funds hold sits at the origin
+        /// Where a held row is located. An origin-cargo hold sits at the origin
         /// (<paramref name="originPlace"/> / <paramref name="originVessel"/>); a pickup-source
         /// hold ("source:" / "source-reserved:" tokens carry the source's pid and name) names
         /// that vessel, live name first; every other hold (destination full, endpoint lost,
@@ -223,8 +209,7 @@ namespace Parsek
             vessel = StructureLocationFormatter.Missing;
             if (held == null)
                 return;
-            bool originKind = held.RouteHoldKind == RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo
-                || held.RouteHoldKind == RouteDispatchEvaluator.EligibilityFailureKind.FundsShort;
+            bool originKind = held.RouteHoldKind == RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo;
             if (!originKind)
                 return;
             string token = held.RouteEndpointReason ?? "";

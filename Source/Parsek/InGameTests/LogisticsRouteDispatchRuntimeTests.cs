@@ -12,7 +12,7 @@ namespace Parsek.InGameTests
     /// (item 5 of the logistics plan). Injects a synthetic KSC-origin
     /// <see cref="Route"/> into <see cref="RouteStore"/>, drives one
     /// <see cref="RouteOrchestrator.Tick(double)"/> against live KSP
-    /// statics (<see cref="HighLogic"/>, <see cref="Funding"/>,
+    /// statics (<see cref="HighLogic"/>,
     /// <see cref="EffectiveState.ComputeERS"/>), and asserts that the
     /// orchestrator processed the route without throwing.
     ///
@@ -20,10 +20,9 @@ namespace Parsek.InGameTests
     /// <c>IRouteRuntimeEnvironment</c> fake; this test exercises the
     /// production no-env overload that constructs the live
     /// <c>LiveRouteRuntimeEnvironment</c>, which xUnit cannot reach
-    /// because the env probes <see cref="HighLogic.CurrentGame"/> and
-    /// <see cref="Funding.Instance"/>. A regression that NREs inside the
-    /// env builder under real KSP statics (e.g. ERS query during early
-    /// load, Funding null in Sandbox) would surface here.
+    /// because the env probes live vessels and the ERS. A regression that
+    /// NREs inside the env builder under real KSP statics (e.g. ERS query
+    /// during early load) would surface here.
     ///
     /// The synthetic route is removed in <c>finally</c> so the test
     /// leaves no residue in <see cref="RouteStore.CommittedRoutes"/> for
@@ -52,8 +51,7 @@ namespace Parsek.InGameTests
     /// from the env construction or the pre-dispatch route enumeration would
     /// surface from the coroutine body and the runner would record FAILED.
     /// NOTE the scope limit: the env's expensive probes
-    /// (<c>EffectiveState.ComputeERS</c> via <c>EnsureErsBuilt</c>,
-    /// <see cref="Funding.Instance"/>) are LAZY and run inside
+    /// (<c>EffectiveState.ComputeERS</c> via <c>EnsureErsBuilt</c>) are LAZY and run inside
     /// <c>ProcessOneRoute</c>, which <c>Tick</c> wraps in a per-route
     /// try/catch (counted as <c>errored++</c>, the route left untouched), so a
     /// probe NRE there is swallowed and leaves the route Active with no ledger
@@ -148,7 +146,7 @@ namespace Parsek.InGameTests
 
                 // ACT: production no-env overload. Builds a fresh
                 // LiveRouteRuntimeEnvironment internally; the env probes
-                // HighLogic / Funding / EffectiveState.ComputeERS for real.
+                // HighLogic / EffectiveState.ComputeERS for real.
                 double currentUT = Planetarium.GetUniversalTime();
                 RouteOrchestrator.Tick(currentUT);
 
@@ -162,8 +160,8 @@ namespace Parsek.InGameTests
                 // failing under real KSP statics. Reaching these asserts at all
                 // proves the no-env overload constructed a LiveRouteRuntimeEnvironment
                 // and the tick returned without an exception escaping it. SCOPE: the
-                // env's expensive probes (EffectiveState.ComputeERS via EnsureErsBuilt,
-                // Funding.Instance) are LAZY -- they run inside ProcessOneRoute, which
+                // env's expensive probes (EffectiveState.ComputeERS via EnsureErsBuilt)
+                // are LAZY -- they run inside ProcessOneRoute, which
                 // Tick wraps in a per-route try/catch (counted as errored++, route left
                 // untouched). So a probe NRE there is swallowed and leaves the route
                 // Active with no ledger row, which this test cannot distinguish from the
