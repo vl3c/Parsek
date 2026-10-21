@@ -1,0 +1,55 @@
+ut = 0
+funds = 0
+science = 0
+reputation = 0
+TECH_IDS
+{
+}
+FACILITY_LEVELS
+{
+}
+BUILDING_INTACT
+{
+	SpaceCenter/KSCTrackingStation/dish_array/dish_east = True
+	SpaceCenter/KSCTrackingStation/dish_array/dish_north = True
+	SpaceCenter/KSCTrackingStation/dish_array/dish_south = True
+	SpaceCenter/KSCRunway/model_runway_new_v43/runway_light_SW = True
+	SpaceCenter/KSCRunway/model_runway_new_v43/runway_light_NW = True
+	SpaceCenter/KSCRunway/model_runway_new_v43/runway_light_NE = True
+	SpaceCenter/KSCRunway/model_runway_new_v43/runway_light_SE = True
+	SpaceCenter/LaunchPad/Facility/LaunchPadMedium/KSCFlagPoleLaunchPad = True
+	SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_waterTower = True
+	SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_sphereTank = True
+	SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_launchPad = True
+	SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_cylTank = True
+}
+ACTIVE_CONTRACTS
+{
+}
+CREW_ROSTER
+{
+	CREW
+	{
+		name = Jebediah Kerman
+		status = Available
+		trait = Pilot
+	}
+	CREW
+	{
+		name = Bill Kerman
+		status = Available
+		trait = Engineer
+	}
+	CREW
+	{
+		name = Bob Kerman
+		status = Available
+		trait = Scientist
+	}
+	CREW
+	{
+		name = Valentina Kerman
+		status = Available
+		trait = Pilot
+	}
+}

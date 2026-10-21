@@ -1,0 +1,172 @@
+schema = 1
+id = "H78-logistics-isolated-bdock-career"
+tier = "nightly"
+# H39-logistics-isolated-bdock, CAREER STYLE. H39's driver steps verbatim (the isolated
+# `Logistics` batch) over `bdock-recorded-career`; the only variable moved is the
+# fixture's game mode. H73's idea (the redelivery cell's funds-flat half needs a live
+# Funding singleton) carried to the recorded dock/undock host.
+#
+# THE FIXTURE. `bdock-recorded-career` is built by construction from H39's own
+# `bdock-recorded` by `harness/tools/build_route_career.py` (drift gate
+# `harness/lib/test_route_career.py`): `Mode = CAREER`, `fresh-career`'s PARAMETERS (the
+# source's ParsekSettings child kept), Funding 500000 / R&D 100 / Reputation 0, the
+# 29 + 3 granted tech nodes H73's host carries, every facility at its TOP level, and a
+# ledger with its SANDBOX starting-value rows (ScienceInitial / ReputationInitial) and
+# its 12 award-bearing milestone rows removed; its 15 KerbalAssignment rows stay. It
+# carries no legacy supply-route rows. FLIGHTSTATE, ROSTER, the ParsekScenario node (two
+# committed trees, the dock window) and all 19 recording sidecars are byte-identical to
+# the source. The three RewindPoints quicksaves under `Parsek/RewindPoints/` are ALSO
+# the source's bytes and stay SANDBOX saves: no cell in this batch loads one (the
+# redelivery cell's rewind is its own), and a Re-Fly into one would load a sandbox game.
+#
+# NOT FIT FOR LEDGER GROUND TRUTH (L2-style) CHECKS: the source was flown in SANDBOX, so
+# the ledger carries no launch-cost, recovery or hire rows.
+#
+# WHAT IT PROVES, beyond H39's tokens (kept verbatim): the same career tokens as H76.
+#   REQUIRED  `RewindRedeliver_InGame: funds unchanged net=` (career path only, after
+#             both funds assertions held) and the redelivery cell's PASSED line;
+#             `Built route id=.* mode=CAREER` (the shuttle cell's real RouteBuilder call
+#             carries the live game mode); the two career-save seed lines.
+#   FORBIDDEN `RewindRedeliver_InGame: no Funding singleton \(Sandbox\)` and
+#             `Built route .* mode=SANDBOX`.
+# SCIENCE AND REPUTATION ARE NOT GATED HERE and no ledger oracle block is declared, for
+# H76's reasons: the batch's restore-after-run cells may patch pools in-body, and
+# `FlushAndQuit` suppresses its save after the baseline restore. H74 / H75 / H79 carry
+# the all-three-pools gates.
+#
+# THE TALLY WAS AUTHORED INTERIM (`total=47` literal, `passed=` a floor of 9 above the
+# ordinary FLIGHT ceiling of 8, `skipped=` free) with H39's split, 34 / 0 / 13, and
+# H39's skip roster written as the PREDICTION (every skip a recorded-host property). The
+# recordings count is H39's exact 21 (the staged 19 plus the two deterministic load-time
+# optimizer splits H35 pins on these sidecar bytes).
+#
+# FLIGHT HISTORY - THE PIN'S SOURCE.
+#
+# FLIGHT 1  `2026-10-21_2022`, PASS attempt 1, wall 163 s, automation DLL sha256 prefix
+#           7bdd8016 (worktree 4772612, C# = main 92f3a15). MEASURED: `BATCH_COMPLETE v1
+#           total=47 passed=34 failed=0 skipped=13 category=Logistics scene=FLIGHT`,
+#           `Using batch baseline slot '...' for 38 restore-after-run test(s)`,
+#           `RewindRedeliver_InGame: funds unchanged net=0` present (no `no Funding
+#           singleton` anywhere), both career seed lines and `Built route id=...
+#           mode=CAREER` present, zero `[Parsek][ERROR]`. saveParse (report-only): no
+#           route, 3 rewind points (the source's), 0 supersede rows, 0 tombstones.
+#           unityExceptions (report-only): 76 NREs, stock audio-pool noise with no
+#           Parsek frame (H39 measured 92 of the same).
+#           THE PREDICTION HELD EXACTLY: H39's split with H39's skip roster cell for
+#           cell, so the game mode moved no cell. The tally is now PINNED WHOLE off
+#           this flight, `skipped=13` is declared in
+#           IsolatedBatchWiringGroupTests.MEASURED_SKIPPED (attribute floor 1, plus 12
+#           run-time skips), and the id has LEFT INTERIM_PIN_IDS.
+#           FINDING, NO GATE FAILED (todo ROUTE-CAREER-FIXTURES-EARN-STOCK-EVENTS-AT-LOAD):
+#           the ledger logged `GUARDED DRAWDOWN clamped ... ledger may be missing an
+#           earning channel` 40 times. Cause: at the converted save's first load stock
+#           recovered four KSC debris vessels (+914 funds), earnings the ledger has no
+#           row for. The guard kept the live value and the redelivery cell still netted
+#           0. Not forbidding the clamp here (the header above) was right.
+#
+# THE SKIP ROSTER - all 13, H39's verbatim (`Kerbal X` is the active vessel; see H39's
+# header for each full skip string):
+#   1 scene-filtered (`Scene eligibility skip summary: skipped=1 currentScene=FLIGHT
+#     byRequiredScene=SPACECENTER:1`): RouteInterBodyBuilderShapeInGameTest's
+#     InterBodyRoute_RealBuilder_ClassifiesReaimWindows_AndModuloFires (H77 / H34's).
+#   12 run-time `InGameAssert.Skip`:
+#     LogisticsRouteProducerRuntimeTests.RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof
+#       - "No recording with a captured RouteOriginProof..."
+#     LogisticsRouteProofRuntimeTests.RouteProof_ActiveAsTargetDockWindow_HasEndpointProof
+#       - "No active-as-target logistics dock route window found..."
+#     LogisticsRouteProofRuntimeTests.RouteProof_CrossTreeCommittedPartner_HasEndpointProof
+#       - "No cross-tree-committed-partner dock route window found..."
+#     LogisticsDeliveryRuntimeTests.Delivery_LoadedVessel_StacksInventoryQuantityIntoSlot
+#       - "PRECONDITION: no STACKABLE stored cargo part..."
+#     LogisticsDeliveryRuntimeTests.Delivery_MultiModule_FirstContainerFullSecondReceives
+#       - "Active vessel 'Kerbal X' has 1 inventory module(s)..."
+#     LogisticsHarvestRuntimeTests.HarvestCapture_CatchUpOnLoad_AttributesInsideWindowOrBridges
+#       - "no BaseDrill-derived module"
+#     LogisticsHarvestRuntimeTests.HarvestCapture_ConverterToggle_OpensAndClosesWindow
+#       - "no BaseConverter-derived module"
+#     LogisticsHarvestRuntimeTests.HarvestCapture_WarpToggle_RebaselinesAtRailsTransitions
+#       - "no BaseConverter-derived module"
+#     LogisticsHarvestRuntimeTests.HarvestRoute_AnalyzesEligible_FromSyntheticRecording
+#       - "Synthetic drill tree 'tree-drill-harvest-m2' is not in this save"
+#     LogisticsPickupRuntimeTests.InventoryPickupDebit_LoadedEndpointVessel_RemovesStoredPart
+#       - "PRECONDITION: no stored cargo part"
+#     LogisticsRouteProofRuntimeTests.InventoryPayloadIdentityHash_LiveStockMove_PreservesIdentity
+#       - "Active vessel needs at least two ModuleInventoryPart containers"
+#     LogisticsMultiOriginRuntimeTests.Escrow_CompetingRouteSeesReservation_Holds
+#       - "Shared source holds 645.42114604927269 LF >= 2x the pickup; cannot demonstrate
+#         the competing-route net."
+#
+# THE TALLY GATES as H39's does: `passed=34 failed=0 skipped=13` are literals, so a cell
+# that fails, self-skips or is deleted reds (the last locally, through
+# CommittedBatchTallySourceSyncTests).
+#
+# FAST-LANE CHECKLIST item 9, flight_efficiency.py (flight 1, `2026-10-21_2022`):
+# pre-launch 3.0 s, boot 24.2 s, seam steps 124.9 s (RunTests 117.33 s, LoadGame
+# 7.53 s), gaps 0.9 s, quit 1.1 s, post-quit 9.9 s, retries 0. Nothing to trim: the
+# batch itself is the cost.
+description = "H39-logistics-isolated-bdock-career style: the isolated Logistics batch over bdock-recorded-career, H39's recorded dock/undock save converted to CAREER by build_route_career.py, so RouteRewindRedeliveryInGameTest's funds-flat assertion runs on a recorded host with a live Funding singleton, gating its funds-unchanged line, mode=CAREER on the shuttle cell's route build and the career-save seeds. FLOWN GREEN 2026-10-21 on its first flight (2026-10-21_2022, funds unchanged net=0): 34 passed / 0 failed / 13 skipped, H39's split, pinned whole."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "logistics", "route-proof", "career",
+        "recorded-fixture", "H78", "flown", "reading-iteration"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/bdock-recorded-career"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# H39's steps, unchanged. verboseLogging=true is REQUIRED: the per-test PASSED lines
+# pinned below are Verbose.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Logistics", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE: D8 funds rests on the career funds-check line plus the cell's
+# PASSED line; D14 career is pinned to the fixture's `Mode = CAREER` by
+# test_d14_game_mode.py.
+D8 = ["funds"]
+D14 = ["career", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 21, max = 21 }
+
+[expectations.logContracts]
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "runtests start category=Logistics isolated=true",
+  "Using batch baseline slot .* for 38 restore-after-run test\\(s\\)",
+  "BATCH_COMPLETE v1 total=47 passed=34 failed=0 skipped=13 category=Logistics scene=FLIGHT",
+  "PASSED: LogisticsRouteProducerRuntimeTests\\.RouteOriginProof_StartedOnRunway_ProducerSkipsProof",
+  "PASSED: LogisticsRouteProofRuntimeTests\\.RouteProof_ActiveAsInitiatorDockWindow_HasEndpointProof",
+  "flushandquit: save suppressed \\(batch baseline already restored\\)",
+  "RewindRedeliver_InGame: funds unchanged net=",
+  "PASSED: RouteRewindRedeliveryInGameTest\\.RouteRedeliversAfterRewindPastDelivery",
+  "Built route id=.* mode=CAREER",
+  "Seeded initial funds: amount=500000,",
+  "Seeded initial science: amount=100,",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "RewindRedeliver_InGame: no Funding singleton \\(Sandbox\\)",
+  "Built route .* mode=SANDBOX",
+]
+
+[runtime]
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

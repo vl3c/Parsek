@@ -980,6 +980,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # lab-lko-science does: in a derived fixture it indexes a milestones sidecar
         # no fixture ships.
         "logi-cargo-career": True,
+        # gloops-airshow-career: gloops-airshow converted to CAREER by
+        # harness/tools/build_route_career.py (the H77 host). Its ParsekScenario node is
+        # the source's byte for byte, so True for gloops-airshow's reason.
+        "gloops-airshow-career": True,
         # pad-runway-pair: logi-cargo-pad plus a clone of rover-route-recorded's
         # `rover fuel 0` on the runway, derived by build_pad_runway_pair.py (the EX-1
         # host). It inherits logi-cargo-pad's node verbatim, so True for the same reason.
@@ -3603,6 +3607,15 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "schemaGeneration": 4,
         },
     }
+    # --- THE CAREER ROUTE COPIES (H74-H79) ---------------------------------
+    # Built by harness/tools/build_route_career.py from the four recorded route hosts
+    # above: the game mode, PARAMETERS, the career scenarios and the ledger move, while
+    # the ParsekScenario node and every recording sidecar stay byte-identical (gated by
+    # lib/test_route_career.py), so each copy pins exactly its source's payload.
+    RECORDED_FIXTURES["rover-relay-c-recorded-career"] = RECORDED_FIXTURES["rover-relay-c-recorded"]
+    RECORDED_FIXTURES["depot-route-recorded-career"] = RECORDED_FIXTURES["depot-route-recorded"]
+    RECORDED_FIXTURES["bdock-recorded-career"] = RECORDED_FIXTURES["bdock-recorded"]
+    RECORDED_FIXTURES["rover-route-recorded-career"] = RECORDED_FIXTURES["rover-route-recorded"]
 
     def test_fixture_set_is_exactly_the_committed_set(self):
         found = sorted(d for d in os.listdir(FIXTURE_SAVES_DIR)
