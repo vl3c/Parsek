@@ -31,13 +31,36 @@ tier = "nightly"
 # pinned save point on this lane, and the pool-write forbids carry the gate. No D8 claim
 # for the same reason (CLAIM-IS-NOT-GATE: the forbids alone gate nothing positive).
 #
-# THE TALLY IS INTERIM until the first census: `total=47` literal, `passed=` free,
-# `skipped=` free. PREDICTION: H34's split, 2 / 0 / 45 (45 scene-skipped FLIGHT cells,
-# 2 executable, both passing), since neither SPACECENTER cell reads the game mode.
-description = "H34-logistics-inter-body-career style: boot to the Space Center over gloops-airshow-career, H34's host save converted to CAREER by build_route_career.py, and run the Logistics category's SPACECENTER slice, gating that the inter-body route's fired cycle and modulo skip happen with the ledger seeded off the career save (funds 500000, science 100) and with no Parsek pool write or drawdown clamp. AUTHORED 2026-10-21, NEVER FLOWN: interim tally pin, H34's 2/0/45 predicted."
+# THE TALLY WAS AUTHORED INTERIM (`total=47` literal, `passed=` and `skipped=` free) with
+# H34's split, 2 / 0 / 45 (45 scene-skipped FLIGHT cells, 2 executable, both passing),
+# written as the PREDICTION, since neither SPACECENTER cell reads the game mode.
+#
+# FLIGHT 1  `2026-10-21_2022`, PASS attempt 1, wall 44 s, automation DLL sha256 prefix
+#           7bdd8016 (worktree 4772612, C# = main 92f3a15). MEASURED: `BATCH_COMPLETE v1
+#           total=47 passed=2 failed=0 skipped=45 category=Logistics scene=SPACECENTER`,
+#           the FIRED and modulo SKIPPED lines, both career seed lines (and, on this
+#           lane only, the reputation seed at 0), zero `[Parsek][ERROR]`, no
+#           `Patch<Pool>: <old> -> <new>` write, no drawdown clamp. saveParse
+#           (report-only): no route in the produced save, 0 supersede rows, 0
+#           tombstones, 0 rewind points. THE PREDICTION HELD EXACTLY: H34's split, so
+#           the tally is now PINNED WHOLE off this flight and the id has LEFT
+#           IngameBatchWiringGroupTests.INTERIM_PIN_IDS. `skipped=45` is the attribute
+#           floor (H34's), so it needs no RUNTIME_SKIPS entry.
+#
+# THE SKIP ROSTER - all 45 scene-filtered, none at run time: `Scene eligibility skip
+# summary: skipped=45 currentScene=SPACECENTER byRequiredScene=FLIGHT:45`. The two that
+# ran and passed: LogisticsTooltipEchoImguiTest.TooltipEchoBox_StableControlCount_
+# NoImguiException and RouteInterBodyBuilderShapeInGameTest.InterBodyRoute_RealBuilder_
+# ClassifiesReaimWindows_AndModuloFires.
+#
+# FAST-LANE CHECKLIST item 9, flight_efficiency.py (flight 1, `2026-10-21_2022`):
+# pre-launch 3.0 s, boot 24.7 s, seam steps 6.2 s (LoadGame 5.86 s, RunTests 0.33 s),
+# gaps 1.0 s, quit 0.7 s, post-quit 8.5 s, retries 0. Nothing to trim: boot and the
+# load are the cost.
+description = "H34-logistics-inter-body-career style: boot to the Space Center over gloops-airshow-career, H34's host save converted to CAREER by build_route_career.py, and run the Logistics category's SPACECENTER slice, gating that the inter-body route's fired cycle and modulo skip happen with the ledger seeded off the career save (funds 500000, science 100) and with no Parsek pool write or drawdown clamp. FLOWN GREEN 2026-10-21 on its first flight (2026-10-21_2022): 2 passed / 0 failed / 45 skipped, H34's split, pinned whole."
 instanceProfile = "stock-minimal"
 tags = ["logistics", "route", "inter-body", "reaim", "scene-routing", "career", "H77",
-        "never-flown", "reading-iteration"]
+        "flown", "reading-iteration"]
 
 [fixture]
 saveTemplate = "fixtures/saves/gloops-airshow-career"
@@ -71,7 +94,7 @@ required  = [
   "loadgame complete scene=SPACECENTER save=.* game-loaded=true expected=SpaceCenter",
   "LoopRoute: route .* cycle=cycle-0 FIRED full cycle \\(dispatch\\+debit\\+delivered\\) at ut=",
   "LoopRoute: route .* window 1 SKIPPED by cadence modulo \\(N=2 anchor=0 basis=ReaimWindows\\) - marker advanced, nothing emitted",
-  "BATCH_COMPLETE v1 total=47 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=Logistics scene=SPACECENTER",
+  "BATCH_COMPLETE v1 total=47 passed=2 failed=0 skipped=45 category=Logistics scene=SPACECENTER",
   "Seeded initial funds: amount=500000,",
   "Seeded initial science: amount=100,",
 ]

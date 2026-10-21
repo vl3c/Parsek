@@ -46,10 +46,24 @@ tier = "nightly"
 # moving a loaded-path debit. Both blocks below stay REPORT-ONLY (`gating = false`) until
 # a reading run, because arming is a per-spec decision taken off a reading
 # (`test_no_committed_spec_arms_gating`).
-description = "RVR-7-rover-relay-c-dispatch-career style: RVR-7's create + one send-once + TimeJump 1100 over rover-relay-c-recorded-career, the same relay save converted to CAREER by build_route_career.py, gating that the route builds with mode=CAREER, that the ledger seeds funds 500000 and science 100 off the career save, and that no Parsek pool write, drawdown clamp or ledger-oracle pool drift happens across the dispatch, debit and delivery. AUTHORED 2026-10-21, NEVER FLOWN."
+#
+# FLIGHT 1  `2026-10-21_2017`, PASS attempt 1, wall 58 s, automation DLL sha256 prefix
+#           7bdd8016 (worktree 4772612, C# = main 92f3a15). THE PREDICTION HELD: every
+#           RVR-7 token matched, `Seeded initial funds: amount=500000` and `Seeded
+#           initial science: amount=100` present, the route line `Built route
+#           id=b85880a7 origin=ksc ... stop-inventory-pickup=3 mode=CAREER`, zero
+#           `[Parsek][ERROR]`, no `Patch<Pool>: <old> -> <new>` write, no drawdown clamp.
+#           Ledger oracle PASS (expected funds 500000, science 100, rep 0; no hard
+#           divergence). saveParse (report-only): one route, Paused; 0 supersede rows,
+#           0 tombstones, 0 rewind points. Neither named refutation happened.
+#
+# FAST-LANE CHECKLIST item 9, flight_efficiency.py (flight 1, `2026-10-21_2017`):
+# pre-launch 10.9 s, boot 25.6 s, seam steps 8.8 s (LoadGame 8.27 s), gaps 1.2 s, quit
+# 0.7 s, post-quit 10.8 s, retries 0. Nothing to trim: boot and the load are the cost.
+description = "RVR-7-rover-relay-c-dispatch-career style: RVR-7's create + one send-once + TimeJump 1100 over rover-relay-c-recorded-career, the same relay save converted to CAREER by build_route_career.py, gating that the route builds with mode=CAREER, that the ledger seeds funds 500000 and science 100 off the career save, and that no Parsek pool write, drawdown clamp or ledger-oracle pool drift happens across the dispatch, debit and delivery. FLOWN GREEN 2026-10-21 on its first flight (2026-10-21_2017, PASS attempt 1, ledger oracle PASS)."
 instanceProfile = "stock-minimal"
 tags = ["seam-verbs", "logistics", "route-create", "route-delivery", "route-pickup",
-        "career", "recorded-fixture", "H74", "never-flown", "reading-iteration"]
+        "career", "recorded-fixture", "H74", "flown", "reading-iteration"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/rover-relay-c-recorded-career"
@@ -126,6 +140,7 @@ terminalStates = { Landed = { min = 5 }, Docked = { min = 2 } }
 branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
 
 [expectations.routes]
+# Report-only; flight 1 measured one route, Paused (the count and status windows hold).
 gating          = false
 count           = { min = 1, max = 1 }
 dormant         = { min = 0, max = 0 }

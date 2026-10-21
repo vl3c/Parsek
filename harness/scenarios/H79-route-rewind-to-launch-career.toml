@@ -46,10 +46,25 @@ tier = "nightly"
 # lines appear once each at the first load (the rewind's reload finds the seeds already
 # in the ledger), no pool write appears. The routes block stays REPORT-ONLY
 # (`gating = false`) until a reading run (`test_no_committed_spec_arms_gating`).
-description = "H58-route-rewind-to-launch-career style: H58's route create / activate / pause / resume, in-run recorded subject and Rewind-to-Launch through tree=latest over rover-route-recorded-career, the same rover route save converted to CAREER by build_route_career.py, gating mode=CAREER on the route build, the career-save seeds (funds 500000, science 100), and no Parsek pool write, drawdown clamp or rewind-aware ledger-oracle pool drift across the dispatch arming and the rewind. AUTHORED 2026-10-21, NEVER FLOWN."
+#
+# FLIGHT 1  `2026-10-21_2025`, PASS attempt 1, wall 56 s, automation DLL sha256 prefix
+#           7bdd8016 (worktree 4772612, C# = main 92f3a15). THE PREDICTION HELD: every
+#           H58 token matched, including the spec's own negative step (the bare
+#           InvokeRewindToLaunch refused `ambiguous-tree`, as H58 logs it) and the
+#           go-back route reconcile; both career seed lines present, `Built route
+#           id=... mode=CAREER`, zero `[Parsek][ERROR]`, no `Patch<Pool>: <old> -> <new>`
+#           write, no drawdown clamp. Rewind-aware ledger oracle PASS (expected funds
+#           500000, science 100, rep 0; no hard divergence). saveParse (report-only):
+#           one route, Active; 0 supersede rows, 0 tombstones, 0 rewind points.
+#
+# FAST-LANE CHECKLIST item 9, flight_efficiency.py (flight 1, `2026-10-21_2025`):
+# pre-launch 11.3 s, boot 24.1 s, seam steps 10.9 s (LoadGame 7.70 s, the two
+# InvokeRewindToLaunch 2.72 s), gaps 1.2 s, quit 0.7 s, post-quit 8.7 s, retries 0.
+# Nothing to trim: boot and the load are the cost.
+description = "H58-route-rewind-to-launch-career style: H58's route create / activate / pause / resume, in-run recorded subject and Rewind-to-Launch through tree=latest over rover-route-recorded-career, the same rover route save converted to CAREER by build_route_career.py, gating mode=CAREER on the route build, the career-save seeds (funds 500000, science 100), and no Parsek pool write, drawdown clamp or rewind-aware ledger-oracle pool drift across the dispatch arming and the rewind. FLOWN GREEN 2026-10-21 on its first flight (2026-10-21_2025, PASS attempt 1, rewind-aware ledger oracle PASS)."
 instanceProfile = "stock-minimal"
 tags = ["route", "rewind", "logistics", "route-x-rewind", "rewind-to-launch", "career",
-        "H79", "D12", "never-flown", "reading-iteration"]
+        "H79", "D12", "flown", "reading-iteration"]
 
 [fixture]
 saveTemplate = "fixtures/saves/rover-route-recorded-career"
@@ -92,7 +107,8 @@ D14 = ["career", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.routes]
-# H58's windows, REPORT-ONLY here until a reading run (see the header).
+# H58's windows, REPORT-ONLY here until a reading run (see the header). Flight 1
+# measured one route, Active (the count and status windows hold).
 gating          = false
 count           = { min = 1, max = 1 }
 dormant         = { max = 0 }

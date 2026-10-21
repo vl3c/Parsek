@@ -16,6 +16,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ROUTE-CAREER-FIXTURES-EARN-STOCK-EVENTS-AT-LOAD: two of the career route copies earn stock career rewards at their first load, so the ledger logs drawdown-guard clamps [FILED 2026-10-21 from H76 `2026-10-21_2019` and H78 `2026-10-21_2022` (both PASS, no gate failed), branch `career-route-lanes`. OPEN, low. harness]
+
+**Symptom.** H76 logs `GUARDED DRAWDOWN clamped ... ledger may be missing an earning channel` 80 times and H78 40 times. No gate failed (neither lane forbids the clamp), the redelivery cell logged `funds unchanged net=0` on both, and the route cycles net 0. H74 / H75 / H77 / H79, which forbid the clamp, logged none.
+
+**Cause.** Stock career events fire at the converted save's first load, not routes. `depot-route-recorded-career` (H76): stock awards the Kerbin/Rendezvous milestone (+12000 funds, +1 science, +2 rep), because the copied ProgressTracking (the source's, kept untouched by `build_route_career.py`) has no Kerbin/Rendezvous node while the recorded vessels are already in rendezvous, plus a +624 funds debris recovery. `bdock-recorded-career` (H78): four KSC debris recoveries add 914 funds. The ledger has no row for these earnings, so the guard keeps the live value and logs the clamp.
+
+**Fix.** In `harness/tools/build_route_career.py`: pre-seed ProgressTracking with the milestones the recorded vessels already reached, and clear the debris at the KSC, then re-check the six lanes' logs for zero clamp lines (H76 / H78 could then forbid it too).
+
 ## MINE-7-RESTORE-PIN-ASSUMES-DRILLS-OFF: MINE-7 pins the spawned-drill restore line to "restored=4 alreadyOn=0", but the drills can come back on by themselves [FILED 2026-10-21 from MINE-7 `2026-10-21_1604` (PARSEK-FAIL, expectations), flown for PR #2163. OPEN, low. harness]
 
 **Symptom.** The lane's required line `Spawned harvester restore: vessel=Mining Rover RC pid=[0-9]+ restored=4 alreadyOn=0 missing=0` did not match: KSP.log had `restored=0 alreadyOn=4 missing=0` 2 s after `Unpacking Mining Rover RC` (`restore armed ... harvesters=4` before it). Mining and every resource check passed; every other verifier passed. The green `2026-10-17_1506_a2` run logged `restored=4 alreadyOn=0`.
@@ -449,7 +457,7 @@ unchanged net=0`, the Sandbox skip line absent): H38's isolated Logistics batch 
 `logi-cargo-career` (H38's rig in `fresh-career`), tally 39 / 0 / 8 pinned whole. The fixture then
 gained three research nodes (every rig part unlocked) and the confirming flight `2026-10-21_1810`
 passed on it (same tally, `funds unchanged net=0`).
-Follow-up AUTHORED 2026-10-21, NOT FLOWN YET (branch `career-route-lanes`): H73 proved the funds pair on a
+Follow-up AUTHORED AND FLOWN GREEN 2026-10-21 (branch `career-route-lanes`): H73 proved the funds pair on a
 pad rig only; every other route lane still runs SANDBOX. `harness/tools/build_route_career.py` (drift gate
 `harness/lib/test_route_career.py`) builds CAREER copies of five route saves (`rover-relay-c-recorded`,
 `depot-route-recorded`, `gloops-airshow`, `bdock-recorded`, `rover-route-recorded`): career PARAMETERS and
@@ -458,8 +466,13 @@ rows, award-bearing milestone rows and legacy route rows removed so Parsek seeds
 Six lanes fly their source's driver verbatim on them: H74 (RVR-7), H75 (RVR-8), H76 (H40), H77 (H34),
 H78 (H39), H79 (H58). Gates: the career seed lines and no `mode=SANDBOX` route build everywhere; no Parsek
 pool write or drawdown clamp on H74 / H75 / H77 / H79, plus the ledger oracle against the staged pools on
-H74 / H75 (sum) and H79 (rewind-aware); H73's redelivery funds pair on H76 / H78. Owed: one reading run per
-lane, then whole tally pins (H76 / H77 / H78) and the arming call on the report-only saveParse blocks.
+H74 / H75 (sum) and H79 (rewind-aware); H73's redelivery funds pair on H76 / H78. Flown 2026-10-21 on
+automation DLL 7bdd8016 (C# = main 92f3a15), every lane PASS attempt 1 on its first flight: H74
+`2026-10-21_2017`, H75 `_2018`, H76 `_2019`, H77 `_2022`, H78 `_2022`, H79 `_2025`. Ledger oracle PASS on
+H74 / H75 / H79 (funds 500000, science 100, rep 0); `funds unchanged net=0` on H76 / H78; zero Parsek ERROR
+and no Parsek pool write anywhere. The batch splits held their sources' exactly (H76 35/0/12, H77 2/0/45,
+H78 34/0/13) and are now pinned whole. Still owed: the operator's arming call on the report-only saveParse
+blocks. Found: ROUTE-CAREER-FIXTURES-EARN-STOCK-EVENTS-AT-LOAD (no gate failed).
 
 **Phase 2 FIXED 2026-10-21** (branch `logistics-no-money-p2`, stacked on phase 1). Route events left
 the ledger. New: `Logistics/RouteEvent.cs` (`RouteEvent` + `RouteEventType`, the eight kinds with the

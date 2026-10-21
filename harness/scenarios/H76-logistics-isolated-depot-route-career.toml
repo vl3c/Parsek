@@ -45,16 +45,78 @@ tier = "nightly"
 # restore, so the produced save would be the staged one and the diff vacuous. H74 / H75 /
 # H79 carry the all-three-pools gates.
 #
-# THE TALLY IS INTERIM until the first census: `total=47` literal, `passed=` a floor of
-# 9 (above the ordinary FLIGHT ceiling of 8, so a run that took the ordinary path cannot
-# match), `skipped=` free. PREDICTION: H40's split, 35 / 0 / 12, with H40's skip roster
-# cell for cell (every skip is a recorded-host property, none a game-mode one; H73
-# measured exactly H38's roster on its career copy). The recordings count is H40's
-# exact 22 (the sidecars are the source's bytes).
-description = "H40-logistics-isolated-depot-route-career style: the isolated Logistics batch over depot-route-recorded-career, H40's depot route save converted to CAREER by build_route_career.py, so RouteRewindRedeliveryInGameTest's funds-flat assertion runs against the suite's only committed Active route with a live Funding singleton, gating its funds-unchanged line, mode=CAREER on the shuttle cell's route build and the career-save seeds. AUTHORED 2026-10-21, NEVER FLOWN: interim tally pin, H40's 35/0/12 predicted."
+# THE TALLY WAS AUTHORED INTERIM (`total=47` literal, `passed=` a floor of 9 above the
+# ordinary FLIGHT ceiling of 8, `skipped=` free) with H40's split, 35 / 0 / 12, and
+# H40's skip roster written as the PREDICTION (every skip a recorded-host property, none
+# a game-mode one). The recordings count is H40's exact 22 (the sidecars are the
+# source's bytes).
+#
+# FLIGHT HISTORY - THE PIN'S SOURCE.
+#
+# FLIGHT 1  `2026-10-21_2019`, PASS attempt 1, wall 154 s, automation DLL sha256 prefix
+#           7bdd8016 (worktree 4772612, C# = main 92f3a15). MEASURED: `BATCH_COMPLETE v1
+#           total=47 passed=35 failed=0 skipped=12 category=Logistics scene=FLIGHT`,
+#           `Using batch baseline slot '...' for 38 restore-after-run test(s)`,
+#           `RewindRedeliver_InGame: funds unchanged net=0` present (no `no Funding
+#           singleton` anywhere), both career seed lines and `Built route id=...
+#           mode=CAREER` present, zero `[Parsek][ERROR]`. saveParse (report-only): one
+#           route, Active; 0 supersede rows, 0 tombstones, 0 rewind points.
+#           THE PREDICTION HELD EXACTLY: H40's split with H40's skip roster cell for
+#           cell, so the game mode moved no cell. The tally is now PINNED WHOLE off
+#           this flight, `skipped=12` is declared in
+#           IsolatedBatchWiringGroupTests.MEASURED_SKIPPED (attribute floor 1, plus 11
+#           run-time skips), and the id has LEFT INTERIM_PIN_IDS.
+#           FINDING, NO GATE FAILED (todo ROUTE-CAREER-FIXTURES-EARN-STOCK-EVENTS-AT-LOAD):
+#           the ledger logged `GUARDED DRAWDOWN clamped ... ledger may be missing an
+#           earning channel` 80 times. Cause: at the converted save's first load stock
+#           awarded the Kerbin/Rendezvous milestone (+12000 funds, +1 science, +2 rep;
+#           the copied ProgressTracking has no Kerbin/Rendezvous node while the
+#           recorded vessels are already in rendezvous) and a +624 debris recovery,
+#           earnings the ledger has no row for. The guard kept the live value and the
+#           redelivery cell still netted 0. Not forbidding the clamp here (the header
+#           above) was right.
+#
+# THE SKIP ROSTER - all 12, H40's verbatim (`Depot` is the active vessel; see H40's
+# header for each full skip string):
+#   1 scene-filtered (`Scene eligibility skip summary: skipped=1 currentScene=FLIGHT
+#     byRequiredScene=SPACECENTER:1`): RouteInterBodyBuilderShapeInGameTest's
+#     InterBodyRoute_RealBuilder_ClassifiesReaimWindows_AndModuloFires (H77 / H34's).
+#   11 run-time `InGameAssert.Skip`:
+#     LogisticsRouteProducerRuntimeTests.RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof
+#       - "No recording with a captured RouteOriginProof..."
+#     LogisticsRouteProofRuntimeTests.RouteProof_ActiveAsTargetDockWindow_HasEndpointProof
+#       - "No active-as-target logistics dock route window found..."
+#     LogisticsRouteProofRuntimeTests.RouteProof_CrossTreeCommittedPartner_HasEndpointProof
+#       - "No cross-tree-committed-partner dock route window found..."
+#     LogisticsDeliveryRuntimeTests.Delivery_LoadedVessel_StacksInventoryQuantityIntoSlot
+#       - "PRECONDITION: no STACKABLE stored cargo part..."
+#     LogisticsDeliveryRuntimeTests.Delivery_MultiModule_FirstContainerFullSecondReceives
+#       - "Active vessel 'Depot' has 1 inventory module(s)..."
+#     LogisticsHarvestRuntimeTests.HarvestCapture_CatchUpOnLoad_AttributesInsideWindowOrBridges
+#       - "no BaseDrill-derived module"
+#     LogisticsHarvestRuntimeTests.HarvestCapture_ConverterToggle_OpensAndClosesWindow
+#       - "no BaseConverter-derived module"
+#     LogisticsHarvestRuntimeTests.HarvestCapture_WarpToggle_RebaselinesAtRailsTransitions
+#       - "no BaseConverter-derived module"
+#     LogisticsHarvestRuntimeTests.HarvestRoute_AnalyzesEligible_FromSyntheticRecording
+#       - "Synthetic drill tree 'tree-drill-harvest-m2' is not in this save"
+#     LogisticsPickupRuntimeTests.InventoryPickupDebit_LoadedEndpointVessel_RemovesStoredPart
+#       - "PRECONDITION: no stored cargo part"
+#     LogisticsRouteProofRuntimeTests.InventoryPayloadIdentityHash_LiveStockMove_PreservesIdentity
+#       - "Active vessel needs at least two ModuleInventoryPart containers"
+#
+# THE TALLY GATES as H40's does: `passed=35 failed=0 skipped=12` are literals, so a cell
+# that fails, self-skips or is deleted reds (the last locally, through
+# CommittedBatchTallySourceSyncTests).
+#
+# FAST-LANE CHECKLIST item 9, flight_efficiency.py (flight 1, `2026-10-21_2019`):
+# pre-launch 2.4 s, boot 25.0 s, seam steps 114.6 s (RunTests 106.89 s, LoadGame
+# 7.69 s), gaps 1.1 s, quit 1.0 s, post-quit 9.9 s, retries 0. Nothing to trim: the
+# batch itself is the cost.
+description = "H40-logistics-isolated-depot-route-career style: the isolated Logistics batch over depot-route-recorded-career, H40's depot route save converted to CAREER by build_route_career.py, so RouteRewindRedeliveryInGameTest's funds-flat assertion runs against the suite's only committed Active route with a live Funding singleton, gating its funds-unchanged line, mode=CAREER on the shuttle cell's route build and the career-save seeds. FLOWN GREEN 2026-10-21 on its first flight (2026-10-21_2019, funds unchanged net=0): 35 passed / 0 failed / 12 skipped, H40's split, pinned whole."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "isolated-batch", "logistics", "route", "depot", "career",
-        "recorded-fixture", "H76", "never-flown", "reading-iteration"]
+        "recorded-fixture", "H76", "flown", "reading-iteration"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/depot-route-recorded-career"
@@ -94,7 +156,7 @@ required  = [
   "RevalidateSources reason=OnLoad routes=1 transitioned=0",
   "runtests start category=Logistics isolated=true",
   "Using batch baseline slot .* for 38 restore-after-run test\\(s\\)",
-  "BATCH_COMPLETE v1 total=47 passed=(?:9|[1-9][0-9]+) failed=0 skipped=[0-9]+ category=Logistics scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=47 passed=35 failed=0 skipped=12 category=Logistics scene=FLIGHT",
   "PASSED: LogisticsRouteProofRuntimeTests\\.RouteProof_ActiveAsInitiatorDockWindow_HasEndpointProof",
   "OriginDebit_Loaded: PASS routeId=.* storedBefore=715 storedAfter=710 debit=5",
   "flushandquit: save suppressed \\(batch baseline already restored\\)",

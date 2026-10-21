@@ -4135,8 +4135,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H71-resource-topbar-ksc":   ("ResourceTopBar", 2, "SPACECENTER"),
         # H34's driver over `gloops-airshow-career` (H34's host converted to CAREER by
         # harness/tools/build_route_career.py). Same (category, scene), so the same
-        # attribute derivation; the split is INTERIM until its first census (see
-        # INTERIM_PIN_IDS), H34's 2/0/45 predicted.
+        # attribute derivation; the split is MEASURED at 2/0/45, H34's, off
+        # `2026-10-21_2022`. Its 45 skips are the attribute floor, so no RUNTIME_SKIPS.
         "H77-logistics-inter-body-career": ("Logistics", 47, "SPACECENTER"),
         "H47-map-view":              ("MapView", 4, "TRACKSTATION"),
         "H48-ledger-drawdown":       ("Ledger", 4, "SPACECENTER"),
@@ -4499,11 +4499,14 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # class's own cells never read it; CommittedBatchTallySourceSyncTests gates its `total=`.
     # It LEFT the same day: its first flight, run 2026-10-17_0622 (PASS attempt 1), measured
     # the prediction, `passed=5 failed=0 skipped=0`, and the spec pinned the line whole.
+    #
     # H77-logistics-inter-body-career ENTERED on 2026-10-21 (H34's SPACECENTER slice of
     # `Logistics` over `gloops-airshow-career`, `total=47` literal with the split regexed,
     # predicted H34's passed=2 skipped=45: neither SPACECENTER cell reads the game mode).
-    # It leaves when its reading run measures the split and the spec pins the line whole.
-    INTERIM_PIN_IDS: set = {"H77-logistics-inter-body-career"}
+    # It LEFT the same day: its first flight, run 2026-10-21_2022 (PASS attempt 1),
+    # measured the prediction, `passed=2 failed=0 skipped=45`, and the spec pinned the
+    # line whole (45 is the attribute floor, as on H34, so no RUNTIME_SKIPS entry).
+    INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
@@ -5052,8 +5055,8 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # (`depot-route-recorded-career`, `bdock-recorded-career`, built by
         # harness/tools/build_route_career.py), so the redelivery cell's funds-flat
         # assertion runs on the two RECORDED hosts too. Same (category, scene), same
-        # attribute derivation; the splits are INTERIM until their first censuses (see
-        # INTERIM_PIN_IDS), H40's 35/0/12 and H39's 34/0/13 predicted.
+        # attribute derivation; the splits are MEASURED at 35/0/12 (H40's) and 34/0/13
+        # (H39's) off `2026-10-21_2019` and `2026-10-21_2022` (see MEASURED_SKIPPED).
         "H76-logistics-isolated-depot-route-career": ("Logistics", 47),
         "H78-logistics-isolated-bdock-career": ("Logistics", 47),
         # ROADMAP R6, ISOLATED HALF - SEVEN LANES AUTHORED 2026-09-06, SIX FLOWN GREEN
@@ -5644,14 +5647,15 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # that split, so the spec pins it whole, its `skipped=8` is declared in
     # MEASURED_SKIPPED below, and the id left this set in the same commit.
     #
-    # NON-EMPTY AGAIN ON 2026-10-21 for `H76-logistics-isolated-depot-route-career` and
-    # `H78-logistics-isolated-bdock-career`, H40's and H39's drivers on CAREER copies of
-    # their hosts, authored with H73's interim spelling (`passed=` a floor of 9,
+    # BRIEFLY NON-EMPTY AGAIN ON 2026-10-21 for `H76-logistics-isolated-depot-route-career`
+    # and `H78-logistics-isolated-bdock-career`, H40's and H39's drivers on CAREER copies
+    # of their hosts, authored with H73's interim spelling (`passed=` a floor of 9,
     # `skipped=` free) and the source lanes' 35/0/12 and 34/0/13 written as the
-    # predictions. Each leaves when its first census measures the split, the spec pins it
-    # whole and its `skipped=` is declared in MEASURED_SKIPPED.
-    INTERIM_PIN_IDS: set = {"H76-logistics-isolated-depot-route-career",
-                            "H78-logistics-isolated-bdock-career"}
+    # predictions. Their first flights, `2026-10-21_2019` (H76) and `2026-10-21_2022`
+    # (H78), both PASS attempt 1, measured exactly those splits, so both specs pin them
+    # whole, their `skipped=` values are declared in MEASURED_SKIPPED below, and both
+    # ids left this set in the same commit.
+    INTERIM_PIN_IDS: set = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -5715,6 +5719,17 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # the measurement: the remaining eleven are the same on both, so they are
         # properties of the RECORDED-HOST SHAPE rather than of either fixture.
         "H40-logistics-isolated-depot-route": 12,
+        # H76 (`depot-route-recorded-career`, H40's host in a CAREER save): 1
+        # attribute-forced + 11 run-time, MEASURED off `2026-10-21_2019` (PASS attempt 1)
+        # and identical to H40's roster cell for cell (`Depot` the active vessel), so the
+        # game mode moved no skip. The eleven are verbatim in the spec's header.
+        "H76-logistics-isolated-depot-route-career": 12,
+        # H78 (`bdock-recorded-career`, H39's host in a CAREER save): 1 attribute-forced
+        # + 12 run-time, MEASURED off `2026-10-21_2022` (PASS attempt 1) and identical to
+        # H39's roster cell for cell: H76's eleven with `Kerbal X` for `Depot`, plus
+        # `Escrow_CompetingRouteSeesReservation_Holds` on the same 645.42 LF shared
+        # source. The game mode moved no skip; the twelve are verbatim in the header.
+        "H78-logistics-isolated-bdock-career": 13,
         # H41 (`logi-cargo-pad`): 0 attribute-forced + 1 run-time, MEASURED off
         # `2026-08-28_2216`. The one is `GrappleWindow_LiveRecordedClawCouple_
         # StampedGrapple`, and its skip string names THIS LANE'S OWN capture cell as the

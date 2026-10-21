@@ -983,7 +983,12 @@ three RewindPoints quicksaves stay SANDBOX saves (no lane on it loads one). NOT 
 GROUND TRUTH (L2-style) checks: the sources were flown in SANDBOX and carry no launch-cost,
 recovery or hire rows. Drift-gated by `--check` and `harness/lib/test_route_career.py` (byte
 identity, the per-source strip counts, career shape, and that each lane's driver equals its
-source's).
+source's). All six lanes flew green on their first flights on 2026-10-21. Measured at the first
+load: stock earns career rewards the ledger has no row for on two copies, so the drawdown guard
+logs clamps there. `depot-route-recorded-career` gets the Kerbin/Rendezvous milestone (+12000 funds,
++1 science, +2 rep; the source's ProgressTracking has no such node) and a +624 debris recovery.
+`bdock-recorded-career` gets four KSC debris recoveries (+914 funds). Todo
+ROUTE-CAREER-FIXTURES-EARN-STOCK-EVENTS-AT-LOAD.
 
 ## lab-lko-relay (GAME Mode = SCIENCE_SANDBOX, 1 VESSEL ORBITING, derived from lab-lko-science)
 

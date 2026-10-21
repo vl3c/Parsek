@@ -246,17 +246,20 @@ class RouteCareerLaneTests(unittest.TestCase):
                 self.assertNotIn("sandbox", lane["dimensionsCovered"]["D14"])
                 self.assertTrue(lane["description"].startswith(
                     source_name[:-len(".toml")] + "-career style"), name)
-                self.assertIn("never-flown", lane["tags"])
+                # All six flew green on their first flights (2026-10-21_2017 ..
+                # _2025); the tag says so.
+                self.assertIn("flown", lane["tags"])
+                self.assertNotIn("never-flown", lane["tags"])
 
     def test_each_lane_keeps_its_source_tokens(self):
-        # Every source token stays, except the one tally line an interim pin loosens.
+        # Every source token stays, the tally line included: each batch lane's first
+        # flight measured its source's split exactly (H76 35/0/12, H77 2/0/45, H78
+        # 34/0/13), so its whole pin is the source's line byte for byte.
         for name, (source_name, _fixture) in sorted(LANES.items()):
             with self.subTest(lane=name):
                 lane = _spec(name)["expectations"]["logContracts"]
                 src = _spec(source_name)["expectations"]["logContracts"]
                 for pat in src["required"]:
-                    if "BATCH_COMPLETE" in pat:
-                        continue
                     self.assertIn(pat, lane["required"])
                 for pat in src["forbidden"]:
                     self.assertIn(pat, lane["forbidden"])

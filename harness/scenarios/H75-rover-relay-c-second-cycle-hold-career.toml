@@ -30,10 +30,23 @@ tier = "nightly"
 # PREDICTION FOR THE FIRST FLIGHT (a reading run): RVR-8's tokens all hold, the two seed
 # lines appear once each, no pool write. Both structure blocks stay REPORT-ONLY
 # (`gating = false`) until a reading run (`test_no_committed_spec_arms_gating`).
-description = "RVR-8-rover-relay-c-second-cycle-hold-career style: RVR-8's delivered cycle, held second cycle (OriginLacksCargo) and player activate over rover-relay-c-recorded-career, the same relay save converted to CAREER by build_route_career.py, gating mode=CAREER on the route build, the career-save seeds (funds 500000, science 100), and no Parsek pool write, drawdown clamp or ledger-oracle pool drift across dispatch, delivery, hold and activate. AUTHORED 2026-10-21, NEVER FLOWN."
+#
+# FLIGHT 1  `2026-10-21_2018`, PASS attempt 1, wall 56 s, automation DLL sha256 prefix
+#           7bdd8016 (worktree 4772612, C# = main 92f3a15). THE PREDICTION HELD: every
+#           RVR-8 token matched (the delivered cycle, the OriginLacksCargo hold, the
+#           pause and the player activate), both career seed lines present, `Built
+#           route id=... mode=CAREER`, zero `[Parsek][ERROR]`, no `Patch<Pool>: <old> ->
+#           <new>` write, no drawdown clamp. Ledger oracle PASS (expected funds 500000,
+#           science 100, rep 0; no hard divergence). saveParse (report-only): one
+#           route, Active; 0 supersede rows, 0 tombstones, 0 rewind points.
+#
+# FAST-LANE CHECKLIST item 9, flight_efficiency.py (flight 1, `2026-10-21_2018`):
+# pre-launch 11.5 s, boot 25.0 s, seam steps 8.4 s (LoadGame 7.82 s), gaps 1.2 s, quit
+# 0.7 s, post-quit 9.2 s, retries 0. Nothing to trim: boot and the load are the cost.
+description = "RVR-8-rover-relay-c-second-cycle-hold-career style: RVR-8's delivered cycle, held second cycle (OriginLacksCargo) and player activate over rover-relay-c-recorded-career, the same relay save converted to CAREER by build_route_career.py, gating mode=CAREER on the route build, the career-save seeds (funds 500000, science 100), and no Parsek pool write, drawdown clamp or ledger-oracle pool drift across dispatch, delivery, hold and activate. FLOWN GREEN 2026-10-21 on its first flight (2026-10-21_2018, PASS attempt 1, ledger oracle PASS)."
 instanceProfile = "stock-minimal"
 tags = ["seam-verbs", "logistics", "route-create", "route-hold", "origin-lacks-cargo",
-        "route-activate", "career", "recorded-fixture", "H75", "never-flown",
+        "route-activate", "career", "recorded-fixture", "H75", "flown",
         "reading-iteration"]
 
 [fixture]
@@ -118,6 +131,7 @@ terminalStates = { Landed = { min = 5 }, Docked = { min = 2 } }
 branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
 
 [expectations.routes]
+# Report-only; flight 1 measured one route, Active (the count and status windows hold).
 gating          = false
 count           = { min = 1, max = 1 }
 dormant         = { min = 0, max = 0 }
