@@ -212,7 +212,7 @@ from the save the way a cold load does, keeping only what the save cannot hold; 
 after the Re-Fly ledger plan. Audit table:
 `docs/dev/plans/refly-ledger-safety-implementation.md` appendix.
 
-## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. OPEN, needs owner decisions one by one; same invariant as section 2.12]
+## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. RULED 2026-10-21 (owner interview, every path); OPEN for the fixes; same invariant as section 2.12]
 
 Each breaks "the committed timeline pays for every committed spend at every UT" without Re-Fly:
 (O1, ruled 2026-10-19: a quickload undoes Space Center rows after the save, fixed with
@@ -232,6 +232,72 @@ caller and the "keep what you earned" floor can hold the funds counter above the
 Coop retirements (a transient dependent's ledger effects, a truncation's tail rows) are the same
 shape (`design-coop-async-multiplayer.md` section 7.10). Candidate shapes in the research doc,
 section 7.
+
+**Rulings (V, 2026-10-21, ledger rulings interview; record: project file
+`decisions/open-decisions.md` L1-L4).**
+
+- **General rule for funds, science and reputation (O6, O7).** (1) An outcome the committed
+  timeline already holds cannot be changed earlier. (2) Known obligations are reserved up front:
+  committed costs and every open contract's fail penalties (funds, reputation, science), from
+  accept to outcome. (3) A player click that would dig into a reservation is greyed with the reason
+  (stock-control annotation D1: greyed stock button, reason on its stock tooltip, backstop refusal).
+  (4) Any other loss applies only down to the reserved floor; the rest is carried as a debt, charged
+  from the first room above the floor (the reservation releasing at the committed cost's UT, or
+  later gains). Derived in the walk from existing rows, no new saved state. V: "we need a way to let
+  the player make decisions about risks of rewinding and doing new launches, so I pick debt".
+  Flights and launches are never blocked ("of course we should not block flights of launches").
+- O6, case by case: a new flight cannot fail a contract whose complete / fail / cancel is already
+  committed (stock's fail refused and logged; completing it earlier stays allowed; extends D7 from
+  the Cancel button to in-flight fails); an open contract's fail penalty is reserved (rule 2);
+  Mission Control Accept / Cancel / Decline are greyed when their penalty or the reservation they
+  add would leave a later committed purchase or strategy cost unpaid (rule 3); a death or
+  vessel-loss reputation hit stops at the reputation reserved for committed costs, the rest is a
+  debt (rule 4; "reputation just can't go lower than what is reserved, no matter what happens");
+  a building a new flight destroys needs no own rule (repair is a click covered by F3 and the funds
+  check; a committed repair made chargeable falls under rule 4). Not separate cases: deadline
+  expiry (the committed timeline holds it at the same UT), strategy converter debits (they follow
+  the earning or penalty they divert), killing a kerbal a committed flight uses (crew reservation).
+- O7: the funds check is no longer advisory: purchases and launch costs are greyed when they eat
+  into reserved money (rule 3; closes the P15 half of GUI-P15-D7-TWO-SAFETY-GATES-THAT-EXIST-AND-ARE-NEVER-ARMED).
+- O2: a stock revert removes only the rows the reverted flight wrote; every committed row stays
+  (matches D2).
+- O3: a recording that fails to load, for any reason, keeps its ledger rows; it loses its ghost and
+  playback, never its rows (extends the GC-3 ruling from schema rejects to every load failure).
+- O4: Model H, committed route cycles are history (research
+  `docs/dev/research/route-funds-vs-cargo-2026-10-21.md`): filed as ROUTE-CYCLES-ARE-HISTORY-AT-REWIND.
+- O5: moot once PR #2155 merges: the rule acts only on an in-flight `ResumeFromQuicksave` detach
+  during an in-session load, which #2155 makes a Cold save-file load that drops the handoff
+  (design-load-restores-the-save section 8 lists it as unreached).
+
+## ROUTE-CYCLES-ARE-HISTORY-AT-REWIND: a rewind deletes committed supply-route rows and re-decides the cycles live, so a profitable route's earnings can vanish under purchases they paid for [FILED 2026-10-21 from the owner ruling on LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O4. OPEN, needs design; Model H ruled]
+
+Today a rewind (and a Re-Fly start) retires every free-standing route row after the cutoff and the
+cycles fire again live (design 10.6, `RouteLedgerRetire`). Most cycles are a net cost, so that
+only raises funds, except (1) the recovery credit of a cycle dispatched before the rewind, re-owed
+only through the saved marker and never paid if the route pauses or loses its endpoint, and (2) a
+profitable route (a pickup run recovered at KSC whose credit beats its dispatch cost, inferred from
+the costing formula): its retired earnings leave a committed purchase unpaid until the route fires
+again, or never. Analysis: `docs/dev/research/route-funds-vs-cargo-2026-10-21.md`.
+
+Owner rulings 2026-10-21: Model H. Committed cycles are history like every other committed row
+(D2): a rewind deletes no route row; when the clock passes a committed crossing its recorded cargo
+is re-applied physically (the save restore put the tanks back), with no new ledger row, delivering
+what fits; the origin depot gives at most what it holds. A committed cycle that cannot deliver in
+full stays paid (the design 10.5 rule). Cycles after the committed present are live. The vessel's
+"already holds cycle N" marker is the UT its state was taken at (save UT, snapshot capture UT),
+which should make `RetiredRouteCargoStore` and probably the route state floor unnecessary. Next:
+rewrite logistics design 10.6, VERIFY the snapshot capture UT is readable on every spawn path, then
+a plan. A quickload / load still restores exactly what the save holds.
+
+## ROUTE-DISPATCH-IGNORES-RESERVATIONS: a route dispatch checks the raw funds counter, so it can spend money a committed purchase needs [FILED 2026-10-21 from the O4 analysis. OPEN, small; owner ruling: ship now, ahead of ROUTE-CYCLES-ARE-HISTORY-AT-REWIND]
+
+`LiveRouteRuntimeEnvironment.KscFundsAvailable` compares `Funding.Instance.Funds` with the dispatch
+cost, but the logistics design (section 8, step 4) says the KSC dispatch must be "affordable under
+the existing ledger reservation rules". After a rewind the stock counter can be above the money left
+once committed future costs are reserved, so a cycle can spend it (breaks rule 3 of the general
+ledger rule, LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY). Fix: read the reservation-aware affordable
+amount (`LedgerOrchestrator.CanAffordFundsSpending`, already consistent with the drawdown guard);
+a short dispatch waits with the existing `WaitingForFunds` status. Unit cells first.
 
 ## REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE: after a plain rewind, a vessel whose committed future is a root-lineage or switch-continuation flight stays a real vessel [FILED 2026-10-19, inferred from code. OPEN, medium, physical paradox]
 
@@ -418,7 +484,7 @@ attempt's cutoff for that id as the clone's own and re-home it, before the purge
 
 ---
 
-## REFLY-SESSION-CAREER-SHOWS-THE-REPLACED-FLIGHTS-FUTURE: during a Re-Fly the career pools and the progress tree include the replaced flight's future earnings [FILED 2026-10-18 from harness lanes LAB-10 / LAB-10b (runs `2026-10-17_2337` / `_2341`). OPEN, owner question; behavior is the documented design]
+## ~~REFLY-SESSION-CAREER-SHOWS-THE-REPLACED-FLIGHTS-FUTURE: during a Re-Fly the career pools and the progress tree include the replaced flight's future earnings~~ [FILED 2026-10-18 from harness lanes LAB-10 / LAB-10b (runs `2026-10-17_2337` / `_2341`). CLOSED 2026-10-21, owner ruling (A, keep the design): no code change]
 
 **What happens.** The Re-Fly invoke walks the whole ledger with no cutoff
 (`RewindInvoker`: `RecalculateAndPatch(double.MaxValue)`, design "career state during this
@@ -447,6 +513,13 @@ design (section 2.12) lands: a flight that earned lab science or a milestone aft
 is no longer re-flyable, so the replaced flight's retire set holds only losses and the session's
 pools can only be lower than after the merge, never higher. LAB-10 / LAB-10b re-fly exactly such
 a flight and must be re-shaped (a re-fly of a slot that earned nothing) or retired with the change.
+
+**Ruled 2026-10-21 (V, ledger rulings interview): A, keep it.** Since section 2.12 shipped (PR #2151)
+the replaced flight holds only losses after its split, so the session shows the committed career,
+those losses included, until the merge retires them (or keeps the reputation part, Rule 2
+variant B): the session never shows more than the outcome. The milestone half is moot (a milestone
+seals the slot). Hiding the replaced flight's rows during the session was rejected: a Discard would
+bring the losses back, a transient drop.
 
 ## ~~LAB-RECOVERY-RECONCILE-COALESCED-FALSE-MISMATCH: recovering a vessel whose lab holds science logs a false post-walk science mismatch (WARN + ERROR dump)~~ [FILED AND FIXED 2026-10-18 from harness lane LAB-14 (run `2026-10-17_2203`), branch `claude/lab-recovery-reconcile`. xUnit; not re-flown. product (log noise only)]
 
@@ -8925,6 +8998,10 @@ already effectively concluded), or make the Timeline row draw a disabled Seal wi
 reason in its hover echo, so the advice lands somewhere real.
 
 ## GUI-P15-D7-TWO-SAFETY-GATES-THAT-EXIST-AND-ARE-NEVER-ARMED [FILED 2026-09-11 by the GUI fix batch]
+
+**P15 ruled 2026-10-21 (V, ledger rulings interview, O7 of LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY):**
+the funds check is enforced, not advisory: a funds purchase or launch cost that eats into reserved
+money is greyed with the reason, as science already is. The fix ships with that entry's general rule.
 
 **Evidence.**
 
