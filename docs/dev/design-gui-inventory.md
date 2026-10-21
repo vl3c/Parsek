@@ -1647,7 +1647,7 @@ the full rows; the per-subsystem row counts are in the table above.
 | H16 | The recalc-and-patch pipeline rewrites funds, science, reputation, the tech tree, facility levels, progress nodes and the live `ContractSystem` with exactly ONE player-facing message in the subsystem | `GameActions/LedgerOrchestrator.cs:1837`+ (14 sites), `GameActions/KspStatePatcher.cs:61`, message `:3514` |
 | H19 | Crew-reservation swap refusals and VAB seat clears are Info/Verbose only, so the player ends up with the wrong kerbal seated and no cause given | `CrewReservationManager.cs:273-296`, `:946`; `Patches/CrewAutoAssignPatch.cs:246`, `:258` |
 | H20 | Stock kerbal dismissal is refused silently, while its four sibling committed-action blocks all raise a dialog | `Patches/KerbalDismissalPatch.cs:27`, `:37` |
-| D7 | `CanAffordFundsSpending` has no production caller; `Patches/FacilityUpgradePatch.cs:36` states funds affordability is deliberately unchecked while science IS enforced | `GameActions/LedgerOrchestrator.cs:6500`, `Patches/TechResearchPatch.cs:78` |
+| D7 | `CanAffordFundsSpending` has no production caller (2026-10-21: the route dispatch gate of PR #2159 calls it until logistics-without-money phase 1 removes that gate); `Patches/FacilityUpgradePatch.cs:36` states funds affordability is deliberately unchecked while science IS enforced | `GameActions/LedgerOrchestrator.cs:6500`, `Patches/TechResearchPatch.cs:78` |
 | D13 | `GameActionDisplay.GetCategory` (zero references anywhere) and `KerbalsModule.IsKerbalAvailable` are orphaned | `GameActions/GameActionDisplay.cs:17`, `KerbalsModule.cs:1033` |
 | P5 | `Wipe All Game Actions (N)` and its dialog name the ledger; `MilestoneStore.ClearAll` clears milestones only and leaves `Ledger.Actions` untouched | `UI/SettingsWindowUI.cs:758`, `ParsekUI.cs:1543`, `MilestoneStore.ClearAll:509` |
 | P6 | The Kerbals Outcomes GoTo tooltip promises a Timeline scroll that only happens if the Timeline is already open | `UI/KerbalsWindowUI.cs:642`, `:693`, `UI/TimelineWindowUI.cs:322`, consumed `:1091` |
@@ -1785,7 +1785,8 @@ skip the whole economy/tech/contracts patch after the crew roster was already ap
 never fired in 57 armed rewinds across 665 collected logs; the field is deleted and the WARN
 now states the measured meaning instead of "possible silent career corruption" (rationale:
 `docs/dev/ledger-state-reconstruction-audit.md` §8 rec #1). Still open:
-`LedgerOrchestrator.CanAffordFundsSpending:6500` has no production caller while
+`LedgerOrchestrator.CanAffordFundsSpending:6500` has no production caller (outside the route
+dispatch gate of PR #2159, which logistics-without-money phase 1 removes) while
 `Patches/FacilityUpgradePatch.cs:36` states that funds affordability is deliberately unchecked
 (science IS enforced at `Patches/TechResearchPatch.cs:78`). Two decisions left: arm the funds
 gate or delete it and accept the asymmetry with science; and decide whether a career-altering

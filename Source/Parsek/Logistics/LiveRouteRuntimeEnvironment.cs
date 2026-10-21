@@ -487,10 +487,66 @@ namespace Parsek.Logistics
                 funds = 0.0;
             }
 
-            if (funds >= cost)
+            double reservationAware = ResolveReservationAwareFunds(cost);
+            bool affordable = DecideKscFundsAvailable(
+                cost, funds, reservationAware, out shortfall, out string bound);
+            if (!affordable)
+            {
+                ParsekLog.VerboseRateLimited(Tag, "ksc-funds-short-" + route.Id + "-" + bound,
+                    $"KscFundsAvailable: route {ShortIdForRoute(route)} refused " +
+                    $"cost={cost.ToString("R", IC)} live={funds.ToString("R", IC)} " +
+                    $"reservationAware={reservationAware.ToString("R", IC)} bound={bound} " +
+                    $"shortfall={shortfall.ToString("R", IC)}");
+            }
+            return affordable;
+        }
+
+        /// <summary>
+        /// The funds a dispatch may spend once committed future costs are reserved: the
+        /// ledger's affordability probe at now (<see cref="LedgerOrchestrator.CanAffordFundsSpending(float, out double)"/>,
+        /// reconciled with the drawdown guard). +inf when the ledger has no funds module or
+        /// the probe throws, so the live counter stays the only bound in that case.
+        /// </summary>
+        internal static double ResolveReservationAwareFunds(double cost)
+        {
+            try
+            {
+                LedgerOrchestrator.CanAffordFundsSpending((float)cost, out double effectiveAvailable);
+                return effectiveAvailable;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"KscFundsAvailable: reservation probe threw {ex.GetType().Name}: {ex.Message}; " +
+                    "gating on the live counter only");
+                return double.PositiveInfinity;
+            }
+        }
+
+        /// <summary>
+        /// Pure KSC dispatch funds gate (todo ROUTE-DISPATCH-IGNORES-RESERVATIONS, design
+        /// section 8 step 4: "affordable under the existing ledger reservation rules"). The
+        /// dispatch may spend the smaller of the live counter (what stock will debit) and the
+        /// reservation-aware amount (what committed future costs leave free), so a cycle never
+        /// spends money a committed purchase needs. A non-finite or NaN reservation reading
+        /// leaves the live counter as the bound. <paramref name="bound"/> names the side that
+        /// refused (<c>live</c> or <c>reserved</c>) for the log; <c>none</c> when affordable.
+        /// </summary>
+        internal static bool DecideKscFundsAvailable(
+            double cost, double liveFunds, double reservationAwareFunds,
+            out double shortfall, out string bound)
+        {
+            shortfall = 0.0;
+            bound = "none";
+            bool reservationKnown = !double.IsNaN(reservationAwareFunds)
+                && !double.IsPositiveInfinity(reservationAwareFunds);
+            bool reservedBinds = reservationKnown && reservationAwareFunds < liveFunds;
+            double spendable = reservedBinds ? reservationAwareFunds : liveFunds;
+            if (spendable >= cost)
                 return true;
 
-            shortfall = cost - funds;
+            shortfall = cost - spendable;
+            bound = reservedBinds ? "reserved" : "live";
             return false;
         }
 

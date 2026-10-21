@@ -546,6 +546,47 @@ namespace Parsek.Patches
     }
 
     /// <summary>
+    /// GC-4: refuses <c>FlightGlobals.ForceSetActiveVessel</c> for a ghost map ProtoVessel.
+    /// Inside physics range a ghost's map marker is a LOADED vessel, and decompiled stock
+    /// <c>VesselSwitching.Update</c> (KSP 1.12.5) collects every loaded vessel that is not the
+    /// active one, not a <c>DeployedSciencePart</c> and not a <c>vesselType &lt;= SpaceObject</c>
+    /// for the <c>[</c> / <c>]</c> cycle keys, then switches with <c>ForceSetActiveVessel</c>, the
+    /// overload <see cref="GhostVesselSwitchPatch"/> does not cover. A ghost marker (a single
+    /// barometer part of the recorded vessel type) made active would let stock evaluate
+    /// progress nodes and contract parameters on a vessel that does not exist. The refused
+    /// switch leaves the active vessel unchanged; stock's cycle then does nothing this press.
+    /// </summary>
+    [HarmonyPatch]
+    internal static class GhostVesselForceSwitchPatch
+    {
+        static System.Reflection.MethodBase TargetMethod()
+        {
+            return typeof(FlightGlobals).GetMethod(
+                nameof(FlightGlobals.ForceSetActiveVessel),
+                new[] { typeof(Vessel) });
+        }
+
+        static bool Prefix(Vessel v, ref bool __result)
+        {
+            if (v == null || !ShouldRefuse(v.persistentId))
+                return true;
+            __result = false;
+            ParsekLog.InfoRateLimited("GhostMap",
+                "force-switch-refused-" + v.persistentId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                $"Refused ForceSetActiveVessel to ghost map vessel '{v.vesselName}' pid={v.persistentId} " +
+                "(stock vessel cycle or another caller) - a ghost marker is never the active vessel",
+                5.0);
+            return false;
+        }
+
+        /// <summary>The decision: a ghost map ProtoVessel is never made the active vessel.</summary>
+        internal static bool ShouldRefuse(uint persistentId)
+        {
+            return GhostMapPresence.IsGhostMapVessel(persistentId);
+        }
+    }
+
+    /// <summary>
     /// Prevents ghost vessels from appearing in OrbitTargeter's "Set as Target"
     /// popup (the second click path in map view). OrbitTargeter.TargetCastNodes
     /// is a private method (returns OrbitDriver, out OrbitCastHit parameter) that

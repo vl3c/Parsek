@@ -547,6 +547,19 @@ namespace Parsek
         }
 
         /// <summary>
+        /// A real vessel a later flight on timeline docks with or otherwise takes over (the
+        /// Ghost Chain Rule), shown on the greyed stock Recover button outside flight:
+        /// <c>Used by a later flight until DATE, blocked by timeline until then.</c>, DATE the
+        /// chain tip's spawn. Without a date: <c>Used by a later flight, blocked by timeline.</c>
+        /// </summary>
+        internal static string ClaimedVesselHold(double spawnUT, Func<double, string> formatDate)
+        {
+            if (!IsFinite(spawnUT))
+                return "Used by a later flight" + BlockedEnd;
+            return "Used by a later flight until " + FormatDate(spawnUT, formatDate) + BlockedUntilThen;
+        }
+
+        /// <summary>
         /// A kerbal no flight holds now but a flight on timeline names (an owner back from
         /// his flight): dismissing him would leave that flight naming a kerbal the roster no
         /// longer has. <c>Flown in 'X' until DATE, blocked by timeline.</c>: the flight that

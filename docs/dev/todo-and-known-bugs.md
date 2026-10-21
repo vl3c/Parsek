@@ -310,7 +310,7 @@ and restore them when `TryTakeCommittedTreeForSpawnedVesselRestore` arms the sam
 that flight (drop them otherwise), or write the attempt's trajectory into the save so the
 active node is never skipped. Seen in code only; no lane yet.
 
-## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. OPEN, needs owner decisions one by one; same invariant as section 2.12]
+## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. RULED 2026-10-21 (owner interview, every path); OPEN for the fixes; same invariant as section 2.12]
 
 Each breaks "the committed timeline pays for every committed spend at every UT" without Re-Fly:
 (O1, ruled 2026-10-19: a quickload undoes Space Center rows after the save, fixed with
@@ -326,10 +326,84 @@ can re-retire credits or un-retire debits; (O6) any post-rewind flight can inser
 committed spend (contract fail or deadline fail, cancel / decline penalties, death reputation,
 strategy converter debits, a destruction that makes a later committed repair chargeable, an early
 fail that zeroes a later committed completion); (O7) `CanAffordFundsSpending` has no production
-caller and the "keep what you earned" floor can hold the funds counter above the reservation.
+caller outside the route dispatch gate (PR #2159, removed by LOGISTICS-WITHOUT-MONEY phase 1) and the "keep what you earned" floor can hold the funds counter above the reservation.
 Coop retirements (a transient dependent's ledger effects, a truncation's tail rows) are the same
 shape (`design-coop-async-multiplayer.md` section 7.10). Candidate shapes in the research doc,
 section 7.
+
+**Rulings (V, 2026-10-21, ledger rulings interview; record: project file
+`decisions/open-decisions.md` L1-L4; design: game-actions design section 3.13, with pointers from
+its funds, reputation, contracts, facilities and stock-screen sections, rewind design section 2.12
+and logistics design section 10.6).**
+
+- **General rule for funds, science and reputation (O6, O7).** (1) An outcome the committed
+  timeline already holds cannot be changed earlier. (2) Known obligations are reserved up front:
+  committed costs and every open contract's fail penalties (funds, reputation, science), from
+  accept to outcome. (3) A player click that would dig into a reservation is greyed with the reason
+  (stock-control annotation D1: greyed stock button, reason on its stock tooltip, backstop refusal).
+  (4) Any other loss applies only down to the reserved floor; the rest is carried as a debt, charged
+  from the first room above the floor (the reservation releasing at the committed cost's UT, or
+  later gains). Derived in the walk from existing rows, no new saved state. V: "we need a way to let
+  the player make decisions about risks of rewinding and doing new launches, so I pick debt".
+  Flights and launches are never blocked ("of course we should not block flights of launches").
+- O6, case by case: a new flight cannot fail a contract whose complete / fail / cancel is already
+  committed (stock's fail refused and logged; completing it earlier stays allowed; extends D7 from
+  the Cancel button to in-flight fails); an open contract's fail penalty is reserved (rule 2);
+  Mission Control Accept / Cancel / Decline are greyed when their penalty or the reservation they
+  add would leave a later committed purchase or strategy cost unpaid (rule 3); a death or
+  vessel-loss reputation hit stops at the reputation reserved for committed costs, the rest is a
+  debt (rule 4; "reputation just can't go lower than what is reserved, no matter what happens");
+  a building a new flight destroys needs no own rule (repair is a click covered by F3 and the funds
+  check; a committed repair made chargeable falls under rule 4). Not separate cases: deadline
+  expiry (the committed timeline holds it at the same UT), strategy converter debits (they follow
+  the earning or penalty they divert), killing a kerbal a committed flight uses (crew reservation).
+- O7: the funds check is no longer advisory: purchases and launch costs are greyed when they eat
+  into reserved money (rule 3; closes the P15 half of GUI-P15-D7-TWO-SAFETY-GATES-THAT-EXIST-AND-ARE-NEVER-ARMED).
+- O2: a stock revert removes only the rows the reverted flight wrote; every committed row stays
+  (matches D2).
+- O3: a recording that fails to load, for any reason, keeps its ledger rows; it loses its ghost and
+  playback, never its rows (extends the GC-3 ruling from schema rejects to every load failure).
+- O4: supply routes are a real-time system and carry no money; route cycles stop touching the
+  ledger, and Space Center routes are free in every mode (Model H, refund rows and a cost-only
+  credit were ruled and replaced the same day; research
+  `docs/dev/research/route-funds-vs-cargo-2026-10-21.md`): filed as LOGISTICS-WITHOUT-MONEY.
+- O5: moot once PR #2155 merges: the rule acts only on an in-flight `ResumeFromQuicksave` detach
+  during an in-session load, which #2155 makes a Cold save-file load that drops the handoff
+  (design-load-restores-the-save section 8 lists it as unreached).
+
+## LOGISTICS-WITHOUT-MONEY: supply routes still charge and credit funds and write ledger rows, so the funds history depends on choices made after a rewind [FILED 2026-10-21 from the owner ruling on LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O4, first as ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES, then ROUTE-MONEY-COST-ONLY. OPEN, ruled; plan written]
+
+Supply routes are a real-time system: every load back in time retires a route's cycles after its
+cutoff and the clock re-decides them (as built, design 10.6). Any money a cycle writes makes the funds
+history depend on what the player does after a rewind (pause, resume, move an endpoint), so the money
+ledger stops being deterministic. Owner rulings 2026-10-21: 13:32Z "we delete money/ funds from the
+logistics system and go from there; logistics cycles should not touch the ledger, they only deliver
+resources to enable that gameplay"; 13:39Z Space Center origin routes stay, free in every mode, Career
+included (accepted: delivered cargo can be recovered for funds). Replaces every route-money rule ruled
+earlier that day (Model H, refund rows, gain cycles, the cost-only credit cap and credit at dispatch,
+banked prepaid cycles).
+Plan: `docs/dev/plans/logistics-without-money.md`. Phase 1 removes the money (dispatch charge, live
+delivery debit, recovery credit and its pending marker, the funds gate and WaitingForFunds, the cost
+calculators and every cost line in the Logistics window); route money rows left in an old dev
+ledger are dropped at load (no backward compatibility before public launch). Phase 2 moves the remaining route rows out of the ledger into a route-owned event log
+persisted with the route store. Kept: the endpoint chain hold and `RetiredRouteCargoStore`.
+Supersedes ROUTE-DISPATCH-COST-BASIS-RESIDUALS once phase 1 lands.
+
+## ~~ROUTE-DISPATCH-IGNORES-RESERVATIONS: a route dispatch checks the raw funds counter, so it can spend money a committed purchase needs~~ [FILED 2026-10-21 from the O4 analysis. Was open, small; owner ruling: ship now, ahead of LOGISTICS-WITHOUT-MONEY. FIXED 2026-10-21 on branch `claude/project-thread-q165qu`. xUnit only. product]
+
+`LiveRouteRuntimeEnvironment.KscFundsAvailable` compares `Funding.Instance.Funds` with the dispatch
+cost, but the logistics design (section 8, step 4) says the KSC dispatch must be "affordable under
+the existing ledger reservation rules". After a rewind the stock counter can be above the money left
+once committed future costs are reserved, so a cycle can spend it (breaks rule 3 of the general
+ledger rule, LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY). Fix: read the reservation-aware affordable
+amount (`LedgerOrchestrator.CanAffordFundsSpending`, already consistent with the drawdown guard);
+a short dispatch waits with the existing `WaitingForFunds` status. Unit cells first.
+
+Done: `LiveRouteRuntimeEnvironment.KscFundsAvailable` now gates on the smaller of the live counter
+and `CanAffordFundsSpending`'s effective available amount (pure `DecideKscFundsAvailable`; a NaN or
++inf reading, or a throwing probe, leaves the live counter as the bound). A refusal logs which side
+bound (`bound=live|reserved`) and keeps the existing `FundsShort` / `WaitingForFunds` path. Cells:
+`RouteDispatchReservationGateTests` (pure decision plus a seeded committed-future purchase).
 
 ## REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE: after a plain rewind, a vessel whose committed future is a root-lineage or switch-continuation flight stays a real vessel [FILED 2026-10-19, inferred from code. OPEN, medium, physical paradox]
 
@@ -516,7 +590,7 @@ attempt's cutoff for that id as the clone's own and re-home it, before the purge
 
 ---
 
-## REFLY-SESSION-CAREER-SHOWS-THE-REPLACED-FLIGHTS-FUTURE: during a Re-Fly the career pools and the progress tree include the replaced flight's future earnings [FILED 2026-10-18 from harness lanes LAB-10 / LAB-10b (runs `2026-10-17_2337` / `_2341`). OPEN, owner question; behavior is the documented design]
+## ~~REFLY-SESSION-CAREER-SHOWS-THE-REPLACED-FLIGHTS-FUTURE: during a Re-Fly the career pools and the progress tree include the replaced flight's future earnings~~ [FILED 2026-10-18 from harness lanes LAB-10 / LAB-10b (runs `2026-10-17_2337` / `_2341`). CLOSED 2026-10-21, owner ruling (A, keep the design): no code change]
 
 **What happens.** The Re-Fly invoke walks the whole ledger with no cutoff
 (`RewindInvoker`: `RecalculateAndPatch(double.MaxValue)`, design "career state during this
@@ -545,6 +619,13 @@ design (section 2.12) lands: a flight that earned lab science or a milestone aft
 is no longer re-flyable, so the replaced flight's retire set holds only losses and the session's
 pools can only be lower than after the merge, never higher. LAB-10 / LAB-10b re-fly exactly such
 a flight and must be re-shaped (a re-fly of a slot that earned nothing) or retired with the change.
+
+**Ruled 2026-10-21 (V, ledger rulings interview): A, keep it.** Since section 2.12 shipped (PR #2151)
+the replaced flight holds only losses after its split, so the session shows the committed career,
+those losses included, until the merge retires them (or keeps the reputation part, Rule 2
+variant B): the session never shows more than the outcome. The milestone half is moot (a milestone
+seals the slot). Hiding the replaced flight's rows during the session was rejected: a Discard would
+bring the losses back, a transient drop.
 
 ## ~~LAB-RECOVERY-RECONCILE-COALESCED-FALSE-MISMATCH: recovering a vessel whose lab holds science logs a false post-walk science mismatch (WARN + ERROR dump)~~ [FILED AND FIXED 2026-10-18 from harness lane LAB-14 (run `2026-10-17_2203`), branch `claude/lab-recovery-reconcile`. xUnit; not re-flown. product (log noise only)]
 
@@ -2679,6 +2760,8 @@ spawn UT passes, so between the rewind and that UT the pre-claim vessel stays li
 the KSC and in the TS, and route deliveries into it in that window are dropped with it on
 replacement. Owner ruling 2026-10-07: ship the spawn-time replacement now; do this as follow-up.
 
+Until then GC2-CLAIMED-VESSEL-RECOVER-OUTSIDE-FLIGHT (2026-10-21) blocks Recover / Delete of it there.
+
 Fix: hide the claimed vessel at the rewind outside flight too (ghost map presence in the TS,
 removal from the KSC / TS vessel lists, routes treating it as chain-ghosted the way flight BLOCKS
 its crossings), reusing `ClaimedVesselRemoval` so crew survive. Decide first how the player sees
@@ -2868,12 +2951,15 @@ Candidates from a check of 22 player situations against every spec, test and doc
 (`docs/dev/research/coverage-extension-plan-2026-10-06.md` section 3.5, ranked there). None was
 traced end to end; each is a question, not a defect.
 
-- [ ] GC-1: Two different saves loaded in one KSP session: static Parsek state leaking between careers (`ParsekScenario.DetectSaveFolderChange` resets some of it; nothing exercises it).
-- [ ] GC-2: Recovering or terminating, from the Tracking Station or the KSC, a vessel that a COMMITTED FUTURE mission docks to (the Ghost Chain Rule only ghosts in FLIGHT; `OnVesselTerminated` / `OnVesselRecovered` have no claim check): the chain tip later brings it back - a duplicate or recovery funds paid twice.
+- [x] ~~GC-1: Two different saves loaded in one KSP session: static Parsek state leaking between careers (`ParsekScenario.DetectSaveFolderChange` resets some of it; nothing exercises it).~~ TRACED 2026-10-21 (branch `claude/project-thread-vxwms3`): real leaks. `GameStateStore` / `MilestoneStore` keep their own folder latch, which the main menu never resets, so a cold reload of a same-named save kept the old career's events, contract snapshots, science subjects and milestones; PR #2155's save-scoped reset (`ResetForSaveLoad`) covers that. Leftovers outside #2155: GC1-SAVE-SCOPED-STATE-LEFTOVERS below.
+- [x] ~~GC-2: Recovering or terminating, from the Tracking Station or the KSC, a vessel that a COMMITTED FUTURE mission docks to (the Ghost Chain Rule only ghosts in FLIGHT; `OnVesselTerminated` / `OnVesselRecovered` have no claim check): the chain tip later brings it back - a duplicate or recovery funds paid twice.~~ CONFIRMED and fixed 2026-10-21: GC2-CLAIMED-VESSEL-RECOVER-OUTSIDE-FLIGHT below.
 - [x] ~~GC-3: Loading a save whose recordings are an older schema generation: they are skipped with only a log warning (`RecordingTree` skip), no player notice, and the first save may make the loss permanent.~~ CONFIRMED 2026-10-21, worse than filed: GC3-SCHEMA-REJECTED-TREES-LOSE-EARNED-VALUE below.
-- [ ] GC-4: A contract parameter or milestone completed by a vessel Parsek spawned at a recording's end, or by a ghost map ProtoVessel (no patch guards them; L5 covers live vessels only).
+- [x] ~~GC-4: A contract parameter or milestone completed by a vessel Parsek spawned at a recording's end, or by a ghost map ProtoVessel (no patch guards them; L5 covers live vessels only).~~ TRACED 2026-10-21. A vessel spawned at a recording's end: fine for double pay, since the ledger credits a one-shot milestone or a contract guid once (`MilestonesModule` `MilestoneAlreadyAchieved`, `ContractsModule` `ContractAlreadyCompleted`; the recorded row is earlier and wins); stock's live funds may read doubled until the next recalculation. A ghost map marker: a real hole, fixed: GC4-VESSEL-CYCLE-ACTIVATES-GHOST-MARKER below. Not traced: after a rewind to before a contract's accept, stock may re-offer the same content under a new guid, which the per-guid dedupe does not catch (live vessels too, L5 scope).
+- [x] ~~GC2-CLAIMED-VESSEL-RECOVER-OUTSIDE-FLIGHT: after a rewind the Space Center and the Tracking Station keep a vessel a committed future dock claims live in its pre-claim form (CLAIMED-VESSEL-DESPAWN-AT-REWIND-OUTSIDE-FLIGHT), and stock Recover / Delete were not blocked there (the TS blocks covered only Parsek's ghost markers; the KSC marker's Recover, offered for every landed vessel on Kerbin, not at all). Recovering station S before tug T's recorded dock paid S's value; when the chain tip's spawn UT passed, the tip spawned the docked S+T with S's identity, so S's parts existed twice and a second recovery paid for them again (Delete brought S back the same way).~~ Fix (2026-10-21, branch `claude/project-thread-vxwms3`): `ClaimedVesselDisposalGate.IsHeldByCommittedFuture` reads the flight ghosting predicate (chain not terminated, `GhostChainWalker.ShouldGhostChainAtUT`, pid in `ParsekFlight.SelectChainPidsToGhost`) over the walker's chains in any scene; `Patches/ClaimedVesselDisposalPatches.cs` greys the TS Recover / Delete (postfixes on `SpaceTracking.SetVessel` and `unlockUI`, where stock unlocks them) and the KSC marker's Recover (`KSCVesselMarker.Create` postfix) with the reason on their stock tooltips (`ReservationExplanation.ClaimedVesselHold`: "Used by a later flight until DATE, blocked by timeline until then."), and the click-blocks read the same predicate (`GhostTrackingRecoverPatch` / `GhostTrackingDeletePatch` confirm prefixes, `KSCVesselMarkers.RecoverVessel` prefix). Fly stays open (a flight load ghosts the vessel as before). Tests: `ClaimedVesselDisposalGateTests` (red first on the wiring cells). Not live-proven: no lane recovers a claimed vessel at the KSC or in the TS. Left as is, matching flight (#174): a TERMINATED chain's vessel stays recoverable; when the committed future recovers it too, both recoveries pay (unverified whether the ledger pairs them).
+- [x] ~~GC4-VESSEL-CYCLE-ACTIVATES-GHOST-MARKER: inside physics range a ghost's map ProtoVessel is loaded (`GhostVesselLoadedInertPatch`), and decompiled stock `VesselSwitching.Update` (KSP 1.12.5) collects every loaded vessel that is not the active one, not a `DeployedSciencePart` and not `vesselType <= SpaceObject` for the `[` / `]` keys and switches with `FlightGlobals.ForceSetActiveVessel`, which nothing patched (`GhostVesselSwitchPatch` covers only `SetActiveVessel(Vessel)`, and the cycle patch acts only during a Re-Fly). The player could make a one-part ghost marker the active vessel, and stock then evaluates progress nodes and contract parameters on it (inferred from stock reading the active vessel).~~ Fix (2026-10-21, branch `claude/project-thread-vxwms3`): the `VesselSwitching.Update` prefix (`VesselCycleReFlySwitchPatch`, until now active only during a Re-Fly) drops ghost map markers from stock's candidate list on every press (`FilterCandidates`) and switches to the next real candidate itself, because stock ignores `ForceSetActiveVessel`'s answer and runs `FlightInputHandler.ResumeVesselCtrlState` on the candidate anyway (copying its throttle and action groups onto the active vessel); `GhostVesselForceSwitchPatch` (`Patches/GhostVesselLoadPatch.cs`) also refuses `ForceSetActiveVessel` for a ghost map vessel as a backstop for any other caller. Tests: `GhostVesselForceSwitchPatchTests` (the force-switch cells red first). Not live-proven: no lane presses a cycle key near a loaded ghost marker.
 - [x] ~~GC3-SCHEMA-REJECTED-TREES-LOSE-EARNED-VALUE: a save whose committed trees carry another recording schema generation (older, or newer when an older build opens it) is rejected by design, but the rejection was not contained: the next save dropped the trees (`SaveTreeRecordings`), `Ledger.Reconcile` pruned every row tagged to their recordings (funds, science, reputation, milestones, contracts), `RewindPointReaper` reaped their rewind points, and the mission, group and load-time sweeps treated their ids as unknown, with no player notice.~~ Fixed 2026-10-21 (owner ruling "Keep them inert, untouched"). Fix: `InertRecordingTrees` holds a deep copy of each COMMITTED tree node the schema gate rejects in `LoadRecordingTrees` (the tree-level generation gate, or every recording rejected so nothing loaded; `ClassifySchemaRejection`), replaced on every `LoadRecordingTrees` and cleared by the cold save-scoped reset (in the `SaveScopedSessionResetTests` inventory). `SaveTreeRecordings` writes each node back verbatim after the committed trees (skipped, logged, when a committed tree has the same id). Its recording ids join `BuildKnownRecordingIds` / `BuildKnownRecordingIdsForCleanup` (ledger reconcile via `BuildValidRecordingIdsForKspLoad`, the load-time sweeps, `DiscardSidecarReap`); `IsReapEligible` reads a slot whose tip is inert as OPEN; the legacy old-side retirement sweep skips inert rows; `CollectParkedTreeIdsForMissionPrune` protects their missions; the group prune keeps their `recordingGroup` names; the file collector's memory set names their recordings, hashes and rewind saves; the route-candidate sweeps (`RouteStore.SweepStaleDismissedCandidates` / `SweepStalePromptedCandidates`) keep their tree ids; and `LedgerOrchestrator.OnKspLoad` leaves their ids out of the old-save migration's trigger and scope (`ExcludeInertRecordingIds`), so a save holding only inert trees is not migrated. ELS filters tombstones only, so a kept row is credited. One screen message per cold load names the count (queued on `ParsekHarmony`'s settled-scene poster). A pass-through, not a migration: nothing reads an inert tree beyond those keys or writes to it. Active / pending nodes and partial rejection inside a current tree are unchanged. Tests: `InertRecordingTreesTests`. The ledger itself used to be rejected wholesale when its own `recordingSchemaGeneration` differed; fixed separately (GC3-LEDGER-GENERATION-GATE-DROPS-ROWS below): the ledger now loads whenever its version matches.
 - [x] ~~GC3-LEDGER-GENERATION-GATE-DROPS-ROWS: `Ledger.LoadFromNodeCore` rejected the whole ledger (the `GAME_STATE/LEDGER` node and `ledger.pgld`) when its `recordingSchemaGeneration` was not the current one and started empty; the next save wrote the empty ledger, so a save made entirely by another Parsek generation lost every earned row even though its trees are kept inert (GC3-SCHEMA-REJECTED-TREES-LOSE-EARNED-VALUE).~~ Fixed 2026-10-21 (owner ruling "Load it when its format matches"). Fix: the ledger's format is its `version` (`CurrentLedgerVersion`), which stays a hard gate; a ledger stamped with another recording schema generation (or none) loads, with one Info line naming the generation (a row carries no recording schema). The next save stamps the current generation. Not a migration: no row is rewritten. A build older than this one still rejects a ledger of another generation (owner, 2026-10-21: the mod is not public, so backward compatibility is not a goal). Tests: `LedgerTests.LoadFromFile_OtherSchemaGeneration_LoadsWhenTheVersionMatches`, `GameStateSaveNodeTests.LedgerNode_OtherRecordingSchemaGeneration_Loads`.
+- [ ] GC1-SAVE-SCOPED-STATE-LEFTOVERS: per-career state PR #2155's save-scoped reset (`ResetSaveScopedSessionState`) does not reset. (1) A stuck `RewindContext.IsRewinding` (a rewind reload that never settles, or `HandleRewindOnLoad` throwing before `EndRewind`) makes the next Cold load of ANOTHER save skip `LoadCrewAndGroupState` (crew replacements, kerbal slots, group hierarchy) and the ledger load, so save A's values carry into save B; it is cleared only later in `DiscardStalePendingState`. (2) `RouteRunPrompt.PendingPromptTreeId` survives into the next save (the Supply Route banner names A's mission; Dismiss writes A's tree id into B's dismissed set). (3) Low: `KerbalsModule` `lastKnownHold` / `pendingTombstonedRosterKerbals` and `RewindInvokeContext.Pending`. Fix after #2155 merges: reset them in its helper and add their classes to the `SaveScopedSessionResetTests` inventory; check first that a rewind's own OnLoad never classifies as a save-file Cold load.
 - [ ] GC-5: A floating EVA kerbal as a recording's terminal spawn after a rewind or warp (H20 covers a landed kerbal only).
 - [ ] GC-6: A held (reserved) kerbal dying aboard a live vessel that is not his reserved flight.
 - [x] ~~GC-7: Renaming a vessel mid-mission (no recorder hook): ghost label vs spawned name; a rewind across a recorded rename; a dock merge keeping the dominant vessel's name.~~ DONE 2026-10-13: code complete with phase 2b, live proof by lanes VN-1 .. VN-13 (all live-proven), the remainder below accepted as unit-test-only.
@@ -9020,11 +9106,15 @@ reason in its hover echo, so the advice lands somewhere real.
 
 ## GUI-P15-D7-TWO-SAFETY-GATES-THAT-EXIST-AND-ARE-NEVER-ARMED [FILED 2026-09-11 by the GUI fix batch]
 
+**P15 ruled 2026-10-21 (V, ledger rulings interview, O7 of LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY):**
+the funds check is enforced, not advisory: a funds purchase or launch cost that eats into reserved
+money is greyed with the reason, as science already is. The fix ships with that entry's general rule.
+
 **Evidence.**
 
 - P15: the funds "Reserved" / "Short by" readout (`CurrencyReservationOverlay.cs:184`,
   `:213`) is advisory only. `LedgerOrchestrator.CanAffordFundsSpending:6500` has no
-  production caller, and `Patches/FacilityUpgradePatch.cs:36` states that funds
+  production caller (the route dispatch gate of PR #2159 used it until LOGISTICS-WITHOUT-MONEY phase 1), and `Patches/FacilityUpgradePatch.cs:36` states that funds
   affordability is deliberately unchecked. Science IS enforced
   (`Patches/TechResearchPatch.cs:78`), so the two currencies behave differently behind
   identical-looking tooltips and the player finds out when the drawdown clamp fires.
@@ -11153,7 +11243,7 @@ either `outcome=no-external-coupling candidates=0` (which CONFIRMS this entry ou
 the walk ran and found nothing) or a `Captured` line (which refutes it). That lane does not
 exist yet and is the cheapest remaining step here.
 
-## ROUTE-DISPATCH-COST-BASIS-RESIDUALS: what the transport-subset + ghost-surface costing fix still leaves open [FOUND 2026-09-02 by the pre-merge correctness pass on PR #1597. NONE blocking - every item is a strict improvement over the pre-#1597 state, where the same routes dispatched for FREE - but each names a real follow-up. REPORT-ONLY, fix shapes recorded]
+## ROUTE-DISPATCH-COST-BASIS-RESIDUALS: what the transport-subset + ghost-surface costing fix still leaves open [SUPERSEDED 2026-10-21 by LOGISTICS-WITHOUT-MONEY phase 1: routes carry no money. FOUND 2026-09-02 by the pre-merge correctness pass on PR #1597. NONE blocking - every item is a strict improvement over the pre-#1597 state, where the same routes dispatched for FREE - but each names a real follow-up. REPORT-ONLY, fix shapes recorded]
 
 1. **The two snapshot surfaces are not the same instant.** `GhostVisualSnapshot` is captured at
    recording START (`FlightRecorder` start-state node); `VesselSnapshot` at STOP. Preferring

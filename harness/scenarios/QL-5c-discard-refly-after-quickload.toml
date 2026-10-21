@@ -1,5 +1,16 @@
 schema = 1
 id = "QL-5c-discard-refly-after-quickload"
+# RE-PINNED 2026-10-21 FOR THE RESUMED-SESSION KEEP (PR #2155 head c3b28d6, todo
+# REFLY-STARTED-FROM-A-RESUMED-VESSEL-IS-NEVER-SAVED, second cause). A load whose save's
+# Re-Fly marker names the restored tree and its active Re-Fly recording now KEEPS the
+# committed copy (`TryRestoreActiveTreeNode: kept the committed copy ... live Re-Fly
+# session`), the shape a fresh session has, so the F9 no longer detaches it and the Esc
+# discard finds it still committed (`still committed - nothing to restore`,
+# `restoredDetachedTree=false`). The player outcome is unchanged and still gated (the
+# landing at the rewind point, rpKept / slotListed, the booster under STASH). Flown red on
+# c3b28d6 (`2026-10-21_1500`) only on the three old detach / restore tokens. The paragraph
+# below and the THE GATES list describe the earlier detach-and-restore route; this block is
+# authoritative where they differ.
 # RESHAPED 2026-10-20 FOR "LOAD RESTORES THE SAVE" PHASE 2 (design
 # docs/dev/design-load-restores-the-save.md 4.1 / 4.7 / 5 S4; plan Phase 2 step 7). NOT
 # FLOWN in this shape. The F9 carries `playerLoad=true`, so it is a Cold save-file load
@@ -121,13 +132,13 @@ required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation comple
              "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*Save-scoped session state reset: reason=save-file ",
              "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
              "loadgame player-load: firing [\\s\\S]*Quickload committed-copy restore: tree='[^']*' id=\\S+ route=\\S+ action=Unchanged reason=load-kind-Cold loadKind=Cold ",
-             "loadgame player-load: firing [\\s\\S]*TryRestoreActiveTreeNode: removed committed tree '[^']*' \\(id=\\S+",
+             "loadgame player-load: firing [\\s\\S]*TryRestoreActiveTreeNode: kept the committed copy of tree '[^']*' \\(id=\\S+\\) committed: the restored tree is the live Re-Fly session sess=\\S+",
              "reflyrevert start choice=discard target=launch sess=\\S+ rp=rp_b9_root slot=b9-booster-a",
              "Prefix: blocking stock RevertToLaunch sess=\\S+ target=Launch",
              "reflyrevert pressed dialog button='Discard Re-Fly' choice=discard",
              "DiscardReFly: rewind point game written to persistent.sfs rp=rp_b9_root",
-             "RestoreDetachedTreeAfterEscDiscard callSite=DiscardReFlyHandler: tree=\\S+ detached restored=true",
-             "End reason=discardReFly sess=\\S+ target=Launch facility=-- dispatched=true persistentWritten=true restoredDetachedTree=true",
+             "RestoreDetachedTreeAfterEscDiscard callSite=DiscardReFlyHandler: tree=\\S+ still committed - nothing to restore",
+             "End reason=discardReFly sess=\\S+ target=Launch facility=-- dispatched=true persistentWritten=true restoredDetachedTree=false",
              "DiscardReFly load intent consumed at ParsekScenario.OnLoad: target=Launch sess=\\S+ scene=SPACECENTER rpSaveUT=\\S+ loadedUT=\\S+ landedAtRewindPoint=true",
              "Load classified: early=DiscardReFly refined=DiscardReFly scene=SPACECENTER [^\\r\\n]*discardReFly=Launch handoff=present",
              "reflyrevert complete choice=discard target=launch scene=SPACECENTER sess=\\S+ rp=rp_b9_root rpKept=true slot=b9-booster-a slotListed=true unfinishedFlights=[1-9][0-9]* marker=none"]
@@ -138,6 +149,8 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]",
              "In-session load found no staged-list handoff",
              "DiscardReFly load intent dropped as stale",
              "landedAtRewindPoint=false",
+             # The F9 must not detach the live session's committed copy (c3b28d6).
+             "restoredDetachedTree=true",
              "writing the rewind point game to persistent.sfs",
              "Reaped rp=rp_b9_root",
              "Purged rp=rp_b9_root",

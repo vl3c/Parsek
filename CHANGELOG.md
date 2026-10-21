@@ -49,6 +49,15 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A supply route no longer spends money a committed purchase needs.** After a rewind, a route
+  from the Space Center now waits for funds when its next run would dip into money a recorded later
+  purchase still needs, the same way it waits when the funds counter is short.
+  (ROUTE-DISPATCH-IGNORES-RESERVATIONS)
+- **A station a later flight docks with can't be recovered early.** After a rewind, the Tracking
+  Station greys Recover and Delete, and the Space Center greys Recover, on a vessel a recorded later
+  flight still docks with, so it can't come back as a duplicate and be paid for twice. (GC-2)
+- **The vessel-cycle keys skip ghosts.** Pressing `[` or `]` near a replaying ghost no longer makes
+  its map marker the active vessel. (GC-4)
 - **Recordings made by a different Parsek version are kept, not lost.** Parsek cannot play them,
   but it now keeps them unchanged in the save with their rewind points and the funds, science and
   reputation they earned, and tells you how many it set aside when the save loads. (GC-3)
