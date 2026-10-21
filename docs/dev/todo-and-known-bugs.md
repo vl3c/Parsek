@@ -1050,7 +1050,7 @@ crossing line, the re-patch line with `PatchScience: 111.6 -> 106.6`, both pools
 applies the reached rows`, the hire line and the contract replacement, and forbids a guard clamp
 after the load.
 
-## QL-KSC-ROWS-CROSSED-ACROSS-A-SCENE-CHANGE: committed KSC rows reached while away from the Space Center may still be clamped [FILED 2026-10-16 from the QL1-KSC-CLOCK-CROSSING fix, reasoned from code, not measured. OPEN, product, medium]
+## ~~QL-KSC-ROWS-CROSSED-ACROSS-A-SCENE-CHANGE: committed KSC rows reached while away from the Space Center may still be clamped~~ [FILED 2026-10-16 from the QL1-KSC-CLOCK-CROSSING fix, reasoned from code, not measured. Was open. CLOSED 2026-10-21: measured, not a defect on the reachable route (QL-14 green). product, medium]
 
 The crossing fix covers the Space Center and Tracking Station clock cursor only. A player who loads
 the earlier quicksave, launches, and flies past the rows' UT reaches them in a scene with no cursor;
@@ -1063,6 +1063,8 @@ at cutoff = now (a live KSC event) that runs in the frame the clock first passes
 the snapshot without it, so the cursor finds nothing crossed and the guard clamps.
 
 Update 2026-10-21: since PR #2155 a save-file load restores the save's own ledger, so no load leaves Space Center rows in the future any more; a Rewind-to-Launch still does (ruling D2). Lane `QL-14-ksc-rows-crossed-in-flight` (authored, never flown) is the reading run on that route: L8's host, purchases at ~1000, Rewind-to-Launch, an unrecorded launch warped past the rows, back to the Space Center. It gates the fixed behavior, so a red reading confirms this entry.
+
+Closed 2026-10-21: QL-14 flew green on its first flight (`2026-10-21_1703`, PR #2164's head 411ccc1, V's PC). After the rewind the in-session load cleared the snapshot (`rows=13`), the flight warped past every row, and on the return `Clock-crossing reached committed-future rows: crossed=13, cutoff=1097.588, hires=1` and `PromoteReachedCommittedHires: rows=1 promoted=1` fired, with no `GUARDED` clamp anywhere in the log and the rewind-aware ledger oracle exact (every row charged once). The predicted clamp does not happen on the one route that still leaves Space Center rows in the future. The smaller same-frame case above (a non-cursor recalc in the frame the clock first passes a row) was not exercised and stays reasoned only; refile it if a flight ever shows the clamp.
 
 ## ~~ADOPTION-STAMP-READ-AS-UNIQUE-SPAWN-PID: an adoption stamp (the craft-baked pid) matched a relaunch of the same craft as the older launch's spawned vessel, and the #226 replay bypass was not checked against launch identity~~ [FILED 2026-10-15 from a launch-identity audit, verified by code read, not reproduced. FIXED 2026-10-15, branch `claude/project-thread-1twzdw-adopt-identity` (PR #2107); LIVE-PROVEN 2026-10-15 on the owner's PC before merge: QL-4c, QL-4b, VN-6, CI-6, CI-7 and H64 all PASS. product]
 

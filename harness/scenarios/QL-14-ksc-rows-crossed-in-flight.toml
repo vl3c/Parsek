@@ -46,8 +46,9 @@ tier = "nightly"
 #   - the crossing line present and pools right: the todo is moot on this route; close it.
 #   - `invokerewindtolaunch refused`: read the reason (L8 flew this exact rewind).
 #
-# STATUS: AUTHORED 2026-10-21 (branch `claude/project-thread-hvhou8`), NOT FLOWN. A reading
-# run: the expectations are the fixed behavior, and the first flight decides the todo.
+# STATUS: AUTHORED 2026-10-21 (branch `claude/project-thread-hvhou8`). LIVE-PROVEN 2026-10-21
+# `2026-10-21_1703` PASS attempt 1 (PR #2164, build 411ccc1): crossed=13, the hire promoted, no
+# clamp, the oracle exact. The reading closed the todo as not a defect on this route.
 description = "QL-14: on career-pad-craft, record and recover a flight, buy a facility upgrade, a tech and a hire at the Space Center at UT ~1000, rewind to that flight's launch (the rows stay committed future), launch an unrecorded probe and warp past the rows in flight, then return to the Space Center. The rows apply once when the clock has crossed them outside the Space Center: no guard clamp, the hire promoted, the ledger oracle exact."
 instanceProfile = "stock-minimal"
 tags = ["QL-14", "career", "ledger", "rewind", "timeline-ops", "action-blocking", "editor",
