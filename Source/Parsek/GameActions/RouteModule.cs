@@ -15,19 +15,12 @@ namespace Parsek
     /// engine feeds it. It does not reach into the committed recordings store or
     /// the live ledger action list directly (which is why it does not need an entry
     /// in the ERS/ELS allowlist), it does not mutate stock funds / cargo /
-    /// inventory, and it does not synthesize any new actions. Affordability gating,
-    /// KSC funds dispatch charging, cargo debit, endpoint resolution, and
-    /// pause/unpause UI are all future-integration work.</para>
+    /// inventory, and it does not synthesize any new actions. Supply routes carry no
+    /// money (todo LOGISTICS-WITHOUT-MONEY), so no route row moves funds.</para>
     ///
     /// <para><b>Tier placement (see <see cref="LedgerOrchestrator.Initialize"/>):</b>
     /// registered at <see cref="RecalculationEngine.ModuleTier.SecondTier"/> AFTER
-    /// <see cref="FundsModule"/>. The eventual route module will (a) read
-    /// <see cref="GameAction.Affordable"/> set by FundsModule to gate KSC-origin
-    /// Career dispatch and (b) potentially synthesize cascading FundsSpending-
-    /// equivalent debits via <see cref="GameActionType.RouteCargoDebited"/>. Both
-    /// require running after FundsModule in the same tier walk. The skeleton does
-    /// not consume Affordable yet, but the tier slot is locked in now so the
-    /// integration phase is a one-line wire-up.</para>
+    /// <see cref="FundsModule"/>; the slot is kept as it was.</para>
     ///
     /// <para><b>Future standalone-mod boundary:</b> the route system is the next
     /// candidate for the same standalone-mod treatment GhostPlaybackEngine
@@ -52,18 +45,8 @@ namespace Parsek
             /// <summary>Count of <see cref="GameActionType.RouteCargoDelivered"/> rows seen for this route.</summary>
             internal int DeliveredStops;
 
-            /// <summary>Count of <see cref="GameActionType.RouteRecoveryCredited"/> rows seen for this route
-            /// (logistics-recovery-credit, design doc section 6.2). DIAGNOSTIC ONLY. The deferred
-            /// recovery credit's FUNDS effect is reversed by <see cref="FundsModule"/> (which processes
-            /// the credit as an earning); <see cref="RouteModule"/> only OBSERVES the row so the per-route
-            /// walk summary reflects how many credits a route has paid back. This module MUST NOT mutate
-            /// funds for the credit (the observe-only design-doc contract, section 13.4): a future edit
-            /// that adds a funds mutation here would double-count the credit and is pinned out by
-            /// T-ROUTEMODULE-OBSERVE.</summary>
-            internal int CreditedCycles;
-
             /// <summary>Count of <see cref="GameActionType.RouteCargoDebited"/> rows that look like
-            /// PHYSICAL origin debits (non-empty resource manifest with zero KSC funds cost; M1).
+            /// PHYSICAL origin debits (a resolved origin vessel pid; M1).
             /// DIAGNOSTIC ONLY - the physical removal happened live at emit time
             /// (<c>RouteOrchestrator.EmitDispatchDebit</c> loop path) and is reverted by the rewind
             /// quicksave restore, NOT by this walk. RouteModule observes the row and mutates
@@ -153,9 +136,6 @@ namespace Parsek
                 case GameActionType.RouteCargoDelivered:
                     ProcessCargoDelivered(action);
                     break;
-                case GameActionType.RouteRecoveryCredited:
-                    ProcessRecoveryCredited(action);
-                    break;
                 case GameActionType.RoutePaused:
                     ProcessPaused(action);
                     break;
@@ -181,7 +161,6 @@ namespace Parsek
             int endpointLost = 0;
             int totalDispatched = 0;
             int totalDelivered = 0;
-            int totalCredited = 0;
             int totalPhysicalDebits = 0;
             int totalPhysicalPickups = 0;
 
@@ -191,7 +170,6 @@ namespace Parsek
                 if (kv.Value.EndpointLost) endpointLost++;
                 totalDispatched += kv.Value.DispatchedCycles;
                 totalDelivered += kv.Value.DeliveredStops;
-                totalCredited += kv.Value.CreditedCycles;
                 totalPhysicalDebits += kv.Value.PhysicalDebits;
                 totalPhysicalPickups += kv.Value.PhysicalPickups;
             }
@@ -201,7 +179,6 @@ namespace Parsek
                 $"paused={paused.ToString(IC)}, endpointLost={endpointLost.ToString(IC)}, " +
                 $"totalDispatched={totalDispatched.ToString(IC)}, " +
                 $"totalDelivered={totalDelivered.ToString(IC)}, " +
-                $"totalCredited={totalCredited.ToString(IC)}, " +
                 $"physicalDebits={totalPhysicalDebits.ToString(IC)}, " +
                 $"physicalPickups={totalPhysicalPickups.ToString(IC)}");
         }
@@ -215,8 +192,7 @@ namespace Parsek
             if (!TryGetOrCreateState(action, "RouteDispatched", out RouteWalkState state, out string routeId))
                 return;
 
-            // Skeleton rule: the FundsModule affordability gate isn't wired through
-            // yet, so a paused dispatch still bumps the counter. A RouteSendOnce
+            // Skeleton rule: a paused dispatch still bumps the counter. A RouteSendOnce
             // dispatch on a paused route is LEGITIMATE (Send Once fires one cycle
             // from Paused without a durable resume; route-timeline events), so it
             // is accepted without the warn. The Paused flag is only cleared by an
@@ -263,9 +239,8 @@ namespace Parsek
         /// OBSERVE-ONLY (T-ROUTEMODULE-OBSERVE): the M1 physical origin debit
         /// is applied LIVE at emit time by the orchestrator's loop path and
         /// reverted by the rewind quicksave restore; this walk only counts the
-        /// row (heuristic: non-empty manifest with zero funds = physical
-        /// debit) and logs its attribution fields. The funds component alone
-        /// replays through <see cref="FundsModule"/>. A future edit MUST NOT
+        /// row (a resolved origin pid = physical debit) and logs its attribution
+        /// fields. A future edit MUST NOT
         /// mutate vessel cargo from here - rewriting tanks from the recalc
         /// walk is the one thing the apply pattern forbids.
         /// </summary>
@@ -280,7 +255,7 @@ namespace Parsek
             int requestedSize = action.RouteRequestedResourceManifest?.Count ?? 0;
             // Origin pid is set only by actual physical debits (M1 loop-path
             // emit); legacy non-loop non-KSC rows carry a CostManifest clone
-            // with zero funds but no pid, and must not count as physical.
+            // but no pid, and must not count as physical.
             if (action.RouteOriginVesselPid != 0u)
                 state.PhysicalDebits++;
 
@@ -290,7 +265,6 @@ namespace Parsek
                 $"resources={manifestSize.ToString(IC)}, " +
                 $"requested={requestedSize.ToString(IC)}, " +
                 $"originPid={action.RouteOriginVesselPid.ToString(IC)}, " +
-                $"kscFundsCost={action.RouteKscFundsCost.ToString("R", IC)}, " +
                 $"ut={action.UT.ToString("R", IC)} (observe-only, no cargo mutation)");
         }
 
@@ -302,9 +276,7 @@ namespace Parsek
         /// (<c>RouteOrchestrator.EmitLoopCycle</c> pickup half) and is reverted by
         /// the rewind quicksave restore; this walk only counts the row (a resolved
         /// endpoint pid = physical pickup) and logs its attribution fields. A
-        /// pickup row carries NO funds, so there is nothing for
-        /// <see cref="FundsModule"/> to replay either. A future edit MUST NOT
-        /// mutate vessel cargo from here - rewriting tanks from the recalc walk is
+        /// future edit MUST NOT mutate vessel cargo from here - rewriting tanks from the recalc walk is
         /// the one thing the apply pattern forbids.
         /// </summary>
         private void ProcessCargoPickedUp(GameAction action)
@@ -364,36 +336,6 @@ namespace Parsek
                 $"resources={manifestSize.ToString(IC)}, " +
                 $"requested={requestedSize.ToString(IC)}, " +
                 $"ut={action.UT.ToString("R", IC)}");
-        }
-
-        /// <summary>
-        /// Observes a <see cref="GameActionType.RouteRecoveryCredited"/> row
-        /// (logistics-recovery-credit, design doc section 6.2). DIAGNOSTIC ONLY:
-        /// increments the per-route <see cref="RouteWalkState.CreditedCycles"/>
-        /// counter so the <see cref="PostWalk"/> summary reflects how many deferred
-        /// recovery credits a route has paid back, and updates
-        /// <see cref="RouteWalkState.LastActionUT"/>. It MUST NOT mutate funds: the
-        /// credit's funds reversal is <see cref="FundsModule"/>'s job (the credit
-        /// flows through the FundsModule earning path so a rewind / tombstone
-        /// reconciles it via PatchFunds with no new rollback code). RouteModule is
-        /// observe-only by the design-doc contract (section 13.4); adding a funds
-        /// mutation here would double-count the credit. Pinned by
-        /// T-ROUTEMODULE-OBSERVE.
-        /// </summary>
-        private void ProcessRecoveryCredited(GameAction action)
-        {
-            if (!TryGetOrCreateState(action, "RouteRecoveryCredited", out RouteWalkState state, out string routeId))
-                return;
-
-            state.CreditedCycles++;
-            state.LastActionUT = action.UT;
-
-            ParsekLog.Verbose(Tag,
-                $"Processed RouteRecoveryCredited for route={routeId} " +
-                $"credited={state.CreditedCycles.ToString(IC)}, " +
-                $"cycleId={action.RouteCycleId ?? "(none)"}, " +
-                $"amount={action.RouteKscFundsCost.ToString("R", IC)} funds, " +
-                $"ut={action.UT.ToString("R", IC)} (observe-only, no funds mutation)");
         }
 
         private void ProcessPaused(GameAction action)

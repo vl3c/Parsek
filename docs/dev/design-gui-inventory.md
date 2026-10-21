@@ -77,7 +77,8 @@ that is where this authoring pass hit them - and the two Test Runner rows of sec
 table. Sections 3 to 5 and the rest of 7 are still the 2026-09-11 reading against `4eb427e9e`.
 
 COVERAGE NOT YET RE-MEASURED FOR WAVE 5, AND THIS PARAGRAPH SAYS SO ON PURPOSE. Eleven
-new census lanes were AUTHORED AND FLOWN GREEN 2026-09-21 (GUI-13..GUI-23, twenty
+new census lanes were AUTHORED AND FLOWN GREEN 2026-09-21 (GUI-13..GUI-23; GUI-23 retired
+2026-10-21 with the route funds gate it photographed, todo LOGISTICS-WITHOUT-MONEY; twenty
 flights on one pinned automation DLL - 18 PASS and 2 PARSEK-FAIL, both of them one lane's
 own log-contract regex casing rather than a product failure, and every lane's final
 verdict PASS on attempt 1) plus two
@@ -1078,10 +1079,10 @@ rows' styles (the caret + the name Create would give: the source mission's name,
 [U+2192] Duna` when the mission has no name; `RouteCreationService.ResolveDefaultName`,
 cached with the row's other text on the ~1 Hz candidate refresh; over the grey `KSC [U+2192] Depot` line through
 the same `FormatFromTo` arrow: the origin in the route rows' short form, the dock endpoint's
-live vessel name or its place, never coordinates; hover `From KSC (funds) to Depot Mun
+live vessel name or its place, never coordinates; hover `From KSC to Depot Mun
 (surface) 1.00,2.00.`, cut with `...` to the strip); `Would deliver` 260 (wraps; the manifest, then `; picks up ... at
-<place>` for a run that loads cargo, or that alone for a pure pickup run, plus the Career net
-cost suffix); `Transit` 150 (read-only, under the route tables' Every column; hover `How long
+<place>` for a run that loads cargo, or that alone for a pure pickup run; no cost, since
+supply routes carry no money); `Transit` 150 (read-only, under the route tables' Every column; hover `How long
 one run takes, from launch to undock.`); Interact, the route tables' measured column under the
 shared centred `Interact` header cell (`DrawInteractHeaderCell`): line 1 `Create route`, line 2
 `Dismiss`, each a single as wide as two grid cells and the gap (the detail block's 100 px
@@ -1170,10 +1171,10 @@ Route History rows (N is the run's position in dispatch order):
 
 | ledger row | Event | Location / Vessel |
 |---|---|---|
-| RouteDispatched | `Run N: Sent`, or `Run N: Sent once` for a run armed by Send, plus what the launch cost when it cost anything: `, cost 7,410 funds` (a Career KSC launch), `, cost 257.8 LiquidFuel, 315.1 Oxidizer` (cargo taken from an origin vessel), or both joined (`RouteHistoryBuilder.SentCostSuffix`) | the origin (`KSC` / `-` for a funds-paid launch) |
+| RouteDispatched | `Run N: Sent`, or `Run N: Sent once` for a run armed by Send, plus the cargo the launch took from an origin vessel: `, cost 257.8 LiquidFuel, 315.1 Oxidizer` (`RouteHistoryBuilder.SentCostSuffix`); a Space Center launch is free and shows no cost | the origin (`KSC` / `-`) |
 | RouteCargoPickedUp | `Run N: Picked up <amounts>` (`(the source was short)` when it was) | the pickup stop's place and vessel |
 | RouteCargoDelivered | `Run N: Delivered <amounts>` (`40.0 of 150.0 LiquidFuel (110.0 did not fit)` when short); the row that finishes a run | the stop's place and vessel |
-| RouteHeld | `Held: <reason>`, the Logistics window's hold sentence without its live-route advice (`- delivers when ...`, `- use Re-scan ...`, `- it may have moved ...`): `Held: origin is short 108.8 LiquidFuel`, `Held: destination has no room for LiquidFuel`, `Held: Depot B is short 20.0 Ore`, `Held: destination has no free inventory slot for stored part 'EVA Science Kit'` (stored parts by title, `StructureListWindowUI.ResolvePartTitle`; a linked-route wait names the partner's current name from the stored partner id, `RouteHistoryBuilder.HeldDetailForDisplay`); no run number; plain `Held` when the row's kind did not read back (`LogisticsHoldPresentation.DescribeHoldForHistory` / `FormatHistoryHeldRow`) | the origin for an origin-cargo or funds hold; a pickup source hold names that source's vessel (live name first); `-` otherwise |
+| RouteHeld | `Held: <reason>`, the Logistics window's hold sentence without its live-route advice (`- delivers when ...`, `- use Re-scan ...`, `- it may have moved ...`): `Held: origin is short 108.8 LiquidFuel`, `Held: destination has no room for LiquidFuel`, `Held: Depot B is short 20.0 Ore`, `Held: destination has no free inventory slot for stored part 'EVA Science Kit'` (stored parts by title, `StructureListWindowUI.ResolvePartTitle`; a linked-route wait names the partner's current name from the stored partner id, `RouteHistoryBuilder.HeldDetailForDisplay`); no run number; plain `Held` when the row's kind did not read back (`LogisticsHoldPresentation.DescribeHoldForHistory` / `FormatHistoryHeldRow`) | the origin for an origin-cargo hold (an old save's funds hold reads `-`); a pickup source hold names that source's vessel (live name first); `-` otherwise |
 | RoutePaused | `Paused` (a player Pause), `Paused after the run` (delivered, partly delivered, or delivered on a replayed crossing), `Paused after a held run`, `Stopped: flight missing` / `flight changed` | `-` |
 | RouteResumed | `Activated` (player), `Resumed` (automatic) | `-` |
 | RouteEndpointLost | `Stopped: destination lost` / `origin lost` | `-` |
@@ -1185,14 +1186,11 @@ episode and reason (logistics design section 6.7): a route held for a year on on
 one row, a reason change (origin short, then destination full) a second, and the next `Sent`,
 `Paused`, `Activated` or `Stopped` row ends the episode; nothing marks the release.
 
-Debit rows (funds or origin cargo) are not shown as rows; each is folded into the Sent row of
-its own run (same `RouteCycleId`, so interleaved runs never borrow each other's cost), and a debit
-with no Sent row adds nothing. The funds part reads the debit's `RouteKscFundsCost`, which the
-dispatch writes only for a Career KSC launch: Sandbox and Science never show funds, and a zero
-cost is left out (never "free"). Funds format as the route's Cost/run line
-(`LogisticsCostPresentation.FormatFunds`, grouped whole funds, InvariantCulture). Cargo shows
-only for a debit taken from an origin vessel (the row carries its pid); a KSC launch's row lists
-the cargo its funds bought, which is not a separate cost. Both come from the same ELS list as the
+Debit rows (origin cargo) are not shown as rows; each is folded into the Sent row of its own
+run (same `RouteCycleId`, so interleaved runs never borrow each other's cost), and a debit with
+no Sent row adds nothing. Cargo shows only for a debit taken from an origin vessel (the row
+carries its pid). A Space Center launch writes no debit row and shows no cost: supply routes
+carry no money (todo LOGISTICS-WITHOUT-MONEY). The debit comes from the same ELS list as the
 rows, so a rewound or tombstoned run's cost leaves with it. The
 ledger carries a UT on every row, so each pickup and each delivery has its own time; no extra
 field is stored. It rebuilds while open when the ledger version, the tombstone version or the
@@ -1647,7 +1645,7 @@ the full rows; the per-subsystem row counts are in the table above.
 | H16 | The recalc-and-patch pipeline rewrites funds, science, reputation, the tech tree, facility levels, progress nodes and the live `ContractSystem` with exactly ONE player-facing message in the subsystem | `GameActions/LedgerOrchestrator.cs:1837`+ (14 sites), `GameActions/KspStatePatcher.cs:61`, message `:3514` |
 | H19 | Crew-reservation swap refusals and VAB seat clears are Info/Verbose only, so the player ends up with the wrong kerbal seated and no cause given | `CrewReservationManager.cs:273-296`, `:946`; `Patches/CrewAutoAssignPatch.cs:246`, `:258` |
 | H20 | Stock kerbal dismissal is refused silently, while its four sibling committed-action blocks all raise a dialog | `Patches/KerbalDismissalPatch.cs:27`, `:37` |
-| D7 | `CanAffordFundsSpending` has no production caller (2026-10-21: the route dispatch gate of PR #2159 calls it until logistics-without-money phase 1 removes that gate); `Patches/FacilityUpgradePatch.cs:36` states funds affordability is deliberately unchecked while science IS enforced | `GameActions/LedgerOrchestrator.cs:6500`, `Patches/TechResearchPatch.cs:78` |
+| D7 | `CanAffordFundsSpending` has no production caller (the route dispatch gate of PR #2159 called it until logistics-without-money phase 1 removed that gate); `Patches/FacilityUpgradePatch.cs:36` states funds affordability is deliberately unchecked while science IS enforced | `GameActions/LedgerOrchestrator.cs:6500`, `Patches/TechResearchPatch.cs:78` |
 | D13 | `GameActionDisplay.GetCategory` (zero references anywhere) and `KerbalsModule.IsKerbalAvailable` are orphaned | `GameActions/GameActionDisplay.cs:17`, `KerbalsModule.cs:1033` |
 | P5 | `Wipe All Game Actions (N)` and its dialog name the ledger; `MilestoneStore.ClearAll` clears milestones only and leaves `Ledger.Actions` untouched | `UI/SettingsWindowUI.cs:758`, `ParsekUI.cs:1543`, `MilestoneStore.ClearAll:509` |
 | P6 | The Kerbals Outcomes GoTo tooltip promises a Timeline scroll that only happens if the Timeline is already open | `UI/KerbalsWindowUI.cs:642`, `:693`, `UI/TimelineWindowUI.cs:322`, consumed `:1091` |
@@ -1785,8 +1783,8 @@ skip the whole economy/tech/contracts patch after the crew roster was already ap
 never fired in 57 armed rewinds across 665 collected logs; the field is deleted and the WARN
 now states the measured meaning instead of "possible silent career corruption" (rationale:
 `docs/dev/ledger-state-reconstruction-audit.md` §8 rec #1). Still open:
-`LedgerOrchestrator.CanAffordFundsSpending:6500` has no production caller (outside the route
-dispatch gate of PR #2159, which logistics-without-money phase 1 removes) while
+`LedgerOrchestrator.CanAffordFundsSpending:6500` has no production caller (the route dispatch
+gate of PR #2159 called it until logistics-without-money phase 1 removed that gate) while
 `Patches/FacilityUpgradePatch.cs:36` states that funds affordability is deliberately unchecked
 (science IS enforced at `Patches/TechResearchPatch.cs:78`). Two decisions left: arm the funds
 gate or delete it and accept the asymmetry with science; and decide whether a career-altering
@@ -2033,7 +2031,7 @@ These need only a different `saveTemplate` and the existing `open` / `rect` / `t
 | Timeline minimum-size rendering | the existing GUI-1 host | a second `op=rect` at 520x150 plus one capture | GUI-4 `bd-timeline-refly-minsize-advanced`, at the 520x150 floor (historical: the floor is 720 since the 2026-09-24 filter redesign; not re-flown) |
 | Logistics populated: Active, Paused, `New (not yet run)`, the Send-Once-armed row | `interbody-route-recorded` (Active + Paused, `completedCycles = 0`) or `depot-route-recorded` (Active, `pauseAfterCurrentCycle = True`) | `op=rect` to at least 1410x500 FIRST, or the Name column collapses as it did in the shipped capture | GUI-3 `ib-logistics-collapsed-advanced` (both rows) and `ib-logistics-expanded-advanced` |
 | Logistics `Dismissed (N)` header | `interbody-route-recorded` (carries `DISMISSED_ROUTE_CANDIDATES` with two ids) | none | GUI-3 `ib-logistics-collapsed-advanced` / `ib-logistics-expanded-advanced` |
-| Logistics Candidates populated + run-cost suffix | `rover-route-recorded`, or `rover-route-career` for the Career + KSC cost | none | UNCLAIMED. `interbody-route-recorded` carries a DISMISSED list rather than live candidates, so GUI-3's expanded capture shows the candidate SECTION and not a populated one. Wants a `rover-route-recorded` lane of its own |
+| Logistics Candidates populated | `rover-route-recorded` | none | UNCLAIMED. `interbody-route-recorded` carries a DISMISSED list rather than live candidates, so GUI-3's expanded capture shows the candidate SECTION and not a populated one. Wants a `rover-route-recorded` lane of its own |
 | Mission header `Looped by route` + greyed Loop | `depot-route-recorded` / `interbody-route-recorded` / `rover-route-recorded` | none; the label draws with no click | GUI-3 `ib-missions-missions-collapsed-advanced` / `ib-missions-missions-expanded-advanced` |
 | Recordings route-bound greyed Loop toggles (header level) | same three | none; `AnyRecordingRouteBound` scans all committed | GUI-3 `ib-missions-recordings-expanded-advanced` |
 | `Docked with <partner>` in the Start event cell's hover; chapter header rows; `Docked partner:` rows | `bdock-recorded` (or `bdock-station-craft` + `bdock-station-pad`, or `bdock-forge-base`) | none; all three draw with no click | GUI-4 `bd-missions-missions-expanded-advanced` / `bd-missions-recordings-expanded-advanced` |

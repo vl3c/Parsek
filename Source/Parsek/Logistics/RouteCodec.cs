@@ -111,7 +111,6 @@ namespace Parsek.Logistics
                     capNode.AddValue("cap", cap.Cap.ToString("R", ic));
                 }
             }
-            node.AddValue("kscDispatchFundsCost", route.KscDispatchFundsCost.ToString("R", ic));
 
             // --- Scheduling scalars ---
             node.AddValue("transitDuration", route.TransitDuration.ToString("R", ic));
@@ -222,16 +221,6 @@ namespace Parsek.Logistics
                     route.WindowAnchorCycleIndex.ToString(ic));
             if (route.ReaimWindowBasisEngaged)
                 node.AddValue("reaimWindowBasisEngaged", route.ReaimWindowBasisEngaged.ToString());
-
-            // Recovery-credit deferral marker (logistics-recovery-credit section 5.6).
-            // Sparse: null cycle id / -1 dispatch UT are the "no credit owed"
-            // defaults, so omit both. This is the credit's save/reload re-fire guard,
-            // mirroring lastObservedLoopCycleIndex above.
-            if (!string.IsNullOrEmpty(route.PendingRecoveryCreditCycleId))
-                node.AddValue("pendingRecoveryCreditCycleId", route.PendingRecoveryCreditCycleId);
-            if (route.PendingRecoveryCreditDispatchUT >= 0.0)
-                node.AddValue("pendingRecoveryCreditDispatchUT",
-                    route.PendingRecoveryCreditDispatchUT.ToString("R", ic));
 
             // EXCLUDED_INTERVALS: one child node carrying repeated excludedInterval
             // values. Empty set writes NO node (keeps the empty-definition save lean).
@@ -348,7 +337,9 @@ namespace Parsek.Logistics
                     });
                 }
             }
-            TryParseDouble(node.GetValue("kscDispatchFundsCost"), inv, ic, out route.KscDispatchFundsCost);
+            // Legacy money keys (kscDispatchFundsCost, pendingRecoveryCreditCycleId,
+            // pendingRecoveryCreditDispatchUT) are ignored: supply routes carry no
+            // money (todo LOGISTICS-WITHOUT-MONEY), and the next save drops them.
 
             TryParseDouble(node.GetValue("transitDuration"), inv, ic, out route.TransitDuration);
             TryParseDouble(node.GetValue("dispatchInterval"), inv, ic, out route.DispatchInterval);
@@ -429,19 +420,10 @@ namespace Parsek.Logistics
             TryParseLong(node.GetValue("windowAnchorCycleIndex"), ic, -1L, out route.WindowAnchorCycleIndex);
             TryParseBool(node.GetValue("reaimWindowBasisEngaged"), out route.ReaimWindowBasisEngaged);
 
-            // Recovery-credit deferral marker (logistics-recovery-credit section 5.6).
-            // Missing pendingRecoveryCreditCycleId -> null (no credit owed); missing
-            // pendingRecoveryCreditDispatchUT -> -1. A pre-feature save simply has no
-            // pending marker, which is the correct "no credit owed yet" state.
-            route.PendingRecoveryCreditCycleId = NullIfEmpty(node.GetValue("pendingRecoveryCreditCycleId"));
-            TryParseDoubleWithDefault(node.GetValue("pendingRecoveryCreditDispatchUT"),
-                inv, ic, -1.0, out route.PendingRecoveryCreditDispatchUT);
-
             LoadStringList(node, ExcludedIntervalsNode, ExcludedIntervalValue, route.ExcludedIntervalKeys);
 
             // CREATION_TREE_RECORDINGS (M-MIS-9-R1). A missing node loads as an
-            // empty snapshot: the run-cost resolver fails open to the whole
-            // current tree, which is the pre-field behavior.
+            // empty snapshot (readers fail open to the whole current tree).
             LoadStringList(node, CreationTreeRecordingsNode, CreationTreeRecordingValue, route.CreationTreeRecordingIds);
 
             // --- RECORDING_IDS ---
@@ -945,10 +927,25 @@ namespace Parsek.Logistics
         // Enum + primitive parsing helpers
         // -----------------------------------------------------------------
 
+        /// <summary>
+        /// The status name an old save wrote for a Career Space Center route short
+        /// of dispatch funds. Supply routes carry no money any more (todo
+        /// LOGISTICS-WITHOUT-MONEY), so it reads as <see cref="RouteStatus.Active"/>.
+        /// </summary>
+        internal const string LegacyWaitingForFundsStatus = "WaitingForFunds";
+
         private static RouteStatus ParseStatusOrWarn(string raw, string routeIdForLog)
         {
             if (string.IsNullOrEmpty(raw))
                 return RouteStatus.Active;
+
+            if (string.Equals(raw, LegacyWaitingForFundsStatus, StringComparison.Ordinal))
+            {
+                ParsekLog.Info(Tag,
+                    $"DeserializeFrom: legacy status='{raw}' on route id={routeIdForLog ?? "<no-id>"} " +
+                    "reads as Active (supply routes carry no money)");
+                return RouteStatus.Active;
+            }
 
             if (Enum.TryParse(raw, out RouteStatus status)
                 && Enum.IsDefined(typeof(RouteStatus), status))

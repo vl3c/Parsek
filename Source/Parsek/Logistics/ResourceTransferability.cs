@@ -8,12 +8,11 @@ namespace Parsek.Logistics
     ///
     /// Any resource with a <see cref="PartResourceDefinition"/> in
     /// <see cref="PartResourceLibrary"/> is routable, modded resources
-    /// included; zero-cost defined resources route normally (they simply
-    /// contribute 0 to the funds charge). ElectricCharge and IntakeAir stay
+    /// included. ElectricCharge and IntakeAir stay
     /// excluded as environmental noise. An undefined resource name in a
     /// recorded snapshot (its defining mod was uninstalled) is excluded
     /// from ADMISSION-direction outputs (the delivery manifest, and through
-    /// it the route's CostManifest and funds charge) and logged - but it
+    /// it the route's CostManifest) and logged - but it
     /// stays VISIBLE to REJECTION-direction checks
     /// (<see cref="RouteAnalysisEngine"/>'s pickup gate keeps rejecting an
     /// undefined-name pickup), so a mod uninstall can never flip a

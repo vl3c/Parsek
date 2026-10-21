@@ -34,12 +34,13 @@ namespace Parsek.Tests.Logistics
                 .Cast<RouteStatus>()
                 .ToArray();
 
-            Assert.Equal(9, values.Length);
+            Assert.Equal(8, values.Length);
 
             Assert.Equal(0, (int)RouteStatus.Active);
             Assert.Equal(1, (int)RouteStatus.InTransit);
             Assert.Equal(2, (int)RouteStatus.WaitingForResources);
-            Assert.Equal(3, (int)RouteStatus.WaitingForFunds);
+            // Ordinal 3 (the legacy WaitingForFunds) is retired, never reused.
+            Assert.False(Enum.IsDefined(typeof(RouteStatus), 3));
             Assert.Equal(4, (int)RouteStatus.DestinationFull);
             Assert.Equal(5, (int)RouteStatus.EndpointLost);
             Assert.Equal(6, (int)RouteStatus.MissingSourceRecording);

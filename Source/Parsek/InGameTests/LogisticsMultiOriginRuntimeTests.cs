@@ -1023,7 +1023,6 @@ namespace Parsek.InGameTests
                 NextDispatchUT = TickUtAllDocks + Cadence,
                 CompletedCycles = 0,
                 SkippedCycles = 0,
-                KscDispatchFundsCost = 0.0,
                 // Multi-origin: cargo is loaded en route from the depots, not launched.
                 // The single docked-origin provenance is EMPTY (no Route.Origin debit);
                 // the pickup-source provenance gates + debits each depot.
@@ -1122,7 +1121,6 @@ namespace Parsek.InGameTests
                 NextDispatchUT = TickUtAllDocks + Cadence,
                 CompletedCycles = 0,
                 SkippedCycles = 0,
-                KscDispatchFundsCost = 0.0,
                 CostManifest = new Dictionary<string, double>(StringComparer.Ordinal),
                 InventoryCostManifest = new List<InventoryPayloadItem>(),
                 Origin = EndpointForVessel(refinery),

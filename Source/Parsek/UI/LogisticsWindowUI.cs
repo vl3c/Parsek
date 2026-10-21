@@ -258,15 +258,6 @@ namespace Parsek
 
         private const float CandidateRecomputeIntervalSeconds = 1.0f;
 
-        // Run-cost (Phase 3.4): per-candidate net funds cost, keyed by tree id and
-        // recomputed on the SAME ~1 Hz candidate-cache timer as cachedCandidates.
-        // The candidate cost is an O(actions) ELS scan plus a snapshot part-cost
-        // walk, so it MUST NOT run on the IMGUI draw path; the "Would deliver" cell
-        // only READS this cache. Empty until the first candidate refresh; a cache
-        // miss draws no suffix (the cell is unchanged).
-        private readonly Dictionary<string, RouteRunCostCalculator.RouteRunCost> candidateRunCostCache =
-            new Dictionary<string, RouteRunCostCalculator.RouteRunCost>();
-
         // M3 near-miss cache: the "recently committed trees not yet eligible" list
         // (DeriveNearMisses walks every committed tree through RouteAnalysisEngine,
         // exactly like DeriveCandidates), throttled on the SAME ~1 Hz timer as the
@@ -447,10 +438,6 @@ namespace Parsek
             // DestinationFull free-capacity context line, from a LIVE capacity probe over
             // the resolved destination (DestinationFull only; null otherwise).
             public string CapacityContext;
-
-            // Per-run net funds cost (Career + KSC origin only; Applicable / CostKnown
-            // false otherwise and the detail draws nothing). An O(actions) ELS scan.
-            public RouteRunCostCalculator.RouteRunCost RunCost;
 
             // The persisted last hold in player language: HoldShort is the long clause,
             // HoldText the dated detail line ("Last run held on <date>: ..."), HoldCellText
@@ -1579,7 +1566,7 @@ namespace Parsek
             GUI.enabled = sendEnabled;
             bool sendClicked = GUILayout.Button(new GUIContent(LogisticsRoutePresentation.SendButtonLabel,
                     sendEnabled
-                        ? "Make one run at the next moment conditions allow (funds, cargo, destination, launch window), then stay Paused."
+                        ? "Make one run at the next moment conditions allow (cargo, destination, launch window), then stay Paused."
                         : sendReason),
                 interactPairButtonStyle, GUILayout.Width(pair));
             DisabledHoverEcho.CarryLastControl(sendEnabled, sendReason);
@@ -1838,7 +1825,6 @@ namespace Parsek
                 case RouteStatus.Active:
                 case RouteStatus.InTransit:
                 case RouteStatus.WaitingForResources:
-                case RouteStatus.WaitingForFunds:
                 case RouteStatus.DestinationFull:
                     return true;
                 default:
@@ -1924,7 +1910,7 @@ namespace Parsek
                         + "then stops running on its schedule.";
                 case ArmedSendKind.SendOnce:
                 default:
-                    return "Sending one run at the next window (funds, cargo, destination "
+                    return "Sending one run at the next window (cargo, destination "
                         + "and launch window permitting), then pausing again.";
             }
         }
@@ -1954,23 +1940,13 @@ namespace Parsek
                 routeFromToStyle, GUILayout.ExpandWidth(true));
             GUILayout.EndVertical();
 
-            // Would deliver: the per-run manifest (pickups named) from the cached display,
-            // plus the net-cost suffix for a Career KSC run with a known launch cost. The cost
-            // is read from candidateRunCostCache (the ~1 Hz refresh), never computed here.
+            // Would deliver: the per-run manifest (pickups named) from the cached display.
             string wouldDeliverText = display?.Cargo
                 ?? LogisticsDeliveryPresentation.FormatWouldDeliver(
                     candidate.Analysis.ResourceDeliveryManifest,
                     candidate.Analysis.InventoryDeliveryManifest);
             string wouldDeliverTip =
                 "A finished supply run: what it would deliver each run. Create route makes it a Paused route you can Send or Activate.";
-            if (candidateRunCostCache.TryGetValue(treeId, out RouteRunCostCalculator.RouteRunCost candCost)
-                && candCost.Applicable && candCost.CostKnown)
-            {
-                wouldDeliverText += LogisticsCostPresentation.FormatCandidateSuffix(candCost);
-                // The single-line strip carries the fixed-length explanation; the figures
-                // stay on the cell and on the expanded detail's Cost/run line.
-                wouldDeliverTip = LogisticsCostPresentation.FormatDetailTooltip(candCost);
-            }
             GUILayout.Label(
                 new GUIContent(wouldDeliverText, wouldDeliverTip),
                 wrapCellStyle, GUILayout.Width(ColW_WouldDeliver));
@@ -2078,14 +2054,6 @@ namespace Parsek
             // route stores no delivered UT), plus the running total.
             if (leg.LastDeliveredLine != null)
                 DetailLine(leg.LastDeliveredLine, leg.LastCycleShortfall ? statusStyleYellow : detailStyle);
-
-            // Run cost (Career + KSC origin, known cost only; nothing otherwise).
-            if (leg.RunCost.Applicable && leg.RunCost.CostKnown)
-            {
-                DetailLine(new GUIContent(
-                    LogisticsCostPresentation.FormatDetailLine(leg.RunCost),
-                    LogisticsCostPresentation.FormatDetailTooltip(leg.RunCost)));
-            }
 
             DrawRouteBuiltFromNote(route);
 
@@ -2969,25 +2937,12 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The expanded candidate: only what the row cannot say. The run-cost breakdown
-        /// (the row cell shows only the NET suffix; this is the one pre-creation surface
-        /// carrying "launch X - recovered Y", the split a player needs to judge a
-        /// cheap-looking net) and the mission the candidate comes from. Same gate and
-        /// cache as the row (never computed on the draw path).
+        /// The expanded candidate: only what the row cannot say, the mission the
+        /// candidate comes from.
         /// </summary>
         private void DrawCandidateDetail(RouteCandidate candidate)
         {
             GUILayout.BeginVertical(GUI.skin.box);
-
-            if (candidateRunCostCache.TryGetValue(
-                    candidate.Tree?.Id ?? "<no-tree>",
-                    out RouteRunCostCalculator.RouteRunCost candCost)
-                && candCost.Applicable && candCost.CostKnown)
-            {
-                DetailLine(new GUIContent(
-                    LogisticsCostPresentation.FormatDetailLine(candCost),
-                    LogisticsCostPresentation.FormatDetailTooltip(candCost)));
-            }
 
             string treeId = candidate.Tree?.Id;
             string missionName = !string.IsNullOrEmpty(treeId)
@@ -3468,15 +3423,11 @@ namespace Parsek
             Game.Modes mode = HighLogic.CurrentGame != null
                 ? HighLogic.CurrentGame.Mode
                 : Game.Modes.SANDBOX;
-            // Same summary call the post-commit auto-dialog makes (analysis + mode +
+            // Same summary call the post-commit auto-dialog makes (analysis +
             // tree); passing cand.Tree makes the Transit line resolve the real
             // [root..dock] span so the dialog matches the route that gets built.
-            // The run-cost block (Career + KSC origin) is computed here from the
-            // candidate's source recording + tree (no Route exists yet) and passed in.
-            RouteRunCostCalculator.RouteRunCost runCost =
-                ComputeCandidateRunCost(cand.Analysis, cand.Tree);
             candidateDisplayCache.TryGetValue(cand.Tree.Id ?? "<no-tree>", out CandidateDisplay display);
-            string body = RouteCreationFormatters.BuildSummaryBlock(cand.Analysis, mode, cand.Tree, runCost,
+            string body = RouteCreationFormatters.BuildSummaryBlock(cand.Analysis, cand.Tree,
                 StructureListWindowUI.ResolvePartTitle, display?.DestinationName);
 
             ParsekLog.Info("UI",
@@ -3656,25 +3607,6 @@ namespace Parsek
                 cachedCandidates = RouteCandidateFinder.DeriveCandidates();
                 lastCandidateComputeRealtime = now;
                 RebuildCandidateDisplayCache(cachedCandidates);
-
-                // Run-cost (Phase 3.4): recompute each candidate's net cost on this
-                // ~1 Hz refresh and stash it by tree id so DrawCandidateRow reads it
-                // off the draw path. Rebuilt wholesale each refresh (the candidate
-                // set is small and can change), so stale tree ids never linger.
-                candidateRunCostCache.Clear();
-                int costed = 0;
-                for (int i = 0; i < cachedCandidates.Count; i++)
-                {
-                    RouteCandidate cand = cachedCandidates[i];
-                    string treeId = cand?.Tree?.Id;
-                    if (cand?.Analysis == null || string.IsNullOrEmpty(treeId))
-                        continue;
-                    candidateRunCostCache[treeId] = ComputeCandidateRunCost(cand.Analysis, cand.Tree);
-                    costed++;
-                }
-                ParsekLog.Verbose("UI",
-                    $"Logistics candidate run-cost cache refreshed candidates={cachedCandidates.Count.ToString(CultureInfo.InvariantCulture)} " +
-                    $"costed={costed.ToString(CultureInfo.InvariantCulture)}");
 
                 // M6: rebuild the Dismissed-subsection display rows on the same
                 // refresh (tree names resolved here, never on the draw path).
@@ -3969,10 +3901,6 @@ namespace Parsek
             if (route.Status == RouteStatus.DestinationFull)
                 leg.CapacityContext = ResolveCapacityContext(route, destVessel, destText, stopVessels, stopTexts);
 
-            // Run cost (Career + KSC origin): SumRecoveredCredits is an O(actions) ELS scan
-            // (ComputeELS is memoized, so no second ledger walk).
-            leg.RunCost = ComputeRouteRunCost(route);
-
             // Last-partial-delivery report, dated. Not gated by ShouldDisplayHold: it
             // reports a past physical loss, which no status makes misleading; the
             // orchestrator clears it on the next full delivery.
@@ -4037,116 +3965,6 @@ namespace Parsek
                 30.0);
 
             return leg;
-        }
-
-        /// <summary>
-        /// Computes one route's per-run net funds cost
-        /// (<see cref="RouteRunCostCalculator.RouteRunCost"/>) for the legibility
-        /// cache. This is the one non-pure piece (it needs the live
-        /// <see cref="EffectiveState.ComputeELS"/> and the live Career probe), so it
-        /// stays in the window file and feeds the pure calculator + presentation
-        /// helpers; called only on the ~1 Hz refresh, never per IMGUI frame.
-        ///
-        /// <para>Career is probed with the same defensively-wrapped shape as
-        /// <see cref="LiveRouteRuntimeEnvironment.IsCareer"/>
-        /// (<c>HighLogic.CurrentGame.Mode == Game.Modes.CAREER</c>). ComputeELS is
-        /// wrapped in a try/catch (it can throw during early load before the scenario
-        /// module is published) and treated as no recoveries on failure, mirroring
-        /// <see cref="CollectRouteDeliverySummary"/>. The tree-member id set is
-        /// resolved once per route per refresh via
-        /// <see cref="RouteRunCostCalculator.ResolveTreeRecordingIds(Route)"/>.</para>
-        /// </summary>
-        private static RouteRunCostCalculator.RouteRunCost ComputeRouteRunCost(Route route)
-        {
-            bool isCareer;
-            try
-            {
-                isCareer = HighLogic.CurrentGame != null
-                    && HighLogic.CurrentGame.Mode == Game.Modes.CAREER;
-            }
-            catch (System.Exception ex)
-            {
-                ParsekLog.Verbose("UI",
-                    $"Logistics run-cost: IsCareer probe threw {ex.GetType().Name}: {ex.Message}; defaulting false");
-                isCareer = false;
-            }
-
-            IReadOnlyList<GameAction> els;
-            try
-            {
-                els = EffectiveState.ComputeELS();
-            }
-            catch (System.Exception ex)
-            {
-                ParsekLog.Verbose("UI",
-                    $"Logistics run-cost: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as no recoveries");
-                els = null;
-            }
-
-            HashSet<string> treeRecordingIds = RouteRunCostCalculator.ResolveTreeRecordingIds(route);
-            return RouteRunCostCalculator.Compute(route, isCareer, els, treeRecordingIds);
-        }
-
-        /// <summary>
-        /// Computes a CANDIDATE's per-run net funds cost (Phase 3.2 / 3.4): the
-        /// route-creation summary and the candidate row run before any
-        /// <see cref="Route"/> exists, so this derives the inputs from the
-        /// candidate's source recording + owning tree instead of a Route. KSC origin
-        /// is decided exactly as <c>RouteBuilder</c> decides the built
-        /// <see cref="Route.IsKscOrigin"/>: from the tree ROOT recording
-        /// (<c>LaunchSiteName</c> set AND <c>StartBodyName == "Kerbin"</c>), NOT from
-        /// the dock-child <c>analysis.SourceRecording</c> (which carries a null
-        /// launch site), via <see cref="RouteRunCostCalculator.IsCandidateKscOrigin"/>.
-        /// Career and ELS are probed with the same defensive wrap + memoized
-        /// <see cref="EffectiveState.ComputeELS"/> as the route path. Returns a
-        /// not-applicable / unknown cost (which the UI then suppresses) when the
-        /// analysis or source recording is null. Called only off the IMGUI draw path
-        /// (dialog spawn + the ~1 Hz candidate cache), never per frame.
-        /// </summary>
-        internal static RouteRunCostCalculator.RouteRunCost ComputeCandidateRunCost(
-            RouteAnalysisResult analysis, RecordingTree tree)
-        {
-            Recording source = analysis?.SourceRecording;
-
-            bool isCareer;
-            try
-            {
-                isCareer = HighLogic.CurrentGame != null
-                    && HighLogic.CurrentGame.Mode == Game.Modes.CAREER;
-            }
-            catch (System.Exception ex)
-            {
-                ParsekLog.Verbose("UI",
-                    $"Logistics candidate run-cost: IsCareer probe threw {ex.GetType().Name}: {ex.Message}; defaulting false");
-                isCareer = false;
-            }
-
-            // KSC origin: derived from the tree ROOT recording, exactly as
-            // RouteBuilder derives the built Route.IsKscOrigin. The launch-site /
-            // start-body info lives on the first recording of the flight (the
-            // tree root), NOT on analysis.SourceRecording: that child started
-            // mid-flight at the dock and carries LaunchSiteName == null, so a
-            // source-only check would suppress the cost block on the common
-            // docking case (G5 / D2). The helper falls back to the source only
-            // when the tree has no resolvable root (legacy single-recording).
-            bool isKscOrigin = RouteRunCostCalculator.IsCandidateKscOrigin(source, tree);
-
-            IReadOnlyList<GameAction> els;
-            try
-            {
-                els = EffectiveState.ComputeELS();
-            }
-            catch (System.Exception ex)
-            {
-                ParsekLog.Verbose("UI",
-                    $"Logistics candidate run-cost: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as no recoveries");
-                els = null;
-            }
-
-            return RouteRunCostCalculator.ComputeForCandidate(
-                source, tree, isCareer, isKscOrigin, els,
-                LiveRouteRuntimeEnvironment.LookupPartCost,
-                LiveRouteRuntimeEnvironment.LookupResourceUnitCost);
         }
 
         /// <summary>
@@ -4712,7 +4530,7 @@ namespace Parsek
 
         private static string FormatOrigin(Route route)
         {
-            if (route.IsKscOrigin) return "KSC (funds)";
+            if (route.IsKscOrigin) return "KSC";
             // M2 harvest origin (plan D7): no origin vessel, nothing debited.
             if (route.IsHarvestOrigin) return "harvested en route";
             if (route.Origin.VesselPersistentId != 0u || !string.IsNullOrEmpty(route.Origin.BodyName))
@@ -4732,7 +4550,7 @@ namespace Parsek
             switch (id.Kind)
             {
                 case RouteCreationFormatters.RouteOriginKind.Ksc:
-                    return "KSC (funds)";
+                    return "KSC";
                 case RouteCreationFormatters.RouteOriginKind.Depot:
                     return "depot " + RouteCreationFormatters.FormatDepotIdentity(id);
                 case RouteCreationFormatters.RouteOriginKind.Harvest:

@@ -16,7 +16,7 @@ namespace Parsek.Tests.Logistics
     /// <see cref="RouteOrchestrator.DeliveryApplierForTesting"/> (emits the
     /// <c>RouteCargoDelivered</c> row + bumps CompletedCycles without a live
     /// Vessel). The dispatch-debit half (<see cref="RouteOrchestrator.EmitDispatchDebit"/>)
-    /// runs for real, so the three-row fire + funds debit + ELS idempotency are
+    /// runs for real, so the cycle's rows + the origin debit + ELS idempotency are
     /// all exercised in xUnit.
     /// </summary>
     [Collection("Sequential")]
@@ -75,12 +75,11 @@ namespace Parsek.Tests.Logistics
         // (emit RouteCargoDelivered + bump CompletedCycles + clear pending) WITHOUT
         // a live Vessel. The dispatch-debit half runs for real, so the three-row
         // fire is genuine.
-        private void InstallFakeDeliveryApplier(double fundsCostIfCareerKsc = 0.0)
+        private void InstallFakeDeliveryApplier()
         {
             RouteOrchestrator.DeliveryApplierForTesting = (route, currentUT, env) =>
             {
                 string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles).ToString(IC);
-                bool isCareerKsc = env.IsCareer && route.IsKscOrigin;
                 Ledger.AddAction(new GameAction
                 {
                     Type = GameActionType.RouteCargoDelivered,
@@ -89,7 +88,6 @@ namespace Parsek.Tests.Logistics
                     RouteCycleId = cycleId,
                     RouteStopIndex = 0,
                     Sequence = 0,
-                    RouteKscFundsCost = isCareerKsc ? (float)fundsCostIfCareerKsc : 0f,
                 });
                 route.CompletedCycles += 1;
                 route.PendingDeliveryUT = null;
@@ -146,11 +144,9 @@ namespace Parsek.Tests.Logistics
         // delivery half is the injected fake).
         private sealed class EligibleEnv : IRouteRuntimeEnvironment
         {
-            public bool IsCareer { get; set; }
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = string.Empty; return true; }
             public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason) { vessel = null; reason = string.Empty; return true; }
             public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall) { shortfall = 0.0; lackingResource = string.Empty; return true; }
-            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
             public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = string.Empty; return true; }
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }
@@ -158,11 +154,8 @@ namespace Parsek.Tests.Logistics
         // Env that fails a chosen eligibility gate.
         private sealed class BlockedEnv : IRouteRuntimeEnvironment
         {
-            public bool IsCareer { get; set; }
             public bool OriginHasCargoResult { get; set; } = true;
             public string OriginLackingResource { get; set; } = "LiquidFuel";
-            public bool KscFundsAvailableResult { get; set; } = true;
-            public double KscFundsShortfall { get; set; }
             public bool DestinationHasCapacityResult { get; set; } = true;
             public string DestinationFullResource { get; set; } = "Ore";
             public bool EndpointResolvable { get; set; } = true;
@@ -173,8 +166,6 @@ namespace Parsek.Tests.Logistics
             { vessel = null; reason = string.Empty; return true; }
             public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall)
             { lackingResource = OriginHasCargoResult ? string.Empty : OriginLackingResource; shortfall = 0.0; return OriginHasCargoResult; }
-            public bool KscFundsAvailable(Route route, out double shortfall)
-            { shortfall = KscFundsAvailableResult ? 0.0 : KscFundsShortfall; return KscFundsAvailableResult; }
             public bool DestinationHasCapacity(Route route, out string fullResource)
             { fullResource = DestinationHasCapacityResult ? string.Empty : DestinationFullResource; return DestinationHasCapacityResult; }
             public bool RouteHasValidSourcesInErs(Route route) => true;
@@ -186,12 +177,10 @@ namespace Parsek.Tests.Logistics
         // fails (ApplyDelivery STEP 2 re-resolution).
         private sealed class EligibleButDeliveryLostEnv : IRouteRuntimeEnvironment
         {
-            public bool IsCareer { get; set; }
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = string.Empty; return true; }
             public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason)
             { vessel = null; reason = "no-live-vessels"; return false; }
             public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall) { shortfall = 0.0; lackingResource = string.Empty; return true; }
-            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
             public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = string.Empty; return true; }
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }
@@ -201,16 +190,26 @@ namespace Parsek.Tests.Logistics
         // ==================================================================
 
         // catches: must-fix #1 regression — a crossing emitting delivery ALONE
-        // (no dispatch/debit) would never debit origin / charge funds and would
-        // trip RouteModule's out-of-order guard. The full cycle MUST emit all
-        // three row types under one cycleId.
+        // (no dispatch/debit) would never debit origin and would
+        // trip RouteModule's out-of-order guard. A vessel-origin cycle MUST emit
+        // all three row types under one cycleId.
         [Fact]
         public void Crossing_EmitsAllThreeRows_UnderOneCycleId()
         {
-            var route = BuildLoopRoute(lastObservedLoopCycleIndex: -1);
+            var route = BuildLoopRoute(isKscOrigin: false, lastObservedLoopCycleIndex: -1);
             RouteStore.AddRoute(route);
             InstallUnitResolver(BuildUnit()); // span [1000,1300], cadence 300
             InstallFakeDeliveryApplier();
+            RouteOrchestrator.OriginDebitApplierForTesting = (r, ut, e) =>
+                new RouteOrchestrator.OriginDebitOutcome
+                {
+                    ActualDebited = new Dictionary<string, double>
+                    {
+                        { "LiquidFuel", 100.0 },
+                        { "Oxidizer", 120.0 },
+                    },
+                    OriginVesselPid = 777u,
+                };
             var env = new EligibleEnv();
 
             // ut 1150 -> cycle 0, mid-span, dock 1150 in span -> crossing.
@@ -272,8 +271,7 @@ namespace Parsek.Tests.Logistics
         // attempting a physical origin debit (there is no origin vessel -
         // the seam must never be consulted) or dropping the
         // RouteDispatched/RouteCargoDebited row pair (row-shape stability:
-        // the pair still emits as a structural no-op - empty manifest, zero
-        // funds, pid 0).
+        // the pair still emits as a structural no-op - empty manifest, pid 0).
         [Fact]
         public void Crossing_HarvestOrigin_NoPhysicalDebit_RowsStillEmitted()
         {
@@ -310,14 +308,13 @@ namespace Parsek.Tests.Logistics
             Assert.Equal("cycle-0", debited.RouteCycleId);
             Assert.Equal("cycle-0", delivered.RouteCycleId);
 
-            // Structural no-op debit: empty manifest, zero funds, pid 0, no
+            // Structural no-op debit: empty manifest, pid 0, no
             // requested-on-shortfall - and NO physical write attempted.
             Assert.False(originDebitSeamCalled,
                 "harvest origin must never attempt a physical origin debit");
             Assert.Equal(0, debited.RouteResourceManifest?.Count ?? 0);
             Assert.Null(debited.RouteRequestedResourceManifest);
             Assert.Equal(0u, debited.RouteOriginVesselPid);
-            Assert.Equal(0f, debited.RouteKscFundsCost);
 
             Assert.Contains(logLines, l =>
                 l.Contains("harvest origin: physical origin debit skipped"));
@@ -364,40 +361,6 @@ namespace Parsek.Tests.Logistics
             Assert.Null(route.CurrentCycleStartUT);
         }
 
-        // catches: a career KSC loop crossing skipping EmitDispatchDebit's
-        // career-KSC funds arm - the arm that recomputes Route.KscDispatchFundsCost
-        // and stamps the debited row - and the delivery half not carrying the cost
-        // onto the delivered row.
-        //
-        // The cost VALUE on a headless run is 0.0: ComputeDispatchFundsCostForRoute
-        // prices the ERS basis through PartLoader / PartResourceLibrary, neither of
-        // which exists here. So the discriminator is the WRITE, not the amount: the
-        // route field is seeded with a sentinel the production arm must overwrite.
-        // The delivered row's own funds field (RouteOrchestrator.cs:4449) sits after
-        // the live-Vessel resolution both loop seams stand in for and is pinned by
-        // RouteOrchestratorDeliveryTests.HappyPath_KscCareer_FullFill_EmitsActionAndDebitsFunds.
-        [Fact]
-        public void Crossing_CareerKsc_DebitedRowCarriesFundsCost()
-        {
-            var route = BuildLoopRoute(isKscOrigin: true);
-            route.KscDispatchFundsCost = -1.0; // sentinel: only the career-KSC arm clears it
-            RouteStore.AddRoute(route);
-            InstallUnitResolver(BuildUnit());
-            InstallFakeDeliveryApplier(fundsCostIfCareerKsc: 555.0);
-            var env = new EligibleEnv { IsCareer = true };
-
-            RouteOrchestrator.Tick(1150.0, env);
-
-            // The production career-KSC arm ran and rewrote the persisted cost.
-            Assert.Equal(0.0, route.KscDispatchFundsCost);
-
-            var debited = Ledger.Actions.First(a => a.Type == GameActionType.RouteCargoDebited);
-            Assert.Equal((float)route.KscDispatchFundsCost, debited.RouteKscFundsCost);
-
-            var delivered = Ledger.Actions.First(a => a.Type == GameActionType.RouteCargoDelivered);
-            Assert.Equal(555f, delivered.RouteKscFundsCost);
-        }
-
         // ==================================================================
         // Fire-once + snap discipline
         // ==================================================================
@@ -416,7 +379,7 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(1150.0, env); // cycle 0 dock crossing -> fires
             int afterFirst = Ledger.Actions.Count;
-            Assert.Equal(3, afterFirst); // dispatched + debited + delivered
+            Assert.Equal(2, afterFirst); // dispatched + delivered (Space Center origin: no debit row)
 
             RouteOrchestrator.Tick(1200.0, env); // still cycle 0, dock already crossed -> no new fire
             Assert.Equal(afterFirst, Ledger.Actions.Count);
@@ -444,7 +407,7 @@ namespace Parsek.Tests.Logistics
 
             // ut 1200 -> cycle 0, loopUT 1200 >= dock 1150 -> NOW fires.
             RouteOrchestrator.Tick(1200.0, env);
-            Assert.Equal(3, Ledger.Actions.Count);
+            Assert.Equal(2, Ledger.Actions.Count); // dispatched + delivered (Space Center origin: no debit row)
             Assert.Equal(1, route.CompletedCycles);
             Assert.Equal(0, route.LastObservedLoopCycleIndex);
             Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("DOCK CROSSING confirmed"));
@@ -472,7 +435,7 @@ namespace Parsek.Tests.Logistics
 
             // Fired exactly ONCE (3 rows), snapped to the highest passed-dock cycle
             // (4), NOT the raw span-clock cycle 5 whose dock is still ahead.
-            Assert.Equal(3, Ledger.Actions.Count);
+            Assert.Equal(2, Ledger.Actions.Count); // dispatched + delivered (Space Center origin: no debit row)
             Assert.Equal(4, route.LastObservedLoopCycleIndex);
             Assert.Equal(2, route.CompletedCycles); // 1 + this one
             Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("warp jump"));
@@ -494,7 +457,7 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(2700.0, env);
 
-            Assert.Equal(3, Ledger.Actions.Count); // fired ONCE
+            Assert.Equal(2, Ledger.Actions.Count); // fired ONCE
             Assert.Equal(5, route.LastObservedLoopCycleIndex); // snapped to the landing cycle
             Assert.Equal(2, route.CompletedCycles);
             Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("warp jump"));
@@ -518,13 +481,13 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.Tick(1450.0, env);
 
             // Dock of cycle 0 already passed -> fire once.
-            Assert.Equal(3, Ledger.Actions.Count);
+            Assert.Equal(2, Ledger.Actions.Count); // dispatched + delivered (Space Center origin: no debit row)
             Assert.Equal(0, route.LastObservedLoopCycleIndex);
             Assert.Equal(1, route.CompletedCycles);
 
             // Still parked in cycle 0's tail -> no re-fire.
             RouteOrchestrator.Tick(1500.0, env);
-            Assert.Equal(3, Ledger.Actions.Count);
+            Assert.Equal(2, Ledger.Actions.Count); // unchanged
             Assert.Equal(1, route.CompletedCycles);
         }
 
@@ -660,36 +623,6 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(1150.0, route.LastHoldUT); // the tick UT, for the age suffix
         }
 
-        // catches (M6 + plan-review finding 3): the funds gate silently skipping
-        // because IsCareer was false (vacuous pass), or the shortfall not landing
-        // on the hold. The gate only runs when env.IsCareer && route.IsKscOrigin.
-        [Fact]
-        public void BlockedCrossing_FundsShort_RecordsShortfall()
-        {
-            var route = BuildLoopRoute(isKscOrigin: true, lastObservedLoopCycleIndex: -1);
-            RouteStore.AddRoute(route);
-            InstallUnitResolver(BuildUnit());
-            InstallFakeDeliveryApplier();
-            var env = new BlockedEnv
-            {
-                IsCareer = true,
-                KscFundsAvailableResult = false,
-                KscFundsShortfall = 750.0,
-            };
-
-            RouteOrchestrator.Tick(1150.0, env);
-
-            Assert.Equal(1, route.SkippedCycles); // proves the funds gate blocked, not a pass
-            GameAction held = Assert.Single(Ledger.Actions);
-            Assert.Equal(GameActionType.RouteHeld, held.Type);
-            Assert.Equal(750.0, held.RouteHoldShortfall);
-            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.FundsShort,
-                route.LastHoldKind);
-            Assert.Equal("funds-short", route.LastHoldDetail);
-            Assert.Equal(750.0, route.LastHoldShortfall);
-            Assert.Equal(1150.0, route.LastHoldUT);
-        }
-
         // catches (M6): a FIRED crossing leaving a stale hold behind (the
         // eligible-crossing clear must wipe a prior blocked cycle's reason).
         [Fact]
@@ -705,7 +638,7 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
 
-            Assert.Equal(3, Ledger.Actions.Count); // genuinely fired
+            Assert.Equal(2, Ledger.Actions.Count); // genuinely fired
             Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.None, route.LastHoldKind);
             Assert.Null(route.LastHoldDetail);
             Assert.Equal(0.0, route.LastHoldShortfall);
@@ -956,35 +889,12 @@ namespace Parsek.Tests.Logistics
                 && l.Contains("short=0"));
         }
 
-        // catches: a non-KSC physical debit leaking a funds cost onto the
-        // debited row (funds are KSC-origin-only; the physical manifest IS
-        // the non-KSC cost).
+        // catches: a Space Center loop crossing writing a debit row (the old funds
+        // charge) or consulting the physical-debit seam. Supply routes carry no
+        // money: a Space Center origin writes the dispatch and delivery rows only,
+        // in every game mode (todo LOGISTICS-WITHOUT-MONEY).
         [Fact]
-        public void Crossing_NonKscOrigin_NoFundsCostOnDebitedRow()
-        {
-            var route = BuildLoopRoute(isKscOrigin: false);
-            RouteStore.AddRoute(route);
-            InstallUnitResolver(BuildUnit());
-            InstallFakeDeliveryApplier();
-            RouteOrchestrator.OriginDebitApplierForTesting = (r, ut, env) =>
-                new RouteOrchestrator.OriginDebitOutcome
-                {
-                    ActualDebited = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
-                    OriginVesselPid = 777u,
-                };
-
-            RouteOrchestrator.Tick(1150.0, new EligibleEnv { IsCareer = true });
-
-            var debited = Ledger.Actions.First(a => a.Type == GameActionType.RouteCargoDebited);
-            Assert.Equal(0f, debited.RouteKscFundsCost);
-        }
-
-        // catches (risk 1): the M1 row change touching the KSC branch. A KSC
-        // loop crossing must keep the v0 row shape BYTE-IDENTICAL: the
-        // unconditional CostManifest clone, no requested manifest, pid 0 -
-        // and the physical-debit seam must never be consulted.
-        [Fact]
-        public void Crossing_KscOrigin_DebitedRowByteIdenticalToV0Shape()
+        public void Crossing_KscOrigin_DispatchesFree_NoDebitRow()
         {
             var route = BuildLoopRoute(isKscOrigin: true);
             RouteStore.AddRoute(route);
@@ -1000,18 +910,11 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
 
             Assert.Equal(0, seamCalls); // KSC origins never reach the physical debit
-            var debited = Ledger.Actions.First(a => a.Type == GameActionType.RouteCargoDebited);
-            // v0 shape: exact CostManifest clone (copied, not referenced).
-            Assert.NotNull(debited.RouteResourceManifest);
-            Assert.NotSame(route.CostManifest, debited.RouteResourceManifest);
-            Assert.Equal(route.CostManifest.Count, debited.RouteResourceManifest.Count);
-            foreach (var kv in route.CostManifest)
-            {
-                Assert.True(debited.RouteResourceManifest.TryGetValue(kv.Key, out double v));
-                Assert.Equal(kv.Value, v);
-            }
-            Assert.Null(debited.RouteRequestedResourceManifest);
-            Assert.Equal(0u, debited.RouteOriginVesselPid);
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteCargoDebited);
+            Assert.Equal(new[] { GameActionType.RouteDispatched, GameActionType.RouteCargoDelivered },
+                Ledger.Actions.Select(a => a.Type).ToArray());
+            Assert.All(Ledger.Actions, a => Assert.Equal("cycle-0", a.RouteCycleId));
+            Assert.Equal(1, route.CompletedCycles);
         }
 
         // catches (D3): a short apply not recording the requested manifest on
@@ -1139,7 +1042,7 @@ namespace Parsek.Tests.Logistics
 
         // catches: a revert / F9 back past a crossing leaving the abandoned future's cursor
         // and route rows in place, so the re-flown crossing is swallowed (the cursor already
-        // observed it) while its funds row survives - paid, never delivered.
+        // observed it) while its dispatch row survives - sent, never delivered.
         [Theory]
         [InlineData((int)LoadKind.StockRevert)]
         [InlineData((int)LoadKind.QuickloadFlight)]
@@ -1229,7 +1132,7 @@ namespace Parsek.Tests.Logistics
             Route savedAt2400 = SnapshotAsSaved(route);
 
             // The abandoned future: pause, re-activate (anchor -> 2600, cursor -> -1), one run.
-            Assert.True(RouteOrchestrator.TryPause(route, 2500.0, env));
+            Assert.True(RouteOrchestrator.TryPause(route, 2500.0));
             Assert.True(RouteOrchestrator.TryActivate(route, 2600.0));
             Assert.Equal(2600.0, route.LoopAnchorUT);
             RouteOrchestrator.Tick(2760.0, env);

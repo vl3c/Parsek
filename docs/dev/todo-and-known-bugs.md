@@ -228,7 +228,7 @@ can re-retire credits or un-retire debits; (O6) any post-rewind flight can inser
 committed spend (contract fail or deadline fail, cancel / decline penalties, death reputation,
 strategy converter debits, a destruction that makes a later committed repair chargeable, an early
 fail that zeroes a later committed completion); (O7) `CanAffordFundsSpending` has no production
-caller outside the route dispatch gate (PR #2159, removed by LOGISTICS-WITHOUT-MONEY phase 1) and the "keep what you earned" floor can hold the funds counter above the reservation.
+caller (the route dispatch gate of PR #2159 used it until LOGISTICS-WITHOUT-MONEY phase 1) and the "keep what you earned" floor can hold the funds counter above the reservation.
 Coop retirements (a transient dependent's ledger effects, a truncation's tail rows) are the same
 shape (`design-coop-async-multiplayer.md` section 7.10). Candidate shapes in the research doc,
 section 7.
@@ -273,7 +273,7 @@ and logistics design section 10.6).**
   during an in-session load, which #2155 makes a Cold save-file load that drops the handoff
   (design-load-restores-the-save section 8 lists it as unreached).
 
-## LOGISTICS-WITHOUT-MONEY: supply routes still charge and credit funds and write ledger rows, so the funds history depends on choices made after a rewind [FILED 2026-10-21 from the owner ruling on LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O4, first as ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES, then ROUTE-MONEY-COST-ONLY. OPEN, ruled; plan written]
+## LOGISTICS-WITHOUT-MONEY: supply routes still charge and credit funds and write ledger rows, so the funds history depends on choices made after a rewind [FILED 2026-10-21 from the owner ruling on LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O4, first as ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES, then ROUTE-MONEY-COST-ONLY. OPEN for phase 2 (route rows out of the ledger); phase 1 (no route money) FIXED 2026-10-21]
 
 Supply routes are a real-time system: every load back in time retires a route's cycles after its
 cutoff and the clock re-decides them (as built, design 10.6). Any money a cycle writes makes the funds
@@ -287,11 +287,29 @@ banked prepaid cycles).
 Plan: `docs/dev/plans/logistics-without-money.md`. Phase 1 removes the money (dispatch charge, live
 delivery debit, recovery credit and its pending marker, the funds gate and WaitingForFunds, the cost
 calculators and every cost line in the Logistics window); route money rows left in an old dev
-ledger are dropped at load (no backward compatibility before public launch). Phase 2 moves the remaining route rows out of the ledger into a route-owned event log
-persisted with the route store. Kept: the endpoint chain hold and `RetiredRouteCargoStore`.
-Supersedes ROUTE-DISPATCH-COST-BASIS-RESIDUALS once phase 1 lands.
+ledger are dropped at load. Phase 2 moves the remaining route rows out
+of the ledger into a route-owned event log persisted with the route store. Kept: the endpoint chain
+hold and `RetiredRouteCargoStore`. Supersedes ROUTE-DISPATCH-COST-BASIS-RESIDUALS.
 
-## ~~ROUTE-DISPATCH-IGNORES-RESERVATIONS: a route dispatch checks the raw funds counter, so it can spend money a committed purchase needs~~ [FILED 2026-10-21 from the O4 analysis. Was open, small; owner ruling: ship now, ahead of LOGISTICS-WITHOUT-MONEY. FIXED 2026-10-21 on branch `claude/project-thread-q165qu`. xUnit only. product]
+**Phase 1 FIXED 2026-10-21** (branch `logistics-no-money-p1`; phase 2 still OPEN, so this entry
+stays open). Removed: the funds gate (`IsCareer`, `KscFundsAvailable`, `WaitFunds`, the FundsShort
+gate paths), the dispatch charge, the live delivery debit, the recovery credit with its pending
+marker and flush sites, `RouteFundsCalculator`, `RouteRunCostCalculator`,
+`LogisticsCostPresentation`, `ComputeDispatchFundsCostForRoute`, the Logistics cost text and
+tooltips, the route-creation cost block, the funds half of the Route History Sent suffix, and the
+route arms of `FundsModule`, `RecalculationEngine`, `LedgerOrchestrator` and `RouteModule`. A Space
+Center origin writes one `RouteDispatched` row and no debit row (`DispatchDebit: ... space-center
+origin: dispatch row only (free, no debit row)`); a vessel origin still writes dispatched + debited.
+Old saves, by the coordinator's scope change (no conversion): `Ledger.LoadFromFile` drops legacy
+route money rows at the ConfigNode level before deserialization (`LedgerLoadMigration.IsLegacyRouteMoneyNode`:
+type 28, and type 24 with a non-zero `routeKscFundsCost`) with one Info count line; the next save
+holds none, so a second load drops nothing. `RouteCodec` ignores `kscDispatchFundsCost` and the
+pending-credit keys and never writes them; `WaitingForFunds` reads as `Active`; a FundsShort hold
+still loads and renders a generic line. `Route.CreationTreeRecordingIds` kept. Harness: RVR-4,
+RVR-17, GUI-23, the `rover-route-career` fixture and builder, `[fixture.career]` and the oracle's
+Rec-3 route-funds carve-out retired; IR-5's dispatch token re-pinned. Not flown.
+
+## ~~ROUTE-DISPATCH-IGNORES-RESERVATIONS: a route dispatch checks the raw funds counter, so it can spend money a committed purchase needs~~ [FILED 2026-10-21 from the O4 analysis. Was open, small; owner ruling: ship now, ahead of LOGISTICS-WITHOUT-MONEY. FIXED 2026-10-21 on branch `claude/project-thread-q165qu`. xUnit only. product. SUPERSEDED the same day by LOGISTICS-WITHOUT-MONEY phase 1, which deletes the route funds gate this fix made reservation-aware, with `RouteDispatchReservationGateTests`.]
 
 `LiveRouteRuntimeEnvironment.KscFundsAvailable` compares `Funding.Instance.Funds` with the dispatch
 cost, but the logistics design (section 8, step 4) says the KSC dispatch must be "affordable under
@@ -11144,7 +11162,7 @@ either `outcome=no-external-coupling candidates=0` (which CONFIRMS this entry ou
 the walk ran and found nothing) or a `Captured` line (which refutes it). That lane does not
 exist yet and is the cheapest remaining step here.
 
-## ROUTE-DISPATCH-COST-BASIS-RESIDUALS: what the transport-subset + ghost-surface costing fix still leaves open [SUPERSEDED 2026-10-21 by LOGISTICS-WITHOUT-MONEY phase 1: routes carry no money. FOUND 2026-09-02 by the pre-merge correctness pass on PR #1597. NONE blocking - every item is a strict improvement over the pre-#1597 state, where the same routes dispatched for FREE - but each names a real follow-up. REPORT-ONLY, fix shapes recorded]
+## ~~ROUTE-DISPATCH-COST-BASIS-RESIDUALS: what the transport-subset + ghost-surface costing fix still leaves open~~ [SUPERSEDED 2026-10-21 by LOGISTICS-WITHOUT-MONEY phase 1: the dispatch cost basis and its calculators are deleted, so no residual remains. FOUND 2026-09-02 by the pre-merge correctness pass on PR #1597. NONE blocking - every item is a strict improvement over the pre-#1597 state, where the same routes dispatched for FREE - but each names a real follow-up. REPORT-ONLY, fix shapes recorded]
 
 1. **The two snapshot surfaces are not the same instant.** `GhostVisualSnapshot` is captured at
    recording START (`FlightRecorder` start-state node); `VesselSnapshot` at STOP. Preferring

@@ -723,7 +723,6 @@ namespace Parsek.InGameTests
                 NextDispatchUT = TickUtBothDocks + Cadence,
                 CompletedCycles = 0,
                 SkippedCycles = 0,
-                KscDispatchFundsCost = 0.0,
                 // KSC origin: the launch covers both deliveries; no per-source debit.
                 CostManifest = new Dictionary<string, double>(StringComparer.Ordinal),
                 InventoryCostManifest = new List<InventoryPayloadItem>(),

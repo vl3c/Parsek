@@ -562,7 +562,6 @@ namespace Parsek.InGameTests
                     NextDispatchUT = TickUT + Cadence,
                     CompletedCycles = 0,
                     SkippedCycles = 0,
-                    KscDispatchFundsCost = 0.0,
                     CostManifest = new Dictionary<string, double>(StringComparer.Ordinal)
                     {
                         { LiquidFuelName, LoopDeliveryAmount },

@@ -415,7 +415,7 @@ namespace Parsek.Tests.Logistics
         public void CreateDialog_ListsPickupsByTitle_OnlyWhenTheRunLoadsCargo()
         {
             RouteAnalysisResult analysis = EligibleAnalysis();
-            string plain = RouteCreationFormatters.BuildSummaryBlock(analysis, Game.Modes.SANDBOX);
+            string plain = RouteCreationFormatters.BuildSummaryBlock(analysis);
             Assert.DoesNotContain("Picks up:", plain);
 
             analysis.ResourceLoadManifest = Res("LiquidFuel", 154.4);
@@ -425,7 +425,7 @@ namespace Parsek.Tests.Logistics
             };
             analysis.InventoryDeliveryManifest.Add(new InventoryPayloadItem { PartName = "evaChute", Quantity = 3 });
             string block = RouteCreationFormatters.BuildSummaryBlock(
-                analysis, Game.Modes.SANDBOX, null, null, Titles);
+                analysis, null, Titles);
             Assert.Contains("Inventory:\n  - EVA Parachute x3\n", block);
             Assert.Contains("Picks up:\n  - 154.4 LiquidFuel\n  - EVA Parachute\n", block);
         }
@@ -435,13 +435,13 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void CreateDialog_NamesPlacesNotCoordinates()
         {
-            string unnamed = RouteCreationFormatters.BuildSummaryBlock(EligibleAnalysis(), Game.Modes.SANDBOX);
+            string unnamed = RouteCreationFormatters.BuildSummaryBlock(EligibleAnalysis());
             Assert.Contains("Destination: Mun (orbit)\n", unnamed);
             Assert.DoesNotContain("°", unnamed);
             Assert.Contains("Resources:\n  - 50.0 LiquidFuel\n", unnamed);
 
             string named = RouteCreationFormatters.BuildSummaryBlock(
-                EligibleAnalysis(), Game.Modes.SANDBOX, null, null, null, "Depot Station Mun");
+                EligibleAnalysis(), null, null, "Depot Station Mun");
             Assert.Contains("Destination: Depot Station Mun\n", named);
 
             var ksc = new RouteCreationFormatters.RouteOriginIdentity

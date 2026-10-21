@@ -17,16 +17,11 @@ shapes that can drift apart silently. `[[fixture.liveState]]` inverts it: ONE
 committed fixture, and each spec declares the live endpoint state IT wants, in
 the spec, next to the tokens that depend on it.
 
-TWO SPEC SURFACES, kept separate on purpose. `[[fixture.liveState]]` is
-FLIGHTSTATE-only (per-vessel resources, inventory, or whole-node REMOVAL);
-`[fixture.career]` writes ONE key in ONE career SCENARIO node (`Funding.funds`).
-They are not folded together because the FLIGHTSTATE boundary below is the safety
-argument for the first, and smuggling a top-level SCENARIO write through a vessel
-entry would erase it.
+`[[fixture.liveState]]` is FLIGHTSTATE-only (per-vessel resources, inventory, or
+whole-node REMOVAL); the FLIGHTSTATE boundary below is its safety argument.
 
 WHAT IS AND IS NOT TOUCHED, and the boundary is the whole safety argument:
-  * FLIGHTSTATE ONLY, and only the vessels a spec names by `persistentId` (plus,
-    under its own key, the career `Funding` pool - see above).
+  * FLIGHTSTATE ONLY, and only the vessels a spec names by `persistentId`.
   * THE PARSEK PAYLOAD IS NEVER TOUCHED. No recording, no route window, no
     branch point, no origin proof, no ledger row. The route windows are this
     module's INPUT (the `restore-dock-endpoint` mode reads them), so editing one
@@ -297,43 +292,6 @@ FILL_KEYS = ("part", "slots")
 FILL_CLONE_PERSISTENT_ID_BASE = 900000001
 
 
-# ---------------------------------------------------------------------------
-# The career spec surface: `[fixture.career]`.
-# ---------------------------------------------------------------------------
-
-# `[fixture.career]` - a SINGLE table (not an array), because what it addresses is
-# the save's one career SCENARIO set rather than a list of vessels:
-#
-#     [fixture.career]
-#     funds = 7409                  # one dispatch cost short, so the gate refuses
-#
-# WHY IT IS NOT A `liveState` ENTRY. `liveState` is FLIGHTSTATE-only by contract,
-# and that boundary is the whole safety argument of this module. The funds pool
-# lives in `SCENARIO { name = Funding }`, a top-level sibling of FLIGHTSTATE, so
-# it gets its own key, its own validator and its own applier rather than being
-# smuggled through a vessel entry.
-#
-# WHY ONLY `funds`. Reputation and science clamp through the same
-# `KspStatePatcher.ApplyDrawdownGuard` path but no lane's tokens are derived from
-# either, and a key nothing reads is a key that rots. The dispatch gate's step 7
-# (`env.IsCareer && route.IsKscOrigin` -> `funds >= cost`) is the ONE career
-# quantity a route lane's arithmetic runs on.
-#
-# THE SEEDED POOL IS THE LIVE POOL, which is what makes a declared number
-# predictable: `LedgerOrchestrator.EnsureInitialFundsSeed` seeds the ledger from
-# `Funding.Instance.Funds`, and `PatchFunds`' guarded uplift REFUSES to raise the
-# live pool to a ledger running balance above it (RVR-4 measured
-# `GUARDED UPLIFT clamped ... running=29200 live=11000 clampedTo=11000` on this
-# very fixture family). So the value written here is the value the funds gate
-# reads, milestone rows in the committed ledger notwithstanding.
-CAREER_KEY = "career"
-CAREER_KEYS = ("funds",)
-
-# The SCENARIO node that carries the pool, and the key inside it.
-CAREER_FUNDING_SCENARIO = "Funding"
-CAREER_FUNDS_KEY = "funds"
-
-
 def _is_number(value: Any) -> bool:
     """A TOML number, excluding bool (which is an int subclass in Python)."""
     return isinstance(value, (int, float)) and not isinstance(value, bool)
@@ -555,52 +513,6 @@ def _validate_fill(fill: Any, where: str) -> List[str]:
     return errs
 
 
-def validate_career_state(fixture: Any) -> List[str]:
-    """Validate the `[fixture.career]` spec surface. Pure; pre-launch.
-
-    Called from `hlib.validate_spec` for the same reason `validate_live_state`
-    is: a malformed declaration must be an INVALID-SPEC with KSP never launched.
-    Shape only - whether the save actually carries a `Funding` SCENARIO is the
-    applier's assertion against the bytes, and a career key declared on a SANDBOX
-    fixture is exactly the mistake that must abort rather than no-op."""
-    errs: List[str] = []
-    if not isinstance(fixture, dict):
-        return errs
-    if CAREER_KEY not in fixture:
-        return errs
-    entry = fixture[CAREER_KEY]
-    where = "fixture.%s" % CAREER_KEY
-    if not isinstance(entry, dict):
-        return ["%s: must be a table ([%s])" % (where, where)]
-    if not entry:
-        return ["%s: declared but empty; omit the key instead" % where]
-    unknown = sorted(k for k in entry if k not in CAREER_KEYS)
-    if unknown:
-        errs.append("%s: unknown key(s) %s (accepted: %s)"
-                    % (where, unknown, list(CAREER_KEYS)))
-    if CAREER_FUNDS_KEY in entry:
-        funds = entry[CAREER_FUNDS_KEY]
-        if not _is_number(funds):
-            errs.append("%s.%s: %r must be a number" % (where, CAREER_FUNDS_KEY, funds))
-        elif funds < 0:
-            # A negative pool is a save KSP never writes, and every token a lane
-            # derives from a negative seed would be a token about a state the
-            # product has no contract for.
-            errs.append("%s.%s: %r must be >= 0" % (where, CAREER_FUNDS_KEY, funds))
-    return errs
-
-
-def declared_career_state(fixture: Any) -> Optional[Dict]:
-    """The declared career table, or None when the key is absent. Shape-tolerant:
-    called AFTER validation, so it never re-reports."""
-    if not isinstance(fixture, dict):
-        return None
-    entry = fixture.get(CAREER_KEY)
-    if not isinstance(entry, dict) or not entry:
-        return None
-    return entry
-
-
 def declared_live_state(fixture: Any) -> List[Dict]:
     """The declared entries, or [] when the key is absent. Shape-tolerant: this
     is called AFTER validation, so it never re-reports."""
@@ -626,8 +538,8 @@ def declared_live_state(fixture: Any) -> List[Dict]:
 # WHY A THIRD SURFACE. A kerbal's personal inventory is not a vessel's: it lives in
 # `GAME / ROSTER / KERBAL / INVENTORY`, a sibling of FLIGHTSTATE, and KSP loads it
 # into the EVA kerbal's `ModuleInventoryPart` when the kerbal leaves the vessel. So
-# it is neither `liveState` (FLIGHTSTATE-only by contract) nor `career` (one key in
-# one SCENARIO), and it gets its own key, validator and applier.
+# it is not `liveState` (FLIGHTSTATE-only by contract), and it gets its own key,
+# validator and applier.
 #
 # THE WRITTEN FORM IS STOCK'S OWN COMPACT FORM, which is what makes it
 # production-shaped rather than hand-authored: the patch sets the node's
@@ -975,23 +887,6 @@ MODULE_KEY_INDENT = "\t\t\t\t\t"
 
 def flightstate_node(lines: List[str]) -> Optional[Tuple[int, int]]:
     return find_node(lines, "FLIGHTSTATE")
-
-
-def scenario_node_named(lines: List[str], name: str) -> List[Tuple[int, int]]:
-    """Every top-level `SCENARIO { name = <name> }` span, in file order.
-
-    A LIST rather than the first hit, because the career applier refuses a save
-    carrying two `Funding` nodes instead of picking one - a duplicate is a save
-    nobody should be patching blind."""
-    out: List[Tuple[int, int]] = []
-    i = 0
-    while True:
-        node = find_node(lines, "SCENARIO", i)
-        if node is None:
-            return out
-        if get_value(lines, node, "name") == name:
-            out.append(node)
-        i = node[1]
 
 
 def parsek_scenario_node(lines: List[str]) -> Optional[Tuple[int, int]]:
@@ -1622,50 +1517,6 @@ def _remove_vessel(lines: List[str], pid: str) -> Tuple[List[str], str]:
                 "re-point FLIGHTSTATE's activeVessel" % (vessel_name,))
         return out, "%s activeVessel=%d->%d" % (vessel_name, active, active - 1)
     return out, vessel_name
-
-
-def apply_career_state(text: str, entry: Optional[Dict]) -> Tuple[str, List[str]]:
-    """Apply the declared `[fixture.career]` table to a save's text. Pure.
-
-    Returns (patchedText, notes). A None / empty entry returns the text UNCHANGED
-    and no notes. Fails closed on a save with no (or more than one) `Funding`
-    SCENARIO, which is exactly what a career declaration on a SANDBOX fixture
-    would hit: the alternative is a lane whose seed silently stayed the
-    template's while its header claims otherwise."""
-    if not entry:
-        return text, []
-
-    crlf = "\r\n" in text
-    lines = text.replace("\r\n", "\n").split("\n")
-    notes: List[str] = []
-
-    if CAREER_FUNDS_KEY in entry:
-        nodes = scenario_node_named(lines, CAREER_FUNDING_SCENARIO)
-        if len(nodes) != 1:
-            raise LiveStatePatchError(
-                "career: the save carries %d SCENARIO { name = %s } node(s), "
-                "expected exactly 1 - a career declaration on a SANDBOX fixture "
-                "reads as 0 here and must abort rather than stage a save whose "
-                "funds are still the template's"
-                % (len(nodes), CAREER_FUNDING_SCENARIO))
-        before = get_value(lines, nodes[0], CAREER_FUNDS_KEY)
-        if before is None:
-            raise LiveStatePatchError(
-                "career: SCENARIO { name = %s } carries no `%s` key to rewrite"
-                % (CAREER_FUNDING_SCENARIO, CAREER_FUNDS_KEY))
-        amount = entry[CAREER_FUNDS_KEY]
-        if float(amount) < 0:
-            raise LiveStatePatchError(
-                "career: funds = %s is negative - a spec error, not a clamp"
-                % format_amount(amount))
-        rendered = format_amount(amount)
-        if not set_value(lines, nodes[0], CAREER_FUNDS_KEY, rendered):
-            raise LiveStatePatchError(
-                "career: SCENARIO { name = %s }'s `%s` key could not be rewritten"
-                % (CAREER_FUNDING_SCENARIO, CAREER_FUNDS_KEY))
-        notes.append("funds %s->%s" % (before, rendered))
-
-    return ("\r\n" if crlf else "\n").join(lines), notes
 
 
 def _apply_inventory(lines: List[str], vessel: Tuple[int, int], vessel_name: str,

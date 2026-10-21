@@ -303,7 +303,6 @@ namespace Parsek.Tests.Logistics
             {
                 RouteStatus.Active,
                 RouteStatus.WaitingForResources,
-                RouteStatus.WaitingForFunds,
                 RouteStatus.DestinationFull,
             })
             {
@@ -634,7 +633,6 @@ namespace Parsek.Tests.Logistics
         /// RouteOrchestratorDeliveryTests).</summary>
         private sealed class ReplayFakeEnv : IRouteRuntimeEnvironment
         {
-            public bool IsCareer => false;
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason)
             {
                 reason = string.Empty;
@@ -649,11 +647,6 @@ namespace Parsek.Tests.Logistics
             public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall)
             {
                 lackingResource = string.Empty;
-                shortfall = 0.0;
-                return true;
-            }
-            public bool KscFundsAvailable(Route route, out double shortfall)
-            {
                 shortfall = 0.0;
                 return true;
             }

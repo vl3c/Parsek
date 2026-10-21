@@ -61,7 +61,7 @@ namespace Parsek.Tests.Logistics
             foreach (RouteStatus status in new[]
                      {
                          RouteStatus.Active, RouteStatus.InTransit, RouteStatus.WaitingForResources,
-                         RouteStatus.WaitingForFunds, RouteStatus.DestinationFull, RouteStatus.EndpointLost,
+                         RouteStatus.DestinationFull, RouteStatus.EndpointLost,
                          RouteStatus.MissingSourceRecording, RouteStatus.SourceChanged,
                      })
                 Assert.False(LogisticsRoutePresentation.BelongsInPausedTable(status));
@@ -76,7 +76,6 @@ namespace Parsek.Tests.Logistics
         [Theory]
         [InlineData((int)RouteStatus.Active)]
         [InlineData((int)RouteStatus.WaitingForResources)]
-        [InlineData((int)RouteStatus.WaitingForFunds)]
         [InlineData((int)RouteStatus.DestinationFull)]
         public void SendArmed_CountdownPhase_IsALiveCancel(int status)
         {
@@ -120,7 +119,7 @@ namespace Parsek.Tests.Logistics
                 Id = "cancel-test", Name = "Cancel test", Status = RouteStatus.Active,
                 PauseAfterCurrentCycle = true, SendOnceArmed = true,
             };
-            Assert.True(RouteOrchestrator.TryPause(route, -1.0, null));
+            Assert.True(RouteOrchestrator.TryPause(route, -1.0));
             Assert.Equal(RouteStatus.Paused, route.Status);
             Assert.False(route.SendOnceArmed);
             Assert.False(route.PauseAfterCurrentCycle);
@@ -199,7 +198,6 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void Status_WaitStatusWithoutHold_StillReadsHeld()
         {
-            Assert.Equal("Held: not enough funds", Classify(RouteStatus.WaitingForFunds).Text);
             Assert.Equal("Held: destination full", Classify(RouteStatus.DestinationFull).Text);
             Assert.Equal("Held: origin short of cargo", Classify(RouteStatus.WaitingForResources).Text);
         }

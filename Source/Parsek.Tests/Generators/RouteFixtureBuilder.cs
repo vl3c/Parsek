@@ -18,7 +18,6 @@ namespace Parsek.Tests.Generators
         private RouteStatus status = RouteStatus.Active;
         private bool isKscOrigin;
         private bool isHarvestOrigin;
-        private double kscDispatchFundsCost;
         private double transitDuration;
         private double dispatchInterval;
         private int cadenceMultiplier = 1;
@@ -78,10 +77,9 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
-        public RouteFixtureBuilder WithKscOrigin(bool kscOrigin, float cost = 0f)
+        public RouteFixtureBuilder WithKscOrigin(bool kscOrigin)
         {
             isKscOrigin = kscOrigin;
-            kscDispatchFundsCost = cost;
             return this;
         }
 
@@ -275,7 +273,6 @@ namespace Parsek.Tests.Generators
                 Status = status,
                 IsKscOrigin = isKscOrigin,
                 IsHarvestOrigin = isHarvestOrigin,
-                KscDispatchFundsCost = kscDispatchFundsCost,
                 TransitDuration = transitDuration,
                 DispatchInterval = dispatchInterval,
                 CadenceMultiplier = cadenceMultiplier,

@@ -6,25 +6,21 @@ namespace Parsek.Logistics
 {
     /// <summary>
     /// Production <see cref="IRouteRuntimeEnvironment"/> backed by live KSP
-    /// statics (<see cref="HighLogic"/>, <see cref="Funding"/>,
-    /// <see cref="PartLoader"/>, <see cref="EffectiveState.ComputeERS"/>).
+    /// statics (live vessels, resource stores,
+    /// <see cref="EffectiveState.ComputeERS"/>).
     /// One instance per <see cref="RouteOrchestrator.Tick(double)"/> call so the
     /// per-tick ERS snapshot stays scoped and cannot leak between ticks.
     /// </summary>
     /// <remarks>
     /// Extracted from <see cref="RouteOrchestrator"/> as a file-scope class so
     /// the 1500+ LOC orchestrator file can be split along its three natural
-    /// seams (env, capacity probe, writers). The funds-cost lookup that
-    /// previously lived as a private static on RouteOrchestrator
-    /// (<see cref="RouteOrchestrator.ComputeDispatchFundsCostForRoute"/>) is
-    /// shared between this env and <see cref="RouteOrchestrator.ProcessOneRoute"/>;
-    /// it stays on RouteOrchestrator as <c>internal static</c> after the split.
+    /// seams (env, capacity probe, writers). Supply routes carry no money
+    /// (todo LOGISTICS-WITHOUT-MONEY): there is no funds gate.
     ///
     /// Eligibility-gate contract (intentional, not a TODO):
     /// <list type="bullet">
     ///   <item><c>OriginHasCargo</c> (M1): KSC origins return <c>true</c>
-    ///     unconditionally (funds are gated separately via
-    ///     <see cref="KscFundsAvailable"/>). Non-KSC origins resolve the live
+    ///     unconditionally (a Space Center origin is free). Non-KSC origins resolve the live
     ///     origin vessel and gate ALL-OR-NOTHING against the route's recorded
     ///     <c>CostManifest</c> via <see cref="LiveOriginCargoProbe"/> +
     ///     <see cref="RouteOriginCargoCheck"/> (design D1/D3/D4); a short
@@ -65,24 +61,6 @@ namespace Parsek.Logistics
         private Dictionary<string, Recording> ersById;
         private bool ersBuilt;
 
-        public bool IsCareer
-        {
-            get
-            {
-                try
-                {
-                    return HighLogic.CurrentGame != null
-                        && HighLogic.CurrentGame.Mode == Game.Modes.CAREER;
-                }
-                catch (Exception ex)
-                {
-                    ParsekLog.Verbose(Tag,
-                        $"IsCareer probe threw {ex.GetType().Name}: {ex.Message}; defaulting false");
-                    return false;
-                }
-            }
-        }
-
         public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason)
         {
             // The dispatch-time check does not need the live Vessel reference
@@ -113,7 +91,7 @@ namespace Parsek.Logistics
             }
 
             // Two INDEPENDENT provenances gate here (plan D10 / OQ5): the single
-            // docked-origin (route.Origin: launched cargo / KSC funds) and the
+            // docked-origin (route.Origin: launched cargo / Space Center) and the
             // per-pickup-source set (loaded-en-route cargo, derived from the pickup
             // Stops). They are distinct - a resource launched from the origin is a
             // different unit from a resource loaded at a pickup window - so they do
@@ -128,7 +106,7 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// The single docked-origin provenance gate (M1/M2/M3): KSC origin passes
-        /// (funds gated separately), harvest origin passes (no physical source),
+        /// (free), harvest origin passes (no physical source),
         /// otherwise resolve <see cref="Route.Origin"/> and gate all-or-nothing
         /// against <see cref="Route.CostManifest"/> + <see cref="Route.InventoryCostManifest"/>.
         /// Unchanged behavior - this is the pre-B1 OriginHasCargo body, extracted so
@@ -143,9 +121,8 @@ namespace Parsek.Logistics
 
             if (route.IsKscOrigin)
             {
-                // KSC origin: per design §6.1, KSC has unlimited cargo.
-                // The dispatch cost is charged via funds (KscFundsAvailable),
-                // not by checking a resource bin.
+                // KSC origin: per design section 6.1, KSC has unlimited cargo,
+                // and a Space Center cycle is free (no funds are charged).
                 return true;
             }
 
@@ -469,87 +446,6 @@ namespace Parsek.Logistics
             return true;
         }
 
-        public bool KscFundsAvailable(Route route, out double shortfall)
-        {
-            shortfall = 0.0;
-            if (route == null) return false;
-
-            double cost = RouteOrchestrator.ComputeDispatchFundsCostForRoute(route);
-            double funds = 0.0;
-            try
-            {
-                funds = Funding.Instance != null ? Funding.Instance.Funds : 0.0;
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"KscFundsAvailable: Funding.Instance probe threw {ex.GetType().Name}: {ex.Message}; treating funds=0");
-                funds = 0.0;
-            }
-
-            double reservationAware = ResolveReservationAwareFunds(cost);
-            bool affordable = DecideKscFundsAvailable(
-                cost, funds, reservationAware, out shortfall, out string bound);
-            if (!affordable)
-            {
-                ParsekLog.VerboseRateLimited(Tag, "ksc-funds-short-" + route.Id + "-" + bound,
-                    $"KscFundsAvailable: route {ShortIdForRoute(route)} refused " +
-                    $"cost={cost.ToString("R", IC)} live={funds.ToString("R", IC)} " +
-                    $"reservationAware={reservationAware.ToString("R", IC)} bound={bound} " +
-                    $"shortfall={shortfall.ToString("R", IC)}");
-            }
-            return affordable;
-        }
-
-        /// <summary>
-        /// The funds a dispatch may spend once committed future costs are reserved: the
-        /// ledger's affordability probe at now (<see cref="LedgerOrchestrator.CanAffordFundsSpending(float, out double)"/>,
-        /// reconciled with the drawdown guard). +inf when the ledger has no funds module or
-        /// the probe throws, so the live counter stays the only bound in that case.
-        /// </summary>
-        internal static double ResolveReservationAwareFunds(double cost)
-        {
-            try
-            {
-                LedgerOrchestrator.CanAffordFundsSpending((float)cost, out double effectiveAvailable);
-                return effectiveAvailable;
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Warn(Tag,
-                    $"KscFundsAvailable: reservation probe threw {ex.GetType().Name}: {ex.Message}; " +
-                    "gating on the live counter only");
-                return double.PositiveInfinity;
-            }
-        }
-
-        /// <summary>
-        /// Pure KSC dispatch funds gate (todo ROUTE-DISPATCH-IGNORES-RESERVATIONS, design
-        /// section 8 step 4: "affordable under the existing ledger reservation rules"). The
-        /// dispatch may spend the smaller of the live counter (what stock will debit) and the
-        /// reservation-aware amount (what committed future costs leave free), so a cycle never
-        /// spends money a committed purchase needs. A non-finite or NaN reservation reading
-        /// leaves the live counter as the bound. <paramref name="bound"/> names the side that
-        /// refused (<c>live</c> or <c>reserved</c>) for the log; <c>none</c> when affordable.
-        /// </summary>
-        internal static bool DecideKscFundsAvailable(
-            double cost, double liveFunds, double reservationAwareFunds,
-            out double shortfall, out string bound)
-        {
-            shortfall = 0.0;
-            bound = "none";
-            bool reservationKnown = !double.IsNaN(reservationAwareFunds)
-                && !double.IsPositiveInfinity(reservationAwareFunds);
-            bool reservedBinds = reservationKnown && reservationAwareFunds < liveFunds;
-            double spendable = reservedBinds ? reservationAwareFunds : liveFunds;
-            if (spendable >= cost)
-                return true;
-
-            shortfall = cost - spendable;
-            bound = reservedBinds ? "reserved" : "live";
-            return false;
-        }
-
         public bool DestinationHasCapacity(Route route, out string fullResource)
         {
             // All-or-nothing destination gate (the v0 always-true stub is
@@ -654,43 +550,6 @@ namespace Parsek.Logistics
                 var rec = ers[i];
                 if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
                 ersById[rec.RecordingId] = rec;
-            }
-        }
-
-        // ---- Stock cost lookups used by RouteOrchestrator.ComputeDispatchFundsCostForRoute ----
-
-        internal static float LookupPartCost(string partName)
-        {
-            if (string.IsNullOrEmpty(partName)) return 0f;
-            try
-            {
-                AvailablePart ap = PartLoader.getPartInfoByName(partName);
-                return ap != null ? ap.cost : 0f;
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"LookupPartCost({partName}) threw {ex.GetType().Name}: {ex.Message}; returning 0");
-                return 0f;
-            }
-        }
-
-        internal static float LookupResourceUnitCost(string resourceName)
-        {
-            if (string.IsNullOrEmpty(resourceName)) return 0f;
-            try
-            {
-                PartResourceDefinition def =
-                    PartResourceLibrary.Instance != null
-                        ? PartResourceLibrary.Instance.GetDefinition(resourceName)
-                        : null;
-                return def != null ? def.unitCost : 0f;
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"LookupResourceUnitCost({resourceName}) threw {ex.GetType().Name}: {ex.Message}; returning 0");
-                return 0f;
             }
         }
 

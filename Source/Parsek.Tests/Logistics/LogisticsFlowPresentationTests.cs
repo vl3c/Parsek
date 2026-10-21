@@ -35,7 +35,7 @@ namespace Parsek.Tests.Logistics
                 MakeDeliveredAction(RouteId, "cyc-1", 0, 100.0, 3,
                     Manifest(("LiquidFuel", 150.0)), null),
                 MakeDebitedAction(RouteId, "cyc-1", 0, 100.0, 1,
-                    Manifest(("LiquidFuel", 150.0)), null, 0u, 500f),
+                    Manifest(("LiquidFuel", 150.0)), null, 0u),
                 MakePickedUpAction(RouteId, "cyc-1", 0, 100.0, 2,
                     Manifest(("Ore", 20.0)), null, 42u),
                 MakeDeliveredAction("other-route", "cyc-x", 0, 105.0, 3,
@@ -150,12 +150,12 @@ namespace Parsek.Tests.Logistics
             LogisticsFlowPresentation.FlowRowKind kind,
             string cycleId, int stopIndex, double ut, int sequence,
             Dictionary<string, double> actual, Dictionary<string, double> requested,
-            uint endpointPid, float kscFundsCost, int inventoryCount,
+            uint endpointPid, int inventoryCount,
             int requestedInventoryCount = 0)
         {
             return new LogisticsFlowPresentation.FlowRow(
                 kind, cycleId, stopIndex, ut, sequence,
-                actual, requested, endpointPid, kscFundsCost, inventoryCount,
+                actual, requested, endpointPid, inventoryCount,
                 requestedInventoryCount);
         }
 
@@ -179,7 +179,7 @@ namespace Parsek.Tests.Logistics
         private static GameAction MakeDebitedAction(
             string routeId, string cycleId, int stopIndex, double ut, int sequence,
             Dictionary<string, double> actual, Dictionary<string, double> requested,
-            uint originPid, float kscFundsCost)
+            uint originPid)
         {
             return new GameAction
             {
@@ -192,7 +192,6 @@ namespace Parsek.Tests.Logistics
                 RouteResourceManifest = actual,
                 RouteRequestedResourceManifest = requested,
                 RouteOriginVesselPid = originPid,
-                RouteKscFundsCost = kscFundsCost,
             };
         }
 

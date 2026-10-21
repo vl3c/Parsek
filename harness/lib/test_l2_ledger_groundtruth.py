@@ -165,7 +165,7 @@ class L2ArmedBlockTests(unittest.TestCase):
         ledger = self.expectations["ledger"]
         self.assertEqual("template", ledger["seedFrom"])
         self.assertEqual("default", ledger["tolerances"])
-        self.assertFalse(ledger["rec3CarveOut"])
+        self.assertNotIn("rec3CarveOut", ledger)
         self.assertEqual([], ledger.get("manifest", []))
 
     def test_the_ledger_block_passes_the_pre_launch_validator(self):

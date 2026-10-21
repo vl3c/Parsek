@@ -15,20 +15,19 @@ namespace Parsek.InGameTests
     /// load-bearing in-game assertion of the USER-VISIBLE symptom and its fix.
     ///
     /// <para><b>The symptom.</b> Drive a KSC-origin route past its dock crossing
-    /// so the destination tank re-fills and funds are charged for the cycle
+    /// so the destination tank re-fills for the cycle
     /// (cycleId <c>cycle-{Completed+Skipped}</c>). Then rewind time to BEFORE the
     /// dispatch. Before the fix the <c>ReconciliationBundle</c> preserved the full
     /// pre-rewind <c>Ledger.Actions</c> while the live world + the route counters
     /// reverted via the <c>.sfs</c>, so the UT-blind dispatch dedup reproduced the
     /// counter-keyed cycleId and SUPPRESSED the re-flown cycle that would re-apply
-    /// the cargo: the player was charged AGAIN but the goods never re-delivered
-    /// ("funds spent, no goods"). The fix
+    /// the cargo: the goods never re-delivered. The fix
     /// (<see cref="RouteLedgerRetire.RetireFutureRouteActions"/>, called from the
     /// Rec-1 <see cref="ReconciliationBundle.Restore(ReconciliationBundle, double)"/>
     /// overload) DROPS every free-standing route ledger row whose UT &gt; the
     /// rewind cutoff, so the surviving ledger matches the reverted world and the
-    /// re-fly re-emits each cycle deterministically — re-charging funds (once) AND
-    /// re-delivering cargo (once).</para>
+    /// re-fly re-emits each cycle deterministically, re-delivering cargo (once).
+    /// Supply routes carry no money, so career funds must not move at any step.</para>
     ///
     /// <para><b>What this test pins.</b> The full first-deliver -&gt; rewind-restore
     /// -&gt; re-deliver loop end to end against the production
@@ -42,8 +41,8 @@ namespace Parsek.InGameTests
     ///   fix), and the synthetic world is reverted to pre-dispatch (tank drained back,
     ///   route counters reset);</item>
     ///   <item>cycle 2 (the re-fly) raises the tank by the manifest amount AGAIN
-    ///   (re-delivered, NOT suppressed) and the net funds across both passes equal
-    ///   ONE dispatch charge — not two, not zero.</item>
+    ///   (re-delivered, NOT suppressed) and career funds are unchanged across both
+    ///   passes (a Space Center route dispatches free).</item>
     /// </list></para>
     ///
     /// <para><b>Why the rewind is APPROXIMATED, not a real RP invoke.</b> A real
@@ -132,7 +131,7 @@ namespace Parsek.InGameTests
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,
             BatchSkipReason = "Isolated-run only - mutates RouteStore, Ledger, RecordingStore committed trees, the RouteOrchestrator.LoopUnitResolverForTesting seam, live PartResource.amount, and career Funding under live KSP statics; excluded from ordinary Run All / Run category. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
-            Description = "Rec-1 determinism: a route delivers N LiquidFuel at the dock crossing, a ReconciliationBundle.Restore(bundle, cutoff) with cutoff before the dispatch drops the cycle's route ledger rows + the world reverts to pre-dispatch, and the re-fly Tick re-delivers N AGAIN (not suppressed) with funds netted exactly once")]
+            Description = "Rec-1 determinism: a route delivers N LiquidFuel at the dock crossing, a ReconciliationBundle.Restore(bundle, cutoff) with cutoff before the dispatch drops the cycle's route ledger rows + the world reverts to pre-dispatch, and the re-fly Tick re-delivers N AGAIN (not suppressed) with career funds unchanged")]
         public IEnumerator RouteRedeliversAfterRewindPastDelivery()
         {
             // Post-restore unpack wait — yields BEFORE any seam arming or state
@@ -221,7 +220,7 @@ namespace Parsek.InGameTests
                 if (committedRoutes[i] != null)
                     preExistingRoutes.Add(committedRoutes[i]);
 
-            // Snapshot career funds (Sandbox has no Funding singleton — the funds-net
+            // Snapshot career funds (Sandbox has no Funding singleton - the funds-unchanged
             // assertion is gated on its presence; the tank + ledger assertions still
             // run in Sandbox).
             bool hasFunding = Funding.Instance != null;
@@ -330,15 +329,14 @@ namespace Parsek.InGameTests
                 InGameAssert.IsTrue(cycle1DispatchedRows >= 1,
                     $"No RouteDispatched ledger row after cycle 1 for routeId={routeId}");
 
-                // 1d. Funds after cycle 1: charged once. For a Career + KSC-origin route
-                //     the dispatch-debit half calls LiveDebitFunds(cost) INSIDE the same
-                //     Tick (RouteOrchestrator.EmitDispatchDebit -> the FundsDebiter =
-                //     LiveDebitFunds delegate -> Funding.Instance.AddFunds(-cost)), so the
-                //     live career funds move synchronously here — no separate
-                //     LedgerOrchestrator.RecalculateAndPatch is needed to witness the
-                //     charge. Read live Funding directly (the single-charge net is
-                //     asserted after the re-fly leg in 2d).
+                // 1d. Funds after cycle 1: unchanged. Supply routes carry no money, so a
+                //     Space Center route's dispatch writes no funds row and touches no
+                //     live Funding.
                 double fundsAfterCycle1 = hasFunding ? Funding.Instance.Funds : 0.0;
+                if (hasFunding)
+                    InGameAssert.ApproxEqual(fundsBaseline, fundsAfterCycle1, FundsTolerance,
+                        $"Cycle 1 must not move career funds (supply routes carry no money): " +
+                        $"baseline={fundsBaseline.ToString("R", IC)} after={fundsAfterCycle1.ToString("R", IC)}");
 
                 ParsekLog.Info("TestRunner",
                     $"RewindRedeliver_InGame: cycle1 delivered fuelAfter={amountAfterCycle1.ToString("R", IC)} " +
@@ -374,15 +372,6 @@ namespace Parsek.InGameTests
                 // the re-fly recomputes the SAME cycleId (this is the precise condition
                 // that triggered the bug — UT-blind dedup reproduces cycle-{C+S}).
                 fuelResource.amount = preDispatchAmount;
-                // Cycle 1's dispatch already debited live Funding synchronously (see 1d).
-                // A real Rewind-to-Separation reloads the pre-dispatch .sfs, which reverts
-                // career funds too; the approximation must do the same by hand, otherwise
-                // the cycle-1 charge would still stand and the re-fly would double-charge
-                // (making the single-charge net in 2d read as TWO charges). Reset live
-                // Funding to the pre-test baseline (= the pre-dispatch value) so the net
-                // across deliver+rewind+redeliver reflects exactly the re-flown charge.
-                if (hasFunding && Funding.Instance != null)
-                    Funding.Instance.SetFunds(fundsBaseline, TransactionReasons.None);
                 Route preRewindRoute;
                 if (RouteStore.TryGetRoute(routeId, out preRewindRoute) && preRewindRoute != null)
                 {
@@ -465,7 +454,7 @@ namespace Parsek.InGameTests
                 {
                     InGameAssert.IsTrue(amountAfterCycle2 > preDispatchAmount + ResourceTolerance,
                         $"RE-FLY did not re-deliver LiquidFuel: preDispatch={preDispatchAmount.ToString("R", IC)} " +
-                        $"after={amountAfterCycle2.ToString("R", IC)} — this is the 'funds charged, no goods' symptom");
+                        $"after={amountAfterCycle2.ToString("R", IC)} - this is the 'no goods' symptom");
                     InGameAssert.ApproxEqual(expectedAfterDelivery, amountAfterCycle2, ResourceTolerance,
                         $"Re-fly LiquidFuel mismatch: expected ~{expectedAfterDelivery.ToString("R", IC)} " +
                         $"got {amountAfterCycle2.ToString("R", IC)} (re-delivered exactly once off the reverted baseline)");
@@ -482,39 +471,24 @@ namespace Parsek.InGameTests
                 InGameAssert.IsTrue(cycle2DispatchedRows >= 1,
                     $"RE-FLY emitted no RouteDispatched row for routeId={routeId}");
 
-                // 2d. Funds netted EXACTLY ONE dispatch charge across both passes.
-                //     The dispatch-debit charges live Funding synchronously inside Tick
-                //     (see 1d), and the rewind approximation reset live funds to the
-                //     baseline (mirroring the .sfs revert). So after the re-fly re-emitted
-                //     the dispatch, live career funds should be down by ONE dispatch cost
-                //     from the baseline — not two (double charge), not zero (suppressed).
-                //     Reading Funding.Instance.Funds is the correct witness; no separate
-                //     LedgerOrchestrator.RecalculateAndPatch is required.
+                // 2d. Funds unchanged across deliver+rewind+redeliver: a Space Center
+                //     route dispatches free, so neither pass may move live Funding.
                 if (hasFunding)
                 {
                     double fundsAfterRefly = Funding.Instance.Funds;
-                    double dispatchCost = KscDispatchCostForRoute(routeId);
-                    // Net change from baseline should equal a single dispatch charge.
-                    double netCharge = fundsBaseline - fundsAfterRefly;
-                    // Only assert the single-charge invariant when the route actually
-                    // carries a non-trivial KSC dispatch cost; a zero-cost route nets
-                    // zero and the assertion is vacuous (still must NOT be a double-
-                    // credit / double-debit, which the >= -tol .. <= cost+tol band
-                    // catches).
+                    double net = fundsBaseline - fundsAfterRefly;
                     InGameAssert.IsTrue(
-                        netCharge >= -FundsTolerance && netCharge <= dispatchCost + FundsTolerance,
-                        $"Funds must net at most ONE dispatch charge across deliver+rewind+redeliver: " +
+                        net >= -FundsTolerance && net <= FundsTolerance,
+                        $"Career funds must not move across deliver+rewind+redeliver (supply routes carry no money): " +
                         $"baseline={fundsBaseline.ToString("R", IC)} afterRefly={fundsAfterRefly.ToString("R", IC)} " +
-                        $"net={netCharge.ToString("R", IC)} dispatchCost={dispatchCost.ToString("R", IC)} " +
-                        "(net > one charge => double-debit; this is the determinism contract)");
+                        $"net={net.ToString("R", IC)}");
                     ParsekLog.Info("TestRunner",
-                        $"RewindRedeliver_InGame: funds netted net={netCharge.ToString("R", IC)} " +
-                        $"(<= one dispatch cost {dispatchCost.ToString("R", IC)})");
+                        $"RewindRedeliver_InGame: funds unchanged net={net.ToString("R", IC)}");
                 }
                 else
                 {
                     ParsekLog.Info("TestRunner",
-                        "RewindRedeliver_InGame: no Funding singleton (Sandbox) — funds-net assertion skipped; " +
+                        "RewindRedeliver_InGame: no Funding singleton (Sandbox) - funds-unchanged assertion skipped; " +
                         "tank re-delivery + ledger-row assertions still ran");
                 }
 
@@ -582,8 +556,8 @@ namespace Parsek.InGameTests
                         $"RewindRedeliver_InGame cleanup: failed to restore LiquidFuel ({ex.GetType().Name}: {ex.Message})");
                 }
 
-                // Restore career funds to the pre-test baseline (any dispatch charge
-                // that reached live Funding during the test is undone).
+                // Restore career funds to the pre-test baseline (defensive: no route
+                // step should have moved them).
                 try
                 {
                     if (hasFunding && Funding.Instance != null)
@@ -672,16 +646,6 @@ namespace Parsek.InGameTests
                 NextDispatchUT = TickUT + Cadence,
                 CompletedCycles = 0,
                 SkippedCycles = 0,
-                // Seed a non-zero KSC dispatch cost. NOTE: EmitDispatchDebit RECOMPUTES
-                // the charge from the route's CostManifest via
-                // ComputeDispatchFundsCostForRoute and OVERWRITES route.KscDispatchFundsCost
-                // with the computed value before debiting live Funding, so this seed is
-                // not itself the charged amount. The single-charge assertion reads the
-                // post-tick KscDispatchFundsCost (= the computed/charged cost) as its
-                // witness, so it stays self-consistent whatever the computed value is; a
-                // 0.0 computed cost merely makes the net-charge band vacuous (still guards
-                // against a double-debit).
-                KscDispatchFundsCost = 100.0,
                 CostManifest = new Dictionary<string, double>(StringComparer.Ordinal)
                 {
                     { LiquidFuelName, DeliveryAmount },
@@ -718,18 +682,6 @@ namespace Parsek.InGameTests
                     },
                 },
             };
-        }
-
-        /// <summary>
-        /// Reads the route's KSC dispatch funds cost for the single-charge funds
-        /// invariant. Returns 0 when the route is gone.
-        /// </summary>
-        private static double KscDispatchCostForRoute(string routeId)
-        {
-            Route r;
-            if (RouteStore.TryGetRoute(routeId, out r) && r != null)
-                return r.KscDispatchFundsCost;
-            return 0.0;
         }
 
         /// <summary>

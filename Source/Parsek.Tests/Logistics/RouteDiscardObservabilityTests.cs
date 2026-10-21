@@ -147,14 +147,13 @@ namespace Parsek.Tests.Logistics
         }
 
         [Fact]
-        public void Summarize_OnlyFundsOrMarkerRows_ReportsNothing()
+        public void Summarize_OnlyManifestlessOrMarkerRows_ReportsNothing()
         {
             var actions = new List<GameAction>
             {
                 new GameAction { Type = GameActionType.RouteDispatched, UT = 150.0, RouteId = "R1" },
-                // KSC-funds-only debit: no manifest
-                new GameAction { Type = GameActionType.RouteCargoDebited, UT = 160.0, RouteId = "R1", RouteKscFundsCost = 1000f },
-                new GameAction { Type = GameActionType.RouteRecoveryCredited, UT = 170.0, RouteId = "R1", RouteKscFundsCost = 900f },
+                // A debit row with no manifest moved nothing physical.
+                new GameAction { Type = GameActionType.RouteCargoDebited, UT = 160.0, RouteId = "R1" },
             };
 
             int n = RouteDiscardObservability.SummarizePhysicalLeak(

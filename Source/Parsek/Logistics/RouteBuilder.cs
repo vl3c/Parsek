@@ -489,7 +489,6 @@ namespace Parsek.Logistics
                 DispatchWindowPeriod = 0.0,
                 // Placeholder until scheduler (Phase 6+) computes from epoch + interval.
                 NextDispatchUT = spanStartUT + dispatchInterval,
-                KscDispatchFundsCost = 0.0,
                 CostManifest = costManifest,
                 InventoryCostManifest = inventoryCostManifest,
                 PauseAfterCurrentCycle = false,
@@ -900,7 +899,7 @@ namespace Parsek.Logistics
                     : new List<InventoryPayloadItem>();
 
                 // D8: non-KSC docked origin only - KSC CostManifest semantics
-                // stay unchanged (the funds basis is OQ1's job, Phase 6).
+                // stay unchanged.
                 // The reduction credits the PLAUSIBLE harvest
                 // (HARVEST-ROUTE-PLAUSIBILITY-CAP): a catch-up burst in the
                 // recorded run must not come off the origin debit every cycle.

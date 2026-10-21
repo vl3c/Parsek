@@ -32,9 +32,8 @@ namespace Parsek.InGameTests
     /// <c>ProcessLoopRoute</c> -> <c>EmitLoopCycle</c> -> live <c>ApplyDelivery</c>
     /// writer) and asserts the delivery-to-delivery gap == <c>DispatchInterval</c>,
     /// that each cycle delivered EXACTLY once (the destination LiquidFuel tank rose
-    /// by the manifest amount each cycle), and that each cycle charged the dispatch
-    /// (RouteDispatched) exactly once (funds charged once per cycle; the Career
-    /// funds facet is asserted only when the live env is Career).</para>
+    /// by the manifest amount each cycle), and that each cycle wrote the dispatch
+    /// (RouteDispatched) exactly once.</para>
     ///
     /// <para><b>Why the two-cycle firing arms the resolver seam.</b> Part (b) proves
     /// the flip on the genuine backing-mission unit built with NO seam (live
@@ -55,8 +54,7 @@ namespace Parsek.InGameTests
     /// runtime tests gate them: a loaded+unpacked active vessel carrying a LiquidFuel
     /// tank is required for the live delivery writer to mutate the tank this test
     /// reads (a PRELAUNCH/pad vessel takes the unloaded proto-snapshot path and is
-    /// skipped); the Career funds facet is asserted only in Career and skipped in
-    /// Sandbox. Teardown clears the seam, restores the tank, removes the route +
+    /// skipped). Teardown clears the seam, restores the tank, removes the route +
     /// committed tree + pushed recordings, and restores the route store.</para>
     /// </summary>
     public sealed class LogisticsDockBoundaryDeliveryCadenceRuntimeTests
@@ -203,7 +201,6 @@ namespace Parsek.InGameTests
                     DispatchInterval = DispatchInterval,
                     CompletedCycles = 0,
                     SkippedCycles = 0,
-                    KscDispatchFundsCost = 0.0,
                     CostManifest = new Dictionary<string, double>(StringComparer.Ordinal)
                     {
                         { LiquidFuelName, DeliveryAmount },
@@ -358,8 +355,6 @@ namespace Parsek.InGameTests
                 };
                 seamArmed = true;
 
-                bool isCareer = new LiveRouteRuntimeEnvironment().IsCareer;
-
                 // ---- CYCLE 0 -----------------------------------------------------
                 double preDrain0 = DrainForDelivery(fuelResource, originalAmount);
                 double headroom0 = maxAmount - preDrain0;
@@ -370,7 +365,7 @@ namespace Parsek.InGameTests
                 ParsekLog.Verbose("TestRunner",
                     $"DockBoundary_D4_InGame (c) cycle0: tick0UT={tick0UT.ToString("R", IC)} " +
                     $"dockUT={cycle0DockUT.ToString("R", IC)} preDrain={preDrain0.ToString("R", IC)} " +
-                    $"cadence={seamCadence.ToString("R", IC)} isCareer={(isCareer ? "1" : "0")}");
+                    $"cadence={seamCadence.ToString("R", IC)}");
 
                 RouteOrchestrator.Tick(tick0UT);
                 yield return null;
@@ -393,16 +388,7 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual(1, delivered0,
                     $"Cycle 0 must deliver EXACTLY once (RouteCargoDelivered rows for this cycle = {delivered0.ToString(IC)})");
                 InGameAssert.AreEqual(1, dispatched0,
-                    $"Cycle 0 must charge the dispatch EXACTLY once (RouteDispatched rows for this cycle = {dispatched0.ToString(IC)})");
-                // Career funds facet: the once-per-cycle dispatch is the funds-charge
-                // carrier, so the Career-KSC funds cost must be resolved (non-negative;
-                // it can legitimately be 0 for a tiny manifest, so the load-bearing
-                // "charged once per cycle" invariant is the dispatch-row count above,
-                // which holds in every mode). Skipped in Sandbox (no funds).
-                if (isCareer)
-                    InGameAssert.IsTrue(afterCycle0.KscDispatchFundsCost >= 0.0,
-                        $"Career: cycle 0 KSC dispatch funds cost should be resolved and non-negative " +
-                        $"(KscDispatchFundsCost was {afterCycle0.KscDispatchFundsCost.ToString("R", IC)})");
+                    $"Cycle 0 must dispatch EXACTLY once (RouteDispatched rows for this cycle = {dispatched0.ToString(IC)})");
 
                 // ---- CYCLE 1 -----------------------------------------------------
                 double preDrain1 = DrainForDelivery(fuelResource, originalAmount);
@@ -436,7 +422,7 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual(1, delivered1,
                     $"Cycle 1 must deliver EXACTLY once (RouteCargoDelivered rows for this cycle = {delivered1.ToString(IC)})");
                 InGameAssert.AreEqual(1, dispatched1,
-                    $"Cycle 1 must charge the dispatch EXACTLY once (RouteDispatched rows for this cycle = {dispatched1.ToString(IC)})");
+                    $"Cycle 1 must dispatch EXACTLY once (RouteDispatched rows for this cycle = {dispatched1.ToString(IC)})");
 
                 // ---- THE TIMING ASSERTION (D4 residual) --------------------------
                 // The two delivery cycles fired one cadence apart, and the cadence IS
@@ -458,7 +444,7 @@ namespace Parsek.InGameTests
                     $"cadence={realizedCadence.ToString("R", IC)} dispatchInterval={DispatchInterval.ToString("R", IC)} " +
                     $"measuredGap={measuredGap.ToString("R", IC)} oldLaunchToUndock={LaunchToUndockSpan.ToString("R", IC)} " +
                     $"completedCycles={afterCycle1.CompletedCycles.ToString(IC)} delivered0={delivered0.ToString(IC)} " +
-                    $"delivered1={delivered1.ToString(IC)} isCareer={(isCareer ? "1" : "0")}");
+                    $"delivered1={delivered1.ToString(IC)}");
             }
             finally
             {

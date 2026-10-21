@@ -592,21 +592,15 @@ class ValidateSpecWiringTests(unittest.TestCase):
             self._spec([{"pid": -1, "resources": {"LiquidFuel": 0}}]), {}, bug_ids=[])
         self.assertTrue(any("liveState" in e for e in bad.errors), bad.errors)
 
-    def test_a_bad_career_block_reaches_validate_spec(self):
-        """The `[fixture.career]` half of the same wiring. Same rule, same layer:
-        a malformed seed must be INVALID-SPEC before the instance is prepared,
-        not an abort under the machine lock."""
-        spec = self._spec(None)
-        spec["fixture"]["career"] = {"funds": -5}
-        bad = hlib.validate_spec(spec, {}, bug_ids=[])
-        self.assertTrue(any("career.funds" in e for e in bad.errors), bad.errors)
-
-    def test_a_good_career_block_adds_no_error(self):
-        base = hlib.validate_spec(self._spec(None), {}, bug_ids=[])
+    def test_a_retired_career_block_is_refused(self):
+        """`[fixture.career]` staged a funds pool for the supply-route funds gate,
+        which is gone (todo LOGISTICS-WITHOUT-MONEY): a spec still declaring it
+        is INVALID-SPEC rather than staged with the key silently ignored."""
         spec = self._spec(None)
         spec["fixture"]["career"] = {"funds": 7409}
-        good = hlib.validate_spec(spec, {}, bug_ids=[])
-        self.assertEqual(base.errors, good.errors)
+        bad = hlib.validate_spec(spec, {}, bug_ids=[])
+        self.assertTrue(any("fixture.career: retired" in e for e in bad.errors),
+                        bad.errors)
 
     def test_a_bad_fill_reaches_validate_spec(self):
         """The `fill` half of the same wiring. A `slots` that is not a positive
@@ -624,27 +618,6 @@ class ValidateSpecWiringTests(unittest.TestCase):
         self.assertEqual(base.errors, good.errors)
 
 
-_SYNTHETIC_CAREER = "\n".join([
-    "GAME",
-    "{",
-    "\tSCENARIO",
-    "\t{",
-    "\t\tname = ResearchAndDevelopment",
-    "\t\tsci = 100",
-    "\t}",
-    "\tSCENARIO",
-    "\t{",
-    "\t\tname = Funding",
-    "\t\tscene = 7, 8, 5, 6",
-    "\t\tfunds = 11000",
-    "\t}",
-    "\tFLIGHTSTATE",
-    "\t{",
-    "\t\tactiveVessel = 0",
-    "\t}",
-    "}",
-    "",
-])
 
 
 class SyntheticRemovalTests(unittest.TestCase):
@@ -727,55 +700,6 @@ class SyntheticRemovalTests(unittest.TestCase):
         self.assertNotIn("\n\n", out.replace("\r\n", "\n\n").replace("\n\n", "\r\n"))
 
 
-class SyntheticCareerTests(unittest.TestCase):
-    """`[fixture.career] funds` - one key, one node, and a hard refusal on a save
-    that carries no career at all (which is what a career declaration on a
-    SANDBOX template looks like from inside the applier)."""
-
-    def test_the_funds_key_is_rewritten(self):
-        out, notes = savepatch.apply_career_state(_SYNTHETIC_CAREER, {"funds": 7409})
-        self.assertEqual(["funds 11000->7409"], notes)
-        self.assertIn("\t\tfunds = 7409", out)
-        # ONE key, and the sibling scenario is untouched.
-        self.assertIn("\t\tsci = 100", out)
-        self.assertEqual(len(_lines(_SYNTHETIC_CAREER)), len(_lines(out)))
-
-    def test_an_integral_amount_prints_without_a_decimal_point(self):
-        out, _ = savepatch.apply_career_state(_SYNTHETIC_CAREER, {"funds": 7409.0})
-        self.assertIn("funds = 7409", out)
-        self.assertNotIn("funds = 7409.0", out)
-
-    def test_no_declaration_is_a_byte_identical_no_op(self):
-        for entry in (None, {}):
-            out, notes = savepatch.apply_career_state(_SYNTHETIC_CAREER, entry)
-            self.assertEqual(_SYNTHETIC_CAREER, out)
-            self.assertEqual([], notes)
-
-    def test_a_sandbox_save_is_refused_rather_than_no_opped(self):
-        with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
-            savepatch.apply_career_state(_SYNTHETIC, {"funds": 1})
-        self.assertIn("0 SCENARIO { name = Funding } node(s)", str(ctx.exception))
-
-    def test_a_duplicate_funding_node_is_refused(self):
-        doubled = _SYNTHETIC_CAREER.replace(
-            "\tFLIGHTSTATE",
-            "\tSCENARIO\n\t{\n\t\tname = Funding\n\t\tfunds = 5\n\t}\n\tFLIGHTSTATE")
-        with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
-            savepatch.apply_career_state(doubled, {"funds": 1})
-        self.assertIn("2 SCENARIO", str(ctx.exception))
-
-    def test_a_funding_node_without_the_key_is_refused(self):
-        keyless = _SYNTHETIC_CAREER.replace("\t\tfunds = 11000\n", "")
-        with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
-            savepatch.apply_career_state(keyless, {"funds": 1})
-        self.assertIn("no `funds` key", str(ctx.exception))
-
-    def test_line_endings_survive(self):
-        out, _ = savepatch.apply_career_state(
-            _SYNTHETIC_CAREER.replace("\n", "\r\n"), {"funds": 1})
-        self.assertIn("\r\n", out)
-
-
 class ValidateNewModeTests(unittest.TestCase):
     """The spec-shape half of the two modes, checked where `hlib.validate_spec`
     checks it: an INVALID-SPEC with KSP never launched beats an abort after the
@@ -799,20 +723,6 @@ class ValidateNewModeTests(unittest.TestCase):
     def test_an_entry_that_patches_nothing_still_reds(self):
         errs = savepatch.validate_live_state({"liveState": [{"pid": 1}]})
         self.assertTrue(any("patches nothing" in e for e in errs), errs)
-
-    def test_the_career_table_shape(self):
-        self.assertEqual([], savepatch.validate_career_state({"career": {"funds": 0}}))
-        for bad, needle in (({"career": []}, "must be a table"),
-                            ({"career": {}}, "omit the key"),
-                            ({"career": {"funds": "x"}}, "must be a number"),
-                            ({"career": {"funds": -1}}, "must be >= 0"),
-                            ({"career": {"science": 5}}, "unknown key")):
-            errs = savepatch.validate_career_state(bad)
-            self.assertTrue(any(needle in e for e in errs), (bad, errs))
-
-    def test_no_career_key_is_no_error(self):
-        self.assertEqual([], savepatch.validate_career_state({}))
-        self.assertEqual([], savepatch.validate_career_state({"saveTemplate": "x"}))
 
     def test_the_fill_table_shape(self):
         good = {"part": "evaChute", "slots": 3}
@@ -978,19 +888,6 @@ class CommittedRoverRouteFixtureTests(unittest.TestCase):
             "rover-route-recorded")
         self.assertIn("LiquidFuel 297.59999999999843->100", notes[0])
         self.assertIn("\t\t\t\t\tamount = 100", out)
-
-    def test_the_career_twin_takes_the_funds_patch(self):
-        """RVR-17's staging, against the career fixture rather than the sandbox
-        one - which is also the pairing the applier refuses to get wrong."""
-        career = os.path.join(HARNESS_ROOT, "fixtures", "saves",
-                              "rover-route-career", "persistent.sfs")
-        with open(career, "rb") as fh:
-            text = fh.read().decode("utf-8")
-        out, notes = savepatch.apply_career_state(text, {"funds": 7409})
-        self.assertEqual(["funds 11000->7409"], notes)
-        self.assertIn("\t\tfunds = 7409", out)
-        with self.assertRaises(savepatch.LiveStatePatchError):
-            savepatch.apply_career_state(self.text, {"funds": 7409})
 
 
 def _stored_part(depth, slot, part_name, persistent_id):
@@ -1518,26 +1415,6 @@ class CommittedSpecUsageTests(unittest.TestCase):
         self.assertGreater(declared, 0,
                            "no committed spec declares a fill, so this cell "
                            "guards nothing - remove it or the mode")
-
-    def test_a_career_block_is_only_declared_on_a_career_fixture(self):
-        """`[fixture.career]` rewrites `SCENARIO { name = Funding }`, and the
-        applier ABORTS pre-boot on a save that has none. That abort is correct
-        but expensive (it happens on a prepared instance under the machine
-        lock), so the same mistake is caught here against the committed bytes."""
-        saves = os.path.join(HARNESS_ROOT, "fixtures", "saves")
-        for name, spec in self._specs():
-            fixture = spec.get("fixture") or {}
-            if not savepatch.declared_career_state(fixture):
-                continue
-            template = (fixture.get("saveTemplate") or "").rsplit("/", 1)[-1]
-            with open(os.path.join(saves, template, "persistent.sfs"), "rb") as fh:
-                lines = _lines(fh.read().decode("utf-8"))
-            self.assertEqual(
-                1, len(savepatch.scenario_node_named(lines, "Funding")),
-                "%s declares [fixture.career] against %s, which carries no single "
-                "Funding SCENARIO - the staged run would abort INVALID(staging)"
-                % (name, template))
-
 
 
 def _synthetic_part(name, resources):

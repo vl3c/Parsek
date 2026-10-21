@@ -197,17 +197,16 @@ namespace Parsek.Tests.Logistics
         }
 
         [Fact]
-        public void IsPhysicalRouteMutation_FalseForFundsOnlyAndMarkerRows()
+        public void IsPhysicalRouteMutation_FalseForManifestlessAndMarkerRows()
         {
-            // KSC-funds-only debit: RouteKscFundsCost set, no manifest -> not physical.
-            var fundsOnly = new GameAction
+            // A debit with no manifest moved nothing physical.
+            var manifestless = new GameAction
             {
                 Type = GameActionType.RouteCargoDebited,
                 UT = 10.0,
                 RouteId = "route-1",
-                RouteKscFundsCost = 1234f,
             };
-            Assert.False(RouteLedgerRetire.IsPhysicalRouteMutation(fundsOnly));
+            Assert.False(RouteLedgerRetire.IsPhysicalRouteMutation(manifestless));
 
             Assert.False(RouteLedgerRetire.IsPhysicalRouteMutation(Route(GameActionType.RouteDispatched, 10.0)));
             Assert.False(RouteLedgerRetire.IsPhysicalRouteMutation(Route(GameActionType.RoutePaused, 10.0)));

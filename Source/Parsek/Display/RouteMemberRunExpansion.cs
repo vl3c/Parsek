@@ -43,7 +43,7 @@ namespace Parsek.Display
     /// known-recording union. A post-creation branch (a re-fly fork, a switch-fly continuation)
     /// mints ids outside it, and the backing mission auto-excludes exactly those
     /// (<c>RouteBackingMission.ComputeAutoExcludedNewIntervalKeys</c> prong 1). Empty set = no
-    /// snapshot: FAIL OPEN, the same contract <c>RouteRunCostCalculator</c> gives it.</item>
+    /// snapshot: FAIL OPEN.</item>
     /// <item>EXCLUDED INTERVALS - a <see cref="Route.ExcludedIntervalKeys"/> entry naming a WHOLE
     /// recording (no <c>/seg</c> or <c>@dock</c> marker) is a leg the route deliberately does not
     /// render. A key naming a SUB-interval of a member (<c>&lt;id&gt;/seg3</c>) is NOT a

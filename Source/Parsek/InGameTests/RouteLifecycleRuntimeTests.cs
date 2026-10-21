@@ -61,7 +61,7 @@ namespace Parsek.InGameTests
     ///     toast. Cheap to reach live: a fresh-GUID source id is in no ERS snapshot
     ///     in any scene, with no arranging at all.</item>
     ///   <item><b>RESOLUTIONS</b> (every other kind - <c>DestinationFull</c>,
-    ///     <c>FundsShort</c>, <c>OriginLacksCargo</c>, <c>EndpointLost</c>) - the
+    ///     <c>OriginLacksCargo</c>, <c>EndpointLost</c>) - the
     ///     one-shot's cycle IS over, so the arm is CONSUMED: Paused, reason
     ///     <see cref="RouteOrchestrator.BlockedThenPausedReason"/>, flags cleared,
     ///     hold kept, marker row, toast (Send Once only).</item>
@@ -536,10 +536,8 @@ namespace Parsek.InGameTests
             {
                 RequireLiveResolutionBlock(route, crossingUT, arena.Env, destination);
 
-                // Arm through the REAL InTransit branch (env-injected overload, so
-                // the recovery-credit flush runs against the same live env the tick
-                // uses) rather than by poking the field.
-                InGameAssert.IsTrue(RouteOrchestrator.TryPause(route, baseUT + 1.0, arena.Env),
+                // Arm through the REAL InTransit branch rather than by poking the field.
+                InGameAssert.IsTrue(RouteOrchestrator.TryPause(route, baseUT + 1.0),
                     "TryPause returned false for an InTransit route");
                 InGameAssert.IsTrue(route.PauseAfterCurrentCycle,
                     "TryPause did not arm PauseAfterCurrentCycle on the InTransit branch");
@@ -613,7 +611,7 @@ namespace Parsek.InGameTests
             {
                 RequireLivePostponementBlock(route, crossingUT, arena.Env);
 
-                InGameAssert.IsTrue(RouteOrchestrator.TryPause(route, baseUT + 1.0, arena.Env),
+                InGameAssert.IsTrue(RouteOrchestrator.TryPause(route, baseUT + 1.0),
                     "TryPause returned false for an InTransit route");
                 InGameAssert.IsTrue(route.PauseAfterCurrentCycle,
                     "TryPause did not arm PauseAfterCurrentCycle on the InTransit branch");
@@ -1218,15 +1216,11 @@ namespace Parsek.InGameTests
         ///     physical source to gate), and the single stop carries NO
         ///     <c>PickupManifest</c>, so the per-pickup-source gate groups zero
         ///     sources and passes.</item>
-        ///   <item>(7) funds - <c>IsKscOrigin</c> is false, so the Career funds gate
-        ///     does not run at all. This is deliberate: it keeps the verdict
-        ///     identical on a career and a sandbox host, where a KSC origin would
-        ///     hand a career save a FundsShort hold instead.</item>
-        ///   <item>(8) destination capacity - <see cref="ResolutionBlockAmount"/>
+        ///   <item>(7) destination capacity - <see cref="ResolutionBlockAmount"/>
         ///     units of <see cref="ResolutionBlockResource"/> fit in no craft, so
         ///     the plan is partial and the gate holds all-or-nothing. THIS is the
         ///     verdict the cells measure.</item>
-        ///   <item>(9) partner - unreached; <c>LinkedRouteId</c> is null anyway.</item>
+        ///   <item>(8) partner - unreached; <c>LinkedRouteId</c> is null anyway.</item>
         /// </list>
         /// <c>CostManifest</c> is deliberately EMPTY (a harvest origin's is, by
         /// construction) so nothing about the origin half can influence the verdict.

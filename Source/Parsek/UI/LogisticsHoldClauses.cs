@@ -35,11 +35,8 @@ namespace Parsek
         // LONG FORM - detail panel + status-cell tooltip (DescribeHold)
         // ==================================================================
 
-        /// <summary>FundsShort with a measured shortfall (Career, KSC-origin dispatch).</summary>
-        internal const string FundsShortWithAmount =
-            "not enough funds at KSC - short {0:F0} funds for this run";
-
-        /// <summary>FundsShort with no measured shortfall (legacy holds persist 0).</summary>
+        /// <summary>A FundsShort hold kept by an old save. Supply routes carry no money any
+        /// more (todo LOGISTICS-WITHOUT-MONEY), so this only renders that past hold.</summary>
         internal const string FundsShortGeneric =
             "not enough funds at KSC for this run";
 
@@ -178,10 +175,7 @@ namespace Parsek
         // as the long form, guidance suffixes dropped.
         // ==================================================================
 
-        /// <summary>Compact FundsShort with a measured shortfall.</summary>
-        internal const string CompactFundsShortWithAmount = "short {0:F0} funds";
-
-        /// <summary>Compact FundsShort with no measured shortfall.</summary>
+        /// <summary>Compact form of an old save's FundsShort hold.</summary>
         internal const string CompactFundsShortGeneric = "insufficient funds";
 
         /// <summary>Compact DestinationFull inventory-slot short, part unnamed.</summary>
@@ -329,7 +323,6 @@ namespace Parsek
         {
             var list = new List<LogisticsClause>
             {
-                Hold("FundsShortWithAmount", FundsShortWithAmount),
                 Hold("FundsShortGeneric", FundsShortGeneric),
                 Hold("DestinationNoInventorySlot", DestinationNoInventorySlot),
                 Hold("DestinationNoInventorySlotForNamedPart", DestinationNoInventorySlotForNamedPart),
@@ -361,7 +354,6 @@ namespace Parsek
                 Hold("NamedSourceCargoReserved", NamedSourceCargoReserved),
                 Hold("NamedSourceResourceReserved", NamedSourceResourceReserved),
 
-                Hold("CompactFundsShortWithAmount", CompactFundsShortWithAmount),
                 Hold("CompactFundsShortGeneric", CompactFundsShortGeneric),
                 Hold("CompactNoFreeInventorySlot", CompactNoFreeInventorySlot),
                 Hold("CompactNoSlotForNamedPart", CompactNoSlotForNamedPart),

@@ -48,12 +48,12 @@ namespace Parsek
         RouteDispatched       = 23,
 
         /// <summary>
-        /// Physical/funds debit applied to origin (design doc §6.1 step 5 / §6.3): non-KSC
-        /// resource or inventory removal, or KSC funds charge in Career. Separated from
-        /// <see cref="RouteDispatched"/> so a future module can sequence the actual debit
-        /// at a different tier slot from the dispatch decision (e.g. so the funds module
-        /// can reuse its existing ContractFail-style penalty path for the KSC charge while
-        /// the route module owns the dispatch counter).
+        /// Physical debit applied to a vessel origin (design doc section 6.3): resource or
+        /// inventory removal. Separated from <see cref="RouteDispatched"/> so the debit
+        /// carries its own manifest. A Space Center origin is free and writes no debit row;
+        /// an old save's Space Center charge row (non-zero <c>routeKscFundsCost</c>) is
+        /// dropped at ledger load (<see cref="LedgerLoadMigration.IsLegacyRouteMoneyNode"/>,
+        /// todo LOGISTICS-WITHOUT-MONEY).
         /// </summary>
         RouteCargoDebited     = 24,
 
@@ -90,18 +90,11 @@ namespace Parsek
         RouteEndpointLost     = 27,
 
         /// <summary>
-        /// Deferred per-cycle recovery credit for a Career, KSC-origin Supply Route
-        /// (logistics-recovery-credit plan, design doc section 6.1). Emitted ONE
-        /// dispatch interval after a dispatched cycle (at the next dock crossing),
-        /// keyed on the PRIOR dispatched cycle it pays back via
-        /// <see cref="GameAction.RouteCycleId"/>. The credit amount (the source
-        /// tree's per-run recovery, summed by
-        /// <c>RouteRunCostCalculator.SumRecoveredCredits</c>) is stored as a
-        /// positive magnitude in <see cref="GameAction.RouteKscFundsCost"/>; the
-        /// action TYPE carries the credit direction. Processed by
-        /// <see cref="FundsModule"/> as a fund EARNING so a rewind / re-fly /
-        /// tombstone reverses it through the same recalc + patch path that reverses
-        /// a recovery <see cref="GameActionType.FundsEarning"/>.
+        /// Legacy: the deferred per-cycle recovery credit of a Career Space Center supply
+        /// route. Supply routes carry no money any more (todo LOGISTICS-WITHOUT-MONEY):
+        /// nothing writes this type and an old save's rows are dropped at ledger load
+        /// (<see cref="LedgerLoadMigration.IsLegacyRouteMoneyNode"/>). The id stays defined
+        /// so an old row never reads as type 0.
         /// </summary>
         RouteRecoveryCredited = 28,
 
@@ -116,11 +109,10 @@ namespace Parsek
         /// the requested-on-shortfall manifest
         /// (<see cref="GameAction.RouteRequestedResourceManifest"/>) when the source
         /// came up short / unresolved, and the endpoint pid
-        /// (<see cref="GameAction.RouteOriginVesselPid"/>). Emits ZERO funds
-        /// (loaded-en-route cargo debits its physical source, never funds, design
-        /// D6); no resource module consumes it (the physical removal happened LIVE
-        /// at emit and is reverted by the rewind quicksave, exactly like
-        /// <see cref="RouteCargoDebited"/>'s physical half), so it is NOT a
+        /// (<see cref="GameAction.RouteOriginVesselPid"/>). Loaded-en-route cargo
+        /// debits its physical source (design D6); no resource module consumes it
+        /// (the physical removal happened LIVE at emit and is reverted by the rewind
+        /// quicksave, exactly like <see cref="RouteCargoDebited"/>), so it is NOT a
         /// resource-impacting action and supersede does NOT strict-block on it.
         /// Sequence is assigned AFTER <see cref="RouteDispatched"/> (Seq0) so the
         /// ledger walker sees dispatch first at the shared UT.
@@ -983,8 +975,7 @@ namespace Parsek
         /// re-read each tick by the scheduler; carrying it on the ledger row would
         /// be a stale snapshot.
         /// </para>
-        /// <para>Null or empty when the action carries no resource manifest (e.g. the
-        /// KSC-funds-only debit case, where <see cref="RouteKscFundsCost"/> is set instead).</para>
+        /// <para>Null or empty when the action carries no resource manifest.</para>
         /// </summary>
         /// <remarks>
         /// No <c>RouteInventoryManifest</c> field exists yet. The dispatch/delivery
@@ -1049,13 +1040,6 @@ namespace Parsek
         /// </summary>
         public uint RouteOriginVesselPid;
 
-        /// <summary>
-        /// KSC funds charge in funds-units (design doc §6.1 step 5: the Career-mode
-        /// KSC-origin dispatch cost). Zero when the dispatch had no KSC funds component
-        /// (Science / Sandbox modes or non-KSC origins). Stored on
-        /// <see cref="GameActionType.RouteCargoDebited"/> rows.
-        /// </summary>
-        public float RouteKscFundsCost;
 
         /// <summary>
         /// True on a <see cref="GameActionType.RouteDispatched"/> row whose cycle was
@@ -1353,9 +1337,6 @@ namespace Parsek
                 case GameActionType.RouteEndpointLost:
                     SerializeRouteEndpointLost(node);
                     break;
-                case GameActionType.RouteRecoveryCredited:
-                    SerializeRouteRecoveryCredited(node);
-                    break;
                 case GameActionType.RouteCargoPickedUp:
                     SerializeRouteCargoPickedUp(node);
                     break;
@@ -1524,9 +1505,6 @@ namespace Parsek
                     break;
                 case GameActionType.RouteEndpointLost:
                     DeserializeRouteEndpointLost(node, a);
-                    break;
-                case GameActionType.RouteRecoveryCredited:
-                    DeserializeRouteRecoveryCredited(node, a);
                     break;
                 case GameActionType.RouteCargoPickedUp:
                     DeserializeRouteCargoPickedUp(node, a);
@@ -2177,7 +2155,7 @@ namespace Parsek
             // M1 physical-origin-debit additions, both sparse: the requested
             // manifest only exists when the origin came up short/unresolved
             // at apply time, and the origin pid only on physical debits.
-            // KSC rows and legacy non-loop rows carry neither, so their
+            // Legacy non-loop rows carry neither, so their
             // on-disk shape is byte-identical to the pre-M1 codec.
             WriteResourceManifest(n, "requestedResource", RouteRequestedResourceManifest);
             // M3 Phase 5 (D7 carve-out lift): the origin INVENTORY debit's actual
@@ -2188,8 +2166,6 @@ namespace Parsek
             WriteInventoryManifest(n, RouteRequestedInventoryManifestNode, RouteRequestedInventoryManifest);
             if (RouteOriginVesselPid != 0u)
                 n.AddValue("routeOriginVesselPid", RouteOriginVesselPid.ToString(IC));
-            if (RouteKscFundsCost != 0f)
-                n.AddValue("routeKscFundsCost", RouteKscFundsCost.ToString("R", IC));
         }
 
         private static void DeserializeRouteCargoDebited(ConfigNode n, GameAction a)
@@ -2204,7 +2180,8 @@ namespace Parsek
             string pidStr = n.GetValue("routeOriginVesselPid");
             if (pidStr != null && uint.TryParse(pidStr, NumberStyles.Integer, IC, out uint originPid))
                 a.RouteOriginVesselPid = originPid;
-            TryParseFloat(n, "routeKscFundsCost", out a.RouteKscFundsCost);
+            // routeKscFundsCost (an old save's Space Center charge) is never read
+            // here: a row carrying a non-zero one is dropped at ledger load.
         }
 
         private void SerializeRouteCargoDelivered(ConfigNode n)
@@ -2300,30 +2277,11 @@ namespace Parsek
             a.RouteEndpointReason = n.GetValue("routeEndpointReason");
         }
 
-        // RouteRecoveryCredited reuses the route-common identity codec plus the
-        // existing routeKscFundsCost float field for the credit amount (a positive
-        // magnitude; the action type carries the credit direction, same convention
-        // as RouteCargoDebited / RouteCargoDelivered). No new serialized field.
-        private void SerializeRouteRecoveryCredited(ConfigNode n)
-        {
-            WriteRouteCommon(n);
-            if (RouteKscFundsCost != 0f)
-                n.AddValue("routeKscFundsCost", RouteKscFundsCost.ToString("R", IC));
-        }
-
-        private static void DeserializeRouteRecoveryCredited(ConfigNode n, GameAction a)
-        {
-            ReadRouteCommon(n, a);
-            TryParseFloat(n, "routeKscFundsCost", out a.RouteKscFundsCost);
-        }
-
         // RouteCargoPickedUp (logistics M3, plan Phase 4 / OQ4 / D6): the
         // pickup-direction mirror of RouteCargoDebited's physical-debit shape.
         // Carries the actual debited manifest (resource), the requested-on-shortfall
         // manifest (requestedResource), and the endpoint pid (routeOriginVesselPid),
-        // all sparse. NO funds field is written: a pickup emits ZERO funds
-        // (loaded-en-route cargo debits its physical source, never funds, D6), so
-        // unlike RouteCargoDebited there is no routeKscFundsCost line.
+        // all sparse (loaded-en-route cargo debits its physical source, D6).
         private void SerializeRouteCargoPickedUp(ConfigNode n)
         {
             WriteRouteCommon(n);

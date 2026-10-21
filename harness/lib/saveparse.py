@@ -316,9 +316,10 @@ MERGE_STATE_DEFAULT = "Immutable"
 # RouteStatus (Source/Parsek/Logistics/RouteStatus.cs) - NAME string on disk
 # (`node.AddValue("status", route.Status.ToString())`). Ordinals are part of the
 # save format and the enum's own comment forbids reordering, so this tuple is in
-# ordinal order even though nothing here reads it positionally.
+# ordinal order even though nothing here reads it positionally. Ordinal 3, the
+# retired WaitingForFunds, is left out: the codec reads that name as Active.
 ROUTE_STATUS_NAMES: Tuple[str, ...] = (
-    "Active", "InTransit", "WaitingForResources", "WaitingForFunds",
+    "Active", "InTransit", "WaitingForResources",
     "DestinationFull", "EndpointLost", "MissingSourceRecording",
     "SourceChanged", "Paused",
 )

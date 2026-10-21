@@ -6822,12 +6822,12 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     # exists on that vessel and the amount fits under `maxAmount` are the
     # applier's own assertions against the bytes (fail-closed, pre-boot).
     errors.extend(savepatch.validate_live_state(fixture))
-    # `[fixture.career]` - the career-SCENARIO half of the same mechanism (one
-    # key, `Funding.funds`). Validated here for the same reason and by the same
-    # module; whether the fixture actually IS a career save is the applier's
-    # assertion against the bytes, because a career declaration on a sandbox
-    # template must abort rather than quietly stage the template's own seed.
-    errors.extend(savepatch.validate_career_state(fixture))
+    # `[fixture.career]` staged a career funds pool for the supply-route funds
+    # gate, which is gone (todo LOGISTICS-WITHOUT-MONEY). A spec still declaring it
+    # is refused rather than staged with the key silently ignored.
+    if isinstance(fixture, dict) and "career" in fixture:
+        errors.append("fixture.career: retired with supply-route money (todo "
+                      "LOGISTICS-WITHOUT-MONEY); no lane stages a career funds pool")
     # `[[fixture.crewInventory]]` - a roster kerbal's personal inventory, written in
     # stock's own compact CSV form (coverage wave 10). Same module, same reason.
     errors.extend(savepatch.validate_crew_inventory(fixture))
@@ -9558,7 +9558,7 @@ def validate_ledger_expectations(ledger_block: Optional[Dict]) -> List[str]:
 
     A malformed ledger block must never launch KSP. The block-level surface is
     checked here directly (``seedFrom`` / ``tolerances`` in their accepted sets,
-    ``rec3CarveOut`` a bool, ``manifest`` an array, ``captureCrossCheck`` in its
+    ``manifest`` an array, ``captureCrossCheck`` in its
     accepted set), and the per-ENTRY surface is DELEGATED to
     ``oracle.parse_manifest_entries`` - the very parser whose rejections become a
     hard PARSEK-FAIL(ledger) after the flight - so a spec that would red post-flight
@@ -9577,9 +9577,13 @@ def validate_ledger_expectations(ledger_block: Optional[Dict]) -> List[str]:
     if tol not in LEDGER_TOLERANCE_VALUES:
         errs.append("expectations.ledger.tolerances: %r not in %s"
                     % (tol, list(LEDGER_TOLERANCE_VALUES)))
-    r3 = ledger_block.get("rec3CarveOut", False)
-    if not isinstance(r3, bool):
-        errs.append("expectations.ledger.rec3CarveOut: %r must be a bool" % (r3,))
+    # The Rec-3 route-funds carve-out is gone with supply-route money (todo
+    # LOGISTICS-WITHOUT-MONEY); a spec still declaring its keys is refused rather
+    # than flown with the key silently ignored.
+    for retired in ("rec3CarveOut", "rec3Whitelist"):
+        if retired in ledger_block:
+            errs.append("expectations.ledger.%s: retired with supply-route money "
+                        "(todo LOGISTICS-WITHOUT-MONEY); remove the key" % retired)
     manifest = ledger_block.get("manifest", [])
     if not isinstance(manifest, list):
         errs.append("expectations.ledger.manifest: must be an array of entry tables")

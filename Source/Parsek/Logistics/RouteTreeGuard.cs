@@ -291,8 +291,8 @@ namespace Parsek.Logistics
         // grep-gated surface (the ERS/ELS gate only fires on the raw committed-
         // recording list and the raw ledger-actions list), and walking a tree's
         // own Recordings dictionary is tree-scoped, not an ERS read.
-        // Exposed internal so the Logistics layer (RouteRunCostCalculator) can
-        // reuse the one tree-by-id lookup instead of duplicating the walk.
+        // Exposed internal so other callers can reuse the one tree-by-id
+        // lookup instead of duplicating the walk.
         internal static RecordingTree FindCommittedTree(string treeId)
         {
             var trees = RecordingStore.CommittedTrees;

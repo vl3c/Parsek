@@ -87,15 +87,16 @@ namespace Parsek.Tests.Logistics
             Assert.StartsWith("Run 2: Delivered 40.0 of 150.0 LiquidFuel", rows[2].Label);
         }
 
-        // A run's debit row (same RouteCycleId) as the dispatch writes it: funds on a
-        // Career KSC launch, the actual cargo plus the origin pid on a vessel debit.
-        private static GameAction Debit(double ut, string cycle, float funds = 0f,
+        // A run's debit row (same RouteCycleId) as the dispatch writes it: the actual
+        // cargo plus the origin pid on a vessel debit. A Space Center launch writes none
+        // (supply routes carry no money); an old save's pid-0 row is read the same way.
+        private static GameAction Debit(double ut, string cycle,
             uint originPid = 0u, Dictionary<string, double> cargo = null)
         {
             return new GameAction
             {
                 Type = GameActionType.RouteCargoDebited, UT = ut, RouteId = RouteId,
-                RouteCycleId = cycle, RouteKscFundsCost = funds,
+                RouteCycleId = cycle,
                 RouteOriginVesselPid = originPid, RouteResourceManifest = cargo,
             };
         }
@@ -103,27 +104,7 @@ namespace Parsek.Tests.Logistics
         private static Dictionary<string, double> LfOx()
             => new Dictionary<string, double> { { "LiquidFuel", 257.8 }, { "Oxidizer", 315.1 } };
 
-        // Career KSC launch: the Sent row carries its funds cost, grouped whole funds; a
-        // Send-armed run the same way. The debit row itself stays hidden.
-        [Fact]
-        public void CareerSentRowShowsTheFundsCost()
-        {
-            var rows = Build(new List<GameAction>
-            {
-                Act(GameActionType.RouteDispatched, 100, "c1"),
-                Debit(100, "c1", funds: 7410f, cargo: LfOx()),
-                Act(GameActionType.RouteDispatched, 500, "c2", sendOnce: true),
-                Debit(500, "c2", funds: 7410f, cargo: LfOx()),
-            });
-            Assert.Equal(new[]
-                {
-                    "Run 1: Sent, cost 7,410 funds", "Run 2: Sent once, cost 7,410 funds",
-                },
-                rows.Select(r => r.Label).ToArray());
-        }
-
-        // A launch that took cargo from its origin vessel lists it after the funds; both
-        // together read "cost <funds>, <cargo>".
+        // A launch that took cargo from its origin vessel lists it as the run's cost.
         [Fact]
         public void OriginCargoDebitIsPartOfTheCost()
         {
@@ -133,24 +114,26 @@ namespace Parsek.Tests.Logistics
                 Debit(100, "c1", originPid: 77u, cargo: LfOx()),
             });
             Assert.Equal("Run 1: Sent, cost 257.8 LiquidFuel, 315.1 Oxidizer", rows.Single().Label);
-            Assert.Equal(", cost 7,410 funds, 257.8 LiquidFuel, 315.1 Oxidizer",
-                RouteHistoryBuilder.SentCostSuffix(Debit(100, "c1", 7410f, 77u, LfOx())));
+            Assert.Equal(", cost 257.8 LiquidFuel, 315.1 Oxidizer",
+                RouteHistoryBuilder.SentCostSuffix(Debit(100, "c1", 77u, LfOx())));
             Assert.Equal("", RouteHistoryBuilder.SentCostSuffix(
                 Debit(100, "c1", originPid: 77u, cargo: new Dictionary<string, double> { { "Ore", 0.0 } })));
             Assert.Equal("", RouteHistoryBuilder.SentCostSuffix(null));
         }
 
-        // Sandbox / Science: the dispatch writes no funds cost, and a KSC launch's manifest
-        // is what the launch carried, not a cost, so the row reads plain "Sent".
+        // A Space Center launch is free in every mode, and an old save's KSC debit
+        // manifest is what the launch carried, not a cost, so the row reads plain "Sent".
         [Fact]
-        public void SandboxSentRowHasNoFundsPart()
+        public void SpaceCenterSentRowHasNoCost()
         {
             var rows = Build(new List<GameAction>
             {
                 Act(GameActionType.RouteDispatched, 100, "c1"),
-                Debit(100, "c1", funds: 0f, originPid: 0u, cargo: LfOx()),
+                Debit(100, "c1", originPid: 0u, cargo: LfOx()),
+                Act(GameActionType.RouteDispatched, 500, "c2", sendOnce: true),
             });
-            Assert.Equal("Run 1: Sent", rows.Single().Label);
+            Assert.Equal(new[] { "Run 1: Sent", "Run 2: Sent once" },
+                rows.Select(r => r.Label).ToArray());
         }
 
         // Interleaved runs: each Sent row takes its own run's debit by RouteCycleId, never the
@@ -162,11 +145,11 @@ namespace Parsek.Tests.Logistics
             {
                 Act(GameActionType.RouteDispatched, 100, "c1"),
                 Act(GameActionType.RouteDispatched, 200, "c2"),
-                Debit(200, "c2", funds: 500f),
-                Debit(100, "c1", funds: 7410f),
-                Debit(300, "c3", funds: 999f),
+                Debit(200, "c2", 77u, new Dictionary<string, double> { { "Ore", 5.0 } }),
+                Debit(100, "c1", 77u, new Dictionary<string, double> { { "Ore", 7.0 } }),
+                Debit(300, "c3", 77u, new Dictionary<string, double> { { "Ore", 9.0 } }),
             });
-            Assert.Equal(new[] { "Run 1: Sent, cost 7,410 funds", "Run 2: Sent, cost 500 funds" },
+            Assert.Equal(new[] { "Run 1: Sent, cost 7.0 Ore", "Run 2: Sent, cost 5.0 Ore" },
                 rows.Select(r => r.Label).ToArray());
         }
 
@@ -178,8 +161,8 @@ namespace Parsek.Tests.Logistics
             try
             {
                 Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
-                Assert.Equal(", cost 1,234,567 funds, 257.8 LiquidFuel, 315.1 Oxidizer",
-                    RouteHistoryBuilder.SentCostSuffix(Debit(1, "c1", 1234567f, 77u, LfOx())));
+                Assert.Equal(", cost 257.8 LiquidFuel, 315.1 Oxidizer",
+                    RouteHistoryBuilder.SentCostSuffix(Debit(1, "c1", 77u, LfOx())));
             }
             finally
             {
@@ -229,7 +212,8 @@ namespace Parsek.Tests.Logistics
                 });
                 Assert.Equal("Run 1: Delivered 1234.5 LiquidFuel", rows[0].Label);
                 Assert.Equal("Held: origin is short 108.8 LiquidFuel", rows[1].Label);
-                Assert.Equal("Held: not enough funds at KSC - short 7410 funds for this run", rows[2].Label);
+                // An old save's funds hold reads as past fact, without an amount.
+                Assert.Equal("Held: not enough funds at KSC for this run", rows[2].Label);
             }
             finally
             {
@@ -259,7 +243,7 @@ namespace Parsek.Tests.Logistics
 
         // A held run reads "Held: <reason>" in the Logistics window's words, without the
         // live "- delivers when ..." advice and with no run number; the Time column
-        // carries the date. Origin-cargo and funds holds sit at the origin, a pickup
+        // carries the date. Origin-cargo holds sit at the origin, a pickup
         // source hold names that source's vessel (live name first), everything else "-".
         [Fact]
         public void HeldRowsReadTheReason_WithoutAdviceOrRunNumber_AtTheirPlace()

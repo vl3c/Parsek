@@ -212,13 +212,11 @@ namespace Parsek.Tests.Logistics
             pre.CurrentSegmentIndex = 2;
             pre.NextEligibilityCheckUT = 900.0;
             pre.NextDispatchUT = 4400.0;              // abandoned-future legacy schedule
-            pre.RecordHold(RouteDispatchEvaluator.EligibilityFailureKind.FundsShort,
-                "funds-short", 5.0, 700.0);           // hold stamped after the cutoff
+            pre.RecordHold(RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
+                "origin-lacks-Ore", 5.0, 700.0);           // hold stamped after the cutoff
             pre.LastPartialDeliverySummary = "Ore 1/2";
             pre.LastPartialDeliveryUT = 750.0;
             pre.LastPartialDeliveryCycleId = "cycle-6";
-            pre.PendingRecoveryCreditCycleId = "cycle-6";
-            pre.PendingRecoveryCreditDispatchUT = 760.0;
             // "post": created after the cutoff -> dormant.
             var post = MakeRoute("post", 900.0);
             post.LinkedRouteId = "pre";
@@ -270,9 +268,7 @@ namespace Parsek.Tests.Logistics
                 $"|holdShortfall={D(r.LastHoldShortfall)}|holdUT={D(r.LastHoldUT)}" +
                 $"|partialSummary={r.LastPartialDeliverySummary ?? "<null>"}" +
                 $"|partialUT={D(r.LastPartialDeliveryUT)}" +
-                $"|partialCycle={r.LastPartialDeliveryCycleId ?? "<null>"}" +
-                $"|recoveryCycle={r.PendingRecoveryCreditCycleId ?? "<null>"}" +
-                $"|recoveryDispatchUT={D(r.PendingRecoveryCreditDispatchUT)}";
+                $"|partialCycle={r.LastPartialDeliveryCycleId ?? "<null>"}";
 
             var lines = new List<string>();
             lines.AddRange(RouteStore.CommittedRoutes
@@ -323,15 +319,14 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(1, pre.CompletedCycles);
             Assert.Equal(1, pre.SkippedCycles);
             Assert.Null(pre.LinkedRouteId);
-            // The abandoned-future in-flight / hold / partial / recovery-credit
-            // / schedule state cleared (B-1 field coverage).
+            // The abandoned-future in-flight / hold / partial / schedule state
+            // cleared (B-1 field coverage).
             Assert.Null(pre.CurrentCycleStartUT);
             Assert.Null(pre.PendingDeliveryUT);
             Assert.Null(pre.NextEligibilityCheckUT);
             Assert.Equal(cutoffUT, pre.NextDispatchUT); // pulled back to the cutoff
             Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.None, pre.LastHoldKind);
             Assert.Null(pre.LastPartialDeliverySummary);
-            Assert.Null(pre.PendingRecoveryCreditCycleId);
             Route q = RouteStore.CommittedRoutes.First(r => r.Id == "q");
             Assert.Equal(RouteStatus.Active, q.Status);
             // q's PRE-cutoff hold survives (both exits preserve it).

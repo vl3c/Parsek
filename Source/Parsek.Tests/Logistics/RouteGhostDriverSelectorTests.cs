@@ -78,7 +78,6 @@ namespace Parsek.Tests.Logistics
         [InlineData((int)RouteStatus.Active)]
         [InlineData((int)RouteStatus.InTransit)]
         [InlineData((int)RouteStatus.WaitingForResources)]
-        [InlineData((int)RouteStatus.WaitingForFunds)]
         [InlineData((int)RouteStatus.DestinationFull)]
         public void GhostDrivingStatus_ProducesOneBackingMission(int statusOrdinal)
         {

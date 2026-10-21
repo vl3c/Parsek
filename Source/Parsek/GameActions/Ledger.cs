@@ -951,12 +951,23 @@ namespace Parsek
                 var newActions = new List<GameAction>();
                 ConfigNode[] actionNodes = loaded.GetNodes(ActionNodeName);
                 int parseErrors = 0;
+                int droppedRouteCredits = 0;
+                int droppedRouteCharges = 0;
                 ResetContractDeadlineMigrationTally();
 
                 for (int i = 0; i < actionNodes.Length; i++)
                 {
                     try
                     {
+                        // Supply routes carry no money (todo LOGISTICS-WITHOUT-MONEY): an
+                        // old save's route money rows are dropped here, before any
+                        // recalculation can read them.
+                        if (LedgerLoadMigration.IsLegacyRouteMoneyNode(actionNodes[i], out bool isCredit))
+                        {
+                            if (isCredit) droppedRouteCredits++;
+                            else droppedRouteCharges++;
+                            continue;
+                        }
                         var action = GameAction.DeserializeFrom(actionNodes[i]);
                         newActions.Add(action);
                     }
@@ -975,6 +986,15 @@ namespace Parsek
                 ParsekLog.Verbose("Ledger",
                     $"Loaded ledger from '{path}': version={version}, actions={actions.Count}, " +
                     $"parseErrors={parseErrors}");
+                if (droppedRouteCredits + droppedRouteCharges > 0)
+                {
+                    ParsekLog.Info("Ledger",
+                        $"Dropped {(droppedRouteCredits + droppedRouteCharges).ToString(CultureInfo.InvariantCulture)} " +
+                        "legacy supply-route money rows at load " +
+                        $"(recoveryCredits={droppedRouteCredits.ToString(CultureInfo.InvariantCulture)} " +
+                        $"spaceCenterCharges={droppedRouteCharges.ToString(CultureInfo.InvariantCulture)}); " +
+                        "supply routes carry no money");
+                }
                 if (seedMalformed > 0)
                 {
                     ParsekLog.Warn("Ledger",

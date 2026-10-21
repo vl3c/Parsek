@@ -20,7 +20,7 @@ namespace Parsek
         /// <summary>Which route cargo row a <see cref="FlowRow"/> came from.</summary>
         internal enum FlowRowKind
         {
-            /// <summary>RouteCargoDebited: the dispatch-time origin debit (funds or physical).</summary>
+            /// <summary>RouteCargoDebited: the dispatch-time physical origin debit.</summary>
             Debited = 0,
 
             /// <summary>RouteCargoPickedUp: cargo loaded from a pickup stop onto the transport.</summary>
@@ -46,7 +46,6 @@ namespace Parsek
                 IReadOnlyDictionary<string, double> actual,
                 IReadOnlyDictionary<string, double> requested,
                 uint endpointPid,
-                float kscFundsCost,
                 int inventoryCount,
                 int requestedInventoryCount)
             {
@@ -58,7 +57,6 @@ namespace Parsek
                 Actual = actual;
                 Requested = requested;
                 EndpointPid = endpointPid;
-                KscFundsCost = kscFundsCost;
                 InventoryCount = inventoryCount;
                 RequestedInventoryCount = requestedInventoryCount;
             }
@@ -84,9 +82,6 @@ namespace Parsek
 
             /// <summary>Origin/pickup endpoint pid (RouteOriginVesselPid); 0 on KSC / legacy rows.</summary>
             internal uint EndpointPid { get; }
-
-            /// <summary>KSC funds charge on a debited row; 0 elsewhere.</summary>
-            internal float KscFundsCost { get; }
 
             /// <summary>Count of stored-part inventory payloads moved on this row.</summary>
             internal int InventoryCount { get; }
@@ -148,7 +143,7 @@ namespace Parsek
                     flowRows.Add(new FlowRow(
                         kind, a.RouteCycleId, a.RouteStopIndex, a.UT, a.Sequence,
                         a.RouteResourceManifest, a.RouteRequestedResourceManifest,
-                        a.RouteOriginVesselPid, a.RouteKscFundsCost,
+                        a.RouteOriginVesselPid,
                         a.RouteInventoryManifest?.Count ?? 0,
                         a.RouteRequestedInventoryManifest?.Count ?? 0));
                 }

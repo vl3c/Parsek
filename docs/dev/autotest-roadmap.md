@@ -5670,6 +5670,7 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
     made the pins safe to author ahead of the fix.
 
 16. **The FIRST rover fixture's endpoint matrix - RVR-16, RVR-17, RVR-18, RVR-19.**
+    (RVR-17 RETIRED 2026-10-21 with the route funds gate, todo LOGISTICS-WITHOUT-MONEY.)
     AUTHORED AND FLOWN 2026-09-03, **ALL THREE LIVE-PROVEN**, on the automation DLL
     `995772453f2339a2`: RVR-17 (`_2010`, 50 s) and RVR-18 (`_2011`, 49 s) PASS
     attempt 1, and RVR-16 green on its re-fly (`_2025`, 49 s) after a census
@@ -5919,7 +5920,10 @@ D10 rows, which H56 owes and this item never did.
 
 ### Tier C - economics (career)
 
-9. **Costed dispatch.** ~~UNBLOCKED 2026-09-01 - LANE STILL TO AUTHOR.~~
+9. **Costed dispatch.** **RETIRED 2026-10-21 (todo LOGISTICS-WITHOUT-MONEY phase 1):**
+   supply routes no longer charge or credit funds, so RVR-4, RVR-17, GUI-23, the
+   `rover-route-career` fixture, its builder and the `[fixture.career]` staging surface
+   were deleted. The record below is history. ~~UNBLOCKED 2026-09-01 - LANE STILL TO AUTHOR.~~
    **FIXTURE AND SPEC AUTHORED 2026-09-02, NEVER FLOWN** - fixture
    `rover-route-career` (`harness/tools/build_rover_route_career.py` +
    `harness/lib/test_build_rover_route_career.py` + a `RECORDED_FIXTURES` row),
@@ -6344,8 +6348,8 @@ named in a row owns the detail.
 
 | Id | Combination | Host | Gates | Needs |
 |---|---|---|---|---|
-| IR-1 | Route x F9 back across a dispatch (career) | `rover-route-career` | funds after reload equal funds at save; exactly one re-dispatch; destination cargo equals one delivery | A1, C2 |
-| IR-2 | Route x stock Revert to launch mid-cycle (career) | `rover-route-career` + a launch | no swallowed cycle, no orphan credit | A1, C2 |
+| IR-1 | Route x F9 back across a dispatch | `rover-route-recorded` (`rover-route-career` was retired with route money, 2026-10-21) | exactly one re-dispatch; destination cargo equals one delivery | A1, C2 |
+| IR-2 | Route x stock Revert to launch mid-cycle | `rover-route-recorded` + a launch | no swallowed cycle | A1, C2 |
 | IR-3 | Route x Re-Fly of ANOTHER tree that rewinds the clock under an active route | C3 | rows after the cutoff retired; re-delivery exactly once; funds net | C1, C3 |
 | IR-4 | Route x Esc > Revert > Discard Re-fly | C3 | as IR-3 | A1, C3 |
 | IR-5 | First live moon dispatch and delivery. AUTHORED 2026-10-16 as `IR-5-mun-route-dispatch-delivery` (branch `claude/lanes-rc6-ql6-ir5-nh7w10`), LIVE-PROVEN `2026-10-16_0652`: send-once on the Mun route, a 1x wait, the unloaded delivery write; the station's two tanks lowered by the new `liveState partResources` form so the destination gate passes | `interbody-route-recorded` (Mun route) | dispatch / delivery tokens; station cargo read-back | C5 |
@@ -6354,7 +6358,7 @@ named in a row owns the detail.
 | IR-8 | Surface route x ghost-chain rewind with a neighbour craft inside 500 m | a surface base fixture (to harvest) | endpoint not rebound; delivery resumes at the respawned base | A2 |
 | IR-9 | Docked visitor during a delivery | depot or station fixture + docked tanker | visitor tanks unchanged | A5 |
 | IR-10 | Multi-stop route, scene switch between windows, competing route on the same depot | DONE 2026-10-16 as H60's `scene-switch-rebuilds-hold` cell on `logi-cargo-pad` (`rover-relay-c-recorded` cannot open the gap: its pickup is the first window) | no short pickup after a paid dispatch | A3 |
-| IR-11 | Route costs against committed career actions (facility upgrade, contract, strategy) | `rover-route-career` + KSC actions | stock-screen block still explains the reservation; route holds rather than overdrawing | C1 |
+| IR-11 | ~~Route costs against committed career actions~~ DROPPED 2026-10-21: supply routes carry no money (todo LOGISTICS-WITHOUT-MONEY), so there is no route cost to hold | - | - | - |
 
 ### Phase C - three-feature and campaign lanes
 
