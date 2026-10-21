@@ -4071,10 +4071,8 @@ namespace Parsek
                     RecorderStateLog.RecState("OnLoad:active-tree-restored", CaptureScenarioRecorderState());
 
                     // Step B of the in-session handoff: rewind points of trees memory still holds
-                    // committed come from memory, the rest from the save, and the supersede rows,
-                    // retirements and tombstones naming a tree the restore resumed from the save
-                    // follow the save. After the restores above, so a tree the load resumes has
-                    // already been detached from the committed set.
+                    // committed come from memory, the rest from the save. After the restores
+                    // above, so the committed set it partitions by is the one this load keeps.
                     loadPhase = "in-session-handoff-step-b";
                     ApplyInSessionStagedStateHandoffStepB();
 
