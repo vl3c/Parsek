@@ -303,8 +303,8 @@ namespace Parsek.Tests
                 object next;
                 if (ft == typeof(bool)) next = !(bool)value;
                 else if (ft == typeof(int)) next = (int)value + 7;
-                else if (ft == typeof(double)) next = (double)value + 1234.5;
-                else if (ft == typeof(float)) next = (float)value + 1234.5f;
+                else if (ft == typeof(double)) next = double.IsNaN((double)value) ? 1234.5 : (double)value + 1234.5;
+                else if (ft == typeof(float)) next = float.IsNaN((float)value) ? 1234.5f : (float)value + 1234.5f;
                 else if (Nullable.GetUnderlyingType(ft) != null)
                     next = value == null ? Activator.CreateInstance(Nullable.GetUnderlyingType(ft)) : null;
                 else if (!ft.IsValueType)
