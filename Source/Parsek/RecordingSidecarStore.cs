@@ -929,6 +929,37 @@ namespace Parsek
         /// rewrite would advance its sidecar epoch and move the committed history before any
         /// merge). False with a reason otherwise; the caller then checks or rewrites the head.
         /// </summary>
+        /// <summary>
+        /// True when the recording names no trajectory hash, or its <c>.prec</c> head holds
+        /// exactly the bytes it names. A head that holds other bytes (another copy of the same
+        /// id wrote it) returns false with <c>head-holds-other-bytes</c>.
+        /// </summary>
+        internal static bool TrajectoryHeadHoldsNamedBytes(Recording rec, out string reason)
+        {
+            reason = null;
+            if (rec == null || string.IsNullOrEmpty(rec.PrecHash)
+                || !RecordingPaths.ValidateRecordingId(rec.RecordingId))
+                return true;
+            string headPath = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
+            if (string.IsNullOrEmpty(headPath) || !File.Exists(headPath))
+            {
+                reason = "trajectory-missing";
+                return false;
+            }
+            string headHash;
+            try { headHash = SidecarContentHash.ComputeFile(headPath); }
+            catch (Exception ex)
+            {
+                reason = "head-hash-unreadable: " + FormatExceptionForSidecarLog(ex);
+                return false;
+            }
+            if (string.Equals(headHash, rec.PrecHash, StringComparison.Ordinal))
+                return true;
+            reason = "head-holds-other-bytes";
+            return false;
+        }
+
         internal static bool AreRecordingFilesCurrentThroughNamedVersions(Recording rec, out string reason)
         {
             reason = null;

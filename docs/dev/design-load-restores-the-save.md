@@ -315,7 +315,11 @@ shares that recording's id with the committed copy. Every save writes it like an
 member: the write replaces the head and keeps the committed bytes as their hashed version (4.4),
 and the committed copy keeps naming that hash. A committed-tree recording whose head moved on is
 current for the save when every hash it names resolves and one resolves to a retained version, so
-it is never rewritten and its epoch does not move before a merge. Such a save names two versions
+it is never rewritten and its epoch does not move before a merge (the attempt member, which
+starts at the same epoch, also checks that the head holds the hash it names). An in-session load
+of such a save while the attempt is armed for that tree (the save stock makes before leaving
+flight) keeps the committed original committed and skips the splice, as the cold re-arm does.
+Such a save names two versions
 of the id; the cold load reads each copy from its own bytes (two owners, no promote) and re-arms
 the attempt as above. A Discard leaves the committed copy current through its version, and the
 next load that names it alone promotes it back to head. Fallback, for a save holding the

@@ -247,7 +247,7 @@ namespace Parsek.Tests
             int bothOrNeitherIdx = methodSrc.IndexOf(
                 "outcome=both-or-neither", StringComparison.Ordinal);
             int writeIdx = methodSrc.IndexOf(
-                "EnsureRecordingFilesCurrentForSave(writeCandidate, \"active tree\")",
+                "EnsureRecordingFilesCurrentForSave(writeCandidate, ActiveTreeKind)",
                 StringComparison.Ordinal);
 
             Assert.True(planIdx >= 0,
@@ -273,7 +273,7 @@ namespace Parsek.Tests
 
             int total = CountOccurrences(methodSrc, "EnsureRecordingFilesCurrentForSave(");
             int deferred = CountOccurrences(methodSrc,
-                "EnsureRecordingFilesCurrentForSave(writeCandidate, \"active tree\")");
+                "EnsureRecordingFilesCurrentForSave(writeCandidate, ActiveTreeKind)");
 
             Assert.Equal(1, total);
             Assert.Equal(1, deferred);

@@ -401,7 +401,7 @@ namespace Parsek.Tests
         // ---- wiring ----
 
         // catches: the re-arm moved after the splice or the detach (the cutoffs would then come
-        // from nothing), or the splice / detach no longer skipped for a re-armed attempt.
+        // from nothing), or the splice / detach no longer skipped for a re-armed or live attempt.
         [Fact]
         public void Wiring_RearmBeforeSpliceAndDetach_BothSkippedWhenRearmed()
         {
@@ -411,8 +411,8 @@ namespace Parsek.Tests
             int splice = IndexOrFail(body, "SpliceMissingCommittedRecordingsIntoLoadedTree(");
             int detach = IndexOrFail(body, "RecordingStore.RemoveCommittedTreeById(");
             Assert.True(drop < rearm && rearm < splice && splice < detach);
-            Assert.Contains("int splicedFromCommitted = saveAttemptRearmed ? 0 : SpliceMissingCommittedRecordingsIntoLoadedTree(", body);
-            Assert.Contains("bool committedCopyDetached = !saveAttemptRearmed && !reFlySessionResumed && RecordingStore.RemoveCommittedTreeById(", body);
+            Assert.Contains("int splicedFromCommitted = saveAttemptRearmed || liveAttemptKeepsCommittedCopy ? 0 : SpliceMissingCommittedRecordingsIntoLoadedTree(", body);
+            Assert.Contains("bool committedCopyDetached = !saveAttemptRearmed && !reFlySessionResumed && !liveAttemptKeepsCommittedCopy && RecordingStore.RemoveCommittedTreeById(", body);
 
             string persist = Collapse(PreparedMethodBody("ParsekScenario.cs", "private static void PersistGameStateAndMilestones(ConfigNode node)"));
             Assert.Contains("GameStateStore.BuildEventsNode( RecordingStore.CommittedTreeRestoreAttemptTreeId, "

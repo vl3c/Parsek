@@ -190,6 +190,82 @@ namespace Parsek.Tests
             Assert.Equal(h1, SidecarContentHash.ComputeFile(HeadPath(RootId)));
         }
 
+        // catches: the attempt member trusting the epoch alone. It starts at the committed copy's
+        // epoch, so a committed rewrite (a dirty committed copy) can land on the clone's epoch;
+        // the clone's save then read the committed bytes as its own and named a hash the head
+        // no longer held.
+        [Fact]
+        public void CommittedCopyRewrittenAtTheClonesEpoch_CloneRewritesTheHead()
+        {
+            RecordingTree committed = MakeCommittedTree();
+            Recording committedRec = committed.Recordings[RootId];
+            RecordingStore.AddCommittedInternal(committedRec);
+            RecordingStore.AddCommittedTreeForTesting(committed);
+            ParsekScenario.SaveTreeRecordings(new ConfigNode("PARSEK_SCENARIO"));
+
+            RecordingTree clone = RecordingTree.DeepClone(committed);
+            Recording cloneRec = clone.Recordings[RootId];
+            SetPoints(cloneRec, 100.0, 150.0, 200.0, 260.0, 320.0);
+            cloneRec.FilesDirty = true;
+            clone.ActiveRecordingId = RootId;
+            RecordingStore.ArmCommittedTreeRestoreAttempt(committed, ArmReason);
+            WriteSave(clone, expectedOverlap: 1);
+            Assert.Equal(2, cloneRec.SidecarEpoch);
+
+            committedRec.FilesDirty = true;
+            logLines.Clear();
+            WriteSave(clone, expectedOverlap: 0);
+            Assert.Equal(2, committedRec.SidecarEpoch);
+            Assert.Contains(logLines, l => l.Contains("rewriting sidecars") && l.Contains("id=" + RootId)
+                && l.Contains("treeKind=active tree") && l.Contains("reason=head-holds-other-bytes"));
+            Assert.Equal(cloneRec.PrecHash, SidecarContentHash.ComputeFile(HeadPath(RootId)));
+            Assert.True(File.Exists(VersionPath(RootId, committedRec.PrecHash)));
+        }
+
+        // catches: leaving flight with a resumed-in-place attempt live. Stock's save before the
+        // scene change now holds the attempt's active node, and that scene's in-session OnLoad
+        // detached the committed original from memory, so the scene-exit merge of the Finalized
+        // clone ran as a first commit (no replace, the canon guards lost) and a Discard deleted
+        // the committed tree's sidecars.
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void InSessionLoadOutsideFlight_LiveAttempt_KeepsTheCommittedOriginal(bool finalizedPending)
+        {
+            RecordingTree committed = MakeCommittedTree();
+            Recording committedRec = committed.Recordings[RootId];
+            RecordingStore.AddCommittedInternal(committedRec);
+            RecordingStore.AddCommittedTreeForTesting(committed);
+            ParsekScenario.SaveTreeRecordings(new ConfigNode("PARSEK_SCENARIO"));
+
+            RecordingTree clone = RecordingTree.DeepClone(committed);
+            Recording cloneRec = clone.Recordings[RootId];
+            SetPoints(cloneRec, 100.0, 150.0, 200.0, 260.0, 320.0);
+            cloneRec.FilesDirty = true;
+            clone.ActiveRecordingId = RootId;
+            RecordingStore.ArmCommittedTreeRestoreAttempt(committed, ArmReason);
+            ConfigNode save = WriteSave(clone, expectedOverlap: 1);
+
+            // The scene-exit finalization stashed the clone as the Finalized pending tree.
+            if (finalizedPending)
+                RecordingStore.StashPendingTree(RecordingTree.DeepClone(clone), PendingTreeState.Finalized);
+
+            logLines.Clear();
+            Assert.True(ParsekScenario.TryRestoreActiveTreeNode(save, EarlyLoadKind.InSession, loadedSceneIsFlight: false));
+
+            Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == TreeId);
+            Assert.Contains(RecordingStore.CommittedRecordings, r => r.RecordingId == RootId);
+            Assert.True(RecordingStore.IsCommittedTreeRestoreAttemptTree(TreeId));
+            if (finalizedPending)
+                Assert.Equal(PendingTreeState.Finalized, RecordingStore.PendingTreeStateValue);
+            // The save's clone keeps the path flown since the resume (no splice refresh from the
+            // committed copy).
+            Assert.Equal(5, RecordingStore.PendingTree.Recordings[RootId].Points.Count);
+            Assert.DoesNotContain(logLines, l => l.Contains("removed committed tree"));
+            Assert.Contains(logLines, l => l.Contains("kept the committed copy of tree")
+                && l.Contains("id=" + TreeId) && l.Contains("live restore attempt"));
+        }
+
         // ---- helpers ----
 
         // OnSave's order: committed trees, then the active tree's classify and write passes
@@ -205,7 +281,7 @@ namespace Parsek.Tests
             Assert.Equal(expectedOverlap, plan.CommittedRestoreOverlapCount);
             Assert.Single(plan.WriteCandidates);
             foreach (Recording candidate in plan.WriteCandidates)
-                Assert.True(ParsekScenario.EnsureRecordingFilesCurrentForSave(candidate, "active tree"));
+                Assert.True(ParsekScenario.EnsureRecordingFilesCurrentForSave(candidate, ParsekScenario.ActiveTreeKind));
 
             ConfigNode activeNode = node.AddNode("RECORDING_TREE");
             activeTree.Save(activeNode);

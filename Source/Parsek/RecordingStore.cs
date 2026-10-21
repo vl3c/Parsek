@@ -7303,6 +7303,11 @@ namespace Parsek
             return RecordingSidecarStore.AreRecordingFilesCurrentForSave(rec, out reason);
         }
 
+        internal static bool TrajectoryHeadHoldsNamedBytes(Recording rec, out string reason)
+        {
+            return RecordingSidecarStore.TrajectoryHeadHoldsNamedBytes(rec, out reason);
+        }
+
         internal static bool AreRecordingFilesCurrentThroughNamedVersions(Recording rec, out string reason)
         {
             return RecordingSidecarStore.AreRecordingFilesCurrentThroughNamedVersions(rec, out reason);

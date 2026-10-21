@@ -2154,6 +2154,7 @@ namespace Parsek
         }
 
         internal const string CommittedTreeKind = "committed tree";
+        internal const string ActiveTreeKind = "active tree";
 
         internal static bool EnsureRecordingFilesCurrentForSave(Recording rec, string treeKind)
         {
@@ -2165,6 +2166,17 @@ namespace Parsek
 
             string currentReason;
             bool filesCurrent = RecordingStore.AreRecordingFilesCurrentForSave(rec, out currentReason);
+            // A restore-attempt member shares its head with the committed copy, and the epoch
+            // check alone cannot tell their bytes apart (the clone starts at the committed
+            // copy's epoch): a committed rewrite at the same epoch must not read as current.
+            if (filesCurrent
+                && string.Equals(treeKind, ActiveTreeKind, StringComparison.Ordinal)
+                && RecordingStore.IsCommittedTreeRestoreAttemptRecordingId(rec.RecordingId)
+                && !RecordingStore.TrajectoryHeadHoldsNamedBytes(rec, out string headReason))
+            {
+                filesCurrent = false;
+                currentReason = headReason;
+            }
             // A committed recording a restore attempt resumed in place: the attempt's save
             // wrote the head and kept these bytes as their hashed version. Current as named,
             // never rewritten from here (that would advance its epoch before any merge).
@@ -2711,7 +2723,7 @@ namespace Parsek
             for (int i = 0; i < sidecarPlan.WriteCandidates.Count; i++)
             {
                 Recording writeCandidate = sidecarPlan.WriteCandidates[i];
-                if (!EnsureRecordingFilesCurrentForSave(writeCandidate, "active tree"))
+                if (!EnsureRecordingFilesCurrentForSave(writeCandidate, ActiveTreeKind))
                 {
                     activeFilesCurrent = false;
                     activeSaveFailedCount++;
@@ -6660,7 +6672,16 @@ namespace Parsek
                 // the members dirty, so the next save would write the committed shape over the
                 // attempt's own sidecars. Both the splice and the detach are skipped.
                 bool saveAttemptRearmed = TryRearmSaveAttemptForRestoredTree(tree, earlyLoadKind);
-                int splicedFromCommitted = saveAttemptRearmed
+                // A restore attempt still armed in memory for this tree (an in-session load of a
+                // save the live attempt wrote, e.g. the one stock makes before leaving flight) is
+                // the same shape: the save's tree is the live clone, so it keeps its committed
+                // original committed (the scene-exit merge must replace it, a Discard must find
+                // it) and skips the splice (its same-id refresh would put the committed trajectory
+                // over a recording resumed in place).
+                bool liveAttemptKeepsCommittedCopy = !saveAttemptRearmed
+                    && committedCopyAction != CommittedCopyRestoreAction.ResumeFromQuicksave
+                    && RecordingStore.IsCommittedTreeRestoreAttemptTree(tree.Id);
+                int splicedFromCommitted = saveAttemptRearmed || liveAttemptKeepsCommittedCopy
                     ? 0
                     : SpliceMissingCommittedRecordingsIntoLoadedTree(tree, tree.ActiveRecordingId);
                 if (RepairMissingContiguousChainPredecessors(tree, "TryRestoreActiveTreeNode") > 0)
@@ -6693,6 +6714,7 @@ namespace Parsek
                     && IsResumedReFlySessionTree(Instance?.ActiveReFlySessionMarker, tree);
                 bool committedCopyDetached = !saveAttemptRearmed
                     && !reFlySessionResumed
+                    && !liveAttemptKeepsCommittedCopy
                     && RecordingStore.RemoveCommittedTreeById(
                         tree.Id,
                         logContext: "TryRestoreActiveTreeNode");
@@ -6709,6 +6731,12 @@ namespace Parsek
                         $"TryRestoreActiveTreeNode: kept the committed copy of tree '{tree.TreeName}' " +
                         $"(id={tree.Id}) committed and skipped the splice: the restored tree is the " +
                         "re-armed restore attempt's clone");
+                }
+                else if (liveAttemptKeepsCommittedCopy)
+                {
+                    ParsekLog.Info("Scenario",
+                        $"TryRestoreActiveTreeNode: kept the committed copy of tree '{tree.TreeName}' " +
+                        $"(id={tree.Id}) committed: the restored tree is the live restore attempt's clone");
                 }
                 else if (!committedCopyDetached && !reFlySessionResumed)
                 {
