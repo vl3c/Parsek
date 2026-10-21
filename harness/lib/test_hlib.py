@@ -5033,6 +5033,12 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # 47 as its six siblings; the split is MEASURED at 38/9 (see
         # `MEASURED_SKIPPED`) and is no longer interim.
         "RVR-6-rover-relay-logistics-host": ("Logistics", 47),
+        # H38's rig and driver on a CAREER save (`logi-cargo-career`), the only
+        # Logistics member with a live Funding singleton, so the redelivery cell's
+        # funds-flat assertion runs instead of logging the Sandbox skip. Same
+        # (category, scene), so the same attribute derivation; the split is INTERIM
+        # until its first census (see INTERIM_PIN_IDS).
+        "H73-logistics-isolated-career": ("Logistics", 47),
         # ROADMAP R6, ISOLATED HALF - SEVEN LANES AUTHORED 2026-09-06, SIX FLOWN GREEN
         # THE SAME DAY. They are the rest of the population R5 unlocked and nothing had
         # driven: one spec per category, each over a host chosen by that category's own
@@ -5140,6 +5146,9 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                                  # for every Logistics member whatever host it
                                  # boots.
                                  "RVR-6-rover-relay-logistics-host",
+                                 # H73: H38's host moved into a career save,
+                                 # same 8-vs-46 arithmetic.
+                                 "H73-logistics-isolated-career",
                                  # H65 is the R6 wave's ONLY member here, and the
                                  # arithmetic is the narrowest a non-exempt member has
                                  # carried. `QuickloadResume` has three FLIGHT-scoped
@@ -5607,7 +5616,15 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # was REFUTED TWICE, which is what writing a prediction down is for. Both refutations
     # are recorded in its MEASURED_SKIPPED entry below and in the spec's own header.
     #
-    INTERIM_PIN_IDS: set = set()
+    # NON-EMPTY AGAIN 2026-10-21 for `H73-logistics-isolated-career`, H38's driver and
+    # rig on the career fixture `logi-cargo-career`, authored and never flown. `total=47`
+    # is attribute-exact and `failed=0` a literal; `passed=` is a floor of 9, above the
+    # ordinary ceiling of 8 (the H38 spelling), and `skipped=` is free. H38's 39/0/8 is
+    # the prediction, not the pin. What names the cell this lane exists for is not the
+    # tally but its two REQUIRED tokens (the career funds-check line and the redelivery
+    # cell's PASSED line) and the FORBIDDEN Sandbox-skip line. Standing obligation: the
+    # first census pins the split whole and the id leaves this set in the same commit.
+    INTERIM_PIN_IDS: set = {"H73-logistics-isolated-career"}
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR

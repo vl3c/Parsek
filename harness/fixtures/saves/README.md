@@ -915,6 +915,32 @@ strategy is NOT active in the save: the lane activates it through `KscAction act
 Parsek sees a player activation. Everything else is `strategy-career`'s, ProgressTracking included.
 Drift-gated by `--check` and `harness/lib/test_lab_pad_career.py`.
 
+## logi-cargo-career (GAME Mode = CAREER, 1 VESSEL PRELAUNCH, derived from fresh-career + logi-cargo-pad)
+
+The H73 host: H38's `Logistics` rig in a career, so `RouteRewindRedeliveryInGameTest`'s
+funds-flat assertion runs with a live `Funding` singleton (every other Logistics host is
+SANDBOX and skips it). `harness/tools/build_logi_cargo_career.py` runs
+`build_career_pad_craft`'s splice shape over a copy of `fresh-career` (funds 500,000, science
+100, reputation 0, every facility at level 0, an EMPTY ProgressTracking tree): its empty
+`FLIGHTSTATE` replaced by `logi-cargo-pad`'s minus the `Ast. VPA-167` asteroid (`activeVessel`
+1 -> 0; the `Logi Cargo Rig` VESSEL byte for byte, pid 2200110038, `type = Probe`, PRELAUNCH,
+UT 25.26), the donor's ParsekScenario node inserted with its one `MILESTONE_STATE` row excised
+(the `lab-lko-science` precedent), and the 29 `Tech` nodes of `build_lab_lko_science.TECH_NODES`
+added `state = Available` with the science pool left at 100 (granted, not bought; the same set
+`lab-pad-career` carries). The rig is uncrewed, so the ROSTER is `fresh-career`'s untouched, and
+`build_career_pad_craft.build()` (Ship-only, crew swap) is not reused as is. Tech: the rig's
+`liquidEngine2` (basicRocketry), `fuelTank` (advRocketry), `smallCargoContainer` and the stored
+`evaRepairKit` (spaceExploration) and `FuelCell` (electrics) are unlocked; TECH_NODES is the only
+committed ancestor-closed set holding those four nodes (no committed file carries the tree's
+Parent entries), so the whole closure is granted rather than a guessed subset.
+`probeCoreOcto2.v2`, `cargoContainer` and `evaScienceKit` stay UNMAPPED and unresearched: their
+nodes need a read of the automation instance's `GameData/ModuleManager.ConfigCache` on the
+operator PC. A persisted vessel loads regardless (see `career-pad-craft`). Career PARAMETERS
+differ from the SANDBOX donor in ways a Logistics cell could see: `ResourceTransferObeyCrossfeed
+= True` (donor False) and every facility at level 0 (a sandbox has every facility at its top
+level). `AddOns/` is the base's; the donor's
+`Ships/` is not copied. Drift-gated by `--check` and `harness/lib/test_logi_cargo_career.py`.
+
 ## lab-lko-relay (GAME Mode = SCIENCE_SANDBOX, 1 VESSEL ORBITING, derived from lab-lko-science)
 
 Same builder: `lab-lko-science`'s orbiting vessel (about 107 x 92 km, inclination 0.09 deg)

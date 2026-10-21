@@ -1,0 +1,131 @@
+schema = 1
+id = "H73-logistics-isolated-career"
+tier = "nightly"
+# H38's FLIGHT ON A CAREER SAVE, AND THE ONLY LOGISTICS LANE WITH A LIVE FUNDING POOL.
+#
+# WHY IT EXISTS. `RouteRewindRedeliveryInGameTest.RouteRedeliversAfterRewindPastDelivery`
+# asserts that career funds stay flat across a route delivery, a rewind past it and the
+# re-delivery (supply routes carry no money, todo LOGISTICS-WITHOUT-MONEY phase 1). The
+# assertion is gated on `Funding.Instance != null`, and every host that runs the category
+# isolated - H38 (`logi-cargo-pad`), H39 (`bdock-recorded`), H40 (`depot-route-recorded`),
+# RVR-6 (`rover-relay-recorded`) - is SANDBOX, so on all four the cell logs
+#   RewindRedeliver_InGame: no Funding singleton (Sandbox) - funds-unchanged assertion
+#   skipped; tank re-delivery + ledger-row assertions still ran
+# and the funds half has run on no lane. This spec flies H38's exact driver over
+# `logi-cargo-career`, which is `fresh-career` (CAREER, funds 500,000, science 100,
+# reputation 0, every facility at level 0) carrying H38's own `Logi Cargo Rig`, byte for
+# byte, uncrewed and PRELAUNCH (builder `harness/tools/build_logi_cargo_career.py`,
+# drift gate `harness/lib/test_logi_cargo_career.py`). The rig is the host H38 measured
+# the redelivery cell PASSING on (it is not in H38's skip roster: the pad rig unpacks
+# after the cell's own unpack wait and carries the LiquidFuel tank the cell delivers
+# into), so the only variable moved is the game mode (with the career PARAMETERS and
+# facility levels it brings, named under the prediction below).
+#
+# WHAT IT PROVES, in the two cell tokens below:
+#   REQUIRED  `RewindRedeliver_InGame: funds unchanged net=` - the Info line the cell
+#             writes ONLY on the career path and ONLY after both funds assertions held
+#             (cycle 1 and deliver + rewind + redeliver; RouteRewindRedeliveryInGameTest.cs
+#             `if (hasFunding) { ... InGameAssert.IsTrue(net within FundsTolerance) ...
+#             ParsekLog.Info(...funds unchanged net=...) }`). The amount is NOT pinned:
+#             the cell's own tolerance is the gate, and the line exists to prove the
+#             branch ran.
+#   REQUIRED  `PASSED: RouteRewindRedeliveryInGameTest.RouteRedeliversAfterRewindPastDelivery`
+#             - the runner's per-test line (Verbose, hence verboseLogging below), so a
+#             cell that self-skipped or failed AFTER the funds line still reds.
+#   FORBIDDEN `RewindRedeliver_InGame: no Funding singleton \(Sandbox\)` - the else
+#             branch, i.e. a host that silently stopped being a career.
+#
+# NEVER FLOWN - INTERIM PIN. `total=47` is the attribute derivation
+# (hlib.derive_batch_tally(decls, "Logistics", "FLIGHT", isolated=True): total 47,
+# scene-skipped 1, executable 46; the ordinary filter executes 8, and 38 cells are
+# restore-after-run). The split is a regex class until the first census: `passed=` is a
+# FLOOR OF 9, above the ordinary path's executable ceiling of 8 (the H38 move, swept by
+# IsolatedBatchWiringGroupTests.test_an_interim_pin_still_rejects_the_ordinary_paths_
+# executable_ceiling), `failed=0` stays a literal so a finding reds, and `skipped=` is
+# free. PREDICTION, written to be refuted, not pinned: H38's split `passed=39 failed=0
+# skipped=8` with the same skip roster (every one of its seven run-time skips is a
+# missing RECORDED subject or a drill rig, none a game-mode property). What could move
+# it in career, all fixture facts rather than guesses: `ResourceTransferObeyCrossfeed =
+# True` (SANDBOX donor: False), every facility at level 0 (a sandbox has them all at
+# the top level), and the career's live Funding / R&D / Reputation singletons, which
+# some cells read. The first census
+# replaces the pin whole, declares `skipped=` in MEASURED_SKIPPED if it is above the
+# attribute floor of 1, and removes the id from INTERIM_PIN_IDS in the same commit.
+#
+# FAST-LANE CHECKLIST (harness/README.md -> "Authoring a fast lane"):
+#   1 Reuse a flight: NOT APPLIED. The only flight this could ride is H38's, and the
+#     variable this lane exists to move is H38's FIXTURE: a funds-flat assertion needs a
+#     Funding singleton, which only a career save creates, so no token added to a
+#     sandbox flight can ever see it. Moving H38 itself to career would throw away its
+#     measured, whole-pinned sandbox census (39/0/8), which HV-1 and the recorded-host
+#     lanes are read against, and the sandbox path of every cell. No existing career
+#     flight runs `Logistics` at all.
+#   2 No idle waits: applied by construction; the driver has none.
+#   3 Dwell / hold lengths: not applicable, nothing dwells.
+#   4 Burns at 1x / 5 b5 coasts: not applicable, nothing flies.
+#   6 Fail fast: the batch ends itself; `[retry] policy = "once"` as H38, because an
+#     isolated batch's restores are the nondeterministic part a retry is for.
+#   7 Tight count windows: the recordings count is pinned to exactly 0 (nothing records).
+#   8 Tier by measured cost: nightly, as H38 (measured wall 250 s, far under the
+#     1,800 s longhaul floor).
+#   9 flight_efficiency.py: owed on the first green flight.
+description = "Run the in-game Logistics category through the ISOLATED batch entry point over logi-cargo-career, H38's Logi Cargo Rig in a CAREER save, so RouteRewindRedeliveryInGameTest's funds-flat assertion runs with a live Funding singleton instead of skipping as it does on every Sandbox host. AUTHORED 2026-10-21, NEVER FLOWN: interim tally pin, the career funds-check line required and the Sandbox skip line forbidden."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "logistics", "career", "H73", "never-flown", "reading-iteration"]
+
+[fixture]
+# Same rig as H38, byte for byte, in a career save; injectedRecordings = "none" for
+# H38's measured reason (every restore-flagged cell builds and reaps its own state).
+saveTemplate = "fixtures/saves/logi-cargo-career"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# H38's steps, unchanged. No kill triple: the fixture records nothing.
+# verboseLogging=true is REQUIRED: the per-test PASSED line pinned below is Verbose.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Logistics", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE (the H35 rule): only values a REQUIRED token reds on. D8 `funds`
+# rests on the career funds-check line plus the cell's PASSED line; D14 `career` is
+# pinned to the fixture's `Mode = CAREER` by test_d14_game_mode.py. H38's D10 rows are
+# NOT claimed while the tally is interim: an interim `passed=` cannot say which cells
+# passed.
+D8 = ["funds"]
+D14 = ["career", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required  = [
+  "runtests start category=Logistics isolated=true",
+  "Using batch baseline slot .* for 38 restore-after-run test\\(s\\)",
+  "BATCH_COMPLETE v1 total=47 passed=(?:9|[1-9][0-9]+) failed=0 skipped=[0-9]+ category=Logistics scene=FLIGHT",
+  "RewindRedeliver_InGame: funds unchanged net=",
+  "PASSED: RouteRewindRedeliveryInGameTest\\.RouteRedeliversAfterRewindPastDelivery",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "RewindRedeliver_InGame: no Funding singleton \\(Sandbox\\)",
+]
+
+[runtime]
+# H38's deferred worst case (LoadGame 660 + RunTests 660 = 1320), same batch.
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
