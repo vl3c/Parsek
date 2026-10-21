@@ -228,7 +228,7 @@ can re-retire credits or un-retire debits; (O6) any post-rewind flight can inser
 committed spend (contract fail or deadline fail, cancel / decline penalties, death reputation,
 strategy converter debits, a destruction that makes a later committed repair chargeable, an early
 fail that zeroes a later committed completion); (O7) `CanAffordFundsSpending` has no production
-caller and the "keep what you earned" floor can hold the funds counter above the reservation.
+caller outside the route dispatch gate (PR #2159, removed by LOGISTICS-WITHOUT-MONEY phase 1) and the "keep what you earned" floor can hold the funds counter above the reservation.
 Coop retirements (a transient dependent's ledger effects, a truncation's tail rows) are the same
 shape (`design-coop-async-multiplayer.md` section 7.10). Candidate shapes in the research doc,
 section 7.
@@ -286,8 +286,8 @@ earlier that day (Model H, refund rows, gain cycles, the cost-only credit cap an
 banked prepaid cycles).
 Plan: `docs/dev/plans/logistics-without-money.md`. Phase 1 removes the money (dispatch charge, live
 delivery debit, recovery credit and its pending marker, the funds gate and WaitingForFunds, the cost
-calculators and every cost line in the Logistics window); old route money rows stay as committed funds
-history. Phase 2 moves the remaining route rows out of the ledger into a route-owned event log
+calculators and every cost line in the Logistics window); route money rows left in an old dev
+ledger are dropped at load (no backward compatibility before public launch). Phase 2 moves the remaining route rows out of the ledger into a route-owned event log
 persisted with the route store. Kept: the endpoint chain hold and `RetiredRouteCargoStore`.
 Supersedes ROUTE-DISPATCH-COST-BASIS-RESIDUALS once phase 1 lands.
 
@@ -9015,7 +9015,7 @@ money is greyed with the reason, as science already is. The fix ships with that 
 
 - P15: the funds "Reserved" / "Short by" readout (`CurrencyReservationOverlay.cs:184`,
   `:213`) is advisory only. `LedgerOrchestrator.CanAffordFundsSpending:6500` has no
-  production caller, and `Patches/FacilityUpgradePatch.cs:36` states that funds
+  production caller (the route dispatch gate of PR #2159 used it until LOGISTICS-WITHOUT-MONEY phase 1), and `Patches/FacilityUpgradePatch.cs:36` states that funds
   affordability is deliberately unchecked. Science IS enforced
   (`Patches/TechResearchPatch.cs:78`), so the two currencies behave differently behind
   identical-looking tooltips and the player finds out when the drawdown clamp fires.
@@ -11144,7 +11144,7 @@ either `outcome=no-external-coupling candidates=0` (which CONFIRMS this entry ou
 the walk ran and found nothing) or a `Captured` line (which refutes it). That lane does not
 exist yet and is the cheapest remaining step here.
 
-## ROUTE-DISPATCH-COST-BASIS-RESIDUALS: what the transport-subset + ghost-surface costing fix still leaves open [FOUND 2026-09-02 by the pre-merge correctness pass on PR #1597. NONE blocking - every item is a strict improvement over the pre-#1597 state, where the same routes dispatched for FREE - but each names a real follow-up. REPORT-ONLY, fix shapes recorded]
+## ROUTE-DISPATCH-COST-BASIS-RESIDUALS: what the transport-subset + ghost-surface costing fix still leaves open [SUPERSEDED 2026-10-21 by LOGISTICS-WITHOUT-MONEY phase 1: routes carry no money. FOUND 2026-09-02 by the pre-merge correctness pass on PR #1597. NONE blocking - every item is a strict improvement over the pre-#1597 state, where the same routes dispatched for FREE - but each names a real follow-up. REPORT-ONLY, fix shapes recorded]
 
 1. **The two snapshot surfaces are not the same instant.** `GhostVisualSnapshot` is captured at
    recording START (`FlightRecorder` start-state node); `VesselSnapshot` at STOP. Preferring
