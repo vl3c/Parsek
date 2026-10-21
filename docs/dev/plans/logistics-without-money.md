@@ -46,7 +46,8 @@ Production (about 30 files, roughly -2,000 / +150 lines):
 5. Calculators and UI: delete `RouteFundsCalculator.cs`, `RouteRunCostCalculator.cs`,
    `LogisticsCostPresentation.cs`, the Logistics window cost text (candidate cell, route detail
    "Cost/run", create dialog, `"KSC (funds)"` labels, funds tooltips), `RouteCreationFormatters` cost
-   block and the ", cost N funds" suffix in `RouteHistoryBuilder`. Keep `Route.CreationTreeRecordingIds`
+   block and the funds half of `RouteHistoryBuilder.SentCostSuffix` (a vessel-origin cargo cost such as
+   ", cost 12.0 LiquidFuel" stays). Keep `Route.CreationTreeRecordingIds`
    (map route lines read it).
 6. Recalculation: remove the route arms of `FundsModule` (dispatch, `ComputeTotalSpendings`, the two
    process methods, cashflow projection), `RecalculationEngine.IsEarningType` / `IsSpendingType`,
@@ -54,27 +55,48 @@ Production (about 30 files, roughly -2,000 / +150 lines):
    money observers.
 
 Old saves (the shape decisions; each needs a test):
-- Enum ids 24 (`RouteCargoDebited`) and 28 (`RouteRecoveryCredited`) stay defined. Deleting them would
-  read old rows as `Type = 0` (`ScienceEarning`).
-- Old route money rows already in a ledger are past spending and earning: they stay as committed
-  funds history and are no longer retired by route retirement, so loading or rewinding never moves
-  past funds (ledger safety: never retroactively reduce earned value). FundsModule keeps reading the
-  legacy rows for that; only new writes stop. VERIFY in review: whether keeping the legacy readers is
-  smaller than a one-time load conversion of those rows into plain funds rows.
-- A legacy owed credit (an old save written between a dispatch and its next crossing) is paid once at
-  load as a plain committed funds row, then the marker key is ignored. VERIFY the amount source.
+- One-time conversion at load, before the first recalculation: every legacy route money row becomes
+  an ordinary Space Center funds row with the same UT, amount and ActionId. A `RouteRecoveryCredited`
+  row becomes a funds earning; a `RouteCargoDebited` row with a non-zero `RouteKscFundsCost` (a
+  Space Center charge) becomes a funds spending. A vessel-origin `RouteCargoDebited` row (cost 0) is a
+  physical row and stays a route row until phase 2. The funds at every UT are unchanged by the
+  conversion (test: recalculate one legacy Career ledger before and after; the totals match).
+- After conversion those rows follow every rule an ordinary Space Center funds row follows, and no
+  route rule: a go-back rewind keeps them (D2), an F9 to an older save drops the ones after it (the
+  quickload rule), a stock revert treats them like any untagged row (the open O2 item). Accepted cost:
+  a rewind to before the upgrade keeps a legacy cycle's charge while the rewind restores its cargo,
+  once, for cycles flown before this change.
+- The conversion runs when a ledger still holds type 24 / 28 money rows, so it is idempotent: a
+  converted ledger has none. With PR #2155 an F9 loads the save's own ledger, which converts again
+  from that save's state, never on top of an earlier conversion.
+- A legacy owed credit (a save written between a dispatch and its next crossing) is paid by the same
+  conversion as a funds earning at the marker's dispatch UT, once per route. Amount: the route's latest
+  legacy `RouteRecoveryCredited` amount (the credit is a constant per route by design); only when the
+  marker's `RouteDispatched` row is in the ledger (today's orphan guard); none when the route has no
+  earlier credit row (logged). The marker keys are never read after the conversion, so
+  `RouteLoadReconcile.RestoreLoopPositionFromSave` stops copying them.
+- With the rows converted, the funds code needs no route arms: step 6 removes them in the same PR.
+  `routeKscFundsCost` is still READ by the conversion and never written again; enum ids 24 and 28 stay
+  defined (deleting them would read old rows as `Type = 0`, `ScienceEarning`) and stay excluded in
+  `SupersedeCommit.IsWorldStateChangingRecordingAction` (a removed case falls through to true).
 - `status = WaitingForFunds` reads as `Active`; `lastHoldKind = FundsShort` and old `RouteHeld` rows
   with that kind keep loading (keep the enum member or map it on read).
-- Codec keys `kscDispatchFundsCost`, `pendingRecoveryCreditCycleId`, `pendingRecoveryCreditDispatchUT`,
-  `routeKscFundsCost`: stop writing; read only where the legacy rules above need them.
+- Codec keys `kscDispatchFundsCost`, `pendingRecoveryCreditCycleId`, `pendingRecoveryCreditDispatchUT`:
+  stop writing; read only by the conversion.
 
 Tests: delete the money-only files (RouteRecoveryCreditTests, RouteRunCostCalculatorTests,
 RouteFundsCalculatorTests, RouteRecoveryLandingHarnessTests, LogisticsCostPresentationTests,
 RouteDispatchReservationGateTests); drop `IsCareer` / `KscFundsAvailable` from the environment fakes
 (about 25 files); add the old-save cells above and a Space Center route dispatching free in Career.
 In-game tests: edit money assertions only; adding or removing an `[InGameTest]` moves the per-category
-counts harness specs pin, so prefer edits. Harness: retire RVR-4 (career cost), RVR-17 (funds short)
-and GUI-23 (funds-short hold census), the oracle's route-funds carve-out and IR-5's `careerKsc` token.
+counts harness specs pin, so prefer edits (RouteRewindRedeliveryInGameTest `KscDispatchFundsCost`,
+LogisticsShuttleRuntimeTests, RouteLifecycleRuntimeTests FundsShort). Harness: retire RVR-4 (career
+cost), RVR-17 (funds short) and GUI-23 (funds-short hold census) with what only they use: the
+`rover-route-career` fixture and `harness/tools/build_rover_route_career.py`,
+`test_build_rover_route_career.py`, their rows in `test_hlib.py` and `test_savepatch.py`, the funds
+staging in `savepatch.py`, and the lane names in autotest-status, autotest-roadmap, design-gui-inventory
+and design-gui-mirror (test_doc_spec_sync reads docs/dev); plus the oracle's route-funds carve-out and
+IR-5's `careerKsc` token.
 
 Docs in the same PR: logistics design (section 2.2 item 5 and the money sections listed in the
 inventory), game-actions design 1.5 table row, 3.11, 3.13, user guide line on Career route charges,
@@ -95,10 +117,15 @@ quickload reads the save's own log.
 - Delete `RouteModule`, the route fields and codec of `GameAction` (ids stay reserved), the route arms
   of TimelineBuilder, `ParsekScenario.Trim`, `SupersedeCommit`, `LedgerLoadMigration`, and the
   `RouteOrchestrator` entry in the ERS/ELS allowlist.
-- Old saves: a one-time load step moves existing ledger route rows into the route logs.
+- Old saves: a one-time load step moves the remaining ledger route rows (none of them money after
+  phase 1's conversion) into the route logs.
 Rough size: +1,000 / -1,500 production lines, about 3,000 test lines touched, about 75 files.
 
 ## Settled by the rulings
+
+- Recovering a vessel that carries route cargo pays its funds once, by hand (accepted with the
+  13:39Z ruling). No route cycle pays anything, so a run that ends in a recovery stays a valid route:
+  V considered blocking such routes and dropped it, since that is the ordinary Space Center shuttle.
 
 - Route cargo a committed flight later used (the open L3.8 case): with Space Center routes free, the
   money half is moot; a depot route's duplicated cargo after such a rewind is free cargo of the same
