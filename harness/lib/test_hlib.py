@@ -5033,6 +5033,12 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # 47 as its six siblings; the split is MEASURED at 38/9 (see
         # `MEASURED_SKIPPED`) and is no longer interim.
         "RVR-6-rover-relay-logistics-host": ("Logistics", 47),
+        # H38's rig and driver on a CAREER save (`logi-cargo-career`), the only
+        # Logistics member with a live Funding singleton, so the redelivery cell's
+        # funds-flat assertion runs instead of logging the Sandbox skip. Same
+        # (category, scene), so the same attribute derivation; the split is MEASURED
+        # at 39/0/8, H38's, off `2026-10-21_1739` (see MEASURED_SKIPPED).
+        "H73-logistics-isolated-career": ("Logistics", 47),
         # ROADMAP R6, ISOLATED HALF - SEVEN LANES AUTHORED 2026-09-06, SIX FLOWN GREEN
         # THE SAME DAY. They are the rest of the population R5 unlocked and nothing had
         # driven: one spec per category, each over a host chosen by that category's own
@@ -5140,6 +5146,9 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                                  # for every Logistics member whatever host it
                                  # boots.
                                  "RVR-6-rover-relay-logistics-host",
+                                 # H73: H38's host moved into a career save,
+                                 # same 8-vs-46 arithmetic.
+                                 "H73-logistics-isolated-career",
                                  # H65 is the R6 wave's ONLY member here, and the
                                  # arithmetic is the narrowest a non-exempt member has
                                  # carried. `QuickloadResume` has three FLIGHT-scoped
@@ -5607,6 +5616,12 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # was REFUTED TWICE, which is what writing a prediction down is for. Both refutations
     # are recorded in its MEASURED_SKIPPED entry below and in the spec's own header.
     #
+    # BRIEFLY NON-EMPTY ON 2026-10-21 for `H73-logistics-isolated-career`, H38's driver
+    # and rig on the career fixture `logi-cargo-career`, authored with H38's interim
+    # spelling (`passed=` a floor of 9, `skipped=` free) and H38's 39/0/8 written as the
+    # prediction. Its first flight, `2026-10-21_1739` (PASS attempt 1), measured exactly
+    # that split, so the spec pins it whole, its `skipped=8` is declared in
+    # MEASURED_SKIPPED below, and the id left this set in the same commit.
     INTERIM_PIN_IDS: set = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
@@ -5645,6 +5660,12 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # byRequiredScene=SPACECENTER:1` are quoted in full in the spec's header
         # roster. Re-measure, never re-guess: all seven are fixture properties.
         "H38-logistics-isolated": 8,
+        # H73 (`logi-cargo-career`, H38's rig in a CAREER save): 1 attribute-forced + 7
+        # run-time, MEASURED off `2026-10-21_1739` (PASS attempt 1) and identical to
+        # H38's roster cell for cell, so the game mode moved no skip. The fixture gained
+        # three research nodes after that flight (no vessel or pool change); one
+        # confirming flight is owed, and it re-measures rather than re-guesses.
+        "H73-logistics-isolated-career": 8,
         # H39 (`bdock-recorded`): 1 attribute-forced + 12 run-time. MEASURED off census
         # 3, `2026-08-28_2119`. The twelve decompose as 3 residual missing-recorded-
         # subject cells (the docked-origin producer, and the active-as-TARGET and
