@@ -1,7 +1,8 @@
-# Static fields of the seven save-scoped classes that ParsekScenario.ResetSaveScopedSessionState
+# Static fields of the save-scoped classes that ParsekScenario.ResetSaveScopedSessionState
 # deliberately leaves alone (design-load-restores-the-save.md section 4.2). Every other static field
 # of RecordingStore, GameStateStore, MilestoneStore, GameStateRecorder, LedgerOrchestrator,
-# KspStatePatcher and ParsekScenario must be reset by that helper; SaveScopedSessionResetTests
+# KspStatePatcher, ParsekScenario, InertRecordingTrees, RewindContext, RewindInvokeContext and
+# RouteRunPrompt must be reset by that helper; SaveScopedSessionResetTests
 # proves each one (set, reset, read) and fails on a field that is on neither side.
 # Format: one `Type.field reason` per line; auto-property backing fields use the property name.
 RecordingStore.ApplicationIsPlayingForTesting test seam

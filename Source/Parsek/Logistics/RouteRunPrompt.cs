@@ -210,6 +210,19 @@ namespace Parsek.Logistics
                 ClearPendingPrompt(reason);
         }
 
+        /// <summary>
+        /// Cold-load reset (GC1-SAVE-SCOPED-STATE-LEFTOVERS): the banner names a tree of the save
+        /// that was loaded before, so it never survives into another load's career.
+        /// </summary>
+        internal static void ResetForSaveLoad(string reason)
+        {
+            if (PendingPromptTreeId != null || PendingPromptLabel != null)
+                ParsekLog.Info(Tag,
+                    $"RouteRunPrompt cleared tree={PendingPromptTreeId ?? "<null>"} reason={reason ?? "<none>"}");
+            PendingPromptTreeId = null;
+            PendingPromptLabel = null;
+        }
+
         /// <summary>Test seam: reset the pending-prompt statics.</summary>
         internal static void ResetForTesting()
         {

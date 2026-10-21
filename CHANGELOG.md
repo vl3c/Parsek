@@ -53,11 +53,17 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Loading a save no longer stretches a vessel's recording that ended before the save.** A vessel
+  destroyed, or one that split, before the save kept playing as if it lasted until the load moment.
+  Its recording now ends where it really ended. (QUICKLOAD-TRIM-STAMPS-CUTOFF-AS-EARLIER-END)
 - **A station a later flight docks with can't be recovered early.** After a rewind, the Tracking
   Station greys Recover and Delete, and the Space Center greys Recover, on a vessel a recorded later
   flight still docks with, so it can't come back as a duplicate and be paid for twice. (GC-2)
 - **The vessel-cycle keys skip ghosts.** Pressing `[` or `]` near a replaying ghost no longer makes
   its map marker the active vessel. (GC-4)
+- **Loading another save starts clean after a rewind that never finished.** If a rewind or a
+  Re-Fly reload was interrupted, loading a different save no longer carries the first career's crew,
+  groups or funds into it, and the Supply Route prompt of the first save no longer shows. (GC-1)
 - **Recordings made by a different Parsek version are kept, not lost.** Parsek cannot play them,
   but it now keeps them unchanged in the save with their rewind points and the funds, science and
   reputation they earned, and tells you how many it set aside when the save loads. (GC-3)
