@@ -193,7 +193,25 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Resets all state without logging. For unit tests only.
+        /// Cold-load reset (GC1-SAVE-SCOPED-STATE-LEFTOVERS): a Cold load is never a rewind's own
+        /// load (<c>LoadReconcilePolicy.ClassifyEarly</c> classifies a rewinding load PlainRewind
+        /// unless <c>initialLoadDone</c> is false, which no rewind initiator produces), so rewind
+        /// state still set here is left over from a rewind whose reload never settled. Clears every
+        /// field; Warns when it was live.
+        /// </summary>
+        internal static void ResetForSaveLoad(string reason)
+        {
+            bool stale = IsRewinding || RewindResourceAdjustmentInProgress;
+            if (stale)
+                ParsekLog.Warn("RewindContext",
+                    $"Cold load cleared stale rewind state: isRewinding={IsRewinding} " +
+                    $"adjustmentInProgress={RewindResourceAdjustmentInProgress} rewindUT={RewindUT:F1} " +
+                    $"reason={reason ?? "unspecified"}");
+            ResetForTesting();
+        }
+
+        /// <summary>
+        /// Resets all state without logging. Unit tests, and the body of <see cref="ResetForSaveLoad"/>.
         /// </summary>
         internal static void ResetForTesting()
         {

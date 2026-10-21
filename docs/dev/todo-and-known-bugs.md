@@ -317,7 +317,7 @@ committed, skips the splice, and restores the held-back events, so an earning ma
 resumed spawned-vessel flight survives F5 / F9 and reaches the ledger at the merge. Lane QL-13 to
 add. Residue filed as ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE.
 
-## ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE: F5 inside a committed-tree restore attempt that resumed its recording in place loses the attempt's held-back earnings on F9 [FILED 2026-10-20 while closing design-load-restores-the-save.md open question 3. OPEN]
+## ~~ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE: F5 inside a committed-tree restore attempt that resumed its recording in place loses the attempt's held-back earnings on F9~~ [FILED 2026-10-20 while closing design-load-restores-the-save.md open question 3. Was open. FIXED 2026-10-21 (the held-back earnings) on branch `claude/project-thread-hvhou8`. xUnit; lane QL-13 still to add]
 
 When the flight-ready committed-tree restore resumes a committed recording in place (the live
 vessel's parts are covered by the recording's snapshot, so no new segment is made) and the
@@ -333,6 +333,9 @@ between the resume and the F5 is not in the save either. Fix direction: hold the
 and restore them when `TryTakeCommittedTreeForSpawnedVesselRestore` arms the same tree id in
 that flight (drop them otherwise), or write the attempt's trajectory into the save so the
 active node is never skipped. Seen in code only; no lane yet.
+
+Fix (the first direction above): when the cold load restores no active tree, no attempt is armed and the save holds the attempt's committed tree, `ParsekScenario.ApplySaveAttemptEventsAfterActiveTreeRestore` holds the save's `ATTEMPT_EVENTS` (`HoldForFlightRestore`, `[Scenario] OnLoad: held the save's ATTEMPT_EVENTS for the flight's committed-tree restore`). `ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore` resolves the hold right after it arms the attempt: the same tree id puts back into memory only the events the fresh arm would itself keep off the file (`Restored the held ATTEMPT_EVENTS into memory only on the flight's re-arm ... droppedNotHeldByTheArm=N`; an event of a recording the attempt made after the resume, gone with the missing active tree, is dropped with its accept's contract snapshot, since the next save would otherwise write it outside a merge), any other tree drops them, and the next OnLoad drops a hold no arm took. The #866 rule is kept: the events stay off the save's file and reach the ledger only through the attempt's merge. Still open: the trajectory flown between the resume and the F5 is not in the save (the overlap skip), so the resumed recording has a gap there. Cells: `ColdLoadRestoreAttemptRearmTests.ColdLoad_InPlaceAttempt_*` (red with the hold disabled), the two decision tables and the wiring cell.
+
 
 ## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. RULED 2026-10-21 (owner interview, every path); OPEN for the fixes; same invariant as section 2.12]
 
@@ -1115,7 +1118,7 @@ crossing line, the re-patch line with `PatchScience: 111.6 -> 106.6`, both pools
 applies the reached rows`, the hire line and the contract replacement, and forbids a guard clamp
 after the load.
 
-## QL-KSC-ROWS-CROSSED-ACROSS-A-SCENE-CHANGE: committed KSC rows reached while away from the Space Center may still be clamped [FILED 2026-10-16 from the QL1-KSC-CLOCK-CROSSING fix, reasoned from code, not measured. OPEN, product, medium]
+## ~~QL-KSC-ROWS-CROSSED-ACROSS-A-SCENE-CHANGE: committed KSC rows reached while away from the Space Center may still be clamped~~ [FILED 2026-10-16 from the QL1-KSC-CLOCK-CROSSING fix, reasoned from code, not measured. Was open. CLOSED 2026-10-21: measured, not a defect on the reachable route (QL-14 green). product, medium]
 
 The crossing fix covers the Space Center and Tracking Station clock cursor only. A player who loads
 the earlier quicksave, launches, and flies past the rows' UT reaches them in a scene with no cursor;
@@ -1126,6 +1129,10 @@ an ordinary scene change (refined load kind `InSessionOther`, where the live poo
 apply the same crossing rule in that load's recalc. A smaller case of the same shape: a non-cursor recalc
 at cutoff = now (a live KSC event) that runs in the frame the clock first passes a row recaptures
 the snapshot without it, so the cursor finds nothing crossed and the guard clamps.
+
+Update 2026-10-21: since PR #2155 a save-file load restores the save's own ledger, so no load leaves Space Center rows in the future any more; a Rewind-to-Launch still does (ruling D2). Lane `QL-14-ksc-rows-crossed-in-flight` (authored, never flown) is the reading run on that route: L8's host, purchases at ~1000, Rewind-to-Launch, an unrecorded launch warped past the rows, back to the Space Center. It gates the fixed behavior, so a red reading confirms this entry.
+
+Closed 2026-10-21: QL-14 flew green on its first flight (`2026-10-21_1703`, PR #2164's head 411ccc1, V's PC). After the rewind the in-session load cleared the snapshot (`rows=13`), the flight warped past every row, and on the return `Clock-crossing reached committed-future rows: crossed=13, cutoff=1097.588, hires=1` and `PromoteReachedCommittedHires: rows=1 promoted=1` fired, with no `GUARDED` clamp anywhere in the log and the rewind-aware ledger oracle exact (every row charged once). The predicted clamp does not happen on the one route that still leaves Space Center rows in the future. The smaller same-frame case above (a non-cursor recalc in the frame the clock first passes a row) was not exercised and stays reasoned only; refile it if a flight ever shows the clamp.
 
 ## ~~ADOPTION-STAMP-READ-AS-UNIQUE-SPAWN-PID: an adoption stamp (the craft-baked pid) matched a relaunch of the same craft as the older launch's spawned vessel, and the #226 replay bypass was not checked against launch identity~~ [FILED 2026-10-15 from a launch-identity audit, verified by code read, not reproduced. FIXED 2026-10-15, branch `claude/project-thread-1twzdw-adopt-identity` (PR #2107); LIVE-PROVEN 2026-10-15 on the owner's PC before merge: QL-4c, QL-4b, VN-6, CI-6, CI-7 and H64 all PASS. product]
 
@@ -3027,7 +3034,7 @@ traced end to end; each is a question, not a defect.
 - [x] ~~GC4-VESSEL-CYCLE-ACTIVATES-GHOST-MARKER: inside physics range a ghost's map ProtoVessel is loaded (`GhostVesselLoadedInertPatch`), and decompiled stock `VesselSwitching.Update` (KSP 1.12.5) collects every loaded vessel that is not the active one, not a `DeployedSciencePart` and not `vesselType <= SpaceObject` for the `[` / `]` keys and switches with `FlightGlobals.ForceSetActiveVessel`, which nothing patched (`GhostVesselSwitchPatch` covers only `SetActiveVessel(Vessel)`, and the cycle patch acts only during a Re-Fly). The player could make a one-part ghost marker the active vessel, and stock then evaluates progress nodes and contract parameters on it (inferred from stock reading the active vessel).~~ Fix (2026-10-21, branch `claude/project-thread-vxwms3`): the `VesselSwitching.Update` prefix (`VesselCycleReFlySwitchPatch`, until now active only during a Re-Fly) drops ghost map markers from stock's candidate list on every press (`FilterCandidates`) and switches to the next real candidate itself, because stock ignores `ForceSetActiveVessel`'s answer and runs `FlightInputHandler.ResumeVesselCtrlState` on the candidate anyway (copying its throttle and action groups onto the active vessel); `GhostVesselForceSwitchPatch` (`Patches/GhostVesselLoadPatch.cs`) also refuses `ForceSetActiveVessel` for a ghost map vessel as a backstop for any other caller. Tests: `GhostVesselForceSwitchPatchTests` (the force-switch cells red first). Not live-proven: no lane presses a cycle key near a loaded ghost marker.
 - [x] ~~GC3-SCHEMA-REJECTED-TREES-LOSE-EARNED-VALUE: a save whose committed trees carry another recording schema generation (older, or newer when an older build opens it) is rejected by design, but the rejection was not contained: the next save dropped the trees (`SaveTreeRecordings`), `Ledger.Reconcile` pruned every row tagged to their recordings (funds, science, reputation, milestones, contracts), `RewindPointReaper` reaped their rewind points, and the mission, group and load-time sweeps treated their ids as unknown, with no player notice.~~ Fixed 2026-10-21 (owner ruling "Keep them inert, untouched"). Fix: `InertRecordingTrees` holds a deep copy of each COMMITTED tree node the schema gate rejects in `LoadRecordingTrees` (the tree-level generation gate, or every recording rejected so nothing loaded; `ClassifySchemaRejection`), replaced on every `LoadRecordingTrees` and cleared by the cold save-scoped reset (in the `SaveScopedSessionResetTests` inventory). `SaveTreeRecordings` writes each node back verbatim after the committed trees (skipped, logged, when a committed tree has the same id). Its recording ids join `BuildKnownRecordingIds` / `BuildKnownRecordingIdsForCleanup` (ledger reconcile via `BuildValidRecordingIdsForKspLoad`, the load-time sweeps, `DiscardSidecarReap`); `IsReapEligible` reads a slot whose tip is inert as OPEN; the legacy old-side retirement sweep skips inert rows; `CollectParkedTreeIdsForMissionPrune` protects their missions; the group prune keeps their `recordingGroup` names; the file collector's memory set names their recordings, hashes and rewind saves; the route-candidate sweeps (`RouteStore.SweepStaleDismissedCandidates` / `SweepStalePromptedCandidates`) keep their tree ids; and `LedgerOrchestrator.OnKspLoad` leaves their ids out of the old-save migration's trigger and scope (`ExcludeInertRecordingIds`), so a save holding only inert trees is not migrated. ELS filters tombstones only, so a kept row is credited. One screen message per cold load names the count (queued on `ParsekHarmony`'s settled-scene poster). A pass-through, not a migration: nothing reads an inert tree beyond those keys or writes to it. Active / pending nodes and partial rejection inside a current tree are unchanged. Tests: `InertRecordingTreesTests`. The ledger itself used to be rejected wholesale when its own `recordingSchemaGeneration` differed; fixed separately (GC3-LEDGER-GENERATION-GATE-DROPS-ROWS below): the ledger now loads whenever its version matches.
 - [x] ~~GC3-LEDGER-GENERATION-GATE-DROPS-ROWS: `Ledger.LoadFromNodeCore` rejected the whole ledger (the `GAME_STATE/LEDGER` node and `ledger.pgld`) when its `recordingSchemaGeneration` was not the current one and started empty; the next save wrote the empty ledger, so a save made entirely by another Parsek generation lost every earned row even though its trees are kept inert (GC3-SCHEMA-REJECTED-TREES-LOSE-EARNED-VALUE).~~ Fixed 2026-10-21 (owner ruling "Load it when its format matches"). Fix: the ledger's format is its `version` (`CurrentLedgerVersion`), which stays a hard gate; a ledger stamped with another recording schema generation (or none) loads, with one Info line naming the generation (a row carries no recording schema). The next save stamps the current generation. Not a migration: no row is rewritten. A build older than this one still rejects a ledger of another generation (owner, 2026-10-21: the mod is not public, so backward compatibility is not a goal). Tests: `LedgerTests.LoadFromFile_OtherSchemaGeneration_LoadsWhenTheVersionMatches`, `GameStateSaveNodeTests.LedgerNode_OtherRecordingSchemaGeneration_Loads`.
-- [ ] GC1-SAVE-SCOPED-STATE-LEFTOVERS: per-career state PR #2155's save-scoped reset (`ResetSaveScopedSessionState`) does not reset. (1) A stuck `RewindContext.IsRewinding` (a rewind reload that never settles, or `HandleRewindOnLoad` throwing before `EndRewind`) makes the next Cold load of ANOTHER save skip `LoadCrewAndGroupState` (crew replacements, kerbal slots, group hierarchy) and the ledger load, so save A's values carry into save B; it is cleared only later in `DiscardStalePendingState`. (2) `RouteRunPrompt.PendingPromptTreeId` survives into the next save (the Supply Route banner names A's mission; Dismiss writes A's tree id into B's dismissed set). (3) Low: `KerbalsModule` `lastKnownHold` / `pendingTombstonedRosterKerbals` and `RewindInvokeContext.Pending`. Fix after #2155 merges: reset them in its helper and add their classes to the `SaveScopedSessionResetTests` inventory; check first that a rewind's own OnLoad never classifies as a save-file Cold load.
+- [x] ~~GC1-SAVE-SCOPED-STATE-LEFTOVERS: per-career state PR #2155's save-scoped reset (`ResetSaveScopedSessionState`) does not reset. (1) A stuck `RewindContext.IsRewinding` (a rewind reload that never settles, or `HandleRewindOnLoad` throwing before `EndRewind`) makes the next Cold load of ANOTHER save skip `LoadCrewAndGroupState` (crew replacements, kerbal slots, group hierarchy) and the ledger load, so save A's values carry into save B; it is cleared only later in `DiscardStalePendingState`. (2) `RouteRunPrompt.PendingPromptTreeId` survives into the next save (the Supply Route banner names A's mission; Dismiss writes A's tree id into B's dismissed set). (3) Low: `KerbalsModule` `lastKnownHold` / `pendingTombstonedRosterKerbals` and `RewindInvokeContext.Pending`.~~ Fixed 2026-10-21. Fix: `ResetSaveScopedSessionState` (every Cold load) now clears `RewindContext` (`ResetForSaveLoad`, Warn when a rewind was still live), `RewindInvokeContext` (Warn when an invoke was still pending) and the Supply Route banner (`RouteRunPrompt.ResetForSaveLoad`); the three classes joined the `SaveScopedSessionResetTests` inventory gate, which learned to set float, nullable, struct and read-only-list statics. Checked first: a Cold load is never a rewind's or a Re-Fly invoke's own load (`LoadReconcilePolicy.ClassifyEarly` ranks both ahead of a save-file load, and neither initiator loads with `initialLoadDone` false). (3)'s `KerbalsModule` caches were already covered: the reset replaces the ledger modules (`LedgerOrchestrator.ResetForSaveLoad` + `Initialize` builds a new `KerbalsModule`). Not live-proven: a stuck rewind needs a reload that never settles.
 - [ ] GC-5: A floating EVA kerbal as a recording's terminal spawn after a rewind or warp (H20 covers a landed kerbal only).
 - [ ] GC-6: A held (reserved) kerbal dying aboard a live vessel that is not his reserved flight.
 - [x] ~~GC-7: Renaming a vessel mid-mission (no recorder hook): ghost label vs spawned name; a rewind across a recorded rename; a dock merge keeping the dominant vessel's name.~~ DONE 2026-10-13: code complete with phase 2b, live proof by lanes VN-1 .. VN-13 (all live-proven), the remainder below accepted as unit-test-only.
@@ -3563,7 +3570,7 @@ replayed booster.
 
 ---
 
-## QUICKLOAD-RESUMED-CLONE-EVENTS-ORPHANED: events tagged to a recording only the resumed clone created stay tagged to an id no tree holds [FILED 2026-10-06 from the QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE fix, verified by code read. OPEN, clutter, not data integrity]
+## ~~QUICKLOAD-RESUMED-CLONE-EVENTS-ORPHANED: events tagged to a recording only the resumed clone created stay tagged to an id no tree holds~~ [FILED 2026-10-06 from the QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE fix, verified by code read. Was open, clutter, not data integrity. MOOT 2026-10-21 (PR #2155): a save-file load (F9, the Load menu) is now a Cold load that resets memory and reads Parsek from the save, so nothing from after the save survives it]
 
 After an in-flight commit the recorder resumes on a same-id copy-on-write clone
 (`ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore`). A recording the clone creates after
@@ -3582,6 +3589,8 @@ Fix: not decided; either purge the popped clone's clone-only recording ids' even
 restore drops the clone, or let the reconcile take them from the popped tree. Red test: xUnit -
 a stashed clone with a clone-only recording and a tagged event, the restore, then assert the event
 is gone.
+
+Closed as moot: the cold reset forgets every in-memory event and the save's `GAME_STATE` node restores the events the save had, so events tagged to a recording only the popped clone held after the save are gone with it.
 
 ---
 
@@ -3880,7 +3889,7 @@ on it. The ordinary session (committed original still in memory) restores nothin
 
 ---
 
-## SESSION-RPS-OF-A-RESUMED-SESSIONS-ABANDONED-FUTURE-STAY-LISTED: an F9 back into a Re-Fly session keeps the rewind points that session made after the quicksave [FILED 2026-10-06 from the in-session carry review, PR #2038; verified by code read, not reproduced. OPEN, product; narrow]
+## ~~SESSION-RPS-OF-A-RESUMED-SESSIONS-ABANDONED-FUTURE-STAY-LISTED: an F9 back into a Re-Fly session keeps the rewind points that session made after the quicksave~~ [FILED 2026-10-06 from the in-session carry review, PR #2038; verified by code read, not reproduced. Was open, product; narrow. MOOT 2026-10-21 (PR #2155): a save-file load (F9, the Load menu) is now a Cold load that resets memory and reads Parsek from the save, so nothing from after the save survives it]
 
 The in-session owner partition keeps a session-scoped rewind point (`SessionProvisional` with a
 `CreatingSessionId`) from either side, and `LoadTimeSweep` spares it when the loaded marker is that
@@ -3897,6 +3906,8 @@ resumed pending tree, the committed trees) follows the save (dropped from the li
 per OQ-3); or the sweep spares a session point only when its branch point exists. Red test: the
 `InSessionStagedListsCarryTests` merged-session resume shape with a memory-only point stamped S
 and no branch point in the restored tree; the point must be gone after the load.
+
+Closed as moot: the save-file load drops the in-session handoff (`save-file-load`), so the rewind points come from the save, and a point the session made after the save is not listed. Its file stays on disk until the file collector finds no save naming it.
 
 ---
 
@@ -3964,7 +3975,7 @@ both 0 before the fix) and the ordinary exit (`restoredDetachedTree=false`).
 
 ---
 
-## QUICKLOAD-TRIM-STAMPS-CUTOFF-AS-EARLIER-END: the quickload resume trim moves the end of a recording that ended before the quicksave up to the quicksave's moment [FILED 2026-10-06 off the abandoned-future reconcile, PR #2025; verified in code, player effect to trace. OPEN, product]
+## ~~QUICKLOAD-TRIM-STAMPS-CUTOFF-AS-EARLIER-END: the quickload resume trim moves the end of a recording that ended before the quicksave up to the quicksave's moment~~ [FILED 2026-10-06 off the abandoned-future reconcile, PR #2025; verified in code, player effect to trace. Was open, product. FIXED 2026-10-21 on branch `claude/project-thread-hvhou8`. xUnit]
 
 `ParsekScenario.TrimRecordingPastUT` (`ParsekScenario.Trim.cs`, the `ExplicitEndUT` block) sets
 `ExplicitEndUT = cutoff` on every recording whose `ExplicitEndUT` is NaN or later than the cutoff,
@@ -3979,6 +3990,8 @@ Fix: to trace first - which members reach the trim with a NaN `ExplicitEndUT` an
 their `EndUT` (ghost end, spawn, the Missions rows); then stamp only recordings whose payload
 actually runs past the cutoff. Red test: `QuickloadResumeTests`, a member with samples to 150 and
 no explicit end, trimmed at 200, `EndUT` stays 150.
+
+Fix: `ParsekScenario.TrimRecordingPastUT` stamps the cutoff as the end only on a recording still open at the cutoff. A recording closed at or before it, by a terminal state or at a split it handed on at (`IsClosedBeforeCutoff`), keeps its own end; one whose explicit end runs past the cutoff is still cut to it. Open recordings keep the stamp: the resumed flight continues them from the cutoff. The `SurfacePos` note above is unchanged. Cells: `QuickloadResumeTests.TrimRecordingPastUT_ClosedBeforeTheCutoff_KeepsItsOwnEnd` (terminal and split, red before the fix), `..._OpenRecordingEndedBeforeTheCutoff_IsStampedAtTheCutoff`, `..._ClosedAfterTheCutoff_IsCutToTheCutoff`.
 
 ---
 
@@ -4083,7 +4096,7 @@ need a QL-4b variant whose booster lands near the KSC before the F5, with `DECLU
 
 ---
 
-## QUICKLOAD-RESUME-KEEPS-AN-ENDING-STAMPED-JUST-AFTER-THE-SAVE: an ending stamped between the save's clock and the resume cutoff survives the quickload [FILED 2026-10-15 from QL-7's first flight `2026-10-15_2218`, PR #2117. OPEN, product; narrow, pre-existing]
+## ~~QUICKLOAD-RESUME-KEEPS-AN-ENDING-STAMPED-JUST-AFTER-THE-SAVE: an ending stamped between the save's clock and the resume cutoff survives the quickload~~ [FILED 2026-10-15 from QL-7's first flight `2026-10-15_2218`, PR #2117. Was open, product; narrow, pre-existing. MOOT 2026-10-21 (PR #2155): a save-file load (F9, the Load menu) is now a Cold load that resets memory and reads Parsek from the save, so nothing from after the save survives it]
 
 The abandoned-future reconcile clears an end state only when the recording's pre-trim end is after
 the resume cutoff (`ParsekScenario.ShouldClearFutureEndState`: `preTrimEndUT > cutoffUT`), and the
@@ -4102,9 +4115,11 @@ test: `QuickloadAbandonedFutureLedgerTests`, a member stamped SubOrbital at 124.
 back in the background map. QL-7 no longer requires `listhandles kind=active count>=1` because of
 this; restore that token with the fix.
 
+Closed as moot: the ending stamped after the save (QL-7's booster SubOrbital at 124.38) is a scene-exit commit made after the save, and a save-file load no longer keeps it: the committed trees come from the save, where the booster has no terminal. An in-session load reads no save of an earlier moment except an unannounced one, which the `saveStamp` canary reports and Phase 3 of the load design removes.
+
 ---
 
-## QUICKLOAD-REFLY-SCOPE-KEEPS-SESSION-CHILDREN-FUTURE: an F9 inside a Re-Fly session reconciles the active recording only [FILED 2026-10-06 off the abandoned-future reconcile (design risk R9), PR #2025; verified in code, not reproduced. OPEN, product]
+## ~~QUICKLOAD-REFLY-SCOPE-KEEPS-SESSION-CHILDREN-FUTURE: an F9 inside a Re-Fly session reconciles the active recording only~~ [FILED 2026-10-06 off the abandoned-future reconcile (design risk R9), PR #2025; verified in code, not reproduced. Was open, product. MOOT 2026-10-21 (PR #2155): a save-file load (F9, the Load menu) is now a Cold load that resets memory and reads Parsek from the save, so nothing from after the save survives it]
 
 When the loaded save carries a Re-Fly marker for the resumed tree, `ChooseQuickloadTrimScope`
 picks `ActiveRecOnly` (#610: a tree-wide trim would prune the other vessels' post-rewind-point
@@ -4120,6 +4135,8 @@ Fix: to trace - decide which recordings under the Re-Fly scope belong to the aba
 (created by the live session after the cutoff: `CreatingSessionId` or the marker's
 `PreSessionBranchPointIds` against the branch-point UTs) and add them to the plan. Red test:
 `QuickloadResumeTests`, a Re-Fly-scope tree with a session child that starts after the cutoff.
+
+Closed as moot: both survival routes need memory to outlive the F9. The splice now copies only from the save's committed copy (the session's pre-session original, which holds no child the session authored after the save), and the cold reset drops the in-memory pending tree before the stale-epoch keep could hold it.
 
 ---
 

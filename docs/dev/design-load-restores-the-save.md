@@ -237,14 +237,22 @@ load Cold, as today. The helper:
   `pendingActiveTreeResumeRewindSave`, `pendingFreshRecordingAfterDiscard`,
   `mergeDialogPending`, `budgetDeductionApplied`, `lastSceneChangeRequestedUT`;
 - drops `DiscardReFlyLoadIntent` and the quickload resume context. `InSessionStagedStateHandoff`
-  is not touched here: step A already drops it on every cold load (reason `cold-load`).
+  is not touched here: step A already drops it on every cold load (reason `cold-load`);
+- clears `RewindContext` (Warn when `IsRewinding` or the deferred resource adjustment was still
+  set), `RewindInvokeContext` (Warn when `Pending` was set) and the Supply Route banner
+  (`RouteRunPrompt`), GC1-SAVE-SCOPED-STATE-LEFTOVERS. A Cold load is never a rewind's or a Re-Fly
+  invoke's own load (`ClassifyEarly` ranks both ahead of a save-file load, and neither initiator
+  loads with `initialLoadDone` false), so either flag still set is a reload that never settled and
+  would make the load skip the crew, group and ledger loads, or run the Re-Fly post-load dispatch,
+  against another career. `KerbalsModule`'s caches need nothing here: the reset replaces the
+  ledger's modules (`LedgerOrchestrator.ResetForSaveLoad` then `Initialize`).
 
 It does NOT null the committed-list notification events (the batch reset does; the new scene's
 controllers subscribe to them) and does not touch settings.
 
 A pure inventory gate (xUnit) lists every `static` field in `RecordingStore`, `GameStateStore`,
 `MilestoneStore`, `GameStateRecorder`, `LedgerOrchestrator`, `KspStatePatcher`,
-`ParsekScenario` and `InertRecordingTrees` by reflection and requires each to be either reset by the helper (proved by a
+`ParsekScenario`, `InertRecordingTrees`, `RewindContext`, `RewindInvokeContext` and `RouteRunPrompt` by reflection and requires each to be either reset by the helper (proved by a
 set-then-reset-then-read cell) or named in an allowlist with a one-line reason (settings,
 caches keyed by content, log rate limiters). A new static then fails the suite until someone
 decides which side it is on.
@@ -305,8 +313,16 @@ holds no committed copy of its tree does not re-arm (the attempt cannot be recon
 drops the events with a Verbose line. Limit: an attempt that resumed a committed recording in
 place and had written to it is not in the save at all, because the overlap skip in
 `PlanActiveTreeSidecarSaves` leaves the active-tree node out of every save while such a member
-is dirty; that load restores no active tree, the flight-ready committed-tree restore arms a
-fresh attempt, and the save's held-back events are dropped
+is dirty; that load restores no active tree, and the flight-ready committed-tree restore arms a
+fresh attempt for the same tree. The save's held-back events are held for that arm: with no
+active tree restored, no attempt armed and the attempt's committed tree loaded,
+`ApplySaveAttemptEventsAfterActiveTreeRestore` holds them (`HoldForFlightRestore`), and
+`TryTakeCommittedTreeForSpawnedVesselRestore` puts them back into memory only when it arms that
+tree id, and then only the events that arm itself keeps off the file (an event of a recording the
+attempt made after the resume is not in the committed copy the arm reads, so it is dropped with its
+accept's contract snapshot rather than written to the next save outside a merge; any other arm
+drops them, and the next OnLoad drops a hold no arm took). The trajectory
+flown between the resume and the save is still not in the save
 (`ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE`). Lane QL-13 (to add): inside a spawned-vessel resume
 that continues in a new segment, earn something, F5, F9, merge: the earning is in the ledger
 once.

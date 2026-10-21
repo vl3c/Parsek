@@ -18,6 +18,7 @@ namespace Parsek
                 return false;
 
             bool mutated = false;
+            bool closedBeforeCutoff = IsClosedBeforeCutoff(rec, cutoffUT);
 
             mutated |= RemoveItemsPastUT(rec.Points, cutoffUT, p => p.ut);
             mutated |= TrimOrbitSegmentsPastUT(rec.OrbitSegments, cutoffUT);
@@ -32,7 +33,11 @@ namespace Parsek
                 mutated = true;
             }
 
-            if (double.IsNaN(rec.ExplicitEndUT) || rec.ExplicitEndUT > cutoffUT)
+            // A recording still open at the cutoff continues from it, so its end is the cutoff.
+            // One closed before the cutoff (a terminal, or a split it handed on at) keeps its own
+            // end: stamping the cutoff would make it read as existing until the resume moment.
+            if (rec.ExplicitEndUT > cutoffUT
+                || (double.IsNaN(rec.ExplicitEndUT) && !closedBeforeCutoff))
             {
                 rec.ExplicitEndUT = cutoffUT;
                 mutated = true;
@@ -42,6 +47,19 @@ namespace Parsek
                 rec.MarkFilesDirty();
 
             return mutated;
+        }
+
+        /// <summary>
+        /// Pure: true when <paramref name="rec"/> ended at or before <paramref name="cutoffUT"/>
+        /// by a terminal state or at a split it handed on at (a child branch point).
+        /// </summary>
+        internal static bool IsClosedBeforeCutoff(Recording rec, double cutoffUT)
+        {
+            if (rec == null)
+                return false;
+            if (!rec.TerminalStateValue.HasValue && string.IsNullOrEmpty(rec.ChildBranchPointId))
+                return false;
+            return rec.EndUT <= cutoffUT;
         }
 
         /// <summary>
@@ -168,8 +186,8 @@ namespace Parsek
         /// What one quickload-resume reconcile owns, captured BEFORE the trim: the
         /// recordings the trim cuts (every recording of the tree, or only the active one
         /// under the Re-Fly scope), the future-only recordings it prunes, and each one's
-        /// end UT before the trim (the trim stamps <c>ExplicitEndUT</c> = cutoff, so the
-        /// post-trim end cannot tell whether a recording ended after the cutoff). A
+        /// end UT before the trim (the trim cuts a recording that ran past the cutoff to the
+        /// cutoff, so the post-trim end cannot tell whether it ended after the cutoff). A
         /// recording that is still committed, or that the quicksave already shows as
         /// committed history (<see cref="IsCommittedHistoryAtQuicksave"/>), is left out of
         /// every set, including <c>PrunedIds</c> when the trim prunes it.

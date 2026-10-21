@@ -30,6 +30,10 @@ namespace Parsek.Tests
             typeof(KspStatePatcher),
             typeof(ParsekScenario),
             typeof(InertRecordingTrees),
+            // GC1-SAVE-SCOPED-STATE-LEFTOVERS: per-career state outside the seven stores.
+            typeof(RewindContext),
+            typeof(RewindInvokeContext),
+            typeof(Parsek.Logistics.RouteRunPrompt),
         };
 
         private readonly List<string> logLines = new List<string>();
@@ -63,6 +67,9 @@ namespace Parsek.Tests
             KspStatePatcher.ResetForTesting();
             ParsekScenario.ResetInstanceForTesting();
             ParsekScenario.ColdLoadsThisProcessForTesting = 0;
+            RewindContext.ResetForTesting();
+            RewindInvokeContext.ResetForTesting();
+            Parsek.Logistics.RouteRunPrompt.ResetForTesting();
         }
 
         // ---- the allowlist ----
@@ -227,6 +234,11 @@ namespace Parsek.Tests
                 double d = (double)current;
                 mutatedValue = double.IsNaN(d) ? 1234.5 : d + 1234.5;
             }
+            else if (t == typeof(float))
+            {
+                float v = (float)current;
+                mutatedValue = float.IsNaN(v) ? 1234.5f : v + 1234.5f;
+            }
             else if (t == typeof(string)) { mutatedValue = (current as string ?? "") + "-mutated"; }
             else if (t.IsEnum)
             {
@@ -236,9 +248,24 @@ namespace Parsek.Tests
                 }
                 if (mutatedValue == null) return false;
             }
+            else if (Nullable.GetUnderlyingType(t) != null)
+            {
+                // A null nullable becomes its underlying default; a set one becomes null.
+                mutatedValue = current == null ? Activator.CreateInstance(Nullable.GetUnderlyingType(t)) : null;
+            }
             else if (t.IsValueType)
             {
-                return false;
+                if (!TryMutateStruct(t, current, out mutatedValue))
+                    return false;
+            }
+            else if (t.IsInterface && t.IsGenericType && t.GetGenericArguments().Length == 1)
+            {
+                // IReadOnlyList<T> and friends: a one-element List<T>.
+                Type list = typeof(List<>).MakeGenericType(t.GetGenericArguments()[0]);
+                if (!t.IsAssignableFrom(list)) return false;
+                object instance = Activator.CreateInstance(list);
+                if (!TryAddElement(instance)) return false;
+                mutatedValue = instance;
             }
             else if (current != null && IsCollectionValue(t, current))
             {
@@ -257,6 +284,41 @@ namespace Parsek.Tests
                 return false;
             f.SetValue(null, mutatedValue);
             return true;
+        }
+
+        // A struct with its first settable instance field changed: a number moved, a bool
+        // flipped, a reference set to a fresh instance.
+        private static bool TryMutateStruct(Type t, object current, out object mutatedValue)
+        {
+            mutatedValue = null;
+            // A fresh box: mutating the baseline's own box would change the value it is compared with.
+            object box = current != null
+                ? System.Runtime.CompilerServices.RuntimeHelpers.GetObjectValue(current)
+                : Activator.CreateInstance(t);
+            foreach (FieldInfo field in t.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (field.IsInitOnly) continue;
+                Type ft = field.FieldType;
+                object value = field.GetValue(box);
+                object next;
+                if (ft == typeof(bool)) next = !(bool)value;
+                else if (ft == typeof(int)) next = (int)value + 7;
+                else if (ft == typeof(double)) next = double.IsNaN((double)value) ? 1234.5 : (double)value + 1234.5;
+                else if (ft == typeof(float)) next = float.IsNaN((float)value) ? 1234.5f : (float)value + 1234.5f;
+                else if (Nullable.GetUnderlyingType(ft) != null)
+                    next = value == null ? Activator.CreateInstance(Nullable.GetUnderlyingType(ft)) : null;
+                else if (!ft.IsValueType)
+                {
+                    if (value != null) continue;
+                    next = MakeInstanceForField(ft);
+                    if (next == null) continue;
+                }
+                else continue;
+                field.SetValue(box, next);
+                mutatedValue = box;
+                return true;
+            }
+            return false;
         }
 
         private static object MakeInstanceForField(Type t)
@@ -293,6 +355,55 @@ namespace Parsek.Tests
             return false;
         }
 
+        // ---- GC1-SAVE-SCOPED-STATE-LEFTOVERS ----
+
+        // catches: a rewind whose reload never settled (EndRewind never ran) leaving
+        // RewindContext.IsRewinding set, so the next Cold load of ANOTHER save skips
+        // LoadCrewAndGroupState and the ledger load and carries the first career's values over.
+        [Fact]
+        public void StuckRewind_IsClearedByTheColdReset_WithAWarn()
+        {
+            RewindContext.BeginRewind(1234.0, default(BudgetSummary), 50000.0, 10.0, 5f);
+            Assert.True(RewindContext.IsRewinding);
+            logLines.Clear();
+
+            ParsekScenario.ResetSaveScopedSessionState("save-folder-change");
+
+            Assert.False(RewindContext.IsRewinding);
+            Assert.Equal(0.0, RewindContext.RewindUT);
+            Assert.Contains(logLines, l => l.Contains("[WARN][RewindContext]")
+                && l.Contains("stale rewind state")
+                && l.Contains("reason=save-folder-change"));
+        }
+
+        // catches: a Re-Fly invoke whose load never arrived (RewindInvokeContext.Pending left
+        // set) dispatching the Re-Fly post-load path on the next Cold load of another save.
+        [Fact]
+        public void StaleReFlyInvoke_IsClearedByTheColdReset_WithAWarn()
+        {
+            RewindInvokeContext.Pending = true;
+            RewindInvokeContext.SessionId = "sess-stale";
+            RewindInvokeContext.RewindPointId = "rp-stale";
+            logLines.Clear();
+
+            ParsekScenario.ResetSaveScopedSessionState("main-menu");
+
+            Assert.False(RewindInvokeContext.Pending);
+            Assert.Null(RewindInvokeContext.SessionId);
+            Assert.Contains(logLines, l => l.Contains("[WARN][Scenario]")
+                && l.Contains("stale Re-Fly invoke")
+                && l.Contains("rp-stale"));
+        }
+
+        // A reset with nothing stale logs no Warn for either.
+        [Fact]
+        public void ColdReset_WithNothingStale_LogsNoStaleWarn()
+        {
+            logLines.Clear();
+            ParsekScenario.ResetSaveScopedSessionState("boot");
+            Assert.DoesNotContain(logLines, l => l.Contains("stale rewind state") || l.Contains("stale Re-Fly invoke"));
+        }
+
         // ---- the reset line and the reason ----
 
         [Theory]
@@ -312,7 +423,7 @@ namespace Parsek.Tests
             ParsekScenario.ResetSaveScopedSessionState("main-menu");
 
             Assert.Contains(logLines, l => l.Contains("[Scenario]")
-                && l.Contains("Save-scoped session state reset: reason=main-menu pendingTreeDropped=false storesReset=10"));
+                && l.Contains("Save-scoped session state reset: reason=main-menu pendingTreeDropped=false storesReset=13"));
             Assert.Equal(1, ParsekScenario.ColdLoadsThisProcessForTesting);
         }
 
