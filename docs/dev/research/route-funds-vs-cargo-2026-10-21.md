@@ -1,5 +1,9 @@
 # Supply routes across a rewind: funds vs cargo (2026-10-21)
 
+Status: superseded by the owner ruling of 2026-10-21 13:32Z (routes carry no money; section 7,
+logistics design section 10.6.1, plan `docs/dev/plans/logistics-without-money.md`). Sections 1-6
+are the analysis that led there, kept as history.
+
 Read-only analysis for V's question on O4 (thread "Ledger rulings interview"): separate what a
 supply run does to GLOBAL resources (the funds a run costs or earns) from what it does to LOCAL
 resources (cargo in vessel tanks and inventories), and decide whether deliveries are recorded or

@@ -83,7 +83,8 @@ IR-5's `careerKsc` token.
 
 Docs in the same PR: logistics design (section 2.2 item 5 and the money sections listed in the
 inventory), game-actions design 1.5 table row, 3.11, 3.13, user guide line on Career route charges,
-CHANGELOG (0.10.6 Changed: Space Center routes are free; routes never charge or credit funds).
+CHANGELOG (0.10.6 Changed: Space Center routes are free; routes never charge or credit funds; remove
+the ROUTE-DISPATCH-IGNORES-RESERVATIONS entry of PR #2159, whose gate this phase deletes).
 
 ## Phase 2: route events leave the ledger (one PR)
 
