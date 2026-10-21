@@ -453,7 +453,7 @@ directories outside an allowlist naming the collector, the commit batch and the 
 - the in-memory state: the same items over memory's trees, pending tree and rewind point list,
   plus `pendingActiveTreeResumeRewindSave` and the live recorder's `RewindSaveFileName`, and the
   committed trees kept inert because the schema gate rejected them (`InertRecordingTrees`, GC-3:
-  their nodes are re-emitted verbatim, so every save that held them still names their files).
+  their nodes are re-emitted node-verbatim after the committed trees, so every save that held them still names their files).
 
 `Parsek/RewindPoints/*.sfs` and `Parsek/Saves/*.sfs` are not referrers: rewinds and Re-Fly loads
 read recordings from memory, never through the rewind file's own node (VERIFY V5 in the plan).

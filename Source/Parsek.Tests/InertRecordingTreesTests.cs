@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using Parsek.Logistics;
 using Xunit;
 
 namespace Parsek.Tests
@@ -451,6 +452,73 @@ namespace Parsek.Tests
         }
 
         // ---------------------------------------------------------------- 7. active / pending
+
+        // catches: the inert recording ids counting as "committed recordings exist" in
+        // LedgerOrchestrator.OnKspLoad, so a save whose only trees are inert and whose
+        // ledger is empty runs the old-save migration (an interpretation of the inert trees).
+        [Fact]
+        public void SaveOfOnlyInertTrees_DoesNotRunTheOldSaveMigration()
+        {
+            GameStateRecorder.ResetForTesting();
+            GameStateStore.ResetForTesting();
+            LedgerOrchestrator.ResetForTesting();
+            KspStatePatcher.SuppressUnityCallsForTesting = true;
+            try
+            {
+                Load(Scenario(BuildTreeNode(TreeA, OlderGeneration, OlderGeneration, RecA1, RecA2)));
+                var accept = new GameStateEvent
+                {
+                    ut = 500.0,
+                    eventType = GameStateEventType.ContractAccepted,
+                    key = "contract-inert",
+                    detail = "title=Inert Contract;deadline=NaN;type=PartTest;funds=5000;failFunds=1000;failRep=1"
+                };
+                GameStateStore.AddEvent(ref accept);
+                LedgerOrchestrator.SetMigrateOldSaveEventsRanThisLoadForTesting(false);
+
+                HashSet<string> valid = ParsekScenario.BuildValidRecordingIdsForKspLoad();
+                Assert.Contains(RecA1, valid);
+                LedgerOrchestrator.OnKspLoad(valid, 1000.0);
+
+                Assert.False(LedgerOrchestrator.GetMigrateOldSaveEventsRanThisLoadForTesting());
+                Assert.Contains(logLines, l => l.Contains("[LedgerOrchestrator]")
+                    && l.Contains("old-save migration scope excludes 2 recording id(s) of inert trees"));
+            }
+            finally
+            {
+                LedgerOrchestrator.ResetForTesting();
+                GameStateStore.ResetForTesting();
+                GameStateRecorder.ResetForTesting();
+                KspStatePatcher.ResetForTesting();
+            }
+        }
+
+        // catches: RouteStore's load-time candidate sweeps reading only the committed trees,
+        // so a dismissed or already-prompted supply-run candidate naming an inert tree is
+        // dropped and the matching build re-offers it.
+        [Fact]
+        public void RouteCandidateSetsNamingAnInertTree_SurviveTheLoadSweeps()
+        {
+            RouteStore.ResetForTesting();
+            try
+            {
+                Load(Scenario(BuildTreeNode(TreeA, OlderGeneration, OlderGeneration, RecA1)));
+                RouteStore.DismissCandidateTree(TreeA, "Inert A");
+                RouteStore.MarkCandidatePrompted(TreeA, "Inert A");
+                RouteStore.DismissCandidateTree("gone-tree", "Gone");
+
+                Assert.Equal(1, RouteStore.SweepStaleDismissedCandidates(RecordingStore.CommittedTrees));
+                Assert.Equal(0, RouteStore.SweepStalePromptedCandidates(RecordingStore.CommittedTrees));
+
+                Assert.True(RouteStore.IsCandidateDismissed(TreeA));
+                Assert.False(RouteStore.IsCandidateDismissed("gone-tree"));
+                Assert.True(RouteStore.IsCandidatePrompted(TreeA));
+            }
+            finally
+            {
+                RouteStore.ResetForTesting();
+            }
+        }
 
         // Pins today's behavior: an active or pending node of another generation is an
         // uncommitted flight; it is not kept inert, so the next save does not carry it.

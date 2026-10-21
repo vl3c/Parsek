@@ -11,8 +11,11 @@ namespace Parsek
     /// owner ruling 2026-10-21 "Keep them inert, untouched").
     ///
     /// <para>This is a pass-through, not a migration. The holder keeps a deep copy of each rejected
-    /// committed RECORDING_TREE node exactly as the save held it and writes it back verbatim on every
-    /// save. Nothing reads, plays or interprets an inert tree beyond the keys collected here: its
+    /// committed RECORDING_TREE node exactly as the save held it and writes it back node-verbatim on
+    /// every save (each node unchanged; inert nodes follow the committed trees, so the order of the
+    /// save's tree nodes can differ from the loaded save). Recording ids of inert trees are known to
+    /// the ledger reconcile but neither trigger nor feed the old-save ledger migration, and their tree
+    /// ids survive the route-candidate sweeps. Nothing reads, plays or interprets an inert tree beyond the keys collected here: its
     /// tree id, the <c>recordingId</c> of each RECORDING child (so the ledger reconcile, the load-time
     /// sweeps, the rewind-point reaper and the file collector treat those recordings as known), the
     /// RECORDING children's <c>recordingGroup</c> values (so the group hierarchy prune keeps their
