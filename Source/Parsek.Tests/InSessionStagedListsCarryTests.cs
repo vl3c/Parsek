@@ -1423,61 +1423,6 @@ namespace Parsek.Tests
                 && l.Contains("ledgerRowsRemoved=2"));
         }
 
-        private static double MinRunningScience(IEnumerable<GameAction> rows)
-        {
-            double balance = 0.0;
-            double min = 0.0;
-            foreach (var a in rows.OrderBy(r => r.UT))
-            {
-                if (a.Type == GameActionType.ScienceInitial) balance += a.InitialScience;
-                else if (a.Type == GameActionType.ScienceEarning) balance += a.ScienceAwarded;
-                else if (a.Type == GameActionType.ScienceSpending) balance -= a.Cost;
-                min = Math.Min(min, balance);
-            }
-            return min;
-        }
-
-        /// <summary>
-        /// The worked example of todo REFLY-RESUMED-MERGED-DISCARD-RESTORES-LOSSES: the attempt
-        /// earns 30 science during the session (before the quicksave) and merges; a 30-science node
-        /// is bought at the Space Center after the merge; the quicksave is loaded from the Space
-        /// Center and the resumed attempt discarded. The load undoes the purchase, the discard
-        /// removes the science, and the ledger is back to L with science never below zero.
-        /// </summary>
-        [Fact]
-        public void WorkedExample_QuickloadUndoesTheNodeBought_DiscardRemovesTheScience_NeverBelowZero()
-        {
-            var resumed = BuildResumedMergedSession();
-            Ledger.AddAction(new GameAction
-            {
-                ActionId = "act_seed_science", UT = 0.0, Type = GameActionType.ScienceInitial, InitialScience = 0f,
-            });
-            var preInvoke = LedgerFingerprint();
-            Ledger.AddAction(new GameAction
-            {
-                ActionId = "act_attempt_science", UT = 57.0, Type = GameActionType.ScienceEarning,
-                ScienceAwarded = 30f, RecordingId = ForkId,
-            });
-            Ledger.AddAction(new GameAction
-            {
-                ActionId = "act_node", UT = 80.0, Type = GameActionType.ScienceSpending,
-                NodeId = "basicRocketry", Cost = 30f,
-            });
-            Assert.True(MinRunningScience(Ledger.Actions.Where(a => a.RecordingId != ForkId)) < 0.0,
-                "premise: removing the attempt's science while the purchase stays would go below zero");
-
-            int retired = ParsekScenario.RetireUntaggedRowsAfterSaveAtInSessionLoad(
-                LoadKind.InSessionOther, saveUT: 60.0, preLoadClockUT: 90.0);
-            WireDiscardSeams();
-            RevertInterceptor.DiscardReFlyHandler(resumed.Marker, RevertTarget.Launch, EditorFacility.VAB);
-
-            Assert.Equal(1, retired);
-            Assert.DoesNotContain(Ledger.Actions, a => a.ActionId == "act_node");
-            Assert.DoesNotContain(Ledger.Actions, a => a.ActionId == "act_attempt_science");
-            Assert.Equal(preInvoke, LedgerFingerprint());
-            Assert.True(MinRunningScience(Ledger.Actions) >= 0.0);
-        }
-
         [Theory]
         [InlineData(SessionS, SessionS, "rp_t", true)]
         [InlineData(SessionS, "sess_other", "rp_t", false)]

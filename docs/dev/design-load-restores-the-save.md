@@ -697,7 +697,7 @@ For a save-file load the following become unreachable, because the load no longe
 | Committed-copy rule (`DecideCommittedCopyRestore`) | ParsekScenario.HydrationRepair.cs | unreachable on a save-file load | deleted |
 | Stale-epoch keep (`ShouldKeepPendingTreeAfterHydrationFailure`) | ParsekScenario.HydrationRepair.cs | not load-kind gated | kept: a Re-Fly Retry and a stock revert reach it |
 | Abandoned Re-Fly fork prune | ParsekScenario.Trim.cs | noted only by a committed-copy resume | deleted |
-| Untagged rows after the save (`RetireUntaggedRowsAfterSaveAtInSessionLoad`, `UNTAGGED_FUTURE_ROWS`) | ParsekScenario.Trim.cs | unreachable on a save-file load (the save's ledger is exact) | |
+| Untagged rows after the save (`RetireUntaggedRowsAfterSaveAtInSessionLoad`, `UNTAGGED_FUTURE_ROWS`) | ParsekScenario.Trim.cs | unreachable on a save-file load (the save's ledger is exact) | deleted, with the save's id list (an old save's node is ignored) and `Ledger.RetireAbandonedFutureActions`; a revert never reached it (its cell is the revert prune) |
 | OQ-1 resumed-merged-attempt pruning (`PruneStagedRowsNamingAttempt` on a resumed attempt), `RepairSessionBeforeRetry` detached-tree restore | MergeDialog | the rows are never there; kept for fresh sessions (prune finds none) | |
 | `QuickloadFlight` load kind and its policy column | LoadReconcilePolicy | no longer produced for stock F9 | kept (see below) |
 | Names ruling 5 for in-session loads | design-vessel-and-mission-names.md 7.6 | reversed for save-file loads | ruling only |

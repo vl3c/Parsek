@@ -343,7 +343,11 @@ lanes LAB-9a, QL-2, QL-2b, QL-2c pin the restore's no-detach line in place of th
 line); OQ-2's retire halves (the abandoned-future reconcile: `BuildAbandonedFuturePlan`, the end
 state clear, the merge state reset, the event purge, the ledger retire, the `AbandonedFuture*`
 policy categories and `ReconcileAtResume`; the resume runs `TrimForQuickloadResume`, the trim
-alone, and seven lanes drop the reconcile's `reason=policy` skip line). Kept on purpose: the QL-R1
+alone, and seven lanes drop the reconcile's `reason=policy` skip line); the untagged-rows-after-save
+retire (`RetireUntaggedRowsAfterSaveAtInSessionLoad`, the `UNTAGGED_FUTURE_ROWS` id list OnSave
+wrote and OnLoad read, `ResolvePreLoadClockUT` and its scene-request clock stamp,
+`Ledger.RetireAbandonedFutureActions`; the cell keeps the rows now, a revert never reached it, and
+QL-1 only forbids its line). Kept on purpose: the QL-R1
 decline (`TryDeclineDiscardedActiveTree` / `TryDeclineDiscardedPendingTree`), still reached by a
 stock revert after a cold resume and an in-flight discard; the `QuickloadFlight` kind and its
 column, still produced by the harness `LoadGame` verb without `playerLoad=true` and the in-game

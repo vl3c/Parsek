@@ -748,22 +748,18 @@ namespace Parsek
                         + "then LedgerOrchestrator.PruneRevertedFlightStrategyConversionRows "
                         + "for the reverted flight's tagged strategy conversion rows");
                 case LoadKind.QuickloadFlight:
-                    return QuickloadOnly(LoadReconcileAction.ReconcileAtCutoff, UntaggedRowsRetire);
+                    return QuickloadOnly(LoadReconcileAction.Keep, UntaggedRowsKept);
                 case LoadKind.InSessionOther:
-                    return InSessionOtherOnly(LoadReconcileAction.ReconcileAtCutoff, UntaggedRowsRetire);
+                    return InSessionOtherOnly(LoadReconcileAction.Keep, UntaggedRowsKept);
             }
             throw UnknownKind(kind);
         }
 
-        private const string UntaggedRowsRetire =
-                        "ParsekScenario.OnLoad -> RetireUntaggedRowsAfterSaveAtInSessionLoad, after the route reconcile and "
-                        + "before the recalculation: Ledger.RetireAbandonedFutureActions removes every untagged row (Space "
-                        + "Center purchases, upgrades, hires, contract actions, launch-pad rows) dated after the loaded save's "
-                        + "UT and no later than the clock before the load (ResolvePreLoadClockUT), except the rows the "
-                        + "save's UNTAGGED_FUTURE_ROWS id list names (they already existed at the save, a D2 row the clock "
-                        + "has since passed; a save without the list falls back to the window alone), so a load back in time "
-                        + "undoes them (owner ruling 2026-10-19, reversing QL-R2 for loads; rewinds keep D2) and a forward "
-                        + "or same-instant scene change touches nothing; seeds never";
+        private const string UntaggedRowsKept =
+                        "nothing retires them: the in-memory ledger keeps every untagged row and the recalculation walks "
+                        + "to the cutoff. A player's load back in time is a Cold save-file load whose ledger is the save's "
+                        + "own (design-load-restores-the-save.md), so Phase 3 deleted the in-session retire of the "
+                        + "untagged rows made after the save";
 
         private static LoadReconcileDecision DecidePendingScience(LoadKind kind)
         {
