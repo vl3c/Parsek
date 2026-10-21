@@ -289,7 +289,7 @@ ruled first and then REPLACED: it charges for cycles the new timeline can no lon
 player moves or loses the destination), and holding the destination as a ghost until the last
 committed cycle was rejected ("the whole point of supply routes is that vessels can just dock with
 the station or base to get supplies"). The rule now:
-- A rewind deletes no route row. It adds, at the rewind UT, a refund for every committed cycle
+- A rewind deletes no route cycle row. It adds, at the rewind UT, a refund for every committed cycle
   dispatched after the rewind point (only increases funds). The destination stays live, and the
   route re-decides those cycles live as the clock passes, as today.
 - The refund is the cycle's NET cost (dispatch debit minus its recovery credit), so a re-run cycle
@@ -300,14 +300,16 @@ the station or base to get supplies"). The rule now:
   through the saved route state), and its recovery credit is not paid twice.
 - A cycle that made money (credit above its debit, e.g. Sell-at-KSC) stays history: not refunded,
   not run again, and when the clock passes its crossing its pickup is taken from the origin depot
-  again, up to what the depot holds, with no new ledger row (the rewind restored the depot's cargo,
-  so keeping the gain without this would sell the same cargo twice).
+  again, with no new ledger row (the rewind restored the depot's cargo, so keeping the gain without
+  this would sell the same cargo twice). OPEN: a depot emptied after the rewind would keep the gain
+  without the cargo; the shortfall rule is not ruled yet.
 - `RetiredRouteCargoStore` stays: a later committed recording's snapshot can still carry cargo from
   a refunded cycle.
 - A quickload / load needs none of this: it restores exactly the rows the save holds.
 The rule is in logistics design 10.6 (owner rulings block). Next: the design detail there (refund row
 shape and its cycle list, how the dedup and the live loop skip a refunded or gain cycle, the
-straddling credit dedup), then a plan.
+straddling credit dedup, pause / resume / hold rows, a load back in time keeping a refund with the
+cycles it names, the pool dip between an old cycle's dispatch and its credit), then a plan.
 
 ## ~~ROUTE-DISPATCH-IGNORES-RESERVATIONS: a route dispatch checks the raw funds counter, so it can spend money a committed purchase needs~~ [FILED 2026-10-21 from the O4 analysis. Was open, small; owner ruling: ship now, ahead of ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES. FIXED 2026-10-21 on branch `claude/project-thread-q165qu`. xUnit only. product]
 

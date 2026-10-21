@@ -169,4 +169,5 @@ destination as a ghost until the last committed cycle defeats the point of a sup
 adopted instead keeps every committed route row (no D2 exception) and adds, at the rewind, a
 refund of each later committed cycle's net cost, once per cycle; the cycles are re-decided live as
 in Model L. A cycle that made money stays history: not refunded, not re-run, its pickup re-taken
-from the origin depot when the clock passes it. Todo ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES.
+from the origin depot when the clock passes it (a depot emptied after the rewind is an open case).
+Todo ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES.
