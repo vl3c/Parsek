@@ -1,0 +1,182 @@
+schema = 1
+id = "H76-logistics-isolated-depot-route-career"
+tier = "nightly"
+# H40-logistics-isolated-depot-route, CAREER STYLE. H40's driver steps verbatim (the
+# isolated `Logistics` batch) over `depot-route-recorded-career`; the only variable moved
+# is the fixture's game mode. It is H73's idea (the redelivery cell's funds-flat half
+# needs a live Funding singleton) carried to the host with the suite's only committed
+# Active route.
+#
+# THE FIXTURE. `depot-route-recorded-career` is built by construction from H40's own
+# `depot-route-recorded` by `harness/tools/build_route_career.py` (drift gate
+# `harness/lib/test_route_career.py`): `Mode = CAREER`, `fresh-career`'s PARAMETERS (the
+# source's ParsekSettings child kept), Funding 500000 / R&D 100 / Reputation 0, the
+# 29 + 3 granted tech nodes H73's host carries, every facility at its TOP level, and a
+# ledger with its SANDBOX starting-value rows (ScienceInitial / ReputationInitial), its
+# 18 award-bearing milestone rows and its 3 legacy supply-route rows (types 23-25, which
+# the ledger load drops anyway) removed; its 2 zero-award milestone rows and 19
+# KerbalAssignment rows stay. FLIGHTSTATE (the Depot and its partners), ROSTER, the
+# ParsekScenario node (the Active ROUTE with its four SOURCE_REF rows) and all 22
+# recording sidecars are byte-identical to the source.
+#
+# NOT FIT FOR LEDGER GROUND TRUTH (L2-style) CHECKS: the source was flown in SANDBOX, so
+# the ledger carries no launch-cost, recovery or hire rows.
+#
+# WHAT IT PROVES, beyond H40's tokens (kept verbatim):
+#   REQUIRED  `RewindRedeliver_InGame: funds unchanged net=` - written ONLY on the career
+#             path and only after both of the redelivery cell's funds assertions held
+#             (cycle 1, then deliver + rewind + redeliver). The cell's own tolerance is
+#             the gate on the amount; the line proves the branch ran.
+#   REQUIRED  `PASSED: RouteRewindRedeliveryInGameTest\.RouteRedeliversAfterRewindPastDelivery`
+#             - the runner's per-test line, so a cell that failed AFTER the funds line
+#             still reds.
+#   REQUIRED  `Built route id=.* mode=CAREER` (the shuttle cell builds through the real
+#             RouteBuilder with the live game mode) and the two seed lines with the
+#             career save's values (`Seeded initial funds: amount=500000,`,
+#             `Seeded initial science: amount=100,`), written at the batch's LoadGame.
+#   FORBIDDEN `RewindRedeliver_InGame: no Funding singleton \(Sandbox\)` (the else branch,
+#             i.e. a host that silently stopped being a career) and `Built route .*
+#             mode=SANDBOX`.
+# SCIENCE AND REPUTATION ARE NOT GATED HERE, deliberately: the only funds/science/rep
+# assertion a batch lane has is the redelivery cell's funds pair, and the batch's 38
+# restore-after-run cells may legitimately patch pools in-body while building their own
+# state, so a pool-write forbid has no measured basis on this lane. The ledger oracle is
+# not declared either: `FlushAndQuit` suppresses its save after the batch baseline
+# restore, so the produced save would be the staged one and the diff vacuous. H74 / H75 /
+# H79 carry the all-three-pools gates.
+#
+# THE TALLY WAS AUTHORED INTERIM (`total=47` literal, `passed=` a floor of 9 above the
+# ordinary FLIGHT ceiling of 8, `skipped=` free) with H40's split, 35 / 0 / 12, and
+# H40's skip roster written as the PREDICTION (every skip a recorded-host property, none
+# a game-mode one). The recordings count is H40's exact 22 (the sidecars are the
+# source's bytes).
+#
+# FLIGHT HISTORY - THE PIN'S SOURCE.
+#
+# FLIGHT 1  `2026-10-21_2019`, PASS attempt 1, wall 154 s, automation DLL sha256 prefix
+#           7bdd8016 (worktree 4772612, C# = main 92f3a15). MEASURED: `BATCH_COMPLETE v1
+#           total=47 passed=35 failed=0 skipped=12 category=Logistics scene=FLIGHT`,
+#           `Using batch baseline slot '...' for 38 restore-after-run test(s)`,
+#           `RewindRedeliver_InGame: funds unchanged net=0` present (no `no Funding
+#           singleton` anywhere), both career seed lines and `Built route id=...
+#           mode=CAREER` present, zero `[Parsek][ERROR]`. saveParse (report-only): one
+#           route, Active; 0 supersede rows, 0 tombstones, 0 rewind points.
+#           THE PREDICTION HELD EXACTLY: H40's split with H40's skip roster cell for
+#           cell, so the game mode moved no cell. The tally is now PINNED WHOLE off
+#           this flight, `skipped=12` is declared in
+#           IsolatedBatchWiringGroupTests.MEASURED_SKIPPED (attribute floor 1, plus 11
+#           run-time skips), and the id has LEFT INTERIM_PIN_IDS.
+#           FINDING, NO GATE FAILED (todo ROUTE-CAREER-FIXTURES-EARN-STOCK-EVENTS-AT-LOAD):
+#           the ledger logged `GUARDED DRAWDOWN clamped ... ledger may be missing an
+#           earning channel` 80 times. Cause: at the converted save's first load stock
+#           awarded the Kerbin/Rendezvous milestone (+12000 funds, +1 science, +2 rep;
+#           the copied ProgressTracking has no Kerbin/Rendezvous node while the
+#           recorded vessels are already in rendezvous) and a +624 debris recovery,
+#           earnings the ledger has no row for. The guard kept the live value and the
+#           redelivery cell still netted 0. Not forbidding the clamp here (the header
+#           above) was right.
+#
+# THE SKIP ROSTER - all 12, H40's verbatim (`Depot` is the active vessel; see H40's
+# header for each full skip string):
+#   1 scene-filtered (`Scene eligibility skip summary: skipped=1 currentScene=FLIGHT
+#     byRequiredScene=SPACECENTER:1`): RouteInterBodyBuilderShapeInGameTest's
+#     InterBodyRoute_RealBuilder_ClassifiesReaimWindows_AndModuloFires (H77 / H34's).
+#   11 run-time `InGameAssert.Skip`:
+#     LogisticsRouteProducerRuntimeTests.RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof
+#       - "No recording with a captured RouteOriginProof..."
+#     LogisticsRouteProofRuntimeTests.RouteProof_ActiveAsTargetDockWindow_HasEndpointProof
+#       - "No active-as-target logistics dock route window found..."
+#     LogisticsRouteProofRuntimeTests.RouteProof_CrossTreeCommittedPartner_HasEndpointProof
+#       - "No cross-tree-committed-partner dock route window found..."
+#     LogisticsDeliveryRuntimeTests.Delivery_LoadedVessel_StacksInventoryQuantityIntoSlot
+#       - "PRECONDITION: no STACKABLE stored cargo part..."
+#     LogisticsDeliveryRuntimeTests.Delivery_MultiModule_FirstContainerFullSecondReceives
+#       - "Active vessel 'Depot' has 1 inventory module(s)..."
+#     LogisticsHarvestRuntimeTests.HarvestCapture_CatchUpOnLoad_AttributesInsideWindowOrBridges
+#       - "no BaseDrill-derived module"
+#     LogisticsHarvestRuntimeTests.HarvestCapture_ConverterToggle_OpensAndClosesWindow
+#       - "no BaseConverter-derived module"
+#     LogisticsHarvestRuntimeTests.HarvestCapture_WarpToggle_RebaselinesAtRailsTransitions
+#       - "no BaseConverter-derived module"
+#     LogisticsHarvestRuntimeTests.HarvestRoute_AnalyzesEligible_FromSyntheticRecording
+#       - "Synthetic drill tree 'tree-drill-harvest-m2' is not in this save"
+#     LogisticsPickupRuntimeTests.InventoryPickupDebit_LoadedEndpointVessel_RemovesStoredPart
+#       - "PRECONDITION: no stored cargo part"
+#     LogisticsRouteProofRuntimeTests.InventoryPayloadIdentityHash_LiveStockMove_PreservesIdentity
+#       - "Active vessel needs at least two ModuleInventoryPart containers"
+#
+# THE TALLY GATES as H40's does: `passed=35 failed=0 skipped=12` are literals, so a cell
+# that fails, self-skips or is deleted reds (the last locally, through
+# CommittedBatchTallySourceSyncTests).
+#
+# FAST-LANE CHECKLIST item 9, flight_efficiency.py (flight 1, `2026-10-21_2019`):
+# pre-launch 2.4 s, boot 25.0 s, seam steps 114.6 s (RunTests 106.89 s, LoadGame
+# 7.69 s), gaps 1.1 s, quit 1.0 s, post-quit 9.9 s, retries 0. Nothing to trim: the
+# batch itself is the cost.
+description = "H40-logistics-isolated-depot-route-career style: the isolated Logistics batch over depot-route-recorded-career, H40's depot route save converted to CAREER by build_route_career.py, so RouteRewindRedeliveryInGameTest's funds-flat assertion runs against the suite's only committed Active route with a live Funding singleton, gating its funds-unchanged line, mode=CAREER on the shuttle cell's route build and the career-save seeds. FLOWN GREEN 2026-10-21 on its first flight (2026-10-21_2019, funds unchanged net=0): 35 passed / 0 failed / 12 skipped, H40's split, pinned whole."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "logistics", "route", "depot", "career",
+        "recorded-fixture", "H76", "flown", "reading-iteration"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/depot-route-recorded-career"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# H40's steps, unchanged. verboseLogging=true is REQUIRED: the per-test PASSED lines
+# pinned below are Verbose.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Logistics", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE: D8 funds rests on the career funds-check line plus the cell's
+# PASSED line; D14 career is pinned to the fixture's `Mode = CAREER` by
+# test_d14_game_mode.py. H40's D-rows are not re-claimed (the H34 rule).
+D8 = ["funds"]
+D14 = ["career", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 22, max = 22 }
+
+[expectations.logContracts]
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "RevalidateSources reason=OnLoad routes=1 transitioned=0",
+  "runtests start category=Logistics isolated=true",
+  "Using batch baseline slot .* for 38 restore-after-run test\\(s\\)",
+  "BATCH_COMPLETE v1 total=47 passed=35 failed=0 skipped=12 category=Logistics scene=FLIGHT",
+  "PASSED: LogisticsRouteProofRuntimeTests\\.RouteProof_ActiveAsInitiatorDockWindow_HasEndpointProof",
+  "OriginDebit_Loaded: PASS routeId=.* storedBefore=715 storedAfter=710 debit=5",
+  "flushandquit: save suppressed \\(batch baseline already restored\\)",
+  "RewindRedeliver_InGame: funds unchanged net=",
+  "PASSED: RouteRewindRedeliveryInGameTest\\.RouteRedeliversAfterRewindPastDelivery",
+  "Built route id=.* mode=CAREER",
+  "Seeded initial funds: amount=500000,",
+  "Seeded initial science: amount=100,",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "RewindRedeliver_InGame: no Funding singleton \\(Sandbox\\)",
+  "Built route .* mode=SANDBOX",
+]
+
+[runtime]
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

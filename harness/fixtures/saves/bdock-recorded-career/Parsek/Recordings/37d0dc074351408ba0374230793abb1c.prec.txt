@@ -1,0 +1,70 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = 37d0dc074351408ba0374230793abb1c
+sidecarEpoch = 2
+sectionAuthoritative = True
+PART_EVENT
+{
+	ut = 8950.5879785489251
+	pid = 1592830016
+	type = 6
+	part = liquidEngine2-2.v2
+	value = 0
+	midx = 0
+}
+TRACK_SECTION
+{
+	env = 2
+	ref = 0
+	startUT = 8950.5879785489251
+	endUT = 8950.6079785489255
+	sampleRate = 0
+	minAlt = 116941.766
+	maxAlt = 116941.766
+	POINT
+	{
+		ut = 8950.6079785489255
+		lat = 0.02118070895273021
+		lon = -77.748451915171955
+		alt = 116941.76361852116
+		rotX = 0.23032105
+		rotY = -0.240504786
+		rotZ = -0.6704757
+		rotW = 0.6630024
+		body = Kerbin
+		velX = -885.9146
+		velY = 3.03412437
+		velZ = -2022.52966
+		funds = 0
+		science = 0
+		rep = 0
+	}
+}
+TRACK_SECTION
+{
+	env = 2
+	ref = 0
+	startUT = 8950.6079785489255
+	endUT = 8951.547978548946
+	sampleRate = 0
+	minAlt = 116941.766
+	maxAlt = 116941.766
+	POINT
+	{
+		ut = 8950.6079785489255
+		lat = 0.02118070895273021
+		lon = -77.748451915171955
+		alt = 116941.76361852116
+		rotX = 0.23032105
+		rotY = -0.240504786
+		rotZ = -0.6704757
+		rotW = 0.6630024
+		body = Kerbin
+		velX = -885.9146
+		velY = 3.03412437
+		velZ = -2022.52966
+		funds = 0
+		science = 0
+		rep = 0
+	}
+}

@@ -1,0 +1,172 @@
+schema = 1
+id = "H79-route-rewind-to-launch-career"
+tier = "nightly"
+# H58-route-rewind-to-launch, CAREER STYLE. H58's driver steps verbatim (create, activate,
+# pause, TimeJump 1600, activate, record and commit a rewindable subject, send-once,
+# Rewind-to-Launch through tree=latest) over `rover-route-recorded-career`; the only
+# variable moved is the fixture's game mode.
+#
+# THE FIXTURE. `rover-route-recorded-career` is built by construction from H58's own
+# `rover-route-recorded` by `harness/tools/build_route_career.py` (drift gate
+# `harness/lib/test_route_career.py`): `Mode = CAREER`, `fresh-career`'s PARAMETERS (the
+# source's ParsekSettings child kept), Funding 500000 / R&D 100 / Reputation 0, the
+# 29 + 3 granted tech nodes H73's host carries, every facility at its TOP level, and a
+# ledger with its SANDBOX starting-value rows (ScienceInitial / ReputationInitial), its
+# 5 award-bearing milestone rows and its 4 legacy supply-route rows (types 23-26, which
+# the ledger load drops anyway) removed, which leaves it EMPTY. FLIGHTSTATE, ROSTER, the
+# ParsekScenario node and every recording sidecar are byte-identical to the source. The
+# source carries no RewindPoints quicksave; the subject this lane rewinds is recorded IN
+# THE RUN, so its rewind save is captured live in CAREER.
+#
+# NOT FIT FOR LEDGER GROUND TRUTH (L2-style) CHECKS: the source was flown in SANDBOX, so
+# the ledger carries no launch-cost, recovery or hire rows. The ledger block below is the
+# REWIND-AWARE "nothing moved" diff against the staged pools, not ground truth.
+#
+# WHAT IT PROVES, beyond H58's tokens (kept verbatim): the route's create / activate /
+# pause / resume, the armed send-once, the in-run recording and commit, and the go-back
+# rewind's route reconcile all leave funds, science and reputation where the career save
+# put them.
+#   REQUIRED  `Built route id=.* mode=CAREER`, and the two seed lines with the career
+#             save's values (`Seeded initial funds: amount=500000,`, `Seeded initial
+#             science: amount=100,`).
+#   FORBIDDEN `Built route .* mode=SANDBOX`, the seed refusal, any
+#             `Patch<Pool>: <old> -> <new>` pool WRITE (Info, logged only when the
+#             patcher moves a pool; the rewind's post-load recalc writes one if the
+#             reconstructed pool differs from the loaded save), and any drawdown-guard
+#             clamp.
+#   LEDGER    `[expectations.ledger] seedFrom = "template"`, `timeline = "rewind-aware"`,
+#             empty manifest: the produced save's funds / science / reputation must equal
+#             the staged 500000 / 100 / 0 within FacetTolerances.Default. The sum model
+#             is refused with InvokeRewindToLaunch (hlib.validate_spec); with no manifest
+#             entry the rewind-aware model's expectation at the save's end UT is the seed.
+#             A rewind that loaded a SANDBOX save would carry no Funding facet and red
+#             `missing`.
+#
+# PREDICTION FOR THE FIRST FLIGHT (a reading run): H58's tokens all hold, the two seed
+# lines appear once each at the first load (the rewind's reload finds the seeds already
+# in the ledger), no pool write appears. The routes block stays REPORT-ONLY
+# (`gating = false`) until a reading run (`test_no_committed_spec_arms_gating`).
+#
+# FLIGHT 1  `2026-10-21_2025`, PASS attempt 1, wall 56 s, automation DLL sha256 prefix
+#           7bdd8016 (worktree 4772612, C# = main 92f3a15). THE PREDICTION HELD: every
+#           H58 token matched, including the spec's own negative step (the bare
+#           InvokeRewindToLaunch refused `ambiguous-tree`, as H58 logs it) and the
+#           go-back route reconcile; both career seed lines present, `Built route
+#           id=... mode=CAREER`, zero `[Parsek][ERROR]`, no `Patch<Pool>: <old> -> <new>`
+#           write, no drawdown clamp. Rewind-aware ledger oracle PASS (expected funds
+#           500000, science 100, rep 0; no hard divergence). saveParse (report-only):
+#           one route, Active; 0 supersede rows, 0 tombstones, 0 rewind points.
+#
+# FAST-LANE CHECKLIST item 9, flight_efficiency.py (flight 1, `2026-10-21_2025`):
+# pre-launch 11.3 s, boot 24.1 s, seam steps 10.9 s (LoadGame 7.70 s, the two
+# InvokeRewindToLaunch 2.72 s), gaps 1.2 s, quit 0.7 s, post-quit 8.7 s, retries 0.
+# Nothing to trim: boot and the load are the cost.
+description = "H58-route-rewind-to-launch-career style: H58's route create / activate / pause / resume, in-run recorded subject and Rewind-to-Launch through tree=latest over rover-route-recorded-career, the same rover route save converted to CAREER by build_route_career.py, gating mode=CAREER on the route build, the career-save seeds (funds 500000, science 100), and no Parsek pool write, drawdown clamp or rewind-aware ledger-oracle pool drift across the dispatch arming and the rewind. FLOWN GREEN 2026-10-21 on its first flight (2026-10-21_2025, PASS attempt 1, rewind-aware ledger oracle PASS)."
+instanceProfile = "stock-minimal"
+tags = ["route", "rewind", "logistics", "route-x-rewind", "rewind-to-launch", "career",
+        "H79", "D12", "flown", "reading-iteration"]
+
+[fixture]
+saveTemplate = "fixtures/saves/rover-route-recorded-career"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "73e50f1e3aa24c299919016cd9e92269" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "73e50f1e3aa24c299919016cd9e92269", name = "H58 Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "activate",  route = "H58 Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "pause",     route = "H58 Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1600" },                             expect = "OK", budget = 300 },
+  { cmd = "RouteCommand", args = { action = "activate",  route = "H58 Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                   expect = "OK", budget = 180 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "CommitTree",                                                       expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "H58 Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "InvokeRewindToLaunch",                                             expect = "REJECTED", budget = 300 },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                 expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE: D8 rests on the ledger block's HARD pool diff plus the pool-write
+# forbids; D14 career on the fixture's Mode (test_d14_game_mode.py) and mode=CAREER.
+# H58's D10 row is not re-claimed (the H34 rule).
+D8 = ["funds", "science", "reputation"]
+D14 = ["career", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.routes]
+# H58's windows, REPORT-ONLY here until a reading run (see the header). Flight 1
+# measured one route, Active (the count and status windows hold).
+gating          = false
+count           = { min = 1, max = 1 }
+dormant         = { max = 0 }
+completedCycles = { max = 0 }
+skippedCycles   = { max = 0 }
+statuses        = { Active = { min = 1, max = 1 } }
+
+[expectations.recordings]
+count = { min = 6, max = 6 }
+
+[expectations.logContracts]
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=73e50f1e3aa24c299919016cd9e92269 total=4 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=73e50f1e3aa24c299919016cd9e92269 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=73e50f1e3aa24c299919016cd9e92269 route=.* name='H58 Rover Supply' status=Paused",
+  "routecommand complete action=activate route=.* name='H58 Rover Supply' match=.* statusBefore=Paused status=Active",
+  "LifecycleMarker: route .* type=RouteResumed reason=player-activate ut=",
+  "routecommand complete action=pause route=.* name='H58 Rover Supply' match=.* statusBefore=Active status=Paused",
+  "LifecycleMarker: route .* type=RoutePaused reason=player-pause ut=",
+  "Captured rewind save at UT ",
+  "Total committed: 6 recordings, 3 trees",
+  "stoprecording stopped=true idle=false",
+  "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
+  "invokerewindtolaunch refused: ambiguous-tree tree= committedTrees=3",
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=3",
+  "invokerewindtolaunch invoking tree=[0-9a-f]{32} rec=[0-9a-f]{32} startUT=[0-9]+\\.[0-9]+ - plain Rewind-to-Launch \\(NOT a Re-Fly\\)",
+  "Rewind-to-Launch initiated to UT",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=158[4-7]\\.[0-9]+ elapsed=",
+  "OnLoad: go-back route reconcile at cutoff=(1599|160[0-2])\\.[0-9]+ retiredRouteRows=0 committedRoutes=1 dormantRoutes=0 cutoffSource=rewind-save-ut rewindAdjustedUT=158[4-7]\\.[0-9]+ rewindSaveUT=(1599|160[0-2])\\.[0-9]+",
+  "OnLoad go-back: kept-route status fidelity at cutoff (1599|160[0-2])\\.[0-9]+: derivedPaused=0 derivedActive=0 oneShotFlagsCleared=1 countersReconstructed=0",
+  "OnLoad go-back: loop position restored from the loaded save at cutoff=(1599|160[0-2])\\.[0-9]+ loadedSaveUT=(1599|160[0-2])\\.[0-9]+ keptRoutes=1 savedRoutes=1 loopPositionsRestored=1",
+  "RewindReconcile: route [0-9a-f]+ cleared armed one-shot flags",
+  "Built route id=.* mode=CAREER",
+  "Seeded initial funds: amount=500000,",
+  "Seeded initial science: amount=100,",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "reject id=[0-9]+ cmd=InvokeRewindToLaunch reason=recording-active",
+  "invokerewindtolaunch refused: rewind-gate",
+  "Built route .* mode=SANDBOX",
+  "refusing to treat current (funds|science|reputation) as initial",
+  "Patch(Funds|Science): -?[0-9]+\\.[0-9] -> ",
+  "PatchReputation: -?[0-9]+\\.[0-9]+ -> ",
+  "GUARDED (DRAWDOWN|UPLIFT) clamped resource=",
+]
+
+[expectations.ledger]
+seedFrom     = "template"       # the staged career save's pools: funds 500000, science 100, rep 0.
+tolerances   = "default"        # FacetTolerances.Default (funds 1.0, science 0.1, rep 0.1).
+timeline     = "rewind-aware"   # required with InvokeRewindToLaunch; no entry, so the seed.
+
+[runtime]
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

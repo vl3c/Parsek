@@ -16,6 +16,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ROUTE-CAREER-FIXTURES-EARN-STOCK-EVENTS-AT-LOAD: two of the career route copies earn stock career rewards at their first load, so the ledger logs drawdown-guard clamps [FILED 2026-10-21 from H76 `2026-10-21_2019` and H78 `2026-10-21_2022` (both PASS, no gate failed), branch `career-route-lanes`. OPEN, low. harness]
+
+**Symptom.** H76 logs `GUARDED DRAWDOWN clamped ... ledger may be missing an earning channel` 80 times and H78 40 times. No gate failed (neither lane forbids the clamp), the redelivery cell logged `funds unchanged net=0` on both, and the route cycles net 0. H74 / H75 / H77 / H79, which forbid the clamp, logged none.
+
+**Cause.** Stock career events fire at the converted save's first load, not routes. `depot-route-recorded-career` (H76): stock awards the Kerbin/Rendezvous milestone (+12000 funds, +1 science, +2 rep), because the copied ProgressTracking (the source's, kept untouched by `build_route_career.py`) has no Kerbin/Rendezvous node while the recorded vessels are already in rendezvous, plus a +624 funds debris recovery. `bdock-recorded-career` (H78): four KSC debris recoveries add 914 funds. The ledger has no row for these earnings, so the guard keeps the live value and logs the clamp.
+
+**Fix.** In `harness/tools/build_route_career.py`: pre-seed ProgressTracking with the milestones the recorded vessels already reached, and clear the debris at the KSC, then re-check the six lanes' logs for zero clamp lines (H76 / H78 could then forbid it too).
+
 ## MINE-7-RESTORE-PIN-ASSUMES-DRILLS-OFF: MINE-7 pins the spawned-drill restore line to "restored=4 alreadyOn=0", but the drills can come back on by themselves [FILED 2026-10-21 from MINE-7 `2026-10-21_1604` (PARSEK-FAIL, expectations), flown for PR #2163. OPEN, low. harness]
 
 **Symptom.** The lane's required line `Spawned harvester restore: vessel=Mining Rover RC pid=[0-9]+ restored=4 alreadyOn=0 missing=0` did not match: KSP.log had `restored=0 alreadyOn=4 missing=0` 2 s after `Unpacking Mining Rover RC` (`restore armed ... harvesters=4` before it). Mining and every resource check passed; every other verifier passed. The green `2026-10-17_1506_a2` run logged `restored=4 alreadyOn=0`.
@@ -23,6 +31,8 @@ When referencing prior item numbers from source comments or plans, consult the r
 **Cause (inferred).** SPAWNED-DRILLS-SWITCH-OFF's restore runs once the vessel is loaded, off rails and landed; whether stock's `PrepareRecipe` impact check has already turned the drills off by then depends on the frame the raycast lands. The pin asserts one branch of a race the product handles both ways.
 
 **Fix.** Pin the outcome, not the branch: `restored=[0-4] alreadyOn=[0-4] missing=0` with restored + alreadyOn = 4 (regex alternation of the five pairs), keeping the drills-active resource assertions as the proof.
+
+**Phase 2 flight (PR #2167 at 70e00ff, `2026-10-21` p2 run).** The pinned line matched (`restored=4 alreadyOn=0 missing=0`), so this flight did not show the race; it went PARSEK-FAIL for environment reasons instead. Attempt 1 died at seam step 0036 on a refused `WarpToUT` (warp-locked by `flightDriver_ApplicationFocus`: the KSP window lost focus). Attempt 2 was a native KSP crash (0xC0000005) during `WarpToUT` step 0012. Neither attempt had a Parsek frame or a Parsek ERROR. The pin fix above still stands.
 
 ## RVR-21-START-SPEED-ABOVE-STATIONARY: RVR-21 needs the rover to start recording below 0.1 m/s, and a boot that leaves it drifting at 0.12 m/s starts SurfaceMobile [FILED 2026-10-21 from RVR-21 `2026-10-21_1626` (PARSEK-FAIL, expectations), flown for PR #2163. OPEN, low. harness]
 
@@ -32,6 +42,8 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Fix.** Settle before `StartRecording` (a wait until `srfSpeed < 0.05`, failing fast past a bound), so the lane always starts SurfaceStationary.
 
+**Phase 2 flight (PR #2167).** Same failure, start speed 0.15 m/s.
+
 ## L2-AFTER-QUIT-STOCK-NRE: L2-ledger-groundtruth-career's armed `unityExceptions maxTotal = 0` counts two stock NullReferenceExceptions thrown after Parsek's quit [FILED 2026-10-21 from L2 `2026-10-21_1640` (PARSEK-FAIL, unityExceptions), flown for PR #2163. OPEN, low. harness]
 
 **Symptom.** `unityExceptions status=FAIL gating=True total=2 ... parsekFrames=0 parsekThrowSite=0 parsekCaller=0 afterQuit=2`: both are `Exception handling event onPlanetariumTargetChange in class KnowledgeBase: NullReferenceException at KSP.UI.Screens.KbApp_PlanetResources.ActivateApp ... PlanetariumCamera:OnVesselDestroy / Vessel:OnDestroy()`, after `flushandquit: Application.Quit`. The ledger oracle passed (hardDivergences=0) and every other verifier passed.
@@ -39,6 +51,8 @@ When referencing prior item numbers from source comments or plans, consult the r
 **Cause.** Stock scene teardown noise during shutdown; the armed gate counts after-quit exceptions with no Parsek frame.
 
 **Fix.** Decide in `hlib.evaluate_unity_exceptions` whether an armed `maxTotal` counts `afterQuit` exceptions with no Parsek frame (exclude them, or allow this stock signature), with a unit cell for each side.
+
+**Phase 2 flight (PR #2167).** Same class: one after-quit stock NRE, this time from `CrewHatchController.get_CrewHatchTooltip`, with no Parsek frame. The ledger oracle passed (funds 500000, science 100, reputation 0). So the stock signatures vary, which favours excluding frameless after-quit exceptions over allowlisting one signature.
 
 ## ~~REFLY-STARTED-FROM-A-RESUMED-VESSEL-IS-NEVER-SAVED: an F5 during a Re-Fly started while flying a resumed committed vessel does not save the Re-Fly~~ [FILED 2026-10-20 from harness lane CI-3 on V's PC (PR #2155 head 1abd1b4). Was open, high: with save-file loads cold (PR #2155) the F9 cleared the Re-Fly marker. FIXED 2026-10-21 on branch `claude/project-thread-hvhou8` (PR #2155): the session survives the F9 and keeps its committed original. xUnit; CI-3 re-fly pending. product]
 
@@ -435,7 +449,9 @@ still loads and renders a generic line. `Route.CreationTreeRecordingIds` kept. H
 RVR-17, GUI-23, the `rover-route-career` fixture and builder, `[fixture.career]` and the oracle's
 Rec-3 route-funds carve-out retired; IR-5's dispatch token re-pinned. Flown 2026-10-21 at 98a0aae, 59 lanes (47 route / Logistics, 12
 ledger): 56 PASS, 3 PARSEK-FAIL unrelated to the change (MINE-7-RESTORE-PIN-ASSUMES-DRILLS-OFF,
-RVR-21-START-SPEED-ABOVE-STATIONARY, L2-AFTER-QUIT-STOCK-NRE). Gap (CLOSED 2026-10-21):
+RVR-21-START-SPEED-ABOVE-STATIONARY, L2-AFTER-QUIT-STOCK-NRE). Phase 2 (route events leave the ledger, PR #2167)
+flown at 70e00ff, 60 lanes (with H73): 57 PASS, 3 PARSEK-FAIL, the same three entries, with no Parsek frame and 0 Parsek ERROR
+lines. Gap (CLOSED 2026-10-21):
 `RouteRewindRedeliveryInGameTest`'s funds-flat assertion ran on no lane (its four hosts H38 / H39 /
 H40 / RVR-6 are Sandbox and skip it). The career funds-flat check is now proven by
 `H73-logistics-isolated-career` `2026-10-21_1739` (PASS attempt 1, `RewindRedeliver_InGame: funds
@@ -443,6 +459,22 @@ unchanged net=0`, the Sandbox skip line absent): H38's isolated Logistics batch 
 `logi-cargo-career` (H38's rig in `fresh-career`), tally 39 / 0 / 8 pinned whole. The fixture then
 gained three research nodes (every rig part unlocked) and the confirming flight `2026-10-21_1810`
 passed on it (same tally, `funds unchanged net=0`).
+Follow-up AUTHORED AND FLOWN GREEN 2026-10-21 (branch `career-route-lanes`): H73 proved the funds pair on a
+pad rig only; every other route lane still runs SANDBOX. `harness/tools/build_route_career.py` (drift gate
+`harness/lib/test_route_career.py`) builds CAREER copies of five route saves (`rover-relay-c-recorded`,
+`depot-route-recorded`, `gloops-airshow`, `bdock-recorded`, `rover-route-recorded`): career PARAMETERS and
+scenarios, funds 500000 / science 100 / rep 0, top-level facilities, and the ledger's SANDBOX starting-value
+rows, award-bearing milestone rows and legacy route rows removed so Parsek seeds off the career save.
+Six lanes fly their source's driver verbatim on them: H74 (RVR-7), H75 (RVR-8), H76 (H40), H77 (H34),
+H78 (H39), H79 (H58). Gates: the career seed lines and no `mode=SANDBOX` route build everywhere; no Parsek
+pool write or drawdown clamp on H74 / H75 / H77 / H79, plus the ledger oracle against the staged pools on
+H74 / H75 (sum) and H79 (rewind-aware); H73's redelivery funds pair on H76 / H78. Flown 2026-10-21 on
+automation DLL 7bdd8016 (C# = main 92f3a15), every lane PASS attempt 1 on its first flight: H74
+`2026-10-21_2017`, H75 `_2018`, H76 `_2019`, H77 `_2022`, H78 `_2022`, H79 `_2025`. Ledger oracle PASS on
+H74 / H75 / H79 (funds 500000, science 100, rep 0); `funds unchanged net=0` on H76 / H78; zero Parsek ERROR
+and no Parsek pool write anywhere. The batch splits held their sources' exactly (H76 35/0/12, H77 2/0/45,
+H78 34/0/13) and are now pinned whole. Still owed: the operator's arming call on the report-only saveParse
+blocks. Found: ROUTE-CAREER-FIXTURES-EARN-STOCK-EVENTS-AT-LOAD (no gate failed).
 
 **Phase 2 FIXED 2026-10-21** (branch `logistics-no-money-p2`, stacked on phase 1). Route events left
 the ledger. New: `Logistics/RouteEvent.cs` (`RouteEvent` + `RouteEventType`, the eight kinds with the
