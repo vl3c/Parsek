@@ -6504,10 +6504,9 @@ namespace Parsek
         /// the load is Parsek's own rewind flow which explicitly resets playback state.</para>
         ///
         /// Returns true if an active tree was found and stashed as Limbo.
-        /// <paramref name="earlyLoadKind"/> is the load's prologue kind and
-        /// <paramref name="loadedSceneIsFlight"/> whether the load lands in FLIGHT; the
-        /// committed-copy rule (<see cref="DecideCommittedCopyRestore"/>) applies to a plain
-        /// in-session load into FLIGHT only.
+        /// <paramref name="earlyLoadKind"/> is the load's prologue kind (the save-attempt re-arm
+        /// reads it) and <paramref name="loadedSceneIsFlight"/> whether the load lands in FLIGHT
+        /// (the discarded-tree decline reads it).
         /// </summary>
         /// <summary>
         /// Pure: true when <paramref name="tree"/>, the active tree a load restores, is the live
@@ -6606,15 +6605,7 @@ namespace Parsek
                 if (TryDeclineDiscardedActiveTree(tree, loadedSceneIsFlight))
                     return false;
 
-                // A committed tree with this id that the quicksave does not hold as committed was
-                // committed after the quicksave (owner ruling OQ-2). Its stale-epoch members are
-                // salvaged from the committed copy here, and the stale-epoch keep below does not
-                // run for it, so the splice, refresh and detach that follow always do.
-                CommittedCopyRestoreAction committedCopyAction = ResolveCommittedCopyRestore(
-                    tree, earlyLoadKind, loadedSceneIsFlight, ref staleEpochHydrationFailures);
-
-                if (committedCopyAction != CommittedCopyRestoreAction.ResumeFromQuicksave
-                    && ShouldKeepPendingTreeAfterHydrationFailure(tree, staleEpochHydrationFailures))
+                if (ShouldKeepPendingTreeAfterHydrationFailure(tree, staleEpochHydrationFailures))
                 {
                     ParsekLog.Warn("Scenario",
                         $"TryRestoreActiveTreeNode: keeping in-memory pending tree " +
@@ -6678,7 +6669,6 @@ namespace Parsek
                 // it) and skips the splice (its same-id refresh would put the committed trajectory
                 // over a recording resumed in place).
                 bool liveAttemptKeepsCommittedCopy = !saveAttemptRearmed
-                    && committedCopyAction != CommittedCopyRestoreAction.ResumeFromQuicksave
                     && RecordingStore.IsCommittedTreeRestoreAttemptTree(tree.Id);
                 int splicedFromCommitted = saveAttemptRearmed || liveAttemptKeepsCommittedCopy
                     ? 0
@@ -6699,12 +6689,9 @@ namespace Parsek
                 // does: a later Discard drops only the clone, and a Merge replaces the original.
                 // A Re-Fly session the save resumes keeps it too: a session runs with the
                 // committed original beside its live tree (the Re-Fly start's bundle restore puts
-                // it back), so ghost chains still hold back the vessels it claims (CI-3). A
-                // session merged after the save is a resume from the quicksave instead: its
-                // committed copy detaches and its rows follow the save.
+                // it back), so ghost chains still hold back the vessels it claims (CI-3).
                 bool reFlySessionResumed =
-                    committedCopyAction != CommittedCopyRestoreAction.ResumeFromQuicksave
-                    && IsResumedReFlySessionTree(Instance?.ActiveReFlySessionMarker, tree);
+                    IsResumedReFlySessionTree(Instance?.ActiveReFlySessionMarker, tree);
                 bool committedCopyDetached = !saveAttemptRearmed
                     && !reFlySessionResumed
                     && !liveAttemptKeepsCommittedCopy
@@ -6737,8 +6724,6 @@ namespace Parsek
                         $"TryRestoreActiveTreeNode: no committed copy of tree '{tree.TreeName}' " +
                         $"(id={tree.Id}) needed detaching");
                 }
-                if (committedCopyAction == CommittedCopyRestoreAction.ResumeFromQuicksave)
-                    ClearCommittedTreeRestoreAttemptAfterDetach(tree);
 
                 // Bug #290d: if the pending tree is already Finalized (set by
                 // CommitTreeSceneExit during the same scene transition), it has

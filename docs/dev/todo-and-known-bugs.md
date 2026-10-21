@@ -336,7 +336,11 @@ machinery no remaining load kind reaches (design section 8 table, "Phase 3" colu
 the abandoned Re-Fly fork prune (`CollectAbandonedReFlyForkIds` / `NoteAbandonedReFlyForks` /
 `PruneAbandonedReFlyForks`; only a committed-copy resume noted forks); step B's resumed-tree row
 rule (`ApplyResumedTreeRowRule`, `NoteQuickloadResumeDetach` and the resume narrowing of
-`MergeDialog.CollectReFlyAttemptOwnedRecordingIds`; every staged row list now stays memory's). Kept on purpose: the QL-R1
+`MergeDialog.CollectReFlyAttemptOwnedRecordingIds`; every staged row list now stays memory's);
+the committed-copy rule (`DecideCommittedCopyRestore` / `ResolveCommittedCopyRestore`, its
+stale-epoch salvage and its restore-attempt clear; the stale-epoch keep now runs ungated, and
+lanes LAB-9a, QL-2, QL-2b, QL-2c pin the restore's no-detach line in place of the rule's skip
+line). Kept on purpose: the QL-R1
 decline (`TryDeclineDiscardedActiveTree` / `TryDeclineDiscardedPendingTree`), still reached by a
 stock revert after a cold resume and an in-flight discard; the `QuickloadFlight` kind and its
 column, still produced by the harness `LoadGame` verb without `playerLoad=true` and the in-game

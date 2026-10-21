@@ -623,9 +623,9 @@ namespace Parsek.Tests
         }
 
         // =====================================================================
-        // F9 into a save of a flight committed and re-flown since: the committed-copy restore
-        // (ParsekScenario.TryRestoreActiveTreeNode, ResumeFromQuicksave) detaches the committed
-        // tree and resumes the save's, so the rows naming that tree follow the save.
+        // An in-session load of a save of a flight committed and re-flown since: the restore
+        // (ParsekScenario.TryRestoreActiveTreeNode) detaches the committed copy and stashes the
+        // save's tree; every row stays memory's.
         // =====================================================================
 
         private const string CoreId = "rec_core";
@@ -755,10 +755,9 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// A load that does not land in FLIGHT resumes no recorder, so the committed-copy restore
-        /// leaves the committed future alone (Unchanged, scene-not-flight) even though it still
-        /// detaches the copy and stashes the save's tree with A' spliced in: the rows stay from
-        /// memory, so O stays replaced by the A' the outside-flight commit keeps.
+        /// A load that does not land in FLIGHT detaches the committed copy and stashes the save's
+        /// tree with A' spliced in: the rows stay from memory, so O stays replaced by the A' the
+        /// outside-flight commit keeps.
         /// </summary>
         [Fact]
         public void LoadOutsideFlight_DetachWithoutResume_RowsStayFromMemory()
@@ -781,8 +780,7 @@ namespace Parsek.Tests
             var loaded = Load(memory, saved, EarlyLoadKind.InSession, treeRestore: () =>
                 Assert.True(ParsekScenario.TryRestoreActiveTreeNode(saved, EarlyLoadKind.InSession, false)));
 
-            Assert.Contains(logLines, l => l.Contains("Quickload committed-copy restore:")
-                && l.Contains("action=Unchanged reason=scene-not-flight"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Quickload committed-copy restore"));
             Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == TreeId);
             Assert.True(RecordingStore.PendingTree.Recordings.ContainsKey(ForkId));
             Assert.Equal(new[] { "rel_a" }, loaded.RecordingSupersedes.Select(r => r.RelationId));

@@ -245,20 +245,6 @@ namespace Parsek
             internal bool TreeCommittedInQuicksave;
             internal readonly Dictionary<string, QuicksaveMemberFacts> Members =
                 new Dictionary<string, QuicksaveMemberFacts>(StringComparer.Ordinal);
-
-            /// <summary>True when any member is in a committed tree node of the save.</summary>
-            internal bool AnyMemberCommittedInQuicksave
-            {
-                get
-                {
-                    foreach (KeyValuePair<string, QuicksaveMemberFacts> kvp in Members)
-                    {
-                        if (kvp.Value.CommittedInQuicksave)
-                            return true;
-                    }
-                    return false;
-                }
-            }
         }
 
         /// <summary>
@@ -267,10 +253,9 @@ namespace Parsek
         /// so a member whose id is here was committed history when the quicksave was taken (a
         /// copy-on-write restore clone shares its committed tree's ids). One exception:
         /// <c>SaveTreeRecordings</c> drops a committed tree it cannot serialize (Error) when no
-        /// last-known-good node can be carried forward. The committed-copy rule still never reads
-        /// such a tree's clone as committed after the save, because the clone shares the failing
-        /// recordings' ids and sidecars, so the same failure keeps its active node out of that
-        /// save too (<c>SaveActiveTreeIfAny</c> writes both-or-neither).
+        /// last-known-good node can be carried forward; the clone shares the failing recordings'
+        /// ids and sidecars, so the same failure keeps its active node out of that save too
+        /// (<c>SaveActiveTreeIfAny</c> writes both-or-neither).
         /// </summary>
         internal static HashSet<string> CollectQuicksaveCommittedRecordingIds(ConfigNode scenarioNode)
         {

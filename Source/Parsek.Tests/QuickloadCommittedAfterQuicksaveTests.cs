@@ -3,26 +3,19 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Text.RegularExpressions;
 using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
 {
     /// <summary>
-    /// F9 into the quicksave of a flight that was committed after the quicksave, when an OnSave
-    /// ran in between (todo QUICKLOAD-INTO-COMMITTED-FLIGHT-AFTER-A-SAVE-KEEPS-ABANDONED-FUTURE).
-    /// The OnSave advanced the sidecar epochs past the ones the quicksave names, so every member
-    /// that changed since the quicksave reads `stale-sidecar-epoch` on the load. Owner ruling
-    /// OQ-2: the F9 resumes the flight and retires its recording-tagged future; D2: a tree the
-    /// quicksave already holds as committed history keeps today's behaviour.
-    ///
-    /// Shapes, all driven through <c>ParsekScenario.TryRestoreActiveTreeNode</c> and the
-    /// production resume entry <c>FlightRecorder.PrepareQuickloadResumeStateIfNeeded</c>:
-    /// the Space Center route (no pending tree: the exit committed the flight), the in-flight
-    /// route (the same-id copy-on-write clone the recorder resumed after an in-flight commit,
-    /// stashed as Limbo by the F9), the D2 shape, and the plain stale-epoch keep with no
-    /// committed copy.
+    /// An in-session load of a quicksave whose flight was committed (before or after the
+    /// quicksave) when an OnSave ran in between: the OnSave advanced the sidecar epochs past the
+    /// ones the quicksave names, so every member that changed reads `stale-sidecar-epoch` on the
+    /// load. A save-file load (F9) is cold since "load restores the save"; these shapes are
+    /// reached by a load no stock path announces. Driven through
+    /// <c>ParsekScenario.TryRestoreActiveTreeNode</c> and the production resume entry
+    /// <c>FlightRecorder.PrepareQuickloadResumeStateIfNeeded</c>.
     /// </summary>
     [Collection("Sequential")]
     public class QuickloadCommittedAfterQuicksaveTests : IDisposable
@@ -81,150 +74,29 @@ namespace Parsek.Tests
         }
 
         // ============================================================
-        // Space Center route: F5, Esc to the Space Center (auto-merge, exit save), F9.
+        // A flight committed after the quicksave, then an in-session load of that quicksave
+        // (a load no stock path announces; F9 is a cold load). Phase 3 deleted the
+        // committed-copy rule that resumed such a flight: the stale members drop the saved
+        // tree and the committed copy stays committed.
         // ============================================================
 
-        [Fact]
-        public void SpaceCenterRoute_StaleMembersSalvagedFromCommittedCopy_ResumedAndFutureRetired()
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void CommittedAfterTheQuicksave_StaleSavedTreeDropped_CommittedCopyStays(bool revertPending)
         {
-            var committed = CommitFuture("ql_sc");
-            string rootId = committed.RootRecordingId;
-            string boosterId = BoosterId(committed);
-            SeedFutureEventsAndRows(rootId, boosterId);
-            ConfigNode node = QuicksaveNode(MakeQuicksaveTree("ql_sc"), committedTree: null);
+            var committed = CommitFuture("ql_after");
+            ConfigNode node = QuicksaveNode(MakeQuicksaveTree("ql_after"), committedTree: null);
+            if (revertPending)
+                RevertDetector.SetPendingForTesting(RevertKind.Launch);
 
             logLines.Clear();
-            bool restored = ParsekScenario.TryRestoreActiveTreeNode(node);
+            Assert.False(ParsekScenario.TryRestoreActiveTreeNode(node));
 
-            // Today: the stale root drops the whole saved tree and the flight resumes unrecorded.
-            AssertNoLine("dropped entire tree");
-            Assert.True(restored);
-            Assert.Contains(logLines, l => l.Contains("Sidecar epoch mismatch"));
-            Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == committed.Id);
-            Assert.DoesNotContain(RecordingStore.CommittedRecordings, r => r.TreeId == committed.Id);
-            Assert.Contains(logLines, l =>
-                l.Contains("TryRestoreActiveTreeNode: removed committed tree 'ql_sc'"));
-            Assert.Contains(logLines, l =>
-                l.Contains("[Scenario]")
-                && l.Contains("Quickload committed-copy restore:")
-                && l.Contains("tree='ql_sc'")
-                && l.Contains("route=space-center")
-                && l.Contains("action=ResumeFromQuicksave")
-                && l.Contains("reason=committed-after-quicksave")
-                && l.Contains("staleMembers=2")
-                && l.Contains("salvagedFromCommitted=2")
-                && l.Contains("unsalvaged=0"));
-            // The wording lane QL-4b pins (harness/scenarios/QL-4b-quickload-from-space-center.toml).
-            Assert.Contains(logLines, l => Regex.IsMatch(l,
-                @"\[Scenario\] Quickload committed-copy restore: tree='ql_sc' id=\S+ route=space-center "
-                + @"action=ResumeFromQuicksave reason=committed-after-quicksave loadKind=InSession "
-                + @"staleMembers=[1-9][0-9]* salvagedFromCommitted=[1-9][0-9]* unsalvaged=[0-9]+ replacesStaleKeep=false"));
-            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
-            RecordingTree resumed = RecordingStore.PopPendingTree();
-            Assert.NotSame(committed, resumed);
-            Recording booster = resumed.Recordings[boosterId];
-            Assert.False(booster.SidecarLoadFailed);
-            Assert.True(booster.FilesDirty);
-
-            logLines.Clear();
-            RunResumePrep(resumed, QuicksaveUT, LoadKind.QuickloadFlight);
-
-            AssertAbandonedFutureRetired(resumed, rootId, boosterId, expectedEventsPurged: 2);
-        }
-
-        // ============================================================
-        // In-flight route: F5, fly on, commit in flight (the recorder resumes on a same-id
-        // copy-on-write clone), any OnSave, F9 (the scene change stashes the clone as Limbo).
-        // ============================================================
-
-        [Fact]
-        public void InFlightRoute_SameIdLimboCloneNotKept_CommittedCopyDetachedAndFutureRetired()
-        {
-            var committed = CommitFuture("ql_if");
-            string rootId = committed.RootRecordingId;
-            string boosterId = BoosterId(committed);
-            SeedFutureEventsAndRows(rootId, boosterId);
-            RecordingTree clone = StashResumedClone(committed);
-            AddEvent(rootId, 335.0, GameStateEventType.ContractCompleted, "clone-335", "fundsReward=1");
-            ConfigNode node = QuicksaveNode(MakeQuicksaveTree("ql_if"), committedTree: null);
-
-            logLines.Clear();
-            Assert.True(ParsekScenario.TryRestoreActiveTreeNode(node));
-            RecordingTree resumed = RecordingStore.PopPendingTree();
-            RunResumePrep(resumed, QuicksaveUT, LoadKind.QuickloadFlight);
-
-            // Today: the stale-epoch keep holds the clone, nothing is detached, and every
-            // member reads as still committed.
-            AssertNoLine("reason=empty-plan");
-            AssertNoLine("keeping in-memory pending tree");
-            Assert.NotSame(clone, resumed);
-            Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == committed.Id);
-            Assert.DoesNotContain(RecordingStore.CommittedRecordings, r => r.TreeId == committed.Id);
-            Assert.False(RecordingStore.HasCommittedTreeRestoreAttempt);
-            Assert.Contains(logLines, l =>
-                l.Contains("Quickload committed-copy restore:")
-                && l.Contains("tree='ql_if'")
-                && l.Contains("route=in-flight")
-                && l.Contains("action=ResumeFromQuicksave")
-                && l.Contains("staleMembers=2")
-                && l.Contains("salvagedFromCommitted=2"));
-            Assert.Contains(logLines, l =>
-                l.Contains("Quickload committed-copy restore: cleared the committed-tree restore attempt")
-                && l.Contains("tree='ql_if'"));
-            // The wording lane QL-4c pins (harness/scenarios/QL-4c-quickload-after-in-flight-save.toml).
-            Assert.Contains(logLines, l => Regex.IsMatch(l,
-                @"\[Scenario\] Quickload committed-copy restore: tree='ql_if' id=\S+ route=in-flight "
-                + @"action=ResumeFromQuicksave reason=committed-after-quicksave loadKind=InSession "
-                + @"staleMembers=[1-9][0-9]* salvagedFromCommitted=[1-9][0-9]* unsalvaged=[0-9]+ replacesStaleKeep=true"));
-            Assert.Contains(logLines, l => Regex.IsMatch(l,
-                @"\[Scenario\] Quickload committed-copy restore: cleared the committed-tree restore attempt for tree='ql_if'"));
-            // The resumed tree is the quicksave's, not the clone's post-commit tail.
-            Assert.Equal(QuicksaveUT, resumed.Recordings[rootId].EndUT);
-
-            AssertAbandonedFutureRetired(resumed, rootId, boosterId, expectedEventsPurged: 3);
-        }
-
-        [Fact]
-        public void InFlightRoute_StaleMemberTheCommittedCopyNoLongerHolds_DroppedAndCloneStillNotKept()
-        {
-            // The quicksave names a member the committed copy no longer holds (merged away by
-            // the commit's optimizer pass) whose sidecar was rewritten after the quicksave: it
-            // stays stale after the salvage, and the same-id clone must still not be kept.
-            var committed = CommitFuture("ql_unsalv");
-            RecordingTree clone = StashResumedClone(committed);
-            var quicksaved = MakeQuicksaveTree("ql_unsalv");
-            var merged = new Recording
-            {
-                RecordingId = "merged_ql_unsalv", TreeId = quicksaved.Id, VesselName = "merged",
-                VesselPersistentId = 333u,
-                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
-                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
-                SidecarEpoch = 1,
-            };
-            SetPoints(merged, 130.0, 190.0);
-            quicksaved.AddOrReplaceRecording(merged);
-            var mergedOnDisk = new RecordingTree { Id = quicksaved.Id, TreeName = quicksaved.Id };
-            mergedOnDisk.AddOrReplaceRecording(Recording.DeepClone(merged));
-            WriteSidecarsAtEpoch(mergedOnDisk, 2);
-            ConfigNode node = QuicksaveNode(quicksaved, committedTree: null);
-
-            logLines.Clear();
-            Assert.True(ParsekScenario.TryRestoreActiveTreeNode(node));
-
-            AssertNoLine("keeping in-memory pending tree");
-            Assert.NotSame(clone, RecordingStore.PendingTree);
-            Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == committed.Id);
-            Assert.False(RecordingStore.PendingTree.Recordings.ContainsKey("merged_ql_unsalv"));
-            Assert.Contains(logLines, l =>
-                l.Contains("Quickload committed-copy restore:")
-                && l.Contains("route=in-flight")
-                && l.Contains("action=ResumeFromQuicksave")
-                && l.Contains("staleMembers=3")
-                && l.Contains("salvagedFromCommitted=2")
-                && l.Contains("unsalvaged=1")
-                && l.Contains("replacesStaleKeep=true"));
-            Assert.Contains(logLines, l =>
-                l.Contains("TryRestoreActiveTreeNode: dropped 1 recording(s) with incompatible sidecars"));
+            Assert.Contains(RecordingStore.CommittedTrees, t => ReferenceEquals(t, committed));
+            Assert.Contains(logLines, l => l.Contains("dropped entire tree 'ql_after'"));
+            AssertNoLine("removed committed tree 'ql_after'");
+            AssertNoLine("Quickload committed-copy restore");
         }
 
         // ============================================================
@@ -263,14 +135,6 @@ namespace Parsek.Tests
                 Assert.False(restored);
                 Assert.Contains(logLines, l => l.Contains("dropped entire tree 'ql_d2'"));
             }
-            Assert.Contains(logLines, l =>
-                l.Contains("Quickload committed-copy restore:")
-                && l.Contains("tree='ql_d2'")
-                && l.Contains("route=" + (withPendingClone ? "in-flight" : "space-center"))
-                && l.Contains("action=Unchanged")
-                && l.Contains("reason=tree-committed-in-quicksave")
-                && l.Contains("staleMembers=2")
-                && l.Contains("salvagedFromCommitted=0"));
         }
 
         // ============================================================
@@ -291,98 +155,17 @@ namespace Parsek.Tests
             Assert.Same(future, RecordingStore.PendingTree);
             Assert.Contains(logLines, l => l.Contains("keeping in-memory pending tree"));
             Assert.DoesNotContain(logLines, l => l.Contains("removed committed tree"));
-            Assert.DoesNotContain(logLines, l => l.Contains("Quickload committed-copy restore:"));
-            Assert.Contains(logLines, l =>
-                l.Contains("Quickload committed-copy restore skipped:")
-                && l.Contains("tree='ql_plain'")
-                && l.Contains("reason=no-committed-copy")
-                && l.Contains("staleMembers=2"));
         }
 
         // ============================================================
-        // In flight with no save between the commit and the F9 (QL-4's route): nothing reads
-        // stale, the existing refresh and detach already ran; the rule adds the restore-attempt
-        // clear so the resumed tree is written by the next OnSave.
+        // The Finalized keep (bug #290d).
         // ============================================================
-
-        [Fact]
-        public void InFlightNoSaveInBetween_NothingStale_DetachAsBeforeAndRestoreAttemptCleared()
-        {
-            var committed = MakeFutureTree("ql_nosave");
-            foreach (var rec in committed.Recordings.Values)
-                RecordingStore.AddCommittedInternal(rec);
-            RecordingStore.AddCommittedTreeForTesting(committed);
-            StashResumedClone(committed);
-            ConfigNode node = QuicksaveNode(MakeQuicksaveTree("ql_nosave"), committedTree: null);
-
-            logLines.Clear();
-            Assert.True(ParsekScenario.TryRestoreActiveTreeNode(node));
-
-            Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == committed.Id);
-            Assert.False(RecordingStore.HasCommittedTreeRestoreAttempt);
-            Assert.Contains(logLines, l =>
-                l.Contains("Quickload committed-copy restore:")
-                && l.Contains("route=in-flight")
-                && l.Contains("action=ResumeFromQuicksave")
-                && l.Contains("staleMembers=0")
-                && l.Contains("salvagedFromCommitted=0")
-                && l.Contains("replacesStaleKeep=false"));
-            Assert.Contains(logLines, l =>
-                l.Contains("cleared the committed-tree restore attempt") && l.Contains("tree='ql_nosave'"));
-            RecordingTree resumed = RecordingStore.PopPendingTree();
-            // The refresh brought the committed future in; the resume trim owns it.
-            Assert.Equal(TerminalState.Destroyed, resumed.Recordings[BoosterId(resumed)].TerminalStateValue);
-        }
-
-        // ============================================================
-        // Exclusions through the real entry: a revert and a Re-Fly start keep today's restore.
-        // ============================================================
-
-        [Fact]
-        public void RevertPending_SpaceCenterShape_Unchanged()
-        {
-            var committed = CommitFuture("ql_revert");
-            ConfigNode node = QuicksaveNode(MakeQuicksaveTree("ql_revert"), committedTree: null);
-            RevertDetector.SetPendingForTesting(RevertKind.Launch);
-
-            logLines.Clear();
-            Assert.False(ParsekScenario.TryRestoreActiveTreeNode(node));
-
-            Assert.Contains(RecordingStore.CommittedTrees, t => ReferenceEquals(t, committed));
-            Assert.Contains(logLines, l => l.Contains("dropped entire tree 'ql_revert'"));
-            Assert.Contains(logLines, l =>
-                l.Contains("Quickload committed-copy restore:")
-                && l.Contains("action=Unchanged")
-                && l.Contains("reason=revert-pending"));
-        }
-
-        [Fact]
-        public void LoadLandingOutsideFlight_SpaceCenterShape_Unchanged()
-        {
-            // A flight quicksave loaded straight to the Space Center (the automation-only
-            // `LoadGame scene=spacecenter`): no recorder resumes, so nothing would trim the
-            // salvaged payload before the outside-flight auto-commit re-committed it.
-            var committed = CommitFuture("ql_ksc_scene");
-            ConfigNode node = QuicksaveNode(MakeQuicksaveTree("ql_ksc_scene"), committedTree: null);
-
-            logLines.Clear();
-            Assert.False(ParsekScenario.TryRestoreActiveTreeNode(
-                node, EarlyLoadKind.InSession, loadedSceneIsFlight: false));
-
-            Assert.Contains(RecordingStore.CommittedTrees, t => ReferenceEquals(t, committed));
-            Assert.Contains(logLines, l => l.Contains("dropped entire tree 'ql_ksc_scene'"));
-            Assert.Contains(logLines, l =>
-                l.Contains("Quickload committed-copy restore:")
-                && l.Contains("action=Unchanged")
-                && l.Contains("reason=scene-not-flight"));
-        }
 
         [Fact]
         public void FinalizedSameIdPendingTree_RestoreAttemptNotClearedBeforeTheFinalizedKeep()
         {
             // A same-id pending tree already Finalized (bug #290d: the restore keeps it as
-            // authoritative) is not the quicksave's flight resuming: the rule stays out, so the
-            // restore attempt armed for its committed original is not cleared.
+            // authoritative): the restore attempt armed for its committed original stays armed.
             var committed = MakeFutureTree("ql_finalized");
             foreach (var rec in committed.Recordings.Values)
                 RecordingStore.AddCommittedInternal(rec);
@@ -398,129 +181,11 @@ namespace Parsek.Tests
             Assert.Same(finalizedClone, RecordingStore.PendingTree);
             Assert.Contains(logLines, l => l.Contains("keeping in-memory Finalized tree"));
             Assert.True(RecordingStore.HasCommittedTreeRestoreAttempt);
-            AssertNoLine("cleared the committed-tree restore attempt");
-            Assert.Contains(logLines, l =>
-                l.Contains("Quickload committed-copy restore:")
-                && l.Contains("tree='ql_finalized'")
-                && l.Contains("action=Unchanged")
-                && l.Contains("reason=finalized-pending-tree"));
-        }
-
-        [Fact]
-        public void ReFlyStartLoad_SpaceCenterShape_Unchanged()
-        {
-            var committed = CommitFuture("ql_refly");
-            ConfigNode node = QuicksaveNode(MakeQuicksaveTree("ql_refly"), committedTree: null);
-
-            logLines.Clear();
-            Assert.False(ParsekScenario.TryRestoreActiveTreeNode(node, EarlyLoadKind.ReFlyStart));
-
-            Assert.Contains(RecordingStore.CommittedTrees, t => ReferenceEquals(t, committed));
-            Assert.Contains(logLines, l =>
-                l.Contains("Quickload committed-copy restore:")
-                && l.Contains("action=Unchanged")
-                && l.Contains("reason=load-kind-ReFlyStart"));
         }
 
         // ============================================================
-        // The merge state the abandoned commit gave a member (todo
-        // QUICKLOAD-RESUMED-MEMBER-KEEPS-ABANDONED-FUTURE-MERGE-STATE): the commit after the
-        // quicksave promoted the booster to CommittedProvisional (an Unfinished Flight from its
-        // abandoned end), the same-id refresh or the stale-epoch salvage copies that onto the
-        // quicksave's booster (which the quicksave holds with no `mergeState` key, so Immutable),
-        // and the reconcile must hand back the quicksave's state with the end state it clears.
+        // The merge state of a member committed before the quicksave (owner ruling D2).
         // ============================================================
-
-        // split: the abandoned commit's optimizer pass split the promoted booster (atmo / surface)
-        // and copied CommittedProvisional onto both halves, the terminal moving to the second
-        // half, which the quicksave does not hold. "after": the cut lies past the quicksave, so
-        // the second half is pruned and the head becomes the slot tip with no end state to
-        // clear. "before": the cut lies before it, so the second half survives as the tip, its
-        // end state is cleared and its merge state has no quicksave node of its own.
-        [Theory]
-        [InlineData("nosave", "none")]
-        [InlineData("spacecenter", "none")]
-        [InlineData("inflight-save", "none")]
-        [InlineData("nosave", "after")]
-        [InlineData("spacecenter", "after")]
-        [InlineData("inflight-save", "after")]
-        [InlineData("nosave", "before")]
-        [InlineData("spacecenter", "before")]
-        [InlineData("inflight-save", "before")]
-        public void PromotedAfterTheQuicksave_ResumedMemberTakesBackTheQuicksaveMergeState(string route, string split)
-        {
-            string id = "ql_ms_" + route.Replace("-", "_") + "_" + split;
-            RecordingTree committed = MakeFutureTree(id);
-            string boosterId = BoosterId(committed);
-            committed.Recordings[boosterId].MergeState = MergeState.CommittedProvisional;
-            string tailId = null;
-            if (split != "none")
-                tailId = SplitBoosterInCommittedCopy(committed, split == "after" ? 250.0 : 150.0);
-            if (route == "nosave")
-            {
-                // QL-4: commit in flight, no save, F9 (nothing reads stale; the same-id refresh).
-                foreach (var rec in committed.Recordings.Values)
-                    RecordingStore.AddCommittedInternal(rec);
-                RecordingStore.AddCommittedTreeForTesting(committed);
-                StashResumedClone(committed);
-            }
-            else
-            {
-                // QL-4b (exit to the Space Center, F9) and QL-4c (commit in flight, a save, F9):
-                // the stale-epoch salvage.
-                CommitTreeWithSidecars(committed);
-                if (route == "inflight-save")
-                    StashResumedClone(committed);
-            }
-            RecordingTree quicksaved = MakeQuicksaveTree(id);
-            Assert.Equal(MergeState.Immutable, quicksaved.Recordings[boosterId].MergeState);
-            ConfigNode node = QuicksaveNode(quicksaved, committedTree: null);
-
-            logLines.Clear();
-            Assert.True(ParsekScenario.TryRestoreActiveTreeNode(node));
-            RecordingTree resumed = RecordingStore.PopPendingTree();
-            Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == committed.Id);
-            // The leak's first half: the restore hands the booster the abandoned commit's state.
-            Assert.Equal(MergeState.CommittedProvisional, resumed.Recordings[boosterId].MergeState);
-            if (tailId != null)
-                Assert.Equal(MergeState.CommittedProvisional, resumed.Recordings[tailId].MergeState);
-
-            RunResumePrep(resumed, QuicksaveUT, LoadKind.QuickloadFlight);
-
-            Recording booster = resumed.Recordings[boosterId];
-            Assert.Null(booster.TerminalStateValue);
-            Assert.Equal(MergeState.Immutable, booster.MergeState);
-            Assert.True(booster.FilesDirty);
-            Assert.Equal(MergeState.Immutable, resumed.Recordings[resumed.RootRecordingId].MergeState);
-            int expectedResets = 1;
-            int expectedCleared = 1;
-            if (split == "after")
-            {
-                // The tail started past the quicksave: pruned; the head is the tip now.
-                Assert.False(resumed.Recordings.ContainsKey(tailId));
-                expectedCleared = 0;
-            }
-            else if (split == "before")
-            {
-                Recording tail = resumed.Recordings[tailId];
-                Assert.Null(tail.TerminalStateValue);
-                Assert.Equal(MergeState.Immutable, tail.MergeState);
-                Assert.Contains(logLines, l =>
-                    l.Contains("Quickload abandoned-future merge state reset: rec=" + tailId
-                        + " previousMergeState=CommittedProvisional mergeState=Immutable reason=abandoned-future-merge-state")
-                    && l.Contains("baseline=" + boosterId));
-                expectedResets = 2;
-            }
-            Assert.Contains(logLines, l =>
-                l.Contains("[Scenario]")
-                && l.Contains("Quickload abandoned-future merge state reset: rec=" + boosterId
-                    + " previousMergeState=CommittedProvisional mergeState=Immutable reason=abandoned-future-merge-state"));
-            // The new token is the line's LAST field, so every lane regex over the line still matches.
-            Assert.Contains(logLines, l => Regex.IsMatch(l,
-                @"\[Scenario\] Quickload abandoned-future reconcile: tree='" + id + @"' "
-                + @"(?=.*\bkind=QuickloadFlight\b)(?=.*\bscope=TreeWide\b)(?=.*\bendStatesCleared=" + expectedCleared + @"\b)"
-                + @"(?=.*\bskippedCommitted=0\b).* quicksaveFacts=present mergeStatesReset=" + expectedResets + "$"));
-        }
 
         [Fact]
         public void CommittedBeforeTheQuicksave_PromotedMemberKeepsItsCommittedMergeState()
@@ -552,87 +217,6 @@ namespace Parsek.Tests
         // ============================================================
 
         [Fact]
-        public void DecideCommittedCopyRestore_Table()
-        {
-            var notCommitted = new ParsekScenario.QuicksaveTreeFacts { TreeId = "t" };
-            notCommitted.Members["a"] = new ParsekScenario.QuicksaveMemberFacts();
-            var treeCommitted = new ParsekScenario.QuicksaveTreeFacts { TreeId = "t", TreeCommittedInQuicksave = true };
-            var memberCommitted = new ParsekScenario.QuicksaveTreeFacts { TreeId = "t" };
-            memberCommitted.Members["a"] = new ParsekScenario.QuicksaveMemberFacts { CommittedInQuicksave = true };
-
-            string reason;
-            Assert.Equal(ParsekScenario.CommittedCopyRestoreAction.None,
-                ParsekScenario.DecideCommittedCopyRestore(false, EarlyLoadKind.InSession, true, false, false, notCommitted, out reason));
-            Assert.Equal("no-committed-copy", reason);
-            Assert.Equal(ParsekScenario.CommittedCopyRestoreAction.ResumeFromQuicksave,
-                ParsekScenario.DecideCommittedCopyRestore(true, EarlyLoadKind.InSession, true, false, false, notCommitted, out reason));
-            Assert.Equal("committed-after-quicksave", reason);
-            Assert.Equal(ParsekScenario.CommittedCopyRestoreAction.Unchanged,
-                ParsekScenario.DecideCommittedCopyRestore(true, EarlyLoadKind.InSession, true, false, false, treeCommitted, out reason));
-            Assert.Equal("tree-committed-in-quicksave", reason);
-            Assert.Equal(ParsekScenario.CommittedCopyRestoreAction.Unchanged,
-                ParsekScenario.DecideCommittedCopyRestore(true, EarlyLoadKind.InSession, true, false, false, memberCommitted, out reason));
-            Assert.Equal("member-committed-in-quicksave", reason);
-            Assert.Equal(ParsekScenario.CommittedCopyRestoreAction.Unchanged,
-                ParsekScenario.DecideCommittedCopyRestore(true, EarlyLoadKind.InSession, true, false, false, null, out reason));
-            Assert.Equal("no-quicksave-facts", reason);
-            Assert.Equal(ParsekScenario.CommittedCopyRestoreAction.Unchanged,
-                ParsekScenario.DecideCommittedCopyRestore(true, EarlyLoadKind.InSession, true, false, true, notCommitted, out reason));
-            Assert.Equal("revert-pending", reason);
-            Assert.Equal(ParsekScenario.CommittedCopyRestoreAction.Unchanged,
-                ParsekScenario.DecideCommittedCopyRestore(true, EarlyLoadKind.InSession, false, false, false, notCommitted, out reason));
-            Assert.Equal("scene-not-flight", reason);
-            Assert.Equal(ParsekScenario.CommittedCopyRestoreAction.Unchanged,
-                ParsekScenario.DecideCommittedCopyRestore(true, EarlyLoadKind.InSession, true, true, false, notCommitted, out reason));
-            Assert.Equal("finalized-pending-tree", reason);
-            foreach (EarlyLoadKind kind in new[]
-                { EarlyLoadKind.Cold, EarlyLoadKind.PlainRewind, EarlyLoadKind.ReFlyStart, EarlyLoadKind.DiscardReFly })
-            {
-                Assert.Equal(ParsekScenario.CommittedCopyRestoreAction.Unchanged,
-                    ParsekScenario.DecideCommittedCopyRestore(true, kind, true, false, false, notCommitted, out reason));
-                Assert.Equal("load-kind-" + kind, reason);
-            }
-        }
-
-        [Fact]
-        public void SalvageStaleEpochMembersFromCommittedTree_OnlyStaleMembersTheCopyHolds()
-        {
-            var committed = MakeFutureTree("ql_salvage");
-            var loaded = MakeQuicksaveTree("ql_salvage");
-            var root = loaded.Recordings[loaded.RootRecordingId];
-            var booster = loaded.Recordings[BoosterId(loaded)];
-            root.SidecarLoadFailed = true;
-            root.SidecarLoadFailureReason = ParsekScenario.StaleSidecarEpochReason;
-            root.MergeState = MergeState.NotCommitted;
-            booster.SidecarLoadFailed = true;
-            booster.SidecarLoadFailureReason = "trajectory-missing";
-            var orphan = new Recording
-            {
-                RecordingId = "orphan_ql_salvage", TreeId = loaded.Id,
-                SidecarLoadFailed = true, SidecarLoadFailureReason = ParsekScenario.StaleSidecarEpochReason,
-            };
-            loaded.AddOrReplaceRecording(orphan);
-
-            int salvaged = ParsekScenario.SalvageStaleEpochMembersFromCommittedTree(loaded, committed, out int unsalvaged);
-
-            Assert.Equal(1, salvaged);
-            Assert.Equal(1, unsalvaged);
-            Assert.Same(root, loaded.Recordings[loaded.RootRecordingId]);
-            Assert.False(root.SidecarLoadFailed);
-            Assert.Null(root.SidecarLoadFailureReason);
-            Assert.True(root.FilesDirty);
-            Assert.Equal(320.0, root.EndUT);
-            Assert.Equal(2, root.SidecarEpoch);
-            Assert.Equal(MergeState.NotCommitted, root.MergeState);
-            Assert.Equal("root_ql_salvage", root.RecordingId);
-            // A failure that is not a stale epoch is the pending salvage's, not this one's.
-            Assert.True(booster.SidecarLoadFailed);
-            Assert.Equal("trajectory-missing", booster.SidecarLoadFailureReason);
-            Assert.True(orphan.SidecarLoadFailed);
-            Assert.Equal(0, ParsekScenario.SalvageStaleEpochMembersFromCommittedTree(loaded, null, out unsalvaged));
-        }
-
-        [Fact]
         public void CaptureQuicksaveTreeFacts_TreeCommittedInQuicksaveFromCommittedTreeNodesOnly()
         {
             var active = MakeQuicksaveTree("ql_facts");
@@ -653,14 +237,12 @@ namespace Parsek.Tests
             var facts = ParsekScenario.CaptureQuicksaveTreeFacts(
                 RecordingTree.Load(activeNode), ParsekScenario.CollectQuicksaveCommittedRecordingIds(node), treeIds);
             Assert.False(facts.TreeCommittedInQuicksave);
-            Assert.False(facts.AnyMemberCommittedInQuicksave);
 
             active.Save(node.AddNode("RECORDING_TREE"));
             treeIds = ParsekScenario.CollectQuicksaveCommittedTreeIds(node);
             facts = ParsekScenario.CaptureQuicksaveTreeFacts(
                 RecordingTree.Load(activeNode), ParsekScenario.CollectQuicksaveCommittedRecordingIds(node), treeIds);
             Assert.True(facts.TreeCommittedInQuicksave);
-            Assert.True(facts.AnyMemberCommittedInQuicksave);
             Assert.False(ParsekScenario.CaptureQuicksaveTreeFacts(
                 RecordingTree.Load(activeNode), null).TreeCommittedInQuicksave);
         }
@@ -703,40 +285,6 @@ namespace Parsek.Tests
         {
             string found = logLines.FirstOrDefault(l => l.Contains(fragment));
             Assert.True(found == null, "unexpected log line: " + found);
-        }
-
-        private void AssertAbandonedFutureRetired(
-            RecordingTree resumed, string rootId, string boosterId, int expectedEventsPurged)
-        {
-            Assert.Contains(logLines, l =>
-                l.Contains("[Scenario]")
-                && l.Contains("Quickload abandoned-future reconcile:")
-                && l.Contains("kind=QuickloadFlight")
-                && l.Contains("trimmed=2")
-                && l.Contains("pruned=0")
-                && l.Contains("endStatesCleared=1")
-                && l.Contains("eventsPurged=" + expectedEventsPurged)
-                && l.Contains("ledgerRowsRetired=3")
-                && l.Contains("skippedCommitted=0")
-                && l.Contains("skippedQuicksaveHistory=0"));
-
-            Recording booster = resumed.Recordings[boosterId];
-            Assert.Null(booster.TerminalStateValue);
-            Assert.False(booster.VesselDestroyed);
-            Assert.Null(booster.CrewEndStates);
-            Assert.False(booster.CrewEndStatesResolved);
-            Assert.Equal(QuicksaveUT, booster.EndUT);
-            Assert.True(resumed.BackgroundMap.TryGetValue(BoosterPid, out string bgId));
-            Assert.Equal(boosterId, bgId);
-            Assert.Equal(QuicksaveUT, resumed.Recordings[rootId].EndUT);
-
-            Assert.Equal(new[] { "kept-150" },
-                GameStateStore.Events.Select(e => e.key).ToArray());
-            Assert.Equal(new[] { "ContractComplete:" + rootId },
-                Ledger.Actions
-                    .Where(a => !RecalculationEngine.IsSeedType(a.Type))
-                    .Select(a => a.Type + ":" + a.RecordingId)
-                    .ToArray());
         }
 
         private static string BoosterId(RecordingTree tree) => "child_" + tree.Id + "_1";
@@ -808,44 +356,6 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedTreeForTesting(tree);
         }
 
-        // The abandoned commit's optimizer split of the booster, as RunOptimizationPass applies
-        // it (SplitAtSection carries the merge state and the end state to the second half; the
-        // caller assigns the second half's identity and the shared chain). Returns its id.
-        private static string SplitBoosterInCommittedCopy(RecordingTree tree, double splitUT)
-        {
-            Recording head = tree.Recordings[BoosterId(tree)];
-            // An atmospheric descent that touches down at splitUT: the boundary the optimizer cuts.
-            SetPoints(head, 120.0, splitUT < 180.0 ? 140.0 : 180.0, splitUT, 300.0);
-            head.TrackSections.Add(new TrackSection
-            {
-                environment = SegmentEnvironment.Atmospheric,
-                startUT = 120.0, endUT = splitUT, frames = new List<TrajectoryPoint>(),
-            });
-            head.TrackSections.Add(new TrackSection
-            {
-                environment = SegmentEnvironment.SurfaceStationary,
-                startUT = splitUT, endUT = 300.0, frames = new List<TrajectoryPoint>(),
-            });
-            Recording tail = RecordingOptimizer.SplitAtSection(head, 1);
-            Assert.NotNull(tail);
-            tail.RecordingId = "tail_" + tree.Id;
-            tail.TreeId = tree.Id;
-            tail.VesselName = head.VesselName;
-            tail.VesselPersistentId = head.VesselPersistentId;
-            tail.RecordingFormatVersion = head.RecordingFormatVersion;
-            tail.RecordingSchemaGeneration = head.RecordingSchemaGeneration;
-            tail.SidecarEpoch = head.SidecarEpoch;
-            head.ChainId = "chain_" + tree.Id;
-            head.ChainIndex = 0;
-            tail.ChainId = head.ChainId;
-            tail.ChainIndex = 1;
-            Assert.Equal(MergeState.CommittedProvisional, tail.MergeState);
-            Assert.Null(head.TerminalStateValue);
-            tree.AddOrReplaceRecording(tail);
-            tree.RebuildBackgroundMap();
-            return tail.RecordingId;
-        }
-
         // The copy-on-write clone the recorder resumed on the still-active pod after the
         // in-flight commit, carrying a post-commit tail; the F9's scene change stashed it.
         private static RecordingTree StashResumedClone(RecordingTree committed)
@@ -886,17 +396,6 @@ namespace Parsek.Tests
             return node;
         }
 
-        private static void SeedFutureEventsAndRows(string rootId, string boosterId)
-        {
-            AddEvent(rootId, 150.0, GameStateEventType.ContractCompleted, "kept-150", "fundsReward=1");
-            AddEvent(rootId, 300.0, GameStateEventType.ContractCompleted, "abandoned-300", "fundsReward=1");
-            AddEvent(boosterId, 290.0, GameStateEventType.MilestoneAchieved, "abandoned-booster-290", "");
-            AddRow(rootId, 150.0, GameActionType.ContractComplete, contractId: "kept-150");
-            AddRow(rootId, 300.0, GameActionType.FundsEarning);
-            AddRow(boosterId, 120.0, GameActionType.KerbalAssignment, kerbal: "Bob Kerman");
-            AddRow(boosterId, 300.0, GameActionType.ReputationPenalty);
-        }
-
         private static ConfigNode CrewSnapshot(string kerbal)
         {
             var snapshot = new ConfigNode("VESSEL");
@@ -919,25 +418,6 @@ namespace Parsek.Tests
             }
             rec.ExplicitStartUT = uts[0];
             rec.ExplicitEndUT = uts[uts.Length - 1];
-        }
-
-        private static void AddEvent(string recordingId, double ut, GameStateEventType type, string key, string detail)
-        {
-            var e = new GameStateEvent
-            {
-                ut = ut, eventType = type, key = key, detail = detail, recordingId = recordingId,
-            };
-            GameStateStore.AddEvent(ref e);
-        }
-
-        private static void AddRow(string recordingId, double ut, GameActionType type,
-            string contractId = null, string kerbal = null)
-        {
-            Ledger.AddAction(new GameAction
-            {
-                UT = ut, Type = type, RecordingId = recordingId, ContractId = contractId, KerbalName = kerbal,
-                StartUT = (float)ut,
-            });
         }
 
         private static void RunResumePrep(RecordingTree tree, double resumeUT, LoadKind kind)

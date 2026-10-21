@@ -51,8 +51,7 @@ namespace Parsek.Tests
         }
 
         // catches: the detach running for a resumed session (the guard dropped or moved after
-        // the RemoveCommittedTreeById call), or the keep also covering a session merged after
-        // the save (a resume from the quicksave, whose copy must detach for step B's row rule).
+        // the RemoveCommittedTreeById call).
         [Fact]
         public void TryRestoreActiveTreeNode_SkipsTheDetachForAResumedSession()
         {
@@ -61,10 +60,6 @@ namespace Parsek.Tests
                 @"\s+", " ");
             int method = src.IndexOf("internal static bool TryRestoreActiveTreeNode(", StringComparison.Ordinal);
             Assert.True(method >= 0);
-            int resumeExclusion = src.IndexOf(
-                "committedCopyAction != CommittedCopyRestoreAction.ResumeFromQuicksave && IsResumedReFlySessionTree(",
-                method, StringComparison.Ordinal);
-            Assert.True(resumeExclusion > method, "the keep must exclude a resume from the quicksave");
             int guard = src.IndexOf("IsResumedReFlySessionTree(", method, StringComparison.Ordinal);
             int skip = src.IndexOf("&& !reFlySessionResumed", method, StringComparison.Ordinal);
             int detach = src.IndexOf("RecordingStore.RemoveCommittedTreeById(", method, StringComparison.Ordinal);

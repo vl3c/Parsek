@@ -304,8 +304,8 @@ copy, so the splice has nothing newer to bring in, while its same-id refresh wou
 attempt's own edits (a resumed spawn's segment link) and mark the members dirty; and the
 committed original stays committed, as in a live attempt, so a later Discard drops only the
 clone and a Merge replaces the original. `ApplySaveAttemptEventsAfterActiveTreeRestore` then
-restores the events. Nothing later on the cold path clears the attempt: the committed-copy rule
-and its clear apply to in-session loads only, the session reset runs before the restore, the
+restores the events. Nothing later on the cold path clears the attempt: the session reset runs
+before the restore, the
 reapers and sweeps do not read it, and `ParsekFlight.ResetFlightReadyState` runs on the new
 scene's controller with no active tree, so its id-matched clear is a no-op; the flight-ready
 Quickload restore pops the tree into the recorder as before. A save that names an attempt but
@@ -340,9 +340,7 @@ A save taken during a live Re-Fly session holds the session tree twice, as an or
 has it in memory: the committed original and the live tree with the same id. A load of that save
 keeps both: `TryRestoreActiveTreeNode` skips the detach when the save's Re-Fly marker names the
 restored tree and its active Re-Fly recording (`IsResumedReFlySessionTree`), so ghost chains,
-which read committed trees only, still hold back the vessels the session claims (lane CI-3). A
-session merged after the save is the committed-copy rule's resume instead: its copy detaches (the
-row rule step B applied to it was deleted in Phase 3; every row now stays memory's).
+which read committed trees only, still hold back the vessels the session claims (lane CI-3).
 
 - **Load.** The cold branch reads each store from `GAME_STATE` when present (replacing
   `LoadExternalFiles`' reads: `GameStateStore.LoadEventFile`, `LoadBaselines`,
@@ -696,7 +694,7 @@ For a save-file load the following become unreachable, because the load no longe
 | OQ-2 resume reconcile (`TrimAndReconcileForQuickloadResume` retire halves) | ParsekScenario.Trim.cs | no abandoned future reaches it on a save-file load; the trajectory trim stays as a guard | |
 | OQ-3 rewind point owner partition, step A | InSessionStagedStateHandoff, ParsekScenario.InSessionHandoff.cs | only scene changes and reverts reach the handoff | kept: live on Discard Re-fly and a stock revert |
 | Step B's resumed-tree row rule | ParsekScenario.InSessionHandoff.cs | only a committed-copy resume notes a detach for it | deleted |
-| Committed-copy rule (`DecideCommittedCopyRestore`) | ParsekScenario.HydrationRepair.cs | unreachable on a save-file load | |
+| Committed-copy rule (`DecideCommittedCopyRestore`) | ParsekScenario.HydrationRepair.cs | unreachable on a save-file load | deleted |
 | Stale-epoch keep (`ShouldKeepPendingTreeAfterHydrationFailure`) | ParsekScenario.HydrationRepair.cs | not load-kind gated | kept: a Re-Fly Retry and a stock revert reach it |
 | Abandoned Re-Fly fork prune | ParsekScenario.Trim.cs | noted only by a committed-copy resume | deleted |
 | Untagged rows after the save (`RetireUntaggedRowsAfterSaveAtInSessionLoad`, `UNTAGGED_FUTURE_ROWS`) | ParsekScenario.Trim.cs | unreachable on a save-file load (the save's ledger is exact) | |
