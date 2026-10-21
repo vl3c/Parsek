@@ -305,10 +305,9 @@ namespace Parsek
 
         /// <summary>
         /// The Esc-menu Discard Re-fly's half of the detached-tree repair the other discards get
-        /// from <see cref="DiscardReFlyAttemptRecordingsAndRewindPoints"/>. An F9 during a Re-Fly
-        /// detaches every committed copy of the session's tree
-        /// (<c>ParsekScenario.TryRestoreActiveTreeNode</c>), so the pruned tree is then the only
-        /// instance left, and the scene exit <see cref="RevertInterceptor.DiscardReFlyHandler"/>
+        /// from <see cref="DiscardReFlyAttemptRecordingsAndRewindPoints"/>. A backstop: a load that
+        /// resumes the session keeps its committed copy (<c>ParsekScenario.TryRestoreActiveTreeNode</c>),
+        /// but if a load ever detached it, the pruned tree would be the only instance left, and the scene exit <see cref="RevertInterceptor.DiscardReFlyHandler"/>
         /// arms drops it without a commit. When no committed tree carries the pruned tree's id,
         /// this puts it back committed, sanitized (todo
         /// ESC-DISCARD-REFLY-AFTER-A-QUICKLOAD-MAY-LOSE-THE-TREE). A tree still committed (the
