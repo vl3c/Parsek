@@ -170,4 +170,19 @@ adopted instead keeps every committed route row (no D2 exception) and adds, at t
 refund of each later committed cycle's net cost, once per cycle; the cycles are re-decided live as
 in Model L. A cycle that made money stays history: not refunded, not re-run, its pickup re-taken
 from the origin depot when the clock passes it (a depot emptied after the rewind is an open case).
-Todo ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES.
+
+Replaced again at 13:13Z. V: "I abhor the mix of time travel and global resources ... no paradoxes
+allowed by design", and asked for a comparison of four systems: real-time or recorded cycles, each
+with or without money. Recorded cycles break whenever the player moves the destination or empties
+the depot after a rewind, with or without money; real-time cycles do not. Money then adds one
+problem, a gain being retired, which a cost-only rule removes. V picked real-time cycles with money:
+every load back in time retires the later route rows (as built), each cycle's recovery credit is
+capped at its own cost and settles at dispatch. Refund rows, gain cycles staying history and the
+emptied-depot shortfall were withdrawn.
+
+Replaced a final time at 13:32Z. Even cost-only route money leaves the funds history depending on
+what the player does after a rewind (pause, then spend, then rewind and resume). V rejected banked
+prepaid cycles as too much technical debt and ruled: "we delete money/ funds from the logistics
+system and go from there; logistics cycles should not touch the ledger, they only deliver resources
+to enable that gameplay". At 13:39Z: Space Center routes stay, free in every mode. Todo
+LOGISTICS-WITHOUT-MONEY, plan `docs/dev/plans/logistics-without-money.md`, logistics design 10.6.
