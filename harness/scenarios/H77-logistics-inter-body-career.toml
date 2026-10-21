@@ -1,0 +1,94 @@
+schema = 1
+id = "H77-logistics-inter-body-career"
+tier = "nightly"
+# H34-logistics-inter-body, CAREER STYLE. H34's driver steps verbatim (boot straight to
+# the Space Center, run the `Logistics` category's SPACECENTER slice: the inter-body
+# builder-shape cell and its one sibling) over `gloops-airshow-career`; the only variable
+# moved is the fixture's game mode.
+#
+# THE FIXTURE. `gloops-airshow-career` is built by construction from H34's own
+# `gloops-airshow` by `harness/tools/build_route_career.py` (drift gate
+# `harness/lib/test_route_career.py`): `Mode = CAREER`, `fresh-career`'s PARAMETERS (the
+# source's ParsekSettings child kept), Funding 500000 / R&D 100 / Reputation 0, the
+# 29 + 3 granted tech nodes H73's host carries and every facility at its TOP level.
+# The source has no Parsek GameState directory, so there is no ledger to edit; the
+# vessels, roster, the ParsekScenario node and `Ships/` are the source's bytes.
+#
+# NOT FIT FOR LEDGER GROUND TRUTH (L2-style) CHECKS: the source was a SANDBOX save.
+#
+# WHAT IT PROVES, beyond H34's tokens (kept verbatim): the inter-body cell's real
+# committed Kerbin -> Duna route fires a full cycle and skips a modulo window in a
+# career with live Funding / R&D / Reputation singletons, and moves no pool doing so.
+#   REQUIRED  `Seeded initial funds: amount=500000,` / `Seeded initial science:
+#             amount=100,` - the ledger seeded off the career save's own pools, which
+#             a SANDBOX host never does (the patcher skips with no Funding singleton).
+#   FORBIDDEN any `PatchFunds/PatchScience/PatchReputation: <old> -> <new>` pool WRITE
+#             (Info, logged only when the patcher actually moves a pool), any
+#             drawdown-guard clamp, the seed refusal, and `Built route .* mode=SANDBOX`.
+#             The FIRED line is a dispatch + debit + delivery; any of the three that
+#             moved a pool through Parsek reds on the write line.
+# NO LEDGER ORACLE BLOCK: `FlushAndQuit` of a non-isolated SPACECENTER batch is not a
+# pinned save point on this lane, and the pool-write forbids carry the gate. No D8 claim
+# for the same reason (CLAIM-IS-NOT-GATE: the forbids alone gate nothing positive).
+#
+# THE TALLY IS INTERIM until the first census: `total=47` literal, `passed=` free,
+# `skipped=` free. PREDICTION: H34's split, 2 / 0 / 45 (45 scene-skipped FLIGHT cells,
+# 2 executable, both passing), since neither SPACECENTER cell reads the game mode.
+description = "H34-logistics-inter-body-career style: boot to the Space Center over gloops-airshow-career, H34's host save converted to CAREER by build_route_career.py, and run the Logistics category's SPACECENTER slice, gating that the inter-body route's fired cycle and modulo skip happen with the ledger seeded off the career save (funds 500000, science 100) and with no Parsek pool write or drawdown clamp. AUTHORED 2026-10-21, NEVER FLOWN: interim tally pin, H34's 2/0/45 predicted."
+instanceProfile = "stock-minimal"
+tags = ["logistics", "route", "inter-body", "reaim", "scene-routing", "career", "H77",
+        "never-flown", "reading-iteration"]
+
+[fixture]
+saveTemplate = "fixtures/saves/gloops-airshow-career"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },                    expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },                     expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Logistics" },                                          expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                           expect = "OK" },
+]
+
+[dimensionsCovered]
+# D14 career is pinned to the fixture's `Mode = CAREER` by test_d14_game_mode.py and to
+# the run by the two career seed lines. H34's D10 rows are not re-claimed (the H34 rule).
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required  = [
+  "loadgame spacecenter route \\(requested\\): resuming to SPACECENTER save=",
+  "loadgame complete scene=SPACECENTER save=.* game-loaded=true expected=SpaceCenter",
+  "LoopRoute: route .* cycle=cycle-0 FIRED full cycle \\(dispatch\\+debit\\+delivered\\) at ut=",
+  "LoopRoute: route .* window 1 SKIPPED by cadence modulo \\(N=2 anchor=0 basis=ReaimWindows\\) - marker advanced, nothing emitted",
+  "BATCH_COMPLETE v1 total=47 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=Logistics scene=SPACECENTER",
+  "Seeded initial funds: amount=500000,",
+  "Seeded initial science: amount=100,",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "Built route .* mode=SANDBOX",
+  "refusing to treat current (funds|science|reputation) as initial",
+  "Patch(Funds|Science): -?[0-9]+\\.[0-9] -> ",
+  "PatchReputation: -?[0-9]+\\.[0-9]+ -> ",
+  "GUARDED (DRAWDOWN|UPLIFT) clamped resource=",
+]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

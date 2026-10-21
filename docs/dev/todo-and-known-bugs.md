@@ -441,6 +441,17 @@ unchanged net=0`, the Sandbox skip line absent): H38's isolated Logistics batch 
 `logi-cargo-career` (H38's rig in `fresh-career`), tally 39 / 0 / 8 pinned whole. The fixture then
 gained three research nodes (every rig part unlocked) and the confirming flight `2026-10-21_1810`
 passed on it (same tally, `funds unchanged net=0`).
+Follow-up AUTHORED 2026-10-21, NOT FLOWN YET (branch `career-route-lanes`): H73 proved the funds pair on a
+pad rig only; every other route lane still runs SANDBOX. `harness/tools/build_route_career.py` (drift gate
+`harness/lib/test_route_career.py`) builds CAREER copies of five route saves (`rover-relay-c-recorded`,
+`depot-route-recorded`, `gloops-airshow`, `bdock-recorded`, `rover-route-recorded`): career PARAMETERS and
+scenarios, funds 500000 / science 100 / rep 0, top-level facilities, and the ledger's SANDBOX starting-value
+rows, award-bearing milestone rows and legacy route rows removed so Parsek seeds off the career save.
+Six lanes fly their source's driver verbatim on them: H74 (RVR-7), H75 (RVR-8), H76 (H40), H77 (H34),
+H78 (H39), H79 (H58). Gates: the career seed lines and no `mode=SANDBOX` route build everywhere; no Parsek
+pool write or drawdown clamp on H74 / H75 / H77 / H79, plus the ledger oracle against the staged pools on
+H74 / H75 (sum) and H79 (rewind-aware); H73's redelivery funds pair on H76 / H78. Owed: one reading run per
+lane, then whole tally pins (H76 / H77 / H78) and the arming call on the report-only saveParse blocks.
 
 **Phase 2 FIXED 2026-10-21** (branch `logistics-no-money-p2`, stacked on phase 1). Route events left
 the ledger. New: `Logistics/RouteEvent.cs` (`RouteEvent` + `RouteEventType`, the eight kinds with the

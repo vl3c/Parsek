@@ -1,0 +1,149 @@
+schema = 1
+id = "H74-rover-relay-c-dispatch-career"
+tier = "nightly"
+# RVR-7-rover-relay-c-dispatch, CAREER STYLE. RVR-7's driver steps verbatim over
+# `rover-relay-c-recorded-career`; the only variable moved is the fixture's game mode.
+#
+# THE FIXTURE. `rover-relay-c-recorded-career` is built by construction from RVR-7's own
+# `rover-relay-c-recorded` by `harness/tools/build_route_career.py` (drift gate
+# `harness/lib/test_route_career.py`): `Mode = CAREER`, `fresh-career`'s PARAMETERS (the
+# source's ParsekSettings child kept), Funding 500000 / R&D 100 / Reputation 0, the
+# 29 + 3 granted tech nodes H73's host carries, every facility at its TOP level, and a
+# ledger with its SANDBOX starting-value rows (ScienceInitial / ReputationInitial) and
+# its award-bearing milestone rows removed, so Parsek seeds the pools off the career
+# save at the first load. FLIGHTSTATE, ROSTER, the ParsekScenario node and every
+# recording sidecar are byte-identical to the source.
+#
+# NOT FIT FOR LEDGER GROUND TRUTH (L2-style) CHECKS. The source was flown in SANDBOX: the
+# ledger carries no launch-cost, recovery or hire rows, so a reconstruction over this
+# save would compare against a history that never charged anything. The ledger block
+# below is the SUM-model "nothing moved" diff against the staged pools, not ground truth.
+#
+# WHAT IT PROVES, beyond RVR-7's tokens (kept verbatim):
+#   REQUIRED  `Built route id=.* mode=CAREER` - RouteBuilder's build line carries the
+#             live `HighLogic.CurrentGame.Mode` the create passed, so it reds on a host
+#             that silently stopped being a career.
+#   REQUIRED  `Seeded initial funds: amount=500000,` and `Seeded initial science:
+#             amount=100,` - the ledger took its seeds off the career save's own pools
+#             (the stripped starting-value rows would have pinned science at 0).
+#   FORBIDDEN `Built route .* mode=SANDBOX`, the seed-refusal line, any
+#             `PatchFunds/PatchScience/PatchReputation: <old> -> <new>` pool WRITE (the
+#             patcher logs that Info line only when it actually moves a pool; the no-op
+#             spelling is `no change needed`), and any drawdown-guard clamp. A dispatch,
+#             a debit or a delivery that moved a pool through Parsek reds on the write
+#             line; one the patcher refused to apply reds on the clamp.
+#   LEDGER    `[expectations.ledger] seedFrom = "template"`, empty manifest: the produced
+#             save's funds / science / reputation must equal the staged 500000 / 100 / 0
+#             within FacetTolerances.Default. A move by ANY channel, stock included,
+#             reds `PARSEK-FAIL(ledger)`. The sum model is allowed here: the driver has
+#             TimeJump but no rewind or merge-dialog verb.
+#
+# PREDICTION FOR THE FIRST FLIGHT (a reading run): RVR-7's tokens all hold (the route,
+# the endpoints and the clock are the source's bytes), the two seed lines appear once
+# each, no pool write appears. Possible refutations named in advance: a stock milestone
+# fired during the TimeJump (ProgressTracking is the source's, so the rovers' firsts are
+# already reached), or the career PARAMETERS' `ResourceTransferObeyCrossfeed = True`
+# moving a loaded-path debit. Both blocks below stay REPORT-ONLY (`gating = false`) until
+# a reading run, because arming is a per-spec decision taken off a reading
+# (`test_no_committed_spec_arms_gating`).
+description = "RVR-7-rover-relay-c-dispatch-career style: RVR-7's create + one send-once + TimeJump 1100 over rover-relay-c-recorded-career, the same relay save converted to CAREER by build_route_career.py, gating that the route builds with mode=CAREER, that the ledger seeds funds 500000 and science 100 off the career save, and that no Parsek pool write, drawdown clamp or ledger-oracle pool drift happens across the dispatch, debit and delivery. AUTHORED 2026-10-21, NEVER FLOWN."
+instanceProfile = "stock-minimal"
+tags = ["seam-verbs", "logistics", "route-create", "route-delivery", "route-pickup",
+        "career", "recorded-fixture", "H74", "never-flown", "reading-iteration"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/rover-relay-c-recorded-career"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "88c012a6eed94bf09ff73397a4a31410" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "88c012a6eed94bf09ff73397a4a31410", name = "relay-c" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "relay-c" },  expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1100" },                             expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE: D8 funds / science / reputation rest on the ledger block's HARD
+# pool diff plus the pool-write forbids; D14 career is pinned to the fixture's
+# `Mode = CAREER` by test_d14_game_mode.py and to the run by the mode=CAREER token.
+D8 = ["funds", "science", "reputation"]
+D14 = ["career", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 10, max = 10 }
+
+[expectations.logContracts]
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=88c012a6eed94bf09ff73397a4a31410 total=8 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=88c012a6eed94bf09ff73397a4a31410 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=88c012a6eed94bf09ff73397a4a31410 route=.* name='relay-c' status=Paused",
+  "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
+  "Origin debit: route=.* origin=B pid=90564594 resource=LiquidFuel requested=154\\.39.* path=loaded",
+  "Inventory remove \\(loaded\\): source=B pid=90564594 .* removed=1",
+  "Delivery write: route=.* dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 .* path=loaded",
+  "Inventory store: route=.* dest=A pid=4280917262 .* path=loaded",
+  "LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-0 cMin=[0-9]+ dispatch fired \\(carrierStopIndex=0\\)",
+  "Delivery: route [0-9a-f]{8} cycle=cycle-0 resources=1 inventoryUnits=4/4 inventoryUnitsSkipped=0 partial=0",
+  "ArmedPause: route [0-9a-f]{8} cycle=cycle-0 COMPLETED cycle consumed the armed pause",
+  "PostWalk: routes=0",
+  "Built route id=.* mode=CAREER",
+  "Seeded initial funds: amount=500000,",
+  "Seeded initial science: amount=100,",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  "BLOCKED kind=OriginLacksCargo",
+  "BLOCKED kind=DestinationFull",
+  "Built route .* mode=SANDBOX",
+  "refusing to treat current (funds|science|reputation) as initial",
+  "Patch(Funds|Science): -?[0-9]+\\.[0-9] -> ",
+  "PatchReputation: -?[0-9]+\\.[0-9]+ -> ",
+  "GUARDED (DRAWDOWN|UPLIFT) clamped resource=",
+]
+
+[expectations.recordings.structure]
+# RVR-7's windows, REPORT-ONLY here until a reading run (see the header).
+gating = false
+trees          = { min = 3, max = 3 }
+committedTrees = { min = 3, max = 3 }
+recordings     = { min = 10, max = 12 }
+terminalStates = { Landed = { min = 5 }, Docked = { min = 2 } }
+branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
+
+[expectations.routes]
+gating          = false
+count           = { min = 1, max = 1 }
+dormant         = { min = 0, max = 0 }
+stops           = { min = 2, max = 2 }
+sourceRefs      = { min = 3, max = 3 }
+completedCycles = { min = 1, max = 1 }
+skippedCycles   = { min = 0, max = 0 }
+statuses        = { Paused = { min = 1, max = 1 } }
+
+[expectations.ledger]
+seedFrom     = "template"   # the staged career save's pools: funds 500000, science 100, rep 0.
+tolerances   = "default"    # FacetTolerances.Default (funds 1.0, science 0.1, rep 0.1).
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

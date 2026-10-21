@@ -4133,6 +4133,11 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H45-stock-ui-overlay":      ("StockUiOverlay", 12, "SPACECENTER"),
         "H46-settings":              ("Settings", 5, "FLIGHT"),
         "H71-resource-topbar-ksc":   ("ResourceTopBar", 2, "SPACECENTER"),
+        # H34's driver over `gloops-airshow-career` (H34's host converted to CAREER by
+        # harness/tools/build_route_career.py). Same (category, scene), so the same
+        # attribute derivation; the split is INTERIM until its first census (see
+        # INTERIM_PIN_IDS), H34's 2/0/45 predicted.
+        "H77-logistics-inter-body-career": ("Logistics", 47, "SPACECENTER"),
         "H47-map-view":              ("MapView", 4, "TRACKSTATION"),
         "H48-ledger-drawdown":       ("Ledger", 4, "SPACECENTER"),
         "H49-tree-integrity":        ("TreeIntegrity", 4, "FLIGHT"),
@@ -4494,7 +4499,11 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # class's own cells never read it; CommittedBatchTallySourceSyncTests gates its `total=`.
     # It LEFT the same day: its first flight, run 2026-10-17_0622 (PASS attempt 1), measured
     # the prediction, `passed=5 failed=0 skipped=0`, and the spec pinned the line whole.
-    INTERIM_PIN_IDS: set = set()
+    # H77-logistics-inter-body-career ENTERED on 2026-10-21 (H34's SPACECENTER slice of
+    # `Logistics` over `gloops-airshow-career`, `total=47` literal with the split regexed,
+    # predicted H34's passed=2 skipped=45: neither SPACECENTER cell reads the game mode).
+    # It leaves when its reading run measures the split and the spec pins the line whole.
+    INTERIM_PIN_IDS: set = {"H77-logistics-inter-body-career"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
@@ -4576,8 +4585,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(45, len(self.GROUP),
-                         "the H7-H20 + H22-H37 + Phase-4 Wave 1 (H42-H54) + H71 + H72 group is 45 "
+        self.assertEqual(46, len(self.GROUP),
+                         "the H7-H20 + H22-H37 + Phase-4 Wave 1 (H42-H54) + H71 + H72 + H77 group is 46 "
                          "specs; if it genuinely changed size, update this floor AND the "
                          "counts in docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -5039,6 +5048,14 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # (category, scene), so the same attribute derivation; the split is MEASURED
         # at 39/0/8, H38's, off `2026-10-21_1739` (see MEASURED_SKIPPED).
         "H73-logistics-isolated-career": ("Logistics", 47),
+        # H40's and H39's drivers on CAREER copies of their own hosts
+        # (`depot-route-recorded-career`, `bdock-recorded-career`, built by
+        # harness/tools/build_route_career.py), so the redelivery cell's funds-flat
+        # assertion runs on the two RECORDED hosts too. Same (category, scene), same
+        # attribute derivation; the splits are INTERIM until their first censuses (see
+        # INTERIM_PIN_IDS), H40's 35/0/12 and H39's 34/0/13 predicted.
+        "H76-logistics-isolated-depot-route-career": ("Logistics", 47),
+        "H78-logistics-isolated-bdock-career": ("Logistics", 47),
         # ROADMAP R6, ISOLATED HALF - SEVEN LANES AUTHORED 2026-09-06, SIX FLOWN GREEN
         # THE SAME DAY. They are the rest of the population R5 unlocked and nothing had
         # driven: one spec per category, each over a host chosen by that category's own
@@ -5149,6 +5166,10 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                                  # H73: H38's host moved into a career save,
                                  # same 8-vs-46 arithmetic.
                                  "H73-logistics-isolated-career",
+                                 # H76 / H78: H40's and H39's hosts moved into
+                                 # career saves, same 8-vs-46 arithmetic.
+                                 "H76-logistics-isolated-depot-route-career",
+                                 "H78-logistics-isolated-bdock-career",
                                  # H65 is the R6 wave's ONLY member here, and the
                                  # arithmetic is the narrowest a non-exempt member has
                                  # carried. `QuickloadResume` has three FLIGHT-scoped
@@ -5622,7 +5643,15 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # prediction. Its first flight, `2026-10-21_1739` (PASS attempt 1), measured exactly
     # that split, so the spec pins it whole, its `skipped=8` is declared in
     # MEASURED_SKIPPED below, and the id left this set in the same commit.
-    INTERIM_PIN_IDS: set = set()
+    #
+    # NON-EMPTY AGAIN ON 2026-10-21 for `H76-logistics-isolated-depot-route-career` and
+    # `H78-logistics-isolated-bdock-career`, H40's and H39's drivers on CAREER copies of
+    # their hosts, authored with H73's interim spelling (`passed=` a floor of 9,
+    # `skipped=` free) and the source lanes' 35/0/12 and 34/0/13 written as the
+    # predictions. Each leaves when its first census measures the split, the spec pins it
+    # whole and its `skipped=` is declared in MEASURED_SKIPPED.
+    INTERIM_PIN_IDS: set = {"H76-logistics-isolated-depot-route-career",
+                            "H78-logistics-isolated-bdock-career"}
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR

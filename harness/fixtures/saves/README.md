@@ -945,6 +945,46 @@ differ from the SANDBOX donor in ways a Logistics cell could see: `ResourceTrans
 level). `AddOns/` is the base's; the donor's
 `Ships/` is not copied. Drift-gated by `--check` and `harness/lib/test_logi_cargo_career.py`.
 
+## The `<source>-career` route copies (GAME Mode = CAREER, derived from five SANDBOX route saves)
+
+`rover-relay-c-recorded-career`, `depot-route-recorded-career`, `gloops-airshow-career`,
+`bdock-recorded-career` and `rover-route-recorded-career`: the hosts of H74 / H75 (RVR-7 / RVR-8),
+H76 (H40), H77 (H34), H78 (H39) and H79 (H58), each lane flying its source's driver steps
+verbatim so the game mode is the only variable moved. `harness/tools/build_route_career.py`
+builds all five by construction from the committed source save and `fresh-career` (both read,
+never modified). Three files are rewritten; every other file (recordings, sidecars, baselines,
+milestones, events, RewindPoints, AddOns, Ships) is the source's byte for byte, and each file
+keeps its own LF / CRLF line endings.
+
+- `persistent.sfs`: `Mode = CAREER`, a `<target> (CAREER)` title, `fresh-career`'s whole
+  PARAMETERS node with the source's `ParsekSettings` child carried over, and `fresh-career`'s
+  Funding (500000), ResearchAndDevelopment (science 100, plus `build_lab_lko_science.TECH_NODES`
+  and `build_logi_cargo_career.RIG_EXTRA_TECH_NODES`, the 32 nodes H73's host carries, granted not
+  bought), Reputation (0), ScenarioUpgradeableFacilities (every building at its TOP level,
+  `lvl = 1`), StrategySystem, ScenarioContractEvents and ContractSystem, inserted at
+  `fresh-career`'s relative positions. FLIGHTSTATE, ROSTER, ProgressTracking and the
+  ParsekScenario node are untouched.
+- `persistent.loadmeta`: `gameMode`, `funds`, `science`, `reputationPercent` and
+  `ongoingContracts` from `fresh-career`.
+- `Parsek/GameState/ledger.pgld` (none in `gloops-airshow`): the SANDBOX starting-value rows
+  (ScienceInitial and ReputationInitial at 0, both in every source ledger), every
+  MilestoneAchievement row with a non-zero funds / science / reputation award (5 / 18 / 12 / 5 in
+  rover-relay-c / depot-route / bdock / rover-route; kept, they would make the seed refuse the
+  live science pool and the walk run above the live funds), and the legacy supply-route rows
+  (3 in depot-route, 4 in rover-route; the ledger load drops them anyway) are removed. Zero-award
+  milestone rows and KerbalAssignment rows stay. Parsek therefore seeds funds 500000 and science
+  100 off the career save at the first load; reputation 0 with no history stays deferred, as on
+  `logi-cargo-career`. Any other pool-moving row type is refused by the builder, not guessed at.
+
+Career PARAMETERS differ from the sandbox sources in ways a cell could see
+(`ResourceTransferObeyCrossfeed = True`, CommNet `rangeModifier = 0.65`, `EnableKerbalExperience =
+True`, the HETTN tech tree swapped for `GameData/ModuleManager.TechTree`). `bdock-recorded-career`'s
+three RewindPoints quicksaves stay SANDBOX saves (no lane on it loads one). NOT FIT FOR LEDGER
+GROUND TRUTH (L2-style) checks: the sources were flown in SANDBOX and carry no launch-cost,
+recovery or hire rows. Drift-gated by `--check` and `harness/lib/test_route_career.py` (byte
+identity, the per-source strip counts, career shape, and that each lane's driver equals its
+source's).
+
 ## lab-lko-relay (GAME Mode = SCIENCE_SANDBOX, 1 VESSEL ORBITING, derived from lab-lko-science)
 
 Same builder: `lab-lko-science`'s orbiting vessel (about 107 x 92 km, inclination 0.09 deg)
