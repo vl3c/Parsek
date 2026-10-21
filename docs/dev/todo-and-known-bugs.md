@@ -347,7 +347,10 @@ alone, and seven lanes drop the reconcile's `reason=policy` skip line); the unta
 retire (`RetireUntaggedRowsAfterSaveAtInSessionLoad`, the `UNTAGGED_FUTURE_ROWS` id list OnSave
 wrote and OnLoad read, `ResolvePreLoadClockUT` and its scene-request clock stamp,
 `Ledger.RetireAbandonedFutureActions`; the cell keeps the rows now, a revert never reached it, and
-QL-1 only forbids its line). Kept on purpose: the QL-R1
+QL-1 only forbids its line); OQ-1's resumed-merged-attempt prune (`PruneStagedRowsNamingAttempt`,
+`RemoveRowsNaming`, the `*WriterId` selectors) and `RepairSessionBeforeRetry`'s detached-tree
+restore (Retry keeps the ledger-row removal; its line keeps `stagedRowsPruned=0` and
+`restoredCommittedTree=false` for RF-L4 / QL-5d). Kept on purpose: the QL-R1
 decline (`TryDeclineDiscardedActiveTree` / `TryDeclineDiscardedPendingTree`), still reached by a
 stock revert after a cold resume and an in-flight discard; the `QuickloadFlight` kind and its
 column, still produced by the harness `LoadGame` verb without `playerLoad=true` and the in-game

@@ -448,18 +448,6 @@ namespace Parsek
             return sb.ToString();
         }
 
-        // ---------- the rows a Re-Fly attempt wrote ----------
-
-        /// <summary>
-        /// The recording each row kind names as the Re-Fly attempt that wrote it: the NEW side of
-        /// a supersede row, the retiring recording of a tombstone, the retired recording of a
-        /// rewind retirement. The discard prune (<c>MergeDialog.PruneStagedRowsNamingAttempt</c>)
-        /// removes by it.
-        /// </summary>
-        internal static readonly Func<RecordingSupersedeRelation, string> SupersedeWriterId = r => r.NewRecordingId;
-        internal static readonly Func<LedgerTombstone, string> TombstoneWriterId = t => t.RetiringRecordingId;
-        internal static readonly Func<RecordingRewindRetirement, string> RetirementWriterId = r => r.RecordingId;
-
         private static List<T> CopyNonNull<T>(List<T> source) where T : class
         {
             var copy = new List<T>(source?.Count ?? 0);

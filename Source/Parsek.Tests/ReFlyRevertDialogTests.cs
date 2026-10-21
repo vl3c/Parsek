@@ -1787,7 +1787,9 @@ namespace Parsek.Tests
                 l.Contains("fork=" + forkId));
             Assert.Contains(logLines, l =>
                 l.Contains("PruneActiveReFlyAttemptOwnedTopology callSite=RevertInterceptor:DiscardReFly") &&
-                l.Contains("deletedFiles=1"));
+                l.Contains("deletedFiles=1") &&
+                // LAB-10b / RF-L4 read `ledgerRowsRemoved=N ` with a token after it.
+                System.Text.RegularExpressions.Regex.IsMatch(l, @"ledgerRowsRemoved=[0-9]+ stagedRowsPruned=0"));
         }
 
         /// <summary>

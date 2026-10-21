@@ -180,27 +180,11 @@ namespace Parsek.Tests
                 wrapperSites.Where(s => s != HandoffPartialPath).ToArray());
         }
 
-        [Fact]
-        public void BothReFlyDiscardHelpersPruneTheRowsNamingTheAttempt()
-        {
-            string prune = PreparedMethodBody(DiscardPath,
-                "internal static AttemptDiscardSummary PruneActiveReFlyAttemptOwnedTopology(");
-            Assert.Equal(2, Occurrences(prune, "PruneStagedRowsNamingAttempt("));
-            int collect = IndexOrFail(prune, "summary.AttemptIds = CollectReFlyAttemptOwnedRecordingIds(");
-            int rows = prune.LastIndexOf("PruneStagedRowsNamingAttempt(", StringComparison.Ordinal);
-            Assert.True(collect < rows);
-
-            string discard = PreparedMethodBody(DiscardPath,
-                "private static ReFlyAttemptDiscardResult DiscardReFlyAttemptRecordingsAndRewindPoints(");
-            Assert.Equal(1, Occurrences(discard, "PruneStagedRowsNamingAttempt("));
-            Assert.Contains("PruneStagedRowsNamingAttempt(scenario, result.AttemptIds, reason);", Collapse(discard));
-        }
-
         /// <summary>
-        /// RETRY-OF-A-RESUMED-MERGED-REFLY-LEAVES-A-ONE-SIDED-ROW: Retry repairs the rows and a
-        /// detached tree after it ends the session and before the re-invoke captures the
-        /// reconciliation bundle, which would otherwise carry the rows across the load and leave
-        /// the detached tree behind.
+        /// Retry removes the attempt's ledger rows after it ends the session and before the
+        /// re-invoke captures the reconciliation bundle, which would otherwise carry them across
+        /// the load. Phase 3 of the load design deleted the staged-row prune and the detached-tree
+        /// restore this helper used to run.
         /// </summary>
         [Fact]
         public void RetryRepairsTheSessionBeforeTheReinvokeCapturesTheBundle()
@@ -215,15 +199,12 @@ namespace Parsek.Tests
 
             string helper = PreparedMethodBody(DiscardPath,
                 "internal static RetryRepairResult RepairSessionBeforeRetry(");
-            Assert.Equal(1, Occurrences(helper, "PruneStagedRowsNamingAttempt("));
             int collect = IndexOrFail(helper, "CollectReFlyAttemptOwnedRecordingIds(");
-            int rows = IndexOrFail(helper, "PruneStagedRowsNamingAttempt(");
             int ledgerRows = IndexOrFail(helper, "Ledger.RemoveActionsForRecordings(");
-            int restore = IndexOrFail(helper, "RestoreSanitizedPendingTreeIfDetached(");
-            Assert.True(collect < rows && rows < ledgerRows && ledgerRows < restore);
+            Assert.True(collect < ledgerRows);
+            Assert.Equal(0, Occurrences(helper, "RestoreSanitizedPendingTreeIfDetached("));
             Assert.Contains("ParsekFlight.Instance?.ActiveTreeForSerialization);",
                 Collapse(retry.Substring(repair, invoke - repair)));
-            Assert.Contains("RestoreSanitizedPendingTreeIfDetached( RecordingTree.DeepClone(tree)", Collapse(helper));
         }
 
         // ---- helpers ----
