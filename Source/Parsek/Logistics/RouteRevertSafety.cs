@@ -15,9 +15,9 @@ namespace Parsek.Logistics
     /// <see cref="LiveInventoryPickupWriter"/> (<c>RemoveOne</c>). Their <b>only</b>
     /// rollback is a full-world load of an earlier save (an F9 quickload, a stock
     /// revert, the Esc-menu Discard Re-fly's reload of the Rewind Point quicksave, a
-    /// Rewind-to-Separation or a go-back rewind): there is no per-writer undo, and the
-    /// ledger recalc never reconstructs the physical tanks/inventory.
-    /// Each of those loads also reconciles the route ledger rows and loop cursors at the
+    /// Rewind-to-Separation or a go-back rewind): there is no per-writer undo, and no
+    /// recalculation reconstructs the physical tanks/inventory.
+    /// Each of those loads also reconciles the route event log and loop cursors at the
     /// loaded UT (<c>RouteLoadReconcile</c>, <c>ParsekScenario.HandleRewindOnLoad</c>,
     /// <c>ReconciliationBundle.Restore</c>).</para>
     ///

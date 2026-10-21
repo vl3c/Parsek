@@ -9,10 +9,10 @@ using Xunit;
 namespace Parsek.Tests.Logistics
 {
     /// <summary>
-    /// The RouteHeld ledger row (holds in the Route History): one row when a hold episode
-    /// starts and one per reason not yet recorded in it, deduplicated against the
-    /// effective ledger (never <c>Route.LastHold*</c>), retired at rewind with the other
-    /// route rows, and inert everywhere else. The writer is driven directly
+    /// The RouteHeld route event (holds in the Route History): one event when a hold
+    /// episode starts and one per reason not yet recorded in it, deduplicated against the
+    /// route event log (never <c>Route.LastHold*</c>), retired at rewind with the other
+    /// route events, and inert everywhere else. The writer is driven directly
     /// (<see cref="RouteOrchestrator.TryEmitRouteHeldRow"/>) and through the real loop
     /// crossing (<see cref="RouteOrchestrator.Tick(double, IRouteRuntimeEnvironment)"/>).
     /// </summary>
@@ -57,8 +57,8 @@ namespace Parsek.Tests.Logistics
         private static Route PlainRoute(string id = "route-held")
             => new Route { Id = id, Name = "Fuel Run", Status = RouteStatus.Active };
 
-        private static List<GameAction> Held(string routeId = null) => Ledger.Actions
-            .Where(a => a.Type == GameActionType.RouteHeld
+        private static List<RouteEvent> Held(string routeId = null) => RouteEventLog.Events
+            .Where(a => a.Type == RouteEventType.RouteHeld
                 && (routeId == null || a.RouteId == routeId))
             .ToList();
 
@@ -69,9 +69,9 @@ namespace Parsek.Tests.Logistics
             return RouteOrchestrator.TryEmitRouteHeldRow(route, kind, detail, shortfall, ut, "cycle-0");
         }
 
-        private static void Boundary(Route route, GameActionType type, double ut)
+        private static void Boundary(Route route, RouteEventType type, double ut)
         {
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
                 Type = type, UT = ut, RouteId = route.Id, RouteCycleId = "cycle-x",
                 RouteStopIndex = -1,
@@ -102,7 +102,7 @@ namespace Parsek.Tests.Logistics
             Assert.True(Hold(route, DestinationFull, "LiquidFuel", 0.0, 1900.0));
             Assert.Equal(2, Held().Count);
 
-            GameAction first = Held()[0];
+            RouteEvent first = Held()[0];
             Assert.Equal(route.Id, first.RouteId);
             Assert.Equal(1000.0, first.UT);
             Assert.Equal("cycle-0", first.RouteCycleId);
@@ -110,7 +110,6 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(OriginLacksCargo, first.RouteHoldKind);
             Assert.Equal("LiquidFuel", first.RouteEndpointReason);
             Assert.Equal(108.8, first.RouteHoldShortfall);
-            Assert.Null(first.RecordingId);
             Assert.Equal(DestinationFull, Held()[1].RouteHoldKind);
         }
 
@@ -142,11 +141,11 @@ namespace Parsek.Tests.Logistics
         // catches: an episode that never closes (a route held, run, held again for the
         // same reason must show the second hold).
         [Theory]
-        [InlineData(GameActionType.RouteDispatched)]
-        [InlineData(GameActionType.RoutePaused)]
-        [InlineData(GameActionType.RouteResumed)]
-        [InlineData(GameActionType.RouteEndpointLost)]
-        public void ABoundaryRowClosesTheEpisode(GameActionType boundary)
+        [InlineData(RouteEventType.RouteDispatched)]
+        [InlineData(RouteEventType.RoutePaused)]
+        [InlineData(RouteEventType.RouteResumed)]
+        [InlineData(RouteEventType.RouteEndpointLost)]
+        public void ABoundaryRowClosesTheEpisode(RouteEventType boundary)
         {
             Route route = PlainRoute();
             Assert.True(Hold(route, OriginLacksCargo, "LiquidFuel", 10.0, 1000.0));
@@ -155,15 +154,13 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(2, Held().Count);
         }
 
-        // catches: rows that merely sit beside a hold (the deferred recovery credit a
-        // blocked crossing flushes, a delivery, a debit) closing the episode and making
-        // every later crossing write a row again.
+        // catches: events that merely sit beside a hold (a delivery, a debit, a pickup)
+        // closing the episode and making every later crossing write an event again.
         [Theory]
-        [InlineData(GameActionType.RouteRecoveryCredited)]
-        [InlineData(GameActionType.RouteCargoDelivered)]
-        [InlineData(GameActionType.RouteCargoDebited)]
-        [InlineData(GameActionType.RouteCargoPickedUp)]
-        public void NonBoundaryRouteRows_DoNotCloseTheEpisode(GameActionType other)
+        [InlineData(RouteEventType.RouteCargoDelivered)]
+        [InlineData(RouteEventType.RouteCargoDebited)]
+        [InlineData(RouteEventType.RouteCargoPickedUp)]
+        public void NonBoundaryRouteRows_DoNotCloseTheEpisode(RouteEventType other)
         {
             Route route = PlainRoute();
             Assert.True(Hold(route, OriginLacksCargo, "LiquidFuel", 10.0, 1000.0));
@@ -180,7 +177,7 @@ namespace Parsek.Tests.Logistics
         {
             Route route = PlainRoute();
             Assert.True(Hold(route, OriginLacksCargo, "LiquidFuel", 10.0, 1000.0));
-            Boundary(route, GameActionType.RouteDispatched, 1000.0);
+            Boundary(route, RouteEventType.RouteDispatched, 1000.0);
             Assert.True(Hold(route, OriginLacksCargo, "LiquidFuel", 10.0, 1300.0));
         }
 
@@ -192,7 +189,7 @@ namespace Parsek.Tests.Logistics
             Route b = PlainRoute("route-b");
             Assert.True(Hold(a, OriginLacksCargo, "LiquidFuel", 10.0, 1000.0));
             Assert.True(Hold(b, OriginLacksCargo, "LiquidFuel", 10.0, 1000.0));
-            Boundary(b, GameActionType.RouteDispatched, 1100.0);
+            Boundary(b, RouteEventType.RouteDispatched, 1100.0);
             Assert.False(Hold(a, OriginLacksCargo, "LiquidFuel", 10.0, 1300.0));
             Assert.Single(Held("route-a"));
         }
@@ -219,7 +216,7 @@ namespace Parsek.Tests.Logistics
             var wait = RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner;
             Assert.True(Hold(route, wait, "partner:Return Run", 0.0, 1000.0));
             Assert.False(Hold(route, wait, "partner:Return Run Renamed", 0.0, 1300.0));
-            GameAction row = Assert.Single(Held());
+            RouteEvent row = Assert.Single(Held());
             Assert.Equal("partner:route-partner", row.RouteEndpointReason);
             // Unlinked (no id to key on): the evaluator token passes through.
             Assert.Equal("partner:X", RouteOrchestrator.HeldRowDetail(PlainRoute(), wait, "partner:X"));
@@ -231,7 +228,7 @@ namespace Parsek.Tests.Logistics
         // ==================================================================
 
         // catches: a hold row stamped after the rewind cutoff surviving it (it must
-        // retire with the other route rows, IsRouteActionType).
+        // retire with the other route events).
         [Fact]
         public void RewindRetiresHeldRowsAfterTheCutoff_KeepsTheEarlierOnes()
         {
@@ -240,9 +237,9 @@ namespace Parsek.Tests.Logistics
             Hold(route, DestinationFull, "LiquidFuel", 0.0, 2000.0);
             Assert.Equal(2, Held().Count);
 
-            Ledger.RetireFutureRouteActionsAtRewind(1500.0, out _);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(1500.0, out _);
 
-            GameAction kept = Assert.Single(Held());
+            RouteEvent kept = Assert.Single(Held());
             Assert.Equal(1000.0, kept.UT);
         }
 
@@ -257,7 +254,7 @@ namespace Parsek.Tests.Logistics
             Hold(route, OriginLacksCargo, "LiquidFuel", 10.0, 1000.0);
             Hold(route, OriginLacksCargo, "LiquidFuel", 10.0, 2000.0); // deduped, LastHoldUT=2000
 
-            Ledger.RetireFutureRouteActionsAtRewind(1500.0, out _);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(1500.0, out _);
             RouteRewindClassifier.ResetCycleStateForRewind(route, 1500.0);
             Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.None, route.LastHoldKind);
 
@@ -272,7 +269,7 @@ namespace Parsek.Tests.Logistics
         {
             Route route = PlainRoute();
             Hold(route, OriginLacksCargo, "LiquidFuel", 10.0, 2000.0);
-            Ledger.RetireFutureRouteActionsAtRewind(1500.0, out _);
+            RouteEventLog.RetireFutureRouteActionsAtRewind(1500.0, out _);
             RouteRewindClassifier.ResetCycleStateForRewind(route, 1500.0);
             Assert.Empty(Held());
 
@@ -293,7 +290,7 @@ namespace Parsek.Tests.Logistics
             Assert.False(RouteOrchestrator.TryEmitRouteHeldRow(route,
                 RouteDispatchEvaluator.EligibilityFailureKind.None, null, 0.0, 1000.0, null));
             Assert.False(RouteOrchestrator.TryEmitRouteHeldRow(null, OriginLacksCargo, "LiquidFuel", 1.0, 1000.0, null));
-            Assert.Empty(Ledger.Actions);
+            Assert.Empty(RouteEventLog.Events);
             Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("RouteHeld:")
                 && l.Contains("live UT unresolved"));
         }
@@ -317,16 +314,15 @@ namespace Parsek.Tests.Logistics
         // Inert everywhere else
         // ==================================================================
 
-        // catches: a hold row missing from the ELS (the Route History would never see
-        // it) or showing in the career Timeline as a raw "RouteHeld" entry.
+        // catches: a hold event missing from the route event log (the Route History would
+        // never see it) or leaking into the game-actions ledger.
         [Fact]
-        public void HeldRowIsInTheElsAndHiddenFromTheTimeline()
+        public void HeldEventIsInTheRouteEventLog_NeverInTheLedger()
         {
             Route route = PlainRoute();
             Hold(route, OriginLacksCargo, "LiquidFuel", 10.0, 1000.0);
-            Assert.Contains(EffectiveState.ComputeELS(), a => a.Type == GameActionType.RouteHeld);
-            Assert.True(RouteLedgerRetire.IsRouteActionType(GameActionType.RouteHeld));
-            Assert.True(TimelineBuilder.IsRouteOnlyActionType(GameActionType.RouteHeld));
+            Assert.Contains(RouteEventLog.Events, a => a.Type == RouteEventType.RouteHeld);
+            Assert.Empty(Ledger.Actions);
             Assert.False(LedgerOrchestrator.IsResourceImpactingAction(GameActionType.RouteHeld));
         }
 
@@ -336,22 +332,22 @@ namespace Parsek.Tests.Logistics
         public void HeldRowWithACycleId_DoesNotSkewCycleCounterReconstruction()
         {
             Route route = PlainRoute();
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteDispatched, UT = 900.0, RouteId = route.Id,
+                Type = RouteEventType.RouteDispatched, UT = 900.0, RouteId = route.Id,
                 RouteCycleId = "cycle-1", RouteStopIndex = -1,
             });
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteCargoDelivered, UT = 950.0, RouteId = route.Id,
+                Type = RouteEventType.RouteCargoDelivered, UT = 950.0, RouteId = route.Id,
                 RouteCycleId = "cycle-1", RouteStopIndex = 0,
             });
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteHeld, UT = 1000.0, RouteId = route.Id,
+                Type = RouteEventType.RouteHeld, UT = 1000.0, RouteId = route.Id,
                 RouteCycleId = "cycle-7", RouteStopIndex = -1, RouteHoldKind = OriginLacksCargo,
             });
-            RouteRewindClassifier.ReconstructCycleCounters(route, Ledger.Actions);
+            RouteRewindClassifier.ReconstructCycleCounters(route, RouteEventLog.Events);
             Assert.Equal(1, route.CompletedCycles);
             Assert.Equal(1, route.SkippedCycles);
         }
@@ -428,7 +424,7 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.Tick(1750.0, env);
 
             Assert.Equal(3, route.SkippedCycles);
-            List<GameAction> held = Held(route.Id);
+            List<RouteEvent> held = Held(route.Id);
             Assert.Equal(2, held.Count);
             Assert.Equal(OriginLacksCargo, held[0].RouteHoldKind);
             Assert.Equal(1150.0, held[0].UT);
@@ -454,13 +450,13 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(1150.0, new HoldEnv { DestinationFullToken = "stored-part:evaScienceKit" });
 
-            List<GameAction> rows = Ledger.Actions
+            List<RouteEvent> rows = RouteEventLog.Events
                 .Where(a => a.RouteId == route.Id
-                    && (a.Type == GameActionType.RouteHeld || a.Type == GameActionType.RoutePaused))
+                    && (a.Type == RouteEventType.RouteHeld || a.Type == RouteEventType.RoutePaused))
                 .ToList();
             Assert.Equal(2, rows.Count);
-            Assert.Equal(GameActionType.RouteHeld, rows[0].Type);
-            Assert.Equal(GameActionType.RoutePaused, rows[1].Type);
+            Assert.Equal(RouteEventType.RouteHeld, rows[0].Type);
+            Assert.Equal(RouteEventType.RoutePaused, rows[1].Type);
             Assert.Equal(rows[0].UT, rows[1].UT);
             Assert.Equal("stored-part:evaScienceKit", rows[0].RouteEndpointReason);
         }

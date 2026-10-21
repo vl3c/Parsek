@@ -4528,12 +4528,11 @@ namespace Parsek
                             currentFlightLaunchUT, Ledger.GetLatestUntaggedVesselBuildUT());
                         double pruneCutoffUT = ResolveRevertPruneCutoff(
                             revertKind, loadedUT, editorBoundaryUT, out pruneInclusive);
-                        // Route rows up to the revert save's route state floor (a launch inside a
-                        // go-back rewind's lead-time window) are part of the route state that
-                        // save restores, not the reverted flight's.
+                        // Route events are not ledger rows: the in-session route reconcile below
+                        // retires the reverted flight's route events at this cutoff (raised to the
+                        // revert save's route state floor).
                         int prunedOrphans = Ledger.PruneOrphanActionsAfterUT(
-                            pruneCutoffUT, pruneInclusive,
-                            keepRouteRowsThroughUT: Logistics.RouteStore.ReadSavedRouteStateFloorUT(node));
+                            pruneCutoffUT, pruneInclusive);
                         revertPruneCutoffUTForRoutes = pruneCutoffUT;
                         if (prunedOrphans > 0)
                             ParsekLog.Info("Scenario",
@@ -4677,11 +4676,10 @@ namespace Parsek
                     }
 
                     // Routes on a load back in time (LoadReconcilePolicy Routes cells): RouteStore and
-                    // the ledger stay in memory across an in-session load, so an F9, a stock revert or
-                    // the Discard Re-fly load runs the go-back rewind's reconcile keyed to the loaded
-                    // save, and any other in-session load does when route state lies after the save.
-                    // Before the future-actions check and the recalculation so neither sees the
-                    // retired rows; removes rows only, never adds one, so it is OnLoad-safe.
+                    // the route event log stay in memory across an in-session load, so an F9, a stock
+                    // revert or the Discard Re-fly load runs the go-back rewind's reconcile keyed to the
+                    // loaded save, and any other in-session load does when route state lies after the
+                    // save. Removes events only, never adds one, so it is OnLoad-safe.
                     loadPhase = "route-load-reconcile";
                     double loadedSaveUTForRoutes = KerbalsModule.ReadLoadedSaveUT();
                     try
@@ -4699,6 +4697,7 @@ namespace Parsek
                             $"Route reconcile at in-session load threw {ex.GetType().Name}: {ex.Message}; " +
                             $"routes left as they were (kind={refinedLoadKind})");
                     }
+                    Logistics.RouteEventLog.LogWalkSummary();
 
                     // Untagged rows made after the loaded save (Space Center purchases, upgrades,
                     // hires, contract actions, launch-pad rows): a load back in time undoes them
@@ -5439,19 +5438,20 @@ namespace Parsek
             ParsekLog.Info("Rewind",
                 "OnLoad: resource + UT adjustment deferred (waiting for new scene singletons)");
 
-            // Route ledger + store reconciliation, the Re-Fly seam's mirror
-            // (RouteLoadReconcile.ReconcileAtGoBackRewind: retire route rows after the cutoff in
+            // Route event log + store reconciliation, the Re-Fly seam's mirror
+            // (RouteLoadReconcile.ReconcileAtGoBackRewind: retire route events after the cutoff in
             // place, the shared RouteRewindClassifier.ReconcileStoreAtRewind, then each kept
             // route's loop position back from the rewind save's own route copy, which this
             // OnLoad node is not: it is persistent.sfs, so ExecuteRewindSaveLoad read the copy
             // from the parsed save). The route cutoff is that save's own UT, before the lead-time
-            // windback, so the rows kept and the route state restored describe the same moment;
-            // the career prune and recalc below stay at RewindAdjustedUT. Runs BEFORE the recalc
-            // so the recalc never sees retired rows; emits NO Ledger.AddAction (OnLoad-safe).
+            // windback, so the events kept and the route state restored describe the same moment;
+            // the career prune and recalc below stay at RewindAdjustedUT. Removes events only and
+            // emits none (OnLoad-safe).
             Logistics.RouteLoadReconcile.ReconcileAtGoBackRewind(
                 RewindContext.RewindAdjustedUT,
                 RewindContext.RewindSaveRoutes,
                 RewindContext.RewindSaveClockUT);
+            Logistics.RouteEventLog.LogWalkSummary();
 
             // Restore career state to the rewind target. The cutoff walk keeps
             // funds/science/tech at the adjusted UT; LedgerOrchestrator then

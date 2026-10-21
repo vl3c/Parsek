@@ -9,13 +9,13 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Seeded property/fuzz suite over the FULL nine-module recalculation stack
+    /// Seeded property/fuzz suite over the FULL eight-module recalculation stack
     /// (audit Tier D1, design-testing-unified section 8 Phase 2 item 5).
     ///
     /// <para>
     /// <see cref="RecalculationFuzzerTests"/> registers only <see cref="ContractsModule"/>
     /// and asserts sort-call counts - a structural property of the engine, not of the
-    /// resulting career state. This suite registers all nine production modules in the
+    /// resulting career state. This suite registers all eight production modules in the
     /// production tier order (pinned against <c>LedgerOrchestrator.Initialize</c> by
     /// <see cref="ModuleRegistration_MirrorsProductionTierOrder"/>) and asserts the
     /// state the walk actually produces:
@@ -82,7 +82,6 @@ namespace Parsek.Tests
         private readonly KerbalsModule kerbals = new KerbalsModule();
         private readonly StrategiesModule strategies = new StrategiesModule();
         private readonly FundsModule funds = new FundsModule();
-        private readonly RouteModule routes = new RouteModule();
         private readonly ReputationModule reputation = new ReputationModule();
         private readonly FacilitiesModule facilities = new FacilitiesModule();
 
@@ -165,7 +164,6 @@ namespace Parsek.Tests
             RecalculationEngine.RegisterModule(kerbals, RecalculationEngine.ModuleTier.FirstTier);
             RecalculationEngine.RegisterModule(strategies, RecalculationEngine.ModuleTier.Strategy);
             RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(routes, RecalculationEngine.ModuleTier.SecondTier);
             RecalculationEngine.RegisterModule(reputation, RecalculationEngine.ModuleTier.SecondTier);
             RecalculationEngine.RegisterModule(facilities, RecalculationEngine.ModuleTier.Facilities);
         }
@@ -184,7 +182,6 @@ namespace Parsek.Tests
             "kerbalsModule|FirstTier",
             "strategiesModule|Strategy",
             "fundsModule|SecondTier",
-            "routeModule|SecondTier",
             "reputationModule|SecondTier",
             "facilitiesModule|Facilities"
         };
@@ -639,7 +636,7 @@ namespace Parsek.Tests
         }
 
         // =====================================================================
-        // Canonical state snapshot across all nine modules
+        // Canonical state snapshot across all eight modules
         // =====================================================================
 
         private string Snapshot()
@@ -707,22 +704,6 @@ namespace Parsek.Tests
             }
             sb.Append("]}");
 
-            sb.Append("|routes{count=").Append(routes.GetWalkStateForTesting().Count).Append(",states=[");
-            var routeStates = routes.GetWalkStateForTesting();
-            foreach (var key in routeStates.Keys.OrderBy(k => k, StringComparer.Ordinal))
-            {
-                var state = routeStates[key];
-                sb.Append(key).Append(':')
-                  .Append(state.DispatchedCycles).Append('/')
-                  .Append(state.DeliveredStops).Append('/')
-                  .Append(state.PhysicalDebits).Append('/')
-                  .Append(state.PhysicalPickups).Append('/')
-                  .Append(state.Paused ? 1 : 0).Append('/')
-                  .Append(state.EndpointLost ? 1 : 0).Append('/')
-                  .Append(R(state.LastActionUT)).Append(';');
-            }
-            sb.Append("]}");
-
             sb.Append("|kerbals{reservations=[");
             foreach (var key in kerbals.Reservations.Keys.OrderBy(k => k, StringComparer.Ordinal))
             {
@@ -779,14 +760,15 @@ namespace Parsek.Tests
         private static readonly GameActionType[] NonSeedTypes = Enum
             .GetValues(typeof(GameActionType))
             .Cast<GameActionType>()
-            .Where(t => !RecalculationEngine.IsSeedType(t))
+            .Where(t => !RecalculationEngine.IsSeedType(t)
+                && !LedgerLoadMigration.IsReservedRouteActionType(t))
             .OrderBy(t => (int)t)
             .ToArray();
 
         [Fact]
         public void Generator_CoversEveryNonSeedActionType()
         {
-            // The fuzz corpus must span all nine modules' action vocabulary, and span it
+            // The fuzz corpus must span all eight modules' action vocabulary, and span it
             // with real rows: PRESENCE alone is true by construction here, because the
             // corpus plan is built from the same enum the assertions walk and CreateAction
             // always stamps action.Type. A new GameActionType with no arm in CreateAction
@@ -806,7 +788,8 @@ namespace Parsek.Tests
                 }
             }
 
-            foreach (var type in Enum.GetValues(typeof(GameActionType)).Cast<GameActionType>())
+            foreach (var type in Enum.GetValues(typeof(GameActionType)).Cast<GameActionType>()
+                .Where(t => !LedgerLoadMigration.IsReservedRouteActionType(t)))
             {
                 Assert.Contains(type, seen);
                 Assert.True(withPayload.Contains(type),
@@ -1096,64 +1079,11 @@ namespace Parsek.Tests
                 case GameActionType.StrategyDeactivate:
                     action.StrategyId = "strategy-" + rng.Next(0, 4).ToString(IC);
                     break;
-                case GameActionType.RouteDispatched:
-                    ApplyRouteIdentity(action, rng);
-                    action.RouteSendOnce = rng.Next(0, 4) == 0;
-                    break;
-                case GameActionType.RouteCargoDebited:
-                    ApplyRouteIdentity(action, rng);
-                    action.RouteResourceManifest = new Dictionary<string, double>
-                    {
-                        { "Ore", rng.Next(1, 40) }
-                    };
-                    break;
-                case GameActionType.RouteCargoDelivered:
-                    ApplyRouteIdentity(action, rng);
-                    action.RouteStopIndex = rng.Next(0, 3);
-                    action.RouteResourceManifest = new Dictionary<string, double>
-                    {
-                        { "Ore", rng.Next(1, 40) }
-                    };
-                    break;
-                case GameActionType.RouteCargoPickedUp:
-                    ApplyRouteIdentity(action, rng);
-                    action.RouteOriginVesselPid = (uint)rng.Next(1, 10000);
-                    action.RouteResourceManifest = new Dictionary<string, double>
-                    {
-                        { "Ore", rng.Next(1, 20) }
-                    };
-                    break;
-                case GameActionType.RouteRecoveryCredited:
-                    ApplyRouteIdentity(action, rng);
-                    break;
-                case GameActionType.RoutePaused:
-                    ApplyRouteIdentity(action, rng);
-                    action.RouteEndpointReason = "player-pause";
-                    break;
-                case GameActionType.RouteResumed:
-                    ApplyRouteIdentity(action, rng);
-                    action.RouteEndpointReason = "player-activate";
-                    break;
-                case GameActionType.RouteEndpointLost:
-                    ApplyRouteIdentity(action, rng);
-                    action.RouteEndpointReason = "endpoint-lost";
-                    break;
-                case GameActionType.RouteHeld:
-                    ApplyRouteIdentity(action, rng);
-                    action.RouteHoldKind = Parsek.Logistics.RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo;
-                    action.RouteEndpointReason = "LiquidFuel";
-                    action.RouteHoldShortfall = rng.Next(1, 200);
-                    break;
             }
 
             return action;
         }
 
-        private static void ApplyRouteIdentity(GameAction action, Random rng)
-        {
-            action.RouteId = "route-" + rng.Next(0, 4).ToString(IC);
-            action.RouteCycleId = action.RouteId + "-cycle-" + rng.Next(0, 2000).ToString(IC);
-        }
 
         /// <summary>
         /// Amounts stay in a plausible career band. Feeding NaN / 1e38 in would make the

@@ -67,11 +67,11 @@ namespace Parsek.Tests.Logistics
             };
         }
 
-        private static GameAction Marker(
-            string routeId, GameActionType type, double ut, int sequence = 0,
+        private static RouteEvent Marker(
+            string routeId, RouteEventType type, double ut, int sequence = 0,
             string reason = "test")
         {
-            return new GameAction
+            return new RouteEvent
             {
                 Type = type,
                 UT = ut,
@@ -82,11 +82,11 @@ namespace Parsek.Tests.Logistics
             };
         }
 
-        private static GameAction Dispatched(string routeId, string cycleId, double ut)
+        private static RouteEvent Dispatched(string routeId, string cycleId, double ut)
         {
-            return new GameAction
+            return new RouteEvent
             {
-                Type = GameActionType.RouteDispatched,
+                Type = RouteEventType.RouteDispatched,
                 UT = ut,
                 RouteId = routeId,
                 RouteCycleId = cycleId,
@@ -95,12 +95,12 @@ namespace Parsek.Tests.Logistics
             };
         }
 
-        private static GameAction Delivered(
+        private static RouteEvent Delivered(
             string routeId, string cycleId, double ut, int stopIndex = 0)
         {
-            return new GameAction
+            return new RouteEvent
             {
-                Type = GameActionType.RouteCargoDelivered,
+                Type = RouteEventType.RouteCargoDelivered,
                 UT = ut,
                 RouteId = routeId,
                 RouteCycleId = cycleId,
@@ -119,12 +119,12 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(RouteTimelineStatus.NoMarker,
                 RouteRewindClassifier.DeriveTimelineStatus("r", null));
             Assert.Equal(RouteTimelineStatus.NoMarker,
-                RouteRewindClassifier.DeriveTimelineStatus("r", new List<GameAction>()));
+                RouteRewindClassifier.DeriveTimelineStatus("r", new List<RouteEvent>()));
             // Another route's markers must not bleed over.
             Assert.Equal(RouteTimelineStatus.NoMarker,
-                RouteRewindClassifier.DeriveTimelineStatus("r", new List<GameAction>
+                RouteRewindClassifier.DeriveTimelineStatus("r", new List<RouteEvent>
                 {
-                    Marker("other", GameActionType.RoutePaused, 100.0),
+                    Marker("other", RouteEventType.RoutePaused, 100.0),
                     null, // null entries tolerated
                 }));
         }
@@ -132,18 +132,18 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void Derive_LatestMarkerByUTWins()
         {
-            var pausedThenResumed = new List<GameAction>
+            var pausedThenResumed = new List<RouteEvent>
             {
-                Marker("r", GameActionType.RoutePaused, 100.0),
-                Marker("r", GameActionType.RouteResumed, 200.0),
+                Marker("r", RouteEventType.RoutePaused, 100.0),
+                Marker("r", RouteEventType.RouteResumed, 200.0),
             };
             Assert.Equal(RouteTimelineStatus.Active,
                 RouteRewindClassifier.DeriveTimelineStatus("r", pausedThenResumed));
 
-            var resumedThenPaused = new List<GameAction>
+            var resumedThenPaused = new List<RouteEvent>
             {
-                Marker("r", GameActionType.RouteResumed, 100.0),
-                Marker("r", GameActionType.RoutePaused, 200.0),
+                Marker("r", RouteEventType.RouteResumed, 100.0),
+                Marker("r", RouteEventType.RoutePaused, 200.0),
             };
             Assert.Equal(RouteTimelineStatus.Paused,
                 RouteRewindClassifier.DeriveTimelineStatus("r", resumedThenPaused));
@@ -155,10 +155,10 @@ namespace Parsek.Tests.Logistics
             // The armed-pause tail stamps its RoutePaused at the delivery UT with
             // a stride-offset Sequence; a RouteResumed cannot share that exact
             // (UT, Sequence). Higher Sequence must win regardless of list order.
-            var rows = new List<GameAction>
+            var rows = new List<RouteEvent>
             {
-                Marker("r", GameActionType.RoutePaused, 200.0, sequence: 4),
-                Marker("r", GameActionType.RouteResumed, 200.0, sequence: 0),
+                Marker("r", RouteEventType.RoutePaused, 200.0, sequence: 4),
+                Marker("r", RouteEventType.RouteResumed, 200.0, sequence: 0),
             };
             Assert.Equal(RouteTimelineStatus.Paused,
                 RouteRewindClassifier.DeriveTimelineStatus("r", rows));
@@ -173,9 +173,9 @@ namespace Parsek.Tests.Logistics
         {
             // A later dispatch row is NOT a resume (the durable-resume lesson):
             // only RoutePaused/RouteResumed rows participate.
-            var rows = new List<GameAction>
+            var rows = new List<RouteEvent>
             {
-                Marker("r", GameActionType.RoutePaused, 100.0),
+                Marker("r", RouteEventType.RoutePaused, 100.0),
                 Dispatched("r", "cycle-0", 300.0),
                 Delivered("r", "cycle-0", 350.0),
             };
@@ -191,27 +191,27 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void Derive_ResumeWithoutAnyKeptPausedRow_DowngradesToNoMarker()
         {
-            var resumeOnly = new List<GameAction>
+            var resumeOnly = new List<RouteEvent>
             {
-                Marker("r", GameActionType.RouteResumed, 200.0),
+                Marker("r", RouteEventType.RouteResumed, 200.0),
             };
             Assert.Equal(RouteTimelineStatus.NoMarker,
                 RouteRewindClassifier.DeriveTimelineStatus("r", resumeOnly));
 
             // Another route's pause row does not satisfy the gate.
-            var foreignPause = new List<GameAction>
+            var foreignPause = new List<RouteEvent>
             {
-                Marker("other", GameActionType.RoutePaused, 100.0),
-                Marker("r", GameActionType.RouteResumed, 200.0),
+                Marker("other", RouteEventType.RoutePaused, 100.0),
+                Marker("r", RouteEventType.RouteResumed, 200.0),
             };
             Assert.Equal(RouteTimelineStatus.NoMarker,
                 RouteRewindClassifier.DeriveTimelineStatus("r", foreignPause));
 
             // With a kept pause row (even an older one) the resume stands.
-            var pausedThenResumed = new List<GameAction>
+            var pausedThenResumed = new List<RouteEvent>
             {
-                Marker("r", GameActionType.RoutePaused, 100.0),
-                Marker("r", GameActionType.RouteResumed, 200.0),
+                Marker("r", RouteEventType.RoutePaused, 100.0),
+                Marker("r", RouteEventType.RouteResumed, 200.0),
             };
             Assert.Equal(RouteTimelineStatus.Active,
                 RouteRewindClassifier.DeriveTimelineStatus("r", pausedThenResumed));
@@ -227,9 +227,9 @@ namespace Parsek.Tests.Logistics
         public void Derive_AutoLifecycleRows_AreIgnored()
         {
             // A kept AutoPause row alone derives nothing.
-            var autoPauseOnly = new List<GameAction>
+            var autoPauseOnly = new List<RouteEvent>
             {
-                Marker("r", GameActionType.RoutePaused, 100.0,
+                Marker("r", RouteEventType.RoutePaused, 100.0,
                     reason: "AutoPause:MissingSourceRecording"),
             };
             Assert.Equal(RouteTimelineStatus.NoMarker,
@@ -237,9 +237,9 @@ namespace Parsek.Tests.Logistics
 
             // A kept AutoResume row alone does not un-pause (skipped, and the
             // player-pause gate would block it anyway).
-            var autoResumeOnly = new List<GameAction>
+            var autoResumeOnly = new List<RouteEvent>
             {
-                Marker("r", GameActionType.RouteResumed, 100.0,
+                Marker("r", RouteEventType.RouteResumed, 100.0,
                     reason: "AutoResume:SourcesRestored"),
             };
             Assert.Equal(RouteTimelineStatus.NoMarker,
@@ -247,23 +247,23 @@ namespace Parsek.Tests.Logistics
 
             // The latest PLAYER row wins over NEWER auto rows in both
             // directions: player pause followed by AutoResume stays Paused...
-            var playerPauseThenAuto = new List<GameAction>
+            var playerPauseThenAuto = new List<RouteEvent>
             {
-                Marker("r", GameActionType.RoutePaused, 100.0, reason: "player-pause"),
-                Marker("r", GameActionType.RouteResumed, 200.0,
+                Marker("r", RouteEventType.RoutePaused, 100.0, reason: "player-pause"),
+                Marker("r", RouteEventType.RouteResumed, 200.0,
                     reason: "AutoResume:CatchUp"),
-                Marker("r", GameActionType.RoutePaused, 300.0,
+                Marker("r", RouteEventType.RoutePaused, 300.0,
                     reason: "AutoPause:SourceChanged"),
             };
             Assert.Equal(RouteTimelineStatus.Paused,
                 RouteRewindClassifier.DeriveTimelineStatus("r", playerPauseThenAuto));
 
             // ...and player resume followed by AutoPause stays Active.
-            var playerResumeThenAutoPause = new List<GameAction>
+            var playerResumeThenAutoPause = new List<RouteEvent>
             {
-                Marker("r", GameActionType.RoutePaused, 50.0, reason: "player-pause"),
-                Marker("r", GameActionType.RouteResumed, 100.0, reason: "player-activate"),
-                Marker("r", GameActionType.RoutePaused, 200.0,
+                Marker("r", RouteEventType.RoutePaused, 50.0, reason: "player-pause"),
+                Marker("r", RouteEventType.RouteResumed, 100.0, reason: "player-activate"),
+                Marker("r", RouteEventType.RoutePaused, 200.0,
                     reason: "AutoPause:MissingSourceRecording"),
             };
             Assert.Equal(RouteTimelineStatus.Active,
@@ -274,17 +274,17 @@ namespace Parsek.Tests.Logistics
         public void Derive_NullOrEmptyReason_TreatedAsPlayerIntent()
         {
             // Legacy rows without a reason still carry intent (backward compat).
-            var rows = new List<GameAction>
+            var rows = new List<RouteEvent>
             {
-                Marker("r", GameActionType.RoutePaused, 100.0, reason: null),
+                Marker("r", RouteEventType.RoutePaused, 100.0, reason: null),
             };
             Assert.Equal(RouteTimelineStatus.Paused,
                 RouteRewindClassifier.DeriveTimelineStatus("r", rows));
 
-            var emptyReason = new List<GameAction>
+            var emptyReason = new List<RouteEvent>
             {
-                Marker("r", GameActionType.RoutePaused, 100.0, reason: ""),
-                Marker("r", GameActionType.RouteResumed, 200.0, reason: ""),
+                Marker("r", RouteEventType.RoutePaused, 100.0, reason: ""),
+                Marker("r", RouteEventType.RouteResumed, 200.0, reason: ""),
             };
             Assert.Equal(RouteTimelineStatus.Active,
                 RouteRewindClassifier.DeriveTimelineStatus("r", emptyReason));
@@ -462,10 +462,10 @@ namespace Parsek.Tests.Logistics
             route.CompletedCycles = 7;
             route.SkippedCycles = 3;
             // Only foreign / non-dispatch rows: counts as "no kept dispatch rows".
-            var rows = new List<GameAction>
+            var rows = new List<RouteEvent>
             {
                 Dispatched("other", "cycle-5", 100.0),
-                Marker("r", GameActionType.RoutePaused, 100.0),
+                Marker("r", RouteEventType.RoutePaused, 100.0),
             };
 
             Assert.True(RouteRewindClassifier.ReconstructCycleCounters(route, rows));
@@ -484,7 +484,7 @@ namespace Parsek.Tests.Logistics
             route.SkippedCycles = 9;
             // cycles 0..2 dispatched; 0 and 1 delivered; 2 dispatched-not-delivered
             // at the cutoff counts as skipped by the reconstruction.
-            var rows = new List<GameAction>
+            var rows = new List<RouteEvent>
             {
                 Dispatched("r", "cycle-0", 100.0),
                 Delivered("r", "cycle-0", 110.0),
@@ -507,7 +507,7 @@ namespace Parsek.Tests.Logistics
             route.CompletedCycles = 4;
             // One cycle delivered across two stop windows: two delivered rows,
             // ONE distinct cycle id.
-            var rows = new List<GameAction>
+            var rows = new List<RouteEvent>
             {
                 Dispatched("r", "cycle-0", 100.0),
                 Delivered("r", "cycle-0", 110.0, stopIndex: 0),
@@ -524,7 +524,7 @@ namespace Parsek.Tests.Logistics
         {
             var route = MakeRoute("r");
             route.SkippedCycles = 5;
-            var rows = new List<GameAction>
+            var rows = new List<RouteEvent>
             {
                 Dispatched("r", "weird-id-x", 100.0), // unparseable: no ordinal
                 Delivered("r", "weird-id-x", 110.0),
@@ -541,7 +541,7 @@ namespace Parsek.Tests.Logistics
         public void Reconstruct_DeliveredExceedingDispatchOrdinals_SkippedClampsAtZero()
         {
             var route = MakeRoute("r");
-            var rows = new List<GameAction>
+            var rows = new List<RouteEvent>
             {
                 Dispatched("r", "cycle-0", 100.0),
                 Delivered("r", "cycle-0", 110.0),
@@ -561,7 +561,7 @@ namespace Parsek.Tests.Logistics
             var route = MakeRoute("r");
             route.CompletedCycles = 1;
             route.SkippedCycles = 0;
-            var rows = new List<GameAction>
+            var rows = new List<RouteEvent>
             {
                 Dispatched("r", "cycle-0", 100.0),
                 Delivered("r", "cycle-0", 110.0),
@@ -586,7 +586,7 @@ namespace Parsek.Tests.Logistics
             route.CompletedCycles = 9;
             route.SkippedCycles = 9;
             route.CurrentCycleStartUT = 80.0; // kept in-flight cycle (<= cutoff)
-            var rows = new List<GameAction>
+            var rows = new List<RouteEvent>
             {
                 Dispatched("r", "cycle-4", 10.0),
                 Delivered("r", "cycle-4", 20.0),
@@ -612,7 +612,7 @@ namespace Parsek.Tests.Logistics
         {
             var route = MakeRoute("r");
             route.CurrentCycleStartUT = 80.0;
-            var rows = new List<GameAction>
+            var rows = new List<RouteEvent>
             {
                 Dispatched("r", "cycle-0", 10.0),
                 Delivered("r", "cycle-0", 20.0),
@@ -696,10 +696,10 @@ namespace Parsek.Tests.Logistics
             };
             RouteStore.InstallRoutesAtRewind(new List<Route> { route }, new List<Route>());
 
-            Ledger.AddAction(Dispatched("straddle", "cycle-4", 10.0));
-            Ledger.AddAction(Delivered("straddle", "cycle-4", 20.0));
-            Ledger.AddAction(Dispatched("straddle", "cycle-5", 80.0));
-            Ledger.AddAction(Delivered("straddle", "cycle-5", 90.0, stopIndex: 0));
+            RouteEventLog.Add(Dispatched("straddle", "cycle-4", 10.0));
+            RouteEventLog.Add(Delivered("straddle", "cycle-4", 20.0));
+            RouteEventLog.Add(Dispatched("straddle", "cycle-5", 80.0));
+            RouteEventLog.Add(Delivered("straddle", "cycle-5", 90.0, stopIndex: 0));
 
             var bundle = ReconciliationBundle.Capture();
             ReconciliationBundle.Restore(bundle, 100.0);
@@ -714,17 +714,17 @@ namespace Parsek.Tests.Logistics
             // out so this Tick isolates the delivery-replay path.
             route.NextDispatchUT = 1_000_000.0;
 
-            int actionsBefore = Ledger.Actions.Count;
+            int actionsBefore = RouteEventLog.Events.Count;
             RouteOrchestrator.Tick(200.0, new ReplayFakeEnv());
 
             // Window 0 re-presented under the PRESERVED id and deduped by the
             // kept row: no new delivered/endpoint-lost/funds rows at all.
-            Assert.Equal(actionsBefore, Ledger.Actions.Count);
+            Assert.Equal(actionsBefore, RouteEventLog.Events.Count);
             Assert.Contains(logLines, l =>
                 l.Contains("[Route]") && l.Contains("replay detected")
                 && l.Contains("cycle=cycle-5"));
-            Assert.DoesNotContain(Ledger.Actions,
-                a => a.Type == GameActionType.RouteEndpointLost);
+            Assert.DoesNotContain(RouteEventLog.Events,
+                a => a.Type == RouteEventType.RouteEndpointLost);
         }
 
         // ------------------------------------------------------------------
@@ -748,14 +748,14 @@ namespace Parsek.Tests.Logistics
             RouteStore.InstallRoutesAtRewind(new List<Route> { p, q }, new List<Route>());
 
             // Kept rows (UT <= 500) + abandoned-future rows (UT > 500, retired).
-            Ledger.AddAction(Dispatched("p", "cycle-0", 200.0));
-            Ledger.AddAction(Delivered("p", "cycle-0", 210.0));
-            Ledger.AddAction(Dispatched("p", "cycle-1", 300.0));
-            Ledger.AddAction(Marker("p", GameActionType.RoutePaused, 400.0));
-            Ledger.AddAction(Marker("p", GameActionType.RouteResumed, 700.0)); // retired
-            Ledger.AddAction(Marker("q", GameActionType.RoutePaused, 200.0));
-            Ledger.AddAction(Marker("q", GameActionType.RouteResumed, 300.0));
-            Ledger.AddAction(Marker("q", GameActionType.RoutePaused, 800.0));  // retired
+            RouteEventLog.Add(Dispatched("p", "cycle-0", 200.0));
+            RouteEventLog.Add(Delivered("p", "cycle-0", 210.0));
+            RouteEventLog.Add(Dispatched("p", "cycle-1", 300.0));
+            RouteEventLog.Add(Marker("p", RouteEventType.RoutePaused, 400.0));
+            RouteEventLog.Add(Marker("p", RouteEventType.RouteResumed, 700.0)); // retired
+            RouteEventLog.Add(Marker("q", RouteEventType.RoutePaused, 200.0));
+            RouteEventLog.Add(Marker("q", RouteEventType.RouteResumed, 300.0));
+            RouteEventLog.Add(Marker("q", RouteEventType.RoutePaused, 800.0));  // retired
 
             var bundle = ReconciliationBundle.Capture();
             ReconciliationBundle.Restore(bundle, 500.0);
@@ -804,7 +804,7 @@ namespace Parsek.Tests.Logistics
             route.SendOnceArmed = true;
             route.CompletedCycles = 5;
             RouteStore.InstallRoutesAtRewind(new List<Route> { route }, new List<Route>());
-            Ledger.AddAction(Marker("r", GameActionType.RoutePaused, 100.0));
+            RouteEventLog.Add(Marker("r", RouteEventType.RoutePaused, 100.0));
 
             var bundle = ReconciliationBundle.Capture();
             ReconciliationBundle.Restore(bundle); // +inf: rollback contract, route-blind

@@ -215,21 +215,6 @@ namespace Parsek.Tests
             };
         }
 
-        // A vessel-origin route debit as the dispatch writes it: physical cargo only.
-        private static GameAction RouteCargoDebited(double ut,
-            string routeId = "route-rewind", string cycleId = "cycle-0")
-        {
-            return new GameAction
-            {
-                UT = ut,
-                Type = GameActionType.RouteCargoDebited,
-                RouteId = routeId,
-                RouteCycleId = cycleId,
-                RouteOriginVesselPid = 4242u,
-                RouteResourceManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } }
-            };
-        }
-
         private static GameAction FacilityUpgrade(double ut, string facilityId, float cost, int toLevel = 2)
         {
             return new GameAction
@@ -1771,29 +1756,6 @@ namespace Parsek.Tests
                 a.Type == GameActionType.ScienceInitial && Math.Abs(a.InitialScience - 11.04f) < 0.001f);
             Assert.DoesNotContain(Ledger.Actions, a =>
                 a.Type == GameActionType.ReputationInitial && Math.Abs(a.InitialReputation - 1f) < 0.001f);
-        }
-
-        // ================================================================
-        // Supply routes carry no money (todo LOGISTICS-WITHOUT-MONEY): a route
-        // row moves no funds in a full walk, a cutoff walk, or the projection.
-        // ================================================================
-
-        [Fact]
-        public void RouteRows_MoveNoFunds_AtAnyCutoff()
-        {
-            AddAll(
-                FundsSeed(25000f),
-                RouteCargoDebited(100.0, cycleId: "cycle-0"),
-                FundsSpending(700.0, 5000f, "rec-reserve"));
-
-            LedgerOrchestrator.RecalculateAndPatch(400.0);
-            Assert.Equal(25000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
-            // Only the committed future spending lowers the floor, never the route row.
-            Assert.Equal(20000.0, LedgerOrchestrator.Funds.GetAvailableFunds(), 1);
-
-            LedgerOrchestrator.RecalculateAndPatch(50.0);
-            Assert.Equal(25000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
-            Assert.Equal(0.0, LedgerOrchestrator.Funds.GetTotalEarnings(), 1);
         }
 
         // ================================================================

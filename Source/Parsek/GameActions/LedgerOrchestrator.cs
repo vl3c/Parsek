@@ -24,7 +24,6 @@ namespace Parsek
         private static MilestonesModule milestonesModule;
         private static ContractsModule contractsModule;
         private static FundsModule fundsModule;
-        private static RouteModule routeModule;
         private static ReputationModule reputationModule;
         private static FacilitiesModule facilitiesModule;
         private static StrategiesModule strategiesModule;
@@ -126,7 +125,6 @@ namespace Parsek
             milestonesModule = new MilestonesModule();
             contractsModule = new ContractsModule();
             fundsModule = new FundsModule();
-            routeModule = new RouteModule();
             reputationModule = new ReputationModule();
             facilitiesModule = new FacilitiesModule();
             strategiesModule = new StrategiesModule();
@@ -146,17 +144,13 @@ namespace Parsek
 
             // Second tier
             RecalculationEngine.RegisterModule(fundsModule, RecalculationEngine.ModuleTier.SecondTier);
-            // RouteModule second-tier slot (design doc section 6.1 step 4). Supply routes
-            // carry no money (todo LOGISTICS-WITHOUT-MONEY), so the module only observes
-            // its route rows; its slot after FundsModule is kept as it was.
-            RecalculationEngine.RegisterModule(routeModule, RecalculationEngine.ModuleTier.SecondTier);
             RecalculationEngine.RegisterModule(reputationModule, RecalculationEngine.ModuleTier.SecondTier);
 
             // Facilities parallel
             RecalculationEngine.RegisterModule(facilitiesModule, RecalculationEngine.ModuleTier.Facilities);
 
             initialized = true;
-            ParsekLog.Info(Tag, "Initialized: 9 modules registered");
+            ParsekLog.Info(Tag, "Initialized: 8 modules registered");
 
             // #444 review item 8: pin the VesselRecovery reason key against KSP's enum.ToString()
             // so a future rename in TransactionReasons surfaces immediately instead of silently
@@ -9074,7 +9068,6 @@ namespace Parsek
             milestonesModule = null;
             contractsModule = null;
             fundsModule = null;
-            routeModule = null;
             reputationModule = null;
             facilitiesModule = null;
             strategiesModule = null;
@@ -9120,7 +9113,6 @@ namespace Parsek
             milestonesModule = null;
             contractsModule = null;
             fundsModule = null;
-            routeModule = null;
             reputationModule = null;
             facilitiesModule = null;
             strategiesModule = null;
@@ -9221,7 +9213,6 @@ namespace Parsek
 
         internal static ScienceModule Science => scienceModule;
         internal static FundsModule Funds => fundsModule;
-        internal static RouteModule Route => routeModule;
         internal static ReputationModule Reputation => reputationModule;
         internal static MilestonesModule Milestones => milestonesModule;
         internal static FacilitiesModule Facilities => facilitiesModule;

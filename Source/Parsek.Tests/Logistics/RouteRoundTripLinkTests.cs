@@ -74,9 +74,9 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.DeliveryRowEmitterForTesting =
                 (route, currentUT, env, cycleId, stopIndex, bumpCompletedCycle) =>
                 {
-                    Ledger.AddAction(new GameAction
+                    RouteEventLog.Add(new RouteEvent
                     {
-                        Type = GameActionType.RouteCargoDelivered,
+                        Type = RouteEventType.RouteCargoDelivered,
                         UT = currentUT,
                         RouteId = route.Id,
                         RouteCycleId = cycleId,
@@ -152,10 +152,10 @@ namespace Parsek.Tests.Logistics
         }
 
         private static int Delivered(string routeId) =>
-            Ledger.Actions.Count(a => a.Type == GameActionType.RouteCargoDelivered && a.RouteId == routeId);
+            RouteEventLog.Events.Count(a => a.Type == RouteEventType.RouteCargoDelivered && a.RouteId == routeId);
 
         private static int Dispatched(string routeId) =>
-            Ledger.Actions.Count(a => a.Type == GameActionType.RouteDispatched && a.RouteId == routeId);
+            RouteEventLog.Events.Count(a => a.Type == RouteEventType.RouteDispatched && a.RouteId == routeId);
 
         // ==================================================================
         // (1) Strict A->B->A alternation

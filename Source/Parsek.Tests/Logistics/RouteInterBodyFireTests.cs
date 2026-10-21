@@ -129,9 +129,9 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.DeliveryRowEmitterForTesting =
                 (route, currentUT, env, cycleId, stopIndex, bumpCompletedCycle) =>
                 {
-                    Ledger.AddAction(new GameAction
+                    RouteEventLog.Add(new RouteEvent
                     {
-                        Type = GameActionType.RouteCargoDelivered,
+                        Type = RouteEventType.RouteCargoDelivered,
                         UT = currentUT,
                         RouteId = route.Id,
                         RouteCycleId = cycleId,
@@ -191,11 +191,11 @@ namespace Parsek.Tests.Logistics
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }
 
-        private static List<GameAction> Delivered() =>
-            Ledger.Actions.Where(a => a.Type == GameActionType.RouteCargoDelivered).ToList();
+        private static List<RouteEvent> Delivered() =>
+            RouteEventLog.Events.Where(a => a.Type == RouteEventType.RouteCargoDelivered).ToList();
 
-        private static List<GameAction> Dispatched() =>
-            Ledger.Actions.Where(a => a.Type == GameActionType.RouteDispatched).ToList();
+        private static List<RouteEvent> Dispatched() =>
+            RouteEventLog.Events.Where(a => a.Type == RouteEventType.RouteDispatched).ToList();
 
         // ==================================================================
         // N=1: every synodic window delivers on its dock phase
@@ -278,7 +278,7 @@ namespace Parsek.Tests.Logistics
             var env = new EligibleEnv();
 
             RouteOrchestrator.Tick(DockUT, env); // window 0 fires (anchor 0)
-            int rowsAfterFire = Ledger.Actions.Count;
+            int rowsAfterFire = RouteEventLog.Events.Count;
             int completedAfterFire = route.CompletedCycles;
 
             RouteOrchestrator.Tick(DockUT + Synodic, env); // window 1: skip
@@ -288,7 +288,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(completedAfterFire, route.CompletedCycles); // no completion
             Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.None,
                 route.LastHoldKind);                                 // NO hold
-            Assert.Equal(rowsAfterFire, Ledger.Actions.Count);       // NO rows
+            Assert.Equal(rowsAfterFire, RouteEventLog.Events.Count);       // NO rows
             Assert.False(RouteStore.HasEscrow(route.Id));            // NO escrow
         }
 
@@ -574,7 +574,7 @@ namespace Parsek.Tests.Logistics
 
             Assert.Single(Delivered()); // backstop held
             Assert.Single(Dispatched());
-            Assert.Contains(logLines, l => l.Contains("already in ledger"));
+            Assert.Contains(logLines, l => l.Contains("already logged"));
         }
 
         // ==================================================================

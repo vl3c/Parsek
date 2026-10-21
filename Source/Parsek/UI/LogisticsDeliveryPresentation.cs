@@ -10,7 +10,7 @@ namespace Parsek
     /// work (Phase 2 H2/H3/H4/H5). All methods are Unity-free and side-effect-free
     /// so they are unit tested directly off the IMGUI path (mirrors
     /// <see cref="LogisticsButtonState"/> and <see cref="LogisticsCountdownPresentation"/>).
-    /// IMGUI drawing and the live ledger / store reads stay in the window file; this
+    /// IMGUI drawing and the live route event log / store reads stay in the window file; this
     /// class only formats already-resolved inputs. InvariantCulture is used for every
     /// numeric piece so comma-locale systems render identically.
     /// </summary>
@@ -22,8 +22,8 @@ namespace Parsek
 
         /// <summary>
         /// Formats one cycle's realized delivery for the detail panel. The pair
-        /// (requested, actual) comes from a single <c>RouteCargoDelivered</c> ledger
-        /// row: <paramref name="actual"/> is the post-clamp delivered manifest (always
+        /// (requested, actual) comes from a single <c>RouteCargoDelivered</c> route
+        /// event: <paramref name="actual"/> is the post-clamp delivered manifest (always
         /// populated on a delivered row) and <paramref name="requested"/> is the
         /// requested manifest, which the recorder leaves null on a full fill (the
         /// "no shortfall" signal) and populates only when at least one resource fell
@@ -128,7 +128,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// One realized-delivery ledger row reduced to the fields the summary needs:
+        /// One realized-delivery route event reduced to the fields the summary needs:
         /// the actual (delivered) manifest, the requested manifest (null on a full
         /// fill), and the row's game-time UT (used to pick the latest cycle).
         /// </summary>
@@ -177,7 +177,7 @@ namespace Parsek
             internal Dictionary<string, double> CumulativeTotal { get; set; }
 
             /// <summary>Game UT of the latest row (the last delivery); NaN when none. The
-            /// ledger is the only record of when a route delivered: the route stores no
+            /// route event log is the only record of when a route delivered: the route stores no
             /// delivered UT.</summary>
             internal double LastUt { get; set; } = double.NaN;
         }

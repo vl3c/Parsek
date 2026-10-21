@@ -22,12 +22,12 @@ namespace Parsek.Tests.Logistics
     {
         private const string RouteId = "route-a";
 
-        private static GameAction Act(GameActionType type, double ut, string cycle = null,
+        private static RouteEvent Act(RouteEventType type, double ut, string cycle = null,
             int stop = -1, Dictionary<string, double> actual = null,
             Dictionary<string, double> requested = null, uint pid = 0u,
             bool sendOnce = false, string reason = null, string routeId = RouteId)
         {
-            return new GameAction
+            return new RouteEvent
             {
                 Type = type, UT = ut, RouteId = routeId, RouteCycleId = cycle,
                 RouteStopIndex = stop, RouteResourceManifest = actual,
@@ -39,7 +39,7 @@ namespace Parsek.Tests.Logistics
         private static Dictionary<string, double> Fuel(double amount)
             => new Dictionary<string, double> { { "LiquidFuel", amount } };
 
-        private static List<StructureStep> Build(List<GameAction> els)
+        private static List<StructureStep> Build(List<RouteEvent> els)
         {
             return RouteHistoryBuilder.Build(els, RouteId, "KSC", null,
                 stop => stop == 1 ? "Mun (surface)" : "Mun (orbit)",
@@ -52,12 +52,12 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void ARunReadsSentPickedUpDelivered_WithPlaceAndVessel()
         {
-            var rows = Build(new List<GameAction>
+            var rows = Build(new List<RouteEvent>
             {
-                Act(GameActionType.RouteDispatched, 100, "c1"),
-                Act(GameActionType.RouteCargoDebited, 100, "c1"),
-                Act(GameActionType.RouteCargoPickedUp, 200, "c1", 1, Fuel(50), pid: 42u),
-                Act(GameActionType.RouteCargoDelivered, 300, "c1", 0, Fuel(150)),
+                Act(RouteEventType.RouteDispatched, 100, "c1"),
+                Act(RouteEventType.RouteCargoDebited, 100, "c1"),
+                Act(RouteEventType.RouteCargoPickedUp, 200, "c1", 1, Fuel(50), pid: 42u),
+                Act(RouteEventType.RouteCargoDelivered, 300, "c1", 0, Fuel(150)),
             });
             Assert.Equal(3, rows.Count); // the debit row is not shown
             Assert.Equal("Run 1: Sent", rows[0].Label);
@@ -76,11 +76,11 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void SendOnceRunsAndShortDeliveriesReadAsSuch()
         {
-            var rows = Build(new List<GameAction>
+            var rows = Build(new List<RouteEvent>
             {
-                Act(GameActionType.RouteDispatched, 100, "c1"),
-                Act(GameActionType.RouteDispatched, 500, "c2", sendOnce: true),
-                Act(GameActionType.RouteCargoDelivered, 600, "c2", 0, Fuel(40), Fuel(150)),
+                Act(RouteEventType.RouteDispatched, 100, "c1"),
+                Act(RouteEventType.RouteDispatched, 500, "c2", sendOnce: true),
+                Act(RouteEventType.RouteCargoDelivered, 600, "c2", 0, Fuel(40), Fuel(150)),
             });
             Assert.Equal("Run 1: Sent", rows[0].Label);
             Assert.Equal("Run 2: Sent once", rows[1].Label);
@@ -90,12 +90,12 @@ namespace Parsek.Tests.Logistics
         // A run's debit row (same RouteCycleId) as the dispatch writes it: the actual
         // cargo plus the origin pid on a vessel debit. A Space Center launch writes none
         // (supply routes carry no money); an old save's pid-0 row is read the same way.
-        private static GameAction Debit(double ut, string cycle,
+        private static RouteEvent Debit(double ut, string cycle,
             uint originPid = 0u, Dictionary<string, double> cargo = null)
         {
-            return new GameAction
+            return new RouteEvent
             {
-                Type = GameActionType.RouteCargoDebited, UT = ut, RouteId = RouteId,
+                Type = RouteEventType.RouteCargoDebited, UT = ut, RouteId = RouteId,
                 RouteCycleId = cycle,
                 RouteOriginVesselPid = originPid, RouteResourceManifest = cargo,
             };
@@ -108,9 +108,9 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void OriginCargoDebitIsPartOfTheCost()
         {
-            var rows = Build(new List<GameAction>
+            var rows = Build(new List<RouteEvent>
             {
-                Act(GameActionType.RouteDispatched, 100, "c1"),
+                Act(RouteEventType.RouteDispatched, 100, "c1"),
                 Debit(100, "c1", originPid: 77u, cargo: LfOx()),
             });
             Assert.Equal("Run 1: Sent, cost 257.8 LiquidFuel, 315.1 Oxidizer", rows.Single().Label);
@@ -126,11 +126,11 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void SpaceCenterSentRowHasNoCost()
         {
-            var rows = Build(new List<GameAction>
+            var rows = Build(new List<RouteEvent>
             {
-                Act(GameActionType.RouteDispatched, 100, "c1"),
+                Act(RouteEventType.RouteDispatched, 100, "c1"),
                 Debit(100, "c1", originPid: 0u, cargo: LfOx()),
-                Act(GameActionType.RouteDispatched, 500, "c2", sendOnce: true),
+                Act(RouteEventType.RouteDispatched, 500, "c2", sendOnce: true),
             });
             Assert.Equal(new[] { "Run 1: Sent", "Run 2: Sent once" },
                 rows.Select(r => r.Label).ToArray());
@@ -141,10 +141,10 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void DebitJoinsItsOwnRun_AndAnOrphanDebitAddsNoRow()
         {
-            var rows = Build(new List<GameAction>
+            var rows = Build(new List<RouteEvent>
             {
-                Act(GameActionType.RouteDispatched, 100, "c1"),
-                Act(GameActionType.RouteDispatched, 200, "c2"),
+                Act(RouteEventType.RouteDispatched, 100, "c1"),
+                Act(RouteEventType.RouteDispatched, 200, "c2"),
                 Debit(200, "c2", 77u, new Dictionary<string, double> { { "Ore", 5.0 } }),
                 Debit(100, "c1", 77u, new Dictionary<string, double> { { "Ore", 7.0 } }),
                 Debit(300, "c3", 77u, new Dictionary<string, double> { { "Ore", 9.0 } }),
@@ -177,17 +177,17 @@ namespace Parsek.Tests.Logistics
         public void CargoRowsReadAmountFirst()
         {
             var two = new Dictionary<string, double> { { "Oxidizer", 40.0 }, { "LiquidFuel", 150.0 } };
-            var rows = Build(new List<GameAction>
+            var rows = Build(new List<RouteEvent>
             {
-                Act(GameActionType.RouteDispatched, 100, "c1"),
-                Act(GameActionType.RouteCargoPickedUp, 200, "c1", 1, two, pid: 42u),
-                new GameAction
+                Act(RouteEventType.RouteDispatched, 100, "c1"),
+                Act(RouteEventType.RouteCargoPickedUp, 200, "c1", 1, two, pid: 42u),
+                new RouteEvent
                 {
-                    Type = GameActionType.RouteCargoDelivered, UT = 300, RouteId = RouteId,
+                    Type = RouteEventType.RouteCargoDelivered, UT = 300, RouteId = RouteId,
                     RouteCycleId = "c1", RouteStopIndex = 0, RouteResourceManifest = two,
                     RouteInventoryManifest = new List<InventoryPayloadItem> { new InventoryPayloadItem() },
                 },
-                Act(GameActionType.RouteCargoDelivered, 400, "c1", 0, new Dictionary<string, double>()),
+                Act(RouteEventType.RouteCargoDelivered, 400, "c1", 0, new Dictionary<string, double>()),
             });
             Assert.Equal("Run 1: Picked up 150.0 LiquidFuel, 40.0 Oxidizer", rows[1].Label);
             Assert.Equal("Run 1: Delivered 150.0 LiquidFuel, 40.0 Oxidizer, 1 stored part", rows[2].Label);
@@ -203,9 +203,9 @@ namespace Parsek.Tests.Logistics
             try
             {
                 Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
-                var rows = Build(new List<GameAction>
+                var rows = Build(new List<RouteEvent>
                 {
-                    Act(GameActionType.RouteCargoDelivered, 300, "c1", 0, Fuel(1234.5)),
+                    Act(RouteEventType.RouteCargoDelivered, 300, "c1", 0, Fuel(1234.5)),
                     Held(400, RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
                         "LiquidFuel", 108.79999999999706),
                     Held(500, RouteDispatchEvaluator.EligibilityFailureKind.FundsShort, "funds-short", 7410.4),
@@ -221,18 +221,18 @@ namespace Parsek.Tests.Logistics
             }
         }
 
-        private static GameAction Held(double ut, RouteDispatchEvaluator.EligibilityFailureKind kind,
+        private static RouteEvent Held(double ut, RouteDispatchEvaluator.EligibilityFailureKind kind,
             string detail, double shortfall = 0.0)
         {
-            return new GameAction
+            return new RouteEvent
             {
-                Type = GameActionType.RouteHeld, UT = ut, RouteId = RouteId, RouteCycleId = "c9",
+                Type = RouteEventType.RouteHeld, UT = ut, RouteId = RouteId, RouteCycleId = "c9",
                 RouteStopIndex = -1, RouteHoldKind = kind, RouteEndpointReason = detail,
                 RouteHoldShortfall = shortfall,
             };
         }
 
-        private static List<StructureStep> BuildFromOrigin(List<GameAction> els,
+        private static List<StructureStep> BuildFromOrigin(List<RouteEvent> els,
             Func<string, string> partTitle = null)
         {
             return RouteHistoryBuilder.Build(els, RouteId, "Mun (surface)", "Mun Base",
@@ -248,9 +248,9 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void HeldRowsReadTheReason_WithoutAdviceOrRunNumber_AtTheirPlace()
         {
-            var rows = BuildFromOrigin(new List<GameAction>
+            var rows = BuildFromOrigin(new List<RouteEvent>
             {
-                Act(GameActionType.RouteDispatched, 100, "c1"),
+                Act(RouteEventType.RouteDispatched, 100, "c1"),
                 Held(200, RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, "LiquidFuel", 108.8),
                 Held(300, RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull, "LiquidFuel"),
                 Held(400, RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo,
@@ -259,7 +259,7 @@ namespace Parsek.Tests.Logistics
                     "source:77:Depot C:Ore", 20.0),
                 Held(600, RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost, "stop-0-no-live-vessels"),
                 Held(700, RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner, "partner:route-b"),
-                Act(GameActionType.RouteDispatched, 800, "c2"),
+                Act(RouteEventType.RouteDispatched, 800, "c2"),
             });
             Assert.Equal(new[]
                 {
@@ -293,7 +293,7 @@ namespace Parsek.Tests.Logistics
         public void HeldRowsNamePartsByTitle_AndAnUnknownKindReadsHeld()
         {
             Func<string, string> title = name => name == "evaScienceKit" ? "EVA Science Kit" : null;
-            var rows = BuildFromOrigin(new List<GameAction>
+            var rows = BuildFromOrigin(new List<RouteEvent>
             {
                 Held(100, RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull, "stored-part:evaScienceKit"),
                 Held(200, RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, "inventory:evaScienceKit"),
@@ -315,7 +315,7 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void PartnerHeldRow_NamesThePartnerById()
         {
-            var rows = BuildFromOrigin(new List<GameAction>
+            var rows = BuildFromOrigin(new List<RouteEvent>
             {
                 Held(100, RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner, "partner:route-b"),
                 Held(200, RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner, "partner:route-gone"),
@@ -354,14 +354,14 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void PauseResumeAndLossAreStateRows()
         {
-            var rows = Build(new List<GameAction>
+            var rows = Build(new List<RouteEvent>
             {
-                Act(GameActionType.RoutePaused, 10, reason: "player-pause"),
-                Act(GameActionType.RouteResumed, 20, reason: "player-activate"),
-                Act(GameActionType.RoutePaused, 30, reason: "delivered-then-paused"),
-                Act(GameActionType.RouteResumed, 40, reason: "AutoResume:SourcesRestored"),
-                Act(GameActionType.RoutePaused, 50, reason: "AutoPause:SourceChanged"),
-                Act(GameActionType.RouteEndpointLost, 60, reason: "stop-0-no-live-vessels"),
+                Act(RouteEventType.RoutePaused, 10, reason: "player-pause"),
+                Act(RouteEventType.RouteResumed, 20, reason: "player-activate"),
+                Act(RouteEventType.RoutePaused, 30, reason: "delivered-then-paused"),
+                Act(RouteEventType.RouteResumed, 40, reason: "AutoResume:SourcesRestored"),
+                Act(RouteEventType.RoutePaused, 50, reason: "AutoPause:SourceChanged"),
+                Act(RouteEventType.RouteEndpointLost, 60, reason: "stop-0-no-live-vessels"),
             });
             Assert.Equal(new[]
                 {
@@ -376,17 +376,17 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void OnlyThisRoutesEffectiveRowsShow_InTimeOrder()
         {
-            var rows = Build(new List<GameAction>
+            var rows = Build(new List<RouteEvent>
             {
-                Act(GameActionType.RouteCargoDelivered, 300, "c1", 0, Fuel(10)),
-                Act(GameActionType.RouteDispatched, 100, "c1"),
-                Act(GameActionType.RouteDispatched, 50, "x1", routeId: "other-route"),
-                new GameAction { Type = GameActionType.FundsEarning, UT = 75 },
+                Act(RouteEventType.RouteCargoDelivered, 300, "c1", 0, Fuel(10)),
+                Act(RouteEventType.RouteDispatched, 100, "c1"),
+                Act(RouteEventType.RouteDispatched, 50, "x1", routeId: "other-route"),
+                new RouteEvent { Type = RouteEventType.RouteCargoDelivered, UT = 75 },
             });
             Assert.Equal(2, rows.Count);
             Assert.Equal(100.0, rows[0].UT);
             Assert.Equal("Run 1: Delivered 10.0 LiquidFuel", rows[1].Label);
-            Assert.Empty(Build(new List<GameAction>()));
+            Assert.Empty(Build(new List<RouteEvent>()));
             Assert.Empty(RouteHistoryBuilder.Build(null, RouteId, null, null, null, null, null));
         }
 
@@ -419,9 +419,9 @@ namespace Parsek.Tests.Logistics
         {
             Assert.Equal("Paused after the run",
                 RouteHistoryBuilder.PausedLabel(RouteOrchestrator.DeliveredReplayThenPausedReason));
-            var rows = Build(new List<GameAction>
+            var rows = Build(new List<RouteEvent>
             {
-                Act(GameActionType.RoutePaused, 10, reason: RouteOrchestrator.DeliveredReplayThenPausedReason),
+                Act(RouteEventType.RoutePaused, 10, reason: RouteOrchestrator.DeliveredReplayThenPausedReason),
             });
             Assert.Equal("Paused after the run", rows.Single().Label);
         }
@@ -508,12 +508,11 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void ChangeSignatureMovesWithEachInput()
         {
-            int a = LogisticsRoutePresentation.RouteHistoryChangeSignature(1, 0, true, "A");
-            Assert.NotEqual(a, LogisticsRoutePresentation.RouteHistoryChangeSignature(2, 0, true, "A"));
-            Assert.NotEqual(a, LogisticsRoutePresentation.RouteHistoryChangeSignature(1, 1, true, "A"));
-            Assert.NotEqual(a, LogisticsRoutePresentation.RouteHistoryChangeSignature(1, 0, false, "A"));
-            Assert.NotEqual(a, LogisticsRoutePresentation.RouteHistoryChangeSignature(1, 0, true, "B"));
-            Assert.Equal(a, LogisticsRoutePresentation.RouteHistoryChangeSignature(1, 0, true, "A"));
+            int a = LogisticsRoutePresentation.RouteHistoryChangeSignature(1, true, "A");
+            Assert.NotEqual(a, LogisticsRoutePresentation.RouteHistoryChangeSignature(2, true, "A"));
+            Assert.NotEqual(a, LogisticsRoutePresentation.RouteHistoryChangeSignature(1, false, "A"));
+            Assert.NotEqual(a, LogisticsRoutePresentation.RouteHistoryChangeSignature(1, true, "B"));
+            Assert.Equal(a, LogisticsRoutePresentation.RouteHistoryChangeSignature(1, true, "A"));
         }
     }
 }

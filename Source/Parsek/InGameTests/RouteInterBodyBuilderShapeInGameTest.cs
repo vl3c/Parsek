@@ -110,8 +110,8 @@ namespace Parsek.InGameTests
 
             // Capture the pre-existing ledger row count so the D4 skip-purity assert
             // measures a DELTA (the live career ledger already has rows).
-            int deliveredBefore = CountActions(GameActionType.RouteCargoDelivered);
-            int dispatchedBefore = CountActions(GameActionType.RouteDispatched);
+            int deliveredBefore = CountActions(RouteEventType.RouteCargoDelivered);
+            int dispatchedBefore = CountActions(RouteEventType.RouteDispatched);
 
             try
             {
@@ -251,9 +251,9 @@ namespace Parsek.InGameTests
                 RouteOrchestrator.DeliveryRowEmitterForTesting =
                     (r, currentUT, e, cycleId, stopIndex, bumpCompletedCycle) =>
                     {
-                        Ledger.AddAction(new GameAction
+                        RouteEventLog.Add(new RouteEvent
                         {
-                            Type = GameActionType.RouteCargoDelivered,
+                            Type = RouteEventType.RouteCargoDelivered,
                             UT = currentUT,
                             RouteId = r.Id,
                             RouteCycleId = cycleId,
@@ -296,18 +296,18 @@ namespace Parsek.InGameTests
                         "the ReaimWindows shape + residual-N gate (a)/(b) already passed - re-pin the " +
                         "synthetic chain to a single non-compressible pass to re-enable the firing-gate drive");
 
-                int deliveredCountBaseline = CountActions(GameActionType.RouteCargoDelivered);
-                int dispatchedCountBaseline = CountActions(GameActionType.RouteDispatched);
+                int deliveredCountBaseline = CountActions(RouteEventType.RouteCargoDelivered);
+                int dispatchedCountBaseline = CountActions(RouteEventType.RouteDispatched);
 
                 // Window 0: the FIRST owed crossing adopts the modulo anchor and DELIVERS
                 // (D3 anchor adoption). Tick just before the dock (nothing), then at the
                 // dock (fire).
                 RouteOrchestrator.Tick(phaseAnchor + 0 * cadence + 0.25 * dockOffset, env);
-                InGameAssert.AreEqual(deliveredCountBaseline, CountActions(GameActionType.RouteCargoDelivered),
+                InGameAssert.AreEqual(deliveredCountBaseline, CountActions(RouteEventType.RouteCargoDelivered),
                     "pre-dock tick of window 0 must not deliver");
 
                 RouteOrchestrator.Tick(phaseAnchor + 0 * cadence + dockOffset, env);
-                int afterW0 = CountActions(GameActionType.RouteCargoDelivered);
+                int afterW0 = CountActions(RouteEventType.RouteCargoDelivered);
                 InGameAssert.AreEqual(deliveredCountBaseline + 1, afterW0,
                     "window 0 dock phase must FIRE one delivery (D3 anchor adoption on the first owed crossing)");
                 InGameAssert.IsTrue(route.ReaimWindowBasisEngaged,
@@ -315,12 +315,12 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual(0L, route.WindowAnchorCycleIndex,
                     "the modulo anchor must be adopted at window 0");
 
-                int dispatchedAfterW0 = CountActions(GameActionType.RouteDispatched);
+                int dispatchedAfterW0 = CountActions(RouteEventType.RouteDispatched);
                 InGameAssert.AreEqual(dispatchedCountBaseline + 1, dispatchedAfterW0,
                     "window 0 must emit exactly one dispatch (the full cycle fired)");
 
                 // Snapshot the mutable route + ledger state for the D4 skip-purity delta.
-                int rowsBeforeSkip = Ledger.Actions.Count;
+                int rowsBeforeSkip = RouteEventLog.Events.Count;
                 int completedBeforeSkip = route.CompletedCycles;
                 int skippedCyclesBeforeSkip = route.SkippedCycles;
 
@@ -329,11 +329,11 @@ namespace Parsek.InGameTests
                 // dispatch, no completed/skipped-cycle bump, no escrow) - D4 skip purity.
                 RouteOrchestrator.Tick(phaseAnchor + 1 * cadence + dockOffset, env);
 
-                InGameAssert.AreEqual(afterW0, CountActions(GameActionType.RouteCargoDelivered),
+                InGameAssert.AreEqual(afterW0, CountActions(RouteEventType.RouteCargoDelivered),
                     "window 1 (non-deliverable at N=2) must NOT deliver (the modulo skip)");
-                InGameAssert.AreEqual(dispatchedAfterW0, CountActions(GameActionType.RouteDispatched),
+                InGameAssert.AreEqual(dispatchedAfterW0, CountActions(RouteEventType.RouteDispatched),
                     "window 1 skip must emit NO dispatch (D4: nothing but the marker moves)");
-                InGameAssert.AreEqual(rowsBeforeSkip, Ledger.Actions.Count,
+                InGameAssert.AreEqual(rowsBeforeSkip, RouteEventLog.Events.Count,
                     "window 1 modulo skip must write NO ledger row of any kind (D4 skip purity)");
                 InGameAssert.AreEqual(completedBeforeSkip, route.CompletedCycles,
                     "window 1 skip must not bump CompletedCycles (no cycle completed)");
@@ -346,7 +346,7 @@ namespace Parsek.InGameTests
 
                 // Window 2: deliverable again (even window under anchor 0 / N=2). Fires.
                 RouteOrchestrator.Tick(phaseAnchor + 2 * cadence + dockOffset, env);
-                int afterW2 = CountActions(GameActionType.RouteCargoDelivered);
+                int afterW2 = CountActions(RouteEventType.RouteCargoDelivered);
                 InGameAssert.AreEqual(afterW0 + 1, afterW2,
                     "window 2 (deliverable at N=2) must FIRE one delivery (the modulo alternation)");
                 InGameAssert.AreEqual(2L, route.LastObservedLoopCycleIndex,
@@ -410,8 +410,8 @@ namespace Parsek.InGameTests
                 // career ledger exactly as found.
                 RemoveTestLedgerRows(routeId);
 
-                int deliveredAfter = CountActions(GameActionType.RouteCargoDelivered);
-                int dispatchedAfter = CountActions(GameActionType.RouteDispatched);
+                int deliveredAfter = CountActions(RouteEventType.RouteCargoDelivered);
+                int dispatchedAfter = CountActions(RouteEventType.RouteDispatched);
                 ParsekLog.Verbose(Tag,
                     $"InterBodyBuilderShape cleanup: ledger deliveries {deliveredBefore.ToString(IC)}->{deliveredAfter.ToString(IC)} " +
                     $"dispatches {dispatchedBefore.ToString(IC)}->{dispatchedAfter.ToString(IC)}");
@@ -521,10 +521,10 @@ namespace Parsek.InGameTests
             return null;
         }
 
-        private static int CountActions(GameActionType type)
+        private static int CountActions(RouteEventType type)
         {
             int n = 0;
-            var actions = Ledger.Actions;
+            var actions = RouteEventLog.Events;
             if (actions == null)
                 return 0;
             for (int i = 0; i < actions.Count; i++)
@@ -533,23 +533,13 @@ namespace Parsek.InGameTests
             return n;
         }
 
-        // Drops the RouteCargoDelivered rows this test's real-path emitter wrote into the
-        // shared Ledger (keyed by the synthetic route id), restoring the live ledger.
-        // Walks back-to-front so RemoveActionAt indices stay valid as rows drop.
+        // Drops the RouteCargoDelivered events this test's real-path emitter wrote into the
+        // shared route event log (keyed by the synthetic route id), restoring the live log.
         private static void RemoveTestLedgerRows(string routeId)
         {
-            var actions = Ledger.Actions;
-            if (actions == null)
-                return;
-            for (int i = actions.Count - 1; i >= 0; i--)
-            {
-                GameAction a = actions[i];
-                if (a != null && a.RouteId == routeId
-                    && a.Type == GameActionType.RouteCargoDelivered)
-                {
-                    Ledger.RemoveActionAt(i);
-                }
-            }
+            RouteEventLog.RemoveWhere(
+                a => a.RouteId == routeId && a.Type == RouteEventType.RouteCargoDelivered,
+                "interbody test cleanup");
         }
     }
 }

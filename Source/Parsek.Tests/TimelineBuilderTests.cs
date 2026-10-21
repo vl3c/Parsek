@@ -1473,26 +1473,6 @@ namespace Parsek.Tests
             Assert.Equal("XP: Bill Kerman", GameActionDisplay.GetKerbalExperienceDescription(xp));
         }
 
-        [Fact]
-        public void RouteRows_HaveNoTimelineEntry_AndLogOneSummary()
-        {
-            // Timeline design 3.3: the route action types have no timeline entry.
-            var actions = new List<GameAction>
-            {
-                new GameAction { UT = 10, Type = GameActionType.RouteDispatched },
-                new GameAction { UT = 11, Type = GameActionType.RoutePaused },
-                new GameAction { UT = 12, Type = GameActionType.FundsEarning, FundsAwarded = 100f },
-            };
-
-            var result = TimelineBuilder.Build(
-                new List<Recording>(), actions, new List<Milestone>(), _ => true);
-
-            Assert.Single(result);
-            Assert.Equal(TimelineEntryType.FundsEarning, result[0].Type);
-            Assert.Contains(logLines, l => l.Contains("[Timeline]") && l.Contains("Filtered 2 route action(s)"));
-            Assert.DoesNotContain(logLines, l => l.Contains("Unknown GameActionType"));
-        }
-
         // ================================================================
         // 25. Recording with StartUT == EndUT produces valid entries
         // ================================================================

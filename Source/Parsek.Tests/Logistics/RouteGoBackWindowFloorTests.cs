@@ -127,7 +127,7 @@ namespace Parsek.Tests.Logistics
         }
 
         private static double[] DispatchUTs()
-            => Ledger.Actions.Where(a => a.Type == GameActionType.RouteDispatched).Select(a => a.UT).ToArray();
+            => RouteEventLog.Events.Where(a => a.Type == RouteEventType.RouteDispatched).Select(a => a.UT).ToArray();
 
         private static Route Live() => RouteStore.CommittedRoutes.Single();
 
@@ -139,9 +139,9 @@ namespace Parsek.Tests.Logistics
             {
                 string cycleId = "cycle-" + (r.CompletedCycles + r.SkippedCycles)
                     .ToString(System.Globalization.CultureInfo.InvariantCulture);
-                Ledger.AddAction(new GameAction
+                RouteEventLog.Add(new RouteEvent
                 {
-                    Type = GameActionType.RouteCargoDelivered, UT = currentUT, RouteId = r.Id,
+                    Type = RouteEventType.RouteCargoDelivered, UT = currentUT, RouteId = r.Id,
                     RouteCycleId = cycleId, RouteStopIndex = 0, Sequence = 0,
                 });
                 r.CompletedCycles += 1;
@@ -225,9 +225,9 @@ namespace Parsek.Tests.Logistics
         public void Control_GoBackWithoutAWindow_ForwardSceneChangeSkips_NoFloor()
         {
             InstallLoop();
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteDispatched, UT = 1452.0, RouteId = "route-loop",
+                Type = RouteEventType.RouteDispatched, UT = 1452.0, RouteId = "route-loop",
                 RouteCycleId = "cycle-1", RouteStopIndex = -1, Sequence = 0,
             });
             Route saved = Snapshot(Live());
@@ -296,11 +296,13 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(new[] { 1150.0, 1452.0, 1760.0 }, DispatchUTs());
         }
 
-        // catches: a revert to a launch made inside the window (rewind, VAB, launch, revert):
-        // the revert prune dropped every untagged row after the launch, the window's route rows
-        // with it, while the launch save's cursor said the crossing fired.
+        // catches: a revert to a launch made inside the window (rewind, VAB, launch, revert)
+        // losing the window's settled route events while the launch save's cursor says the
+        // crossing fired. The revert prune is ledger-only now (route events are not ledger
+        // rows); the in-session route reconcile keeps the events up to the launch save's
+        // route state floor and retires only what came after it.
         [Fact]
-        public void RevertToALaunchInsideTheWindow_KeepsTheSettledRouteRows()
+        public void RevertToALaunchInsideTheWindow_KeepsTheSettledRouteEvents()
         {
             FlyThenGoBack();
             Ledger.AddAction(new GameAction
@@ -316,8 +318,9 @@ namespace Parsek.Tests.Logistics
             });
             RouteOrchestrator.Tick(1755.0, env);
 
-            double floor = RouteStore.ReadSavedRouteStateFloorUT(launchSaveAt1447);
-            Ledger.PruneOrphanActionsAfterUT(1447.0, inclusive: false, keepRouteRowsThroughUT: floor);
+            Ledger.PruneOrphanActionsAfterUT(1447.0, inclusive: false);
+            // The ledger prune leaves the route event log alone.
+            Assert.Equal(new[] { 1150.0, 1452.0, 1755.0 }, DispatchUTs());
             RouteLoadReconcileOutcome outcome = RouteLoadReconcile.ReconcileAtInSessionLoad(
                 LoadKind.StockRevert,
                 RouteLoadReconcile.ResolveCutoffUT(LoadKind.StockRevert, 1447.0, 1447.0),
@@ -328,8 +331,6 @@ namespace Parsek.Tests.Logistics
             Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.FundsSpending && a.UT == 1449.0);
             Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.FundsSpending && a.UT == 1447.0);
             Assert.Equal(1, Live().LastObservedLoopCycleIndex);
-            Assert.Contains(logLines, l => l.Contains("[Ledger]")
-                && l.Contains("PruneOrphanActionsAfterUT: kept") && l.Contains("route state floor UT 1460"));
             RouteOrchestrator.Tick(1452.0, env);
             Assert.Equal(2, DispatchUTs().Length);
         }
@@ -463,8 +464,12 @@ namespace Parsek.Tests.Logistics
         public void RevertPruneAndReFlyStart_ReadTheLoadedSavesFloor()
         {
             string scenario = ReadSource("ParsekScenario.cs");
-            Assert.Contains("Ledger.PruneOrphanActionsAfterUT( pruneCutoffUT, pruneInclusive, "
-                + "keepRouteRowsThroughUT: Logistics.RouteStore.ReadSavedRouteStateFloorUT(node));", scenario);
+            // The revert prune is ledger-only; the in-session route reconcile reads the loaded
+            // save's floor itself.
+            Assert.Contains("Ledger.PruneOrphanActionsAfterUT( pruneCutoffUT, pruneInclusive);", scenario);
+            Assert.DoesNotContain("keepRouteRowsThroughUT", scenario);
+            string reconcile = ReadSource("Logistics/RouteLoadReconcile.cs");
+            Assert.Contains("RouteStore.ReadSavedRouteStateFloorUT(loadedNode)", reconcile);
 
             string invoker = ReadSource("RewindInvoker.cs");
             Assert.Contains("loadedFloorUT = Logistics.RouteStore.ReadSavedRouteStateFloorUT(loadedScenarioNode);", invoker);

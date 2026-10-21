@@ -1629,7 +1629,7 @@ the full rows; the per-subsystem row counts are in the table above.
 
 | id | item | file:line |
 |---|---|---|
-| H23 | Cargo escrow, route contention reservations and the whole `RouteModule` walk state; escrow is cleared wholesale on every scene switch | `Logistics/RouteStore.cs:819-1049`, `GameActions/RouteModule.cs:47-103`, `ParsekScenario.cs:8354` |
+| H23 | Cargo escrow and route contention reservations (the `RouteModule` walk state it once listed was deleted in 0.10.6 with the module; route events live in `RouteEventLog`); escrow is cleared wholesale on every scene switch | `Logistics/RouteStore.cs:819-1049`, `ParsekScenario.cs:8354` |
 | H24 | `Route.CostManifest` / `InventoryCostManifest` - what a route DEBITS per cycle - appear only retroactively in the flow lines | `Logistics/Route.cs:89`, `:92` |
 | H25 | Eleven of the 46 mod-wide rate-limited refusal sites are here, so a Pause / Activate / Send Once / Create click that does nothing looks like one that worked | `Logistics/RouteOrchestrator.cs:115`, `:129`, `:181`, `:186`, `:306`, `:311`, `:1746`; `RouteAnalysisEngine.cs:842`; `RouteEndpointResolver.cs:293`; `RouteStore.cs:640`; `UI/LogisticsWindowUI.cs:1301`, `:2876` |
 | D4 | The whole post-commit `RouteCreationDialog`; its live `DismissIfOpen` can only no-op | `UI/RouteCreationDialog.cs:81`, `:136`, `:147`, `:241`, `:448` |

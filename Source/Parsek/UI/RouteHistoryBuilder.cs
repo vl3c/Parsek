@@ -6,7 +6,7 @@ using Parsek.Logistics;
 namespace Parsek
 {
     /// <summary>
-    /// The rows of a supply route's Route History window: one row per route ledger action,
+    /// The rows of a supply route's Route History window: one row per route event,
     /// in time order, drawn by the Mission Log's table (<see cref="StructureListWindowUI"/>
     /// in its route mode) under the same Time | Event | Location | Vessel columns.
     /// <list type="bullet">
@@ -30,8 +30,8 @@ namespace Parsek
     /// cost and a short delivery do. Stored parts in a held reason are named by
     /// <c>partTitle</c> (the part's title; the raw name when it does not resolve).
     /// N is the run's position in dispatch order (a run's first row assigns it). The input
-    /// is the Effective Ledger Set (<see cref="EffectiveState.ComputeELS"/>), so a rewound or
-    /// tombstoned run is simply absent, its debit with it. Debit rows (origin cargo)
+    /// is the route event log (<see cref="Logistics.RouteEventLog.Events"/>), so a run a
+    /// rewind retired is simply absent, its debit with it. Debit rows (origin cargo)
     /// are not shown as rows: their cost is folded into the run's Sent row, and a
     /// debit with no Sent row of its own adds nothing. Pure: names come through the resolvers.
     /// </summary>
@@ -50,7 +50,7 @@ namespace Parsek
         /// names a pickup endpoint by its recorded pid (null when it no longer resolves).
         /// </summary>
         internal static List<StructureStep> Build(
-            IReadOnlyList<GameAction> els, string routeId,
+            IReadOnlyList<RouteEvent> els, string routeId,
             string originPlace, string originVessel,
             Func<int, string> stopPlace, Func<int, string> stopVessel,
             Func<uint, string> vesselByPid, Func<string, string> partTitle = null,
@@ -61,11 +61,11 @@ namespace Parsek
                 return new List<StructureStep>();
 
             // The run's debit, keyed by RouteCycleId, folded into its Sent row below.
-            var debitByRun = new Dictionary<string, GameAction>(StringComparer.Ordinal);
+            var debitByRun = new Dictionary<string, RouteEvent>(StringComparer.Ordinal);
             for (int i = 0; i < els.Count; i++)
             {
-                GameAction d = els[i];
-                if (d != null && d.Type == GameActionType.RouteCargoDebited
+                RouteEvent d = els[i];
+                if (d != null && d.Type == RouteEventType.RouteCargoDebited
                     && !string.IsNullOrEmpty(d.RouteCycleId)
                     && string.Equals(d.RouteId, routeId, StringComparison.Ordinal)
                     && !debitByRun.ContainsKey(d.RouteCycleId))
@@ -76,15 +76,15 @@ namespace Parsek
             int order = 0;
             for (int i = 0; i < els.Count; i++)
             {
-                GameAction a = els[i];
+                RouteEvent a = els[i];
                 if (a == null || !string.Equals(a.RouteId, routeId, StringComparison.Ordinal))
                     continue;
                 StructureStep step;
                 switch (a.Type)
                 {
-                    case GameActionType.RouteDispatched:
+                    case RouteEventType.RouteDispatched:
                     {
-                        GameAction debit = null;
+                        RouteEvent debit = null;
                         if (!string.IsNullOrEmpty(a.RouteCycleId))
                             debitByRun.TryGetValue(a.RouteCycleId, out debit);
                         step = Row(a.UT, StructureStepKind.Launch,
@@ -93,7 +93,7 @@ namespace Parsek
                             Or(originPlace), Or(originVessel));
                         break;
                     }
-                    case GameActionType.RouteCargoPickedUp:
+                    case RouteEventType.RouteCargoPickedUp:
                     {
                         string vessel = (a.RouteOriginVesselPid != 0u && vesselByPid != null
                                 ? vesselByPid(a.RouteOriginVesselPid) : null)
@@ -107,7 +107,7 @@ namespace Parsek
                             Or(stopPlace != null ? stopPlace(a.RouteStopIndex) : null), Or(vessel));
                         break;
                     }
-                    case GameActionType.RouteCargoDelivered:
+                    case RouteEventType.RouteCargoDelivered:
                         step = Row(a.UT, StructureStepKind.Dock,
                             RunPrefix(runOrdinal, a.RouteCycleId) + "Delivered "
                                 + Amounts(a.RouteRequestedResourceManifest, a.RouteResourceManifest,
@@ -115,7 +115,7 @@ namespace Parsek
                             Or(stopPlace != null ? stopPlace(a.RouteStopIndex) : null),
                             Or(stopVessel != null ? stopVessel(a.RouteStopIndex) : null));
                         break;
-                    case GameActionType.RouteHeld:
+                    case RouteEventType.RouteHeld:
                     {
                         HeldPlace(a, originPlace, originVessel, vesselByPid,
                             out string heldPlace, out string heldVessel);
@@ -127,15 +127,15 @@ namespace Parsek
                             heldPlace, heldVessel);
                         break;
                     }
-                    case GameActionType.RoutePaused:
+                    case RouteEventType.RoutePaused:
                         step = Row(a.UT, StructureStepKind.Terminal, PausedLabel(a.RouteEndpointReason),
                             StructureLocationFormatter.Missing, StructureLocationFormatter.Missing);
                         break;
-                    case GameActionType.RouteResumed:
+                    case RouteEventType.RouteResumed:
                         step = Row(a.UT, StructureStepKind.Terminal, ResumedLabel(a.RouteEndpointReason),
                             StructureLocationFormatter.Missing, StructureLocationFormatter.Missing);
                         break;
-                    case GameActionType.RouteEndpointLost:
+                    case RouteEventType.RouteEndpointLost:
                         step = Row(a.UT, StructureStepKind.Terminal,
                             a.RouteEndpointReason != null
                                 && a.RouteEndpointReason.StartsWith("origin-", StringComparison.Ordinal)
@@ -148,7 +148,7 @@ namespace Parsek
                 rows.Add(new KeyValuePair<int, StructureStep>(order++, step));
             }
 
-            // Time order; ledger order breaks ties (a run's Sent before its first cargo row).
+            // Time order; log order breaks ties (a run's Sent before its first cargo row).
             rows.Sort((x, y) =>
             {
                 int byUt = x.Value.UT.CompareTo(y.Value.UT);
@@ -168,7 +168,7 @@ namespace Parsek
         /// launch is free and writes no debit row. Cargo reads amount first, as a short
         /// delivery does ("40.0 of 150.0 LiquidFuel").
         /// </summary>
-        internal static string SentCostSuffix(GameAction debit)
+        internal static string SentCostSuffix(RouteEvent debit)
         {
             if (debit == null || debit.RouteOriginVesselPid == 0u)
                 return "";
@@ -202,7 +202,7 @@ namespace Parsek
         /// that vessel, live name first; every other hold (destination full, endpoint lost,
         /// a linked-route wait, unavailable flights) has no single place, so "-".
         /// </summary>
-        internal static void HeldPlace(GameAction held, string originPlace, string originVessel,
+        internal static void HeldPlace(RouteEvent held, string originPlace, string originVessel,
             Func<uint, string> vesselByPid, out string place, out string vessel)
         {
             place = StructureLocationFormatter.Missing;
@@ -242,7 +242,7 @@ namespace Parsek
         /// current name through <paramref name="routeName"/>, or "the linked route" when it
         /// no longer resolves. Every other detail passes through.
         /// </summary>
-        internal static string HeldDetailForDisplay(GameAction held, Func<string, string> routeName)
+        internal static string HeldDetailForDisplay(RouteEvent held, Func<string, string> routeName)
         {
             if (held == null)
                 return null;

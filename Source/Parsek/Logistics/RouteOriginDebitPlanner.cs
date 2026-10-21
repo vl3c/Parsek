@@ -83,7 +83,7 @@ namespace Parsek.Logistics
             if (requiredAmounts.Count == 0) return OriginDebitPlan.Empty();
 
             // Deterministic order: sort by resource name. Avoids hash-set
-            // order leaking into ledger rows (same rule as the delivery
+            // order leaking into route events (same rule as the delivery
             // planner and the origin-cargo gate's first-failure pick).
             var names = new List<string>(requiredAmounts.Keys);
             names.Sort(StringComparer.Ordinal);

@@ -82,7 +82,7 @@ namespace Parsek.InGameTests
             // Snapshot ledger size BEFORE we touch anything so the assertion can
             // detect a brand-new row authored by this tick rather than reading a
             // pre-existing RouteDispatched/RouteEndpointLost left by gameplay.
-            int beforeLedgerCount = Ledger.Actions?.Count ?? 0;
+            int beforeLedgerCount = RouteEventLog.Events?.Count ?? 0;
 
             // Build the synthetic route inline. RouteFixtureBuilder lives in
             // Source/Parsek.Tests/Generators/ and is not visible from the
@@ -185,7 +185,7 @@ namespace Parsek.InGameTests
                 InGameAssert.IsNotNull(postTick,
                     "TryGetRoute returned true but post-tick route was null");
 
-                int afterLedgerCount = Ledger.Actions?.Count ?? 0;
+                int afterLedgerCount = RouteEventLog.Events?.Count ?? 0;
                 int newRows = afterLedgerCount - beforeLedgerCount;
 
                 ParsekLog.Info("TestRunner",
@@ -209,11 +209,11 @@ namespace Parsek.InGameTests
                 // The Skip path must emit NO ledger row attributed to this
                 // route id. Walk only the rows appended during the tick.
                 bool ledgerRowForRoute = false;
-                if (afterLedgerCount > beforeLedgerCount && Ledger.Actions != null)
+                if (afterLedgerCount > beforeLedgerCount && RouteEventLog.Events != null)
                 {
                     for (int i = beforeLedgerCount; i < afterLedgerCount; i++)
                     {
-                        GameAction action = Ledger.Actions[i];
+                        RouteEvent action = RouteEventLog.Events[i];
                         if (action != null
                             && string.Equals(action.RouteId, syntheticRouteId, StringComparison.Ordinal))
                         {

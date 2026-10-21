@@ -1027,45 +1027,5 @@ namespace Parsek.Tests
             module.ProcessAction(MakeFundsEarning(10, 5000f, FundsEarningSource.Recovery, "r1"));
             Assert.False(module.HasSeed);
         }
-
-        // ================================================================
-        // Supply routes carry no money (todo LOGISTICS-WITHOUT-MONEY): no route
-        // row moves funds in the walk, the spending pre-pass, or the projection.
-        // ================================================================
-
-        // catches: a route row coming back into the funds walk (the old dispatch
-        // charge on RouteCargoDebited). A vessel-origin debit row is a physical
-        // cargo record only.
-        [Fact]
-        public void RouteRows_MoveNoFunds()
-        {
-            var debit = new GameAction
-            {
-                UT = 100,
-                Type = GameActionType.RouteCargoDebited,
-                RouteId = "route-1",
-                RouteCycleId = "cycle-0",
-                RouteOriginVesselPid = 42u,
-                RouteResourceManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } }
-            };
-            var actions = new List<GameAction>
-            {
-                MakeSeed(0, 25000f),
-                new GameAction { UT = 100, Type = GameActionType.RouteDispatched, RouteId = "route-1", RouteCycleId = "cycle-0" },
-                debit,
-                new GameAction { UT = 160, Type = GameActionType.RouteCargoDelivered, RouteId = "route-1", RouteCycleId = "cycle-0" },
-            };
-
-            module.ComputeTotalSpendings(actions);
-            foreach (var a in actions)
-                module.ProcessAction(a);
-
-            Assert.Equal(25000.0, module.GetRunningBalance());
-            Assert.Equal(0.0, module.GetTotalEarnings());
-            Assert.Equal(0.0, module.GetTotalCommittedSpendings());
-            Assert.Equal(25000.0, module.GetAvailableFunds());
-            Assert.False(module.TryGetProjectionDelta(debit, out double delta));
-            Assert.Equal(0.0, delta);
-        }
     }
 }

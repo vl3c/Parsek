@@ -12,11 +12,11 @@ namespace Parsek.Tests.Logistics
     /// Pins the M3 Phase 4 two-direction loop applier (plan Phase 4 tasks 1-3,
     /// design D6 / OQ4): a route whose cycle stop carries a <c>PickupManifest</c>
     /// physically debits its endpoint at the dock crossing and emits ONE
-    /// <see cref="GameActionType.RouteCargoPickedUp"/> row; a PURE-pickup route
+    /// <see cref="RouteEventType.RouteCargoPickedUp"/> row; a PURE-pickup route
     /// (no delivery manifest) skips the delivery half (no
-    /// <see cref="GameActionType.RouteCargoDelivered"/> row); and the per-cycle
+    /// <see cref="RouteEventType.RouteCargoDelivered"/> row); and the per-cycle
     /// ELS replay backstop is re-keyed onto the direction-agnostic
-    /// <see cref="GameActionType.RouteDispatched"/> row so a pickup-only route's
+    /// <see cref="RouteEventType.RouteDispatched"/> row so a pickup-only route's
     /// endpoint debit is IDEMPOTENT across a re-presentation (the headline
     /// correctness fix - the pre-M3 delivery-keyed backstop never fired for a
     /// pickup-only route, so its debit re-applied every reload).
@@ -93,9 +93,9 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.DeliveryApplierForTesting = (route, currentUT, env) =>
             {
                 string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles).ToString(IC);
-                Ledger.AddAction(new GameAction
+                RouteEventLog.Add(new RouteEvent
                 {
-                    Type = GameActionType.RouteCargoDelivered,
+                    Type = RouteEventType.RouteCargoDelivered,
                     UT = currentUT,
                     RouteId = route.Id,
                     RouteCycleId = cycleId,
@@ -278,10 +278,10 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
 
-            var dispatched = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteDispatched);
-            var debited = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoDebited);
-            var pickedUp = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoPickedUp);
-            var delivered = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoDelivered);
+            var dispatched = RouteEventLog.Events.FirstOrDefault(a => a.Type == RouteEventType.RouteDispatched);
+            var debited = RouteEventLog.Events.FirstOrDefault(a => a.Type == RouteEventType.RouteCargoDebited);
+            var pickedUp = RouteEventLog.Events.FirstOrDefault(a => a.Type == RouteEventType.RouteCargoPickedUp);
+            var delivered = RouteEventLog.Events.FirstOrDefault(a => a.Type == RouteEventType.RouteCargoDelivered);
 
             Assert.NotNull(dispatched);
             Assert.Null(debited); // Space Center origin dispatches free: no debit row
@@ -324,7 +324,7 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
 
-            var pickedUp = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoPickedUp);
+            var pickedUp = RouteEventLog.Events.FirstOrDefault(a => a.Type == RouteEventType.RouteCargoPickedUp);
             Assert.NotNull(pickedUp);
             Assert.Equal(1, inventoryPickupSeamCalls);
             // The inventory seam saw the stop endpoint + the per-window inventory.
@@ -338,7 +338,7 @@ namespace Parsek.Tests.Logistics
             Assert.Single(pickedUp.RouteInventoryManifest);
             Assert.Equal("ore-container-hash", pickedUp.RouteInventoryManifest[0].IdentityHash);
             Assert.Equal(555u, pickedUp.RouteOriginVesselPid);
-            Assert.Null(Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoDelivered));
+            Assert.Null(RouteEventLog.Events.FirstOrDefault(a => a.Type == RouteEventType.RouteCargoDelivered));
         }
 
         // ==================================================================
@@ -394,9 +394,9 @@ namespace Parsek.Tests.Logistics
             {
                 deliveryOrder = orderCounter++;
                 string cycleId = "cycle-" + (r.CompletedCycles + r.SkippedCycles).ToString(IC);
-                Ledger.AddAction(new GameAction
+                RouteEventLog.Add(new RouteEvent
                 {
-                    Type = GameActionType.RouteCargoDelivered,
+                    Type = RouteEventType.RouteCargoDelivered,
                     UT = ut,
                     RouteId = r.Id,
                     RouteCycleId = cycleId,
@@ -422,8 +422,8 @@ namespace Parsek.Tests.Logistics
                 $"without a phantom clamp; pickupOrder={pickupOrder} deliveryOrder={deliveryOrder}");
 
             // And the full mixed cycle still emitted both rows under one cycleId.
-            var pickedUp = Ledger.Actions.First(a => a.Type == GameActionType.RouteCargoPickedUp);
-            var delivered = Ledger.Actions.First(a => a.Type == GameActionType.RouteCargoDelivered);
+            var pickedUp = RouteEventLog.Events.First(a => a.Type == RouteEventType.RouteCargoPickedUp);
+            var delivered = RouteEventLog.Events.First(a => a.Type == RouteEventType.RouteCargoDelivered);
             Assert.Equal("cycle-0", pickedUp.RouteCycleId);
             Assert.Equal("cycle-0", delivered.RouteCycleId);
             // The pickup row carries the actual Ore debit (50); delivery is the
@@ -431,10 +431,10 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(50.0, pickedUp.RouteResourceManifest["Ore"]);
         }
 
-        // catches (Sequence / RouteModule out-of-order guard): the pickup row
-        // front-running the dispatch row. RouteDispatched MUST stay Seq0; the
-        // pickup row gets Seq2 (after dispatch 0 + debit 1) so the ledger walker
-        // sees dispatch before the pickup at the shared UT.
+        // catches (Sequence ordering): the pickup event front-running the dispatch
+        // event. RouteDispatched MUST stay Seq0; the pickup event gets Seq2 (after
+        // dispatch 0 + debit 1) so a reader sorting by (UT, Sequence) sees the
+        // dispatch before the pickup at the shared UT.
         [Fact]
         public void PickupRow_SequenceIsAfterDispatch()
         {
@@ -446,17 +446,17 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
 
-            var dispatched = Ledger.Actions.First(a => a.Type == GameActionType.RouteDispatched);
-            var pickedUp = Ledger.Actions.First(a => a.Type == GameActionType.RouteCargoPickedUp);
+            var dispatched = RouteEventLog.Events.First(a => a.Type == RouteEventType.RouteDispatched);
+            var pickedUp = RouteEventLog.Events.First(a => a.Type == RouteEventType.RouteCargoPickedUp);
 
             Assert.Equal(0, dispatched.Sequence);
             Assert.Equal(2, pickedUp.Sequence);
 
             // And the dispatch row physically precedes the pickup row in the ledger
             // (same UT, the walker reads in order).
-            var all = Ledger.Actions.ToList();
-            int dispatchedIdx = all.FindIndex(a => a.Type == GameActionType.RouteDispatched);
-            int pickedUpIdx = all.FindIndex(a => a.Type == GameActionType.RouteCargoPickedUp);
+            var all = RouteEventLog.Events.ToList();
+            int dispatchedIdx = all.FindIndex(a => a.Type == RouteEventType.RouteDispatched);
+            int pickedUpIdx = all.FindIndex(a => a.Type == RouteEventType.RouteCargoPickedUp);
             Assert.True(dispatchedIdx < pickedUpIdx);
         }
 
@@ -480,11 +480,11 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
 
-            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteCargoDelivered);
+            Assert.DoesNotContain(RouteEventLog.Events, a => a.Type == RouteEventType.RouteCargoDelivered);
             Assert.False(deliveryApplierCalled, "pure-pickup route must not call the delivery half");
             // The pickup + dispatch + debit rows DID fire.
-            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.RouteCargoPickedUp);
-            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.RouteDispatched);
+            Assert.Contains(RouteEventLog.Events, a => a.Type == RouteEventType.RouteCargoPickedUp);
+            Assert.Contains(RouteEventLog.Events, a => a.Type == RouteEventType.RouteDispatched);
             // CompletedCycles advanced (the pure-pickup analogue of ApplyDelivery's bump).
             Assert.Equal(1, route.CompletedCycles);
             Assert.Contains(logLines, l =>
@@ -505,8 +505,8 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
 
-            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.RouteCargoDelivered);
-            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteCargoPickedUp);
+            Assert.Contains(RouteEventLog.Events, a => a.Type == RouteEventType.RouteCargoDelivered);
+            Assert.DoesNotContain(RouteEventLog.Events, a => a.Type == RouteEventType.RouteCargoPickedUp);
             Assert.Equal(0, pickupSeamCalls);
         }
 
@@ -532,8 +532,8 @@ namespace Parsek.Tests.Logistics
             // First crossing: fires the pickup-only cycle.
             RouteOrchestrator.Tick(1150.0, env);
             Assert.Equal(1, pickupSeamCalls);
-            Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.RouteCargoPickedUp));
-            Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.RouteDispatched));
+            Assert.Single(RouteEventLog.Events.Where(a => a.Type == RouteEventType.RouteCargoPickedUp));
+            Assert.Single(RouteEventLog.Events.Where(a => a.Type == RouteEventType.RouteDispatched));
             Assert.Equal(1, route.CompletedCycles);
 
             // Simulate a save/reload mid-cycle: reset the in-memory cursor to -1 so
@@ -542,20 +542,20 @@ namespace Parsek.Tests.Logistics
             route.LastObservedLoopCycleIndex = -1;
             route.CompletedCycles = 0; // pre-reload counter state
             int pickupCallsBefore = pickupSeamCalls;
-            int actionsBefore = Ledger.Actions.Count;
+            int actionsBefore = RouteEventLog.Events.Count;
 
             RouteOrchestrator.Tick(1150.0, env); // re-presents cycle-0
 
             // The dispatch-keyed backstop fired: NOTHING new emitted, and the
             // pickup debit was NOT invoked a second time (the correctness fix).
-            Assert.Equal(actionsBefore, Ledger.Actions.Count);
+            Assert.Equal(actionsBefore, RouteEventLog.Events.Count);
             Assert.Equal(pickupCallsBefore, pickupSeamCalls);
             // Still exactly one pickup row (no double-debit).
-            Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.RouteCargoPickedUp));
+            Assert.Single(RouteEventLog.Events.Where(a => a.Type == RouteEventType.RouteCargoPickedUp));
             // CompletedCycles bumped so the route progresses past cycle-0.
             Assert.Equal(1, route.CompletedCycles);
             Assert.Contains(logLines, l =>
-                l.Contains("[Route]") && l.Contains("already in ledger") && l.Contains("dispatch-keyed"));
+                l.Contains("[Route]") && l.Contains("already logged") && l.Contains("dispatch-keyed"));
         }
 
         // catches: a MIXED loop route (delivery + pickup) re-applying EITHER half
@@ -579,8 +579,8 @@ namespace Parsek.Tests.Logistics
             // First crossing: fires the full mixed cycle (dispatch + debit + pickup + delivery).
             RouteOrchestrator.Tick(1150.0, env);
             Assert.Equal(1, pickupSeamCalls);
-            Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.RouteCargoPickedUp));
-            Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.RouteCargoDelivered));
+            Assert.Single(RouteEventLog.Events.Where(a => a.Type == RouteEventType.RouteCargoPickedUp));
+            Assert.Single(RouteEventLog.Events.Where(a => a.Type == RouteEventType.RouteCargoDelivered));
             Assert.Equal(1, route.CompletedCycles);
 
             // Simulate a save/reload mid-cycle: re-present the SAME cycle-0 crossing
@@ -588,15 +588,15 @@ namespace Parsek.Tests.Logistics
             route.LastObservedLoopCycleIndex = -1;
             route.CompletedCycles = 0;
             int pickupCallsBefore = pickupSeamCalls;
-            int actionsBefore = Ledger.Actions.Count;
+            int actionsBefore = RouteEventLog.Events.Count;
 
             RouteOrchestrator.Tick(1150.0, env); // re-presents cycle-0
 
             // Dispatch-keyed backstop fired: NOTHING new, neither half re-applied.
-            Assert.Equal(actionsBefore, Ledger.Actions.Count);
+            Assert.Equal(actionsBefore, RouteEventLog.Events.Count);
             Assert.Equal(pickupCallsBefore, pickupSeamCalls);
-            Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.RouteCargoPickedUp));
-            Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.RouteCargoDelivered));
+            Assert.Single(RouteEventLog.Events.Where(a => a.Type == RouteEventType.RouteCargoPickedUp));
+            Assert.Single(RouteEventLog.Events.Where(a => a.Type == RouteEventType.RouteCargoDelivered));
             Assert.Equal(1, route.CompletedCycles);
         }
 
@@ -615,21 +615,21 @@ namespace Parsek.Tests.Logistics
             var env = new EligibleEnv();
 
             // Pre-seed a dispatched row for cycle-0 (reloaded with stale cursor).
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteDispatched,
+                Type = RouteEventType.RouteDispatched,
                 UT = 150.0,
                 RouteId = route.Id,
                 RouteCycleId = "cycle-0",
                 RouteStopIndex = -1,
                 Sequence = 0,
             });
-            int before = Ledger.Actions.Count;
+            int before = RouteEventLog.Events.Count;
 
             RouteOrchestrator.Tick(1150.0, env);
 
             // Replay-skipped: no new rows, no pickup invocation.
-            Assert.Equal(before, Ledger.Actions.Count);
+            Assert.Equal(before, RouteEventLog.Events.Count);
             Assert.Equal(0, pickupSeamCalls);
             // CompletedCycles bumped so the next crossing advances past cycle-0.
             Assert.Equal(1, route.CompletedCycles);
@@ -663,13 +663,13 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.Tick(1150.0, new DeliveryLostEnv());
 
             // The pickup half committed regardless of the delivery disposition.
-            var pickedUp = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoPickedUp);
+            var pickedUp = RouteEventLog.Events.FirstOrDefault(a => a.Type == RouteEventType.RouteCargoPickedUp);
             Assert.NotNull(pickedUp);
             Assert.Equal(777u, pickedUp.RouteOriginVesselPid);
             Assert.Equal(1, pickupSeamCalls);
             // The delivery half lost its endpoint.
-            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.RouteEndpointLost);
-            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteCargoDelivered);
+            Assert.Contains(RouteEventLog.Events, a => a.Type == RouteEventType.RouteEndpointLost);
+            Assert.DoesNotContain(RouteEventLog.Events, a => a.Type == RouteEventType.RouteCargoDelivered);
         }
 
         // Eligible at crossing time but the DELIVERY endpoint resolves null at
@@ -703,7 +703,7 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
 
-            var pickedUp = Ledger.Actions.First(a => a.Type == GameActionType.RouteCargoPickedUp);
+            var pickedUp = RouteEventLog.Events.First(a => a.Type == RouteEventType.RouteCargoPickedUp);
             Assert.NotNull(pickedUp.RouteRequestedResourceManifest);
             Assert.Equal(100.0, pickedUp.RouteRequestedResourceManifest["Ore"]);
             Assert.Equal(50.0, pickedUp.RouteResourceManifest["Ore"]); // half (clamped)
@@ -784,9 +784,9 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
 
             // The cycle really fired: dispatch + pickup, no delivery half.
-            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.RouteDispatched);
-            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.RouteCargoPickedUp);
-            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteCargoDelivered);
+            Assert.Contains(RouteEventLog.Events, a => a.Type == RouteEventType.RouteDispatched);
+            Assert.Contains(RouteEventLog.Events, a => a.Type == RouteEventType.RouteCargoPickedUp);
+            Assert.DoesNotContain(RouteEventLog.Events, a => a.Type == RouteEventType.RouteCargoDelivered);
             Assert.Equal(1, route.CompletedCycles);
 
             // ...and it consumed the one-shot.
@@ -795,7 +795,7 @@ namespace Parsek.Tests.Logistics
             Assert.False(route.SendOnceArmed);
 
             var paused = Assert.Single(
-                Ledger.Actions.Where(a => a.Type == GameActionType.RoutePaused).ToList());
+                RouteEventLog.Events.Where(a => a.Type == RouteEventType.RoutePaused).ToList());
             Assert.Equal("delivered-then-paused", paused.RouteEndpointReason);
             // Last stop's stride block + 4 (single stop -> 4), the same slot the
             // single-stop delivered tail uses.
@@ -821,10 +821,10 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(1150.0, new EligibleEnv());
 
-            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.RouteCargoPickedUp);
+            Assert.Contains(RouteEventLog.Events, a => a.Type == RouteEventType.RouteCargoPickedUp);
             Assert.Equal(1, route.CompletedCycles);
             Assert.Equal(RouteStatus.Active, route.Status);
-            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RoutePaused);
+            Assert.DoesNotContain(RouteEventLog.Events, a => a.Type == RouteEventType.RoutePaused);
             Assert.Empty(screenMessages);
         }
 

@@ -11,7 +11,7 @@ namespace Parsek.Tests.Logistics
     /// <summary>
     /// The in-session load route reconcile (todo ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD,
     /// owner ruling 2026-10-07): an F9 quickload, a stock revert and the Esc-menu Discard Re-fly
-    /// load run the go-back rewind's reconcile (<see cref="Ledger.RetireFutureRouteActionsAtRewind"/>
+    /// load run the go-back rewind's reconcile (<see cref="RouteEventLog.RetireFutureRouteActionsAtRewind"/>
     /// + <see cref="RouteRewindClassifier.ReconcileStoreAtRewind"/>) keyed to the loaded save's UT,
     /// then take each kept route's loop position back from the loaded save's own ROUTES copy.
     /// Covers the per-kind decision, the cutoff, the back-in-time evidence that gates the other
@@ -93,11 +93,11 @@ namespace Parsek.Tests.Logistics
             return copy;
         }
 
-        private static GameAction Dispatched(string routeId, string cycleId, double ut)
+        private static RouteEvent Dispatched(string routeId, string cycleId, double ut)
         {
-            return new GameAction
+            return new RouteEvent
             {
-                Type = GameActionType.RouteDispatched,
+                Type = RouteEventType.RouteDispatched,
                 UT = ut,
                 RouteId = routeId,
                 RouteCycleId = cycleId,
@@ -106,11 +106,11 @@ namespace Parsek.Tests.Logistics
             };
         }
 
-        private static GameAction Delivered(string routeId, string cycleId, double ut)
+        private static RouteEvent Delivered(string routeId, string cycleId, double ut)
         {
-            return new GameAction
+            return new RouteEvent
             {
-                Type = GameActionType.RouteCargoDelivered,
+                Type = RouteEventType.RouteCargoDelivered,
                 UT = ut,
                 RouteId = routeId,
                 RouteCycleId = cycleId,
@@ -243,7 +243,7 @@ namespace Parsek.Tests.Logistics
             route.NextDispatchUT = 5000.0;
 
             Assert.False(RouteLoadReconcile.HasRouteStateAfterUT(
-                1200.0, new[] { route }, ledgerHasFutureRouteRows: false, out string evidence));
+                1200.0, new[] { route }, logHasFutureEvents: false, out string evidence));
             Assert.Equal("none", evidence);
         }
 
@@ -251,8 +251,8 @@ namespace Parsek.Tests.Logistics
         public void Evidence_EachHappenedStampAfterTheCutoff_IsTrue()
         {
             Assert.True(RouteLoadReconcile.HasRouteStateAfterUT(
-                1200.0, new List<Route>(), ledgerHasFutureRouteRows: true, out string rows));
-            Assert.Equal("ledger-rows", rows);
+                1200.0, new List<Route>(), logHasFutureEvents: true, out string rows));
+            Assert.Equal("route-events", rows);
 
             var created = MakeLoopRoute(createdUT: 1300.0);
             Assert.True(RouteLoadReconcile.HasRouteStateAfterUT(1200.0, new[] { created }, false, out string e1));
@@ -272,14 +272,14 @@ namespace Parsek.Tests.Logistics
         }
 
         [Fact]
-        public void LedgerEvidence_ReadsOnlyFreeStandingRouteRowsAfterTheCutoff()
+        public void LogEvidence_ReadsOnlyRouteEventsAfterTheCutoff()
         {
-            Ledger.AddAction(Dispatched("r", "cycle-0", 1200.0));             // at the cutoff
+            RouteEventLog.Add(Dispatched("r", "cycle-0", 1200.0));             // at the cutoff
             Ledger.AddAction(new GameAction { Type = GameActionType.FundsEarning, UT = 1500.0 });
-            Assert.False(Ledger.HasFreeStandingRouteActionsAfterUT(1200.0));
+            Assert.False(RouteEventLog.HasEventsAfterUT(1200.0));
 
-            Ledger.AddAction(Dispatched("r", "cycle-1", 1450.0));
-            Assert.True(Ledger.HasFreeStandingRouteActionsAfterUT(1200.0));
+            RouteEventLog.Add(Dispatched("r", "cycle-1", 1450.0));
+            Assert.True(RouteEventLog.HasEventsAfterUT(1200.0));
         }
 
         // ------------------------------------------------------------------
@@ -442,18 +442,18 @@ namespace Parsek.Tests.Logistics
             live.SendOnceArmed = true;
             RouteStore.AddRoute(live);
             RouteStore.AddRoute(futureRoute);
-            Ledger.AddAction(Dispatched("r", "cycle-0", 1150.0));
-            Ledger.AddAction(Delivered("r", "cycle-0", 1150.0));
-            Ledger.AddAction(Dispatched("r", "cycle-1", 1450.0));
-            Ledger.AddAction(Delivered("r", "cycle-1", 1450.0));
+            RouteEventLog.Add(Dispatched("r", "cycle-0", 1150.0));
+            RouteEventLog.Add(Delivered("r", "cycle-0", 1150.0));
+            RouteEventLog.Add(Dispatched("r", "cycle-1", 1450.0));
+            RouteEventLog.Add(Delivered("r", "cycle-1", 1450.0));
 
             var outcome = RouteLoadReconcile.ReconcileAtInSessionLoad(
                 LoadKind.QuickloadFlight, 1200.0, 1200.0, new[] { savedAt1200 });
 
             Assert.Equal(RouteLoadReconcileOutcome.Reconciled, outcome);
             // Route rows after the save retired, the rest kept.
-            Assert.Equal(2, Ledger.Actions.Count);
-            Assert.DoesNotContain(Ledger.Actions, a => a.UT > 1200.0);
+            Assert.Equal(2, RouteEventLog.Events.Count);
+            Assert.DoesNotContain(RouteEventLog.Events, a => a.UT > 1200.0);
             // The loop position is the save's, the counters come from the kept rows.
             Assert.Equal(0, live.LastObservedLoopCycleIndex);
             Assert.Equal(1, live.CompletedCycles + live.SkippedCycles);
@@ -468,6 +468,31 @@ namespace Parsek.Tests.Logistics
                 && l.Contains("loopPositionsRestored=1"));
         }
 
+        [Theory]
+        [InlineData((int)LoadKind.QuickloadFlight)]
+        [InlineData((int)LoadKind.StockRevert)]
+        [InlineData((int)LoadKind.DiscardReFly)]
+        public void Run_EveryBackInTimeKind_RetiresTheEventsAfterTheCutoff_KeepsTheOneAtIt(int kindValue)
+        {
+            var live = MakeLoopRoute();
+            live.LastObservedLoopCycleIndex = 1;
+            var savedAt1200 = Clone(live);
+            RouteStore.AddRoute(live);
+            RouteEventLog.Add(Dispatched("r", "cycle-0", 1150.0));
+            RouteEventLog.Add(Delivered("r", "cycle-0", 1200.0));   // exactly at the cutoff: kept
+            RouteEventLog.Add(Dispatched("r", "cycle-1", 1450.0));
+            RouteEventLog.Add(Delivered("r", "cycle-1", 1750.0));
+
+            var outcome = RouteLoadReconcile.ReconcileAtInSessionLoad(
+                (LoadKind)kindValue, 1200.0, 1200.0, new[] { savedAt1200 });
+
+            Assert.Equal(RouteLoadReconcileOutcome.Reconciled, outcome);
+            Assert.Equal(new[] { 1150.0, 1200.0 },
+                RouteEventLog.Events.Select(e => e.UT).ToArray());
+            Assert.Contains(logLines, l => l.Contains("[RouteEventLog]")
+                && l.Contains("RetireFutureRouteActionsAtRewind: removed 2 free-standing route"));
+        }
+
         [Fact]
         public void Run_ForwardSceneChange_TouchesNothing()
         {
@@ -476,17 +501,17 @@ namespace Parsek.Tests.Logistics
             live.CompletedCycles = 2;
             live.PauseAfterCurrentCycle = true;
             RouteStore.AddRoute(live);
-            Ledger.AddAction(Dispatched("r", "cycle-0", 1150.0));
-            Ledger.AddAction(Dispatched("r", "cycle-1", 1450.0));
-            int version = Ledger.StateVersion;
+            RouteEventLog.Add(Dispatched("r", "cycle-0", 1150.0));
+            RouteEventLog.Add(Dispatched("r", "cycle-1", 1450.0));
+            int version = RouteEventLog.StateVersion;
 
             // The save was written at the scene change, at the current instant (1500).
             var outcome = RouteLoadReconcile.ReconcileAtInSessionLoad(
                 LoadKind.InSessionOther, 1500.0, 1500.0, new[] { Clone(live) });
 
             Assert.Equal(RouteLoadReconcileOutcome.SkippedNothingAfterCutoff, outcome);
-            Assert.Equal(2, Ledger.Actions.Count);
-            Assert.Equal(version, Ledger.StateVersion);
+            Assert.Equal(2, RouteEventLog.Events.Count);
+            Assert.Equal(version, RouteEventLog.StateVersion);
             Assert.Equal(1, live.LastObservedLoopCycleIndex);
             Assert.Equal(2, live.CompletedCycles);
             Assert.True(live.PauseAfterCurrentCycle);
@@ -503,14 +528,14 @@ namespace Parsek.Tests.Logistics
             var savedAt1200 = Clone(live);
             live.LastObservedLoopCycleIndex = 1;
             RouteStore.AddRoute(live);
-            Ledger.AddAction(Dispatched("r", "cycle-0", 1150.0));
-            Ledger.AddAction(Dispatched("r", "cycle-1", 1450.0));
+            RouteEventLog.Add(Dispatched("r", "cycle-0", 1150.0));
+            RouteEventLog.Add(Dispatched("r", "cycle-1", 1450.0));
 
             var outcome = RouteLoadReconcile.ReconcileAtInSessionLoad(
                 LoadKind.InSessionOther, 1200.0, 1200.0, new[] { savedAt1200 });
 
             Assert.Equal(RouteLoadReconcileOutcome.Reconciled, outcome);
-            Assert.Single(Ledger.Actions);
+            Assert.Single(RouteEventLog.Events);
             Assert.Equal(0, live.LastObservedLoopCycleIndex);
         }
 
@@ -523,13 +548,13 @@ namespace Parsek.Tests.Logistics
             var live = MakeLoopRoute();
             live.LastObservedLoopCycleIndex = 1;
             RouteStore.AddRoute(live);
-            Ledger.AddAction(Dispatched("r", "cycle-1", 1450.0));
+            RouteEventLog.Add(Dispatched("r", "cycle-1", 1450.0));
 
             var outcome = RouteLoadReconcile.ReconcileAtInSessionLoad(
                 (LoadKind)kindValue, 1200.0, 1200.0, new List<Route>());
 
             Assert.Equal(RouteLoadReconcileOutcome.SkippedOwnedElsewhere, outcome);
-            Assert.Single(Ledger.Actions);
+            Assert.Single(RouteEventLog.Events);
             Assert.Equal(1, live.LastObservedLoopCycleIndex);
         }
 
@@ -542,7 +567,7 @@ namespace Parsek.Tests.Logistics
             var scenarioNode = new ConfigNode("SCENARIO");
             RouteStore.SaveRoutesTo(scenarioNode);   // the save at 1200
             live.LastObservedLoopCycleIndex = 1;      // then the abandoned future
-            Ledger.AddAction(Dispatched("r", "cycle-1", 1450.0));
+            RouteEventLog.Add(Dispatched("r", "cycle-1", 1450.0));
 
             Assert.Single(RouteStore.ReadSavedCommittedRoutes(scenarioNode));
             Assert.Empty(RouteStore.ReadSavedCommittedRoutes(new ConfigNode("SCENARIO")));
@@ -553,7 +578,7 @@ namespace Parsek.Tests.Logistics
 
             Assert.Equal(RouteLoadReconcileOutcome.Reconciled, outcome);
             Assert.Equal(0, live.LastObservedLoopCycleIndex);
-            Assert.Empty(Ledger.Actions);
+            Assert.Empty(RouteEventLog.Events);
         }
 
         // ------------------------------------------------------------------

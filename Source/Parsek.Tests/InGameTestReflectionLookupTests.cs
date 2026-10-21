@@ -16,7 +16,7 @@ namespace Parsek.Tests
     /// overload of that name, and returns null when the member is renamed; either way the
     /// in-game cell fails or skips only inside a flight. Resolving the same lookup here
     /// reds the suite instead (the drift that cost lanes H38 / H39 / H40 / HV-1 when
-    /// <c>RouteLedgerRetire.RetireFutureRouteActions</c> gained an overload).
+    /// the route rewind-retire helper gained an overload).
     ///
     /// <para>The scan runs over comment-stripped, literal-masked source (length-preserving,
     /// <see cref="SourceScanText"/>), so a lookup quoted in a comment is not a lookup. A

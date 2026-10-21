@@ -161,9 +161,9 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.DeliveryRowEmitterForTesting =
                 (route, currentUT, env, cycleId, stopIndex, bumpCompletedCycle) =>
                 {
-                    Ledger.AddAction(new GameAction
+                    RouteEventLog.Add(new RouteEvent
                     {
-                        Type = GameActionType.RouteCargoDelivered,
+                        Type = RouteEventType.RouteCargoDelivered,
                         UT = currentUT,
                         RouteId = route.Id,
                         RouteCycleId = cycleId,
@@ -294,11 +294,11 @@ namespace Parsek.Tests.Logistics
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }
 
-        private static List<GameAction> PickedUp() =>
-            Ledger.Actions.Where(a => a.Type == GameActionType.RouteCargoPickedUp).ToList();
+        private static List<RouteEvent> PickedUp() =>
+            RouteEventLog.Events.Where(a => a.Type == RouteEventType.RouteCargoPickedUp).ToList();
 
-        private static List<GameAction> Dispatched() =>
-            Ledger.Actions.Where(a => a.Type == GameActionType.RouteDispatched).ToList();
+        private static List<RouteEvent> Dispatched() =>
+            RouteEventLog.Events.Where(a => a.Type == RouteEventType.RouteDispatched).ToList();
 
         // ==================================================================
         // (1) Two-source run: BOTH source debits fire at their windows + escrow nets
@@ -605,14 +605,14 @@ namespace Parsek.Tests.Logistics
             var env = new EligibleEnv();
 
             // Pre-seed the reload state: dispatch row + window-0 pickup row for cycle-0.
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteDispatched, UT = 1150.0, RouteId = route.Id,
+                Type = RouteEventType.RouteDispatched, UT = 1150.0, RouteId = route.Id,
                 RouteCycleId = "cycle-0", RouteStopIndex = 0, Sequence = 0,
             });
-            Ledger.AddAction(new GameAction
+            RouteEventLog.Add(new RouteEvent
             {
-                Type = GameActionType.RouteCargoPickedUp, UT = 1150.0, RouteId = route.Id,
+                Type = RouteEventType.RouteCargoPickedUp, UT = 1150.0, RouteId = route.Id,
                 RouteCycleId = "cycle-0", RouteStopIndex = 0,
                 Sequence = 0 * RouteOrchestrator.SeqStride + 2,
             });
@@ -736,9 +736,9 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.DeliveryRowEmitterForTesting =
                 (r, ut, e, cycleId, stopIndex, bump) =>
                 {
-                    Ledger.AddAction(new GameAction
+                    RouteEventLog.Add(new RouteEvent
                     {
-                        Type = GameActionType.RouteCargoDelivered,
+                        Type = RouteEventType.RouteCargoDelivered,
                         UT = ut, RouteId = r.Id, RouteCycleId = cycleId, RouteStopIndex = stopIndex,
                         Sequence = stopIndex * RouteOrchestrator.SeqStride + 3,
                     });

@@ -281,9 +281,9 @@ namespace Parsek.Tests.Logistics
                 spanStartUT: 1000.0, spanEndUT: 1400.0, cadenceSeconds: 400.0, phaseAnchorUT: 1000.0);
             RouteOrchestrator.LoopUnitResolverForTesting = (r, ut) => unit;
             RouteOrchestrator.DeliveryRowEmitterForTesting =
-                (r, currentUT, env, cycleId, stopIndex, bump) => Ledger.AddAction(new GameAction
+                (r, currentUT, env, cycleId, stopIndex, bump) => RouteEventLog.Add(new RouteEvent
                 {
-                    Type = GameActionType.RouteCargoDelivered, UT = currentUT, RouteId = r.Id,
+                    Type = RouteEventType.RouteCargoDelivered, UT = currentUT, RouteId = r.Id,
                     RouteCycleId = cycleId, RouteStopIndex = stopIndex,
                     Sequence = stopIndex * RouteOrchestrator.SeqStride + 3,
                 });
@@ -316,7 +316,7 @@ namespace Parsek.Tests.Logistics
 
             // The next tick finishes the half-fired cycle 0 at its second stop; then idle.
             RouteOrchestrator.Tick(1350.0, env);
-            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.RouteCargoDelivered
+            Assert.Contains(RouteEventLog.Events, a => a.Type == RouteEventType.RouteCargoDelivered
                 && a.RouteStopIndex == 1 && a.RouteCycleId == "cycle-0");
             Assert.False(LogisticsRoutePresentation.IsRunInFlight(route));
             Assert.Equal(string.Empty, LogisticsRoutePresentation.UpdatePartsDisabledReason(route));

@@ -298,11 +298,11 @@ namespace Parsek
 
         // Throttled per-route legibility cache (Phase 2 H1/H2/H3). Recomputing the
         // next-dock-crossing countdown (H1, a LoopUnit build) and the realized /
-        // cumulative delivery summary (H2/H3, an ELS scan) is NOT free, and many
+        // cumulative delivery summary (H2/H3, a route-event-log scan) is NOT free, and many
         // routes can be open at once, so we recompute the WHOLE dictionary on a
         // realtime timer (mirrors the candidate cache) once per ~1s rather than per
         // route per IMGUI frame. The draw path only READS the cache by route.Id.
-        // In-memory instance state only: it is rebuilt from RouteStore + the ledger
+        // In-memory instance state only: it is rebuilt from RouteStore + the route event log
         // and persists nothing across save/load.
         private readonly Dictionary<string, RouteLegibility> legibilityCache =
             new Dictionary<string, RouteLegibility>();
@@ -390,7 +390,7 @@ namespace Parsek
 
         /// <summary>
         /// One route's recomputed-on-timer legibility values: every cell and detail line
-        /// whose inputs are not free (a LoopUnit build for the countdown, an ELS scan for
+        /// whose inputs are not free (a LoopUnit build for the countdown, an event-log scan for
         /// deliveries and run cost, a FlightGlobals resolve for the endpoint names, a date
         /// format). Built once per ~1 Hz cache refresh, read by route.Id while drawing, so
         /// no IMGUI frame recomputes them. In-memory only; nothing persists.
@@ -415,7 +415,7 @@ namespace Parsek
             public string EveryText;
             public string EveryTooltip;
 
-            // Realized deliveries from the ledger: whether any, the latest run's line and
+            // Realized deliveries from the route event log: whether any, the latest run's line and
             // its shortfall tint, the cumulative total, and the dated "Last delivered" line.
             public bool HasDeliveries;
             public string LastCycleText;     // "delivered 40.0 of 150.0 LiquidFuel (110.0 did not fit)"
@@ -1519,7 +1519,7 @@ namespace Parsek
                 case LogisticsRoutePresentation.ArmedLine1.Cancel:
                     // The countdown phase: nothing has launched, so the arm can be taken
                     // back. RouteOrchestrator.TryCancelSendOnce returns the route to Paused
-                    // and writes no ledger row (the arm wrote none).
+                    // and writes no route event (the arm wrote none).
                     if (GUILayout.Button(new GUIContent(LogisticsRoutePresentation.CancelButtonLabel,
                             LogisticsRoutePresentation.CancelButtonTooltip),
                             interactPairButtonStyle, GUILayout.Width(pair)))
@@ -2005,7 +2005,7 @@ namespace Parsek
         /// The expanded detail block: only what the row cannot say, every line participle-
         /// or noun-first with exact dates. Basic: what each run delivers and where, the next
         /// run, the dated hold / partial lines, the capacity context and Re-scan of a broken
-        /// route, the last delivery from the ledger, the run cost, the mission the route was
+        /// route, the last delivery from the route event log, the run cost, the mission the route was
         /// built from, the round-trip partner, and Rename / Delete / Update parts. Advanced
         /// adds the Every and Priority steppers, Flights used and Link round-trip. A route's runs live in
         /// its Route History window (the Log button), not here. Every
@@ -2050,7 +2050,7 @@ namespace Parsek
             if (route.Status == RouteStatus.EndpointLost)
                 DrawEndpointRescan(route);
 
-            // The last delivery, from the route's RouteCargoDelivered ledger rows (the
+            // The last delivery, from the route's RouteCargoDelivered route events (the
             // route stores no delivered UT), plus the running total.
             if (leg.LastDeliveredLine != null)
                 DetailLine(leg.LastDeliveredLine, leg.LastCycleShortfall ? statusStyleYellow : detailStyle);
@@ -3735,11 +3735,11 @@ namespace Parsek
         /// (mirrors <see cref="GetCandidates"/>). For each committed route it builds:
         /// the H1 next-dock-crossing countdown (throttled <see cref="RouteOrchestrator"/>
         /// accessor + the wait-state retry fallback branch), and the H2/H3 realized /
-        /// cumulative delivery summary from a SINGLE ELS scan of the route's
+        /// cumulative delivery summary from a SINGLE event-log scan of the route's
         /// <c>RouteCargoDelivered</c> rows (H3 reuses H2's scan). Emits one batch-summary
         /// Verbose line after the pass (route count + how many had deliveries), never
         /// per route. Called once per frame at the top of <see cref="DrawWindow"/>; the
-        /// timer / dirty-flag gate keeps the LoopUnit build + ledger scan to ~1 Hz.
+        /// timer / dirty-flag gate keeps the LoopUnit build + event-log scan to ~1 Hz.
         /// </summary>
         private void RefreshLegibilityCacheIfDue(IReadOnlyList<Route> routes, double currentUT)
         {
@@ -3801,7 +3801,7 @@ namespace Parsek
         /// <summary>
         /// Builds one route's legibility values: the countdown (next dock crossing, next
         /// launch window, or the held route's recheck) and its Next cell / hover / detail
-        /// line, the read-only Every cell, one ledger scan for realized deliveries (the
+        /// line, the read-only Every cell, one event-log scan for realized deliveries (the
         /// dated Last delivered line and the Advanced Recent runs), the destination and
         /// from/to names, the run cost, the dated hold and partial-delivery lines, and the
         /// merged Status cell with its sentence. Every date goes through
@@ -3847,9 +3847,9 @@ namespace Parsek
                 windowed, route.CadenceMultiplier, FormatDuration(route.DispatchInterval));
             leg.EveryTooltip = LogisticsRoutePresentation.EveryTooltip(windowed, leg.BasisLabel);
 
-            // Realized deliveries: one ELS scan -> the latest run, its shortfall flag and
+            // Realized deliveries: one event-log scan -> the latest run, its shortfall flag and
             // the cumulative total. (The route's runs themselves are the Route History
-            // window's, built on open from the same ELS.)
+            // window's, built on open from the same log.)
             LogisticsDeliveryPresentation.RouteDeliverySummary summary =
                 CollectRouteDeliverySummary(route.Id, null);
             leg.HasDeliveries = summary.HasAny;
@@ -4054,20 +4054,18 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Scans the effective ledger state (<see cref="EffectiveState.ComputeELS"/>,
-        /// gate-safe and already tombstone-filtered) for this route's
-        /// <see cref="GameActionType.RouteCargoDelivered"/> rows and reduces them to a
+        /// Scans the route event log (<see cref="RouteEventLog.Events"/>) for this route's
+        /// <see cref="RouteEventType.RouteCargoDelivered"/> events and reduces them to a
         /// <see cref="LogisticsDeliveryPresentation.RouteDeliverySummary"/> (latest
         /// cycle + cumulative total). Mirrors
-        /// <c>RouteOrchestrator.IsDeliveryAlreadyInLedger</c>'s scan idiom and
-        /// catch-as-empty convention. Matches rows by RouteId only (all cycles), NOT by
-        /// cycle id. This is the one non-pure piece of H2/H3 (it needs a live Scenario
-        /// for ComputeELS), so it stays in the window file and feeds the pure
-        /// summary/format helpers; called only on the ~1 Hz cache refresh.
+        /// <c>RouteOrchestrator.IsDeliveryAlreadyLogged</c>'s scan idiom. Matches events
+        /// by RouteId only (all cycles), NOT by cycle id. It reads the static log, so it
+        /// stays in the window file and feeds the pure summary/format helpers; called only
+        /// on the ~1 Hz cache refresh.
         /// M6 per-cycle flow: the SAME single walk also fills
         /// <paramref name="flowRows"/> (debit / pickup / delivery rows bucketed
         /// later by cycle) via <see cref="LogisticsFlowPresentation.CollectRows"/>,
-        /// so the flow display adds NO second ledger walk; pass null to skip.
+        /// so the flow display adds NO second walk; pass null to skip.
         /// </summary>
         private static LogisticsDeliveryPresentation.RouteDeliverySummary CollectRouteDeliverySummary(
             string routeId, List<LogisticsFlowPresentation.FlowRow> flowRows)
@@ -4076,19 +4074,7 @@ namespace Parsek
             if (string.IsNullOrEmpty(routeId))
                 return LogisticsDeliveryPresentation.SummarizeRouteDeliveries(rows);
 
-            IReadOnlyList<GameAction> els;
-            try
-            {
-                els = EffectiveState.ComputeELS();
-            }
-            catch (System.Exception ex)
-            {
-                ParsekLog.Verbose("UI",
-                    $"Logistics delivery scan: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as no deliveries");
-                return LogisticsDeliveryPresentation.SummarizeRouteDeliveries(rows);
-            }
-
-            LogisticsFlowPresentation.CollectRows(els, routeId, rows, flowRows);
+            LogisticsFlowPresentation.CollectRows(RouteEventLog.Events, routeId, rows, flowRows);
             return LogisticsDeliveryPresentation.SummarizeRouteDeliveries(rows);
         }
 
@@ -4137,8 +4123,8 @@ namespace Parsek
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// The Route History rows for one route: its ledger rows from the Effective Ledger
-        /// Set (<see cref="EffectiveState.ComputeELS"/>, so a rewound or tombstoned run is
+        /// The Route History rows for one route: its events from the route event log
+        /// (<see cref="RouteEventLog.Events"/>, so a run a load back in time retired is
         /// absent) through the pure <see cref="RouteHistoryBuilder"/>, with the origin and
         /// each stop named by its live vessel (the place, never raw coordinates, when the
         /// vessel no longer resolves). Called on open and when
@@ -4148,17 +4134,7 @@ namespace Parsek
         {
             if (string.IsNullOrEmpty(routeId) || !RouteStore.TryGetRoute(routeId, out Route route) || route == null)
                 return new List<StructureStep>();
-            IReadOnlyList<GameAction> els;
-            try
-            {
-                els = EffectiveState.ComputeELS();
-            }
-            catch (System.Exception ex)
-            {
-                ParsekLog.Verbose("UI",
-                    $"Route History: ComputeELS threw {ex.GetType().Name}: {ex.Message}; no rows");
-                return new List<StructureStep>();
-            }
+            IReadOnlyList<RouteEvent> els = RouteEventLog.Events;
 
             string originVesselName = route.IsKscOrigin || route.IsHarvestOrigin
                 ? null : TryResolveLiveVesselName(route.Origin.VesselPersistentId);
@@ -4183,9 +4159,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The Route History's change signature: the ledger and tombstone versions (the
-        /// ELS inputs), whether the route still resolves, and its name (the title follows a
-        /// rename). An in-memory compare value, read on Layout passes only.
+        /// The Route History's change signature: the route event log's version, whether the
+        /// route still resolves, and its name (the title follows a rename). An in-memory compare value, read on Layout passes only.
         /// </summary>
         internal static int RouteHistorySignature(string routeId, out string routeName)
         {
@@ -4194,12 +4169,8 @@ namespace Parsek
                 && route != null;
             if (found && RouteStore.TryGetRoute(routeId, out Route named))
                 routeName = named.Name;
-            int tombstoneVersion = 0;
-            ParsekScenario scenario = ParsekScenario.Instance;
-            if (!object.ReferenceEquals(null, scenario))
-                tombstoneVersion = scenario.TombstoneStateVersion;
             return LogisticsRoutePresentation.RouteHistoryChangeSignature(
-                Ledger.StateVersion, tombstoneVersion, found, routeName);
+                RouteEventLog.StateVersion, found, routeName);
         }
 
         /// <summary>

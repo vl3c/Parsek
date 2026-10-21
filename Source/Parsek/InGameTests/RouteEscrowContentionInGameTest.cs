@@ -378,7 +378,7 @@ namespace Parsek.InGameTests
 
                     // ---- TICK 2: B's next crossing. The source physically covers it
                     //      now that nothing is reserved, so B dispatches and picks up. ----
-                    int beforeLedger = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+                    int beforeLedger = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
                     arrange.RunTick(Tick2UT);
 
                     InGameAssert.IsTrue(RouteStore.TryGetRoute(arrange.RouteBId, out Route bAfterTick2),
@@ -496,7 +496,7 @@ namespace Parsek.InGameTests
 
                     // ---- GAP TICK: no window of A is due. The pre-pass must rebuild
                     //      A's hold before B's crossing gates on the source. ----
-                    int beforeGapLedger = Ledger.Actions != null ? Ledger.Actions.Count : 0;
+                    int beforeGapLedger = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
                     arrange.ClearLog();
                     arrange.RunTick(GapTickUT);
 
@@ -856,15 +856,15 @@ namespace Parsek.InGameTests
         {
             dispatchedCount = 0;
             pickedUpCount = 0;
-            var actions = Ledger.Actions;
+            var actions = RouteEventLog.Events;
             if (actions == null) return;
             for (int i = fromIndex; i < actions.Count; i++)
             {
-                GameAction a = actions[i];
+                RouteEvent a = actions[i];
                 if (a == null) continue;
                 if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
-                if (a.Type == GameActionType.RouteDispatched) dispatchedCount++;
-                else if (a.Type == GameActionType.RouteCargoPickedUp) pickedUpCount++;
+                if (a.Type == RouteEventType.RouteDispatched) dispatchedCount++;
+                else if (a.Type == RouteEventType.RouteCargoPickedUp) pickedUpCount++;
             }
         }
 
