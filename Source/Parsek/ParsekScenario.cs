@@ -1659,6 +1659,8 @@ namespace Parsek
                 ConfigNode treeNode = node.AddNode("RECORDING_TREE");
                 tree.Save(treeNode);
             }
+            // GC-3: committed trees the schema gate rejected at load, written back verbatim.
+            InertRecordingTrees.AppendTo(node, committedTrees);
             if (committedTrees.Count > 0)
                 ParsekLog.Verbose("Scenario",
                     $"Saved {committedTrees.Count} trees ({treeRecCount} recordings): {treeTotalPoints} points, " +
@@ -2089,10 +2091,29 @@ namespace Parsek
                 // a second active node is never introduced, and do NOT remove the caller's nodes so
                 // a live in-flight active/pending recording written this save is preserved.
                 int addedTrees = 0;
+                // A committed tree id the caller already wrote (an inert tree re-emitted by
+                // SaveTreeRecordings, GC-3) is not added a second time. Active / pending nodes
+                // do not count: a resumed tree may share its committed copy's id.
+                var writtenTreeIds = new HashSet<string>(StringComparer.Ordinal);
+                foreach (ConfigNode written in targetNode.GetNodes("RECORDING_TREE"))
+                {
+                    if (IsActiveTreeNode(written) || IsPendingTreeNode(written))
+                        continue;
+                    string writtenId = written.GetValue("id");
+                    if (!string.IsNullOrEmpty(writtenId))
+                        writtenTreeIds.Add(writtenId);
+                }
                 foreach (ConfigNode diskTree in parsekNode.GetNodes("RECORDING_TREE"))
                 {
                     if (IsActiveTreeNode(diskTree) || IsPendingTreeNode(diskTree))
                         continue;
+                    string diskId = diskTree.GetValue("id");
+                    if (!string.IsNullOrEmpty(diskId) && writtenTreeIds.Contains(diskId))
+                    {
+                        ParsekLog.Verbose("Scenario",
+                            $"Load-fault guard: tree id={diskId} already written this save; not re-added");
+                        continue;
+                    }
                     targetNode.AddNode(diskTree.CreateCopy());
                     addedTrees++;
                 }
@@ -2416,7 +2437,9 @@ namespace Parsek
         /// the ids of any isActive / isPending RECORDING_TREE node in <paramref name="node"/>
         /// (restored into the pending slot LATER this OnLoad by <see cref="TryRestoreActiveTreeNode"/>
         /// / <see cref="TryRestorePendingTreeNode"/>), plus any already-stashed pending /
-        /// saved-pending tree. Limbo-tree data-loss fix (second half).
+        /// saved-pending tree. Limbo-tree data-loss fix (second half). Also the committed trees
+        /// kept inert (<see cref="InertRecordingTrees"/>, GC-3), which are never committed in this
+        /// build; the cross-tree link reconcile defers while any of these is uncommitted.
         /// <para>
         /// If that later restore fails the schema gate (all recordings rejected), the protected
         /// mission dangles for one cycle, then the next save writes no node and the next load
@@ -2443,6 +2466,13 @@ namespace Parsek
             var savedPending = RecordingStore.SavedPendingTreeDuringActiveRestore;
             if (savedPending != null && !string.IsNullOrEmpty(savedPending.Id))
                 ids.Add(savedPending.Id);
+            // GC-3: committed trees kept inert exist in the save too; their missions stay.
+            int beforeInert = ids.Count;
+            InertRecordingTrees.AddTreeIdsTo(ids);
+            if (ids.Count > beforeInert)
+                ParsekLog.Verbose("Scenario",
+                    $"Mission prune: {(ids.Count - beforeInert).ToString(CultureInfo.InvariantCulture)} " +
+                    "inert tree id(s) protected");
             return ids;
         }
 
@@ -4817,6 +4847,11 @@ namespace Parsek
                 loadPhase = "recording-trees";
                 LoadRecordingTrees(node, recordings);
                 loadedRecordingCount = recordings.Count;
+                // GC-3: one screen message per load that kept trees of another schema
+                // generation inert (posted once the scene settles).
+                string inertTreeNotice = InertRecordingTrees.TakeLoadNotice();
+                if (inertTreeNotice != null)
+                    ParsekHarmony.QueueNoticeForSettledScene(inertTreeNotice);
                 loadPhase = "sanitize-nonloopable-loop";
                 RecordingStore.SanitizeNonLoopableLoopPlayback();
                 loadPhase = "missions";
@@ -5969,6 +6004,8 @@ namespace Parsek
             ConfigNode[] treeNodes = node.GetNodes("RECORDING_TREE");
             var committedTrees = RecordingStore.CommittedTrees;
             committedTrees.Clear();
+            // Inert trees (GC-3) share the committed trees' lifetime: replaced here.
+            InertRecordingTrees.BeginLoad();
             ParsekLog.Info("Scenario",
                 $"OnLoad initial: cleared CommittedTrees, loading {treeNodes.Length} tree(s)");
 
@@ -5992,20 +6029,34 @@ namespace Parsek
                     if (IsActiveTreeNode(treeNode))
                     {
                         activeTreeCount++;
+                        InertRecordingTrees.NoteDroppedParkedNode(treeNode, "active");
                         continue;
                     }
                     if (IsPendingTreeNode(treeNode))
                     {
                         pendingTreeCount++;
+                        InertRecordingTrees.NoteDroppedParkedNode(treeNode, "pending");
                         continue;
                     }
 
                     var tree = RecordingTree.Load(treeNode);
                     if (tree.Recordings == null || tree.Recordings.Count == 0)
                     {
+                        // GC-3: a committed tree the schema gate rejected is kept inert and
+                        // written back verbatim by SaveTreeRecordings (a pass-through, not a
+                        // migration); anything else that loaded empty is skipped as before.
+                        string inertReason = InertRecordingTrees.ClassifySchemaRejection(treeNode, tree);
+                        if (inertReason != null)
+                        {
+                            InertRecordingTrees.SetAside(treeNode, inertReason);
+                            ParsekLog.Warn("Scenario",
+                                $"LoadRecordingTrees: tree '{tree.TreeName}' id={tree.Id} was rejected by " +
+                                $"the schema gate (reason={inertReason}); kept inert, not loaded");
+                            continue;
+                        }
                         ParsekLog.Warn("Scenario",
                             $"LoadRecordingTrees: skipped tree '{tree.TreeName}' id={tree.Id} " +
-                            "because all recordings were rejected by the schema gate");
+                            "because it holds no recording");
                         continue;
                     }
                     int sidecarHydrationFailures = 0;
@@ -6081,6 +6132,7 @@ namespace Parsek
                     $"{treeTotalOrbitSegments} orbit segments, {treeTotalPartEvents} part events, " +
                     $"{treeWithTrackSections} with track sections, {treeWithSnapshots} with snapshots");
             }
+            InertRecordingTrees.LogLoadSummary();
         }
 
         /// <summary>

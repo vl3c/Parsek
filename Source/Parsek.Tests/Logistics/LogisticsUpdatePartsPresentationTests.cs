@@ -234,11 +234,9 @@ namespace Parsek.Tests.Logistics
 
         private sealed class EligibleEnv : IRouteRuntimeEnvironment
         {
-            public bool IsCareer { get; set; }
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = string.Empty; return true; }
             public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason) { vessel = null; reason = string.Empty; return true; }
             public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall) { shortfall = 0.0; lackingResource = string.Empty; return true; }
-            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
             public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = string.Empty; return true; }
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }
@@ -305,7 +303,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(-1, route.Stops[1].LastFiredCycleIndex);
             Assert.True(LogisticsRoutePresentation.IsRunInFlight(route));
 
-            Assert.True(RouteOrchestrator.TryPause(route, 1160.0, env));
+            Assert.True(RouteOrchestrator.TryPause(route, 1160.0));
             Assert.Equal(RouteStatus.Paused, route.Status);
             Assert.True(LogisticsRoutePresentation.IsRunInFlight(route));
             Assert.Equal(LogisticsRoutePresentation.UpdatePartsInFlightReason,
@@ -333,7 +331,7 @@ namespace Parsek.Tests.Logistics
             var env = new EligibleEnv();
 
             RouteOrchestrator.Tick(1150.0, env);
-            Assert.True(RouteOrchestrator.TryPause(route, 1160.0, env));
+            Assert.True(RouteOrchestrator.TryPause(route, 1160.0));
             Assert.True(LogisticsRoutePresentation.IsRunInFlight(route));
 
             Assert.True(RouteOrchestrator.TryActivate(route, 1170.0));

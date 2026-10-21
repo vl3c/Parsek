@@ -381,86 +381,20 @@ namespace Parsek.Tests.Logistics
                 BodyName = "Minmus"
             };
 
-            string block = RouteCreationFormatters.BuildSummaryBlock(
-                analysis, Game.Modes.SANDBOX);
+            string block = RouteCreationFormatters.BuildSummaryBlock(analysis);
 
             Assert.Contains("Origin: harvested en route", block);
         }
 
-        private static RouteRunCostCalculator.RouteRunCost ApplicableRunCost(
-            double launch, double recovered, int recoveries)
-        {
-            double net = launch - recovered;
-            return new RouteRunCostCalculator.RouteRunCost
-            {
-                Applicable = true,
-                CostKnown = launch > 0.0,
-                LaunchCost = launch,
-                RecoveredCredits = recovered,
-                NetCost = net > 0.0 ? net : 0.0,
-                RecoveryEventCount = recoveries
-            };
-        }
-
         [Fact]
-        public void BuildSummaryBlock_CareerKsc_WithRunCost_IncludesCostBlock()
+        public void BuildSummaryBlock_HasNoCostBlock()
         {
-            // catches: the run-cost block dropping out of the Career + KSC summary.
-            // Career players need cost visibility before confirming the route; the
-            // old "Dispatch cost: TBD" placeholder was replaced by the real net.
-            RouteRunCostCalculator.RouteRunCost cost = ApplicableRunCost(12500.0, 7300.0, 1);
-            string block = RouteCreationFormatters.BuildSummaryBlock(
-                EligibleAnalysis(), Game.Modes.CAREER, null, cost);
-            Assert.Contains("Cost per run: 5,200 funds", block);
-            Assert.Contains("Launch: 12,500 funds", block);
-            Assert.Contains("Recovered: 7,300 funds", block);
-            // The old placeholder must be gone.
-            Assert.DoesNotContain("TBD", block);
-        }
-
-        [Fact]
-        public void BuildSummaryBlock_SandboxMode_OmitsCostBlock()
-        {
-            // catches: leaking a cost block into Sandbox mode (no funds). A
-            // not-applicable RunCost (the caller computes Applicable=false outside
-            // Career) must omit the block entirely.
-            RouteRunCostCalculator.RouteRunCost cost = new RouteRunCostCalculator.RouteRunCost
-            {
-                Applicable = false,
-                CostKnown = false
-            };
-            string block = RouteCreationFormatters.BuildSummaryBlock(
-                EligibleAnalysis(), Game.Modes.SANDBOX, null, cost);
+            // catches: a run-cost block coming back. Supply routes carry no money,
+            // so the creation summary names no funds in any game mode.
+            string block = RouteCreationFormatters.BuildSummaryBlock(EligibleAnalysis());
             Assert.DoesNotContain("Cost per run", block);
+            Assert.DoesNotContain("funds", block);
             Assert.DoesNotContain("TBD", block);
-        }
-
-        [Fact]
-        public void BuildSummaryBlock_NoRunCostPassed_OmitsCostBlock()
-        {
-            // catches: a null run-cost (test / legacy call paths that do not wire
-            // the cost) rendering a stray block. The block must only appear when an
-            // applicable, known cost is supplied.
-            string block = RouteCreationFormatters.BuildSummaryBlock(
-                EligibleAnalysis(), Game.Modes.CAREER);
-            Assert.DoesNotContain("Cost per run", block);
-            Assert.DoesNotContain("TBD", block);
-        }
-
-        [Fact]
-        public void BuildSummaryBlock_CareerKsc_UnknownCost_OmitsCostBlock()
-        {
-            // catches: an unhydrated snapshot (launch 0 -> CostKnown false) leaking a
-            // misleading "0 funds" block (gotcha G7). The block must be suppressed.
-            RouteRunCostCalculator.RouteRunCost cost = new RouteRunCostCalculator.RouteRunCost
-            {
-                Applicable = true,
-                CostKnown = false,
-                LaunchCost = 0.0
-            };
-            string block = RouteCreationFormatters.BuildSummaryBlock(
-                EligibleAnalysis(), Game.Modes.CAREER, null, cost);
-            Assert.DoesNotContain("Cost per run", block);
         }
 
         // -----------------------------------------------------------------
@@ -568,8 +502,7 @@ namespace Parsek.Tests.Logistics
             // the "unknown" placeholder (seen in game as "????") for a KSC-origin
             // route because origin was read off the launch-site-less dock child.
             RouteAnalysisResult analysis = KscOriginDockChildAnalysis(out RecordingTree tree);
-            string block = RouteCreationFormatters.BuildSummaryBlock(
-                analysis, Game.Modes.SANDBOX, tree);
+            string block = RouteCreationFormatters.BuildSummaryBlock(analysis, tree);
             Assert.Contains("Origin: KSC (Launch Pad)", block);
             Assert.DoesNotContain("Origin: unknown", block);
         }
@@ -679,7 +612,7 @@ namespace Parsek.Tests.Logistics
             // catches: the candidate-table origin cell showing "-" for a KSC route
             // because it read the dock-child source instead of the tree root.
             RouteAnalysisResult analysis = KscOriginDockChildAnalysis(out RecordingTree tree);
-            Assert.Equal("KSC (funds)",
+            Assert.Equal("KSC",
                 LogisticsWindowUI.FormatCandidateOrigin(analysis, tree));
         }
 
@@ -709,8 +642,7 @@ namespace Parsek.Tests.Logistics
                 },
                 InventoryDeliveryManifest = new List<InventoryPayloadItem> { null }
             };
-            string block = RouteCreationFormatters.BuildSummaryBlock(
-                bare, Game.Modes.SANDBOX, null);
+            string block = RouteCreationFormatters.BuildSummaryBlock(bare, null);
             Assert.DoesNotContain("<", block);
             Assert.DoesNotContain(">", block);
         }
@@ -814,8 +746,7 @@ namespace Parsek.Tests.Logistics
             // catches: the dialog origin line falling to "unknown" for a depot route
             // because the proof was read off the proof-less dock-child source.
             RouteAnalysisResult analysis = DepotOriginViaTreeRootAnalysis(out RecordingTree tree);
-            string block = RouteCreationFormatters.BuildSummaryBlock(
-                analysis, Game.Modes.SANDBOX, tree);
+            string block = RouteCreationFormatters.BuildSummaryBlock(analysis, tree);
             Assert.Contains("Origin: root #4243", block);
             Assert.DoesNotContain("Origin: unknown", block);
         }

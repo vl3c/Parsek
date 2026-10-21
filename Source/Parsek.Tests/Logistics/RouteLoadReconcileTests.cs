@@ -269,11 +269,6 @@ namespace Parsek.Tests.Logistics
             var partial = MakeLoopRoute();
             partial.LastPartialDeliveryUT = 1300.0;
             Assert.True(RouteLoadReconcile.HasRouteStateAfterUT(1200.0, new[] { partial }, false, out _));
-
-            var credit = MakeLoopRoute();
-            credit.PendingRecoveryCreditCycleId = "cycle-4";
-            credit.PendingRecoveryCreditDispatchUT = 1300.0;
-            Assert.True(RouteLoadReconcile.HasRouteStateAfterUT(1200.0, new[] { credit }, false, out _));
         }
 
         [Fact]
@@ -305,10 +300,9 @@ namespace Parsek.Tests.Logistics
 
             int restored = RouteLoadReconcile.RestoreLoopPositionFromSave(
                 new[] { kept }, new[] { saved }, 1200.0, 1200.0,
-                out int credits, out int changed, out int missing);
+                out int changed, out int missing);
 
             Assert.Equal(1, restored);
-            Assert.Equal(0, credits);
             Assert.Equal(0, changed);
             Assert.Equal(0, missing);
             Assert.Equal(0, kept.LastObservedLoopCycleIndex);
@@ -328,7 +322,7 @@ namespace Parsek.Tests.Logistics
 
             int restored = RouteLoadReconcile.RestoreLoopPositionFromSave(
                 new[] { kept }, new[] { saved }, 1200.0, 1200.0,
-                out _, out int changed, out _);
+                out int changed, out _);
 
             Assert.Equal(0, restored);
             Assert.Equal(1, changed);
@@ -350,7 +344,7 @@ namespace Parsek.Tests.Logistics
             kept.LastObservedLoopCycleIndex = -1;
 
             RouteLoadReconcile.RestoreLoopPositionFromSave(
-                new[] { kept }, new[] { saved }, 2400.0, 2400.0, out _, out _, out _);
+                new[] { kept }, new[] { saved }, 2400.0, 2400.0, out _, out _);
 
             Assert.Equal(1000.0, kept.LoopAnchorUT);
             Assert.Equal(3, kept.LastObservedLoopCycleIndex);
@@ -364,7 +358,7 @@ namespace Parsek.Tests.Logistics
             keptRetimed.DispatchInterval = 600.0;
 
             RouteLoadReconcile.RestoreLoopPositionFromSave(
-                new[] { keptRetimed }, new[] { saved }, 2400.0, 2400.0, out _, out int changed, out _);
+                new[] { keptRetimed }, new[] { saved }, 2400.0, 2400.0, out int changed, out _);
 
             Assert.Equal(1, changed);
             Assert.Equal(1000.0, keptRetimed.LoopAnchorUT);
@@ -384,7 +378,7 @@ namespace Parsek.Tests.Logistics
             kept.LastConsumedPartnerCycle = 5;
 
             RouteLoadReconcile.RestoreLoopPositionFromSave(
-                new[] { kept }, new[] { saved }, 1200.0, 1200.0, out _, out _, out _);
+                new[] { kept }, new[] { saved }, 1200.0, 1200.0, out _, out _);
             Assert.Equal(2, kept.LastConsumedPartnerCycle);
 
             // Linked to another route after the save: the saved value counts a different partner.
@@ -392,7 +386,7 @@ namespace Parsek.Tests.Logistics
             relinked.LinkedRouteId = "other";
             relinked.LastConsumedPartnerCycle = 5;
             RouteLoadReconcile.RestoreLoopPositionFromSave(
-                new[] { relinked }, new[] { saved }, 1200.0, 1200.0, out _, out _, out _);
+                new[] { relinked }, new[] { saved }, 1200.0, 1200.0, out _, out _);
             Assert.Equal(5, relinked.LastConsumedPartnerCycle);
         }
 
@@ -408,7 +402,7 @@ namespace Parsek.Tests.Logistics
 
             int restored = RouteLoadReconcile.RestoreLoopPositionFromSave(
                 new[] { kept }, new[] { saved }, cutoffUT: 900.0, loadedSaveUT: 1500.0,
-                out _, out _, out _);
+                out _, out _);
 
             Assert.Equal(0, restored);
             Assert.Equal(-1, kept.LastObservedLoopCycleIndex);
@@ -422,53 +416,11 @@ namespace Parsek.Tests.Logistics
 
             int restored = RouteLoadReconcile.RestoreLoopPositionFromSave(
                 new[] { kept }, new[] { MakeLoopRoute("other") }, 1200.0, 1200.0,
-                out _, out _, out int missing);
+                out _, out int missing);
 
             Assert.Equal(0, restored);
             Assert.Equal(1, missing);
             Assert.Equal(-1, kept.LastObservedLoopCycleIndex);
-        }
-
-        [Fact]
-        public void Restore_OwedRecoveryCredit_ComesBackWhenItsDispatchIsAtOrBeforeTheCutoff()
-        {
-            var saved = MakeLoopRoute();
-            saved.PendingRecoveryCreditCycleId = "cycle-0";
-            saved.PendingRecoveryCreditDispatchUT = 1150.0;
-            var kept = Clone(saved);
-            kept.PendingRecoveryCreditCycleId = null;     // flushed after the save, then reset
-            kept.PendingRecoveryCreditDispatchUT = -1.0;
-
-            RouteLoadReconcile.RestoreLoopPositionFromSave(
-                new[] { kept }, new[] { saved }, 1200.0, 1200.0,
-                out int credits, out _, out _);
-
-            Assert.Equal(1, credits);
-            Assert.Equal("cycle-0", kept.PendingRecoveryCreditCycleId);
-            Assert.Equal(1150.0, kept.PendingRecoveryCreditDispatchUT);
-
-            // A saved credit owed by a dispatch after the cutoff is not the cutoff's.
-            var late = MakeLoopRoute("late");
-            late.PendingRecoveryCreditCycleId = "cycle-2";
-            late.PendingRecoveryCreditDispatchUT = 1300.0;
-            var keptLate = Clone(late);
-            keptLate.PendingRecoveryCreditCycleId = null;
-            keptLate.PendingRecoveryCreditDispatchUT = -1.0;
-            RouteLoadReconcile.RestoreLoopPositionFromSave(
-                new[] { keptLate }, new[] { late }, 1200.0, 1200.0,
-                out int lateCredits, out _, out _);
-            Assert.Equal(0, lateCredits);
-            Assert.Null(keptLate.PendingRecoveryCreditCycleId);
-
-            // A credit the live route still owes is left alone.
-            var owing = MakeLoopRoute("owing");
-            owing.PendingRecoveryCreditCycleId = "cycle-1";
-            owing.PendingRecoveryCreditDispatchUT = 1100.0;
-            var keptOwing = Clone(owing);
-            keptOwing.PendingRecoveryCreditCycleId = "cycle-1";
-            RouteLoadReconcile.RestoreLoopPositionFromSave(
-                new[] { keptOwing }, new[] { saved }, 1200.0, 1200.0, out _, out _, out _);
-            Assert.Equal("cycle-1", keptOwing.PendingRecoveryCreditCycleId);
         }
 
         // ------------------------------------------------------------------

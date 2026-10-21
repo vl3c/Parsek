@@ -834,7 +834,8 @@ two are the last rows below:
 WAVE 5 (2026-09-21, ALL TEN FLOWN GREEN the same day, plus both amended lanes, on one
 pinned automation DLL, every lane's final verdict PASS on attempt 1 at 53-92 s wall) is TEN
 lanes, `GUI-13` through `GUI-23` (`GUI-16` was retired with the manual ghost-only
-recorder it photographed), plus amendments to `GUI-1` and `GUI-6`. It is a different kind of wave from the four above it, and
+recorder it photographed, and `GUI-23` on 2026-10-21 with the route funds gate it
+photographed, todo LOGISTICS-WITHOUT-MONEY), plus amendments to `GUI-1` and `GUI-6`. It is a different kind of wave from the four above it, and
 the difference is the input: waves 1 to 4 walked SURFACES (which window, which tab, which
 modal), while wave 5 came from a read-only STATE-COVERAGE AUDIT that enumerated the
 visibly distinct draw branches of those surfaces from the source and checked each against
@@ -870,7 +871,6 @@ renders the same literal, so it reaches no distinct window state.
 | `GUI-20-census-logistics-hold-second-cycle` | RVR-8's `rover-relay-c-recorded` (FLIGHT) | the richest of the four clones, because RVR-8 delivers a cycle before it blocks: the Paused row with its dated hold detail line, `Recent runs:`, the dated `Last delivered on <date>: ...` line, Runs `1, 1 held` - then the ACTIVE section with `Pause` and the `Held:` Status cell (declared a MAY) |
 | `GUI-21-census-logistics-hold-origin-empty` | RVR-10's host + its `liveState` patch (FLIGHT) | the `OriginLacksCargo` hold over a drained source, the yellow `Held:` Status cell on the PAUSED row (the cyan `New (not yet run)` cell and guidance line it was designed for are gone since Logistics Model 1), Runs `0, 1 held`, and NO `Recent runs:` header - a blocked run emits no ledger cargo rows, so the ABSENCE is the state |
 | `GUI-22-census-logistics-hold-destination-full` | RVR-13's host + its `liveState` patch (FLIGHT) | the `DestinationFull` hold over a topped-out endpoint. The `<dest> tanks full:` capacity line is NOT bought and cannot be: it is gated on `RouteStatus == DestinationFull`, which the loop dispatch path never assigns |
-| `GUI-23-census-logistics-hold-funds-short` | RVR-17's `rover-route-career` (FLIGHT) | the `FundsShort` hold on the CAREER route host, and Runs `0, 2 held` - the only two-held reading of the four |
 
 WAVE 6 (authored AND FLOWN 2026-09-22, all four PASS on attempt 1 at 55-88 s wall, nine
 flights on one pinned DLL) is FOUR lanes, `GUI-24` through `GUI-27`, and its input is
@@ -2127,30 +2127,14 @@ produced save reads rover A with six of six slots occupied - so the mode's own
 falsification (a no-op fill leaves RVR-15's staged state, which RVR-15 measured
 DELIVERING) never fired.
 
-A sibling key covers the one career quantity a route lane's arithmetic runs on:
+A sibling key, `[fixture.career] funds`, staged a career funds pool for the supply-route
+funds gate; it was retired 2026-10-21 with route money (todo LOGISTICS-WITHOUT-MONEY), and
+a spec still declaring it is refused pre-launch.
 
-```toml
-[fixture.career]
-funds = 7409                          # one dispatch cost short, so the gate refuses
-```
-
-`[fixture.career]` is a single table, not an array, and today accepts `funds` only.
-It rewrites the `funds` key of the save's one `SCENARIO { name = Funding }` node and
-ABORTS on a save carrying none - which is exactly what a career declaration on a
-SANDBOX template looks like from inside the applier. It is deliberately NOT a
-`liveState` entry: that block is FLIGHTSTATE-only by contract, and that boundary is
-its whole safety argument. The declared number IS the number the dispatch gate reads:
-`LedgerOrchestrator.EnsureInitialFundsSeed` seeds the ledger FROM
-`Funding.Instance.Funds`, and `PatchFunds`' guarded uplift refuses to raise the live
-pool to a ledger running balance above it (RVR-4 measured that clamp on this very
-fixture family), so committed milestone rows do not move it.
-
-**THE TWO 2026-09-03 ADDITIONS ARE LIVE-PROVEN TOO**: `remove = true` on RVR-18
+**THE 2026-09-03 `remove = true` ADDITION IS LIVE-PROVEN TOO**, on RVR-18
 (`2026-09-03_2011`, PASS attempt 1 - `liveState patched pid=2123618197 name=rover fuel 0
 removed=1`, and the route then resolved through the proximity step to a different
-vessel), and `[fixture.career] funds` on RVR-17 (`2026-09-03_2010`, PASS attempt 1 -
-`career patched funds 11000->7409`, with the game's own guarded-uplift clamp then
-reporting `live=7409`, i.e. the declared seed reached the pool the dispatch gate reads).
+vessel).
 
 **LIVE-PROVEN 2026-09-03** across the six RVR-8..RVR-15 lanes that stage one: every
 harness log carries its patch line (e.g. `liveState patched pid=90564594 name=B

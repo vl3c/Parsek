@@ -24,7 +24,7 @@ namespace Parsek.Logistics
     /// ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD). <see cref="RouteStore"/> is loaded from
     /// the save on a cold load only, and the ledger is never reloaded in session, so a load that
     /// goes back in time keeps the abandoned future's route rows and loop cursors: the re-flown
-    /// crossings are swallowed by the cursor and the UT-blind dispatch dedup while their funds
+    /// crossings are swallowed by the cursor and the UT-blind dispatch dedup while their
     /// rows survive. An F9 quickload, a stock revert and the Esc-menu Discard Re-fly load
     /// therefore run the SAME reconcile the go-back rewind exit runs
     /// (<see cref="Ledger.RetireFutureRouteActionsAtRewind"/> +
@@ -35,10 +35,9 @@ namespace Parsek.Logistics
     /// <para>The shared reconcile's cursor reset (-1) makes the next tick fire the crossing whose
     /// dock instant most recently passed, under a fresh cycle id the dispatch dedup cannot match;
     /// that crossing was dispatched before the cutoff and its cargo is in the loaded world, so it
-    /// would be delivered and charged twice. So each kept route then takes its loop position back
+    /// would be delivered twice. So each kept route then takes its loop position back
     /// from the loaded save's own route copy (loop anchor, route and per-stop cursors, window
-    /// anchor, partner alternation cursor), and the recovery credit the save still owes when the
-    /// reconcile cleared a later one (<see cref="RestoreLoopPositionFromSave"/>). An in-session
+    /// anchor, partner alternation cursor; <see cref="RestoreLoopPositionFromSave"/>). An in-session
     /// load reads that copy from its OnLoad node; the two rewind exits run the same restore
     /// through <see cref="RestoreLoopPositionAtRewindExit"/>.</para>
     ///
@@ -160,7 +159,7 @@ namespace Parsek.Logistics
         /// True when anything that HAPPENED on a route lies strictly after
         /// <paramref name="cutoffUT"/>: a free-standing route ledger row
         /// (<paramref name="ledgerHasFutureRouteRows"/>), a route created after it, or a route's
-        /// cycle start, hold, partial delivery or owed-credit dispatch stamped after it. Scheduled
+        /// cycle start, hold or partial delivery stamped after it. Scheduled
         /// UTs (next dispatch, next eligibility check, pending delivery) are the future by design
         /// and do not count. <paramref name="evidence"/> names the first hit, or "none".
         /// </summary>
@@ -188,9 +187,6 @@ namespace Parsek.Logistics
                         field = "hold";
                     else if (r.LastPartialDeliveryUT > cutoffUT)
                         field = "partial-delivery";
-                    else if (!string.IsNullOrEmpty(r.PendingRecoveryCreditCycleId)
-                        && r.PendingRecoveryCreditDispatchUT > cutoffUT)
-                        field = "credit-dispatch";
                     if (field != null)
                     {
                         evidence = "route-" + field + ":" + RouteIds.Short(r.Id);
@@ -251,10 +247,7 @@ namespace Parsek.Logistics
         /// <see cref="ClockDefinitionMatches"/>; <see cref="Route.LastConsumedPartnerCycle"/> when
         /// the route is linked to the same partner. The other inputs of the loop span (excluded
         /// interval keys, origin undock UT, source refs, creation members) are set at creation and
-        /// never change, so the live copy already equals the save's. Also restores the recovery
-        /// credit the save still owes (its dispatch at or before the cutoff) when the live route
-        /// owes none: the reconcile clears a credit owed by a dispatch after the cutoff and cannot
-        /// bring back the one a later flush paid.
+        /// never change, so the live copy already equals the save's.
         /// Restores nothing when the save is newer than the cutoff (its position is not the
         /// position at the cutoff) or unknown. A route missing from the save keeps the reset.
         /// Pure over the Route instances handed in (<paramref name="logTag"/> only tags its log
@@ -263,10 +256,9 @@ namespace Parsek.Logistics
         internal static int RestoreLoopPositionFromSave(
             IReadOnlyList<Route> keptRoutes, IReadOnlyList<Route> savedRoutes,
             double cutoffUT, double loadedSaveUT,
-            out int creditsRestored, out int definitionChanged, out int missingFromSave,
+            out int definitionChanged, out int missingFromSave,
             string logTag = LogTag)
         {
-            creditsRestored = 0;
             definitionChanged = 0;
             missingFromSave = 0;
             if (keptRoutes == null || keptRoutes.Count == 0 || savedRoutes == null)
@@ -320,16 +312,6 @@ namespace Parsek.Logistics
                     partnerCursorsRestored++;
                 }
 
-                if (string.IsNullOrEmpty(kept.PendingRecoveryCreditCycleId)
-                    && !string.IsNullOrEmpty(saved.PendingRecoveryCreditCycleId)
-                    && saved.PendingRecoveryCreditDispatchUT >= 0.0
-                    && saved.PendingRecoveryCreditDispatchUT <= cutoffUT)
-                {
-                    kept.PendingRecoveryCreditCycleId = saved.PendingRecoveryCreditCycleId;
-                    kept.PendingRecoveryCreditDispatchUT = saved.PendingRecoveryCreditDispatchUT;
-                    creditsRestored++;
-                }
-
                 if (!ClockDefinitionMatches(kept, saved))
                 {
                     definitionChanged++;
@@ -352,7 +334,7 @@ namespace Parsek.Logistics
             ParsekLog.Verbose(logTag,
                 $"Route reconcile: restored from the save cursors={restored.ToString(IC)} " +
                 $"anchors={anchorsRestored.ToString(IC)} partnerCursors={partnerCursorsRestored.ToString(IC)} " +
-                $"credits={creditsRestored.ToString(IC)} clockChanged={definitionChanged.ToString(IC)} " +
+                $"clockChanged={definitionChanged.ToString(IC)} " +
                 $"missingFromSave={missingFromSave.ToString(IC)}");
             return restored;
         }
@@ -388,8 +370,7 @@ namespace Parsek.Logistics
         /// <see cref="RouteStore.CommittedRoutes"/> with the loaded save's own route copy, so the
         /// reset does not re-fire the crossing that most recently passed before the cutoff.
         /// <paramref name="savedRoutes"/> null (no copy in hand) leaves the reset standing. Sets
-        /// Route fields only, never a ledger row (both exits run inside OnLoad), and the owed
-        /// credit it puts back is paid by the next crossing, not here. One log line per call.
+        /// Route fields only, never a ledger row (both exits run inside OnLoad). One log line per call.
         /// </summary>
         internal static int RestoreLoopPositionAtRewindExit(
             IReadOnlyList<Route> savedRoutes, double cutoffUT, double loadedSaveUT,
@@ -414,13 +395,13 @@ namespace Parsek.Logistics
 
             int restored = RestoreLoopPositionFromSave(
                 RouteStore.CommittedRoutes, savedRoutes, cutoffUT, loadedSaveUT,
-                out int creditsRestored, out int definitionChanged, out int missingFromSave,
+                out int definitionChanged, out int missingFromSave,
                 logTag);
             ParsekLog.Info(logTag,
                 logPrefix + ": loop position restored from the loaded save at cutoff=" + cutoffText +
                 $" loadedSaveUT={saveText} keptRoutes={keptCount.ToString(IC)} " +
                 $"savedRoutes={savedRoutes.Count.ToString(IC)} loopPositionsRestored={restored.ToString(IC)} " +
-                $"creditsRestored={creditsRestored.ToString(IC)} clockChanged={definitionChanged.ToString(IC)} " +
+                $"clockChanged={definitionChanged.ToString(IC)} " +
                 $"missingFromSave={missingFromSave.ToString(IC)}");
             return restored;
         }
@@ -441,10 +422,9 @@ namespace Parsek.Logistics
         /// The go-back rewind's route cutoff: the rewind save's own UT
         /// (<paramref name="rewindSaveUT"/>, before the lead-time windback) when its route copy is
         /// in hand, else the wound-back clock (<paramref name="rewindAdjustedUT"/>). Every route
-        /// state the exit restores (loop cursors, owed recovery credit, which routes exist) comes
+        /// state the exit restores (loop cursors, which routes exist) comes
         /// from that copy, so the route rows kept must be the rows up to the same moment: a
-        /// crossing between the two UTs keeps its saved cursor and its charge and recovery-credit
-        /// rows. Without a copy nothing is restored, the reset stands, and the rows after the
+        /// crossing between the two UTs keeps its saved cursor and its rows. Without a copy nothing is restored, the reset stands, and the rows after the
         /// clock are retired so the reset re-fires them once. Only the route reconcile reads it;
         /// the career cutoff stays at the clock. <paramref name="source"/> names the choice.
         /// </summary>
@@ -611,7 +591,7 @@ namespace Parsek.Logistics
 
             int restored = RestoreLoopPositionFromSave(
                 RouteStore.CommittedRoutes, savedRoutes, cutoffUT, loadedSaveUT,
-                out int creditsRestored, out int definitionChanged, out int missingFromSave);
+                out int definitionChanged, out int missingFromSave);
 
             ParsekLog.Info(LogTag,
                 $"Route reconcile at in-session load: kind={kind} cutoff={cutoffText} " +
@@ -619,7 +599,7 @@ namespace Parsek.Logistics
                 $"committedRoutes={RouteStore.CommittedRoutes.Count} " +
                 $"newlyDormant={RouteStore.DormantRoutes.Count - dormantBefore} " +
                 $"savedRoutes={savedRoutes?.Count ?? 0} loopPositionsRestored={restored} " +
-                $"creditsRestored={creditsRestored} clockChanged={definitionChanged} " +
+                $"clockChanged={definitionChanged} " +
                 $"missingFromSave={missingFromSave}");
             return outcome;
         }

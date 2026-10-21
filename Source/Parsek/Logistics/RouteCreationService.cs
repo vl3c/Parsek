@@ -68,7 +68,7 @@ namespace Parsek.Logistics
         /// (<see cref="ResolveDefaultName"/>).</param>
         /// <param name="intervalSeconds">Dispatch interval handed to the builder; it is
         /// snapped to <c>N * TransitDuration</c> there.</param>
-        /// <param name="mode">The game mode (career cost legs).</param>
+        /// <param name="mode">The game mode (logged by the builder).</param>
         /// <param name="currentUT">Live UT for the manual-loop clear.</param>
         internal static RouteCreateOutcome CreatePausedFromCandidate(
             RouteCandidate candidate,

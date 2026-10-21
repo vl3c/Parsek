@@ -216,8 +216,7 @@ namespace Parsek.Tests
             var filtered = RouteMemberRunExpansion.ApplyRouteFilters(
                 full, new HashSet<string>(), null, ref tally);
 
-            // No snapshot (degenerate / pre-field route) = fail open, the RouteRunCostCalculator
-            // contract for the same set.
+            // No snapshot (degenerate / pre-field route) = fail open.
             Assert.Equal(new[] { "head", "seg1", "seg2" }, Ids(filtered));
         }
 

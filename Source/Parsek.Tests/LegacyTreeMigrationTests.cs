@@ -72,18 +72,15 @@ namespace Parsek.Tests
         [InlineData(GameActionType.FundsInitial,         false)]
         [InlineData(GameActionType.ScienceInitial,       false)]
         [InlineData(GameActionType.ReputationInitial,    false)]
-        // Route funds (logistics-recovery-credit, Option A): FundsModule now consumes
-        // BOTH the gross dispatch debit (RouteCargoDebited, a spending) and the
-        // deferred recovery credit (RouteRecoveryCredited, an earning), so both move
-        // the funds pool and classify true. The remaining route types track only
-        // scheduler state (dispatch decision / delivery record / pause / endpoint
-        // lost) and move no resource pool, so they stay false.
+        // Route rows: supply routes carry no money (todo LOGISTICS-WITHOUT-MONEY), so
+        // no route type moves a funds / science / reputation pool. RouteRecoveryCredited
+        // is a legacy type nothing writes; old rows are dropped at ledger load.
         [InlineData(GameActionType.RouteDispatched,      false)]
-        [InlineData(GameActionType.RouteCargoDebited,    true)]
+        [InlineData(GameActionType.RouteCargoDebited,    false)]
         [InlineData(GameActionType.RouteCargoDelivered,  false)]
         [InlineData(GameActionType.RoutePaused,          false)]
         [InlineData(GameActionType.RouteEndpointLost,    false)]
-        [InlineData(GameActionType.RouteRecoveryCredited, true)]
+        [InlineData(GameActionType.RouteRecoveryCredited, false)]
         // RouteCargoPickedUp (logistics M3, design D6): the per-window pickup debit
         // moves no funds pool and no resource module consumes it (the physical
         // removal is live at emit, reverted by the rewind quicksave), so it mirrors

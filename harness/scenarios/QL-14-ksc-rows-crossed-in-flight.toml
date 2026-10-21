@@ -126,7 +126,6 @@ forbidden = [
 [expectations.ledger]
 seedFrom     = "template"
 tolerances   = "default"
-rec3CarveOut = false
 timeline     = "rewind-aware"
 
 [[expectations.ledger.manifest]]

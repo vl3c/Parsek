@@ -21,8 +21,10 @@ namespace Parsek.Logistics
         /// <summary>Origin exists but lacks resources — delayed.</summary>
         WaitingForResources = 2,
 
-        /// <summary>Career KSC-origin route lacks dispatch funds — delayed.</summary>
-        WaitingForFunds = 3,
+        // 3 is retired: the legacy WaitingForFunds status (a Career Space Center
+        // route short of dispatch funds). Supply routes carry no money (todo
+        // LOGISTICS-WITHOUT-MONEY); RouteCodec reads the old name as Active.
+        // Never reuse the ordinal.
 
         /// <summary>Destination can't accept delivery — waiting for capacity.</summary>
         DestinationFull = 4,

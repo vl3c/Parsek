@@ -548,13 +548,12 @@ namespace Parsek.Tests
         {
             Route route = StationRoute("route-a");
             GameAction delivered = DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100);
-            var fundsOnlyDebit = new GameAction
+            var emptyDebit = new GameAction
             {
                 Type = GameActionType.RouteCargoDebited,
                 UT = 1300,
                 RouteId = "route-a",
-                RouteCycleId = "cycle-1",
-                RouteKscFundsCost = 500f
+                RouteCycleId = "cycle-1"
             };
 
             RetiredRouteCargoRow row = RetiredRouteCargoStore.BuildRow(delivered, CutoffUT, route);
@@ -564,7 +563,7 @@ namespace Parsek.Tests
             Assert.Equal(StationGuid, row.EndpointGuid);
             Assert.Equal(CutoffUT, row.CutoffUT);
             Assert.Equal(100.0, row.Resources["LiquidFuel"], 6);
-            Assert.Null(RetiredRouteCargoStore.BuildRow(fundsOnlyDebit, CutoffUT, route));
+            Assert.Null(RetiredRouteCargoStore.BuildRow(emptyDebit, CutoffUT, route));
         }
 
         [Fact]

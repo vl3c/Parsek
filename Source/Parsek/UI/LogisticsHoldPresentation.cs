@@ -9,10 +9,10 @@ namespace Parsek
     /// <see cref="RouteDispatchEvaluator.EligibilityFailureKind"/> plus the raw
     /// evaluator reason token) to plain-ASCII player language for the Logistics
     /// window's detail panel and status-cell tooltip. TOTAL over both token
-    /// shapes - the loop path stores bare tokens ("LiquidFuel", "funds-short",
+    /// shapes - the loop path stores bare tokens ("LiquidFuel",
     /// "stop-0-no-live-vessels") while the legacy self-timer path stores
-    /// prefixed decision tokens ("origin-lacks-X", "funds-shortfall-N",
-    /// "destination-full-X") - and over unknown future kinds/tokens via the
+    /// prefixed decision tokens ("origin-lacks-X", "destination-full-X") - and
+    /// over unknown future kinds/tokens via the
     /// "route is blocked (kind: token)" fallback: never throws, never returns
     /// blank for a real hold. Unity-free and side-effect-free so it is unit
     /// tested directly off the IMGUI path (mirrors
@@ -45,14 +45,9 @@ namespace Parsek
                     return DescribeOriginLacksCargo(detail, shortfall, partTitle);
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.FundsShort:
-                    // Both token shapes ("funds-short" / "funds-shortfall-N") land
-                    // here; the number comes ONLY from the shortfall argument.
-                    // The legacy capture stores shortfall 0 (the value lives only
-                    // inside its token), so legacy holds render the generic text -
-                    // accepted degradation, do NOT parse the token suffix.
-                    return shortfall > 0.0
-                        ? Fmt(LogisticsHoldClauses.FundsShortWithAmount, shortfall)
-                        : LogisticsHoldClauses.FundsShortGeneric;
+                    // Only an old save carries this hold (supply routes carry no money
+                    // any more); it reads as the past fact it was, without an amount.
+                    return LogisticsHoldClauses.FundsShortGeneric;
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull:
                 {
@@ -171,9 +166,8 @@ namespace Parsek
         // (inventory-unsupported, origin-unresolved), then the resource name -
         // bare on the loop path, "origin-lacks-" prefixed on the legacy path.
         // <paramref name="shortfall"/> is the missing AMOUNT of the named
-        // resource, threaded from the gate through the evaluator - the SAME
-        // shortfall > 0.0 conditional FundsShort uses, because the token is a
-        // legibility string and must never be parsed for a magnitude. 0 is
+        // resource, threaded from the gate through the evaluator, because the
+        // token is a legibility string and must never be parsed for a magnitude. 0 is
         // "unknown / not a resource shortfall" (inventory shorts, unresolved
         // endpoints, legacy persisted holds) and renders the pre-existing text.
         private static string DescribeOriginLacksCargo(
@@ -376,12 +370,7 @@ namespace Parsek
                     return CompactOriginLacksCargo(detail, shortfall, partTitle);
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.FundsShort:
-                    // Same shortfall contract as DescribeHold: the number comes
-                    // ONLY from the shortfall argument (legacy captures store 0
-                    // and render the generic text).
-                    return shortfall > 0.0
-                        ? Fmt(LogisticsHoldClauses.CompactFundsShortWithAmount, shortfall)
-                        : LogisticsHoldClauses.CompactFundsShortGeneric;
+                    return LogisticsHoldClauses.CompactFundsShortGeneric;
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull:
                 {
@@ -619,10 +608,10 @@ namespace Parsek
 
         /// <summary>
         /// The one substitution site for every clause in
-        /// <see cref="LogisticsHoldClauses"/>. InvariantCulture because two
-        /// clauses carry numeric holes (the whole-unit funds shortfall, and the
-        /// already-invariant <see cref="FormatShortfallAmount"/> string) and the
-        /// xUnit host runs under the OS culture.
+        /// <see cref="LogisticsHoldClauses"/>. InvariantCulture because a clause
+        /// can carry a numeric hole (the already-invariant
+        /// <see cref="FormatShortfallAmount"/> string) and the xUnit host runs
+        /// under the OS culture.
         /// </summary>
         private static string Fmt(string clause, params object[] args)
         {

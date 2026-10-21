@@ -406,7 +406,6 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # `ExitToSpaceCenter`.
 seedFrom     = "template"   # parse the staged career-pad-craft save for the baseline.
 tolerances   = "default"    # FacetTolerances.Default (funds 1.0, science 0.1, rep 0.1).
-rec3CarveOut = false        # no route residual anywhere in this scenario.
 # HISTORICAL (2026-07-30), SUPERSEDED BELOW - the shipped value is `gate`, set at the
 # bottom of this block. The next three paragraphs are kept verbatim as the measured
 # record of WHY the mechanism had to change; read them as history, not as the current

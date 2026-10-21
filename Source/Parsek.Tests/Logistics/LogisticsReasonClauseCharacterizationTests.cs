@@ -21,10 +21,9 @@ namespace Parsek.Tests.Logistics
     /// the clause.
     ///
     /// Every case runs twice - once under the ambient (host) culture and once
-    /// under de-DE - because the numeric clauses (the FundsShort whole-unit
-    /// amount, the one-decimal resource shortfall, the re-flyable count) are
-    /// contractually InvariantCulture and a comma-locale host is exactly how a
-    /// regression would ship unnoticed.
+    /// under de-DE - because the numeric clauses (the one-decimal resource
+    /// shortfall, the re-flyable count) are contractually InvariantCulture and a
+    /// comma-locale host is exactly how a regression would ship unnoticed.
     /// </summary>
     public class LogisticsReasonClauseCharacterizationTests
     {
@@ -119,13 +118,10 @@ namespace Parsek.Tests.Logistics
 
         private static void AddLongHoldCases(List<Case> c)
         {
-            // -- FundsShort --
-            c.Add(C("FundsShortWithAmount",
-                "not enough funds at KSC - short 1235 funds for this run",
-                LogisticsHoldPresentation.DescribeHold(FundsShort, "funds-short", 1234.6)));
+            // -- FundsShort (an old save's hold; the amount is not shown) --
             c.Add(C("FundsShortGeneric",
                 "not enough funds at KSC for this run",
-                LogisticsHoldPresentation.DescribeHold(FundsShort, "funds-short", 0.0)));
+                LogisticsHoldPresentation.DescribeHold(FundsShort, "funds-short", 1234.6)));
 
             // -- DestinationFull --
             c.Add(C("DestinationNoInventorySlotGeneric",
@@ -289,10 +285,8 @@ namespace Parsek.Tests.Logistics
 
         private static void AddCompactHoldCases(List<Case> c)
         {
-            c.Add(C("CompactFundsShortWithAmount", "short 1235 funds",
-                LogisticsHoldPresentation.CompactHold(FundsShort, "funds-short", 1234.6)));
             c.Add(C("CompactFundsShortGeneric", "insufficient funds",
-                LogisticsHoldPresentation.CompactHold(FundsShort, "funds-short", 0.0)));
+                LogisticsHoldPresentation.CompactHold(FundsShort, "funds-short", 1234.6)));
 
             c.Add(C("CompactDestinationNoInventorySlotGeneric", "no free inventory slot",
                 LogisticsHoldPresentation.CompactHold(

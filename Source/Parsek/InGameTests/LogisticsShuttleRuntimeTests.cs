@@ -492,15 +492,12 @@ namespace Parsek.InGameTests
         // An always-eligible runtime environment (no live vessel needed): mirrors
         // the sibling RouteInterBodyBuilderShapeInGameTest.EligibleEnv so the
         // depot-origin route fires on every owed crossing (origin cargo, endpoint
-        // resolution, capacity, and ERS sources all pass; IsCareer false keeps
-        // funds untouched).
+        // resolution, capacity, and ERS sources all pass).
         private sealed class EligibleEnv : IRouteRuntimeEnvironment
         {
-            public bool IsCareer { get; set; }
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = string.Empty; return true; }
             public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason) { vessel = null; reason = string.Empty; return true; }
             public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall) { shortfall = 0.0; lackingResource = string.Empty; return true; }
-            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
             public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = string.Empty; return true; }
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }

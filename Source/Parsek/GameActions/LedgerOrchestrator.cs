@@ -146,14 +146,9 @@ namespace Parsek
 
             // Second tier
             RecalculationEngine.RegisterModule(fundsModule, RecalculationEngine.ModuleTier.SecondTier);
-            // RouteModule second-tier slot, AFTER FundsModule (design doc §6.1 step 4).
-            // The future dispatch integration will (a) read GameAction.Affordable set
-            // by FundsModule to gate KSC-origin Career dispatch and (b) potentially
-            // synthesize cascading FundsSpending-equivalent debits via
-            // GameActionType.RouteCargoDebited. Both require running after FundsModule
-            // in the same tier walk. The skeleton does not consume Affordable yet,
-            // but placing it here now means the integration phase wires affordability
-            // in one line.
+            // RouteModule second-tier slot (design doc section 6.1 step 4). Supply routes
+            // carry no money (todo LOGISTICS-WITHOUT-MONEY), so the module only observes
+            // its route rows; its slot after FundsModule is kept as it was.
             RecalculationEngine.RegisterModule(routeModule, RecalculationEngine.ModuleTier.SecondTier);
             RecalculationEngine.RegisterModule(reputationModule, RecalculationEngine.ModuleTier.SecondTier);
 
@@ -3624,9 +3619,6 @@ namespace Parsek
                     return action.HireCost != 0f;
                 case GameActionType.StrategyActivate:
                     return action.SetupCost != 0f;
-                case GameActionType.RouteCargoDebited:
-                case GameActionType.RouteRecoveryCredited:
-                    return action.RouteKscFundsCost != 0f;
                 default:
                     return false;
             }
@@ -4691,10 +4683,14 @@ namespace Parsek
             // Convert existing GameStateStore events into GameActions.
             // Done AFTER the existing-ledger reconcile, then immediately reconciled so
             // future rows from the old event store cannot bypass maxUT on first load.
-            if (Ledger.Actions.Count == 0 && validRecordingIds != null && validRecordingIds.Count > 0)
+            // GC-3: recordings of trees kept inert (another schema generation) are known to the
+            // reconcile above, but they neither trigger the migration nor feed it: an inert
+            // tree is never interpreted, and a save holding only inert trees is not an old save.
+            HashSet<string> migrationRecordingIds = ExcludeInertRecordingIds(validRecordingIds);
+            if (Ledger.Actions.Count == 0 && migrationRecordingIds != null && migrationRecordingIds.Count > 0)
             {
                 int beforeOldSaveMigration = Ledger.Actions.Count;
-                MigrateOldSaveEvents(validRecordingIds);
+                MigrateOldSaveEvents(migrationRecordingIds);
                 if (Ledger.Actions.Count != beforeOldSaveMigration)
                 {
                     Ledger.Reconcile(
@@ -4780,6 +4776,32 @@ namespace Parsek
         /// Migration for old saves: converts existing GameStateStore events from committed
         /// recordings into GameActions and adds them to the ledger.
         /// </summary>
+        /// <summary>
+        /// The ids of <paramref name="validRecordingIds"/> that do not belong to a committed tree
+        /// kept inert (<see cref="InertRecordingTrees"/>). Returns the same set when none do.
+        /// </summary>
+        internal static HashSet<string> ExcludeInertRecordingIds(HashSet<string> validRecordingIds)
+        {
+            if (validRecordingIds == null || InertRecordingTrees.Count == 0)
+                return validRecordingIds;
+            var kept = new HashSet<string>(StringComparer.Ordinal);
+            int excluded = 0;
+            foreach (string id in validRecordingIds)
+            {
+                if (InertRecordingTrees.ContainsRecordingId(id))
+                    excluded++;
+                else
+                    kept.Add(id);
+            }
+            if (excluded > 0)
+                ParsekLog.Verbose(Tag,
+                    "OnKspLoad: old-save migration scope excludes " +
+                    excluded.ToString(CultureInfo.InvariantCulture) +
+                    " recording id(s) of inert trees; remaining=" +
+                    kept.Count.ToString(CultureInfo.InvariantCulture));
+            return kept;
+        }
+
         private static void MigrateOldSaveEvents(HashSet<string> validRecordingIds)
         {
             LedgerLoadMigration.MigrateOldSaveEvents(validRecordingIds);

@@ -30,7 +30,7 @@ The 2026-09-21 coverage audit enumerated **~480 visibly distinct states** across
 | --- | --- | --- | --- |
 | Logistics hold clauses | 17 | 0 | each needs a route that failed for one specific reason at one specific cycle |
 | Logistics reject reasons | 12 | 0 | needs a career whose trees are ineligible in twelve different ways |
-| Logistics route statuses | 9 | 3 | `EndpointLost`, `DestinationFull`, `WaitingForFunds`, `SourceChanged` are multi-hour careers |
+| Logistics route statuses | 8 | 3 | `EndpointLost`, `DestinationFull`, `SourceChanged` are multi-hour careers (`WaitingForFunds` was retired with route money) |
 | Kerbals `Lost` / `Retired` and the stand-in chain forms | ~6 | 0 in the current design | needs a fatal flight, or a displaced stand-in after its owner returns |
 | Timeline supersede, rewind-armed, live Re-Fly | ~6 | 0 | needs a live Re-Fly session mid-flight |
 | Test Runner failed row, running state | 2 | 0 | needs a deliberately failing test and a non-blocking run |

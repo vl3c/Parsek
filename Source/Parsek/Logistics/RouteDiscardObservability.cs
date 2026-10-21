@@ -16,9 +16,9 @@ namespace Parsek.Logistics
     /// <c>LiveInventoryPickupWriter</c>). Their only rollback is the
     /// Rewind-to-Separation full-world quicksave. When a route physically fires
     /// INSIDE a segment the player then discards WITHOUT a rewind, that mutation
-    /// persists in the surviving timeline with no rollback path. Today this is
-    /// economically CONSISTENT (the free-standing route funds rows survive the
-    /// recording-scoped discard purge too, so funds and cargo both persist), so it is
+    /// persists in the surviving timeline with no rollback path. Route rows move no
+    /// funds (todo LOGISTICS-WITHOUT-MONEY) and the free-standing route rows survive
+    /// the recording-scoped discard purge, so the cargo persists consistently; it is
     /// a discard-INTENT residual, not a free/lost-resources desync — but it is
     /// invisible in the log.</para>
     ///
@@ -26,7 +26,7 @@ namespace Parsek.Logistics
     /// discarded segment's UT window and emits ONE <c>Warn</c> summarizing the
     /// physical route mutations that fired inside it and were left un-reversed, so the
     /// residual is greppable (<c>[Route] ... Rec-3 residual</c>). It changes NO
-    /// behavior: nothing is reversed, retired, or gated — funds and cargo both persist
+    /// behavior: nothing is reversed, retired, or gated — the cargo persists
     /// exactly as before. The full reverse-on-discard fix is deferred (see the plan
     /// Phase 4 follow-up and <see cref="RouteRevertSafety"/>).</para>
     ///
@@ -152,7 +152,7 @@ namespace Parsek.Logistics
                 + minUT.ToString("F1", IC) + ".." + maxUT.ToString("F1", IC)
                 + "] and were not undone by this non-rewind discard: " + sb
                 + " (route rows carry no RecordingId, so this UT window may also include a"
-                + " concurrent committed route; no reverse writer, funds+cargo both kept,"
+                + " concurrent committed route; no reverse writer, cargo kept,"
                 + " Rec-3 reverse-on-discard deferred)";
             return leaked;
         }

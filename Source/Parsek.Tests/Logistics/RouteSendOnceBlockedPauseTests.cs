@@ -237,11 +237,9 @@ namespace Parsek.Tests.Logistics
 
         private sealed class EligibleEnv : IRouteRuntimeEnvironment
         {
-            public bool IsCareer { get; set; }
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = string.Empty; return true; }
             public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason) { vessel = null; reason = string.Empty; return true; }
             public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall) { shortfall = 0.0; lackingResource = string.Empty; return true; }
-            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
             public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = string.Empty; return true; }
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }
@@ -250,12 +248,10 @@ namespace Parsek.Tests.Logistics
         // are full of the stored part the first delivery placed there.
         private sealed class DestinationFullEnv : IRouteRuntimeEnvironment
         {
-            public bool IsCareer { get; set; }
             public string FullToken { get; set; } = "stored-part:evaScienceKit";
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = string.Empty; return true; }
             public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason) { vessel = null; reason = string.Empty; return true; }
             public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall) { shortfall = 0.0; lackingResource = string.Empty; return true; }
-            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
             public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = FullToken; return false; }
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }
@@ -630,7 +626,7 @@ namespace Parsek.Tests.Logistics
             InstallFakeDeliveryApplier();
             // Arm through the real TryPause InTransit branch (sets the flag, leaves
             // SendOnceArmed false) rather than by poking the field.
-            Assert.True(RouteOrchestrator.TryPause(route, 1100.0, new EligibleEnv()));
+            Assert.True(RouteOrchestrator.TryPause(route, 1100.0));
             Assert.True(route.PauseAfterCurrentCycle);
             Assert.False(route.SendOnceArmed);
 
@@ -734,18 +730,6 @@ namespace Parsek.Tests.Logistics
                     RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull,
                     "stored-part:evaScienceKit", 0.0),
                 msg);
-        }
-
-        [Fact]
-        public void BlockedMessage_FundsShortfall_UsesInvariantCulture()
-        {
-            string msg = RouteSendOncePresentation.BuildBlockedMessage(
-                "Ore Run", "route-1", RouteDispatchEvaluator.EligibilityFailureKind.FundsShort,
-                "funds-short", 1234.0);
-
-            Assert.Contains("1234", msg);
-            Assert.DoesNotContain("1.234", msg);
-            Assert.DoesNotContain("1,234", msg);
         }
 
         [Fact]

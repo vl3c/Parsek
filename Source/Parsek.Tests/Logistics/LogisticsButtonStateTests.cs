@@ -37,7 +37,6 @@ namespace Parsek.Tests.Logistics
                 RouteStatus.Active,
                 RouteStatus.InTransit,
                 RouteStatus.WaitingForResources,
-                RouteStatus.WaitingForFunds,
                 RouteStatus.DestinationFull,
                 RouteStatus.Paused
             };

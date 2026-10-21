@@ -377,32 +377,6 @@ namespace Parsek.Tests
             }
         }
 
-        // catches: the Supply-Run cost explanation growing past the Logistics strip.
-        // The tooltip is CONSTANT LENGTH by contract - it embeds no funds amounts
-        // (those live in the visible "Cost/run:" detail line and the candidate cell
-        // suffix), so one worst-case shape pins every route.
-        [Fact]
-        public void RouteRunCostTooltip_FitsTheLogisticsStrip()
-        {
-            int budget = BudgetChars(1556f, TooltipEchoBox.SingleLine);
-            var noRecovery = new RouteRunCostCalculator.RouteRunCost
-            {
-                Applicable = true,
-                CostKnown = true,
-                LaunchCost = 1234567.0,
-                RecoveredCredits = 0.0,
-                NetCost = 1234567.0,
-                RecoveryEventCount = 0
-            };
-
-            string tip = LogisticsCostPresentation.FormatDetailTooltip(noRecovery);
-            Assert.DoesNotContain("\n", tip);
-            Assert.True(tip.Length <= budget,
-                string.Format("FormatDetailTooltip is {0} chars, over the {1}-char single-line "
-                    + "Logistics help-strip budget: \"{2}\"",
-                    tip.Length, budget, tip));
-        }
-
         // catches: any of the Logistics window's runtime-composed tooltips growing past
         // its SINGLE-line strip (the source scan cannot see these - they are builders,
         // not literals). The Nx cadence tooltip is the longest composed text in the

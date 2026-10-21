@@ -1726,7 +1726,7 @@ namespace Parsek.Tests.Logistics
 
                 // root.StartUT(2000) .. dock(2500) -> 500s.
                 string block = RouteCreationFormatters.BuildSummaryBlock(
-                    analysis, Game.Modes.SANDBOX, tree);
+                    analysis, tree);
 
                 Assert.Contains("Transit: " + ParsekTimeFormat.FormatDuration(500.0), block);
                 // The leaf span (900s) must NOT appear on the Transit line.
@@ -1751,9 +1751,9 @@ namespace Parsek.Tests.Logistics
                     startUT: 0.0, endUT: 600.0, dockUT: 200.0, undockUT: 500.0);
                 RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
 
-                // 2-arg call (the read-only dialog's current call site shape).
+                // 1-arg call (no tree).
                 string block = RouteCreationFormatters.BuildSummaryBlock(
-                    analysis, Game.Modes.SANDBOX);
+                    analysis);
 
                 // No tree -> root falls back to source.StartUT(0); span = dock(200) - 0
                 // = 200 (segment ends at the dock, not the undock).

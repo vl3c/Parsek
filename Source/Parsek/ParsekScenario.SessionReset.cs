@@ -86,6 +86,21 @@ namespace Parsek
             RouteStore.ClearAllEscrow("save-scoped-reset");
             storesReset += 3;
 
+            // GC1-SAVE-SCOPED-STATE-LEFTOVERS. A Cold load is never a rewind's or a Re-Fly
+            // invoke's own load (ClassifyEarly ranks both ahead of a save-file load, and neither
+            // initiator loads with initialLoadDone false), so either still set here is stale and
+            // would make this load skip the crew, group and ledger loads or run the Re-Fly
+            // post-load dispatch against another career.
+            RewindContext.ResetForSaveLoad(reason);
+            if (RewindInvokeContext.Pending)
+                ParsekLog.Warn("Scenario",
+                    "Cold load cleared a stale Re-Fly invoke: sess=" + (RewindInvokeContext.SessionId ?? "<null>")
+                    + " rp=" + (RewindInvokeContext.RewindPointId ?? "<null>")
+                    + " reason=" + (reason ?? "unspecified"));
+            RewindInvokeContext.Clear();
+            RouteRunPrompt.ResetForSaveLoad("save-scoped-reset");
+            storesReset += 3;
+
             coldLoadsThisProcess++;
             ParsekLog.Info("Scenario",
                 "Save-scoped session state reset: reason=" + (reason ?? "unspecified")

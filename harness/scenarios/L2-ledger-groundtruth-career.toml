@@ -305,7 +305,6 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 [expectations.ledger]
 seedFrom     = "template"   # parse the staged fixture save for the seed baseline.
 tolerances   = "default"    # FacetTolerances.Default (funds 1.0, science 0.1, rep 0.1).
-rec3CarveOut = false        # no route residual in a batch-only scenario.
 # No [[expectations.ledger.manifest]] entries: empty manifest = zero expected delta.
 
 # The raw-Unity-exception scan (hlib.scan_unity_exceptions), ARMED AT ZERO.

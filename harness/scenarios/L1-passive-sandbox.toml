@@ -101,7 +101,6 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 [expectations.ledger]
 seedFrom     = "template"
 tolerances   = "default"
-rec3CarveOut = false
 # No [[expectations.ledger.manifest]] entries: empty manifest = zero expected delta.
 
 # The raw-Unity-exception scan (hlib.scan_unity_exceptions), ARMED AT ZERO. This

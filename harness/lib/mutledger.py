@@ -324,9 +324,7 @@ def _expected(expectations: Dict, seed_block: Dict, log_text: str,
             return None
         retired = led.get(hlib.LEDGER_RETIRED_ATTEMPTS_KEY, []) or []
         return oracle.compute_expected_rewind_aware(seed, seam, end_ut, retired)[0]
-    rec3 = bool(led.get("rec3CarveOut", False))
-    wl = (led.get("rec3Whitelist", []) or []) if rec3 else []
-    return oracle.compute_expected(seed, seam, oracle.default_tolerances(), wl)
+    return oracle.compute_expected(seed, seam, oracle.default_tolerances())
 
 
 def _pool_value(exp: Optional[oracle.ExpectedCareer], facet: str) -> Optional[float]:

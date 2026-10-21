@@ -994,32 +994,51 @@ namespace Parsek
             bool versionOk = versionStr != null
                 && int.TryParse(versionStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out version)
                 && version == CurrentLedgerVersion;
-            bool generationOk = schemaGenerationStr != null
+            bool generationCurrent = schemaGenerationStr != null
                 && int.TryParse(schemaGenerationStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out schemaGeneration)
                 && schemaGeneration == RecordingStore.CurrentRecordingSchemaGeneration;
 
-            if (!versionOk || !generationOk)
+            if (!versionOk)
             {
                 ParsekLog.Warn("Ledger",
                     $"{sourceDescription} has unsupported schema: " +
-                    $"version='{versionStr ?? "(missing)"}' expected={CurrentLedgerVersion.ToString(CultureInfo.InvariantCulture)} " +
-                    $"recordingSchemaGeneration='{schemaGenerationStr ?? "(missing)"}' " +
-                    $"expectedGeneration={RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture)}; " +
+                    $"version='{versionStr ?? "(missing)"}' expected={CurrentLedgerVersion.ToString(CultureInfo.InvariantCulture)}; " +
                     "starting with empty ledger");
                 ClearForFailedLoad();
                 return false;
             }
 
+            // The ledger's format is its version. A row carries no recording schema, so a ledger
+            // stamped with another recording schema generation loads (owner ruling 2026-10-21,
+            // GC3-LEDGER-GENERATION-GATE-DROPS-ROWS); rows of recordings that did not load are kept
+            // by the reconcile when their trees are held inert (InertRecordingTrees).
+            if (!generationCurrent)
+                ParsekLog.Info("Ledger",
+                    $"{sourceDescription} carries recording schema generation '{schemaGenerationStr ?? "(missing)"}' " +
+                    $"(current={RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture)}); " +
+                    "ledger version matches, loaded anyway");
+
             // Deserialize actions
             var newActions = new List<GameAction>();
             ConfigNode[] actionNodes = loaded.GetNodes(ActionNodeName);
             int parseErrors = 0;
+            int droppedRouteCredits = 0;
+            int droppedRouteCharges = 0;
             ResetContractDeadlineMigrationTally();
 
             for (int i = 0; i < actionNodes.Length; i++)
             {
                 try
                 {
+                    // Supply routes carry no money (todo LOGISTICS-WITHOUT-MONEY): an
+                    // old save's route money rows are dropped here, before any
+                    // recalculation can read them.
+                    if (LedgerLoadMigration.IsLegacyRouteMoneyNode(actionNodes[i], out bool isCredit))
+                    {
+                        if (isCredit) droppedRouteCredits++;
+                        else droppedRouteCharges++;
+                        continue;
+                    }
                     var action = GameAction.DeserializeFrom(actionNodes[i]);
                     newActions.Add(action);
                 }
@@ -1038,6 +1057,15 @@ namespace Parsek
             ParsekLog.Verbose("Ledger",
                 $"Loaded ledger from '{sourceLabel}': version={version}, actions={actions.Count}, " +
                 $"parseErrors={parseErrors}");
+            if (droppedRouteCredits + droppedRouteCharges > 0)
+            {
+                ParsekLog.Info("Ledger",
+                    $"Dropped {(droppedRouteCredits + droppedRouteCharges).ToString(CultureInfo.InvariantCulture)} " +
+                    "legacy supply-route money rows at load " +
+                    $"(recoveryCredits={droppedRouteCredits.ToString(CultureInfo.InvariantCulture)} " +
+                    $"spaceCenterCharges={droppedRouteCharges.ToString(CultureInfo.InvariantCulture)}); " +
+                    "supply routes carry no money");
+            }
             if (seedMalformed > 0)
             {
                 ParsekLog.Warn("Ledger",

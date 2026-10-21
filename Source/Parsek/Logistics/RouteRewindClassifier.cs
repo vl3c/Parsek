@@ -121,8 +121,7 @@ namespace Parsek.Logistics
         /// what stands for a route the save does not carry or whose clock
         /// definition changed. Clears in-flight cycle state whose UTs lie beyond the
         /// cutoff (an InTransit cycle started after the cutoff returns to
-        /// Active), holds / partial reports stamped after the cutoff, and a
-        /// pending recovery credit whose dispatch happened after the cutoff.
+        /// Active), and holds / partial reports stamped after the cutoff.
         /// <see cref="Route.CompletedCycles"/> / <see cref="Route.SkippedCycles"/>
         /// are NOT touched here: the rewind seam reconstructs them from the
         /// kept ledger rows via <see cref="ReconstructCycleCounters"/> right
@@ -191,17 +190,6 @@ namespace Parsek.Logistics
                 route.LastPartialDeliverySummary = null;
                 route.LastPartialDeliveryUT = -1.0;
                 route.LastPartialDeliveryCycleId = null;
-                changed = true;
-            }
-
-            // A recovery credit owed by an abandoned-future dispatch: its
-            // dispatch row was Rec-1-retired, so flushing it would credit a
-            // cycle the surviving timeline never charged.
-            if (!string.IsNullOrEmpty(route.PendingRecoveryCreditCycleId)
-                && route.PendingRecoveryCreditDispatchUT > cutoffUT)
-            {
-                route.PendingRecoveryCreditCycleId = null;
-                route.PendingRecoveryCreditDispatchUT = -1.0;
                 changed = true;
             }
 
@@ -335,7 +323,6 @@ namespace Parsek.Logistics
         /// derived <see cref="RouteTimelineStatus.Paused"/> flips only the
         /// ghost-driving / wait statuses (<see cref="RouteStatus.Active"/>,
         /// <see cref="RouteStatus.WaitingForResources"/>,
-        /// <see cref="RouteStatus.WaitingForFunds"/>,
         /// <see cref="RouteStatus.DestinationFull"/>) to Paused; derived
         /// <see cref="RouteTimelineStatus.Active"/> flips only a
         /// <see cref="RouteStatus.Paused"/> route back to Active;
@@ -384,7 +371,6 @@ namespace Parsek.Logistics
                 bool ghostDrivingOrWait =
                     route.Status == RouteStatus.Active
                     || route.Status == RouteStatus.WaitingForResources
-                    || route.Status == RouteStatus.WaitingForFunds
                     || route.Status == RouteStatus.DestinationFull;
                 if (!ghostDrivingOrWait)
                     return false;
@@ -467,7 +453,7 @@ namespace Parsek.Logistics
         /// <c>cycle-{Completed + Skipped}</c>, so the sum must land ON
         /// <c>maxOrdinal</c> or a straddling multi-stop cycle re-fires its
         /// already-delivered window under a NEW id, misses the kept row in the
-        /// per-window ELS dedup, and double-delivers cargo/funds.
+        /// per-window ELS dedup, and double-delivers cargo.
         /// <see cref="Route.CompletedCycles"/> = distinct delivered kept cycle
         /// ids EXCLUDING the in-flight cycle's own id (its kept delivered rows
         /// are earlier windows of an incomplete cycle, not a completed one);
@@ -676,8 +662,6 @@ namespace Parsek.Logistics
             route.PauseAfterCurrentCycle = false;
             route.SendOnceArmed = false;
             route.LastConsumedPartnerCycle = 0;
-            route.PendingRecoveryCreditCycleId = null;
-            route.PendingRecoveryCreditDispatchUT = -1.0;
             route.ClearHold("dormant-materialize");
             route.LastPartialDeliverySummary = null;
             route.LastPartialDeliveryUT = -1.0;

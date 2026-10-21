@@ -2187,13 +2187,9 @@ namespace Parsek
                 case GameActionType.RouteCargoDelivered:
                 case GameActionType.RoutePaused:
                 case GameActionType.RouteEndpointLost:
-                // RouteRecoveryCredited (logistics-recovery-credit section 6.5): a
-                // scheduler-emitted route row, not flight-recorder output, so it
-                // must not strict-block or retry-block an auto-seal. Its FUNDS effect
-                // is still reversed through the FundsModule earning path (cutoff walk
-                // on rewind; RESOLUTION 1 leaves already-emitted past credits intact
-                // on a non-rewinding supersede, and future credits compute zero once
-                // the source recovery FundsEarning rows are tombstoned).
+                // RouteRecoveryCredited: a legacy route type nothing writes any more
+                // (supply routes carry no money; old rows are dropped at ledger load).
+                // It stays excluded: a removed case would fall through to true.
                 case GameActionType.RouteRecoveryCredited:
                 // RouteCargoPickedUp (logistics M3, design D6): a scheduler-emitted
                 // per-window pickup debit row, not flight-recorder output. A NEW type

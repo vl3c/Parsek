@@ -279,10 +279,11 @@ namespace Parsek
         /// revert (<paramref name="revertPending"/>: <c>RevertDetector</c> armed, read without
         /// consuming it; stock fires the save-file event inside a revert too) classifies Cold after
         /// the rewind, Re-Fly start and Discard Re-fly checks (design-load-restores-the-save.md 4.1);
-        /// OnLoad then sets <c>initialLoadDone</c> false so the cold branch runs. Two combinations
-        /// the code supports but no initiator produces (a rewind or a Re-Fly invoke whose own load
-        /// finds <c>initialLoadDone</c> false) classify Cold even though the prologue's rewind carry
-        /// or the cold path's Re-Fly dispatch would still run.
+        /// OnLoad then sets <c>initialLoadDone</c> false so the cold branch runs. A rewind or a Re-Fly
+        /// invoke whose own load finds <c>initialLoadDone</c> false (no initiator produces it; only a
+        /// cold load that threw earlier leaves the flag false) classifies Cold, and the save-scoped
+        /// reset then clears its context as stale (GC1-SAVE-SCOPED-STATE-LEFTOVERS), so neither the
+        /// prologue's rewind carry nor the cold path's Re-Fly dispatch runs for it.
         /// </summary>
         internal static EarlyLoadKind ClassifyEarly(
             bool initialLoadDone, bool isRewinding, bool reFlyInvokePending, bool discardReFlyPending,

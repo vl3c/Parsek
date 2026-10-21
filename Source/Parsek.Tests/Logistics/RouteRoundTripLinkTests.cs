@@ -132,11 +132,9 @@ namespace Parsek.Tests.Logistics
 
         private sealed class EligibleEnv : IRouteRuntimeEnvironment
         {
-            public bool IsCareer { get; set; }
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = string.Empty; return true; }
             public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason) { vessel = null; reason = string.Empty; return true; }
             public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall) { shortfall = 0.0; lackingResource = string.Empty; return true; }
-            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
             public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = string.Empty; return true; }
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }
@@ -325,7 +323,6 @@ namespace Parsek.Tests.Logistics
         {
             private readonly string blockedRouteId;
             public BlockedForRouteEnv(string blockedRouteId) { this.blockedRouteId = blockedRouteId; }
-            public bool IsCareer { get; set; }
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = string.Empty; return true; }
             public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason) { vessel = null; reason = string.Empty; return true; }
             public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall)
@@ -335,7 +332,6 @@ namespace Parsek.Tests.Logistics
                 { lackingResource = "LiquidFuel"; return false; }
                 lackingResource = string.Empty; return true;
             }
-            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
             public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = string.Empty; return true; }
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }
@@ -533,11 +529,9 @@ namespace Parsek.Tests.Logistics
 
         private sealed class ShortCargoEnv : IRouteRuntimeEnvironment
         {
-            public bool IsCareer { get; set; }
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = string.Empty; return true; }
             public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason) { vessel = null; reason = string.Empty; return true; }
             public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall) { shortfall = 0.0; lackingResource = "LiquidFuel"; return false; }
-            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
             public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = string.Empty; return true; }
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }
@@ -561,7 +555,6 @@ namespace Parsek.Tests.Logistics
         [InlineData("Active", false)]
         [InlineData("InTransit", false)]
         [InlineData("WaitingForResources", false)]
-        [InlineData("WaitingForFunds", false)]
         [InlineData("DestinationFull", false)]
         public void PartnerStatus_BypassSet_MatchesNonGhostDriving(
             string partnerStatusName, bool expectBypass)

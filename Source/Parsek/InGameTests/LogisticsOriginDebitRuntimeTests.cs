@@ -229,8 +229,6 @@ namespace Parsek.InGameTests
                         "Debited row actuals must equal the removed amount");
                     InGameAssert.IsNull(debited.RouteRequestedResourceManifest,
                         "Full debit must not record a requested-on-shortfall manifest");
-                    InGameAssert.AreEqual(0f, debited.RouteKscFundsCost,
-                        "Non-KSC debit row must carry no funds cost");
 
                     // 3. The per-resource Info write log fired on the loaded path.
                     InGameAssert.IsTrue(
@@ -843,7 +841,6 @@ namespace Parsek.InGameTests
                 NextDispatchUT = TickUT + Cadence,
                 CompletedCycles = 0,
                 SkippedCycles = 0,
-                KscDispatchFundsCost = 0.0,
                 CostManifest = new Dictionary<string, double>(StringComparer.Ordinal)
                 {
                     { LiquidFuelName, debitAmount },

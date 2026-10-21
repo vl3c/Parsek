@@ -22,12 +22,12 @@ import oracle
 
 def _entry(kind="contract-complete", ut=0.0, seq=0, funds=0.0, science=0.0,
            reputation=0.0, rep_mode="nominal", subject_ids=(), contract_guid="",
-           provenance="seam-declared", rec3_row=""):
+           provenance="seam-declared"):
     """A fully-formed ManifestEntry for compute/diff tests (bypasses the raw parse)."""
     return oracle.ManifestEntry(
         ut=ut, seq=seq, kind=kind, funds=funds, science=science, reputation=reputation,
         rep_mode=rep_mode, subject_ids=tuple(subject_ids), contract_guid=contract_guid,
-        provenance=provenance, rec3_row=rec3_row)
+        provenance=provenance)
 
 
 def _career(funds=None, science=None, reputation=None, subject=None, contracts=None):
@@ -555,37 +555,6 @@ class ReputationCurveTests(unittest.TestCase):
         a = oracle.apply_rep_curve(37.5, 120.0)
         b = oracle.apply_rep_curve(37.5, 120.0)
         self.assertEqual(a, b)
-
-
-class Rec3CarveOutTests(unittest.TestCase):
-    """Guards the ratified-residual carve-out: a whitelisted non-rewind-discard route
-    row must NOT read as drift, and a non-whitelisted one must still roll back."""
-
-    def test_whitelisted_row_not_rolled_back(self):
-        seed = oracle.SeedBaseline(1000.0, 0.0, 0.0)
-        # A discard that would roll a route row's funds back by 300.
-        entry = _entry(kind="route-delivery", ut=5.0, funds=-300.0, rec3_row="route7")
-        exp = oracle.compute_expected(seed, [entry], rec3_whitelist=["route7"])
-        self.assertEqual(exp.funds, 1000.0)          # residual persists, no rollback
-        self.assertEqual(exp.rec3_residual_rows, ("route7",))
-
-    def test_non_whitelisted_row_rolls_back(self):
-        seed = oracle.SeedBaseline(1000.0, 0.0, 0.0)
-        entry = _entry(kind="route-delivery", ut=5.0, funds=-300.0, rec3_row="route7")
-        exp = oracle.compute_expected(seed, [entry], rec3_whitelist=[])
-        self.assertEqual(exp.funds, 700.0)           # rolls back normally
-        self.assertEqual(exp.rec3_residual_rows, ())
-
-    def test_residual_surfaces_report_only_divergence(self):
-        # The carve-out surfaces a report-only residual-expected divergence (a
-        # [Rec-3 residual] diagnostic is expected, never a rollback-to-zero red).
-        seed = oracle.SeedBaseline(1000.0, 0.0, 0.0)
-        entry = _entry(kind="route-delivery", ut=5.0, funds=-300.0, rec3_row="route7")
-        exp = oracle.compute_expected(seed, [entry], rec3_whitelist=["route7"])
-        diffs = oracle.diff_expected_vs_parsed(exp, _career(funds=1000.0, science=0.0, reputation=0.0))
-        residual = [d for d in diffs if d.kind == "residual-expected"]
-        self.assertEqual(len(residual), 1)
-        self.assertFalse(residual[0].hard)
 
 
 # ---------------------------------------------------------------------------

@@ -29,7 +29,7 @@ namespace Parsek.Logistics
         private const string StateFloorValueName = "routeStateFloorUT";
 
         /// <summary>
-        /// The UT the route state (this store's loop positions and owed credits, and the route
+        /// The UT the route state (this store's loop positions, and the route
         /// ledger rows up to it) is settled through when that UT lies ahead of the clock; NaN
         /// otherwise. Only the go-back rewind creates one: its route reconcile keys on the rewind
         /// save's own UT, up to the lead-time windback after the clock, so the rows it keeps in
@@ -176,6 +176,8 @@ namespace Parsek.Logistics
                 if (!string.IsNullOrEmpty(id))
                     liveIds.Add(id);
             }
+            // GC-3: a committed tree kept inert (another schema generation) still exists.
+            InertRecordingTrees.AddTreeIdsTo(liveIds);
 
             int before = dismissedCandidateTreeIds.Count;
             dismissedCandidateTreeIds.RemoveWhere(id => !liveIds.Contains(id));
@@ -264,6 +266,8 @@ namespace Parsek.Logistics
                 if (!string.IsNullOrEmpty(id))
                     liveIds.Add(id);
             }
+            // GC-3: a committed tree kept inert (another schema generation) still exists.
+            InertRecordingTrees.AddTreeIdsTo(liveIds);
 
             int before = promptedCandidateTreeIds.Count;
             promptedCandidateTreeIds.RemoveWhere(id => !liveIds.Contains(id));
@@ -814,7 +818,6 @@ namespace Parsek.Logistics
             int prevPrompted = promptedCandidateTreeIds.Count;
             promptedCandidateTreeIds.Clear();
             StateFloorUT = double.NaN;
-            SourceProblemCreditEnvFactoryForTesting = null;
             ParsekLog.Verbose(Tag,
                 $"ResetForTesting prevCount={prevCount} prevEscrowRoutes={prevEscrowRoutes} " +
                 $"prevDismissedCandidates={prevDismissed} prevPromptedCandidates={prevPrompted}");
@@ -1535,21 +1538,8 @@ namespace Parsek.Logistics
 
                 if (next != prev)
                 {
-                    // logistics-recovery-credit section 5.4 (ENDPOINT-LOST /
-                    // source-missing tail): a loop-route that flips INTO
-                    // MissingSourceRecording / SourceChanged stops crossing, so its
-                    // last dispatched cycle's deferred recovery credit would be
-                    // stranded forever (its "next crossing" never comes). Flush the
-                    // owed credit at this transition BEFORE TransitionTo, mirroring
-                    // the TryPause / armed-pause / EndpointLost-at-delivery flush
-                    // sites. SourceChanged never auto-recovers (design 7.4 requires
-                    // recreation) and a deleted MissingSourceRecording route is gone
-                    // permanently, so without this the credit (owed funds) leaks.
-                    // Defensive: a degenerate env / -1 UT makes EmitPendingRecoveryCredit
-                    // no-op safely on the Career gate and clear the stale marker.
                     if (IsSourceProblemStatus(next) && !IsSourceProblemStatus(prev))
                     {
-                        FlushPendingRecoveryCreditOnSourceProblem(route, reasonOrNone, liveEmitUT);
                         // M4b escrow-strand fix (PR #1180 review): a route that flips into a
                         // source-problem stop state mid-cycle stops crossing and never reaches
                         // its cycle-complete escrow drop, so a stale reservation would keep
@@ -1905,9 +1895,9 @@ namespace Parsek.Logistics
         /// True for the two source-problem stop states a loop-route can flip into
         /// during <see cref="RevalidateSources(string)"/> that halt crossing
         /// (<see cref="RouteStatus.MissingSourceRecording"/> /
-        /// <see cref="RouteStatus.SourceChanged"/>). Used to gate the deferred
-        /// recovery-credit flush so it fires only on the INTO-source-problem edge,
-        /// never on a self-edge or a recovery edge.
+        /// <see cref="RouteStatus.SourceChanged"/>). Used to gate the escrow drop
+        /// so it fires only on the INTO-source-problem edge, never on a self-edge
+        /// or a recovery edge.
         /// </summary>
         internal static bool IsSourceProblemStatus(RouteStatus status)
         {
@@ -1989,75 +1979,6 @@ namespace Parsek.Logistics
 
             return false;
         }
-
-        /// <summary>
-        /// Flush the route's last dispatched cycle's deferred recovery credit when
-        /// the route flips into a source-problem stop state (logistics-recovery-credit
-        /// section 5.4). Only a LIVE pass (<paramref name="liveEmitUT"/> &gt; 0, and
-        /// <see cref="ParsekScenario.OnLoad"/> not on the stack) pays it, at that UT.
-        /// A silent pass (the OnLoad revalidation, a bookkeeping supersede bump) writes
-        /// no ledger row and touches no funds: the credit stays pending on the route,
-        /// and <see cref="RouteOrchestrator.FlushDeferredSourceProblemCredits"/> pays it
-        /// on the next orchestrator tick. Paying during load would stamp the row at
-        /// whatever the load-time clock reads (0 on a cold load, which survives every
-        /// strict-after-cutoff rewind retire) and credit funds the load then overwrites.
-        /// Idempotent via the credit's keyed backstop, so a re-presented transition
-        /// never double-credits.
-        /// </summary>
-        private static void FlushPendingRecoveryCreditOnSourceProblem(
-            Route route, string reasonOrNone, double liveEmitUT)
-        {
-            if (route == null) return;
-
-            // Fast path: nothing owed, so do not pay the live env resolution cost.
-            if (string.IsNullOrEmpty(route.PendingRecoveryCreditCycleId))
-                return;
-
-            if (!ShouldFlushSourceProblemCreditNow(liveEmitUT, ParsekScenario.IsOnLoadInProgress))
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RevalidateSources: route {ShortId(route.Id)} owed recovery credit " +
-                    $"cycle={route.PendingRecoveryCreditCycleId} kept pending across silent " +
-                    $"source-problem transition (liveEmitUT={liveEmitUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                    $"onLoad={(ParsekScenario.IsOnLoadInProgress ? "1" : "0")} reason={reasonOrNone}); " +
-                    "next route tick pays it");
-                return;
-            }
-
-            IRouteRuntimeEnvironment env = null;
-            try
-            {
-                var factory = SourceProblemCreditEnvFactoryForTesting;
-                env = factory != null ? factory() : new LiveRouteRuntimeEnvironment();
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RevalidateSources: route {ShortId(route.Id)} live env resolution threw " +
-                    $"{ex.GetType().Name}: {ex.Message}; flushing recovery credit without a live funds context " +
-                    $"(reason={reasonOrNone})");
-            }
-
-            ParsekLog.Verbose(Tag,
-                $"RevalidateSources: route {ShortId(route.Id)} flushing owed recovery credit before " +
-                $"source-problem transition (reason={reasonOrNone})");
-            RouteOrchestrator.EmitPendingRecoveryCredit(route, liveEmitUT, env);
-        }
-
-        /// <summary>
-        /// Pure gate for the source-problem credit flush: only a live revalidation
-        /// pass outside <see cref="ParsekScenario.OnLoad"/> may write the credit row.
-        /// </summary>
-        internal static bool ShouldFlushSourceProblemCreditNow(double liveEmitUT, bool onLoadInProgress)
-        {
-            return liveEmitUT > 0.0 && !onLoadInProgress;
-        }
-
-        /// <summary>
-        /// Test seam for the env the live source-problem credit flush builds. Production
-        /// leaves it null (a <see cref="LiveRouteRuntimeEnvironment"/> is built).
-        /// </summary>
-        internal static Func<IRouteRuntimeEnvironment> SourceProblemCreditEnvFactoryForTesting;
 
         // Builds a comparison-only RouteSourceRef from a live Recording so
         // RevalidateSources can compare field-by-field. Mirrors the Phase-1

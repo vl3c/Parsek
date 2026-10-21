@@ -42,6 +42,10 @@ _(unreleased - entries accumulate here per commit)_
   a mining flight no longer repeats a burst of ore the game added at once after time passed off
   screen. Each run's harvest is capped at the drills' rate times the recorded drilling time, and
   the route's from/to hover says when the cap applies. (HARVEST-ROUTE-PLAUSIBILITY-CAP)
+- **Supply routes no longer cost or pay funds.** A route from the Space Center is free in every
+  game mode, Career included, and never waits for funds. No route charges for a run or pays back
+  a recovery credit; a depot route still takes its cargo from the depot. The Logistics window no
+  longer shows a run cost. (LOGISTICS-WITHOUT-MONEY)
 - **Resource scans are part of your committed career.** An orbital survey or a surface scan is now
   recorded with the flight that made it. After a rewind to before the scan, the scanned body or
   biome unlocks again when the clock reaches the moment it was scanned, like other committed
@@ -52,15 +56,17 @@ _(unreleased - entries accumulate here per commit)_
 - **Loading a save no longer stretches a vessel's recording that ended before the save.** A vessel
   destroyed, or one that split, before the save kept playing as if it lasted until the load moment.
   Its recording now ends where it really ended. (QUICKLOAD-TRIM-STAMPS-CUTOFF-AS-EARLIER-END)
-- **A supply route no longer spends money a committed purchase needs.** After a rewind, a route
-  from the Space Center now waits for funds when its next run would dip into money a recorded later
-  purchase still needs, the same way it waits when the funds counter is short.
-  (ROUTE-DISPATCH-IGNORES-RESERVATIONS)
 - **A station a later flight docks with can't be recovered early.** After a rewind, the Tracking
   Station greys Recover and Delete, and the Space Center greys Recover, on a vessel a recorded later
   flight still docks with, so it can't come back as a duplicate and be paid for twice. (GC-2)
 - **The vessel-cycle keys skip ghosts.** Pressing `[` or `]` near a replaying ghost no longer makes
   its map marker the active vessel. (GC-4)
+- **Loading another save starts clean after a rewind that never finished.** If a rewind or a
+  Re-Fly reload was interrupted, loading a different save no longer carries the first career's crew,
+  groups or funds into it, and the Supply Route prompt of the first save no longer shows. (GC-1)
+- **Recordings made by a different Parsek version are kept, not lost.** Parsek cannot play them,
+  but it now keeps them unchanged in the save with their rewind points and the funds, science and
+  reputation they earned, and tells you how many it set aside when the save loads. (GC-3)
 - **Low or fast ghosts on the map, and their end spawns, keep the right orbit.** A map ghost
   replaying an ascent or descent, a kerbal or stage spawned at the end of its recording in orbit,
   and the predicted crash point of an unfinished flight could be off by the planet's spin (about
@@ -263,11 +269,9 @@ _(unreleased - entries accumulate here per commit)_
   of a parked rover's container, or putting one in, now makes that rover part of the flight: after
   a rewind it waits as a ghost and comes back with its new contents, so the part is no longer
   duplicated or lost. (EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED)
-- **Supply routes keep their cargo hold and recovery credit across scene changes and loads.** A
-  multi-stop route that already loaded at one depot keeps the rest of its cargo reserved after a
-  scene change, so another route can no longer take it before the next stop. A recovery credit
-  owed by a route whose source recording went missing is now paid after the save loads, at the
-  right time, instead of during the load. (ROUTE-ESCROW-LOST-ON-SCENE-SWITCH)
+- **Supply routes keep their cargo hold across scene changes and loads.** A multi-stop route that
+  already loaded at one depot keeps the rest of its cargo reserved after a scene change, so another
+  route can no longer take it before the next stop. (ROUTE-ESCROW-LOST-ON-SCENE-SWITCH)
 - **Docking a fleet of identical ships no longer mixes up their histories.** When your ship docks
   to another and takes it over, Parsek now remembers which launch of that ship it was. A later
   launch of the same design no longer has its vessel hidden or spawned at the wrong time because

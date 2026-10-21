@@ -256,7 +256,6 @@ namespace Parsek.Tests.Logistics
                 { RouteStatus.Active, true },
                 { RouteStatus.InTransit, true },
                 { RouteStatus.WaitingForResources, true },
-                { RouteStatus.WaitingForFunds, true },
                 { RouteStatus.DestinationFull, true },
                 { RouteStatus.EndpointLost, true },
                 { RouteStatus.MissingSourceRecording, false },

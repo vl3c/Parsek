@@ -20,7 +20,7 @@ namespace Parsek.Logistics
         internal const double TickIntervalSec = 1.0;
 
         /// <summary>
-        /// Retry backoff for transient wait states (resources, funds, capacity,
+        /// Retry backoff for transient wait states (resources, capacity,
         /// endpoint loss). Sets <c>Route.NextEligibilityCheckUT = currentUT + this</c>.
         /// </summary>
         internal const double WaitRetryIntervalSec = 30.0;
@@ -78,7 +78,7 @@ namespace Parsek.Logistics
         /// brings the route's <see cref="Route.NextDispatchUT"/> down to
         /// <paramref name="currentUT"/> so the interval-wait component of the
         /// auto-cycle is skipped, and clears any wait-retry backoff. The
-        /// per-cycle eligibility gates (ERS, funds, resources, endpoint
+        /// per-cycle eligibility gates (ERS, resources, endpoint
         /// resolution, and any future orbital-alignment / transfer-window
         /// check) STILL apply: the route dispatches at the next moment those
         /// conditions are met. After that single cycle delivers, the orchestrator
@@ -121,7 +121,6 @@ namespace Parsek.Logistics
             // for the next cycle.
             if (route.Status != RouteStatus.Active
                 && route.Status != RouteStatus.WaitingForResources
-                && route.Status != RouteStatus.WaitingForFunds
                 && route.Status != RouteStatus.DestinationFull
                 && route.Status != RouteStatus.Paused)
             {
@@ -147,8 +146,8 @@ namespace Parsek.Logistics
                 route.TransitionTo(RouteStatus.Active, "send-once-arm");
 
             // Bring scheduling forward so the interval component of the
-            // auto-cycle wait is skipped. The per-cycle conditions (funds,
-            // resources, endpoint, alignment) are evaluated by the dispatch
+            // auto-cycle wait is skipped. The per-cycle conditions (resources,
+            // endpoint, alignment) are evaluated by the dispatch
             // evaluator on the next tick and still gate the dispatch.
             if (route.NextDispatchUT > currentUT)
                 route.NextDispatchUT = currentUT;
@@ -263,42 +262,31 @@ namespace Parsek.Logistics
         /// </summary>
         internal static bool TryPause(Route route)
         {
-            // Production entry: resolve the live UT + env so the final-owed recovery
-            // credit can be flushed on the immediate-pause transition (section 5.4).
+            // Production entry: resolve the live UT for the RoutePaused marker.
             // Resolve defensively: a degenerate environment (early load, or an
-            // off-Unity context) must NOT block the pause. If the live values cannot
-            // be obtained, pass a null env / -1 UT and the flush no-ops safely
-            // (EmitPendingRecoveryCredit fails the Career gate on a null env and
-            // clears any stale pending marker without emitting).
+            // off-Unity context) must NOT block the pause. If the live UT cannot
+            // be obtained, pass -1 and the marker emit skips with a Warn.
             double ut = -1.0;
-            IRouteRuntimeEnvironment env = null;
             try
             {
                 ut = Planetarium.GetUniversalTime();
-                env = new LiveRouteRuntimeEnvironment();
             }
             catch (Exception ex)
             {
                 ParsekLog.Verbose(Tag,
-                    $"TryPause: live UT/env resolution threw {ex.GetType().Name}: {ex.Message}; " +
-                    "pausing without a recovery-credit flush");
+                    $"TryPause: live UT resolution threw {ex.GetType().Name}: {ex.Message}; " +
+                    "pausing without a resolved UT");
             }
-            return TryPause(route, ut, env);
+            return TryPause(route, ut);
         }
 
         /// <summary>
-        /// Env-injected pause used by unit tests, and the implementation the
-        /// parameterless <see cref="TryPause(Route)"/> delegates to with live
-        /// values. The <paramref name="currentUT"/> / <paramref name="env"/> are
-        /// threaded so the IMMEDIATE-pause transition (section 5.4) can flush the
-        /// route's last dispatched cycle's owed recovery credit before the route
-        /// goes quiet (a loop-route that stops crossing never reaches its "next
-        /// crossing", so the deferred credit would otherwise be stranded forever).
-        /// The InTransit pause-after-cycle path does NOT flush here: that cycle's
-        /// credit is flushed at the armed-pause transition in
-        /// <see cref="ApplyDeliveryFromPlan"/> instead.
+        /// UT-injected pause used by unit tests, and the implementation the
+        /// parameterless <see cref="TryPause(Route)"/> delegates to with the live
+        /// UT. <paramref name="currentUT"/> stamps the <see cref="GameActionType.RoutePaused"/>
+        /// marker row.
         /// </summary>
-        internal static bool TryPause(Route route, double currentUT, IRouteRuntimeEnvironment env)
+        internal static bool TryPause(Route route, double currentUT)
         {
             if (route == null)
             {
@@ -329,11 +317,6 @@ namespace Parsek.Logistics
                     "(current cycle finishes, then route pauses)");
                 return true;
             }
-
-            // Flush the final owed recovery credit before the route stops crossing
-            // (section 5.4). Idempotent via guard 3; no-ops on the Career-KSC gate /
-            // zero-recovery branch if the route owes nothing.
-            EmitPendingRecoveryCredit(route, currentUT, env);
 
             // M4b escrow-strand fix (PR #1180 review): a multi-origin route that reserved
             // its per-source escrow at dispatch and is paused MID-cycle never reaches the
@@ -467,10 +450,8 @@ namespace Parsek.Logistics
             // Tick pre-pass, before ANY route runs (so tick order cannot let a
             // competing route act on the stale state first): rebuild the cargo
             // escrow of in-flight multi-stop cycles that a scene switch or reload
-            // dropped, and pay recovery credits a silent (load-time) source-problem
-            // revalidation left pending.
+            // dropped.
             ReEstablishInFlightCycleEscrow(snapshot, currentUT, env);
-            FlushDeferredSourceProblemCredits(snapshot, currentUT, env);
 
             int tickedRoutes = 0;
             int dispatched = 0;
@@ -614,7 +595,7 @@ namespace Parsek.Logistics
             // loop-route NEVER reaches the legacy Dispatch / InTransit /
             // InTransitComplete state machine or the PendingDeliveryUT fire gate
             // below. A confirmed crossing emits the FULL per-cycle transaction
-            // (origin/funds debit + delivery) under one cycleId via EmitLoopCycle.
+            // (origin debit + delivery) under one cycleId via EmitLoopCycle.
             // ============================================================
             if (route.IsLoopRoute)
             {
@@ -628,8 +609,8 @@ namespace Parsek.Logistics
             // fall through so the dispatch evaluator can fire the next cycle in
             // the same tick if <c>NextDispatchUT</c> is also due. Status gates:
             // Paused and EndpointLost routes skip delivery entirely — applying
-            // a delivery to a paused or aborted route would silently charge
-            // funds the player did not authorize.
+            // a delivery to a paused or aborted route would silently move
+            // cargo the player did not authorize.
             if (route.PendingDeliveryUT.HasValue
                 && route.PendingDeliveryUT.Value <= currentUT
                 && route.Status != RouteStatus.Paused
@@ -670,7 +651,6 @@ namespace Parsek.Logistics
                         return;
 
                     case RouteDispatchOutcome.WaitResources:
-                    case RouteDispatchOutcome.WaitFunds:
                     case RouteDispatchOutcome.WaitDestinationFull:
                         ApplyWait(route, currentUT, decision);
                         transitioned++;
@@ -965,11 +945,7 @@ namespace Parsek.Logistics
                         // NOTHING else. No SkippedCycles bump (scheduled behavior,
                         // not a failure; cycleId uniqueness is per FIRED cycle
                         // only), no hold, no ledger rows, no escrow, no
-                        // partner-alternation advance. The skip IS the "next
-                        // crossing" for the previously dispatched cycle, so its
-                        // pending recovery credit flushes here (OQ3), mirroring
-                        // the blocked path above.
-                        EmitPendingRecoveryCredit(route, currentUT, env);
+                        // partner-alternation advance.
                         route.LastObservedLoopCycleIndex = dockCycleIndex;
                         skipped++;
                         ParsekLog.VerboseRateLimited(Tag, "loop-modulo-skip-" + route.Id,
@@ -1009,13 +985,6 @@ namespace Parsek.Logistics
 
             if (!elig.Eligible)
             {
-                // Recovery-credit deferral across a blocked gap (logistics-recovery-credit
-                // section 7): a blocked crossing emits NO credit of its OWN (it did not
-                // dispatch), but it IS the "next crossing" for the PRIOR dispatched
-                // cycle, so flush that prior cycle's owed credit here too. If the prior
-                // cycle did not dispatch, the pending marker is null and this no-ops.
-                EmitPendingRecoveryCredit(route, currentUT, env);
-
                 // Blocked cycle: no run (no dispatch, debit or delivery; the ghost
                 // still renders - "world looks busy, transfers nothing"); the only
                 // row it may write is the Route History's hold row below. Bump
@@ -1097,7 +1066,7 @@ namespace Parsek.Logistics
         /// (M4a A3 / Horn A) Per-window firing for a MULTI-STOP delivery route.
         /// Within ONE span cycle, N windows fire each at its OWN recorded dock
         /// phase under ONE cycleId (<c>cycle-{Completed+Skipped}</c>): the dispatch
-        /// half fires once (cycle open, the once-per-cycle KSC funds charge), each
+        /// half fires once (cycle open, the once-per-cycle origin debit), each
         /// stop's delivery (+ pickup if witnessed) fires at <c>stop.RecordedDockUT</c>
         /// via the loop clock, and <see cref="Route.CompletedCycles"/> bumps ONCE
         /// after the LAST window's phase has been reached.
@@ -1126,7 +1095,7 @@ namespace Parsek.Logistics
         /// EXACTLY ONE dock-cycle per invocation - the LOWEST owed cycle
         /// <c>cMin</c> across the stops. When a tick straddles more than one owed
         /// cycle (a gap tick with a prior owed window, or a long warp jump), only
-        /// <c>cMin</c>'s windows fire this pass; the dispatch/funds charge fires
+        /// <c>cMin</c>'s windows fire this pass; the dispatch half fires
         /// once for <c>cMin</c>, and Completed/Skipped is bumped exactly once when
         /// <c>cMin</c>'s last dock is reached. That bump advances the
         /// <c>cycle-{C+S}</c> baseline so the NEXT pass computes a FRESH cycleId for
@@ -1237,8 +1206,7 @@ namespace Parsek.Logistics
             // non-deliverable cMin is skipped ATOMICALLY - the blocked-cycle
             // snap shape MINUS the SkippedCycles bump, the hold, and the rows:
             // every stop's LastFiredCycleIndex and the route marker snap through
-            // cMin, the prior cycle's pending recovery credit flushes (OQ3, the
-            // skip IS its next crossing), no escrow is reserved, and stillDue
+            // cMin, no escrow is reserved, and stillDue
             // reports as usual so a deliverable LATER owed cycle still fires in
             // this tick's catch-up loop. A partially-fired deliverable cycle
             // always IS cMin (its stops' cursors lag there until it completes),
@@ -1344,7 +1312,6 @@ namespace Parsek.Logistics
                     }
                     if (!retargeted)
                     {
-                        EmitPendingRecoveryCredit(route, currentUT, env);
                         for (int j = 0; j < stopCount; j++)
                         {
                             if (route.Stops[j].LastFiredCycleIndex < cMin)
@@ -1427,9 +1394,7 @@ namespace Parsek.Logistics
                 {
                     // Blocked cycle cMin (NOT yet committed): no run for any window
                     // (the only row it may write is the Route History's hold row
-                    // below). Flush any prior dispatched cycle's owed recovery credit
-                    // (the blocked crossing IS the next crossing for it). Bump
-                    // SkippedCycles ONCE (C+S advances to cMin+1 for the next pass),
+                    // below). Bump SkippedCycles ONCE (C+S advances to cMin+1 for the next pass),
                     // and ATOMICALLY skip the WHOLE blocked cycle by snapping EVERY
                     // stop not yet fired through cMin forward to cMin (OQ4 all-or-
                     // nothing-at-dispatch / OQ3 snap-every-stop). The unconditional
@@ -1445,7 +1410,6 @@ namespace Parsek.Logistics
                     // Safe with laterOwed: a stop owed at cMin+1 has LastFired == cMin
                     // (it fired/skipped cMin already), so `cMin < cMin` is false and
                     // its cMin+1 obligation survives for the next catch-up pass.
-                    EmitPendingRecoveryCredit(route, currentUT, env);
                     route.SkippedCycles += 1;
                     for (int j = 0; j < stopCount; j++)
                     {
@@ -1485,7 +1449,7 @@ namespace Parsek.Logistics
                 // hold inside the delivery half; one clear here covers it).
                 route.ClearHold("crossing-eligible");
 
-                // Dispatch half (once per cycle): origin/funds debit + the
+                // Dispatch half (once per cycle): origin debit + the
                 // RouteDispatched/RouteCargoDebited pair under the cycle's carrier
                 // stop index. The dispatch ELS guard suppresses a re-dispatch on the
                 // SECOND tick (window B) / on a save-reload resume.
@@ -1500,14 +1464,6 @@ namespace Parsek.Logistics
                 // the reservation to zero by cycle end (the leak-free invariant).
                 ReserveCycleEscrow(route, currentUT, env, cycleId);
 
-                if (env != null && env.IsCareer && route.IsKscOrigin)
-                {
-                    route.PendingRecoveryCreditCycleId = cycleId;
-                    route.PendingRecoveryCreditDispatchUT = currentUT;
-                    ParsekLog.Verbose(Tag,
-                        $"LoopRoute(multi): route {ShortIdForLog(route)} armed pending recovery credit " +
-                        $"cycle={cycleId} dispatchUT={currentUT.ToString("R", IC)}");
-                }
                 // M4c Phase C1 (plan D12 / OQ8): the cycle's once-per-cycle dispatch
                 // just fired (this is the !dispatchAlready first-commit branch), so
                 // consume the partner's current cycle. A dispatchAlready resume (the
@@ -1524,10 +1480,8 @@ namespace Parsek.Logistics
             {
                 // Cycle already committed (dispatch in the ledger): fire only the due
                 // window(s), no eligibility re-gate. The crossing is eligible by
-                // construction (the cycle dispatched), so clear any stale hold; the
-                // prior cycle's owed recovery credit still flushes on this crossing.
+                // construction (the cycle dispatched), so clear any stale hold.
                 route.ClearHold("crossing-eligible");
-                EmitPendingRecoveryCredit(route, currentUT, env);
 
                 // M4b B3 C1 (plan OQ7/D11 "recomputed from pending state on the next
                 // Tick"): a dispatchAlready resume of an IN-FLIGHT multi-stop cycle
@@ -2128,48 +2082,6 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Tick pre-pass (ROUTE-RECOVERY-CREDIT-WRITTEN-DURING-ONLOAD): pay the recovery
-        /// credit a silent source-problem revalidation (the OnLoad pass, a bookkeeping
-        /// supersede bump) kept pending instead of writing a ledger row from load
-        /// context. Only routes in a source-problem stop state are swept: any other
-        /// status pays its pending credit at its own next crossing or pause flush.
-        /// Returns the number of credit rows emitted.
-        /// </summary>
-        internal static int FlushDeferredSourceProblemCredits(
-            IList<Route> routes, double currentUT, IRouteRuntimeEnvironment env)
-        {
-            if (routes == null || routes.Count == 0)
-                return 0;
-
-            int emitted = 0;
-            for (int i = 0; i < routes.Count; i++)
-            {
-                Route route = routes[i];
-                if (route == null || string.IsNullOrEmpty(route.PendingRecoveryCreditCycleId))
-                    continue;
-                if (!RouteStore.IsSourceProblemStatus(route.Status))
-                    continue;
-
-                try
-                {
-                    ParsekLog.Verbose(Tag,
-                        $"FlushDeferredSourceProblemCredits: route {ShortIdForLog(route)} status={route.Status} " +
-                        $"paying deferred recovery credit cycle={route.PendingRecoveryCreditCycleId} " +
-                        $"at ut={currentUT.ToString("R", IC)}");
-                    if (EmitPendingRecoveryCredit(route, currentUT, env))
-                        emitted++;
-                }
-                catch (Exception ex)
-                {
-                    ParsekLog.Warn(Tag,
-                        $"FlushDeferredSourceProblemCredits: route {ShortIdForLog(route)} threw " +
-                        $"{ex.GetType().Name}: {ex.Message}");
-                }
-            }
-            return emitted;
-        }
-
-        /// <summary>
         /// (M4b B3) RELEASE one pickup window's escrow portion AFTER its physical
         /// debit fires (or when the window endpoint is lost mid-cycle, OQ4: the cargo
         /// was not taken, so the hold is freed without debiting). Releases the
@@ -2645,14 +2557,14 @@ namespace Parsek.Logistics
         /// Emits the FULL per-cycle transaction for a loop-route crossing under
         /// ONE <paramref name="cycleId"/> (plan Phase 4 must-fix #1): the
         /// EXTRACTED dispatch-debit half (<see cref="EmitDispatchDebit"/> — origin
-        /// debit + KSC funds + <c>RouteDispatched</c> + <c>RouteCargoDebited</c> +
-        /// sets <c>KscDispatchFundsCost</c>) FOLLOWED BY the delivery half
+        /// debit + <c>RouteDispatched</c> + a vessel origin's <c>RouteCargoDebited</c>)
+        /// FOLLOWED BY the delivery half
         /// (<see cref="ApplyDelivery"/> — <c>RouteCargoDelivered</c>), with NO
         /// InTransit state. The ledger row UTs are game-time
         /// <paramref name="currentUT"/>.
         ///
         /// <para><b>Why both halves.</b> Calling <see cref="ApplyDelivery"/> alone
-        /// would never debit origin / charge funds and would trip
+        /// would never debit origin and would trip
         /// <c>RouteModule.ProcessCargoDelivered</c>'s out-of-order guard
         /// (DispatchedCycles == 0 -> Warn + return). The dispatch-debit half emits
         /// <c>RouteDispatched</c> FIRST (Sequence 0) so the ledger walker sees the
@@ -2678,15 +2590,6 @@ namespace Parsek.Logistics
         internal static bool EmitLoopCycle(
             Route route, double currentUT, IRouteRuntimeEnvironment env, string cycleId)
         {
-            // Recovery-credit deferral (logistics-recovery-credit section 5.2/5.3):
-            // flush the PRIOR dispatched cycle's owed credit FIRST, at THIS
-            // crossing's UT, BEFORE the delivery-keyed replay short-circuit below.
-            // The crash-window note (section 5.3) requires this ordering: a crossing
-            // that replay-skips its OWN delivery must still flush the PRIOR cycle's
-            // owed credit, so the flush cannot sit behind the IsDeliveryAlreadyInLedger
-            // return. Idempotent via the credit's own keyed backstop (guard 3).
-            EmitPendingRecoveryCredit(route, currentUT, env);
-
             // ELS idempotency backstop (must-fix #4 + M3 OQ4 re-key).
             // LastObservedLoopCycleIndex (persisted via the Phase 1 codec) is the
             // PRIMARY re-fire guard, but a save/reload mid-cycle, a Rewind, or a
@@ -2723,8 +2626,8 @@ namespace Parsek.Logistics
                 return false;
             }
 
-            // Dispatch + debit half (RouteDispatched Sequence 0, RouteCargoDebited
-            // Sequence 1, origin/funds debit, sets KscDispatchFundsCost). The loop
+            // Dispatch + debit half (RouteDispatched Sequence 0, a vessel origin's
+            // RouteCargoDebited Sequence 1 and its origin debit). The loop
             // crossing is the recorded dock phase and sits behind the ELS replay
             // backstop above, so this is the ONLY caller that applies the M1
             // physical origin debit (design D11).
@@ -2740,23 +2643,6 @@ namespace Parsek.Logistics
             // reserves-and-debits inside its own EmitLoopCycle before a competing route
             // runs). A delivery-only route reserves nothing.
             ReserveCycleEscrow(route, currentUT, env, cycleId);
-
-            // Recovery-credit deferral (logistics-recovery-credit section 5.2): this
-            // cycle just dispatched a (potential) Career-KSC charge, so it now OWES a
-            // recovery credit to be flushed on the NEXT crossing. Set the pending
-            // marker only when this cycle actually dispatched a Career-KSC charge
-            // (gotcha G5: no charge -> no credit owed). The prior cycle's credit was
-            // already flushed above; this overwrites the cleared marker with this
-            // cycle's id. Persisted by RouteCodec (section 5.6) so a save/reload
-            // between crossings does not drop the owed credit.
-            if (env != null && env.IsCareer && route.IsKscOrigin)
-            {
-                route.PendingRecoveryCreditCycleId = cycleId;
-                route.PendingRecoveryCreditDispatchUT = currentUT;
-                ParsekLog.Verbose(Tag,
-                    $"EmitLoopCycle: route {ShortIdForLog(route)} armed pending recovery credit " +
-                    $"cycle={cycleId} dispatchUT={currentUT.ToString("R", IC)}");
-            }
 
             // Pickup half (M3, D6). When the cycle stop carries a witnessed pickup
             // manifest, physically debit the per-window pickup ENDPOINT and emit one
@@ -2811,7 +2697,7 @@ namespace Parsek.Logistics
             // RouteDispatched precisely so a delivery-less cycle is still
             // idempotent). When a delivery manifest IS present, ApplyDelivery
             // resolves the live destination vessel, plans + applies the fill,
-            // debits Career funds, emits RouteCargoDelivered, and bumps
+            // emits RouteCargoDelivered, and bumps
             // CompletedCycles. It recomputes the SAME cycleId internally
             // (Completed+Skipped unchanged between the halves). For a ghost-driving
             // loop-route the status is Active, so ApplyDelivery's terminal
@@ -2881,8 +2767,7 @@ namespace Parsek.Logistics
         /// and <c>RouteCargoDebited</c> (Seq1) emitted by
         /// <see cref="EmitDispatchDebit"/> - so the ledger walker (and the
         /// <c>RouteModule</c> out-of-order guard) sees dispatch before the pickup at
-        /// the shared UT. Emits ZERO funds (a pickup debits its physical source,
-        /// never funds, D6). Reuses the same loaded-gate-per-vessel capture and
+        /// the shared UT. A pickup debits its physical source (D6). Reuses the same loaded-gate-per-vessel capture and
         /// unresolved-at-emit honest-bookkeeping rules as the M1 origin debit (via
         /// <see cref="ApplyPickupDebit"/>).
         /// </summary>
@@ -2975,8 +2860,8 @@ namespace Parsek.Logistics
             }
 
             // RouteCargoPickedUp row. Mirror of the debited row's payload shape
-            // (actual manifest, requested-on-shortfall, endpoint pid) but ZERO funds
-            // and Sequence 2 (after dispatch Seq0 + debit Seq1). Carries BOTH the
+            // (actual manifest, requested-on-shortfall, endpoint pid) at
+            // Sequence 2 (after dispatch Seq0 + debit Seq1). Carries BOTH the
             // resource AND the inventory picked-up manifests (D7). Zero actuals in
             // either dimension serialize as no manifest. pickupStopIndex was resolved
             // at the top of this method (the same value the C-2 backstop keyed on).
@@ -3621,9 +3506,9 @@ namespace Parsek.Logistics
         // ==================================================================
 
         /// <summary>
-        /// Dispatch happy-path: compute KSC funds cost, emit
-        /// <see cref="GameActionType.RouteDispatched"/> +
-        /// <see cref="GameActionType.RouteCargoDebited"/> ledger rows,
+        /// Dispatch happy-path: emit
+        /// <see cref="GameActionType.RouteDispatched"/> (+ a vessel origin's
+        /// <see cref="GameActionType.RouteCargoDebited"/>) ledger rows,
         /// transition the route to <see cref="RouteStatus.InTransit"/>, and
         /// advance <c>NextDispatchUT</c>. <c>NextEligibilityCheckUT</c> is
         /// cleared because the route is no longer in a wait state.
@@ -3641,7 +3526,7 @@ namespace Parsek.Logistics
             // (both counters start at 0).
             string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles).ToString(IC);
 
-            // Emit the dispatch + debit pair + the funds debit (shared with the
+            // Emit the dispatch + debit pair (shared with the
             // loop-clock path via EmitDispatchDebit). The M1 physical origin
             // debit is LOOP-PATH-ONLY (design D11): this legacy self-timer path
             // fires at cycle start, not the recorded dock phase (spec 19.2.5
@@ -3663,24 +3548,25 @@ namespace Parsek.Logistics
             ParsekLog.Info(Tag,
                 $"Dispatch: route {ShortIdForLog(route)} cycle={cycleId} " +
                 $"ut={currentUT.ToString("R", IC)} " +
-                $"careerKsc={(env.IsCareer && route.IsKscOrigin ? "1" : "0")} " +
+                $"kscOrigin={(route.IsKscOrigin ? "1" : "0")} " +
                 $"nextDispatchUT={route.NextDispatchUT.ToString("R", IC)}");
         }
 
         /// <summary>
         /// EXTRACTED dispatch-debit body shared by the legacy self-timer path
         /// (<see cref="ApplyDispatch"/>) and the loop-clock path
-        /// (<see cref="EmitLoopCycle"/>, plan Phase 4 must-fix #1). Computes the
-        /// KSC funds cost (Career + KSC only), writes <c>route.KscDispatchFundsCost</c>,
-        /// and emits the <see cref="GameActionType.RouteDispatched"/> +
-        /// <see cref="GameActionType.RouteCargoDebited"/> ledger pair under the
-        /// SAME <paramref name="cycleId"/>. Does NOT mutate route status,
+        /// (<see cref="EmitLoopCycle"/>, plan Phase 4 must-fix #1). Emits the
+        /// <see cref="GameActionType.RouteDispatched"/> row and, for a vessel or
+        /// harvest origin, the <see cref="GameActionType.RouteCargoDebited"/> row
+        /// under the SAME <paramref name="cycleId"/>. A Space Center origin is
+        /// free and debits nothing, so it writes no debit row (todo
+        /// LOGISTICS-WITHOUT-MONEY). Does NOT mutate route status,
         /// scheduling, or counters — the caller owns those (the legacy path
         /// transitions to InTransit + advances NextDispatchUT; the loop path runs
         /// delivery in the same tick and snaps the cycle index). This is the
-        /// origin/funds-debit half that <see cref="ApplyDelivery"/> alone would
+        /// origin-debit half that <see cref="ApplyDelivery"/> alone would
         /// SKIP, so the loop path must call BOTH (must-fix #1): calling delivery
-        /// alone never debits origin / charges funds and trips
+        /// alone never debits origin and trips
         /// <c>RouteModule.ProcessCargoDelivered</c>'s out-of-order guard
         /// (DispatchedCycles == 0).
         ///
@@ -3696,8 +3582,7 @@ namespace Parsek.Logistics
         /// behind the ELS replay backstop. The legacy <see cref="ApplyDispatch"/>
         /// path passes <c>false</c> - it fires at cycle start (not the dock
         /// phase) and has no replay backstop - keeping its rows byte-identical
-        /// to v0 (unconditional <c>CostManifest</c> clone, no physical write).
-        /// KSC origins never debit physically; funds carry the cost.</para>
+        /// to v0 (unconditional <c>CostManifest</c> clone, no physical write).</para>
         /// </summary>
         internal static void EmitDispatchDebit(
             Route route, double currentUT, IRouteRuntimeEnvironment env, string cycleId,
@@ -3710,22 +3595,6 @@ namespace Parsek.Logistics
             // self-timer path passes -1 (the v0 sentinel) so its rows stay
             // byte-identical: stopIndex -1 (codec-omitted) + Sequence 0/1.
             int dispatchSeqBase = dispatchStopIndex >= 0 ? dispatchStopIndex * SeqStride : 0;
-
-            // Funds cost: only meaningful for Career + KSC origin. We compute it
-            // unconditionally so the persisted KscDispatchFundsCost stays in sync
-            // with what the evaluator's funds gate saw, but the emitted action
-            // only carries the cost when the actual charge would be non-zero.
-            bool isCareerKsc = env.IsCareer && route.IsKscOrigin;
-            double computedCost = 0.0;
-            if (isCareerKsc)
-            {
-                computedCost = ComputeDispatchFundsCostForRoute(route);
-                // Route.KscDispatchFundsCost is double-typed; preserve full
-                // precision here. The ledger-row cast below is the only float
-                // truncation, intentional because GameAction defines the field
-                // as float.
-                route.KscDispatchFundsCost = computedCost;
-            }
 
             // Physical origin debit half (M1, design D11/D12). Runs BEFORE the
             // row construction so the debited row records what was ACTUALLY
@@ -3742,7 +3611,7 @@ namespace Parsek.Logistics
                     // exists and the CostManifest is empty by construction, so
                     // there is NOTHING to debit - but the row pair below still
                     // emits for row-shape stability (the empty manifest makes
-                    // it a structural no-op: zero funds, no physical write).
+                    // it a structural no-op: no physical write).
                     ParsekLog.Verbose(Tag,
                         $"DispatchDebit: route {ShortIdForLog(route)} cycle={cycleId} " +
                         "harvest origin: physical origin debit skipped (harvested cargo debits nothing)");
@@ -3780,7 +3649,7 @@ namespace Parsek.Logistics
             }
 
             // RouteDispatched — the scheduler-decision marker. No manifest;
-            // the debit row carries the resources/funds payload. The sparse
+            // the debit row carries the resource payload. The sparse
             // RouteSendOnce stamp (route-timeline events) marks a cycle armed by
             // the player's Send Once one-shot so the individual run is
             // identifiable in the timeline.
@@ -3795,14 +3664,27 @@ namespace Parsek.Logistics
                 RouteSendOnce = route.SendOnceArmed,
             };
 
-            // RouteCargoDebited — the physical/funds debit. Carries the cost
-            // manifest (resource amounts) and the KSC funds cost. Sequence=1
+            // A Space Center origin is free and moves nothing out of a vessel:
+            // the cycle writes the dispatch marker alone (todo
+            // LOGISTICS-WITHOUT-MONEY).
+            if (route.IsKscOrigin)
+            {
+                Ledger.AddAction(dispatchedAction);
+                ParsekLog.Info(Tag,
+                    $"DispatchDebit: route {ShortIdForLog(route)} cycle={cycleId} " +
+                    $"ut={currentUT.ToString("R", IC)} space-center origin: dispatch row only " +
+                    "(free, no debit row)");
+                return;
+            }
+
+            // RouteCargoDebited — the physical origin debit. Carries the cost
+            // manifest (resource amounts). Sequence=1
             // pins the debit AFTER the dispatched row at the same UT, which
             // matters for any future walker that orders by (UT, Sequence).
             // On the physical-debit path the manifest is the ACTUAL removed
             // amounts (zero actuals serialize as no manifest) plus the sparse
-            // requested-on-shortfall manifest and origin pid; on the KSC and
-            // legacy paths the v0 shape is preserved byte-identical
+            // requested-on-shortfall manifest and origin pid; on the legacy
+            // path the v0 shape is preserved byte-identical
             // (unconditional CostManifest clone, no requested manifest, pid 0).
             var debitedAction = new GameAction
             {
@@ -3820,7 +3702,7 @@ namespace Parsek.Logistics
                     : null,
                 // M3 Phase 5 (D7 carve-out lift): the physical-debit path carries
                 // the ACTUAL removed origin inventory + requested-on-shortfall,
-                // sparse (null on the legacy / KSC paths so v0 rows stay
+                // sparse (null on the legacy path so v0 rows stay
                 // byte-identical).
                 RouteInventoryManifest = physicalDebitApplied
                     ? originDebit.ActualInventoryDebited
@@ -3831,10 +3713,6 @@ namespace Parsek.Logistics
                 RouteOriginVesselPid = physicalDebitApplied
                     ? originDebit.OriginVesselPid
                     : 0u,
-                // RouteKscFundsCost is float-typed on GameAction by design;
-                // double precision is preserved on Route.KscDispatchFundsCost
-                // for diagnostics.
-                RouteKscFundsCost = isCareerKsc ? (float)computedCost : 0f,
             };
 
             Ledger.AddActions(new[] { dispatchedAction, debitedAction });
@@ -3847,13 +3725,11 @@ namespace Parsek.Logistics
                 : string.Empty;
             ParsekLog.Info(Tag,
                 $"DispatchDebit: route {ShortIdForLog(route)} cycle={cycleId} " +
-                $"ut={currentUT.ToString("R", IC)} " +
-                $"cost={computedCost.ToString("R", IC)} " +
-                $"careerKsc={(isCareerKsc ? "1" : "0")}" + physicalSuffix);
+                $"ut={currentUT.ToString("R", IC)}" + physicalSuffix);
         }
 
         /// <summary>
-        /// Wait-state applier (resources / funds / destination-full). Updates
+        /// Wait-state applier (resources / destination-full). Updates
         /// <c>Status</c> and <c>NextEligibilityCheckUT</c>; per design §10.4
         /// <c>NextDispatchUT</c> is intentionally NOT touched, so a destination-
         /// full route holds its cycle slot until the destination has capacity.
@@ -3869,14 +3745,12 @@ namespace Parsek.Logistics
 
             // M6 hold reasons: store the legacy-path verdict verbatim (the
             // prefixed decision token, e.g. "origin-lacks-X"; the formatter is
-            // total over both token shapes). The funds amount comes from the
-            // decision's Shortfall, never from its "funds-shortfall-N" token.
-            route.RecordHold(HoldKindForOutcome(decision.Outcome), decision.Reason, decision.Shortfall, currentUT);
-            // The Held row's detail is the STABLE token (HeldRowDetail): the funds
-            // token's amount moves on every retry and must not read as a new reason.
+            // total over both token shapes). The legacy path measures no
+            // shortfall, so the hold carries 0.
+            route.RecordHold(HoldKindForOutcome(decision.Outcome), decision.Reason, 0.0, currentUT);
             TryEmitRouteHeldRow(route, HoldKindForOutcome(decision.Outcome),
                 HeldRowDetail(route, HoldKindForOutcome(decision.Outcome), decision.Reason),
-                decision.Shortfall, currentUT, cycleId: null);
+                0.0, currentUT, cycleId: null);
 
             // §10.4: do NOT advance NextDispatchUT for any wait state. The route
             // re-evaluates at NextEligibilityCheckUT and either dispatches at the
@@ -3905,8 +3779,6 @@ namespace Parsek.Logistics
             {
                 case RouteDispatchOutcome.WaitResources:
                     return RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo;
-                case RouteDispatchOutcome.WaitFunds:
-                    return RouteDispatchEvaluator.EligibilityFailureKind.FundsShort;
                 case RouteDispatchOutcome.WaitDestinationFull:
                     return RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull;
                 case RouteDispatchOutcome.EndpointLost:
@@ -4048,9 +3920,7 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// The detail a <see cref="GameActionType.RouteHeld"/> row carries: the evaluator
-        /// token, made STABLE where the token itself is not. A funds hold is always
-        /// <c>funds-short</c> (the legacy decision token <c>funds-shortfall-N</c> moves with
-        /// the amount, which belongs in the shortfall field); a linked-route wait is
+        /// token, made STABLE where the token itself is not: a linked-route wait is
         /// <c>partner:&lt;partner route id&gt;</c> (the evaluator token names the partner,
         /// and a rename mid-hold must not read as a new reason). Every other token passes
         /// through. Pure.
@@ -4060,8 +3930,6 @@ namespace Parsek.Logistics
         {
             switch (kind)
             {
-                case RouteDispatchEvaluator.EligibilityFailureKind.FundsShort:
-                    return HeldFundsShortDetail;
                 case RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner:
                     return route != null && !string.IsNullOrEmpty(route.LinkedRouteId)
                         ? HeldPartnerDetailPrefix + route.LinkedRouteId
@@ -4070,9 +3938,6 @@ namespace Parsek.Logistics
                     return detail;
             }
         }
-
-        /// <summary>The stable detail of every funds <see cref="GameActionType.RouteHeld"/> row.</summary>
-        internal const string HeldFundsShortDetail = "funds-short";
 
         /// <summary>A linked-route wait's held detail: this prefix plus the partner route's id.</summary>
         internal const string HeldPartnerDetailPrefix = "partner:";
@@ -4190,10 +4055,7 @@ namespace Parsek.Logistics
         /// <para><b>The hold is deliberately KEPT.</b> The caller has already run
         /// <see cref="Route.RecordHold"/> for this cycle; nothing here clears it, so
         /// the Logistics window still names WHY the run did not happen next to the
-        /// now-Paused row. The recovery credit is NOT flushed here either - both
-        /// blocked branches already called <see cref="EmitPendingRecoveryCredit"/> at
-        /// the top of the branch (the blocked crossing IS the prior cycle's next
-        /// crossing), so a second call would be redundant.</para>
+        /// now-Paused row.</para>
         ///
         /// <para>Returns true when the pause was honored (the caller must then stop
         /// processing further owed cycles this tick), false when nothing was armed.</para>
@@ -4215,7 +4077,7 @@ namespace Parsek.Logistics
             // all. The arm survives (matching pre-fix behavior for these kinds:
             // the crossing was consumed as skipped either way) and fires on the
             // next crossing that RESOLVES - delivers, or blocks for a real
-            // per-cycle reason (destination full, funds short, origin cargo,
+            // per-cycle reason (destination full, origin cargo,
             // endpoint lost). Every other kind consumes by default, so a future
             // kind lands on the consuming side unless deliberately classified
             // as a postponement here.
@@ -4236,12 +4098,7 @@ namespace Parsek.Logistics
             route.SendOnceArmed = false;
             route.TransitionTo(RouteStatus.Paused, BlockedThenPausedReason);
             // Ordering note: the marker lands at Sequence 0, like TryPause's
-            // player-pause marker. On the career-KSC path the blocked branch's
-            // EmitPendingRecoveryCredit can have emitted a RouteRecoveryCredited
-            // row at this same (routeId, UT, Sequence 0) key - the two rows are
-            // distinguished by Type and no consumer orders between them
-            // (DeriveTimelineStatus scans only RoutePaused/RouteResumed; the
-            // credit is a funds row with no marker dependency).
+            // player-pause marker.
             EmitRouteLifecycleMarker(route, currentUT, GameActionType.RoutePaused, BlockedThenPausedReason);
             // Quiesce transition: the route stops crossing here, so any escrow held
             // from an earlier partially-fired cycle would strand and mis-gate a
@@ -4315,11 +4172,6 @@ namespace Parsek.Logistics
         {
             if (route == null || !route.PauseAfterCurrentCycle)
                 return false;
-
-            // Mirrors the delivered tail (logistics-recovery-credit section 5.4): this
-            // cycle armed its pending recovery credit at dispatch and there is no
-            // further crossing, so flush it before the route goes quiet. Idempotent.
-            EmitPendingRecoveryCredit(route, currentUT, env);
 
             // Captured FIRST: the toast below is posted only for the Send Once
             // provenance, and the flag is consumed on the line after.
@@ -4465,8 +4317,7 @@ namespace Parsek.Logistics
         /// Apply a pending delivery cycle (item 6 Phase B). Re-resolves the
         /// destination endpoint, builds a capacity probe against the live
         /// vessel (loaded or unloaded), asks the pure planner what to deliver,
-        /// applies the planned resource + inventory writes, debits Career
-        /// funds when applicable, emits a <see cref="GameActionType.RouteCargoDelivered"/>
+        /// applies the planned resource + inventory writes, emits a <see cref="GameActionType.RouteCargoDelivered"/>
         /// ledger row, and transitions the route back to
         /// <see cref="RouteStatus.Active"/>. Idempotent against ledger replay
         /// via an ELS lookup keyed on <c>(RouteId, RouteCycleId)</c>.
@@ -4509,7 +4360,7 @@ namespace Parsek.Logistics
             // STEP 1: idempotency guard. If ELS already contains a
             // RouteCargoDelivered row for (routeId, cycleId, stopIndex), THIS
             // WINDOW was delivered on a previous tick (or recovered after crash);
-            // applying again would double-charge funds and double-write resources.
+            // applying again would double-write resources.
             // M4a A3: keyed per-window (stopIndex) so window 0's row does NOT
             // suppress windows 1..N (the RANK-1 hole). This is the orchestrator's
             // ONLY ELS read — every other consumer routes through ERS.
@@ -4543,11 +4394,10 @@ namespace Parsek.Logistics
                 // without this branch a Send-Once route ended up Active with
                 // BOTH flags still armed — stamping a second one-shot row and
                 // landing its pause marker one cycle late. Mirrors the armed
-                // tail: flush the owed recovery credit (idempotent), consume
-                // the flags, pause, emit the RoutePaused marker at this
+                // tail: consume the flags, pause, emit the RoutePaused marker at this
                 // window's stride slot (+4, after the delivered row's +3), and
                 // drop any held escrow (quiesce transition). The dedup
-                // semantics are preserved: no delivery/funds/debit row is
+                // semantics are preserved: no delivery/debit row is
                 // (re-)emitted here — only the pause marker the crash lost.
                 //
                 // SENDONCE-RESIDUAL-PATHS item 1: gated on bumpCompletedCycle,
@@ -4561,7 +4411,6 @@ namespace Parsek.Logistics
                 // one-shot silently became an endless loop.
                 if (bumpCompletedCycle && route.PauseAfterCurrentCycle)
                 {
-                    EmitPendingRecoveryCredit(route, currentUT, env);
                     // Captured FIRST: the toast below is posted only for the Send
                     // Once provenance, and the flag is consumed on the next line.
                     bool wasSendOnce = route.SendOnceArmed;
@@ -4644,11 +4493,6 @@ namespace Parsek.Logistics
                 route.RecordHold(
                     RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost,
                     lostReason, 0.0, currentUT);
-                // Recovery-credit deferral tail (logistics-recovery-credit section 5.4):
-                // this cycle dispatched + armed its pending credit during EmitLoopCycle,
-                // and an EndpointLost route stops crossing, so flush the owed credit
-                // before the route goes quiet. Idempotent / gated; no-ops if nothing owed.
-                EmitPendingRecoveryCredit(route, currentUT, env);
                 route.TransitionTo(RouteStatus.EndpointLost, "endpoint-lost-at-delivery");
                 // M4b escrow-strand fix (PR #1180 review): see ApplyEndpointLost - drop any
                 // held escrow on the delivery-time endpoint-lost transition too (the cycle
@@ -4702,26 +4546,21 @@ namespace Parsek.Logistics
 
             // STEP 5/6: apply the planned writes. Build an ApplyDeliveryContext
             // that funnels the live mutations behind delegates so the testable
-            // helper does not need to instantiate Vessel / Funding /
+            // helper does not need to instantiate Vessel /
             // ProtoPartSnapshot. The "writer" delegates are the only place
             // KSP-state mutation happens; ApplyDeliveryFromPlan owns the
             // bookkeeping (actuals, partial detection, status transition,
             // ledger row construction).
             var liveWriters = new LiveDeliveryWriters(route, destVessel, plan, destinationIsLoaded, destinationScope);
-            bool isCareerKsc = env.IsCareer && route.IsKscOrigin;
             var ctx = new ApplyDeliveryContext
             {
                 CycleId = cycleId,
                 CurrentUT = currentUT,
                 StopIndex = stopIndex,
-                IsCareer = env.IsCareer,
-                IsKscOrigin = route.IsKscOrigin,
-                KscFundsCost = isCareerKsc ? route.KscDispatchFundsCost : 0.0,
                 ResourceWriter = liveWriters.WriteResource,
                 ResourceActualReader = liveWriters.ReadActualResource,
                 InventoryWriter = liveWriters.WriteInventory,
                 InventoryActualCountReader = liveWriters.ReadInventoryActualCount,
-                FundsDebiter = LiveDebitFunds,
                 LedgerEmitter = Ledger.AddAction,
                 BumpCompletedCycle = bumpCompletedCycle,
             };
@@ -4733,7 +4572,7 @@ namespace Parsek.Logistics
         /// the live-probe build all happen in <see cref="ApplyDelivery"/> (the
         /// wrapper); this method takes a pre-built <see cref="DeliveryPlan"/>
         /// and a context bag of delegates so xUnit can verify the apply
-        /// bookkeeping (resource writer invocations, funds-debit conditional,
+        /// bookkeeping (resource writer invocations,
         /// ledger row shape, status transition) without instantiating any
         /// live KSP objects.
         /// </summary>
@@ -4786,20 +4625,7 @@ namespace Parsek.Logistics
                 }
             }
 
-            // STEP 7: Career funds debit. Skip silently in Sandbox/Science or
-            // when the route is not a KSC origin — the dispatch evaluator's
-            // KscFundsAvailable check is only consulted in (Career AND KSC),
-            // so the debit must mirror that exact predicate to keep the
-            // dispatch/delivery pair internally consistent.
-            if (ctx.IsCareer && ctx.IsKscOrigin && ctx.KscFundsCost > 0.0)
-            {
-                ctx.FundsDebiter(ctx.KscFundsCost);
-                ParsekLog.Info(Tag,
-                    $"Delivery: route {ShortIdForLog(route)} Career KSC funds debited: " +
-                    $"-{ctx.KscFundsCost.ToString("R", IC)}");
-            }
-
-            // STEP 8: build and emit the RouteCargoDelivered row. The actuals
+            // STEP 7: build and emit the RouteCargoDelivered row. The actuals
             // are populated from the readers; the requested manifest is only
             // populated when the actual fell short of requested for at least
             // one resource (saves bytes on the happy full-fill case).
@@ -4835,7 +4661,7 @@ namespace Parsek.Logistics
             // The single-stop RouteCargoDelivered.Sequence changes 0 -> 3 (the +3
             // delivery offset of the stride-0 block). This is verified
             // behaviour-preserving (recalc-walk-order-equivalent): route rows are
-            // non-earning, FundsModule ignores RouteCargoDelivered entirely, and the
+            // non-earning, no resource module reads RouteCargoDelivered, and the
             // ledger walkers do not assume a contiguous 0..N
             // (RecalculationEngine.SortActions = OrderBy UT, ThenBy IsEarning, ThenBy
             // Sequence; the dedup equality keys on ActionId / type-specific fields,
@@ -4854,15 +4680,10 @@ namespace Parsek.Logistics
                 Sequence = deliverySeqBase + 3,
                 RouteResourceManifest = actualManifest,
                 RouteRequestedResourceManifest = requestedManifest,
-                // GameAction.RouteKscFundsCost is float-typed by design (same
-                // as RouteCargoDebited). The double precision on
-                // ApplyDeliveryContext.KscFundsCost is preserved upstream for
-                // diagnostics.
-                RouteKscFundsCost = (ctx.IsCareer && ctx.IsKscOrigin) ? (float)ctx.KscFundsCost : 0f,
             };
             ctx.LedgerEmitter(action);
 
-            // STEP 9: mutate route state + transition. M4a A3 (Horn A): the
+            // STEP 8: mutate route state + transition. M4a A3 (Horn A): the
             // CompletedCycles bump is gated on ctx.BumpCompletedCycle so it fires
             // exactly ONCE per cycle (the single/last window). An earlier window of
             // a multi-stop cycle leaves the counter alone so the LATER windows
@@ -4878,7 +4699,7 @@ namespace Parsek.Logistics
             // Successful delivery exits the route from any wait state — clear
             // the retry timer so a future tick is not blocked by a stale
             // NextEligibilityCheckUT inherited from a pre-dispatch
-            // WaitingForResources / WaitingForFunds / DestinationFull pass.
+            // WaitingForResources / DestinationFull pass.
             // Mirrors ApplyDispatch (line ~301).
             route.NextEligibilityCheckUT = null;
 
@@ -4938,15 +4759,6 @@ namespace Parsek.Logistics
             // forever and the toast had lied.
             if (ctx.BumpCompletedCycle && route.PauseAfterCurrentCycle)
             {
-                // Armed pause-after-cycle tail (logistics-recovery-credit section 5.4):
-                // this cycle SET its pending recovery credit during its own
-                // EmitLoopCycle (right after EmitDispatchDebit), and there is no
-                // further crossing because the route is about to go quiet, so flush
-                // the pending credit here before TransitionTo(Paused). The ctx
-                // career/KSC flags drive the gate (no live env in scope here).
-                EmitPendingRecoveryCredit(
-                    route, ctx.CurrentUT, new ApplyDeliveryEnvAdapter(ctx.IsCareer));
-
                 route.PauseAfterCurrentCycle = false;
                 // Route-timeline events: the one-shot completed; drop the Send Once
                 // provenance (the dispatched row was already stamped at emit time).
@@ -5204,7 +5016,7 @@ namespace Parsek.Logistics
                 if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
                 if (!string.Equals(a.RouteCycleId, cycleId, StringComparison.Ordinal)) continue;
                 // M4a A3 (Horn A re-key): the dispatch half fires exactly ONCE per
-                // cycle (the once-per-cycle KSC funds charge), so its row carries
+                // cycle, so its row carries
                 // the cycle's dispatch stopIndex (the first window's index, stamped
                 // by EmitDispatchDebit). Matching the stopIndex keeps the guard
                 // symmetric with the delivery guard and reads the same already-
@@ -5269,105 +5081,8 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// ELS-based idempotency check for the recovery credit
-        /// (logistics-recovery-credit, design doc section 6.4). Exact structural
-        /// mirror of <see cref="IsDeliveryAlreadyInLedger"/> but scanning for a
-        /// <see cref="GameActionType.RouteRecoveryCredited"/> row with the same
-        /// <c>(RouteId, RouteCycleId)</c> pair. Keyed on the CREDIT's own row (the
-        /// PRIOR dispatched cycle it pays back), NOT on the delivery row, so a
-        /// present delivery for the current crossing is never mistaken for "credit
-        /// already emitted" (gotcha G6). Reads ELS (supersede / tombstone aware): a
-        /// tombstoned credit row must NOT block re-emitting a fresh credit on a
-        /// re-fly, and ELS hides tombstoned rows, so this is the right surface.
-        /// </summary>
-        private static bool IsRecoveryCreditAlreadyInLedger(string routeId, string cycleId)
-        {
-            return ElsContainsRouteCycleRow(
-                GameActionType.RouteRecoveryCredited, routeId, cycleId,
-                "IsRecoveryCreditAlreadyInLedger");
-        }
-
-        /// <summary>
-        /// The recovery-credit orphan guard's read: true when a
-        /// <see cref="GameActionType.RouteDispatched"/> row for <c>(routeId, cycleId)</c> is in
-        /// ELS (any stop index: a cycle dispatches once). Fails OPEN: a ComputeELS throw counts
-        /// as present, so a degenerate ledger never costs the player an owed credit (the
-        /// crossing's other ELS reads degrade the same way).
-        /// </summary>
-        private static bool IsCreditDispatchRowInLedger(string routeId, string cycleId)
-        {
-            IReadOnlyList<GameAction> els;
-            try
-            {
-                els = EffectiveState.ComputeELS();
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"IsCreditDispatchRowInLedger: ComputeELS threw {ex.GetType().Name}: {ex.Message}; " +
-                    "treating the dispatch row as present");
-                return true;
-            }
-            if (els == null)
-                return true;
-            for (int i = 0; i < els.Count; i++)
-            {
-                GameAction a = els[i];
-                if (a == null || a.Type != GameActionType.RouteDispatched) continue;
-                if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
-                if (!string.Equals(a.RouteCycleId, cycleId, StringComparison.Ordinal)) continue;
-                return true;
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// Shared route-cycle ELS idempotency scan. Currently forwarded to only by
-        /// <see cref="IsRecoveryCreditAlreadyInLedger"/>;
-        /// <see cref="IsDeliveryAlreadyInLedger"/> evolved a per-stop inline body during
-        /// the M4 multi-stop work and no longer routes through here. Returns
-        /// <c>true</c> if any ELS row of <paramref name="type"/> matches the given
-        /// <paramref name="routeId"/> + <paramref name="cycleId"/> pair. ELS is
-        /// supersede / tombstone aware. Exception-safe: a throw is treated as
-        /// not-in-ledger. The <paramref name="logCtx"/> reproduces the caller's
-        /// original log prefix verbatim so the emitted line is unchanged.
-        /// </summary>
-        private static bool ElsContainsRouteCycleRow(
-            GameActionType type, string routeId, string cycleId, string logCtx)
-        {
-            if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(cycleId))
-                return false;
-
-            IReadOnlyList<GameAction> els;
-            try
-            {
-                els = EffectiveState.ComputeELS();
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"{logCtx}: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as not-in-ledger");
-                return false;
-            }
-
-            if (els == null) return false;
-            for (int i = 0; i < els.Count; i++)
-            {
-                GameAction a = els[i];
-                if (a == null) continue;
-                if (a.Type != type) continue;
-                if (!string.Equals(a.RouteId, routeId, StringComparison.Ordinal)) continue;
-                if (!string.Equals(a.RouteCycleId, cycleId, StringComparison.Ordinal)) continue;
-                return true;
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// ELS reader for the recovery-credit AMOUNT computation. Exception-safe:
-        /// a throw is treated as "no recoveries" (empty list), so a degenerate
-        /// ledger state never crashes the crossing. Mirrors the try/catch in
-        /// <see cref="IsRecoveryCreditAlreadyInLedger"/>.
+        /// Exception-safe ELS reader: a throw is treated as an empty ledger, so a
+        /// degenerate ledger state never crashes the crossing.
         /// </summary>
         private static IReadOnlyList<GameAction> SafeComputeEls()
         {
@@ -5381,147 +5096,6 @@ namespace Parsek.Logistics
                     $"SafeComputeEls: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as empty");
                 return Array.Empty<GameAction>();
             }
-        }
-
-        /// <summary>
-        /// Flush the PRIOR dispatched cycle's deferred recovery credit at
-        /// <paramref name="currentUT"/> (logistics-recovery-credit, design doc
-        /// section 5.2). Emits a single
-        /// <see cref="GameActionType.RouteRecoveryCredited"/> row keyed on the
-        /// PENDING (prior dispatched) cycle id and applies the matching live stock
-        /// credit, then clears the pending marker. Returns true when a credit row
-        /// was emitted (for the caller's log line). Called from the TOP of
-        /// <see cref="EmitLoopCycle"/> (before the delivery-keyed replay
-        /// short-circuit), from the blocked-cycle branch, and from the pause / stop
-        /// transitions (section 5.4) so the deferral stays honest across blocked
-        /// gaps and the route's final dispatched cycle. Idempotent (guard 3): a
-        /// re-presented crossing whose credit already landed emits nothing.
-        ///
-        /// <para>Career + KSC origin only (gotcha G5). A pending id can only have
-        /// been set on a Career-KSC dispatch, but the gate is re-checked
-        /// defensively in case env flips (e.g. a save copied into Sandbox); a stale
-        /// pending marker is then CLEARED without emitting.</para>
-        /// </summary>
-        internal static bool EmitPendingRecoveryCredit(
-            Route route, double currentUT, IRouteRuntimeEnvironment env)
-        {
-            if (route == null)
-            {
-                ParsekLog.Verbose(Tag, "EmitPendingRecoveryCredit: null route");
-                return false;
-            }
-
-            // Nothing owed (fresh route, or already flushed). Not an error.
-            string pendingCycleId = route.PendingRecoveryCreditCycleId;
-            if (string.IsNullOrEmpty(pendingCycleId))
-            {
-                ParsekLog.Verbose(Tag,
-                    $"EmitPendingRecoveryCredit: route {ShortIdForLog(route)} no pending credit at " +
-                    $"ut={currentUT.ToString("R", IC)}");
-                return false;
-            }
-
-            // Gate: Career + KSC origin only. Mirror EmitDispatchDebit's isCareerKsc.
-            bool isCareerKsc = env != null && env.IsCareer && route.IsKscOrigin;
-            if (!isCareerKsc)
-            {
-                ClearPendingRecoveryCredit(route);
-                ParsekLog.Info(Tag,
-                    $"EmitPendingRecoveryCredit: route {ShortIdForLog(route)} cycle={pendingCycleId} " +
-                    $"credit-skip non-career-ksc (career={(env != null && env.IsCareer ? "1" : "0")} " +
-                    $"ksc={(route.IsKscOrigin ? "1" : "0")}): cleared pending");
-                return false;
-            }
-
-            // Idempotency backstop (guard 3): do not emit a second credit for the
-            // same (RouteId, pendingCycleId). A save/reload re-presented this
-            // crossing whose pending credit was already flushed.
-            if (IsRecoveryCreditAlreadyInLedger(route.Id, pendingCycleId))
-            {
-                ClearPendingRecoveryCredit(route);
-                ParsekLog.Info(Tag,
-                    $"EmitPendingRecoveryCredit: route {ShortIdForLog(route)} cycle={pendingCycleId} " +
-                    "replay (credit already in ledger): emitting nothing, cleared stale pending");
-                return false;
-            }
-
-            // Amount: reuse SumRecoveredCredits over the source tree, read from
-            // ELS. ResolveTreeRecordingIds scopes the tree to the route's
-            // creation-time membership snapshot (M-MIS-9-R1), so a branch added
-            // to the tree after creation cannot inflate the recurring credit.
-            HashSet<string> treeIds = RouteRunCostCalculator.ResolveTreeRecordingIds(route);
-            IReadOnlyList<GameAction> els = SafeComputeEls();
-            double recovered = RouteRunCostCalculator.SumRecoveredCredits(route, els, treeIds, out int n);
-            if (recovered <= 0.0)
-            {
-                ClearPendingRecoveryCredit(route);
-                ParsekLog.Info(Tag,
-                    $"EmitPendingRecoveryCredit: route {ShortIdForLog(route)} cycle={pendingCycleId} " +
-                    $"credit-skip zero-recovery (recoveryRows={n.ToString(IC)}): cleared pending");
-                return false;
-            }
-
-            double dispatchUTForLog = route.PendingRecoveryCreditDispatchUT;
-
-            // Orphan guard: the credit pays back the pending cycle's dispatch, so it is owed
-            // only while that RouteDispatched row is in the effective ledger. A load or rewind
-            // back past the dispatch retires the row, a tombstone hides it; paying anyway would
-            // credit a cycle the surviving timeline never ran. Every flush site (crossing,
-            // blocked crossing, pause, armed pause, endpoint loss, source-problem revalidation)
-            // reaches this check.
-            if (!IsCreditDispatchRowInLedger(route.Id, pendingCycleId))
-            {
-                ClearPendingRecoveryCredit(route);
-                ParsekLog.Info(Tag,
-                    $"EmitPendingRecoveryCredit: route {ShortIdForLog(route)} cycle={pendingCycleId} " +
-                    "credit-skip orphan (no RouteDispatched row for the cycle in the effective ledger, " +
-                    $"dispatchUT={dispatchUTForLog.ToString("R", IC)}): cleared pending");
-                return false;
-            }
-
-            // Emit the credit row (section 6.1) and apply the live stock credit
-            // (section 6.3). Sequence 0: emitted FIRST at this crossing's UT,
-            // before this cycle's RouteDispatched (which is Sequence 0 too at a
-            // LATER-or-equal UT, but the credit's RouteCycleId names the PRIOR
-            // cycle, so the keys never collide).
-            var credit = new GameAction
-            {
-                Type = GameActionType.RouteRecoveryCredited,
-                UT = currentUT,
-                RouteId = route.Id,
-                RouteCycleId = pendingCycleId,
-                RouteStopIndex = -1,
-                Sequence = 0,
-                RouteKscFundsCost = (float)recovered, // positive magnitude; type carries the credit direction
-            };
-            Ledger.AddAction(credit);
-
-            var funder = RecoveryCreditFunderForTesting;
-            if (funder != null)
-                funder(recovered);
-            else
-                LiveCreditFunds(recovered);
-
-            ClearPendingRecoveryCredit(route);
-
-            ParsekLog.Info(Tag,
-                $"RecoveryCredit: route {ShortIdForLog(route)} creditedCycle={pendingCycleId} " +
-                $"recovered={recovered.ToString("R", IC)} recoveryRows={n.ToString(IC)} " +
-                $"ut={currentUT.ToString("R", IC)} dispatchUT={dispatchUTForLog.ToString("R", IC)}");
-            return true;
-        }
-
-        /// <summary>
-        /// Clears the recovery-credit pending marker back to its "no credit owed"
-        /// defaults (null cycle id, -1 dispatch UT). Single place the reset shape
-        /// is defined so every clear path (flush, skip, gate-fail) stays
-        /// consistent.
-        /// </summary>
-        private static void ClearPendingRecoveryCredit(Route route)
-        {
-            if (route == null) return;
-            route.PendingRecoveryCreditCycleId = null;
-            route.PendingRecoveryCreditDispatchUT = -1.0;
         }
 
         /// <summary>
@@ -5622,90 +5196,25 @@ namespace Parsek.Logistics
             }
         }
 
-        /// <summary>
-        /// Production funds-debit delegate. Skipped silently in Sandbox/Science
-        /// because <see cref="ApplyDeliveryFromPlan"/> already gates the call
-        /// on <c>(IsCareer AND IsKscOrigin)</c>. Defensive-null-check on
-        /// <c>Funding.Instance</c> survives early-load ticks where the funding
-        /// singleton is not yet published.
-        /// </summary>
-        private static void LiveDebitFunds(double cost)
-        {
-            try
-            {
-                if (Funding.Instance != null && cost > 0.0)
-                {
-                    Funding.Instance.AddFunds(-cost, TransactionReasons.None);
-                }
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Warn(Tag,
-                    $"LiveDebitFunds({cost.ToString("R", IC)}) threw {ex.GetType().Name}: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Production funds-CREDIT delegate (logistics-recovery-credit, design doc
-        /// section 6.3). Mirror of <see cref="LiveDebitFunds"/> with a POSITIVE
-        /// delta: the deferred per-cycle recovery credit. Defensively null-checks
-        /// <c>Funding.Instance</c> (early-load ticks) and try/catches. This is the
-        /// immediate live effect; the recalc walk's <c>PatchFunds</c> is a
-        /// reconcile-to-target, NOT an additive replay, so the credit is not
-        /// double-applied (when no rewind has happened the target already includes
-        /// the credit as a FundsModule earning, so the delta is ~0). After a rewind
-        /// cutoff the credit row is excluded from the target while live funds still
-        /// carry this mutation, so PatchFunds subtracts it: reversible by
-        /// construction.
-        /// </summary>
-        private static void LiveCreditFunds(double amount)
-        {
-            try
-            {
-                if (Funding.Instance != null && amount > 0.0)
-                {
-                    Funding.Instance.AddFunds(+amount, TransactionReasons.None);
-                }
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Warn(Tag,
-                    $"LiveCreditFunds({amount.ToString("R", IC)}) threw {ex.GetType().Name}: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Production funds-credit seam for the recovery credit. Default routes to
-        /// <see cref="LiveCreditFunds"/>; xUnit assigns a fake that records the
-        /// credit amount without touching the <c>Funding</c> static (which is not
-        /// available off-Unity). Mirrors the
-        /// <see cref="DeliveryApplierForTesting"/> seam pattern.
-        /// </summary>
-        internal static Action<double> RecoveryCreditFunderForTesting;
-
         // ==================================================================
         // Delivery seam types (item 6 Phase B)
         // ==================================================================
 
         /// <summary>
         /// Context bag for <see cref="ApplyDeliveryFromPlan"/>. Bundles cycle
-        /// identity, Career/KSC gates, and the apply-writer delegates so the
+        /// identity and the apply-writer delegates so the
         /// test side can inject fakes that record calls without touching
-        /// <c>Vessel</c> / <c>Funding</c> / <c>Ledger.AddAction</c>.
+        /// <c>Vessel</c> / <c>Ledger.AddAction</c>.
         /// </summary>
         internal struct ApplyDeliveryContext
         {
             public string CycleId;
             public double CurrentUT;
             public int StopIndex;
-            public bool IsCareer;
-            public bool IsKscOrigin;
-            public double KscFundsCost;
             public Action<string, double> ResourceWriter;
             public Func<string, double> ResourceActualReader;
             public Action<InventoryPayloadItem, InventorySlotAddress, int> InventoryWriter; // (item, slot-address, units)
             public Func<int> InventoryActualCountReader; // total UNITS stored, not lines
-            public Action<double> FundsDebiter;
             public Action<GameAction> LedgerEmitter;
 
             /// <summary>
@@ -5729,421 +5238,12 @@ namespace Parsek.Logistics
             public bool BumpCompletedCycle;
         }
 
-        /// <summary>
-        /// Minimal <see cref="IRouteRuntimeEnvironment"/> adapter carrying only the
-        /// Career flag, used to drive <see cref="EmitPendingRecoveryCredit"/>'s
-        /// Career + KSC gate from inside <see cref="ApplyDeliveryFromPlan"/> (the
-        /// armed pause-after-cycle credit flush, section 5.4), where the live env is
-        /// not in scope. <see cref="EmitPendingRecoveryCredit"/> reads only
-        /// <see cref="IsCareer"/> off the env; every other member is a never-called
-        /// stub. The KSC-origin half of the gate is read off the route, not the env.
-        /// </summary>
-        private sealed class ApplyDeliveryEnvAdapter : IRouteRuntimeEnvironment
-        {
-            public ApplyDeliveryEnvAdapter(bool isCareer) { IsCareer = isCareer; }
-            public bool IsCareer { get; }
-            public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = null; return false; }
-            public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason) { vessel = null; reason = null; return false; }
-            public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall) { shortfall = 0.0; lackingResource = null; return false; }
-            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
-            public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = null; return true; }
-            public bool RouteHasValidSourcesInErs(Route route) => true;
-        }
-
         // ==================================================================
         // Helpers
         // ==================================================================
 
         /// <summary>
-        /// Locates the route's source <see cref="Recording"/> in ERS, then
-        /// computes the dispatch funds cost from its <c>VesselSnapshot</c> via
-        /// <see cref="RouteFundsCalculator.ComputeDispatchFundsCost"/>. Returns
-        /// 0 when ERS cannot be queried (e.g. during early load) or the
-        /// recording / snapshot is missing.
-        ///
-        /// <para>M2 funds basis (plan D9 / OQ1): when the source recording -
-        /// <c>SourceRefs[0]</c>, the tree ROOT, whose snapshot is taken at the
-        /// FIRST chain/branch boundary - carries a COMPLETE
-        /// <see cref="RouteRunCargoManifest"/> (start half present AND
-        /// <see cref="RouteRunCargoManifest.EndCaptured"/>, the SAME completeness
-        /// gate the harvest analysis uses, plan risk 7: gate and charge must not
-        /// diverge), the resource term is priced from the run's START transport
-        /// manifest (the launch load). Recordings without a complete manifest -
-        /// every pre-M2 recording and every degraded leg - keep the legacy
-        /// stop-snapshot walk byte-identical, so existing routes keep their
-        /// exact cost. Both the eligibility gate and the emit recompute call
-        /// this one method, so they always pick the same basis.</para>
-        ///
-        /// <para><b>Snapshot-less root fallback</b>
-        /// (ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT). The always-tree ROOT is
-        /// created with a <c>GhostVisualSnapshot</c> only and receives its
-        /// <c>VesselSnapshot</c> at the first stop/split capture site, so a root that
-        /// never reaches one - the rover-route shape: a runway stub ending at the
-        /// transport's undock split, 0 trajectory points - keeps
-        /// <c>VesselSnapshot == null</c> forever and used to make the whole KSC
-        /// dispatch FREE in career (the zero fed BOTH the funds eligibility gate and
-        /// the charge). When the root has no snapshot the PARTS basis falls back to
-        /// the FIRST <see cref="Route.SourceRefs"/> member, in order, whose ERS
-        /// recording carries one; the RESOURCE basis still prefers the ROOT's complete
-        /// run manifest (the launch load is the root's fact, and the root carries the
-        /// manifest even when it carries no snapshot), falling back to the chosen
-        /// member's snapshot resources through the legacy walk. Members whose snapshot
-        /// describes a COMBINED (dock-merged) vessel are skipped by
-        /// <see cref="IsCombinedVesselSourceMember"/> - pricing a dispatch from the
-        /// transport-plus-endpoint snapshot would charge for the destination station.
-        /// Only when NO member yields a usable basis does the method still return
-        /// 0, and that case says "uncosted" in its own rate-limited line (this
-        /// method runs per UI repaint).</para>
-        ///
-        /// <para><b>Round 2 (RVR-4, measured 2026-09-01).</b> The first fix was
-        /// insufficient on the real rover tree, for two independent reasons, and both
-        /// are handled here. (a) <b>No un-merged member exists.</b> RouteBuilder's
-        /// member set is one id per composition THROUGH-LINE HEAD, so the transport's
-        /// driving legs - further structural intervals of the same vessel line - strip
-        /// back to the root id; the members are exactly [snapshot-less root,
-        /// dock-merged leaf] and the fallback walk has no candidate. Last resort: price
-        /// the dock-merged member RESTRICTED to its connection window's TRANSPORT pid
-        /// set (<see cref="ResolveTransportSubsetWindow"/>), which bills the launch
-        /// vehicle and never the endpoint; an empty/missing transport pid set falls
-        /// through to UNCOSTED rather than pricing the combined vessel. (b) <b>The
-        /// spawn surface is gone after a load.</b> <c>ParsekScenario</c>'s OnLoad
-        /// crew-auto-unreserve sweep nulls <c>VesselSnapshot</c> on every committed
-        /// recording with <c>!VesselSpawned &amp;&amp; currentUT &gt; EndUT</c>, so on
-        /// a loaded save even the merged leaf is snapshot-less. Every basis read here
-        /// therefore goes through <see cref="ResolveCostingSnapshot"/>, which prefers
-        /// <c>VesselSnapshot</c> and falls back to the surviving
-        /// <c>GhostVisualSnapshot</c>; the chosen surface is logged as
-        /// <c>snapshotSurface=vessel|ghost</c>.</para>
-        /// </summary>
-        internal static double ComputeDispatchFundsCostForRoute(Route route)
-        {
-            if (route == null || route.SourceRefs == null || route.SourceRefs.Count == 0)
-                return 0.0;
-
-            // The PREFERRED basis stays SourceRefs[0], the tree ROOT (the member
-            // list is ordered by TreeOrder then recording id at build time).
-            string sourceId = route.SourceRefs[0]?.RecordingId;
-            if (string.IsNullOrEmpty(sourceId))
-                return 0.0;
-
-            var ers = SafeComputeErs();
-            if (ers == null) return 0.0;
-
-            Recording root = FindErsRecording(ers, sourceId);
-
-            // D9 basis selection: launch manifest only from a COMPLETE run
-            // manifest (same gate as the analysis presence gate); anything
-            // else stays on the legacy stop-snapshot walk. Read off the ROOT
-            // even on the fallback path - the launch load is the root's fact.
-            RouteRunCargoManifest runManifest = root?.RouteRunManifest;
-            Dictionary<string, ResourceAmount> startResources =
-                runManifest != null && runManifest.IsComplete
-                    ? runManifest.StartTransportResources
-                    : null;
-
-            ConfigNode basisSnapshot = ResolveCostingSnapshot(root, out string basisSurface);
-            Recording partsBasis = basisSnapshot != null ? root : null;
-            bool fallback = false;
-
-            // The dock-merged member kept aside for the LAST-RESORT subset basis
-            // below. Recorded on the first skip so the subset path does not re-walk.
-            Recording mergedCandidate = null;
-            ConfigNode mergedSnapshot = null;
-            string mergedSurface = null;
-            HashSet<uint> transportSubset = null;
-
-            if (partsBasis == null)
-            {
-                // Walk the remaining members IN ORDER and take the first one whose
-                // ERS recording carries a real (single-vessel) snapshot.
-                for (int i = 1; i < route.SourceRefs.Count; i++)
-                {
-                    RouteSourceRef memberRef = route.SourceRefs[i];
-                    string memberId = memberRef?.RecordingId;
-                    if (string.IsNullOrEmpty(memberId)) continue;
-
-                    Recording member = FindErsRecording(ers, memberId);
-                    if (member == null) continue;
-                    ConfigNode memberSnapshot = ResolveCostingSnapshot(member, out string memberSurface);
-                    if (memberSnapshot == null) continue;
-
-                    if (IsCombinedVesselSourceMember(route, memberRef, member))
-                    {
-                        if (mergedCandidate == null)
-                        {
-                            mergedCandidate = member;
-                            mergedSnapshot = memberSnapshot;
-                            mergedSurface = memberSurface;
-                        }
-                        ParsekLog.Verbose(Tag,
-                            $"FundsCost: route {ShortIdForLog(route)} skipping member {memberId} " +
-                            "as a costing basis - dock-merged (combined-vessel) snapshot");
-                        continue;
-                    }
-
-                    partsBasis = member;
-                    basisSnapshot = memberSnapshot;
-                    basisSurface = memberSurface;
-                    fallback = true;
-                    ParsekLog.Verbose(Tag,
-                        $"FundsCost: route {ShortIdForLog(route)} root {sourceId} " +
-                        $"{(root == null ? "not in ERS" : "has no VesselSnapshot")} - parts basis " +
-                        $"falls back to member {memberId}");
-                    break;
-                }
-
-                // LAST RESORT (RVR-4, 2026-09-01): on the REAL rover tree there is no
-                // un-merged member to fall back to. RouteBuilder's member set is one id
-                // per composition THROUGH-LINE HEAD, and the transport's driving legs
-                // are further structural intervals of the SAME vessel line, so their
-                // HeadLegId strips back to the root id - the members are exactly
-                // [snapshot-less root, dock-merged leaf]. Price the merged leaf
-                // RESTRICTED to the connection window's TRANSPORT pid set: those parts
-                // are the launch vehicle (it cannot reach the dock carrying parts it
-                // did not launch with, EVA construction aside), and the endpoint's
-                // parts are never billed.
-                if (partsBasis == null && mergedCandidate != null)
-                {
-                    RouteConnectionWindow window = ResolveTransportSubsetWindow(route, mergedCandidate);
-                    List<uint> transportPids = window?.TransportPartPersistentIds;
-                    if (transportPids != null && transportPids.Count > 0)
-                    {
-                        var candidateSubset = new HashSet<uint>(transportPids);
-                        RouteFundsCalculator.CountRestrictedParts(
-                            mergedSnapshot, candidateSubset,
-                            out int keptParts, out int snapshotParts);
-                        if (keptParts > 0)
-                        {
-                            transportSubset = candidateSubset;
-                            partsBasis = mergedCandidate;
-                            basisSnapshot = mergedSnapshot;
-                            basisSurface = mergedSurface;
-                            fallback = true;
-                            ParsekLog.Verbose(Tag,
-                                $"FundsCost: route {ShortIdForLog(route)} no un-merged member carries a " +
-                                $"snapshot - parts basis falls back to dock-merged member " +
-                                $"{mergedCandidate.RecordingId} RESTRICTED to window " +
-                                $"{window.WindowId ?? "<unnamed>"} transport pids " +
-                                $"({transportPids.Count.ToString(IC)} pid(s), " +
-                                $"parts={keptParts.ToString(IC)}/{snapshotParts.ToString(IC)})");
-                        }
-                        else
-                        {
-                            // The pid set matched NOTHING in the chosen surface (a
-                            // pid-less ghost snapshot, or a pid set from a different
-                            // launch). Pricing here would emit the resource term with
-                            // no parts term - a plausible-looking but wrong charge.
-                            // Stay UNCOSTED instead.
-                            ParsekLog.Verbose(Tag,
-                                $"FundsCost: route {ShortIdForLog(route)} dock-merged member " +
-                                $"{mergedCandidate.RecordingId} transport pid subset matched 0 of " +
-                                $"{snapshotParts.ToString(IC)} PART node(s) on the {mergedSurface} " +
-                                "surface - refusing a parts-less charge");
-                        }
-                    }
-                    else
-                    {
-                        // No transport pid set means no way to separate transport from
-                        // endpoint, and pricing the combined vessel would bill the
-                        // destination station every cycle. Stay UNCOSTED.
-                        ParsekLog.Verbose(Tag,
-                            $"FundsCost: route {ShortIdForLog(route)} dock-merged member " +
-                            $"{mergedCandidate.RecordingId} carries no usable transport pid set " +
-                            $"(window={window?.WindowId ?? "<none>"}) - refusing to price the " +
-                            "combined vessel");
-                    }
-                }
-            }
-
-            if (partsBasis == null)
-            {
-                // Every member is missing from ERS or carries neither snapshot
-                // surface (and no dock-merged member offered a transport subset):
-                // there is no basis to price from, so the dispatch is UNCOSTED (a
-                // career KSC dispatch is silently free). Rate-limited because this
-                // method runs per UI repaint; deliberately distinct wording from the
-                // per-member fallback breadcrumbs above.
-                ParsekLog.VerboseRateLimited(Tag, "funds-cost-uncosted-" + route.Id,
-                    $"FundsCost: route {ShortIdForLog(route)} UNCOSTED - no SourceRefs member " +
-                    $"(of {route.SourceRefs.Count.ToString(IC)}, root {sourceId}) is in ERS with a " +
-                    "usable snapshot surface (VesselSnapshot or GhostVisualSnapshot) and no " +
-                    "dock-merged member offers a transport pid subset; cost=0 " +
-                    "(a career KSC dispatch charges nothing)");
-                return 0.0;
-            }
-
-            double cost = RouteFundsCalculator.ComputeDispatchFundsCost(
-                basisSnapshot,
-                startResources,
-                transportSubset,
-                LiveRouteRuntimeEnvironment.LookupPartCost,
-                LiveRouteRuntimeEnvironment.LookupResourceUnitCost);
-
-            string subsetTerm = string.Empty;
-            string partsTerm = string.Empty;
-            if (transportSubset != null)
-            {
-                subsetTerm = " subset=transport";
-                RouteFundsCalculator.CountRestrictedParts(
-                    basisSnapshot, transportSubset, out int pricedParts, out int totalParts);
-                partsTerm = $" parts={pricedParts.ToString(IC)}/{totalParts.ToString(IC)}";
-            }
-
-            ParsekLog.Verbose(Tag,
-                $"FundsCost basis={(startResources != null ? "launch-manifest" : "stop-snapshot")} " +
-                $"route={ShortIdForLog(route)} source={sourceId} " +
-                $"snapshotSource={partsBasis.RecordingId} fallback={(fallback ? "1" : "0")}" +
-                subsetTerm +
-                $" snapshotSurface={basisSurface}" +
-                partsTerm +
-                $" cost={cost.ToString("R", CultureInfo.InvariantCulture)}");
-            return cost;
-        }
-
-        /// <summary>
-        /// Tolerance for matching a <see cref="RouteConnectionWindow.DockUT"/> to the
-        /// route's persisted <see cref="Route.RecordedDockUT"/>. Both sides are copies
-        /// of the same recorded double, so this only absorbs a serialization round trip.
-        /// </summary>
-        private const double DockWindowMatchToleranceSeconds = 0.001;
-
-        /// <summary>
-        /// The snapshot surface a costing basis is priced from, preferring
-        /// <c>VesselSnapshot</c> and falling back to <c>GhostVisualSnapshot</c>.
-        ///
-        /// <para>Why the fallback exists (RVR-4, 2026-09-01): <c>VesselSnapshot</c> is
-        /// the SPAWN surface, and <c>ParsekScenario</c>'s OnLoad crew-auto-unreserve
-        /// sweep nulls it in memory for every committed recording with
-        /// <c>!VesselSpawned &amp;&amp; currentUT &gt; EndUT</c>. On any LOADED save,
-        /// therefore, every member of an already-flown route is snapshot-less even
-        /// though its <c>_vessel.craft</c> sidecar is still on disk - which made the
-        /// career dispatch free. <c>GhostVisualSnapshot</c> is the same ConfigNode
-        /// (a <c>CreateCopy</c> taken at the same capture sites, and its own
-        /// <c>_ghost.craft</c> sidecar on load), survives that sweep, and is read here
-        /// strictly READ-ONLY.</para>
-        /// </summary>
-        internal static ConfigNode ResolveCostingSnapshot(Recording rec, out string surface)
-        {
-            surface = null;
-            if (rec == null) return null;
-            if (rec.VesselSnapshot != null)
-            {
-                surface = "vessel";
-                return rec.VesselSnapshot;
-            }
-            if (rec.GhostVisualSnapshot != null)
-            {
-                surface = "ghost";
-                return rec.GhostVisualSnapshot;
-            }
-            return null;
-        }
-
-        /// <summary>
-        /// The connection window on a dock-merged member whose TRANSPORT pid set
-        /// defines the costing subset. Prefers the window matching the route's own
-        /// <see cref="Route.RecordedDockUT"/>; otherwise the EARLIEST dock, which is
-        /// the reading closest to launch (the transport pid set is a launch fact).
-        /// Returns null when the member carries no dated window.
-        /// </summary>
-        internal static RouteConnectionWindow ResolveTransportSubsetWindow(
-            Route route, Recording member)
-        {
-            List<RouteConnectionWindow> windows = member?.RouteConnectionWindows;
-            if (windows == null || windows.Count == 0) return null;
-
-            double routeDockUT = route != null ? route.RecordedDockUT : -1.0;
-            if (routeDockUT > 0.0)
-            {
-                for (int i = 0; i < windows.Count; i++)
-                {
-                    RouteConnectionWindow w = windows[i];
-                    if (w == null || double.IsNaN(w.DockUT)) continue;
-                    if (Math.Abs(w.DockUT - routeDockUT) <= DockWindowMatchToleranceSeconds)
-                        return w;
-                }
-            }
-
-            RouteConnectionWindow earliest = null;
-            for (int i = 0; i < windows.Count; i++)
-            {
-                RouteConnectionWindow w = windows[i];
-                if (w == null || double.IsNaN(w.DockUT)) continue;
-                if (earliest == null || w.DockUT < earliest.DockUT) earliest = w;
-            }
-            return earliest;
-        }
-
-        /// <summary>
-        /// Linear ERS lookup by recording id, shared by
-        /// <see cref="ComputeDispatchFundsCostForRoute"/>'s root read and its
-        /// member fallback walk. Returns null when the id is absent.
-        /// </summary>
-        private static Recording FindErsRecording(IReadOnlyList<Recording> ers, string recordingId)
-        {
-            if (ers == null || string.IsNullOrEmpty(recordingId)) return null;
-            for (int i = 0; i < ers.Count; i++)
-            {
-                Recording rec = ers[i];
-                if (rec != null && string.Equals(rec.RecordingId, recordingId, StringComparison.Ordinal))
-                    return rec;
-            }
-            return null;
-        }
-
-        /// <summary>
-        /// True when a <see cref="Route.SourceRefs"/> member's
-        /// <c>VesselSnapshot</c> describes a COMBINED vessel (the transport docked
-        /// to its partner) rather than the transport alone, so it must never become
-        /// the dispatch costing basis - pricing from it would charge the player for
-        /// the destination station's parts on every cycle.
-        ///
-        /// <para>Three positive facts, any of which identifies a dock-merged
-        /// member. (1) It carries a <c>RouteConnectionWindow</c>: the ONLY writer of
-        /// that list is <c>ParsekFlight</c>'s dock-merge site, which stamps it on the
-        /// merged child alongside the merged (combined) snapshot, so carrying a
-        /// window IS being a merged child - and this catches BOTH merged members that
-        /// can appear in the set, the delivery leaf and the M-MIS-5 origin carrier.
-        /// (2) Its id is the route's own <see cref="Route.DockMemberRecordingId"/> -
-        /// the route's persisted naming of that leaf, which still holds if the
-        /// recording reached ERS without its proof metadata. (3) Its recording STARTS
-        /// at or after the route's <see cref="Route.RecordedDockUT"/> - the merged
-        /// child begins at the dock instant, and so does anything split off it
-        /// afterwards.</para>
-        ///
-        /// <para>Applies to the FALLBACK walk only: <c>SourceRefs[0]</c> stays the
-        /// preferred basis unconditionally, so a route already costing from its root
-        /// is byte-identical.</para>
-        /// </summary>
-        internal static bool IsCombinedVesselSourceMember(
-            Route route, RouteSourceRef memberRef, Recording member)
-        {
-            if (member == null) return false;
-
-            if (member.RouteConnectionWindows != null && member.RouteConnectionWindows.Count > 0)
-                return true;
-
-            if (route != null && !string.IsNullOrEmpty(route.DockMemberRecordingId)
-                && string.Equals(member.RecordingId, route.DockMemberRecordingId, StringComparison.Ordinal))
-                return true;
-
-            if (route != null && route.RecordedDockUT > 0.0)
-            {
-                // Prefer the ref's persisted StartUT (the value the route was built
-                // with); fall back to the live recording's own start.
-                double startUT = memberRef != null && memberRef.StartUT > 0.0
-                    ? memberRef.StartUT
-                    : member.StartUT;
-                if (startUT > 0.0 && startUT >= route.RecordedDockUT)
-                    return true;
-            }
-
-            return false;
-        }
-
-        /// <summary>
-        /// Defensive <see cref="EffectiveState.ComputeERS"/> wrapper used by
-        /// <see cref="ComputeDispatchFundsCostForRoute"/>. ComputeERS can throw
+        /// Defensive <see cref="EffectiveState.ComputeERS"/> wrapper. ComputeERS can throw
         /// during early KSP load if the scenario module is not yet published;
         /// the orchestrator survives such ticks by treating the failure as
         /// "no recordings available" and emitting a Verbose breadcrumb.

@@ -16,7 +16,7 @@ namespace Parsek.Logistics
     /// rollback is a full-world load of an earlier save (an F9 quickload, a stock
     /// revert, the Esc-menu Discard Re-fly's reload of the Rewind Point quicksave, a
     /// Rewind-to-Separation or a go-back rewind): there is no per-writer undo, and the
-    /// recalc only reconstructs the funds scalar - never the physical tanks/inventory.
+    /// ledger recalc never reconstructs the physical tanks/inventory.
     /// Each of those loads also reconciles the route ledger rows and loop cursors at the
     /// loaded UT (<c>RouteLoadReconcile</c>, <c>ParsekScenario.HandleRewindOnLoad</c>,
     /// <c>ReconciliationBundle.Restore</c>).</para>

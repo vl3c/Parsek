@@ -61,18 +61,16 @@ namespace Parsek
         }
 
         /// <summary>
-        /// True for the three blocked-but-flying wait states whose detail line shows
+        /// True for the two blocked-but-flying wait states whose detail line shows
         /// the retry-recheck countdown instead of the next-delivery countdown. These
         /// are ghost-driving (the ghost still flies) but transfer nothing until the
         /// wait clears, and they carry a <see cref="Route.NextEligibilityCheckUT"/>
         /// set by the wait-state applier
-        /// (<c>RouteStatus.WaitingForResources</c> / <c>WaitingForFunds</c> /
-        /// <c>DestinationFull</c>).
+        /// (<c>RouteStatus.WaitingForResources</c> / <c>DestinationFull</c>).
         /// </summary>
         internal static bool IsWaitState(RouteStatus status)
         {
             return status == RouteStatus.WaitingForResources
-                || status == RouteStatus.WaitingForFunds
                 || status == RouteStatus.DestinationFull;
         }
 

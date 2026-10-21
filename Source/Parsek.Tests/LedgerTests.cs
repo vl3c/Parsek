@@ -222,24 +222,14 @@ namespace Parsek.Tests
                 l.Contains("[Ledger]") && l.Contains("Loaded ledger") && l.Contains("actions=5"));
         }
 
-        // ================================================================
-        // T-SCENARIO-ROUNDTRIP (logistics-recovery-credit, section 6.1 +
-        // CLAUDE.md Post-Change Checklist): the new RouteRecoveryCredited
-        // GameActionType survives the LEDGER persistence path, not just a direct
-        // GameAction.SerializeInto/DeserializeFrom (which T-TYPE already covers).
-        //
-        // ParsekScenario OnSave/OnLoad persists the ledger via Ledger.SaveToFile /
-        // LoadFromFile (the same SerializeInto-per-action + DeserializeFrom codec
-        // the scenario routes every other route row through). ParsekScenario
-        // OnSave/OnLoad itself cannot be driven from xUnit (Planetarium + Unity
-        // GameEvents are unguarded, see reference_parsek_scenario_xunit), so this
-        // exercises the ledger-node persistence path directly: a RouteRecoveryCredited
-        // row with RouteId / RouteCycleId / RouteKscFundsCost is not silently dropped
-        // at the ledger layer.
-        // ================================================================
-
+        // catches: an old save's supply-route money rows surviving the ledger load.
+        // Supply routes carry no money (todo LOGISTICS-WITHOUT-MONEY): a recovery
+        // credit (type 28) and a Space Center charge (type 24 with a non-zero
+        // routeKscFundsCost) are dropped with one Info summary, a vessel-origin
+        // RouteCargoDebited row (no cost) is kept, the next save writes neither, and
+        // a second load drops nothing.
         [Fact]
-        public void SaveAndLoad_RouteRecoveryCredited_SurvivesLedgerPersistencePath()
+        public void LoadFromFile_DropsLegacyRouteMoneyRows_KeepsVesselOriginDebit()
         {
             Ledger.AddAction(new GameAction
             {
@@ -247,48 +237,89 @@ namespace Parsek.Tests
                 Type = GameActionType.FundsInitial,
                 InitialFunds = 25000f
             });
-            // The gross dispatch debit (Option A: a walk spending).
             Ledger.AddAction(new GameAction
             {
                 UT = 100.0,
                 Type = GameActionType.RouteCargoDebited,
-                RouteId = "route-credit",
-                RouteCycleId = "cycle-0",
-                RouteKscFundsCost = 12500f
+                RouteId = "route-vessel",
+                RouteCycleId = "cycle-vessel",
+                RouteOriginVesselPid = 4242u,
+                RouteResourceManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } }
             });
-            // The deferred recovery credit (Option A: a walk earning) one interval
-            // later, keyed on the PRIOR dispatched cycle it pays back.
             Ledger.AddAction(new GameAction
             {
-                UT = 400.0,
-                Type = GameActionType.RouteRecoveryCredited,
-                RouteId = "route-credit",
-                RouteCycleId = "cycle-0",
-                RouteStopIndex = -1,
-                Sequence = 0,
-                RouteKscFundsCost = 7300f // positive magnitude; type carries the credit direction
+                UT = 110.0,
+                Type = GameActionType.RouteCargoDebited,
+                RouteId = "route-ksc",
+                RouteCycleId = "cycle-charge"
             });
+            Assert.True(Ledger.SaveToFile(LedgerPath));
 
-            bool saveOk = Ledger.SaveToFile(LedgerPath);
-            Assert.True(saveOk);
+            // Give the Space Center debit the money key an old save wrote, and append
+            // an old recovery-credit row (type 28) as the old writer laid it out.
+            string content = File.ReadAllText(LedgerPath);
+            Assert.DoesNotContain("routeKscFundsCost", content);
+            string chargeLine = "routeCycleId = cycle-charge";
+            Assert.Contains(chargeLine, content);
+            content = content.Replace(chargeLine, chargeLine + "\n\trouteKscFundsCost = 12500")
+                + "GAME_ACTION\n{\n\tut = 400\n\ttype = 28\n\tactionId = act_legacycredit\n"
+                + "\trouteId = route-ksc\n\trouteCycleId = cycle-credit\n"
+                + "\trouteKscFundsCost = 7300\n}\n";
+            File.WriteAllText(LedgerPath, content);
 
-            // Load into a fresh ledger (mirror the scenario OnLoad rehydration).
             Ledger.ResetForTesting();
             logLines.Clear();
-            bool loadOk = Ledger.LoadFromFile(LedgerPath);
-            Assert.True(loadOk);
-            Assert.Equal(3, Ledger.Actions.Count);
+            Assert.True(Ledger.LoadFromFile(LedgerPath));
 
-            var credit = Ledger.Actions.Single(a => a.Type == GameActionType.RouteRecoveryCredited);
-            Assert.Equal("route-credit", credit.RouteId);
-            Assert.Equal("cycle-0", credit.RouteCycleId);
-            Assert.Equal(7300f, credit.RouteKscFundsCost);
-            Assert.Equal(400.0, credit.UT);
+            Assert.Equal(2, Ledger.Actions.Count);
+            Assert.Equal(GameActionType.FundsInitial, Ledger.Actions[0].Type);
+            GameAction kept = Ledger.Actions[1];
+            Assert.Equal(GameActionType.RouteCargoDebited, kept.Type);
+            Assert.Equal("cycle-vessel", kept.RouteCycleId);
+            Assert.Equal(4242u, kept.RouteOriginVesselPid);
+            Assert.Equal(100.0, kept.RouteResourceManifest["LiquidFuel"]);
+            Assert.Single(logLines, l =>
+                l.Contains("[INFO]") && l.Contains("[Ledger]")
+                && l.Contains("Dropped 2 legacy supply-route money rows at load")
+                && l.Contains("recoveryCredits=1 spaceCenterCharges=1"));
 
-            var debit = Ledger.Actions.Single(a => a.Type == GameActionType.RouteCargoDebited);
-            Assert.Equal("route-credit", debit.RouteId);
-            Assert.Equal("cycle-0", debit.RouteCycleId);
-            Assert.Equal(12500f, debit.RouteKscFundsCost);
+            // Idempotent: the next save writes neither row, and its load drops nothing.
+            Assert.True(Ledger.SaveToFile(LedgerPath));
+            string resaved = File.ReadAllText(LedgerPath);
+            Assert.DoesNotContain("routeKscFundsCost", resaved);
+            Assert.DoesNotContain("cycle-charge", resaved);
+            Assert.DoesNotContain("cycle-credit", resaved);
+            Assert.DoesNotContain("type = 28", resaved);
+            Ledger.ResetForTesting();
+            logLines.Clear();
+            Assert.True(Ledger.LoadFromFile(LedgerPath));
+            Assert.Equal(2, Ledger.Actions.Count);
+            Assert.DoesNotContain(logLines, l => l.Contains("legacy supply-route money rows"));
+        }
+
+        // catches: the drop predicate over-reaching. A RouteCargoDebited row whose
+        // routeKscFundsCost is absent or zero is physical cargo and is kept; a
+        // non-zero cost marks the old Space Center charge; type 28 is always money.
+        [Fact]
+        public void IsLegacyRouteMoneyNode_ClassifiesByTypeAndCost()
+        {
+            ConfigNode Node(GameActionType type, string cost)
+            {
+                var n = new ConfigNode("GAME_ACTION");
+                n.AddValue("type", ((int)type).ToString(System.Globalization.CultureInfo.InvariantCulture));
+                if (cost != null) n.AddValue("routeKscFundsCost", cost);
+                return n;
+            }
+
+            Assert.False(LedgerLoadMigration.IsLegacyRouteMoneyNode(Node(GameActionType.RouteCargoDebited, null), out _));
+            Assert.False(LedgerLoadMigration.IsLegacyRouteMoneyNode(Node(GameActionType.RouteCargoDebited, "0"), out _));
+            Assert.True(LedgerLoadMigration.IsLegacyRouteMoneyNode(Node(GameActionType.RouteCargoDebited, "12500"), out bool chargeIsCredit));
+            Assert.False(chargeIsCredit);
+            Assert.True(LedgerLoadMigration.IsLegacyRouteMoneyNode(Node(GameActionType.RouteRecoveryCredited, null), out bool creditIsCredit));
+            Assert.True(creditIsCredit);
+            Assert.False(LedgerLoadMigration.IsLegacyRouteMoneyNode(Node(GameActionType.RouteCargoDelivered, "500"), out _));
+            Assert.False(LedgerLoadMigration.IsLegacyRouteMoneyNode(Node(GameActionType.FundsSpending, null), out _));
+            Assert.False(LedgerLoadMigration.IsLegacyRouteMoneyNode(null, out _));
         }
 
         [Fact]
@@ -1463,14 +1494,13 @@ namespace Parsek.Tests
                 l.Contains("[Ledger]") && l.Contains("unsupported schema"));
         }
 
-        // Fails if: the recording-schema-generation half of the load gate
-        // stops gating. Both existing schema cells write the CURRENT
-        // generation and mismatch only the ledger version, so making
-        // generationOk unconditionally true ships green while a ledger
-        // stamped with a generation this build cannot read loads as if it
-        // were compatible - rows keyed to a schema that moved underneath.
+        // Fails if: the load gate rejects a ledger whose only difference is the recording
+        // schema generation it was stamped with. A ledger row carries no recording schema, and
+        // the ledger's own format is pinned by its version (owner ruling 2026-10-21, todo
+        // GC3-LEDGER-GENERATION-GATE-DROPS-ROWS: load it when its format matches), so a save
+        // written by another generation keeps its earned rows.
         [Fact]
-        public void LoadFromFile_WrongSchemaGeneration_IsRejected()
+        public void LoadFromFile_OtherSchemaGeneration_LoadsWhenTheVersionMatches()
         {
             Ledger.AddAction(new GameAction
             {
@@ -1494,14 +1524,16 @@ namespace Parsek.Tests
             Ledger.ResetForTesting();
             logLines.Clear();
 
-            Assert.False(Ledger.LoadFromFile(LedgerPath));
+            Assert.True(Ledger.LoadFromFile(LedgerPath));
 
-            Assert.Empty(Ledger.Actions);
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(25000f, Ledger.Actions[0].InitialFunds);
+            Assert.DoesNotContain(logLines, l => l.Contains("unsupported schema"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Ledger]") &&
-                l.Contains("unsupported schema") &&
-                l.Contains("recordingSchemaGeneration='" + future + "'") &&
-                l.Contains("expectedGeneration=" + current));
+                l.Contains("recording schema generation '" + future + "'") &&
+                l.Contains("current=" + current) &&
+                l.Contains("loaded anyway"));
         }
 
         // ================================================================

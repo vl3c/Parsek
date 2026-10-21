@@ -237,14 +237,22 @@ load Cold, as today. The helper:
   `pendingActiveTreeResumeRewindSave`, `pendingFreshRecordingAfterDiscard`,
   `mergeDialogPending`, `budgetDeductionApplied`, `lastSceneChangeRequestedUT`;
 - drops `DiscardReFlyLoadIntent` and the quickload resume context. `InSessionStagedStateHandoff`
-  is not touched here: step A already drops it on every cold load (reason `cold-load`).
+  is not touched here: step A already drops it on every cold load (reason `cold-load`);
+- clears `RewindContext` (Warn when `IsRewinding` or the deferred resource adjustment was still
+  set), `RewindInvokeContext` (Warn when `Pending` was set) and the Supply Route banner
+  (`RouteRunPrompt`), GC1-SAVE-SCOPED-STATE-LEFTOVERS. A Cold load is never a rewind's or a Re-Fly
+  invoke's own load (`ClassifyEarly` ranks both ahead of a save-file load, and neither initiator
+  loads with `initialLoadDone` false), so either flag still set is a reload that never settled and
+  would make the load skip the crew, group and ledger loads, or run the Re-Fly post-load dispatch,
+  against another career. `KerbalsModule`'s caches need nothing here: the reset replaces the
+  ledger's modules (`LedgerOrchestrator.ResetForSaveLoad` then `Initialize`).
 
 It does NOT null the committed-list notification events (the batch reset does; the new scene's
 controllers subscribe to them) and does not touch settings.
 
 A pure inventory gate (xUnit) lists every `static` field in `RecordingStore`, `GameStateStore`,
-`MilestoneStore`, `GameStateRecorder`, `LedgerOrchestrator`, `KspStatePatcher` and
-`ParsekScenario` by reflection and requires each to be either reset by the helper (proved by a
+`MilestoneStore`, `GameStateRecorder`, `LedgerOrchestrator`, `KspStatePatcher`,
+`ParsekScenario`, `InertRecordingTrees`, `RewindContext`, `RewindInvokeContext` and `RouteRunPrompt` by reflection and requires each to be either reset by the helper (proved by a
 set-then-reset-then-read cell) or named in an allowlist with a one-line reason (settings,
 caches keyed by content, log rate limiters). A new static then fails the suite until someone
 decides which side it is on.
@@ -459,7 +467,9 @@ directories outside an allowlist naming the collector, the commit batch and the 
   pending and committed trees alike), every rewind point id in `REWIND_POINTS`, and every
   `rewindSave` and `resumeRewindSave` file name;
 - the in-memory state: the same items over memory's trees, pending tree and rewind point list,
-  plus `pendingActiveTreeResumeRewindSave` and the live recorder's `RewindSaveFileName`.
+  plus `pendingActiveTreeResumeRewindSave` and the live recorder's `RewindSaveFileName`, and the
+  committed trees kept inert because the schema gate rejected them (`InertRecordingTrees`, GC-3:
+  their nodes are re-emitted node-verbatim after the committed trees, so every save that held them still names their files).
 
 `Parsek/RewindPoints/*.sfs` and `Parsek/Saves/*.sfs` are not referrers: rewinds and Re-Fly loads
 read recordings from memory, never through the rewind file's own node (VERIFY V5 in the plan).

@@ -10047,7 +10047,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # The last four are a different SHAPE from the first six and it is worth naming:
         # GUI-20..GUI-23 are CLONES of the RVR-8 / RVR-10 / RVR-13 / RVR-17 driver chains
         # with a census capture tail appended, and they deliberately carry NO
-        # `[expectations.routes]` block. The ORIGINALS keep that gating; the clones exist to
+        # `[expectations.routes]` block. GUI-23 and its original RVR-17 were retired
+        # 2026-10-21 with the supply-route funds gate they photographed (todo
+        # LOGISTICS-WITHOUT-MONEY), so nine of the ten remain here. The ORIGINALS keep that gating; the clones exist to
         # photograph the Logistics window while a hold is live, and dropping the block is
         # what lets them append the extra `TimeJump` that ages a hold into its
         # `(checked N ago)` form without reding a cycle-count window.
@@ -10069,8 +10071,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "tier=operator by CADENCE (capture host); an RVR-10 driver clone with a capture tail and no [expectations.routes] block. FLOWN PASS 2026-09-21 (run _2113, attempt 1, 58 s); budget cut to the 900 s every census lane uses. Owed: the ordinary promotion call.",
         "GUI-22-census-logistics-hold-destination-full.toml":
                                        "tier=operator by CADENCE (capture host); an RVR-13 driver clone with a capture tail and no [expectations.routes] block. FLOWN PASS 2026-09-21 (run _2117, attempt 1, 53 s); budget cut to the 900 s every census lane uses. Owed: the ordinary promotion call.",
-        "GUI-23-census-logistics-hold-funds-short.toml":
-                                       "tier=operator by CADENCE (capture host); an RVR-17 driver clone with a capture tail and no [expectations.routes] block. FLOWN PASS 2026-09-21 (run _2119, attempt 1, 55 s); budget cut to the 900 s every census lane uses. Owed: the ordinary promotion call.",
         # THE SEAM-OP WAVE, 2026-09-22 (GUI-24..GUI-27). Four lanes authored against the
         # automation-only seam operations PR #1734 added (`op=state`, `op=sort`,
         # `op=select`, `op=edit`, `op=run await=false`, the three Logistics raise rows and
@@ -12176,6 +12176,9 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # ['1']`, its own facet reading ['2875537755']. Nothing is
                        # owed.
                        # `recordings.structure` stays report-only on all twelve.
+                       # RVR-17 was retired 2026-10-21 with the supply-route funds
+                       # gate it measured (todo LOGISTICS-WITHOUT-MONEY); eleven
+                       # remain.
                        "RVR-8-rover-relay-c-second-cycle-hold.toml",
                        "RVR-9-rover-relay-c-surface-cadence.toml",
                        "RVR-10-rover-relay-c-origin-empty.toml",
@@ -12185,7 +12188,6 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        "RVR-14-rover-relay-c-destination-partial.toml",
                        "RVR-15-rover-relay-c-destination-empty.toml",
                        "RVR-16-rover-route-destination-slots-full.toml",
-                       "RVR-17-rover-route-career-funds-short.toml",
                        "RVR-18-rover-route-endpoint-removed.toml",
                        "RVR-19-rover-route-endpoint-transport-only.toml",
                        # The last six `routes` declarers, armed 2026-09-11 (wave
@@ -21024,7 +21026,7 @@ class CapturedAwardCorroborationKeyTests(unittest.TestCase):
         seed = oracle.SeedBaseline(funds=500000.0, science=0.0, reputation=0.0)
         parse = oracle.parse_manifest_entries([
             {"ut": 0.0, "kind": "kerbal-hire", "funds": -62113.0}])
-        expected = oracle.compute_expected(seed, parse.entries, oracle.default_tolerances(), [])
+        expected = oracle.compute_expected(seed, parse.entries, oracle.default_tolerances())
         self.assertEqual(437887.0, expected.funds)
 
         # One corroborating award plus several UNRELATED ones the manifest never
@@ -21038,7 +21040,7 @@ class CapturedAwardCorroborationKeyTests(unittest.TestCase):
         unmatched = hlib.unmatched_captured_awards(parse.entries, awards)
         self.assertEqual(5, len(unmatched), "only the declared hire corroborates")
 
-        after = oracle.compute_expected(seed, parse.entries, oracle.default_tolerances(), [])
+        after = oracle.compute_expected(seed, parse.entries, oracle.default_tolerances())
         self.assertEqual(
             437887.0, after.funds,
             "EXPECTED must STILL be seed + the one seam-declared delta after "
@@ -21318,7 +21320,7 @@ class FlownScenarioUtWindowCorroborationTests(unittest.TestCase):
         seed = oracle.SeedBaseline(funds=500000.0, science=100.0, reputation=0.0)
         parse = self._cl2_windowed_manifest()
         expected = oracle.compute_expected(seed, parse.entries,
-                                           oracle.default_tolerances(), [])
+                                           oracle.default_tolerances())
         self.assertEqual(529600.0, expected.funds)
         self.assertEqual(100.0, expected.science)
         # The rep pool accumulates the three APPLIED declared deltas (the applied
@@ -21330,7 +21332,7 @@ class FlownScenarioUtWindowCorroborationTests(unittest.TestCase):
                   self._rep_award(100.0, "ContractReward", ut=50.0)]
         hlib.unmatched_captured_awards(parse.entries, awards)
         after = oracle.compute_expected(seed, parse.entries,
-                                        oracle.default_tolerances(), [])
+                                        oracle.default_tolerances())
         self.assertEqual(expected.funds, after.funds)
         self.assertEqual(expected.reputation, after.reputation)
 
@@ -21732,11 +21734,12 @@ class ParseCareerSaveBlockTests(unittest.TestCase):
 class LedgerSpecSurfaceValidationTests(unittest.TestCase):
     """Guards the [expectations.ledger] spec surface (design ~226): a malformed
     ledger block is a spec-invalid INVALID (no KSP boot). The empty-manifest B10
-    block validates; a bad seedFrom / tolerances / rec3CarveOut / manifest rejects."""
+    block validates; a bad seedFrom / tolerances / manifest rejects, and so does a
+    retired Rec-3 key."""
 
     def test_empty_manifest_block_valid(self):
         self.assertEqual([], hlib.validate_ledger_expectations(
-            {"seedFrom": "template", "tolerances": "default", "rec3CarveOut": False}))
+            {"seedFrom": "template", "tolerances": "default"}))
 
     def test_defaults_when_keys_omitted_valid(self):
         self.assertEqual([], hlib.validate_ledger_expectations({}))
@@ -21749,9 +21752,12 @@ class LedgerSpecSurfaceValidationTests(unittest.TestCase):
         errs = hlib.validate_ledger_expectations({"tolerances": "loose"})
         self.assertTrue(any("tolerances" in e for e in errs))
 
-    def test_non_bool_rec3_rejected(self):
-        errs = hlib.validate_ledger_expectations({"rec3CarveOut": "yes"})
-        self.assertTrue(any("rec3CarveOut" in e for e in errs))
+    def test_retired_rec3_keys_rejected(self):
+        # Supply routes carry no money (todo LOGISTICS-WITHOUT-MONEY), so the Rec-3
+        # route-funds carve-out is gone; a spec still naming it must not fly.
+        for key, value in (("rec3CarveOut", False), ("rec3Whitelist", [])):
+            errs = hlib.validate_ledger_expectations({key: value})
+            self.assertTrue(any(key in e and "retired" in e for e in errs), errs)
 
     def test_non_array_manifest_rejected(self):
         errs = hlib.validate_ledger_expectations({"manifest": {"k": "v"}})

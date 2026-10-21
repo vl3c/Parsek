@@ -30,7 +30,6 @@ namespace Parsek.Tests.Logistics
     public class RouteRewindLoopPositionTests : IDisposable
     {
         private readonly List<string> logLines = new List<string>();
-        private readonly List<double> liveCredits = new List<double>();
 
         public enum Exit
         {
@@ -57,7 +56,6 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.LoopUnitResolverForTesting = null;
             RouteOrchestrator.DeliveryApplierForTesting = null;
             RouteOrchestrator.OriginDebitApplierForTesting = null;
-            RouteOrchestrator.RecoveryCreditFunderForTesting = amount => liveCredits.Add(amount);
             logLines.Clear();
         }
 
@@ -66,7 +64,6 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.LoopUnitResolverForTesting = null;
             RouteOrchestrator.DeliveryApplierForTesting = null;
             RouteOrchestrator.OriginDebitApplierForTesting = null;
-            RouteOrchestrator.RecoveryCreditFunderForTesting = null;
             RecordingStore.ResetForTesting();
             RouteStore.ResetForTesting();
             Ledger.ResetForTesting();
@@ -147,11 +144,9 @@ namespace Parsek.Tests.Logistics
 
         private sealed class EligibleEnv : IRouteRuntimeEnvironment
         {
-            public bool IsCareer { get; set; }
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = string.Empty; return true; }
             public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason) { vessel = null; reason = string.Empty; return true; }
             public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall) { shortfall = 0.0; lackingResource = string.Empty; return true; }
-            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
             public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = string.Empty; return true; }
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }
@@ -304,7 +299,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(3, route.LastObservedLoopCycleIndex);
             Route savedAt2400 = SnapshotAsSaved(route);
 
-            Assert.True(RouteOrchestrator.TryPause(route, 2500.0, env));
+            Assert.True(RouteOrchestrator.TryPause(route, 2500.0));
             Assert.True(RouteOrchestrator.TryActivate(route, 2600.0));
             Assert.Equal(2600.0, route.LoopAnchorUT);
             RouteOrchestrator.Tick(2760.0, env);
@@ -431,58 +426,17 @@ namespace Parsek.Tests.Logistics
         }
 
         // ------------------------------------------------------------------
-        // Owed recovery credit
-        // ------------------------------------------------------------------
-
-        // catches: the credit the cutoff still owes lost to a flush in the abandoned future, or
-        // paid by the exit itself (the exits run inside OnLoad: no ledger write).
-        [Theory]
-        [InlineData(Exit.GoBack)]
-        [InlineData(Exit.ReFlyStart)]
-        public void OwedCreditFlushedAfterTheSave_ComesBackUnpaid(Exit exit)
-        {
-            var route = BuildLoopRoute();
-            route.LastObservedLoopCycleIndex = 0;
-            route.PendingRecoveryCreditCycleId = "cycle-0";
-            route.PendingRecoveryCreditDispatchUT = 1150.0;
-            RouteStore.AddRoute(route);
-            Ledger.AddAction(new GameAction
-            {
-                Type = GameActionType.RouteDispatched, UT = 1150.0, RouteId = route.Id,
-                RouteCycleId = "cycle-0", RouteStopIndex = -1, Sequence = 0,
-            });
-            Route savedAt1200 = SnapshotAsSaved(route);
-            // The abandoned future: cycle-0's credit paid at the cycle-1 crossing.
-            route.PendingRecoveryCreditCycleId = null;
-            route.PendingRecoveryCreditDispatchUT = -1.0;
-            Ledger.AddAction(new GameAction
-            {
-                Type = GameActionType.RouteRecoveryCredited, UT = 1450.0, RouteId = route.Id,
-                RouteCycleId = "cycle-0", RouteStopIndex = -1, Sequence = 0,
-            });
-
-            RunExit(exit, 1200.0, new[] { savedAt1200 }, 1200.0);
-            Route live = Committed(route.Id);
-
-            Assert.Equal("cycle-0", live.PendingRecoveryCreditCycleId);
-            Assert.Equal(1150.0, live.PendingRecoveryCreditDispatchUT);
-            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteRecoveryCredited);
-            Assert.Empty(liveCredits);
-        }
-
-        // ------------------------------------------------------------------
         // The go-back lead-time window (owner ruling 2026-10-07)
         // ------------------------------------------------------------------
 
         // catches: the go-back's route cutoff and its route copy describing different moments.
         // The rewind save was written at 1460, after the cycle-1 crossing (dock 1450, fired at
-        // 1452, which paid cycle-0's recovery credit and left cycle-1's owed), and the rewind
-        // winds the clock back 15 s to 1445. Keyed to the clock, the retire took cycle-1's charge
-        // and cycle-0's credit row while the saved cursor kept the crossing from firing again: a
-        // free run and a lost credit. Keyed to the save's own UT, both rows stay, the crossing
-        // does not fire again while the clock replays 1445..1460, and the next one fires once.
+        // 1452), and the rewind winds the clock back 15 s to 1445. Keyed to the clock, the retire
+        // took cycle-1's dispatch row while the saved cursor kept the crossing from firing again:
+        // a lost run. Keyed to the save's own UT, the row stays, the crossing does not fire again
+        // while the clock replays 1445..1460, and the next one fires once.
         [Fact]
-        public void GoBack_CrossingInsideTheWindbackWindow_KeepsItsChargeAndItsCredit()
+        public void GoBack_CrossingInsideTheWindbackWindow_KeepsItsDispatchRow()
         {
             var route = BuildLoopRoute();
             RouteStore.AddRoute(route);
@@ -492,35 +446,15 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(1150.0, env);               // cycle-0 crossing
             RouteOrchestrator.Tick(1452.0, env);               // cycle-1 crossing, inside the window
-            // The career half a non-career env skips: the cycle-1 crossing paid cycle-0's credit
-            // and armed cycle-1's.
-            Ledger.AddAction(new GameAction
-            {
-                Type = GameActionType.RouteRecoveryCredited, UT = 1452.0, RouteId = route.Id,
-                RouteCycleId = "cycle-0", RouteStopIndex = -1, Sequence = 0,
-            });
-            route.PendingRecoveryCreditCycleId = "cycle-1";
-            route.PendingRecoveryCreditDispatchUT = 1452.0;
             Route savedAt1460 = SnapshotAsSaved(route);
 
             RouteOrchestrator.Tick(1755.0, env);               // cycle-2, the abandoned future
-            Ledger.AddAction(new GameAction
-            {
-                Type = GameActionType.RouteRecoveryCredited, UT = 1755.0, RouteId = route.Id,
-                RouteCycleId = "cycle-1", RouteStopIndex = -1, Sequence = 0,
-            });
-            route.PendingRecoveryCreditCycleId = "cycle-2";
-            route.PendingRecoveryCreditDispatchUT = 1755.0;
             Assert.Equal(3, DispatchRows().Count);
 
             double cutoff = RunGoBack(1445.0, new[] { savedAt1460 }, 1460.0);
             Route live = Committed(route.Id);
 
             Assert.Equal(new[] { 1150.0, 1452.0 }, DispatchRows().Select(a => a.UT).ToArray());
-            var credit = Assert.Single(Ledger.Actions, a => a.Type == GameActionType.RouteRecoveryCredited);
-            Assert.Equal("cycle-0", credit.RouteCycleId);
-            Assert.Equal("cycle-1", live.PendingRecoveryCreditCycleId);
-            Assert.Equal(1452.0, live.PendingRecoveryCreditDispatchUT);
             Assert.Equal(1, live.LastObservedLoopCycleIndex);
             Assert.Equal(1460.0, cutoff);
             Assert.Contains(logLines, l => l.Contains("[Rewind]")
@@ -528,7 +462,7 @@ namespace Parsek.Tests.Logistics
                 && l.Contains("cutoffSource=rewind-save-ut")
                 && l.Contains("rewindAdjustedUT=1445"));
             Assert.Contains(logLines, l => l.Contains("OnLoad go-back: loop position restored from the loaded save")
-                && l.Contains("loopPositionsRestored=1") && l.Contains("creditsRestored=1"));
+                && l.Contains("loopPositionsRestored=1"));
 
             foreach (double ut in new[] { 1446.0, 1452.0, 1460.0 })
                 RouteOrchestrator.Tick(ut, env);               // the clock replays the window

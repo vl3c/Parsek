@@ -40,6 +40,44 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True for a serialized ledger row that carried supply-route MONEY in an old save:
+        /// every <see cref="GameActionType.RouteRecoveryCredited"/> row (type 28), and a
+        /// <see cref="GameActionType.RouteCargoDebited"/> row (type 24) whose
+        /// <c>routeKscFundsCost</c> is non-zero (a Career Space Center charge). Supply routes
+        /// carry no money any more (todo LOGISTICS-WITHOUT-MONEY), so
+        /// <see cref="Ledger.LoadFromFile"/> drops these rows before any recalculation reads
+        /// them; an old dev save's funds may shift once (accepted). A vessel-origin debit row
+        /// (no <c>routeKscFundsCost</c>, or zero) is a physical route row and is kept.
+        /// <paramref name="isCredit"/> tells the two kinds apart for the load summary. Pure:
+        /// reads the node only, so a ledger saved after the drop (which holds neither) is untouched.
+        /// </summary>
+        internal static bool IsLegacyRouteMoneyNode(ConfigNode node, out bool isCredit)
+        {
+            isCredit = false;
+            if (node == null)
+                return false;
+            string typeStr = node.GetValue("type");
+            if (typeStr == null
+                || !int.TryParse(typeStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out int typeInt))
+                return false;
+            if (typeInt == (int)GameActionType.RouteRecoveryCredited)
+            {
+                isCredit = true;
+                return true;
+            }
+            if (typeInt != (int)GameActionType.RouteCargoDebited)
+                return false;
+            string costStr = node.GetValue(LegacyRouteKscFundsCostKey);
+            return costStr != null
+                && float.TryParse(costStr, NumberStyles.Float, CultureInfo.InvariantCulture, out float cost)
+                && cost != 0f;
+        }
+
+        /// <summary>The old save's per-row Space Center funds key, read only by
+        /// <see cref="IsLegacyRouteMoneyNode"/> and never written.</summary>
+        internal const string LegacyRouteKscFundsCostKey = "routeKscFundsCost";
+
+        /// <summary>
         /// Migration for old saves: converts existing GameStateStore events from committed
         /// recordings into GameActions and adds them to the ledger. Called once when an old
         /// save loads with committed recordings but no ledger file.
@@ -193,16 +231,6 @@ namespace Parsek
                 case GameActionType.StrategyActivate:      // SetupCost
                     return true;
 
-                // Supply-route per-cycle funds (logistics-recovery-credit, Option A):
-                // FundsModule now consumes BOTH the gross dispatch debit
-                // (RouteCargoDebited, as a spending) and the deferred recovery credit
-                // (RouteRecoveryCredited, as an earning), so both move the funds pool
-                // and are resource-impacting. The other route types below stay
-                // non-impacting (no resource module consumes them).
-                case GameActionType.RouteCargoDebited:     // RouteKscFundsCost (spending)
-                case GameActionType.RouteRecoveryCredited: // RouteKscFundsCost (earning)
-                    return true;
-
                 // Non-resource action types: roster changes, stateful facility/strategy flips,
                 // and the immutable seed rows. These are intentionally ignored by the
                 // coverage probe — see class summary for the false-positive this guards.
@@ -222,22 +250,17 @@ namespace Parsek
                 case GameActionType.ReputationInitial:
                     return false;
 
-                // Route skeleton (design doc section 6): these route types carry no funds /
-                // science / reputation movement that any resource module consumes.
-                // RouteDispatched is a scheduler-decision marker; RouteCargoDelivered
-                // records the delivery (its funds effect is on the paired
-                // RouteCargoDebited, not on the delivered row's own FundsModule case);
-                // RoutePaused / RouteEndpointLost are scheduler state flips. The
-                // funds-moving route rows (RouteCargoDebited, RouteRecoveryCredited)
-                // are classified true above.
-                //
-                // RouteCargoPickedUp (logistics M3, design D6): the per-window pickup
-                // debit moves NO funds pool (loaded-en-route cargo debits its physical
-                // source, never funds) and no resource module consumes it - the
-                // physical removal happened live at emit and is reverted by the rewind
-                // quicksave, exactly like RouteCargoDebited's physical half. So it
-                // mirrors RouteCargoDelivered: false here.
+                // Route rows (design doc section 6): supply routes carry no money (todo
+                // LOGISTICS-WITHOUT-MONEY), so no route type moves a funds / science /
+                // reputation pool. RouteDispatched is a scheduler-decision marker;
+                // RouteCargoDebited / RouteCargoPickedUp / RouteCargoDelivered record
+                // physical cargo moves that happened live at emit and are reverted by
+                // the rewind quicksave; RoutePaused / RouteEndpointLost are scheduler
+                // state flips. RouteRecoveryCredited is a legacy type nothing writes
+                // (old rows are dropped at ledger load by IsLegacyRouteMoneyNode).
                 case GameActionType.RouteDispatched:
+                case GameActionType.RouteCargoDebited:
+                case GameActionType.RouteRecoveryCredited:
                 case GameActionType.RouteCargoDelivered:
                 case GameActionType.RouteCargoPickedUp:
                 case GameActionType.RoutePaused:

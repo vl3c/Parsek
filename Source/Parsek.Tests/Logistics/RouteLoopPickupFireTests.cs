@@ -251,11 +251,9 @@ namespace Parsek.Tests.Logistics
         // halves are injected fakes).
         private sealed class EligibleEnv : IRouteRuntimeEnvironment
         {
-            public bool IsCareer { get; set; }
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = string.Empty; return true; }
             public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason) { vessel = null; reason = string.Empty; return true; }
             public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall) { shortfall = 0.0; lackingResource = string.Empty; return true; }
-            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
             public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = string.Empty; return true; }
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }
@@ -286,11 +284,11 @@ namespace Parsek.Tests.Logistics
             var delivered = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoDelivered);
 
             Assert.NotNull(dispatched);
-            Assert.NotNull(debited);
+            Assert.Null(debited); // Space Center origin dispatches free: no debit row
             Assert.NotNull(pickedUp);
             Assert.NotNull(delivered);
 
-            // All four rows share the same cycleId.
+            // All three rows share the same cycleId.
             Assert.Equal("cycle-0", dispatched.RouteCycleId);
             Assert.Equal("cycle-0", pickedUp.RouteCycleId);
             Assert.Equal("cycle-0", delivered.RouteCycleId);
@@ -300,11 +298,9 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(42u, lastPickupEndpoint.VesselPersistentId);
             Assert.Equal(50.0, lastPickupManifest["Ore"]);
 
-            // The pickup row carries the ACTUAL debited manifest + endpoint pid +
-            // ZERO funds.
+            // The pickup row carries the ACTUAL debited manifest + endpoint pid.
             Assert.Equal(50.0, pickedUp.RouteResourceManifest["Ore"]);
             Assert.Equal(777u, pickedUp.RouteOriginVesselPid);
-            Assert.Equal(0f, pickedUp.RouteKscFundsCost);
         }
 
         // catches (M3 Phase 5, plan D7): a route whose cycle stop carries an
@@ -342,7 +338,6 @@ namespace Parsek.Tests.Logistics
             Assert.Single(pickedUp.RouteInventoryManifest);
             Assert.Equal("ore-container-hash", pickedUp.RouteInventoryManifest[0].IdentityHash);
             Assert.Equal(555u, pickedUp.RouteOriginVesselPid);
-            Assert.Equal(0f, pickedUp.RouteKscFundsCost);
             Assert.Null(Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteCargoDelivered));
         }
 
@@ -681,12 +676,10 @@ namespace Parsek.Tests.Logistics
         // delivery time (mirrors RouteLoopDeliveryFireTests' EligibleButDeliveryLostEnv).
         private sealed class DeliveryLostEnv : IRouteRuntimeEnvironment
         {
-            public bool IsCareer { get; set; }
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = string.Empty; return true; }
             public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason)
             { vessel = null; reason = "no-live-vessels"; return false; }
             public bool OriginHasCargo(Route route, out string lackingResource, out double shortfall) { shortfall = 0.0; lackingResource = string.Empty; return true; }
-            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
             public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = string.Empty; return true; }
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }

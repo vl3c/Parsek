@@ -4900,14 +4900,17 @@ namespace Parsek
                     bool hasPending = pendingTree != null;
                     bool hasSavedPendingDuringActiveRestore =
                         savedPendingTreeDuringActiveRestore != null;
+                    int inertTreeCount = InertRecordingTrees.Count;
                     if (recCount > 0
                         || treeCount > 0
+                        || inertTreeCount > 0
                         || hasPending
                         || hasSavedPendingDuringActiveRestore)
                     {
                         string msg =
                             $"ResetForTesting blocked: refusing to wipe live save data " +
                             $"(committedRecordings={recCount}, committedTrees={treeCount}, " +
+                            $"inertTrees={inertTreeCount}, " +
                             $"hasPendingTree={hasPending}, " +
                             $"hasSavedPendingDuringActiveRestore={hasSavedPendingDuringActiveRestore}). " +
                             $"The in-game test runner shares " +
@@ -4923,6 +4926,7 @@ namespace Parsek
 
             committedRecordings.Clear();
             committedTrees.Clear();
+            InertRecordingTrees.ResetForTesting();
             BumpStateVersion();
             ResetCommittedListNotificationsForTesting();
             RecordingGroupStore.ResetForTesting();

@@ -51,7 +51,7 @@ def _analysis(career):
 
 
 def _hire_spec(roster=None, manifest=None):
-    exp = {"ledger": {"seedFrom": "template", "tolerances": "default", "rec3CarveOut": False,
+    exp = {"ledger": {"seedFrom": "template", "tolerances": "default",
                       "manifest": manifest if manifest is not None else [
                           {"seq": 0, "ut": 0.0, "kind": "kerbal-hire", "funds": HIRE}]}}
     if roster is not None:
@@ -61,7 +61,7 @@ def _hire_spec(roster=None, manifest=None):
 
 def _cc_spec():
     return {"id": "T-cc", "expectations": {"ledger": {
-        "seedFrom": "template", "tolerances": "default", "rec3CarveOut": False,
+        "seedFrom": "template", "tolerances": "default",
         "captureCrossCheck": "gate",
         "manifest": [{"seq": 0, "kind": "stock-reputation-award", "reputation": 0.9999995,
                       "repMode": "applied", "stockReason": "Progression",
