@@ -93,7 +93,22 @@ tier = "nightly"
 # burn or coast); (6) retry `none`, deterministic; (7) recordings pinned exactly (2 fixture +
 # flight A); (8) nightly, L9-sized; (9) run flight_efficiency.py after the first green flight.
 #
-# STATUS: AUTHORED 2026-10-22, NEVER FLOWN. Every token below is derived from the source and the
+# FIRST READING `2026-10-22_1814` (build 1eeb1cb, DLL sha256 eaa12416...): INVALID(driver-arg),
+# blocked by todo REWIND-TO-LAUNCH-LANDS-IN-THE-LATEST-PERSISTENT-WORLD (fixed by PR #2181, not
+# yet merged). The rewind's Space Center scene re-reads persistent.sfs, the latest world, so the
+# three facilities upgraded at UT 1040 come up at their upgraded level after the rewind: Parsek
+# sets Administration, Tracking Station and Mission Control 1 -> 0 inside the rewind OnLoad
+# (`PatchFacilities: levels patched=3`), the next pass finds no registered facility
+# (`notFound=3`), the menu at UT 425 reads Tracking Station "Facility Level 2", and only the
+# recalc after the cancel sets it back to 0. The upgraded station has no `OuterDish`, so the
+# demolish refused `unknown-building` and the repair `facility-intact`; the repair refusal is
+# therefore unproven. Everything else read as pinned: the probe `Funds(ahead=5
+# need=541440.03125)`, both snapshot lines (openRes 36225 / 27225, spendable -32107.03125 /
+# -27225), the cancel allowed, and the Accept of 7692d51a refused with `Short by 5,889 funds.`
+# (`kscaction refused action=accept-contract reason=blocked-committed`). Re-fly once #2181 is
+# on main; no token changes from this reading.
+#
+# STATUS: AUTHORED 2026-10-22. Every token below is derived from the source and the
 # fixture, not from a log. THE READING RUN MUST SETTLE:
 #   - The two snapshot lines (openContracts=2 / =1, openRes 36225 / 27225) and the probe's
 #     `Funds(ahead=5 need=541440.03125)`: a different need means another row lies after now.

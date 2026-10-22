@@ -6916,7 +6916,7 @@ Next step if it recurs: have the hover verb pick the part icon's visible centre 
 by the viewport mask) and re-read the tooltip's presence at capture time, so a lost
 tooltip reads INVALID(pointer) instead of a missing product token.
 
-## STOCK-SCREEN-CENSUS-FUNDS-GUARD-CLAMPS: the census career's funds guard clamps both ways, and an allowed upgrade does not move the walk target [FILED 2026-09-28 from KB-4 `2026-09-28_2031`, branch `kb4-block-proof`. OPEN for the load-time drawdown, not gated; the after-upgrade uplift is KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, fixed 2026-10-06, gone live on KB-4 `2026-10-07_0015`]
+## ~~STOCK-SCREEN-CENSUS-FUNDS-GUARD-CLAMPS: the census career's funds guard clamps both ways, and an allowed upgrade does not move the walk target~~ [FILED 2026-09-28 from KB-4 `2026-09-28_2031`, branch `kb4-block-proof`. EXPLAINED AND CLOSED 2026-10-22 (PR #2180): the load-time gap is the committed costs ahead, adopted since phase 2; the after-upgrade uplift is KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, fixed 2026-10-06, gone live on KB-4 `2026-10-07_0015`]
 
 On `stock-screen-census` the funds patch clamps at load (`PatchFunds: GUARDED DRAWDOWN
 clamped resource=Funds running=244370.5 live=465808 wouldBeTarget=244370.5 clampedTo=465808`,
@@ -6951,6 +6951,17 @@ wouldBeTarget=94370.5 clampedTo=86416.75`. 94370.5 is the boot walk's 244370.5 l
 upgrade now charged, and the 7953.75 still between `running` and `live` is the boot gap between
 that walk (244370.5, refused) and the 236416.75 applied after it, so the open question is still
 the fixture's seed, not the upgrade.
+
+Update 2026-10-22 (KB-3 / KB-4 on PR #2180, build 1eeb1cb): not the seed. The gap, 465808 - 244370.5
+= 221437.5, is exactly what the census's four committed costs after the clock still need (the
+click probe reads `Funds(ahead=4 need=221437.5)`): the walk target is the projected minimum, which
+reserves those costs, and the older guard kept the live pool by clamping. Since the stock pool
+reference (committed-value rule phase 2, PR #2177) a load with no saved reference adopts that
+gap as one `StockPoolAdjustment` row (`PatchFunds: filed StockPoolAdjustment amount=221437.5
+reason=adopted-gap`, plus science ~5.0), so no clamp is left. That keeps the pool where an older
+build left it; on such a pre-reference save it also means the costs ahead are not reserved out
+of the live pool (they settle at the floor when they cross the clock, phase 3). Only saves
+written before the reference carry this; KB-3 / KB-4 re-pinned to the two rows (28 / 29 actions).
 
 ## CHILD-BRANCH-SINGLE-SLOT-OVERWRITE: a second split overwrites a breakup-continuous recording's `ChildBranchPointId` [FILED 2026-09-28 from BREAKUP-CONTINUOUS-LEAF-READERS. OPEN, low; owner ruling 2026-09-28: leave filed until a player-visible defect shows]
 
