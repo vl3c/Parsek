@@ -638,7 +638,7 @@ namespace Parsek
                 Sequence = sequence
             };
 
-            Ledger.AddAction(action);
+            Ledger.AddAction(action, LedgerRowWriter.StockApplied);
 
             ParsekLog.Info(Tag,
                 $"VesselRecovery funds patched: vessel='{identity.DisplayName}' " +

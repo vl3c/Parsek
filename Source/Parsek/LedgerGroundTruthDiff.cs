@@ -89,6 +89,64 @@ namespace Parsek
         /// index, e.g. 2 for a 3-tier facility) is injected from live KSP so the
         /// facility fraction&lt;-&gt;int conversion stays testable.
         /// </summary>
+        /// <summary>
+        /// Sums the walked effect of the <see cref="GameActionType.StockPoolAdjustment"/> rows
+        /// of <paramref name="pool"/>: a row counts only when the walk dispatched it (its id is
+        /// in <paramref name="walkedEffects"/>, the module's per-row effects), so a row past the
+        /// walk's cutoff or withheld from it adds nothing.
+        /// </summary>
+        internal static double SumWalkedStockPoolAdjustments(
+            StockPool pool, IEnumerable<GameAction> actions,
+            IReadOnlyDictionary<string, double> walkedEffects, out int rows)
+        {
+            rows = 0;
+            double total = 0.0;
+            if (actions == null || walkedEffects == null)
+                return total;
+            foreach (GameAction a in actions)
+            {
+                if (a == null || a.Type != GameActionType.StockPoolAdjustment || a.AdjustmentPool != pool)
+                    continue;
+                double effect;
+                if (string.IsNullOrEmpty(a.ActionId) || !walkedEffects.TryGetValue(a.ActionId, out effect))
+                    continue;
+                if (double.IsNaN(effect) || double.IsInfinity(effect))
+                    continue;
+                rows++;
+                total += effect;
+            }
+            return total;
+        }
+
+        /// <summary>The funds the ledger's own rows reconstruct: the walk's running value
+        /// with its stock pool adjustment rows left out.</summary>
+        internal static double FundsExcludingAdjustments(LedgerReconstructionSnapshot recon)
+            => recon.Funds - recon.FundsAdjustment;
+
+        /// <summary>The science pool with the walk's adjustment rows left out.</summary>
+        internal static double ScienceExcludingAdjustments(LedgerReconstructionSnapshot recon)
+            => recon.SciencePool - recon.ScienceAdjustment;
+
+        /// <summary>The reputation with the walk's adjustment rows left out. Reputation
+        /// adjustments are stored post-curve, so this removes exactly what they added; a
+        /// later row's curve evaluated at the adjusted value is not re-evaluated.</summary>
+        internal static double ReputationExcludingAdjustments(LedgerReconstructionSnapshot recon)
+            => recon.Reputation - recon.ReputationAdjustment;
+
+        /// <summary>
+        /// One output line per pool naming the adjustment rows the diff left out, so a
+        /// divergence they explain (a leak the stock pool reference measured and filed) reads
+        /// as such.
+        /// </summary>
+        internal static string FormatStockPoolAdjustmentLine(
+            string pool, int rows, double total, double reconWithAdjustments, double reconCompared)
+        {
+            return $"stock pool adjustments left out of the comparison: pool={pool} " +
+                   $"rows={rows.ToString(IC)} total={total.ToString("R", IC)} " +
+                   $"reconWithAdjustments={reconWithAdjustments.ToString("R", IC)} " +
+                   $"reconCompared={reconCompared.ToString("R", IC)}";
+        }
+
         internal static LedgerDivergenceReport Compare(
             CareerSaveSnapshot save,
             LedgerReconstructionSnapshot recon,
@@ -229,26 +287,28 @@ namespace Parsek
                 return;
             }
             report.FacetsCompared++;
+            double reconValue = FundsExcludingAdjustments(recon);
 
-            double delta = Math.Abs(save.Funds - recon.Funds);
+            double delta = Math.Abs(save.Funds - reconValue);
             bool within = delta <= tol.Funds;
             ParsekLog.Verbose(Tag,
-                $"funds save={save.Funds.ToString("R", IC)} recon={recon.Funds.ToString("R", IC)} " +
+                $"funds save={save.Funds.ToString("R", IC)} recon={reconValue.ToString("R", IC)} " +
                 $"delta={delta.ToString("R", IC)} within tol={within.ToString(IC)}");
 
             if (!within)
             {
                 DivergenceKind kind = ClassifySeededPoolKind(
-                    save.Funds, recon.Funds, tol.Funds, authoritativeReduction);
+                    save.Funds, reconValue, tol.Funds, authoritativeReduction);
                 report.All.Add(new LedgerDivergence
                 {
                     Facet = DivergenceFacet.Funds,
                     Kind = kind,
                     Identity = "",
                     ExpectedFromSave = save.Funds,
-                    Reconstructed = recon.Funds,
+                    Reconstructed = reconValue,
                     Detail = $"funds delta={delta.ToString("R", IC)} tol={tol.Funds.ToString("R", IC)} " +
-                             $"kind={kind} authoritativeReduction={authoritativeReduction.ToString(IC)}"
+                             $"kind={kind} authoritativeReduction={authoritativeReduction.ToString(IC)} " +
+                             $"adjustmentsLeftOut={recon.FundsAdjustment.ToString("R", IC)}"
                 });
             }
         }
@@ -263,26 +323,28 @@ namespace Parsek
                 return;
             }
             report.FacetsCompared++;
+            double reconValue = ScienceExcludingAdjustments(recon);
 
-            double delta = Math.Abs(save.SciencePool - recon.SciencePool);
+            double delta = Math.Abs(save.SciencePool - reconValue);
             bool within = delta <= tol.SciencePool;
             ParsekLog.Verbose(Tag,
-                $"sciencePool save={save.SciencePool.ToString("R", IC)} recon={recon.SciencePool.ToString("R", IC)} " +
+                $"sciencePool save={save.SciencePool.ToString("R", IC)} recon={reconValue.ToString("R", IC)} " +
                 $"delta={delta.ToString("R", IC)} within tol={within.ToString(IC)}");
 
             if (!within)
             {
                 DivergenceKind kind = ClassifySeededPoolKind(
-                    save.SciencePool, recon.SciencePool, tol.SciencePool, authoritativeReduction);
+                    save.SciencePool, reconValue, tol.SciencePool, authoritativeReduction);
                 report.All.Add(new LedgerDivergence
                 {
                     Facet = DivergenceFacet.SciencePool,
                     Kind = kind,
                     Identity = "",
                     ExpectedFromSave = save.SciencePool,
-                    Reconstructed = recon.SciencePool,
+                    Reconstructed = reconValue,
                     Detail = $"sciencePool delta={delta.ToString("R", IC)} tol={tol.SciencePool.ToString("R", IC)} " +
-                             $"kind={kind} authoritativeReduction={authoritativeReduction.ToString(IC)}"
+                             $"kind={kind} authoritativeReduction={authoritativeReduction.ToString(IC)} " +
+                             $"adjustmentsLeftOut={recon.ScienceAdjustment.ToString("R", IC)}"
                 });
             }
         }
@@ -297,26 +359,28 @@ namespace Parsek
                 return;
             }
             report.FacetsCompared++;
+            double reconValue = ReputationExcludingAdjustments(recon);
 
-            double delta = Math.Abs(save.Reputation - recon.Reputation);
+            double delta = Math.Abs(save.Reputation - reconValue);
             bool within = delta <= tol.Reputation;
             ParsekLog.Verbose(Tag,
-                $"reputation save={save.Reputation.ToString("R", IC)} recon={recon.Reputation.ToString("R", IC)} " +
+                $"reputation save={save.Reputation.ToString("R", IC)} recon={reconValue.ToString("R", IC)} " +
                 $"delta={delta.ToString("R", IC)} within tol={within.ToString(IC)}");
 
             if (!within)
             {
                 DivergenceKind kind = ClassifySeededPoolKind(
-                    save.Reputation, recon.Reputation, tol.Reputation, authoritativeReduction);
+                    save.Reputation, reconValue, tol.Reputation, authoritativeReduction);
                 report.All.Add(new LedgerDivergence
                 {
                     Facet = DivergenceFacet.Reputation,
                     Kind = kind,
                     Identity = "",
                     ExpectedFromSave = save.Reputation,
-                    Reconstructed = recon.Reputation,
+                    Reconstructed = reconValue,
                     Detail = $"reputation delta={delta.ToString("R", IC)} tol={tol.Reputation.ToString("R", IC)} " +
-                             $"kind={kind} authoritativeReduction={authoritativeReduction.ToString(IC)}"
+                             $"kind={kind} authoritativeReduction={authoritativeReduction.ToString(IC)} " +
+                             $"adjustmentsLeftOut={recon.ReputationAdjustment.ToString("R", IC)}"
                 });
             }
         }

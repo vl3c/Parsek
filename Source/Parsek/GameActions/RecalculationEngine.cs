@@ -198,7 +198,7 @@ namespace Parsek
             WalkResult walk = RunWalk(effective, utCutoff, deadlineClockUT);
 
             if (utCutoff.HasValue)
-                ApplyProjectedAvailability(projectedTimeline, utCutoff.Value);
+                ApplyProjectedAvailability(projectedTimeline, utCutoff.Value, LedgerRowSet(actions));
 
             // 4. Log summary
             string cutoffLabel = utCutoff.HasValue
@@ -275,10 +275,11 @@ namespace Parsek
                     var facilities = CreateProjectionModule(facilitiesModule);
                     RunWalk(effective, utCutoff, first, strategy, second, facilities);
 
-                    ApplyProjectedAvailability(first, projected, utCutoff);
-                    if (strategy != null) ApplyProjectedAvailability(strategy, projected, utCutoff);
-                    ApplyProjectedAvailability(second, projected, utCutoff);
-                    if (facilities != null) ApplyProjectedAvailability(facilities, projected, utCutoff);
+                    HashSet<GameAction> ledgerRows = LedgerRowSet(all);
+                    ApplyProjectedAvailability(first, projected, utCutoff, ledgerRows);
+                    if (strategy != null) ApplyProjectedAvailability(strategy, projected, utCutoff, ledgerRows);
+                    ApplyProjectedAvailability(second, projected, utCutoff, ledgerRows);
+                    if (facilities != null) ApplyProjectedAvailability(facilities, projected, utCutoff, ledgerRows);
 
                     return FindModule<T>(first) ?? (strategy as T) ?? FindModule<T>(second) ?? (facilities as T);
                 }
@@ -515,6 +516,11 @@ namespace Parsek
                 case GameActionType.StrategyScienceCredit:
                 // Science lab credit: an earning like ScienceEarning.
                 case GameActionType.ScienceLabEarning:
+                // The stock pool reference's adjustment: something stock already applied.
+                // Listed so Ledger.Reconcile's earning branch keeps the untagged row at any
+                // maxUT (a cold load reconciles at 0); its sort position at a shared UT is
+                // inert, the walk applies it unclamped.
+                case GameActionType.StockPoolAdjustment:
                 case GameActionType.FundsEarning:
                 case GameActionType.MilestoneAchievement:
                 case GameActionType.ContractComplete:
@@ -588,6 +594,38 @@ namespace Parsek
             internal double FinalBalance;
             internal int FutureActions;
             internal int DeltaActions;
+            internal int SyntheticRowsExcluded;
+            internal double SyntheticDeltaExcluded;
+        }
+
+        /// <summary>
+        /// The rows the caller handed the walk, by reference. A row of the projected timeline
+        /// that is not in it was injected by a module's PrePass (today only
+        /// <c>ContractsModule</c>'s synthetic deadline fail of an open contract).
+        /// </summary>
+        private static HashSet<GameAction> LedgerRowSet(List<GameAction> actions)
+        {
+            var set = new HashSet<GameAction>();
+            if (actions == null)
+                return set;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                if (actions[i] != null)
+                    set.Add(actions[i]);
+            }
+            return set;
+        }
+
+        /// <summary>
+        /// Pure: whether the reserve counts this future row. An open contract's fail penalty is
+        /// not held in the pool (committed-value rule plan section 2.2, owner ruling): the
+        /// projection's synthetic deadline fail is told apart from ledger rows by membership in
+        /// the input list and left out of the reserve, while the projection walk itself (and
+        /// <c>ContractsModule</c>'s injection) is unchanged. A null set counts every row.
+        /// </summary>
+        internal static bool CountsInReserve(GameAction action, HashSet<GameAction> ledgerRows)
+        {
+            return ledgerRows == null || ledgerRows.Contains(action);
         }
 
         private static WalkResult RunWalk(
@@ -635,6 +673,13 @@ namespace Parsek
             // 1. Sort — stable sort preserving insertion order for equal keys
             var sorted = SortActions(actions);
 
+            // The walk's input rows, by reference, before any PrePass injects one. A row
+            // outside this set (today only ContractsModule's synthetic deadline fail) moves
+            // contract state only: the stock pool modules never see it (committed-value
+            // rule plan section 2.2). Stock never applied it, and the reference reads the
+            // walk's running value as the pool.
+            var inputRows = new HashSet<GameAction>(sorted);
+
             // 2. Reset all modules and action-derived fields.
             ResetAllModules(firstTier, strategy, secondTier, facilities);
             ResetDerivedFields(sorted);
@@ -649,7 +694,7 @@ namespace Parsek
             // "last UT" land before a deadline, letting deadline-expired contracts
             // slip through the rewind without the synthetic ContractFail.
             bool prePassMutated = PrePassAllModules(
-                sorted, walkNowUT, deadlineClockUT, firstTier, strategy, secondTier, facilities);
+                sorted, inputRows, walkNowUT, deadlineClockUT, firstTier, strategy, secondTier, facilities);
             if (prePassMutated)
                 sorted = SortActions(sorted);
             else
@@ -660,20 +705,28 @@ namespace Parsek
             int strategyDispatches = 0;
             int secondTierDispatches = 0;
             int facilitiesDispatches = 0;
+            List<GameAction> withheld = null;
 
             for (int i = 0; i < sorted.Count; i++)
             {
                 var action = sorted[i];
+                bool injected = !inputRows.Contains(action);
+                if (injected)
+                {
+                    if (withheld == null) withheld = new List<GameAction>();
+                    withheld.Add(action);
+                }
 
                 // Dispatch to first-tier modules.
                 for (int m = 0; m < firstTier.Count; m++)
                 {
+                    if (injected && firstTier[m] is IStockPoolModule) continue;
                     firstTier[m].ProcessAction(action);
                     firstTierDispatches++;
                 }
 
                 // Strategy transform tier.
-                if (strategy != null)
+                if (strategy != null && !(injected && strategy is IStockPoolModule))
                 {
                     strategy.ProcessAction(action);
                     strategyDispatches++;
@@ -682,6 +735,7 @@ namespace Parsek
                 // Dispatch to second-tier modules.
                 for (int m = 0; m < secondTier.Count; m++)
                 {
+                    if (injected && secondTier[m] is IStockPoolModule) continue;
                     secondTier[m].ProcessAction(action);
                     secondTierDispatches++;
                 }
@@ -696,6 +750,9 @@ namespace Parsek
                 afterAction?.Invoke(action);
             }
 
+            if (withheld != null)
+                LogWithheldInjectedRows(withheld);
+
             // 4. Post-walk: let modules finalize derived state.
             PostWalkAllModules(firstTier, strategy, secondTier, facilities);
 
@@ -707,6 +764,29 @@ namespace Parsek
                 SecondTierDispatches = secondTierDispatches,
                 FacilitiesDispatches = facilitiesDispatches
             };
+        }
+
+        /// <summary>
+        /// One line per walk that withheld injected rows from the stock pool modules (bounded:
+        /// the first five rows are named). The projection and probe walks run under a
+        /// suppressed log, so this reads the visible walk.
+        /// </summary>
+        private static void LogWithheldInjectedRows(List<GameAction> withheld)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            var parts = new List<string>();
+            for (int i = 0; i < withheld.Count && i < 5; i++)
+            {
+                var a = withheld[i];
+                parts.Add(string.Format(ic,
+                    "{0} contractId='{1}' ut={2} fundsPenalty={3} repPenalty={4}",
+                    a.Type, a.ContractId ?? "(none)", a.UT.ToString("R", ic),
+                    a.FundsPenalty.ToString("R", ic), a.RepPenalty.ToString("R", ic)));
+            }
+            ParsekLog.Info("RecalcEngine",
+                $"Walk withheld {withheld.Count.ToString(ic)} injected row(s) from the stock pool modules " +
+                $"(contract state only, no pool moves): [{string.Join("; ", parts.ToArray())}]" +
+                (withheld.Count > 5 ? " ..." : ""));
         }
 
         private static void ResetDerivedFields(List<GameAction> sorted)
@@ -831,35 +911,38 @@ namespace Parsek
             }
         }
 
-        private static void ApplyProjectedAvailability(List<GameAction> projectedTimeline, double cutoff)
+        private static void ApplyProjectedAvailability(
+            List<GameAction> projectedTimeline, double cutoff, HashSet<GameAction> ledgerRows)
         {
             if (projectedTimeline == null)
                 return;
 
-            ApplyProjectedAvailability(firstTierModules, projectedTimeline, cutoff);
+            ApplyProjectedAvailability(firstTierModules, projectedTimeline, cutoff, ledgerRows);
 
             if (strategyTransform != null)
-                ApplyProjectedAvailability(strategyTransform, projectedTimeline, cutoff);
+                ApplyProjectedAvailability(strategyTransform, projectedTimeline, cutoff, ledgerRows);
 
-            ApplyProjectedAvailability(secondTierModules, projectedTimeline, cutoff);
+            ApplyProjectedAvailability(secondTierModules, projectedTimeline, cutoff, ledgerRows);
 
             if (facilitiesModule != null)
-                ApplyProjectedAvailability(facilitiesModule, projectedTimeline, cutoff);
+                ApplyProjectedAvailability(facilitiesModule, projectedTimeline, cutoff, ledgerRows);
         }
 
         private static void ApplyProjectedAvailability(
             List<IResourceModule> modules,
             List<GameAction> projectedTimeline,
-            double cutoff)
+            double cutoff,
+            HashSet<GameAction> ledgerRows)
         {
             for (int i = 0; i < modules.Count; i++)
-                ApplyProjectedAvailability(modules[i], projectedTimeline, cutoff);
+                ApplyProjectedAvailability(modules[i], projectedTimeline, cutoff, ledgerRows);
         }
 
         private static void ApplyProjectedAvailability(
             IResourceModule module,
             List<GameAction> projectedTimeline,
-            double cutoff)
+            double cutoff,
+            HashSet<GameAction> ledgerRows)
         {
             var projectionModule = module as ICashflowProjectionModule;
             if (projectionModule == null)
@@ -870,7 +953,23 @@ namespace Parsek
                 projectedTimeline,
                 cutoff,
                 currentBalance,
-                projectionModule);
+                projectionModule,
+                ledgerRows);
+            string moduleName = module.GetType().Name;
+            ParsekLog.VerboseOnChange("RecalcEngine",
+                "projection-synthetic-excluded|" + moduleName,
+                string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0}|{1}|{2}",
+                    projection.SyntheticRowsExcluded,
+                    projection.SyntheticDeltaExcluded.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+                    cutoff.ToString("R", System.Globalization.CultureInfo.InvariantCulture)),
+                $"Projection reserve for {moduleName}: cutoff=" +
+                cutoff.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                $" excludedSyntheticRows={projection.SyntheticRowsExcluded}" +
+                " excludedSyntheticDelta=" +
+                projection.SyntheticDeltaExcluded.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                " minBalance=" +
+                projection.MinBalance.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                " (an open contract's synthetic deadline fail is not held in the pool)");
             projectionModule.SetProjectedAvailable(
                 projection.Available,
                 currentBalance,
@@ -884,12 +983,15 @@ namespace Parsek
             List<GameAction> projectedTimeline,
             double cutoff,
             double currentBalance,
-            ICashflowProjectionModule projectionModule)
+            ICashflowProjectionModule projectionModule,
+            HashSet<GameAction> ledgerRows)
         {
             double projected = currentBalance;
             double minProjected = currentBalance;
             int futureActions = 0;
             int deltaActions = 0;
+            int syntheticExcluded = 0;
+            double syntheticDelta = 0.0;
 
             for (int i = 0; i < projectedTimeline.Count; i++)
             {
@@ -902,6 +1004,13 @@ namespace Parsek
                 double delta;
                 if (!projectionModule.TryGetProjectionDelta(action, out delta))
                     continue;
+
+                if (!CountsInReserve(action, ledgerRows))
+                {
+                    syntheticExcluded++;
+                    syntheticDelta += delta;
+                    continue;
+                }
 
                 projected += delta;
                 deltaActions++;
@@ -916,7 +1025,9 @@ namespace Parsek
                 MinBalance = minProjected,
                 FinalBalance = projected,
                 FutureActions = futureActions,
-                DeltaActions = deltaActions
+                DeltaActions = deltaActions,
+                SyntheticRowsExcluded = syntheticExcluded,
+                SyntheticDeltaExcluded = syntheticDelta
             };
         }
 
@@ -927,6 +1038,7 @@ namespace Parsek
         /// </summary>
         private static bool PrePassAllModules(
             List<GameAction> sorted,
+            HashSet<GameAction> inputRows,
             double? walkNowUT,
             double? deadlineClockUT,
             List<IResourceModule> firstTier,
@@ -937,31 +1049,57 @@ namespace Parsek
             bool mutated = false;
 
             for (int i = 0; i < firstTier.Count; i++)
-                mutated |= PrePassModule(firstTier[i], sorted, walkNowUT, deadlineClockUT);
+                mutated |= PrePassModule(firstTier[i], sorted, inputRows, walkNowUT, deadlineClockUT);
 
             if (strategy != null)
-                mutated |= PrePassModule(strategy, sorted, walkNowUT, deadlineClockUT);
+                mutated |= PrePassModule(strategy, sorted, inputRows, walkNowUT, deadlineClockUT);
 
             for (int i = 0; i < secondTier.Count; i++)
-                mutated |= PrePassModule(secondTier[i], sorted, walkNowUT, deadlineClockUT);
+                mutated |= PrePassModule(secondTier[i], sorted, inputRows, walkNowUT, deadlineClockUT);
 
             if (facilities != null)
-                mutated |= PrePassModule(facilities, sorted, walkNowUT, deadlineClockUT);
+                mutated |= PrePassModule(facilities, sorted, inputRows, walkNowUT, deadlineClockUT);
 
             return mutated;
         }
 
         /// <summary>
         /// Only the contracts module judges deadlines, so only it receives the separate
-        /// deadline clock; every other module keeps the walk cutoff as its "now".
+        /// deadline clock; every other module keeps the walk cutoff as its "now". A stock
+        /// pool module's PrePass sees only the walk's input rows (its aggregates must agree
+        /// with the dispatch, which withholds an injected row from it).
         /// </summary>
         private static bool PrePassModule(
-            IResourceModule module, List<GameAction> sorted, double? walkNowUT, double? deadlineClockUT)
+            IResourceModule module, List<GameAction> sorted, HashSet<GameAction> inputRows,
+            double? walkNowUT, double? deadlineClockUT)
         {
             var contracts = module as ContractsModule;
             if (contracts != null && deadlineClockUT.HasValue)
                 return contracts.PrePass(sorted, walkNowUT, deadlineClockUT);
+            if (module is IStockPoolModule)
+                return module.PrePass(InputRowsOnly(sorted, inputRows), walkNowUT);
             return module.PrePass(sorted, walkNowUT);
+        }
+
+        /// <summary>The list itself when nothing was injected, else a copy without the injected rows.</summary>
+        private static List<GameAction> InputRowsOnly(List<GameAction> sorted, HashSet<GameAction> inputRows)
+        {
+            if (inputRows == null)
+                return sorted;
+            bool anyInjected = false;
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                if (!inputRows.Contains(sorted[i])) { anyInjected = true; break; }
+            }
+            if (!anyInjected)
+                return sorted;
+            var view = new List<GameAction>(sorted.Count);
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                if (inputRows.Contains(sorted[i]))
+                    view.Add(sorted[i]);
+            }
+            return view;
         }
 
         private static void PostWalkAllModules(

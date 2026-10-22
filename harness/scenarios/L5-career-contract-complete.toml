@@ -265,29 +265,27 @@ count = { min = 2, max = 2 }
 #       so it reads False, and pinning a False that is an artifact of two paths
 #       agreeing would be pinning the wrong thing.
 #
-#   `PatchFunds: GUARDED DRAWDOWN clamped resource=Funds`
-#       WHERE THE DEBIT STOPS, and it is pinned because the first flight of this
-#       shape MEASURED something this spec had predicted wrongly. The
-#       reconstruction really does spend the penalty - run `2026-08-20_2240`
-#       logged `running=527558 live=536558 wouldBeTarget=527558` for funds and
-#       `running=0.99999749 live=1.9999988` for reputation, i.e. exactly the
-#       9000 and the 1 - but `KspStatePatcher`'s guarded-drawdown protection
-#       REFUSES to write either back, because a pool going DOWN with no
-#       time-travel context is the signature it exists to catch ("earned value
-#       preserved; ledger may be missing an earning channel"). So the live
-#       career keeps 536558 / 1.9999988 and the synthetic fail is a
-#       reconstruction-only debit. That is a real property of the fail path with
-#       no committed statement anywhere else, so it is gated here; it is filed
-#       as SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD in
-#       `docs/dev/todo-and-known-bugs.md`, REPORT-ONLY, with no product change
-#       proposed by this lane.
-#       THE NUMBERS ARE DELIBERATELY NOT IN THE TOKEN. `running=` moves during
-#       the recalc burst (the same run logged an earlier clamp at
-#       `running=522200 live=531200`, before the recovery credit landed), and
-#       `live=` is this flight's total earnings, which `L3-career-science-recover`
-#       owns and this spec has no business re-pinning. What is gated is that the
-#       clamp HAPPENS - so a change that lets the debit through reds here and
-#       forces the decision to be taken deliberately.
+#   `Walk withheld <n> injected row(s) from the stock pool modules ... [ContractFail
+#    contractId='c47d0a91-...' ut=100 fundsPenalty=9000 repPenalty=1]`
+#       WHERE THE PENALTY STOPS. The synthetic fail is a row the walk MANUFACTURED, not
+#       one the ledger holds, so the visible walk gives it to the contracts module only
+#       (the slot frees, `Fail:` above logs the pack) and withholds it from the funds,
+#       science and reputation modules: it moves contract state, never a pool (the
+#       committed-value rule plan section 2.4, revision 6). Contract B is ledger-only
+#       (`career-contract-pad` splices nothing into `ContractSystem`), so stock never
+#       charged the 9000 / 1 either, and the live career keeps them: the pool is the one
+#       run `2026-08-20_2240` left (`running=527558 live=536558` for funds,
+#       `running=0.99999749 live=1.9999988` for reputation in that run's walk, which
+#       still charged the synthetic row and was held by the old guard's
+#       `GUARDED DRAWDOWN clamped` refusal). The same pool now comes from the walk
+#       itself, with no guard firing, so both the guard line and a 9000 debit are
+#       forbidden below: a change that lets a synthetic fail reach a pool reds here.
+#       Behavior pin SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD in
+#       `docs/dev/todo-and-known-bugs.md` records it.
+#       PREDICTED FROM CODE, NOT YET FLOWN on this revision. The count is not pinned (a
+#       flight's walks may inject other rows); the row is.
+#       THE POOL VALUES ARE DELIBERATELY NOT IN ANY TOKEN: `live=` is this flight's total
+#       earnings, which `L3-career-science-recover` owns.
 #
 # NOT PINNED, deliberately: `PatchContracts: no snapshot for contractId=...`.
 # It is expected on this fixture (no `events.pgse`, so no CONTRACT_SNAPSHOT) and
@@ -307,21 +305,25 @@ required = [
   "PrePass: injected synthetic ContractFail for contractId='c47d0a91-6b25-4e83-9f1a-2d60be3c7845' at deadlineUT=100 fundsPenalty=9000 repPenalty=1",
   "DeadlineExpired: contractId='c47d0a91-6b25-4e83-9f1a-2d60be3c7845' deadline passed at currentUT=",
   "Fail: contractId='c47d0a91-6b25-4e83-9f1a-2d60be3c7845' fundsPenalty=9000 repPenalty=1",
-  "PatchFunds: GUARDED DRAWDOWN clamped resource=Funds",
+  "Walk withheld [0-9]+ injected row\\(s\\) from the stock pool modules \\(contract state only, no pool moves\\): \\[[^\\]]*ContractFail contractId='c47d0a91-6b25-4e83-9f1a-2d60be3c7845' ut=100 fundsPenalty=9000 repPenalty=1",
 ]
-forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped resource=Funds",
+  "PatchFunds: [0-9.]+ -> [0-9.]+ \\(delta=-9000\\.0, ",
+]
 
 # NO [expectations.ledger] BLOCK, and the reason is the same one L3 records
 # rather than a different one: the M-B2 oracle has no report-only mode, so an
 # armed manifest must account for EVERY pool movement of the flight - the launch
 # milestones, three science subjects, the recovery credit - and those amounts are
 # authored by KSP alone. L3 deferred that manifest with its totals measured
-# twice; this spec adds a fifth movement (B's 9000-funds / 1-reputation debit) on
-# top of it. Arming the manifest is a separate decision with its own
-# measurements, and bundling it into the commit that opens the contract cell
+# twice; this spec adds B's 9000-funds / 1-reputation penalty pack on top of it,
+# which moves no pool and which a manifest would still have to state. Arming the
+# manifest is a separate decision with its own measurements, and bundling it into the commit that opens the contract cell
 # would hide one behind the other. What this spec DOES gate is the ROW: the
-# injection line and the fail line both carry the penalty pack, so a fail that
-# spent a different amount reds here.
+# injection, fail and withheld lines all carry the penalty pack, so a fail that
+# carried a different amount reds here.
 
 [runtime]
 # L3's budget, unchanged, and measured on this fixture: run `2026-08-20_2217`

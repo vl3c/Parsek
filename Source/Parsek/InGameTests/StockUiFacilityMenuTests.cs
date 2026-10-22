@@ -207,7 +207,7 @@ namespace Parsek.InGameTests
                 FacilityId = facilityId,
                 ToLevel = toLevel,
                 FacilityCost = 0f
-            });
+            }, LedgerRowWriter.StockApplied);
             return recording;
         }
 

@@ -1266,8 +1266,10 @@ namespace Parsek.Tests
             // Expected balances:
             //   seed   10000
             //   +advance  +200 (ContractAccept at UT=100)
-            //   -penalty  -500 (synthetic ContractFail at deadlineUT=300)
-            //           = 9700
+            //   the synthetic ContractFail at deadlineUT=300 moves contract state only: a row
+            //   the walk injected never reaches a pool module (committed-value rule plan
+            //   section 2.4, revision 6), so its 500 penalty is withheld
+            //           = 10200
             AddAll(
                 FundsSeed(10000f),
                 ContractAcceptWithDeadline(100.0, "c-late-fail",
@@ -1276,7 +1278,11 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.RecalculateAndPatch(400.0);
 
-            Assert.Equal(9700.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Equal(10200.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecalcEngine]")
+                && l.Contains("Walk withheld 1 injected row(s)")
+                && l.Contains("contractId='c-late-fail'"));
 
             // Slot released — active contract count should be 0.
             Assert.Equal(0, LedgerOrchestrator.Contracts.GetActiveContractCount());
@@ -1355,10 +1361,12 @@ namespace Parsek.Tests
 
         // catches REFLY-WALK-DEADLINE-EXPIRES-CONTRACT-WITHOUT-PENALTY: the deadline lies
         // ahead of the session clock but behind a committed row, so the walk ends the
-        // contract at that row; the clock-less walk of the same ledger charges the penalty,
-        // and the invoke walk must too (no transient rise the next walk takes back).
+        // contract at that row, and the invoke walk and the clock-less walk of the same ledger
+        // must agree (no transient move the next walk takes back). Since committed-value plan
+        // phase 2 (design 3.13, plan 2.4) an injected fail moves contract state only and
+        // charges no pool, so both walks hold the penalty back.
         [Fact]
-        public void ReFlyInvokeWalk_DeadlineAheadOfClockButBehindACommittedRow_ChargesThePenalty()
+        public void ReFlyInvokeWalk_DeadlineAheadOfClockButBehindACommittedRow_EndsTheContractInBothWalks()
         {
             AddAll(
                 FundsSeed(10000f),
@@ -1369,7 +1377,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.RecalculateAndPatch(double.MaxValue, deadlineClockUT: 400.0);
             double invokeFunds = LedgerOrchestrator.Funds.GetRunningBalance();
 
-            Assert.Equal(9800.0, invokeFunds, 1);
+            Assert.Equal(10300.0, invokeFunds, 1);
             Assert.Equal(0, LedgerOrchestrator.Contracts.GetActiveContractCount());
             Assert.Contains(logLines, l =>
                 l.Contains("[Contracts]")
@@ -1391,7 +1399,8 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.RecalculateAndPatch(double.MaxValue, deadlineClockUT: 400.0);
 
-            Assert.Equal(9700.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            // The synthetic fail retires the contract and withholds its penalty from funds.
+            Assert.Equal(10200.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
             Assert.Equal(0, LedgerOrchestrator.Contracts.GetActiveContractCount());
             Assert.Contains(logLines, l =>
                 l.Contains("[Contracts]")
@@ -1415,8 +1424,9 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.RecalculateAndPatch();
 
-            // seed + advance + milestone funds - penalty = 10000 + 200 + 50 - 500 = 9750
-            Assert.Equal(9750.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            // seed + advance + milestone funds = 10000 + 200 + 50 = 10250 (the synthetic
+            // fail's penalty is withheld from funds; it moves contract state only)
+            Assert.Equal(10250.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
             Assert.Equal(0, LedgerOrchestrator.Contracts.GetActiveContractCount());
 
             // Log should show the heuristic source, not the cutoff source.
@@ -1637,8 +1647,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CanAffordFundsSpending_FutureDeadlinePenaltyAfterLastActionReservesCurrentHeadroom()
+        public void CanAffordFundsSpending_FutureDeadlinePenaltyOfAnOpenContract_IsNotReserved()
         {
+            // Open-contract penalties are not held in the pool (committed-value rule plan
+            // section 2.2, owner ruling): the projection still synthesizes the deadline fail,
+            // but the reserve leaves it out, so the whole 1000 is spendable. Before, the
+            // probe held 700 back (probed 300, refused).
             AddAll(
                 FundsSeed(1000f),
                 ContractAcceptWithDeadline(
@@ -1652,8 +1666,8 @@ namespace Parsek.Tests
 
             bool affordable = LedgerOrchestrator.CanAffordFundsSpending(400f, out double probed);
 
-            Assert.False(affordable);
-            Assert.Equal(300.0, probed, 1);
+            Assert.True(affordable);
+            Assert.Equal(1000.0, probed, 1);
         }
 
         [Fact]

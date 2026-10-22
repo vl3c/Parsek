@@ -308,7 +308,7 @@ namespace Parsek
             // live in RouteEventLog, todo LOGISTICS-WITHOUT-MONEY phase 2).
             Ledger.Clear();
             if (bundle.Actions != null && bundle.Actions.Count > 0)
-                Ledger.AddActions(bundle.Actions);
+                Ledger.RestoreActions(bundle.Actions);
 
             // Route events. Rec-1: DROP the events whose UT > the rewind cutoff so the
             // restored log matches the reverted world; the live re-fly then re-emits each

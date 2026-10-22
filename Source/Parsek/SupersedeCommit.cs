@@ -2173,6 +2173,9 @@ namespace Parsek
                 case GameActionType.FundsInitial:
                 case GameActionType.ScienceInitial:
                 case GameActionType.ReputationInitial:
+                // A measured stock pool adjustment: filed untagged and never a world
+                // mutation (stock already made the change it records).
+                case GameActionType.StockPoolAdjustment:
                     return false;
 
                 // Reserved legacy supply-route ids: supply routes keep their events in the

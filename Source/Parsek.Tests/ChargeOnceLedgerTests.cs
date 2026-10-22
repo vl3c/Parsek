@@ -292,8 +292,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SyntheticDeadlineFail_StillCharges()
+        public void SyntheticDeadlineFail_RetiresTheContract_AndChargesNothing()
         {
+            // A row the walk injected moves contract state only (committed-value rule plan
+            // section 2.4, revision 6): stock files its own fail row when it charges one.
             var w = Register();
             RecalculationEngine.Recalculate(new List<GameAction>
             {
@@ -301,7 +303,9 @@ namespace Parsek.Tests
                 new GameAction { UT = 500.0, Type = GameActionType.FundsEarning, FundsAwarded = 0f }
             });
 
-            AssertFunds(w, 10000.0 - 500.0);
+            AssertFunds(w, 10000.0);
+            Assert.Equal(ContractTerminalOutcome.DeadlineExpired,
+                w.Contracts.GetTerminalContractOutcomes()["c-syn"]);
         }
 
         [Fact]

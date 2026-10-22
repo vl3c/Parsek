@@ -308,12 +308,12 @@ class L5SpecFixtureSyncTests(unittest.TestCase):
         self.assertEqual(1, len(naming_a),
                          "expected exactly one token (the accept) naming the "
                          "control contract %s" % a)
-        self.assertEqual(4, len(naming_b),
-                         "expected the accept, the injection, the retirement "
-                         "and the penalty tokens to name %s" % b)
+        self.assertEqual(5, len(naming_b),
+                         "expected the accept, the injection, the retirement, "
+                         "the penalty and the withheld tokens to name %s" % b)
 
     def test_the_pinned_penalties_are_the_fixtures_own(self):
-        # The injection line and the fail line both carry B's penalty pack, so a
+        # The injection, fail and withheld lines all carry B's penalty pack, so a
         # fail built from the wrong accept - or a fixture whose numbers were
         # re-derived without the spec - reds here rather than passing.
         builder = self.builder
@@ -324,8 +324,8 @@ class L5SpecFixtureSyncTests(unittest.TestCase):
         self.assertEqual(builder.CONTRACT_B_REP_PENALTY, rep)
         pack = "fundsPenalty=%s repPenalty=%s" % (funds, rep)
         carrying = [t for t in self._required() if pack in t]
-        self.assertEqual(2, len(carrying),
-                         "expected the injection and fail tokens to carry %r"
+        self.assertEqual(3, len(carrying),
+                         "expected the injection, fail and withheld tokens to carry %r"
                          % pack)
 
     def test_the_pinned_deadline_is_the_fixtures_own(self):
@@ -345,26 +345,37 @@ class L5SpecFixtureSyncTests(unittest.TestCase):
         self.assertTrue(any("activeSlots=1/2" in t for t in required))
         self.assertTrue(any("activeSlots=2/2" in t for t in required))
 
-    def test_the_drawdown_clamp_is_pinned_without_the_flights_numbers(self):
-        # MEASURED, and it corrected a prediction this spec had got wrong: the
-        # synthetic fail's penalties reach the RECONSTRUCTION and are then
-        # CLAMPED by `KspStatePatcher`'s guarded-drawdown protection, so the live
-        # career never sees them (SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-
-        # DRAWDOWN-GUARD). Pinning the clamp makes a change in either direction
-        # red here.
+    def test_the_withheld_penalty_is_pinned_without_the_flights_numbers(self):
+        # MEASURED first as a clamp (run `2026-08-20_2240`: the walk charged the
+        # synthetic fail and the old guarded-drawdown protection refused the debit,
+        # SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD). Since the
+        # committed-value rule's phase 2 (revision 6) the walk withholds a row it
+        # injected from the funds / science / reputation modules: the synthetic fail
+        # moves contract state only, so the pool stays where that run left it and no
+        # guard fires. Required: the withheld line naming B's row. Forbidden: a GUARDED
+        # clamp AND a -9000 write, so a change in either direction reds here.
         #
-        # THE NUMBERS MUST STAY OUT OF THE TOKEN. `running=` moves during the
-        # recalc burst (run `2026-08-20_2240` logged clamps at both
-        # `running=522200` and `running=527558`, before and after the recovery
-        # credit landed), and `live=` is the flight's total earnings, which
-        # `L3-career-science-recover` owns. A token carrying either would red on
-        # a flight whose earnings moved for reasons this spec does not assert.
-        clamp = [t for t in self._required() if "GUARDED DRAWDOWN" in t]
-        self.assertEqual(1, len(clamp))
-        for forbidden in ("running=", "live=", "wouldBeTarget=", "clampedTo="):
-            self.assertNotIn(forbidden, clamp[0],
-                             "the clamp token pins %r, which moves per run"
-                             % forbidden)
+        # THE POOL VALUES MUST STAY OUT OF EVERY TOKEN. `live=` is the flight's total
+        # earnings, which `L3-career-science-recover` owns.
+        required = self._required()
+        withheld = [t for t in required if t.startswith("Walk withheld ")]
+        self.assertEqual(1, len(withheld))
+        self.assertIn("ContractFail contractId='%s'" % self.builder.CONTRACT_B_GUID,
+                      withheld[0])
+        self.assertIn("fundsPenalty=9000 repPenalty=1", withheld[0])
+        self.assertFalse(any(t.startswith("PatchFunds: ") for t in required),
+                         "a write is no longer the expected outcome")
+        for t in required:
+            for pinned in ("running=", "live=", "target="):
+                self.assertNotIn(pinned, t, "a token pins %r, which moves per run" % pinned)
+        self.assertFalse(any("GUARDED" in t for t in required),
+                         "a GUARDED clamp is no longer the expected outcome")
+        forbidden = self.spec["expectations"]["logContracts"]["forbidden"]
+        self.assertTrue(any("GUARDED (UPLIFT|DRAWDOWN) clamped resource=Funds" in t
+                            for t in forbidden),
+                        "the old clamp must be forbidden, or a guard regression passes")
+        self.assertTrue(any("delta=-9000" in t for t in forbidden),
+                        "the debit must be forbidden, or a synthetic fail reaching the pool passes")
 
     def test_the_d8_contracts_claim_is_gated(self):
         # The claim-vs-gate coupling `test_career_earned_pad.py` asserts for the

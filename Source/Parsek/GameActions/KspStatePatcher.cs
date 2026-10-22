@@ -91,16 +91,24 @@ namespace Parsek
                     return;
                 }
 
-                PatchScience(science, suppressSuspiciousDrawdownWarnings, authoritativeReduction);
-                PatchTechTree(targetTechIds, techUtCutoff, techBaselineUt, unaffordableTechDrops);
-                // Add-only; the caller supplies a set only when it supplied no tech cutoff,
-                // so at most one of the two tech passes does anything.
-                PatchCommittedTechUnlocks(committedTechUnlockIds, committedTechUnlockLiveUt);
-                PatchPurchasedParts(partPurchaseActions, walkUtCutoff, techUtCutoff);
-                // Add-only, capped like the part purchases; the same action list.
-                PatchResourceScans(partPurchaseActions, walkUtCutoff, techUtCutoff);
-                PatchFunds(funds, suppressSuspiciousDrawdownWarnings, authoritativeReduction);
-                PatchReputation(reputation, authoritativeReduction);
+                // The drawdown guard's stock reference reads the walk's own rows and its own
+                // now: rows after the walk's cutoff have not been applied by stock yet.
+                var previousRows = stockReferenceActions;
+                double previousNow = stockReferenceNowUT;
+                stockReferenceActions = partPurchaseActions;
+                stockReferenceNowUT = walkUtCutoff ?? double.NaN;
+                try
+                {
+                    PatchPools(science, funds, reputation, suppressSuspiciousDrawdownWarnings,
+                        authoritativeReduction, targetTechIds, techUtCutoff, techBaselineUt,
+                        unaffordableTechDrops, partPurchaseActions, walkUtCutoff,
+                        committedTechUnlockIds, committedTechUnlockLiveUt);
+                }
+                finally
+                {
+                    stockReferenceActions = previousRows;
+                    stockReferenceNowUT = previousNow;
+                }
                 PatchFacilities(facilities);
                 PatchMilestones(milestones, authoritativeRepeatableRecordState);
                 PatchContracts(contracts);
@@ -112,6 +120,26 @@ namespace Parsek
 
                 VerboseStablePatchState("patch-all-complete", "complete", "PatchAll complete");
             }
+        }
+
+        private static void PatchPools(ScienceModule science, FundsModule funds,
+            ReputationModule reputation, bool suppressSuspiciousDrawdownWarnings,
+            bool authoritativeReduction, IReadOnlyCollection<string> targetTechIds,
+            double? techUtCutoff, double? techBaselineUt,
+            IDictionary<string, UnaffordableUnlockDrop> unaffordableTechDrops,
+            IReadOnlyList<GameAction> partPurchaseActions, double? walkUtCutoff,
+            IReadOnlyCollection<string> committedTechUnlockIds, double? committedTechUnlockLiveUt)
+        {
+            PatchScience(science, suppressSuspiciousDrawdownWarnings, authoritativeReduction);
+            PatchTechTree(targetTechIds, techUtCutoff, techBaselineUt, unaffordableTechDrops);
+            // Add-only; the caller supplies a set only when it supplied no tech cutoff,
+            // so at most one of the two tech passes does anything.
+            PatchCommittedTechUnlocks(committedTechUnlockIds, committedTechUnlockLiveUt);
+            PatchPurchasedParts(partPurchaseActions, walkUtCutoff, techUtCutoff);
+            // Add-only, capped like the part purchases; the same action list.
+            PatchResourceScans(partPurchaseActions, walkUtCutoff, techUtCutoff);
+            PatchFunds(funds, suppressSuspiciousDrawdownWarnings, authoritativeReduction);
+            PatchReputation(reputation, authoritativeReduction);
         }
 
         /// <summary>
@@ -202,69 +230,65 @@ namespace Parsek
                 return;
             }
 
-            float currentScience = ResearchAndDevelopment.Instance.Science;
-            double targetScience = AdjustSciencePatchTargetForPendingRecentTechResearch(
-                ResolveSciencePatchBaseTarget(
-                    science, currentScience, ReadAllowNegativeCurrency()),
-                currentScience);
-            targetScience = AdjustSciencePatchTargetForPendingRecentScienceEarning(
-                targetScience,
-                currentScience);
-            // The strategy adjuster and the guard discriminator below must resolve the
-            // IDENTICAL pending amount, and after STRATEGY-PREFIX-HOLDBACK-PERMANENT that
-            // amount depends on how far the reconstruction already sits above live. Compute
-            // that basis ONCE - the running balance with the two sibling adjusters folded in
-            // and the strategy one not yet applied - and hand the same value to both.
-            double preStrategyRunning = ComputePreStrategyPendingAdjustedRunningScience(science);
-            targetScience = AdjustSciencePatchTargetForPendingStrategyScienceDebit(
-                targetScience,
-                currentScience,
-                preStrategyRunning);
+            // A singleton present but not yet loaded (an in-session load: R&D loads after
+            // ParsekScenario) holds no value of this save; measuring it would read stock's
+            // own load as a leak. Its OnLoad overwrites the pool anyway, and the in-session
+            // repatch runs once it has loaded.
+            if (!CurrencyScenarioReadiness.IsScenarioModuleLoaded(ResearchAndDevelopment.Instance))
+            {
+                VerboseStablePatchState("patch-skip|science|not-loaded", "not-loaded",
+                    "PatchScience: ResearchAndDevelopment has not finished loading - skipping " +
+                    "(the stock pool reference measures only a loaded pool)");
+                return;
+            }
 
-            // "Keep what you earned" guard (plan §3.3 / §4.2): clamp keyed on the
-            // NON-RESERVED running balance, not the reservation-aware target. A
-            // reservation lowers only GetAvailableScience() while leaving
-            // GetRunningScience() intact, so it never trips this; a missing-earning leak
-            // lowers the running balance itself, so it does.
-            //
-            // DEVIATION from the literal plan seam (achieving its INTENT, plan §3.3 /
-            // §2.6.3): the running-balance discriminator is the pending-adjusted running
-            // balance, not the raw GetRunningScience(). The three pending adjusters above
-            // (AdjustSciencePatchTargetForPendingRecent{ScienceEarning,TechResearch} plus
-            // AdjustSciencePatchTargetForPendingStrategyScienceDebit) exist precisely for
-            // the window where a stock KSC science credit / tech-unlock debit / strategy
-            // currency exchange has hit the live singleton but the matching ledger action
-            // is still catching up. During that window the raw running balance is
-            // transiently below/above live for a KNOWN in-flight reason (not a missing
-            // earning channel), so folding the same pending credit/debit into the
-            // discriminator keeps the guard from a false clamp+toast on a transient
-            // ledger-catch-up. The plan's invariant ("running below live ONLY when an
-            // earning channel is missing") holds against this adjusted value.
-            // The already-computed basis, NOT a second derivation - see the overload's note.
+            float currentScience = ResearchAndDevelopment.Instance.Science;
+            bool allowNegativeCurrency = ReadAllowNegativeCurrency();
+
+            // The three pending adjusters (a stock KSC science credit, tech-unlock debit or
+            // strategy exchange that hit the live pool while its ledger row is still catching
+            // up) are something stock applied: the stock pool reference steps their change,
+            // and the write target takes them as before. The strategy adjuster and the
+            // pending-adjusted running balance must resolve the IDENTICAL pending amount
+            // (STRATEGY-PREFIX-HOLDBACK-PERMANENT), so the basis is computed ONCE.
+            double preStrategyRunning = ComputePreStrategyPendingAdjustedRunningScience(science);
             double runningScience = ComputePendingAdjustedRunningScience(
                 preStrategyRunning, currentScience);
-            bool clockCrossingApplies = ResolveClockCrossingAuthorization(
-                "Science", currentScience, lastPatchedScience, lastSciencePatchClamped, 0.001);
+            double pendingAdjustNow = runningScience - science.GetRunningScience();
+
+            StockPoolMeasurement measurement = MeasureStockPool(
+                StockPool.Science, "Science", science, currentScience, pendingAdjustNow,
+                authoritativeReduction, 0.001,
+                science.GetProjectionMinBalance() + pendingAdjustNow, out List<StockPoolRow> referenceRows);
+
+            double targetWithoutLeak = StockPoolReference.ResolveCurrencyWriteTarget(
+                science.GetProjectionMinBalance(), science.GetRunningScience(), currentScience,
+                allowNegativeCurrency, 0.0);
+            double targetScience = StockPoolReference.ResolveCurrencyWriteTarget(
+                science.GetProjectionMinBalance(), science.GetRunningScience(), currentScience,
+                allowNegativeCurrency, measurement.Adjustment);
+            targetScience = AdjustSciencePatchTargetForPendingRecentTechResearch(
+                targetScience, currentScience);
+            targetScience = AdjustSciencePatchTargetForPendingRecentScienceEarning(
+                targetScience, currentScience);
+            targetScience = AdjustSciencePatchTargetForPendingStrategyScienceDebit(
+                targetScience, currentScience, preStrategyRunning);
+            if (measurement.GapAdopted)
+                targetScience = currentScience;
+
+            // The guard is the reference: the target already carries this patch's adjustment
+            // (later walks carry its row), so the pure core runs with its running-vs-live
+            // clamp bypassed.
             SciencePoolPatchDecision decision = ResolveSciencePoolPatch(
-                currentScience, targetScience, runningScience,
-                authoritativeReduction || clockCrossingApplies);
-            if (decision.Clamped)
-            {
-                bool scienceDown = decision.Direction == ClampDirection.Down;
-                ref bool scienceLatch = ref DrawdownGuardSessionToastLatch("Science", decision.Direction);
-                EmitDrawdownGuardClamp(
-                    "Science", runningScience, currentScience,
-                    wouldBeTarget: targetScience, clampedTo: decision.EffectiveTarget,
-                    toastText: scienceDown ? "Held your science at the spent value" : "Kept your earned science",
-                    sessionToastLatch: ref scienceLatch,
-                    perSubjectScienceNote: true,
-                    direction: decision.Direction);
-            }
+                currentScience, targetScience, runningScience, authoritativeReduction: true);
+            EmitStockPoolLeak("Science", measurement, runningScience, targetWithoutLeak,
+                decision.EffectiveTarget, "Kept your earned science",
+                "Held your science at the spent value", perSubjectScienceNote: true);
 
             if (!decision.ShouldWrite)
             {
-                RecordPoolPatch(ref lastPatchedScience, ref lastSciencePatchClamped,
-                    currentScience, decision.Clamped);
+                CommitStockPool(StockPool.Science, referenceRows, measurement, currentScience,
+                    pendingAdjustNow);
                 VerboseStablePatchState("patch-noop|science", decision.EffectiveTarget.ToString("F1", IC),
                     $"PatchScience: balance unchanged (current={currentScience.ToString("F1", IC)}, " +
                     $"target={decision.EffectiveTarget.ToString("F1", IC)})");
@@ -283,8 +307,8 @@ namespace Parsek
                 ResearchAndDevelopment.Instance.AddScience(decision.Delta, TransactionReasons.None);
 
                 float afterScience = ResearchAndDevelopment.Instance.Science;
-                RecordPoolPatch(ref lastPatchedScience, ref lastSciencePatchClamped,
-                    afterScience, decision.Clamped);
+                CommitStockPool(StockPool.Science, referenceRows, measurement, afterScience,
+                    pendingAdjustNow);
                 ParsekLog.Info(Tag,
                     $"PatchScience: {currentScience.ToString("F1", IC)} -> {afterScience.ToString("F1", IC)} " +
                     $"(delta={decision.Delta.ToString("F1", IC)}, target={decision.EffectiveTarget.ToString("F1", IC)})");
@@ -2125,41 +2149,48 @@ namespace Parsek
                 return;
             }
 
-            double currentFunds = Funding.Instance.Funds;
-            double targetFunds = ResolveFundsPatchTarget(
-                funds, currentFunds, ReadAllowNegativeCurrency());
+            // See PatchScience: a pool whose module has not loaded is not measured.
+            if (!CurrencyScenarioReadiness.IsScenarioModuleLoaded(Funding.Instance))
+            {
+                VerboseStablePatchState("patch-skip|funds|not-loaded", "not-loaded",
+                    "PatchFunds: Funding has not finished loading - skipping " +
+                    "(the stock pool reference measures only a loaded pool)");
+                return;
+            }
 
-            // "Keep what you earned" guard (plan §3.3 / §4.2): clamp keyed on the
-            // NON-RESERVED running balance, not the reservation-aware available target.
-            // A reservation lowers only GetAvailableFunds() while leaving
-            // GetRunningBalance() intact, so it never trips this; a missing-earning leak
-            // lowers the running balance itself, so it does.
+            double currentFunds = Funding.Instance.Funds;
+            bool allowNegativeCurrency = ReadAllowNegativeCurrency();
             double runningFunds = funds.GetRunningBalance();
-            bool clockCrossingApplies = ResolveClockCrossingAuthorization(
-                "Funds", currentFunds, lastPatchedFunds, lastFundsPatchClamped, 0.01);
+
+            // The drawdown guard reads the stock pool reference (committed-value rule plan
+            // section 2.4): anything stock applied that the ledger holds no row for is filed
+            // as a StockPoolAdjustment row and added to this write BEFORE the 0 floor (later
+            // walks carry the row), so a reservation that releases comes back and an
+            // untracked earning or spend stays as stock left it.
+            StockPoolMeasurement measurement = MeasureStockPool(
+                StockPool.Funds, "Funds", funds, currentFunds, 0.0,
+                authoritativeReduction, 0.01,
+                funds.GetProjectionMinBalance(), out List<StockPoolRow> referenceRows);
+            double targetWithoutLeak = StockPoolReference.ResolveCurrencyWriteTarget(
+                funds.GetProjectionMinBalance(), runningFunds, currentFunds, allowNegativeCurrency, 0.0);
+            double targetFunds = StockPoolReference.ResolveCurrencyWriteTarget(
+                funds.GetProjectionMinBalance(), runningFunds, currentFunds, allowNegativeCurrency,
+                measurement.Adjustment);
+            if (measurement.GapAdopted)
+                targetFunds = currentFunds;
+
             FundsPatchDecision decision = ResolveFundsPatch(
-                currentFunds, targetFunds, runningFunds,
-                authoritativeReduction || clockCrossingApplies);
+                currentFunds, targetFunds, runningFunds, authoritativeReduction: true);
             var crossing = ActiveClockCrossing;
             if (crossing != null)
-                crossing.FundsApplied = !decision.Clamped;
-            if (decision.Clamped)
-            {
-                bool fundsDown = decision.Direction == ClampDirection.Down;
-                ref bool fundsLatch = ref DrawdownGuardSessionToastLatch("Funds", decision.Direction);
-                EmitDrawdownGuardClamp(
-                    "Funds", runningFunds, currentFunds,
-                    wouldBeTarget: targetFunds, clampedTo: decision.EffectiveTarget,
-                    toastText: fundsDown ? "Held your funds at the spent value" : "Kept your earned funds",
-                    sessionToastLatch: ref fundsLatch,
-                    perSubjectScienceNote: false,
-                    direction: decision.Direction);
-            }
+                crossing.FundsApplied = true;
+            EmitStockPoolLeak("Funds", measurement, runningFunds, targetWithoutLeak,
+                decision.EffectiveTarget, "Kept your earned funds",
+                "Held your funds at the spent value", perSubjectScienceNote: false);
 
             if (!decision.ShouldWrite)
             {
-                RecordPoolPatch(ref lastPatchedFunds, ref lastFundsPatchClamped,
-                    currentFunds, decision.Clamped);
+                CommitStockPool(StockPool.Funds, referenceRows, measurement, currentFunds, 0.0);
                 VerboseStablePatchState("patch-noop|funds", decision.EffectiveTarget.ToString("F1", IC),
                     $"PatchFunds: no change needed (current={currentFunds.ToString("F1", IC)}, " +
                     $"target={decision.EffectiveTarget.ToString("F1", IC)})");
@@ -2182,8 +2213,7 @@ namespace Parsek
             Funding.Instance.AddFunds(decision.Delta, TransactionReasons.None);
 
             double afterFunds = Funding.Instance.Funds;
-            RecordPoolPatch(ref lastPatchedFunds, ref lastFundsPatchClamped,
-                afterFunds, decision.Clamped);
+            CommitStockPool(StockPool.Funds, referenceRows, measurement, afterFunds, 0.0);
             ParsekLog.Info(Tag,
                 $"PatchFunds: {currentFunds.ToString("F1", IC)} -> {afterFunds.ToString("F1", IC)} " +
                 $"(delta={decision.Delta.ToString("F1", IC)}, target={decision.EffectiveTarget.ToString("F1", IC)})");
@@ -2284,35 +2314,37 @@ namespace Parsek
                 return;
             }
 
-            float currentRep = Reputation.Instance.reputation;
-            float targetRep = reputation.GetRunningRep();
-
-            // "Keep what you earned" guard (plan §3.4 / §6): reputation has NO reservation
-            // system, so its running balance IS the patch target. The discriminator is the
-            // plain target-vs-live check, and "downward" is by magnitude (< live - eps) so
-            // negative rep is handled. Express the clamp against the SetReputation
-            // semantics: "do not set below live".
-            bool clockCrossingApplies = ResolveClockCrossingAuthorization(
-                "Reputation", currentRep, lastPatchedReputation, lastReputationPatchClamped, 0.01);
-            ReputationPatchDecision decision = ResolveReputationPatch(
-                currentRep, targetRep, authoritativeReduction || clockCrossingApplies);
-            if (decision.Clamped)
+            // See PatchScience: a pool whose module has not loaded is not measured.
+            if (!CurrencyScenarioReadiness.IsScenarioModuleLoaded(Reputation.Instance))
             {
-                bool repDown = decision.Direction == ClampDirection.Down;
-                ref bool repLatch = ref DrawdownGuardSessionToastLatch("Reputation", decision.Direction);
-                EmitDrawdownGuardClamp(
-                    "Reputation", targetRep, currentRep,
-                    wouldBeTarget: targetRep, clampedTo: decision.EffectiveTargetRaw,
-                    toastText: repDown ? "Held your reputation at the current value" : "Kept your earned reputation",
-                    sessionToastLatch: ref repLatch,
-                    perSubjectScienceNote: false,
-                    direction: decision.Direction);
+                VerboseStablePatchState("patch-skip|reputation|not-loaded", "not-loaded",
+                    "PatchReputation: Reputation has not finished loading - skipping " +
+                    "(the stock pool reference measures only a loaded pool)");
+                return;
             }
+
+            float currentRep = Reputation.Instance.reputation;
+            float runningRep = reputation.GetRunningRep();
+
+            // Reputation has no reservation: the target is the running value plus this
+            // patch's adjustment. The reference steps each row by its effect in the walk,
+            // whose curve runs at the pool's own value (adjustment rows included).
+            StockPoolMeasurement measurement = MeasureStockPool(
+                StockPool.Reputation, "Reputation", reputation, currentRep, 0.0,
+                authoritativeReduction, 0.01,
+                runningRep, out List<StockPoolRow> referenceRows);
+            float targetRep = measurement.GapAdopted
+                ? currentRep
+                : (float)StockPoolReference.ResolveReputationWriteTarget(runningRep, measurement.Adjustment);
+            ReputationPatchDecision decision = ResolveReputationPatch(
+                currentRep, targetRep, authoritativeReduction: true);
+            EmitStockPoolLeak("Reputation", measurement, runningRep, runningRep,
+                decision.EffectiveTargetRaw, "Kept your earned reputation",
+                "Held your reputation at the current value", perSubjectScienceNote: false);
 
             if (!decision.ShouldWrite)
             {
-                RecordPoolPatch(ref lastPatchedReputation, ref lastReputationPatchClamped,
-                    currentRep, decision.Clamped);
+                CommitStockPool(StockPool.Reputation, referenceRows, measurement, currentRep, 0.0);
                 VerboseStablePatchState("patch-noop|reputation", decision.EffectiveTarget.ToString("F2", IC),
                     $"PatchReputation: no change needed (current={currentRep.ToString("F2", IC)}, " +
                     $"target={decision.EffectiveTarget.ToString("F2", IC)})");
@@ -2322,8 +2354,7 @@ namespace Parsek
             Reputation.Instance.SetReputation(decision.EffectiveTarget, TransactionReasons.None);
 
             float afterRep = Reputation.Instance.reputation;
-            RecordPoolPatch(ref lastPatchedReputation, ref lastReputationPatchClamped,
-                afterRep, decision.Clamped);
+            CommitStockPool(StockPool.Reputation, referenceRows, measurement, afterRep, 0.0);
             ParsekLog.Info(Tag,
                 $"PatchReputation: {currentRep.ToString("F2", IC)} -> {afterRep.ToString("F2", IC)} " +
                 $"(target={decision.EffectiveTarget.ToString("F2", IC)})");
@@ -4522,34 +4553,146 @@ namespace Parsek
         /// </summary>
         internal static ClockCrossing ActiveClockCrossing;
 
-        // What each pool read right after the last patch that reached it, and whether that
-        // patch clamped. NaN: unknown (never patched, skipped, or a load since).
-        private static double lastPatchedFunds = double.NaN;
-        private static bool lastFundsPatchClamped;
-        private static double lastPatchedScience = double.NaN;
-        private static bool lastSciencePatchClamped;
-        private static double lastPatchedReputation = double.NaN;
-        private static bool lastReputationPatchClamped;
+        // ================================================================
+        // Stock pool reference wiring (committed-value rule plan section 2.4)
+        // ================================================================
 
-        private static void RecordPoolPatch(
-            ref double lastPatched, ref bool lastClamped, double liveAfter, bool clamped)
+        // The rows and the now the reference measures against, set by PatchAll around its
+        // pool patches: the walk's own rows (the effective ledger) and its cutoff. A direct
+        // Patch* call (an in-game test) reads the effective ledger and the live clock.
+        private static IReadOnlyList<GameAction> stockReferenceActions;
+        private static double stockReferenceNowUT = double.NaN;
+
+        /// <summary>
+        /// Measures one pool patch against its stock pool reference: builds the pool's rows,
+        /// resolves the clock-crossing authorization (the live pool still holds exactly what
+        /// the reference last wrote) and runs <see cref="StockPoolReference.Measure"/>.
+        /// Logs a fresh baseline at Info and every measurement once per change.
+        /// </summary>
+        private static StockPoolMeasurement MeasureStockPool(
+            StockPool pool, string resource, IStockPoolModule module, double live, double pendingAdjustNow,
+            bool authoritativeReduction, double epsilon,
+            double freshBaselineTarget, out List<StockPoolRow> rows)
         {
-            lastPatched = liveAfter;
-            lastClamped = clamped;
+            IReadOnlyList<GameAction> actions = stockReferenceActions ?? EffectiveState.ComputeELS();
+            double nowUT = !double.IsNaN(stockReferenceNowUT)
+                ? stockReferenceNowUT
+                : CommittedFutureIndexCache.CurrentUT();
+            rows = StockPoolReference.BuildRows(pool, actions, module?.GetRowEffects());
+
+            StockPoolReferenceState state = StockPoolReference.For(pool);
+            bool clockCrossingApplies = ResolveClockCrossingAuthorization(
+                resource, live, state.Initialized ? state.LastWritten : double.NaN, false, epsilon);
+            bool authoritative = authoritativeReduction || clockCrossingApplies;
+
+            // A counted row missing from the effective rows is stepped back only when it is gone
+            // from the ledger itself; one that is only outside the effective ledger
+            // (tombstoned, superseded, session-suppressed) is dropped without a carry.
+            ICollection<string> idsInLedger = StockPoolReference.HasCountedRowsMissingFrom(state, rows)
+                ? LedgerOrchestrator.CollectLedgerActionIds()
+                : null;
+            // Stock's 0 clamp (funds, science; off under AllowNegativeCurrency).
+            bool clampAtZero = pool != StockPool.Reputation && !ReadAllowNegativeCurrency();
+            StockPoolMeasurement m = StockPoolReference.Measure(
+                state, rows, nowUT, live, pendingAdjustNow,
+                authoritative, epsilon, freshBaselineTarget, idsInLedger, clampAtZero);
+            if (m.Adjustment != 0.0)
+                m.AdjustmentRow = FileStockPoolAdjustment(pool, resource, m, nowUT);
+
+            string summary = StockPoolReference.FormatMeasurement(m);
+            if (m.FreshBaseline)
+            {
+                string adoption = m.GapAdopted
+                    ? "the gap to the target filed as an adjustment row, pool left as it is (gap="
+                      + m.AdoptedGap.ToString("R", IC) + " target="
+                      + freshBaselineTarget.ToString("R", IC) + ")"
+                    : "authoritative, the target is written";
+                ParsekLog.Info(StockPoolReference.Tag,
+                    $"Patch{resource}: no saved reference - baseline from the live pool with every row " +
+                    $"counted, {adoption} (rows={rows.Count.ToString(IC)} now={nowUT.ToString("R", IC)}): {summary}");
+            }
+            else if (m.RemovedRows > 0 || m.LeakKept || m.Adjustment != 0.0 || m.ClampForgiven != 0.0)
+            {
+                ParsekLog.Info(StockPoolReference.Tag,
+                    $"Patch{resource}: {summary} now={nowUT.ToString("R", IC)} " +
+                    $"authoritative={authoritativeReduction} clockCrossing={clockCrossingApplies}");
+            }
+            else
+            {
+                ParsekLog.VerboseOnChange(StockPoolReference.Tag, "measure|" + resource, summary,
+                    $"Patch{resource}: {summary} now={nowUT.ToString("R", IC)} " +
+                    $"authoritative={authoritativeReduction} clockCrossing={clockCrossingApplies}");
+            }
+            return m;
         }
 
         /// <summary>
-        /// Forgets what the pools read after the last patch. A load replaces the live pools
-        /// with the save's, so the earlier reading no longer describes them.
+        /// xUnit / in-game seam: when set, a patch's adjustment row goes here instead of the
+        /// live ledger (an in-game test that drives the Patch* methods on the player's own
+        /// career must not leave rows in its ledger). Reset by <see cref="ResetForTesting"/>.
         /// </summary>
-        internal static void ForgetLastPoolPatches()
+        internal static Action<GameAction> StockPoolAdjustmentSinkForTesting;
+
+        /// <summary>
+        /// Files a patch's adjustment as a <see cref="GameActionType.StockPoolAdjustment"/> row
+        /// (untagged, at the patch's now, stock-applied: it is something stock applied to the
+        /// pool that no other row holds). <see cref="StockPoolReference.Commit"/> counts it at
+        /// creation, so the next walk's dispatch of it steps nothing.
+        /// </summary>
+        private static GameAction FileStockPoolAdjustment(
+            StockPool pool, string resource, StockPoolMeasurement m, double nowUT)
         {
-            lastPatchedFunds = double.NaN;
-            lastFundsPatchClamped = false;
-            lastPatchedScience = double.NaN;
-            lastSciencePatchClamped = false;
-            lastPatchedReputation = double.NaN;
-            lastReputationPatchClamped = false;
+            GameAction row = StockPoolReference.BuildAdjustmentRow(pool, m.Adjustment, nowUT);
+            string reason = m.GapAdopted ? "adopted-gap" : m.LeakKept ? "leak" : "carried-removed";
+            var sink = StockPoolAdjustmentSinkForTesting;
+            if (sink != null)
+                sink(row);
+            else
+                Ledger.AddAction(row, LedgerRowWriter.StockApplied);
+            ParsekLog.Info(StockPoolReference.Tag,
+                $"Patch{resource}: filed StockPoolAdjustment amount={m.Adjustment.ToString("R", IC)} " +
+                $"reason={reason} ut={nowUT.ToString("R", IC)} id={row.ActionId}" +
+                (sink != null ? " (test sink)" : ""));
+            return row;
+        }
+
+        /// <summary>
+        /// Records a finished pool patch in its reference: the pool read back after the
+        /// write (or the live pool of a no-op) becomes the last written value.
+        /// </summary>
+        private static void CommitStockPool(
+            StockPool pool, List<StockPoolRow> rows, StockPoolMeasurement m, double poolAfter,
+            double pendingAdjustNow)
+        {
+            StockPoolReference.Commit(StockPoolReference.For(pool), rows, m, poolAfter, pendingAdjustNow);
+            ParsekLog.VerboseOnChange(StockPoolReference.Tag, "commit|" + pool,
+                StockPoolReference.Describe(StockPoolReference.For(pool)),
+                $"{pool}: reference now {StockPoolReference.Describe(StockPoolReference.For(pool))}");
+        }
+
+        /// <summary>
+        /// The observability of a kept leak (a measured patch that found the live pool off
+        /// what stock applied for the ledger's rows): the existing guarded-clamp WARN and its
+        /// one-per-session toast, Up for live above the expectation (an earning the ledger
+        /// does not model, kept) and Down for live below it (a spend it does not model, held).
+        /// Nothing on a patch that measured no leak.
+        /// </summary>
+        private static void EmitStockPoolLeak(
+            string resource, StockPoolMeasurement m, double runningBalance,
+            double targetWithoutLeak, double writtenTarget, string toastUp, string toastDown,
+            bool perSubjectScienceNote)
+        {
+            if (m == null || !m.LeakKept)
+                return;
+            ClampDirection direction = m.Leak > 0.0 ? ClampDirection.Up : ClampDirection.Down;
+            ref bool latch = ref DrawdownGuardSessionToastLatch(resource, direction);
+            EmitDrawdownGuardClamp(
+                resource, runningBalance, m.Live,
+                wouldBeTarget: targetWithoutLeak, clampedTo: writtenTarget,
+                toastText: direction == ClampDirection.Down ? toastDown : toastUp,
+                sessionToastLatch: ref latch,
+                perSubjectScienceNote: perSubjectScienceNote,
+                direction: direction);
         }
 
         /// <summary>
@@ -4942,11 +5085,11 @@ namespace Parsek
 
         /// <summary>
         /// Production reset for a cold load (<c>ParsekScenario.ResetSaveScopedSessionState</c>):
-        /// the last-patched pool readings and the per-session clamp toast latches.
+        /// the per-session clamp toast latches. The stock pool reference is not reset here:
+        /// the load installs the save's own (<see cref="StockPoolReference.LoadFrom"/>).
         /// </summary>
         internal static void ResetForSaveLoad()
         {
-            ForgetLastPoolPatches();
             ResetDrawdownGuardSessionLatches();
         }
 
@@ -4954,7 +5097,10 @@ namespace Parsek
         {
             SuppressUnityCallsForTesting = false;
             ActiveClockCrossing = null;
-            ForgetLastPoolPatches();
+            stockReferenceActions = null;
+            stockReferenceNowUT = double.NaN;
+            StockPoolAdjustmentSinkForTesting = null;
+            StockPoolReference.ResetForTesting();
             PartPurchaseLiveUtProviderForTesting = null;
             ResourceScanLiveUtProviderForTesting = null;
             AllowNegativeCurrencyProviderForTesting = null;

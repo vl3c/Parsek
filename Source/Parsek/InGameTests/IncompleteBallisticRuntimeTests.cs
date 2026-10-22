@@ -892,7 +892,7 @@ namespace Parsek.InGameTests
                 StartUT = (float)originStartUT,
                 EndUT = (float)deadActionUT,
             };
-            Ledger.AddAction(deadAction);
+            Ledger.AddAction(deadAction, LedgerRowWriter.StockApplied);
 
             // Build the marker per plan §7d.
             var marker = new ReFlySessionMarker
@@ -1649,7 +1649,7 @@ namespace Parsek.InGameTests
         // player's career, and it never calls the full ledger recalc (which would write to
         // disk) — it drives the patch methods directly with throwaway seeded modules.
         [Parsek.InGameTests.InGameTest(Category = "Ledger", Scene = GameScenes.SPACECENTER,
-            Description = "Drawdown guard clamps a too-low funds/science/rep patch with no time-travel context, and applies it when a signal authorizes the reduction")]
+            Description = "Drawdown guard keeps an unmodelled funds/science/rep change as a stock pool reference leak with no time-travel context, and re-baselines when a signal authorizes the patch")]
         public void DrawdownGuard_ClampsLeakAndAuthorizesSignal()
         {
             if (Funding.Instance == null || ResearchAndDevelopment.Instance == null
@@ -1663,53 +1663,78 @@ namespace Parsek.InGameTests
             double origFunds = Funding.Instance.Funds;
             float origScience = ResearchAndDevelopment.Instance.Science;
             float origRep = Reputation.Instance.reputation;
+            // The player's own stock pool reference: put back after the test.
+            var referenceSnapshot = new ConfigNode("STOCK_POOL_REFERENCE_SNAPSHOT");
+            StockPoolReference.SaveTo(referenceSnapshot);
+            // The adjustment rows the patches file go to this list, never the player's ledger.
+            var filedAdjustments = new System.Collections.Generic.List<GameAction>();
 
-            // Force a known live baseline well above any module running balance so the
-            // would-be patch target is clearly below live.
+            // Module running balances (the ledger's view) and a live value an unmodelled
+            // earning moved the pool to (the BUG-A signature: running below live).
             const double LiveFunds = 100000.0;
             const float LiveScience = 500f;
             const float LiveRep = 40f;
-            // Module running balances are seeded BELOW live to mimic a missing earning
-            // channel (the BUG-A signature): running < live with no reservation.
             const double RunningFunds = 60000.0;
             const float RunningScience = 100f;
             const float RunningRep = 10f;
 
             KspStatePatcher.ResetForTesting();
+            KspStatePatcher.StockPoolAdjustmentSinkForTesting = filedAdjustments.Add;
             try
             {
+                // ---- Case 1: NO time-travel signal -> the unmodelled change is kept ----
+                // A fresh reference baselines from the pool the ledger agrees with...
+                Funding.Instance.SetFunds(RunningFunds, TransactionReasons.None);
+                ResearchAndDevelopment.Instance.SetScience(RunningScience, TransactionReasons.None);
+                Reputation.Instance.SetReputation(RunningRep, TransactionReasons.None);
+                KspStatePatcher.PatchFunds(MakeSeededFundsModule(RunningFunds), authoritativeReduction: false);
+                KspStatePatcher.PatchScience(MakeSeededScienceModule(RunningScience), authoritativeReduction: false);
+                KspStatePatcher.PatchReputation(MakeSeededReputationModule(RunningRep), authoritativeReduction: false);
+                Parsek.InGameTests.InGameAssert.IsTrue(StockPoolReference.Funds.Initialized,
+                    "The first patch must baseline the funds reference");
+
+                // ...then the pools move with no ledger row (an earning the ledger does not model).
+                Funding.Instance.SetFunds(LiveFunds, TransactionReasons.None);
+                ResearchAndDevelopment.Instance.SetScience(LiveScience, TransactionReasons.None);
+                Reputation.Instance.SetReputation(LiveRep, TransactionReasons.None);
+                KspStatePatcher.PatchFunds(MakeSeededFundsModule(RunningFunds), authoritativeReduction: false);
+                KspStatePatcher.PatchScience(MakeSeededScienceModule(RunningScience), authoritativeReduction: false);
+                KspStatePatcher.PatchReputation(MakeSeededReputationModule(RunningRep), authoritativeReduction: false);
+
+                Parsek.InGameTests.InGameAssert.IsTrue(
+                    System.Math.Abs(Funding.Instance.Funds - LiveFunds) < 0.5,
+                    $"Funds must keep the unmodelled earning (expected {LiveFunds}, got {Funding.Instance.Funds})");
+                Parsek.InGameTests.InGameAssert.IsTrue(
+                    System.Math.Abs(ResearchAndDevelopment.Instance.Science - LiveScience) < 0.5f,
+                    $"Science must keep the unmodelled earning (expected {LiveScience}, got {ResearchAndDevelopment.Instance.Science})");
+                Parsek.InGameTests.InGameAssert.IsTrue(
+                    System.Math.Abs(Reputation.Instance.reputation - LiveRep) < 0.5f,
+                    $"Reputation must keep the unmodelled earning (expected {LiveRep}, got {Reputation.Instance.reputation})");
+                double fundsAdjusted = StockPoolReference.SumAdjustments(StockPool.Funds, filedAdjustments);
+                Parsek.InGameTests.InGameAssert.IsTrue(
+                    System.Math.Abs(fundsAdjusted - (LiveFunds - RunningFunds)) < 0.5,
+                    $"The funds reference must file the leak as an adjustment row (filed={fundsAdjusted})");
+
+                // ---- Case 2: an authoritative signal -> no leak is measured ----
+                // A fresh reference again, the same unmodelled move, then an authorized patch:
+                // the patch writes the target and re-baselines instead of keeping the move.
+                KspStatePatcher.ResetForTesting();
+                filedAdjustments.Clear();
+                KspStatePatcher.StockPoolAdjustmentSinkForTesting = filedAdjustments.Add;
+                Funding.Instance.SetFunds(RunningFunds, TransactionReasons.None);
+                ResearchAndDevelopment.Instance.SetScience(RunningScience, TransactionReasons.None);
+                Reputation.Instance.SetReputation(RunningRep, TransactionReasons.None);
+                KspStatePatcher.PatchFunds(MakeSeededFundsModule(RunningFunds), authoritativeReduction: false);
+                KspStatePatcher.PatchScience(MakeSeededScienceModule(RunningScience), authoritativeReduction: false);
+                KspStatePatcher.PatchReputation(MakeSeededReputationModule(RunningRep), authoritativeReduction: false);
                 Funding.Instance.SetFunds(LiveFunds, TransactionReasons.None);
                 ResearchAndDevelopment.Instance.SetScience(LiveScience, TransactionReasons.None);
                 Reputation.Instance.SetReputation(LiveRep, TransactionReasons.None);
 
-                // ---- Case 1: NO time-travel signal -> clamp (live preserved) ----
-                var funds = MakeSeededFundsModule(RunningFunds);
-                var science = MakeSeededScienceModule(RunningScience);
-                var rep = MakeSeededReputationModule(RunningRep);
-
-                KspStatePatcher.PatchFunds(funds, authoritativeReduction: false);
-                KspStatePatcher.PatchScience(science, authoritativeReduction: false);
-                KspStatePatcher.PatchReputation(rep, authoritativeReduction: false);
-
-                Parsek.InGameTests.InGameAssert.IsTrue(
-                    System.Math.Abs(Funding.Instance.Funds - LiveFunds) < 0.5,
-                    $"Funds must be clamped to live (expected {LiveFunds}, got {Funding.Instance.Funds})");
-                Parsek.InGameTests.InGameAssert.IsTrue(
-                    System.Math.Abs(ResearchAndDevelopment.Instance.Science - LiveScience) < 0.5f,
-                    $"Science must be clamped to live (expected {LiveScience}, got {ResearchAndDevelopment.Instance.Science})");
-                Parsek.InGameTests.InGameAssert.IsTrue(
-                    System.Math.Abs(Reputation.Instance.reputation - LiveRep) < 0.5f,
-                    $"Reputation must be clamped to live (expected {LiveRep}, got {Reputation.Instance.reputation})");
-
-                // ---- Case 2: an authoritative signal -> reduction APPLIES ----
                 // Drive a single signal (signal 5) true so authoritativeReduction is true.
                 RewindContext.BeginRewindResourceAdjustment();
                 try
                 {
-                    var funds2 = MakeSeededFundsModule(RunningFunds);
-                    var science2 = MakeSeededScienceModule(RunningScience);
-                    var rep2 = MakeSeededReputationModule(RunningRep);
-
                     bool authoritative = LedgerOrchestrator.IsAuthoritativeReduction(
                         RewindContext.IsRewinding,
                         false, false, false,
@@ -1717,19 +1742,23 @@ namespace Parsek.InGameTests
                     Parsek.InGameTests.InGameAssert.IsTrue(authoritative,
                         "Signal 5 must make IsAuthoritativeReduction true");
 
-                    KspStatePatcher.PatchFunds(funds2, authoritativeReduction: authoritative);
-                    KspStatePatcher.PatchScience(science2, authoritativeReduction: authoritative);
-                    KspStatePatcher.PatchReputation(rep2, authoritativeReduction: authoritative);
+                    KspStatePatcher.PatchFunds(MakeSeededFundsModule(RunningFunds), authoritativeReduction: authoritative);
+                    KspStatePatcher.PatchScience(MakeSeededScienceModule(RunningScience), authoritativeReduction: authoritative);
+                    KspStatePatcher.PatchReputation(MakeSeededReputationModule(RunningRep), authoritativeReduction: authoritative);
 
                     Parsek.InGameTests.InGameAssert.IsTrue(
                         System.Math.Abs(Funding.Instance.Funds - RunningFunds) < 0.5,
-                        $"Authorized reduction must apply funds target (expected {RunningFunds}, got {Funding.Instance.Funds})");
+                        $"Authorized patch must apply funds target (expected {RunningFunds}, got {Funding.Instance.Funds})");
                     Parsek.InGameTests.InGameAssert.IsTrue(
                         System.Math.Abs(ResearchAndDevelopment.Instance.Science - RunningScience) < 0.5f,
-                        $"Authorized reduction must apply science target (expected {RunningScience}, got {ResearchAndDevelopment.Instance.Science})");
+                        $"Authorized patch must apply science target (expected {RunningScience}, got {ResearchAndDevelopment.Instance.Science})");
                     Parsek.InGameTests.InGameAssert.IsTrue(
                         System.Math.Abs(Reputation.Instance.reputation - RunningRep) < 0.5f,
-                        $"Authorized reduction must apply rep target (expected {RunningRep}, got {Reputation.Instance.reputation})");
+                        $"Authorized patch must apply rep target (expected {RunningRep}, got {Reputation.Instance.reputation})");
+                    double authorizedAdjusted = StockPoolReference.SumAdjustments(StockPool.Funds, filedAdjustments);
+                    Parsek.InGameTests.InGameAssert.IsTrue(
+                        System.Math.Abs(authorizedAdjusted) < 0.5,
+                        $"An authorized patch measures no leak (filed={authorizedAdjusted})");
                 }
                 finally
                 {
@@ -1737,7 +1766,7 @@ namespace Parsek.InGameTests
                 }
 
                 ParsekLog.Info("TestRunner",
-                    "DrawdownGuard_ClampsLeakAndAuthorizesSignal: clamp + signal-bypass verified against live singletons");
+                    "DrawdownGuard_ClampsLeakAndAuthorizesSignal: kept leak + authorized re-baseline verified against live singletons");
             }
             finally
             {
@@ -1746,6 +1775,7 @@ namespace Parsek.InGameTests
                 ResearchAndDevelopment.Instance.SetScience(origScience, TransactionReasons.None);
                 Reputation.Instance.SetReputation(origRep, TransactionReasons.None);
                 KspStatePatcher.ResetForTesting();
+                StockPoolReference.LoadFrom(referenceSnapshot, "in-game-test-restore");
             }
         }
 
@@ -1785,16 +1815,15 @@ namespace Parsek.InGameTests
             return m;
         }
 
-        // Bug 2 (fix-funds-economy-divergence §4): the symmetric uplift guard. The xUnit
-        // ApplyDrawdownGuard facts cover the pure clamp; this proves the LIVE PatchFunds
-        // AddFunds write path actually caps DOWN to live when the running balance LEADS live
-        // with no time-travel authority (the facility-refund signature: ledger running >
-        // live because a real spend the ledger does not model already hit the live singleton).
+        // Bug 2 (fix-funds-economy-divergence section 4): a real spend the ledger does not
+        // model (a facility upgrade with no row) leaves live BELOW the ledger. The stock pool
+        // reference keeps it as a negative leak, so a non-authoritative patch cannot refund it;
+        // an authorized patch measures no leak and writes the higher target.
         //
-        // SAFETY: snapshots the live funds up front and restores them in a finally; it never
-        // calls the full ledger recalc and drives PatchFunds directly with a throwaway module.
+        // SAFETY: snapshots the live funds and the player's stock pool reference up front and
+        // restores them in a finally; it drives PatchFunds directly with a throwaway module.
         [Parsek.InGameTests.InGameTest(Category = "Ledger", Scene = GameScenes.SPACECENTER,
-            Description = "Symmetric uplift guard caps a too-high funds patch DOWN to live with no time-travel context (facility-refund leak), and applies the higher target when a signal authorizes it")]
+            Description = "An unmodelled spend is held as a negative stock pool reference leak with no time-travel context (facility-refund leak), and the higher target applies when a signal authorizes it")]
         public void DrawdownGuard_RefundLeak_ClampedDownToLive()
         {
             if (Funding.Instance == null)
@@ -1805,33 +1834,33 @@ namespace Parsek.InGameTests
             }
 
             double origFunds = Funding.Instance.Funds;
+            var referenceSnapshot = new ConfigNode("STOCK_POOL_REFERENCE_SNAPSHOT");
+            StockPoolReference.SaveTo(referenceSnapshot);
 
-            // Live is BELOW the module running balance: the player spent on a facility
-            // (live already dropped) but the ledger does not model the spend, so running
-            // still LEADS live. A non-authoritative recalc would refund the spend.
             const double LiveFunds = 66386.0;
             const double RunningFunds = 415466.0;
 
             KspStatePatcher.ResetForTesting();
             try
             {
+                // ---- Case 1: NO time-travel signal -> the spend is held ----
+                Funding.Instance.SetFunds(RunningFunds, TransactionReasons.None);
+                KspStatePatcher.PatchFunds(MakeSeededFundsModule(RunningFunds), authoritativeReduction: false);
                 Funding.Instance.SetFunds(LiveFunds, TransactionReasons.None);
-
-                // ---- Case 1: NO time-travel signal -> cap DOWN to live (spend held) ----
-                var funds = MakeSeededFundsModule(RunningFunds);
-                KspStatePatcher.PatchFunds(funds, authoritativeReduction: false);
+                KspStatePatcher.PatchFunds(MakeSeededFundsModule(RunningFunds), authoritativeReduction: false);
 
                 Parsek.InGameTests.InGameAssert.IsTrue(
                     System.Math.Abs(Funding.Instance.Funds - LiveFunds) < 0.5,
-                    $"Funds must be capped DOWN to live (expected {LiveFunds}, got {Funding.Instance.Funds}) — the refund must be held");
+                    $"Funds must stay at live (expected {LiveFunds}, got {Funding.Instance.Funds}) - the refund must be held");
 
                 // ---- Case 2: an authoritative signal -> the higher target APPLIES ----
-                // A genuine time-travel restore that raises funds must NOT be clamped.
+                KspStatePatcher.ResetForTesting();
+                Funding.Instance.SetFunds(RunningFunds, TransactionReasons.None);
+                KspStatePatcher.PatchFunds(MakeSeededFundsModule(RunningFunds), authoritativeReduction: false);
+                Funding.Instance.SetFunds(LiveFunds, TransactionReasons.None);
                 RewindContext.BeginRewindResourceAdjustment();
                 try
                 {
-                    Funding.Instance.SetFunds(LiveFunds, TransactionReasons.None);
-                    var funds2 = MakeSeededFundsModule(RunningFunds);
                     bool authoritative = LedgerOrchestrator.IsAuthoritativeReduction(
                         RewindContext.IsRewinding,
                         false, false, false,
@@ -1839,11 +1868,11 @@ namespace Parsek.InGameTests
                     Parsek.InGameTests.InGameAssert.IsTrue(authoritative,
                         "Signal 5 must make IsAuthoritativeReduction true");
 
-                    KspStatePatcher.PatchFunds(funds2, authoritativeReduction: authoritative);
+                    KspStatePatcher.PatchFunds(MakeSeededFundsModule(RunningFunds), authoritativeReduction: authoritative);
 
                     Parsek.InGameTests.InGameAssert.IsTrue(
                         System.Math.Abs(Funding.Instance.Funds - RunningFunds) < 0.5,
-                        $"Authorized recalc must apply the higher running target (expected {RunningFunds}, got {Funding.Instance.Funds})");
+                        $"Authorized patch must apply the higher running target (expected {RunningFunds}, got {Funding.Instance.Funds})");
                 }
                 finally
                 {
@@ -1851,12 +1880,13 @@ namespace Parsek.InGameTests
                 }
 
                 ParsekLog.Info("TestRunner",
-                    "DrawdownGuard_RefundLeak_ClampedDownToLive: uplift cap + signal-bypass verified against live Funding");
+                    "DrawdownGuard_RefundLeak_ClampedDownToLive: held spend + authorized re-baseline verified against live Funding");
             }
             finally
             {
                 Funding.Instance.SetFunds(origFunds, TransactionReasons.None);
                 KspStatePatcher.ResetForTesting();
+                StockPoolReference.LoadFrom(referenceSnapshot, "in-game-test-restore");
             }
         }
 
@@ -1888,6 +1918,8 @@ namespace Parsek.InGameTests
             }
 
             float origScience = ResearchAndDevelopment.Instance.Science;
+            var referenceSnapshot = new ConfigNode("STOCK_POOL_REFERENCE_SNAPSHOT");
+            StockPoolReference.SaveTo(referenceSnapshot);
 
             // Pre-unlock balance the module still reflects (ledger spend not yet ingested).
             const float PreUnlockScience = 500f;
@@ -1906,11 +1938,18 @@ namespace Parsek.InGameTests
             LedgerOrchestrator.NowUtProviderForTesting = () => WindowUt;
             try
             {
+                // The stock pool reference baselines at the pre-unlock pool the ledger agrees
+                // with, so the patch below MEASURES the unlock (a fresh reference would not).
+                ResearchAndDevelopment.Instance.SetScience(PreUnlockScience, TransactionReasons.None);
+                KspStatePatcher.PatchScience(MakeSeededScienceModule(PreUnlockScience), authoritativeReduction: false);
+                Parsek.InGameTests.InGameAssert.IsTrue(StockPoolReference.Science.Initialized,
+                    "The baseline patch must initialize the science reference");
+
                 // Live pool already dropped to the post-debit value.
                 ResearchAndDevelopment.Instance.SetScience(LiveScience, TransactionReasons.None);
 
                 // The module still holds the PRE-unlock running balance: raw GetRunningScience()
-                // reads 500 > live 455 -> looks like an uplift unless the debit adjuster fires.
+                // reads 500 > live 455 -> a negative leak unless the pending debit is stepped.
                 var science = MakeSeededScienceModule(PreUnlockScience);
 
                 // Recent stock tech-unlock debit in the store, no matching committed
@@ -1958,6 +1997,7 @@ namespace Parsek.InGameTests
                 LedgerOrchestrator.NowUtProviderForTesting = null;
                 GameStateStore.ResetForTesting();
                 KspStatePatcher.ResetForTesting();
+                StockPoolReference.LoadFrom(referenceSnapshot, "in-game-test-restore");
             }
         }
 
@@ -1992,6 +2032,9 @@ namespace Parsek.InGameTests
             var prevSink = ParsekLog.TestSinkForTesting;
             ParsekLog.TestSinkForTesting = line => captured.Add(line);
 
+            // KspStatePatcher.ResetForTesting clears the player's stock pool reference: put it back.
+            var referenceSnapshot = new ConfigNode("STOCK_POOL_REFERENCE_SNAPSHOT");
+            StockPoolReference.SaveTo(referenceSnapshot);
             RewindReadbackGuard.ResetForTesting();
             KspStatePatcher.ResetForTesting();
             try
@@ -2052,6 +2095,7 @@ namespace Parsek.InGameTests
                 }
                 RewindReadbackGuard.ResetForTesting();
                 KspStatePatcher.ResetForTesting();
+                StockPoolReference.LoadFrom(referenceSnapshot, "in-game-test-restore");
             }
         }
 
@@ -2085,25 +2129,22 @@ namespace Parsek.InGameTests
             GameObject go = null;
             try
             {
-                // ---- Bug 1: gate reconciles against the live R&D singleton ----
-                // Force a known live science well above a simulated leaked ledger
-                // (available == running == 1.0). The gate must add back the guard-preserved
-                // live value so the purchase is affordable.
+                // ---- Bug 1: the gate reads the walk that carries the kept leak ----
+                // A simulated leaked ledger (available 1.0) with live science 500 the
+                // reference kept as a 499 adjustment row: the probe's projected minimum
+                // carries the row, so the purchase must be affordable.
                 const float LiveScience = 500f;
                 ResearchAndDevelopment.Instance.SetScience(LiveScience, TransactionReasons.None);
 
                 double effLeak = LedgerOrchestrator.ComputeEffectiveAffordable(
-                    1.0, 1.0, ResearchAndDevelopment.Instance.Science,
-                    authoritativeReduction: false);
+                    1.0 + (ResearchAndDevelopment.Instance.Science - 1.0));
                 Parsek.InGameTests.InGameAssert.IsTrue(effLeak >= 45.0,
-                    $"Gate must respect live science above a leaked ledger (eff={effLeak}, live={ResearchAndDevelopment.Instance.Science})");
+                    $"Gate must respect a kept leak above a leaked ledger (eff={effLeak}, live={ResearchAndDevelopment.Instance.Science})");
 
-                // The authoritative (time-travel) branch keeps the ledger value as truth.
-                double effAuth = LedgerOrchestrator.ComputeEffectiveAffordable(
-                    1.0, 1.0, ResearchAndDevelopment.Instance.Science,
-                    authoritativeReduction: true);
-                Parsek.InGameTests.InGameAssert.IsTrue(effAuth < 45.0,
-                    $"Authoritative reduction must gate on the ledger value, not live (eff={effAuth})");
+                // A reservation deeper than the kept leak still gates (floored at 0).
+                double effReserved = LedgerOrchestrator.ComputeEffectiveAffordable(-600.0 + 499.0);
+                Parsek.InGameTests.InGameAssert.IsTrue(effReserved < 45.0,
+                    $"A reservation beyond the kept leak must gate on the ledger value, not live (eff={effReserved})");
 
                 // ---- Bug 2: a plain shortage is stock's refusal, never Parsek's ----
                 go = new GameObject("ParsekTestRDTech");

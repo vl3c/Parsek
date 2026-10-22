@@ -1481,6 +1481,11 @@ namespace Parsek
                 savePhase = "routes";
                 RouteStore.SaveRoutesTo(node);
 
+                // The drawdown guard's stock pool reference (committed-value rule plan 2.4):
+                // saved in the same .sfs as the live pools it describes.
+                savePhase = "stock-pool-reference";
+                StockPoolReference.SaveTo(node);
+
                 // Strip ghost map ProtoVessels — they are transient and reconstructed on load
                 savePhase = "ghost-map-strip";
                 if (GhostMapPresence.ghostMapVesselPids.Count > 0)
@@ -3972,6 +3977,13 @@ namespace Parsek
                 loadPhase = "refly-state-load";
                 LoadRewindStagingState(node);
 
+                // The drawdown guard's stock pool reference comes from the same .sfs as the
+                // live pools it describes, on every load kind (LoadReconcilePolicy,
+                // StockPoolReference category); a save without one starts afresh at its
+                // first patch.
+                loadPhase = "stock-pool-reference-load";
+                LoadStockPoolReference(node, earlyLoadKind);
+
                 // A rewind point always survives a plain rewind (operator ruling
                 // 2026-09-23). The node above is persistent.sfs as last written, not the
                 // rewind save (SpaceCenterMain.Start reloads persistent), so its RP list is
@@ -5793,6 +5805,27 @@ namespace Parsek
         /// Loads crew replacement mappings, kerbal slots, and group hierarchy from the save node.
         /// Skipped during rewind since in-memory state is the source of truth.
         /// </summary>
+        /// <summary>
+        /// Installs the stock pool reference the loaded node carries when the policy cell
+        /// says the save owns it (every load kind today); otherwise keeps memory's and logs
+        /// why. See <see cref="StockPoolReference.LoadFrom"/>.
+        /// </summary>
+        private static void LoadStockPoolReference(ConfigNode node, EarlyLoadKind earlyLoadKind)
+        {
+            LoadReconcileDecision decision = LoadReconcilePolicy.DecideEarly(
+                earlyLoadKind, LoadStateCategory.StockPoolReference);
+            if (decision.Action == LoadReconcileAction.Save)
+            {
+                StockPoolReference.LoadFrom(node, earlyLoadKind.ToString());
+                return;
+            }
+            ParsekLog.Info(StockPoolReference.Tag,
+                $"Load ({earlyLoadKind}): stock pool reference kept from memory ({decision.Action}): " +
+                $"funds={StockPoolReference.Describe(StockPoolReference.Funds)} " +
+                $"science={StockPoolReference.Describe(StockPoolReference.Science)} " +
+                $"reputation={StockPoolReference.Describe(StockPoolReference.Reputation)}");
+        }
+
         private static void LoadCrewAndGroupState(ConfigNode node)
         {
             if (RewindContext.IsRewinding)

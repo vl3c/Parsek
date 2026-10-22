@@ -467,6 +467,9 @@ namespace Parsek
                 case GameActionType.FundsInitial:         return TimelineEntryType.FundsInitial;
                 case GameActionType.ScienceInitial:       return TimelineEntryType.ScienceInitial;
                 case GameActionType.ReputationInitial:    return TimelineEntryType.ReputationInitial;
+                // The timeline builder filters these out (bookkeeping, not an event); mapped
+                // here only so a direct caller gets no unknown-type WARN.
+                case GameActionType.StockPoolAdjustment:  return TimelineEntryType.LegacyEvent;
 
                 default:
                     ParsekLog.Warn("Timeline",

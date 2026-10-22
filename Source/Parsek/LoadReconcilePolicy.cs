@@ -79,6 +79,10 @@ namespace Parsek
         Milestones,
         /// <summary><c>VesselNameStore</c>: the player's vessel name decisions (design-vessel-and-mission-names.md 7.6).</summary>
         VesselNames,
+        /// <summary><c>StockPoolReference</c>: the drawdown guard's per-pool last written value,
+        /// counted rows (committed-value rule plan 2.4), saved in the PARSEK node; kept leaks are
+        /// <c>StockPoolAdjustment</c> ledger rows.</summary>
+        StockPoolReference,
     }
 
     /// <summary>What a load does with one category today.</summary>
@@ -451,6 +455,7 @@ namespace Parsek
                 case LoadStateCategory.CrewReplacements:
                 case LoadStateCategory.KerbalSlots:
                 case LoadStateCategory.GroupHierarchy:
+                case LoadStateCategory.StockPoolReference:
                     return true;
                 case LoadStateCategory.UntaggedLedgerRowsAfterCutoff:
                 case LoadStateCategory.PendingScience:
@@ -513,6 +518,7 @@ namespace Parsek
                 case LoadStateCategory.Missions: return DecideMissions(kind);
                 case LoadStateCategory.Milestones: return DecideMilestones(kind);
                 case LoadStateCategory.VesselNames: return DecideVesselNames(kind);
+                case LoadStateCategory.StockPoolReference: return DecideStockPoolReference(kind);
             }
             throw new ArgumentOutOfRangeException(nameof(category), category, "unknown LoadStateCategory");
         }
@@ -992,6 +998,47 @@ namespace Parsek
                     return QuickloadOnly(LoadReconcileAction.Memory, VesselNamesMemory);
                 case LoadKind.InSessionOther:
                     return InSessionOtherOnly(LoadReconcileAction.Memory, VesselNamesMemory);
+            }
+            throw UnknownKind(kind);
+        }
+    
+        private const string StockPoolReferenceFromSave =
+            "ParsekScenario.LoadStockPoolReference -> StockPoolReference.LoadFrom installs the loaded node's "
+            + "STOCK_POOL_REFERENCE: lastWritten and the counted rows must describe the pool of the same .sfs "
+            + "(a save made mid-flight holds awards whose rows do not exist yet, a quicksave from before a merge "
+            + "does not count the merged rows); a node without it starts each pool afresh at its first patch "
+            + "(the live pool with every row counted)";
+        private const string StockPoolReferenceAuthoritative =
+            "; the first patch after this load is authoritative (a time-travel signal), so it writes the target "
+            + "(earlier kept leaks are StockPoolAdjustment rows of the walk) and re-baselines, carrying the stepped "
+            + "part of counted rows the ledger no longer holds as one adjustment row";
+
+        // Committed-value rule plan 2.4: the reference and the live pool always come from the
+        // same .sfs, so every kind installs the save's copy. Rows the in-memory ledger keeps
+        // past the loaded clock are committed future (never stepped), and rows the loaded
+        // reference counted that the ledger no longer holds are stepped back at the first patch.
+        private static LoadReconcileDecision DecideStockPoolReference(LoadKind kind)
+        {
+            switch (kind)
+            {
+                case LoadKind.Cold:
+                    return Today(LoadReconcileAction.Save, StockPoolReferenceFromSave);
+                case LoadKind.PlainRewind:
+                case LoadKind.ReFlyStart:
+                    return Today(LoadReconcileAction.Save,
+                        StockPoolReferenceFromSave + StockPoolReferenceAuthoritative);
+                case LoadKind.DiscardReFly:
+                    return Today(LoadReconcileAction.Save,
+                        StockPoolReferenceFromSave + "; the node is persistent.sfs's own PARSEK node, kept by "
+                        + "RevertInterceptor.DiscardReFlyHandler around the rewind point's game, written before the "
+                        + "attempt added any row" + StockPoolReferenceAuthoritative);
+                // Consumed in the prologue, before the revert detector: the three refined
+                // in-session kinds share one cell (a stock revert's flight rows were never
+                // committed, so the save's reference describes the reverted pool exactly).
+                case LoadKind.StockRevert:
+                case LoadKind.QuickloadFlight:
+                case LoadKind.InSessionOther:
+                    return Today(LoadReconcileAction.Save, StockPoolReferenceFromSave);
             }
             throw UnknownKind(kind);
         }

@@ -212,6 +212,10 @@ namespace Parsek.Tests
             // ScienceLabEarning (LAB-SCIENCE-NEVER-LEDGERED): the lab's subject-less credit;
             // the merge retires it via IsSupersedeTombstoneEligible. The strict gate does not block; the value gate seals.
             yield return new object[] { GameActionType.ScienceLabEarning, true, false };
+            // StockPoolAdjustment (committed-value rule plan section 2.4, revision 6): a
+            // measured stock pool leak, filed untagged like a seed. Never tombstone-eligible
+            // (so never in a retire set) and never a world mutation.
+            yield return new object[] { GameActionType.StockPoolAdjustment, false, false };
         }
 
         [Fact]
