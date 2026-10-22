@@ -128,19 +128,21 @@ namespace Parsek
         /// <summary>
         /// The one instant both walks judge contract deadlines against, so <c>L</c> and
         /// <c>L'</c> cannot differ by a synthetic ContractFail that only the list with the
-        /// later last row synthesizes: <paramref name="sessionClockUT"/> when it is a real
-        /// clock (finite, positive, not the walk-everything sentinel), else the latest row
-        /// UT of both lists. Pure.
+        /// later last row synthesizes: the later of <paramref name="sessionClockUT"/> (when
+        /// it is a real clock: finite, positive, not the walk-everything sentinel) and the
+        /// latest row UT of both lists. A deadline a committed row walks past is failed in
+        /// both walks with its penalty, as <c>ContractsModule.ResolveDeadlineClockUT</c> does
+        /// for one list. Pure.
         /// </summary>
         internal static double ResolveDeadlineClockUT(
             double sessionClockUT,
             IReadOnlyList<GameAction> baseline,
             IReadOnlyList<GameAction> attemptRows)
         {
+            double latest = 0.0;
             if (!double.IsNaN(sessionClockUT) && !double.IsInfinity(sessionClockUT)
                 && sessionClockUT > 0.0 && !KerbalsModule.IsNoTimeFilterCutoff(sessionClockUT))
-                return sessionClockUT;
-            double latest = 0.0;
+                latest = sessionClockUT;
             if (baseline != null)
                 for (int i = 0; i < baseline.Count; i++)
                     if (baseline[i] != null && baseline[i].UT > latest) latest = baseline[i].UT;

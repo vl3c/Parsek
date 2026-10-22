@@ -61,6 +61,16 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A Re-Fly holds back every vessel a later flight uses, and keeps holding it after a reload.**
+  A station or rover a recorded later flight docks with or boards is now held back too, so the
+  re-fly can't change it, and an F9 or a scene reload during the Re-Fly redraws the held vessels
+  instead of leaving them out of the world. (REFLY-HOLD-FEED-MISSES-DOCK-AND-BOARD)
+- **A Re-Fly no longer drops a contract's deadline penalty.** A contract whose deadline a later
+  recorded flight passes now shows its failure penalty during the Re-Fly too, instead of ending
+  with no penalty until the next update. (REFLY-WALK-DEADLINE-EXPIRES-CONTRACT-WITHOUT-PENALTY)
+- **Loading a save made during an abandoned Re-Fly gives back nothing it earned.** When a load
+  drops a Re-Fly attempt that was never merged, the funds, science and reputation it earned leave
+  the career too. (REFLY-COLD-LOAD-ZOMBIE-KEEPS-ATTEMPT-POOLS)
 - **Reverting a flight after a rewind no longer deletes your later committed career.** Revert to
   Launch or to the editor removed every Space Center purchase and kept credit dated after the
   launch, even ones your committed future had already made. A revert now removes only what the

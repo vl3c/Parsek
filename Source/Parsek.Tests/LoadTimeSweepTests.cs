@@ -801,6 +801,7 @@ namespace Parsek.Tests
 
             Assert.Equal(new[] { "act_origin", "act_ksc" }, Ledger.Actions.Select(a => a.ActionId));
             Assert.Equal(1, LoadTimeSweep.LedgerRowsRemovedByLastRun);
+            Assert.Equal(1, LoadTimeSweep.ZombiesDiscardedByLastRun);
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO][Rewind]") && l.Contains("Zombies discarded=1 ledgerRowsRemoved=1 deletedFiles=1"));
             Assert.Contains(logLines, l =>
@@ -863,6 +864,40 @@ namespace Parsek.Tests
 
             Assert.Single(Ledger.Actions);
             Assert.Equal(0, LoadTimeSweep.LedgerRowsRemovedByLastRun);
+            Assert.Equal(0, LoadTimeSweep.ZombiesDiscardedByLastRun);
+        }
+
+        // catches REFLY-COLD-LOAD-ZOMBIE-KEEPS-ATTEMPT-POOLS: an attempt files its rows only at
+        // merge, so a zombie usually removes none; the discard still has to reach the next walk.
+        [Fact]
+        public void DiscardSet_ZombieWithNoLedgerRows_StillSignalsTheDiscardWalk()
+        {
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_zombie", MergeState.NotCommitted, sessionId: "sess_dead",
+                        supersedeTarget: "rec_origin"),
+                    Rec("rec_origin", MergeState.CommittedProvisional),
+                },
+                new List<BranchPoint> { Bp("bp_1") });
+            InstallScenario(rps: new List<RewindPoint>(), marker: null);
+
+            LoadTimeSweep.Run();
+
+            Assert.Equal(0, LoadTimeSweep.LedgerRowsRemovedByLastRun);
+            Assert.Equal(1, LoadTimeSweep.ZombiesDiscardedByLastRun);
+            Assert.True(LoadTimeSweep.SweepDiscardedAnAttempt(
+                LoadTimeSweep.LedgerRowsRemovedByLastRun, LoadTimeSweep.ZombiesDiscardedByLastRun));
+        }
+
+        [Theory]
+        [InlineData(0, 0, false)]
+        [InlineData(1, 0, true)]
+        [InlineData(0, 1, true)]
+        [InlineData(3, 2, true)]
+        public void SweepDiscardedAnAttempt_TruthTable(int rows, int zombies, bool expected)
+        {
+            Assert.Equal(expected, LoadTimeSweep.SweepDiscardedAnAttempt(rows, zombies));
         }
 
         [Fact]

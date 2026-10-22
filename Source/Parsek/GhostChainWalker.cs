@@ -288,7 +288,7 @@ namespace Parsek
         /// it. Rows are keyed by recording id, so a row on a recording of another tree, or
         /// one with no new id, never matches a claimant it does not hide.
         /// </summary>
-        private static Dictionary<string, string> BuildSupersededClaimantMap(
+        internal static Dictionary<string, string> BuildSupersededClaimantMap(
             IReadOnlyList<RecordingSupersedeRelation> supersedes)
         {
             var map = new Dictionary<string, string>(System.StringComparer.Ordinal);

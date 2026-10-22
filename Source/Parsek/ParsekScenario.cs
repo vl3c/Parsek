@@ -4756,14 +4756,17 @@ namespace Parsek
                     loadPhase = "checkpoint-double-cover-retire";
                     RetireCheckpointDoubleCoverOnLoad();
 
-                    // The sweep runs after this branch's ledger recalculation: when it removed a
-                    // zombie attempt's ledger rows (rewind design section 2.12 Rule 3), walk the
-                    // ledger again so the patched career no longer carries them.
-                    if (LoadTimeSweep.LedgerRowsRemovedByLastRun > 0)
+                    // The sweep runs after this branch's ledger recalculation: when it discarded a
+                    // zombie attempt (rewind design section 2.12 Rule 3), walk the ledger again so
+                    // the patched career no longer carries its rows, nor what it earned into the
+                    // pools of a save written during its session (it files rows only at merge).
+                    if (LoadTimeSweep.SweepDiscardedAnAttempt(
+                            LoadTimeSweep.LedgerRowsRemovedByLastRun, LoadTimeSweep.ZombiesDiscardedByLastRun))
                     {
                         loadPhase = "load-time-sweep-recalculate";
                         ParsekLog.Info("Scenario",
-                            $"OnLoad: load-time sweep removed {LoadTimeSweep.LedgerRowsRemovedByLastRun} zombie ledger row(s) " +
+                            $"OnLoad: load-time sweep discarded {LoadTimeSweep.ZombiesDiscardedByLastRun} zombie attempt recording(s) " +
+                            $"and removed {LoadTimeSweep.LedgerRowsRemovedByLastRun} zombie ledger row(s) " +
                             "after the in-session recalculation; recalculating again");
                         RecalculateLedgerForInSessionLoad(
                             isRevert, HighLogic.LoadedScene, !double.IsNaN(ledgerClockUT),
@@ -7193,15 +7196,27 @@ namespace Parsek
             // (post-rewind / future-timeline case), otherwise it replays the full committed
             // ledger. A not-ready clock therefore restores an established career instead of
             // wiping it.
+            // A cold load's sweep runs after OnKspLoad, so this is the first walk after it:
+            // when it discarded a zombie Re-Fly attempt, the pools the save carries still hold
+            // what that attempt earned, and only the Re-Fly discard walk takes them back to the
+            // ledger (rewind design section 2.12 Rule 3; the drawdown guard keeps them otherwise).
+            bool reFlyDiscard = LoadTimeSweep.SweepDiscardedAnAttempt(
+                LoadTimeSweep.LedgerRowsRemovedByLastRun, LoadTimeSweep.ZombiesDiscardedByLastRun);
+            if (reFlyDiscard)
+                ParsekLog.Info("Scenario",
+                    $"DeferredSeed: the load-time sweep discarded {LoadTimeSweep.ZombiesDiscardedByLastRun} " +
+                    $"zombie attempt recording(s) ({LoadTimeSweep.LedgerRowsRemovedByLastRun} ledger row(s)); " +
+                    "walking as a Re-Fly discard");
             if (IsCurrentUtCutoffSupportedScene(HighLogic.LoadedScene))
             {
                 LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
                     currentUT,
-                    "deferred-seed");
+                    "deferred-seed",
+                    reFlyDiscard);
             }
             else
             {
-                LedgerOrchestrator.RecalculateAndPatch();
+                LedgerOrchestrator.RecalculateAndPatch(reFlyDiscard: reFlyDiscard);
             }
         }
 
