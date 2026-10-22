@@ -1363,6 +1363,13 @@ Re-Fly slots (a commandless cabin cannot be flown), so a crewed-part rule needs 
 between "record it" and "offer it to Re-Fly". Next step: fly a Hitchhiker undock to confirm
 what KSP calls the separated cabin and what Parsek writes.
 
+Reproduction lane (2026-10-22, branch `claude/project-thread-csk4ho`): `CX-2-hitchhiker-decouple-crew`
+on the new derived fixture `hitchhiker-pad` (`fresh-sandbox` plus the authored `HH1 Hitchhiker Drop`
+craft: Mk1-3 pod / TD-25 / PPD-10 Hitchhiker). Bob moves into the Hitchhiker, the TD-25 decouples it on
+the pad, then commit and Rewind-to-Launch. A TD-25 decouple (and a pre-attached port's Undock, which
+calls `Part.decouple`) goes through the crash coalescer and leaves the cabin a 60 s debris child; only an
+undock of ports docked in flight takes `DeferredUndockBranch`, which drops it outright.
+
 ## ~~FOREIGN-BOARD-LEAVES-NO-GHOST-CLAIM: boarding a vessel from another mission does not claim it for ghost playback~~ [FILED 2026-10-17 from the crew-across-vessels code trace, branch `claude/crew-across-vessels-db6ycy`. FIXED 2026-10-22 (xUnit), branch `claude/project-thread-stn7at`; no lane boards a foreign vessel yet. product]
 
 A Board merge onto a vessel outside the tree stamps no target pid (`HandleTreeBoardMerge`; design

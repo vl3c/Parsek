@@ -1,0 +1,112 @@
+schema = 1
+id = "CX-2-hitchhiker-decouple-crew"
+# =====================================================================================
+# CX-2: A CREWED CABIN WITH NO COMMAND MODULE LEAVES THE RECORDED VESSEL
+# (todo SPLIT-OF-A-CREWED-COMMANDLESS-PART-READS-AS-DEBRIS; queue item 4 of 2026-10-22).
+# NOT FLOWN. The first flight is a READING run: it shows what KSP writes for the separated
+# cabin and what Parsek records for it and for its kerbal, before any fix.
+#
+# THE HOST is `hitchhiker-pad` (built by `harness/tools/build_hitchhiker_pad.py`): an empty
+# sandbox pad and, in the VAB, `HH1 Hitchhiker Drop` = a Mk1-3 pod (the root and the only
+# control source) over a TD-25 over a PPD-10 Hitchhiker (four seats, no ModuleCommand).
+#
+# THE FLIGHT, every step a player's:
+#   (a) VAB launch. Stock seats the pod only (DefaultCrewForVessel fills control sources),
+#       so the pod carries three kerbals and the Hitchhiker launches empty.
+#   (b) CrewTransfer: Bob moves from the pod into the Hitchhiker (stock's own transfer).
+#   (c) StartRecording on the pad, then PartAction decouple of the TD-25: the Hitchhiker
+#       leaves under a fresh pid with Bob inside; the pod keeps the root and the focus.
+#   (d) WarpToUT 200 on the pad: past the 0.5 s split coalescing window and past the 60 s
+#       debris lifetime a non-trackable child gets.
+#   (e) Commit, then a save and Rewind-to-Launch, so the produced log shows Bob's crew end
+#       state, his reservation and what the rewound world does with the cabin.
+#
+# WHAT THE READING RUN LOOKS FOR (code read, 2026-10-22, before any fix):
+#   - `Feeding split to coalescer: childPid=... childHasController=False` and a debris child
+#     (`ProcessBreakupEvent: debris child created`) with a 60 s TTL;
+#   - the pod recording's `PopulateCrewEndStates: ... dead=1` for Bob (he is in the start
+#     snapshot and missing from the end snapshot of an intact recording);
+#   - Bob's reservation / death hold lines and the roster status after the rewind.
+# =====================================================================================
+tier = "nightly"
+description = "Crew in a commandless cabin: on hitchhiker-pad a VAB launch of HH1 Hitchhiker Drop (Mk1-3 pod / TD-25 / PPD-10 Hitchhiker), a stock crew transfer moves Bob into the Hitchhiker, recording on the pad, the TD-25 decouples the cabin with Bob inside, a warp past the debris lifetime, a commit and a Rewind-to-Launch. Reads what Parsek records for a crewed part with no command module and what Bob's end state and reservation become."
+instanceProfile = "stock-minimal"
+tags = ["CX-2", "crew", "crew-transfer", "decouple", "commandless", "hitchhiker",
+        "debris", "rewind", "kerbin", "sandbox", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/hitchhiker-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  # LOAD-BEARING: the crew end-state, reservation and coalescer lines are Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  # (a) The VAB launch.
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "HH1 Hitchhiker Drop" },   expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                             expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  # (b) Bob into the Hitchhiker.
+  { cmd = "CrewTransfer",   args = { kerbal = "Bob Kerman", part = "crewCabin" },         expect = "OK" },
+  # (c) Record, then the decouple.
+  { cmd = "StartRecording", label = "sr",                                                 expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "cx2-decouple-before" },                     expect = "OK" },
+  { cmd = "PartAction",     args = { button = "decouple", part = "Decoupler.2" }, label = "dec", expect = "OK" },
+  # (d) Past the coalescing window and the debris lifetime.
+  { cmd = "WarpToUT",       args = { ut = "200" },                                        expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "cx2-decouple-after" },                      expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "active" }, label = "act",                    expect = "OK" },
+  # (e) Commit, save, rewind.
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "CommitTree",                                                                   expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c0",                  expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "cx2-committed-${c0.count}" },               expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "cx2-committed" },                            expect = "OK", budget = 120 },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                             expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "cx2-rewound" },                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "persistent" },                               expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
+]
+
+[dimensionsCovered]
+# D14 values only, each already covered elsewhere; no D value names a commandless crewed part.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# A window until the reading run pins it: the pod's recording, and the cabin's (as debris or
+# as its own branch) if Parsek records one.
+count = { min = 1, max = 6 }
+
+[expectations.logContracts]
+required = [
+  # (b) Bob is in the Hitchhiker before the recording starts.
+  "crewtransfer applied kerbal='Bob Kerman' pid=[0-9]+ from=mk1-3pod fromId=[0-9]+ to=crewCabin toId=[0-9]+ crewFrom=2 crewTo=1",
+  # (c) The decouple made a new vessel.
+  "partaction applied button=decouple ",
+  "committree committed=true",
+  "\\[Rewind\\] Rewind-to-Launch initiated to UT ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+]
+
+[runtime]
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
