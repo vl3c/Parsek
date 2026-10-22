@@ -304,8 +304,8 @@ copy, so the splice has nothing newer to bring in, while its same-id refresh wou
 attempt's own edits (a resumed spawn's segment link) and mark the members dirty; and the
 committed original stays committed, as in a live attempt, so a later Discard drops only the
 clone and a Merge replaces the original. `ApplySaveAttemptEventsAfterActiveTreeRestore` then
-restores the events. Nothing later on the cold path clears the attempt: the committed-copy rule
-and its clear apply to in-session loads only, the session reset runs before the restore, the
+restores the events. Nothing later on the cold path clears the attempt: the session reset runs
+before the restore, the
 reapers and sweeps do not read it, and `ParsekFlight.ResetFlightReadyState` runs on the new
 scene's controller with no active tree, so its id-matched clear is a no-op; the flight-ready
 Quickload restore pops the tree into the recorder as before. A save that names an attempt but
@@ -340,9 +340,7 @@ A save taken during a live Re-Fly session holds the session tree twice, as an or
 has it in memory: the committed original and the live tree with the same id. A load of that save
 keeps both: `TryRestoreActiveTreeNode` skips the detach when the save's Re-Fly marker names the
 restored tree and its active Re-Fly recording (`IsResumedReFlySessionTree`), so ghost chains,
-which read committed trees only, still hold back the vessels the session claims (lane CI-3). A
-session merged after the save is the committed-copy rule's resume instead: its copy detaches and
-step B's row rule applies (section 6.16 of the rewind design).
+which read committed trees only, still hold back the vessels the session claims (lane CI-3).
 
 - **Load.** The cold branch reads each store from `GAME_STATE` when present (replacing
   `LoadExternalFiles`' reads: `GameStateStore.LoadEventFile`, `LoadBaselines`,
@@ -689,21 +687,32 @@ today. The auto-commit of the stashed flight runs as today.
 
 For a save-file load the following become unreachable, because the load no longer keeps memory:
 
-| Ruling or mechanism | Where | Status after Phase 2 |
-|---|---|---|
-| D2 applied to quickloads (QL-R2 "every other committed flight is kept") | rewind design, game-actions design, user guide 402-403 | reversed for save-file loads; rewinds keep D2 |
-| QL-R1 (a discarded flight records again) | `TryDeclineDiscardedActiveTree`, user guide 404 | reversed: the flight resumes with its recording |
-| OQ-2 resume reconcile (`TrimAndReconcileForQuickloadResume` retire halves) | ParsekScenario.Trim.cs:818 | no abandoned future reaches it on a save-file load; the trajectory trim stays as a guard |
-| OQ-3 rewind point owner partition, step B, resumed-tree row rule | InSessionStagedStateHandoff, ParsekScenario.InSessionHandoff.cs | only scene changes and reverts reach the handoff |
-| Committed-copy rule (`DecideCommittedCopyRestore`), stale-epoch keep, abandoned Re-Fly fork prune | ParsekScenario.HydrationRepair.cs, Trim.cs | unreachable on a save-file load |
-| Untagged rows after the save (`RetireUntaggedRowsAfterSaveAtInSessionLoad`, `UNTAGGED_FUTURE_ROWS`) | ParsekScenario.Trim.cs:1337 | unreachable on a save-file load (the save's ledger is exact) |
-| OQ-1 resumed-merged-attempt pruning (`PruneStagedRowsNamingAttempt` on a resumed attempt), `RepairSessionBeforeRetry` detached-tree restore | MergeDialog | the rows are never there; kept for fresh sessions (prune finds none) |
-| `QuickloadFlight` load kind and its policy column | LoadReconcilePolicy | no longer produced for stock F9 |
-| Names ruling 5 for in-session loads | design-vessel-and-mission-names.md 7.6 | reversed for save-file loads |
+| Ruling or mechanism | Where | Status after Phase 2 | Phase 3 |
+|---|---|---|---|
+| D2 applied to quickloads (QL-R2 "every other committed flight is kept") | rewind design, game-actions design, user guide 402-403 | reversed for save-file loads; rewinds keep D2 | ruling only, no code |
+| QL-R1 (a discarded flight records again) | `TryDeclineDiscardedActiveTree`, user guide 404 | reversed: the flight resumes with its recording | kept (see below) |
+| OQ-2 resume reconcile (`TrimAndReconcileForQuickloadResume` retire halves) | ParsekScenario.Trim.cs | no abandoned future reaches it on a save-file load; the trajectory trim stays as a guard | deleted; the trim stays (`TrimForQuickloadResume`) |
+| OQ-3 rewind point owner partition, step A | InSessionStagedStateHandoff, ParsekScenario.InSessionHandoff.cs | only scene changes and reverts reach the handoff | kept: live on Discard Re-fly and a stock revert |
+| Step B's resumed-tree row rule | ParsekScenario.InSessionHandoff.cs | only a committed-copy resume notes a detach for it | deleted |
+| Committed-copy rule (`DecideCommittedCopyRestore`) | ParsekScenario.HydrationRepair.cs | unreachable on a save-file load | deleted |
+| Stale-epoch keep (`ShouldKeepPendingTreeAfterHydrationFailure`) | ParsekScenario.HydrationRepair.cs | not load-kind gated | kept: a Re-Fly Retry and a stock revert reach it |
+| Abandoned Re-Fly fork prune | ParsekScenario.Trim.cs | noted only by a committed-copy resume | deleted |
+| Untagged rows after the save (`RetireUntaggedRowsAfterSaveAtInSessionLoad`, `UNTAGGED_FUTURE_ROWS`) | ParsekScenario.Trim.cs | unreachable on a save-file load (the save's ledger is exact) | deleted, with the save's id list (an old save's node is ignored) and `Ledger.RetireAbandonedFutureActions`; a revert never reached it (its cell is the revert prune) |
+| OQ-1 resumed-merged-attempt pruning (`PruneStagedRowsNamingAttempt` on a resumed attempt), `RepairSessionBeforeRetry` detached-tree restore | MergeDialog | the rows are never there; kept for fresh sessions (prune finds none) | deleted (the prune, its writer selectors, the detached-tree branch); `RepairSessionBeforeRetry` stays for the ledger rows, its line keeps `stagedRowsPruned=0` and `restoredCommittedTree=false` |
+| `QuickloadFlight` load kind and its policy column | LoadReconcilePolicy | no longer produced for stock F9 | kept (see below) |
+| Names ruling 5 for in-session loads | design-vessel-and-mission-names.md 7.6 | reversed for save-file loads | ruling only |
 
 Phase 2 leaves this code in place and unreached (the policy table says so per cell); Phase 3
 deletes what no remaining load kind reaches, each deletion proved by the classification gate
 and the lane set. A scene-change load and a revert still use the handoff and the revert branch.
+
+Phase 3 keeps two mechanisms the table names. The QL-R1 decline (`TryDeclineDiscardedActiveTree`
+/ `TryDeclineDiscardedPendingTree`) is still reachable: a stock revert after a cold resume and an
+in-flight discard reads a save whose active tree this session discarded. The `QuickloadFlight`
+kind is still produced by a load no stock path announces: the harness `LoadGame` verb without
+`playerLoad=true` and the in-game QuickloadResume tests (`QuickloadResumeHelpers.TriggerQuickload`).
+Folding it into `InSessionOther` would change `DiscardStashedOnQuickload` and the route reconcile
+for those lanes, so the kind and its column stay and lose only the cells of deleted categories.
 
 ---
 

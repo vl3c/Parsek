@@ -371,16 +371,14 @@ namespace Parsek.Tests
                 LoadReconcilePolicy.Decide(LoadKind.QuickloadFlight, LoadStateCategory.PendingScience).Action);
             // Not wired (isRevert can be true on a ReFlyStart / DiscardReFly load), but the
             // revert prune is the only Prune in the column.
-            // ParsekScenario.RetireUntaggedRowsAfterSaveAtInSessionLoad runs only on the
-            // ReconcileAtCutoff cells: a quickload in flight and every other in-session load undo
-            // the untagged rows made after the save (owner ruling 2026-10-19); rewinds, the Re-Fly
-            // loads and a cold load do not.
+            // Phase 3 deleted the in-session retire of the untagged rows made after the save
+            // (a player's load is a Cold save-file load whose ledger is the save's own), so no
+            // load kind reconciles them at the cutoff any more.
             foreach (LoadKind kind in AllKinds())
             {
                 var action = LoadReconcilePolicy.Decide(kind, LoadStateCategory.UntaggedLedgerRowsAfterCutoff).Action;
                 Assert.Equal(kind == LoadKind.StockRevert, action == LoadReconcileAction.Prune);
-                Assert.Equal(kind == LoadKind.QuickloadFlight || kind == LoadKind.InSessionOther,
-                    action == LoadReconcileAction.ReconcileAtCutoff);
+                Assert.NotEqual(LoadReconcileAction.ReconcileAtCutoff, action);
             }
         }
 
@@ -425,35 +423,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ReconcileAtResume_IsTheAbandonedFutureCellsOfTheKindsThatResume()
-        {
-            // The quickload-resume reconcile (ParsekScenario.TrimAndReconcileForQuickloadResume)
-            // gates each category on its own cell. Only the in-session loads that restore a flight
-            // own the abandoned future; a Re-Fly start and a cold resume (every stock F9 and
-            // pause-menu Load since design-load-restores-the-save.md 4.1) reach the trim but not
-            // the reconcile, and the other kinds arm no resume at all.
-            var reconciled = new HashSet<string>(StringComparer.Ordinal);
-            foreach (LoadKind kind in AllKinds())
-                foreach (LoadStateCategory category in AllCategories())
-                {
-                    if (LoadReconcilePolicy.Decide(kind, category).Action == LoadReconcileAction.ReconcileAtResume)
-                        reconciled.Add(kind + "x" + category);
-                }
-
-            Assert.Equal(
-                new[]
-                {
-                    "InSessionOtherxAbandonedFutureEndStates",
-                    "InSessionOtherxAbandonedFutureEvents",
-                    "InSessionOtherxAbandonedFutureLedgerRows",
-                    "QuickloadFlightxAbandonedFutureEndStates",
-                    "QuickloadFlightxAbandonedFutureEvents",
-                    "QuickloadFlightxAbandonedFutureLedgerRows",
-                }.OrderBy(s => s, StringComparer.Ordinal),
-                reconciled.OrderBy(s => s, StringComparer.Ordinal));
-        }
-
-        [Fact]
         public void QuickloadFlightColumn_IsDocumentedAsUnreachedByStockF9()
         {
             // Plan Phase 2 step 6: stock F9 is a save-file load and classifies Cold, so every
@@ -473,8 +442,8 @@ namespace Parsek.Tests
                 other++;
                 Assert.DoesNotContain("an F9 at the Space Center", o);
             }
-            Assert.Equal(9, quickload);
-            Assert.Equal(9, other);
+            Assert.Equal(6, quickload);
+            Assert.Equal(6, other);
             // No other kind carries the notes.
             foreach (LoadKind kind in AllKinds())
             {
@@ -524,8 +493,6 @@ namespace Parsek.Tests
             // files only for a save without it), after the session reset forgets memory.
             foreach (LoadStateCategory category in new[]
                 {
-                    LoadStateCategory.AbandonedFutureEvents,
-                    LoadStateCategory.AbandonedFutureLedgerRows,
                     LoadStateCategory.PendingScience,
                     LoadStateCategory.Milestones,
                 })
@@ -542,10 +509,6 @@ namespace Parsek.Tests
             // Route events persist with the routes in the PARSEK node, not in the ledger.
             Assert.Contains("RouteStore.LoadRoutesFrom", routes.Reason);
             Assert.Contains("ROUTE_EVENT_LOG", routes.Reason);
-            Assert.Contains("GAME_STATE/PARSEK_GAME_STATE",
-                LoadReconcilePolicy.Decide(LoadKind.Cold, LoadStateCategory.AbandonedFutureEvents).Reason);
-            Assert.Contains("GAME_STATE/LEDGER",
-                LoadReconcilePolicy.Decide(LoadKind.Cold, LoadStateCategory.AbandonedFutureLedgerRows).Reason);
             Assert.Contains("GAME_STATE/PENDING_SCIENCE",
                 LoadReconcilePolicy.Decide(LoadKind.Cold, LoadStateCategory.PendingScience).Reason);
             Assert.Contains("GAME_STATE/PARSEK_MILESTONES",

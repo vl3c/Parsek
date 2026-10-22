@@ -258,6 +258,41 @@ namespace Parsek.Tests
                 hasActive, activePid, pid, found, interactable, clearToSave, canLeave));
         }
 
+        [Theory]
+        // gate, waited, window -> outcome
+        [InlineData(null, 0.0, 15.0, "Proceed")]
+        [InlineData(null, 30.0, 15.0, "Proceed")]
+        // A craft still sliding: the button is locked or the game is not clear to save.
+        [InlineData("recover-button-locked", 0.0, 15.0, "Wait")]
+        [InlineData("recover-not-clear-to-save", 14.9, 15.0, "Wait")]
+        [InlineData("recover-button-locked", 15.0, 15.0, "Refuse")]
+        [InlineData("recover-not-clear-to-save", 20.0, 15.0, "Refuse")]
+        // Every other refusal is final at once: coming to rest cannot clear it.
+        [InlineData("recover-no-active-vessel", 0.0, 15.0, "Refuse")]
+        [InlineData("recover-not-active-vessel", 0.0, 15.0, "Refuse")]
+        [InlineData("recover-button-unavailable", 0.0, 15.0, "Refuse")]
+        [InlineData("recover-cannot-leave-to-space-center", 0.0, 15.0, "Refuse")]
+        public void Recover_UnlockWait(string gate, double waited, double window, string expected)
+        {
+            Assert.Equal(expected, TestCommandRecover.DecideUnlockWait(gate, waited, window).ToString());
+        }
+
+        [Fact]
+        public void Recover_UnlockWaitClearedLine_IsInvariant()
+        {
+            CultureInfo saved = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                Assert.Equal("recover unlock-wait cleared pid=2905720181 waited=2.5s frames=150",
+                    TestCommandRecover.FormatUnlockWaitClearedLine(2905720181u, 2.5, 150));
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
+
         [Fact]
         public void Recover_EveryGateReasonIsInTheTable()
         {

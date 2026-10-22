@@ -3,6 +3,14 @@ using System.Globalization;
 
 namespace Parsek.TestCommands
 {
+    /// <summary>What one gate sample of an unpressed Recover concludes.</summary>
+    internal enum RecoverUnlockWaitOutcome
+    {
+        Proceed,
+        Wait,
+        Refuse,
+    }
+
     /// <summary>What one completion poll of a pressed Recover concludes.</summary>
     internal enum RecoverCompletionDecision
     {
@@ -35,7 +43,9 @@ namespace Parsek.TestCommands
     /// active vessel's: the stock button only ever recovers the active vessel, so the spec
     /// switches first (<c>SimulateStockSwitchClick pid=</c>) and names the vessel it means.
     /// TWO-PHASE, RequiresFlight, 120 s budget (the ExitToSpaceCenter class: a scene exit
-    /// that re-reads no save).</para>
+    /// that re-reads no save). A button that is locked or not clear to save is waited on for
+    /// up to <see cref="UnlockWaitSeconds"/> before the press (a craft still sliding after
+    /// touchdown), and refused with that reason if it never unlocks.</para>
     /// </summary>
     internal static class TestCommandRecover
     {
@@ -120,6 +130,32 @@ namespace Parsek.TestCommands
             return null;
         }
 
+        /// <summary>How long an unpressed Recover waits for stock to unlock the button. A
+        /// craft that touched down still sliding (over 0.3 m/s horizontal) keeps the button
+        /// locked and is not clear to save for a few seconds; a player waits for it to come to
+        /// rest, so the verb does too, then refuses with the reason that still holds.</summary>
+        internal const double UnlockWaitSeconds = 15.0;
+
+        /// <summary>The two refusals a craft coming to rest clears by itself: the button
+        /// locked (stock's speed / situation lock) and not clear to save (moving over the
+        /// surface). Every other refusal is final at once.</summary>
+        internal static bool IsUnlockWaitableGate(string gate)
+            => gate == ButtonLockedReason || gate == NotClearToSaveReason;
+
+        /// <summary>
+        /// One gate sample before the press: proceed when the gate is open, wait while only a
+        /// waitable refusal holds and the window has time left, otherwise refuse with the gate's
+        /// own reason.
+        /// </summary>
+        internal static RecoverUnlockWaitOutcome DecideUnlockWait(
+            string gate, double waitedSeconds, double windowSeconds)
+        {
+            if (gate == null) return RecoverUnlockWaitOutcome.Proceed;
+            if (IsUnlockWaitableGate(gate) && waitedSeconds < windowSeconds)
+                return RecoverUnlockWaitOutcome.Wait;
+            return RecoverUnlockWaitOutcome.Refuse;
+        }
+
         /// <summary>
         /// One completion poll. OK needs BOTH a settled Space Center with a game loaded AND
         /// stock's own <c>onVesselRecovered</c> for the pid: the recovery runs 8 frames
@@ -150,6 +186,14 @@ namespace Parsek.TestCommands
                 new KeyValuePair<string, string>("scene", sceneName ?? string.Empty),
                 new KeyValuePair<string, string>("recovered", "true"),
             };
+        }
+
+        /// <summary>The grep-stable line for a wait that ended with the button unlocked.</summary>
+        internal static string FormatUnlockWaitClearedLine(uint pid, double waited, int frames)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            return "recover unlock-wait cleared pid=" + pid.ToString(ic)
+                + " waited=" + waited.ToString("F1", ic) + "s frames=" + frames.ToString(ic);
         }
 
         /// <summary>The grep-stable press line.</summary>

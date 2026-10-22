@@ -131,7 +131,6 @@ required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation comple
              "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
              "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*Save-scoped session state reset: reason=save-file ",
              "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
-             "loadgame player-load: firing [\\s\\S]*Quickload committed-copy restore: tree='[^']*' id=\\S+ route=\\S+ action=Unchanged reason=load-kind-Cold loadKind=Cold ",
              "loadgame player-load: firing [\\s\\S]*TryRestoreActiveTreeNode: kept the committed copy of tree '[^']*' \\(id=\\S+\\) committed: the restored tree is the live Re-Fly session sess=\\S+",
              "reflyrevert start choice=discard target=launch sess=\\S+ rp=rp_b9_root slot=b9-booster-a",
              "Prefix: blocking stock RevertToLaunch sess=\\S+ target=Launch",

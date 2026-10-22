@@ -313,18 +313,14 @@ required = [
   # heads after the F5, so the F5 bytes resolve from _versions and are promoted.
   "loadgame player-load: firing [\\s\\S]*Sidecar version resolved: rec=[0-9a-f]{32} kind=prec hash=[0-9a-f]{16} source=version promoted=True",
   "loadgame player-load: firing [\\s\\S]*Sidecar version resolution summary: reason=cold-onload (?=[^\\r\\n]*\\bversion=[1-9])",
-  # No committed copy to rule on or detach: the save holds the tree only as its active tree
-  # (ResolveCommittedCopyRestore's Verbose skip; TryRestoreActiveTreeNode's no-detach line).
-  "loadgame player-load: firing [\\s\\S]*Quickload committed-copy restore skipped: tree='GS1 Auto-Chute Booster' id=\\S+ reason=no-committed-copy staleMembers=0",
+  # No committed copy to detach: the save holds the tree only as its active tree
+  # (TryRestoreActiveTreeNode's no-detach line).
   "loadgame player-load: firing [\\s\\S]*TryRestoreActiveTreeNode: no committed copy of tree 'GS1 Auto-Chute Booster' \\(id=\\S+\\) needed detaching",
   # The cold branch's resume (ParsekScenario.OnLoad cold-active-tree-restore, the same
   # OnFlightReady coroutine as before).
   "OnLoad: cold-start active tree detected \\(state=Limbo\\) . deferred to OnFlightReady as Quickload",
   "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide [^\\r\\n]*\\bloadKind=Cold\\b",
   "RestoreActiveTreeFromPending: resumed recording tree 'GS1 Auto-Chute Booster' activeRec='[0-9a-f]{32}'",
-  # Nothing to reconcile: every Cold cell is Save (LoadReconcilePolicy), so the resume
-  # reconcile skips by policy.
-  "\\[Scenario\\] Quickload abandoned-future reconcile skipped: tree='GS1 Auto-Chute Booster' kind=Cold scope=TreeWide reason=policy",
 
   # GROUP 4 - THE BOOSTER IS RECORDED AGAIN (existing wording; each reds on the leak).
   # The background recorder attaches to the resumed tree with the booster in its map.

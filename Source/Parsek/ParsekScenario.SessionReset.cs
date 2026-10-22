@@ -122,13 +122,11 @@ namespace Parsek
             vesselSwitchPendingFrame = -1;
             flightSceneReadyForVesselSwitchFlag = false;
             lastSceneChangeRequestedUT = -1.0;
-            lastSceneLoadRequestClockUT = double.NaN;
             ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.None;
             pendingActiveTreeResumeRewindSave = null;
             pendingFreshRecordingAfterDiscard = null;
             pendingQuickloadResumeContext = null;
             lastRestoredQuicksaveTreeFacts = null;
-            ClearQuickloadResumeDetach();
             pendingSaveAttemptEvents = null;
             heldSaveAttemptEvents = null;
             announcedInSessionSaveLoadSource = null;

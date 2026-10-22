@@ -382,49 +382,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Quickload-resume seam (<c>ParsekScenario.TrimAndReconcileForQuickloadResume</c>):
-        /// physically removes every action <paramref name="shouldRetire"/> selects, the
-        /// recording-tagged rows of a resumed tree's abandoned future (owner ruling OQ-2).
-        /// Removal, not a tombstone: a tombstoned row still dedupes the resumed flight's
-        /// re-commit (<c>LedgerOrchestrator.DeduplicateAgainstLedger</c> compares against every
-        /// stored row), so the fresh row for the same fact would never be filed. The caller's
-        /// predicate owns the selection; this only removes, bumps the state version and logs.
-        /// Returns the number removed.
-        /// </summary>
-        internal static int RetireAbandonedFutureActions(Func<GameAction, bool> shouldRetire, string reason)
-        {
-            if (shouldRetire == null)
-                return 0;
-
-            int removed = 0;
-            for (int i = actions.Count - 1; i >= 0; i--)
-            {
-                var action = actions[i];
-                if (action == null || !shouldRetire(action))
-                    continue;
-
-                actions.RemoveAt(i);
-                removed++;
-            }
-
-            if (removed > 0)
-            {
-                BumpStateVersion();
-                ParsekLog.Info("Ledger",
-                    $"RetireAbandonedFutureActions: removed {removed} action(s) reason={reason ?? "(none)"} " +
-                    $"total={actions.Count}");
-            }
-            else
-            {
-                ParsekLog.Verbose("Ledger",
-                    $"RetireAbandonedFutureActions: nothing to retire reason={reason ?? "(none)"} " +
-                    $"total={actions.Count}");
-            }
-
-            return removed;
-        }
-
-        /// <summary>
         /// Returns the UT of the most recent untagged (no recording id) vessel rollout spend
         /// (<see cref="GameActionType.FundsSpending"/> with <see cref="FundsSpendingSource.VesselBuild"/>),
         /// or <c>double.NaN</c> when none exists. This is the pad/runway placement UT of the
@@ -621,33 +578,6 @@ namespace Parsek
             }
 
             return cleared;
-        }
-
-        /// <summary>
-        /// The recording tag of every action whose id is in <paramref name="actionIds"/>, keyed by
-        /// action id (the first action wins on a duplicate id). Untagged actions and ids no action
-        /// carries are absent. Read by the in-session handoff's resumed-tree rule, which asks
-        /// whether a tombstone retires an action of the resumed tree.
-        /// </summary>
-        internal static Dictionary<string, string> CollectRecordingIdsForActions(ICollection<string> actionIds)
-        {
-            var map = new Dictionary<string, string>(StringComparer.Ordinal);
-            if (actionIds == null || actionIds.Count == 0)
-                return map;
-            for (int i = 0; i < actions.Count; i++)
-            {
-                var action = actions[i];
-                if (action == null
-                    || string.IsNullOrEmpty(action.ActionId)
-                    || string.IsNullOrEmpty(action.RecordingId)
-                    || map.ContainsKey(action.ActionId)
-                    || !actionIds.Contains(action.ActionId))
-                {
-                    continue;
-                }
-                map[action.ActionId] = action.RecordingId;
-            }
-            return map;
         }
 
         /// <summary>

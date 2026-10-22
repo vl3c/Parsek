@@ -67,12 +67,6 @@ namespace Parsek
         TestBatchMarker,
         SwitchSegmentSession,
         StockActionIntent,
-        /// <summary>Tagged game-state events of a resumed tree's recordings after the resume UT.</summary>
-        AbandonedFutureEvents,
-        /// <summary>Recording-tagged ledger rows of a resumed tree's recordings after the resume UT.</summary>
-        AbandonedFutureLedgerRows,
-        /// <summary>Terminal state and crew end states a resumed tree's members carry from after the resume UT.</summary>
-        AbandonedFutureEndStates,
         /// <summary>Ledger rows with no recording id (KSC actions, launch-pad earnings) after the load's cutoff.</summary>
         UntaggedLedgerRowsAfterCutoff,
         /// <summary><c>GameStateRecorder.PendingScienceSubjects</c> (never serialized).</summary>
@@ -106,10 +100,6 @@ namespace Parsek
         /// other point, and both sides' session-scoped points
         /// (<c>InSessionStagedStateHandoff.MergeRewindPointsByOwner</c>).</summary>
         OwnerPartition,
-        /// <summary>Reconciled when the recorder resumes the restored tree:
-        /// <c>ParsekScenario.TrimAndReconcileForQuickloadResume</c> retires the trimmed set's
-        /// state from after the resume UT (the abandoned future).</summary>
-        ReconcileAtResume,
         /// <summary>Rows after the load's cutoff are removed.</summary>
         Prune,
         /// <summary>The state is emptied or nulled.</summary>
@@ -462,9 +452,6 @@ namespace Parsek
                 case LoadStateCategory.KerbalSlots:
                 case LoadStateCategory.GroupHierarchy:
                     return true;
-                case LoadStateCategory.AbandonedFutureEvents:
-                case LoadStateCategory.AbandonedFutureLedgerRows:
-                case LoadStateCategory.AbandonedFutureEndStates:
                 case LoadStateCategory.UntaggedLedgerRowsAfterCutoff:
                 case LoadStateCategory.PendingScience:
                 case LoadStateCategory.Routes:
@@ -517,9 +504,6 @@ namespace Parsek
                 case LoadStateCategory.TestBatchMarker: return DecideTestBatchMarker(kind);
                 case LoadStateCategory.SwitchSegmentSession: return DecideSwitchSegmentSession(kind);
                 case LoadStateCategory.StockActionIntent: return DecideStockActionIntent(kind);
-                case LoadStateCategory.AbandonedFutureEvents: return DecideAbandonedFutureEvents(kind);
-                case LoadStateCategory.AbandonedFutureLedgerRows: return DecideAbandonedFutureLedgerRows(kind);
-                case LoadStateCategory.AbandonedFutureEndStates: return DecideAbandonedFutureEndStates(kind);
                 case LoadStateCategory.UntaggedLedgerRowsAfterCutoff: return DecideUntaggedLedgerRows(kind);
                 case LoadStateCategory.PendingScience: return DecidePendingScience(kind);
                 case LoadStateCategory.Routes: return DecideRoutes(kind);
@@ -604,11 +588,7 @@ namespace Parsek
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
                     return Today(LoadReconcileAction.Memory,
-                        InSessionHandoffInstalls + " (RecordingStore.MergeCarriedStagedList); "
-                        + "ParsekScenario.ApplyInSessionStagedStateHandoffStepB then hands the rows naming a tree "
-                        + "a quickload resumed from the save (the committed-copy restore, ResumeFromQuicksave) "
-                        + "back to the save, except rows the loaded marker's resumed Re-Fly attempt wrote "
-                        + "(owner ruling OQ-1)");
+                        InSessionHandoffInstalls + " (RecordingStore.MergeCarriedStagedList)");
             }
             throw UnknownKind(kind);
         }
@@ -737,132 +717,11 @@ namespace Parsek
             throw UnknownKind(kind);
         }
 
-        private const string RevertResumesNothing =
-            "not reachable: the revert branch unstashes the pending tree (RecordingStore.UnstashPendingTreeOnRevert) "
-            + "before the Limbo dispatch, so no quickload resume or trim is armed";
-        private const string DiscardResumesNothing =
-            "not reachable: DiscardReFlyHandler arms RecordingStore.ArmNextActiveTreeRestoreSuppression, "
-            + "so the load restores no active tree and arms no trim";
-        private const string RewindResumesNothing =
-            "not reachable: TryRestoreActiveTreeNode returns early while rewinding, so no quickload trim is armed";
-        private const string ResumeTrimOnlyCutsTrajectories =
-            "the quickload resume trim (ParsekScenario.TrimRecordingTreePastUT) cuts trajectories only";
         private const string ColdSessionReset =
             "ParsekScenario.ResetSaveScopedSessionState forgets the store and its once-per-folder guard; ";
         private const string ColdGameStateReader = "ParsekScenario.LoadGameStateFromNodeOrFiles";
         private const string ColdFilesFallback =
             "a save without the node (an older build) reads the external file as last written";
-        private const string ResumeReconcileSkips =
-            "ParsekScenario.TrimAndReconcileForQuickloadResume runs the trim but skips this category on this kind";
-
-        private const string AbandonedFutureEventsResume =
-            "FlightRecorder.PrepareQuickloadResumeStateIfNeeded -> "
-            + "ParsekScenario.TrimAndReconcileForQuickloadResume purges the trimmed set's tagged events "
-            + "after the resume UT (GameStateStore.PurgeEventsForRecordingAfterUT; every event of a pruned "
-            + "recording), never an untagged event or one of committed history (a recording still committed, "
-            + "or one the quicksave already shows as history: IsCommittedHistoryAtQuicksave, which the "
-            + "trim leaves whole)";
-
-        private static LoadReconcileDecision DecideAbandonedFutureEvents(LoadKind kind)
-        {
-            switch (kind)
-            {
-                case LoadKind.Cold:
-                    return Today(LoadReconcileAction.Save,
-                        ColdSessionReset + "GameStateStore.LoadEventsFromSaveNode reads the save's own "
-                        + "GAME_STATE/PARSEK_GAME_STATE node (" + ColdGameStateReader + "), so the events are the save's; "
-                        + ColdFilesFallback + "; " + ResumeReconcileSkips);
-                case LoadKind.PlainRewind:
-                    return Today(LoadReconcileAction.Keep, RewindResumesNothing);
-                case LoadKind.ReFlyStart:
-                    return Today(LoadReconcileAction.Keep,
-                        "the event store is not reloaded in session and no Re-Fly path purges by UT; "
-                        + ResumeReconcileSkips);
-                case LoadKind.DiscardReFly:
-                    return Today(LoadReconcileAction.Keep, DiscardResumesNothing
-                        + "; the attempt's own events were purged by MergeDialog.PruneActiveReFlyAttemptOwnedTopology");
-                case LoadKind.StockRevert:
-                    return Today(LoadReconcileAction.Keep, RevertResumesNothing
-                        + "; the reverted flight's events stay for an F9 back, hidden by recording-id visibility");
-                case LoadKind.QuickloadFlight:
-                    return QuickloadOnly(LoadReconcileAction.ReconcileAtResume, AbandonedFutureEventsResume);
-                case LoadKind.InSessionOther:
-                    return InSessionOtherOnly(LoadReconcileAction.ReconcileAtResume, AbandonedFutureEventsResume);
-            }
-            throw UnknownKind(kind);
-        }
-
-        private static LoadReconcileDecision DecideAbandonedFutureLedgerRows(LoadKind kind)
-        {
-            switch (kind)
-            {
-                case LoadKind.Cold:
-                    return Today(LoadReconcileAction.Save,
-                        ColdSessionReset + "LedgerOrchestrator.OnLoad reads the save's own GAME_STATE/LEDGER node ("
-                        + ColdGameStateReader + "), so the restored tree's rows are the rows of the save's moment; "
-                        + ColdFilesFallback + "; " + ResumeReconcileSkips);
-                case LoadKind.PlainRewind:
-                    return Today(LoadReconcileAction.Keep, RewindResumesNothing);
-                case LoadKind.ReFlyStart:
-                    return Today(LoadReconcileAction.Bundle,
-                        BundleRestores + "; " + ResumeReconcileSkips);
-                case LoadKind.DiscardReFly:
-                    return Today(LoadReconcileAction.Keep, DiscardResumesNothing);
-                case LoadKind.StockRevert:
-                    return Today(LoadReconcileAction.Keep, RevertResumesNothing);
-                case LoadKind.QuickloadFlight:
-                    return QuickloadOnly(LoadReconcileAction.ReconcileAtResume, AbandonedFutureLedgerRowsResume);
-                case LoadKind.InSessionOther:
-                    return InSessionOtherOnly(LoadReconcileAction.ReconcileAtResume, AbandonedFutureLedgerRowsResume);
-            }
-            throw UnknownKind(kind);
-        }
-
-        private const string AbandonedFutureLedgerRowsResume =
-                        "FlightRecorder.PrepareQuickloadResumeStateIfNeeded -> "
-                        + "ParsekScenario.TrimAndReconcileForQuickloadResume -> Ledger.RetireAbandonedFutureActions "
-                        + "removes the trimmed set's recording-tagged rows that happened after the resume UT, every row "
-                        + "of a pruned recording and the KerbalAssignment row of a recording whose end state it cleared "
-                        + "(owner ruling OQ-2; untagged rows are the OnLoad untagged-rows-after-save retire's, and "
-                        + "seeds and committed history stay: a "
-                        + "recording still committed, or one the quicksave already shows as history, "
-                        + "IsCommittedHistoryAtQuicksave, which the trim leaves whole)";
-
-        private static LoadReconcileDecision DecideAbandonedFutureEndStates(LoadKind kind)
-        {
-            switch (kind)
-            {
-                case LoadKind.Cold:
-                    return Today(LoadReconcileAction.Save,
-                        "TryRestoreActiveTreeNode restores the tree from the node and splices only from committed "
-                        + "trees LoadRecordingTrees read from that same node; " + ResumeReconcileSkips);
-                case LoadKind.PlainRewind:
-                    return Today(LoadReconcileAction.Keep, RewindResumesNothing);
-                case LoadKind.ReFlyStart:
-                    return Today(LoadReconcileAction.Keep,
-                        ResumeReconcileSkips + ": the Re-Fly load resumes under the ActiveRecOnly scope once "
-                        + "AtomicMarkerWrite refreshes it, the active recording is the session's fresh provisional, "
-                        + "and the supersede merge owns the re-flown flight's history");
-                case LoadKind.DiscardReFly:
-                    return Today(LoadReconcileAction.Keep, DiscardResumesNothing);
-                case LoadKind.StockRevert:
-                    return Today(LoadReconcileAction.Keep, RevertResumesNothing);
-                case LoadKind.QuickloadFlight:
-                    return QuickloadOnly(LoadReconcileAction.ReconcileAtResume, AbandonedFutureEndStatesResume);
-                case LoadKind.InSessionOther:
-                    return InSessionOtherOnly(LoadReconcileAction.ReconcileAtResume, AbandonedFutureEndStatesResume);
-            }
-            throw UnknownKind(kind);
-        }
-
-        private const string AbandonedFutureEndStatesResume =
-                        "FlightRecorder.PrepareQuickloadResumeStateIfNeeded -> "
-                        + "ParsekScenario.TrimAndReconcileForQuickloadResume clears the terminal and crew end states "
-                        + "of every trimmed recording that ended after the resume UT and gives every surviving trimmed "
-                        + "recording back the merge state its quicksave baseline held (ResolveQuicksaveBaselineId, "
-                        + "ShouldResetMergeStateForResume; not committed history: a recording "
-                        + "still committed, or one the quicksave already shows as history, IsCommittedHistoryAtQuicksave; "
-                        + "an ending restamped after the save is not, IsEndRestampedAfterQuicksave)";
 
         private static LoadReconcileDecision DecideUntaggedLedgerRows(LoadKind kind)
         {
@@ -889,22 +748,18 @@ namespace Parsek
                         + "then LedgerOrchestrator.PruneRevertedFlightStrategyConversionRows "
                         + "for the reverted flight's tagged strategy conversion rows");
                 case LoadKind.QuickloadFlight:
-                    return QuickloadOnly(LoadReconcileAction.ReconcileAtCutoff, UntaggedRowsRetire);
+                    return QuickloadOnly(LoadReconcileAction.Keep, UntaggedRowsKept);
                 case LoadKind.InSessionOther:
-                    return InSessionOtherOnly(LoadReconcileAction.ReconcileAtCutoff, UntaggedRowsRetire);
+                    return InSessionOtherOnly(LoadReconcileAction.Keep, UntaggedRowsKept);
             }
             throw UnknownKind(kind);
         }
 
-        private const string UntaggedRowsRetire =
-                        "ParsekScenario.OnLoad -> RetireUntaggedRowsAfterSaveAtInSessionLoad, after the route reconcile and "
-                        + "before the recalculation: Ledger.RetireAbandonedFutureActions removes every untagged row (Space "
-                        + "Center purchases, upgrades, hires, contract actions, launch-pad rows) dated after the loaded save's "
-                        + "UT and no later than the clock before the load (ResolvePreLoadClockUT), except the rows the "
-                        + "save's UNTAGGED_FUTURE_ROWS id list names (they already existed at the save, a D2 row the clock "
-                        + "has since passed; a save without the list falls back to the window alone), so a load back in time "
-                        + "undoes them (owner ruling 2026-10-19, reversing QL-R2 for loads; rewinds keep D2) and a forward "
-                        + "or same-instant scene change touches nothing; seeds never";
+        private const string UntaggedRowsKept =
+                        "nothing retires them: the in-memory ledger keeps every untagged row and the recalculation walks "
+                        + "to the cutoff. A player's load back in time is a Cold save-file load whose ledger is the save's "
+                        + "own (design-load-restores-the-save.md), so Phase 3 deleted the in-session retire of the "
+                        + "untagged rows made after the save";
 
         private static LoadReconcileDecision DecidePendingScience(LoadKind kind)
         {

@@ -227,8 +227,7 @@ required = [
   "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql7-in-flight [\\s\\S]*Save-scoped session state reset: reason=save-file ",
   "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=ql7-in-flight [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
   "loadgame player-load: firing [\\s\\S]*Sidecar version resolved: rec=[0-9a-f]{32} kind=prec hash=[0-9a-f]{16} source=version promoted=True",
-  # The save holds the tree as its active tree only: no committed copy to rule on or detach.
-  "loadgame player-load: firing [\\s\\S]*Quickload committed-copy restore skipped: tree='GS1 Auto-Chute Booster' id=\\S+ reason=no-committed-copy staleMembers=0",
+  # The save holds the tree as its active tree only: no committed copy to detach.
   "loadgame player-load: firing [\\s\\S]*TryRestoreActiveTreeNode: no committed copy of tree 'GS1 Auto-Chute Booster' \\(id=\\S+\\) needed detaching",
   "OnLoad: cold-start active tree detected \\(state=Limbo\\) . deferred to OnFlightReady as Quickload",
   "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide [^\\r\\n]*\\bloadKind=Cold\\b",

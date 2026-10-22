@@ -16,6 +16,22 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## QL-2-RECOVER-REFUSED-WHILE-SLIDING: QL-2's Recover can be refused while the landed Flea still slides, and the refusal reads as a Parsek failure [FILED 2026-10-22 from QL-2 `2026-10-21_2220` and `2026-10-22_0001` (both PARSEK-FAIL, expectations), flown for PR #2170. Half fixed on branch `claude/project-thread-hvhou8` (the verb waits); the classification gap is OPEN, low. harness]
+
+The mission reported MISSION-OK, but seam step 0067 `Recover` was refused
+`recover-not-clear-to-save ... situation=LANDED hSrfSpeed=0.30 clearToSave=NOT_WHILE_MOVING_OVER_SURFACE`:
+the ~60-frame settle after the F5 is kept under 2 s on purpose (the landed tail must stay under the
+optimizer's 5 s split floor), and this landing still slid. The F9 was then refused `recording-active`
+and all 17 failing rows follow from the missed recovery (the re-fly was refused
+`recover-button-locked` at hSrfSpeed=0.37). Two gaps: the verb refused at once instead of waiting
+for the craft to come to rest, and a post-mission driver-gate refusal (hlib maps both reasons to
+`driver-gate`, a retryable INVALID) is not what classified the run, so it read PARSEK-FAIL with no
+retry. Fix (first gap): `Recover` re-samples a locked or not-clear-to-save button every frame for up
+to 15 s (`TestCommandRecover.UnlockWaitSeconds`, line `recover unlock-wait cleared`) and presses the
+frame it unlocks, refusing with the same reason only if it never does. QL-2 `2026-10-22_0021` PASS
+on it, with QL-14, ZF-1 and CI-6; no flight has hit the wait path yet. Still open: classify a refused
+required post-mission step as INVALID.
+
 ## ROUTE-CAREER-FIXTURES-EARN-STOCK-EVENTS-AT-LOAD: two of the career route copies earn stock career rewards at their first load, so the ledger logs drawdown-guard clamps [FILED 2026-10-21 from H76 `2026-10-21_2019` and H78 `2026-10-21_2022` (both PASS, no gate failed), branch `career-route-lanes`. OPEN, low. harness]
 
 **Symptom.** H76 logs `GUARDED DRAWDOWN clamped ... ledger may be missing an earning channel` 80 times and H78 40 times. No gate failed (neither lane forbids the clamp), the redelivery cell logged `funds unchanged net=0` on both, and the route cycles net 0. H74 / H75 / H77 / H79, which forbid the clamp, logged none.
@@ -330,6 +346,32 @@ committed-tree restore attempt re-arms the attempt from the save's committed cop
 committed, skips the splice, and restores the held-back events, so an earning made inside a
 resumed spawned-vessel flight survives F5 / F9 and reaches the ledger at the merge. Residue filed
 as ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE, since fixed. Lane QL-13.
+
+Phase 3 (2026-10-21, branch `claude/project-thread-hvhou8`, separate PR): deletes the in-session quickload
+machinery no remaining load kind reaches (design section 8 table, "Phase 3" column). Deleted:
+the abandoned Re-Fly fork prune (`CollectAbandonedReFlyForkIds` / `NoteAbandonedReFlyForks` /
+`PruneAbandonedReFlyForks`; only a committed-copy resume noted forks); step B's resumed-tree row
+rule (`ApplyResumedTreeRowRule`, `NoteQuickloadResumeDetach` and the resume narrowing of
+`MergeDialog.CollectReFlyAttemptOwnedRecordingIds`; every staged row list now stays memory's);
+the committed-copy rule (`DecideCommittedCopyRestore` / `ResolveCommittedCopyRestore`, its
+stale-epoch salvage and its restore-attempt clear; the stale-epoch keep now runs ungated, and
+lanes LAB-9a, QL-2, QL-2b, QL-2c pin the restore's no-detach line in place of the rule's skip
+line); OQ-2's retire halves (the abandoned-future reconcile: `BuildAbandonedFuturePlan`, the end
+state clear, the merge state reset, the event purge, the ledger retire, the `AbandonedFuture*`
+policy categories and `ReconcileAtResume`; the resume runs `TrimForQuickloadResume`, the trim
+alone, and seven lanes drop the reconcile's `reason=policy` skip line); the untagged-rows-after-save
+retire (`RetireUntaggedRowsAfterSaveAtInSessionLoad`, the `UNTAGGED_FUTURE_ROWS` id list OnSave
+wrote and OnLoad read, `ResolvePreLoadClockUT` and its scene-request clock stamp,
+`Ledger.RetireAbandonedFutureActions`; the cell keeps the rows now, a revert never reached it, and
+QL-1 only forbids its line); OQ-1's resumed-merged-attempt prune (`PruneStagedRowsNamingAttempt`,
+`RemoveRowsNaming`, the `*WriterId` selectors) and `RepairSessionBeforeRetry`'s detached-tree
+restore (Retry keeps the ledger-row removal; its line keeps `stagedRowsPruned=0` and
+`restoredCommittedTree=false` for RF-L4 / QL-5d). Kept on purpose: the QL-R1
+decline (`TryDeclineDiscardedActiveTree` / `TryDeclineDiscardedPendingTree`), still reached by a
+stock revert after a cold resume and an in-flight discard; the `QuickloadFlight` kind and its
+column, still produced by the harness `LoadGame` verb without `playerLoad=true` and the in-game
+QuickloadResume tests (`QuickloadResumeHelpers.TriggerQuickload`), where folding it into
+`InSessionOther` would change `DiscardStashedOnQuickload` and the route reconcile.
 
 ## ~~ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE: F5 inside a committed-tree restore attempt that resumed its recording in place loses the attempt's held-back earnings on F9~~ [FILED 2026-10-20 while closing design-load-restores-the-save.md open question 3. Was open. FIXED 2026-10-21 (the held-back earnings, PR #2164; the trajectory, owner ruling 2026-10-21) on branch `claude/project-thread-hvhou8`. xUnit; lane QL-13 LIVE-PROVEN `2026-10-21_2058`]
 

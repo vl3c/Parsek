@@ -545,15 +545,6 @@ namespace Parsek
         private static double lastSceneChangeRequestedUT = -1.0;
 
         /// <summary>
-        /// The game clock when the latest scene load was requested, from any scene
-        /// (<see cref="OnMainMenuTransition"/>), so an in-session OnLoad knows the clock it left
-        /// even when the outgoing scene is not FLIGHT (a flight quicksave loaded from the Space
-        /// Center). Read and consumed by the in-session branch for the untagged-rows-after-save
-        /// window. NaN = unset / consumed.
-        /// </summary>
-        private static double lastSceneLoadRequestClockUT = double.NaN;
-
-        /// <summary>
         /// UT at which the current flight launched, captured when OnLoad enters a FLIGHT scene
         /// via a fresh launch (NEW_FROM_FILE / NEW_FROM_CRAFT_NODE) where <c>loadedUT</c> is the
         /// launch instant. This is the launch-boundary the editor-revert orphan prune uses,
@@ -1475,11 +1466,6 @@ namespace Parsek
                 PreserveRecordingStateIfLoadFault(node);
                 savePhase = "game-state";
                 PersistGameStateAndMilestones(node);
-                // The untagged rows dated after this save that the ledger already holds (a
-                // rewind leaves them as committed future, ruling D2): a later in-session load
-                // of this save keeps exactly these and retires the rest of its window.
-                savePhase = "untagged-future-rows";
-                WriteUntaggedFutureRowsNode(node, KerbalsModule.ReadLiveClockUT(), Ledger.Actions);
                 // Rewind-to-Staging Phase 1 (design sections 5.1-5.9). Persistence
                 // only in Phase 1; no behavior wired to these collections yet.
                 savePhase = "refly-state-persist";
@@ -4085,10 +4071,8 @@ namespace Parsek
                     RecorderStateLog.RecState("OnLoad:active-tree-restored", CaptureScenarioRecorderState());
 
                     // Step B of the in-session handoff: rewind points of trees memory still holds
-                    // committed come from memory, the rest from the save, and the supersede rows,
-                    // retirements and tombstones naming a tree the restore resumed from the save
-                    // follow the save. After the restores above, so a tree the load resumes has
-                    // already been detached from the committed set.
+                    // committed come from memory, the rest from the save. After the restores
+                    // above, so the committed set it partitions by is the one this load keeps.
                     loadPhase = "in-session-handoff-step-b";
                     ApplyInSessionStagedStateHandoffStepB();
 
@@ -4157,8 +4141,6 @@ namespace Parsek
                         : 0.0;
                     double preChangeUT = lastSceneChangeRequestedUT;
                     lastSceneChangeRequestedUT = -1.0; // consume regardless of outcome
-                    double sceneRequestClockUT = lastSceneLoadRequestClockUT;
-                    lastSceneLoadRequestClockUT = double.NaN;
                     bool utWentBackwards = planetariumReady && IsQuickloadOnLoad(
                         preChangeUT, loadedUT, UtBackwardsEpsilon);
 
@@ -4623,8 +4605,7 @@ namespace Parsek
                             // pending-Limbo tree and wires a fresh recorder to it.
                             ConfigurePendingQuickloadResumeContext(
                                 RecordingStore.PendingTree,
-                                refinedLoadKind,
-                                planetariumReady ? loadedUT : double.NaN);
+                                refinedLoadKind);
                             ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.Quickload;
                             ParsekLog.Info("Scenario",
                                 $"OnLoad: pending-Limbo tree '{RecordingStore.PendingTree?.TreeName}' " +
@@ -4698,23 +4679,6 @@ namespace Parsek
                             $"routes left as they were (kind={refinedLoadKind})");
                     }
                     Logistics.RouteEventLog.LogWalkSummary();
-
-                    // Untagged rows made after the loaded save (Space Center purchases, upgrades,
-                    // hires, contract actions, launch-pad rows): a load back in time undoes them
-                    // (owner ruling 2026-10-19, LoadReconcilePolicy UntaggedLedgerRowsAfterCutoff).
-                    // Before the recalculation so it never walks them; removes rows only.
-                    // The save lists the untagged future rows it already held; those stay. A save
-                    // written before the list existed falls back to the clock window alone.
-                    loadPhase = "untagged-rows-after-save";
-                    HashSet<string> untaggedIdsAtSave = ReadUntaggedFutureRowIds(
-                        node, loadedSaveUTForRoutes, out string untaggedListMode);
-                    RetireUntaggedRowsAfterSaveAtInSessionLoad(
-                        refinedLoadKind,
-                        loadedSaveUTForRoutes,
-                        ResolvePreLoadClockUT(
-                            preChangeUT, sceneRequestClockUT, planetariumReady ? loadedUT : double.NaN),
-                        untaggedIdsAtSave,
-                        untaggedListMode);
 
                     loadPhase = "ledger-recalculate";
                     // The ledger walks at the LOADED save's clock: inside a Space Center OnLoad
@@ -6504,10 +6468,9 @@ namespace Parsek
         /// the load is Parsek's own rewind flow which explicitly resets playback state.</para>
         ///
         /// Returns true if an active tree was found and stashed as Limbo.
-        /// <paramref name="earlyLoadKind"/> is the load's prologue kind and
-        /// <paramref name="loadedSceneIsFlight"/> whether the load lands in FLIGHT; the
-        /// committed-copy rule (<see cref="DecideCommittedCopyRestore"/>) applies to a plain
-        /// in-session load into FLIGHT only.
+        /// <paramref name="earlyLoadKind"/> is the load's prologue kind (the save-attempt re-arm
+        /// reads it) and <paramref name="loadedSceneIsFlight"/> whether the load lands in FLIGHT
+        /// (the discarded-tree decline reads it).
         /// </summary>
         /// <summary>
         /// Pure: true when <paramref name="tree"/>, the active tree a load restores, is the live
@@ -6531,7 +6494,6 @@ namespace Parsek
             bool loadedSceneIsFlight = true)
         {
             lastRestoredQuicksaveTreeFacts = null;
-            ClearQuickloadResumeDetach();
             pendingFreshRecordingAfterDiscard = null;
             if (node == null) return false;
             if (RewindContext.IsRewinding)
@@ -6568,7 +6530,7 @@ namespace Parsek
 
                 // What the quicksave itself says about each member, read from the node before
                 // hydration, salvage, the stale-epoch keep or the same-id refresh can bring the
-                // committed future in. The quickload-resume reconcile reads it to leave alone a
+                // committed future in. The quickload-resume trim reads it to leave whole a
                 // member that was already committed history when the quicksave was taken.
                 lastRestoredQuicksaveTreeFacts = CaptureQuicksaveTreeFacts(
                     tree, CollectQuicksaveCommittedRecordingIds(node), CollectQuicksaveCommittedTreeIds(node));
@@ -6607,15 +6569,7 @@ namespace Parsek
                 if (TryDeclineDiscardedActiveTree(tree, loadedSceneIsFlight))
                     return false;
 
-                // A committed tree with this id that the quicksave does not hold as committed was
-                // committed after the quicksave (owner ruling OQ-2). Its stale-epoch members are
-                // salvaged from the committed copy here, and the stale-epoch keep below does not
-                // run for it, so the splice, refresh and detach that follow always do.
-                CommittedCopyRestoreAction committedCopyAction = ResolveCommittedCopyRestore(
-                    tree, earlyLoadKind, loadedSceneIsFlight, ref staleEpochHydrationFailures);
-
-                if (committedCopyAction != CommittedCopyRestoreAction.ResumeFromQuicksave
-                    && ShouldKeepPendingTreeAfterHydrationFailure(tree, staleEpochHydrationFailures))
+                if (ShouldKeepPendingTreeAfterHydrationFailure(tree, staleEpochHydrationFailures))
                 {
                     ParsekLog.Warn("Scenario",
                         $"TryRestoreActiveTreeNode: keeping in-memory pending tree " +
@@ -6679,7 +6633,6 @@ namespace Parsek
                 // it) and skips the splice (its same-id refresh would put the committed trajectory
                 // over a recording resumed in place).
                 bool liveAttemptKeepsCommittedCopy = !saveAttemptRearmed
-                    && committedCopyAction != CommittedCopyRestoreAction.ResumeFromQuicksave
                     && RecordingStore.IsCommittedTreeRestoreAttemptTree(tree.Id);
                 int splicedFromCommitted = saveAttemptRearmed || liveAttemptKeepsCommittedCopy
                     ? 0
@@ -6696,22 +6649,13 @@ namespace Parsek
                 // though the save file has the T2 active version), remove the committed
                 // copy so the active version is the single source of truth. Otherwise
                 // the next OnSave would write the tree twice with the same id.
-                // A resume from the quicksave notes the detached copy's members for the
-                // in-session handoff's step B (its rows follow the save).
-                List<string> resumeDetachedCopyIds =
-                    committedCopyAction == CommittedCopyRestoreAction.ResumeFromQuicksave
-                        ? CollectCommittedCopyRecordingIds(tree)
-                        : null;
                 // A re-armed attempt keeps its committed original committed, as a live attempt
                 // does: a later Discard drops only the clone, and a Merge replaces the original.
                 // A Re-Fly session the save resumes keeps it too: a session runs with the
                 // committed original beside its live tree (the Re-Fly start's bundle restore puts
-                // it back), so ghost chains still hold back the vessels it claims (CI-3). A
-                // session merged after the save is a resume from the quicksave instead: its
-                // committed copy detaches and its rows follow the save.
+                // it back), so ghost chains still hold back the vessels it claims (CI-3).
                 bool reFlySessionResumed =
-                    committedCopyAction != CommittedCopyRestoreAction.ResumeFromQuicksave
-                    && IsResumedReFlySessionTree(Instance?.ActiveReFlySessionMarker, tree);
+                    IsResumedReFlySessionTree(Instance?.ActiveReFlySessionMarker, tree);
                 bool committedCopyDetached = !saveAttemptRearmed
                     && !reFlySessionResumed
                     && !liveAttemptKeepsCommittedCopy
@@ -6744,8 +6688,6 @@ namespace Parsek
                         $"TryRestoreActiveTreeNode: no committed copy of tree '{tree.TreeName}' " +
                         $"(id={tree.Id}) needed detaching");
                 }
-                if (committedCopyAction == CommittedCopyRestoreAction.ResumeFromQuicksave)
-                    ClearCommittedTreeRestoreAttemptAfterDetach(tree);
 
                 // Bug #290d: if the pending tree is already Finalized (set by
                 // CommitTreeSceneExit during the same scene transition), it has
@@ -6779,13 +6721,6 @@ namespace Parsek
                     ? PendingTreeState.LimboVesselSwitch
                     : PendingTreeState.Limbo;
                 RecordingStore.StashPendingTree(tree, stashState);
-                if (committedCopyDetached && resumeDetachedCopyIds != null)
-                {
-                    NoteQuickloadResumeDetach(tree, resumeDetachedCopyIds);
-                    // The rows naming this tree follow the save (step B), so the Re-Fly forks the
-                    // splice brought in from after the save go at the resume.
-                    NoteAbandonedReFlyForks(tree, lastRestoredQuicksaveTreeFacts);
-                }
 
                 // Read resume hints for the restore coroutine (rewind save filename only).
                 pendingActiveTreeResumeRewindSave = treeNodes[t].GetValue("resumeRewindSave");
@@ -6822,11 +6757,8 @@ namespace Parsek
             internal string TreeId;
             internal QuickloadTrimScope TrimScope;
             internal string TrimScopeReason;
-            // The load that armed the resume: TrimAndReconcileForQuickloadResume gates each
-            // abandoned-future category on LoadReconcilePolicy.Decide(LoadKind, category).
+            // The load that armed the resume (the resume-prep line logs it).
             internal LoadKind LoadKind;
-            // Planetarium UT when OnLoad armed the context (NaN when the clock was not ready).
-            internal double LoadedUT;
             // What the loaded save said about the tree's members (null when the resumed tree
             // did not come from this load's save node).
             internal QuicksaveTreeFacts QuicksaveFacts;
@@ -6842,7 +6774,7 @@ namespace Parsek
         private static QuickloadResumeContext pendingQuickloadResumeContext;
 
         internal static void ConfigurePendingQuickloadResumeContext(
-            RecordingTree tree, LoadKind loadKind, double loadedUT = double.NaN)
+            RecordingTree tree, LoadKind loadKind)
         {
             if (tree == null || string.IsNullOrEmpty(tree.Id) || string.IsNullOrEmpty(tree.ActiveRecordingId))
             {
@@ -6865,14 +6797,12 @@ namespace Parsek
                 TrimScope = trimScope,
                 TrimScopeReason = trimScopeReason,
                 LoadKind = loadKind,
-                LoadedUT = loadedUT,
                 QuicksaveFacts = quicksaveFacts,
             };
 
             ParsekLog.Verbose("Scenario",
                 $"Quickload-resume context armed: treeId={tree.Id} activeRecId={tree.ActiveRecordingId} " +
                 $"trimScope={trimScope} ({trimScopeReason}) loadKind={loadKind} " +
-                $"loadedUT={loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
                 $"quicksaveFacts={(quicksaveFacts != null ? quicksaveFacts.Members.Count.ToString(CultureInfo.InvariantCulture) : "none")}");
         }
 
@@ -6898,21 +6828,18 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The load kind (and the clock at OnLoad) the pending quickload-resume context was
-        /// armed with, or null when no context is armed for <paramref name="treeId"/>.
+        /// The load kind the pending quickload-resume context was armed with, or null when no
+        /// context is armed for <paramref name="treeId"/>.
         /// </summary>
-        internal static LoadKind? GetPendingQuickloadLoadKind(string treeId, out double loadedUT)
+        internal static LoadKind? GetPendingQuickloadLoadKind(string treeId)
         {
             QuickloadResumeContext context = pendingQuickloadResumeContext;
             if (context == null
                 || string.IsNullOrEmpty(treeId)
                 || !string.Equals(context.TreeId, treeId, StringComparison.Ordinal))
             {
-                loadedUT = double.NaN;
                 return null;
             }
-
-            loadedUT = context.LoadedUT;
             return context.LoadKind;
         }
 
@@ -9135,23 +9062,8 @@ namespace Parsek
         /// <see cref="RegisterMainMenuHook"/>; unsubscribed in <see cref="OnDestroy"/>.
         /// See <see cref="RegisterMainMenuHook"/> for the full rationale.
         /// </summary>
-        private static double ReadSceneLoadRequestClockUT()
-        {
-            try
-            {
-                return Planetarium.fetch != null ? Planetarium.GetUniversalTime() : double.NaN;
-            }
-            catch (Exception)
-            {
-                return double.NaN;
-            }
-        }
-
         private void OnMainMenuTransition(GameScenes newScene)
         {
-            lastSceneLoadRequestClockUT = newScene == GameScenes.MAINMENU
-                ? double.NaN
-                : ReadSceneLoadRequestClockUT();
             if (newScene == GameScenes.MAINMENU)
             {
                 // The game being unloaded ends any window in which an in-game batch's

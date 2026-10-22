@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using Xunit;
 
 namespace Parsek.Tests
@@ -12,9 +11,9 @@ namespace Parsek.Tests
     /// the other query-family converters) is written live by
     /// <see cref="LedgerOrchestrator.OnStrategyCurrencyConversion"/>, while the reward itself
     /// is a game-state event tagged to the flight and booked at commit. The converted rows
-    /// must follow that award through every timeline operation: an F9 into a quicksave taken
-    /// before the award, a Re-Fly merge that supersedes the flight, a stock revert, and a
-    /// non-rewind discard (which keeps the award, so keeps the converted share too).
+    /// must follow that award through every timeline operation: a Re-Fly merge that supersedes
+    /// the flight, a stock revert, and a non-rewind discard (which keeps the award, so keeps the
+    /// converted share too). An F9 is a cold load, so the save's own ledger holds no such rows.
     /// </summary>
     [Collection("Sequential")]
     public class StrategyConversionTimelineTests : IDisposable
@@ -110,31 +109,6 @@ namespace Parsek.Tests
             return Ledger.Actions.Where(LedgerOrchestrator.IsStrategyConversionRow).ToList();
         }
 
-        private static RecordingTree MakeTree(string id)
-        {
-            var tree = new RecordingTree
-            {
-                Id = id,
-                TreeName = id,
-                RootRecordingId = "root_" + id,
-                ActiveRecordingId = "root_" + id,
-            };
-            var root = new Recording { RecordingId = "root_" + id, TreeId = id, VesselName = id, VesselPersistentId = 111u };
-            SetPoints(root, 100.0, 150.0, 200.0);
-            tree.AddOrReplaceRecording(root);
-            tree.RebuildBackgroundMap();
-            return tree;
-        }
-
-        private static void SetPoints(Recording rec, params double[] uts)
-        {
-            rec.Points.Clear();
-            foreach (double ut in uts)
-                rec.Points.Add(new TrajectoryPoint { ut = ut, bodyName = "Kerbin" });
-            rec.ExplicitStartUT = uts[0];
-            rec.ExplicitEndUT = uts[uts.Length - 1];
-        }
-
         private static void AddEvent(string recordingId, double ut, GameStateEventType type, string key, string detail)
         {
             var e = new GameStateEvent
@@ -142,17 +116,6 @@ namespace Parsek.Tests
                 ut = ut, eventType = type, key = key, detail = detail, recordingId = recordingId,
             };
             GameStateStore.AddEvent(ref e);
-        }
-
-        private static void RunResumePrep(RecordingTree tree, double resumeUT, LoadKind kind)
-        {
-            var recorder = new FlightRecorder { ActiveTree = tree };
-            FlightRecorder.QuickloadResumeUTProviderForTesting = () => resumeUT;
-            ParsekScenario.ConfigurePendingQuickloadResumeContext(tree, kind);
-            MethodInfo method = typeof(FlightRecorder).GetMethod(
-                "PrepareQuickloadResumeStateIfNeeded", BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.NotNull(method);
-            method.Invoke(recorder, null);
         }
 
         // ============================================================
@@ -183,47 +146,6 @@ namespace Parsek.Tests
             var rows = ConversionRows();
             Assert.Equal(2, rows.Count);
             Assert.All(rows, r => Assert.True(string.IsNullOrEmpty(r.RecordingId)));
-        }
-
-        // ============================================================
-        // F9 into a quicksave taken before the award
-        // ============================================================
-
-        [Fact]
-        public void F9_BeforeTheAward_RetiresTheConvertedShareWithTheAward()
-        {
-            // F5 at 200; the flight completes a contract at 300 under Appreciation Campaign;
-            // F9. The completion is the abandoned future, so is the share the strategy took.
-            var tree = MakeTree("strat_f9");
-            string rootId = tree.RootRecordingId;
-            AddEvent(rootId, 300.0, GameStateEventType.ContractCompleted, "guid-abandoned", "fundsReward=50000");
-            ConvertWhileRecording(rootId, 300.0, AppreciationCampaignLegs(), "ContractReward");
-            Assert.Equal(2, ConversionRows().Count);
-
-            RunResumePrep(tree, 200.0, LoadKind.QuickloadFlight);
-
-            Assert.DoesNotContain(GameStateStore.Events, e => e.key == "guid-abandoned");
-            Assert.Empty(ConversionRows());
-            Assert.Contains(logLines, l =>
-                l.Contains("Quickload abandoned-future reconcile:")
-                && l.Contains("strategyConversionRetired=2 "));
-        }
-
-        [Fact]
-        public void F9_AfterTheAward_KeepsTheConvertedShare()
-        {
-            var tree = MakeTree("strat_f9_kept");
-            string rootId = tree.RootRecordingId;
-            AddEvent(rootId, 150.0, GameStateEventType.ContractCompleted, "guid-kept", "fundsReward=50000");
-            ConvertWhileRecording(rootId, 150.0, AppreciationCampaignLegs(), "ContractReward");
-
-            RunResumePrep(tree, 200.0, LoadKind.QuickloadFlight);
-
-            Assert.Contains(GameStateStore.Events, e => e.key == "guid-kept");
-            Assert.Equal(2, ConversionRows().Count);
-            Assert.DoesNotContain(logLines, l =>
-                l.Contains("Quickload abandoned-future reconcile:")
-                && !l.Contains("strategyConversionRetired=0 "));
         }
 
         // ============================================================

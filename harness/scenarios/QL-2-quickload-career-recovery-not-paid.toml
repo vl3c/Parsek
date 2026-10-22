@@ -217,7 +217,9 @@ steps = [
   { cmd = "RecordingState",                                                            expect = "OK" },
   { cmd = "RecordingState",                                                            expect = "OK" },
   { cmd = "RecordingState",                                                            expect = "OK" },
-  # THE REWARD AFTER THE F5: stock's Recover button on the active Flea (ZF-1's pid).
+  # THE REWARD AFTER THE F5: stock's Recover button on the active Flea (ZF-1's pid). A Flea
+  # that touched down still sliding keeps the button locked; the verb waits up to 15 s for it
+  # to unlock (todo QL-2-RECOVER-REFUSED-WHILE-SLIDING).
   { cmd = "Recover",        args = { pid = "2905720181" },                             expect = "OK", budget = 120 },
   # THE F9, from the Space Center: the player's load of the quicksave (playerLoad=true), a
   # Cold save-file load. The quicksave holds a focusable vessel, so the verb takes the
@@ -459,7 +461,7 @@ required = [
   "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
   # The recovery's persistent save rewrote the heads after the F5; the F5 bytes resolve.
   "loadgame player-load: firing [\\s\\S]*Sidecar version resolved: rec=[0-9a-f]{32} kind=prec hash=[0-9a-f]{16} source=version promoted=True",
-  "loadgame player-load: firing [\\s\\S]*Quickload committed-copy restore skipped: tree='Jumping Flea' id=\\S+ reason=no-committed-copy staleMembers=0",
+  "loadgame player-load: firing [\\s\\S]*TryRestoreActiveTreeNode: no committed copy of tree 'Jumping Flea' \\(id=\\S+\\) needed detaching",
   "OnLoad: cold-start active tree detected \\(state=Limbo\\) . deferred to OnFlightReady as Quickload",
   "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide [^\\r\\n]*\\bloadKind=Cold\\b",
   "RestoreActiveTreeFromPending: resumed recording tree 'Jumping Flea' activeRec='[0-9a-f]{32}'",
@@ -467,9 +469,8 @@ required = [
   # =================================================================================
   # THE GATE - THE PAYOUT IS NOT IN THE SAVE. The ledger is the quicksave's own
   # GAME_STATE/LEDGER (the f9 block's `ledgerRows=` line), written before the recovery, so
-  # nothing is retired: the resume reconcile skips by policy (every Cold cell is Save) and
+  # nothing needs retiring (Phase 3 deleted the resume reconcile whose skip line stood here);
   # the forbidden walks below prove no Recovery row came back.
-  "\\[Scenario\\] Quickload abandoned-future reconcile skipped: tree='Jumping Flea' kind=Cold scope=TreeWide reason=policy",
   # END GATE
   # =================================================================================
 

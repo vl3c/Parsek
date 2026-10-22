@@ -299,7 +299,7 @@ required = [
   "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*OnLoad game state from save node: ledgerRows=[0-9]+ ",
   "loadgame player-load: firing [\\s\\S]*Sidecar version resolved: rec=[0-9a-f]{32} kind=prec hash=[0-9a-f]{16} source=version promoted=True",
   # No committed copy in the save, nothing spliced from or detached out of one.
-  "loadgame player-load: firing [\\s\\S]*Quickload committed-copy restore skipped: tree='GS1 Auto-Chute Booster' id=\\S+ reason=no-committed-copy staleMembers=0",
+  "loadgame player-load: firing [\\s\\S]*TryRestoreActiveTreeNode: no committed copy of tree 'GS1 Auto-Chute Booster' \\(id=\\S+\\) needed detaching",
   "OnLoad: cold-start active tree detected \\(state=Limbo\\) . deferred to OnFlightReady as Quickload",
   "Quickload resume prep: activeRec='[0-9a-f]{32}' cutoffUT=[0-9.]+ preTrimEndUT=[0-9.]+ trimScope=TreeWide [^\\r\\n]*\\bloadKind=Cold\\b",
   "RestoreActiveTreeFromPending: resumed recording tree 'GS1 Auto-Chute Booster' activeRec='[0-9a-f]{32}'",
@@ -307,8 +307,7 @@ required = [
   # =================================================================================
   # THE GATE - THE ABANDONED REWARD IS NOT IN THE SAVE. The ledger, events and milestones
   # are the quicksave's GAME_STATE (the f9 block's `ledgerRows=` line), written before the
-  # EVA; the resume reconcile has nothing to do and skips by policy.
-  "\\[Scenario\\] Quickload abandoned-future reconcile skipped: tree='GS1 Auto-Chute Booster' kind=Cold scope=TreeWide reason=policy",
+  # EVA (Phase 3 deleted the resume reconcile whose skip line stood here).
   # THE CONTROL that makes the forbidden walk tokens below mean something: the save's ledger
   # IS walked after the load (the cold load's recalc and the exit commit's), and the walk
   # still credits the pre-F5 FirstLaunch milestone of the pod recording.
