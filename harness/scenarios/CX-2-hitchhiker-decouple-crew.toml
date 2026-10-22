@@ -51,6 +51,9 @@ steps = [
   { cmd = "GoToEditor",     args = { facility = "VAB", craft = "HH1 Hitchhiker Drop" },   expect = "OK", budget = 120 },
   { cmd = "LaunchFromEditor",                                                             expect = "OK", budget = 180 },
   { cmd = "RecordingState",                                                               expect = "OK" },
+  # The launched vessel stays packed for its first physics frames and CrewTransfer refuses a
+  # packed vessel (crewtransfer-vessel-not-ready): let the pad settle first.
+  { cmd = "WarpToUT",       args = { ut = "10" },                                         expect = "OK", budget = 120 },
   # (b) Bob into the Hitchhiker.
   { cmd = "CrewTransfer",   args = { kerbal = "Bob Kerman", part = "crewCabin" },         expect = "OK" },
   # (c) Record, then the decouple.
