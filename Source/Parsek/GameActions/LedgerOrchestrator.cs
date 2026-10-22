@@ -8906,6 +8906,24 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Every action id the ledger itself holds, effective or not (physical identity, not
+        /// ERS / ELS: the stock pool reference asks whether a counted row is GONE from the
+        /// ledger or only outside the effective ledger, committed-value rule plan 2.4).
+        /// </summary>
+        internal static HashSet<string> CollectLedgerActionIds()
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                string id = actions[i]?.ActionId;
+                if (!string.IsNullOrEmpty(id))
+                    ids.Add(id);
+            }
+            return ids;
+        }
+
+        /// <summary>
         /// Pure affordability reconciliation (BUG-G): the spendable amount is what the pool
         /// patch writes, the reservation-aware target floored at 0. Anything stock applied
         /// that no other row holds is a <see cref="GameActionType.StockPoolAdjustment"/> row

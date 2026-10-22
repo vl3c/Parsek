@@ -576,13 +576,21 @@ and logistics design section 10.6).**
   a funds or science row that is not a cost row stops at 0; `StockCurrencyClamp`); science's
   exchange debit is a cost row. An older save's first measured patch files its gap as one
   adjustment row and writes nothing. Tests: `StockPoolReferenceTests` (B1-B5, N1-N3, M1, M2, the
-  review's R1-R5, L5's shape, the release bug, save / load, cold reconcile),
+  review's R1-R5, T1-T2f, L5's shape, the release bug, save / load, cold reconcile),
   `StockZeroClampAndOpenPenaltyTests`, `SpendingGateConsistencyTests`; R1-R5 read red against
   a075d07's `cumLeak` model (800 for 1000, 40000 for 20000, 550 for 535.6, 0 for 5, 0 for 50).
   Deviations: a removed row steps back only what was stepped; load-migration and
   broken-ledger-recovery rows are stock-applied; adjustment rows are hidden from the Timeline.
-  Known limits: with a reservation the walk clamps at running, above the pool by the reserve (phase
-  3); a transient leak files a pair of opposite rows. The ledger ground-truth harness leaves the
+  Revision 7 (second review of the rework): a counted row still in the ledger but outside the
+  effective ledger (tombstoned, superseded, session-suppressed) is dropped without a step back or
+  a carry (only rows physically gone, the M2 cases, are carried), so a Re-Fly from a rewind point
+  no longer resurrects a tombstoned crew death; and with `AllowNegativeCurrency` off, the part of a
+  positive leak that stock's 0 clamp forgave on rows applied since the last patch (`lastPatchUT`,
+  saved per pool) is not filed, so a clamp under a reservation stays a debt repaid by later gains
+  instead of paying a committed cost. The reviewer's "live 0, expected below 0" form left a
+  phantom debt when a transient leak's row landed late (cell T2e). Known limits: with a
+  reservation the walk clamps at running, above the pool by the reserve (phase 3 adds the floor);
+  a transient leak files a pair of opposite rows. The ledger ground-truth harness leaves the
   walked adjustment rows out of its pool facets (Layer A `LedgerGroundTruthDiff`, Layer B fills
   them per pool from the ELS and logs one `stock pool adjustments left out of the comparison:
   pool=...` line per pool), so a measured leak still reads as a divergence (LAB-12's seed DEFECT 1

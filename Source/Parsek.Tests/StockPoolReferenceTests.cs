@@ -62,9 +62,21 @@ namespace Parsek.Tests
         // Helpers
         // ------------------------------------------------------------------
 
+        /// <summary>Rows still in the ledger but outside the effective ledger (tombstoned,
+        /// superseded, session-suppressed): the walk and the reference rows leave them out.</summary>
+        private readonly HashSet<GameAction> outsideEls = new HashSet<GameAction>();
+
+        private List<GameAction> Els() => ledger.Where(a => !outsideEls.Contains(a)).ToList();
+
+        /// <summary>Every id the ledger itself holds (the patcher's
+        /// <c>LedgerOrchestrator.CollectLedgerActionIds</c>).</summary>
+        private HashSet<string> IdsInLedger() => new HashSet<string>(
+            ledger.Where(a => a != null && !string.IsNullOrEmpty(a.ActionId)).Select(a => a.ActionId),
+            StringComparer.Ordinal);
+
         private void Walk(double now)
         {
-            RecalculationEngine.Recalculate(new List<GameAction>(ledger), now);
+            RecalculationEngine.Recalculate(Els(), now);
         }
 
         /// <summary>Files the measurement's adjustment into the test ledger, as the patcher does.</summary>
@@ -82,10 +94,11 @@ namespace Parsek.Tests
         {
             Walk(now);
             var state = StockPoolReference.Funds;
-            List<StockPoolRow> rows = StockPoolReference.BuildRows(StockPool.Funds, ledger, funds.GetRowEffects());
+            List<StockPoolRow> rows = StockPoolReference.BuildRows(StockPool.Funds, Els(), funds.GetRowEffects());
             double min = funds.GetProjectionMinBalance();
             StockPoolMeasurement m = StockPoolReference.Measure(
-                state, rows, now, live, 0.0, authoritative, 0.01, min);
+                state, rows, now, live, 0.0, authoritative, 0.01, min, IdsInLedger(),
+                clampAtZero: !KspStatePatcher.ReadAllowNegativeCurrency());
             File(m, StockPool.Funds, now);
             double write = m.GapAdopted
                 ? live
@@ -103,10 +116,11 @@ namespace Parsek.Tests
         {
             Walk(now);
             var state = StockPoolReference.Science;
-            List<StockPoolRow> rows = StockPoolReference.BuildRows(StockPool.Science, ledger, science.GetRowEffects());
+            List<StockPoolRow> rows = StockPoolReference.BuildRows(StockPool.Science, Els(), science.GetRowEffects());
             double min = science.GetProjectionMinBalance();
             StockPoolMeasurement m = StockPoolReference.Measure(
-                state, rows, now, live, pendingAdjust, authoritative, 0.001, min + pendingAdjust);
+                state, rows, now, live, pendingAdjust, authoritative, 0.001, min + pendingAdjust,
+                IdsInLedger(), clampAtZero: !KspStatePatcher.ReadAllowNegativeCurrency());
             File(m, StockPool.Science, now);
             double write = m.GapAdopted
                 ? live
@@ -122,10 +136,10 @@ namespace Parsek.Tests
             Walk(now);
             var state = StockPoolReference.Reputation;
             List<StockPoolRow> rows = StockPoolReference.BuildRows(
-                StockPool.Reputation, ledger, reputation.GetRowEffects());
+                StockPool.Reputation, Els(), reputation.GetRowEffects());
             double running = reputation.GetRunningRep();
             StockPoolMeasurement m = StockPoolReference.Measure(
-                state, rows, now, live, 0.0, authoritative, 0.01, running);
+                state, rows, now, live, 0.0, authoritative, 0.01, running, IdsInLedger());
             File(m, StockPool.Reputation, now);
             double write = m.GapAdopted
                 ? live
@@ -541,6 +555,188 @@ namespace Parsek.Tests
             // The next patch with nothing changed writes the same pool.
             Assert.Equal(900.0, PatchFunds(14, 900), 6);
             Assert.False(lastMeasurement.LeakKept);
+        }
+
+        // ------------------------------------------------------------------
+        // Revision 7 (second review of the rework): a counted row still in the ledger but
+        // outside the effective ledger is dropped without a carry; stock's 0 clamp under a
+        // reservation is forgiveness, not a leak
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void T1_ReFlyFromARewindPointCountingATombstonedDeath_DoesNotResurrectThePenalty()
+        {
+            // Jeb dies at UT 150 (a -10 KerbalDeath, stored post-curve); the flight merges.
+            ledger.Add(RepSeed(50));
+            PatchReputation(0, 50);
+            var death = new GameAction
+            {
+                ActionId = "D", UT = 150, Type = GameActionType.ReputationPenalty,
+                NominalPenalty = 10f, RepPenaltySource = ReputationPenaltySource.KerbalDeath,
+            };
+            ledger.Add(death);
+            Assert.Equal(40.0, PatchReputation(200, 40), 4);
+            Assert.False(lastMeasurement.LeakKept);
+
+            // RP_B at UT 250: its quicksave's reference counts D.
+            Assert.Equal(40.0, PatchReputation(250, 40), 4);
+            var rpB = new ConfigNode("SCENARIO");
+            StockPoolReference.SaveTo(rpB);
+            Assert.True(StockPoolReference.Reputation.Counted.ContainsKey("D"));
+
+            // A Re-Fly of A merges and tombstones D: the row stays in Ledger.Actions, out of
+            // the effective ledger.
+            outsideEls.Add(death);
+
+            // Re-Fly B from RP_B: the rewind-point quicksave (live 40, D counted) loads and the
+            // authoritative patch runs.
+            StockPoolReference.LoadFrom(rpB, "ReFlyStart");
+            double write = PatchReputation(250, 40, authoritative: true);
+
+            Assert.Equal(0.0, lastMeasurement.Adjustment, 6);
+            Assert.Equal(0.0, Adjusted(StockPool.Reputation), 6);
+            Assert.Equal(50.0, write, 4);
+            Assert.Equal((double)reputation.GetRunningRep(), write, 4);
+            Assert.False(StockPoolReference.Reputation.Counted.ContainsKey("D"));
+
+            // And the next measured patch keeps it there.
+            Assert.Equal(50.0, PatchReputation(260, 50), 4);
+            Assert.False(lastMeasurement.LeakKept);
+        }
+
+        [Fact]
+        public void T1b_ATombstonedRowInAMeasuredPatch_IsDroppedWithoutAStepBack()
+        {
+            BaselineFunds(1000);
+            var fine = Spend("fine", 5, 100f);
+            ledger.Add(fine);
+            Assert.Equal(900.0, PatchFunds(10, 900), 6);
+
+            outsideEls.Add(fine);
+            double write = PatchFunds(12, 900);
+            Assert.False(lastMeasurement.LeakKept);
+            Assert.Equal(0.0, Adjusted(StockPool.Funds), 6);
+            Assert.Equal(1000.0, write, 6);
+        }
+
+        private GameAction FacilityCost(string id, double ut, float cost) => Upgrade(id, ut, cost);
+
+        [Fact]
+        public void T2_StocksClampUnderAReservation_IsForgivenessNotALeak_AndLaterGainsRepayIt()
+        {
+            // Running 100k, a committed 80k upgrade at UT 500: the pool holds 20k.
+            BaselineFunds(100000);
+            ledger.Add(FacilityCost("up", 500, 80000f));
+            Assert.Equal(20000.0, PatchFunds(100, 100000), 6);
+            Assert.Equal(20000.0, LedgerOrchestrator.ComputeEffectiveAffordable(funds.GetProjectionMinBalance()), 6);
+
+            // A post-rewind contract fail of 50k at UT 300: stock's pool 20k -> 0 (30k forgiven).
+            ledger.Add(Fail("f", 300, 50000f));
+            double write = PatchFunds(310, 0);
+            Assert.Equal(0.0, write, 6);
+            Assert.Equal(0.0, lastMeasurement.Adjustment, 6);
+            Assert.Equal(0.0, Adjusted(StockPool.Funds), 6);
+            Assert.Equal(0.0, LedgerOrchestrator.ComputeEffectiveAffordable(funds.GetProjectionMinBalance()), 6);
+
+            // A later 10k earning: stock pays it into the pool, the debt takes it back.
+            ledger.Add(Earn("e", 350, 10000f));
+            Assert.Equal(0.0, PatchFunds(360, 10000), 6);
+            Assert.False(lastMeasurement.LeakKept);
+            Assert.Equal(0.0, Adjusted(StockPool.Funds), 6);
+
+            // The upgrade's UT passes: the pool stays at 0, nothing was created.
+            Assert.Equal(0.0, PatchFunds(510, 0), 6);
+            Assert.False(lastMeasurement.LeakKept);
+            Assert.Equal(0.0, Adjusted(StockPool.Funds), 6);
+            Assert.Equal(0.0, LedgerOrchestrator.ComputeEffectiveAffordable(funds.GetProjectionMinBalance()), 6);
+        }
+
+        [Fact]
+        public void T2b_NoReservation_TheWalksOwnClampMatchesStock()
+        {
+            BaselineFunds(20000);
+            ledger.Add(Fail("f", 300, 50000f));
+            Assert.Equal(0.0, PatchFunds(310, 0), 6);
+            Assert.False(lastMeasurement.LeakKept);
+            Assert.Equal(0.0, lastMeasurement.Expected, 6);
+            ledger.Add(Earn("e", 350, 10000f));
+            Assert.Equal(10000.0, PatchFunds(360, 10000), 6);
+            Assert.False(lastMeasurement.LeakKept);
+        }
+
+        [Fact]
+        public void T2c_APositiveLeakAboveTheForgiveness_FilesOnlyTheExcess()
+        {
+            BaselineFunds(100000);
+            ledger.Add(FacilityCost("up", 500, 80000f));
+            Assert.Equal(20000.0, PatchFunds(100, 100000), 6);
+
+            // Stock's fail takes the pool 20k -> 0 (30k forgiven), then 5k nobody modelled
+            // arrives: only the 5k is a leak; it repays the debt like any other gain.
+            ledger.Add(Fail("f", 300, 50000f));
+            double write = PatchFunds(310, 5000);
+            Assert.True(lastMeasurement.LeakKept);
+            Assert.Equal(5000.0, lastMeasurement.Adjustment, 6);
+            Assert.Equal(5000.0, Adjusted(StockPool.Funds), 6);
+            Assert.Equal(0.0, write, 6);
+            Assert.Equal(0.0, LedgerOrchestrator.ComputeEffectiveAffordable(funds.GetProjectionMinBalance()), 6);
+        }
+
+        [Fact]
+        public void T2e_NoReservation_AFailStockClampedBeforeItsRowLanded_LeavesNoPhantomDebt()
+        {
+            // Funds 20k, an accepted contract with a 50k penalty and a deadline at 300. Stock
+            // fails it in flight (20k -> 0, 30k forgiven by stock's clamp) before the row
+            // lands: the synthetic fail moves no pool, so the reference files a -20k leak.
+            ledger.Add(FundsSeed(20000));
+            ledger.Add(new GameAction
+            {
+                ActionId = "acc", UT = 10, Type = GameActionType.ContractAccept, ContractId = "k",
+                DeadlineUT = 300, FundsPenalty = 50000f,
+            });
+            Assert.Equal(20000.0, PatchFunds(20, 20000), 6);
+            Assert.Equal(0.0, PatchFunds(310, 0), 6);
+            Assert.Equal(-20000.0, Adjusted(StockPool.Funds), 6);
+
+            // The real fail row lands (UT 300, before the last patch): the walk clamps it at 0
+            // and the -20k adjustment drives the running value to -20k. The +20k that takes the
+            // adjustment back is the transient leak closing, not clamp forgiveness: filing it
+            // keeps a later earning whole.
+            ledger.Add(Fail("k", 300, 50000f));
+            Assert.Equal(0.0, PatchFunds(320, 0), 6);
+            Assert.Equal(0.0, lastMeasurement.ClampForgiven, 6);
+            Assert.Equal(0.0, Adjusted(StockPool.Funds), 6);
+            ledger.Add(Earn("e", 330, 10000f));
+            Assert.Equal(10000.0, PatchFunds(340, 10000), 6);
+            Assert.False(lastMeasurement.LeakKept);
+        }
+
+        [Fact]
+        public void T2f_LastPatchUT_SurvivesSaveAndLoad()
+        {
+            BaselineFunds(1000);
+            Assert.Equal(1000.0, PatchFunds(42.5, 1000), 6);
+            var node = new ConfigNode("SCENARIO");
+            StockPoolReference.SaveTo(node);
+            StockPoolReference.ResetForTesting();
+            Assert.True(double.IsNaN(StockPoolReference.Funds.LastPatchUT));
+            StockPoolReference.LoadFrom(node, "Cold");
+            Assert.Equal(42.5, StockPoolReference.Funds.LastPatchUT, 6);
+        }
+
+        [Fact]
+        public void T2d_AllowNegativeCurrency_NoForgiveness()
+        {
+            // Stock under AllowNegativeCurrency does not clamp: a pool off by the same 30k is
+            // a real leak there.
+            KspStatePatcher.AllowNegativeCurrencyProviderForTesting = () => true;
+            BaselineFunds(100000);
+            ledger.Add(FacilityCost("up", 500, 80000f));
+            PatchFunds(100, 100000);
+            ledger.Add(Fail("f", 300, 50000f));
+            PatchFunds(310, 0);
+            Assert.True(lastMeasurement.LeakKept);
+            Assert.Equal(30000.0, lastMeasurement.Adjustment, 6);
         }
 
         // ------------------------------------------------------------------

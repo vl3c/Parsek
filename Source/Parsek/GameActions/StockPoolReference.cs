@@ -53,6 +53,10 @@ namespace Parsek
         internal double LastWritten;
         /// <summary>Science only: the three pending adjusters at <see cref="LastWritten"/>.</summary>
         internal double PendingAdjust;
+        /// <summary>The now of the last patch (NaN when unknown). A row at or before it was
+        /// already in stock's pool at <see cref="LastWritten"/>; only a later row can have
+        /// met stock's 0 clamp since (<see cref="StockPoolMeasurement.ClampForgiven"/>).</summary>
+        internal double LastPatchUT = double.NaN;
         internal readonly Dictionary<string, CountedRow> Counted =
             new Dictionary<string, CountedRow>(StringComparer.Ordinal);
 
@@ -66,6 +70,7 @@ namespace Parsek
             Initialized = false;
             LastWritten = 0.0;
             PendingAdjust = 0.0;
+            LastPatchUT = double.NaN;
             Counted.Clear();
         }
     }
@@ -101,6 +106,23 @@ namespace Parsek
         /// part stays in the pool (stock applied it), filed as one adjustment row.
         /// </summary>
         internal double CarriedRemoved;
+        /// <summary>
+        /// Counted rows that left the effective ledger while staying in the ledger itself
+        /// (tombstoned, superseded, session-suppressed): dropped from the reference with no
+        /// step back and no carry, so the walk's removal of their effect reaches the pool.
+        /// </summary>
+        internal int DroppedOutsideEls;
+        /// <summary>The patch's now (recorded as the state's last patch UT at commit).</summary>
+        internal double NowUT = double.NaN;
+        /// <summary>
+        /// The part of a positive leak that is stock's 0 clamp forgiving a loss the walk did
+        /// not clamp (a reservation holds the pool below the walk's running value): with
+        /// <c>AllowNegativeCurrency</c> off, what stock's clamp takes off the rows stepped this
+        /// patch that stock applied since the last patch (UT after it), replayed in order from
+        /// the last written pool, capped at the leak. Not filed; the target stays below 0 and
+        /// later gains repay it (the debt of design 3.13 rule 4).
+        /// </summary>
+        internal double ClampForgiven;
         /// <summary>
         /// The amount this patch files as a <see cref="GameActionType.StockPoolAdjustment"/>
         /// row (the leak, the adopted gap or the carried removed rows; 0 when none) and adds
@@ -149,6 +171,7 @@ namespace Parsek
         internal const string ReputationNodeName = "REPUTATION";
         internal const string LastWrittenKey = "lastWritten";
         internal const string PendingAdjustKey = "pendingAdjust";
+        internal const string LastPatchUTKey = "lastPatchUT";
         internal const string RowKey = "row";
 
         private const double AmountTolerance = 1e-9;
@@ -277,6 +300,22 @@ namespace Parsek
         // Measure and commit
         // ------------------------------------------------------------------
 
+        /// <summary>True when the reference counts a row <paramref name="rows"/> does not hold.</summary>
+        internal static bool HasCountedRowsMissingFrom(StockPoolReferenceState state, IList<StockPoolRow> rows)
+        {
+            if (state == null || !state.Initialized || state.Counted.Count == 0)
+                return false;
+            var present = new HashSet<string>(StringComparer.Ordinal);
+            if (rows != null)
+                for (int i = 0; i < rows.Count; i++)
+                    if (!string.IsNullOrEmpty(rows[i].ActionId))
+                        present.Add(rows[i].ActionId);
+            foreach (string id in state.Counted.Keys)
+                if (!present.Contains(id))
+                    return true;
+            return false;
+        }
+
         /// <summary>
         /// Measures one patch of <paramref name="state"/>'s pool. Does not change the state:
         /// the caller files <see cref="StockPoolMeasurement.Adjustment"/> as an adjustment row
@@ -292,10 +331,21 @@ namespace Parsek
         /// pending adjusters; reputation: the running value). Read only when the state has no
         /// reference: a measured patch adopts <c>live - freshBaselineTarget</c> as an
         /// adjustment. NaN adopts nothing.</param>
+        /// <param name="idsInLedger">Every action id the ledger itself still holds (effective
+        /// or not). A counted row missing from <paramref name="rows"/> but named here left the
+        /// effective ledger only (a tombstone, a supersede, a session suppression): it is
+        /// dropped without a step back or a carry. Only a row physically gone from the ledger
+        /// (a duplicate-rollout repair, a dedupe, the revert strategy prune) is stepped back.
+        /// Null treats every missing row as physically gone.</param>
+        /// <param name="clampAtZero">Funds and science with <c>AllowNegativeCurrency</c> off:
+        /// stock's pool never goes below 0, so what its clamp took off the rows it applied
+        /// since the last patch (replayed from the last written pool) is forgiveness, and that
+        /// part of a positive leak is not filed.</param>
         internal static StockPoolMeasurement Measure(
             StockPoolReferenceState state, IList<StockPoolRow> rows, double nowUT, double live,
             double pendingAdjustNow, bool authoritative, double epsilon,
-            double freshBaselineTarget = double.NaN)
+            double freshBaselineTarget = double.NaN, ICollection<string> idsInLedger = null,
+            bool clampAtZero = false)
         {
             if (state == null) throw new ArgumentNullException(nameof(state));
             var m = new StockPoolMeasurement
@@ -305,6 +355,7 @@ namespace Parsek
                 Authoritative = authoritative,
                 LastWritten = state.LastWritten,
                 Expected = live,
+                NowUT = nowUT,
             };
 
             var present = new HashSet<string>(StringComparer.Ordinal);
@@ -353,6 +404,11 @@ namespace Parsek
             for (int i = 0; i < removedIds.Count; i++)
             {
                 m.RemovedRows++;
+                if (idsInLedger != null && idsInLedger.Contains(removedIds[i]))
+                {
+                    m.DroppedOutsideEls++;
+                    continue;
+                }
                 CountedRow counted = state.Counted[removedIds[i]];
                 if (Math.Abs(counted.Stepped) <= AmountTolerance)
                     continue;
@@ -375,6 +431,10 @@ namespace Parsek
                 return m;
             }
 
+            // Stock's own pool along the rows it applied since the last patch, clamped at 0 the
+            // way stock clamps: what the clamp takes off is forgiveness, not a leak.
+            double stockSim = expected;
+            double clampForgiven = 0.0;
             if (rows != null)
             {
                 var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -395,6 +455,15 @@ namespace Parsek
                     if (Math.Abs(step) <= AmountTolerance)
                         continue;
                     expected += step;
+                    if (clampAtZero && (double.IsNaN(state.LastPatchUT) || row.UT > state.LastPatchUT))
+                    {
+                        stockSim += step;
+                        if (stockSim < 0.0)
+                        {
+                            clampForgiven -= stockSim;
+                            stockSim = 0.0;
+                        }
+                    }
                     m.SteppedRows++;
                     m.SteppedTotal += step;
                     m.NewStepped[row.ActionId] = (wasCounted ? counted.Stepped : 0.0) + step;
@@ -410,6 +479,17 @@ namespace Parsek
 
             m.Expected = expected;
             double leak = live - expected;
+            if (clampForgiven > AmountTolerance && leak > 0.0)
+            {
+                // Stock stopped the pool at 0 where a row it applied since the last patch took
+                // it below: that much of the gap is forgiveness, and filing it would pay
+                // committed costs with money nobody earned. Only the rest is a leak. A row from
+                // before the last patch (a transient leak's row landing late) was already in
+                // stock's pool and never counts here.
+                double forgiven = Math.Min(leak, clampForgiven);
+                m.ClampForgiven = forgiven;
+                leak -= forgiven;
+            }
             if (Math.Abs(leak) > epsilon)
             {
                 m.Leak = leak;
@@ -470,6 +550,7 @@ namespace Parsek
                 state.Counted[kv.Key] = kv.Value;
             state.LastWritten = poolAfter;
             state.PendingAdjust = state.Pool == StockPool.Science ? pendingAdjustNow : 0.0;
+            state.LastPatchUT = m.NowUT;
             state.Initialized = true;
         }
 
@@ -542,6 +623,8 @@ namespace Parsek
                 child.AddValue(LastWrittenKey, state.LastWritten.ToString("R", IC));
                 if (state.Pool == StockPool.Science)
                     child.AddValue(PendingAdjustKey, state.PendingAdjust.ToString("R", IC));
+                if (!double.IsNaN(state.LastPatchUT) && !double.IsInfinity(state.LastPatchUT))
+                    child.AddValue(LastPatchUTKey, state.LastPatchUT.ToString("R", IC));
                 var ids = new List<string>(state.Counted.Keys);
                 ids.Sort(StringComparer.Ordinal);
                 for (int i = 0; i < ids.Count; i++)
@@ -591,6 +674,9 @@ namespace Parsek
                 double pending;
                 if (state.Pool == StockPool.Science && TryParse(child.GetValue(PendingAdjustKey), out pending))
                     state.PendingAdjust = pending;
+                double lastPatchUT;
+                state.LastPatchUT = TryParse(child.GetValue(LastPatchUTKey), out lastPatchUT)
+                    ? lastPatchUT : double.NaN;
                 string[] values = child.GetValues(RowKey);
                 for (int i = 0; i < values.Length; i++)
                 {
@@ -669,6 +755,8 @@ namespace Parsek
                 + " adjustment=" + m.Adjustment.ToString("R", IC)
                 + (m.GapAdopted ? " adoptedGap=" + m.AdoptedGap.ToString("R", IC) : "")
                 + (m.CarriedRemoved != 0.0 ? " carriedRemoved=" + m.CarriedRemoved.ToString("R", IC) : "")
+                + (m.DroppedOutsideEls > 0 ? " droppedOutsideEls=" + m.DroppedOutsideEls.ToString(IC) : "")
+                + (m.ClampForgiven != 0.0 ? " clampForgiven=" + m.ClampForgiven.ToString("R", IC) : "")
                 + (m.RowsWithoutId > 0 ? " rowsWithoutId=" + m.RowsWithoutId.ToString(IC) : "");
         }
     }

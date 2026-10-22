@@ -4585,9 +4585,17 @@ namespace Parsek
                 resource, live, state.Initialized ? state.LastWritten : double.NaN, false, epsilon);
             bool authoritative = authoritativeReduction || clockCrossingApplies;
 
+            // A counted row missing from the effective rows is stepped back only when it is gone
+            // from the ledger itself; one that is only outside the effective ledger
+            // (tombstoned, superseded, session-suppressed) is dropped without a carry.
+            ICollection<string> idsInLedger = StockPoolReference.HasCountedRowsMissingFrom(state, rows)
+                ? LedgerOrchestrator.CollectLedgerActionIds()
+                : null;
+            // Stock's 0 clamp (funds, science; off under AllowNegativeCurrency).
+            bool clampAtZero = pool != StockPool.Reputation && !ReadAllowNegativeCurrency();
             StockPoolMeasurement m = StockPoolReference.Measure(
                 state, rows, nowUT, live, pendingAdjustNow,
-                authoritative, epsilon, freshBaselineTarget);
+                authoritative, epsilon, freshBaselineTarget, idsInLedger, clampAtZero);
             if (m.Adjustment != 0.0)
                 m.AdjustmentRow = FileStockPoolAdjustment(pool, resource, m, nowUT);
 
@@ -4603,7 +4611,7 @@ namespace Parsek
                     $"Patch{resource}: no saved reference - baseline from the live pool with every row " +
                     $"counted, {adoption} (rows={rows.Count.ToString(IC)} now={nowUT.ToString("R", IC)}): {summary}");
             }
-            else if (m.RemovedRows > 0 || m.LeakKept || m.Adjustment != 0.0)
+            else if (m.RemovedRows > 0 || m.LeakKept || m.Adjustment != 0.0 || m.ClampForgiven != 0.0)
             {
                 ParsekLog.Info(StockPoolReference.Tag,
                     $"Patch{resource}: {summary} now={nowUT.ToString("R", IC)} " +
