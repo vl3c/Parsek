@@ -266,6 +266,69 @@ namespace Parsek.Tests
                 && l.Contains("id=" + TreeId) && l.Contains("live restore attempt"));
         }
 
+        // catches: REFLY-SECOND-SLOT-MERGE-LOSES-ITS-SLOT (RF-11). A load before a Re-Fly armed
+        // a restore attempt for the tree; the rewind point's load then kept the committed copy
+        // and skipped the splice as if the attempt were live, so the session tree lacked the
+        // recordings committed after the rewind point and the merge never superseded the slot's
+        // origin. A Re-Fly start abandons the attempt's flight: splice and detach as usual.
+        [Fact]
+        public void ReFlyStartLoad_ArmedAttempt_SplicesAndDetachesTheCommittedCopy()
+        {
+            const string PostRpId = "post_rp_inplace";
+            RecordingTree committed = MakeCommittedTree();
+            var postRp = new Recording
+            {
+                RecordingId = PostRpId, TreeId = TreeId, VesselName = "InPlace Probe", VesselPersistentId = 222u,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
+                SidecarEpoch = 0,
+                FilesDirty = true,
+            };
+            SetPoints(postRp, 200.0, 250.0);
+            postRp.VesselSnapshot = MakeVesselSnapshot("Probe");
+            committed.AddOrReplaceRecording(postRp);
+            committed.RebuildBackgroundMap();
+            foreach (Recording rec in committed.Recordings.Values)
+                RecordingStore.AddCommittedInternal(rec);
+            RecordingStore.AddCommittedTreeForTesting(committed);
+            ParsekScenario.SaveTreeRecordings(new ConfigNode("PARSEK_SCENARIO"));
+
+            // The rewind point's tree: written before the probe's recording existed.
+            RecordingTree rpTree = RecordingTree.DeepClone(committed);
+            rpTree.Recordings.Remove(PostRpId);
+            rpTree.RebuildBackgroundMap();
+            Recording rpRoot = rpTree.Recordings[RootId];
+            SetPoints(rpRoot, 100.0, 150.0, 180.0);
+            rpRoot.FilesDirty = true;
+            rpTree.ActiveRecordingId = RootId;
+            RecordingStore.ArmCommittedTreeRestoreAttempt(committed, ArmReason);
+            ConfigNode save = WriteSave(rpTree, expectedOverlap: 1);
+
+            logLines.Clear();
+            Assert.True(ParsekScenario.TryRestoreActiveTreeNode(save, EarlyLoadKind.ReFlyStart, loadedSceneIsFlight: true));
+
+            Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == TreeId);
+            Assert.True(RecordingStore.PendingTree.Recordings.ContainsKey(PostRpId));
+            Assert.Contains(logLines, l => l.Contains("removed committed tree"));
+            Assert.Contains(logLines, l => l.Contains("spliced 1 post-RP recording(s) from committed tree"));
+            Assert.DoesNotContain(logLines, l => l.Contains("kept the committed copy of tree"));
+        }
+
+        [Theory]
+        [InlineData(false, "InSession", true, true)]
+        [InlineData(false, "Cold", true, true)]
+        [InlineData(false, "DiscardReFly", true, true)]
+        [InlineData(false, "ReFlyStart", true, false)]
+        [InlineData(true, "InSession", true, false)]
+        [InlineData(false, "InSession", false, false)]
+        public void ShouldLiveAttemptKeepCommittedCopy_TruthTable(
+            bool saveAttemptRearmed, string kind, bool armedForTree, bool expected)
+        {
+            var loadKind = (EarlyLoadKind)Enum.Parse(typeof(EarlyLoadKind), kind);
+            Assert.Equal(expected,
+                ParsekScenario.ShouldLiveAttemptKeepCommittedCopy(saveAttemptRearmed, loadKind, armedForTree));
+        }
+
         // ---- helpers ----
 
         // OnSave's order: committed trees, then the active tree's classify and write passes

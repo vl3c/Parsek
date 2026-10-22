@@ -815,10 +815,24 @@ namespace Parsek
                     // it would commit a wrong terminal on the child. The
                     // pre-fix suppression behaviour was correct for that
                     // population — preserve it.
+                    //
+                    // Skip it too when a parachute is open at the recorded point: the
+                    // extrapolator has no drag model, so a slow descent under canopy
+                    // always reads as a ballistic impact. The suppression below keeps
+                    // the recorder's SubOrbital verdict for that vessel.
                     BallisticStateVector recoveryStartState = default(BallisticStateVector);
                     string recoveryFailureReason = "parent-structural-eva-source";
                     bool recoveryEligible =
                         !IsParentEvaStructuralRecoverySource(recordedPointSource);
+                    if (recoveryEligible
+                        && TryFindOpenParachuteAtUT(recording, recordedPoint.ut, out uint openChutePid))
+                    {
+                        recoveryEligible = false;
+                        recoveryFailureReason = string.Format(
+                            CultureInfo.InvariantCulture,
+                            "open-parachute pid={0}",
+                            openChutePid);
+                    }
                     bool recoveryBuilt = recoveryEligible
                         && TryBuildRecoveryStartStateFromRecordedPoint(
                             recording,
@@ -2605,6 +2619,71 @@ namespace Parsek
                     TrajectoryMath.SwizzleZupBodyRelativeToWorld(velocity))
             };
             return true;
+        }
+
+        /// <summary>
+        /// Pure: true when the recording's part events leave at least one parachute open
+        /// (deployed or semi-deployed, and not since cut, destroyed, repacked or decoupled) at
+        /// <paramref name="ut"/>. Events at exactly <paramref name="ut"/> count. The first
+        /// open chute's part pid is returned for the log line.
+        /// </summary>
+        internal static bool TryFindOpenParachuteAtUT(Recording recording, double ut, out uint partPid)
+        {
+            partPid = 0;
+            List<PartEvent> events = recording?.PartEvents;
+            if (events == null || events.Count == 0 || double.IsNaN(ut))
+                return false;
+
+            var open = new Dictionary<uint, bool>();
+            var lastUT = new Dictionary<uint, double>();
+            var order = new List<uint>();
+            for (int i = 0; i < events.Count; i++)
+            {
+                PartEvent evt = events[i];
+                if (evt.ut > ut)
+                    continue;
+                bool? state = null;
+                switch (evt.eventType)
+                {
+                    case PartEventType.ParachuteDeployed:
+                    case PartEventType.ParachuteSemiDeployed:
+                        state = true;
+                        break;
+                    case PartEventType.ParachuteCut:
+                    case PartEventType.ParachuteDestroyed:
+                    case PartEventType.ParachuteRepacked:
+                    case PartEventType.Destroyed:
+                    // A chute that is the root of a piece that came off no longer slows
+                    // this vessel; the recorder writes no chute event for a departed part.
+                    case PartEventType.Decoupled:
+                        state = false;
+                        break;
+                }
+                if (!state.HasValue)
+                    continue;
+                // The latest event at or before ut wins; list order breaks a UT tie.
+                if (lastUT.TryGetValue(evt.partPersistentId, out double seenUT))
+                {
+                    if (evt.ut < seenUT)
+                        continue;
+                }
+                else
+                {
+                    order.Add(evt.partPersistentId);
+                }
+                lastUT[evt.partPersistentId] = evt.ut;
+                open[evt.partPersistentId] = state.Value;
+            }
+
+            for (int i = 0; i < order.Count; i++)
+            {
+                if (open[order[i]])
+                {
+                    partPid = order[i];
+                    return true;
+                }
+            }
+            return false;
         }
 
         // Parent-EVA structural-event recovery is unsafe: the recorded point
