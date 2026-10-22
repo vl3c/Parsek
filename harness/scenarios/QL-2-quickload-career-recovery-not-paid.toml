@@ -217,7 +217,9 @@ steps = [
   { cmd = "RecordingState",                                                            expect = "OK" },
   { cmd = "RecordingState",                                                            expect = "OK" },
   { cmd = "RecordingState",                                                            expect = "OK" },
-  # THE REWARD AFTER THE F5: stock's Recover button on the active Flea (ZF-1's pid).
+  # THE REWARD AFTER THE F5: stock's Recover button on the active Flea (ZF-1's pid). A Flea
+  # that touched down still sliding keeps the button locked; the verb waits up to 15 s for it
+  # to unlock (todo QL-2-RECOVER-REFUSED-WHILE-SLIDING).
   { cmd = "Recover",        args = { pid = "2905720181" },                             expect = "OK", budget = 120 },
   # THE F9, from the Space Center: the player's load of the quicksave (playerLoad=true), a
   # Cold save-file load. The quicksave holds a focusable vessel, so the verb takes the

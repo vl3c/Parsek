@@ -4123,7 +4123,13 @@ earlier in the spec, as for `ExitToSpaceCenter`.
 `recover-not-active-vessel` (with `activePid=`), `recover-button-unavailable` (no live
 altimeter button), `recover-button-locked` (situation, home world, horizontal speed and
 pause in the log), `recover-not-clear-to-save` (with the stock status),
-`recover-cannot-leave-to-space-center`, then the wedge guard's `dialog-required`.
+`recover-cannot-leave-to-space-center`, then the wedge guard's `dialog-required`. The two
+refusals a craft coming to rest clears by itself (`recover-button-locked`,
+`recover-not-clear-to-save`) are waited on first: the verb goes two-phase without pressing,
+re-samples the gate every frame for up to 15 s (`TestCommandRecover.UnlockWaitSeconds`), presses
+the frame it opens (`recover unlock-wait cleared pid= waited= frames=`) and otherwise answers a
+LATE REJECTED with the reason that still holds. A craft that touched down sliding over 0.3 m/s is
+the case (QL-2 `2026-10-21_2220`).
 Post-press ERROR: `recover-request-not-fired` (the click fired no
 `OnVesselRecoveryRequested` for the pid; events fire synchronously, so this is read inside
 the call), `recover-failed-returned-to-menu`, `recover-timeout`.

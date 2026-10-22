@@ -16,17 +16,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## QL-2-RECOVER-REFUSED-WHILE-SLIDING: QL-2's Recover can be refused while the landed Flea still slides, and the refusal reads as a Parsek failure [FILED 2026-10-22 from QL-2 `2026-10-21_2220` (PARSEK-FAIL, expectations), flown for PR #2170. OPEN, low. harness]
+## QL-2-RECOVER-REFUSED-WHILE-SLIDING: QL-2's Recover can be refused while the landed Flea still slides, and the refusal reads as a Parsek failure [FILED 2026-10-22 from QL-2 `2026-10-21_2220` and `2026-10-22_0001` (both PARSEK-FAIL, expectations), flown for PR #2170. Half fixed on branch `claude/project-thread-hvhou8` (the verb waits); the classification gap is OPEN, low. harness]
 
 The mission reported MISSION-OK, but seam step 0067 `Recover` was refused
 `recover-not-clear-to-save ... situation=LANDED hSrfSpeed=0.30 clearToSave=NOT_WHILE_MOVING_OVER_SURFACE`:
 the ~60-frame settle after the F5 is kept under 2 s on purpose (the landed tail must stay under the
 optimizer's 5 s split floor), and this landing still slid. The F9 was then refused `recording-active`
-and all 17 failing rows follow from the missed recovery. Two gaps: the spec has no rest wait that
-keeps the landed tail short, and a post-mission driver-gate refusal (hlib maps
-`recover-not-clear-to-save` to `driver-gate`, a retryable INVALID) is not what classified the run,
-so the run read PARSEK-FAIL with no retry. Fix: a seam wait-until-at-rest (or a Recover that waits
-for clear-to-save within its budget), and classify a refused required post-mission step as INVALID.
+and all 17 failing rows follow from the missed recovery (the re-fly was refused
+`recover-button-locked` at hSrfSpeed=0.37). Two gaps: the verb refused at once instead of waiting
+for the craft to come to rest, and a post-mission driver-gate refusal (hlib maps both reasons to
+`driver-gate`, a retryable INVALID) is not what classified the run, so it read PARSEK-FAIL with no
+retry. Fix (first gap): `Recover` re-samples a locked or not-clear-to-save button every frame for up
+to 15 s (`TestCommandRecover.UnlockWaitSeconds`, line `recover unlock-wait cleared`) and presses the
+frame it unlocks, refusing with the same reason only if it never does. Still open: classify a refused
+required post-mission step as INVALID.
 
 ## ROUTE-CAREER-FIXTURES-EARN-STOCK-EVENTS-AT-LOAD: two of the career route copies earn stock career rewards at their first load, so the ledger logs drawdown-guard clamps [FILED 2026-10-21 from H76 `2026-10-21_2019` and H78 `2026-10-21_2022` (both PASS, no gate failed), branch `career-route-lanes`. OPEN, low. harness]
 

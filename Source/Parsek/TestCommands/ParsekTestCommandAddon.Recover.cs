@@ -1,5 +1,6 @@
 using System.Globalization;
 using KSP.UI.Screens;
+using UnityEngine;
 using UnityEngine.UI;
 
 namespace Parsek.TestCommands
@@ -24,6 +25,11 @@ namespace Parsek.TestCommands
     /// <c>interactable = false</c>). <c>Button.onClick.Invoke</c> ignores
     /// <c>interactable</c>, so the verb reads it first and refuses a locked button.</para>
     ///
+    /// <para><b>A SLIDING CRAFT IS WAITED ON.</b> A locked or not-clear-to-save button is
+    /// re-sampled every frame for up to <see cref="TestCommandRecover.UnlockWaitSeconds"/> before
+    /// the press, as a player waits for a craft that touched down sliding; the verb presses the
+    /// frame it unlocks, or refuses with the reason that still holds.</para>
+    ///
     /// <para><b>THE WEDGE GUARD.</b> Stock's recovery drives <c>HighLogic.LoadScene(SPACECENTER)</c>,
     /// which Parsek's scene-exit prefix turns into a merge modal when a merge decision is
     /// outstanding. The verb evaluates ExitToSpaceCenter's gate on the same live predicates
@@ -37,6 +43,8 @@ namespace Parsek.TestCommands
         private bool recoverRequestObserved;
         private bool recoverRecoveredObserved;
         private bool recoverListenersAdded;
+        private bool recoverUnlockWait;
+        private int recoverUnlockWaitStartFrame;
 
         private void RecoverImpl(ParsedCommand cmd)
         {
@@ -48,9 +56,40 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            Vessel active = FlightGlobals.ActiveVessel;
+            string gate = SampleRecoverGate(pid, out Vessel active, out Button button, out string detail);
+            RecoverUnlockWaitOutcome outcome = TestCommandRecover.DecideUnlockWait(
+                gate, 0.0, TestCommandRecover.UnlockWaitSeconds);
+            if (outcome == RecoverUnlockWaitOutcome.Refuse)
+            {
+                RejectRecover(gate, detail);
+                return;
+            }
+            if (outcome == RecoverUnlockWaitOutcome.Wait)
+            {
+                // Go two-phase WITHOUT pressing: TryCompleteRecoverUnlockWait re-samples the
+                // gate every frame and presses the frame it opens, or refuses at the window's end.
+                recoverUnlockWait = true;
+                recoverUnlockWaitStartFrame = Time.frameCount;
+                recoverPid = pid;
+                ParsekLog.Info(Tag, $"recover unlock-wait start reason={gate} {detail} - re-checking every frame "
+                    + "for up to " + TestCommandRecover.UnlockWaitSeconds.ToString("F0", CultureInfo.InvariantCulture) + "s");
+                SetExecResult(PendingVerdict, null, null);
+                return;
+            }
+
+            if (TryPressRecover(pid, active, button, out string verdict, out string msg))
+                SetExecResult(PendingVerdict, null, null);
+            else
+                SetExecResult(verdict, null, msg);
+        }
+
+        /// <summary>Samples the pre-press gate on the live active vessel and Recover button;
+        /// <paramref name="detail"/> is the refusal line's context.</summary>
+        private string SampleRecoverGate(uint pid, out Vessel active, out Button button, out string detail)
+        {
+            active = FlightGlobals.ActiveVessel;
             AltimeterSliderButtons altimeter = UnityEngine.Object.FindObjectOfType<AltimeterSliderButtons>();
-            Button button = altimeter != null ? altimeter.vesselRecoveryButton : null;
+            button = altimeter != null ? altimeter.vesselRecoveryButton : null;
             string clearToSave = active != null ? FlightGlobals.ClearToSave().ToString() : string.Empty;
             bool canLeave = HighLogic.CurrentGame != null
                 && HighLogic.CurrentGame.Parameters.Flight.CanLeaveToSpaceCenter;
@@ -59,19 +98,29 @@ namespace Parsek.TestCommands
                 active != null, active != null ? active.persistentId : 0u, pid,
                 button != null, button != null && button.interactable,
                 clearToSave, canLeave);
+            detail = null;
             if (gate != null)
             {
                 CultureInfo ic = CultureInfo.InvariantCulture;
-                string detail = $"pid={pid.ToString(ic)}";
+                detail = $"pid={pid.ToString(ic)}";
                 if (active != null)
                     detail += $" activePid={active.persistentId.ToString(ic)} vessel={active.vesselName} "
                         + $"situation={active.situation} homeWorld={Bool(active.mainBody != null && active.mainBody.isHomeWorld)} "
                         + $"hSrfSpeed={active.horizontalSrfSpeed.ToString("F2", ic)} paused={Bool(FlightDriver.Pause)}";
                 detail += $" clearToSave={clearToSave} canLeave={Bool(canLeave)}";
-                RejectRecover(gate, detail);
-                return;
             }
+            return gate;
+        }
 
+        /// <summary>
+        /// The wedge guard, then the click. Returns true when the click fired stock's recovery
+        /// request (the verb then waits for the Space Center); otherwise false with the terminal
+        /// verdict and msg.
+        /// </summary>
+        private bool TryPressRecover(uint pid, Vessel active, Button button, out string verdict, out string msg)
+        {
+            verdict = null;
+            msg = null;
             // The wedge guard, on the same live predicates ExitToSpaceCenter reads.
             ParsekFlight flight = ParsekFlight.Instance;
             ParsekScenario scenario = ParsekScenario.Instance;
@@ -90,8 +139,9 @@ namespace Parsek.TestCommands
                 ParsekLog.Warn(Tag, $"recover rejected reason={TestCommandExitToSpaceCenter.DialogRequiredReason} "
                     + $"variant={variant} gate={exitGate} pid={pid.ToString(CultureInfo.InvariantCulture)} "
                     + "- the recovery's Space Center load would raise a merge modal no seam verb can answer");
-                SetExecResult("REJECTED", null, TestCommandExitToSpaceCenter.RefusalMsg(variant));
-                return;
+                verdict = "REJECTED";
+                msg = TestCommandExitToSpaceCenter.RefusalMsg(variant);
+                return false;
             }
 
             recoverPid = pid;
@@ -112,14 +162,53 @@ namespace Parsek.TestCommands
                 RemoveRecoverListeners();
                 ParsekLog.Warn(Tag, $"recover error reason={TestCommandRecover.RequestNotFiredReason} "
                     + $"pid={pid.ToString(CultureInfo.InvariantCulture)} - the click fired no OnVesselRecoveryRequested");
-                SetExecResult("ERROR", null, TestCommandRecover.RequestNotFiredReason);
+                verdict = "ERROR";
+                msg = TestCommandRecover.RequestNotFiredReason;
+                return false;
+            }
+            return true;
+        }
+
+        // The unlock-wait poll: one gate sample per frame until it opens (press, then the
+        // Space Center wait below runs on later frames), a final refusal appears, or the window
+        // ends (REJECTED with the gate's reason - nothing was clicked).
+        private void TryCompleteRecoverUnlockWait(double now)
+        {
+            double waited = now - completionStartedAt;
+            uint pid = recoverPid;
+            string gate = SampleRecoverGate(pid, out Vessel active, out Button button, out string detail);
+            RecoverUnlockWaitOutcome outcome = TestCommandRecover.DecideUnlockWait(
+                gate, waited, TestCommandRecover.UnlockWaitSeconds);
+            if (outcome == RecoverUnlockWaitOutcome.Wait)
+                return;
+
+            int frames = Time.frameCount - recoverUnlockWaitStartFrame;
+            recoverUnlockWait = false;
+            string id = completionId; long seq = completionSeq; string verb = completionVerb;
+
+            if (outcome == RecoverUnlockWaitOutcome.Proceed)
+            {
+                ParsekLog.Info(Tag, TestCommandRecover.FormatUnlockWaitClearedLine(pid, waited, frames));
+                if (TryPressRecover(pid, active, button, out string verdict, out string msg))
+                    return;
+                ClearTwoPhase();
+                EmitExecutedTerminal(id, seq, verb, verdict, null, msg, dequeueHead: true);
                 return;
             }
-            SetExecResult(PendingVerdict, null, null);
+
+            ClearTwoPhase();
+            ParsekLog.Warn(Tag, $"recover rejected reason={gate} after unlock-wait "
+                + $"waited={waited.ToString("F1", CultureInfo.InvariantCulture)}s frames={Int(frames)} {detail}");
+            EmitExecutedTerminal(id, seq, verb, "REJECTED", null, gate, dequeueHead: true);
         }
 
         private void TryCompleteRecover(double now)
         {
+            if (recoverUnlockWait)
+            {
+                TryCompleteRecoverUnlockWait(now);
+                return;
+            }
             double elapsed = now - completionStartedAt;
             double budget = DeferralBudget.BudgetSeconds(TestCommandRecover.Verb);
             RecoverCompletionDecision decision = TestCommandRecover.DecideCompletion(

@@ -1290,8 +1290,10 @@ namespace Parsek.TestCommands
             EvaJumpKeyPressInjection.Remove();
             // So must the EvaGroundScience construction press and pose.
             EvaConstructionInputInjection.Remove();
-            // Recover's two stock-event listeners must never outlive its command either.
+            // Recover's two stock-event listeners and its unlock wait must never outlive its
+            // command either.
             RemoveRecoverListeners();
+            recoverUnlockWait = false;
             RemoveTsRecoverListeners();
             RemoveKscRecoverListeners();
             // A DriveVessel callback must never outlive its command either: a stale one
